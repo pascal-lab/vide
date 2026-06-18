@@ -5,11 +5,9 @@ pub fn include_directive_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<IncludeDirective>> {
-    include_directives_at(db, file_id, offset)?
-        .into_single_or_none(|targets| PreprocError::Ambiguous {
-            kind: AmbiguousKind::IncludeTarget,
-            count: targets,
-        })
+    include_directives_at(db, file_id, offset)?.into_single_or_none(|targets| {
+        PreprocError::Ambiguous { kind: AmbiguousKind::IncludeTarget, count: targets }
+    })
 }
 
 pub fn include_directives_at(

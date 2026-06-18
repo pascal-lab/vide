@@ -103,11 +103,9 @@ pub fn macro_param_definition_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroParamDefinition>> {
-    macro_param_definitions_at(db, file_id, offset)?
-        .into_single_or_none(|contexts| PreprocError::Ambiguous {
-            kind: AmbiguousKind::MacroParam,
-            count: contexts,
-        })
+    macro_param_definitions_at(db, file_id, offset)?.into_single_or_none(|contexts| {
+        PreprocError::Ambiguous { kind: AmbiguousKind::MacroParam, count: contexts }
+    })
 }
 
 pub fn macro_param_definitions_at(

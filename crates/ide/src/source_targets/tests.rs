@@ -39,9 +39,14 @@ fn source_targets_source_token_range_mismatch_uses_original_syntax_hit() {
     );
     let hit = test_source_hit(file_id, origin_range, 0);
 
-    let SourceTargetProviderResult::Resolved(selection) =
-        preproc_provider_result_from_hits(root, offset, &test_precedence, vec![hit], origin_range, file_id)
-    else {
+    let SourceTargetProviderResult::Resolved(selection) = preproc_provider_result_from_hits(
+        root,
+        offset,
+        &test_precedence,
+        vec![hit],
+        origin_range,
+        file_id,
+    ) else {
         panic!("source-token hit should select by the original syntax token at the offset");
     };
 
@@ -100,9 +105,15 @@ endmodule
         origin: expected_origin.clone(),
     };
 
-    let tokens =
-        syntax_tokens_for_preproc_hit(&db, model_file, root, source_range.start(), &test_precedence, &[hit])
-            .expect("macro argument origin should resolve to a parsed syntax token");
+    let tokens = syntax_tokens_for_preproc_hit(
+        &db,
+        model_file,
+        root,
+        source_range.start(),
+        &test_precedence,
+        &[hit],
+    )
+    .expect("macro argument origin should resolve to a parsed syntax token");
 
     assert_eq!(tokens.len(), 1);
     assert_eq!(tokens[0].raw_text().as_bytes(), b"payload_i");
@@ -124,8 +135,14 @@ fn source_targets_preproc_owned_unresolved_does_not_use_normal_syntax_fallback()
         "test setup must have an ordinary syntax token that fallback could have selected"
     );
 
-    let lookup =
-        preproc_provider_result_from_hits(root, offset, &test_precedence, Vec::new(), parser_range, FileId(0));
+    let lookup = preproc_provider_result_from_hits(
+        root,
+        offset,
+        &test_precedence,
+        Vec::new(),
+        parser_range,
+        FileId(0),
+    );
     assert!(matches!(
         lookup,
         SourceTargetProviderResult::Blocked(SourceTargetBlock {
@@ -159,9 +176,14 @@ fn source_targets_dedups_preproc_hits_for_same_semantic_target() {
     let hits =
         vec![test_source_hit(file_id, parser_range, 0), test_source_hit(file_id, parser_range, 1)];
 
-    let SourceTargetProviderResult::Resolved(selection) =
-        preproc_provider_result_from_hits(root, offset, &test_precedence, hits, parser_range, file_id)
-    else {
+    let SourceTargetProviderResult::Resolved(selection) = preproc_provider_result_from_hits(
+        root,
+        offset,
+        &test_precedence,
+        hits,
+        parser_range,
+        file_id,
+    ) else {
         panic!("same semantic target should dedup to one available preproc hit");
     };
 
@@ -183,7 +205,14 @@ fn source_targets_reports_ambiguous_preproc_hits_for_conflicting_targets() {
     let SourceTargetProviderResult::Blocked(SourceTargetBlock {
         reason: SourceTargetBlockReason::Ambiguous { hits },
         ..
-    }) = preproc_provider_result_from_hits(root, offset, &test_precedence, hits, parser_range, file_id)
+    }) = preproc_provider_result_from_hits(
+        root,
+        offset,
+        &test_precedence,
+        hits,
+        parser_range,
+        file_id,
+    )
     else {
         panic!("conflicting preproc targets should be ambiguous");
     };
@@ -253,7 +282,8 @@ fn preproc_provider_result_from_hits<'tree>(
         ));
     }
     let db = RootDb::new(None);
-    let Some(tokens) = syntax_tokens_for_preproc_hit(&db, model_file, root, offset, precedence, &unique_hits)
+    let Some(tokens) =
+        syntax_tokens_for_preproc_hit(&db, model_file, root, offset, precedence, &unique_hits)
     else {
         return SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(range));
     };

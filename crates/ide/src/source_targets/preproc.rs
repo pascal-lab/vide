@@ -189,10 +189,9 @@ pub(super) fn origin_from_token_origin_raw(
     origin: &TokenOrigin,
 ) -> Option<Origin> {
     Some(match origin {
-        TokenOrigin::Source { token_range } => Origin::File {
-            file: model_file,
-            range: source_buffer_text_range(token_range)?,
-        },
+        TokenOrigin::Source { token_range } => {
+            Origin::File { file: model_file, range: source_buffer_text_range(token_range)? }
+        }
         TokenOrigin::MacroBody { call_id, definition_id, body_token_range, .. } => {
             Origin::MacroBody {
                 call: macro_call_id(db, model_file, *call_id),
@@ -200,13 +199,13 @@ pub(super) fn origin_from_token_origin_raw(
                 body_range: source_buffer_text_range(body_token_range)?,
             }
         }
-        TokenOrigin::MacroArgument {
-            call_id, argument_index, argument_token_range, ..
-        } => Origin::MacroArg {
-            call: macro_call_id(db, model_file, *call_id),
-            arg_index: usize::try_from(*argument_index).ok()?,
-            arg_range: source_buffer_text_range(argument_token_range)?,
-        },
+        TokenOrigin::MacroArgument { call_id, argument_index, argument_token_range, .. } => {
+            Origin::MacroArg {
+                call: macro_call_id(db, model_file, *call_id),
+                arg_index: usize::try_from(*argument_index).ok()?,
+                arg_range: source_buffer_text_range(argument_token_range)?,
+            }
+        }
         TokenOrigin::TokenPaste { call_id, .. } => {
             Origin::TokenPaste { call: macro_call_id(db, model_file, *call_id) }
         }
