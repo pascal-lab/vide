@@ -19,22 +19,22 @@ pub fn inactive_branches(
         };
 
         for source_range in mapped.model.inactive_ranges() {
-            let (source, range) = match map_mapped_source_range(mapped, *source_range) {
+            let (source, range) = match map_source_mapping_range(mapped, *source_range) {
                 Ok(mapped_range) => mapped_range,
                 Err(error) => {
                     record_first_error(&mut first_error, error);
                     continue;
                 }
             };
-            let Some(branch_file_id) = source.file_id() else {
-                continue;
+            let branch_file_id = match require_file_backed_source(&source) {
+                Ok(file_id) => file_id,
+                Err(error) => {
+                    record_first_error(&mut first_error, error);
+                    continue;
+                }
             };
             if branch_file_id == file_id {
-                let capability = context_query_capability(
-                    &contexts,
-                    capability_status(&mapped.model.capabilities().inactive_ranges),
-                );
-                let branch = InactiveBranch { source, capability, file_id: branch_file_id, range };
+                let branch = InactiveBranch { file_id: branch_file_id, range };
                 branches.push_keyed(branch, InactiveBranchKey::from_branch);
             }
         }

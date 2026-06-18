@@ -8,7 +8,6 @@ use super::{
 use crate::{
     container::ContainerId,
     db::InternDb,
-    define_src,
     file::HirFileId,
     hir_def::{
         alloc_idx_and_src,
@@ -19,7 +18,7 @@ use crate::{
         },
         stmt::{LowerStmt, Stmt, StmtId, StmtSrc},
     },
-    source_map::SourceMap,
+    source_map::{AstId, AstKind, SourceMap},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -47,7 +46,14 @@ pub struct Proc {
 
 pub type ProcId = Idx<Proc>;
 
-define_src!(ProcSrc(ast::ProceduralBlock));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct ProceduralBlockAst;
+
+impl AstKind for ProceduralBlockAst {
+    type Node<'a> = ast::ProceduralBlock<'a>;
+}
+
+pub type ProcSrc = AstId<ProceduralBlockAst>;
 
 pub(crate) trait LowerProc: LowerStmt {
     fn proc_ctx(&mut self) -> LowerProcCtx<'_>;
@@ -94,6 +100,7 @@ impl LowerProcCtx<'_> {
         let stmt = self.stmt_ctx().lower_stmt(proc.statement());
 
         alloc_idx_and_src! {
+            self.file_id;
             Proc { proc_ty, stmt } => self.procs,
             proc => self.proc_srcs,
         }

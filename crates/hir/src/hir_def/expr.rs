@@ -9,11 +9,11 @@ use syntax::{
 use super::literal::{Literal, lower_literal};
 use crate::{
     db::InternDb,
-    define_src,
+    file::HirFileId,
     hir_def::{
         Ident, alloc_idx_and_src, literal::lower_integer_vector, lower_ident, lower_ident_opt,
     },
-    source_map::SourceMap,
+    source_map::{AstId, AstKind, SourceMap},
 };
 
 pub mod data_ty;
@@ -232,7 +232,14 @@ pub enum Expr {
 
 pub type ExprId = Idx<Expr>;
 
-define_src!(ExprSrc(ast::Expression));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct ExpressionAst;
+
+impl AstKind for ExpressionAst {
+    type Node<'a> = ast::Expression<'a>;
+}
+
+pub type ExprSrc = AstId<ExpressionAst>;
 
 impl Expr {
     pub fn to_assign(&self) -> Option<Assign> {
@@ -274,6 +281,7 @@ pub(in crate::hir_def) macro impl_lower_expr {
             fn expr_ctx(&mut self) -> $crate::hir_def::expr::LowerExprCtx<'_> {
                 $crate::hir_def::expr::LowerExprCtx {
                     db: self.db,
+                    file_id: self.file_id,
                     exprs: &mut self.$($data.)?exprs,
                     expr_srcs: &mut self.$($src_map.)?expr_srcs,
                 }
@@ -284,6 +292,7 @@ pub(in crate::hir_def) macro impl_lower_expr {
 
 pub(crate) struct LowerExprCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
+    pub(crate) file_id: HirFileId,
     pub(crate) exprs: &'a mut Arena<Expr>,
     pub(crate) expr_srcs: &'a mut SourceMap<ExprSrc, Expr>,
 }
@@ -296,6 +305,7 @@ impl LowerExprCtx<'_> {
     pub(crate) fn lower_expr(&mut self, expr: ast::Expression) -> ExprId {
         if let Some(hir_expr) = self.lower_expr_inner(expr) {
             alloc_idx_and_src! {
+            self.file_id;
                 hir_expr => self.exprs,
                 expr => self.expr_srcs,
             }
@@ -380,7 +390,9 @@ impl LowerExprCtx<'_> {
                 .into_iter()
                 .peekable();
 
-            let Some(src) = ast::Expression::cast(ident_select.syntax()).map(ExprSrc::from) else {
+            let Some(src) = ast::Expression::cast(ident_select.syntax())
+                .map(|expr| ExprSrc::from_ast(ctx.file_id, expr))
+            else {
                 return Some(expr);
             };
             loop {

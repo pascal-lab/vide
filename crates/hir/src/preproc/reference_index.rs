@@ -117,16 +117,15 @@ fn collect_macro_references_in_model(
     index: &mut MacroReferenceIndex,
 ) {
     for reference in mapped.model.macro_references().iter() {
-        let SourceMacroResolutionFact::Resolved { definition, .. } = reference.resolution else {
-            if reference.resolution == SourceMacroResolutionFact::Undefined {
+        let SourceMacroResolution::Resolved { definition, .. } = reference.resolution else {
+            if reference.resolution == SourceMacroResolution::Undefined {
                 collect_configured_predefine_reference(db, mapped, model_file_id, reference, index);
                 continue;
             }
-            if let SourceMacroResolutionFact::Unavailable(reason) = &reference.resolution {
+            if let SourceMacroResolution::Unavailable(reason) = &reference.resolution {
                 index.push_issue(MacroReferenceIndexIssue::UnavailableReference {
                     file_id: model_file_id,
-                    reference_id: reference.id.into(),
-                    reason: PreprocUnavailable::Source(reason.clone()),
+                    reason: reason.clone(),
                 });
             }
             continue;
@@ -170,7 +169,7 @@ fn collect_configured_predefine_reference(
     db: &dyn SourceRootDb,
     mapped: &MappedSourcePreprocModel,
     model_file_id: FileId,
-    source_reference: &SourceMacroReferenceFact,
+    source_reference: &SourceMacroReference,
     index: &mut MacroReferenceIndex,
 ) {
     let reference = match map_macro_reference(mapped, source_reference) {

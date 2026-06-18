@@ -4,6 +4,7 @@ pub mod declaration;
 pub mod expr;
 pub mod file;
 pub mod literal;
+pub mod macro_file;
 pub mod module;
 pub mod proc;
 pub mod stmt;
@@ -37,11 +38,11 @@ pub(crate) fn lower_named_label_opt(label: Option<ast::NamedLabel>) -> Option<Id
     if ident.is_empty() { None } else { Some(ident) }
 }
 
-macro alloc_idx_and_src($hir:expr => $arena:expr, $ast:expr => $src_map:expr $(,)?) {{
+macro alloc_idx_and_src($file_id:expr; $hir:expr => $arena:expr, $ast:expr => $src_map:expr $(,)?) {{
     let idx = $arena.alloc($hir.into());
     // HIR lowering can consume include-expanded AST nodes, but source maps only
     // store locations that can be navigated in the parsed root file.
-    if let Some(ast) = $crate::source_map::SourceAst::new($ast) {
+    if let Some(ast) = $crate::source_map::SourceAst::new($file_id, $ast) {
         let src = $crate::source_map::FromSourceAst::from_source_ast(ast);
         $src_map.insert(src, idx);
     }

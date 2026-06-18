@@ -1,17 +1,9 @@
 use preproc::source::{
-    CapabilityStatus, MacroIncludeTarget, PreprocSourceId, SourceEmittedTokenId,
-    SourceEmittedTokenRange, SourceIncludeChainEntry, SourceIncludeStatus,
-    SourceMacroArgument as SourceMacroArgumentFact, SourceMacroCall as SourceMacroCallFact,
-    SourceMacroCallId, SourceMacroCallStatus as SourceMacroCallStatusFact,
-    SourceMacroDefinition as SourceMacroDefinitionFact,
-    SourceMacroExpansion as SourceMacroExpansionFact,
-    SourceMacroExpansionDefinition as SourceMacroExpansionDefinitionFact, SourceMacroExpansionId,
-    SourceMacroExpansionQuery as SourceMacroExpansionQueryFact,
-    SourceMacroExpansionStatus as SourceMacroExpansionStatusFact,
-    SourceMacroParam as SourceMacroParamFact, SourceMacroReference as SourceMacroReferenceFact,
-    SourceMacroReferenceSite, SourceMacroResolution as SourceMacroResolutionFact,
-    SourceMacroResolutionReason as SourceMacroResolutionReasonFact, SourcePreprocError,
-    SourcePreprocUnavailable, SourceRange, SourceTokenProvenance as SourceTokenProvenanceFact,
+    MacroIncludeTarget, PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange,
+    SourceIncludeChainEntry, SourceIncludeStatus, SourceMacroArgument, SourceMacroCall,
+    SourceMacroCallId, SourceMacroDefinition, SourceMacroExpansion, SourceMacroParam,
+    SourceMacroReference, SourceMacroReferenceSite, SourceMacroResolution, SourcePreprocError,
+    SourcePreprocUnavailable, SourceRange, SourceTokenOrigin,
 };
 use smol_str::SmolStr;
 use utils::{
@@ -20,17 +12,21 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::base_db::{
-    project::{CompilationProfileId, Predefine},
-    source_db::{
-        MappedSourcePreprocModel, PreprocSourceMapError, PreprocSourceMapping, SourceFileKind,
-        SourcePreprocContextStatus, SourcePreprocQueryError, SourceRootDb,
-        workspace_preproc_model_file_ids,
+use crate::{
+    base_db::{
+        project::{CompilationProfileId, Predefine},
+        source_db::{
+            MappedSourcePreprocModel, PreprocSourceMapError, PreprocSourceMapping, SourceFileKind,
+            SourcePreprocContextStatus, SourcePreprocQueryError, SourceRootDb,
+            workspace_preproc_model_file_ids,
+        },
     },
+    db::HirDb,
 };
 
 mod conditionals;
 mod definitions;
+mod diagnostics;
 mod expansion;
 mod helpers;
 mod includes;
@@ -39,9 +35,10 @@ mod reference_index;
 mod reference_queries;
 mod types;
 
+pub(crate) use self::helpers::mapping::definitions::map_macro_definition;
 use self::helpers::*;
 pub use self::{
-    conditionals::*, definitions::*, expansion::*, includes::*, reference_index::*,
+    conditionals::*, definitions::*, diagnostics::*, expansion::*, includes::*, reference_index::*,
     reference_queries::*, types::*,
 };
 

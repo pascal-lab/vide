@@ -57,18 +57,16 @@ pub(super) fn configured_predefine_definitions_at(
         let profile_id = db.file_compilation_profile(context_file_id);
         let project_preprocess = db.project_config().preprocess_for_profile(profile_id);
         for predefine in &project_preprocess.predefines {
-            if let Some(mut definition) =
+            if let Some(definition) =
                 configured_predefine_definition_at(db, predefine, file_id, offset)
             {
-                definition.capability = context_query_capability(&contexts, definition.capability);
                 definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
             }
         }
         for predefine in &db.file_preprocess_config(context_file_id).predefines {
-            if let Some(mut definition) =
+            if let Some(definition) =
                 configured_predefine_definition_at(db, predefine, file_id, offset)
             {
-                definition.capability = context_query_capability(&contexts, definition.capability);
                 definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
             }
         }
@@ -103,14 +101,10 @@ fn configured_predefine_definition(
     let file_id = file_id_for_predefine_source_path(db, &source.path)?;
     Some(MacroDefinition {
         id: MacroDefinitionId::ConfiguredPredefine { file_id, range: source.range },
-        source: MappedPreprocSource::RealFile { file_id },
-        capability: PreprocAvailability::Complete,
         file_id,
         name: predefine_name,
         params: None,
         body_tokens: Vec::new(),
-        define_index: CONFIGURED_PREDEFINE_DEFINE_INDEX,
-        event_id: CONFIGURED_PREDEFINE_EVENT_ID,
         directive_range: source.range,
         name_range: source.range,
     })

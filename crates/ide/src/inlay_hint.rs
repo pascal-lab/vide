@@ -221,7 +221,7 @@ pub(crate) fn inlay_hint(
     range: TextRange,
     config: InlayHintConfig,
 ) -> Vec<InlayHint> {
-    let file_id = HirFileId(file_id);
+    let file_id = HirFileId::File(file_id);
     let (file, src_map) = db.hir_file_with_source_map(file_id);
     let (_file, src_map) = (file.as_ref(), src_map.as_ref());
 
@@ -286,7 +286,7 @@ fn collect_macro_argument_hints_for_call(
         };
         collector.collect_range_hint(
             HintAnchor::macro_argument(argument_range),
-            Some(InFile::new(HirFileId(resolution.definition.file_id), param_range)),
+            Some(InFile::new(HirFileId::File(resolution.definition.file_id), param_range)),
             format!("{param_name}:"),
         );
     }

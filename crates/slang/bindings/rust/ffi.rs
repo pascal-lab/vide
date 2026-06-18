@@ -136,7 +136,7 @@ mod slang_ffi {
         value_text: String,
         display_text: String,
         token_kind: u16,
-        provenance_kind: u8,
+        origin_kind: u8,
         macro_name: String,
         macro_call_id: u32,
         has_macro_call_id: bool,
@@ -416,7 +416,7 @@ mod slang_ffi {
         ) -> UniquePtr<SourceRange>;
 
         #[namespace = "wrapper::syntax"]
-        fn SyntaxToken_preprocessorTraceProvenanceWithContext(
+        fn SyntaxToken_preprocessorTraceOriginWithContext(
             token: &SyntaxToken,
             context: &SyntaxNode,
         ) -> RawPreprocessorTraceEmittedToken;
@@ -690,7 +690,7 @@ impl_functions! {
     impl SyntaxToken {
         fn range(&self) -> UniquePtr<SourceRange> |> SyntaxToken_range;
         fn rangeWithContext(token: &SyntaxToken, context: &SyntaxNode) -> UniquePtr<SourceRange> |> SyntaxToken_rangeWithContext;
-        fn preprocessorTraceProvenanceWithContext(token: &SyntaxToken, context: &SyntaxNode) -> RawPreprocessorTraceEmittedToken |> SyntaxToken_preprocessorTraceProvenanceWithContext;
+        fn preprocessorTraceOriginWithContext(token: &SyntaxToken, context: &SyntaxNode) -> RawPreprocessorTraceEmittedToken |> SyntaxToken_preprocessorTraceOriginWithContext;
     }
 }
 

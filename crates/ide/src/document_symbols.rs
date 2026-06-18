@@ -190,7 +190,7 @@ impl AddRegionSymbol for Peekable<RegionTreeIterator<'_>> {
 
 // TODO: add ty info in detail
 pub(crate) fn document_symbols(db: &dyn HirDb, file_id: FileId) -> Vec<DocumentSymbol> {
-    let file_id = HirFileId(file_id);
+    let file_id = HirFileId::File(file_id);
     let (file, src_map) = db.hir_file_with_source_map(file_id);
     let (file, src_map) = (file.as_ref(), src_map.as_ref());
     let mut regions = src_map.region_tree.walk().peekable();

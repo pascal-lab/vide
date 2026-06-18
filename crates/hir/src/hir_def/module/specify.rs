@@ -5,14 +5,16 @@ use utils::define_enum_deriving_from;
 
 use super::LowerModuleCtx;
 use crate::{
-    define_src,
     hir_def::{
         Ident, alloc_idx_and_src,
         declaration::{DeclarationId, LowerDeclaration},
         expr::{ExprId, LowerExpr},
         lower_ident_opt,
     },
-    source_map::IsNamedSrc,
+    source_map::{
+        AstId, AstKind, FromSourceAst, IsNamedSrc, IsSrc, SourceAst, ToAstNode,
+        exact_ast_node_from_ptr,
+    },
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -21,7 +23,15 @@ pub struct SpecifyBlock {
 }
 
 pub type SpecifyBlockId = Idx<SpecifyBlock>;
-define_src!(SpecifyBlockSrc(ast::SpecifyBlock));
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct SpecifyBlockAst;
+
+impl AstKind for SpecifyBlockAst {
+    type Node<'a> = ast::SpecifyBlock<'a>;
+}
+
+pub type SpecifyBlockSrc = AstId<SpecifyBlockAst>;
 
 impl IsNamedSrc for SpecifyBlockSrc {
     fn name_kind(&self) -> Option<syntax::TokenKind> {
@@ -52,22 +62,133 @@ pub enum SpecifyItem {
 
 pub type SpecifyItemId = Idx<SpecifyItem>;
 
-define_src!(SpecifyItemSrc(
-    ast::PathDeclaration,
-    ast::ConditionalPathDeclaration,
-    ast::IfNonePathDeclaration,
-    ast::PulseStyleDeclaration,
-    ast::SystemTimingCheck
-));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct PathDeclarationAst;
+
+impl AstKind for PathDeclarationAst {
+    type Node<'a> = ast::PathDeclaration<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct ConditionalPathDeclarationAst;
+
+impl AstKind for ConditionalPathDeclarationAst {
+    type Node<'a> = ast::ConditionalPathDeclaration<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct IfNonePathDeclarationAst;
+
+impl AstKind for IfNonePathDeclarationAst {
+    type Node<'a> = ast::IfNonePathDeclaration<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct PulseStyleDeclarationAst;
+
+impl AstKind for PulseStyleDeclarationAst {
+    type Node<'a> = ast::PulseStyleDeclaration<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct SystemTimingCheckAst;
+
+impl AstKind for SystemTimingCheckAst {
+    type Node<'a> = ast::SystemTimingCheck<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum SpecifyItemSrc {
+    PathDeclaration(AstId<PathDeclarationAst>),
+    ConditionalPathDeclaration(AstId<ConditionalPathDeclarationAst>),
+    IfNonePathDeclaration(AstId<IfNonePathDeclarationAst>),
+    PulseStyleDeclaration(AstId<PulseStyleDeclarationAst>),
+    SystemTimingCheck(AstId<SystemTimingCheckAst>),
+}
+
+impl IsSrc for SpecifyItemSrc {
+    fn kind(&self) -> syntax::SyntaxKind {
+        SyntaxNodePtr::from(*self).kind()
+    }
+
+    fn range(&self) -> utils::text_edit::TextRange {
+        SyntaxNodePtr::from(*self).range()
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::PathDeclaration<'a>> for SpecifyItemSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::PathDeclaration<'a>> {
+        let SpecifyItemSrc::PathDeclaration(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::ConditionalPathDeclaration<'a>> for SpecifyItemSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::ConditionalPathDeclaration<'a>> {
+        let SpecifyItemSrc::ConditionalPathDeclaration(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::IfNonePathDeclaration<'a>> for SpecifyItemSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::IfNonePathDeclaration<'a>> {
+        let SpecifyItemSrc::IfNonePathDeclaration(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::PulseStyleDeclaration<'a>> for SpecifyItemSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::PulseStyleDeclaration<'a>> {
+        let SpecifyItemSrc::PulseStyleDeclaration(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::SystemTimingCheck<'a>> for SpecifyItemSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::SystemTimingCheck<'a>> {
+        let SpecifyItemSrc::SystemTimingCheck(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::PathDeclaration<'a>> for SpecifyItemSrc {
+    fn from_source_ast(path: SourceAst<ast::PathDeclaration<'a>>) -> Self {
+        Self::PathDeclaration(AstId::from_source_ast(path))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::ConditionalPathDeclaration<'a>> for SpecifyItemSrc {
+    fn from_source_ast(path: SourceAst<ast::ConditionalPathDeclaration<'a>>) -> Self {
+        Self::ConditionalPathDeclaration(AstId::from_source_ast(path))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::IfNonePathDeclaration<'a>> for SpecifyItemSrc {
+    fn from_source_ast(path: SourceAst<ast::IfNonePathDeclaration<'a>>) -> Self {
+        Self::IfNonePathDeclaration(AstId::from_source_ast(path))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::PulseStyleDeclaration<'a>> for SpecifyItemSrc {
+    fn from_source_ast(pulse: SourceAst<ast::PulseStyleDeclaration<'a>>) -> Self {
+        Self::PulseStyleDeclaration(AstId::from_source_ast(pulse))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::SystemTimingCheck<'a>> for SpecifyItemSrc {
+    fn from_source_ast(timing: SourceAst<ast::SystemTimingCheck<'a>>) -> Self {
+        Self::SystemTimingCheck(AstId::from_source_ast(timing))
+    }
+}
 
 impl From<SpecifyItemSrc> for SyntaxNodePtr {
     fn from(src: SpecifyItemSrc) -> Self {
         match src {
-            SpecifyItemSrc::PathDeclaration(ptr)
-            | SpecifyItemSrc::ConditionalPathDeclaration(ptr)
-            | SpecifyItemSrc::IfNonePathDeclaration(ptr)
-            | SpecifyItemSrc::PulseStyleDeclaration(ptr)
-            | SpecifyItemSrc::SystemTimingCheck(ptr) => ptr,
+            SpecifyItemSrc::PathDeclaration(src) => src.ptr(),
+            SpecifyItemSrc::ConditionalPathDeclaration(src) => src.ptr(),
+            SpecifyItemSrc::IfNonePathDeclaration(src) => src.ptr(),
+            SpecifyItemSrc::PulseStyleDeclaration(src) => src.ptr(),
+            SpecifyItemSrc::SystemTimingCheck(src) => src.ptr(),
         }
     }
 }
@@ -116,6 +237,7 @@ impl LowerModuleCtx<'_> {
             .collect();
 
         alloc_idx_and_src! {
+            self.file_id;
             SpecifyBlock { items } => self.module.specify_blocks,
             block => self.module_source_map.specify_block_srcs,
         }
@@ -124,6 +246,7 @@ impl LowerModuleCtx<'_> {
     pub(crate) fn lower_specify_path_item(&mut self, path: ast::PathDeclaration) -> SpecifyItemId {
         let item = SpecifyItem::Path(self.lower_specify_path(path));
         alloc_idx_and_src! {
+            self.file_id;
             item => self.module.specify_items,
             path => self.module_source_map.specify_item_srcs,
         }
@@ -138,6 +261,7 @@ impl LowerModuleCtx<'_> {
         let item = SpecifyItem::ConditionalPath { predicate, path: path_data };
 
         alloc_idx_and_src! {
+            self.file_id;
             item => self.module.specify_items,
             path => self.module_source_map.specify_item_srcs,
         }
@@ -150,6 +274,7 @@ impl LowerModuleCtx<'_> {
         let item = SpecifyItem::IfNonePath(self.lower_specify_path(path.path()));
 
         alloc_idx_and_src! {
+            self.file_id;
             item => self.module.specify_items,
             path => self.module_source_map.specify_item_srcs,
         }
@@ -163,6 +288,7 @@ impl LowerModuleCtx<'_> {
         let item = SpecifyItem::PulseStyle { controls };
 
         alloc_idx_and_src! {
+            self.file_id;
             item => self.module.specify_items,
             pulse => self.module_source_map.specify_item_srcs,
         }
@@ -177,6 +303,7 @@ impl LowerModuleCtx<'_> {
         let item = SpecifyItem::TimingCheck { name, args };
 
         alloc_idx_and_src! {
+            self.file_id;
             item => self.module.specify_items,
             timing => self.module_source_map.specify_item_srcs,
         }

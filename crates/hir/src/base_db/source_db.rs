@@ -1,7 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use syntax::{
-    Compilation, ParserExpectedSyntax, PreprocessorTrace, SyntaxDiagnostic, SyntaxTree,
-    SyntaxTreeBuffer, SyntaxTreeBufferIds,
+    Compilation, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer,
+    SyntaxTreeBufferIds, preproc::Trace,
 };
 use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
@@ -18,12 +18,11 @@ mod preproc;
 
 pub(crate) use self::preproc::workspace_preproc_model_file_ids;
 pub use self::preproc::{
-    MappedSourcePreprocModel, PreprocExpansionDisplay, PreprocExpansionMapping,
-    PreprocExpansionSourceBuffer, PreprocManifestSource, PreprocSourceMap, PreprocSourceMapError,
+    MappedSourcePreprocModel, PreprocManifestSource, PreprocSourceMap, PreprocSourceMapError,
     PreprocSourceMapping, PreprocSpeculativeUniverseId, PreprocVirtualOrigin,
     SourcePreprocContextIndex, SourcePreprocContextStatus, SourcePreprocQueryError,
-    SourcePreprocRelevantContexts, preproc_virtual_builtin_path, preproc_virtual_expansion_path,
-    preproc_virtual_predefines_path, preproc_virtual_speculative_path,
+    SourcePreprocRelevantContexts, preproc_virtual_builtin_path, preproc_virtual_predefines_path,
+    preproc_virtual_speculative_path,
 };
 #[cfg(test)]
 use self::preproc::{materialized_predefine_text, source_preproc_file_ids};
@@ -144,7 +143,7 @@ pub struct CompilationDiagnostic {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedCompilationUnit {
     pub syntax_tree: SyntaxTree,
-    pub preprocessor_trace: Option<PreprocessorTrace>,
+    pub preprocessor_trace: Option<Trace>,
 }
 
 fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentity {
@@ -661,11 +660,9 @@ fn source_root_semantic_diagnostics(
 mod tests {
     use std::fmt;
 
-    use ::preproc::source::{
-        PreprocSourceId, SourceMacroExpansionId, SourcePreprocUnavailable, SourceRange,
-    };
+    use ::preproc::source::{PreprocSourceId, SourcePreprocUnavailable, SourceRange};
     use rustc_hash::FxHashSet;
-    use syntax::{PreprocessorTrace, SourceBufferId, SourceBufferOrigin, SyntaxTreeOptions};
+    use syntax::{SourceBufferId, SourceBufferOrigin, SyntaxTreeOptions, preproc::Trace};
     use utils::{
         line_index::TextRange,
         paths::{AbsPathBuf, Utf8PathBuf},
@@ -857,7 +854,7 @@ mod tests {
     #[test]
     fn source_preproc_mapping_reports_unmapped_included_source() {
         let db = db_with_root_file();
-        let trace = PreprocessorTrace {
+        let trace = Trace {
             root_buffer_id: 1,
             source_buffers: vec![
                 SourceBufferId {
@@ -899,7 +896,7 @@ mod tests {
         let db = db_with_root_file();
         let first_text = materialized_predefine_text("FIRST=1");
         let second_text = materialized_predefine_text("SECOND");
-        let trace = PreprocessorTrace {
+        let trace = Trace {
             root_buffer_id: 1,
             source_buffers: vec![
                 SourceBufferId {
@@ -998,7 +995,7 @@ mod tests {
         );
         let db = db_with_root_and_manifest(manifest_text);
         let predefine_text = materialized_predefine_text("FOO");
-        let trace = PreprocessorTrace {
+        let trace = Trace {
             root_buffer_id: 1,
             source_buffers: vec![
                 SourceBufferId {
@@ -1076,7 +1073,7 @@ mod tests {
     #[test]
     fn source_preproc_mapping_rejects_predefine_source_text_mismatch() {
         let db = db_with_root_file();
-        let trace = PreprocessorTrace {
+        let trace = Trace {
             root_buffer_id: 1,
             source_buffers: vec![
                 SourceBufferId {
@@ -1129,7 +1126,7 @@ mod tests {
             offset(manifest_text, "\"WRONG=2\""),
             offset_after(manifest_text, "\"WRONG=2\""),
         );
-        let trace = PreprocessorTrace {
+        let trace = Trace {
             root_buffer_id: 1,
             source_buffers: vec![
                 SourceBufferId {
@@ -1177,7 +1174,7 @@ mod tests {
     fn source_preproc_mapping_records_external_include_buffer_as_display_virtual_source() {
         let db = db_with_root_file();
         let external_path = "/external/generated_defs.vh".to_owned();
-        let trace = PreprocessorTrace {
+        let trace = Trace {
             root_buffer_id: 1,
             source_buffers: vec![
                 SourceBufferId {
@@ -1246,13 +1243,6 @@ mod tests {
         assert_eq!(
             preproc_virtual_builtin_path(Some(CompilationProfileId(3)), "bad/name"),
             VfsPath::new_virtual_path("/__vide/preproc/profile-3/builtin/bad_name.sv".to_owned())
-        );
-        assert_eq!(
-            preproc_virtual_expansion_path(
-                Some(CompilationProfileId(3)),
-                SourceMacroExpansionId::new(9),
-            ),
-            VfsPath::new_virtual_path("/__vide/preproc/profile-3/expansion/9.sv".to_owned())
         );
         assert_eq!(
             preproc_virtual_speculative_path(

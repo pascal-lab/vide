@@ -1,7 +1,7 @@
 mod model;
-mod provenance;
+mod tables;
 mod trace;
 mod types;
 
-pub use provenance::*;
+pub use tables::*;
 pub use types::*;

@@ -6,7 +6,7 @@ pub fn macro_usage_resolution_at(
     offset: TextSize,
 ) -> PreprocResult<Option<MacroUsageResolution>> {
     macro_usage_resolutions_at(db, file_id, offset)?.into_single_or_none(|contexts| {
-        PreprocUnavailable::AmbiguousMacroReferenceContexts { contexts }
+        PreprocError::Ambiguous { kind: AmbiguousKind::MacroReference, count: contexts }
     })
 }
 
@@ -34,48 +34,33 @@ pub fn macro_usage_resolutions_at(
             let Some(reference) = mapped.model.macro_references().get(reference_id) else {
                 continue;
             };
-            let SourceMacroReferenceSite::Usage { usage_index } = reference.site else {
+            let SourceMacroReferenceSite::Usage { .. } = reference.site else {
                 continue;
             };
 
-            let SourceMacroResolutionFact::Resolved { definition, include_chain, .. } =
+            let SourceMacroResolution::Resolved { definition, include_chain, .. } =
                 &reference.resolution
             else {
-                if let SourceMacroResolutionFact::Unavailable(reason) = &reference.resolution {
+                if let SourceMacroResolution::Unavailable(reason) = &reference.resolution {
                     unavailable_contexts += 1;
-                    record_first_error(&mut first_error, unavailable_error(reason.clone()));
+                    record_first_error(&mut first_error, source_model_error(reason.clone()));
                 }
                 continue;
             };
-            let mapped_reference = map_macro_reference(mapped, reference)?;
-            let definition_fact =
+            let (source, range) = map_reference_ranges(mapped, reference)?;
+            let usage_file_id = require_file_backed_source(&source)?;
+            let source_definition =
                 mapped.model.macro_definitions().get(*definition).ok_or_else(|| {
                     PreprocError::SourceQuery(SourcePreprocQueryError::Model(
                         SourcePreprocError::MissingEvent { event_id: reference.event_id.raw() },
                     ))
                 })?;
-            let definition = map_macro_definition(mapped, definition_fact)?;
-            let definition_provenance =
-                map_definition_provenance_from_definition(mapped, definition_fact)?;
+            let definition = map_macro_definition(mapped, source_definition)?;
             let include_chain = map_include_chain(mapped, include_chain)?;
-            let capability =
-                context_query_capability(&contexts, mapped_reference.capability.clone());
 
             resolutions.push_unique_eq(MacroUsageResolution {
-                capability: capability.clone(),
-                usage: MacroUsage {
-                    reference_id: mapped_reference.id,
-                    source: mapped_reference.source,
-                    capability,
-                    file_id: mapped_reference.file_id,
-                    name: mapped_reference.name,
-                    usage_index,
-                    directive_range: mapped_reference.directive_range,
-                    range: mapped_reference.range,
-                    resolution: mapped_reference.resolution,
-                },
+                usage: MacroUsage { file_id: usage_file_id, range },
                 definition,
-                definition_provenance,
                 include_chain,
             });
         }
@@ -85,10 +70,9 @@ pub fn macro_usage_resolutions_at(
         return Ok(resolutions.into_vec());
     }
     if unavailable_contexts > 1 {
-        return Err(PreprocError::Unavailable {
-            reason: PreprocUnavailable::AmbiguousMacroReferenceContexts {
-                contexts: unavailable_contexts,
-            },
+        return Err(PreprocError::Ambiguous {
+            kind: AmbiguousKind::MacroReference,
+            count: unavailable_contexts,
         });
     }
     finish_empty_single_query(&contexts, first_error)?;
@@ -104,8 +88,9 @@ pub fn macro_reference_at(
     let Some(contexts) = macro_reference_definitions_at(db, file_id, offset)? else {
         return Ok(None);
     };
-    Ok(Some(contexts.references.into_exactly_one(|contexts| {
-        PreprocUnavailable::AmbiguousMacroReferenceContexts { contexts }
+    Ok(Some(contexts.references.into_exactly_one(|contexts| PreprocError::Ambiguous {
+        kind: AmbiguousKind::MacroReference,
+        count: contexts,
     })?))
 }
 
@@ -134,9 +119,7 @@ pub fn macro_references_in_range(
             };
 
             match map_macro_reference(mapped, reference) {
-                Ok(mut reference) => {
-                    reference.capability =
-                        context_query_capability(&contexts, reference.capability);
+                Ok(reference) => {
                     references.push_unique_eq(reference);
                 }
                 Err(error) => record_first_error(&mut first_error, error),
@@ -151,28 +134,6 @@ pub fn macro_references_in_range(
     }
 
     Ok(references.into_vec())
-}
-
-pub fn macro_reference_resolution_at(
-    db: &dyn SourceRootDb,
-    file_id: FileId,
-    offset: TextSize,
-) -> PreprocResult<Option<MacroReferenceResolution>> {
-    let Some(mut resolution) = macro_reference_definitions_at(db, file_id, offset)? else {
-        return Ok(None);
-    };
-    if resolution.references.len() != 1 {
-        return Err(PreprocError::Unavailable {
-            reason: PreprocUnavailable::AmbiguousMacroReferenceContexts {
-                contexts: resolution.references.len(),
-            },
-        });
-    }
-    let reference = resolution.references.pop().unwrap();
-    let definition = resolution.definitions.into_single_or_none(|contexts| {
-        PreprocUnavailable::AmbiguousMacroReferenceContexts { contexts }
-    })?;
-    Ok(definition.map(|definition| MacroReferenceResolution { reference, definition }))
 }
 
 pub fn macro_reference_definitions_at(
@@ -200,34 +161,29 @@ pub fn macro_reference_definitions_at(
             let Some(reference) = mapped.model.macro_references().get(reference_id) else {
                 continue;
             };
-            let (_, range) = match mapped_source_range_at_offset(
-                mapped,
-                reference.name_range,
-                file_id,
-                offset,
-            ) {
-                Ok(Some(hit)) => hit,
-                Ok(None) => continue,
-                Err(error) => {
-                    record_first_error(&mut first_error, error);
-                    continue;
-                }
-            };
+            let (_, range) =
+                match source_mapping_range_at_offset(mapped, reference.name_range, file_id, offset)
+                {
+                    Ok(Some(hit)) => hit,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        record_first_error(&mut first_error, error);
+                        continue;
+                    }
+                };
             query_range.get_or_insert(range);
 
-            let mut mapped_reference = match map_macro_reference(mapped, reference) {
+            let mapped_reference = match map_macro_reference(mapped, reference) {
                 Ok(reference) => reference,
                 Err(error) => {
                     record_first_error(&mut first_error, error);
                     continue;
                 }
             };
-            mapped_reference.capability =
-                context_query_capability(&contexts, mapped_reference.capability);
             references.push_unique_eq(mapped_reference.clone());
 
             match &reference.resolution {
-                SourceMacroResolutionFact::Resolved { definition, .. } => {
+                SourceMacroResolution::Resolved { definition, .. } => {
                     let Some(definition) = mapped.model.macro_definitions().get(*definition) else {
                         record_first_error(
                             &mut first_error,
@@ -249,7 +205,7 @@ pub fn macro_reference_definitions_at(
 
                     definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
                 }
-                SourceMacroResolutionFact::Undefined => {
+                SourceMacroResolution::Undefined => {
                     for definition in configured_predefine_definitions_for_name(
                         db,
                         model_file_id,
@@ -258,7 +214,7 @@ pub fn macro_reference_definitions_at(
                         definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
                     }
                 }
-                SourceMacroResolutionFact::Unavailable(_) => {}
+                SourceMacroResolution::Unavailable(_) => {}
             }
         }
     }
@@ -269,10 +225,6 @@ pub fn macro_reference_definitions_at(
     };
 
     Ok(Some(MacroReferenceDefinitions {
-        capability: context_query_capability(
-            &contexts,
-            macro_reference_context_capability(references.as_slice()),
-        ),
         references: references.into_vec(),
         range,
         definitions: definitions.into_vec(),
