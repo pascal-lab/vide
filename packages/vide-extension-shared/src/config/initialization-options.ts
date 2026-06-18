@@ -106,7 +106,7 @@ export function videInitializationOptions(
       },
     },
     qihe: {
-      command: setting(config, "qihe.command", "qihe"),
+      command: setting<string | null>(config, "qihe.command", null),
       autoConfigureArgsFromManifest: setting(
         config,
         "qihe.autoConfigureArgsFromManifest",

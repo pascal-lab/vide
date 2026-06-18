@@ -5,6 +5,7 @@ import {
   diagnosticsProfilingInitializationOptions,
   serverInitializationOptions,
 } from '../src/initializationOptions';
+import { USER_CONFIG_SETTINGS } from '../src/generated/configuration';
 import { resolvedQiheCommand } from '../src/qiheCommand';
 
 class TestConfiguration {
@@ -12,23 +13,6 @@ class TestConfiguration {
 
   get<T>(section: string): T | undefined {
     return this.values[section] as T | undefined;
-  }
-}
-
-class TestVscodeConfiguration extends TestConfiguration {
-  inspect<T>(section: string): { defaultValue?: T; globalValue?: T } | undefined {
-    return {
-      defaultValue: this.get<T>(section),
-    };
-  }
-}
-
-class TestConfiguredVscodeConfiguration extends TestConfiguration {
-  inspect<T>(section: string): { defaultValue?: T; globalValue?: T } | undefined {
-    return {
-      defaultValue: (section === 'qihe.command' ? 'qihe' : undefined) as T | undefined,
-      globalValue: this.get<T>(section),
-    };
   }
 }
 
@@ -65,30 +49,43 @@ test('server initialization options include user configuration for startup', () 
   });
 });
 
-test('server initialization options treat the VS Code Qihe default as platform-owned', () => {
+test('server initialization options pass the Qihe platform default marker to the server', () => {
   const options = serverInitializationOptions(
-    new TestVscodeConfiguration({
-      'qihe.command': 'qihe',
+    new TestConfiguration({
+      'qihe.command': null,
     }),
-    'win32',
   );
 
   assert.deepEqual(options.qihe, {
-    command: 'qihe.bat',
+    command: null,
     autoConfigureArgsFromManifest: true,
     compileArgs: [],
     runArgs: ['-g', 'std'],
   });
 });
 
+test('generated Qihe command setting uses the platform default marker', () => {
+  const setting = USER_CONFIG_SETTINGS.find(
+    (configSetting) => configSetting.vscodeSection === 'qihe.command',
+  );
+
+  assert.equal(setting?.defaultValue, null);
+});
+
+test('resolved Qihe command uses the platform default for unset extension commands', () => {
+  assert.equal(resolvedQiheCommand(new TestConfiguration({}), 'win32'), 'qihe.bat');
+  assert.equal(resolvedQiheCommand(new TestConfiguration({ 'qihe.command': null }), 'win32'), 'qihe.bat');
+  assert.equal(resolvedQiheCommand(new TestConfiguration({}), 'linux'), 'qihe');
+});
+
 test('resolved Qihe command keeps explicit user configuration', () => {
   assert.equal(
-    resolvedQiheCommand(new TestConfiguredVscodeConfiguration({ 'qihe.command': 'qihe' }), 'win32'),
+    resolvedQiheCommand(new TestConfiguration({ 'qihe.command': 'qihe' }), 'win32'),
     'qihe',
   );
   assert.equal(
     resolvedQiheCommand(
-      new TestConfiguredVscodeConfiguration({ 'qihe.command': 'custom-qihe' }),
+      new TestConfiguration({ 'qihe.command': 'custom-qihe' }),
       'win32',
     ),
     'custom-qihe',
