@@ -33,6 +33,13 @@ impl VfsProgress {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[must_use = "callers must close any superseded vfs progress before forwarding the new config"]
+pub(crate) struct BeginVfsLoad {
+    pub(crate) config_version: u32,
+    pub(crate) superseded_client_progress_active: bool,
+}
+
 #[derive(Debug)]
 pub(crate) struct WorkspaceVfsReadiness {
     requested_workspace_generation: WorkspaceGeneration,
@@ -42,6 +49,7 @@ pub(crate) struct WorkspaceVfsReadiness {
     vfs_config_version: u32,
     vfs_progress: VfsProgress,
     vfs_ready: bool,
+    vfs_client_progress_active: bool,
     diagnostic_readiness_revision: u64,
     diagnostics_deferred_until_ready: bool,
 }
@@ -56,6 +64,7 @@ impl Default for WorkspaceVfsReadiness {
             vfs_config_version: 0,
             vfs_progress: VfsProgress::default(),
             vfs_ready: true,
+            vfs_client_progress_active: false,
             diagnostic_readiness_revision: 0,
             diagnostics_deferred_until_ready: false,
         }
@@ -118,12 +127,14 @@ impl WorkspaceVfsReadiness {
         false
     }
 
-    pub(crate) fn begin_vfs_load(&mut self, n_total: usize) -> u32 {
+    pub(crate) fn begin_vfs_load(&mut self, n_total: usize) -> BeginVfsLoad {
+        let superseded_client_progress_active = self.vfs_client_progress_active;
         self.vfs_config_version += 1;
         self.vfs_progress =
             VfsProgress { config_version: self.vfs_config_version, n_done: 0, n_total };
         self.vfs_ready = false;
-        self.vfs_config_version
+        self.vfs_client_progress_active = false;
+        BeginVfsLoad { config_version: self.vfs_config_version, superseded_client_progress_active }
     }
 
     pub(crate) fn accept_vfs_progress(
@@ -142,6 +153,14 @@ impl WorkspaceVfsReadiness {
         self.vfs_progress = VfsProgress { config_version, n_done, n_total };
         self.vfs_ready = !self.vfs_progress.in_progress();
         Some(self.vfs_progress)
+    }
+
+    pub(crate) fn note_vfs_client_progress_started(&mut self) {
+        self.vfs_client_progress_active = true;
+    }
+
+    pub(crate) fn note_vfs_client_progress_finished(&mut self) {
+        self.vfs_client_progress_active = false;
     }
 
     pub(crate) fn accepts_vfs_loaded(&self, config_version: u32) -> bool {
