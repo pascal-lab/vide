@@ -142,11 +142,7 @@ impl SourcePreprocModelBuilder {
             return None;
         }
         self.record_emitted_token_owner(token_id, call);
-        Some(SourceTokenOrigin::Builtin {
-            name,
-            trace_call,
-            call,
-        })
+        Some(SourceTokenOrigin::Builtin { name, trace_call, call })
     }
 
     pub(in crate::source::tables::builder) fn resolve_macro_operation_token_origin(

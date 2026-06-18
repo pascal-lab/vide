@@ -5,11 +5,9 @@ pub fn macro_usage_resolution_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroUsageResolution>> {
-    macro_usage_resolutions_at(db, file_id, offset)?
-        .into_single_or_none(|contexts| PreprocError::Ambiguous {
-            kind: AmbiguousKind::MacroReference,
-            count: contexts,
-        })
+    macro_usage_resolutions_at(db, file_id, offset)?.into_single_or_none(|contexts| {
+        PreprocError::Ambiguous { kind: AmbiguousKind::MacroReference, count: contexts }
+    })
 }
 
 pub fn macro_usage_resolutions_at(
@@ -90,11 +88,10 @@ pub fn macro_reference_at(
     let Some(contexts) = macro_reference_definitions_at(db, file_id, offset)? else {
         return Ok(None);
     };
-    Ok(Some(
-        contexts.references.into_exactly_one(|contexts| {
-            PreprocError::Ambiguous { kind: AmbiguousKind::MacroReference, count: contexts }
-        })?,
-    ))
+    Ok(Some(contexts.references.into_exactly_one(|contexts| PreprocError::Ambiguous {
+        kind: AmbiguousKind::MacroReference,
+        count: contexts,
+    })?))
 }
 
 pub fn macro_references_in_range(

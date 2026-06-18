@@ -79,13 +79,8 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "3")
         .expect("nested macro body token should be emitted");
-    let SourceTokenOrigin::MacroBody {
-        trace_call,
-        trace_definition,
-        definition,
-        call,
-        ..
-    } = model.token_origins().get(emitted.origin.unwrap()).unwrap()
+    let SourceTokenOrigin::MacroBody { trace_call, trace_definition, definition, call, .. } =
+        model.token_origins().get(emitted.origin.unwrap()).unwrap()
     else {
         panic!("nested emitted token should keep macro body origin");
     };
