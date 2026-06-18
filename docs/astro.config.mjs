@@ -1,9 +1,40 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import starlightUtils from '@lorenzo_lewis/starlight-utils';
+import { readdirSync } from 'node:fs';
 
 const base = process.env.ASTRO_BASE ?? '/';
 const site = process.env.ASTRO_SITE ?? 'https://vide.pascal-lab.net';
+const changelogItems = ['changelog', ...getChangelogVersionItems()];
+
+function getChangelogVersionItems() {
+  const changelogDir = new URL('./src/content/docs/changelog/', import.meta.url);
+
+  return readdirSync(changelogDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^v\d+(?:-\d+)+$/.test(entry.name))
+    .sort(compareReleaseDirsDescending)
+    .map((entry) => `changelog/${entry.name}`);
+}
+
+function compareReleaseDirsDescending(left, right) {
+  const leftParts = parseReleaseDir(left.name);
+  const rightParts = parseReleaseDir(right.name);
+  const length = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const difference = (rightParts[index] ?? 0) - (leftParts[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+
+  return right.name.localeCompare(left.name);
+}
+
+function parseReleaseDir(name) {
+  return name
+    .slice(1)
+    .split('-')
+    .map((part) => Number.parseInt(part, 10));
+}
 
 export default defineConfig({
   site,
@@ -135,7 +166,7 @@ export default defineConfig({
         {
           label: 'Changelog',
           translations: { en: 'Changelog' },
-          items: ['changelog', 'changelog/v1-2-0', 'changelog/v1-1-0'],
+          items: changelogItems,
         },
         {
           label: 'Playground',
