@@ -8,6 +8,7 @@ use crate::{
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
         expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
         file::{self, FileSourceMap, HirFile},
+        macro_file::{self, ExpansionInfo, MacroCallId, MacroCallLoc, MacroFileId, MacroFileLoc},
         module::{
             self, Module, ModuleId, ModuleSourceMap,
             generate::{
@@ -38,6 +39,12 @@ pub trait InternDb: SourceRootDb {
 
     #[salsa::interned]
     fn intern_generate_block(&self, generate_block: GenerateBlockLoc) -> GenerateBlockId;
+
+    #[salsa::interned]
+    fn intern_macro_call(&self, macro_call: MacroCallLoc) -> MacroCallId;
+
+    #[salsa::interned]
+    fn intern_macro_file(&self, macro_file: MacroFileLoc) -> MacroFileId;
 }
 
 impl_intern!(BuiltinDataTyId, BuiltinDataTy, intern_ty, lookup_intern_ty);
@@ -49,11 +56,16 @@ impl_intern!(
     intern_generate_block,
     lookup_intern_generate_block
 );
+impl_intern!(MacroCallId, MacroCallLoc, intern_macro_call, lookup_intern_macro_call);
+impl_intern!(MacroFileId, MacroFileLoc, intern_macro_file, lookup_intern_macro_file);
 
 #[salsa::query_group(HirDbStorage)]
 pub trait HirDb: InternDb {
     #[salsa::transparent]
     fn parse(&self, file_id: HirFileId) -> SyntaxTree;
+
+    #[salsa::invoke(macro_file::macro_expansion_query)]
+    fn macro_expansion(&self, macro_file: MacroFileId) -> Arc<ExpansionInfo>;
 
     #[salsa::invoke(file::hir_file_with_source_map_query)]
     fn hir_file_with_source_map(&self, file_id: HirFileId) -> (Arc<HirFile>, Arc<FileSourceMap>);
@@ -106,7 +118,10 @@ pub trait HirDb: InternDb {
 }
 
 fn parse(db: &dyn HirDb, file_id: HirFileId) -> SyntaxTree {
-    db.parse_src_for_compilation(file_id.file_id())
+    match file_id {
+        HirFileId::File(file_id) => db.parse_src_for_compilation(file_id),
+        HirFileId::Macro(macro_file) => db.macro_expansion(macro_file).parse.clone(),
+    }
 }
 
 fn hir_file(db: &dyn HirDb, file_id: HirFileId) -> Arc<HirFile> {

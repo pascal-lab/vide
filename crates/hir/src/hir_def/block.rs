@@ -35,10 +35,9 @@ use crate::{
     base_db::intern::Lookup,
     container::{ContainerId, InFile},
     db::{HirDb, InternDb},
-    define_src_with_name,
     file::HirFileId,
     region_tree::{RegionTree, RegionTreeBuilder},
-    source_map::{IsNamedSrc, IsSrc, SourceMap, ToAstNode},
+    source_map::{AstKind, IsNamedSrc, IsSrc, NamedAstId, SourceMap, ToAstNode},
 };
 
 define_container! {
@@ -105,23 +104,31 @@ pub enum ParBlockKind {
     JoinNone,
 }
 
-define_src_with_name!(BlockSrc(ast::BlockStatement));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct BlockStatementAst;
+
+impl AstKind for BlockStatementAst {
+    type Node<'a> = ast::BlockStatement<'a>;
+}
+
+pub type BlockSrc = NamedAstId<BlockStatementAst>;
 
 impl From<BlockSrc> for StmtSrc {
-    fn from(BlockSrc { node, name }: BlockSrc) -> Self {
-        StmtSrc { node, name }
+    fn from(src: BlockSrc) -> Self {
+        StmtSrc::new(src.file_id, src.node, src.name)
     }
 }
 
 impl TryFrom<StmtSrc> for BlockSrc {
     type Error = ();
 
-    fn try_from(StmtSrc { node, name }: StmtSrc) -> Result<Self, Self::Error> {
+    fn try_from(src: StmtSrc) -> Result<Self, Self::Error> {
+        let node = src.node;
         if !ast::BlockStatement::can_cast(node.kind()) {
             return Err(());
         }
 
-        Ok(BlockSrc { node, name })
+        Ok(BlockSrc::new(src.file_id, node, src.name))
     }
 }
 
@@ -233,6 +240,7 @@ impl LowerBlockCtx<'_> {
             lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
 
         alloc_idx_and_src! {
+            self.file_id;
             struct_def => self.block.structs,
             struct_ty => self.block_source_map.struct_srcs,
         }
@@ -242,6 +250,7 @@ impl LowerBlockCtx<'_> {
         let name = lower_ident_opt(typedef.name());
 
         let typedef_id = alloc_idx_and_src! {
+            self.file_id;
             Typedef { name, ty: None } => self.block.typedefs,
             typedef => self.block_source_map.typedef_srcs,
         };
@@ -275,7 +284,7 @@ impl LowerBlockCtx<'_> {
                 ast::Statement[it] => {
                     let stmt_id = self.stmt_ctx().lower_stmt(it);
                     if let Some(block_stmt) = it.as_block_statement() {
-                        let block_src = BlockSrc::from(block_stmt);
+                        let block_src = BlockSrc::from_ast(self.file_id, block_stmt);
                         let local_block_id = LocalBlockId(stmt_id);
                         self.block_source_map.block_srcs.insert(block_src, local_block_id);
                     }

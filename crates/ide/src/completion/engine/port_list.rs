@@ -66,7 +66,7 @@ fn visible_typedefs_in_module_header(db: &RootDb, position: FilePosition) -> Vec
         return Vec::new();
     };
     let (_, file_src_map) = db.hir_file_with_source_map(file_id);
-    let module_src = ModuleSrc::from(module);
+    let module_src = ModuleSrc::from_ast(file_id, module);
     let Some(module_id) = file_src_map.get(module_src).map(|id| ModuleId::new(file_id, id)) else {
         return Vec::new();
     };
@@ -109,7 +109,7 @@ fn complete_non_ansi_port_list(
         return Vec::new();
     };
     let (_, file_src_map) = db.hir_file_with_source_map(file_id);
-    let module_src = ModuleSrc::from(module);
+    let module_src = ModuleSrc::from_ast(file_id, module);
     let Some(module_id) = file_src_map.get(module_src).map(|id| ModuleId::new(file_id, id)) else {
         return Vec::new();
     };

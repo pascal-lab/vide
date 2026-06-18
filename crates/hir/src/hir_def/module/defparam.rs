@@ -4,12 +4,12 @@ use syntax::ast::{self, AstNode};
 
 use crate::{
     db::InternDb,
-    define_src,
+    file::HirFileId,
     hir_def::{
         alloc_idx_and_src,
         expr::{Expr, ExprId, ExprSrc, LowerExpr, impl_lower_expr},
     },
-    source_map::SourceMap,
+    source_map::{AstId, AstKind, SourceMap},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -24,10 +24,19 @@ pub struct DefParamAssignment {
 }
 
 pub type DefParamId = Idx<DefParam>;
-define_src!(DefParamSrc(ast::DefParam));
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct DefParamAst;
+
+impl AstKind for DefParamAst {
+    type Node<'a> = ast::DefParam<'a>;
+}
+
+pub type DefParamSrc = AstId<DefParamAst>;
 
 pub(crate) struct LowerDefParamCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
+    pub(crate) file_id: HirFileId,
 
     pub(crate) defparams: &'a mut Arena<DefParam>,
     pub(crate) defparam_srcs: &'a mut SourceMap<DefParamSrc, DefParam>,
@@ -45,6 +54,7 @@ pub(in crate::hir_def) macro impl_lower_defparam($ctx:ty, $data:ident, $src_map:
         fn defparam_ctx(&mut self) -> $crate::hir_def::module::defparam::LowerDefParamCtx<'_> {
             $crate::hir_def::module::defparam::LowerDefParamCtx {
                 db: self.db,
+                file_id: self.file_id,
                 defparams: &mut self.$data.defparams,
                 defparam_srcs: &mut self.$src_map.defparam_srcs,
                 exprs: &mut self.$data.exprs,
@@ -71,6 +81,7 @@ impl LowerDefParamCtx<'_> {
             .collect();
 
         alloc_idx_and_src! {
+            self.file_id;
             DefParam { assignments } => self.defparams,
             defparam => self.defparam_srcs,
         }

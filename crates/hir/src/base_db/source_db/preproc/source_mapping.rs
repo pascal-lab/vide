@@ -5,7 +5,7 @@ pub(in crate::base_db::source_db) fn source_preproc_file_ids(
     db: &dyn SourceRootDb,
     file_id: FileId,
     profile_id: Option<CompilationProfileId>,
-    trace: &PreprocessorTrace,
+    trace: &Trace,
     options: &SyntaxTreeOptions,
     preprocess: &PreprocessConfig,
 ) -> Result<PreprocSourceMap, SourcePreprocQueryError> {
@@ -113,17 +113,6 @@ pub fn preproc_virtual_builtin_path(
         "/__vide/preproc/{}/builtin/{}.sv",
         profile_path_segment(profile_id),
         sanitize_path_segment(name)
-    ))
-}
-
-pub fn preproc_virtual_expansion_path(
-    profile_id: Option<CompilationProfileId>,
-    expansion: SourceMacroExpansionId,
-) -> VfsPath {
-    VfsPath::new_virtual_path(format!(
-        "/__vide/preproc/{}/expansion/{}.sv",
-        profile_path_segment(profile_id),
-        expansion.raw()
     ))
 }
 
@@ -400,84 +389,4 @@ pub(in crate::base_db::source_db::preproc) fn unshift_text_size(
 ) -> Option<TextSize> {
     let offset = usize::from(offset).checked_sub(range_offset)?;
     Some(TextSize::from(u32::try_from(offset).ok()?))
-}
-
-pub(in crate::base_db::source_db::preproc) fn emitted_range_from_token_ranges(
-    token_ranges: &FxHashMap<SourceEmittedTokenId, TextRange>,
-    emitted_range: SourceEmittedTokenRange,
-) -> Option<TextRange> {
-    if emitted_range.len == 0 {
-        return Some(TextRange::empty(TextSize::from(0)));
-    }
-
-    let start = emitted_range.start;
-    let end = SourceEmittedTokenId::new(start.raw().checked_add(emitted_range.len - 1)?);
-    let start_range = token_ranges.get(&start)?;
-    let end_range = token_ranges.get(&end)?;
-    Some(TextRange::new(start_range.start(), end_range.end()))
-}
-
-pub(in crate::base_db::source_db::preproc) fn display_only_expansion_source_buffer_error(
-    entry: &PreprocExpansionMapping,
-) -> PreprocSourceMapError {
-    PreprocSourceMapError::DisplayOnlyVirtualSource {
-        path: match &entry.source_buffer {
-            PreprocExpansionSourceBuffer::ParseStable { path, .. }
-            | PreprocExpansionSourceBuffer::DisplayOnly { path } => path.clone(),
-        },
-        origin: entry.origin.clone(),
-    }
-}
-
-pub(in crate::base_db::source_db::preproc) fn record_expansion_display_texts(
-    profile_id: Option<CompilationProfileId>,
-    model: &SourcePreprocModel,
-    source_map: &mut PreprocSourceMap,
-) {
-    for expansion in model.macro_expansions().iter() {
-        let Some((text, token_ranges)) =
-            expansion_display_text_and_ranges(model, expansion.emitted_token_range)
-        else {
-            continue;
-        };
-        let path = preproc_virtual_expansion_path(profile_id, expansion.id);
-        source_map.insert_expansion_display_only(
-            expansion.id,
-            path,
-            text,
-            expansion.emitted_token_range,
-            token_ranges,
-        );
-    }
-}
-
-fn expansion_display_text_and_ranges(
-    model: &SourcePreprocModel,
-    emitted_range: SourceEmittedTokenRange,
-) -> Option<(String, FxHashMap<SourceEmittedTokenId, TextRange>)> {
-    let mut text = String::new();
-    let mut token_ranges = FxHashMap::default();
-
-    // This is intentionally a readable display form. It is not a
-    // parse-stable SystemVerilog source buffer or source-map authority.
-    for raw in
-        emitted_range.start.raw()..emitted_range.start.raw().checked_add(emitted_range.len)?
-    {
-        let token_id = SourceEmittedTokenId::new(raw);
-        let token = model.emitted_tokens().get(token_id)?;
-        let display = token.display.as_str();
-        let token_start_in_display = display.strip_suffix(token.text.as_str())?.len();
-        let start = text.len().checked_add(token_start_in_display)?;
-        let end = start.checked_add(token.text.len())?;
-        text.push_str(display);
-        token_ranges.insert(
-            token_id,
-            TextRange::new(
-                TextSize::from(u32::try_from(start).ok()?),
-                TextSize::from(u32::try_from(end).ok()?),
-            ),
-        );
-    }
-
-    Some((text, token_ranges))
 }

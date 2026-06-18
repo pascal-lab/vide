@@ -4,6 +4,7 @@ use smallvec::SmallVec;
 use syntax::{
     SyntaxToken, TokenKind,
     ast::{self, AstNode},
+    has_text_range::HasTextRange,
     ptr::{SyntaxNodePtr, SyntaxTokenPtr},
 };
 use triomphe::Arc;
@@ -75,9 +76,10 @@ impl GenerateRegionSrc {
     /// parsed root file. Include-expanded members still lower into HIR, but
     /// have no source entry here.
     pub fn from_direct_member(member: &ast::Member<'_>) -> Option<Self> {
-        SourceAst::new(*member).map(|member| {
-            Self::DirectItem(syntax::slang_ext::AstNodeExt::to_ptr(&member.into_inner()))
-        })
+        member
+            .syntax()
+            .text_range()
+            .map(|_| Self::DirectItem(syntax::slang_ext::AstNodeExt::to_ptr(member)))
     }
 
     fn ptr(&self) -> SyntaxNodePtr {
@@ -456,6 +458,7 @@ impl LowerGenerateBlockCtx<'_> {
             lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
 
         alloc_idx_and_src! {
+            self.file_id;
             struct_def => self.generate_block.structs,
             struct_ty => self.generate_block_source_map.struct_srcs,
         }
@@ -465,6 +468,7 @@ impl LowerGenerateBlockCtx<'_> {
         let name = lower_ident_opt(typedef.name());
 
         let typedef_id = alloc_idx_and_src! {
+            self.file_id;
             Typedef { name, ty: None } => self.generate_block.typedefs,
             typedef => self.generate_block_source_map.typedef_srcs,
         };
@@ -490,11 +494,12 @@ impl LowerGenerateBlockCtx<'_> {
         let subroutine = lower_subroutine(&func, |ty| self.expr_ctx().lower_data_ty(ty))?;
 
         let subroutine_id = alloc_idx_and_src! {
+            self.file_id;
             subroutine => self.generate_block.subroutines,
             func => self.generate_block_source_map.subroutine_srcs,
         };
 
-        let src = SubroutineSrc::from(func);
+        let src = SubroutineSrc::from_ast(self.file_id, func);
         let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
             cont_id: self.generate_block_id.into(),
             src: InFile::new(self.file_id, src),
@@ -856,6 +861,7 @@ impl LowerModuleCtx<'_> {
         }
 
         alloc_idx_and_src! {
+            self.file_id;
             GenerateRegion { items } => self.module.generate_regions,
             region => self.module_source_map.generate_region_srcs,
         }

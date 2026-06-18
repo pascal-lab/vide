@@ -1,14 +1,13 @@
-use syntax::PreprocessorTrace;
+use syntax::preproc::Trace;
 
-use super::{provenance::*, types::*};
+use super::{tables::*, types::*};
 
 impl SourcePreprocModel {
     pub fn new(index: SourcePreprocIndex) -> Self {
-        let tables = SourcePreprocTables::from_index(&index);
-        Self { index, tables }
+        SourcePreprocModelBuilder::new(index).build()
     }
 
-    pub fn from_trace(trace: PreprocessorTrace) -> Result<Self, SourcePreprocError> {
+    pub fn from_trace(trace: Trace) -> Result<Self, SourcePreprocError> {
         let index = SourcePreprocIndex::from_trace(trace)?;
         Ok(Self::new(index))
     }
@@ -21,44 +20,36 @@ impl SourcePreprocModel {
         self.index
     }
 
-    pub fn provenance_tables(&self) -> &SourcePreprocTables {
-        &self.tables
-    }
-
     pub fn macro_definitions(&self) -> &SourceMacroDefinitionTable {
-        &self.tables.macro_definitions
+        &self.macro_definitions
     }
 
     pub fn macro_references(&self) -> &SourceMacroReferenceTable {
-        &self.tables.macro_references
+        &self.macro_references
     }
 
     pub fn macro_calls(&self) -> &SourceMacroCallTable {
-        &self.tables.macro_calls
+        &self.macro_calls
     }
 
     pub fn macro_expansions(&self) -> &SourceMacroExpansionTable {
-        &self.tables.macro_expansions
+        &self.macro_expansions
     }
 
     pub fn emitted_tokens(&self) -> &SourceEmittedTokenTable {
-        &self.tables.emitted_tokens
+        &self.emitted_tokens
     }
 
-    pub fn token_provenance(&self) -> &SourceTokenProvenanceTable {
-        &self.tables.token_provenance
+    pub fn token_origins(&self) -> &SourceTokenOriginTable {
+        &self.token_origins
     }
 
     pub fn include_graph(&self) -> &SourceIncludeGraph {
-        &self.tables.include_graph
+        &self.include_graph
     }
 
     pub fn state_timeline(&self) -> &SourceMacroStateTimeline {
-        &self.tables.state_timeline
-    }
-
-    pub fn capabilities(&self) -> &SourcePreprocCapabilities {
-        &self.tables.capabilities
+        &self.state_timeline
     }
 
     pub fn root_source(&self) -> Option<PreprocSourceId> {
@@ -90,7 +81,7 @@ impl SourcePreprocModel {
     }
 
     pub fn inactive_ranges(&self) -> &[SourceRange] {
-        &self.tables.inactive_ranges
+        &self.inactive_ranges
     }
 
     pub fn events(&self) -> impl Iterator<Item = SourcePreprocEvent<'_>> + '_ {
@@ -102,89 +93,63 @@ impl SourcePreprocModel {
     }
 
     pub fn visible_macros_at(&self, position: SourcePosition) -> Vec<&SourceMacroDefinition> {
-        self.tables
-            .state_timeline
+        self.state_timeline
             .state_at_position(position)
             .map(|state| self.definitions_for_state(state))
             .unwrap_or_default()
     }
 
-    pub fn immediate_macro_expansion(&self, call: SourceMacroCallId) -> SourceMacroExpansionQuery {
-        let Some(call_fact) = self.tables.macro_calls.get(call) else {
-            return SourceMacroExpansionQuery::Unavailable(
-                SourcePreprocUnavailable::MissingMacroCall { call },
-            );
+    pub fn immediate_macro_expansion(
+        &self,
+        call: SourceMacroCallId,
+    ) -> Result<SourceMacroExpansionId, SourcePreprocUnavailable> {
+        let Some(call_fact) = self.macro_calls.get(call) else {
+            return Err(SourcePreprocUnavailable::MissingMacroCall { call });
         };
-        match (call_fact.expansion, &call_fact.status) {
-            (Some(expansion), SourceMacroCallStatus::ExpansionAvailable)
-                if self.tables.macro_expansions.get(expansion).is_some() =>
-            {
-                SourceMacroExpansionQuery::Available(expansion)
-            }
-            (Some(expansion), SourceMacroCallStatus::ExpansionAvailable) => {
-                SourceMacroExpansionQuery::Unavailable(
-                    SourcePreprocUnavailable::MissingMacroExpansion {
-                        call: self
-                            .tables
-                            .macro_expansions
-                            .get(expansion)
-                            .map(|expansion| expansion.call)
-                            .unwrap_or(call),
-                    },
-                )
-            }
-            (_, SourceMacroCallStatus::ExpansionUnavailable(reason)) => {
-                SourceMacroExpansionQuery::Unavailable(reason.clone())
-            }
-            (None, SourceMacroCallStatus::ExpansionAvailable) => {
-                SourceMacroExpansionQuery::Unavailable(
-                    SourcePreprocUnavailable::MissingMacroExpansion { call },
-                )
-            }
+        match &call_fact.expansion {
+            Ok(expansion) if self.macro_expansions.get(*expansion).is_some() => Ok(*expansion),
+            Ok(expansion) => Err(SourcePreprocUnavailable::MissingMacroExpansion {
+                call: self
+                    .macro_expansions
+                    .get(*expansion)
+                    .map(|expansion| expansion.call)
+                    .unwrap_or(call),
+            }),
+            Err(reason) => Err(reason.clone()),
         }
     }
 
-    pub fn recursive_macro_expansion(
+    pub fn event_location(
         &self,
-        call: SourceMacroCallId,
-    ) -> SourceRecursiveMacroExpansion {
-        let mut result = SourceRecursiveMacroExpansion {
-            root_call: call,
-            expansions: Vec::new(),
-            unavailable: Vec::new(),
-        };
-        self.collect_recursive_macro_expansion(call, &mut result, &mut Vec::new());
-        result
-    }
-
-    pub fn provenance(&self, entity: SourcePreprocEntity) -> Option<SourcePreprocProvenance> {
-        let (event_id, name, range, name_range) = match entity {
-            SourcePreprocEntity::Define(index) => {
+        anchor: SourcePreprocEventAnchor,
+    ) -> Option<SourcePreprocEventLocation> {
+        let (event_id, name, range, name_range) = match anchor {
+            SourcePreprocEventAnchor::Define(index) => {
                 let define = self.index.defines.get(index)?;
                 (define.event_id, define.name.clone(), define.range, define.name_range)
             }
-            SourcePreprocEntity::Undef(index) => {
+            SourcePreprocEventAnchor::Undef(index) => {
                 let undef = self.index.undefs.get(index)?;
                 (undef.event_id, undef.name.clone(), undef.range, undef.name_range)
             }
-            SourcePreprocEntity::Usage(index) => {
+            SourcePreprocEventAnchor::Usage(index) => {
                 let usage = self.index.usages.get(index)?;
                 (usage.event_id, usage.name.clone(), usage.range, usage.name_range)
             }
-            SourcePreprocEntity::Include(index) => {
+            SourcePreprocEventAnchor::Include(index) => {
                 let include = self.index.includes.get(index)?;
                 (include.event_id, None, include.range, include.target_range)
             }
-            SourcePreprocEntity::Conditional(index) => {
+            SourcePreprocEventAnchor::Conditional(index) => {
                 let conditional = self.index.conditionals.get(index)?;
                 (conditional.event_id, None, conditional.range, None)
             }
         };
-        Some(SourcePreprocProvenance { event_id, entity, name, range, name_range })
+        Some(SourcePreprocEventLocation { event_id, anchor, name, range, name_range })
     }
 
-    pub fn source_range(&self, entity: SourcePreprocEntity) -> Option<SourceRange> {
-        self.provenance(entity).map(|provenance| provenance.range)
+    pub fn event_range(&self, anchor: SourcePreprocEventAnchor) -> Option<SourceRange> {
+        self.event_location(anchor).map(|location| location.range)
     }
 
     pub fn define(&self, index: usize) -> Option<&SourceMacroDefine> {
@@ -211,112 +176,12 @@ impl SourcePreprocModel {
         state
             .definitions
             .values()
-            .filter_map(|definition_id| self.tables.macro_definitions.get(*definition_id))
+            .filter_map(|definition_id| self.macro_definitions.get(*definition_id))
             .collect()
     }
-
-    fn collect_recursive_macro_expansion(
-        &self,
-        call: SourceMacroCallId,
-        result: &mut SourceRecursiveMacroExpansion,
-        visiting: &mut Vec<SourceMacroCallId>,
-    ) {
-        if visiting.contains(&call) {
-            result.unavailable.push(SourceMacroExpansionUnavailable {
-                call,
-                reason: SourcePreprocUnavailable::MissingMacroExpansion { call },
-            });
-            return;
-        }
-
-        match self.immediate_macro_expansion(call) {
-            SourceMacroExpansionQuery::Available(expansion_id) => {
-                if result.expansions.contains(&expansion_id) {
-                    return;
-                }
-                result.expansions.push(expansion_id);
-                let Some(expansion) = self.tables.macro_expansions.get(expansion_id) else {
-                    result.unavailable.push(SourceMacroExpansionUnavailable {
-                        call,
-                        reason: SourcePreprocUnavailable::MissingMacroExpansion { call },
-                    });
-                    return;
-                };
-                visiting.push(call);
-                for child in &expansion.child_calls {
-                    self.collect_recursive_macro_expansion(*child, result, visiting);
-                }
-                visiting.pop();
-            }
-            SourceMacroExpansionQuery::Unavailable(reason) => {
-                result.unavailable.push(SourceMacroExpansionUnavailable { call, reason });
-            }
-        }
-    }
-
-    fn event_from_record(
-        &self,
-        source_order: usize,
-        directive: &SourcePreprocEventRecord,
-    ) -> Option<SourcePreprocEvent<'_>> {
-        match directive.kind {
-            MacroEventKind::Define => {
-                let define = self.index.defines.get(directive.index)?;
-                Some(SourcePreprocEvent::Define {
-                    source_order,
-                    event_id: directive.event_id,
-                    index: directive.index,
-                    define,
-                })
-            }
-            MacroEventKind::Undef => {
-                let undef = self.index.undefs.get(directive.index)?;
-                Some(SourcePreprocEvent::Undef {
-                    source_order,
-                    event_id: directive.event_id,
-                    index: directive.index,
-                    undef,
-                })
-            }
-            MacroEventKind::Include => {
-                let include = self.index.includes.get(directive.index)?;
-                Some(SourcePreprocEvent::Include {
-                    source_order,
-                    event_id: directive.event_id,
-                    index: directive.index,
-                    include,
-                })
-            }
-            MacroEventKind::Conditional => {
-                let conditional = self.index.conditionals.get(directive.index)?;
-                Some(SourcePreprocEvent::Conditional {
-                    source_order,
-                    event_id: directive.event_id,
-                    index: directive.index,
-                    conditional,
-                })
-            }
-            MacroEventKind::Branch => {
-                let conditional = self.index.conditionals.get(directive.index)?;
-                Some(SourcePreprocEvent::Branch {
-                    source_order,
-                    event_id: directive.event_id,
-                    index: directive.index,
-                    conditional,
-                })
-            }
-            MacroEventKind::Usage => {
-                let usage = self.index.usages.get(directive.index)?;
-                Some(SourcePreprocEvent::Usage {
-                    source_order,
-                    event_id: directive.event_id,
-                    index: directive.index,
-                    usage,
-                })
-            }
-        }
-    }
 }
+
+mod events;
 
 #[cfg(test)]
 mod tests;

@@ -8,7 +8,6 @@ use syntax::{
 use utils::get::{Get, GetRef};
 
 use crate::{
-    define_src, define_src_with_name,
     hir_def::{
         HirData, Ident, alloc_idx_and_src,
         expr::{
@@ -20,7 +19,10 @@ use crate::{
         module::LowerModuleCtx,
         ty::{NetType, lower_net_kind},
     },
-    source_map::SourceMap,
+    source_map::{
+        AstId, AstKind, FromSourceAst, IsSrc, NamedAstId, SourceAst, SourceMap, ToAstNode,
+        exact_ast_node_from_ptr,
+    },
 };
 
 // structure:
@@ -45,15 +47,90 @@ pub struct PortDecl {
 
 pub type PortDeclId = Idx<PortDecl>;
 
-define_src!(PortDeclSrc(ast::ImplicitAnsiPort, ast::ExplicitAnsiPort, ast::PortDeclaration));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct ImplicitAnsiPortAst;
+
+impl AstKind for ImplicitAnsiPortAst {
+    type Node<'a> = ast::ImplicitAnsiPort<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct ExplicitAnsiPortAst;
+
+impl AstKind for ExplicitAnsiPortAst {
+    type Node<'a> = ast::ExplicitAnsiPort<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct PortDeclarationAst;
+
+impl AstKind for PortDeclarationAst {
+    type Node<'a> = ast::PortDeclaration<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum PortDeclSrc {
+    ImplicitAnsiPort(AstId<ImplicitAnsiPortAst>),
+    ExplicitAnsiPort(AstId<ExplicitAnsiPortAst>),
+    PortDeclaration(AstId<PortDeclarationAst>),
+}
 
 impl PortDeclSrc {
     pub fn ptr(&self) -> SyntaxNodePtr {
         match self {
-            PortDeclSrc::ImplicitAnsiPort(ptr)
-            | PortDeclSrc::ExplicitAnsiPort(ptr)
-            | PortDeclSrc::PortDeclaration(ptr) => *ptr,
+            PortDeclSrc::ImplicitAnsiPort(src) => src.ptr(),
+            PortDeclSrc::ExplicitAnsiPort(src) => src.ptr(),
+            PortDeclSrc::PortDeclaration(src) => src.ptr(),
         }
+    }
+}
+
+impl IsSrc for PortDeclSrc {
+    fn kind(&self) -> syntax::SyntaxKind {
+        self.ptr().kind()
+    }
+
+    fn range(&self) -> utils::text_edit::TextRange {
+        self.ptr().range()
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::ImplicitAnsiPort<'a>> for PortDeclSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::ImplicitAnsiPort<'a>> {
+        let PortDeclSrc::ImplicitAnsiPort(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::ExplicitAnsiPort<'a>> for PortDeclSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::ExplicitAnsiPort<'a>> {
+        let PortDeclSrc::ExplicitAnsiPort(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::PortDeclaration<'a>> for PortDeclSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::PortDeclaration<'a>> {
+        let PortDeclSrc::PortDeclaration(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::ImplicitAnsiPort<'a>> for PortDeclSrc {
+    fn from_source_ast(port: SourceAst<ast::ImplicitAnsiPort<'a>>) -> Self {
+        Self::ImplicitAnsiPort(AstId::from_source_ast(port))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::ExplicitAnsiPort<'a>> for PortDeclSrc {
+    fn from_source_ast(port: SourceAst<ast::ExplicitAnsiPort<'a>>) -> Self {
+        Self::ExplicitAnsiPort(AstId::from_source_ast(port))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::PortDeclaration<'a>> for PortDeclSrc {
+    fn from_source_ast(port: SourceAst<ast::PortDeclaration<'a>>) -> Self {
+        Self::PortDeclaration(AstId::from_source_ast(port))
     }
 }
 
@@ -155,7 +232,14 @@ pub struct NonAnsiPort {
 
 pub type NonAnsiPortId = Idx<NonAnsiPort>;
 
-define_src_with_name!(NonAnsiPortSrc(ast::NonAnsiPort));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct NonAnsiPortAst;
+
+impl AstKind for NonAnsiPortAst {
+    type Node<'a> = ast::NonAnsiPort<'a>;
+}
+
+pub type NonAnsiPortSrc = NamedAstId<NonAnsiPortAst>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct PortRef {
@@ -165,7 +249,14 @@ pub struct PortRef {
 
 pub type PortRefId = Idx<PortRef>;
 
-define_src_with_name!(PortRefSrc(ast::PortReference));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct PortReferenceAst;
+
+impl AstKind for PortReferenceAst {
+    type Node<'a> = ast::PortReference<'a>;
+}
+
+pub type PortRefSrc = NamedAstId<PortReferenceAst>;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum PortSrcs {
@@ -191,7 +282,90 @@ impl PortSrcs {
     }
 }
 
-define_src!(PortListSrc(ast::NonAnsiPortList, ast::AnsiPortList, ast::WildcardPortList));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct NonAnsiPortListAst;
+
+impl AstKind for NonAnsiPortListAst {
+    type Node<'a> = ast::NonAnsiPortList<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct AnsiPortListAst;
+
+impl AstKind for AnsiPortListAst {
+    type Node<'a> = ast::AnsiPortList<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct WildcardPortListAst;
+
+impl AstKind for WildcardPortListAst {
+    type Node<'a> = ast::WildcardPortList<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum PortListSrc {
+    NonAnsiPortList(AstId<NonAnsiPortListAst>),
+    AnsiPortList(AstId<AnsiPortListAst>),
+    WildcardPortList(AstId<WildcardPortListAst>),
+}
+
+impl IsSrc for PortListSrc {
+    fn kind(&self) -> syntax::SyntaxKind {
+        match self {
+            PortListSrc::NonAnsiPortList(src) => src.ptr().kind(),
+            PortListSrc::AnsiPortList(src) => src.ptr().kind(),
+            PortListSrc::WildcardPortList(src) => src.ptr().kind(),
+        }
+    }
+
+    fn range(&self) -> utils::text_edit::TextRange {
+        match self {
+            PortListSrc::NonAnsiPortList(src) => src.ptr().range(),
+            PortListSrc::AnsiPortList(src) => src.ptr().range(),
+            PortListSrc::WildcardPortList(src) => src.ptr().range(),
+        }
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::NonAnsiPortList<'a>> for PortListSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::NonAnsiPortList<'a>> {
+        let PortListSrc::NonAnsiPortList(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::AnsiPortList<'a>> for PortListSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::AnsiPortList<'a>> {
+        let PortListSrc::AnsiPortList(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::WildcardPortList<'a>> for PortListSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::WildcardPortList<'a>> {
+        let PortListSrc::WildcardPortList(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::NonAnsiPortList<'a>> for PortListSrc {
+    fn from_source_ast(list: SourceAst<ast::NonAnsiPortList<'a>>) -> Self {
+        Self::NonAnsiPortList(AstId::from_source_ast(list))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::AnsiPortList<'a>> for PortListSrc {
+    fn from_source_ast(list: SourceAst<ast::AnsiPortList<'a>>) -> Self {
+        Self::AnsiPortList(AstId::from_source_ast(list))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::WildcardPortList<'a>> for PortListSrc {
+    fn from_source_ast(list: SourceAst<ast::WildcardPortList<'a>>) -> Self {
+        Self::WildcardPortList(AstId::from_source_ast(list))
+    }
+}
 
 impl Default for PortSrcs {
     fn default() -> Self {
@@ -297,13 +471,14 @@ impl LowerModuleCtx<'_> {
                     let current_header = header.unwrap_or_else(|| self.default_port_header());
                     header = Some(current_header);
                     alloc_idx_and_src! {
-                        PortDecl {
-                            header: current_header,
-                            decls: IdxRange::new(decl_id..end),
-                            name: None,
-                        } => ports,
-                        port => decls,
-                    };
+                    self.file_id;
+                                PortDecl {
+                                    header: current_header,
+                                    decls: IdxRange::new(decl_id..end),
+                                    name: None,
+                                } => ports,
+                                port => decls,
+                            };
                 }
                 ExplicitAnsiPort(port) => {
                     header = Some(self.lower_explicit_ansi_header(port.direction(), header));
@@ -320,7 +495,10 @@ impl LowerModuleCtx<'_> {
                         ),
                         name: lower_ident_opt(port.name()),
                     });
-                    decls.insert(port.into(), idx);
+                    decls.insert(
+                        PortDeclSrc::ExplicitAnsiPort(AstId::from_ast(self.file_id, port)),
+                        idx,
+                    );
                 }
                 _ => continue,
             };
@@ -330,8 +508,13 @@ impl LowerModuleCtx<'_> {
         self.region_tree.stage(port_list.close_paren(), port_list.syntax());
 
         self.module.ports = Ports::Ansi(ports);
-        self.module_source_map.port_srcs =
-            PortSrcs::Ansi { decls, port_list_src: Some(PortListSrc::from(port_list)) };
+        self.module_source_map.port_srcs = PortSrcs::Ansi {
+            decls,
+            port_list_src: Some(PortListSrc::AnsiPortList(AstId::from_ast(
+                self.file_id,
+                port_list,
+            ))),
+        };
     }
 
     pub(crate) fn lower_wildcard_ports(&mut self, port_list: ast::WildcardPortList) {
@@ -339,14 +522,17 @@ impl LowerModuleCtx<'_> {
         self.module.ports = Ports::Ansi(Arena::default());
         self.module_source_map.port_srcs = PortSrcs::Ansi {
             decls: SourceMap::default(),
-            port_list_src: Some(PortListSrc::from(port_list)),
+            port_list_src: Some(PortListSrc::WildcardPortList(AstId::from_ast(
+                self.file_id,
+                port_list,
+            ))),
         };
     }
 
     pub(crate) fn lower_nonansi_port(&mut self, port_list: ast::NonAnsiPortList) {
         let mut ports = Arena::default();
         let mut refs = Arena::default();
-        let mut port_srcs = SourceMap::default();
+        let mut port_srcs: SourceMap<NonAnsiPortSrc, NonAnsiPort> = SourceMap::default();
         let mut ref_srcs: SourceMap<PortRefSrc, PortRef> = SourceMap::default();
 
         for port in port_list.ports().children() {
@@ -361,9 +547,10 @@ impl LowerModuleCtx<'_> {
                         .and_then(|sel| sel.selector())
                         .map(|sel| self.expr_ctx().lower_selector(sel));
                     alloc_idx_and_src! {
-                        PortRef { ident, select } => refs,
-                        port_ref => ref_srcs,
-                    };
+                    self.file_id;
+                                PortRef { ident, select } => refs,
+                                port_ref => ref_srcs,
+                            };
                 };
 
                 match exprs? {
@@ -409,13 +596,14 @@ impl LowerModuleCtx<'_> {
 
             self.region_tree.handle_node(port.syntax());
             let port_id = alloc_idx_and_src! {
+            self.file_id;
                 hir_port => ports,
                 port => port_srcs,
             };
             if src_name.is_some()
                 && let Some(src) = port_srcs.get(port_id)
             {
-                port_srcs.insert(NonAnsiPortSrc { name: src_name, ..src }, port_id);
+                port_srcs.insert(NonAnsiPortSrc::new(src.file_id, src.node, src_name), port_id);
             }
         }
 
@@ -426,7 +614,10 @@ impl LowerModuleCtx<'_> {
             ports: port_srcs,
             refs: ref_srcs,
             decls: SourceMap::default(),
-            port_list_src: Some(PortListSrc::from(port_list)),
+            port_list_src: Some(PortListSrc::NonAnsiPortList(AstId::from_ast(
+                self.file_id,
+                port_list,
+            ))),
         };
     }
 
@@ -443,9 +634,10 @@ impl LowerModuleCtx<'_> {
             (Ports::NonAnsi { decls: port_decls, .. }, PortSrcs::NonAnsi { decls: srcs, .. })
             | (Ports::Ansi(port_decls), PortSrcs::Ansi { decls: srcs, .. }) => {
                 alloc_idx_and_src! {
-                    PortDecl { header, decls, name: None } => port_decls,
-                    decl => srcs,
-                }
+                self.file_id;
+                        PortDecl { header, decls, name: None } => port_decls,
+                        decl => srcs,
+                    }
             }
             (Ports::NonAnsi { decls: port_decls, .. }, _) | (Ports::Ansi(port_decls), _) => {
                 port_decls.alloc(PortDecl { header, decls, name: None })

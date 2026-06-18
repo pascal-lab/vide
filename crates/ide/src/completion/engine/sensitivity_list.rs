@@ -28,7 +28,7 @@ pub(super) fn complete_sensitivity_list(
 }
 
 fn module_id_at_offset(db: &RootDb, position: FilePosition) -> Option<ModuleId> {
-    let file_id = HirFileId(position.file_id);
+    let file_id = HirFileId::File(position.file_id);
     let (hir_file, file_src_map) = db.hir_file_with_source_map(file_id);
     let mut best: Option<(TextSize, ModuleId)> = None;
 

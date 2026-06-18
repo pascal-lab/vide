@@ -1530,7 +1530,7 @@ endmodule
             && !info.contains("Arguments")
             && !info.contains("Expansion steps")
             && !info.contains("Virtual expansion source")
-            && !info.contains("Token provenance"),
+            && !info.contains("Token origin"),
         "macro call hover should include the expanded macro text: {info}"
     );
 
@@ -3254,7 +3254,7 @@ endmodule
         }
 
         let db = host.raw_db();
-        let hir_file_id = HirFileId(file_id);
+        let hir_file_id = HirFileId::File(file_id);
         let (hir_file, _) = db.hir_file_with_source_map(hir_file_id);
         let (local_module_id, _) =
             hir_file.modules.iter().next().expect("fixture should lower one module");

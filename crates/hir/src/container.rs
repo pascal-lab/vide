@@ -162,10 +162,6 @@ impl ContainerId {
 }
 
 impl HirFileId {
-    pub fn file_id(&self) -> FileId {
-        self.0
-    }
-
     #[inline]
     pub fn to_container(&self, db: &dyn HirDb) -> Arc<HirFile> {
         db.hir_file(*self)

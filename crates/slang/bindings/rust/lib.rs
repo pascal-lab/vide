@@ -4,7 +4,7 @@ pub mod ast;
 mod diagnostic;
 mod facts;
 mod ffi;
-mod preprocessor_trace;
+pub mod preproc;
 mod source_buffer;
 mod syntax;
 mod syntax_tree;
@@ -14,7 +14,7 @@ mod value;
 pub use diagnostic::*;
 pub use facts::*;
 pub use ffi::CxxSV;
-pub use preprocessor_trace::*;
+pub use preproc::*;
 pub use source_buffer::*;
 pub use syntax::{
     SyntaxKind, TokenKind, TriviaKind,
