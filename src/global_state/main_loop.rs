@@ -52,18 +52,9 @@ impl GlobalState {
         handler(self, res)
     }
 
-    pub(in crate::global_state) fn drain_pending_diagnostic_requests(&mut self) {
-        let pending_requests = std::mem::take(&mut self.diagnostics.pending_diagnostic_requests);
-        for req in pending_requests {
-            if !self.is_completed(&req) {
-                self.handle_request(req);
-            }
-        }
-    }
-
-    pub(in crate::global_state) fn drain_pending_workspace_symbol_requests(&mut self) {
+    pub(in crate::global_state) fn drain_pending_workspace_readiness_requests(&mut self) {
         let pending_requests =
-            std::mem::take(&mut self.workspace.pending_workspace_symbol_requests);
+            std::mem::take(&mut self.workspace.pending_workspace_readiness_requests);
         for req in pending_requests {
             if !self.is_completed(&req) {
                 self.handle_request(req);
@@ -409,7 +400,7 @@ mod tests {
         state.register_request(Instant::now(), &req);
         state.handle_request(req);
 
-        assert_eq!(state.diagnostics.pending_diagnostic_requests.len(), 1);
+        assert_eq!(state.workspace.pending_workspace_readiness_requests.len(), 1);
         assert!(state.tasks.task_pool.receiver.recv_timeout(Duration::from_millis(50)).is_err());
 
         state
@@ -420,7 +411,7 @@ mod tests {
             }))
             .unwrap();
 
-        assert!(state.diagnostics.pending_diagnostic_requests.is_empty());
+        assert!(state.workspace.pending_workspace_readiness_requests.is_empty());
         let task = state.tasks.task_pool.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         let Task::Response(response) = task else {
             panic!("expected parked diagnostic request to resume as response task, got {task:?}");
@@ -448,7 +439,7 @@ mod tests {
         state.register_request(Instant::now(), &req);
         state.handle_request(req);
 
-        assert_eq!(state.workspace.pending_workspace_symbol_requests.len(), 1);
+        assert_eq!(state.workspace.pending_workspace_readiness_requests.len(), 1);
         assert!(state.tasks.task_pool.receiver.try_recv().is_err());
 
         state
@@ -459,7 +450,7 @@ mod tests {
             }))
             .unwrap();
 
-        assert!(state.workspace.pending_workspace_symbol_requests.is_empty());
+        assert!(state.workspace.pending_workspace_readiness_requests.is_empty());
         let task = state.tasks.task_pool.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         let Task::Response(response) = task else {
             panic!(
