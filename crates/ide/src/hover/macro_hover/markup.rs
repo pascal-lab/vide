@@ -8,6 +8,7 @@ use hir::{
 };
 use vfs::FileId;
 
+use super::expansion::macro_expansion_hover_text;
 use crate::{db::root_db::RootDb, markup::Markup};
 
 struct MacroSourceLink {
@@ -50,13 +51,31 @@ fn macro_signature(definition: &MacroDefinition) -> String {
     signature
 }
 
-fn macro_definition_line(definition: &MacroDefinition) -> String {
+fn macro_definition_line(db: &RootDb, definition: &MacroDefinition) -> String {
+    source_macro_definition_text(db, definition)
+        .unwrap_or_else(|| fallback_macro_definition_line(definition))
+}
+
+fn source_macro_definition_text(db: &RootDb, definition: &MacroDefinition) -> Option<String> {
+    let source = db.file_text(definition.file_id);
+    let start = usize::from(definition.source_range.start());
+    let end = usize::from(definition.source_range.end());
+    let raw = source.get(start..end)?;
+    raw.trim_start().starts_with("`define").then(|| macro_expansion_hover_text(raw))
+}
+
+fn fallback_macro_definition_line(definition: &MacroDefinition) -> String {
     let mut line = String::from("`define ");
-    line.push_str(&macro_signature(definition));
-    let body = macro_definition_body_text(definition);
-    if !body.is_empty() {
-        line.push(' ');
-        line.push_str(&body);
+    line.push_str(definition.name.as_str());
+    if let Some(params) = &definition.params {
+        line.push('(');
+        for (index, param) in params.iter().enumerate() {
+            if index > 0 {
+                line.push_str(", ");
+            }
+            line.push_str(param.name.as_deref().unwrap_or("<unnamed>"));
+        }
+        line.push(')');
     }
     line
 }
@@ -194,7 +213,7 @@ fn render_macro_definition_display(
     anchor_file_id: FileId,
     definition: &MacroDefinition,
 ) {
-    markup.push_with_code_fence(&macro_definition_line(definition));
+    markup.push_with_code_fence(&macro_definition_line(db, definition));
     render_macro_expansion_separator(markup);
     render_macro_source_link(db, markup, definition, anchor_file_id);
 }
@@ -243,8 +262,4 @@ fn markdown_link_label(label: &str) -> String {
 
 fn markdown_link_destination(destination: &str) -> String {
     destination.replace('>', "%3E")
-}
-
-fn macro_definition_body_text(definition: &MacroDefinition) -> String {
-    definition.body_tokens.iter().map(|token| token.as_str()).collect::<Vec<_>>().join(" ")
 }
