@@ -37,15 +37,38 @@ pub(crate) fn map_macro_definition(
         })
         .transpose()?;
     let file_id = require_file_backed_source(&source)?;
+    let source_range = definition_source_range(mapped, file_id, directive_range, definition);
     Ok(MacroDefinition {
         id: definition.id.into(),
         file_id,
         name: definition.name.clone(),
         params,
         body_tokens: definition.body_tokens.iter().map(|token| token.raw.clone()).collect(),
+        source_range,
         directive_range,
         name_range,
     })
+}
+
+fn definition_source_range(
+    mapped: &MappedSourcePreprocModel,
+    file_id: FileId,
+    directive_range: TextRange,
+    definition: &SourceMacroDefinition,
+) -> TextRange {
+    let mut source_range = directive_range;
+    for token_range in definition.body_tokens.iter().filter_map(|token| token.range) {
+        let Ok((token_source, token_range)) = map_source_mapping_range(mapped, token_range) else {
+            continue;
+        };
+        let Ok(token_file_id) = require_file_backed_source(&token_source) else {
+            continue;
+        };
+        if token_file_id == file_id && token_range.end() > source_range.end() {
+            source_range = TextRange::new(source_range.start(), token_range.end());
+        }
+    }
+    source_range
 }
 
 pub(in crate::preproc) fn map_macro_param_definition(

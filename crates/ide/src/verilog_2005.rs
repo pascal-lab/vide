@@ -1892,7 +1892,7 @@ endmodule
         .unwrap()
         .expect("macro definition hover expected");
     assert!(
-        hover.info.as_str().contains("`define `LOCAL_WIDTH 8"),
+        hover.info.as_str().contains("`define LOCAL_WIDTH 8"),
         "hover should show macro definition"
     );
     assert!(hover.info.as_str().contains("from [feature.v]"), "hover should show macro source");

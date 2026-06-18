@@ -7,6 +7,7 @@ use syntax::{
 use utils::{
     get::GetRef,
     line_index::{TextRange, TextSize},
+    uniq_vec::UniqVec,
 };
 use vfs::FileId;
 
@@ -154,7 +155,12 @@ fn hover_for_token(
 }
 
 fn merge_hover_results(markups: Vec<Markup>) -> Option<Markup> {
-    let mut iter = markups.into_iter();
+    let mut unique = UniqVec::<Markup, Markup>::default();
+    for markup in markups {
+        unique.push_unique(markup);
+    }
+
+    let mut iter = unique.into_vec().into_iter();
     let mut res = iter.next()?;
     for markup in iter {
         res.horizontal_line();

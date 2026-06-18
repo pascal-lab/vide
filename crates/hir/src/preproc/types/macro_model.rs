@@ -7,6 +7,7 @@ pub struct MacroDefinition {
     pub name: SmolStr,
     pub params: Option<Vec<MacroDefinitionParam>>,
     pub body_tokens: Vec<SmolStr>,
+    pub source_range: TextRange,
     pub directive_range: TextRange,
     pub name_range: TextRange,
 }

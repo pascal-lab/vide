@@ -105,6 +105,7 @@ fn configured_predefine_definition(
         name: predefine_name,
         params: None,
         body_tokens: Vec::new(),
+        source_range: source.range,
         directive_range: source.range,
         name_range: source.range,
     })
