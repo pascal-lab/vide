@@ -1,5 +1,6 @@
 ---
 source: crates/ide/src/completion/request.rs
+assertion_line: 453
 expression: report
 ---
 module member keywords: Some(
@@ -134,13 +135,7 @@ newline accepts ansi port items: Some(
     },
 )
 newline suppresses module member keywords: None
-comma filters mixed request: Some(
-    CompletionRequest {
-        providers: [
-            ProviderPlan {
-                provider: PortConnectionName,
-                trigger: NonNewline,
-            },
-        ],
-    },
-)
+comma on empty boundary suppresses port connections: None
+comma on empty boundary suppresses argument expressions: None
+open paren on empty boundary suppresses port connections: None
+comma filters mixed request: None
