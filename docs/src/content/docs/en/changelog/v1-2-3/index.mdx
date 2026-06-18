@@ -1,0 +1,24 @@
+---
+title: 1.2.3
+description: Vide 1.2.3 release notes.
+---
+
+Vide 1.2.3 fixes Qihe command default ownership and keeps changelog navigation in sync with version pages.
+
+## Fixes
+
+### Qihe Configuration
+
+- `vide.qihe.command` now defaults to `null`, letting the language server choose the actual platform command: `qihe.bat` on Windows and `qihe` elsewhere. The VS Code extension no longer carries a duplicate default, avoiding drift between extension settings, schema data, and language server behavior. ([#267](https://github.com/pascal-lab/vide/pull/267) by [@hongjr03](https://github.com/hongjr03))
+
+## Documentation
+
+- The changelog sidebar is now generated from the version page directories, so new version pages appear automatically without a matching manual Astro config edit. ([#268](https://github.com/pascal-lab/vide/pull/268) by [@hongjr03](https://github.com/hongjr03))
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+- [@hongjr03](https://github.com/hongjr03)
+
+**Full Changelog**: [v1.2.2...v1.2.3](https://github.com/pascal-lab/vide/compare/v1.2.2...v1.2.3)

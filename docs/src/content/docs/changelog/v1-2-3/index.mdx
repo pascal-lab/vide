@@ -1,0 +1,24 @@
+---
+title: 1.2.3
+description: Vide 1.2.3 更新日志。
+---
+
+Vide 1.2.3 修正 Qihe 命令默认值的归属，并让更新日志导航自动跟随版本页面。
+
+## 修复
+
+### Qihe 配置
+
+- `vide.qihe.command` 现在默认保持为 `null`，由语言服务器按平台选择实际命令：Windows 使用 `qihe.bat`，其他平台使用 `qihe`。VS Code 扩展不再维护一份重复默认值，避免扩展设置、schema 和语言服务器行为不一致。([#267](https://github.com/pascal-lab/vide/pull/267) by [@hongjr03](https://github.com/hongjr03))
+
+## 文档
+
+- 更新日志侧边栏现在从版本页面目录自动生成，新增版本页面后会自动显示在侧边栏中，不再需要手动同步 Astro 配置。([#268](https://github.com/pascal-lab/vide/pull/268) by [@hongjr03](https://github.com/hongjr03))
+
+## 贡献者
+
+感谢本次发布的所有贡献者：
+
+- [@hongjr03](https://github.com/hongjr03)
+
+**完整更新列表**: [v1.2.2...v1.2.3](https://github.com/pascal-lab/vide/compare/v1.2.2...v1.2.3)
