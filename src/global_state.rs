@@ -98,7 +98,6 @@ pub(crate) struct AnalysisState {
 
 pub(crate) struct DiagnosticsState {
     pub(crate) published_diagnostics: FxHashMap<DiagnosticPublishKey, Vec<lsp_types::Diagnostic>>,
-    pub(crate) pending_diagnostic_requests: Vec<Request>,
     // didOpen/didClose can change the URI set for a file without changing its
     // text. Keep those target changes explicit so push diagnostics converge at
     // the normal change-processing boundary.
@@ -120,6 +119,7 @@ pub(crate) struct WorkspaceState {
     pub(crate) vfs_loader: Handle<Box<dyn vfs::loader::Handle>, Receiver<vfs::loader::Message>>,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
     pub(crate) workspace_vfs: WorkspaceVfsReadiness,
+    pub(crate) pending_workspace_readiness_requests: Vec<Request>,
 
     pub(crate) workspaces: Arc<Vec<Workspace>>,
     pub(crate) fetch_workspaces_task:
@@ -172,7 +172,6 @@ impl GlobalState {
             },
             diagnostics: DiagnosticsState {
                 published_diagnostics: FxHashMap::default(),
-                pending_diagnostic_requests: Vec::new(),
                 pending_document_diagnostic_targets: FxHashSet::default(),
                 diagnostics_revision: 0,
                 diagnostic_target_revision: 0,
@@ -182,6 +181,7 @@ impl GlobalState {
                 vfs_loader,
                 vfs: Arc::new(RwLock::new((Vfs::default(), IntMap::default()))),
                 workspace_vfs: WorkspaceVfsReadiness::default(),
+                pending_workspace_readiness_requests: Vec::new(),
                 workspaces: Arc::from(vec![]),
                 fetch_workspaces_task: ExclTask::default(),
                 registered_client_file_watcher_globs: None,

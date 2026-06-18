@@ -173,10 +173,11 @@ impl GlobalState {
         let state_changed = self.process_changes();
         if self.workspace.workspace_vfs.take_deferred_diagnostics_if_ready() {
             self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
-            self.drain_pending_diagnostic_requests();
         }
 
         if self.is_workspace_ready() {
+            self.drain_pending_workspace_readiness_requests();
+
             let client_refresh = !was_workspace_ready || state_changed;
 
             if client_refresh && self.config_state.config.cli_code_lens_refresh_support() {
