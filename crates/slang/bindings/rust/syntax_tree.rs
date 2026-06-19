@@ -643,11 +643,15 @@ impl SyntaxTokenWithParent<'_> {
     }
 
     #[inline]
-    pub fn preprocessor_trace_origin(&self) -> TokenOrigin {
+    pub fn preprocessor_trace_emitted_token(&self) -> EmittedToken {
         let token = self.tok._ptr.as_ref().get_ref();
         let context = self.parent._ptr.as_ref().get_ref();
         EmittedToken::from_raw(ffi::SyntaxToken::preprocessorTraceOriginWithContext(token, context))
-            .origin
+    }
+
+    #[inline]
+    pub fn preprocessor_trace_origin(&self) -> TokenOrigin {
+        self.preprocessor_trace_emitted_token().origin
     }
 }
 
