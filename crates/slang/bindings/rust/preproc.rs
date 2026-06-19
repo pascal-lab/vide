@@ -52,6 +52,7 @@ pub struct Event {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmittedToken {
+    pub emitted_token_index: Option<u32>,
     pub raw_text: String,
     pub value_text: String,
     pub display_text: String,

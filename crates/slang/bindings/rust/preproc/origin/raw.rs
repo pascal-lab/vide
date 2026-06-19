@@ -35,6 +35,8 @@ impl EmittedToken {
     #[inline]
     pub(crate) fn from_raw(raw: ffi::RawPreprocessorTraceEmittedToken) -> Self {
         let ffi::RawPreprocessorTraceEmittedToken {
+            emitted_token_index,
+            has_emitted_token_index,
             raw_text,
             value_text,
             display_text,
@@ -61,6 +63,7 @@ impl EmittedToken {
             argument_token_range,
         } = raw;
         Self {
+            emitted_token_index: has_emitted_token_index.then_some(emitted_token_index),
             raw_text,
             value_text,
             display_text,

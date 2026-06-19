@@ -1,4 +1,4 @@
-use hir::hir_def::macro_file::{MacroFileId, Origin, macro_files_at_offset};
+use hir::hir_def::macro_file::{MacroFileId, Origin, SourceEmittedTokenId, macro_files_at_offset};
 use rustc_hash::FxHashMap;
 use syntax::{
     SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, has_text_range::HasTextRange,
@@ -15,9 +15,7 @@ mod preproc;
 use macro_gate::source_macro_invocation_may_cover_offset;
 use preproc::preproc_source_target_at_offset;
 #[cfg(test)]
-use preproc::{
-    origin_from_token_origin_raw, push_unique_preproc_hit, syntax_tokens_for_preproc_hit,
-};
+use preproc::{push_unique_preproc_hit, syntax_tokens_for_preproc_hit};
 
 #[derive(Debug, Clone)]
 pub(crate) enum SourceTargetResolution<'tree> {
@@ -145,7 +143,7 @@ impl SourceTargetRequestCache {
 pub(crate) struct PreprocTokenHit {
     pub expansion: usize,
     pub call: usize,
-    pub emitted_token: usize,
+    pub emitted_token: SourceEmittedTokenId,
     pub display_range: TextRange,
     pub source_range: TextRange,
     pub origin: Origin,

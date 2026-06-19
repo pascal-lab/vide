@@ -132,6 +132,8 @@ mod slang_ffi {
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct RawPreprocessorTraceEmittedToken {
+        emitted_token_index: u32,
+        has_emitted_token_index: bool,
         raw_text: String,
         value_text: String,
         display_text: String,
