@@ -1,0 +1,19 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(info)
+---
+Module `child`
+
+```systemverilog
+module child #(
+    parameter logic WIDTH = 8
+) (
+    input wire logic clk
+)
+```
+
+
+---
+
+Facts
+- Source: [feature.v](<feature.v>) line 2

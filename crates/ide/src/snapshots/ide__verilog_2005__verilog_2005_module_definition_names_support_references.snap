@@ -1,0 +1,20 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(info)
+---
+Module `mux2X1`
+
+```systemverilog
+module mux2X1 (
+    in0,
+    in1,
+    sel,
+    out
+)
+```
+
+
+---
+
+Facts
+- Source: [feature.v](<feature.v>) line 2

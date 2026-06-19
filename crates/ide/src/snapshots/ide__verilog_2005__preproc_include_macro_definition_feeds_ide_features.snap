@@ -1,0 +1,22 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(info)
+---
+Macro `HEADER_WIDTH`
+
+```systemverilog
+`HEADER_WIDTH
+```
+
+
+---
+
+Facts
+- Source: [include/defs.vh](<file:///$FILE/defs.vh>) line 2
+
+---
+
+Expansion
+```systemverilog
+8
+```

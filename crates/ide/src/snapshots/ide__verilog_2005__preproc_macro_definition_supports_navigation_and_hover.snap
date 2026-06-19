@@ -1,0 +1,15 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(info)
+---
+Macro `LOCAL_WIDTH`
+
+```systemverilog
+`define LOCAL_WIDTH 8
+```
+
+
+---
+
+Facts
+- Source: [feature.v](<feature.v>) line 2

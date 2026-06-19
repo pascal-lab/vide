@@ -1,0 +1,22 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(info)
+---
+Macro `__LINE__`
+
+```systemverilog
+`__LINE__
+```
+
+
+---
+
+Facts
+- Source: Builtin
+
+---
+
+Expansion
+```systemverilog
+3
+```

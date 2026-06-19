@@ -1,0 +1,16 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(info)
+---
+Port `a`
+
+```systemverilog
+input wire logic a
+```
+
+
+---
+
+Facts
+- Scope: `child`
+- Source: [feature.v](<feature.v>) line 2

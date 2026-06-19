@@ -1,0 +1,21 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(info)
+---
+Declaration `sig`
+
+```systemverilog
+wire logic sig
+```
+
+
+---
+
+Facts
+- Scope: `side_comment_ctx`
+- Source: [feature.v](<feature.v>) line 3
+
+---
+
+Documentation
+side comment from trivia

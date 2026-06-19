@@ -1,0 +1,16 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(info)
+---
+Declaration `sig`
+
+```systemverilog
+wire logic sig
+```
+
+
+---
+
+Facts
+- Scope: `top`
+- Source: [feature.v](<feature.v>) line 15

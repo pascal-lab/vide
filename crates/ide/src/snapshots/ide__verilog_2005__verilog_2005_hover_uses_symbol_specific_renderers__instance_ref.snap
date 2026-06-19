@@ -1,0 +1,22 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(info)
+---
+Instance `u_child`
+
+```systemverilog
+instance u_child of child
+
+module child #(
+    parameter logic WIDTH = 8
+) (
+    input wire logic clk
+)
+```
+
+
+---
+
+Facts
+- Scope: `top`
+- Source: [feature.v](<feature.v>) line 19
