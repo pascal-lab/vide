@@ -1,0 +1,28 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(info)
+---
+Macro `PIPE_ASSIGN`
+
+```systemverilog
+`PIPE_ASSIGN(name, next_value)
+```
+
+
+---
+
+Facts
+- Source: [top.sv](<file:///$FILE/top.sv>) line 3
+
+---
+
+Expansion
+```systemverilog
+always_ff @(posedge clk_i or negedge rst_ni) begin 
+  if (!rst_ni) begin 
+    trace_q <= '0; 
+  end else begin 
+    trace_q <= (sample_q ^ {{(12-1){1'b0}}, 1'b1}); 
+  end 
+end
+```

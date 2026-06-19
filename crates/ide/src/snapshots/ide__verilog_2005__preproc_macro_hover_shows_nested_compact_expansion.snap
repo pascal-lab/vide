@@ -1,0 +1,22 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(info)
+---
+Macro `DEMO_NEXT`
+
+```systemverilog
+`DEMO_NEXT(value)
+```
+
+
+---
+
+Facts
+- Source: [feature.v](<feature.v>) line 3
+
+---
+
+Expansion
+```systemverilog
+((payload_i) + 12'd1)
+```

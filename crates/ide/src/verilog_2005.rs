@@ -331,6 +331,89 @@ fn text_at_range(text: &str, range: TextRange) -> &str {
     &text[usize::from(range.start())..usize::from(range.end())]
 }
 
+macro_rules! assert_hover_snapshot {
+    ($name:expr, $info:expr $(,)?) => {
+        assert_snapshot!(($name).to_string(), normalize_hover_snapshot($info));
+    };
+}
+
+fn normalize_hover_snapshot(info: &str) -> String {
+    let info = redact_file_uri_targets(&info.replace('\\', "/"));
+    redact_absolute_file_link_labels(&info)
+}
+
+fn redact_file_uri_targets(info: &str) -> String {
+    let marker = "](<file:///";
+    let mut output = String::with_capacity(info.len());
+    let mut rest = info;
+
+    while let Some(start) = rest.find(marker) {
+        let target_start = start + marker.len();
+        output.push_str(&rest[..target_start]);
+        let target = &rest[target_start..];
+        let Some(end) = target.find(">)") else {
+            output.push_str(target);
+            return output;
+        };
+        let file_name = target[..end].rsplit('/').next().unwrap_or("path");
+        output.push_str("$FILE/");
+        output.push_str(file_name);
+        output.push_str(">)");
+        rest = &target[end + 2..];
+    }
+
+    output.push_str(rest);
+    output
+}
+
+fn redact_absolute_file_link_labels(info: &str) -> String {
+    let target_prefix = "](<file:///$FILE/";
+    let mut output = String::with_capacity(info.len());
+    let mut rest = info;
+
+    while let Some(open) = rest.find('[') {
+        output.push_str(&rest[..open]);
+        let link = &rest[open + 1..];
+        let Some(close) = link.find(target_prefix) else {
+            output.push('[');
+            rest = link;
+            continue;
+        };
+        let label = &link[..close];
+        if label.contains('\n') {
+            output.push('[');
+            rest = link;
+            continue;
+        }
+        let target = &link[close + target_prefix.len()..];
+        let Some(end) = target.find(">)") else {
+            output.push('[');
+            output.push_str(link);
+            return output;
+        };
+        let file_name = &target[..end];
+
+        if is_unstable_file_link_label(label) {
+            output.push_str("[$FILE/");
+            output.push_str(file_name);
+        } else {
+            output.push('[');
+            output.push_str(label);
+        }
+        output.push_str(target_prefix);
+        output.push_str(file_name);
+        output.push_str(">)");
+        rest = &target[end + 2..];
+    }
+
+    output.push_str(rest);
+    output
+}
+
+fn is_unstable_file_link_label(label: &str) -> bool {
+    label.contains(":/") || label.starts_with('/')
+}
+
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/verilog_2005/fixtures")
 }
@@ -1315,18 +1398,9 @@ endmodule
         .hover(position, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("include hover expected");
-    let info = hover.info.as_str();
-    assert!(
-        info.starts_with("Include `defs.svh`"),
-        "include hover should start with the canonical title: {info}"
-    );
-    assert!(
-        info.contains("```systemverilog\n`include \"defs.svh\"\n```"),
-        "include hover should render the directive as the primary code block: {info}"
-    );
-    assert!(
-        info.contains("\n\n---\n\nFacts\n- Resolves to: ["),
-        "include hover should render the resolved target as a fact link: {info}"
+    assert_hover_snapshot!(
+        "preproc_include_literal_supports_navigation_and_hover",
+        hover.info.as_str(),
     );
 }
 
@@ -1356,8 +1430,10 @@ endmodule
         .hover(position, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("macro hover expected");
-    assert!(hover.info.as_str().contains("WIDTH"), "hover should mention macro name");
-    assert!(hover.info.as_str().contains("8"), "hover should show macro expansion");
+    assert_hover_snapshot!(
+        "preproc_macro_usage_supports_navigation_and_hover",
+        hover.info.as_str()
+    );
 }
 
 #[test]
@@ -1397,12 +1473,9 @@ endmodule
         .hover(param_ref, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("macro parameter hover expected");
-    assert!(
-        hover.info.as_str().contains("Macro parameter")
-            && hover.info.as_str().contains("value")
-            && hover.info.as_str().contains("SHIFT"),
-        "hover should identify macro parameter: {}",
-        hover.info.as_str()
+    assert_hover_snapshot!(
+        "preproc_macro_param_supports_navigation_hover_and_references",
+        hover.info.as_str(),
     );
 
     let refs = analysis
@@ -1467,16 +1540,9 @@ endmodule
         .hover(arg, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("macro argument source token hover expected");
-    assert!(
-        hover.info.as_str().contains("payload_i"),
-        "macro argument hover should render the HIR definition: {}",
-        hover.info.as_str()
-    );
-    assert!(
-        !hover.info.as_str().contains("`define `NEXT(value)")
-            && !hover.info.as_str().contains("Expands to"),
-        "macro argument hover should not show macro expansion away from the macro name: {}",
-        hover.info.as_str()
+    assert_hover_snapshot!(
+        "preproc_macro_argument_source_token_resolves_to_hir_definition__argument",
+        hover.info.as_str(),
     );
 
     let refs = analysis
@@ -1527,37 +1593,18 @@ endmodule
         .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("macro call hover expected");
-    let info = hover.info.as_str();
-    assert!(
-        info.contains("```systemverilog")
-            && info.contains("Macro")
-            && info.contains("`MAKE_DECL(name)")
-            && !info.contains("`define `MAKE_DECL(name)")
-            && info.starts_with("Macro `MAKE_DECL`")
-            && info.contains("\n\n---\n\nFacts\n- Source: [")
-            && info.contains("\n\n---\n\nExpansion\n```systemverilog\nlogic generated;\n```")
-            && !info.contains("--------------------")
-            && info.contains("logic generated;")
-            && !info.contains("from [feature.v]")
-            && !info.contains("Context ")
-            && !info.contains("Signature")
-            && !info.contains("Arguments")
-            && !info.contains("Expansion steps")
-            && !info.contains("Virtual expansion source")
-            && !info.contains("Token origin"),
-        "macro call hover should include the expanded macro text: {info}"
+    assert_hover_snapshot!(
+        "preproc_macro_call_hover_shows_expanded_text__call",
+        hover.info.as_str(),
     );
 
     let arg_hover = analysis
         .hover(position(file_id, &markers, "arg"), HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("macro argument hover expected");
-    let arg_info = arg_hover.info.as_str();
-    assert!(
-        arg_info.contains("generated")
-            && !arg_info.contains("`define `MAKE_DECL(name)")
-            && !arg_info.contains("Expands to"),
-        "macro argument hover should stay on the source token away from the macro name: {arg_info}"
+    assert_hover_snapshot!(
+        "preproc_macro_call_hover_shows_expanded_text__argument",
+        arg_hover.info.as_str(),
     );
 }
 
@@ -1580,15 +1627,9 @@ endmodule
             )
             .unwrap()
             .expect("builtin macro hover expected");
-        let info = hover.info.as_str();
-        assert!(
-            info.contains("```systemverilog")
-                && info.contains(&format!("`{name}"))
-                && info.starts_with(&format!("Macro `{name}`"))
-                && info.contains("\n\n---\n\nFacts\n- Source: Builtin")
-                && !info.contains("--------------------")
-                && !info.contains("unavailable"),
-            "builtin macro hover should show structured expansion: {info}"
+        assert_hover_snapshot!(
+            &format!("preproc_builtin_macro_hover_shows_expanded_text__{name}"),
+            hover.info.as_str(),
         );
     }
 }
@@ -1609,25 +1650,9 @@ endmodule
         .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("nested macro call hover expected");
-    let info = hover.info.as_str();
-    assert!(
-        info.contains("```systemverilog")
-            && info.contains("Macro")
-            && info.contains("`DEMO_NEXT(value)")
-            && !info.contains("`define `DEMO_NEXT(value)")
-            && !info.contains("`MATH_ONE")
-            && info.starts_with("Macro `DEMO_NEXT`")
-            && info.contains("\n\n---\n\nFacts\n- Source: [")
-            && info.contains("\n\n---\n\nExpansion\n```systemverilog")
-            && !info.contains("--------------------")
-            && info.contains("((payload_i) + 12'd1)")
-            && info.contains("payload_i")
-            && info.contains("12")
-            && info.contains("'d")
-            && info.contains("[feature.v]")
-            && !info.contains("Context ")
-            && !info.contains("Expansion steps"),
-        "nested macro hover should show compact signature, result, and source: {info}"
+    assert_hover_snapshot!(
+        "preproc_macro_hover_shows_nested_compact_expansion",
+        hover.info.as_str(),
     );
 }
 
@@ -1648,24 +1673,9 @@ endmodule
         .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("outer macro call hover expected");
-    let call_info = call_hover.info.as_str();
-    assert!(
-        call_info.contains("```systemverilog")
-            && call_info.contains("Macro")
-            && call_info.contains("`DEMO_NEXT(value)")
-            && !call_info.contains("`define `DEMO_NEXT(value)")
-            && !call_info.contains("`MATH_ONE")
-            && call_info.starts_with("Macro `DEMO_NEXT`")
-            && call_info.contains("\n\n---\n\nFacts\n- Source: [")
-            && call_info.contains("\n\n---\n\nExpansion\n```systemverilog")
-            && !call_info.contains("--------------------")
-            && call_info.contains("((payload_i) + 12'd1)")
-            && call_info.contains("payload_i")
-            && call_info.contains("12")
-            && call_info.contains("[feature.v]")
-            && !call_info.contains("Context ")
-            && !call_info.contains("Expansion steps"),
-        "outer macro hover should keep compact expansion facts: {call_info}"
+    assert_hover_snapshot!(
+        "preproc_macro_hover_keeps_nested_actual_argument_macro_reference__outer",
+        call_hover.info.as_str(),
     );
 
     let payl_position = position(file_id, &markers, "payl");
@@ -1685,20 +1695,9 @@ endmodule
         .hover(payl_position, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("nested actual-argument macro hover expected");
-    let payl_info = payl_hover.info.as_str();
-    assert!(
-        payl_info.contains("```systemverilog")
-            && payl_info.contains("Macro")
-            && payl_info.contains("`PAYL")
-            && !payl_info.contains("`define `PAYL payload_i")
-            && payl_info.contains("\n\n---\n\nMacro `PAYL`")
-            && payl_info.contains("\n\n---\n\nFacts\n- Source: [")
-            && payl_info.contains("\n\n---\n\nExpansion\n```systemverilog")
-            && !payl_info.contains("--------------------")
-            && payl_info.contains("payload_i")
-            && !payl_info.contains("from [feature.v]")
-            && !payl_info.contains("unavailable"),
-        "PAYL hover should show the nested macro expansion without unavailable text: {payl_info}"
+    assert_hover_snapshot!(
+        "preproc_macro_hover_keeps_nested_actual_argument_macro_reference__actual_argument",
+        payl_hover.info.as_str(),
     );
 }
 
@@ -1717,18 +1716,7 @@ endmodule
         .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("macro call hover expected");
-    let info = hover.info.as_str();
-    assert!(
-        info.starts_with("Macro `JOIN`")
-            && info.contains("```systemverilog")
-            && info.contains("`JOIN(a, b)")
-            && info.contains("\n\n---\n\nFacts\n- Source: [")
-            && info.contains("\n\n---\n\nExpansion\n```systemverilog")
-            && info.contains("foobar")
-            && info.contains("[feature.v]")
-            && !info.contains("unavailable"),
-        "token paste expansion hover should show the expanded display text: {info}"
-    );
+    assert_hover_snapshot!("preproc_macro_hover_shows_token_paste_expansion", hover.info.as_str());
 }
 
 #[test]
@@ -1807,17 +1795,9 @@ endmodule
         )
         .unwrap()
         .expect("DECL_PIPE macro call hover expected");
-    let decl_info = decl_hover.info.as_str();
-    assert!(
-        decl_info.starts_with("Macro `DECL_PIPE`")
-            && decl_info.contains("```systemverilog")
-            && decl_info.contains("`DECL_PIPE(name, width)")
-            && !decl_info.contains("`define `DECL_PIPE(name, width)")
-            && decl_info.contains("\n\n---\n\nFacts\n- Source: [")
-            && decl_info.contains("\n\n---\n\nExpansion\n```systemverilog")
-            && decl_info.contains("logic [(12)-1:0] sample_q")
-            && !decl_info.contains("unavailable"),
-        "DECL_PIPE hover should show expansion through configured predefine: {decl_info}"
+    assert_hover_snapshot!(
+        "preproc_macro_hover_expands_through_configured_predefine_argument__decl_call",
+        decl_hover.info.as_str(),
     );
 
     let assign_hover = analysis
@@ -1827,16 +1807,9 @@ endmodule
         )
         .unwrap()
         .expect("PIPE_ASSIGN macro call hover expected");
-    let assign_info = assign_hover.info.as_str();
-    assert!(
-        assign_info.starts_with("Macro `PIPE_ASSIGN`")
-            && assign_info.contains("`PIPE_ASSIGN(name, next_value)")
-            && !assign_info.contains("`define `PIPE_ASSIGN(name, next_value)")
-            && assign_info.contains("\n\n---\n\nFacts\n- Source: [")
-            && assign_info.contains("\n\n---\n\nExpansion\n```systemverilog")
-            && assign_info.contains("trace_q <= (sample_q ^ {{(12-1){1'b0}}, 1'b1});")
-            && !assign_info.contains("unavailable"),
-        "PIPE_ASSIGN hover should show actual-argument expansion through configured predefine: {assign_info}"
+    assert_hover_snapshot!(
+        "preproc_macro_hover_expands_through_configured_predefine_argument__assign_call",
+        assign_hover.info.as_str(),
     );
 
     let argument_hover = analysis
@@ -1846,13 +1819,9 @@ endmodule
         )
         .unwrap()
         .expect("PIPE_ASSIGN actual argument hover expected");
-    let argument_info = argument_hover.info.as_str();
-    assert!(
-        argument_info.contains("sample_q")
-            && !argument_info.contains("clk_i")
-            && !argument_info.contains("rst_ni")
-            && !argument_info.contains("trace_q"),
-        "actual argument hover should stay on sample_q only: {argument_info}"
+    assert_hover_snapshot!(
+        "preproc_macro_hover_expands_through_configured_predefine_argument__assign_argument",
+        argument_hover.info.as_str(),
     );
 
     let sample_name_hover = analysis
@@ -1862,13 +1831,9 @@ endmodule
         )
         .unwrap()
         .expect("PIPE_ASSIGN pasted sample name hover expected");
-    let sample_name_info = sample_name_hover.info.as_str();
-    assert!(
-        sample_name_info.contains("sample_q")
-            && !sample_name_info.contains("clk_i")
-            && !sample_name_info.contains("rst_ni")
-            && !sample_name_info.contains("trace_q"),
-        "pasted sample name hover should resolve to sample_q only: {sample_name_info}"
+    assert_hover_snapshot!(
+        "preproc_macro_hover_expands_through_configured_predefine_argument__sample_name",
+        sample_name_hover.info.as_str(),
     );
 
     let trace_name_hover = analysis
@@ -1878,13 +1843,9 @@ endmodule
         )
         .unwrap()
         .expect("PIPE_ASSIGN pasted trace name hover expected");
-    let trace_name_info = trace_name_hover.info.as_str();
-    assert!(
-        trace_name_info.contains("trace_q")
-            && !trace_name_info.contains("clk_i")
-            && !trace_name_info.contains("rst_ni")
-            && !trace_name_info.contains("sample_q"),
-        "pasted trace name hover should resolve to trace_q only: {trace_name_info}"
+    assert_hover_snapshot!(
+        "preproc_macro_hover_expands_through_configured_predefine_argument__trace_name",
+        trace_name_hover.info.as_str(),
     );
 }
 
@@ -1920,13 +1881,9 @@ endmodule
         .hover(definition, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("macro definition hover expected");
-    assert!(
-        hover.info.as_str().contains("`define LOCAL_WIDTH 8"),
-        "hover should show macro definition"
-    );
-    assert!(
-        hover.info.as_str().contains("\n\n---\n\nFacts\n- Source: [feature.v]"),
-        "hover should show linked macro source"
+    assert_hover_snapshot!(
+        "preproc_macro_definition_supports_navigation_and_hover",
+        hover.info.as_str(),
     );
 
     let conditional_nav = analysis
@@ -2050,19 +2007,9 @@ endmodule
         .hover(usage, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("included macro hover expected");
-    assert!(hover.info.as_str().contains("HEADER_WIDTH"), "hover should mention macro name");
-    assert!(
-        hover.info.as_str().contains("macro")
-            && hover.info.as_str().contains("`HEADER_WIDTH")
-            && !hover.info.as_str().contains("`define `HEADER_WIDTH"),
-        "hover should show macro expansion header"
-    );
-    assert!(hover.info.as_str().contains("8"), "hover should show macro expansion");
-    assert!(
-        hover.info.as_str().contains("\n\n---\n\nFacts\n- Source: [include/defs.vh]")
-            && hover.info.as_str().contains("line 2"),
-        "hover should show linked project-relative macro source path: {}",
-        hover.info.as_str()
+    assert_hover_snapshot!(
+        "preproc_include_macro_definition_feeds_ide_features",
+        hover.info.as_str(),
     );
 
     let completion_items = analysis
@@ -2520,8 +2467,12 @@ include "vendor.map";
             position(file_id, &markers, "library_def"),
             HoverConfig { format: HoverFormat::PlainText },
         )
-        .unwrap();
-    assert!(hover.is_some(), "library declaration hover should not panic or disappear");
+        .unwrap()
+        .expect("library declaration hover expected");
+    assert_hover_snapshot!(
+        "verilog_2005_library_map_declaration_lowers_without_fallback",
+        hover.info.as_str(),
+    );
 
     let highlights = analysis
         .document_highlight(
@@ -2580,11 +2531,9 @@ endmodule
         )
         .unwrap()
         .expect("signal hover expected");
-
-    assert!(
-        hover.info.as_str().contains("side comment from trivia"),
-        "hover should render the declaration side comment: {}",
-        hover.info.as_str()
+    assert_hover_snapshot!(
+        "verilog_2005_hover_renders_side_comment_from_trivia",
+        hover.info.as_str(),
     );
 }
 
@@ -2608,11 +2557,9 @@ fn verilog_2005_hover_after_truncation_uses_current_syntax_context() {
         .hover(position(file_id, &markers, "name"), HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("truncated module hover expected");
-
-    assert!(
-        !hover.info.as_str().contains("full declaration"),
-        "hover should not render stale side comments: {}",
-        hover.info.as_str()
+    assert_hover_snapshot!(
+        "verilog_2005_hover_after_truncation_uses_current_syntax_context",
+        hover.info.as_str(),
     );
 }
 
@@ -2649,12 +2596,9 @@ endmodule
         )
         .unwrap()
         .expect("module hover expected");
-    assert!(
-        module_hover.info.as_str().contains(
-            "module child #(\n    parameter logic WIDTH = 8\n) (\n    input wire logic clk\n)"
-        ),
-        "module hover should use module-specific renderer: {}",
-        module_hover.info.as_str()
+    assert_hover_snapshot!(
+        "verilog_2005_hover_uses_symbol_specific_renderers__module_def",
+        module_hover.info.as_str(),
     );
 
     let inst_module_hover = analysis
@@ -2664,12 +2608,9 @@ endmodule
         )
         .unwrap()
         .expect("instantiated module hover expected");
-    assert!(
-        inst_module_hover.info.as_str().contains(
-            "module child #(\n    parameter logic WIDTH = 8\n) (\n    input wire logic clk\n)"
-        ),
-        "instantiation module name hover should reuse module signature: {}",
-        inst_module_hover.info.as_str()
+    assert_hover_snapshot!(
+        "verilog_2005_hover_uses_symbol_specific_renderers__module_ref",
+        inst_module_hover.info.as_str(),
     );
 
     let instance_hover = analysis
@@ -2679,13 +2620,9 @@ endmodule
         )
         .unwrap()
         .expect("instance hover expected");
-    assert!(
-        instance_hover.info.as_str().contains("instance u_child of child")
-            && instance_hover.info.as_str().contains(
-                "module child #(\n    parameter logic WIDTH = 8\n) (\n    input wire logic clk\n)"
-            ),
-        "instance hover should include the target module signature: {}",
-        instance_hover.info.as_str()
+    assert_hover_snapshot!(
+        "verilog_2005_hover_uses_symbol_specific_renderers__instance_ref",
+        instance_hover.info.as_str(),
     );
 
     let port_hover = analysis
@@ -2695,26 +2632,9 @@ endmodule
         )
         .unwrap()
         .expect("port hover expected");
-    assert!(
-        port_hover.info.as_str().contains("input wire logic clk"),
-        "port hover should use port-specific renderer: {}",
-        port_hover.info.as_str()
-    );
-    assert!(
-        port_hover.info.as_str().starts_with("Port `clk`"),
-        "port hover should start with the canonical title: {}",
-        port_hover.info.as_str()
-    );
-    assert!(
-        port_hover.info.as_str().contains("\n\n---\n\nFacts\n- Scope: `child`")
-            && port_hover.info.as_str().contains("- Source: ["),
-        "port hover should render context as facts: {}",
-        port_hover.info.as_str()
-    );
-    assert!(
-        !port_hover.info.as_str().contains("---------"),
-        "port hover should not use legacy dividers: {}",
-        port_hover.info.as_str()
+    assert_hover_snapshot!(
+        "verilog_2005_hover_uses_symbol_specific_renderers__port_def",
+        port_hover.info.as_str(),
     );
 
     let param_hover = analysis
@@ -2724,26 +2644,9 @@ endmodule
         )
         .unwrap()
         .expect("parameter hover expected");
-    assert!(
-        param_hover.info.as_str().contains("localparam logic DEPTH = WIDTH + 1"),
-        "parameter hover should use parameter-specific renderer: {}",
-        param_hover.info.as_str()
-    );
-    assert!(
-        param_hover.info.as_str().starts_with("Localparam `DEPTH`"),
-        "parameter hover should start with the canonical title: {}",
-        param_hover.info.as_str()
-    );
-    assert!(
-        param_hover.info.as_str().contains("\n\n---\n\nFacts\n- Scope: `child`")
-            && param_hover.info.as_str().contains("- Source: ["),
-        "parameter hover should render context as facts: {}",
-        param_hover.info.as_str()
-    );
-    assert!(
-        !param_hover.info.as_str().contains("---------"),
-        "parameter hover should not use legacy dividers: {}",
-        param_hover.info.as_str()
+    assert_hover_snapshot!(
+        "verilog_2005_hover_uses_symbol_specific_renderers__param_def",
+        param_hover.info.as_str(),
     );
 
     let task_hover = analysis
@@ -2753,11 +2656,9 @@ endmodule
         )
         .unwrap()
         .expect("task hover expected");
-    assert!(
-        task_hover.info.as_str().contains("task drive(")
-            && task_hover.info.as_str().contains("value"),
-        "task hover should use subroutine-specific renderer: {}",
-        task_hover.info.as_str()
+    assert_hover_snapshot!(
+        "verilog_2005_hover_uses_symbol_specific_renderers__task_def",
+        task_hover.info.as_str(),
     );
 
     let func_hover = analysis
@@ -2767,12 +2668,9 @@ endmodule
         )
         .unwrap()
         .expect("function hover expected");
-    assert!(
-        func_hover.info.as_str().contains("function")
-            && func_hover.info.as_str().contains("add1(")
-            && func_hover.info.as_str().contains("value"),
-        "function hover should use subroutine-specific renderer: {}",
-        func_hover.info.as_str()
+    assert_hover_snapshot!(
+        "verilog_2005_hover_uses_symbol_specific_renderers__func_def",
+        func_hover.info.as_str(),
     );
 }
 
@@ -2799,31 +2697,9 @@ endmodule
         )
         .unwrap()
         .expect("ambiguous module hover expected");
-    let info = hover.info.as_str();
-
-    assert!(
-        info.starts_with("Module reference `child`"),
-        "ambiguous hover should start with the canonical title: {info}"
-    );
-    assert!(
-        info.contains("```systemverilog\nchild\n```"),
-        "ambiguous hover should render the reference as the primary code block: {info}"
-    );
-    assert!(
-        info.contains("\n\n---\n\nFacts\n- Status: ambiguous\n- Candidates: 2"),
-        "ambiguous hover should render ambiguity summary as facts: {info}"
-    );
-    assert!(
-        info.contains("[feature.v]") && info.contains("line 2") && info.contains("line 5"),
-        "ambiguous hover should list linked declaration locations: {info}"
-    );
-    assert!(
-        !info.contains("input logic a") && !info.contains("output logic y"),
-        "ambiguous hover should not expand candidate signatures: {info}"
-    );
-    assert!(
-        info.contains("\n\n---\n\nCandidates\n- [") && !info.contains("---------"),
-        "ambiguous hover should use the canonical candidates section: {info}"
+    assert_hover_snapshot!(
+        "ambiguous_instantiation_hover_lists_locations_without_expanding_signatures",
+        hover.info.as_str(),
     );
 }
 
@@ -2852,10 +2728,9 @@ endmodule
         )
         .unwrap()
         .expect("module definition hover expected");
-    assert!(
-        hover.info.as_str().contains("module mux2X1"),
-        "module definition hover should resolve to the declared module: {}",
-        hover.info.as_str()
+    assert_hover_snapshot!(
+        "verilog_2005_module_definition_names_support_references",
+        hover.info.as_str(),
     );
 
     let refs = analysis
@@ -2885,20 +2760,20 @@ fn verilog_2005_hover_covers_all_definition_kinds() {
     let (host, file_id, _clean_text, markers) = setup_marked(VERILOG_2005_NAV_TEXT);
     let analysis = host.make_analysis();
 
-    for (marker, expected) in [
-        ("module_ref", "module child"),
-        ("port_ref", "input wire logic a"),
-        ("sig_ref", "wire logic sig"),
-        ("udp_ref", "primitive udp_and"),
-        ("task_ref", "task do_task"),
-        ("genvar_ref", "genvar"),
-        ("gen_label", "generate g_loop"),
-        ("specparam_ref", "specparam"),
-        ("instance_ref", "instance u_child"),
-        ("generate_ref", "generate g_loop"),
-        ("lane_ref", "wire logic lane"),
-        ("block_ref", "block blk"),
-        ("config_def", "config cfg_top"),
+    for marker in [
+        "module_ref",
+        "port_ref",
+        "sig_ref",
+        "udp_ref",
+        "task_ref",
+        "genvar_ref",
+        "gen_label",
+        "specparam_ref",
+        "instance_ref",
+        "generate_ref",
+        "lane_ref",
+        "block_ref",
+        "config_def",
     ] {
         let hover = analysis
             .hover(
@@ -2907,10 +2782,9 @@ fn verilog_2005_hover_covers_all_definition_kinds() {
             )
             .unwrap()
             .unwrap_or_else(|| panic!("{marker} hover expected"));
-        assert!(
-            hover.info.as_str().contains(expected),
-            "{marker} hover should contain {expected:?}: {}",
-            hover.info.as_str()
+        assert_hover_snapshot!(
+            &format!("verilog_2005_hover_covers_all_definition_kinds__{marker}"),
+            hover.info.as_str(),
         );
     }
 }

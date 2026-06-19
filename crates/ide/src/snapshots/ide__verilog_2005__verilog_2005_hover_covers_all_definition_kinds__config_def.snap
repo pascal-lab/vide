@@ -1,0 +1,15 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(info)
+---
+Config `cfg_top`
+
+```systemverilog
+config cfg_top
+```
+
+
+---
+
+Facts
+- Source: [feature.v](<feature.v>) line 47

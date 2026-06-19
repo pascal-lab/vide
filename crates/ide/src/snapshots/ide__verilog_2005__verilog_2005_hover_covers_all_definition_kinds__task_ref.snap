@@ -1,0 +1,16 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(info)
+---
+Task `do_task`
+
+```systemverilog
+task do_task()
+```
+
+
+---
+
+Facts
+- Scope: `top`
+- Source: [feature.v](<feature.v>) line 19
