@@ -11,8 +11,6 @@ use crate::{RangeInfo, db::root_db::RootDb, markup::Markup};
 mod expansion;
 mod markup;
 
-const MACRO_EXPANSION_SEPARATOR: &str = "--------------------";
-
 #[cfg(test)]
 pub(super) use expansion::macro_expansion_hover_text;
 pub(super) use expansion::with_expanded_macro_hover;
