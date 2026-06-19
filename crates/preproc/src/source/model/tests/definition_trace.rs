@@ -90,6 +90,7 @@ fn source_model_uses_direct_trace_definition_when_body_ranges_collide() {
         ],
         include_edges: Vec::new(),
         emitted_tokens: vec![syntax::EmittedToken {
+            emitted_token_index: None,
             raw_text: "2".to_owned(),
             value_text: "2".to_owned(),
             display_text: "2".to_owned(),

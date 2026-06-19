@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <limits>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -62,6 +64,7 @@ rust::Vec<rust::String> diagnostic_args(const Diagnostic& diag) {
 
 struct SyntaxTreeSourceInfo {
   const slang::SourceManager* sourceManager;
+  const slang::parsing::PreprocessorTraceSnapshot* preprocessorTrace;
   slang::SourceLocation rootLocation;
 };
 
@@ -174,6 +177,8 @@ constexpr uint8_t TRACE_TOKEN_ORIGIN_STRINGIFICATION = 6;
 
 ::RawPreprocessorTraceEmittedToken empty_preprocessor_trace_emitted_token() {
   ::RawPreprocessorTraceEmittedToken token;
+  token.emitted_token_index = 0;
+  token.has_emitted_token_index = false;
   token.raw_text = rust::String();
   token.value_text = rust::String();
   token.display_text = rust::String();
@@ -507,10 +512,16 @@ template<typename TTokens>
 
 ::RawPreprocessorTraceEmittedToken to_rust_preprocessor_trace_emitted_token(
     slang::parsing::Token token,
-    const slang::SourceManager& sourceManager) {
+    const slang::SourceManager& sourceManager,
+    std::optional<size_t> emittedTokenIndex = std::nullopt) {
   auto result = empty_preprocessor_trace_emitted_token();
   if (!token)
     return result;
+
+  if (emittedTokenIndex && *emittedTokenIndex <= std::numeric_limits<uint32_t>::max()) {
+    result.emitted_token_index = static_cast<uint32_t>(*emittedTokenIndex);
+    result.has_emitted_token_index = true;
+  }
 
   result.raw_text = rust::String(std::string(token.rawText()));
   result.value_text = rust::String(std::string(token.valueText()));
@@ -881,6 +892,20 @@ std::unordered_set<uint32_t> predefine_buffer_ids(
   return bufferIds;
 }
 
+std::optional<size_t> emitted_token_index_for(
+    const slang::parsing::PreprocessorTraceSnapshot* trace,
+    slang::parsing::Token token) {
+  if (!trace || !token)
+    return std::nullopt;
+
+  for (size_t index = 0; index < trace->emittedTokens.size(); index++) {
+    if (trace->emittedTokens[index] == token)
+      return index;
+  }
+
+  return std::nullopt;
+}
+
 ::RawPreprocessorTrace to_rust_preprocessor_trace_snapshot(
     const slang::parsing::PreprocessorTraceSnapshot& trace,
     const slang::SourceManager& sourceManager) {
@@ -917,9 +942,11 @@ std::unordered_set<uint32_t> predefine_buffer_ids(
     }
   }
 
-  for (auto token : trace.emittedTokens)
+  for (size_t index = 0; index < trace.emittedTokens.size(); index++) {
+    auto token = trace.emittedTokens[index];
     result.emitted_tokens.emplace_back(
-        to_rust_preprocessor_trace_emitted_token(token, sourceManager));
+        to_rust_preprocessor_trace_emitted_token(token, sourceManager, index));
+  }
 
   for (auto buffer : sourceManager.getAllBuffers()) {
     auto includedFrom = sourceManager.getIncludedFrom(buffer);
@@ -1127,7 +1154,8 @@ SyntaxTree::SyntaxTree(std::shared_ptr<::slang::syntax::SyntaxTree> tree,
   std::lock_guard lock(syntaxTreeSourceInfoMutex);
   syntaxTreeSourceInfo.emplace(
       &root,
-      SyntaxTreeSourceInfo{&innerTree->sourceManager(), rootLocation});
+      SyntaxTreeSourceInfo{
+          &innerTree->sourceManager(), innerTree->getPreprocessorTrace(), rootLocation});
 }
 
 SyntaxTree::~SyntaxTree() {
@@ -1432,7 +1460,9 @@ std::unique_ptr<SourceRange> SyntaxToken_rangeWithContext(
     sourceInfo = it->second;
   }
 
-  return to_rust_preprocessor_trace_emitted_token(token, *sourceInfo.sourceManager);
+  return to_rust_preprocessor_trace_emitted_token(
+      token, *sourceInfo.sourceManager,
+      emitted_token_index_for(sourceInfo.preprocessorTrace, token));
 }
 
 } // namespace syntax

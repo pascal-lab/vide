@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use ::preproc::source::{PreprocSourceId, SourceEmittedTokenRange, SourceRange};
+use ::preproc::source::{
+    PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange, SourceRange,
+};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SourceBufferRange,
@@ -31,6 +33,7 @@ pub struct ExpansionSourceMap {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct OriginSlot {
+    emitted_token: SourceEmittedTokenId,
     origin: Origin,
     source: Option<OriginSource>,
 }
@@ -43,6 +46,7 @@ struct OriginSource {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpansionSourceHit {
+    pub emitted_token: SourceEmittedTokenId,
     pub expanded_token_index: usize,
     pub range: TextRange,
     pub origin: Origin,
@@ -81,6 +85,7 @@ impl ExpansionSourceMap {
                 let slot = slot.as_ref()?;
                 let source = slot.source?;
                 (source.file == file && source.range.contains(offset)).then(|| ExpansionSourceHit {
+                    emitted_token: slot.emitted_token,
                     expanded_token_index,
                     range: source.range,
                     origin: slot.origin.clone(),
@@ -102,10 +107,12 @@ impl ExpansionSourceMap {
         let operation_sources = OperationSourceResolver::new(trace);
         let origins = (emitted_range.start.raw()..end)
             .map(|raw| {
+                let emitted_token = SourceEmittedTokenId::new(raw);
                 trace.emitted_tokens.get(raw).and_then(|token| {
                     origin_slot_from_token_origin(
                         db,
                         model_file,
+                        emitted_token,
                         &token.origin,
                         source_map,
                         Some(&operation_sources),
@@ -126,8 +133,16 @@ impl ExpansionSourceMap {
         Self {
             origins: origins
                 .into_iter()
+                .enumerate()
                 .map(|origin| {
-                    origin_slot_from_token_origin(db, model_file, origin, source_map, None)
+                    origin_slot_from_token_origin(
+                        db,
+                        model_file,
+                        SourceEmittedTokenId::new(origin.0),
+                        origin.1,
+                        source_map,
+                        None,
+                    )
                 })
                 .collect(),
         }
@@ -217,6 +232,7 @@ impl Origin {
 fn origin_slot_from_token_origin(
     db: &dyn HirDb,
     model_file: FileId,
+    emitted_token: SourceEmittedTokenId,
     origin: &TokenOrigin,
     source_map: &PreprocSourceMap,
     operation_sources: Option<&OperationSourceResolver<'_>>,
@@ -243,7 +259,7 @@ fn origin_slot_from_token_origin(
         }
         TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => None,
     };
-    Some(OriginSlot { origin: mapped_origin, source })
+    Some(OriginSlot { emitted_token, origin: mapped_origin, source })
 }
 
 fn macro_call_id(db: &dyn HirDb, model_file: FileId, trace_call: TraceMacroCallId) -> MacroCallId {
