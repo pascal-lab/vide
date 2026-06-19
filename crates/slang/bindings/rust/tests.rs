@@ -1253,13 +1253,18 @@ endmodule
     assert_eq!(tokens.len(), 1, "expanded source should contain exactly one parsed 7 token");
     let token = tokens[0];
 
-    let token_origin = token.preprocessor_trace_origin();
+    let token_emitted = token.preprocessor_trace_emitted_token();
+    let token_origin = token_emitted.origin.clone();
     assert!(matches!(token_origin, TokenOrigin::MacroArgument { .. }));
-    let emitted = trace
+    let (emitted_index, emitted) = trace
         .emitted_tokens
         .iter()
-        .find(|token| token.raw_text == "7")
+        .enumerate()
+        .find(|(_, token)| token.raw_text == "7")
         .expect("trace should contain the emitted argument token");
+    let emitted_index = u32::try_from(emitted_index).unwrap();
+    assert_eq!(emitted.emitted_token_index, Some(emitted_index));
+    assert_eq!(token_emitted.emitted_token_index, Some(emitted_index));
     assert_eq!(token_origin, emitted.origin.clone());
 }
 

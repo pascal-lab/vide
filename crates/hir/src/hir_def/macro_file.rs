@@ -1,6 +1,6 @@
 use ::preproc::source::{
-    SourceEmittedTokenId, SourceEmittedTokenRange, SourceMacroCall, SourceMacroCallId,
-    SourceMacroExpansion, SourceMacroExpansionDefinition, SourcePreprocModel,
+    SourceEmittedTokenRange, SourceMacroCall, SourceMacroCallId, SourceMacroExpansion,
+    SourceMacroExpansionDefinition, SourcePreprocModel,
 };
 use smol_str::SmolStr;
 use syntax::{SyntaxTree, preproc::MacroCallId as TraceMacroCallId};
@@ -18,6 +18,7 @@ mod source_map;
 #[cfg(test)]
 mod tests;
 
+pub use ::preproc::source::SourceEmittedTokenId;
 pub use source_map::{ExpansionSourceHit, ExpansionSourceMap, Origin};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]

@@ -182,6 +182,7 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
     assert_eq!(
         source_map.source_hits(TOP, TextSize::from(21)),
         vec![ExpansionSourceHit {
+            emitted_token: SourceEmittedTokenId::new(1),
             expanded_token_index: 1,
             range: text_range(20, 24),
             origin: Origin::MacroBody {
@@ -194,6 +195,7 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
     assert_eq!(
         source_map.source_hits(TOP, TextSize::from(51)),
         vec![ExpansionSourceHit {
+            emitted_token: SourceEmittedTokenId::new(2),
             expanded_token_index: 2,
             range: text_range(50, 54),
             origin: Origin::MacroArg {
