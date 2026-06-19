@@ -6,10 +6,7 @@ use hir::{
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
-use super::markup::{
-    render_macro_expansion_header, render_macro_expansion_separator,
-    render_macro_expansion_source_link,
-};
+use super::markup::{macro_expansion_source_fact, render_macro_expansion_header};
 use crate::{RangeInfo, db::root_db::RootDb, markup::Markup};
 
 pub(in crate::hover) fn with_expanded_macro_hover(
@@ -97,20 +94,19 @@ fn expanded_macro_markup(db: &RootDb, expansions: &[ExpandedMacro]) -> Markup {
 
 fn render_expanded_macro(db: &RootDb, markup: &mut Markup, expansion: &ExpandedMacro) {
     if !markup.is_empty() {
-        markup.newline();
+        markup.horizontal_line();
     }
     render_macro_expansion_header(markup, &expansion.metadata.definition);
-    render_macro_expansion_separator(markup);
-    markup.print("Expands to");
-    markup.newline();
-    markup.push_with_code_fence(&macro_expansion_hover_text(expansion.text.as_str()));
-    render_macro_expansion_separator(markup);
-    render_macro_expansion_source_link(
+    markup.section("Facts");
+    let source = macro_expansion_source_fact(
         db,
-        markup,
         &expansion.metadata.definition,
         expansion.metadata.call_file_id,
-    );
+    )
+    .unwrap_or_else(|| "unavailable".to_string());
+    markup.fact("Source", &source);
+    markup.section("Expansion");
+    markup.push_with_code_fence(&macro_expansion_hover_text(expansion.text.as_str()));
 }
 
 pub(in crate::hover) fn macro_expansion_hover_text(text: &str) -> String {

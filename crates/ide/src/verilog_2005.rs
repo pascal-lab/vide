@@ -1315,7 +1315,19 @@ endmodule
         .hover(position, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("include hover expected");
-    assert!(hover.info.as_str().contains("defs.svh"), "hover should mention include target");
+    let info = hover.info.as_str();
+    assert!(
+        info.starts_with("Include `defs.svh`"),
+        "include hover should start with the canonical title: {info}"
+    );
+    assert!(
+        info.contains("```systemverilog\n`include \"defs.svh\"\n```"),
+        "include hover should render the directive as the primary code block: {info}"
+    );
+    assert!(
+        info.contains("\n\n---\n\nFacts\n- Resolves to: ["),
+        "include hover should render the resolved target as a fact link: {info}"
+    );
 }
 
 #[test]
@@ -1462,7 +1474,7 @@ endmodule
     );
     assert!(
         !hover.info.as_str().contains("`define `NEXT(value)")
-            && !hover.info.as_str().contains("--------------------"),
+            && !hover.info.as_str().contains("Expands to"),
         "macro argument hover should not show macro expansion away from the macro name: {}",
         hover.info.as_str()
     );
@@ -1521,10 +1533,12 @@ endmodule
             && info.contains("Macro")
             && info.contains("`MAKE_DECL(name)")
             && !info.contains("`define `MAKE_DECL(name)")
-            && info.contains("Expands to")
-            && info.contains("--------------------")
+            && info.starts_with("Macro `MAKE_DECL`")
+            && info.contains("\n\n---\n\nFacts\n- Source: [")
+            && info.contains("\n\n---\n\nExpansion\n```systemverilog\nlogic generated;\n```")
+            && !info.contains("--------------------")
             && info.contains("logic generated;")
-            && info.contains("from [feature.v]")
+            && !info.contains("from [feature.v]")
             && !info.contains("Context ")
             && !info.contains("Signature")
             && !info.contains("Arguments")
@@ -1542,7 +1556,7 @@ endmodule
     assert!(
         arg_info.contains("generated")
             && !arg_info.contains("`define `MAKE_DECL(name)")
-            && !arg_info.contains("--------------------"),
+            && !arg_info.contains("Expands to"),
         "macro argument hover should stay on the source token away from the macro name: {arg_info}"
     );
 }
@@ -1570,7 +1584,9 @@ endmodule
         assert!(
             info.contains("```systemverilog")
                 && info.contains(&format!("`{name}"))
-                && info.contains("--------------------")
+                && info.starts_with(&format!("Macro `{name}`"))
+                && info.contains("\n\n---\n\nFacts\n- Source: Builtin")
+                && !info.contains("--------------------")
                 && !info.contains("unavailable"),
             "builtin macro hover should show structured expansion: {info}"
         );
@@ -1600,13 +1616,15 @@ endmodule
             && info.contains("`DEMO_NEXT(value)")
             && !info.contains("`define `DEMO_NEXT(value)")
             && !info.contains("`MATH_ONE")
-            && info.contains("Expands to")
-            && info.contains("--------------------")
+            && info.starts_with("Macro `DEMO_NEXT`")
+            && info.contains("\n\n---\n\nFacts\n- Source: [")
+            && info.contains("\n\n---\n\nExpansion\n```systemverilog")
+            && !info.contains("--------------------")
             && info.contains("((payload_i) + 12'd1)")
             && info.contains("payload_i")
             && info.contains("12")
             && info.contains("'d")
-            && info.contains("from [feature.v]")
+            && info.contains("[feature.v]")
             && !info.contains("Context ")
             && !info.contains("Expansion steps"),
         "nested macro hover should show compact signature, result, and source: {info}"
@@ -1637,12 +1655,14 @@ endmodule
             && call_info.contains("`DEMO_NEXT(value)")
             && !call_info.contains("`define `DEMO_NEXT(value)")
             && !call_info.contains("`MATH_ONE")
-            && call_info.contains("Expands to")
-            && call_info.contains("--------------------")
+            && call_info.starts_with("Macro `DEMO_NEXT`")
+            && call_info.contains("\n\n---\n\nFacts\n- Source: [")
+            && call_info.contains("\n\n---\n\nExpansion\n```systemverilog")
+            && !call_info.contains("--------------------")
             && call_info.contains("((payload_i) + 12'd1)")
             && call_info.contains("payload_i")
             && call_info.contains("12")
-            && call_info.contains("from [feature.v]")
+            && call_info.contains("[feature.v]")
             && !call_info.contains("Context ")
             && !call_info.contains("Expansion steps"),
         "outer macro hover should keep compact expansion facts: {call_info}"
@@ -1671,10 +1691,12 @@ endmodule
             && payl_info.contains("Macro")
             && payl_info.contains("`PAYL")
             && !payl_info.contains("`define `PAYL payload_i")
-            && payl_info.contains("Expands to")
-            && payl_info.contains("--------------------")
+            && payl_info.contains("\n\n---\n\nMacro `PAYL`")
+            && payl_info.contains("\n\n---\n\nFacts\n- Source: [")
+            && payl_info.contains("\n\n---\n\nExpansion\n```systemverilog")
+            && !payl_info.contains("--------------------")
             && payl_info.contains("payload_i")
-            && payl_info.contains("from [feature.v]")
+            && !payl_info.contains("from [feature.v]")
             && !payl_info.contains("unavailable"),
         "PAYL hover should show the nested macro expansion without unavailable text: {payl_info}"
     );
@@ -1697,10 +1719,13 @@ endmodule
         .expect("macro call hover expected");
     let info = hover.info.as_str();
     assert!(
-        info.contains("```systemverilog")
+        info.starts_with("Macro `JOIN`")
+            && info.contains("```systemverilog")
             && info.contains("`JOIN(a, b)")
+            && info.contains("\n\n---\n\nFacts\n- Source: [")
+            && info.contains("\n\n---\n\nExpansion\n```systemverilog")
             && info.contains("foobar")
-            && info.contains("from [feature.v]")
+            && info.contains("[feature.v]")
             && !info.contains("unavailable"),
         "token paste expansion hover should show the expanded display text: {info}"
     );
@@ -1784,10 +1809,12 @@ endmodule
         .expect("DECL_PIPE macro call hover expected");
     let decl_info = decl_hover.info.as_str();
     assert!(
-        decl_info.contains("```systemverilog")
+        decl_info.starts_with("Macro `DECL_PIPE`")
+            && decl_info.contains("```systemverilog")
             && decl_info.contains("`DECL_PIPE(name, width)")
             && !decl_info.contains("`define `DECL_PIPE(name, width)")
-            && decl_info.contains("Expands to")
+            && decl_info.contains("\n\n---\n\nFacts\n- Source: [")
+            && decl_info.contains("\n\n---\n\nExpansion\n```systemverilog")
             && decl_info.contains("logic [(12)-1:0] sample_q")
             && !decl_info.contains("unavailable"),
         "DECL_PIPE hover should show expansion through configured predefine: {decl_info}"
@@ -1802,9 +1829,11 @@ endmodule
         .expect("PIPE_ASSIGN macro call hover expected");
     let assign_info = assign_hover.info.as_str();
     assert!(
-        assign_info.contains("`PIPE_ASSIGN(name, next_value)")
+        assign_info.starts_with("Macro `PIPE_ASSIGN`")
+            && assign_info.contains("`PIPE_ASSIGN(name, next_value)")
             && !assign_info.contains("`define `PIPE_ASSIGN(name, next_value)")
-            && assign_info.contains("Expands to")
+            && assign_info.contains("\n\n---\n\nFacts\n- Source: [")
+            && assign_info.contains("\n\n---\n\nExpansion\n```systemverilog")
             && assign_info.contains("trace_q <= (sample_q ^ {{(12-1){1'b0}}, 1'b1});")
             && !assign_info.contains("unavailable"),
         "PIPE_ASSIGN hover should show actual-argument expansion through configured predefine: {assign_info}"
@@ -1895,7 +1924,10 @@ endmodule
         hover.info.as_str().contains("`define LOCAL_WIDTH 8"),
         "hover should show macro definition"
     );
-    assert!(hover.info.as_str().contains("from [feature.v]"), "hover should show macro source");
+    assert!(
+        hover.info.as_str().contains("\n\n---\n\nFacts\n- Source: [feature.v]"),
+        "hover should show linked macro source"
+    );
 
     let conditional_nav = analysis
         .goto_definition(position(file_id, &markers, "conditional"))
@@ -2027,8 +2059,9 @@ endmodule
     );
     assert!(hover.info.as_str().contains("8"), "hover should show macro expansion");
     assert!(
-        hover.info.as_str().contains("from [include/defs.vh]"),
-        "hover should show project-relative macro source path: {}",
+        hover.info.as_str().contains("\n\n---\n\nFacts\n- Source: [include/defs.vh]")
+            && hover.info.as_str().contains("line 2"),
+        "hover should show linked project-relative macro source path: {}",
         hover.info.as_str()
     );
 
@@ -2668,8 +2701,19 @@ endmodule
         port_hover.info.as_str()
     );
     assert!(
-        port_hover.info.as_str().contains("---------"),
-        "port hover should separate signature and container: {}",
+        port_hover.info.as_str().starts_with("Port `clk`"),
+        "port hover should start with the canonical title: {}",
+        port_hover.info.as_str()
+    );
+    assert!(
+        port_hover.info.as_str().contains("\n\n---\n\nFacts\n- Scope: `child`")
+            && port_hover.info.as_str().contains("- Source: ["),
+        "port hover should render context as facts: {}",
+        port_hover.info.as_str()
+    );
+    assert!(
+        !port_hover.info.as_str().contains("---------"),
+        "port hover should not use legacy dividers: {}",
         port_hover.info.as_str()
     );
 
@@ -2686,8 +2730,19 @@ endmodule
         param_hover.info.as_str()
     );
     assert!(
-        param_hover.info.as_str().contains("---------"),
-        "parameter hover should separate signature and container: {}",
+        param_hover.info.as_str().starts_with("Localparam `DEPTH`"),
+        "parameter hover should start with the canonical title: {}",
+        param_hover.info.as_str()
+    );
+    assert!(
+        param_hover.info.as_str().contains("\n\n---\n\nFacts\n- Scope: `child`")
+            && param_hover.info.as_str().contains("- Source: ["),
+        "parameter hover should render context as facts: {}",
+        param_hover.info.as_str()
+    );
+    assert!(
+        !param_hover.info.as_str().contains("---------"),
+        "parameter hover should not use legacy dividers: {}",
         param_hover.info.as_str()
     );
 
@@ -2747,16 +2802,28 @@ endmodule
     let info = hover.info.as_str();
 
     assert!(
-        info.contains("Ambiguous reference"),
-        "ambiguous hover should identify the ambiguity: {info}"
+        info.starts_with("Module reference `child`"),
+        "ambiguous hover should start with the canonical title: {info}"
     );
     assert!(
-        info.contains("feature.v:2") && info.contains("feature.v:5"),
-        "ambiguous hover should list declaration locations: {info}"
+        info.contains("```systemverilog\nchild\n```"),
+        "ambiguous hover should render the reference as the primary code block: {info}"
+    );
+    assert!(
+        info.contains("\n\n---\n\nFacts\n- Status: ambiguous\n- Candidates: 2"),
+        "ambiguous hover should render ambiguity summary as facts: {info}"
+    );
+    assert!(
+        info.contains("[feature.v]") && info.contains("line 2") && info.contains("line 5"),
+        "ambiguous hover should list linked declaration locations: {info}"
     );
     assert!(
         !info.contains("input logic a") && !info.contains("output logic y"),
         "ambiguous hover should not expand candidate signatures: {info}"
+    );
+    assert!(
+        info.contains("\n\n---\n\nCandidates\n- [") && !info.contains("---------"),
+        "ambiguous hover should use the canonical candidates section: {info}"
     );
 }
 
