@@ -1,0 +1,14 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(sample_name_hover.info.as_str())
+---
+Declaration `sample_q`
+
+```systemverilog
+logic [12 - 1:0] sample_q
+```
+
+
+---
+
+in `macro_hover_top` from [top.sv](<file:///$FILE/top.sv>) line 17

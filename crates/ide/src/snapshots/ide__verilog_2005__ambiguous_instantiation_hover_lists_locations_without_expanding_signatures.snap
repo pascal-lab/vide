@@ -1,0 +1,20 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(hover.info.as_str())
+---
+Module reference `child`
+
+```systemverilog
+child
+```
+
+
+---
+
+ambiguous reference, 2 candidates
+
+---
+
+Candidates
+- [feature.v](<feature.v>) line 2
+- [feature.v](<feature.v>) line 5

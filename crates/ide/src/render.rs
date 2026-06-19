@@ -36,7 +36,7 @@ use utils::get::GetRef;
 use crate::{
     db::{line_index_db::LineIndexDb, root_db::RootDb},
     definitions::{Definition, DefinitionOrigin},
-    markup::Markup,
+    markup::{Markup, display_project_path, file_link_target, inline_code, markdown_link},
     module_resolution::resolve_module_name,
 };
 
@@ -136,9 +136,13 @@ fn render_svint_as_ieee754(svint: &SVInt) -> Option<String> {
     }
 }
 
-pub(crate) fn render_definition(sema: &Semantics<RootDb>, def: Definition) -> Markup {
+pub(crate) fn render_definition(
+    sema: &Semantics<RootDb>,
+    def: Definition,
+    anchor_file_id: vfs::FileId,
+) -> Markup {
     def.def_origins().into_iter().fold(Markup::new(), |mut res, origin| {
-        let origin = render_def_origin(sema, &origin);
+        let origin = render_def_origin(sema, &origin, anchor_file_id);
 
         if !res.is_empty() && !origin.is_empty() {
             res.newline();
@@ -149,12 +153,16 @@ pub(crate) fn render_definition(sema: &Semantics<RootDb>, def: Definition) -> Ma
     })
 }
 
-pub(crate) fn render_definition_location(sema: &Semantics<RootDb>, def: Definition) -> Markup {
+pub(crate) fn render_definition_location(
+    sema: &Semantics<RootDb>,
+    def: Definition,
+    anchor_file_id: vfs::FileId,
+) -> Markup {
     let db = sema.db;
     let mut locations = def
         .def_origins()
         .into_iter()
-        .filter_map(|origin| render_def_origin_location(db, &origin))
+        .filter_map(|origin| render_def_origin_location(db, &origin, anchor_file_id))
         .collect_vec();
     locations.sort();
     locations.dedup();
@@ -164,48 +172,158 @@ pub(crate) fn render_definition_location(sema: &Semantics<RootDb>, def: Definiti
         if idx > 0 {
             res.print("\n");
         }
+        res.print("- ");
         res.print(&location);
     }
     res
 }
 
-fn render_def_origin_location(db: &RootDb, origin: &DefinitionOrigin) -> Option<String> {
+fn render_def_origin_location(
+    db: &RootDb,
+    origin: &DefinitionOrigin,
+    anchor_file_id: vfs::FileId,
+) -> Option<String> {
     let InFile { value: range, file_id } = origin.range(db)?;
-    let file_id = file_id.file_id();
-    let source_root = db.source_root(db.source_root_id(file_id));
-    let path = source_root
-        .path_for_file(&file_id)
-        .map(ToString::to_string)
-        .or_else(|| db.file_path(file_id).map(|path| path.to_string()))
-        .unwrap_or_else(|| format!("{file_id:?}"));
-    let line = db.line_index(file_id).try_line_col(range.start())?.line + 1;
-
-    Some(format!("{path}:{line}"))
+    source_line_link(db, file_id.file_id(), range.start(), anchor_file_id)
 }
 
-fn render_def_origin(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Markup {
-    let mut res = Markup::new();
-    let mut has_signature = false;
+pub(crate) fn source_file_link(
+    db: &RootDb,
+    file_id: vfs::FileId,
+    anchor_file_id: vfs::FileId,
+) -> Option<String> {
+    let label = source_file_label(db, file_id, anchor_file_id)?;
+    let target = db
+        .file_path(file_id)
+        .map(|path| file_link_target(&path.to_string()))
+        .unwrap_or_else(|| label.clone());
 
+    Some(markdown_link(&label, &target))
+}
+
+pub(crate) fn source_line_link(
+    db: &RootDb,
+    file_id: vfs::FileId,
+    offset: utils::line_index::TextSize,
+    anchor_file_id: vfs::FileId,
+) -> Option<String> {
+    let line = db.line_index(file_id).try_line_col(offset)?.line + 1;
+    Some(format!("{} line {line}", source_file_link(db, file_id, anchor_file_id)?))
+}
+
+fn source_file_label(
+    db: &RootDb,
+    file_id: vfs::FileId,
+    anchor_file_id: vfs::FileId,
+) -> Option<String> {
+    if let Some(label) = relative_source_file_label(db, file_id, anchor_file_id) {
+        return Some(label);
+    }
+
+    let source_root = db.source_root(db.source_root_id(file_id));
+    source_root
+        .path_for_file(&file_id)
+        .map(|path| display_project_path(path.to_string()))
+        .or_else(|| db.file_path(file_id).map(|path| display_project_path(path.to_string())))
+}
+
+fn relative_source_file_label(
+    db: &RootDb,
+    file_id: vfs::FileId,
+    anchor_file_id: vfs::FileId,
+) -> Option<String> {
+    let source_root = db.source_root(db.source_root_id(file_id));
+    let target_path = source_root.path_for_file(&file_id)?.as_abs_path()?;
+
+    let anchor_source_root = db.source_root(db.source_root_id(anchor_file_id));
+    let anchor_path = anchor_source_root.path_for_file(&anchor_file_id)?.as_abs_path()?;
+    let mut common_dir = anchor_path.parent()?.to_path_buf();
+    while !target_path.starts_with(common_dir.as_path()) {
+        if !common_dir.pop() {
+            return None;
+        }
+    }
+    if !has_normal_path_component(common_dir.as_path()) {
+        return None;
+    }
+
+    target_path
+        .strip_prefix(common_dir.as_path())
+        .map(|path| display_project_path(path.as_ref().display().to_string()))
+}
+
+fn has_normal_path_component(path: &utils::paths::AbsPath) -> bool {
+    path.components().any(|component| matches!(component, utils::paths::Utf8Component::Normal(_)))
+}
+
+fn render_def_origin(
+    sema: &Semantics<RootDb>,
+    origin: &DefinitionOrigin,
+    anchor_file_id: vfs::FileId,
+) -> Markup {
+    let mut res = Markup::new();
+
+    if let Some(title) = render_definition_title(sema.db, origin) {
+        res.title(&title);
+    }
     if let Some(signature) = render_signature(sema, origin) {
         res.push_with_code_fence(&signature);
-        has_signature = true;
     }
 
-    let containers = render_containers(sema, origin);
-    if has_signature && !containers.is_empty() {
-        res.horizontal_line();
+    if let Some(metadata) = render_definition_metadata(sema, origin, anchor_file_id) {
+        res.metadata_line(&metadata);
     }
-    res.merge(containers);
-
     if let Some(markup) = render_side_comments(sema, origin) {
         if !res.is_empty() {
-            res.horizontal_line();
+            res.section("Documentation");
         }
         res.merge(markup);
     }
 
     res
+}
+
+fn render_definition_title(db: &RootDb, origin: &DefinitionOrigin) -> Option<String> {
+    let name = origin.name(db)?;
+    let kind = match origin {
+        DefinitionOrigin::ModuleId(_) => "Module",
+        DefinitionOrigin::Config(_) => "Config",
+        DefinitionOrigin::Library(_) => "Library",
+        DefinitionOrigin::Udp(_) => "Primitive",
+        DefinitionOrigin::BlockId(_) => "Block",
+        DefinitionOrigin::GenerateBlockId(_) => "Generate block",
+        DefinitionOrigin::SubroutineId(subroutine_id) => match db.subroutine(*subroutine_id).kind {
+            SubroutineKind::Task => "Task",
+            SubroutineKind::Function { .. } => "Function",
+        },
+        DefinitionOrigin::SubroutinePort(_) | DefinitionOrigin::NonAnsiPort(_) => "Port",
+        DefinitionOrigin::Decl(decl_id) => render_decl_title_kind(db, *decl_id)?,
+        DefinitionOrigin::Typedef(_) => "Typedef",
+        DefinitionOrigin::Instance(_) => "Instance",
+        DefinitionOrigin::Stmt(_) => "Statement",
+    };
+
+    Some(format!("{kind} {}", inline_code(name.as_str())))
+}
+
+fn render_decl_title_kind(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<&'static str> {
+    let container = decl_id.cont_id.to_container(db);
+    let decl = container.get(decl_id.value);
+
+    Some(match decl.parent {
+        DeclaratorParent::PortDeclId(_) => "Port",
+        DeclaratorParent::DeclarationId(parent) => match container.get(parent) {
+            Declaration::ParamDecl(param_decl) => match param_decl.kind.keyword() {
+                "parameter" => "Parameter",
+                "localparam" => "Localparam",
+                _ => "Parameter",
+            },
+            Declaration::GenvarDecl(_) => "Genvar",
+            Declaration::SpecparamDecl(_) => "Specparam",
+            Declaration::DataDecl(_) | Declaration::NetDecl(_) => "Declaration",
+        },
+        DeclaratorParent::StmtId(_) => "Variable",
+    })
 }
 
 fn render_signature(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Option<String> {
@@ -560,12 +678,10 @@ fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefinitionOrigin)
     }
 }
 
-fn render_containers(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Markup {
+fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Option<String> {
     // elaboration?
     let db = sema.db;
-    let Some(InFile { value: range, .. }) = origin.range(db) else {
-        return Markup::new();
-    };
+    let InFile { value: range, .. } = origin.range(db)?;
     let cont_id = origin.container_id(db);
 
     let mut containers = Vec::new();
@@ -590,11 +706,23 @@ fn render_containers(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Mar
         }
     }
 
-    let mut ans = Markup::new();
     if containers.is_empty() {
-        return ans;
+        return None;
     }
-    ans.print("in ");
-    ans.push_with_backticks(&containers.into_iter().rev().join(" > "));
-    ans
+    Some(inline_code(&containers.into_iter().rev().join(" > ")))
+}
+
+fn render_definition_metadata(
+    sema: &Semantics<RootDb>,
+    origin: &DefinitionOrigin,
+    anchor_file_id: vfs::FileId,
+) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(scope) = render_scope_fact(sema, origin) {
+        parts.push(format!("in {scope}"));
+    }
+    if let Some(source) = render_def_origin_location(sema.db, origin, anchor_file_id) {
+        parts.push(format!("from {source}"));
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
 }

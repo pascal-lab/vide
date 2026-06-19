@@ -1,25 +1,22 @@
 use hir::{
-    base_db::{
-        source_db::{SourceDb, SourceRootDb},
-        source_root::SourceRootRole,
-    },
+    base_db::source_db::SourceDb,
     hir_def::macro_file::MacroExpansionDefinition,
     preproc::{MacroDefinition, MacroParamDefinition},
 };
 use vfs::FileId;
 
 use super::expansion::macro_expansion_hover_text;
-use crate::{db::root_db::RootDb, markup::Markup};
-
-struct MacroSourceLink {
-    label: String,
-    target: String,
-}
+use crate::{
+    db::root_db::RootDb,
+    markup::{Markup, inline_code},
+    render,
+};
 
 pub(super) fn render_macro_expansion_header(
     markup: &mut Markup,
     definition: &MacroExpansionDefinition,
 ) {
+    markup.title(&macro_expansion_title(definition));
     match definition {
         MacroExpansionDefinition::Source(definition) => {
             markup.push_with_code_fence(&macro_signature(definition));
@@ -30,10 +27,15 @@ pub(super) fn render_macro_expansion_header(
     }
 }
 
-pub(super) fn render_macro_expansion_separator(markup: &mut Markup) {
-    markup.newline();
-    markup.print(super::MACRO_EXPANSION_SEPARATOR);
-    markup.newline();
+fn macro_expansion_title(definition: &MacroExpansionDefinition) -> String {
+    match definition {
+        MacroExpansionDefinition::Source(definition) => macro_title(definition.name.as_str()),
+        MacroExpansionDefinition::Builtin { name, .. } => macro_title(name.as_str()),
+    }
+}
+
+fn macro_title(name: &str) -> String {
+    format!("Macro {}", inline_code(name))
 }
 
 fn macro_signature(definition: &MacroDefinition) -> String {
@@ -80,77 +82,6 @@ fn fallback_macro_definition_line(definition: &MacroDefinition) -> String {
     line
 }
 
-fn macro_file_source_link(
-    db: &RootDb,
-    file_id: FileId,
-    anchor_file_id: FileId,
-) -> Option<MacroSourceLink> {
-    let source_root = db.source_root(db.source_root_id(file_id));
-    let label = if matches!(source_root.role(), SourceRootRole::Local)
-        && let Some(label) = local_source_root_path_label(db, file_id, anchor_file_id)
-    {
-        label
-    } else {
-        source_root
-            .path_for_file(&file_id)
-            .map(|path| display_hover_path(path.to_string()))
-            .or_else(|| db.file_path(file_id).map(|path| display_hover_path(path.to_string())))?
-    };
-    let target = db
-        .file_path(file_id)
-        .map(|path| file_link_target(&path.to_string()))
-        .unwrap_or_else(|| label.clone());
-    Some(MacroSourceLink { label, target })
-}
-
-fn local_source_root_path_label(
-    db: &RootDb,
-    file_id: FileId,
-    anchor_file_id: FileId,
-) -> Option<String> {
-    let source_root = db.source_root(db.source_root_id(file_id));
-    let source_path = source_root.path_for_file(&file_id)?;
-    let Some(target_path) = source_path.as_abs_path() else {
-        return Some(display_project_path(source_path.to_string()));
-    };
-
-    let anchor_source_root = db.source_root(db.source_root_id(anchor_file_id));
-    let anchor_path = anchor_source_root.path_for_file(&anchor_file_id)?.as_abs_path()?;
-    let mut common_dir = anchor_path.parent()?.to_path_buf();
-    while !target_path.starts_with(common_dir.as_path()) {
-        if !common_dir.pop() {
-            return None;
-        }
-    }
-    if !has_normal_path_component(common_dir.as_path()) {
-        return None;
-    }
-
-    target_path
-        .strip_prefix(common_dir.as_path())
-        .map(|path| display_project_path(path.as_ref().display().to_string()))
-}
-
-fn has_normal_path_component(path: &utils::paths::AbsPath) -> bool {
-    path.components().any(|component| matches!(component, utils::paths::Utf8Component::Normal(_)))
-}
-
-fn display_project_path(mut path: String) -> String {
-    while path.starts_with('/') {
-        path.remove(0);
-    }
-    display_hover_path(path)
-}
-
-fn display_hover_path(path: String) -> String {
-    path.replace('\\', "/")
-}
-
-fn file_link_target(path: &str) -> String {
-    let path = display_hover_path(path.to_owned());
-    if path.starts_with('/') { format!("file://{path}") } else { format!("file:///{path}") }
-}
-
 pub(super) fn macro_param_definition_markup(definition: &MacroParamDefinition) -> Markup {
     macro_param_definitions_markup(std::slice::from_ref(definition))
 }
@@ -158,20 +89,25 @@ pub(super) fn macro_param_definition_markup(definition: &MacroParamDefinition) -
 pub(super) fn macro_param_definitions_markup(definitions: &[MacroParamDefinition]) -> Markup {
     let mut markup = Markup::new();
     if definitions.len() == 1 {
-        markup.print("Macro parameter");
-        markup.newline();
-        markup.push_with_backticks(definitions[0].name.as_str());
-        markup.print(" of ");
-        markup.push_with_backticks(definitions[0].macro_definition.name.as_str());
+        let definition = &definitions[0];
+        markup.title(&format!("Macro parameter {}", inline_code(definition.name.as_str())));
+        markup.metadata_line(&format!(
+            "in macro {}",
+            inline_code(definition.macro_definition.name.as_str())
+        ));
         return markup;
     }
 
-    markup.print("Macro parameters");
+    markup.title("Macro parameters");
+    markup.section("Candidates");
     for definition in definitions {
-        markup.newline();
-        markup.push_with_backticks(definition.name.as_str());
+        if !markup.as_str().ends_with('\n') {
+            markup.print("\n");
+        }
+        markup.print("- ");
+        markup.print(&inline_code(definition.name.as_str()));
         markup.print(" of ");
-        markup.push_with_backticks(definition.macro_definition.name.as_str());
+        markup.print(&inline_code(definition.macro_definition.name.as_str()));
     }
     markup
 }
@@ -195,13 +131,17 @@ pub(super) fn macro_definitions_markup(
         return markup;
     }
 
-    markup.print("Macro definitions");
+    markup.title("Macro definitions");
+    markup.section("Candidates");
     for definition in definitions {
-        markup.newline();
-        markup.push_with_backticks(definition.name.as_str());
-        if let Some(path) = db.file_path(definition.file_id) {
+        if !markup.as_str().ends_with('\n') {
+            markup.print("\n");
+        }
+        markup.print("- ");
+        markup.print(&inline_code(definition.name.as_str()));
+        if let Some(source) = macro_definition_source_fact(db, definition, anchor_file_id) {
             markup.print(" ");
-            markup.print(&path.to_string());
+            markup.print(&source);
         }
     }
     markup
@@ -213,53 +153,39 @@ fn render_macro_definition_display(
     anchor_file_id: FileId,
     definition: &MacroDefinition,
 ) {
+    markup.title(&macro_title(definition.name.as_str()));
     markup.push_with_code_fence(&macro_definition_line(db, definition));
-    render_macro_expansion_separator(markup);
-    render_macro_source_link(db, markup, definition, anchor_file_id);
+    let source = macro_definition_source_fact(db, definition, anchor_file_id)
+        .unwrap_or_else(|| "unavailable".to_string());
+    markup.metadata_line(&format!("from {source}"));
 }
 
-pub(super) fn render_macro_source_link(
+fn macro_definition_source_fact(
     db: &RootDb,
-    markup: &mut Markup,
     definition: &MacroDefinition,
     anchor_file_id: FileId,
-) {
-    render_macro_file_source_link(db, markup, definition.file_id, anchor_file_id);
+) -> Option<String> {
+    macro_file_source_fact(db, definition.file_id, definition.source_range.start(), anchor_file_id)
 }
 
-pub(super) fn render_macro_expansion_source_link(
+pub(super) fn macro_expansion_source_fact(
     db: &RootDb,
-    markup: &mut Markup,
     definition: &MacroExpansionDefinition,
     anchor_file_id: FileId,
-) {
-    let MacroExpansionDefinition::Source(definition) = definition else {
-        return;
-    };
-    render_macro_file_source_link(db, markup, definition.file_id, anchor_file_id);
+) -> Option<String> {
+    match definition {
+        MacroExpansionDefinition::Source(definition) => {
+            macro_definition_source_fact(db, definition, anchor_file_id)
+        }
+        MacroExpansionDefinition::Builtin { .. } => Some("builtin".to_string()),
+    }
 }
 
-fn render_macro_file_source_link(
+fn macro_file_source_fact(
     db: &RootDb,
-    markup: &mut Markup,
     file_id: FileId,
+    offset: utils::line_index::TextSize,
     anchor_file_id: FileId,
-) {
-    let Some(source) = macro_file_source_link(db, file_id, anchor_file_id) else {
-        return;
-    };
-    markup.print_with_strong("Macro");
-    markup.print(" from [");
-    markup.print(&markdown_link_label(&source.label));
-    markup.print("](<");
-    markup.print(&markdown_link_destination(&source.target));
-    markup.print(">)");
-}
-
-fn markdown_link_label(label: &str) -> String {
-    label.replace('\\', "\\\\").replace('[', "\\[").replace(']', "\\]")
-}
-
-fn markdown_link_destination(destination: &str) -> String {
-    destination.replace('>', "%3E")
+) -> Option<String> {
+    render::source_line_link(db, file_id, offset, anchor_file_id)
 }

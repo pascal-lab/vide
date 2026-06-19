@@ -1,0 +1,14 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(hover.info.as_str())
+---
+Module `axi_addr_miter`
+
+```systemverilog
+module axi_addr_miter ()
+```
+
+
+---
+
+from [feature.v](<feature.v>) line 1

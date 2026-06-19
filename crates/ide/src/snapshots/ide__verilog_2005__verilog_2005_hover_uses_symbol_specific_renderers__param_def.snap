@@ -1,0 +1,14 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(param_hover.info.as_str())
+---
+Localparam `DEPTH`
+
+```systemverilog
+localparam logic DEPTH = WIDTH + 1
+```
+
+
+---
+
+in `child` from [feature.v](<feature.v>) line 5

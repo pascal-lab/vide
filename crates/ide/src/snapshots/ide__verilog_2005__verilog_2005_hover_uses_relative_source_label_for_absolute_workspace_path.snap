@@ -1,0 +1,14 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(hover.info.as_str())
+---
+Port `sample_o`
+
+```systemverilog
+output logic [12 - 1:0] sample_o
+```
+
+
+---
+
+in `macro_hover_top` from [02_macro_hover_top.sv](<file:///$FILE/02_macro_hover_top.sv>) line 3

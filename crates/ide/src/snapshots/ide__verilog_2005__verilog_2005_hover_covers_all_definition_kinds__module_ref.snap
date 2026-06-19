@@ -1,0 +1,17 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(hover.info.as_str())
+---
+Module `child`
+
+```systemverilog
+module child (
+    input wire logic a,
+    output wire logic y
+)
+```
+
+
+---
+
+from [feature.v](<feature.v>) line 2

@@ -1,0 +1,14 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(port_hover.info.as_str())
+---
+Port `clk`
+
+```systemverilog
+input wire logic clk
+```
+
+
+---
+
+in `child` from [feature.v](<feature.v>) line 3

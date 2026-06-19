@@ -1,0 +1,16 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(func_hover.info.as_str())
+---
+Function `add1`
+
+```systemverilog
+function logic [3:0] add1(
+    input logic [3:0] value
+)
+```
+
+
+---
+
+in `child` from [feature.v](<feature.v>) line 11
