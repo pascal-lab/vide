@@ -1,6 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
-expression: normalize_hover_snapshot(info)
+expression: normalize_hover_snapshot(hover.info.as_str())
 ---
 Macro `HEADER_WIDTH`
 
@@ -11,8 +11,7 @@ Macro `HEADER_WIDTH`
 
 ---
 
-Facts
-- Source: [include/defs.vh](<file:///$FILE/defs.vh>) line 2
+from [include/defs.vh](<file:///$FILE/defs.vh>) line 2
 
 ---
 

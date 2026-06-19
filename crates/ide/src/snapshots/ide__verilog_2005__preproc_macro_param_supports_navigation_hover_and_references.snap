@@ -1,6 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
-expression: normalize_hover_snapshot(info)
+expression: normalize_hover_snapshot(hover.info.as_str())
 ---
 Macro parameter `value`
 
@@ -8,5 +8,4 @@ Macro parameter `value`
 
 ---
 
-Facts
-- Macro: `SHIFT`
+in macro `SHIFT`

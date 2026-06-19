@@ -11,5 +11,4 @@ Include `defs.svh`
 
 ---
 
-Facts
-- Resolves to: [$FILE/defs.svh](<file:///$FILE/defs.svh>)
+resolves to [defs.svh](<file:///$FILE/defs.svh>)

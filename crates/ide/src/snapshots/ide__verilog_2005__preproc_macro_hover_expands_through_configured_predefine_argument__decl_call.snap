@@ -1,6 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
-expression: normalize_hover_snapshot(info)
+expression: normalize_hover_snapshot(decl_hover.info.as_str())
 ---
 Macro `DECL_PIPE`
 
@@ -11,8 +11,7 @@ Macro `DECL_PIPE`
 
 ---
 
-Facts
-- Source: [top.sv](<file:///$FILE/top.sv>) line 2
+from [top.sv](<file:///$FILE/top.sv>) line 2
 
 ---
 

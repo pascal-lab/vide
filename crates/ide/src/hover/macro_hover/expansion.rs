@@ -97,14 +97,13 @@ fn render_expanded_macro(db: &RootDb, markup: &mut Markup, expansion: &ExpandedM
         markup.horizontal_line();
     }
     render_macro_expansion_header(markup, &expansion.metadata.definition);
-    markup.section("Facts");
     let source = macro_expansion_source_fact(
         db,
         &expansion.metadata.definition,
         expansion.metadata.call_file_id,
     )
     .unwrap_or_else(|| "unavailable".to_string());
-    markup.fact("Source", &source);
+    markup.metadata_line(&format!("from {source}"));
     markup.section("Expansion");
     markup.push_with_code_fence(&macro_expansion_hover_text(expansion.text.as_str()));
 }

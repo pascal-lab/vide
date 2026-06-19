@@ -2675,6 +2675,52 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_hover_uses_relative_source_label_for_absolute_workspace_path() {
+    let dir = TestDir::new("hover-source-label");
+    let rtl_dir = dir.path().join("rtl");
+    std::fs::create_dir_all(&rtl_dir).unwrap();
+
+    let file_path = rtl_dir.join("02_macro_hover_top.sv");
+    let (text, markers) = strip_markers(normalize_fixture_text(
+        r#"
+module macro_hover_top(
+  output logic [12 - 1:0] /*marker:port*/sample_o
+);
+endmodule
+"#,
+    ));
+    std::fs::write(&file_path, &text).unwrap();
+
+    let file_id = FileId(0);
+    let mut file_set = FileSet::default();
+    file_set.insert(file_id, VfsPath::from(file_path));
+
+    let mut change = Change::new();
+    change.set_roots(vec![SourceRoot::new_local(file_set)]);
+    change.add_changed_file(ChangedFile {
+        file_id,
+        change_kind: ChangeKind::Create(Arc::from(text.as_str()), LineEnding::Unix),
+    });
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+    let hover = host
+        .make_analysis()
+        .hover(position(file_id, &markers, "port"), HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("port hover expected");
+    let normalized = normalize_hover_snapshot(hover.info.as_str());
+    assert!(
+        !normalized.contains("[$FILE/"),
+        "source link label should be relative, got:\n{normalized}"
+    );
+    assert_hover_snapshot!(
+        "verilog_2005_hover_uses_relative_source_label_for_absolute_workspace_path",
+        hover.info.as_str(),
+    );
+}
+
+#[test]
 fn ambiguous_instantiation_hover_lists_locations_without_expanding_signatures() {
     let text = r#"
 module child(input logic a);

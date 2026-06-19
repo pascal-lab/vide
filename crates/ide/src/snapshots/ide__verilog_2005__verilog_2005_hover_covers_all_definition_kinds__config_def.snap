@@ -1,6 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
-expression: normalize_hover_snapshot(info)
+expression: normalize_hover_snapshot(hover.info.as_str())
 ---
 Config `cfg_top`
 
@@ -11,5 +11,4 @@ config cfg_top
 
 ---
 
-Facts
-- Source: [feature.v](<feature.v>) line 47
+from [feature.v](<feature.v>) line 47

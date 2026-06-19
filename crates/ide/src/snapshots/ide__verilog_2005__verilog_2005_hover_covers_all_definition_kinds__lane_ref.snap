@@ -1,6 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
-expression: normalize_hover_snapshot(info)
+expression: normalize_hover_snapshot(hover.info.as_str())
 ---
 Declaration `lane`
 
@@ -11,6 +11,4 @@ wire logic lane
 
 ---
 
-Facts
-- Scope: `top > g_loop`
-- Source: [feature.v](<feature.v>) line 29
+in `top > g_loop` from [feature.v](<feature.v>) line 29

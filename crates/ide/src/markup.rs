@@ -73,14 +73,9 @@ impl Markup {
         self.text.push('\n');
     }
 
-    pub fn fact(&mut self, key: &str, value: &str) {
-        if !self.text.ends_with('\n') {
-            self.text.push('\n');
-        }
-        self.text.push_str("- ");
-        self.text.push_str(key);
-        self.text.push_str(": ");
-        self.text.push_str(value);
+    pub fn metadata_line(&mut self, contents: &str) {
+        self.horizontal_line();
+        self.text.push_str(contents);
     }
 
     pub fn new_section(&mut self, title: &str) {

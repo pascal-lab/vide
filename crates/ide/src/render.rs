@@ -136,9 +136,13 @@ fn render_svint_as_ieee754(svint: &SVInt) -> Option<String> {
     }
 }
 
-pub(crate) fn render_definition(sema: &Semantics<RootDb>, def: Definition) -> Markup {
+pub(crate) fn render_definition(
+    sema: &Semantics<RootDb>,
+    def: Definition,
+    anchor_file_id: vfs::FileId,
+) -> Markup {
     def.def_origins().into_iter().fold(Markup::new(), |mut res, origin| {
-        let origin = render_def_origin(sema, &origin);
+        let origin = render_def_origin(sema, &origin, anchor_file_id);
 
         if !res.is_empty() && !origin.is_empty() {
             res.newline();
@@ -149,12 +153,16 @@ pub(crate) fn render_definition(sema: &Semantics<RootDb>, def: Definition) -> Ma
     })
 }
 
-pub(crate) fn render_definition_location(sema: &Semantics<RootDb>, def: Definition) -> Markup {
+pub(crate) fn render_definition_location(
+    sema: &Semantics<RootDb>,
+    def: Definition,
+    anchor_file_id: vfs::FileId,
+) -> Markup {
     let db = sema.db;
     let mut locations = def
         .def_origins()
         .into_iter()
-        .filter_map(|origin| render_def_origin_location(db, &origin))
+        .filter_map(|origin| render_def_origin_location(db, &origin, anchor_file_id))
         .collect_vec();
     locations.sort();
     locations.dedup();
@@ -170,17 +178,21 @@ pub(crate) fn render_definition_location(sema: &Semantics<RootDb>, def: Definiti
     res
 }
 
-fn render_def_origin_location(db: &RootDb, origin: &DefinitionOrigin) -> Option<String> {
+fn render_def_origin_location(
+    db: &RootDb,
+    origin: &DefinitionOrigin,
+    anchor_file_id: vfs::FileId,
+) -> Option<String> {
     let InFile { value: range, file_id } = origin.range(db)?;
-    source_line_link(db, file_id.file_id(), range.start())
+    source_line_link(db, file_id.file_id(), range.start(), anchor_file_id)
 }
 
-pub(crate) fn source_file_link(db: &RootDb, file_id: vfs::FileId) -> Option<String> {
-    let source_root = db.source_root(db.source_root_id(file_id));
-    let label = source_root
-        .path_for_file(&file_id)
-        .map(|path| display_project_path(path.to_string()))
-        .or_else(|| db.file_path(file_id).map(|path| display_project_path(path.to_string())))?;
+pub(crate) fn source_file_link(
+    db: &RootDb,
+    file_id: vfs::FileId,
+    anchor_file_id: vfs::FileId,
+) -> Option<String> {
+    let label = source_file_label(db, file_id, anchor_file_id)?;
     let target = db
         .file_path(file_id)
         .map(|path| file_link_target(&path.to_string()))
@@ -193,12 +205,62 @@ pub(crate) fn source_line_link(
     db: &RootDb,
     file_id: vfs::FileId,
     offset: utils::line_index::TextSize,
+    anchor_file_id: vfs::FileId,
 ) -> Option<String> {
     let line = db.line_index(file_id).try_line_col(offset)?.line + 1;
-    Some(format!("{} line {line}", source_file_link(db, file_id)?))
+    Some(format!("{} line {line}", source_file_link(db, file_id, anchor_file_id)?))
 }
 
-fn render_def_origin(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Markup {
+fn source_file_label(
+    db: &RootDb,
+    file_id: vfs::FileId,
+    anchor_file_id: vfs::FileId,
+) -> Option<String> {
+    if let Some(label) = relative_source_file_label(db, file_id, anchor_file_id) {
+        return Some(label);
+    }
+
+    let source_root = db.source_root(db.source_root_id(file_id));
+    source_root
+        .path_for_file(&file_id)
+        .map(|path| display_project_path(path.to_string()))
+        .or_else(|| db.file_path(file_id).map(|path| display_project_path(path.to_string())))
+}
+
+fn relative_source_file_label(
+    db: &RootDb,
+    file_id: vfs::FileId,
+    anchor_file_id: vfs::FileId,
+) -> Option<String> {
+    let source_root = db.source_root(db.source_root_id(file_id));
+    let target_path = source_root.path_for_file(&file_id)?.as_abs_path()?;
+
+    let anchor_source_root = db.source_root(db.source_root_id(anchor_file_id));
+    let anchor_path = anchor_source_root.path_for_file(&anchor_file_id)?.as_abs_path()?;
+    let mut common_dir = anchor_path.parent()?.to_path_buf();
+    while !target_path.starts_with(common_dir.as_path()) {
+        if !common_dir.pop() {
+            return None;
+        }
+    }
+    if !has_normal_path_component(common_dir.as_path()) {
+        return None;
+    }
+
+    target_path
+        .strip_prefix(common_dir.as_path())
+        .map(|path| display_project_path(path.as_ref().display().to_string()))
+}
+
+fn has_normal_path_component(path: &utils::paths::AbsPath) -> bool {
+    path.components().any(|component| matches!(component, utils::paths::Utf8Component::Normal(_)))
+}
+
+fn render_def_origin(
+    sema: &Semantics<RootDb>,
+    origin: &DefinitionOrigin,
+    anchor_file_id: vfs::FileId,
+) -> Markup {
     let mut res = Markup::new();
 
     if let Some(title) = render_definition_title(sema.db, origin) {
@@ -208,19 +270,8 @@ fn render_def_origin(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Mar
         res.push_with_code_fence(&signature);
     }
 
-    let mut facts = Vec::new();
-    if let Some(scope) = render_scope_fact(sema, origin) {
-        facts.push(("Scope", scope));
-    }
-    if let Some(source) = render_def_origin_location(sema.db, origin) {
-        facts.push(("Source", source));
-    }
-
-    if !facts.is_empty() {
-        res.section("Facts");
-        for (key, value) in facts {
-            res.fact(key, &value);
-        }
+    if let Some(metadata) = render_definition_metadata(sema, origin, anchor_file_id) {
+        res.metadata_line(&metadata);
     }
     if let Some(markup) = render_side_comments(sema, origin) {
         if !res.is_empty() {
@@ -659,4 +710,19 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Opt
         return None;
     }
     Some(inline_code(&containers.into_iter().rev().join(" > ")))
+}
+
+fn render_definition_metadata(
+    sema: &Semantics<RootDb>,
+    origin: &DefinitionOrigin,
+    anchor_file_id: vfs::FileId,
+) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(scope) = render_scope_fact(sema, origin) {
+        parts.push(format!("in {scope}"));
+    }
+    if let Some(source) = render_def_origin_location(sema.db, origin, anchor_file_id) {
+        parts.push(format!("from {source}"));
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
 }

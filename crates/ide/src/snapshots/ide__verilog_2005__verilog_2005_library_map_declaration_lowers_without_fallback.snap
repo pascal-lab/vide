@@ -1,6 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
-expression: normalize_hover_snapshot(info)
+expression: normalize_hover_snapshot(hover.info.as_str())
 ---
 Library `work`
 
@@ -11,5 +11,4 @@ library work
 
 ---
 
-Facts
-- Source: [feature.map](<feature.map>) line 2
+from [feature.map](<feature.map>) line 2

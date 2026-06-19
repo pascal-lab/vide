@@ -1,6 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
-expression: normalize_hover_snapshot(info)
+expression: normalize_hover_snapshot(hover.info.as_str())
 ---
 Port `a`
 
@@ -11,6 +11,4 @@ input wire logic a
 
 ---
 
-Facts
-- Scope: `child`
-- Source: [feature.v](<feature.v>) line 2
+in `child` from [feature.v](<feature.v>) line 2
