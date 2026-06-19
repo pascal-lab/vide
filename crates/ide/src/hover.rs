@@ -180,32 +180,35 @@ fn handle_definition(
 ) -> Option<Markup> {
     let token_text = token_text(sema.db, file_id, &tp);
     let def = DefinitionClass::resolve(sema, file_id, tp)?;
+    let anchor_file_id = file_id.file_id();
     let mut res = Markup::new();
 
     match def {
         DefinitionClass::Definition(def) => {
-            res.merge(render::render_definition(sema, def));
+            res.merge(render::render_definition(sema, def, anchor_file_id));
         }
         DefinitionClass::PortConnShorthand { port, local } => {
             res.title("Port connection shorthand");
             res.section("Port");
-            res.merge(render::render_definition(sema, port));
+            res.merge(render::render_definition(sema, port, anchor_file_id));
             res.section("Local");
-            res.merge(render::render_definition(sema, local));
+            res.merge(render::render_definition(sema, local, anchor_file_id));
         }
         DefinitionClass::Ambiguous(definitions) => {
             let token_text = token_text.unwrap_or_else(|| "reference".to_string());
+            let candidate_count = definitions.len();
             res.title(&format!("Module reference {}", inline_code(&token_text)));
             res.push_with_code_fence(&token_text);
-            res.section("Facts");
-            res.fact("Status", "ambiguous");
-            res.fact("Candidates", &definitions.len().to_string());
+            res.metadata_line(&format!(
+                "ambiguous reference, {candidate_count} candidate{}",
+                if candidate_count == 1 { "" } else { "s" }
+            ));
             res.section("Candidates");
             for (idx, definition) in definitions.into_iter().enumerate() {
                 if idx > 0 && !res.as_str().ends_with('\n') {
                     res.print("\n");
                 }
-                res.merge(render::render_definition_location(sema, definition));
+                res.merge(render::render_definition_location(sema, definition, anchor_file_id));
             }
         }
     }

@@ -1,8 +1,5 @@
 use hir::{
-    base_db::{
-        source_db::{SourceDb, SourceRootDb},
-        source_root::SourceRootRole,
-    },
+    base_db::source_db::SourceDb,
     hir_def::macro_file::MacroExpansionDefinition,
     preproc::{MacroDefinition, MacroParamDefinition},
 };
@@ -10,17 +7,10 @@ use vfs::FileId;
 
 use super::expansion::macro_expansion_hover_text;
 use crate::{
-    db::{line_index_db::LineIndexDb, root_db::RootDb},
-    markup::{
-        Markup, display_hover_path, display_project_path, file_link_target, inline_code,
-        markdown_link,
-    },
+    db::root_db::RootDb,
+    markup::{Markup, inline_code},
+    render,
 };
-
-struct MacroSourceLink {
-    label: String,
-    target: String,
-}
 
 pub(super) fn render_macro_expansion_header(
     markup: &mut Markup,
@@ -92,61 +82,6 @@ fn fallback_macro_definition_line(definition: &MacroDefinition) -> String {
     line
 }
 
-fn macro_file_source_link(
-    db: &RootDb,
-    file_id: FileId,
-    anchor_file_id: FileId,
-) -> Option<MacroSourceLink> {
-    let source_root = db.source_root(db.source_root_id(file_id));
-    let label = if matches!(source_root.role(), SourceRootRole::Local)
-        && let Some(label) = local_source_root_path_label(db, file_id, anchor_file_id)
-    {
-        label
-    } else {
-        source_root
-            .path_for_file(&file_id)
-            .map(|path| display_hover_path(path.to_string()))
-            .or_else(|| db.file_path(file_id).map(|path| display_hover_path(path.to_string())))?
-    };
-    let target = db
-        .file_path(file_id)
-        .map(|path| file_link_target(&path.to_string()))
-        .unwrap_or_else(|| label.clone());
-    Some(MacroSourceLink { label, target })
-}
-
-fn local_source_root_path_label(
-    db: &RootDb,
-    file_id: FileId,
-    anchor_file_id: FileId,
-) -> Option<String> {
-    let source_root = db.source_root(db.source_root_id(file_id));
-    let source_path = source_root.path_for_file(&file_id)?;
-    let Some(target_path) = source_path.as_abs_path() else {
-        return Some(display_project_path(source_path.to_string()));
-    };
-
-    let anchor_source_root = db.source_root(db.source_root_id(anchor_file_id));
-    let anchor_path = anchor_source_root.path_for_file(&anchor_file_id)?.as_abs_path()?;
-    let mut common_dir = anchor_path.parent()?.to_path_buf();
-    while !target_path.starts_with(common_dir.as_path()) {
-        if !common_dir.pop() {
-            return None;
-        }
-    }
-    if !has_normal_path_component(common_dir.as_path()) {
-        return None;
-    }
-
-    target_path
-        .strip_prefix(common_dir.as_path())
-        .map(|path| display_project_path(path.as_ref().display().to_string()))
-}
-
-fn has_normal_path_component(path: &utils::paths::AbsPath) -> bool {
-    path.components().any(|component| matches!(component, utils::paths::Utf8Component::Normal(_)))
-}
-
 pub(super) fn macro_param_definition_markup(definition: &MacroParamDefinition) -> Markup {
     macro_param_definitions_markup(std::slice::from_ref(definition))
 }
@@ -156,8 +91,10 @@ pub(super) fn macro_param_definitions_markup(definitions: &[MacroParamDefinition
     if definitions.len() == 1 {
         let definition = &definitions[0];
         markup.title(&format!("Macro parameter {}", inline_code(definition.name.as_str())));
-        markup.section("Facts");
-        markup.fact("Macro", &inline_code(definition.macro_definition.name.as_str()));
+        markup.metadata_line(&format!(
+            "in macro {}",
+            inline_code(definition.macro_definition.name.as_str())
+        ));
         return markup;
     }
 
@@ -218,10 +155,9 @@ fn render_macro_definition_display(
 ) {
     markup.title(&macro_title(definition.name.as_str()));
     markup.push_with_code_fence(&macro_definition_line(db, definition));
-    markup.section("Facts");
     let source = macro_definition_source_fact(db, definition, anchor_file_id)
         .unwrap_or_else(|| "unavailable".to_string());
-    markup.fact("Source", &source);
+    markup.metadata_line(&format!("from {source}"));
 }
 
 fn macro_definition_source_fact(
@@ -241,7 +177,7 @@ pub(super) fn macro_expansion_source_fact(
         MacroExpansionDefinition::Source(definition) => {
             macro_definition_source_fact(db, definition, anchor_file_id)
         }
-        MacroExpansionDefinition::Builtin { .. } => Some("Builtin".to_string()),
+        MacroExpansionDefinition::Builtin { .. } => Some("builtin".to_string()),
     }
 }
 
@@ -251,7 +187,5 @@ fn macro_file_source_fact(
     offset: utils::line_index::TextSize,
     anchor_file_id: FileId,
 ) -> Option<String> {
-    let source = macro_file_source_link(db, file_id, anchor_file_id)?;
-    let line = db.line_index(file_id).try_line_col(offset)?.line + 1;
-    Some(format!("{} line {line}", markdown_link(&source.label, &source.target)))
+    render::source_line_link(db, file_id, offset, anchor_file_id)
 }

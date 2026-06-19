@@ -1,6 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
-expression: normalize_hover_snapshot(info)
+expression: normalize_hover_snapshot(module_hover.info.as_str())
 ---
 Module `child`
 
@@ -15,5 +15,4 @@ module child #(
 
 ---
 
-Facts
-- Source: [feature.v](<feature.v>) line 2
+from [feature.v](<feature.v>) line 2

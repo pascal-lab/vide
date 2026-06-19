@@ -1,6 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
-expression: normalize_hover_snapshot(info)
+expression: normalize_hover_snapshot(hover.info.as_str())
 ---
 Block `blk`
 
@@ -11,6 +11,4 @@ block blk
 
 ---
 
-Facts
-- Scope: `top`
-- Source: [feature.v](<feature.v>) line 38
+in `top` from [feature.v](<feature.v>) line 38

@@ -11,6 +11,4 @@ logic [12 - 1:0] trace_q
 
 ---
 
-Facts
-- Scope: `macro_hover_top`
-- Source: [$FILE/top.sv](<file:///$FILE/top.sv>) line 16
+in `macro_hover_top` from [top.sv](<file:///$FILE/top.sv>) line 16

@@ -1,6 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
-expression: normalize_hover_snapshot(info)
+expression: normalize_hover_snapshot(hover.info.as_str())
 ---
 Primitive `udp_and`
 
@@ -11,5 +11,4 @@ primitive udp_and
 
 ---
 
-Facts
-- Source: [feature.v](<feature.v>) line 6
+from [feature.v](<feature.v>) line 6

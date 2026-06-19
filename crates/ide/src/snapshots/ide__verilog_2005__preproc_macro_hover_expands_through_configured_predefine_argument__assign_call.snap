@@ -1,6 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
-expression: normalize_hover_snapshot(info)
+expression: normalize_hover_snapshot(assign_hover.info.as_str())
 ---
 Macro `PIPE_ASSIGN`
 
@@ -11,8 +11,7 @@ Macro `PIPE_ASSIGN`
 
 ---
 
-Facts
-- Source: [top.sv](<file:///$FILE/top.sv>) line 3
+from [top.sv](<file:///$FILE/top.sv>) line 3
 
 ---
 

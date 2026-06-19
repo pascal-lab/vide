@@ -1,6 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
-expression: normalize_hover_snapshot(info)
+expression: normalize_hover_snapshot(task_hover.info.as_str())
 ---
 Task `drive`
 
@@ -13,6 +13,4 @@ task drive(
 
 ---
 
-Facts
-- Scope: `child`
-- Source: [feature.v](<feature.v>) line 9
+in `child` from [feature.v](<feature.v>) line 9
