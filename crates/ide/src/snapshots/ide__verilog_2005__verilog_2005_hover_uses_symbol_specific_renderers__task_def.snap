@@ -1,0 +1,16 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(task_hover.info.as_str())
+---
+Task `drive`
+
+```systemverilog
+task drive(
+    input reg [3:0] value
+)
+```
+
+
+---
+
+in `child` from [feature.v](<feature.v>) line 9

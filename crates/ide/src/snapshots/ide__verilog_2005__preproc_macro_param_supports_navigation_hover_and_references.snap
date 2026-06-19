@@ -1,0 +1,11 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(hover.info.as_str())
+---
+Macro parameter `value`
+
+
+
+---
+
+in macro `SHIFT`

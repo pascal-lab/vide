@@ -1,0 +1,19 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(hover.info.as_str())
+---
+Instance `u_child`
+
+```systemverilog
+instance u_child of child
+
+module child (
+    input wire logic a,
+    output wire logic y
+)
+```
+
+
+---
+
+in `top` from [feature.v](<feature.v>) line 16

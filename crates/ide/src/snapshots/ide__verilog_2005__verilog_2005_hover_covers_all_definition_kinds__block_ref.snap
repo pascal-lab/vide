@@ -1,0 +1,14 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(hover.info.as_str())
+---
+Block `blk`
+
+```systemverilog
+block blk
+```
+
+
+---
+
+in `top` from [feature.v](<feature.v>) line 38

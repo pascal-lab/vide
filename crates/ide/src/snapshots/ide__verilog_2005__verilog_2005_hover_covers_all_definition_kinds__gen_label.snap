@@ -1,0 +1,14 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(hover.info.as_str())
+---
+Generate block `g_loop`
+
+```systemverilog
+generate g_loop
+```
+
+
+---
+
+in `top` from [feature.v](<feature.v>) line 28

@@ -1,0 +1,21 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(decl_hover.info.as_str())
+---
+Macro `DECL_PIPE`
+
+```systemverilog
+`DECL_PIPE(name, width)
+```
+
+
+---
+
+from [top.sv](<file:///$FILE/top.sv>) line 2
+
+---
+
+Expansion
+```systemverilog
+logic [(12)-1:0] sample_q
+```

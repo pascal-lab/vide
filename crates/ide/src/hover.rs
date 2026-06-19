@@ -1,7 +1,11 @@
-use hir::{container::InContainer, file::HirFileId, hir_def::expr::Expr, semantics::Semantics};
+use hir::{
+    base_db::source_db::SourceDb, container::InContainer, file::HirFileId, hir_def::expr::Expr,
+    semantics::Semantics,
+};
 use syntax::{
     SyntaxNode, SyntaxTokenWithParent, TokenKind,
     ast::{self, AstNode},
+    has_text_range::HasTextRange,
     token::TokenKindExt,
 };
 use utils::{
@@ -22,7 +26,7 @@ use crate::{
             with_expanded_macro_hover,
         },
     },
-    markup::Markup,
+    markup::{Markup, inline_code},
     render,
     source_targets::{SourceTarget, source_target_at_offset},
 };
@@ -174,30 +178,54 @@ fn handle_definition(
     file_id: HirFileId,
     tp: SyntaxTokenWithParent,
 ) -> Option<Markup> {
+    let token_text = token_text(sema.db, file_id, &tp);
     let def = DefinitionClass::resolve(sema, file_id, tp)?;
+    let anchor_file_id = file_id.file_id();
     let mut res = Markup::new();
 
     match def {
         DefinitionClass::Definition(def) => {
-            res.merge(render::render_definition(sema, def));
+            res.merge(render::render_definition(sema, def, anchor_file_id));
         }
         DefinitionClass::PortConnShorthand { port, local } => {
-            res.new_subsection("Port");
-            res.merge(render::render_definition(sema, port));
-            res.horizontal_line();
-            res.new_subsection("Local");
-            res.merge(render::render_definition(sema, local));
+            res.title("Port connection shorthand");
+            res.section("Port");
+            res.merge(render::render_definition(sema, port, anchor_file_id));
+            res.section("Local");
+            res.merge(render::render_definition(sema, local, anchor_file_id));
         }
         DefinitionClass::Ambiguous(definitions) => {
-            res.print("Ambiguous reference");
-            for definition in definitions {
-                res.horizontal_line();
-                res.merge(render::render_definition_location(sema, definition));
+            let token_text = token_text.unwrap_or_else(|| "reference".to_string());
+            let candidate_count = definitions.len();
+            res.title(&format!("Module reference {}", inline_code(&token_text)));
+            res.push_with_code_fence(&token_text);
+            res.metadata_line(&format!(
+                "ambiguous reference, {candidate_count} candidate{}",
+                if candidate_count == 1 { "" } else { "s" }
+            ));
+            res.section("Candidates");
+            for (idx, definition) in definitions.into_iter().enumerate() {
+                if idx > 0 && !res.as_str().ends_with('\n') {
+                    res.print("\n");
+                }
+                res.merge(render::render_definition_location(sema, definition, anchor_file_id));
             }
         }
     }
 
     Some(res)
+}
+
+fn token_text(
+    db: &RootDb,
+    file_id: HirFileId,
+    token: &SyntaxTokenWithParent<'_>,
+) -> Option<String> {
+    let range = token.text_range()?;
+    let source = db.file_text(file_id.file_id());
+    let start = usize::from(range.start());
+    let end = usize::from(range.end());
+    source.get(start..end).map(ToString::to_string)
 }
 
 #[cfg(test)]

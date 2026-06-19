@@ -1,0 +1,14 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(arg_hover.info.as_str())
+---
+Declaration `generated`
+
+```systemverilog
+logic generated
+```
+
+
+---
+
+in `top` from [feature.v](<feature.v>) line 4
