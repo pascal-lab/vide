@@ -57,6 +57,8 @@ fn build_cpp_lib(cxxbridge_dir: &Path, debug: bool) -> PathBuf {
         if let Ok(toolchain_file) = env::var("EMSCRIPTEN_CMAKE_TOOLCHAIN_FILE") {
             config.define("CMAKE_TOOLCHAIN_FILE", toolchain_file);
         }
+    } else {
+        config.cxxflag("-include").cxxflag("cstdlib");
     }
 
     if let Some(sccache) = cmake_sccache_launcher() {
