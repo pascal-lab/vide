@@ -7,12 +7,10 @@ cargo_profile="${3:-release}"
 
 case "$cargo_profile" in
   release)
-    cargo_profile_args=(--release)
     cargo_profile_dir="release"
     artifact_profile_suffix=""
     ;;
   debug)
-    cargo_profile_args=()
     cargo_profile_dir="debug"
     artifact_profile_suffix="-debug"
     ;;
@@ -25,27 +23,27 @@ esac
 case "$target" in
   x86_64-unknown-linux-gnu)
     build_target="x86_64-unknown-linux-gnu.2.17"
-    cargo_cmd=(cargo zigbuild "${cargo_profile_args[@]}" --target "$build_target" -p vide --bin vide)
+    cargo_cmd=(cargo zigbuild)
     binary="target/$target/$cargo_profile_dir/vide"
     ;;
   aarch64-unknown-linux-gnu)
     build_target="aarch64-unknown-linux-gnu.2.17"
-    cargo_cmd=(cargo zigbuild "${cargo_profile_args[@]}" --target "$build_target" -p vide --bin vide)
+    cargo_cmd=(cargo zigbuild)
     binary="target/$target/$cargo_profile_dir/vide"
     ;;
   x86_64-unknown-linux-musl|aarch64-unknown-linux-musl)
     build_target="$target"
-    cargo_cmd=(cargo zigbuild "${cargo_profile_args[@]}" --target "$build_target" -p vide --bin vide)
+    cargo_cmd=(cargo zigbuild)
     binary="target/$target/$cargo_profile_dir/vide"
     ;;
   aarch64-apple-darwin)
     build_target="$target"
-    cargo_cmd=(cargo build "${cargo_profile_args[@]}" --target "$build_target" -p vide --bin vide)
+    cargo_cmd=(cargo build)
     binary="target/$target/$cargo_profile_dir/vide"
     ;;
   x86_64-pc-windows-msvc)
     build_target="$target"
-    cargo_cmd=(cargo build "${cargo_profile_args[@]}" --target "$build_target" -p vide --bin vide)
+    cargo_cmd=(cargo build)
     binary="target/$target/$cargo_profile_dir/vide.exe"
     ;;
   *)
@@ -53,6 +51,11 @@ case "$target" in
     exit 2
     ;;
 esac
+
+if [[ "$cargo_profile" == "release" ]]; then
+  cargo_cmd+=(--release)
+fi
+cargo_cmd+=(--target "$build_target" -p vide --bin vide)
 
 echo "::group::Build $target ($cargo_profile)"
 printf 'command:'
