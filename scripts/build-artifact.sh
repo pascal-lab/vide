@@ -1,34 +1,52 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-target="${1:?usage: $0 <rust-target> <vsix-target>}"
-vsix_target="${2:?usage: $0 <rust-target> <vsix-target>}"
+target="${1:?usage: $0 <rust-target> <vsix-target> [cargo-profile]}"
+vsix_target="${2:?usage: $0 <rust-target> <vsix-target> [cargo-profile]}"
+cargo_profile="${3:-release}"
+
+case "$cargo_profile" in
+  release)
+    cargo_profile_args=(--release)
+    cargo_profile_dir="release"
+    artifact_profile_suffix=""
+    ;;
+  debug)
+    cargo_profile_args=()
+    cargo_profile_dir="debug"
+    artifact_profile_suffix="-debug"
+    ;;
+  *)
+    echo "unsupported cargo profile: $cargo_profile" >&2
+    exit 2
+    ;;
+esac
 
 case "$target" in
   x86_64-unknown-linux-gnu)
     build_target="x86_64-unknown-linux-gnu.2.17"
-    cargo_cmd=(cargo zigbuild --release --target "$build_target" -p vide --bin vide)
-    binary="target/$target/release/vide"
+    cargo_cmd=(cargo zigbuild "${cargo_profile_args[@]}" --target "$build_target" -p vide --bin vide)
+    binary="target/$target/$cargo_profile_dir/vide"
     ;;
   aarch64-unknown-linux-gnu)
     build_target="aarch64-unknown-linux-gnu.2.17"
-    cargo_cmd=(cargo zigbuild --release --target "$build_target" -p vide --bin vide)
-    binary="target/$target/release/vide"
+    cargo_cmd=(cargo zigbuild "${cargo_profile_args[@]}" --target "$build_target" -p vide --bin vide)
+    binary="target/$target/$cargo_profile_dir/vide"
     ;;
   x86_64-unknown-linux-musl|aarch64-unknown-linux-musl)
     build_target="$target"
-    cargo_cmd=(cargo zigbuild --release --target "$build_target" -p vide --bin vide)
-    binary="target/$target/release/vide"
+    cargo_cmd=(cargo zigbuild "${cargo_profile_args[@]}" --target "$build_target" -p vide --bin vide)
+    binary="target/$target/$cargo_profile_dir/vide"
     ;;
   aarch64-apple-darwin)
     build_target="$target"
-    cargo_cmd=(cargo build --release --target "$build_target" -p vide --bin vide)
-    binary="target/$target/release/vide"
+    cargo_cmd=(cargo build "${cargo_profile_args[@]}" --target "$build_target" -p vide --bin vide)
+    binary="target/$target/$cargo_profile_dir/vide"
     ;;
   x86_64-pc-windows-msvc)
     build_target="$target"
-    cargo_cmd=(cargo build --release --target "$build_target" -p vide --bin vide)
-    binary="target/$target/release/vide.exe"
+    cargo_cmd=(cargo build "${cargo_profile_args[@]}" --target "$build_target" -p vide --bin vide)
+    binary="target/$target/$cargo_profile_dir/vide.exe"
     ;;
   *)
     echo "unsupported release target: $target" >&2
@@ -36,7 +54,7 @@ case "$target" in
     ;;
 esac
 
-echo "::group::Build $target"
+echo "::group::Build $target ($cargo_profile)"
 printf 'command:'
 printf ' %q' "${cargo_cmd[@]}"
 printf '\n'
@@ -86,7 +104,7 @@ case "$target" in
 esac
 
 mkdir -p target/distrib
-archive_stem="vide-$target"
+archive_stem="vide-$target$artifact_profile_suffix"
 
 case "$target" in
   x86_64-pc-windows-msvc)
