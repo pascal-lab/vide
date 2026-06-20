@@ -5,13 +5,6 @@ const DEFAULT_RUST_TEST_MATRIX = {
 };
 const FALLBACK_RUST_TEST_MATRIX = { os: ["ubuntu-latest"] };
 
-const DEV_PACKAGE_TARGETS = new Map([
-  ["linux-x64", { os: "ubuntu-22.04", target: "linux-x64" }],
-  ["linux-arm64", { os: "ubuntu-22.04-arm", target: "linux-arm64" }],
-  ["win32-x64", { os: "windows-latest", target: "win32-x64" }],
-  ["darwin-arm64", { os: "macos-15", target: "darwin-arm64" }],
-]);
-
 export async function planCi({ github, context, core, filters }) {
   const eventName = context.eventName;
   const workflowDispatch = eventName === "workflow_dispatch";
@@ -43,27 +36,15 @@ export async function planCi({ github, context, core, filters }) {
     rustTestMatrix = { os: failedRustTestOs };
   }
 
-  let runDevPackage = false;
-  let runDevWebPackage = false;
-  let devPackageMatrix = [DEV_PACKAGE_TARGETS.get("linux-x64")];
+  let runDevArtifacts = false;
 
   if (!pullRequest) {
     if (workflowDispatch || packageChanged) {
-      runDevPackage = true;
-      runDevWebPackage = true;
-      devPackageMatrix = [...DEV_PACKAGE_TARGETS.values()];
+      runDevArtifacts = true;
     } else {
-      const failedDevPackageTargets = failedTargets(
-        failedJobNames,
-        DEV_PACKAGE_TARGETS,
+      runDevArtifacts = failedJobNames.some((name) =>
+        name.startsWith("Dev Artifacts"),
       );
-
-      runDevPackage = failedDevPackageTargets.length > 0;
-      runDevWebPackage = failedJobNames.includes("Dev Package (web)");
-
-      if (runDevPackage) {
-        devPackageMatrix = failedDevPackageTargets;
-      }
     }
   }
 
@@ -83,9 +64,7 @@ export async function planCi({ github, context, core, filters }) {
       vscodeChanged ||
       packageChanged ||
       failedJobNames.includes("VS Code Web Smoke"),
-    run_dev_package: runDevPackage,
-    dev_package_matrix: devPackageMatrix,
-    run_dev_web_package: runDevWebPackage,
+    run_dev_artifacts: runDevArtifacts,
   };
 }
 
