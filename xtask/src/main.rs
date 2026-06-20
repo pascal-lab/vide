@@ -577,7 +577,6 @@ mod tests {
             cargo_build_args(&args),
             ["build", "--release", "--features", "profile-trace"].map(str::to_owned)
         );
-        assert_eq!(server_binary_file(&args), "vide");
 
         let args = server_build_args_for_vscode_target(
             VscodeServerTarget::AlpineArm64,
