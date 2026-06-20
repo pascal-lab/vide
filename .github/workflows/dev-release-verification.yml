@@ -1,0 +1,378 @@
+name: Dev Release Verification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/dev-release-verification.yml"
+      - ".github/workflows/release.yml"
+      - ".github/actions/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "build.rs"
+      - "src/**"
+      - "crates/**"
+      - "xtask/**"
+      - "editors/vscode/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_PROFILE_RELEASE_INCREMENTAL: "true"
+
+jobs:
+  linux-x64-server:
+    name: Verify linux-x64 server baseline
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and verify linux-x64 server in manylinux2014
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: target/linux-x64-manylinux2014
+        run: |
+          set -euo pipefail
+          build_script="${RUNNER_TEMP}/build-linux-x64-manylinux2014.sh"
+          cat > "${build_script}" <<'BASH'
+          set -euo pipefail
+
+          yum install -y devtoolset-11-gcc devtoolset-11-gcc-c++ curl ca-certificates git
+          git config --global --add safe.directory /workspace
+          export PATH="/opt/python/cp312-cp312/bin:/opt/rh/devtoolset-11/root/usr/bin:${PATH}"
+
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          if [ -z "${toolchain}" ]; then
+            echo "rust-toolchain.toml does not define a toolchain channel." >&2
+            exit 1
+          fi
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "${toolchain}"
+          # shellcheck disable=SC1091
+          source "${HOME}/.cargo/env"
+
+          cargo build --release
+          server="${CARGO_TARGET_DIR}/release/vide"
+          test -x "$server"
+          "$server" --version
+          ldd "$server"
+
+          if readelf -d "$server" | grep -E 'Shared library: \[(libstdc\+\+|libgcc_s)\.so'; then
+            echo "linux-x64 server dynamically depends on C++ runtime." >&2
+            exit 1
+          fi
+          if readelf -V "$server" | grep -E 'Name: GLIBC_2\.([2-9][0-9]|1[89])\b|Name: GLIBCXX_|Name: CXXABI_'; then
+            echo "linux-x64 server violates the glibc 2.17 / no dynamic C++ ABI contract." >&2
+            exit 1
+          fi
+
+          cp "$server" vide-linux-x64
+          BASH
+
+          docker run --rm \
+            -e CARGO_TARGET_DIR="${CARGO_TARGET_DIR}" \
+            -e CARGO_PROFILE_RELEASE_INCREMENTAL="${CARGO_PROFILE_RELEASE_INCREMENTAL}" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -v "${build_script}:/tmp/build-linux-x64-manylinux2014.sh:ro" \
+            -w /workspace \
+            quay.io/pypa/manylinux2014_x86_64 \
+            /bin/bash /tmp/build-linux-x64-manylinux2014.sh
+
+      - name: Upload linux-x64 server
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-vide-lsp-linux-x64
+          path: vide-linux-x64
+          if-no-files-found: error
+
+  package-linux-x64:
+    name: Verify linux-x64 VSIX from prebuilt server
+    runs-on: ubuntu-22.04
+    needs: linux-x64-server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install JS dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Download linux-x64 server
+        uses: actions/download-artifact@v4
+        with:
+          name: dev-vide-lsp-linux-x64
+          path: prebuilt-linux-x64
+
+      - name: Stage linux-x64 server
+        run: install -Dm755 prebuilt-linux-x64/vide-linux-x64 editors/vscode/server/linux-x64/vide
+
+      - name: Set dev build metadata
+        shell: bash
+        run: |
+          echo "VIDE_EXTENSION_BUILD_KIND=beta" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+
+      - name: Build linux-x64 VSIX
+        working-directory: editors/vscode
+        run: npm run package:vsix -- --target linux-x64 --server=prebuilt
+
+      - name: Verify VSIX exists
+        run: test -s editors/vscode/vide-vscode-linux-x64.vsix
+
+      - name: Upload linux-x64 VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-vide-vscode-linux-x64
+          path: editors/vscode/vide-vscode-linux-x64.vsix
+          if-no-files-found: error
+
+  native-package:
+    name: Verify ${{ matrix.target }} package
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: windows-latest
+            target: win32-x64
+          - os: macos-15
+            target: darwin-arm64
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.target == 'darwin-arm64' && '11.0' || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
+        with:
+          cmake-launcher: "true"
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          shared-key: dev-release-${{ runner.os }}-${{ matrix.target }}
+          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
+          cache-workspace-crates: true
+          cache-on-failure: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install JS dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Set dev build metadata
+        shell: bash
+        run: |
+          echo "VIDE_EXTENSION_BUILD_KIND=beta" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+
+      - name: Build VSIX
+        working-directory: editors/vscode
+        run: npm run package:vsix -- --target ${{ matrix.target }}
+
+      - name: Verify package outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "editors/vscode/vide-vscode-${{ matrix.target }}.vsix"
+          server="editors/vscode/server/${{ matrix.target }}/vide"
+          if [[ "${{ matrix.target }}" == win32-* ]]; then
+            server="${server}.exe"
+          fi
+          test -s "$server"
+          "$server" --version
+
+      - name: Verify linux-arm64 ABI contract
+        if: matrix.target == 'linux-arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          server="editors/vscode/server/linux-arm64/vide"
+          ldd "$server"
+          if readelf -d "$server" | grep -E 'Shared library: \[(libstdc\+\+|libgcc_s)\.so'; then
+            echo "linux-arm64 server dynamically depends on C++ runtime." >&2
+            exit 1
+          fi
+          if readelf -V "$server" | grep -E 'Name: GLIBC_2\.([2-9][0-9]|1[89])\b|Name: GLIBCXX_|Name: CXXABI_'; then
+            echo "linux-arm64 server violates the glibc 2.17 / no dynamic C++ ABI contract." >&2
+            exit 1
+          fi
+
+      - name: Verify macOS deployment target
+        if: matrix.target == 'darwin-arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          server="editors/vscode/server/darwin-arm64/vide"
+          otool -l "$server" | grep -A5 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX'
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-vide-vscode-${{ matrix.target }}
+          path: editors/vscode/vide-vscode-${{ matrix.target }}.vsix
+          if-no-files-found: error
+
+  alpine-package:
+    name: Verify alpine-x64 package
+    runs-on: ubuntu-22.04
+    container: ghcr.io/blackdex/rust-musl:x86_64-musl-nightly
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates cmake git python3 binutils
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Trust checkout directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+          targets: x86_64-unknown-linux-musl
+
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
+        with:
+          cmake-launcher: "true"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install JS dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Set dev build metadata
+        shell: bash
+        run: |
+          echo "VIDE_EXTENSION_BUILD_KIND=beta" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+
+      - name: Build alpine VSIX
+        working-directory: editors/vscode
+        run: npm run package:vsix -- --target alpine-x64
+
+      - name: Verify alpine static binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          server="editors/vscode/server/alpine-x64/vide"
+          test -s "$server"
+          "$server" --version
+          if readelf -l "$server" | grep 'Requesting program interpreter'; then
+            echo "alpine-x64 server has a dynamic interpreter." >&2
+            exit 1
+          fi
+          if readelf -d "$server" 2>/dev/null | grep 'NEEDED'; then
+            echo "alpine-x64 server has dynamic dependencies." >&2
+            exit 1
+          fi
+          if readelf -V "$server" 2>/dev/null | grep -E 'GLIBC_|GLIBCXX_|CXXABI_'; then
+            echo "alpine-x64 server contains glibc/C++ ABI version requirements." >&2
+            exit 1
+          fi
+          test -s editors/vscode/vide-vscode-alpine-x64.vsix
+
+      - name: Upload alpine VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-vide-vscode-alpine-x64
+          path: editors/vscode/vide-vscode-alpine-x64.vsix
+          if-no-files-found: error
+
+  web-package:
+    name: Verify web package
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install Emscripten SDK
+        uses: ./.github/actions/setup-emscripten
+        with:
+          version: 5.0.2
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Build playground WASM
+        working-directory: playground
+        run: |
+          source "${EMSDK}/emsdk_env.sh"
+          npm run build:wasm
+
+      - name: Set dev build metadata
+        shell: bash
+        working-directory: .
+        run: |
+          echo "VIDE_EXTENSION_BUILD_KIND=beta" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+
+      - name: Build web VSIX
+        run: npm run package:vsix:web
+
+      - name: Verify web VSIX exists
+        run: test -s vide-vscode-web.vsix
+
+      - name: Upload web VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-vide-vscode-web
+          path: editors/vscode/vide-vscode-web.vsix
+          if-no-files-found: error
