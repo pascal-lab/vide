@@ -1,0 +1,44 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# We customize the generated release workflow with project-specific VSIX jobs.
+allow-dirty = ["ci"]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.32.0"
+# CI backends to support
+ci = "github"
+# Let cargo-dist plan/host/archive releases, but build local artifacts in our own
+# reusable workflow so Linux artifacts can use cargo-zigbuild for explicit
+# glibc/musl support contracts.
+build-local-artifacts = false
+local-artifacts-jobs = ["./build-release-artifacts"]
+# Upload VSIX files to the GitHub Release after cargo-dist announces it, then
+# publish stable VSIX packages to the marketplaces.
+post-announce-jobs = ["./publish-vsix"]
+# The installers to generate for each app.
+installers = []
+# Which actions to run on pull requests. `upload` keeps this release migration
+# exercised in PR CI; switch to `plan` later if build cost is too high.
+pr-run-mode = "upload"
+# Target platforms to build app archives for (Rust target-triple syntax).
+targets = [
+  "aarch64-apple-darwin",
+  "aarch64-unknown-linux-gnu",
+  "aarch64-unknown-linux-musl",
+  "x86_64-pc-windows-msvc",
+  "x86_64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl",
+]
+# Package all non-Windows app archives as tarballs.
+unix-archive = ".tar.xz"
+windows-archive = ".zip"
+
+[dist.min-glibc-version]
+"aarch64-unknown-linux-gnu" = "2.17"
+"x86_64-unknown-linux-gnu" = "2.17"
+
+[dist.github-custom-runners]
+# Global cargo-dist orchestration does not require old Linux runners.
+global = "ubuntu-latest"

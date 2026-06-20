@@ -5,10 +5,6 @@ import type { PackageContext } from './context';
 import { run } from './process';
 import type { BuildProfile, NativeTargetSpec, ServerMode } from './targets';
 
-const ALPINE_CARGO_TARGETS: Partial<Record<NativeTargetSpec['target'], string>> = {
-  'alpine-x64': 'x86_64-unknown-linux-musl',
-};
-
 export function ensureTargetServerBinary(
   context: PackageContext,
   spec: NativeTargetSpec,
@@ -32,7 +28,7 @@ export function ensureTargetServerBinary(
   }
 
   const serverPath = targetServerPath(context, spec);
-  run('cargo', args, context.repoRoot, cargoXtaskEnvForTarget(spec));
+  run('cargo', args, context.repoRoot);
 
   if (!fs.existsSync(serverPath)) {
     throw new Error(`prepared server binary was not found: ${serverPath}`);
@@ -68,64 +64,4 @@ function targetServerPath(context: PackageContext, spec: NativeTargetSpec): stri
   return path.join(context.vscodeDir, 'server', spec.target, spec.binaryFile);
 }
 
-export function cargoXtaskEnvForTarget(
-  spec: NativeTargetSpec,
-  env: NodeJS.ProcessEnv = process.env,
-): NodeJS.ProcessEnv {
-  const cargoTarget = ALPINE_CARGO_TARGETS[spec.target];
-  if (!cargoTarget) {
-    return env;
-  }
 
-  let updated = env;
-  const linkerEnvKey = cargoTargetLinkerEnvKey(cargoTarget);
-  if (!optionalEnv(updated, linkerEnvKey)) {
-    updated = {
-      ...updated,
-      [linkerEnvKey]: cargoLinkerForTarget(cargoTarget, updated),
-    };
-  }
-
-  return appendRustFlags(updated, ['-C', 'link-arg=-lc']);
-}
-
-function cargoTargetLinkerEnvKey(cargoTarget: string): string {
-  return `CARGO_TARGET_${cargoTargetEnvName(cargoTarget)}_LINKER`;
-}
-
-function cargoTargetEnvName(cargoTarget: string): string {
-  return cargoTarget.toUpperCase().replace(/-/g, '_');
-}
-
-function cargoLinkerForTarget(cargoTarget: string, env: NodeJS.ProcessEnv): string {
-  return (
-    optionalEnv(env, cxxCompilerEnvKey(cargoTarget)) ??
-    optionalEnv(env, 'TARGET_CXX') ??
-    `${cargoTarget}-g++`
-  );
-}
-
-function cxxCompilerEnvKey(cargoTarget: string): string {
-  return `CXX_${cargoTarget.replace(/-/g, '_')}`;
-}
-
-function appendRustFlags(env: NodeJS.ProcessEnv, flags: string[]): NodeJS.ProcessEnv {
-  const encodedFlags = optionalEnv(env, 'CARGO_ENCODED_RUSTFLAGS');
-  if (encodedFlags) {
-    return {
-      ...env,
-      CARGO_ENCODED_RUSTFLAGS: `${encodedFlags}\x1f${flags.join('\x1f')}`,
-    };
-  }
-
-  const rustFlags = optionalEnv(env, 'RUSTFLAGS');
-  return {
-    ...env,
-    RUSTFLAGS: rustFlags ? `${rustFlags} ${flags.join(' ')}` : flags.join(' '),
-  };
-}
-
-function optionalEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
-  const value = env[name]?.trim();
-  return value ? value : undefined;
-}

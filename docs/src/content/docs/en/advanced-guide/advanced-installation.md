@@ -119,16 +119,17 @@ npm run package:vsix -- --target linux-x64
 npm run package:vsix -- --target linux-arm64
 npm run package:vsix -- --target win32-x64
 npm run package:vsix -- --target darwin-arm64
-npm run package:vsix -- --target alpine-x64
+npm run package:vsix -- --target alpine-x64 --server=prebuilt
+npm run package:vsix -- --target alpine-arm64 --server=prebuilt
 ```
 
-These scripts compile the extension, prepare a release server binary for the target platform, and generate `vide-vscode-<target>.vsix`. Release packages do not enable profile trace, and they do not include Speedscope static assets or the profiling command by default. The current release workflow only covers those targets: glibc Linux, Windows x64, macOS arm64, and Alpine/musl x64.
+These scripts compile the extension, prepare a release server binary for the target platform, and generate `vide-vscode-<target>.vsix`. Release packages do not enable profile trace, and they do not include Speedscope static assets or the profiling command by default. The current release workflow only covers those targets: glibc Linux, Windows x64, macOS arm64, and Alpine/musl x64/arm64.
 Those are also the VSIX targets currently built by CI. Other platforms are not current packaging targets.
 
 All packaging commands above need to prepare the language server binary for the target platform first. `editors/vscode/scripts/package.ts` calls `cargo xtask vscode prepare-server`, and the reusable server build rules live under `cargo xtask server build`:
 
 - When the target matches the current host platform, xtask runs `cargo build` for the selected profile and copies the result.
-- Alpine targets are built in musl containers in CI. The local script adds the matching Rust musl target, but still needs a working musl cross-compilation environment.
+- Alpine targets are built by the release artifact workflow as prebuilt musl language servers. To package an Alpine VSIX locally, first place the matching `vide` binary under `editors/vscode/server/<target>/`, then pass `--server=prebuilt`.
 - Other non-host targets are not automatically cross-compiled; the matching `vide` or `vide.exe` must already exist under `editors/vscode/server/<target>/`, or you should package on a matching native runner.
 
 ### Install the VS Code Extension
@@ -172,6 +173,7 @@ You can download a `.vsix` file and install it manually. Choose the source based
 VSIX packages are platform-specific. Current release and CI artifacts cover these targets:
 
 - `alpine-x64`
+- `alpine-arm64`
 - `darwin-arm64`
 - `linux-arm64`
 - `linux-x64`
