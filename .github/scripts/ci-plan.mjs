@@ -12,17 +12,6 @@ const DEV_PACKAGE_TARGETS = new Map([
   ["darwin-arm64", { os: "macos-15", target: "darwin-arm64" }],
 ]);
 
-const DEV_ALPINE_TARGETS = new Map([
-  [
-    "alpine-x64",
-    {
-      target: "alpine-x64",
-      image: "ghcr.io/blackdex/rust-musl:x86_64-musl-nightly",
-      "rust-target": "x86_64-unknown-linux-musl",
-    },
-  ],
-]);
-
 export async function planCi({ github, context, core, filters }) {
   const eventName = context.eventName;
   const workflowDispatch = eventName === "workflow_dispatch";
@@ -56,36 +45,24 @@ export async function planCi({ github, context, core, filters }) {
 
   let runDevPackage = false;
   let runDevWebPackage = false;
-  let runDevAlpinePackage = false;
   let devPackageMatrix = [DEV_PACKAGE_TARGETS.get("linux-x64")];
-  let devAlpineMatrix = [DEV_ALPINE_TARGETS.get("alpine-x64")];
 
   if (!pullRequest) {
     if (workflowDispatch || packageChanged) {
       runDevPackage = true;
       runDevWebPackage = true;
-      runDevAlpinePackage = true;
       devPackageMatrix = [...DEV_PACKAGE_TARGETS.values()];
-      devAlpineMatrix = [...DEV_ALPINE_TARGETS.values()];
     } else {
       const failedDevPackageTargets = failedTargets(
         failedJobNames,
         DEV_PACKAGE_TARGETS,
       );
-      const failedDevAlpineTargets = failedTargets(
-        failedJobNames,
-        DEV_ALPINE_TARGETS,
-      );
 
       runDevPackage = failedDevPackageTargets.length > 0;
       runDevWebPackage = failedJobNames.includes("Dev Package (web)");
-      runDevAlpinePackage = failedDevAlpineTargets.length > 0;
 
       if (runDevPackage) {
         devPackageMatrix = failedDevPackageTargets;
-      }
-      if (runDevAlpinePackage) {
-        devAlpineMatrix = failedDevAlpineTargets;
       }
     }
   }
@@ -109,8 +86,6 @@ export async function planCi({ github, context, core, filters }) {
     run_dev_package: runDevPackage,
     dev_package_matrix: devPackageMatrix,
     run_dev_web_package: runDevWebPackage,
-    run_dev_alpine_package: runDevAlpinePackage,
-    dev_alpine_matrix: devAlpineMatrix,
   };
 }
 

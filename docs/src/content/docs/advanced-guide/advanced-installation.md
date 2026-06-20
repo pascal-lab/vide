@@ -105,16 +105,17 @@ npm run package:vsix -- --target linux-x64
 npm run package:vsix -- --target linux-arm64
 npm run package:vsix -- --target win32-x64
 npm run package:vsix -- --target darwin-arm64
-npm run package:vsix -- --target alpine-x64
+npm run package:vsix -- --target alpine-x64 --server=prebuilt
+npm run package:vsix -- --target alpine-arm64 --server=prebuilt
 ```
 
-这些脚本会先编译扩展，然后准备目标平台的 release 版语言服务器，再生成 `vide-vscode-<target>.vsix`。release 包默认不启用 profile trace，也不包含 Speedscope 静态资源或 profiling 命令。当前 release workflow 只覆盖上面这些目标：glibc Linux、Windows x64、macOS arm64，以及 Alpine/musl x64。
+这些脚本会先编译扩展，然后准备目标平台的 release 版语言服务器，再生成 `vide-vscode-<target>.vsix`。release 包默认不启用 profile trace，也不包含 Speedscope 静态资源或 profiling 命令。当前 release workflow 只覆盖上面这些目标：glibc Linux、Windows x64、macOS arm64，以及 Alpine/musl x64/arm64。
 这几项也是当前 CI 会实际构建的 VSIX 目标。其他平台不是当前支持的打包目标。
 
 上面的打包命令都需要先准备目标平台的语言服务器二进制；`editors/vscode/scripts/package.ts` 会调用 `cargo xtask vscode prepare-server`，而通用的 server 构建规则由 `cargo xtask server build` 承载：
 
 - 目标等于当前宿主平台时，xtask 执行对应 profile 的 `cargo build` 并复制产物。
-- Alpine 目标在 CI 的 musl 容器中构建；本地脚本会添加对应 Rust musl target，但仍需要可用的 musl 交叉编译环境。
+- Alpine 目标由 release artifact workflow 预先构建 musl 语言服务器；本地打包 Alpine VSIX 时需要先把对应的 `vide` 放到 `editors/vscode/server/<target>/`，并使用 `--server=prebuilt`。
 - 其他非宿主平台目标不会自动交叉编译语言服务器，需要 `editors/vscode/server/<target>/` 下已经存在对应的 `vide` 或 `vide.exe`，或者在匹配的原生 runner 上打包。
 
 ### 安装 VS Code 插件
@@ -158,6 +159,7 @@ code --install-extension ./vide-vscode-win32-x64-debug.vsix
 VSIX 是按平台打包的。当前正式发布和 CI 产物覆盖这些目标：
 
 - `alpine-x64`
+- `alpine-arm64`
 - `darwin-arm64`
 - `linux-arm64`
 - `linux-x64`

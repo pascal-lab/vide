@@ -11,7 +11,6 @@ import {
   stagePackageJsonForTarget,
   stageProfileTraceAssets,
 } from '../scripts/package/manifest';
-import { cargoXtaskEnvForTarget } from '../scripts/package/server';
 import { createPackagePlan, type NativeTargetSpec } from '../scripts/package/targets';
 
 describe('package cli', () => {
@@ -103,40 +102,6 @@ describe('package staging', () => {
     stageProfileTraceAssets(context, plan);
 
     assert.equal(fs.existsSync(speedscopeDir), false);
-  });
-});
-
-describe('package server preparation', () => {
-  it('injects Alpine cargo env before cargo xtask is built', () => {
-    const env = cargoXtaskEnvForTarget(nativeTargetSpec('alpine-x64'), {});
-
-    assert.equal(
-      env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER,
-      'x86_64-unknown-linux-musl-g++',
-    );
-    assert.equal(env.RUSTFLAGS, '-C link-arg=-lc');
-  });
-
-  it('appends Alpine cargo flags to encoded rust flags', () => {
-    const env = cargoXtaskEnvForTarget(nativeTargetSpec('alpine-x64'), {
-      CARGO_ENCODED_RUSTFLAGS: '-C\x1ftarget-feature=+crt-static',
-      CXX_x86_64_unknown_linux_musl: 'custom-x86_64-g++',
-    });
-
-    assert.equal(env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER, 'custom-x86_64-g++');
-    assert.equal(
-      env.CARGO_ENCODED_RUSTFLAGS,
-      '-C\x1ftarget-feature=+crt-static\x1f-C\x1flink-arg=-lc',
-    );
-  });
-
-  it('leaves non-Alpine cargo env untouched', () => {
-    const baseEnv = { RUSTFLAGS: '-Dwarnings' };
-
-    assert.equal(
-      cargoXtaskEnvForTarget(nativeTargetSpec('win32-x64', 'vide.exe'), baseEnv),
-      baseEnv,
-    );
   });
 });
 
