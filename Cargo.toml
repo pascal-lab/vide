@@ -124,6 +124,11 @@ codegen-units = 1
 inherits = "release"
 lto = true
 
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi.workspace = true
 
