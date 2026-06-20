@@ -72,8 +72,6 @@ struct ServerBuildArgs {
     #[arg(long)]
     cargo_target: Option<String>,
     #[arg(long)]
-    alpine_linker: bool,
-    #[arg(long)]
     profile_trace: bool,
 }
 
@@ -115,6 +113,7 @@ enum ExtensionServerMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "kebab-case")]
 enum VscodeServerTarget {
+    AlpineArm64,
     AlpineX64,
     DarwinArm64,
     LinuxArm64,
@@ -125,6 +124,7 @@ enum VscodeServerTarget {
 impl VscodeServerTarget {
     fn folder(self) -> &'static str {
         match self {
+            VscodeServerTarget::AlpineArm64 => "alpine-arm64",
             VscodeServerTarget::AlpineX64 => "alpine-x64",
             VscodeServerTarget::DarwinArm64 => "darwin-arm64",
             VscodeServerTarget::LinuxArm64 => "linux-arm64",
@@ -137,19 +137,8 @@ impl VscodeServerTarget {
         if self.is_windows() { "vide.exe" } else { "vide" }
     }
 
-    fn cargo_target(self) -> Option<&'static str> {
-        match self {
-            VscodeServerTarget::AlpineX64 => Some("x86_64-unknown-linux-musl"),
-            _ => None,
-        }
-    }
-
     fn is_windows(self) -> bool {
         matches!(self, VscodeServerTarget::Win32X64)
-    }
-
-    fn requires_alpine_linker(self) -> bool {
-        matches!(self, VscodeServerTarget::AlpineX64)
     }
 }
 
@@ -198,8 +187,7 @@ fn ensure_vscode_server_binary(
     }
 
     let host_target = host_vscode_server_target()?;
-    let cargo_target = target.cargo_target();
-    if target != host_target && cargo_target.is_none() {
+    if target != host_target {
         bail!(
             "missing bundled server binary: {}\n\
              tip: run packaging on a matching native runner or copy the target binary first.",
@@ -233,7 +221,7 @@ fn build_server(workspace_root: &Path, args: &ServerBuildArgs) -> Result<PathBuf
         )?;
     }
 
-    run_command("cargo", &cargo_build_args(args), workspace_root, &cargo_build_env_updates(args))?;
+    run_command("cargo", &cargo_build_args(args), workspace_root, &[])?;
 
     Ok(cargo_output_dir(workspace_root, args).join(server_binary_file(args)))
 }
@@ -258,16 +246,11 @@ fn vscode_target_server_path(workspace_root: &Path, target: VscodeServerTarget) 
 }
 
 fn server_build_args_for_vscode_target(
-    target: VscodeServerTarget,
+    _target: VscodeServerTarget,
     profile: ExtensionBuildProfile,
     profile_trace: bool,
 ) -> ServerBuildArgs {
-    ServerBuildArgs {
-        profile,
-        cargo_target: target.cargo_target().map(str::to_owned),
-        alpine_linker: target.requires_alpine_linker(),
-        profile_trace,
-    }
+    ServerBuildArgs { profile, cargo_target: None, profile_trace }
 }
 
 fn cargo_build_args(args: &ServerBuildArgs) -> Vec<String> {
@@ -309,80 +292,6 @@ fn server_binary_file(args: &ServerBuildArgs) -> &'static str {
     } else {
         "vide"
     }
-}
-
-fn cargo_build_env_updates(args: &ServerBuildArgs) -> Vec<(String, String)> {
-    let Some(cargo_target) = args.cargo_target.as_deref() else {
-        return Vec::new();
-    };
-
-    let mut updates = Vec::new();
-    let linker_env_key = cargo_target_linker_env_key(cargo_target);
-    if optional_env(&linker_env_key).is_none()
-        && let Some(linker) = cargo_linker_for_target(args, cargo_target)
-    {
-        eprintln!("Using Cargo linker for {cargo_target}: {linker}");
-        updates.push((linker_env_key, linker));
-    }
-
-    let late_link_args = late_rust_link_flags_for_target(args);
-    if !late_link_args.is_empty() {
-        eprintln!("Adding Cargo link args for {cargo_target}: {}", late_link_args.join(" "));
-        updates.push(rust_flags_env_update(&late_link_args));
-    }
-
-    updates
-}
-
-fn cargo_target_linker_env_key(cargo_target: &str) -> String {
-    format!("CARGO_TARGET_{}_LINKER", cargo_target_env_name(cargo_target))
-}
-
-fn cargo_target_env_name(cargo_target: &str) -> String {
-    cargo_target.to_uppercase().replace('-', "_")
-}
-
-fn cargo_linker_for_target(args: &ServerBuildArgs, cargo_target: &str) -> Option<String> {
-    if !args.alpine_linker {
-        return None;
-    }
-
-    optional_env(&cxx_compiler_env_key(cargo_target))
-        .or_else(|| optional_env("TARGET_CXX"))
-        .or_else(|| Some(format!("{cargo_target}-g++")))
-}
-
-fn cxx_compiler_env_key(cargo_target: &str) -> String {
-    format!("CXX_{}", cargo_target.replace('-', "_"))
-}
-
-fn late_rust_link_flags_for_target(args: &ServerBuildArgs) -> Vec<&'static str> {
-    if args.alpine_linker {
-        // Static libstdc++ can introduce libc references after rustc's own musl -lc.
-        vec!["-C", "link-arg=-lc"]
-    } else {
-        Vec::new()
-    }
-}
-
-fn rust_flags_env_update(flags: &[&str]) -> (String, String) {
-    if let Some(encoded_flags) = optional_env("CARGO_ENCODED_RUSTFLAGS") {
-        return (
-            "CARGO_ENCODED_RUSTFLAGS".to_owned(),
-            format!("{encoded_flags}\x1f{}", flags.join("\x1f")),
-        );
-    }
-
-    let rust_flags = optional_env("RUSTFLAGS");
-    let flags = flags.join(" ");
-    (
-        "RUSTFLAGS".to_owned(),
-        rust_flags.map_or(flags.clone(), |rust_flags| format!("{rust_flags} {flags}")),
-    )
-}
-
-fn optional_env(name: &str) -> Option<String> {
-    env::var(name).ok().map(|value| value.trim().to_owned()).filter(|value| !value.is_empty())
 }
 
 fn ensure_vscode_server_executable(path: &Path, target: VscodeServerTarget) -> Result<()> {
@@ -649,7 +558,7 @@ mod tests {
     }
 
     #[test]
-    fn maps_alpine_vscode_target_to_server_build_args() {
+    fn alpine_vscode_targets_require_prebuilt_server_binaries() {
         let args = server_build_args_for_vscode_target(
             VscodeServerTarget::AlpineX64,
             ExtensionBuildProfile::Release,
@@ -660,23 +569,28 @@ mod tests {
             args,
             ServerBuildArgs {
                 profile: ExtensionBuildProfile::Release,
-                cargo_target: Some("x86_64-unknown-linux-musl".to_owned()),
-                alpine_linker: true,
+                cargo_target: None,
                 profile_trace: true,
             }
         );
         assert_eq!(
             cargo_build_args(&args),
-            [
-                "build",
-                "--release",
-                "--target",
-                "x86_64-unknown-linux-musl",
-                "--features",
-                "profile-trace",
-            ]
-            .map(str::to_owned)
+            ["build", "--release", "--features", "profile-trace"].map(str::to_owned)
         );
-        assert_eq!(server_binary_file(&args), "vide");
+
+        let args = server_build_args_for_vscode_target(
+            VscodeServerTarget::AlpineArm64,
+            ExtensionBuildProfile::Release,
+            false,
+        );
+
+        assert_eq!(
+            args,
+            ServerBuildArgs {
+                profile: ExtensionBuildProfile::Release,
+                cargo_target: None,
+                profile_trace: false,
+            }
+        );
     }
 }

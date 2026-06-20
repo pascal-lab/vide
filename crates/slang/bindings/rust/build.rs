@@ -57,6 +57,8 @@ fn build_cpp_lib(cxxbridge_dir: &Path, debug: bool) -> PathBuf {
         if let Ok(toolchain_file) = env::var("EMSCRIPTEN_CMAKE_TOOLCHAIN_FILE") {
             config.define("CMAKE_TOOLCHAIN_FILE", toolchain_file);
         }
+    } else if !target_is_msvc() {
+        config.cxxflag("-include").cxxflag("cstdlib");
     }
 
     if let Some(sccache) = cmake_sccache_launcher() {
@@ -73,7 +75,7 @@ fn build_cpp_lib(cxxbridge_dir: &Path, debug: bool) -> PathBuf {
             .define("CMAKE_MODULE_LINKER_FLAGS", linker_flags.as_str());
     }
 
-    if !emscripten && !debug && cfg!(target_env = "msvc") {
+    if !emscripten && !debug && target_is_msvc() {
         // cmake-rs still sets config-specific MSVC flags for Visual Studio
         // generators to preserve /MD or /MT. That replaces CMake's built-in
         // Release defaults, while cmake-rs has already filtered optimization
@@ -92,6 +94,14 @@ fn target_linker_flags() -> Option<String> {
     env::var("TARGET_LDFLAGS").ok().filter(|flags| !flags.trim().is_empty())
 }
 
+fn target_is_msvc() -> bool {
+    env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+}
+
+fn target_is_windows() -> bool {
+    env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+}
+
 fn cmake_sccache_launcher() -> Option<PathBuf> {
     env::var_os("VIDE_USE_SCCACHE_CMAKE")?;
 
@@ -108,14 +118,14 @@ fn setup_linking(install_dir: &Path, debug: bool) {
     println!("cargo:rustc-link-lib=static:-bundle=svlang");
     println!("cargo:rustc-link-lib=static:-bundle={}", fmt_lib);
     if !emscripten {
-        let mimalloc_lib = if cfg!(target_env = "msvc") {
+        let mimalloc_lib = if target_is_msvc() {
             if debug { "mimalloc-static-debug" } else { "mimalloc-static" }
         } else {
             if debug { "mimalloc-debug" } else { "mimalloc" }
         };
         println!("cargo:rustc-link-lib=static:-bundle={}", mimalloc_lib);
     }
-    if !emscripten && cfg!(target_os = "windows") {
+    if !emscripten && target_is_windows() {
         // mimalloc's Windows large-page support pulls in these token APIs.
         println!("cargo:rustc-link-lib=dylib=Advapi32");
     }
