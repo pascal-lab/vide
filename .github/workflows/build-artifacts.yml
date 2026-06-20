@@ -1,4 +1,4 @@
-name: Build release artifacts
+name: Build artifacts
 
 on:
   workflow_call:
@@ -6,6 +6,18 @@ on:
       plan:
         required: false
         type: string
+      build-kind:
+        required: false
+        type: string
+        default: ""
+      cargo-profile:
+        required: false
+        type: string
+        default: release
+      vsix-profile:
+        required: false
+        type: string
+        default: release
 
 permissions:
   contents: read
@@ -79,7 +91,7 @@ jobs:
         continue-on-error: true
         with:
           shared-key: release-${{ runner.os }}-${{ matrix.rust-target }}
-          key: native-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**', 'scripts/build-release-artifact.sh') }}
+          key: native-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**', 'scripts/build-artifact.sh') }}
           cache-workspace-crates: true
           cache-on-failure: true
 
@@ -97,31 +109,31 @@ jobs:
       - name: Set VSIX build metadata
         shell: bash
         run: |
-          echo "VIDE_EXTENSION_BUILD_KIND=${{ inputs.plan && fromJson(inputs.plan).announcement_is_prerelease && 'beta' || 'stable' }}" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_BUILD_KIND=${{ inputs.build-kind || (inputs.plan && fromJson(inputs.plan).announcement_is_prerelease && 'beta' || 'stable') }}" >> "$GITHUB_ENV"
           echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
           echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
 
       - name: Build binary archive and stage VSIX server
         shell: bash
-        run: scripts/build-release-artifact.sh "${{ matrix.rust-target }}" "${{ matrix.vsix-target }}"
+        run: scripts/build-artifact.sh "${{ matrix.rust-target }}" "${{ matrix.vsix-target }}" "${{ inputs.cargo-profile }}"
 
       - name: Build VSIX
         working-directory: editors/vscode
-        run: npm run package:vsix -- --target ${{ matrix.vsix-target }} --server=prebuilt
+        run: npm run package:vsix -- --target ${{ matrix.vsix-target }} --profile ${{ inputs.vsix-profile }} --server=prebuilt
 
       - name: Upload cargo-dist artifacts
         uses: actions/upload-artifact@v4
         with:
           name: artifacts-${{ matrix.rust-target }}
           path: |
-            target/distrib/vide-${{ matrix.rust-target }}.*
+            target/distrib/vide-${{ matrix.rust-target }}${{ inputs.cargo-profile == 'debug' && '-debug' || '' }}.*
           if-no-files-found: error
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
           name: vsix-${{ matrix.vsix-target }}
-          path: editors/vscode/vide-vscode-${{ matrix.vsix-target }}.vsix
+          path: editors/vscode/vide-vscode-${{ matrix.vsix-target }}${{ inputs.vsix-profile == 'debug' && '-debug' || '' }}.vsix
           if-no-files-found: error
 
   source-and-checksums:
@@ -226,16 +238,19 @@ jobs:
         working-directory: .
         shell: bash
         run: |
-          echo "VIDE_EXTENSION_BUILD_KIND=${{ inputs.plan && fromJson(inputs.plan).announcement_is_prerelease && 'beta' || 'stable' }}" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_BUILD_KIND=${{ inputs.build-kind || (inputs.plan && fromJson(inputs.plan).announcement_is_prerelease && 'beta' || 'stable') }}" >> "$GITHUB_ENV"
           echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
           echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
 
+      - name: Compile web extension
+        run: npm run compile:web
+
       - name: Build web VSIX
-        run: npm run package:vsix:web
+        run: npx tsx scripts/package.ts --target web --profile ${{ inputs.vsix-profile }}
 
       - name: Upload web VSIX artifact
         uses: actions/upload-artifact@v4
         with:
           name: vsix-web
-          path: editors/vscode/vide-vscode-web.vsix
+          path: editors/vscode/vide-vscode-web${{ inputs.vsix-profile == 'debug' && '-debug' || '' }}.vsix
           if-no-files-found: error
