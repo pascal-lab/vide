@@ -6,7 +6,7 @@ on:
     paths:
       - ".github/workflows/dev-release-verification.yml"
       - ".github/workflows/release.yml"
-      - ".github/workflows/build-release-artifacts.yml"
+      - ".github/workflows/build-artifacts.yml"
       - ".github/workflows/publish-vsix.yml"
       - ".github/actions/**"
       - "Cargo.toml"
@@ -14,7 +14,7 @@ on:
       - "dist-workspace.toml"
       - "rust-toolchain.toml"
       - "build.rs"
-      - "scripts/build-release-artifact.sh"
+      - "scripts/build-artifact.sh"
       - "src/**"
       - "crates/**"
       - "xtask/**"
@@ -28,8 +28,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-release-artifacts:
-    uses: ./.github/workflows/build-release-artifacts.yml
+  build-artifacts:
+    uses: ./.github/workflows/build-artifacts.yml
     with:
       plan: '{"announcement_is_prerelease":true}'
     secrets: inherit

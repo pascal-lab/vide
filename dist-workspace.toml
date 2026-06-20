@@ -13,7 +13,7 @@ ci = "github"
 # reusable workflow so Linux artifacts can use cargo-zigbuild for explicit
 # glibc/musl support contracts.
 build-local-artifacts = false
-local-artifacts-jobs = ["./build-release-artifacts"]
+local-artifacts-jobs = ["./build-artifacts"]
 # Upload VSIX files to the GitHub Release after cargo-dist announces it, then
 # publish stable VSIX packages to the marketplaces.
 post-announce-jobs = ["./publish-vsix"]
