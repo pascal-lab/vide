@@ -25,6 +25,7 @@ jobs:
       - name: Upload VSIX files
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           PLAN: ${{ inputs.plan }}
         shell: bash
         run: |
