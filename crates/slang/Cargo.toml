@@ -37,9 +37,10 @@ cmake = "0.1.50"
 cxx-build = "1.0.124"
 itertools = "0.14.0"
 proc-macro2 = "1.0.86"
+prettyplease = "0.2.25"
 quote = "1.0.36"
 regex = "1.11.1"
+syn = "2.0.86"
 which = "7.0.2"
-
 [dev-dependencies]
 utils = { workspace = true, features = ["test-support"] }
