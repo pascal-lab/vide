@@ -217,12 +217,9 @@ pub mod loader {
 pub mod generator {
     use std::{
         collections::{BTreeMap, HashMap, HashSet},
-        env,
-        ffi::OsString,
-        fs,
-        io::{self, BufRead, Write},
+        env, fs,
+        io::BufRead,
         path::{Path, PathBuf},
-        process::{Command, Stdio},
     };
 
     use inflector::Inflector;
@@ -232,14 +229,8 @@ pub mod generator {
 
     use super::{Ty, TypeInfo, reader_from_file};
 
-    // From https://docs.rs/bindgen/0.51.1/src/bindgen/lib.rs.html#1945
-    fn rustfmt_path() -> io::Result<OsString> {
-        if let Ok(rustfmt) = env::var("RUSTFMT") {
-            return Ok(OsString::from(rustfmt));
-        }
-
-        which::which("rustfmt")
-            .map_or_else(|e| Err(io::Error::other(format!("{}", e))), |p| Ok(p.into_os_string()))
+    fn format_generated_rust(contents: String) -> String {
+        syn::parse_file(&contents).map(|file| prettyplease::unparse(&file)).unwrap_or(contents)
     }
 
     fn mkdir_and_write(file: &Path, contents: String) -> Result<(), std::io::Error> {
@@ -247,41 +238,7 @@ pub mod generator {
             fs::create_dir_all(parent)?;
         }
 
-        let rustfmt = rustfmt_path().expect("Failed to find rustfmt");
-        let mut cmd = Command::new(&*rustfmt);
-        cmd.arg("--config").arg("use_small_heuristics=Max");
-
-        cmd.stdin(Stdio::piped()).stdout(Stdio::piped());
-
-        let mut child = cmd.spawn().unwrap();
-        let mut child_stdin = child.stdin.take().unwrap();
-        let mut child_stdout = child.stdout.take().unwrap();
-
-        let stdin_handle = std::thread::spawn(move || {
-            let _ = child_stdin.write_all(contents.as_bytes());
-            contents
-        });
-
-        let mut output = vec![];
-        io::copy(&mut child_stdout, &mut output).expect("Failed to read rustfmt output");
-
-        let status = child.wait().unwrap();
-        let contents =
-            stdin_handle.join().expect("The thread writing to rustfmt's stdin doesn't do any");
-
-        match (String::from_utf8(output), status.code()) {
-            (Ok(output), Some(0)) => fs::write(file, output),
-            (Ok(_), Some(2)) => {
-                panic!("Rustfmt parsing errors");
-            }
-            (Ok(_), Some(3)) => {
-                panic!("Rustfmt could not format some lines");
-            }
-            (Ok(_), _) => {
-                panic!("Internal rustfmt errors");
-            }
-            (Err(_), _) => fs::write(file, contents),
-        }
+        fs::write(file, format_generated_rust(contents))
     }
 
     fn out_dir(file: &str) -> PathBuf {

@@ -345,8 +345,6 @@ jobs:
       - name: Install Rust
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-rust
-        with:
-          components: rustfmt
 
       - name: Setup sccache
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
