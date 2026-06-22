@@ -3,13 +3,13 @@ use std::cell::LazyCell;
 use hir::{
     base_db::{intern::Lookup, salsa::Database, source_db::SourceDb},
     container::{ContainerId, InFile},
-    semantics::Semantics,
     source_map::IsSrc,
 };
 use itertools::Itertools;
 use memchr::memmem::Finder;
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
+use semantics::Semantics;
 use smallvec::SmallVec;
 use syntax::{
     SyntaxNode, SyntaxTokenWithParent, has_text_range::HasTextRange, ptr::SyntaxTokenPtr,

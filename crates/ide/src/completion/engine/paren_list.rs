@@ -5,9 +5,9 @@ use hir::{
         module::{ModuleId, ModuleSrc},
     },
     scope::{ModuleEntry, UnitEntry},
-    semantics::Semantics,
 };
 use rustc_hash::FxHashSet;
+use semantics::Semantics;
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,
     ast::{self, AstNode},

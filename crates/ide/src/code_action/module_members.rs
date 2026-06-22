@@ -4,8 +4,8 @@ use hir::{
         declaration::Declaration,
         module::{Module, ModuleId, port::Ports},
     },
-    semantics::Semantics,
 };
+use semantics::Semantics;
 use smol_str::SmolStr;
 use utils::get::GetRef;
 

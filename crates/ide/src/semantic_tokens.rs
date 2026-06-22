@@ -16,9 +16,9 @@ use hir::{
     },
     preproc::macro_references_in_range,
     scope::NonAnsiPortEntry,
-    semantics::{Semantics, pathres::PathResolution},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
+use semantics::{PathResolution, Semantics};
 use smol_str::SmolStr;
 use syntax::{ast, has_text_range::HasTextRange};
 use utils::{

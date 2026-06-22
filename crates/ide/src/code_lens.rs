@@ -5,9 +5,9 @@ use hir::{
         file::{FileSourceMap, HirFile},
         module::ModuleId,
     },
-    semantics::{Semantics, pathres::PathResolution},
     source_map::IsSrc,
 };
+use semantics::{PathResolution, Semantics};
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRangeIn,

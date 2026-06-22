@@ -16,9 +16,9 @@ use hir::{
         source_root::{SourceRoot, SourceRootId},
     },
     preproc::{IncludeTarget, include_directive_at},
-    semantics::Semantics,
 };
 use insta::assert_snapshot;
+use semantics::Semantics;
 use triomphe::Arc;
 use utils::{
     lines::LineEnding,

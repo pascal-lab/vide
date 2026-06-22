@@ -10,9 +10,9 @@ use hir::{
             port::Ports,
         },
     },
-    semantics::Semantics,
 };
 use itertools::Either;
+use semantics::Semantics;
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,
     ast::{self, AstNode},

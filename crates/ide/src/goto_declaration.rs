@@ -1,5 +1,5 @@
-use hir::semantics::Semantics;
 use itertools::Itertools;
+use semantics::Semantics;
 
 use crate::{
     FilePosition, RangeInfo,

@@ -2,8 +2,8 @@ use hir::{
     db::HirDb,
     hir_def::module::{ModuleId, ModuleSrc},
     scope::{ModuleEntry, UnitEntry},
-    semantics::Semantics,
 };
+use semantics::Semantics;
 use syntax::ast;
 use utils::get::Get;
 

@@ -22,9 +22,9 @@ use hir::{
         subroutine::{SubroutineId, SubroutineKind, SubroutinePortId},
     },
     region_tree::RegionParent,
-    semantics::Semantics,
 };
 use itertools::Itertools;
+use semantics::Semantics;
 use syntax::{
     SVInt, SyntaxCursorExt, SyntaxNodeExt,
     has_text_range::HasTextRange,

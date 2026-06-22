@@ -14,10 +14,10 @@ use hir::{
         },
     },
     scope::{ModuleEntry, NonAnsiPortEntry},
-    semantics::Semantics,
     source_map::{IsNamedSrc, IsSrc},
 };
 use regex::{Regex, RegexBuilder};
+use semantics::Semantics;
 use smallvec::SmallVec;
 use utils::{
     get::{Get, GetRef},

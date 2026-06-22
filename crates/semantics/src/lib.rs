@@ -7,12 +7,12 @@
 //! source-to-def, def-to-source, and occurrence-validation APIs without making
 //! IDE features depend on HIR internals directly.
 
+pub use hir::semantics::{ParsedFile, pathres::PathResolution};
 use hir::{
     container::{ContainerId, InContainer},
     db::HirDb,
     file::HirFileId,
     hir_def::{Ident, block::BlockId, expr::ExprId, module::ModuleId, subroutine::SubroutineId},
-    semantics::{ParsedFile, pathres::PathResolution},
 };
 use syntax::{SyntaxNode, ast};
 use utils::text_edit::TextSize;

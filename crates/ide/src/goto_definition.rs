@@ -8,9 +8,9 @@ use hir::{
         macro_definition_at, macro_param_definition_at, macro_param_reference_definitions_at,
         macro_reference_definitions_at,
     },
-    semantics::Semantics,
 };
 use itertools::Itertools;
+use semantics::Semantics;
 use syntax::{
     SyntaxNode, SyntaxTokenWithParent, TokenKind,
     token::{TokenKindExt, pair_token},

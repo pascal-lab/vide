@@ -1,7 +1,7 @@
 use hir::{
     base_db::source_db::SourceDb, container::InContainer, file::HirFileId, hir_def::expr::Expr,
-    semantics::Semantics,
 };
+use semantics::Semantics;
 use syntax::{
     SyntaxNode, SyntaxTokenWithParent, TokenKind,
     ast::{self, AstNode},

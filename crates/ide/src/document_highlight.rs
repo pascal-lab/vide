@@ -1,4 +1,5 @@
-use hir::{container::InFile, file::HirFileId, semantics::Semantics};
+use hir::{container::InFile, file::HirFileId};
+use semantics::Semantics;
 use syntax::{SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
 use utils::line_index::TextRange;
 use vfs::FileId;

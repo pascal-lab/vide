@@ -1,6 +1,7 @@
-use hir::{base_db::source_db::SourceDb, container::InFile, semantics::Semantics};
+use hir::{base_db::source_db::SourceDb, container::InFile};
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
+use semantics::Semantics;
 use smol_str::SmolStr;
 use syntax::{
     SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,

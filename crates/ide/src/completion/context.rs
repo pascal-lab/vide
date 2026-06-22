@@ -8,10 +8,8 @@ mod parser;
 mod resolve;
 mod util;
 
-use hir::{
-    base_db::source_db::{SourceDb, SourceRootDb},
-    semantics::Semantics,
-};
+use hir::base_db::source_db::{SourceDb, SourceRootDb};
+use semantics::Semantics;
 use smallvec::{SmallVec, smallvec};
 use syntax::{
     ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxNodeExt,

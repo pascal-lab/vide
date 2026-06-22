@@ -1,4 +1,4 @@
-use hir::semantics::Semantics;
+use semantics::Semantics;
 use utils::text_edit::TextRange;
 use vfs::FileId;
 

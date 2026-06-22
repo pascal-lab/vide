@@ -1,8 +1,8 @@
 use hir::{
     file::HirFileId,
-    semantics::Semantics,
     type_infer::{TyMember, members_of_ty, type_of_expr, type_of_path_resolution},
 };
+use semantics::Semantics;
 use syntax::{
     SyntaxAncestors, SyntaxNode, SyntaxNodeExt,
     ast::{self, AstNode},

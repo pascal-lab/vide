@@ -1,7 +1,8 @@
-use hir::{file::HirFileId, semantics::Semantics};
+use hir::file::HirFileId;
 use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
+use semantics::Semantics;
 use syntax::{
     SyntaxNode, SyntaxTokenWithParent, TokenKind,
     has_text_range::HasTextRange,
