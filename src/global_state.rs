@@ -1,6 +1,5 @@
 mod diagnostics;
 mod dispatch;
-mod dispatcher;
 pub(crate) mod event_loop;
 mod handlers;
 pub mod main_loop;

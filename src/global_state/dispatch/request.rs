@@ -4,8 +4,9 @@ use lsp_types::request::{
 };
 
 use crate::{
-    global_state::{GlobalState, dispatcher::ReqDispatcher, handlers},
+    global_state::{GlobalState, handlers},
     i18n::keys,
+    lsp::dispatcher::ReqDispatcher,
 };
 
 impl GlobalState {

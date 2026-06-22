@@ -13,11 +13,15 @@ use utils::{
     thread::ThreadIntent,
 };
 
-use super::{
-    snapshot::GlobalStateSnapshot,
-    task::{ResponseTask, Task},
+use crate::{
+    global_state::{
+        GlobalState,
+        snapshot::GlobalStateSnapshot,
+        task::{ResponseTask, Task},
+    },
+    i18n::keys,
+    lsp::protocol::lsp_error::LspError,
 };
-use crate::{global_state::GlobalState, i18n::keys, lsp::protocol::lsp_error::LspError};
 
 pub(crate) struct ReqDispatcher<'a> {
     pub(crate) req: Option<Request>,

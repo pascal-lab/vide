@@ -1,6 +1,9 @@
 use lsp_server::Notification;
 
-use crate::global_state::{GlobalState, dispatcher::NotifDispatcher, handlers};
+use crate::{
+    global_state::{GlobalState, handlers},
+    lsp::dispatcher::NotifDispatcher,
+};
 
 impl GlobalState {
     pub(in crate::global_state) fn handle_notification(&mut self, notif: Notification) {
