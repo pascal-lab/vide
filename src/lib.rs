@@ -23,6 +23,7 @@ pub mod browser;
 mod config;
 mod global_state;
 mod i18n;
+mod lsp;
 mod lsp_ext;
 
 #[cfg(feature = "user-config-schema")]

@@ -1,5 +1,5 @@
-use hir::semantics::Semantics;
 use itertools::Itertools;
+use semantics::Semantics;
 use syntax::{
     SyntaxCursorExt, SyntaxNodeExt, TokenKind,
     has_text_range::HasTextRange,

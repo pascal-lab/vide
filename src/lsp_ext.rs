@@ -1,4 +1,4 @@
-pub(crate) mod ext;
-pub(crate) mod from_proto;
-pub(crate) mod lsp_error;
-pub(crate) mod to_proto;
+// Compatibility shim for code that has not yet migrated to
+// `crate::lsp::protocol`. New code should import from
+// `crate::lsp::protocol::{from_proto, to_proto, ...}`.
+pub(crate) use crate::lsp::protocol::{ext, from_proto, lsp_error, to_proto};

@@ -1,0 +1,12 @@
+[package]
+name = "ide-index"
+version = "0.0.0"
+description = "Project-wide symbol and occurrence index model for IDE queries"
+edition.workspace = true
+
+[dependencies]
+rustc-hash.workspace = true
+smol_str.workspace = true
+syntax.workspace = true
+utils.workspace = true
+vfs.workspace = true
