@@ -7,7 +7,7 @@ use hir::{
     scope::{ModuleEntry, UnitEntry},
 };
 use rustc_hash::FxHashSet;
-use semantics::Semantics;
+use semantics::{Semantics, module_resolution::resolve_instantiation_target};
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,
     ast::{self, AstNode},
@@ -34,7 +34,6 @@ use crate::{
         request::{HashKind, ParenListKind},
     },
     db::root_db::RootDb,
-    module_resolution::resolve_instantiation_target,
 };
 
 pub(super) fn complete_in_paren_list(

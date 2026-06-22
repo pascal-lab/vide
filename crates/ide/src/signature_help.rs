@@ -12,7 +12,7 @@ use hir::{
     },
 };
 use itertools::Either;
-use semantics::Semantics;
+use semantics::{Semantics, module_resolution::resolve_instantiation_target};
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,
     ast::{self, AstNode},
@@ -27,10 +27,7 @@ use utils::{
     text_edit::{TextRange, TextSize},
 };
 
-use crate::{
-    FilePosition, db::root_db::RootDb, markup::Markup,
-    module_resolution::resolve_instantiation_target,
-};
+use crate::{FilePosition, db::root_db::RootDb, markup::Markup};
 
 #[derive(Debug)]
 pub struct SignatureHelpConfig {

@@ -9,6 +9,9 @@ use hir::{
     hir_def::module::ModuleId,
     source_map::IsSrc,
 };
+use semantics::module_resolution::{
+    ModuleResolution, ModuleResolutionAmbiguity, resolve_module_name,
+};
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::{
     get::Get,
@@ -16,10 +19,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::{
-    db::root_db::RootDb,
-    module_resolution::{ModuleResolution, ModuleResolutionAmbiguity, resolve_module_name},
-};
+use crate::db::root_db::RootDb;
 
 const AMBIGUOUS_MODULE_INSTANTIATION: VideDiagnosticDescriptor =
     VideDiagnosticDescriptor { code: 1, subsystem: 0, name: "ambiguous-module-instantiation" };

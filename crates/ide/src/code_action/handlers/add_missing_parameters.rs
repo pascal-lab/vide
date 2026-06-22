@@ -3,19 +3,17 @@ use hir::{
     hir_def::module::instantiation::ParamAssign, source_map::IsSrc,
 };
 use rustc_hash::FxHashSet;
+use semantics::module_resolution::resolve_hir_instantiation_target;
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRangeIn,
 };
 use utils::get::{Get, GetRef};
 
-use crate::{
-    code_action::{
-        CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
-        all_overridable_parameter_names, apply_missing_list_edit,
-        leading_overridable_parameter_names, missing_member_entry_text,
-    },
-    module_resolution::resolve_hir_instantiation_target,
+use crate::code_action::{
+    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
+    all_overridable_parameter_names, apply_missing_list_edit, leading_overridable_parameter_names,
+    missing_member_entry_text,
 };
 
 const ID: CodeActionId = CodeActionId {

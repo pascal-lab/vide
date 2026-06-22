@@ -9,6 +9,7 @@ use hir::{
 };
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
+use semantics::module_resolution::resolve_hir_instantiation_target;
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRangeIn,
@@ -18,12 +19,9 @@ use utils::{
     text_edit::TextRange,
 };
 
-use crate::{
-    code_action::{
-        CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind,
-        all_overridable_parameter_names, line_indent, port_names,
-    },
-    module_resolution::resolve_hir_instantiation_target,
+use crate::code_action::{
+    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind,
+    all_overridable_parameter_names, line_indent, port_names,
 };
 
 const SORT_NAMED_PARAMETER_ASSIGNMENTS_ID: CodeActionId = CodeActionId {

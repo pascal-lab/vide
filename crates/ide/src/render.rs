@@ -24,7 +24,7 @@ use hir::{
     region_tree::RegionParent,
 };
 use itertools::Itertools;
-use semantics::Semantics;
+use semantics::{Semantics, module_resolution::resolve_module_name};
 use syntax::{
     SVInt, SyntaxCursorExt, SyntaxNodeExt,
     has_text_range::HasTextRange,
@@ -37,7 +37,6 @@ use crate::{
     db::{line_index_db::LineIndexDb, root_db::RootDb},
     definitions::{Definition, DefinitionOrigin},
     markup::{Markup, display_project_path, file_link_target, inline_code, markdown_link},
-    module_resolution::resolve_module_name,
 };
 
 pub(crate) fn render_literal(literal: &Literal) -> Option<Markup> {

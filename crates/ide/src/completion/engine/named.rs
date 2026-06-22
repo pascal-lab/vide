@@ -1,6 +1,6 @@
 use hir::hir_def::lower_ident_opt;
 use rustc_hash::FxHashSet;
-use semantics::Semantics;
+use semantics::{Semantics, module_resolution::resolve_instantiation_target};
 use syntax::ast::{self, AstNode};
 
 use super::{
@@ -13,10 +13,7 @@ use super::{
         value_candidates_in_module,
     },
 };
-use crate::{
-    FilePosition, completion::context::CompletionContext, db::root_db::RootDb,
-    module_resolution::resolve_instantiation_target,
-};
+use crate::{FilePosition, completion::context::CompletionContext, db::root_db::RootDb};
 
 pub(super) fn complete_named_port_names(
     db: &RootDb,

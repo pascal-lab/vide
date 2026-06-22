@@ -20,6 +20,10 @@ use hir::{
     semantics::{Semantics, pathres::PathResolution},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
+use semantics::module_resolution::{
+    ModuleResolution, resolve_instantiation_target, resolve_named_param_assignment,
+    resolve_named_port_connection,
+};
 use smallvec::{SmallVec, smallvec};
 use smol_str::SmolStr;
 use syntax::{
@@ -36,13 +40,7 @@ use utils::{
     line_index::TextRange,
 };
 
-use crate::{
-    db::root_db::RootDb,
-    module_resolution::{
-        ModuleResolution, resolve_instantiation_target, resolve_named_param_assignment,
-        resolve_named_port_connection,
-    },
-};
+use crate::db::root_db::RootDb;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum DefinitionOrigin {

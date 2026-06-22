@@ -8,15 +8,13 @@ use hir::{
     source_map::IsSrc,
 };
 use itertools::Itertools;
+use semantics::module_resolution::resolve_hir_instantiation_target;
 use syntax::ast;
 use utils::get::{Get, GetRef};
 
-use crate::{
-    code_action::{
-        CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
-        leading_overridable_parameter_names, port_names,
-    },
-    module_resolution::resolve_hir_instantiation_target,
+use crate::code_action::{
+    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
+    leading_overridable_parameter_names, port_names,
 };
 
 const PORTS_ID: CodeActionId = CodeActionId {

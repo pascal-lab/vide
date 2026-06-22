@@ -7,6 +7,8 @@
 //! source-to-def, def-to-source, and occurrence-validation APIs without making
 //! IDE features depend on HIR internals directly.
 
+pub mod module_resolution;
+
 pub use hir::semantics::{ParsedFile, pathres::PathResolution};
 use hir::{
     container::{ContainerId, InContainer},

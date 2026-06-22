@@ -18,7 +18,10 @@ use hir::{
     scope::NonAnsiPortEntry,
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
-use semantics::{PathResolution, Semantics};
+use semantics::{
+    PathResolution, Semantics,
+    module_resolution::{resolve_named_param_assignment, resolve_named_port_connection},
+};
 use smol_str::SmolStr;
 use syntax::{ast, has_text_range::HasTextRange};
 use utils::{
@@ -27,10 +30,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::{
-    db::root_db::RootDb,
-    module_resolution::{resolve_named_param_assignment, resolve_named_port_connection},
-};
+use crate::db::root_db::RootDb;
 
 mod collector;
 mod port;

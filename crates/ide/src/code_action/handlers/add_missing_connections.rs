@@ -3,19 +3,16 @@ use hir::{
     hir_def::module::instantiation::PortConn, source_map::IsSrc,
 };
 use rustc_hash::FxHashSet;
+use semantics::module_resolution::resolve_hir_instantiation_target;
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRangeIn,
 };
 use utils::get::{Get, GetRef};
 
-use crate::{
-    code_action::{
-        CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
-        apply_missing_list_edit, missing_member_entry_text, port_names,
-        remaining_ordered_port_names,
-    },
-    module_resolution::resolve_hir_instantiation_target,
+use crate::code_action::{
+    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
+    apply_missing_list_edit, missing_member_entry_text, port_names, remaining_ordered_port_names,
 };
 
 const ID: CodeActionId = CodeActionId {

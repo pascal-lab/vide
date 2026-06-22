@@ -19,6 +19,7 @@ use hir::{
     scope::{AnsiPortEntry, ModuleEntry, ModuleScope, NonAnsiPortEntry},
     source_map::{IsNamedSrc, IsSrc},
 };
+use semantics::module_resolution::resolve_module_name;
 use syntax::{ast, match_ast_kind};
 use utils::{
     check_or_throw,
@@ -27,7 +28,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::{db::root_db::RootDb, markup::Markup, module_resolution::resolve_module_name};
+use crate::{db::root_db::RootDb, markup::Markup};
 
 #[derive(Debug)]
 pub struct InlayHintConfig {
