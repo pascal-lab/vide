@@ -7,7 +7,7 @@ use utils::{
 };
 use vfs::{FileId, VfsPath, loader::LoadResult};
 
-use crate::{global_state::GlobalState, lsp_ext::from_proto};
+use crate::{global_state::GlobalState, lsp::protocol::from_proto};
 
 pub(super) fn set_vfs_file_contents(
     state: &mut GlobalState,

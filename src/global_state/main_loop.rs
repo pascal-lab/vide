@@ -98,7 +98,7 @@ mod tests {
             task::{ResponseTask, Task},
         },
         i18n::I18n,
-        lsp_ext::to_proto,
+        lsp::protocol::to_proto,
     };
 
     fn test_state_with_caps(

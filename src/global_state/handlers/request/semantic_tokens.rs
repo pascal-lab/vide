@@ -4,7 +4,7 @@ use vfs::FileId;
 
 use crate::{
     global_state::{response_effect::AcceptedResponseEffect, snapshot::GlobalStateSnapshot},
-    lsp_ext::{from_proto, to_proto},
+    lsp::protocol::{from_proto, to_proto},
 };
 
 pub(crate) fn handle_semantic_tokens_full(

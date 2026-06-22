@@ -15,7 +15,7 @@ use super::{
     reload::should_refresh_for_change,
     task::Task,
 };
-use crate::{config::user_config::DiagnosticsUpdateUserConfig, lsp_ext::to_proto};
+use crate::{config::user_config::DiagnosticsUpdateUserConfig, lsp::protocol::to_proto};
 
 #[derive(Debug)]
 pub(crate) enum DiagnosticInvalidation {

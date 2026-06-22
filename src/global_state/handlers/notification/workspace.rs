@@ -6,7 +6,7 @@ use triomphe::Arc;
 use crate::{
     DEFAULT_PROCESS_NAME,
     global_state::{GlobalState, reload},
-    lsp_ext::from_proto,
+    lsp::protocol::from_proto,
 };
 
 pub(crate) fn handle_did_change_configuration(

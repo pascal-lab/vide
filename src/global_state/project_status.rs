@@ -3,7 +3,9 @@ use project_model::project_manifest::ProjectManifest;
 use utils::paths::AbsPath;
 
 use super::GlobalState;
-use crate::lsp_ext::ext::{ProjectStatusNotification, ProjectStatusParams, ProjectStatusState};
+use crate::lsp::protocol::ext::{
+    ProjectStatusNotification, ProjectStatusParams, ProjectStatusState,
+};
 
 impl GlobalState {
     pub(crate) fn send_loading_project_status(&self, cause: String) {
@@ -85,7 +87,7 @@ mod tests {
         config::{Config, user_config::UserConfig},
         global_state::GlobalState,
         i18n::I18n,
-        lsp_ext::ext::{ProjectStatusNotification, ProjectStatusParams, ProjectStatusState},
+        lsp::protocol::ext::{ProjectStatusNotification, ProjectStatusParams, ProjectStatusState},
     };
 
     fn test_state_with_root(root_path: AbsPathBuf) -> (GlobalState, Connection) {

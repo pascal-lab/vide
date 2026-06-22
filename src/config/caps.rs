@@ -14,7 +14,7 @@ use utils::{line_index::WideEncoding, lines::PositionEncoding};
 
 use crate::{
     config::Config,
-    lsp_ext::ext::{
+    lsp::protocol::ext::{
         self, EXPANDED_RENAME_COMMAND, RELOAD_WORKSPACE_COMMAND, RENAME_CONFLICT_INFO_COMMAND,
         RENAME_EXPANSION_INFO_COMMAND, RUN_QIHE_ANALYSIS_COMMAND,
     },

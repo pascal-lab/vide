@@ -28,7 +28,7 @@ use super::{
 use crate::{
     config::Config,
     global_state::QiheDiagnosticState,
-    lsp_ext::{from_proto, to_proto},
+    lsp::protocol::{from_proto, to_proto},
 };
 
 #[derive(Debug, Clone)]
@@ -159,7 +159,9 @@ impl GlobalStateSnapshot {
         let line_info = self.line_info(file_id)?;
         let mut diagnostics = diagnostics
             .into_iter()
-            .map(|diag| crate::lsp_ext::to_proto::diagnostic(self.config.i18n, &line_info, diag))
+            .map(|diag| {
+                crate::lsp::protocol::to_proto::diagnostic(self.config.i18n, &line_info, diag)
+            })
             .collect::<Vec<_>>();
         diagnostics.extend(self.qihe_diagnostics(file_id));
         Ok(diagnostics)

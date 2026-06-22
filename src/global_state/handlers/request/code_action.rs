@@ -11,7 +11,7 @@ use vfs::FileId;
 
 use crate::{
     global_state::snapshot::GlobalStateSnapshot,
-    lsp_ext::{ext::CodeActionResolveError, from_proto, to_proto},
+    lsp::protocol::{ext::CodeActionResolveError, from_proto, to_proto},
 };
 
 pub(crate) fn handle_code_action(

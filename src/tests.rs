@@ -40,7 +40,7 @@ use crate::{
     },
     global_state::main_loop,
     i18n::{I18n, Locale},
-    lsp_ext::{
+    lsp::protocol::{
         ext::{
             EXPANDED_RENAME_COMMAND, ExpandedRenameParams, ProjectStatusNotification,
             RENAME_CONFLICT_INFO_COMMAND, RENAME_EXPANSION_INFO_COMMAND, RenameConflictInfoParams,

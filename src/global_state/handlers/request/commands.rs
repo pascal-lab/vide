@@ -2,7 +2,7 @@
 
 use crate::{
     i18n::keys,
-    lsp_ext::{
+    lsp::protocol::{
         ext::{
             EXPANDED_RENAME_COMMAND, ExpandedRenameParams, RELOAD_WORKSPACE_COMMAND,
             RENAME_CONFLICT_INFO_COMMAND, RENAME_EXPANSION_INFO_COMMAND, RUN_QIHE_ANALYSIS_COMMAND,

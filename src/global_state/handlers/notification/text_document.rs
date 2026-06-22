@@ -11,7 +11,7 @@ use super::text_changes::{
 use crate::{
     config::user_config::DiagnosticsUpdateUserConfig,
     global_state::{GlobalState, process_changes::DiagnosticInvalidation, reload},
-    lsp_ext::from_proto,
+    lsp::protocol::from_proto,
 };
 
 pub(crate) fn handle_did_open_text_document(

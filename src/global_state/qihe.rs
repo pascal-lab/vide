@@ -42,7 +42,7 @@ use crate::{
     config::user_config::QiheConfig,
     global_state::task::Task,
     i18n::{I18n, keys},
-    lsp_ext::{
+    lsp::protocol::{
         ext::{
             QiheLogNotification, QiheLogParams, QiheStatusNotification, QiheStatusParams,
             RunQiheAnalysisParams,

@@ -40,7 +40,7 @@ use super::{
 use crate::{
     global_state::snapshot::GlobalStateSnapshot,
     i18n::{I18n, keys},
-    lsp_ext::ext::{
+    lsp::protocol::ext::{
         SEMA_TOKENS_TYPES, SemaTokenModifierSet, sema_token_modifiers, sema_token_types,
     },
 };

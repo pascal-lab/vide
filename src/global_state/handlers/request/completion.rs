@@ -1,6 +1,6 @@
 ﻿use crate::{
     global_state::snapshot::GlobalStateSnapshot,
-    lsp_ext::{from_proto, to_proto},
+    lsp::protocol::{from_proto, to_proto},
 };
 
 pub(crate) fn handle_completion(
