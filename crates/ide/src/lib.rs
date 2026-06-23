@@ -2,14 +2,8 @@
 #![feature(decl_macro)]
 
 pub use hir::base_db::Cancelled;
-use hir::hir_def::{
-    block::BlockId,
-    expr::declarator::DeclId,
-    module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
-    stmt::StmtId,
-};
+pub use index::SymbolKind;
 pub use range::{ErasedFileAstId, FilePosition, FileRange, RangeInfo};
-use syntax::{SyntaxKind, ast, match_ast_kind};
 pub type Cancellable<T> = Result<T, Cancelled>;
 
 pub mod analysis;
@@ -49,97 +43,6 @@ mod test_utils;
 #[cfg(test)]
 mod verilog_2005;
 pub mod workspace_symbols;
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum SymbolKind {
-    Module,
-    Config,
-    Primitive,
-    NonAnsiPortLabel,
-    PortDecl,
-    ParamDecl,
-    NetDecl,
-    DataDecl,
-    Genvar,
-    Specparam,
-    Typedef,
-    Struct,
-    Instance,
-    Block,
-    Stmt,
-    Fn,
-    Generate,
-    Specify,
-    Interface,
-    Library,
-    Region,
-    Unknown,
-}
-
-impl SymbolKind {
-    pub fn from_syntax_kind(kind: SyntaxKind) -> Self {
-        match_ast_kind! { kind,
-            ast::ModuleDeclaration where kind == SyntaxKind::MODULE_DECLARATION => SymbolKind::Module,
-            ast::ConfigDeclaration => SymbolKind::Config,
-            ast::UdpDeclaration => SymbolKind::Primitive,
-            ast::NonAnsiPort => SymbolKind::NonAnsiPortLabel,
-            ast::PortDeclaration => SymbolKind::PortDecl,
-            ast::ParameterDeclaration => SymbolKind::ParamDecl,
-            ast::NetDeclaration => SymbolKind::NetDecl,
-            ast::DataDeclaration => SymbolKind::DataDecl,
-            ast::GenvarDeclaration => SymbolKind::Genvar,
-            ast::LibraryDeclaration => SymbolKind::Library,
-            ast::SpecparamDeclaration => SymbolKind::Specparam,
-            ast::TypedefDeclaration => SymbolKind::Typedef,
-            ast::Declarator => SymbolKind::DataDecl,
-            ast::HierarchicalInstance => SymbolKind::Instance,
-
-            ast::BlockStatement => SymbolKind::Block,
-            ast::Statement => SymbolKind::Stmt, // the order of these two is important
-
-            ast::FunctionDeclaration => SymbolKind::Fn,
-            ast::SpecifyBlock => SymbolKind::Specify,
-            _ => SymbolKind::Unknown,
-        }
-    }
-}
-
-// TODO: const impl
-impl From<ModuleId> for SymbolKind {
-    fn from(_: ModuleId) -> Self {
-        SymbolKind::Module
-    }
-}
-
-impl From<BlockId> for SymbolKind {
-    fn from(_: BlockId) -> Self {
-        SymbolKind::Block
-    }
-}
-
-impl From<NonAnsiPortId> for SymbolKind {
-    fn from(_: NonAnsiPortId) -> Self {
-        SymbolKind::NonAnsiPortLabel
-    }
-}
-
-impl From<DeclId> for SymbolKind {
-    fn from(_: DeclId) -> Self {
-        SymbolKind::DataDecl
-    }
-}
-
-impl From<InstanceId> for SymbolKind {
-    fn from(_: InstanceId) -> Self {
-        SymbolKind::Instance
-    }
-}
-
-impl From<StmtId> for SymbolKind {
-    fn from(_: StmtId) -> Self {
-        SymbolKind::Stmt
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScopeVisibility {
     Public,

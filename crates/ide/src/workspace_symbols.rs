@@ -3,15 +3,14 @@ use hir::{
     db::HirDb,
 };
 use index::{
-    FileIndex, ProjectIndex, Symbol, SymbolId, SymbolNamespace, SymbolPath, SymbolPathComponent,
-    WorkspaceSymbolQuery,
+    FileIndex, ProjectIndex, Symbol, SymbolId, SymbolKind, SymbolNamespace, SymbolPath,
+    SymbolPathComponent, WorkspaceSymbolQuery,
 };
 use smol_str::SmolStr;
 use utils::line_index::TextRange;
 use vfs::FileId;
 
 use crate::{
-    SymbolKind,
     db::{root_db::RootDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb},
     document_symbols::{self, DocumentSymbol},
 };
@@ -35,7 +34,7 @@ impl From<&Symbol> for WorkspaceSymbol {
             name: symbol.name.to_string(),
             focus_range: symbol.definition,
             full_range: symbol.full_range,
-            kind: from_index_symbol_kind(symbol.kind),
+            kind: symbol.kind,
             container_name: symbol.container_name.as_ref().map(ToString::to_string),
         }
     }
@@ -107,7 +106,7 @@ fn collect_symbol(
         definition: symbol.focus_range,
         full_range: symbol.full_range,
         file_id,
-        kind: to_index_symbol_kind(symbol.kind),
+        kind: symbol.kind,
         container_name: symbol.container_name.map(SmolStr::from),
     });
 
@@ -131,7 +130,7 @@ fn symbol_id(name: &SmolStr, kind: SymbolKind, container_path: &[SmolStr]) -> Sy
         .map(|component| SymbolPathComponent::Module(component.clone()))
         .collect::<Vec<_>>();
     components.push(symbol_path_component(name.clone(), kind));
-    SymbolId::new(SymbolNamespace::Work, SymbolPath::new(components), to_index_symbol_kind(kind))
+    SymbolId::new(SymbolNamespace::Work, SymbolPath::new(components), kind)
 }
 
 fn symbol_path_component(name: SmolStr, kind: SymbolKind) -> SymbolPathComponent {
@@ -143,61 +142,6 @@ fn symbol_path_component(name: SmolStr, kind: SymbolKind) -> SymbolPathComponent
         SymbolKind::Fn => SymbolPathComponent::Function(name),
         SymbolKind::NonAnsiPortLabel | SymbolKind::PortDecl => SymbolPathComponent::Port(name),
         _ => SymbolPathComponent::Signal(name),
-    }
-}
-
-fn to_index_symbol_kind(kind: SymbolKind) -> index::SymbolKind {
-    match kind {
-        SymbolKind::Module => index::SymbolKind::Module,
-        SymbolKind::Config => index::SymbolKind::Config,
-        SymbolKind::Primitive => index::SymbolKind::Primitive,
-        SymbolKind::NonAnsiPortLabel => index::SymbolKind::NonAnsiPortLabel,
-        SymbolKind::PortDecl => index::SymbolKind::PortDecl,
-        SymbolKind::ParamDecl => index::SymbolKind::ParamDecl,
-        SymbolKind::NetDecl => index::SymbolKind::NetDecl,
-        SymbolKind::DataDecl => index::SymbolKind::DataDecl,
-        SymbolKind::Genvar => index::SymbolKind::Genvar,
-        SymbolKind::Specparam => index::SymbolKind::Specparam,
-        SymbolKind::Typedef => index::SymbolKind::Typedef,
-        SymbolKind::Struct => index::SymbolKind::Struct,
-        SymbolKind::Instance => index::SymbolKind::Instance,
-        SymbolKind::Block => index::SymbolKind::Block,
-        SymbolKind::Stmt => index::SymbolKind::Stmt,
-        SymbolKind::Fn => index::SymbolKind::Fn,
-        SymbolKind::Generate => index::SymbolKind::Generate,
-        SymbolKind::Specify => index::SymbolKind::Specify,
-        SymbolKind::Interface => index::SymbolKind::Interface,
-        SymbolKind::Library => index::SymbolKind::Library,
-        SymbolKind::Region => index::SymbolKind::Region,
-        SymbolKind::Unknown => index::SymbolKind::Unknown,
-    }
-}
-
-fn from_index_symbol_kind(kind: index::SymbolKind) -> SymbolKind {
-    match kind {
-        index::SymbolKind::Module => SymbolKind::Module,
-        index::SymbolKind::Config => SymbolKind::Config,
-        index::SymbolKind::Primitive => SymbolKind::Primitive,
-        index::SymbolKind::NonAnsiPortLabel => SymbolKind::NonAnsiPortLabel,
-        index::SymbolKind::PortDecl => SymbolKind::PortDecl,
-        index::SymbolKind::ParamDecl => SymbolKind::ParamDecl,
-        index::SymbolKind::NetDecl => SymbolKind::NetDecl,
-        index::SymbolKind::DataDecl => SymbolKind::DataDecl,
-        index::SymbolKind::Genvar => SymbolKind::Genvar,
-        index::SymbolKind::Specparam => SymbolKind::Specparam,
-        index::SymbolKind::Typedef => SymbolKind::Typedef,
-        index::SymbolKind::Struct => SymbolKind::Struct,
-        index::SymbolKind::Instance => SymbolKind::Instance,
-        index::SymbolKind::Block => SymbolKind::Block,
-        index::SymbolKind::Stmt => SymbolKind::Stmt,
-        index::SymbolKind::Fn => SymbolKind::Fn,
-        index::SymbolKind::Generate => SymbolKind::Generate,
-        index::SymbolKind::Specify => SymbolKind::Specify,
-        index::SymbolKind::Interface => SymbolKind::Interface,
-        index::SymbolKind::Library => SymbolKind::Library,
-        index::SymbolKind::Region => SymbolKind::Region,
-        index::SymbolKind::Macro => SymbolKind::Unknown,
-        index::SymbolKind::Unknown => SymbolKind::Unknown,
     }
 }
 

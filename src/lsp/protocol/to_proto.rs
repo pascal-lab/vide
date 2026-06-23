@@ -275,8 +275,7 @@ fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
         SymbolKind::Specify => LspSymbolKind::NAMESPACE,
         SymbolKind::Interface => LspSymbolKind::INTERFACE,
         SymbolKind::Library => LspSymbolKind::NAMESPACE,
-        SymbolKind::Region => LspSymbolKind::NAMESPACE,
-        SymbolKind::Unknown => LspSymbolKind::NAMESPACE,
+        SymbolKind::Region | SymbolKind::Macro | SymbolKind::Unknown => LspSymbolKind::NAMESPACE,
     }
 }
 
