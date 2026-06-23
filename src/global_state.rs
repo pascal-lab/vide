@@ -1,7 +1,6 @@
 mod diagnostics;
 mod dispatch;
 pub(crate) mod event_loop;
-mod handlers;
 pub mod main_loop;
 mod mem_docs;
 pub(crate) mod process_changes;
@@ -9,7 +8,7 @@ mod project_status;
 mod qihe;
 pub mod reload;
 pub mod respond;
-mod response_effect;
+pub(crate) mod response_effect;
 pub(crate) mod snapshot;
 pub(crate) mod task;
 mod trace;

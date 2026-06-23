@@ -3,11 +3,7 @@ use lsp_types::request::{
     DocumentDiagnosticRequest, Request as _, WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
 };
 
-use crate::{
-    global_state::{GlobalState, handlers},
-    i18n::keys,
-    lsp::dispatcher::ReqDispatcher,
-};
+use crate::{global_state::GlobalState, i18n::keys, lsp::dispatcher::ReqDispatcher};
 
 impl GlobalState {
     pub(in crate::global_state) fn handle_request(&mut self, req: Request) {
@@ -47,8 +43,9 @@ impl GlobalState {
             _ => (),
         }
 
-        use handlers::request::*;
         use lsp_types::request::*;
+
+        use crate::lsp::handlers::request::*;
         dispatcher
             .on_no_retry::<Completion>(handle_completion)
             .on_latency_sensitive::<SemanticTokensFullRequest>(handle_semantic_tokens_full)
