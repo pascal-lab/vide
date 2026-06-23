@@ -54,7 +54,7 @@ triomphe.workspace = true
 [workspace.dependencies]
 hir = { path = "./crates/hir/", version = "0.0.0" }
 ide = { path = "./crates/ide/", version = "0.0.0" }
-ide-index = { path = "./crates/ide-index/", version = "0.0.0" }
+index = { path = "./crates/index/", version = "0.0.0" }
 semantics = { path = "./crates/semantics/", version = "0.0.0" }
 proc-macro-utils = { path = "./crates/proc-macro-utils/", version = "0.0.0" }
 preproc = { path = "./crates/preproc/", version = "0.0.0" }

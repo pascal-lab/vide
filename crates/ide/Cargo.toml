@@ -11,6 +11,7 @@ bitflags.workspace = true
 dissimilar = "1.0.9"
 fst = "0.4.7"
 hir.workspace = true
+index.workspace = true
 itertools.workspace = true
 la-arena.workspace = true
 memchr.workspace = true

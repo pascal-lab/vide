@@ -7,7 +7,7 @@
 
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
-use syntax::SyntaxKind;
+use syntax::{SyntaxKind, ast, match_ast_kind};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -94,18 +94,54 @@ impl SymbolPathComponent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SymbolKind {
     Module,
-    Interface,
-    Package,
-    Class,
-    Instance,
-    GenerateBlock,
-    Port,
-    Signal,
+    Config,
+    Primitive,
+    NonAnsiPortLabel,
+    PortDecl,
+    ParamDecl,
+    NetDecl,
+    DataDecl,
+    Genvar,
+    Specparam,
     Typedef,
-    Function,
-    Task,
+    Struct,
+    Instance,
+    Block,
+    Stmt,
+    Fn,
+    Generate,
+    Specify,
+    Interface,
+    Library,
+    Region,
     Macro,
     Unknown,
+}
+
+impl SymbolKind {
+    pub fn from_syntax_kind(kind: SyntaxKind) -> Self {
+        match_ast_kind! { kind,
+            ast::ModuleDeclaration where kind == SyntaxKind::MODULE_DECLARATION => SymbolKind::Module,
+            ast::ConfigDeclaration => SymbolKind::Config,
+            ast::UdpDeclaration => SymbolKind::Primitive,
+            ast::NonAnsiPort => SymbolKind::NonAnsiPortLabel,
+            ast::PortDeclaration => SymbolKind::PortDecl,
+            ast::ParameterDeclaration => SymbolKind::ParamDecl,
+            ast::NetDeclaration => SymbolKind::NetDecl,
+            ast::DataDeclaration => SymbolKind::DataDecl,
+            ast::GenvarDeclaration => SymbolKind::Genvar,
+            ast::LibraryDeclaration => SymbolKind::Library,
+            ast::SpecparamDeclaration => SymbolKind::Specparam,
+            ast::TypedefDeclaration => SymbolKind::Typedef,
+            ast::Declarator => SymbolKind::DataDecl,
+            ast::HierarchicalInstance => SymbolKind::Instance,
+            ast::BlockStatement => SymbolKind::Block,
+            ast::Statement => SymbolKind::Stmt,
+            ast::FunctionDeclaration => SymbolKind::Fn,
+            ast::SpecifyBlock => SymbolKind::Specify,
+            _ => SymbolKind::Unknown,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,7 +149,10 @@ pub struct Symbol {
     pub id: SymbolId,
     pub name: SmolStr,
     pub definition: TextRange,
+    pub full_range: TextRange,
     pub file_id: FileId,
+    pub kind: SymbolKind,
+    pub container_name: Option<SmolStr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,7 +232,85 @@ impl FileIndex {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceSymbolQuery {
+    item_query: String,
+    lowercased_item_query: String,
+    path_filter: Vec<String>,
+}
+
+impl WorkspaceSymbolQuery {
+    pub fn new(query: &str) -> Self {
+        let (path_filter, item_query) = parse_workspace_symbol_query(query);
+        let lowercased_item_query = item_query.to_lowercase();
+        Self { item_query, lowercased_item_query, path_filter }
+    }
+
+    pub fn item_query(&self) -> &str {
+        &self.item_query
+    }
+
+    pub fn path_filter(&self) -> &[String] {
+        &self.path_filter
+    }
+
+    fn matches(&self, symbol: &Symbol) -> bool {
+        if !subsequence_matches(&self.lowercased_item_query, &symbol.name.to_lowercase()) {
+            return false;
+        }
+        if self.path_filter.is_empty() {
+            return true;
+        }
+        let Some(container_name) = symbol.container_name.as_deref() else {
+            return false;
+        };
+        let mut segments = container_name.split('.');
+        self.path_filter
+            .iter()
+            .all(|filter| segments.any(|segment| subsequence_matches(filter, segment)))
+    }
+}
+
+fn parse_workspace_symbol_query(query: &str) -> (Vec<String>, String) {
+    let mut tokens = query
+        .split(|ch: char| ch.is_whitespace() || matches!(ch, ':' | '.' | '/' | '\\'))
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+
+    let Some(query) = tokens.pop() else {
+        return (Vec::new(), String::new());
+    };
+
+    (tokens.into_iter().map(str::to_lowercase).collect(), query.to_owned())
+}
+
+fn subsequence_matches(needle: &str, haystack: &str) -> bool {
+    let mut needle = needle.bytes();
+    let Some(mut next) = needle.next() else {
+        return true;
+    };
+
+    for byte in haystack.bytes().map(|byte| byte.to_ascii_lowercase()) {
+        if byte == next {
+            let Some(needle_byte) = needle.next() else {
+                return true;
+            };
+            next = needle_byte;
+        }
+    }
+
+    false
+}
+
+fn compare_workspace_symbols(lhs: &Symbol, rhs: &Symbol) -> std::cmp::Ordering {
+    lhs.file_id
+        .0
+        .cmp(&rhs.file_id.0)
+        .then_with(|| lhs.definition.start().cmp(&rhs.definition.start()))
+        .then_with(|| lhs.name.cmp(&rhs.name))
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProjectIndex {
     files: FxHashMap<FileId, FileIndex>,
     symbol_definitions: FxHashMap<SymbolId, Vec<Symbol>>,
@@ -270,15 +387,15 @@ impl ProjectIndex {
         self.symbol_occurrences.get(symbol).map(Vec::as_slice).unwrap_or(&[])
     }
 
-    pub fn workspace_symbols(&self, query: &str) -> Vec<&Symbol> {
-        let query = query.to_lowercase();
+    pub fn workspace_symbols(&self, query: &WorkspaceSymbolQuery, limit: usize) -> Vec<&Symbol> {
         let mut symbols = self
             .symbol_definitions
             .values()
             .flat_map(|symbols| symbols.iter())
-            .filter(|symbol| symbol.name.to_lowercase().contains(&query))
+            .filter(|symbol| query.matches(symbol))
             .collect::<Vec<_>>();
-        symbols.sort_by_key(|symbol| (symbol.name.clone(), symbol.file_id));
+        symbols.sort_by(|lhs, rhs| compare_workspace_symbols(lhs, rhs));
+        symbols.truncate(limit);
         symbols
     }
 
@@ -318,7 +435,10 @@ mod tests {
             id: symbol.clone(),
             name: "top".into(),
             definition: TextRange::new(7.into(), 10.into()),
+            full_range: TextRange::new(0.into(), 11.into()),
             file_id: FileId(0),
+            kind: SymbolKind::Module,
+            container_name: None,
         });
         file.occurrences.push(Occurrence {
             symbol: symbol.clone(),
@@ -334,7 +454,7 @@ mod tests {
 
         assert_eq!(index.symbol_definitions(&symbol).len(), 1);
         assert_eq!(index.symbol_occurrences(&symbol).len(), 1);
-        assert_eq!(index.workspace_symbols("to").len(), 1);
+        assert_eq!(index.workspace_symbols(&WorkspaceSymbolQuery::new("to"), 16).len(), 1);
         assert_eq!(index.files_depending_on(FileId(2)), &[FileId(0)]);
     }
 
@@ -346,7 +466,10 @@ mod tests {
             id: symbol.clone(),
             name: "top".into(),
             definition: TextRange::new(0.into(), 3.into()),
+            full_range: TextRange::new(0.into(), 3.into()),
             file_id: FileId(0),
+            kind: SymbolKind::Module,
+            container_name: None,
         });
 
         let replacement = FileIndex::new(FileId(0));
@@ -355,5 +478,37 @@ mod tests {
 
         assert!(index.symbol_definitions(&symbol).is_empty());
         assert!(index.file_index(FileId(0)).is_some());
+    }
+
+    #[test]
+    fn workspace_symbol_query_filters_by_container_and_limits_results() {
+        let mut file = FileIndex::new(FileId(0));
+        for (idx, (name, container)) in
+            [("signal", Some("top")), ("signal", Some("child")), ("top", None)]
+                .into_iter()
+                .enumerate()
+        {
+            let symbol = SymbolId::new(
+                SymbolNamespace::Work,
+                SymbolPath::single(SymbolPathComponent::Signal(name.into())),
+                SymbolKind::DataDecl,
+            );
+            file.symbols.push(Symbol {
+                id: symbol,
+                name: name.into(),
+                definition: TextRange::new((idx as u32).into(), (idx as u32 + 1).into()),
+                file_id: FileId(0),
+                full_range: TextRange::new((idx as u32).into(), (idx as u32 + 1).into()),
+                kind: SymbolKind::DataDecl,
+                container_name: container.map(Into::into),
+            });
+        }
+
+        let index = ProjectIndex::from_files([file]);
+        let matches = index.workspace_symbols(&WorkspaceSymbolQuery::new("top sig"), 16);
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].name, "signal");
+        assert_eq!(matches[0].container_name.as_deref(), Some("top"));
     }
 }
