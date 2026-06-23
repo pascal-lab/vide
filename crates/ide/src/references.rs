@@ -74,6 +74,13 @@ pub struct References {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct IndexedReference {
+    pub(crate) file_id: FileId,
+    pub(crate) range: TextRange,
+    pub(crate) category: ReferenceCategory,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReferencesStatus {
     Complete,
     Partial { reason: ReferencesPartialReason, issue_count: usize },
@@ -207,60 +214,79 @@ fn search_refs<'a>(
     def: Definition,
     config: ReferencesConfig,
 ) -> References {
-    let refs = indexed_refs(sema.db, &def, &config).unwrap_or_else(|| {
-        ReferencesCtx::new(sema, &def, config)
-            .search()
-            .into_iter()
-            .map(|(file_id, tokens)| {
-                let res =
-                    tokens.into_iter().map(|token| (token.range(), token.category())).collect();
-                (file_id, res)
-            })
-            .collect()
-    });
+    let refs = indexed_references_for_definition(sema.db, &def, &config)
+        .map(indexed_references_by_file)
+        .unwrap_or_else(|| {
+            ReferencesCtx::new(sema, &def, config)
+                .search()
+                .into_iter()
+                .map(|(file_id, tokens)| {
+                    let res =
+                        tokens.into_iter().map(|token| (token.range(), token.category())).collect();
+                    (file_id, res)
+                })
+                .collect()
+        });
     let def = def.origins().into_iter().filter_map(|def| def.to_nav(sema.db)).collect_vec().into();
     References { def, refs, status: ReferencesStatus::Complete }
 }
 
-fn indexed_refs(
+pub(crate) fn indexed_references_for_definition(
     db: &RootDb,
     def: &Definition,
     config: &ReferencesConfig,
-) -> Option<IntMap<FileId, Vec<(TextRange, ReferenceCategory)>>> {
+) -> Option<Vec<IndexedReference>> {
     let scope = config.search_scope(db, def);
-    let mut refs = IntMap::<FileId, Vec<(TextRange, ReferenceCategory)>>::default();
-    let mut saw_symbol = false;
+    let symbols = def
+        .origins()
+        .into_iter()
+        .filter_map(|origin| db.symbol_id_for_origin(origin))
+        .unique()
+        .collect_vec();
+    if symbols.is_empty() {
+        return None;
+    }
 
-    for symbol in
-        def.origins().into_iter().filter_map(|origin| db.symbol_id_for_origin(origin)).unique()
-    {
-        saw_symbol = true;
-        let mut root_ids =
-            db.files().iter().map(|file_id| db.source_root_id(*file_id)).collect_vec();
-        root_ids.sort_unstable();
-        root_ids.dedup();
-        for source_root_id in root_ids {
-            let project_index = db.source_root_project_index(source_root_id);
-            for occurrence in project_index.symbol_occurrences(&symbol) {
+    let mut refs = Vec::new();
+    let mut root_ids = db.files().iter().map(|file_id| db.source_root_id(*file_id)).collect_vec();
+    root_ids.sort_unstable();
+    root_ids.dedup();
+    for source_root_id in root_ids {
+        let project_index = db.source_root_project_index(source_root_id);
+        for symbol in &symbols {
+            refs.extend(project_index.symbol_occurrences(symbol).iter().filter_map(|occurrence| {
                 if occurrence.role == OccurrenceRole::Definition {
-                    continue;
+                    return None;
                 }
-                let Some(range_filter) = scope.range_for_file(occurrence.file_id) else {
-                    continue;
-                };
+                let range_filter = scope.range_for_file(occurrence.file_id)?;
                 if range_filter
                     .is_some_and(|range| !range.contains_inclusive(occurrence.range.start()))
                 {
-                    continue;
+                    return None;
                 }
-                refs.entry(occurrence.file_id)
-                    .or_default()
-                    .push((occurrence.range, ReferenceCategory::empty()));
-            }
+                Some(IndexedReference {
+                    file_id: occurrence.file_id,
+                    range: occurrence.range,
+                    category: ReferenceCategory::empty(),
+                })
+            }));
         }
     }
 
-    saw_symbol.then_some(refs)
+    Some(refs)
+}
+
+fn indexed_references_by_file(
+    refs: Vec<IndexedReference>,
+) -> IntMap<FileId, Vec<(TextRange, ReferenceCategory)>> {
+    let mut refs_by_file = IntMap::<FileId, Vec<(TextRange, ReferenceCategory)>>::default();
+    for reference in refs {
+        refs_by_file
+            .entry(reference.file_id)
+            .or_default()
+            .push((reference.range, reference.category));
+    }
+    refs_by_file
 }
 
 pub(crate) fn token_precedence(kind: TokenKind) -> usize {

@@ -152,10 +152,11 @@ pub(crate) struct ReferenceToken {
 
 impl ReferenceToken {
     pub fn new(token: SyntaxTokenWithParent) -> Self {
-        Self {
-            ptr: SyntaxTokenPtr::from_token(token),
-            category: ReferenceCategory::from_tok(token),
-        }
+        Self::with_category(token, ReferenceCategory::from_tok(token))
+    }
+
+    pub fn with_category(token: SyntaxTokenWithParent, category: ReferenceCategory) -> Self {
+        Self { ptr: SyntaxTokenPtr::from_token(token), category }
     }
 
     pub fn range(&self) -> TextRange {
