@@ -9,6 +9,7 @@ use hir::{
         macro_reference_definitions_at,
     },
 };
+use index::OccurrenceRole;
 use itertools::Itertools;
 use semantics::Semantics;
 use syntax::{
@@ -138,10 +139,13 @@ fn dispatch_index_definition_target(
 ) -> Option<IndexDefinitionTarget> {
     let source_root_id = db.source_root_id(file_id);
     let project_index = db.source_root_project_index(source_root_id);
-    let occurrence = project_index.occurrences_at(file_id, offset).into_iter().next()?;
-    let navs = project_index
-        .definitions_for_occurrence(file_id, offset)
+    let occurrence = project_index
+        .occurrences_at(file_id, offset)
         .into_iter()
+        .find(|occurrence| occurrence.role == OccurrenceRole::Reference)?;
+    let navs = project_index
+        .symbol_definitions(&occurrence.symbol)
+        .iter()
         .map(|symbol| NavTarget {
             file_id: symbol.file_id,
             full_range: symbol.full_range,
