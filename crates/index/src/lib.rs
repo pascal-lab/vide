@@ -387,6 +387,30 @@ impl ProjectIndex {
         self.symbol_occurrences.get(symbol).map(Vec::as_slice).unwrap_or(&[])
     }
 
+    pub fn occurrences_at(
+        &self,
+        file_id: FileId,
+        offset: utils::line_index::TextSize,
+    ) -> Vec<&Occurrence> {
+        self.files
+            .get(&file_id)
+            .into_iter()
+            .flat_map(|file| file.occurrences.iter())
+            .filter(|occurrence| occurrence.range.contains_inclusive(offset))
+            .collect()
+    }
+
+    pub fn definitions_for_occurrence(
+        &self,
+        file_id: FileId,
+        offset: utils::line_index::TextSize,
+    ) -> Vec<&Symbol> {
+        self.occurrences_at(file_id, offset)
+            .into_iter()
+            .flat_map(|occurrence| self.symbol_definitions(&occurrence.symbol))
+            .collect()
+    }
+
     pub fn workspace_symbols(&self, query: &WorkspaceSymbolQuery, limit: usize) -> Vec<&Symbol> {
         let mut symbols = self
             .symbol_definitions
@@ -510,5 +534,35 @@ mod tests {
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].name, "signal");
         assert_eq!(matches[0].container_name.as_deref(), Some("top"));
+    }
+
+    #[test]
+    fn definitions_for_occurrence_resolves_reference_to_symbol_definition() {
+        let symbol = top_symbol();
+        let mut definition_file = FileIndex::new(FileId(0));
+        definition_file.symbols.push(Symbol {
+            id: symbol.clone(),
+            name: "top".into(),
+            definition: TextRange::new(7.into(), 10.into()),
+            full_range: TextRange::new(0.into(), 11.into()),
+            file_id: FileId(0),
+            kind: SymbolKind::Module,
+            container_name: None,
+        });
+        let mut reference_file = FileIndex::new(FileId(1));
+        reference_file.occurrences.push(Occurrence {
+            symbol: symbol.clone(),
+            file_id: FileId(1),
+            range: TextRange::new(20.into(), 23.into()),
+            role: OccurrenceRole::Reference,
+            container: None,
+            syntax_kind: None,
+        });
+
+        let index = ProjectIndex::from_files([definition_file, reference_file]);
+        let definitions = index.definitions_for_occurrence(FileId(1), 21.into());
+
+        assert_eq!(definitions.len(), 1);
+        assert_eq!(definitions[0].name, "top");
     }
 }
