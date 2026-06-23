@@ -22,9 +22,9 @@ use crate::{
     FilePosition, RangeInfo,
     db::root_db::RootDb,
     definitions::DefinitionClass,
+    indexing::ProjectIndexDatabase,
     navigation_target::{NavTarget, ToNav},
     source_targets::{SourceTarget, source_target_at_offset},
-    workspace_symbols,
 };
 
 enum DefinitionTarget<'tree> {
@@ -137,7 +137,7 @@ fn dispatch_index_definition_target(
     offset: TextSize,
 ) -> Option<IndexDefinitionTarget> {
     let source_root_id = db.source_root_id(file_id);
-    let project_index = workspace_symbols::source_root_project_index(db, source_root_id);
+    let project_index = db.source_root_project_index(source_root_id);
     let occurrence = project_index.occurrences_at(file_id, offset).into_iter().next()?;
     let navs = project_index
         .definitions_for_occurrence(file_id, offset)

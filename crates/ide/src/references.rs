@@ -22,9 +22,9 @@ use crate::{
     FilePosition, ScopeVisibility,
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
+    indexing::ProjectIndexDatabase,
     navigation_target::{NavTarget, ToNav},
     source_targets::{SourceTarget, source_target_at_offset},
-    workspace_symbols,
 };
 
 mod preproc;
@@ -231,11 +231,8 @@ fn indexed_refs(
     let mut refs = IntMap::<FileId, Vec<(TextRange, ReferenceCategory)>>::default();
     let mut saw_symbol = false;
 
-    for symbol in def
-        .origins()
-        .into_iter()
-        .filter_map(|origin| workspace_symbols::symbol_id_for_origin(db, origin))
-        .unique()
+    for symbol in
+        def.origins().into_iter().filter_map(|origin| db.symbol_id_for_origin(origin)).unique()
     {
         saw_symbol = true;
         let mut root_ids =
@@ -243,7 +240,7 @@ fn indexed_refs(
         root_ids.sort_unstable();
         root_ids.dedup();
         for source_root_id in root_ids {
-            let project_index = workspace_symbols::source_root_project_index(db, source_root_id);
+            let project_index = db.source_root_project_index(source_root_id);
             for occurrence in project_index.symbol_occurrences(&symbol) {
                 if occurrence.role == OccurrenceRole::Definition {
                     continue;

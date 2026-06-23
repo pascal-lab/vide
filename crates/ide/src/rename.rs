@@ -26,12 +26,12 @@ use crate::{
     FilePosition, ScopeVisibility,
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass, DefinitionOrigin},
+    indexing::ProjectIndexDatabase,
     references::{
         ReferencesConfig,
         search::{ReferenceToken, SearchScope},
     },
     source_change::SourceChange,
-    workspace_symbols,
 };
 
 pub type RenameResult<T> = Result<T, RenameError>;
@@ -310,7 +310,7 @@ fn indexed_reference_tokens(
     let symbols = def
         .origins()
         .into_iter()
-        .filter_map(|origin| workspace_symbols::symbol_id_for_origin(db, origin))
+        .filter_map(|origin| db.symbol_id_for_origin(origin))
         .collect::<Vec<_>>();
     if symbols.is_empty() {
         return Ok(IntMap::default());
@@ -318,7 +318,7 @@ fn indexed_reference_tokens(
 
     let mut refs = IntMap::<FileId, Vec<ReferenceToken>>::default();
     for source_root_id in root_ids {
-        let project_index = workspace_symbols::source_root_project_index(db, source_root_id);
+        let project_index = db.source_root_project_index(source_root_id);
         for symbol in &symbols {
             for occurrence in project_index.symbol_occurrences(symbol) {
                 if occurrence.role == OccurrenceRole::Definition {

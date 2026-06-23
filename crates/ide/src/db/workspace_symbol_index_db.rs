@@ -12,5 +12,5 @@ pub trait WorkspaceSymbolIndexDb: SourceRootDb + HirDb {
 }
 
 fn file_index(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Arc<FileIndex> {
-    Arc::new(crate::workspace_symbols::file_index(db, file_id))
+    Arc::new(crate::indexing::file_index(db, file_id))
 }
