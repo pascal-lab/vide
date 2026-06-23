@@ -160,6 +160,11 @@ fn collect_source_occurrences(db: &RootDb, file_id: FileId, index: &mut FileInde
                 continue;
             };
             for origin in definition_class.origins() {
+                if origin.name_range(db).is_some_and(|name_range| {
+                    name_range.file_id.file_id() == file_id && name_range.value == range
+                }) {
+                    continue;
+                }
                 let Some(symbol) = symbol_id_for_origin(db, origin) else {
                     continue;
                 };
@@ -190,7 +195,7 @@ fn identifier_offsets(text: &str) -> impl Iterator<Item = utils::line_index::Tex
     })
 }
 
-fn symbol_id_for_origin(db: &dyn HirDb, origin: DefinitionOrigin) -> Option<SymbolId> {
+pub(crate) fn symbol_id_for_origin(db: &dyn HirDb, origin: DefinitionOrigin) -> Option<SymbolId> {
     let name = origin.name(db)?;
     let kind = symbol_kind_for_origin(origin);
     Some(symbol_id(&name, kind, &[]))

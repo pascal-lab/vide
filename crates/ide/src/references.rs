@@ -1,4 +1,8 @@
-use hir::file::HirFileId;
+use hir::{
+    base_db::source_db::{SourceDb, SourceRootDb},
+    file::HirFileId,
+};
+use index::OccurrenceRole;
 use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
@@ -20,6 +24,7 @@ use crate::{
     definitions::{Definition, DefinitionClass},
     navigation_target::{NavTarget, ToNav},
     source_targets::{SourceTarget, source_target_at_offset},
+    workspace_symbols,
 };
 
 mod preproc;
@@ -202,19 +207,66 @@ fn search_refs<'a>(
     def: Definition,
     config: ReferencesConfig,
 ) -> References {
-    let refs = ReferencesCtx::new(sema, &def, config)
-        .search()
-        .into_iter()
-        .map(|(file_id, tokens)| {
-            let res = tokens.into_iter().map(|token| (token.range(), token.category())).collect();
-            (file_id, res)
-        })
-        .collect();
+    let refs = indexed_refs(sema.db, &def, &config).unwrap_or_else(|| {
+        ReferencesCtx::new(sema, &def, config)
+            .search()
+            .into_iter()
+            .map(|(file_id, tokens)| {
+                let res =
+                    tokens.into_iter().map(|token| (token.range(), token.category())).collect();
+                (file_id, res)
+            })
+            .collect()
+    });
     let def = def.origins().into_iter().filter_map(|def| def.to_nav(sema.db)).collect_vec().into();
     References { def, refs, status: ReferencesStatus::Complete }
 }
 
-fn token_precedence(kind: TokenKind) -> usize {
+fn indexed_refs(
+    db: &RootDb,
+    def: &Definition,
+    config: &ReferencesConfig,
+) -> Option<IntMap<FileId, Vec<(TextRange, ReferenceCategory)>>> {
+    let scope = config.search_scope(db, def);
+    let mut refs = IntMap::<FileId, Vec<(TextRange, ReferenceCategory)>>::default();
+    let mut saw_symbol = false;
+
+    for symbol in def
+        .origins()
+        .into_iter()
+        .filter_map(|origin| workspace_symbols::symbol_id_for_origin(db, origin))
+        .unique()
+    {
+        saw_symbol = true;
+        let mut root_ids =
+            db.files().iter().map(|file_id| db.source_root_id(*file_id)).collect_vec();
+        root_ids.sort_unstable();
+        root_ids.dedup();
+        for source_root_id in root_ids {
+            let project_index = workspace_symbols::source_root_project_index(db, source_root_id);
+            for occurrence in project_index.symbol_occurrences(&symbol) {
+                if occurrence.role == OccurrenceRole::Definition {
+                    continue;
+                }
+                let Some(range_filter) = scope.range_for_file(occurrence.file_id) else {
+                    continue;
+                };
+                if range_filter
+                    .is_some_and(|range| !range.contains_inclusive(occurrence.range.start()))
+                {
+                    continue;
+                }
+                refs.entry(occurrence.file_id)
+                    .or_default()
+                    .push((occurrence.range, ReferenceCategory::empty()));
+            }
+        }
+    }
+
+    saw_symbol.then_some(refs)
+}
+
+pub(crate) fn token_precedence(kind: TokenKind) -> usize {
     match kind {
         _ if kind.name_like() => 4,
         _ if kind.is_pair_token() => 4,
