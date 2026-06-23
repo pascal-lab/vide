@@ -1,4 +1,8 @@
-use hir::{base_db::source_db::SourceDb, container::InFile};
+use hir::{
+    base_db::source_db::{SourceDb, SourceRootDb},
+    container::InFile,
+};
+use index::OccurrenceRole;
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 use semantics::Semantics;
@@ -24,9 +28,10 @@ use crate::{
     definitions::{Definition, DefinitionClass, DefinitionOrigin},
     references::{
         ReferencesConfig,
-        search::{ReferenceToken, ReferencesCtx, SearchScope},
+        search::{ReferenceToken, SearchScope},
     },
     source_change::SourceChange,
+    workspace_symbols,
 };
 
 pub type RenameResult<T> = Result<T, RenameError>;
@@ -287,7 +292,59 @@ fn references_for_definition(
     def: &Definition,
 ) -> RenameResult<ReferenceSearchResult> {
     let refs_config = config.references_config(db, def, request_file_id)?;
-    Ok(ReferencesCtx::new(sema, def, refs_config).search())
+    indexed_reference_tokens(db, sema, def, &refs_config)
+}
+
+fn indexed_reference_tokens(
+    db: &RootDb,
+    sema: &Semantics<'_, RootDb>,
+    def: &Definition,
+    config: &ReferencesConfig,
+) -> RenameResult<ReferenceSearchResult> {
+    let scope = config.search_scope(db, def);
+    let mut root_ids =
+        db.files().iter().map(|file_id| db.source_root_id(*file_id)).collect::<Vec<_>>();
+    root_ids.sort_unstable();
+    root_ids.dedup();
+
+    let symbols = def
+        .origins()
+        .into_iter()
+        .filter_map(|origin| workspace_symbols::symbol_id_for_origin(db, origin))
+        .collect::<Vec<_>>();
+    if symbols.is_empty() {
+        return Ok(IntMap::default());
+    }
+
+    let mut refs = IntMap::<FileId, Vec<ReferenceToken>>::default();
+    for source_root_id in root_ids {
+        let project_index = workspace_symbols::source_root_project_index(db, source_root_id);
+        for symbol in &symbols {
+            for occurrence in project_index.symbol_occurrences(symbol) {
+                if occurrence.role == OccurrenceRole::Definition {
+                    continue;
+                }
+                let Some(range_filter) = scope.range_for_file(occurrence.file_id) else {
+                    continue;
+                };
+                if range_filter
+                    .is_some_and(|range| !range.contains_inclusive(occurrence.range.start()))
+                {
+                    continue;
+                }
+                let parsed_file = sema.parse_file(occurrence.file_id);
+                let Some(root) = parsed_file.root() else {
+                    continue;
+                };
+                let Some(token) = pick_token(root, occurrence.range.start()).ok() else {
+                    continue;
+                };
+                refs.entry(occurrence.file_id).or_default().push(ReferenceToken::new(token));
+            }
+        }
+    }
+
+    Ok(refs)
 }
 
 fn rename_definition_with_refs(
