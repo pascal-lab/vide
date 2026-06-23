@@ -1,18 +1,25 @@
 use hir::{
-    base_db::{source_db::SourceRootDb, source_root::SourceRootId},
+    base_db::{
+        source_db::{SourceDb, SourceRootDb},
+        source_root::SourceRootId,
+    },
     db::HirDb,
 };
 use index::{
-    FileIndex, ProjectIndex, Symbol, SymbolId, SymbolKind, SymbolNamespace, SymbolPath,
-    SymbolPathComponent, WorkspaceSymbolQuery,
+    FileIndex, Occurrence, OccurrenceRole, ProjectIndex, Symbol, SymbolId, SymbolKind,
+    SymbolNamespace, SymbolPath, SymbolPathComponent, WorkspaceSymbolQuery,
 };
+use semantics::Semantics;
 use smol_str::SmolStr;
+use syntax::{has_text_range::HasTextRange, token::TokenKindExt};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
 use crate::{
     db::{root_db::RootDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb},
+    definitions::{DefinitionClass, DefinitionOrigin},
     document_symbols::{self, DocumentSymbol},
+    source_targets::{SourceTargetRequestCache, source_target_at_offset_with_cache},
 };
 
 const WORKSPACE_SYMBOL_LIMIT: usize = 256;
@@ -50,7 +57,7 @@ pub(crate) fn workspace_symbols(
     let mut symbols = root_ids
         .into_iter()
         .flat_map(|source_root_id| {
-            WorkspaceSymbolIndexDb::source_root_project_index(db, source_root_id)
+            source_root_project_index(db, source_root_id)
                 .workspace_symbols(&query, WORKSPACE_SYMBOL_LIMIT)
                 .into_iter()
                 .map(WorkspaceSymbol::from)
@@ -63,14 +70,13 @@ pub(crate) fn workspace_symbols(
     symbols
 }
 
-pub(crate) fn source_root_project_index(
-    db: &dyn WorkspaceSymbolIndexDb,
-    source_root_id: SourceRootId,
-) -> ProjectIndex {
+pub(crate) fn source_root_project_index(db: &RootDb, source_root_id: SourceRootId) -> ProjectIndex {
     let source_root = db.source_root(source_root_id);
-    ProjectIndex::from_files(
-        source_root.iter().map(|file_id| db.file_index(file_id).as_ref().clone()),
-    )
+    ProjectIndex::from_files(source_root.iter().map(|file_id| {
+        let mut index = WorkspaceSymbolIndexDb::file_index(db, file_id).as_ref().clone();
+        collect_source_occurrences(db, file_id, &mut index);
+        index
+    }))
 }
 
 pub(crate) fn file_index(db: &dyn HirDb, file_id: FileId) -> FileIndex {
@@ -121,6 +127,90 @@ fn collect_symbol(
 
     for child in symbol.children {
         collect_symbol(file_id, child, child_container_path.clone(), index);
+    }
+}
+
+fn collect_source_occurrences(db: &RootDb, file_id: FileId, index: &mut FileIndex) {
+    let sema = Semantics::new(db);
+    let parsed_file = sema.parse_file(file_id);
+    let Some(root) = parsed_file.root() else {
+        return;
+    };
+    let text = db.file_text(file_id);
+    let mut cache = SourceTargetRequestCache::default();
+    for offset in identifier_offsets(&text) {
+        let Some(target) = source_target_at_offset_with_cache(
+            db,
+            file_id,
+            root,
+            offset,
+            workspace_symbol_token_precedence,
+            &mut cache,
+        )
+        .and_then(|target| target.resolved()) else {
+            continue;
+        };
+
+        for token in target.into_tokens() {
+            let Some(range) = token.text_range() else {
+                continue;
+            };
+            let Some(definition_class) = DefinitionClass::resolve(&sema, file_id.into(), token)
+            else {
+                continue;
+            };
+            for origin in definition_class.origins() {
+                let Some(symbol) = symbol_id_for_origin(db, origin) else {
+                    continue;
+                };
+                index.occurrences.push(Occurrence {
+                    symbol,
+                    file_id,
+                    range,
+                    role: OccurrenceRole::Reference,
+                    container: None,
+                    syntax_kind: None,
+                });
+            }
+        }
+    }
+}
+
+fn workspace_symbol_token_precedence(kind: syntax::TokenKind) -> usize {
+    usize::from(kind.name_like())
+}
+
+fn identifier_offsets(text: &str) -> impl Iterator<Item = utils::line_index::TextSize> + '_ {
+    let mut prev_ident = false;
+    text.char_indices().filter_map(move |(idx, ch)| {
+        let is_ident = ch == '_' || ch.is_ascii_alphanumeric();
+        let is_start = is_ident && !prev_ident && (ch == '_' || ch.is_ascii_alphabetic());
+        prev_ident = is_ident;
+        is_start.then_some((idx as u32).into())
+    })
+}
+
+fn symbol_id_for_origin(db: &dyn HirDb, origin: DefinitionOrigin) -> Option<SymbolId> {
+    let name = origin.name(db)?;
+    let kind = symbol_kind_for_origin(origin);
+    Some(symbol_id(&name, kind, &[]))
+}
+
+fn symbol_kind_for_origin(origin: DefinitionOrigin) -> SymbolKind {
+    match origin {
+        DefinitionOrigin::ModuleId(_) => SymbolKind::Module,
+        DefinitionOrigin::Config(_) => SymbolKind::Config,
+        DefinitionOrigin::Library(_) => SymbolKind::Library,
+        DefinitionOrigin::Udp(_) => SymbolKind::Primitive,
+        DefinitionOrigin::BlockId(_) => SymbolKind::Block,
+        DefinitionOrigin::GenerateBlockId(_) => SymbolKind::Generate,
+        DefinitionOrigin::SubroutineId(_) => SymbolKind::Fn,
+        DefinitionOrigin::SubroutinePort(_) => SymbolKind::PortDecl,
+        DefinitionOrigin::NonAnsiPort(_) => SymbolKind::NonAnsiPortLabel,
+        DefinitionOrigin::Decl(_) => SymbolKind::DataDecl,
+        DefinitionOrigin::Typedef(_) => SymbolKind::Typedef,
+        DefinitionOrigin::Instance(_) => SymbolKind::Instance,
+        DefinitionOrigin::Stmt(_) => SymbolKind::Stmt,
     }
 }
 
@@ -182,5 +272,45 @@ mod tests {
         assert_eq!(index.symbols.len(), 2);
         assert_eq!(index.occurrences.len(), 2);
         assert_eq!(index.symbols[1].container_name.as_deref(), Some("top"));
+    }
+
+    #[test]
+    fn project_index_resolves_cross_file_module_instantiation_occurrence() {
+        use hir::base_db::{change::Change, source_root::SourceRoot};
+        use triomphe::Arc;
+        use utils::lines::LineEnding;
+        use vfs::{ChangeKind, ChangedFile, FileSet, VfsPath};
+
+        let child_file = FileId(0);
+        let top_file = FileId(1);
+        let child_text = "module child; endmodule\n";
+        let top_text = "module top;\n  child u_child();\nendmodule\n";
+        let mut files = FileSet::default();
+        files.insert(child_file, VfsPath::new_virtual_path("/child.sv".to_owned()));
+        files.insert(top_file, VfsPath::new_virtual_path("/top.sv".to_owned()));
+        let root = SourceRoot::new_local(files);
+        let mut change = Change::new();
+        change.set_roots(vec![root]);
+        change.add_changed_file(ChangedFile {
+            file_id: child_file,
+            change_kind: ChangeKind::Create(Arc::from(child_text), LineEnding::Unix),
+        });
+        change.add_changed_file(ChangedFile {
+            file_id: top_file,
+            change_kind: ChangeKind::Create(Arc::from(top_text), LineEnding::Unix),
+        });
+
+        let mut host = crate::analysis_host::AnalysisHost::default();
+        host.apply_change(change);
+        let db = host.raw_db();
+        let root_id = db.source_root_id(top_file);
+        let project_index = source_root_project_index(db, root_id);
+        let offset = top_text.find("child u_child").unwrap() as u32;
+
+        let definitions = project_index.definitions_for_occurrence(top_file, offset.into());
+
+        assert_eq!(definitions.len(), 1);
+        assert_eq!(definitions[0].name, "child");
+        assert_eq!(definitions[0].file_id, child_file);
     }
 }
