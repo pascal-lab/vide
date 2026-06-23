@@ -1,5 +1,5 @@
 use hir::{
-    base_db::source_db::SourceDb,
+    base_db::source_db::{SourceDb, SourceRootDb},
     container::InFile,
     file::HirFileId,
     preproc::{
@@ -24,12 +24,19 @@ use crate::{
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
     source_targets::{SourceTarget, source_target_at_offset},
+    workspace_symbols,
 };
 
 enum DefinitionTarget<'tree> {
     Preproc(Box<PreprocDefinitionTarget>),
     Include(Vec<IncludeDirective>),
+    Index(IndexDefinitionTarget),
     Source(SourceTarget<'tree>),
+}
+
+struct IndexDefinitionTarget {
+    range: TextRange,
+    navs: Vec<NavTarget>,
 }
 
 enum PreprocDefinitionTarget {
@@ -61,6 +68,9 @@ fn dispatch_definition_target<'tree>(
     if let Some(includes) = dispatch_include_definition_target(db, file_id, offset) {
         return Some(DefinitionTarget::Include(includes));
     }
+    if let Some(target) = dispatch_index_definition_target(db, file_id, offset) {
+        return Some(DefinitionTarget::Index(target));
+    }
     let root = root?;
     let target =
         source_target_at_offset(db, file_id, root, offset, token_precedence)?.resolved()?;
@@ -76,6 +86,7 @@ fn render_definition_target(
     match target {
         DefinitionTarget::Preproc(target) => render_preproc_definition_target(*target),
         DefinitionTarget::Include(includes) => render_include_definition_target(db, includes),
+        DefinitionTarget::Index(target) => Some(RangeInfo::new(target.range, target.navs)),
         DefinitionTarget::Source(target) => {
             render_source_definition_target(db, file_id, sema, target)
         }
@@ -118,6 +129,31 @@ fn nav_targets_for_token(
             .collect_vec()
             .into()
     })
+}
+
+fn dispatch_index_definition_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<IndexDefinitionTarget> {
+    let source_root_id = db.source_root_id(file_id);
+    let project_index = workspace_symbols::source_root_project_index(db, source_root_id);
+    let occurrence = project_index.occurrences_at(file_id, offset).into_iter().next()?;
+    let navs = project_index
+        .definitions_for_occurrence(file_id, offset)
+        .into_iter()
+        .map(|symbol| NavTarget {
+            file_id: symbol.file_id,
+            full_range: symbol.full_range,
+            focus_range: Some(symbol.definition),
+            name: Some(symbol.name.clone()),
+            kind: Some(symbol.kind),
+            container_name: symbol.container_name.clone(),
+            description: None,
+        })
+        .unique()
+        .collect_vec();
+    (!navs.is_empty()).then_some(IndexDefinitionTarget { range: occurrence.range, navs })
 }
 
 fn dispatch_preproc_definition_target(
