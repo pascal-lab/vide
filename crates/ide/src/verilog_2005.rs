@@ -1213,7 +1213,7 @@ endmodule
         "rename plan should expose definition and reference ranges: {plan:?}"
     );
     assert!(
-        plan.change.text_edits.get(&file_id).is_some(),
+        plan.change.text_edits.contains_key(&file_id),
         "rename plan should carry final source edits: {plan:?}"
     );
 }

@@ -65,12 +65,17 @@ pub(crate) enum RelationQuery {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RelationSet {
     pub relations: Vec<Relation>,
+    pub target_symbols: Vec<SymbolId>,
     pub reference_status: ReferencesStatus,
 }
 
 impl Default for RelationSet {
     fn default() -> Self {
-        Self { relations: Vec::new(), reference_status: ReferencesStatus::Complete }
+        Self {
+            relations: Vec::new(),
+            target_symbols: Vec::new(),
+            reference_status: ReferencesStatus::Complete,
+        }
     }
 }
 
@@ -251,7 +256,11 @@ impl<'db> RelationFacts<'db> {
             })
             .unique()
             .collect::<Vec<_>>();
-        Some(RelationSet { relations, reference_status: ReferencesStatus::Complete })
+        Some(RelationSet {
+            relations,
+            target_symbols: vec![target],
+            reference_status: ReferencesStatus::Complete,
+        })
     }
 
     fn macro_reference_relations(
@@ -276,6 +285,7 @@ impl<'db> RelationFacts<'db> {
             .collect::<Vec<_>>();
         Some(RelationSet {
             relations,
+            target_symbols: vec![target],
             reference_status: references_status_from_macro_index(references.status),
         })
     }
@@ -285,13 +295,16 @@ impl<'db> RelationFacts<'db> {
         sets: impl IntoIterator<Item = RelationSet>,
     ) -> Option<RelationSet> {
         let mut relations = Vec::new();
+        let mut target_symbols = Vec::new();
         let mut status = ReferencesStatus::Complete;
         for set in sets {
             relations.extend(set.relations);
+            target_symbols.extend(set.target_symbols);
             status = merge_reference_status(status, set.reference_status);
         }
-        (!relations.is_empty()).then_some(RelationSet {
+        (!relations.is_empty() || !target_symbols.is_empty()).then_some(RelationSet {
             relations: relations.into_iter().unique().collect(),
+            target_symbols: target_symbols.into_iter().unique().collect(),
             reference_status: status,
         })
     }
@@ -304,11 +317,11 @@ impl<'db> RelationFacts<'db> {
         config: ReferencesConfig,
     ) -> Option<RelationSet> {
         let mut relations = Vec::new();
+        let mut target_symbols = Vec::new();
         for token in target.into_tokens() {
-            if let Some(reference_set) =
-                self.control_flow_reference_relations(file_id, token.clone())
-            {
+            if let Some(reference_set) = self.control_flow_reference_relations(file_id, token) {
                 relations.extend(reference_set.relations);
+                target_symbols.extend(reference_set.target_symbols);
                 continue;
             }
             let def = match DefinitionClass::resolve(sema, file_id, token)? {
@@ -319,10 +332,12 @@ impl<'db> RelationFacts<'db> {
             let relation_set =
                 self.reference_relations_for_definition(sema, &def, config.clone())?;
             relations.extend(relation_set.relations);
+            target_symbols.extend(relation_set.target_symbols);
         }
 
-        (!relations.is_empty()).then_some(RelationSet {
+        (!relations.is_empty() || !target_symbols.is_empty()).then_some(RelationSet {
             relations: relations.into_iter().unique().collect(),
+            target_symbols: target_symbols.into_iter().unique().collect(),
             reference_status: ReferencesStatus::Complete,
         })
     }
@@ -347,7 +362,11 @@ impl<'db> RelationFacts<'db> {
             })
             .unique()
             .collect::<Vec<_>>();
-        Some(RelationSet { relations, reference_status: ReferencesStatus::Complete })
+        Some(RelationSet {
+            relations,
+            target_symbols: vec![target],
+            reference_status: ReferencesStatus::Complete,
+        })
     }
 
     fn reference_relations_for_definition(
@@ -375,12 +394,20 @@ impl<'db> RelationFacts<'db> {
             .unique()
             .collect::<Vec<_>>();
 
-        Some(RelationSet { relations, reference_status: ReferencesStatus::Complete })
+        Some(RelationSet {
+            relations,
+            target_symbols: vec![target],
+            reference_status: ReferencesStatus::Complete,
+        })
     }
 
     fn references_from_relations(&self, set: RelationSet) -> Option<Vec<References>> {
-        let mut grouped =
-            Vec::<(SymbolId, IntMap<FileId, Vec<(TextRange, ReferenceCategory)>>)>::new();
+        let mut grouped = set
+            .target_symbols
+            .into_iter()
+            .unique()
+            .map(|target| (target, IntMap::default()))
+            .collect::<Vec<(SymbolId, IntMap<FileId, Vec<(TextRange, ReferenceCategory)>>)>>();
         for relation in set.relations {
             let Some((_, refs)) = grouped.iter_mut().find(|(target, _)| *target == relation.target)
             else {
@@ -445,6 +472,7 @@ impl<'db> RelationFacts<'db> {
 
         RelationSet {
             relations: relations.into_iter().unique().collect(),
+            target_symbols: Vec::new(),
             reference_status: ReferencesStatus::Complete,
         }
     }

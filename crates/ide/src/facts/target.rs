@@ -382,7 +382,7 @@ fn language_fact_block_at<'tree>(
 ) -> Option<TargetBlock> {
     let token = root
         .token_at_offset(offset)
-        .pick_bext_token(&|kind: TokenKind| usize::from(kind.name_like()))?;
+        .pick_bext_token(|kind: TokenKind| usize::from(kind.name_like()))?;
     let fallback_range = token.text_range()?;
     let skipped = SyntaxAncestors::start_from(token.parent)
         .find(|node| language_fact_status_for_node(*node) == LanguageFactStatus::Skipped)?;
