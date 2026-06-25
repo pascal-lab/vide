@@ -27,7 +27,9 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::{db::root_db::RootDb, markup::Markup, module_resolution::resolve_module_name};
+use crate::{
+    FileRange, db::root_db::RootDb, markup::Markup, module_resolution::resolve_module_name,
+};
 
 #[derive(Debug)]
 pub struct InlayHintConfig {
@@ -55,7 +57,7 @@ pub enum InlayKind {
 pub struct InlayHint {
     pub label: String,
     pub tooltip: Option<Markup>,
-    pub target_location: Option<InFile<TextRange>>,
+    pub target_location: Option<FileRange>,
     pub padding_left: bool,
     pub padding_right: bool,
 
@@ -141,7 +143,7 @@ impl InlayHintCollector {
         }
 
         let (tooltip, target_location) = if let Some(InFile { value: src, file_id }) = target_src {
-            let location = InFile::new(file_id, src.range());
+            let location = FileRange { file_id: file_id.file_id(), range: src.range() };
             (Some(Markup::new()), Some(location))
         } else {
             (None, None)
@@ -175,7 +177,7 @@ impl InlayHintCollector {
     fn collect_range_hint(
         &mut self,
         anchor: HintAnchor,
-        target_location: Option<InFile<TextRange>>,
+        target_location: Option<FileRange>,
         label: String,
     ) {
         if !self.intersect(anchor.range) {
@@ -286,7 +288,7 @@ fn collect_macro_argument_hints_for_call(
         };
         collector.collect_range_hint(
             HintAnchor::macro_argument(argument_range),
-            Some(InFile::new(HirFileId::File(resolution.definition.file_id), param_range)),
+            Some(FileRange { file_id: resolution.definition.file_id, range: param_range }),
             format!("{param_name}:"),
         );
     }
@@ -709,7 +711,7 @@ mod tests {
             let target = hint
                 .target_location
                 .as_ref()
-                .map(|target| (usize::from(target.value.start()), usize::from(target.value.end())));
+                .map(|target| (usize::from(target.range.start()), usize::from(target.range.end())));
             let edit = hint.text_edit.as_ref().map(|edit| format!("{edit:?}"));
             out.push_str(&format!(
                 "{:?} @ {} {:?} padding=({}, {}) target={:?} edit={:?}\n",

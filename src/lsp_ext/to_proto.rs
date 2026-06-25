@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{Context, Error};
-use hir::container::InFile;
 use ide::{
     FilePosition, FileRange, SymbolKind,
     code_action::{CodeAction, CodeActionKind},
@@ -594,10 +593,7 @@ pub(crate) fn inlay_hint(
                 value: tooltip.into(),
             })
         }),
-        location: target_location.and_then(|InFile { value, file_id }| {
-            let file_range = FileRange { file_id: file_id.file_id(), range: value };
-            self::location(snap, file_range).ok()
-        }),
+        location: target_location.and_then(|file_range| self::location(snap, file_range).ok()),
         command: None,
     };
 
