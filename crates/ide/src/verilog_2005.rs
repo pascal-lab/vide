@@ -35,9 +35,10 @@ use crate::{
     document_highlight::DocumentHighlightConfig,
     document_symbols::DocumentSymbol,
     facts::{
-        SemanticFacts,
+        SemanticFacts, TargetQuery,
         edit::{EditPlan, EditRequest},
         relation::{RelationKind, RelationQuery},
+        target::{SemanticTarget, TargetIntent, include_symbols},
     },
     folding_ranges::FoldingConfig,
     hover::{HoverConfig, HoverFormat},
@@ -1153,6 +1154,73 @@ endmodule
         plan.change.text_edits.get(&file_id).is_some(),
         "rename plan should carry final source edits: {plan:?}"
     );
+}
+
+#[test]
+fn semantic_facts_models_preproc_macro_target_as_symbol() {
+    let text = r#"
+`define /*marker:def*/FOO 1
+module top;
+  localparam int x = `/*marker:usage*/FOO;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let db = host.raw_db();
+    let parsed = db.parse_src(file_id);
+    let facts = SemanticFacts::new(db);
+    let target = facts.target_at(TargetQuery {
+        file_id,
+        offset: markers["usage"],
+        intent: TargetIntent::Navigate,
+        root: parsed.root(),
+    });
+    let Some(SemanticTarget::PreprocMacro(target)) =
+        target.unique_for_intent(TargetIntent::Navigate)
+    else {
+        panic!("macro usage should resolve to a preproc macro target");
+    };
+    let symbols = target.symbols();
+    let info = facts.symbol(symbols[0]).expect("macro symbol info expected");
+
+    assert_eq!(info.kind, crate::SymbolKind::Macro);
+    assert_eq!(info.name.as_deref(), Some("FOO"));
+    assert_eq!(
+        info.selection_range,
+        Some(FileRange { file_id, range: marked_range(&markers, "def", TextSize::of("FOO")) })
+    );
+}
+
+#[test]
+fn semantic_facts_models_include_target_as_symbol() {
+    let fixture = setup_include_macro_project(
+        r#"
+`include "/*marker:include*/defs.vh"
+module top;
+endmodule
+"#,
+        r#"
+`define HEADER_VALUE 1
+"#,
+    );
+    let db = fixture.host.raw_db();
+    let parsed = db.parse_src(fixture.top_file_id);
+    let facts = SemanticFacts::new(db);
+    let target = facts.target_at(TargetQuery {
+        file_id: fixture.top_file_id,
+        offset: fixture.top_markers["include"],
+        intent: TargetIntent::Navigate,
+        root: parsed.root(),
+    });
+    let Some(SemanticTarget::Include(includes)) = target.unique_for_intent(TargetIntent::Navigate)
+    else {
+        panic!("include directive should resolve to an include target");
+    };
+    let symbols = include_symbols(&includes);
+    let info = facts.symbol(symbols[0]).expect("include symbol info expected");
+
+    assert_eq!(info.kind, crate::SymbolKind::Include);
+    assert!(info.name.as_deref().is_some_and(|name| name.contains("defs.vh")));
+    assert_eq!(info.definition_range.map(|range| range.file_id), Some(fixture.top_file_id));
 }
 
 #[test]

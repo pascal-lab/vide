@@ -1,7 +1,7 @@
 use hir::preproc::{
-    IncludeDirective, MacroDefinition, MacroParamDefinition, MacroParamReferenceDefinitions,
-    MacroReferenceDefinitions, include_directives_at, macro_definition_at,
-    macro_param_definition_at, macro_param_reference_definitions_at,
+    IncludeDirective, IncludeTarget, MacroDefinition, MacroParamDefinition,
+    MacroParamReferenceDefinitions, MacroReferenceDefinitions, include_directives_at,
+    macro_definition_at, macro_param_definition_at, macro_param_reference_definitions_at,
     macro_reference_definitions_at,
 };
 use syntax::{
@@ -16,6 +16,7 @@ use vfs::FileId;
 
 use crate::{
     db::root_db::RootDb,
+    facts::symbol::SymbolId,
     source_targets::{
         SourceTarget, SourceTargetAlternatives, SourceTargetAmbiguity, SourceTargetBlock,
         SourceTargetBlockReason, SourceTargetDomain, SourceTargetResolution,
@@ -297,6 +298,24 @@ pub(crate) enum PreprocMacroTarget {
 }
 
 impl PreprocMacroTarget {
+    #[allow(dead_code)]
+    pub(crate) fn symbols(&self) -> Vec<SymbolId> {
+        match self {
+            PreprocMacroTarget::ParamDefinition(definition) => {
+                vec![macro_symbol(&definition.macro_definition)]
+            }
+            PreprocMacroTarget::ParamReference(resolution) => resolution
+                .definitions
+                .iter()
+                .map(|definition| macro_symbol(&definition.macro_definition))
+                .collect(),
+            PreprocMacroTarget::Definition(definition) => vec![macro_symbol(definition)],
+            PreprocMacroTarget::Reference(resolution) => {
+                resolution.definitions.iter().map(macro_symbol).collect()
+            }
+        }
+    }
+
     fn capabilities(&self) -> TargetCapability {
         let mut capabilities = TargetCapability::DESCRIBE;
         let has_definitions = match self {
@@ -308,6 +327,30 @@ impl PreprocMacroTarget {
             capabilities |= TargetCapability::NAVIGATE | TargetCapability::REFERENCES;
         }
         capabilities
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn include_symbols(includes: &[IncludeDirective]) -> Vec<SymbolId> {
+    includes
+        .iter()
+        .map(|include| SymbolId::Include {
+            source_file: include.file_id,
+            included_file: match include.target {
+                IncludeTarget::Literal { resolved_file, .. } => resolved_file,
+                IncludeTarget::Token { .. } => None,
+            },
+            range: include.range,
+        })
+        .collect()
+}
+
+fn macro_symbol(definition: &MacroDefinition) -> SymbolId {
+    SymbolId::PreprocMacro {
+        id: definition.id,
+        file_id: definition.file_id,
+        name_range: definition.name_range,
+        directive_range: definition.directive_range,
     }
 }
 

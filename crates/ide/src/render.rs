@@ -301,6 +301,8 @@ fn render_definition_title(db: &RootDb, origin: &DefinitionOrigin) -> Option<Str
         DefinitionOrigin::Typedef(_) => "Typedef",
         DefinitionOrigin::Instance(_) => "Instance",
         DefinitionOrigin::Stmt(_) => "Statement",
+        DefinitionOrigin::PreprocMacro { .. } => "Macro",
+        DefinitionOrigin::Include { .. } => "Include",
     };
 
     Some(format!("{kind} {}", inline_code(name.as_str())))
@@ -635,7 +637,9 @@ fn render_label_signature(db: &RootDb, origin: &DefinitionOrigin) -> Option<Stri
         | DefinitionOrigin::SubroutineId(_)
         | DefinitionOrigin::SubroutinePort(_)
         | DefinitionOrigin::NonAnsiPort(_)
-        | DefinitionOrigin::Decl(_) => return None,
+        | DefinitionOrigin::Decl(_)
+        | DefinitionOrigin::PreprocMacro { .. }
+        | DefinitionOrigin::Include { .. } => return None,
     };
     Some(format!("{kind} {name}"))
 }

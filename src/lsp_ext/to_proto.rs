@@ -274,6 +274,8 @@ pub(crate) fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
         SymbolKind::Specify => LspSymbolKind::NAMESPACE,
         SymbolKind::Interface => LspSymbolKind::INTERFACE,
         SymbolKind::Library => LspSymbolKind::NAMESPACE,
+        SymbolKind::Macro => LspSymbolKind::CONSTANT,
+        SymbolKind::Include => LspSymbolKind::FILE,
         SymbolKind::Region => LspSymbolKind::NAMESPACE,
         SymbolKind::Unknown => LspSymbolKind::NAMESPACE,
     }

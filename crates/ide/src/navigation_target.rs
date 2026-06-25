@@ -72,6 +72,19 @@ impl ToNav for DefinitionOrigin {
             DefinitionOrigin::Typedef(typedef_id) => typedef_id.to_nav(db),
             DefinitionOrigin::Instance(instance_id) => instance_id.to_nav(db),
             DefinitionOrigin::Stmt(stmt_id) => stmt_id.to_nav(db),
+            DefinitionOrigin::PreprocMacro { .. } | DefinitionOrigin::Include { .. } => {
+                let info = self.info(db)?;
+                let full_range = info.definition_range?;
+                Some(NavTarget {
+                    file_id: full_range.file_id,
+                    full_range: full_range.range,
+                    focus_range: info.selection_range.map(|range| range.range),
+                    name: info.name,
+                    kind: Some(info.kind),
+                    container_name: None,
+                    description: None,
+                })
+            }
         }
     }
 }

@@ -73,6 +73,8 @@ pub enum SymbolKind {
     Specify,
     Interface,
     Library,
+    Macro,
+    Include,
     Region,
     Unknown,
 }

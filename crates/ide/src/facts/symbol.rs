@@ -2,6 +2,7 @@ use hir::{
     base_db::intern::Lookup,
     container::{ContainerId, InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
+    file::HirFileId,
     hir_def::{
         block::{BlockId, BlockLoc},
         declaration::Declaration,
@@ -17,6 +18,7 @@ use hir::{
         subroutine::{SubroutineId, SubroutinePortId},
         typedef::TypedefId,
     },
+    preproc::MacroDefinitionId,
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
 use smol_str::SmolStr;
@@ -29,6 +31,7 @@ use utils::{
     impl_from,
     line_index::TextRange,
 };
+use vfs::FileId;
 
 use crate::{FileRange, SymbolKind};
 
@@ -48,6 +51,17 @@ pub enum SymbolId {
     Typedef(InContainer<TypedefId>),
     Instance(InModule<InstanceId>),
     Stmt(InContainer<StmtId>),
+    PreprocMacro {
+        id: MacroDefinitionId,
+        file_id: FileId,
+        name_range: TextRange,
+        directive_range: TextRange,
+    },
+    Include {
+        source_file: FileId,
+        included_file: Option<FileId>,
+        range: TextRange,
+    },
 }
 
 pub type DefinitionOrigin = SymbolId;
@@ -109,6 +123,8 @@ impl SymbolId {
             SymbolId::Typedef(_) => SymbolKind::Typedef,
             SymbolId::Instance(_) => SymbolKind::Instance,
             SymbolId::Stmt(_) => SymbolKind::Stmt,
+            SymbolId::PreprocMacro { .. } => SymbolKind::Macro,
+            SymbolId::Include { .. } => SymbolKind::Include,
         }
     }
 
@@ -130,6 +146,8 @@ impl SymbolId {
             SymbolId::Typedef(InContainer { cont_id, .. }) => cont_id,
             SymbolId::Instance(InModule { module_id, .. }) => module_id.into(),
             SymbolId::Stmt(InContainer { cont_id, .. }) => cont_id,
+            SymbolId::PreprocMacro { file_id, .. }
+            | SymbolId::Include { source_file: file_id, .. } => HirFileId::File(file_id).into(),
         }
     }
 
@@ -178,6 +196,10 @@ impl SymbolId {
             SymbolId::Stmt(InContainer { value, cont_id }) => {
                 cont_id.to_container(db).get(value).label.clone()
             }
+            SymbolId::PreprocMacro { file_id, name_range, .. } => {
+                text_for_range(db, file_id, name_range)
+            }
+            SymbolId::Include { source_file, range, .. } => text_for_range(db, source_file, range),
         }
     }
 
@@ -251,6 +273,12 @@ impl SymbolId {
                 let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db).into(), range))
             }
+            SymbolId::PreprocMacro { file_id, name_range, .. } => {
+                Some(InFile::new(HirFileId::File(file_id), name_range))
+            }
+            SymbolId::Include { source_file, range, .. } => {
+                Some(InFile::new(HirFileId::File(source_file), range))
+            }
         }
     }
 
@@ -321,6 +349,12 @@ impl SymbolId {
                 let range = cont_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(cont_id.file_id(db).into(), range)
             }
+            SymbolId::PreprocMacro { file_id, directive_range, .. } => {
+                InFile::new(HirFileId::File(file_id), directive_range)
+            }
+            SymbolId::Include { source_file, range, .. } => {
+                InFile::new(HirFileId::File(source_file), range)
+            }
         })
     }
 }
@@ -352,4 +386,9 @@ fn container_symbol_id(container_id: ContainerId, db: &dyn HirDb) -> Option<Symb
 
 fn into_file_range(InFile { file_id, value: range }: InFile<TextRange>) -> FileRange {
     FileRange { file_id: file_id.file_id(), range }
+}
+
+fn text_for_range(db: &dyn HirDb, file_id: FileId, range: TextRange) -> Option<SmolStr> {
+    let text = db.file_text(file_id);
+    Some(SmolStr::new(&text[range]))
 }
