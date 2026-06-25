@@ -3,17 +3,29 @@ use hir::{
     db::HirDb,
     file::HirFileId,
     hir_def::{file::FileItem, module::ModuleId},
+    semantics::Semantics,
 };
 use itertools::Itertools;
+use nohash_hasher::IntMap;
+use utils::line_index::TextRange;
 use vfs::FileId;
 
 use crate::{
     FilePosition, FileRange, RangeInfo,
     db::root_db::RootDb,
-    facts::symbol::{SymbolId, SymbolInfo},
+    definitions::{Definition, DefinitionClass},
+    facts::{
+        SemanticFacts, TargetQuery,
+        symbol::{SymbolId, SymbolInfo},
+        target::{SemanticTarget, TargetIntent},
+    },
     goto_definition,
-    navigation_target::NavTarget,
-    references::{self, References, ReferencesConfig},
+    navigation_target::{NavTarget, ToNav},
+    references::{
+        self, ReferenceCategory, References, ReferencesConfig, ReferencesStatus,
+        search::ReferencesCtx,
+    },
+    source_targets::SourceTarget,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -43,6 +55,7 @@ pub(crate) enum RelationQuery {
     Incoming { target: SymbolId, kind: RelationKind, config: ReferencesConfig },
     Outgoing { source: SymbolId, kind: RelationKind, config: ReferencesConfig },
     Workspace { kind: RelationKind, config: ReferencesConfig },
+    At { position: FilePosition, kind: RelationKind, config: ReferencesConfig },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -71,6 +84,15 @@ impl<'db> RelationFacts<'db> {
         position: FilePosition,
         config: ReferencesConfig,
     ) -> Option<Vec<References>> {
+        let relations = self.relations(RelationQuery::At {
+            position,
+            kind: RelationKind::References,
+            config: config.clone(),
+        });
+        if !relations.relations.is_empty() {
+            return self.references_from_relations(relations);
+        }
+
         references::references(self.db, position, config)
     }
 
@@ -104,6 +126,9 @@ impl<'db> RelationFacts<'db> {
                 set
             }
             RelationQuery::Workspace { kind, config } => self.workspace_relations(kind, config),
+            RelationQuery::At { position, kind, config } => {
+                self.relations_at(position, kind, config).unwrap_or_default()
+            }
         }
     }
 
@@ -137,6 +162,126 @@ impl<'db> RelationFacts<'db> {
             RelationKind::Instantiates => self.instantiation_relations(config),
             _ => RelationSet::default(),
         }
+    }
+
+    fn relations_at(
+        &self,
+        position: FilePosition,
+        kind: RelationKind,
+        config: ReferencesConfig,
+    ) -> Option<RelationSet> {
+        match kind {
+            RelationKind::References => self.reference_relations(position, config),
+            _ => None,
+        }
+    }
+
+    fn reference_relations(
+        &self,
+        FilePosition { file_id, offset }: FilePosition,
+        config: ReferencesConfig,
+    ) -> Option<RelationSet> {
+        let sema = Semantics::new(self.db);
+        let parsed_file = sema.parse_file(file_id);
+        let target = SemanticFacts::new(self.db).target_at(TargetQuery {
+            file_id,
+            offset,
+            intent: TargetIntent::FindReferences,
+            root: parsed_file.root(),
+        });
+
+        match target.unique_for_intent(TargetIntent::FindReferences)? {
+            SemanticTarget::Source(target) => {
+                self.source_reference_relations(&sema, file_id.into(), target, config)
+            }
+            SemanticTarget::PreprocMacro(_) | SemanticTarget::Include(_) => None,
+        }
+    }
+
+    fn source_reference_relations(
+        &self,
+        sema: &Semantics<'_, RootDb>,
+        file_id: HirFileId,
+        target: SourceTarget<'_>,
+        config: ReferencesConfig,
+    ) -> Option<RelationSet> {
+        let mut relations = Vec::new();
+        for token in target.into_tokens() {
+            if references::handle_ctrl_flow_kw(sema, file_id, token).is_some() {
+                return None;
+            }
+            let def = match DefinitionClass::resolve(sema, file_id, token)? {
+                DefinitionClass::Definition(def) => def,
+                DefinitionClass::PortConnShorthand { local, .. } => local,
+                DefinitionClass::Ambiguous(_) => return None,
+            };
+            let relation_set =
+                self.reference_relations_for_definition(sema, &def, config.clone())?;
+            relations.extend(relation_set.relations);
+        }
+
+        (!relations.is_empty())
+            .then_some(RelationSet { relations: relations.into_iter().unique().collect() })
+    }
+
+    fn reference_relations_for_definition(
+        &self,
+        sema: &Semantics<'_, RootDb>,
+        def: &Definition,
+        config: ReferencesConfig,
+    ) -> Option<RelationSet> {
+        let origins = def.origins();
+        let [target] = origins.as_slice() else {
+            return None;
+        };
+        let target = *target;
+        let relations = ReferencesCtx::new(sema, def, config)
+            .search()
+            .into_iter()
+            .flat_map(|(file_id, refs)| {
+                refs.into_iter().map(move |reference| Relation {
+                    kind: RelationKind::References,
+                    source: target,
+                    target,
+                    range: FileRange { file_id, range: reference.range() },
+                })
+            })
+            .unique()
+            .collect::<Vec<_>>();
+
+        Some(RelationSet { relations })
+    }
+
+    fn references_from_relations(&self, set: RelationSet) -> Option<Vec<References>> {
+        let mut grouped =
+            Vec::<(SymbolId, IntMap<FileId, Vec<(TextRange, ReferenceCategory)>>)>::new();
+        for relation in set.relations {
+            let Some((_, refs)) = grouped.iter_mut().find(|(target, _)| *target == relation.target)
+            else {
+                let mut refs = IntMap::default();
+                refs.insert(
+                    relation.range.file_id,
+                    vec![(relation.range.range, ReferenceCategory::empty())],
+                );
+                grouped.push((relation.target, refs));
+                continue;
+            };
+            refs.entry(relation.range.file_id)
+                .or_default()
+                .push((relation.range.range, ReferenceCategory::empty()));
+        }
+
+        let references = grouped
+            .into_iter()
+            .filter_map(|(target, refs)| {
+                Some(References {
+                    def: Some(vec![target.to_nav(self.db)?]),
+                    refs,
+                    status: ReferencesStatus::Complete,
+                })
+            })
+            .collect_vec();
+        (!references.is_empty()).then_some(references)
     }
 
     fn instantiation_relations(&self, config: ReferencesConfig) -> RelationSet {

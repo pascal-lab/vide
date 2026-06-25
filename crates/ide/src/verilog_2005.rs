@@ -1064,6 +1064,50 @@ endmodule
 }
 
 #[test]
+fn semantic_facts_relation_model_reports_symbol_references() {
+    let text = r#"
+module top;
+  logic /*marker:def*/sig;
+  assign /*marker:ref*/sig = 1'b0;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let facts = SemanticFacts::new(host.raw_db());
+    let relations = facts.relations();
+    let reference_range =
+        FileRange { file_id, range: marked_range(&markers, "ref", TextSize::of("sig")) };
+    let set = relations.relations(RelationQuery::At {
+        position: position(file_id, &markers, "def"),
+        kind: RelationKind::References,
+        config: ReferencesConfig::new(ScopeVisibility::Public, None),
+    });
+
+    assert!(
+        set.relations.iter().any(|relation| {
+            relation.kind == RelationKind::References
+                && relation.source == relation.target
+                && relation.range == reference_range
+        }),
+        "reference relation facts should include the signal use: {set:?}"
+    );
+
+    let refs = relations
+        .references(
+            position(file_id, &markers, "def"),
+            ReferencesConfig::new(ScopeVisibility::Public, None),
+        )
+        .expect("references presentation expected");
+    assert!(
+        refs.iter().any(|refs| {
+            refs.refs.get(&file_id).is_some_and(|ranges| {
+                ranges.iter().any(|(range, _)| *range == reference_range.range)
+            })
+        }),
+        "references presentation should be backed by relation facts: {refs:?}"
+    );
+}
+
+#[test]
 fn semantic_facts_edit_plan_models_rename_symbols_and_ranges() {
     let text = r#"
 module top;
