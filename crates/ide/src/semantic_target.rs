@@ -298,10 +298,10 @@ fn preproc_macro_target_at(
         return Some(PreprocMacroTarget::ParamDefinition(definition));
     }
 
-    if let Ok(Some(resolution)) = macro_param_reference_definitions_at(db, file_id, offset) {
-        if !resolution.definitions.is_empty() {
-            return Some(PreprocMacroTarget::ParamReference(resolution));
-        }
+    if let Ok(Some(resolution)) = macro_param_reference_definitions_at(db, file_id, offset)
+        && !resolution.definitions.is_empty()
+    {
+        return Some(PreprocMacroTarget::ParamReference(resolution));
     }
 
     if let Ok(Some(definition)) = macro_definition_at(db, file_id, offset) {
