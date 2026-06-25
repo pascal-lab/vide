@@ -7,6 +7,7 @@ use crate::{
     definitions::DefinitionClass,
     goto_definition,
     navigation_target::{NavTarget, ToNav},
+    semantic_target::{SemanticTarget, TargetCapability, TargetIntent, resolve_semantic_target},
 };
 
 pub(crate) fn goto_declaration(
@@ -16,15 +17,17 @@ pub(crate) fn goto_declaration(
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
-    let root = parsed_file.root()?;
-    let target = crate::source_targets::source_target_at_offset(
+    let target = resolve_semantic_target(
         db,
         file_id,
-        root,
         offset,
+        parsed_file.root(),
+        TargetIntent::Navigate,
         goto_definition::token_precedence,
-    )?
-    .resolved()?;
+    )?;
+    let SemanticTarget::Source(target) = target.into_target(TargetCapability::NAVIGATE)? else {
+        return None;
+    };
     let (range, tokens) = target.into_parts();
 
     let origins = tokens

@@ -3,7 +3,7 @@ use hir::{
     semantics::Semantics,
 };
 use syntax::{
-    SyntaxNode, SyntaxTokenWithParent, TokenKind,
+    SyntaxTokenWithParent, TokenKind,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
     token::TokenKindExt,
@@ -20,15 +20,16 @@ use crate::{
     db::root_db::RootDb,
     definitions::DefinitionClass,
     hover::{
-        include::{dispatch_include_hover_target, render_include_hover},
-        macro_hover::{
-            MacroHoverTarget, dispatch_macro_hover_target, render_macro_hover_target,
-            with_expanded_macro_hover,
-        },
+        include::render_include_hover,
+        macro_hover::{render_macro_hover_target, with_expanded_macro_hover},
     },
     markup::{Markup, inline_code},
     render,
-    source_targets::{SourceTarget, source_target_at_offset},
+    semantic_target::{
+        SemanticTarget, SemanticTargetResolution, TargetCapability, TargetIntent,
+        resolve_semantic_target,
+    },
+    source_targets::SourceTarget,
 };
 
 mod include;
@@ -36,12 +37,6 @@ mod macro_hover;
 
 #[cfg(test)]
 use macro_hover::macro_expansion_hover_text;
-
-enum HoverTarget<'tree> {
-    Macro(Box<MacroHoverTarget>),
-    Include(Vec<hir::preproc::IncludeDirective>),
-    Source(SourceTarget<'tree>),
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HoverFormat {
@@ -61,26 +56,15 @@ pub(crate) fn hover(
 ) -> Option<RangeInfo<Markup>> {
     let sema = Semantics::new(db);
     let parsed_file = sema.parse_file(file_id);
-    let target = dispatch_hover_target(db, file_id, offset, parsed_file.root())?;
+    let target = resolve_semantic_target(
+        db,
+        file_id,
+        offset,
+        parsed_file.root(),
+        TargetIntent::Describe,
+        token_precedence,
+    )?;
     render_hover_target(db, file_id, offset, &sema, target)
-}
-
-fn dispatch_hover_target<'tree>(
-    db: &RootDb,
-    file_id: FileId,
-    offset: TextSize,
-    root: Option<SyntaxNode<'tree>>,
-) -> Option<HoverTarget<'tree>> {
-    if let Some(macro_target) = dispatch_macro_hover_target(db, file_id, offset) {
-        return Some(HoverTarget::Macro(Box::new(macro_target)));
-    }
-    if let Some(includes) = dispatch_include_hover_target(db, file_id, offset) {
-        return Some(HoverTarget::Include(includes));
-    }
-    let root = root?;
-    let target =
-        source_target_at_offset(db, file_id, root, offset, token_precedence)?.resolved()?;
-    Some(HoverTarget::Source(target))
 }
 
 fn render_hover_target(
@@ -88,12 +72,14 @@ fn render_hover_target(
     file_id: FileId,
     offset: TextSize,
     sema: &Semantics<RootDb>,
-    target: HoverTarget<'_>,
+    target: SemanticTargetResolution<'_>,
 ) -> Option<RangeInfo<Markup>> {
-    match target {
-        HoverTarget::Macro(target) => render_macro_hover_target(db, file_id, offset, *target),
-        HoverTarget::Include(includes) => render_include_hover(db, includes),
-        HoverTarget::Source(target) => {
+    match target.into_target(TargetCapability::DESCRIBE)? {
+        SemanticTarget::PreprocMacro(target) => {
+            render_macro_hover_target(db, file_id, offset, target)
+        }
+        SemanticTarget::Include(includes) => render_include_hover(db, includes),
+        SemanticTarget::Source(target) => {
             let hover = hover_for_source_target(sema, file_id.into(), target)?;
             Some(with_expanded_macro_hover(db, file_id, offset, hover))
         }
