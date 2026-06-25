@@ -1,25 +1,14 @@
 use hir::{file::HirFileId, semantics::Semantics};
-use itertools::Itertools;
 use nohash_hasher::IntMap;
-use search::{ReferencesCtx, SearchScope};
+use search::SearchScope;
 use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange, token::pair_token};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
-use self::preproc::render_preproc_references_target;
 use crate::{
-    FilePosition, ScopeVisibility,
-    db::root_db::RootDb,
-    definitions::{Definition, DefinitionClass},
-    facts::{
-        SemanticFacts, TargetQuery,
-        target::{SemanticTarget, TargetIntent, TargetResolution},
-    },
-    navigation_target::{NavTarget, ToNav},
-    source_targets::SourceTarget,
+    ScopeVisibility, db::root_db::RootDb, definitions::Definition, navigation_target::NavTarget,
 };
 
-mod preproc;
 pub(crate) mod search;
 
 bitflags::bitflags! {
@@ -84,72 +73,6 @@ impl ReferencesStatus {
     }
 }
 
-pub(crate) fn references(
-    db: &RootDb,
-    FilePosition { file_id, offset }: FilePosition,
-    config: ReferencesConfig,
-) -> Option<Vec<References>> {
-    let sema = Semantics::new(db);
-    let parsed_file = sema.parse_file(file_id);
-    let target = SemanticFacts::new(db).target_at(TargetQuery {
-        file_id,
-        offset,
-        intent: TargetIntent::FindReferences,
-        root: parsed_file.root(),
-    });
-    render_references_target(db, file_id, &sema, target, config)
-}
-
-fn render_references_target(
-    db: &RootDb,
-    file_id: FileId,
-    sema: &Semantics<RootDb>,
-    target: TargetResolution<'_>,
-    config: ReferencesConfig,
-) -> Option<Vec<References>> {
-    match target.unique_for_intent(TargetIntent::FindReferences)? {
-        SemanticTarget::PreprocMacro(target) => {
-            render_preproc_references_target(db, file_id, target, &config)
-        }
-        SemanticTarget::Include(_) => None,
-        SemanticTarget::Source(target) => {
-            render_source_references_target(sema, file_id, target, config)
-        }
-    }
-}
-
-fn render_source_references_target(
-    sema: &Semantics<RootDb>,
-    file_id: FileId,
-    target: SourceTarget<'_>,
-    config: ReferencesConfig,
-) -> Option<Vec<References>> {
-    let hir_file_id = file_id.into();
-    let tokens = target.into_tokens();
-    let references = tokens
-        .into_iter()
-        .filter_map(|token| references_for_token(sema, hir_file_id, token, config.clone()))
-        .flatten()
-        .collect_vec();
-    (!references.is_empty()).then_some(references)
-}
-
-fn references_for_token(
-    sema: &Semantics<RootDb>,
-    hir_file_id: HirFileId,
-    token: SyntaxTokenWithParent,
-    config: ReferencesConfig,
-) -> Option<Vec<References>> {
-    handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
-        let def = match DefinitionClass::resolve(sema, hir_file_id, token)? {
-            DefinitionClass::Definition(def) => def,
-            DefinitionClass::PortConnShorthand { local, .. } => local,
-            DefinitionClass::Ambiguous(_) => return None,
-        };
-        Some(vec![search_refs(sema, def, config)])
-    })
-}
-
 pub(crate) fn handle_ctrl_flow_kw(
     _sema: &Semantics<'_, RootDb>,
     file_id: HirFileId,
@@ -178,21 +101,4 @@ pub(crate) fn handle_ctrl_flow_kw(
         refs: IntMap::from_iter([(file_id.file_id(), refs)]),
         status: ReferencesStatus::Complete,
     }])
-}
-
-fn search_refs<'a>(
-    sema: &'a Semantics<'a, RootDb>,
-    def: Definition,
-    config: ReferencesConfig,
-) -> References {
-    let refs = ReferencesCtx::new(sema, &def, config)
-        .search()
-        .into_iter()
-        .map(|(file_id, tokens)| {
-            let res = tokens.into_iter().map(|token| (token.range(), token.category())).collect();
-            (file_id, res)
-        })
-        .collect();
-    let def = def.origins().into_iter().filter_map(|def| def.to_nav(sema.db)).collect_vec().into();
-    References { def, refs, status: ReferencesStatus::Complete }
 }

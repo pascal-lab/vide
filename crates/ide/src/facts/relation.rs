@@ -3,10 +3,15 @@ use hir::{
     db::HirDb,
     file::HirFileId,
     hir_def::{file::FileItem, module::ModuleId},
+    preproc::{
+        MacroDefinition, MacroParamDefinition, MacroReferenceIndexStatus, macro_param_references,
+        macro_references,
+    },
     semantics::Semantics,
 };
 use itertools::Itertools;
 use nohash_hasher::IntMap;
+use syntax::has_text_range::HasTextRange;
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -17,15 +22,14 @@ use crate::{
     facts::{
         SemanticFacts, TargetQuery,
         symbol::{SymbolId, SymbolInfo},
-        target::{SemanticTarget, TargetIntent},
+        target::{PreprocMacroTarget, SemanticTarget, SourceTarget, TargetIntent},
     },
     goto_definition,
     navigation_target::{NavTarget, ToNav},
     references::{
-        self, ReferenceCategory, References, ReferencesConfig, ReferencesStatus,
-        search::ReferencesCtx,
+        self, ReferenceCategory, References, ReferencesConfig, ReferencesPartialReason,
+        ReferencesStatus, search::ReferencesCtx,
     },
-    source_targets::SourceTarget,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,9 +62,16 @@ pub(crate) enum RelationQuery {
     At { position: FilePosition, kind: RelationKind, config: ReferencesConfig },
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RelationSet {
     pub relations: Vec<Relation>,
+    pub reference_status: ReferencesStatus,
+}
+
+impl Default for RelationSet {
+    fn default() -> Self {
+        Self { relations: Vec::new(), reference_status: ReferencesStatus::Complete }
+    }
 }
 
 pub(crate) struct RelationFacts<'db> {
@@ -84,16 +95,9 @@ impl<'db> RelationFacts<'db> {
         position: FilePosition,
         config: ReferencesConfig,
     ) -> Option<Vec<References>> {
-        let relations = self.relations(RelationQuery::At {
-            position,
-            kind: RelationKind::References,
-            config: config.clone(),
-        });
-        if !relations.relations.is_empty() {
-            return self.references_from_relations(relations);
-        }
-
-        references::references(self.db, position, config)
+        let relations =
+            self.relations(RelationQuery::At { position, kind: RelationKind::References, config });
+        self.references_from_relations(relations)
     }
 
     pub(crate) fn reference_ranges(
@@ -194,8 +198,102 @@ impl<'db> RelationFacts<'db> {
             SemanticTarget::Source(target) => {
                 self.source_reference_relations(&sema, file_id.into(), target, config)
             }
-            SemanticTarget::PreprocMacro(_) | SemanticTarget::Include(_) => None,
+            SemanticTarget::PreprocMacro(target) => {
+                self.preproc_reference_relations(file_id, target, config)
+            }
+            SemanticTarget::Include(_) => None,
         }
+    }
+
+    fn preproc_reference_relations(
+        &self,
+        file_id: FileId,
+        target: PreprocMacroTarget,
+        config: ReferencesConfig,
+    ) -> Option<RelationSet> {
+        match target {
+            PreprocMacroTarget::ParamDefinition(definition) => {
+                self.macro_param_reference_relations(file_id, definition, &config)
+            }
+            PreprocMacroTarget::ParamReference(resolution) => {
+                self.collect_reference_sets(resolution.definitions.into_iter().filter_map(
+                    |definition| self.macro_param_reference_relations(file_id, definition, &config),
+                ))
+            }
+            PreprocMacroTarget::Definition(definition) => {
+                self.macro_reference_relations(file_id, definition, &config)
+            }
+            PreprocMacroTarget::Reference(resolution) => {
+                self.collect_reference_sets(resolution.definitions.into_iter().filter_map(
+                    |definition| self.macro_reference_relations(file_id, definition, &config),
+                ))
+            }
+        }
+    }
+
+    fn macro_param_reference_relations(
+        &self,
+        file_id: FileId,
+        definition: MacroParamDefinition,
+        config: &ReferencesConfig,
+    ) -> Option<RelationSet> {
+        let target = SymbolId::preproc_macro_param(&definition);
+        let relations = macro_param_references(self.db, file_id, &definition)
+            .ok()?
+            .references
+            .into_iter()
+            .filter(|usage| reference_range_allowed(config, usage.file_id, usage.range))
+            .map(|usage| Relation {
+                kind: RelationKind::References,
+                source: target,
+                target,
+                range: FileRange { file_id: usage.file_id, range: usage.range },
+            })
+            .unique()
+            .collect::<Vec<_>>();
+        Some(RelationSet { relations, reference_status: ReferencesStatus::Complete })
+    }
+
+    fn macro_reference_relations(
+        &self,
+        file_id: FileId,
+        definition: MacroDefinition,
+        config: &ReferencesConfig,
+    ) -> Option<RelationSet> {
+        let target = SymbolId::preproc_macro(&definition);
+        let references = macro_references(self.db, file_id, &definition).ok()?;
+        let relations = references
+            .references
+            .into_iter()
+            .filter(|usage| reference_range_allowed(config, usage.file_id, usage.range))
+            .map(|usage| Relation {
+                kind: RelationKind::References,
+                source: target,
+                target,
+                range: FileRange { file_id: usage.file_id, range: usage.range },
+            })
+            .unique()
+            .collect::<Vec<_>>();
+        Some(RelationSet {
+            relations,
+            reference_status: references_status_from_macro_index(references.status),
+        })
+    }
+
+    fn collect_reference_sets(
+        &self,
+        sets: impl IntoIterator<Item = RelationSet>,
+    ) -> Option<RelationSet> {
+        let mut relations = Vec::new();
+        let mut status = ReferencesStatus::Complete;
+        for set in sets {
+            relations.extend(set.relations);
+            status = merge_reference_status(status, set.reference_status);
+        }
+        (!relations.is_empty()).then_some(RelationSet {
+            relations: relations.into_iter().unique().collect(),
+            reference_status: status,
+        })
     }
 
     fn source_reference_relations(
@@ -207,8 +305,11 @@ impl<'db> RelationFacts<'db> {
     ) -> Option<RelationSet> {
         let mut relations = Vec::new();
         for token in target.into_tokens() {
-            if references::handle_ctrl_flow_kw(sema, file_id, token).is_some() {
-                return None;
+            if let Some(reference_set) =
+                self.control_flow_reference_relations(sema, file_id, token.clone())
+            {
+                relations.extend(reference_set.relations);
+                continue;
             }
             let def = match DefinitionClass::resolve(sema, file_id, token)? {
                 DefinitionClass::Definition(def) => def,
@@ -220,8 +321,34 @@ impl<'db> RelationFacts<'db> {
             relations.extend(relation_set.relations);
         }
 
-        (!relations.is_empty())
-            .then_some(RelationSet { relations: relations.into_iter().unique().collect() })
+        (!relations.is_empty()).then_some(RelationSet {
+            relations: relations.into_iter().unique().collect(),
+            reference_status: ReferencesStatus::Complete,
+        })
+    }
+
+    fn control_flow_reference_relations(
+        &self,
+        sema: &Semantics<'_, RootDb>,
+        file_id: HirFileId,
+        token: syntax::SyntaxTokenWithParent<'_>,
+    ) -> Option<RelationSet> {
+        let target =
+            SymbolId::SourceToken { file_id: file_id.file_id(), range: token.text_range()? };
+        let relations = references::handle_ctrl_flow_kw(sema, file_id, token)?
+            .into_iter()
+            .flat_map(|references| references.refs)
+            .flat_map(|(file_id, refs)| {
+                refs.into_iter().map(move |(range, _)| Relation {
+                    kind: RelationKind::References,
+                    source: target,
+                    target,
+                    range: FileRange { file_id, range },
+                })
+            })
+            .unique()
+            .collect::<Vec<_>>();
+        Some(RelationSet { relations, reference_status: ReferencesStatus::Complete })
     }
 
     fn reference_relations_for_definition(
@@ -249,7 +376,7 @@ impl<'db> RelationFacts<'db> {
             .unique()
             .collect::<Vec<_>>();
 
-        Some(RelationSet { relations })
+        Some(RelationSet { relations, reference_status: ReferencesStatus::Complete })
     }
 
     fn references_from_relations(&self, set: RelationSet) -> Option<Vec<References>> {
@@ -274,11 +401,12 @@ impl<'db> RelationFacts<'db> {
         let references = grouped
             .into_iter()
             .filter_map(|(target, refs)| {
-                Some(References {
-                    def: Some(vec![target.to_nav(self.db)?]),
-                    refs,
-                    status: ReferencesStatus::Complete,
-                })
+                let def = if matches!(target, SymbolId::SourceToken { .. }) {
+                    None
+                } else {
+                    Some(vec![target.to_nav(self.db)?])
+                };
+                Some(References { def, refs, status: set.reference_status })
             })
             .collect_vec();
         (!references.is_empty()).then_some(references)
@@ -316,7 +444,10 @@ impl<'db> RelationFacts<'db> {
             }
         }
 
-        RelationSet { relations: relations.into_iter().unique().collect() }
+        RelationSet {
+            relations: relations.into_iter().unique().collect(),
+            reference_status: ReferencesStatus::Complete,
+        }
     }
 
     fn module_symbols(&self) -> Vec<SymbolInfo> {
@@ -380,4 +511,41 @@ fn range_contains_range(
     range: utils::text_edit::TextRange,
 ) -> bool {
     container.start() <= range.start() && range.end() <= container.end()
+}
+
+fn reference_range_allowed(config: &ReferencesConfig, file_id: FileId, range: TextRange) -> bool {
+    config.search_scope.as_ref().is_none_or(|scope| {
+        scope.range_for_file(file_id).is_some_and(|scope_range| {
+            scope_range.is_none_or(|scope_range| scope_range.intersect(range).is_some())
+        })
+    })
+}
+
+fn references_status_from_macro_index(status: MacroReferenceIndexStatus) -> ReferencesStatus {
+    match status {
+        MacroReferenceIndexStatus::Complete => ReferencesStatus::Complete,
+        MacroReferenceIndexStatus::Partial { issue_count } => ReferencesStatus::Partial {
+            reason: ReferencesPartialReason::PreprocMacroIndex,
+            issue_count,
+        },
+    }
+}
+
+fn merge_reference_status(left: ReferencesStatus, right: ReferencesStatus) -> ReferencesStatus {
+    match (left, right) {
+        (ReferencesStatus::Complete, status) | (status, ReferencesStatus::Complete) => status,
+        (
+            ReferencesStatus::Partial {
+                reason: ReferencesPartialReason::PreprocMacroIndex,
+                issue_count: left,
+            },
+            ReferencesStatus::Partial {
+                reason: ReferencesPartialReason::PreprocMacroIndex,
+                issue_count: right,
+            },
+        ) => ReferencesStatus::Partial {
+            reason: ReferencesPartialReason::PreprocMacroIndex,
+            issue_count: left + right,
+        },
+    }
 }

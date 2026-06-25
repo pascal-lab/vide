@@ -18,7 +18,7 @@ use hir::{
         subroutine::{SubroutineId, SubroutinePortId},
         typedef::TypedefId,
     },
-    preproc::MacroDefinitionId,
+    preproc::{MacroDefinition, MacroDefinitionId, MacroParamDefinition},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
 use smol_str::SmolStr;
@@ -57,9 +57,22 @@ pub enum SymbolId {
         name_range: TextRange,
         directive_range: TextRange,
     },
+    PreprocMacroParam {
+        macro_id: MacroDefinitionId,
+        file_id: FileId,
+        macro_name_range: TextRange,
+        macro_directive_range: TextRange,
+        param_index: usize,
+        name_range: TextRange,
+        param_range: Option<TextRange>,
+    },
     Include {
         source_file: FileId,
         included_file: Option<FileId>,
+        range: TextRange,
+    },
+    SourceToken {
+        file_id: FileId,
         range: TextRange,
     },
 }
@@ -83,6 +96,27 @@ impl_from! { SymbolId =>
 }
 
 impl SymbolId {
+    pub(crate) fn preproc_macro(definition: &MacroDefinition) -> Self {
+        Self::PreprocMacro {
+            id: definition.id,
+            file_id: definition.file_id,
+            name_range: definition.name_range,
+            directive_range: definition.directive_range,
+        }
+    }
+
+    pub(crate) fn preproc_macro_param(definition: &MacroParamDefinition) -> Self {
+        Self::PreprocMacroParam {
+            macro_id: definition.macro_definition.id,
+            file_id: definition.macro_definition.file_id,
+            macro_name_range: definition.macro_definition.name_range,
+            macro_directive_range: definition.macro_definition.directive_range,
+            param_index: definition.param_index,
+            name_range: definition.range,
+            param_range: definition.param_range,
+        }
+    }
+
     pub fn info(&self, db: &dyn HirDb) -> Option<SymbolInfo> {
         Some(SymbolInfo {
             id: *self,
@@ -124,7 +158,9 @@ impl SymbolId {
             SymbolId::Instance(_) => SymbolKind::Instance,
             SymbolId::Stmt(_) => SymbolKind::Stmt,
             SymbolId::PreprocMacro { .. } => SymbolKind::Macro,
+            SymbolId::PreprocMacroParam { .. } => SymbolKind::MacroParam,
             SymbolId::Include { .. } => SymbolKind::Include,
+            SymbolId::SourceToken { .. } => SymbolKind::Unknown,
         }
     }
 
@@ -147,11 +183,29 @@ impl SymbolId {
             SymbolId::Instance(InModule { module_id, .. }) => module_id.into(),
             SymbolId::Stmt(InContainer { cont_id, .. }) => cont_id,
             SymbolId::PreprocMacro { file_id, .. }
-            | SymbolId::Include { source_file: file_id, .. } => HirFileId::File(file_id).into(),
+            | SymbolId::PreprocMacroParam { file_id, .. }
+            | SymbolId::Include { source_file: file_id, .. }
+            | SymbolId::SourceToken { file_id, .. } => HirFileId::File(file_id).into(),
         }
     }
 
     fn container_symbol(&self, db: &dyn HirDb) -> Option<SymbolId> {
+        if let SymbolId::PreprocMacroParam {
+            macro_id,
+            file_id,
+            macro_name_range,
+            macro_directive_range,
+            ..
+        } = *self
+        {
+            return Some(SymbolId::PreprocMacro {
+                id: macro_id,
+                file_id,
+                name_range: macro_name_range,
+                directive_range: macro_directive_range,
+            });
+        }
+
         container_symbol_id(self.container_id(db), db)
     }
 
@@ -199,7 +253,11 @@ impl SymbolId {
             SymbolId::PreprocMacro { file_id, name_range, .. } => {
                 text_for_range(db, file_id, name_range)
             }
+            SymbolId::PreprocMacroParam { file_id, name_range, .. } => {
+                text_for_range(db, file_id, name_range)
+            }
             SymbolId::Include { source_file, range, .. } => text_for_range(db, source_file, range),
+            SymbolId::SourceToken { file_id, range } => text_for_range(db, file_id, range),
         }
     }
 
@@ -276,8 +334,14 @@ impl SymbolId {
             SymbolId::PreprocMacro { file_id, name_range, .. } => {
                 Some(InFile::new(HirFileId::File(file_id), name_range))
             }
+            SymbolId::PreprocMacroParam { file_id, name_range, .. } => {
+                Some(InFile::new(HirFileId::File(file_id), name_range))
+            }
             SymbolId::Include { source_file, range, .. } => {
                 Some(InFile::new(HirFileId::File(source_file), range))
+            }
+            SymbolId::SourceToken { file_id, range } => {
+                Some(InFile::new(HirFileId::File(file_id), range))
             }
         }
     }
@@ -352,8 +416,14 @@ impl SymbolId {
             SymbolId::PreprocMacro { file_id, directive_range, .. } => {
                 InFile::new(HirFileId::File(file_id), directive_range)
             }
+            SymbolId::PreprocMacroParam { file_id, param_range, name_range, .. } => {
+                InFile::new(HirFileId::File(file_id), param_range.unwrap_or(name_range))
+            }
             SymbolId::Include { source_file, range, .. } => {
                 InFile::new(HirFileId::File(source_file), range)
+            }
+            SymbolId::SourceToken { file_id, range } => {
+                InFile::new(HirFileId::File(file_id), range)
             }
         })
     }

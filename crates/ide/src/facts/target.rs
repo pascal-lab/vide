@@ -14,13 +14,16 @@ use syntax::{
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
+pub(crate) use crate::facts::source_target::SourceTarget;
 use crate::{
     db::root_db::RootDb,
-    facts::symbol::SymbolId,
-    source_targets::{
-        SourceTarget, SourceTargetAlternatives, SourceTargetAmbiguity, SourceTargetBlock,
-        SourceTargetBlockReason, SourceTargetDomain, SourceTargetResolution,
-        source_target_at_offset,
+    facts::{
+        source_target::{
+            SourceTargetAlternatives, SourceTargetAmbiguity, SourceTargetBlock,
+            SourceTargetBlockReason, SourceTargetDomain, SourceTargetResolution,
+            source_target_at_offset,
+        },
+        symbol::SymbolId,
     },
 };
 
@@ -302,16 +305,14 @@ impl PreprocMacroTarget {
     pub(crate) fn symbols(&self) -> Vec<SymbolId> {
         match self {
             PreprocMacroTarget::ParamDefinition(definition) => {
-                vec![macro_symbol(&definition.macro_definition)]
+                vec![SymbolId::preproc_macro_param(definition)]
             }
-            PreprocMacroTarget::ParamReference(resolution) => resolution
-                .definitions
-                .iter()
-                .map(|definition| macro_symbol(&definition.macro_definition))
-                .collect(),
-            PreprocMacroTarget::Definition(definition) => vec![macro_symbol(definition)],
+            PreprocMacroTarget::ParamReference(resolution) => {
+                resolution.definitions.iter().map(SymbolId::preproc_macro_param).collect()
+            }
+            PreprocMacroTarget::Definition(definition) => vec![SymbolId::preproc_macro(definition)],
             PreprocMacroTarget::Reference(resolution) => {
-                resolution.definitions.iter().map(macro_symbol).collect()
+                resolution.definitions.iter().map(SymbolId::preproc_macro).collect()
             }
         }
     }
@@ -343,15 +344,6 @@ pub(crate) fn include_symbols(includes: &[IncludeDirective]) -> Vec<SymbolId> {
             range: include.range,
         })
         .collect()
-}
-
-fn macro_symbol(definition: &MacroDefinition) -> SymbolId {
-    SymbolId::PreprocMacro {
-        id: definition.id,
-        file_id: definition.file_id,
-        name_range: definition.name_range,
-        directive_range: definition.directive_range,
-    }
 }
 
 pub(crate) fn resolve_semantic_target<'tree, F>(
@@ -562,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn semantic_facts_target_at_projects_source_targets_by_intent() {
+    fn semantic_facts_target_at_projects_source_target_by_intent() {
         use crate::facts::{SemanticFacts, TargetQuery};
 
         let (host, file_id, offset, _) =
@@ -690,15 +682,15 @@ mod tests {
 
     #[test]
     fn source_target_block_is_reported_without_syntax_fallback() {
-        let block = crate::source_targets::SourceTargetBlock {
-            domain: crate::source_targets::SourceTargetDomain::Preproc,
+        let block = crate::facts::source_target::SourceTargetBlock {
+            domain: crate::facts::source_target::SourceTargetDomain::Preproc,
             range: TextRange::new(TextSize::from(1), TextSize::from(4)),
-            reason: crate::source_targets::SourceTargetBlockReason::Unavailable,
+            reason: crate::facts::source_target::SourceTargetBlockReason::Unavailable,
         };
 
         let resolution = TargetResolution::from_source_resolution(
             FileId(0),
-            crate::source_targets::SourceTargetResolution::Blocked(block.clone()),
+            crate::facts::source_target::SourceTargetResolution::Blocked(block.clone()),
         );
 
         let TargetResolution::Blocked(target) = resolution else {
@@ -712,15 +704,17 @@ mod tests {
 
     #[test]
     fn ambiguous_source_target_block_is_reported_as_ambiguous() {
-        let block = crate::source_targets::SourceTargetBlock {
-            domain: crate::source_targets::SourceTargetDomain::Preproc,
+        let block = crate::facts::source_target::SourceTargetBlock {
+            domain: crate::facts::source_target::SourceTargetDomain::Preproc,
             range: TextRange::new(TextSize::from(1), TextSize::from(4)),
-            reason: crate::source_targets::SourceTargetBlockReason::Ambiguous { hits: Vec::new() },
+            reason: crate::facts::source_target::SourceTargetBlockReason::Ambiguous {
+                hits: Vec::new(),
+            },
         };
 
         let resolution = TargetResolution::from_source_resolution(
             FileId(0),
-            crate::source_targets::SourceTargetResolution::Blocked(block),
+            crate::facts::source_target::SourceTargetResolution::Blocked(block),
         );
 
         let TargetResolution::Ambiguous(ambiguity) = resolution else {
@@ -735,21 +729,23 @@ mod tests {
     fn ambiguous_source_target_alternatives_project_as_candidates() {
         let range = TextRange::new(TextSize::from(1), TextSize::from(4));
         let target_range = TextRange::new(TextSize::from(2), TextSize::from(3));
-        let target = crate::source_targets::SourceTarget {
-            origin: crate::source_targets::SourceTargetOrigin::NormalSyntax,
+        let target = crate::facts::source_target::SourceTarget {
+            origin: crate::facts::source_target::SourceTargetOrigin::NormalSyntax,
             range: target_range,
             tokens: Vec::new(),
         };
-        let alternatives = crate::source_targets::SourceTargetAlternatives {
-            domain: crate::source_targets::SourceTargetDomain::Preproc,
+        let alternatives = crate::facts::source_target::SourceTargetAlternatives {
+            domain: crate::facts::source_target::SourceTargetDomain::Preproc,
             range,
-            reason: crate::source_targets::SourceTargetAmbiguity::PreprocHits { hit_count: 2 },
+            reason: crate::facts::source_target::SourceTargetAmbiguity::PreprocHits {
+                hit_count: 2,
+            },
             targets: vec![target.clone(), target],
         };
 
         let resolution = TargetResolution::from_source_resolution(
             FileId(0),
-            crate::source_targets::SourceTargetResolution::Ambiguous(alternatives),
+            crate::facts::source_target::SourceTargetResolution::Ambiguous(alternatives),
         );
 
         assert!(resolution.clone().unique_for_intent(TargetIntent::Describe).is_none());

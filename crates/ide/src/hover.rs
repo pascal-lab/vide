@@ -21,7 +21,7 @@ use crate::{
     definitions::DefinitionClass,
     facts::{
         SemanticFacts, TargetQuery,
-        target::{SemanticTarget, TargetIntent, TargetResolution},
+        target::{SemanticTarget, SourceTarget, TargetIntent, TargetResolution},
     },
     hover::{
         include::render_include_hover,
@@ -29,7 +29,6 @@ use crate::{
     },
     markup::{Markup, inline_code},
     render,
-    source_targets::SourceTarget,
 };
 
 mod include;

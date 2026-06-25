@@ -1109,6 +1109,68 @@ endmodule
 }
 
 #[test]
+fn semantic_facts_relation_model_reports_preproc_macro_references() {
+    let text = r#"
+`define /*marker:def*/FOO 1
+module top;
+  localparam int x = /*marker:usage_range*/`/*marker:usage*/FOO;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let facts = SemanticFacts::new(host.raw_db());
+    let relations = facts.relations();
+    let usage_range =
+        FileRange { file_id, range: marked_range(&markers, "usage_range", TextSize::of("`FOO")) };
+    let set = relations.relations(RelationQuery::At {
+        position: position(file_id, &markers, "usage"),
+        kind: RelationKind::References,
+        config: ReferencesConfig::new(ScopeVisibility::Public, None),
+    });
+
+    assert!(
+        set.relations.iter().any(|relation| {
+            relation.kind == RelationKind::References
+                && matches!(relation.target, crate::facts::symbol::SymbolId::PreprocMacro { .. })
+                && relation.range == usage_range
+        }),
+        "macro usage should be represented as reference relation facts: {set:?}"
+    );
+}
+
+#[test]
+fn semantic_facts_relation_model_reports_control_flow_token_references() {
+    let text = r#"
+module top;
+  initial /*marker:begin*/begin
+  /*marker:end*/end
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let facts = SemanticFacts::new(host.raw_db());
+    let relations = facts.relations();
+    let begin_range =
+        FileRange { file_id, range: marked_range(&markers, "begin", TextSize::of("begin")) };
+    let end_range =
+        FileRange { file_id, range: marked_range(&markers, "end", TextSize::of("end")) };
+    let set = relations.relations(RelationQuery::At {
+        position: position(file_id, &markers, "begin"),
+        kind: RelationKind::References,
+        config: ReferencesConfig::new(ScopeVisibility::Public, None),
+    });
+
+    assert!(
+        set.relations.iter().any(|relation| {
+            matches!(relation.target, crate::facts::symbol::SymbolId::SourceToken { .. })
+                && relation.range == begin_range
+        }) && set.relations.iter().any(|relation| {
+            matches!(relation.target, crate::facts::symbol::SymbolId::SourceToken { .. })
+                && relation.range == end_range
+        }),
+        "control-flow pair tokens should be represented as reference relation facts: {set:?}"
+    );
+}
+
+#[test]
 fn semantic_facts_edit_plan_models_rename_symbols_and_ranges() {
     let text = r#"
 module top;

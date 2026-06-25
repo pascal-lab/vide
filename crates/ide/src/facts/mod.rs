@@ -2,6 +2,7 @@ use crate::db::root_db::RootDb;
 
 pub(crate) mod edit;
 pub(crate) mod relation;
+pub(crate) mod source_target;
 pub(crate) mod symbol;
 pub(crate) mod target;
 

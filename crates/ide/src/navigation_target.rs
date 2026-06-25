@@ -72,7 +72,10 @@ impl ToNav for DefinitionOrigin {
             DefinitionOrigin::Typedef(typedef_id) => typedef_id.to_nav(db),
             DefinitionOrigin::Instance(instance_id) => instance_id.to_nav(db),
             DefinitionOrigin::Stmt(stmt_id) => stmt_id.to_nav(db),
-            DefinitionOrigin::PreprocMacro { .. } | DefinitionOrigin::Include { .. } => {
+            DefinitionOrigin::PreprocMacro { .. }
+            | DefinitionOrigin::PreprocMacroParam { .. }
+            | DefinitionOrigin::Include { .. }
+            | DefinitionOrigin::SourceToken { .. } => {
                 let info = self.info(db)?;
                 let full_range = info.definition_range?;
                 Some(NavTarget {

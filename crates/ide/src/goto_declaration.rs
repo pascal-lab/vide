@@ -8,10 +8,9 @@ use crate::{
     definitions::DefinitionClass,
     facts::{
         SemanticFacts, TargetQuery,
-        target::{SemanticTarget, TargetIntent},
+        target::{SemanticTarget, SourceTarget, TargetIntent},
     },
     navigation_target::{NavTarget, ToNav},
-    source_targets::SourceTarget,
 };
 
 pub(crate) fn goto_declaration(

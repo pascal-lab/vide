@@ -45,7 +45,6 @@ pub mod selection_ranges;
 pub mod semantic_index;
 pub mod semantic_tokens;
 pub mod signature_help;
-pub(crate) mod source_targets;
 #[cfg(test)]
 mod test_utils;
 #[cfg(test)]
@@ -74,6 +73,7 @@ pub enum SymbolKind {
     Interface,
     Library,
     Macro,
+    MacroParam,
     Include,
     Region,
     Unknown,

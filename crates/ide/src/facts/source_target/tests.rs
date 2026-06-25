@@ -11,7 +11,7 @@ mod cache;
 mod macro_gate;
 
 #[test]
-fn source_targets_origin_source_range_hit_test_is_half_open() {
+fn source_target_origin_source_range_hit_test_is_half_open() {
     let file_id = FileId(0);
     let range = TextRange::new(5.into(), 10.into());
     let origin = Origin::File { file: file_id, range };
@@ -31,7 +31,7 @@ fn source_targets_origin_source_range_hit_test_is_half_open() {
 }
 
 #[test]
-fn source_targets_source_token_range_mismatch_uses_original_syntax_hit() {
+fn source_target_source_token_range_mismatch_uses_original_syntax_hit() {
     let (root, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 2);
     let file_id = FileId(0);
@@ -58,7 +58,7 @@ fn source_targets_source_token_range_mismatch_uses_original_syntax_hit() {
 }
 
 #[test]
-fn source_targets_macro_argument_selects_syntax_token_by_trace_identity() {
+fn source_target_macro_argument_selects_syntax_token_by_trace_identity() {
     let db = RootDb::new(None);
     let model_file = FileId(0);
     let source = r#"`define ID(x) x
@@ -123,7 +123,7 @@ endmodule
 }
 
 #[test]
-fn source_targets_macro_argument_selects_only_the_hit_emitted_token() {
+fn source_target_macro_argument_selects_only_the_hit_emitted_token() {
     let db = RootDb::new(None);
     let model_file = FileId(0);
     let source = r#"`define DUP(x) x x
@@ -186,7 +186,7 @@ endmodule
 }
 
 #[test]
-fn source_targets_preproc_owned_unresolved_does_not_use_normal_syntax_fallback() {
+fn source_target_preproc_owned_unresolved_does_not_use_normal_syntax_fallback() {
     let (root, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
     assert!(
@@ -210,7 +210,7 @@ fn source_targets_preproc_owned_unresolved_does_not_use_normal_syntax_fallback()
 }
 
 #[test]
-fn source_targets_normal_syntax_path_still_selects_non_preproc_offsets() {
+fn source_target_normal_syntax_path_still_selects_non_preproc_offsets() {
     let (root, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
     let SourceTargetProviderResult::Resolved(selection) =
@@ -225,7 +225,7 @@ fn source_targets_normal_syntax_path_still_selects_non_preproc_offsets() {
 }
 
 #[test]
-fn source_targets_same_origin_hits_are_available_without_dropping_emitted_tokens() {
+fn source_target_same_origin_hits_are_available_without_dropping_emitted_tokens() {
     let (root, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
     let file_id = FileId(0);
@@ -245,7 +245,7 @@ fn source_targets_same_origin_hits_are_available_without_dropping_emitted_tokens
 }
 
 #[test]
-fn source_targets_reports_ambiguous_preproc_hits_for_conflicting_targets() {
+fn source_target_reports_ambiguous_preproc_hits_for_conflicting_targets() {
     let (root, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 2);
     let file_id = FileId(0);

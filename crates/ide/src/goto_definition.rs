@@ -18,10 +18,11 @@ use crate::{
     definitions::DefinitionClass,
     facts::{
         SemanticFacts, TargetQuery,
-        target::{PreprocMacroTarget, SemanticTarget, TargetIntent, TargetResolution},
+        target::{
+            PreprocMacroTarget, SemanticTarget, SourceTarget, TargetIntent, TargetResolution,
+        },
     },
     navigation_target::{NavTarget, ToNav},
-    source_targets::SourceTarget,
 };
 
 pub(crate) fn goto_definition(

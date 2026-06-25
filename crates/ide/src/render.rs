@@ -302,7 +302,9 @@ fn render_definition_title(db: &RootDb, origin: &DefinitionOrigin) -> Option<Str
         DefinitionOrigin::Instance(_) => "Instance",
         DefinitionOrigin::Stmt(_) => "Statement",
         DefinitionOrigin::PreprocMacro { .. } => "Macro",
+        DefinitionOrigin::PreprocMacroParam { .. } => "Macro parameter",
         DefinitionOrigin::Include { .. } => "Include",
+        DefinitionOrigin::SourceToken { .. } => "Token",
     };
 
     Some(format!("{kind} {}", inline_code(name.as_str())))
@@ -639,7 +641,9 @@ fn render_label_signature(db: &RootDb, origin: &DefinitionOrigin) -> Option<Stri
         | DefinitionOrigin::NonAnsiPort(_)
         | DefinitionOrigin::Decl(_)
         | DefinitionOrigin::PreprocMacro { .. }
-        | DefinitionOrigin::Include { .. } => return None,
+        | DefinitionOrigin::PreprocMacroParam { .. }
+        | DefinitionOrigin::Include { .. }
+        | DefinitionOrigin::SourceToken { .. } => return None,
     };
     Some(format!("{kind} {name}"))
 }
