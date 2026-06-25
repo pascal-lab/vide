@@ -22,4 +22,8 @@ impl<'db> SemanticFacts<'db> {
     ) -> target::TargetResolution<'tree> {
         target::target_at(self.db, query)
     }
+
+    pub(crate) fn relations(&self) -> relation::RelationFacts<'db> {
+        relation::RelationFacts::new(self.db)
+    }
 }

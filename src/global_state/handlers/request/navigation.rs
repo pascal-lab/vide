@@ -1,6 +1,7 @@
 use ide::{
-    FileRange, SymbolKind, navigation_target::NavTarget, references::References,
-    semantic_index::ModuleCallItem,
+    FileRange, SymbolKind,
+    call_hierarchy::{CallHierarchyItem, IncomingCall, OutgoingCall},
+    references::References,
 };
 use itertools::Itertools;
 
@@ -48,17 +49,16 @@ pub(crate) fn handle_prepare_call_hierarchy(
     params: lsp_types::CallHierarchyPrepareParams,
 ) -> anyhow::Result<Option<Vec<lsp_types::CallHierarchyItem>>> {
     let position = from_proto::file_position(&snap, params.text_document_position_params)?;
-    let Some(nav_info) = snap.analysis.goto_definition(position)? else {
+    let Some(items) = snap.analysis.prepare_call_hierarchy(position)? else {
         return Ok(None);
     };
 
-    let items = nav_info
-        .info
+    let items = items
         .into_iter()
-        .filter_map(|nav| call_hierarchy_item_for_nav(&snap, nav).transpose())
+        .map(|item| lsp_call_hierarchy_item(&snap, item))
         .collect::<anyhow::Result<Vec<_>>>()?
         .into_iter()
-        .unique_by(call_hierarchy_item_key)
+        .unique_by(lsp_call_hierarchy_item_key)
         .collect_vec();
 
     Ok((!items.is_empty()).then_some(items))
@@ -68,22 +68,15 @@ pub(crate) fn handle_call_hierarchy_incoming(
     snap: GlobalStateSnapshot,
     params: lsp_types::CallHierarchyIncomingCallsParams,
 ) -> anyhow::Result<Option<Vec<lsp_types::CallHierarchyIncomingCall>>> {
-    let target = params.item;
-    let target_file_id = from_proto::file_id(&snap, &target.uri)?;
-    let target_line_info = snap.line_info(target_file_id)?;
-    let target_selection_range = from_proto::text_range(&target_line_info, target.selection_range)?;
-
-    let mut groups = Vec::<(lsp_types::CallHierarchyItem, Vec<lsp_types::Range>)>::new();
-    for edge in snap.analysis.module_incoming_calls(target_file_id, target_selection_range)? {
-        let caller = call_hierarchy_item_for_module(&snap, &edge.caller)?;
-        let line_info = snap.line_info(edge.caller.file_id)?;
-        push_call_range(&mut groups, caller, to_proto::range(&line_info, edge.call_range));
-    }
-
-    let calls = groups
+    let target = call_hierarchy_item_from_lsp(&snap, params.item)?;
+    let config = snap.config.references();
+    let Some(calls) = snap.analysis.call_hierarchy_incoming(target, config)? else {
+        return Ok(None);
+    };
+    let calls = calls
         .into_iter()
-        .map(|(from, from_ranges)| lsp_types::CallHierarchyIncomingCall { from, from_ranges })
-        .collect_vec();
+        .map(|call| lsp_incoming_call(&snap, call))
+        .collect::<anyhow::Result<Vec<_>>>()?;
     Ok((!calls.is_empty()).then_some(calls))
 }
 
@@ -91,25 +84,15 @@ pub(crate) fn handle_call_hierarchy_outgoing(
     snap: GlobalStateSnapshot,
     params: lsp_types::CallHierarchyOutgoingCallsParams,
 ) -> anyhow::Result<Option<Vec<lsp_types::CallHierarchyOutgoingCall>>> {
-    let caller = params.item;
-    let caller_file_id = from_proto::file_id(&snap, &caller.uri)?;
-    let caller_line_info = snap.line_info(caller_file_id)?;
-    let caller_selection_range = from_proto::text_range(&caller_line_info, caller.selection_range)?;
-
-    let mut groups = Vec::<(lsp_types::CallHierarchyItem, Vec<lsp_types::Range>)>::new();
-    for edge in snap.analysis.module_outgoing_calls(caller_file_id, caller_selection_range)? {
-        let callee = call_hierarchy_item_for_module(&snap, &edge.callee)?;
-        if same_call_hierarchy_item(&caller, &callee) {
-            continue;
-        }
-
-        push_call_range(&mut groups, callee, to_proto::range(&caller_line_info, edge.call_range));
-    }
-
-    let calls = groups
+    let caller = call_hierarchy_item_from_lsp(&snap, params.item)?;
+    let config = snap.config.references();
+    let Some(calls) = snap.analysis.call_hierarchy_outgoing(caller, config)? else {
+        return Ok(None);
+    };
+    let calls = calls
         .into_iter()
-        .map(|(to, from_ranges)| lsp_types::CallHierarchyOutgoingCall { to, from_ranges })
-        .collect_vec();
+        .map(|call| lsp_outgoing_call(&snap, call))
+        .collect::<anyhow::Result<Vec<_>>>()?;
     Ok((!calls.is_empty()).then_some(calls))
 }
 
@@ -168,89 +151,83 @@ pub(crate) fn handle_references(
     Ok(Some(locations))
 }
 
-fn call_hierarchy_item_for_nav(
+fn lsp_incoming_call(
     snap: &GlobalStateSnapshot,
-    nav: NavTarget,
-) -> anyhow::Result<Option<lsp_types::CallHierarchyItem>> {
-    let Some(kind) = nav.kind else {
-        return Ok(None);
-    };
-    if !is_call_hierarchy_kind(kind) {
-        return Ok(None);
-    }
-
-    let line_info = snap.line_info(nav.file_id)?;
-    let uri = to_proto::url(snap, nav.file_id)?;
-    let range = to_proto::range(&line_info, nav.full_range);
-    let selection_range = to_proto::range(&line_info, nav.focus_or_full_range());
-    let name = nav
-        .name
-        .map(|name| name.to_string())
-        .unwrap_or_else(|| nav.description.clone().unwrap_or_else(|| "<anonymous>".to_owned()));
-    let detail = nav.container_name.map(|name| name.to_string()).or(nav.description);
-
-    Ok(Some(lsp_types::CallHierarchyItem {
-        name,
-        kind: to_proto::symbol_kind(kind),
-        tags: None,
-        detail,
-        uri,
-        range,
-        selection_range,
-        data: None,
-    }))
+    IncomingCall { from, from_ranges }: IncomingCall,
+) -> anyhow::Result<lsp_types::CallHierarchyIncomingCall> {
+    Ok(lsp_types::CallHierarchyIncomingCall {
+        from: lsp_call_hierarchy_item(snap, from)?,
+        from_ranges: lsp_call_ranges(snap, from_ranges)?,
+    })
 }
 
-fn call_hierarchy_item_for_module(
+fn lsp_outgoing_call(
     snap: &GlobalStateSnapshot,
-    module: &ModuleCallItem,
+    OutgoingCall { to, from_ranges }: OutgoingCall,
+) -> anyhow::Result<lsp_types::CallHierarchyOutgoingCall> {
+    Ok(lsp_types::CallHierarchyOutgoingCall {
+        to: lsp_call_hierarchy_item(snap, to)?,
+        from_ranges: lsp_call_ranges(snap, from_ranges)?,
+    })
+}
+
+fn lsp_call_hierarchy_item(
+    snap: &GlobalStateSnapshot,
+    item: CallHierarchyItem,
 ) -> anyhow::Result<lsp_types::CallHierarchyItem> {
-    let uri = to_proto::url(snap, module.file_id)?;
-    let line_info = snap.line_info(module.file_id)?;
+    let line_info = snap.line_info(item.full_range.file_id)?;
+    let uri = to_proto::url(snap, item.full_range.file_id)?;
     Ok(lsp_types::CallHierarchyItem {
-        name: module.name.clone(),
-        kind: to_proto::symbol_kind(SymbolKind::Module),
+        name: item.name,
+        kind: to_proto::symbol_kind(item.kind),
         tags: None,
-        detail: None,
+        detail: item.detail,
         uri,
-        range: to_proto::range(&line_info, module.full_range),
-        selection_range: to_proto::range(&line_info, module.name_range),
+        range: to_proto::range(&line_info, item.full_range.range),
+        selection_range: to_proto::range(&line_info, item.selection_range.range),
         data: None,
     })
 }
 
-fn is_call_hierarchy_kind(kind: SymbolKind) -> bool {
-    matches!(kind, SymbolKind::Module)
-}
-
-fn push_call_range(
-    groups: &mut Vec<(lsp_types::CallHierarchyItem, Vec<lsp_types::Range>)>,
+fn call_hierarchy_item_from_lsp(
+    snap: &GlobalStateSnapshot,
     item: lsp_types::CallHierarchyItem,
-    range: lsp_types::Range,
-) {
-    if let Some((_, ranges)) =
-        groups.iter_mut().find(|(existing, _)| same_call_hierarchy_item(existing, &item))
-    {
-        if !ranges.contains(&range) {
-            ranges.push(range);
-        }
-        return;
+) -> anyhow::Result<CallHierarchyItem> {
+    let file_id = from_proto::file_id(snap, &item.uri)?;
+    let line_info = snap.line_info(file_id)?;
+    Ok(CallHierarchyItem {
+        name: item.name,
+        kind: symbol_kind_from_lsp(item.kind),
+        detail: item.detail,
+        full_range: FileRange { file_id, range: from_proto::text_range(&line_info, item.range)? },
+        selection_range: FileRange {
+            file_id,
+            range: from_proto::text_range(&line_info, item.selection_range)?,
+        },
+    })
+}
+
+fn symbol_kind_from_lsp(kind: lsp_types::SymbolKind) -> SymbolKind {
+    match kind {
+        lsp_types::SymbolKind::MODULE => SymbolKind::Module,
+        _ => SymbolKind::Unknown,
     }
-
-    groups.push((item, vec![range]));
 }
 
-fn same_call_hierarchy_item(
-    lhs: &lsp_types::CallHierarchyItem,
-    rhs: &lsp_types::CallHierarchyItem,
-) -> bool {
-    lhs.name == rhs.name
-        && lhs.uri == rhs.uri
-        && lhs.range == rhs.range
-        && lhs.selection_range == rhs.selection_range
+fn lsp_call_ranges(
+    snap: &GlobalStateSnapshot,
+    ranges: Vec<FileRange>,
+) -> anyhow::Result<Vec<lsp_types::Range>> {
+    ranges
+        .into_iter()
+        .map(|range| {
+            let line_info = snap.line_info(range.file_id)?;
+            Ok(to_proto::range(&line_info, range.range))
+        })
+        .collect()
 }
 
-fn call_hierarchy_item_key(
+fn lsp_call_hierarchy_item_key(
     item: &lsp_types::CallHierarchyItem,
 ) -> (String, lsp_types::Url, lsp_types::Range, lsp_types::Range) {
     (item.name.clone(), item.uri.clone(), item.range, item.selection_range)

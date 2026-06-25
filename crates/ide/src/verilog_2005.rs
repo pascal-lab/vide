@@ -959,6 +959,58 @@ endconfig
 }
 
 #[test]
+fn call_hierarchy_queries_module_relations_from_ide() {
+    let text = r#"
+module top;
+  /*marker:child_ref*/child u_child();
+endmodule
+
+module /*marker:child_def*/child;
+  /*marker:leaf_ref*/leaf u_leaf();
+endmodule
+
+module /*marker:leaf_def*/leaf;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let items = analysis
+        .prepare_call_hierarchy(position(file_id, &markers, "child_def"))
+        .unwrap()
+        .expect("child call hierarchy item expected");
+    let child =
+        items.into_iter().find(|item| item.name == "child").expect("child item should be prepared");
+
+    let incoming = analysis
+        .call_hierarchy_incoming(
+            child.clone(),
+            ReferencesConfig::new(ScopeVisibility::Public, None),
+        )
+        .unwrap()
+        .expect("child incoming calls expected");
+    assert!(
+        incoming.iter().any(|call| {
+            call.from.name == "top"
+                && call.from_ranges.iter().any(|range| range.range.start() == markers["child_ref"])
+        }),
+        "incoming calls should include top instantiating child: {incoming:?}"
+    );
+
+    let outgoing = analysis
+        .call_hierarchy_outgoing(child, ReferencesConfig::new(ScopeVisibility::Public, None))
+        .unwrap()
+        .expect("child outgoing calls expected");
+    assert!(
+        outgoing.iter().any(|call| {
+            call.to.name == "leaf"
+                && call.from_ranges.iter().any(|range| range.range.start() == markers["leaf_ref"])
+        }),
+        "outgoing calls should include child instantiating leaf: {outgoing:?}"
+    );
+}
+
+#[test]
 fn verilog_2005_completion_keywords_cover_core_contexts() {
     let text = r#"
 con/*marker:top_level*/

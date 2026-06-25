@@ -19,6 +19,7 @@ use vfs::FileId;
 
 use crate::{
     Cancellable, FilePosition, RangeInfo,
+    call_hierarchy::{self, CallHierarchyItem, IncomingCall, OutgoingCall},
     code_action::{self, CodeAction, CodeActionDiagnostics, CodeActionResolveStrategy},
     code_lens::{self, CodeLens, CodeLensConfig, CodeLensKind},
     completion::{
@@ -36,7 +37,7 @@ use crate::{
     inlay_hint::{self, InlayHint, InlayHintConfig},
     markup::Markup,
     navigation_target::NavTarget,
-    references::{self, References, ReferencesConfig},
+    references::{References, ReferencesConfig},
     rename::{self, RenameConfig, RenameResult},
     selection_ranges,
     semantic_index::{self, ModuleCallEdge},
@@ -182,7 +183,32 @@ impl Analysis {
         position: FilePosition,
         config: ReferencesConfig,
     ) -> Cancellable<Option<Vec<References>>> {
-        self.with_db(|db| references::references(db, position, config))
+        self.with_db(|db| {
+            crate::facts::SemanticFacts::new(db).relations().references(position, config)
+        })
+    }
+
+    pub fn prepare_call_hierarchy(
+        &self,
+        position: FilePosition,
+    ) -> Cancellable<Option<Vec<CallHierarchyItem>>> {
+        self.with_db(|db| call_hierarchy::prepare(db, position))
+    }
+
+    pub fn call_hierarchy_incoming(
+        &self,
+        item: CallHierarchyItem,
+        config: ReferencesConfig,
+    ) -> Cancellable<Option<Vec<IncomingCall>>> {
+        self.with_db(|db| call_hierarchy::incoming(db, item, config))
+    }
+
+    pub fn call_hierarchy_outgoing(
+        &self,
+        item: CallHierarchyItem,
+        config: ReferencesConfig,
+    ) -> Cancellable<Option<Vec<OutgoingCall>>> {
+        self.with_db(|db| call_hierarchy::outgoing(db, item, config))
     }
 
     pub fn module_incoming_calls(
