@@ -15,11 +15,14 @@ mod preproc;
 use macro_gate::source_macro_invocation_may_cover_offset;
 use preproc::preproc_source_target_at_offset;
 #[cfg(test)]
-use preproc::{push_unique_preproc_hit, syntax_tokens_for_preproc_hit};
+use preproc::{
+    ambiguous_preproc_source_targets, push_unique_preproc_hit, syntax_tokens_for_preproc_hit,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) enum SourceTargetResolution<'tree> {
     Resolved(SourceTarget<'tree>),
+    Ambiguous(SourceTargetAlternatives<'tree>),
     Blocked(SourceTargetBlock),
 }
 
@@ -27,6 +30,7 @@ impl<'tree> SourceTargetResolution<'tree> {
     pub(crate) fn resolved(self) -> Option<SourceTarget<'tree>> {
         match self {
             Self::Resolved(selection) => Some(selection),
+            Self::Ambiguous(SourceTargetAlternatives { .. }) => None,
             Self::Blocked(SourceTargetBlock { .. }) => None,
         }
     }
@@ -77,6 +81,34 @@ pub(crate) enum SourceTargetOrigin {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SourceTargetDomain {
     Preproc,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SourceTargetAlternatives<'tree> {
+    pub domain: SourceTargetDomain,
+    pub range: TextRange,
+    pub reason: SourceTargetAmbiguity,
+    pub targets: Vec<SourceTarget<'tree>>,
+}
+
+impl<'tree> SourceTargetAlternatives<'tree> {
+    fn preproc_ambiguous(
+        range: TextRange,
+        hit_count: usize,
+        targets: Vec<SourceTarget<'tree>>,
+    ) -> Self {
+        Self {
+            domain: SourceTargetDomain::Preproc,
+            range,
+            reason: SourceTargetAmbiguity::PreprocHits { hit_count },
+            targets,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SourceTargetAmbiguity {
+    PreprocHits { hit_count: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,6 +230,7 @@ fn normal_syntax_source_target_at_offset<'tree>(
 
 enum SourceTargetProviderResult<'tree> {
     Resolved(SourceTarget<'tree>),
+    Ambiguous(SourceTargetAlternatives<'tree>),
     Blocked(SourceTargetBlock),
     NotApplicable,
 }
@@ -206,16 +239,11 @@ impl<'tree> SourceTargetProviderResult<'tree> {
     fn into_resolution(self) -> Option<SourceTargetResolution<'tree>> {
         match self {
             Self::Resolved(selection) => Some(SourceTargetResolution::Resolved(selection)),
+            Self::Ambiguous(alternatives) => Some(SourceTargetResolution::Ambiguous(alternatives)),
             Self::Blocked(block) => Some(SourceTargetResolution::Blocked(block)),
             Self::NotApplicable => None,
         }
     }
-}
-
-fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
-    let start = ranges.iter().map(|range| range.start()).min()?;
-    let end = ranges.iter().map(|range| range.end()).max()?;
-    Some(TextRange::new(start, end))
 }
 
 #[cfg(test)]

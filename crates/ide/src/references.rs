@@ -3,31 +3,25 @@ use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
 use syntax::{
-    SyntaxNode, SyntaxTokenWithParent, TokenKind,
+    SyntaxTokenWithParent, TokenKind,
     has_text_range::HasTextRange,
     token::{TokenKindExt, pair_token},
 };
-use utils::line_index::{TextRange, TextSize};
+use utils::line_index::TextRange;
 use vfs::FileId;
 
-use self::preproc::{
-    PreprocReferencesTarget, dispatch_preproc_references_target, render_preproc_references_target,
-};
+use self::preproc::render_preproc_references_target;
 use crate::{
     FilePosition, ScopeVisibility,
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
     navigation_target::{NavTarget, ToNav},
-    source_targets::{SourceTarget, source_target_at_offset},
+    semantic_target::{SemanticTarget, TargetIntent, TargetResolution, resolve_semantic_target},
+    source_targets::SourceTarget,
 };
 
 mod preproc;
 pub(crate) mod search;
-
-enum ReferencesTarget<'tree> {
-    Preproc(PreprocReferencesTarget),
-    Source(SourceTarget<'tree>),
-}
 
 bitflags::bitflags! {
     #[derive(Copy, Clone, Default, PartialEq, Eq, Hash, Debug)]
@@ -98,37 +92,23 @@ pub(crate) fn references(
 ) -> Option<Vec<References>> {
     let sema = Semantics::new(db);
     let parsed_file = sema.parse_file(file_id);
-    let target = dispatch_references_target(db, file_id, offset, parsed_file.root())?;
+    let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
     render_references_target(db, file_id, &sema, target, config)
-}
-
-fn dispatch_references_target<'tree>(
-    db: &RootDb,
-    file_id: FileId,
-    offset: TextSize,
-    root: Option<SyntaxNode<'tree>>,
-) -> Option<ReferencesTarget<'tree>> {
-    if let Some(target) = dispatch_preproc_references_target(db, file_id, offset) {
-        return Some(ReferencesTarget::Preproc(target));
-    }
-    let root = root?;
-    let target =
-        source_target_at_offset(db, file_id, root, offset, token_precedence)?.resolved()?;
-    Some(ReferencesTarget::Source(target))
 }
 
 fn render_references_target(
     db: &RootDb,
     file_id: FileId,
     sema: &Semantics<RootDb>,
-    target: ReferencesTarget<'_>,
+    target: TargetResolution<'_>,
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
-    match target {
-        ReferencesTarget::Preproc(target) => {
+    match target.unique_for_intent(TargetIntent::FindReferences)? {
+        SemanticTarget::PreprocMacro(target) => {
             render_preproc_references_target(db, file_id, target, &config)
         }
-        ReferencesTarget::Source(target) => {
+        SemanticTarget::Include(_) => None,
+        SemanticTarget::Source(target) => {
             render_source_references_target(sema, file_id, target, config)
         }
     }
