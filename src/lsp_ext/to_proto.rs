@@ -252,7 +252,7 @@ fn diagnostic_is_unnecessary(diag: &ide_diagnostics::Diagnostic) -> bool {
     diag.tags.contains(&ide_diagnostics::DiagnosticTag::Unnecessary)
 }
 
-fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
+pub(crate) fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
     use lsp_types::SymbolKind as LspSymbolKind;
     match symbol_kind {
         SymbolKind::Module => LspSymbolKind::MODULE,

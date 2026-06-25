@@ -5,6 +5,8 @@ use std::{
 
 use lsp_server::{Connection, Message, Notification, Request};
 use lsp_types::{
+    CallHierarchyIncomingCall, CallHierarchyIncomingCallsParams, CallHierarchyItem,
+    CallHierarchyOutgoingCall, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
     ClientCapabilities, CodeActionCapabilityResolveSupport, CodeActionClientCapabilities,
     CodeActionContext, CodeActionKind, CodeActionKindLiteralSupport, CodeActionLiteralSupport,
     CodeActionOrCommand, CodeActionParams, CompletionParams, CompletionResponse,
@@ -23,10 +25,12 @@ use lsp_types::{
         DidSaveTextDocument, Exit, Notification as _,
     },
     request::{
+        CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls, CallHierarchyPrepare,
         CodeActionRequest, CodeLensRequest, CodeLensResolve, Completion as CompletionRequest,
         DocumentDiagnosticRequest, DocumentSymbolRequest, ExecuteCommand, FoldingRangeRequest,
-        GotoDefinition, HoverRequest, References, Request as _, SemanticTokensFullRequest,
-        Shutdown, WorkspaceConfiguration, WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
+        GotoDefinition, GotoTypeDefinition, HoverRequest, References, Request as _,
+        SemanticTokensFullRequest, Shutdown, WorkspaceConfiguration, WorkspaceDiagnosticRequest,
+        WorkspaceSymbolRequest,
     },
 };
 use serde::de::DeserializeOwned;
@@ -420,6 +424,111 @@ fn request_goto_definition_uris(
     let definition: Option<GotoDefinitionResponse> =
         recv_response(client, request_id, "definition");
     definition.map(goto_definition_response_uris).unwrap_or_default()
+}
+
+fn request_type_definition_uris(
+    client: &Connection,
+    uri: Url,
+    text: &str,
+    needle: &str,
+    request_id: i32,
+) -> Vec<Url> {
+    let request_id = lsp_server::RequestId::from(request_id);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            GotoTypeDefinition::METHOD.to_string(),
+            GotoDefinitionParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: position_of(text, needle),
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let definition: Option<lsp_types::request::GotoTypeDefinitionResponse> =
+        recv_response(client, request_id, "typeDefinition");
+    definition.map(goto_definition_response_uris).unwrap_or_default()
+}
+
+fn prepare_call_hierarchy(
+    client: &Connection,
+    uri: Url,
+    text: &str,
+    needle: &str,
+    request_id: i32,
+) -> Vec<CallHierarchyItem> {
+    let request_id = lsp_server::RequestId::from(request_id);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            CallHierarchyPrepare::METHOD.to_string(),
+            CallHierarchyPrepareParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: position_of(text, needle),
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )))
+        .unwrap();
+
+    let items: Option<Vec<CallHierarchyItem>> =
+        recv_response(client, request_id, "prepareCallHierarchy");
+    items.unwrap_or_default()
+}
+
+fn request_call_hierarchy_incoming(
+    client: &Connection,
+    item: CallHierarchyItem,
+    request_id: i32,
+) -> Vec<CallHierarchyIncomingCall> {
+    let request_id = lsp_server::RequestId::from(request_id);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            CallHierarchyIncomingCalls::METHOD.to_string(),
+            CallHierarchyIncomingCallsParams {
+                item,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let calls: Option<Vec<CallHierarchyIncomingCall>> =
+        recv_response(client, request_id, "callHierarchy/incomingCalls");
+    calls.unwrap_or_default()
+}
+
+fn request_call_hierarchy_outgoing(
+    client: &Connection,
+    item: CallHierarchyItem,
+    request_id: i32,
+) -> Vec<CallHierarchyOutgoingCall> {
+    let request_id = lsp_server::RequestId::from(request_id);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            CallHierarchyOutgoingCalls::METHOD.to_string(),
+            CallHierarchyOutgoingCallsParams {
+                item,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let calls: Option<Vec<CallHierarchyOutgoingCall>> =
+        recv_response(client, request_id, "callHierarchy/outgoingCalls");
+    calls.unwrap_or_default()
 }
 
 fn request_reference_uris(
