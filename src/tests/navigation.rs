@@ -33,6 +33,111 @@ fn unconfigured_workspace_goto_definition_uses_indexed_unopened_files() {
 }
 
 #[test]
+fn type_definition_request_uses_module_definition_navigation() {
+    let temp_dir = TempDir::new("type-definition-module-nav");
+    let rtl_dir = temp_dir.path().join("rtl");
+    fs::create_dir_all(&rtl_dir).unwrap();
+
+    let top_text = "module top;\n  child u_child();\nendmodule\n";
+    let child_text = "module child;\nendmodule\n";
+
+    fs::write(
+        temp_dir.path().join("vide.toml"),
+        "top_modules = [\"top\"]\nsources = [\"rtl/*.v\"]\ninclude_dirs = [\"rtl\"]\n",
+    )
+    .unwrap();
+    let top_path = rtl_dir.join("top.v");
+    let child_path = rtl_dir.join("child.v");
+    fs::write(&top_path, top_text).unwrap();
+    fs::write(&child_path, child_text).unwrap();
+
+    let (client, server_thread) = spawn_test_workspace(
+        temp_dir.path().to_path_buf(),
+        ClientCapabilities::default(),
+        UserConfig::default(),
+    );
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    let child_uri = to_proto::url_from_abs_path(child_path.as_path()).unwrap();
+    open_test_document(&client, top_uri.clone(), top_text);
+    open_test_document(&client, child_uri.clone(), child_text);
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let definition_uris =
+        request_type_definition_uris(&client, top_uri, top_text, "child u_child", 2);
+    assert!(
+        definition_uris.contains(&child_uri),
+        "typeDefinition should reach child.v through the advertised capability: {definition_uris:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn call_hierarchy_reports_module_instance_edges() {
+    let temp_dir = TempDir::new("call-hierarchy-module-edges");
+    let rtl_dir = temp_dir.path().join("rtl");
+    fs::create_dir_all(&rtl_dir).unwrap();
+
+    let top_text = "module top;\n  child u_child();\nendmodule\n";
+    let child_text = "module child;\n  leaf u_leaf();\nendmodule\n";
+    let leaf_text = "module leaf;\nendmodule\n";
+
+    fs::write(
+        temp_dir.path().join("vide.toml"),
+        "top_modules = [\"top\"]\nsources = [\"rtl/*.v\"]\ninclude_dirs = [\"rtl\"]\n",
+    )
+    .unwrap();
+    let top_path = rtl_dir.join("top.v");
+    let child_path = rtl_dir.join("child.v");
+    let leaf_path = rtl_dir.join("leaf.v");
+    fs::write(&top_path, top_text).unwrap();
+    fs::write(&child_path, child_text).unwrap();
+    fs::write(&leaf_path, leaf_text).unwrap();
+
+    let (client, server_thread) = spawn_test_workspace(
+        temp_dir.path().to_path_buf(),
+        ClientCapabilities::default(),
+        UserConfig::default(),
+    );
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    let child_uri = to_proto::url_from_abs_path(child_path.as_path()).unwrap();
+    let leaf_uri = to_proto::url_from_abs_path(leaf_path.as_path()).unwrap();
+    open_test_document(&client, top_uri.clone(), top_text);
+    open_test_document(&client, child_uri.clone(), child_text);
+    open_test_document(&client, leaf_uri.clone(), leaf_text);
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let prepared = prepare_call_hierarchy(&client, child_uri.clone(), child_text, "child;", 2);
+    let child_item = prepared
+        .into_iter()
+        .find(|item| item.name == "child")
+        .unwrap_or_else(|| panic!("child module should prepare call hierarchy item"));
+    assert_eq!(child_item.kind, lsp_types::SymbolKind::MODULE);
+
+    let incoming = request_call_hierarchy_incoming(&client, child_item.clone(), 3);
+    assert!(
+        incoming.iter().any(|call| {
+            call.from.name == "top"
+                && call.from.uri == top_uri
+                && call.from_ranges.contains(&range_of(top_text, "child"))
+        }),
+        "incoming calls should include top instantiating child: {incoming:?}"
+    );
+
+    let outgoing = request_call_hierarchy_outgoing(&client, child_item, 4);
+    assert!(
+        outgoing.iter().any(|call| {
+            call.to.name == "leaf"
+                && call.to.uri == leaf_uri
+                && call.from_ranges.contains(&range_of(child_text, "leaf"))
+        }),
+        "outgoing calls should include child instantiating leaf: {outgoing:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn include_expanded_parameter_decls_keep_module_navigation_available() {
     let temp_dir = TempDir::new("include-param-module-nav");
     let rtl_dir = temp_dir.path().join("rtl");
