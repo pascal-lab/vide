@@ -1,6 +1,6 @@
 use hir::{file::HirFileId, semantics::Semantics};
 use itertools::Itertools;
-use utils::line_index::TextRange;
+use utils::line_index::covering_range;
 
 use crate::{
     FilePosition, RangeInfo,
@@ -85,10 +85,4 @@ fn render_source_declaration_target(
     let navs = origins.into_iter().unique().filter_map(|def| def.to_nav(db)).collect_vec();
 
     Some(RangeInfo::new(range, navs))
-}
-
-fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
-    let start = ranges.iter().map(|range| range.start()).min()?;
-    let end = ranges.iter().map(|range| range.end()).max()?;
-    Some(TextRange::new(start, end))
 }

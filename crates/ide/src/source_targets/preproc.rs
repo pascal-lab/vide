@@ -4,12 +4,12 @@ use hir::{
     hir_def::macro_file::{ExpansionSourceHit, MacroFileId, Origin, SourceEmittedTokenId},
 };
 use syntax::{SyntaxElement, SyntaxNode, SyntaxTokenWithParent, TokenKind, WalkEvent};
-use utils::line_index::{TextRange, TextSize};
+use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
 use super::{
     PreprocTokenHit, SourceTarget, SourceTargetAlternatives, SourceTargetBlock,
-    SourceTargetProviderResult, SourceTargetRequestCache, SourceTargetResolution, covering_range,
+    SourceTargetProviderResult, SourceTargetRequestCache, SourceTargetResolution,
     macro_gate::source_macro_invocation_may_cover_offset, normal_syntax_source_target_at_offset,
 };
 use crate::db::root_db::RootDb;

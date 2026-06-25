@@ -3,7 +3,7 @@ use hir::{
     hir_def::macro_file::{MacroFileExpansion, macro_file_expansion, macro_files_at_offset},
     preproc::{MacroReferenceDefinitions, macro_reference_definitions_at},
 };
-use utils::line_index::{TextRange, TextSize};
+use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
 use super::markup::{macro_expansion_source_fact, render_macro_expansion_header};
@@ -149,10 +149,4 @@ fn leading_indent(line: &str) -> &str {
 fn common_whitespace_prefix<'a>(left: &'a str, right: &'a str) -> &'a str {
     let end = left.bytes().zip(right.bytes()).take_while(|(left, right)| left == right).count();
     &left[..end]
-}
-
-fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
-    let start = ranges.iter().map(|range| range.start()).min()?;
-    let end = ranges.iter().map(|range| range.end()).max()?;
-    Some(TextRange::new(start, end))
 }

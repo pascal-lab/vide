@@ -246,11 +246,5 @@ impl<'tree> SourceTargetProviderResult<'tree> {
     }
 }
 
-fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
-    let start = ranges.iter().map(|range| range.start()).min()?;
-    let end = ranges.iter().map(|range| range.end()).max()?;
-    Some(TextRange::new(start, end))
-}
-
 #[cfg(test)]
 mod tests;
