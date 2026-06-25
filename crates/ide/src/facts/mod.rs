@@ -27,6 +27,11 @@ impl<'db> SemanticFacts<'db> {
         relation::RelationFacts::new(self.db)
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn symbol(&self, id: symbol::SymbolId) -> Option<symbol::SymbolInfo> {
+        id.info(self.db)
+    }
+
     pub(crate) fn edit_plan(
         &self,
         request: edit::EditRequest<'_>,

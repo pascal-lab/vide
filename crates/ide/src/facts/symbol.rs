@@ -4,7 +4,8 @@ use hir::{
     db::HirDb,
     hir_def::{
         block::{BlockId, BlockLoc},
-        expr::declarator::DeclId,
+        declaration::Declaration,
+        expr::declarator::{DeclId, DeclaratorParent},
         file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
         module::{
             ModuleId,
@@ -28,6 +29,8 @@ use utils::{
     impl_from,
     line_index::TextRange,
 };
+
+use crate::{FileRange, SymbolKind};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SymbolId {
@@ -66,6 +69,49 @@ impl_from! { SymbolId =>
 }
 
 impl SymbolId {
+    pub fn info(&self, db: &dyn HirDb) -> Option<SymbolInfo> {
+        Some(SymbolInfo {
+            id: *self,
+            name: self.name(db),
+            kind: self.kind(db),
+            definition_range: self.range(db).map(into_file_range),
+            selection_range: self.name_range(db).map(into_file_range),
+            container: self.container_symbol(db),
+        })
+    }
+
+    pub fn kind(&self, db: &dyn HirDb) -> SymbolKind {
+        match *self {
+            SymbolId::ModuleId(_) => SymbolKind::Module,
+            SymbolId::Config(_) => SymbolKind::Config,
+            SymbolId::Library(_) => SymbolKind::Library,
+            SymbolId::Udp(_) => SymbolKind::Primitive,
+            SymbolId::BlockId(_) => SymbolKind::Block,
+            SymbolId::GenerateBlockId(_) => SymbolKind::Generate,
+            SymbolId::SubroutineId(_) => SymbolKind::Fn,
+            SymbolId::SubroutinePort(_) => SymbolKind::PortDecl,
+            SymbolId::NonAnsiPort(_) => SymbolKind::NonAnsiPortLabel,
+            SymbolId::Decl(InContainer { value, cont_id }) => {
+                let cont = cont_id.to_container(db);
+                let decl = cont.get(value);
+                match decl.parent {
+                    DeclaratorParent::PortDeclId(_) => SymbolKind::PortDecl,
+                    DeclaratorParent::DeclarationId(idx) => match cont.get(idx) {
+                        Declaration::DataDecl(_) => SymbolKind::DataDecl,
+                        Declaration::NetDecl(_) => SymbolKind::NetDecl,
+                        Declaration::ParamDecl(_) => SymbolKind::ParamDecl,
+                        Declaration::GenvarDecl(_) => SymbolKind::Genvar,
+                        Declaration::SpecparamDecl(_) => SymbolKind::Specparam,
+                    },
+                    DeclaratorParent::StmtId(_) => SymbolKind::DataDecl,
+                }
+            }
+            SymbolId::Typedef(_) => SymbolKind::Typedef,
+            SymbolId::Instance(_) => SymbolKind::Instance,
+            SymbolId::Stmt(_) => SymbolKind::Stmt,
+        }
+    }
+
     #[inline]
     pub fn container_id(&self, db: &dyn HirDb) -> ContainerId {
         match *self {
@@ -85,6 +131,10 @@ impl SymbolId {
             SymbolId::Instance(InModule { module_id, .. }) => module_id.into(),
             SymbolId::Stmt(InContainer { cont_id, .. }) => cont_id,
         }
+    }
+
+    fn container_symbol(&self, db: &dyn HirDb) -> Option<SymbolId> {
+        container_symbol_id(self.container_id(db), db)
     }
 
     pub fn name(&self, db: &dyn HirDb) -> Option<SmolStr> {
@@ -273,4 +323,33 @@ impl SymbolId {
             }
         })
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SymbolInfo {
+    pub id: SymbolId,
+    pub name: Option<SmolStr>,
+    pub kind: SymbolKind,
+    pub definition_range: Option<FileRange>,
+    pub selection_range: Option<FileRange>,
+    pub container: Option<SymbolId>,
+}
+
+fn container_symbol_id(container_id: ContainerId, db: &dyn HirDb) -> Option<SymbolId> {
+    match container_id {
+        ContainerId::HirFileId(_) => None,
+        ContainerId::ModuleId(module_id) => Some(SymbolId::ModuleId(module_id)),
+        ContainerId::GenerateBlockId(generate_block_id) => {
+            Some(SymbolId::GenerateBlockId(generate_block_id))
+        }
+        ContainerId::BlockId(block_id) => Some(SymbolId::BlockId(block_id)),
+        ContainerId::SubroutineId(subroutine_id) => {
+            let _ = db;
+            Some(SymbolId::SubroutineId(subroutine_id))
+        }
+    }
+}
+
+fn into_file_range(InFile { file_id, value: range }: InFile<TextRange>) -> FileRange {
+    FileRange { file_id: file_id.file_id(), range }
 }

@@ -196,6 +196,7 @@ fn call_hierarchy_item_from_lsp(
     let file_id = from_proto::file_id(snap, &item.uri)?;
     let line_info = snap.line_info(file_id)?;
     Ok(CallHierarchyItem {
+        symbol: None,
         name: item.name,
         kind: symbol_kind_from_lsp(item.kind),
         detail: item.detail,

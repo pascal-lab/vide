@@ -34,6 +34,10 @@ use crate::{
     db::root_db::RootDb,
     document_highlight::DocumentHighlightConfig,
     document_symbols::DocumentSymbol,
+    facts::{
+        SemanticFacts,
+        relation::{RelationKind, RelationQuery},
+    },
     folding_ranges::FoldingConfig,
     hover::{HoverConfig, HoverFormat},
     references::{ReferencesConfig, search::SearchScope},
@@ -1007,6 +1011,54 @@ endmodule
                 && call.from_ranges.iter().any(|range| range.range.start() == markers["leaf_ref"])
         }),
         "outgoing calls should include child instantiating leaf: {outgoing:?}"
+    );
+}
+
+#[test]
+fn semantic_facts_relation_model_reports_module_instantiations() {
+    let text = r#"
+module top;
+  /*marker:child_ref*/child u_child();
+endmodule
+
+module /*marker:child_def*/child;
+  /*marker:leaf_ref*/leaf u_leaf();
+endmodule
+
+module /*marker:leaf_def*/leaf;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let facts = SemanticFacts::new(host.raw_db());
+    let relations = facts.relations();
+    let child = relations
+        .definition_symbols(position(file_id, &markers, "child_def"))
+        .expect("child definition symbol expected")
+        .into_iter()
+        .find(|symbol| symbol.name.as_deref() == Some("child"))
+        .expect("child symbol expected");
+    let leaf = relations
+        .definition_symbols(position(file_id, &markers, "leaf_def"))
+        .expect("leaf definition symbol expected")
+        .into_iter()
+        .find(|symbol| symbol.name.as_deref() == Some("leaf"))
+        .expect("leaf symbol expected");
+    let set = relations.relations(RelationQuery::Workspace {
+        kind: RelationKind::Instantiates,
+        config: ReferencesConfig::new(ScopeVisibility::Public, None),
+    });
+
+    assert!(
+        set.relations.iter().any(|relation| {
+            relation.target == child.id && relation.range.range.start() == markers["child_ref"]
+        }),
+        "workspace relations should include an instantiation of child: {set:?}"
+    );
+    assert!(
+        set.relations.iter().any(|relation| {
+            relation.target == leaf.id && relation.range.range.start() == markers["leaf_ref"]
+        }),
+        "workspace relations should include an instantiation of leaf: {set:?}"
     );
 }
 
