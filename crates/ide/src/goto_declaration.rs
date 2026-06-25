@@ -24,7 +24,7 @@ pub(crate) fn goto_declaration(
         parsed_file.root(),
         goto_definition::token_precedence,
     );
-    let SemanticTarget::Source(target) = target.for_intent(TargetIntent::Navigate)? else {
+    let SemanticTarget::Source(target) = target.unique_for_intent(TargetIntent::Navigate)? else {
         return None;
     };
     let (range, tokens) = target.into_parts();

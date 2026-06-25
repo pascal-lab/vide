@@ -40,13 +40,32 @@ fn render_definition_target(
     sema: &Semantics<RootDb>,
     target: TargetResolution<'_>,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    match target.for_intent(TargetIntent::Navigate)? {
-        SemanticTarget::PreprocMacro(target) => render_preproc_definition_target(target),
-        SemanticTarget::Include(includes) => render_include_definition_target(db, includes),
-        SemanticTarget::Source(target) => {
-            render_source_definition_target(db, file_id, sema, target)
-        }
+    let mut ranges = Vec::new();
+    let mut navs = Vec::new();
+    for target in target.targets_for_intent(TargetIntent::Navigate) {
+        let target = match target {
+            SemanticTarget::PreprocMacro(target) => render_preproc_definition_target(target),
+            SemanticTarget::Include(includes) => render_include_definition_target(db, includes),
+            SemanticTarget::Source(target) => {
+                render_source_definition_target(db, file_id, sema, target)
+            }
+        }?;
+        ranges.push(target.range);
+        navs.extend(target.info);
     }
+
+    if navs.is_empty() {
+        return None;
+    }
+
+    let range = covering_range(&ranges)?;
+    Some(RangeInfo::new(range, navs.into_iter().unique().collect()))
+}
+
+fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
+    let start = ranges.iter().map(|range| range.start()).min()?;
+    let end = ranges.iter().map(|range| range.end()).max()?;
+    Some(TextRange::new(start, end))
 }
 
 fn render_source_definition_target(
