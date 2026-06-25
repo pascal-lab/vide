@@ -3,7 +3,7 @@ use hir::{
     semantics::Semantics,
 };
 use syntax::{
-    SyntaxTokenWithParent, TokenKind,
+    SyntaxTokenWithParent,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
     token::TokenKindExt,
@@ -19,13 +19,16 @@ use crate::{
     FilePosition, RangeInfo,
     db::root_db::RootDb,
     definitions::DefinitionClass,
+    facts::{
+        SemanticFacts, TargetQuery,
+        target::{SemanticTarget, TargetIntent, TargetResolution},
+    },
     hover::{
         include::render_include_hover,
         macro_hover::{render_macro_hover_target, with_expanded_macro_hover},
     },
     markup::{Markup, inline_code},
     render,
-    semantic_target::{SemanticTarget, TargetIntent, TargetResolution, resolve_semantic_target},
     source_targets::SourceTarget,
 };
 
@@ -53,7 +56,12 @@ pub(crate) fn hover(
 ) -> Option<RangeInfo<Markup>> {
     let sema = Semantics::new(db);
     let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
+    let target = SemanticFacts::new(db).target_at(TargetQuery {
+        file_id,
+        offset,
+        intent: TargetIntent::Describe,
+        root: parsed_file.root(),
+    });
     render_hover_target(db, file_id, offset, &sema, target)
 }
 
@@ -113,14 +121,6 @@ fn hover_for_token_selection(
         .collect::<Vec<_>>();
     let res = merge_hover_results(markups)?;
     Some(RangeInfo::new(range, res))
-}
-
-pub(crate) fn token_precedence(kind: TokenKind) -> usize {
-    match kind {
-        _ if kind.name_like() => 4,
-        _ if kind.is_literal() => 3,
-        _ => 1,
-    }
 }
 
 fn handle_literal(

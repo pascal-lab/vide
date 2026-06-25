@@ -1,5 +1,5 @@
 use hir::{container::InFile, file::HirFileId, semantics::Semantics};
-use syntax::{SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
+use syntax::SyntaxTokenWithParent;
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -7,11 +7,14 @@ use crate::{
     FilePosition, ScopeVisibility,
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
+    facts::{
+        SemanticFacts, TargetQuery,
+        target::{SemanticTarget, TargetIntent},
+    },
     references::{
         self, ReferenceCategory, ReferencesConfig,
         search::{ReferencesCtx, SearchScope},
     },
-    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
 };
 
 #[derive(Debug, Clone)]
@@ -33,7 +36,12 @@ pub(crate) fn document_highlight(
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
+    let target = SemanticFacts::new(db).target_at(TargetQuery {
+        file_id,
+        offset,
+        intent: TargetIntent::Highlight,
+        root: parsed_file.root(),
+    });
     let SemanticTarget::Source(target) = target.unique_for_intent(TargetIntent::Highlight)? else {
         return None;
     };
@@ -44,14 +52,6 @@ pub(crate) fn document_highlight(
         .flatten()
         .collect::<Vec<_>>();
     (!highlights.is_empty()).then_some(highlights)
-}
-
-fn token_precedence(kind: TokenKind) -> usize {
-    match kind {
-        _ if kind.name_like() => 4,
-        _ if kind.is_pair_token() => 4,
-        _ => 1,
-    }
 }
 
 fn handle_ctrl_flow_kw(

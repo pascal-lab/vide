@@ -6,10 +6,9 @@ use hir::{
     semantics::Semantics,
 };
 use itertools::Itertools;
-use syntax::{
-    SyntaxTokenWithParent, TokenKind,
-    token::{TokenKindExt, pair_token},
-};
+use syntax::{SyntaxTokenWithParent, token::pair_token};
+#[cfg(test)]
+use syntax::{TokenKind, token::TokenKindExt};
 use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
@@ -17,10 +16,11 @@ use crate::{
     FilePosition, RangeInfo,
     db::root_db::RootDb,
     definitions::DefinitionClass,
-    navigation_target::{NavTarget, ToNav},
-    semantic_target::{
-        PreprocMacroTarget, SemanticTarget, TargetIntent, TargetResolution, resolve_semantic_target,
+    facts::{
+        SemanticFacts, TargetQuery,
+        target::{PreprocMacroTarget, SemanticTarget, TargetIntent, TargetResolution},
     },
+    navigation_target::{NavTarget, ToNav},
     source_targets::SourceTarget,
 };
 
@@ -30,7 +30,12 @@ pub(crate) fn goto_definition(
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let sema = Semantics::new(db);
     let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
+    let target = SemanticFacts::new(db).target_at(TargetQuery {
+        file_id,
+        offset,
+        intent: TargetIntent::Navigate,
+        root: parsed_file.root(),
+    });
     render_definition_target(db, file_id, &sema, target)
 }
 
@@ -196,6 +201,7 @@ fn handle_ctrl_flow_kw(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn token_precedence(kind: TokenKind) -> usize {
     match kind {
         _ if kind.name_like() => 4,

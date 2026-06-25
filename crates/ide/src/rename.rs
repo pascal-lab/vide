@@ -3,11 +3,10 @@ use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use syntax::{
-    SyntaxAncestors, SyntaxTokenWithParent, TokenKind,
+    SyntaxAncestors, SyntaxTokenWithParent,
     ast::{self, AstNode, Expression, Name},
     has_text_range::{HasTextRange, HasTextRangeIn},
     match_ast,
-    token::TokenKindExt,
 };
 use thiserror::Error;
 use utils::{line_index::TextRange, text_edit::TextEdit, uniq_vec::UniqVec};
@@ -17,11 +16,14 @@ use crate::{
     FilePosition, ScopeVisibility,
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass, DefinitionOrigin},
+    facts::{
+        SemanticFacts, TargetQuery,
+        target::{SemanticTarget, TargetIntent},
+    },
     references::{
         ReferencesConfig,
         search::{ReferenceToken, ReferencesCtx, SearchScope},
     },
-    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
     source_change::SourceChange,
 };
 
@@ -220,13 +222,12 @@ fn resolve_rename_target(
 ) -> RenameResult<ResolvedRenameTarget> {
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(
-        sema.db,
+    let target = SemanticFacts::new(sema.db).target_at(TargetQuery {
         file_id,
         offset,
-        parsed_file.root(),
-        rename_token_precedence,
-    );
+        intent: TargetIntent::Rename,
+        root: parsed_file.root(),
+    });
     let SemanticTarget::Source(target) =
         target.unique_for_intent(TargetIntent::Rename).ok_or(RenameError::NoRefFound)?
     else {
@@ -584,8 +585,4 @@ fn edits_from_refs(
     }
 
     (file_id, text_edit.finish())
-}
-
-fn rename_token_precedence(kind: TokenKind) -> usize {
-    usize::from(kind.name_like())
 }

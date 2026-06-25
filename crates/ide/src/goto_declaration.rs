@@ -6,9 +6,11 @@ use crate::{
     FilePosition, RangeInfo,
     db::root_db::RootDb,
     definitions::DefinitionClass,
-    goto_definition,
+    facts::{
+        SemanticFacts, TargetQuery,
+        target::{SemanticTarget, TargetIntent},
+    },
     navigation_target::{NavTarget, ToNav},
-    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
     source_targets::SourceTarget,
 };
 
@@ -19,13 +21,12 @@ pub(crate) fn goto_declaration(
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(
-        db,
+    let target = SemanticFacts::new(db).target_at(TargetQuery {
         file_id,
         offset,
-        parsed_file.root(),
-        goto_definition::token_precedence,
-    );
+        intent: TargetIntent::Navigate,
+        root: parsed_file.root(),
+    });
     render_declaration_target(
         db,
         hir_file_id,

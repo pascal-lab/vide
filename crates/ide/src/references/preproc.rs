@@ -8,9 +8,7 @@ use vfs::FileId;
 use super::{
     ReferenceCategory, References, ReferencesConfig, ReferencesPartialReason, ReferencesStatus,
 };
-use crate::{
-    db::root_db::RootDb, navigation_target::NavTarget, semantic_target::PreprocMacroTarget,
-};
+use crate::{db::root_db::RootDb, facts::target::PreprocMacroTarget, navigation_target::NavTarget};
 
 pub(super) fn render_preproc_references_target(
     db: &RootDb,

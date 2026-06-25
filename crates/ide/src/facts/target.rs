@@ -4,7 +4,7 @@ use hir::preproc::{
     macro_param_definition_at, macro_param_reference_definitions_at,
     macro_reference_definitions_at,
 };
-use syntax::{SyntaxNode, TokenKind};
+use syntax::{SyntaxNode, TokenKind, token::TokenKindExt};
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
@@ -35,6 +35,38 @@ impl TargetIntent {
             TargetIntent::Highlight => TargetCapability::HIGHLIGHT,
             TargetIntent::Rename => TargetCapability::RENAME,
         }
+    }
+}
+
+pub(crate) struct TargetQuery<'tree> {
+    pub(crate) file_id: FileId,
+    pub(crate) offset: TextSize,
+    pub(crate) intent: TargetIntent,
+    pub(crate) root: Option<SyntaxNode<'tree>>,
+}
+
+pub(crate) fn target_at<'tree>(
+    db: &RootDb,
+    TargetQuery { file_id, offset, intent, root }: TargetQuery<'tree>,
+) -> TargetResolution<'tree> {
+    resolve_semantic_target(db, file_id, offset, root, move |kind| token_precedence(intent, kind))
+}
+
+fn token_precedence(intent: TargetIntent, kind: TokenKind) -> usize {
+    match intent {
+        TargetIntent::Describe => match kind {
+            _ if kind.name_like() => 4,
+            _ if kind.is_literal() => 3,
+            _ => 1,
+        },
+        TargetIntent::Navigate | TargetIntent::FindReferences | TargetIntent::Highlight => {
+            match kind {
+                _ if kind.name_like() => 4,
+                _ if kind.is_pair_token() => 4,
+                _ => 1,
+            }
+        }
+        TargetIntent::Rename => usize::from(kind.name_like()),
     }
 }
 
@@ -376,6 +408,29 @@ mod tests {
             TextSize::from((start + needle.len()) as u32),
         );
         (host, file_id, range.start(), range)
+    }
+
+    #[test]
+    fn semantic_facts_target_at_projects_source_targets_by_intent() {
+        use crate::facts::{SemanticFacts, TargetQuery};
+
+        let (host, file_id, offset, _) =
+            setup("module m; wire payload_i; endmodule\n", "payload_i");
+        let sema = Semantics::new(host.raw_db());
+        let parsed = sema.parse_file(file_id);
+        let facts = SemanticFacts::new(host.raw_db());
+
+        let resolution = facts.target_at(TargetQuery {
+            file_id,
+            offset,
+            intent: TargetIntent::Rename,
+            root: parsed.root(),
+        });
+
+        assert!(matches!(
+            resolution.unique_for_intent(TargetIntent::Rename),
+            Some(SemanticTarget::Source(_))
+        ));
     }
 
     #[test]

@@ -15,8 +15,11 @@ use crate::{
     FilePosition, ScopeVisibility,
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
+    facts::{
+        SemanticFacts, TargetQuery,
+        target::{SemanticTarget, TargetIntent, TargetResolution},
+    },
     navigation_target::{NavTarget, ToNav},
-    semantic_target::{SemanticTarget, TargetIntent, TargetResolution, resolve_semantic_target},
     source_targets::SourceTarget,
 };
 
@@ -92,7 +95,12 @@ pub(crate) fn references(
 ) -> Option<Vec<References>> {
     let sema = Semantics::new(db);
     let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
+    let target = SemanticFacts::new(db).target_at(TargetQuery {
+        file_id,
+        offset,
+        intent: TargetIntent::FindReferences,
+        root: parsed_file.root(),
+    });
     render_references_target(db, file_id, &sema, target, config)
 }
 

@@ -1,7 +1,7 @@
 use utils::line_index::TextSize;
 use vfs::FileId;
 
-use crate::{RangeInfo, db::root_db::RootDb, markup::Markup, semantic_target::PreprocMacroTarget};
+use crate::{RangeInfo, db::root_db::RootDb, facts::target::PreprocMacroTarget, markup::Markup};
 
 mod expansion;
 mod markup;
