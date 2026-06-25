@@ -3,18 +3,14 @@ use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use syntax::{
-    SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,
+    SyntaxAncestors, SyntaxTokenWithParent, TokenKind,
     ast::{self, AstNode, Expression, Name},
     has_text_range::{HasTextRange, HasTextRangeIn},
     match_ast,
     token::TokenKindExt,
 };
 use thiserror::Error;
-use utils::{
-    line_index::{TextRange, TextSize},
-    text_edit::TextEdit,
-    uniq_vec::UniqVec,
-};
+use utils::{line_index::TextRange, text_edit::TextEdit, uniq_vec::UniqVec};
 use vfs::FileId;
 
 use crate::{
@@ -25,6 +21,7 @@ use crate::{
         ReferencesConfig,
         search::{ReferenceToken, ReferencesCtx, SearchScope},
     },
+    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
     source_change::SourceChange,
 };
 
@@ -100,23 +97,13 @@ pub struct RenameCollisionInfo {
 
 pub(crate) fn prepare_rename(
     db: &RootDb,
-    FilePosition { file_id, offset }: FilePosition,
+    position @ FilePosition { file_id, .. }: FilePosition,
     config: RenameConfig,
 ) -> RenameResult<TextRange> {
     let sema = Semantics::new(db);
-    let hir_file_id = file_id.into();
-    let parsed_file = sema.parse_file(file_id);
-    let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
-    let token = pick_token(root, offset)?;
-    let text_range = token.text_range().ok_or(RenameError::NoRefFound)?;
-    let def =
-        match DefinitionClass::resolve(&sema, hir_file_id, token).ok_or(RenameError::NoDefFound)? {
-            DefinitionClass::Definition(def) => def,
-            DefinitionClass::PortConnShorthand { local, .. } => local,
-            DefinitionClass::Ambiguous(_) => return Err(RenameError::NoDefFound),
-        };
-    let _ = config.references_config(db, &def, file_id)?;
-    Ok(text_range)
+    let target = resolve_rename_target(&sema, position)?;
+    let _ = config.references_config(db, &target.selected_def, file_id)?;
+    Ok(target.range)
 }
 
 pub(crate) fn rename(
@@ -214,6 +201,7 @@ pub(crate) fn rename_conflict_info(
 }
 
 struct ResolvedRenameTarget {
+    range: TextRange,
     selected_def: Definition,
     targets: Vec<Definition>,
 }
@@ -230,25 +218,51 @@ fn resolve_rename_target(
     sema: &Semantics<'_, RootDb>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> RenameResult<ResolvedRenameTarget> {
+    let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
-    let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
-    let token = pick_token(root, offset)?;
-    let mut targets = UniqVec::<Definition, DefinitionOrigin>::default();
-    let selected_def = match DefinitionClass::resolve(sema, file_id.into(), token)
-        .ok_or(RenameError::NoDefFound)?
-    {
-        DefinitionClass::Definition(def) => {
-            targets.push(def.origins(), def.clone());
-            def
-        }
-        DefinitionClass::PortConnShorthand { port, local } => {
-            targets.push(local.origins(), local.clone());
-            targets.push(port.origins(), port);
-            local
-        }
-        DefinitionClass::Ambiguous(_) => return Err(RenameError::NoDefFound),
+    let target = resolve_semantic_target(
+        sema.db,
+        file_id,
+        offset,
+        parsed_file.root(),
+        rename_token_precedence,
+    );
+    let SemanticTarget::Source(target) =
+        target.unique_for_intent(TargetIntent::Rename).ok_or(RenameError::NoRefFound)?
+    else {
+        return Err(RenameError::NoRefFound);
     };
-    Ok(ResolvedRenameTarget { selected_def, targets: targets.into_vec() })
+    let (range, tokens) = target.into_parts();
+    let mut selected_def = None;
+    let mut targets = UniqVec::<Definition, DefinitionOrigin>::default();
+
+    for token in tokens {
+        let token_selected = match DefinitionClass::resolve(sema, hir_file_id, token)
+            .ok_or(RenameError::NoDefFound)?
+        {
+            DefinitionClass::Definition(def) => {
+                targets.push(def.origins(), def.clone());
+                def
+            }
+            DefinitionClass::PortConnShorthand { port, local } => {
+                targets.push(local.origins(), local.clone());
+                targets.push(port.origins(), port);
+                local
+            }
+            DefinitionClass::Ambiguous(_) => return Err(RenameError::NoDefFound),
+        };
+
+        match &selected_def {
+            Some(selected_def) if selected_def != &token_selected => {
+                return Err(RenameError::NoDefFound);
+            }
+            Some(_) => {}
+            None => selected_def = Some(token_selected),
+        }
+    }
+
+    let selected_def = selected_def.ok_or(RenameError::NoDefFound)?;
+    Ok(ResolvedRenameTarget { range, selected_def, targets: targets.into_vec() })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -572,8 +586,6 @@ fn edits_from_refs(
     (file_id, text_edit.finish())
 }
 
-fn pick_token(node: SyntaxNode, offset: TextSize) -> RenameResult<SyntaxTokenWithParent> {
-    node.token_at_offset(offset)
-        .pick_bext_token(|kind| kind.name_like().into())
-        .ok_or(RenameError::NoRefFound)
+fn rename_token_precedence(kind: TokenKind) -> usize {
+    usize::from(kind.name_like())
 }

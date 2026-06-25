@@ -1,5 +1,6 @@
-use hir::semantics::Semantics;
+use hir::{file::HirFileId, semantics::Semantics};
 use itertools::Itertools;
+use utils::line_index::covering_range;
 
 use crate::{
     FilePosition, RangeInfo,
@@ -7,6 +8,8 @@ use crate::{
     definitions::DefinitionClass,
     goto_definition,
     navigation_target::{NavTarget, ToNav},
+    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
+    source_targets::SourceTarget,
 };
 
 pub(crate) fn goto_declaration(
@@ -16,20 +19,53 @@ pub(crate) fn goto_declaration(
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
-    let root = parsed_file.root()?;
-    let target = crate::source_targets::source_target_at_offset(
+    let target = resolve_semantic_target(
         db,
         file_id,
-        root,
         offset,
+        parsed_file.root(),
         goto_definition::token_precedence,
-    )?
-    .resolved()?;
+    );
+    render_declaration_target(
+        db,
+        hir_file_id,
+        &sema,
+        target.targets_for_intent(TargetIntent::Navigate),
+    )
+}
+
+fn render_declaration_target(
+    db: &RootDb,
+    hir_file_id: HirFileId,
+    sema: &Semantics<RootDb>,
+    targets: Vec<SemanticTarget<'_>>,
+) -> Option<RangeInfo<Vec<NavTarget>>> {
+    let mut ranges = Vec::new();
+    let mut navs = Vec::new();
+    for target in targets {
+        let SemanticTarget::Source(target) = target else {
+            return None;
+        };
+        let target = render_source_declaration_target(db, hir_file_id, sema, target)?;
+        ranges.push(target.range);
+        navs.extend(target.info);
+    }
+
+    let range = covering_range(&ranges)?;
+    Some(RangeInfo::new(range, navs.into_iter().unique().collect()))
+}
+
+fn render_source_declaration_target(
+    db: &RootDb,
+    hir_file_id: HirFileId,
+    sema: &Semantics<RootDb>,
+    target: SourceTarget<'_>,
+) -> Option<RangeInfo<Vec<NavTarget>>> {
     let (range, tokens) = target.into_parts();
 
     let origins = tokens
         .into_iter()
-        .filter_map(|token| match DefinitionClass::resolve(&sema, hir_file_id, token)? {
+        .filter_map(|token| match DefinitionClass::resolve(sema, hir_file_id, token)? {
             DefinitionClass::Definition(definition) => {
                 Some(definition.declaration_origins().into_iter().collect_vec())
             }

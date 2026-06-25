@@ -1,6 +1,4 @@
-use hir::preproc::{IncludeDirective, IncludeTarget, include_directives_at};
-use utils::line_index::TextSize;
-use vfs::FileId;
+use hir::preproc::{IncludeDirective, IncludeTarget};
 
 use crate::{
     RangeInfo,
@@ -8,15 +6,6 @@ use crate::{
     markup::{Markup, inline_code},
     render,
 };
-
-pub(super) fn dispatch_include_hover_target(
-    db: &RootDb,
-    file_id: FileId,
-    offset: TextSize,
-) -> Option<Vec<IncludeDirective>> {
-    let includes = include_directives_at(db, file_id, offset).ok()?;
-    (!includes.is_empty()).then_some(includes)
-}
 
 pub(super) fn render_include_hover(
     db: &RootDb,
