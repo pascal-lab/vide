@@ -19,8 +19,7 @@ use crate::{
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
     semantic_target::{
-        PreprocMacroTarget, SemanticTarget, SemanticTargetResolution, TargetCapability,
-        TargetIntent, resolve_semantic_target,
+        PreprocMacroTarget, SemanticTarget, TargetIntent, TargetResolution, resolve_semantic_target,
     },
     source_targets::SourceTarget,
 };
@@ -38,7 +37,7 @@ pub(crate) fn goto_definition(
         parsed_file.root(),
         TargetIntent::Navigate,
         token_precedence,
-    )?;
+    );
     render_definition_target(db, file_id, &sema, target)
 }
 
@@ -46,9 +45,9 @@ fn render_definition_target(
     db: &RootDb,
     file_id: FileId,
     sema: &Semantics<RootDb>,
-    target: SemanticTargetResolution<'_>,
+    target: TargetResolution<'_>,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    match target.into_target(TargetCapability::NAVIGATE)? {
+    match target.for_navigation()? {
         SemanticTarget::PreprocMacro(target) => render_preproc_definition_target(target),
         SemanticTarget::Include(includes) => render_include_definition_target(db, includes),
         SemanticTarget::Source(target) => {

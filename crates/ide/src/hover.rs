@@ -25,10 +25,7 @@ use crate::{
     },
     markup::{Markup, inline_code},
     render,
-    semantic_target::{
-        SemanticTarget, SemanticTargetResolution, TargetCapability, TargetIntent,
-        resolve_semantic_target,
-    },
+    semantic_target::{SemanticTarget, TargetIntent, TargetResolution, resolve_semantic_target},
     source_targets::SourceTarget,
 };
 
@@ -63,7 +60,7 @@ pub(crate) fn hover(
         parsed_file.root(),
         TargetIntent::Describe,
         token_precedence,
-    )?;
+    );
     render_hover_target(db, file_id, offset, &sema, target)
 }
 
@@ -72,9 +69,9 @@ fn render_hover_target(
     file_id: FileId,
     offset: TextSize,
     sema: &Semantics<RootDb>,
-    target: SemanticTargetResolution<'_>,
+    target: TargetResolution<'_>,
 ) -> Option<RangeInfo<Markup>> {
-    match target.into_target(TargetCapability::DESCRIBE)? {
+    match target.for_hover()? {
         SemanticTarget::PreprocMacro(target) => {
             render_macro_hover_target(db, file_id, offset, target)
         }

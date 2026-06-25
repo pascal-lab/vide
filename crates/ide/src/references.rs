@@ -16,10 +16,7 @@ use crate::{
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
     navigation_target::{NavTarget, ToNav},
-    semantic_target::{
-        SemanticTarget, SemanticTargetResolution, TargetCapability, TargetIntent,
-        resolve_semantic_target,
-    },
+    semantic_target::{SemanticTarget, TargetIntent, TargetResolution, resolve_semantic_target},
     source_targets::SourceTarget,
 };
 
@@ -102,7 +99,7 @@ pub(crate) fn references(
         parsed_file.root(),
         TargetIntent::FindReferences,
         token_precedence,
-    )?;
+    );
     render_references_target(db, file_id, &sema, target, config)
 }
 
@@ -110,10 +107,10 @@ fn render_references_target(
     db: &RootDb,
     file_id: FileId,
     sema: &Semantics<RootDb>,
-    target: SemanticTargetResolution<'_>,
+    target: TargetResolution<'_>,
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
-    match target.into_target(TargetCapability::REFERENCES)? {
+    match target.for_references()? {
         SemanticTarget::PreprocMacro(target) => {
             render_preproc_references_target(db, file_id, target, &config)
         }
