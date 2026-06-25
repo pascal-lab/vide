@@ -11,7 +11,7 @@ use hir::{
 };
 use itertools::Itertools;
 use nohash_hasher::IntMap;
-use syntax::has_text_range::HasTextRange;
+use syntax::{has_text_range::HasTextRange, token::pair_token};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -27,8 +27,8 @@ use crate::{
     goto_definition,
     navigation_target::{NavTarget, ToNav},
     references::{
-        self, ReferenceCategory, References, ReferencesConfig, ReferencesPartialReason,
-        ReferencesStatus, search::ReferencesCtx,
+        ReferenceCategory, References, ReferencesConfig, ReferencesPartialReason, ReferencesStatus,
+        search::ReferencesCtx,
     },
 };
 
@@ -306,7 +306,7 @@ impl<'db> RelationFacts<'db> {
         let mut relations = Vec::new();
         for token in target.into_tokens() {
             if let Some(reference_set) =
-                self.control_flow_reference_relations(sema, file_id, token.clone())
+                self.control_flow_reference_relations(file_id, token.clone())
             {
                 relations.extend(reference_set.relations);
                 continue;
@@ -329,22 +329,21 @@ impl<'db> RelationFacts<'db> {
 
     fn control_flow_reference_relations(
         &self,
-        sema: &Semantics<'_, RootDb>,
         file_id: HirFileId,
         token: syntax::SyntaxTokenWithParent<'_>,
     ) -> Option<RelationSet> {
         let target =
             SymbolId::SourceToken { file_id: file_id.file_id(), range: token.text_range()? };
-        let relations = references::handle_ctrl_flow_kw(sema, file_id, token)?
+        let pair = pair_token(token)?;
+        let pair = pair.either(|token| token, |token| token);
+        let relations = [token, pair]
             .into_iter()
-            .flat_map(|references| references.refs)
-            .flat_map(|(file_id, refs)| {
-                refs.into_iter().map(move |(range, _)| Relation {
-                    kind: RelationKind::References,
-                    source: target,
-                    target,
-                    range: FileRange { file_id, range },
-                })
+            .filter_map(|token| token.text_range())
+            .map(|range| Relation {
+                kind: RelationKind::References,
+                source: target,
+                target,
+                range: FileRange { file_id: file_id.file_id(), range },
             })
             .unique()
             .collect::<Vec<_>>();

@@ -1,7 +1,6 @@
-use hir::{file::HirFileId, semantics::Semantics};
 use nohash_hasher::IntMap;
 use search::SearchScope;
-use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange, token::pair_token};
+use syntax::SyntaxTokenWithParent;
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -71,34 +70,4 @@ impl ReferencesStatus {
             ReferencesStatus::Partial { issue_count, .. } => issue_count,
         }
     }
-}
-
-pub(crate) fn handle_ctrl_flow_kw(
-    _sema: &Semantics<'_, RootDb>,
-    file_id: HirFileId,
-    tp @ SyntaxTokenWithParent { .. }: SyntaxTokenWithParent,
-) -> Option<Vec<References>> {
-    let kind = tp.kind();
-
-    let mut refs = vec![];
-    let mut add_ref = |tok: SyntaxTokenWithParent| {
-        if let Some(range) = tok.text_range() {
-            refs.push((range, ReferenceCategory::empty()));
-        }
-    };
-
-    match kind {
-        _ if let Some(pair) = pair_token(tp) => {
-            let pair = pair.either(|tok| tok, |tok| tok);
-            add_ref(tp);
-            add_ref(pair);
-        }
-        _ => return None,
-    }
-
-    Some(vec![References {
-        def: None,
-        refs: IntMap::from_iter([(file_id.file_id(), refs)]),
-        status: ReferencesStatus::Complete,
-    }])
 }

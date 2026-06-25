@@ -1,5 +1,5 @@
 use hir::{container::InFile, file::HirFileId, semantics::Semantics};
-use syntax::SyntaxTokenWithParent;
+use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange, token::pair_token};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -12,7 +12,7 @@ use crate::{
         target::{SemanticTarget, TargetIntent},
     },
     references::{
-        self, ReferenceCategory, ReferencesConfig,
+        ReferenceCategory, ReferencesConfig,
         search::{ReferencesCtx, SearchScope},
     },
 };
@@ -55,16 +55,18 @@ pub(crate) fn document_highlight(
 }
 
 fn handle_ctrl_flow_kw(
-    sema: &Semantics<'_, RootDb>,
-    file_id: HirFileId,
-    tp: SyntaxTokenWithParent,
+    tp @ SyntaxTokenWithParent { .. }: SyntaxTokenWithParent,
 ) -> Option<Vec<DocumentHighlight>> {
-    let cur_file_id = file_id.file_id();
-    let highlights = references::handle_ctrl_flow_kw(sema, file_id, tp)?
+    let pair = pair_token(tp)?;
+    let pair = pair.either(|token| token, |token| token);
+    let highlights = [tp, pair]
         .into_iter()
-        .filter_map(|mut r| r.refs.remove(&cur_file_id))
-        .flatten()
-        .map(|(range, category)| DocumentHighlight { range, category })
+        .filter_map(|token| {
+            Some(DocumentHighlight {
+                range: token.text_range()?,
+                category: ReferenceCategory::empty(),
+            })
+        })
         .collect();
     Some(highlights)
 }
@@ -76,7 +78,7 @@ fn highlight_for_token(
     token: SyntaxTokenWithParent,
     config: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
-    handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
+    handle_ctrl_flow_kw(token).or_else(|| {
         let def = match DefinitionClass::resolve(sema, hir_file_id, token)? {
             DefinitionClass::Definition(def) => def,
             DefinitionClass::PortConnShorthand { local, .. } => local,
