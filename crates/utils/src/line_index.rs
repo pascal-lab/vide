@@ -5,6 +5,12 @@ use std::ops::Range;
 use nohash_hasher::IntMap;
 pub use text_size::{TextRange, TextSize};
 
+pub fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
+    let start = ranges.iter().map(|range| range.start()).min()?;
+    let end = ranges.iter().map(|range| range.end()).max()?;
+    Some(TextRange::new(start, end))
+}
+
 /// `(line, column)` information in the native, UTF-8 encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LineCol {

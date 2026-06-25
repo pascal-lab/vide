@@ -10,7 +10,7 @@ use syntax::{
 };
 use utils::{
     get::GetRef,
-    line_index::{TextRange, TextSize},
+    line_index::{TextRange, TextSize, covering_range},
     uniq_vec::UniqVec,
 };
 use vfs::FileId;
@@ -90,12 +90,6 @@ fn render_hover_target(
     } else {
         hover
     })
-}
-
-fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
-    let start = ranges.iter().map(|range| range.start()).min()?;
-    let end = ranges.iter().map(|range| range.end()).max()?;
-    Some(TextRange::new(start, end))
 }
 
 fn hover_for_source_target(

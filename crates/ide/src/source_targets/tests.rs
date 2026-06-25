@@ -3,6 +3,7 @@ use syntax::{
     SyntaxElement, SyntaxNode, SyntaxTree, SyntaxTreeOptions, WalkEvent, preproc::TokenOrigin,
     token::TokenKindExt,
 };
+use utils::line_index::covering_range;
 
 use super::*;
 

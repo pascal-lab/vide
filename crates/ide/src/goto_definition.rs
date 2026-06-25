@@ -10,7 +10,7 @@ use syntax::{
     SyntaxTokenWithParent, TokenKind,
     token::{TokenKindExt, pair_token},
 };
-use utils::line_index::{TextRange, TextSize};
+use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
 use crate::{
@@ -60,12 +60,6 @@ fn render_definition_target(
 
     let range = covering_range(&ranges)?;
     Some(RangeInfo::new(range, navs.into_iter().unique().collect()))
-}
-
-fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
-    let start = ranges.iter().map(|range| range.start()).min()?;
-    let end = ranges.iter().map(|range| range.end()).max()?;
-    Some(TextRange::new(start, end))
 }
 
 fn render_source_definition_target(
