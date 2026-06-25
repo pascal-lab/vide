@@ -22,10 +22,9 @@ pub(crate) fn goto_declaration(
         file_id,
         offset,
         parsed_file.root(),
-        TargetIntent::Navigate,
         goto_definition::token_precedence,
     );
-    let SemanticTarget::Source(target) = target.for_navigation()? else {
+    let SemanticTarget::Source(target) = target.for_intent(TargetIntent::Navigate)? else {
         return None;
     };
     let (range, tokens) = target.into_parts();

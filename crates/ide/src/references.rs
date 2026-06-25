@@ -92,14 +92,7 @@ pub(crate) fn references(
 ) -> Option<Vec<References>> {
     let sema = Semantics::new(db);
     let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(
-        db,
-        file_id,
-        offset,
-        parsed_file.root(),
-        TargetIntent::FindReferences,
-        token_precedence,
-    );
+    let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
     render_references_target(db, file_id, &sema, target, config)
 }
 
@@ -110,7 +103,7 @@ fn render_references_target(
     target: TargetResolution<'_>,
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
-    match target.for_references()? {
+    match target.for_intent(TargetIntent::FindReferences)? {
         SemanticTarget::PreprocMacro(target) => {
             render_preproc_references_target(db, file_id, target, &config)
         }
