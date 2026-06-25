@@ -4,7 +4,13 @@ use hir::preproc::{
     macro_param_definition_at, macro_param_reference_definitions_at,
     macro_reference_definitions_at,
 };
-use syntax::{SyntaxNode, TokenKind, token::TokenKindExt};
+use syntax::{
+    SyntaxAncestors, SyntaxKind, SyntaxNode, SyntaxNodeExt, TokenKind,
+    ast::{self, AstNode},
+    has_text_range::HasTextRange,
+    match_ast_kind,
+    token::TokenKindExt,
+};
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
@@ -190,6 +196,7 @@ pub(crate) struct TargetAnchor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TargetOrigin {
     MacroExpansion,
+    SourceSyntax,
 }
 
 impl TargetOrigin {
@@ -263,6 +270,15 @@ pub(crate) struct TargetBlock {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TargetBlockReason {
     PreprocUnavailable,
+    LanguageFact(LanguageFactStatus),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum LanguageFactStatus {
+    Lowered,
+    SyntaxOnly,
+    Skipped,
 }
 
 #[derive(Debug, Clone)]
@@ -316,9 +332,101 @@ where
     let Some(root) = root else {
         return TargetResolution::Unresolved;
     };
+    if let Some(block) = language_fact_block_at(file_id, root, offset) {
+        return TargetResolution::Blocked(block);
+    }
     source_target_at_offset(db, file_id, root, offset, precedence)
         .map(|resolution| TargetResolution::from_source_resolution(file_id, resolution))
         .unwrap_or(TargetResolution::Unresolved)
+}
+
+fn language_fact_block_at<'tree>(
+    file_id: FileId,
+    root: SyntaxNode<'tree>,
+    offset: TextSize,
+) -> Option<TargetBlock> {
+    let token = root
+        .token_at_offset(offset)
+        .pick_bext_token(&|kind: TokenKind| usize::from(kind.name_like()))?;
+    let fallback_range = token.text_range()?;
+    let skipped = SyntaxAncestors::start_from(token.parent)
+        .find(|node| language_fact_status_for_node(*node) == LanguageFactStatus::Skipped)?;
+    let range = skipped.text_range().unwrap_or(fallback_range);
+    Some(TargetBlock {
+        anchor: TargetAnchor { file_id, range, origin: TargetOrigin::SourceSyntax },
+        reason: TargetBlockReason::LanguageFact(LanguageFactStatus::Skipped),
+    })
+}
+
+fn language_fact_status_for_node(node: SyntaxNode<'_>) -> LanguageFactStatus {
+    if ast::ModuleDeclaration::cast(node).is_some()
+        && SyntaxAncestors::start_from(node)
+            .skip(1)
+            .any(|ancestor| ast::ModuleDeclaration::cast(ancestor).is_some())
+    {
+        return LanguageFactStatus::Skipped;
+    }
+
+    language_fact_status(node.kind())
+}
+
+fn language_fact_status(kind: SyntaxKind) -> LanguageFactStatus {
+    match_ast_kind! { kind,
+        ast::ConcurrentAssertionStatement
+        | ast::CheckerInstanceStatement
+        | ast::DisableForkStatement
+        | ast::ForeachLoopStatement
+        | ast::ImmediateAssertionStatement
+        | ast::RandCaseStatement
+        | ast::RandSequenceStatement
+        | ast::VoidCastedCallStatement
+        | ast::WaitForkStatement
+        | ast::WaitOrderStatement
+        | ast::NetTypeDeclaration
+        | ast::ForwardTypedefDeclaration
+        | ast::UserDefinedNetDeclaration
+        | ast::CheckerInstantiation
+        | ast::PackageImportDeclaration
+        | ast::ClassDeclaration
+        | ast::TimeUnitsDeclaration
+        | ast::ClockingDeclaration
+        | ast::DefaultClockingReference
+        | ast::ClockingItem
+        | ast::PropertyDeclaration
+        | ast::SequenceDeclaration
+        | ast::ImmediateAssertionMember
+        | ast::ConcurrentAssertionMember
+        | ast::CovergroupDeclaration
+        | ast::Coverpoint
+        | ast::CoverCross
+        | ast::CoverageBins
+        | ast::BinsSelection
+        | ast::CoverageOption
+        | ast::DefaultSkewItem
+        | ast::DPIImport
+        | ast::DPIExport
+        | ast::ExternInterfaceMethod
+        | ast::ExternModuleDecl
+        | ast::ExternUdpDecl
+        | ast::NetAlias
+        | ast::ModportDeclaration
+        | ast::ModportClockingPort
+        | ast::ModportSimplePortList
+        | ast::ModportSubroutinePortList
+        | ast::ClassPropertyDeclaration
+        | ast::ClassMethodDeclaration
+        | ast::ClassMethodPrototype
+        | ast::CheckerDeclaration
+        | ast::CheckerDataDeclaration
+        | ast::ConstraintDeclaration
+        | ast::ConstraintPrototype
+        | ast::BindDirective
+        | ast::PackageExportDeclaration
+        | ast::PackageExportAllDeclaration
+        | ast::LetDeclaration
+        | ast::DefaultDisableDeclaration => LanguageFactStatus::Skipped,
+        _ => LanguageFactStatus::Lowered,
+    }
 }
 
 fn preproc_macro_target_at(
@@ -461,6 +569,80 @@ mod tests {
             panic!("source token should resolve as source target");
         };
         assert_eq!(target.range, range);
+    }
+
+    #[test]
+    fn skipped_language_fact_blocks_before_syntax_fallback() {
+        use crate::facts::{SemanticFacts, TargetQuery};
+
+        let (host, file_id, offset, _) = setup(
+            "module m; initial begin foreach (items[i]) payload = i; end endmodule\n",
+            "payload",
+        );
+        let sema = Semantics::new(host.raw_db());
+        let parsed = sema.parse_file(file_id);
+        let facts = SemanticFacts::new(host.raw_db());
+
+        let resolution = facts.target_at(TargetQuery {
+            file_id,
+            offset,
+            intent: TargetIntent::Rename,
+            root: parsed.root(),
+        });
+
+        let TargetResolution::Blocked(block) = resolution else {
+            panic!("skipped language fact should block target resolution");
+        };
+        assert_eq!(block.anchor.origin, TargetOrigin::SourceSyntax);
+        assert_eq!(block.reason, TargetBlockReason::LanguageFact(LanguageFactStatus::Skipped));
+    }
+
+    #[test]
+    fn skipped_module_item_fact_blocks_before_syntax_fallback() {
+        use crate::facts::{SemanticFacts, TargetQuery};
+
+        let (host, file_id, offset, _) =
+            setup("module m; class payload; endclass endmodule\n", "payload");
+        let sema = Semantics::new(host.raw_db());
+        let parsed = sema.parse_file(file_id);
+        let facts = SemanticFacts::new(host.raw_db());
+
+        let resolution = facts.target_at(TargetQuery {
+            file_id,
+            offset,
+            intent: TargetIntent::Rename,
+            root: parsed.root(),
+        });
+
+        let TargetResolution::Blocked(block) = resolution else {
+            panic!("skipped module item should block target resolution");
+        };
+        assert_eq!(block.anchor.origin, TargetOrigin::SourceSyntax);
+        assert_eq!(block.reason, TargetBlockReason::LanguageFact(LanguageFactStatus::Skipped));
+    }
+
+    #[test]
+    fn nested_module_fact_blocks_before_syntax_fallback() {
+        use crate::facts::{SemanticFacts, TargetQuery};
+
+        let (host, file_id, offset, _) =
+            setup("module outer; module payload; endmodule endmodule\n", "payload");
+        let sema = Semantics::new(host.raw_db());
+        let parsed = sema.parse_file(file_id);
+        let facts = SemanticFacts::new(host.raw_db());
+
+        let resolution = facts.target_at(TargetQuery {
+            file_id,
+            offset,
+            intent: TargetIntent::Navigate,
+            root: parsed.root(),
+        });
+
+        let TargetResolution::Blocked(block) = resolution else {
+            panic!("nested module should block target resolution");
+        };
+        assert_eq!(block.anchor.origin, TargetOrigin::SourceSyntax);
+        assert_eq!(block.reason, TargetBlockReason::LanguageFact(LanguageFactStatus::Skipped));
     }
 
     #[test]
