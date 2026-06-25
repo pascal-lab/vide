@@ -30,14 +30,7 @@ pub(crate) fn goto_definition(
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let sema = Semantics::new(db);
     let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(
-        db,
-        file_id,
-        offset,
-        parsed_file.root(),
-        TargetIntent::Navigate,
-        token_precedence,
-    );
+    let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
     render_definition_target(db, file_id, &sema, target)
 }
 
@@ -47,7 +40,7 @@ fn render_definition_target(
     sema: &Semantics<RootDb>,
     target: TargetResolution<'_>,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    match target.for_navigation()? {
+    match target.for_intent(TargetIntent::Navigate)? {
         SemanticTarget::PreprocMacro(target) => render_preproc_definition_target(target),
         SemanticTarget::Include(includes) => render_include_definition_target(db, includes),
         SemanticTarget::Source(target) => {

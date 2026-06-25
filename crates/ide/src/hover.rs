@@ -53,14 +53,7 @@ pub(crate) fn hover(
 ) -> Option<RangeInfo<Markup>> {
     let sema = Semantics::new(db);
     let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(
-        db,
-        file_id,
-        offset,
-        parsed_file.root(),
-        TargetIntent::Describe,
-        token_precedence,
-    );
+    let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
     render_hover_target(db, file_id, offset, &sema, target)
 }
 
@@ -71,7 +64,7 @@ fn render_hover_target(
     sema: &Semantics<RootDb>,
     target: TargetResolution<'_>,
 ) -> Option<RangeInfo<Markup>> {
-    match target.for_hover()? {
+    match target.for_intent(TargetIntent::Describe)? {
         SemanticTarget::PreprocMacro(target) => {
             render_macro_hover_target(db, file_id, offset, target)
         }

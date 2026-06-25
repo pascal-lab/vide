@@ -12,7 +12,7 @@ use crate::{
     db::root_db::RootDb,
     source_targets::{
         SourceTarget, SourceTargetBlock, SourceTargetBlockReason, SourceTargetDomain,
-        SourceTargetOrigin, SourceTargetResolution, source_target_at_offset,
+        SourceTargetResolution, source_target_at_offset,
     },
 };
 
@@ -22,8 +22,19 @@ pub(crate) enum TargetIntent {
     Navigate,
     FindReferences,
     Highlight,
-    #[allow(dead_code)]
     Rename,
+}
+
+impl TargetIntent {
+    fn capability(self) -> TargetCapability {
+        match self {
+            TargetIntent::Describe => TargetCapability::DESCRIBE,
+            TargetIntent::Navigate => TargetCapability::NAVIGATE,
+            TargetIntent::FindReferences => TargetCapability::REFERENCES,
+            TargetIntent::Highlight => TargetCapability::HIGHLIGHT,
+            TargetIntent::Rename => TargetCapability::RENAME,
+        }
+    }
 }
 
 bitflags::bitflags! {
@@ -39,39 +50,23 @@ bitflags::bitflags! {
 
 #[derive(Debug, Clone)]
 pub(crate) enum TargetResolution<'tree> {
-    Resolved(TargetSet<'tree>),
-    Ambiguous(TargetAmbiguity<'tree>),
+    Resolved(TargetCandidate<'tree>),
+    Ambiguous(TargetAmbiguity),
     Blocked(TargetBlock),
     Unresolved,
 }
 
 impl<'tree> TargetResolution<'tree> {
-    pub(crate) fn for_hover(self) -> Option<SemanticTarget<'tree>> {
-        self.into_primary(TargetCapability::DESCRIBE)
-    }
-
-    pub(crate) fn for_navigation(self) -> Option<SemanticTarget<'tree>> {
-        self.into_primary(TargetCapability::NAVIGATE)
-    }
-
-    pub(crate) fn for_references(self) -> Option<SemanticTarget<'tree>> {
-        self.into_primary(TargetCapability::REFERENCES)
-    }
-
-    pub(crate) fn for_highlight(self) -> Option<SemanticTarget<'tree>> {
-        self.into_primary(TargetCapability::HIGHLIGHT)
-    }
-
-    pub(crate) fn for_rename(self) -> Option<SemanticTarget<'tree>> {
-        self.into_primary(TargetCapability::RENAME)
+    pub(crate) fn for_intent(self, intent: TargetIntent) -> Option<SemanticTarget<'tree>> {
+        self.into_primary(intent.capability())
     }
 
     fn into_primary(self, required: TargetCapability) -> Option<SemanticTarget<'tree>> {
         match self {
-            TargetResolution::Resolved(set) => set.into_primary(required),
+            TargetResolution::Resolved(candidate) => candidate.into_target(required),
             TargetResolution::Ambiguous(ambiguity) => {
-                let TargetAmbiguity { anchor, reason, candidates } = ambiguity;
-                let _ = (anchor, reason, candidates);
+                let TargetAmbiguity { anchor, reason } = ambiguity;
+                let _ = (anchor, reason);
                 None
             }
             TargetResolution::Blocked(block) => {
@@ -89,14 +84,8 @@ impl<'tree> TargetResolution<'tree> {
     ) -> Self {
         match resolution {
             SourceTargetResolution::Resolved(target) => {
-                let origin = TargetOrigin::from_source_origin(&target.origin);
-                let range = target.range;
                 let capabilities = source_capabilities();
-                Self::Resolved(TargetSet::single(
-                    TargetAnchor { file_id, range, origin },
-                    SemanticTarget::Source(target),
-                    capabilities,
-                ))
+                Self::Resolved(TargetCandidate::new(SemanticTarget::Source(target), capabilities))
             }
             SourceTargetResolution::Blocked(block) => {
                 let SourceTargetBlock { range, .. } = block.clone();
@@ -110,19 +99,14 @@ impl<'tree> TargetResolution<'tree> {
         }
     }
 
-    fn from_preproc_macro(file_id: FileId, target: PreprocMacroTarget) -> Self {
+    fn from_preproc_macro(target: PreprocMacroTarget) -> Self {
         let capabilities = target.capabilities();
-        Self::Resolved(TargetSet::single(
-            TargetAnchor { file_id, range: target.range(), origin: TargetOrigin::PreprocMacro },
-            SemanticTarget::PreprocMacro(target),
-            capabilities,
-        ))
+        Self::Resolved(TargetCandidate::new(SemanticTarget::PreprocMacro(target), capabilities))
     }
 
-    fn from_include(file_id: FileId, includes: Vec<IncludeDirective>) -> Option<Self> {
-        let range = includes.first()?.range;
-        Some(Self::Resolved(TargetSet::single(
-            TargetAnchor { file_id, range, origin: TargetOrigin::IncludeDirective },
+    fn from_include(includes: Vec<IncludeDirective>) -> Option<Self> {
+        includes.first()?;
+        Some(Self::Resolved(TargetCandidate::new(
             SemanticTarget::Include(includes),
             TargetCapability::DESCRIBE | TargetCapability::NAVIGATE,
         )))
@@ -137,7 +121,6 @@ impl<'tree> TargetResolution<'tree> {
                 Self::Ambiguous(TargetAmbiguity {
                     anchor,
                     reason: TargetAmbiguityReason::PreprocHits { candidate_count: hits.len() },
-                    candidates: Vec::new(),
                 })
             }
         }
@@ -153,20 +136,10 @@ pub(crate) struct TargetAnchor {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TargetOrigin {
-    Source,
     MacroExpansion,
-    PreprocMacro,
-    IncludeDirective,
 }
 
 impl TargetOrigin {
-    fn from_source_origin(origin: &SourceTargetOrigin) -> Self {
-        match origin {
-            SourceTargetOrigin::NormalSyntax => TargetOrigin::Source,
-            SourceTargetOrigin::Preproc { .. } => TargetOrigin::MacroExpansion,
-        }
-    }
-
     fn from_source_block(block: &SourceTargetBlock) -> Self {
         match block.domain {
             SourceTargetDomain::Preproc => TargetOrigin::MacroExpansion,
@@ -175,51 +148,18 @@ impl TargetOrigin {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TargetSet<'tree> {
-    pub anchor: TargetAnchor,
-    pub primary: TargetCandidate<'tree>,
-    pub related: Vec<TargetCandidate<'tree>>,
-    pub quality: TargetQuality,
-}
-
-impl<'tree> TargetSet<'tree> {
-    fn single(
-        anchor: TargetAnchor,
-        target: SemanticTarget<'tree>,
-        capabilities: TargetCapability,
-    ) -> Self {
-        Self {
-            anchor,
-            primary: TargetCandidate {
-                target,
-                role: TargetRole::Primary,
-                capabilities,
-                quality: TargetQuality::Exact,
-            },
-            related: Vec::new(),
-            quality: TargetQuality::Exact,
-        }
-    }
-
-    fn into_primary(self, required: TargetCapability) -> Option<SemanticTarget<'tree>> {
-        let Self { anchor, primary, related, quality } = self;
-        let _ = (anchor, related, quality);
-        primary.into_target(required)
-    }
-}
-
-#[derive(Debug, Clone)]
 pub(crate) struct TargetCandidate<'tree> {
     pub target: SemanticTarget<'tree>,
-    pub role: TargetRole,
     pub capabilities: TargetCapability,
-    pub quality: TargetQuality,
 }
 
 impl<'tree> TargetCandidate<'tree> {
+    fn new(target: SemanticTarget<'tree>, capabilities: TargetCapability) -> Self {
+        Self { target, capabilities }
+    }
+
     fn into_target(self, required: TargetCapability) -> Option<SemanticTarget<'tree>> {
-        let Self { target, role, capabilities, quality } = self;
-        let _ = (role, quality);
+        let Self { target, capabilities } = self;
         if !capabilities.contains(required) {
             return None;
         }
@@ -227,21 +167,10 @@ impl<'tree> TargetCandidate<'tree> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TargetRole {
-    Primary,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TargetQuality {
-    Exact,
-}
-
 #[derive(Debug, Clone)]
-pub(crate) struct TargetAmbiguity<'tree> {
+pub(crate) struct TargetAmbiguity {
     pub anchor: TargetAnchor,
     pub reason: TargetAmbiguityReason,
-    pub candidates: Vec<TargetCandidate<'tree>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -276,15 +205,6 @@ pub(crate) enum PreprocMacroTarget {
 }
 
 impl PreprocMacroTarget {
-    pub(crate) fn range(&self) -> TextRange {
-        match self {
-            PreprocMacroTarget::ParamDefinition(definition) => definition.range,
-            PreprocMacroTarget::ParamReference(resolution) => resolution.range,
-            PreprocMacroTarget::Definition(definition) => definition.name_range,
-            PreprocMacroTarget::Reference(resolution) => resolution.range,
-        }
-    }
-
     fn capabilities(&self) -> TargetCapability {
         let mut capabilities = TargetCapability::DESCRIBE;
         let has_definitions = match self {
@@ -304,19 +224,17 @@ pub(crate) fn resolve_semantic_target<'tree, F>(
     file_id: FileId,
     offset: TextSize,
     root: Option<SyntaxNode<'tree>>,
-    _intent: TargetIntent,
     precedence: F,
 ) -> TargetResolution<'tree>
 where
     F: Fn(TokenKind) -> usize,
 {
     if let Some(target) = preproc_macro_target_at(db, file_id, offset) {
-        return TargetResolution::from_preproc_macro(file_id, target);
+        return TargetResolution::from_preproc_macro(target);
     }
 
     if let Some(includes) = include_target_at(db, file_id, offset) {
-        return TargetResolution::from_include(file_id, includes)
-            .unwrap_or(TargetResolution::Unresolved);
+        return TargetResolution::from_include(includes).unwrap_or(TargetResolution::Unresolved);
     }
 
     let Some(root) = root else {
@@ -424,25 +342,26 @@ mod tests {
         let parsed = sema.parse_file(file_id);
         let root = parsed.root().expect("test source should parse");
 
-        let resolution = resolve_semantic_target(
-            host.raw_db(),
-            file_id,
-            offset,
-            Some(root),
-            TargetIntent::Describe,
-            token_precedence,
-        );
-        assert!(matches!(resolution.clone().for_hover(), Some(SemanticTarget::Source(_))));
-        assert!(matches!(resolution.clone().for_rename(), Some(SemanticTarget::Source(_))));
+        let resolution =
+            resolve_semantic_target(host.raw_db(), file_id, offset, Some(root), token_precedence);
+        assert!(matches!(
+            resolution.clone().for_intent(TargetIntent::Describe),
+            Some(SemanticTarget::Source(_))
+        ));
+        assert!(matches!(
+            resolution.clone().for_intent(TargetIntent::Rename),
+            Some(SemanticTarget::Source(_))
+        ));
 
         let TargetResolution::Resolved(target) = resolution else {
             panic!("source token should resolve");
         };
 
-        assert_eq!(target.anchor.range, range);
-        assert_eq!(target.anchor.origin, TargetOrigin::Source);
-        assert_eq!(target.quality, TargetQuality::Exact);
-        assert!(target.primary.capabilities.contains(TargetCapability::DESCRIBE));
+        assert!(target.capabilities.contains(TargetCapability::DESCRIBE));
+        let SemanticTarget::Source(target) = target.target else {
+            panic!("source token should resolve as source target");
+        };
+        assert_eq!(target.range, range);
     }
 
     #[test]
@@ -485,6 +404,5 @@ mod tests {
         };
 
         assert_eq!(ambiguity.reason, TargetAmbiguityReason::PreprocHits { candidate_count: 0 });
-        assert!(ambiguity.candidates.is_empty());
     }
 }
