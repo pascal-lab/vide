@@ -103,7 +103,7 @@ fn render_references_target(
     target: TargetResolution<'_>,
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
-    match target.for_intent(TargetIntent::FindReferences)? {
+    match target.unique_for_intent(TargetIntent::FindReferences)? {
         SemanticTarget::PreprocMacro(target) => {
             render_preproc_references_target(db, file_id, target, &config)
         }

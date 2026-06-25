@@ -252,15 +252,14 @@ fn source_targets_reports_ambiguous_preproc_hits_for_conflicting_targets() {
     let second = TextRange::new(parser_range.start() + TextSize::from(1), parser_range.end());
     let hits = vec![test_source_hit(file_id, first, 0), test_source_hit(file_id, second, 1)];
 
-    let SourceTargetProviderResult::Blocked(SourceTargetBlock {
-        reason: SourceTargetBlockReason::Ambiguous { hits },
-        ..
-    }) = preproc_provider_result_from_hits(root, offset, &test_precedence, hits, parser_range)
+    let SourceTargetProviderResult::Ambiguous(alternatives) =
+        preproc_provider_result_from_hits(root, offset, &test_precedence, hits, parser_range)
     else {
-        panic!("conflicting preproc targets should be ambiguous");
+        panic!("conflicting preproc targets should produce alternatives");
     };
 
-    assert_eq!(hits.len(), 2);
+    assert_eq!(alternatives.reason, SourceTargetAmbiguity::PreprocHits { hit_count: 2 });
+    assert_eq!(alternatives.targets.len(), 2);
 }
 
 fn root_and_offset<'tree>(
@@ -343,10 +342,14 @@ fn preproc_provider_result_from_hits<'tree>(
         .first()
         .is_some_and(|first| unique_hits.iter().any(|hit| hit.origin != first.origin));
     if has_conflicting_origin {
-        return SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_ambiguous(
-            range,
-            unique_hits,
-        ));
+        let block_hits = unique_hits.clone();
+        return ambiguous_preproc_source_targets(root, offset, precedence, range, unique_hits)
+            .map(SourceTargetProviderResult::Ambiguous)
+            .unwrap_or_else(|| {
+                SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_ambiguous(
+                    range, block_hits,
+                ))
+            });
     }
     let Some(tokens) = syntax_tokens_for_preproc_hit(root, offset, precedence, &unique_hits) else {
         return SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(range));

@@ -8,8 +8,8 @@ use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use super::{
-    PreprocTokenHit, SourceTarget, SourceTargetBlock, SourceTargetProviderResult,
-    SourceTargetRequestCache, SourceTargetResolution, covering_range,
+    PreprocTokenHit, SourceTarget, SourceTargetAlternatives, SourceTargetBlock,
+    SourceTargetProviderResult, SourceTargetRequestCache, SourceTargetResolution, covering_range,
     macro_gate::source_macro_invocation_may_cover_offset, normal_syntax_source_target_at_offset,
 };
 use crate::db::root_db::RootDb;
@@ -45,7 +45,14 @@ pub(super) fn preproc_source_target_at_offset<'tree>(
             SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(range))
         }
         PreprocHitLookup::Ambiguous { range, hits } => {
-            SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_ambiguous(range, hits))
+            let block_hits = hits.clone();
+            ambiguous_preproc_source_targets(root, offset, precedence, range, hits)
+                .map(SourceTargetProviderResult::Ambiguous)
+                .unwrap_or_else(|| {
+                    SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_ambiguous(
+                        range, block_hits,
+                    ))
+                })
         }
     }
 }
@@ -126,6 +133,46 @@ fn hits_have_one_origin(hits: &[PreprocTokenHit]) -> bool {
         return false;
     };
     hits.iter().all(|hit| hit.origin == first.origin)
+}
+
+pub(super) fn ambiguous_preproc_source_targets<'tree>(
+    root: SyntaxNode<'tree>,
+    offset: TextSize,
+    precedence: &impl Fn(TokenKind) -> usize,
+    range: TextRange,
+    hits: Vec<PreprocTokenHit>,
+) -> Option<SourceTargetAlternatives<'tree>> {
+    let hit_count = hits.len();
+    let groups = group_preproc_hits_by_origin(hits);
+    if groups.len() <= 1 {
+        return None;
+    }
+
+    let mut targets = Vec::with_capacity(groups.len());
+    for group in groups {
+        let group_range =
+            covering_range(&group.iter().map(|hit| hit.source_range).collect::<Vec<_>>())
+                .unwrap_or(range);
+        let tokens = syntax_tokens_for_preproc_hit(root, offset, precedence, &group)?;
+        targets.push(SourceTarget::preproc(group_range, group, tokens));
+    }
+
+    Some(SourceTargetAlternatives::preproc_ambiguous(range, hit_count, targets))
+}
+
+fn group_preproc_hits_by_origin(hits: Vec<PreprocTokenHit>) -> Vec<Vec<PreprocTokenHit>> {
+    let mut groups: Vec<Vec<PreprocTokenHit>> = Vec::new();
+    for hit in hits {
+        if let Some(group) = groups
+            .iter_mut()
+            .find(|group| group.first().is_some_and(|candidate| candidate.origin == hit.origin))
+        {
+            group.push(hit);
+        } else {
+            groups.push(vec![hit]);
+        }
+    }
+    groups
 }
 
 pub(super) fn syntax_tokens_for_preproc_hit<'tree>(

@@ -11,8 +11,9 @@ use vfs::FileId;
 use crate::{
     db::root_db::RootDb,
     source_targets::{
-        SourceTarget, SourceTargetBlock, SourceTargetBlockReason, SourceTargetDomain,
-        SourceTargetResolution, source_target_at_offset,
+        SourceTarget, SourceTargetAlternatives, SourceTargetAmbiguity, SourceTargetBlock,
+        SourceTargetBlockReason, SourceTargetDomain, SourceTargetResolution,
+        source_target_at_offset,
     },
 };
 
@@ -51,30 +52,30 @@ bitflags::bitflags! {
 #[derive(Debug, Clone)]
 pub(crate) enum TargetResolution<'tree> {
     Resolved(TargetCandidate<'tree>),
-    Ambiguous(TargetAmbiguity),
+    Ambiguous(TargetAlternatives<'tree>),
     Blocked(TargetBlock),
     Unresolved,
 }
 
 impl<'tree> TargetResolution<'tree> {
-    pub(crate) fn for_intent(self, intent: TargetIntent) -> Option<SemanticTarget<'tree>> {
-        self.into_primary(intent.capability())
+    pub(crate) fn unique_for_intent(self, intent: TargetIntent) -> Option<SemanticTarget<'tree>> {
+        let mut targets = self.targets_for_intent(intent);
+        (targets.len() == 1).then(|| targets.pop().expect("single target should exist"))
     }
 
-    fn into_primary(self, required: TargetCapability) -> Option<SemanticTarget<'tree>> {
+    pub(crate) fn targets_for_intent(self, intent: TargetIntent) -> Vec<SemanticTarget<'tree>> {
+        let required = intent.capability();
         match self {
-            TargetResolution::Resolved(candidate) => candidate.into_target(required),
-            TargetResolution::Ambiguous(ambiguity) => {
-                let TargetAmbiguity { anchor, reason } = ambiguity;
-                let _ = (anchor, reason);
-                None
+            TargetResolution::Resolved(candidate) => {
+                candidate.into_target(required).into_iter().collect()
             }
+            TargetResolution::Ambiguous(alternatives) => alternatives.into_targets(required),
             TargetResolution::Blocked(block) => {
                 let TargetBlock { anchor, reason } = block;
                 let _ = (anchor, reason);
-                None
+                Vec::new()
             }
-            TargetResolution::Unresolved => None,
+            TargetResolution::Unresolved => Vec::new(),
         }
     }
 
@@ -87,6 +88,9 @@ impl<'tree> TargetResolution<'tree> {
                 let capabilities = source_capabilities();
                 Self::Resolved(TargetCandidate::new(SemanticTarget::Source(target), capabilities))
             }
+            SourceTargetResolution::Ambiguous(alternatives) => {
+                Self::from_source_alternatives(file_id, alternatives)
+            }
             SourceTargetResolution::Blocked(block) => {
                 let SourceTargetBlock { range, .. } = block.clone();
                 let anchor = TargetAnchor {
@@ -97,6 +101,22 @@ impl<'tree> TargetResolution<'tree> {
                 Self::from_source_block(anchor, block)
             }
         }
+    }
+
+    fn from_source_alternatives(
+        file_id: FileId,
+        alternatives: SourceTargetAlternatives<'tree>,
+    ) -> Self {
+        let SourceTargetAlternatives { domain, range, reason, targets } = alternatives;
+        let anchor =
+            TargetAnchor { file_id, range, origin: TargetOrigin::from_source_domain(domain) };
+        let reason = TargetAmbiguityReason::from_source(reason);
+        let capabilities = source_capabilities();
+        let candidates = targets
+            .into_iter()
+            .map(|target| TargetCandidate::new(SemanticTarget::Source(target), capabilities))
+            .collect();
+        Self::Ambiguous(TargetAlternatives { anchor, reason, candidates })
     }
 
     fn from_preproc_macro(target: PreprocMacroTarget) -> Self {
@@ -118,9 +138,10 @@ impl<'tree> TargetResolution<'tree> {
                 Self::Blocked(TargetBlock { anchor, reason: TargetBlockReason::PreprocUnavailable })
             }
             (SourceTargetDomain::Preproc, SourceTargetBlockReason::Ambiguous { hits }) => {
-                Self::Ambiguous(TargetAmbiguity {
+                Self::Ambiguous(TargetAlternatives {
                     anchor,
-                    reason: TargetAmbiguityReason::PreprocHits { candidate_count: hits.len() },
+                    reason: TargetAmbiguityReason::PreprocHits { hit_count: hits.len() },
+                    candidates: Vec::new(),
                 })
             }
         }
@@ -140,10 +161,14 @@ pub(crate) enum TargetOrigin {
 }
 
 impl TargetOrigin {
-    fn from_source_block(block: &SourceTargetBlock) -> Self {
-        match block.domain {
+    fn from_source_domain(domain: SourceTargetDomain) -> Self {
+        match domain {
             SourceTargetDomain::Preproc => TargetOrigin::MacroExpansion,
         }
+    }
+
+    fn from_source_block(block: &SourceTargetBlock) -> Self {
+        Self::from_source_domain(block.domain)
     }
 }
 
@@ -168,14 +193,33 @@ impl<'tree> TargetCandidate<'tree> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TargetAmbiguity {
+pub(crate) struct TargetAlternatives<'tree> {
     pub anchor: TargetAnchor,
     pub reason: TargetAmbiguityReason,
+    pub candidates: Vec<TargetCandidate<'tree>>,
+}
+
+impl<'tree> TargetAlternatives<'tree> {
+    fn into_targets(self, required: TargetCapability) -> Vec<SemanticTarget<'tree>> {
+        let Self { anchor, reason, candidates } = self;
+        let _ = (anchor, reason);
+        candidates.into_iter().filter_map(|candidate| candidate.into_target(required)).collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TargetAmbiguityReason {
-    PreprocHits { candidate_count: usize },
+    PreprocHits { hit_count: usize },
+}
+
+impl TargetAmbiguityReason {
+    fn from_source(reason: SourceTargetAmbiguity) -> Self {
+        match reason {
+            SourceTargetAmbiguity::PreprocHits { hit_count } => {
+                TargetAmbiguityReason::PreprocHits { hit_count }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -345,11 +389,11 @@ mod tests {
         let resolution =
             resolve_semantic_target(host.raw_db(), file_id, offset, Some(root), token_precedence);
         assert!(matches!(
-            resolution.clone().for_intent(TargetIntent::Describe),
+            resolution.clone().unique_for_intent(TargetIntent::Describe),
             Some(SemanticTarget::Source(_))
         ));
         assert!(matches!(
-            resolution.clone().for_intent(TargetIntent::Rename),
+            resolution.clone().unique_for_intent(TargetIntent::Rename),
             Some(SemanticTarget::Source(_))
         ));
 
@@ -403,6 +447,39 @@ mod tests {
             panic!("conflicting source target should be ambiguous");
         };
 
-        assert_eq!(ambiguity.reason, TargetAmbiguityReason::PreprocHits { candidate_count: 0 });
+        assert_eq!(ambiguity.reason, TargetAmbiguityReason::PreprocHits { hit_count: 0 });
+        assert!(ambiguity.candidates.is_empty());
+    }
+
+    #[test]
+    fn ambiguous_source_target_alternatives_project_as_candidates() {
+        let range = TextRange::new(TextSize::from(1), TextSize::from(4));
+        let target_range = TextRange::new(TextSize::from(2), TextSize::from(3));
+        let target = crate::source_targets::SourceTarget {
+            origin: crate::source_targets::SourceTargetOrigin::NormalSyntax,
+            range: target_range,
+            tokens: Vec::new(),
+        };
+        let alternatives = crate::source_targets::SourceTargetAlternatives {
+            domain: crate::source_targets::SourceTargetDomain::Preproc,
+            range,
+            reason: crate::source_targets::SourceTargetAmbiguity::PreprocHits { hit_count: 2 },
+            targets: vec![target.clone(), target],
+        };
+
+        let resolution = TargetResolution::from_source_resolution(
+            FileId(0),
+            crate::source_targets::SourceTargetResolution::Ambiguous(alternatives),
+        );
+
+        assert!(resolution.clone().unique_for_intent(TargetIntent::Describe).is_none());
+        assert_eq!(resolution.clone().targets_for_intent(TargetIntent::Describe).len(), 2);
+
+        let TargetResolution::Ambiguous(alternatives) = resolution else {
+            panic!("source alternatives should stay ambiguous");
+        };
+        assert_eq!(alternatives.anchor.range, range);
+        assert_eq!(alternatives.reason, TargetAmbiguityReason::PreprocHits { hit_count: 2 });
+        assert_eq!(alternatives.candidates.len(), 2);
     }
 }

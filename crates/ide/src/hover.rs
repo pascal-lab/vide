@@ -64,16 +64,38 @@ fn render_hover_target(
     sema: &Semantics<RootDb>,
     target: TargetResolution<'_>,
 ) -> Option<RangeInfo<Markup>> {
-    match target.for_intent(TargetIntent::Describe)? {
-        SemanticTarget::PreprocMacro(target) => {
-            render_macro_hover_target(db, file_id, offset, target)
-        }
-        SemanticTarget::Include(includes) => render_include_hover(db, includes),
-        SemanticTarget::Source(target) => {
-            let hover = hover_for_source_target(sema, file_id.into(), target)?;
-            Some(with_expanded_macro_hover(db, file_id, offset, hover))
-        }
+    let mut ranges = Vec::new();
+    let mut markups = Vec::new();
+    let mut has_source_target = false;
+
+    for target in target.targets_for_intent(TargetIntent::Describe) {
+        let hover = match target {
+            SemanticTarget::PreprocMacro(target) => {
+                render_macro_hover_target(db, file_id, offset, target)
+            }
+            SemanticTarget::Include(includes) => render_include_hover(db, includes),
+            SemanticTarget::Source(target) => {
+                has_source_target = true;
+                hover_for_source_target(sema, file_id.into(), target)
+            }
+        }?;
+        ranges.push(hover.range);
+        markups.push(hover.info);
     }
+
+    let range = covering_range(&ranges)?;
+    let hover = RangeInfo::new(range, merge_hover_results(markups)?);
+    Some(if has_source_target {
+        with_expanded_macro_hover(db, file_id, offset, hover)
+    } else {
+        hover
+    })
+}
+
+fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
+    let start = ranges.iter().map(|range| range.start()).min()?;
+    let end = ranges.iter().map(|range| range.end()).max()?;
+    Some(TextRange::new(start, end))
 }
 
 fn hover_for_source_target(

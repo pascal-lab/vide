@@ -228,7 +228,7 @@ fn resolve_rename_target(
         rename_token_precedence,
     );
     let SemanticTarget::Source(target) =
-        target.for_intent(TargetIntent::Rename).ok_or(RenameError::NoRefFound)?
+        target.unique_for_intent(TargetIntent::Rename).ok_or(RenameError::NoRefFound)?
     else {
         return Err(RenameError::NoRefFound);
     };
