@@ -30,6 +30,10 @@ use crate::{
     diagnostics,
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},
+    facts::{
+        SemanticFacts,
+        edit::{EditPlan, EditRequest},
+    },
     folding_ranges::{self, Fold, FoldingConfig},
     formatting::{self, FmtConfig},
     goto_declaration, goto_definition,
@@ -38,7 +42,7 @@ use crate::{
     markup::Markup,
     navigation_target::NavTarget,
     references::{References, ReferencesConfig},
-    rename::{self, RenameConfig, RenameResult},
+    rename::{RecursiveRenameInfo, RenameCollisionInfo, RenameConfig, RenameResult},
     selection_ranges,
     semantic_index::{self, ModuleCallEdge},
     semantic_tokens::{self, SemaToken, SemaTokenConfig},
@@ -232,7 +236,11 @@ impl Analysis {
         position: FilePosition,
         config: RenameConfig,
     ) -> Cancellable<RenameResult<TextRange>> {
-        self.with_db(|db| rename::prepare_rename(db, position, config))
+        self.with_db(|db| {
+            SemanticFacts::new(db)
+                .edit_plan(EditRequest::PrepareRename { position, config })
+                .map(EditPlan::into_prepare_rename)
+        })
     }
 
     pub fn rename(
@@ -241,15 +249,23 @@ impl Analysis {
         config: RenameConfig,
         new_name: &str,
     ) -> Cancellable<RenameResult<SourceChange>> {
-        self.with_db(|db| rename::rename(db, position, config, new_name))
+        self.with_db(|db| {
+            SemanticFacts::new(db)
+                .edit_plan(EditRequest::Rename { position, config, new_name })
+                .map(EditPlan::into_source_change)
+        })
     }
 
     pub fn rename_expansion_info(
         &self,
         position: FilePosition,
         config: RenameConfig,
-    ) -> Cancellable<RenameResult<rename::RecursiveRenameInfo>> {
-        self.with_db(|db| rename::rename_expansion_info(db, position, config))
+    ) -> Cancellable<RenameResult<RecursiveRenameInfo>> {
+        self.with_db(|db| {
+            SemanticFacts::new(db)
+                .edit_plan(EditRequest::RenameExpansionInfo { position, config })
+                .map(EditPlan::into_rename_expansion_info)
+        })
     }
 
     pub fn expanded_rename(
@@ -258,7 +274,11 @@ impl Analysis {
         config: RenameConfig,
         new_name: &str,
     ) -> Cancellable<RenameResult<SourceChange>> {
-        self.with_db(|db| rename::expanded_rename(db, position, config, new_name))
+        self.with_db(|db| {
+            SemanticFacts::new(db)
+                .edit_plan(EditRequest::ExpandedRename { position, config, new_name })
+                .map(EditPlan::into_source_change)
+        })
     }
 
     pub fn rename_conflict_info(
@@ -267,8 +287,17 @@ impl Analysis {
         config: RenameConfig,
         new_name: &str,
         recursive: bool,
-    ) -> Cancellable<RenameResult<rename::RenameCollisionInfo>> {
-        self.with_db(|db| rename::rename_conflict_info(db, position, config, new_name, recursive))
+    ) -> Cancellable<RenameResult<RenameCollisionInfo>> {
+        self.with_db(|db| {
+            SemanticFacts::new(db)
+                .edit_plan(EditRequest::RenameConflictInfo {
+                    position,
+                    config,
+                    new_name,
+                    recursive,
+                })
+                .map(EditPlan::into_rename_conflict_info)
+        })
     }
 
     pub fn format(

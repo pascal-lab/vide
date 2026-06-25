@@ -26,4 +26,11 @@ impl<'db> SemanticFacts<'db> {
     pub(crate) fn relations(&self) -> relation::RelationFacts<'db> {
         relation::RelationFacts::new(self.db)
     }
+
+    pub(crate) fn edit_plan(
+        &self,
+        request: edit::EditRequest<'_>,
+    ) -> crate::rename::RenameResult<edit::EditPlan> {
+        edit::edit_plan(self.db, request)
+    }
 }
