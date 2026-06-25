@@ -2,11 +2,7 @@ use hir::{file::HirFileId, semantics::Semantics};
 use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
-use syntax::{
-    SyntaxTokenWithParent, TokenKind,
-    has_text_range::HasTextRange,
-    token::{TokenKindExt, pair_token},
-};
+use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange, token::pair_token};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -199,12 +195,4 @@ fn search_refs<'a>(
         .collect();
     let def = def.origins().into_iter().filter_map(|def| def.to_nav(sema.db)).collect_vec().into();
     References { def, refs, status: ReferencesStatus::Complete }
-}
-
-fn token_precedence(kind: TokenKind) -> usize {
-    match kind {
-        _ if kind.name_like() => 4,
-        _ if kind.is_pair_token() => 4,
-        _ => 1,
-    }
 }
