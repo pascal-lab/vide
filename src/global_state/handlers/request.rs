@@ -20,8 +20,9 @@ pub(crate) use hints_lens::{
     handle_code_lens, handle_code_lens_resolve, handle_inlay_hint, handle_signature_help,
 };
 pub(crate) use navigation::{
-    handle_document_highlight, handle_goto_declaration, handle_goto_definition, handle_hover,
-    handle_references,
+    handle_call_hierarchy_incoming, handle_call_hierarchy_outgoing, handle_document_highlight,
+    handle_goto_declaration, handle_goto_definition, handle_goto_type_definition, handle_hover,
+    handle_prepare_call_hierarchy, handle_references,
 };
 pub(crate) use rename::{handle_prepare_rename, handle_rename};
 pub(crate) use semantic_tokens::{
