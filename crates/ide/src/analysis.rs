@@ -39,6 +39,7 @@ use crate::{
     references::{self, References, ReferencesConfig},
     rename::{self, RenameConfig, RenameResult},
     selection_ranges,
+    semantic_index::{self, ModuleCallEdge},
     semantic_tokens::{self, SemaToken, SemaTokenConfig},
     signature_help::{self, SignatureHelp, SignatureHelpConfig},
     source_change::SourceChange,
@@ -182,6 +183,22 @@ impl Analysis {
         config: ReferencesConfig,
     ) -> Cancellable<Option<Vec<References>>> {
         self.with_db(|db| references::references(db, position, config))
+    }
+
+    pub fn module_incoming_calls(
+        &self,
+        file_id: FileId,
+        name_range: TextRange,
+    ) -> Cancellable<Vec<ModuleCallEdge>> {
+        self.with_db(|db| semantic_index::incoming_module_edges(db, file_id, name_range))
+    }
+
+    pub fn module_outgoing_calls(
+        &self,
+        file_id: FileId,
+        name_range: TextRange,
+    ) -> Cancellable<Vec<ModuleCallEdge>> {
+        self.with_db(|db| semantic_index::outgoing_module_edges(db, file_id, name_range))
     }
 
     pub fn prepare_rename(
