@@ -7,7 +7,7 @@ use crate::{
     definitions::DefinitionClass,
     goto_definition,
     navigation_target::{NavTarget, ToNav},
-    semantic_target::{SemanticTarget, TargetCapability, TargetIntent, resolve_semantic_target},
+    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
 };
 
 pub(crate) fn goto_declaration(
@@ -24,8 +24,8 @@ pub(crate) fn goto_declaration(
         parsed_file.root(),
         TargetIntent::Navigate,
         goto_definition::token_precedence,
-    )?;
-    let SemanticTarget::Source(target) = target.into_target(TargetCapability::NAVIGATE)? else {
+    );
+    let SemanticTarget::Source(target) = target.for_navigation()? else {
         return None;
     };
     let (range, tokens) = target.into_parts();

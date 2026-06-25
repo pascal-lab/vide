@@ -11,7 +11,7 @@ use crate::{
         self, ReferenceCategory, ReferencesConfig,
         search::{ReferencesCtx, SearchScope},
     },
-    semantic_target::{SemanticTarget, TargetCapability, TargetIntent, resolve_semantic_target},
+    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
 };
 
 #[derive(Debug, Clone)]
@@ -40,8 +40,8 @@ pub(crate) fn document_highlight(
         parsed_file.root(),
         TargetIntent::Highlight,
         token_precedence,
-    )?;
-    let SemanticTarget::Source(target) = target.into_target(TargetCapability::HIGHLIGHT)? else {
+    );
+    let SemanticTarget::Source(target) = target.for_highlight()? else {
         return None;
     };
     let tokens = target.into_tokens();

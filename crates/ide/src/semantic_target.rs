@@ -38,22 +38,45 @@ bitflags::bitflags! {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SemanticTargetResolution<'tree> {
-    pub selection: TargetSelection,
-    pub target: Option<SemanticTarget<'tree>>,
-    #[allow(dead_code)]
-    pub alternatives: Vec<SemanticTarget<'tree>>,
-    pub status: TargetStatus,
-    pub capabilities: TargetCapability,
+pub(crate) enum TargetResolution<'tree> {
+    Resolved(TargetSet<'tree>),
+    Ambiguous(TargetAmbiguity<'tree>),
+    Blocked(TargetBlock),
+    Unresolved,
 }
 
-impl<'tree> SemanticTargetResolution<'tree> {
-    pub(crate) fn into_target(self, required: TargetCapability) -> Option<SemanticTarget<'tree>> {
-        let Self { selection: _selection, target, alternatives: _, status, capabilities } = self;
-        if status != TargetStatus::Complete || !capabilities.contains(required) {
-            return None;
+impl<'tree> TargetResolution<'tree> {
+    pub(crate) fn for_hover(self) -> Option<SemanticTarget<'tree>> {
+        self.into_primary(TargetCapability::DESCRIBE)
+    }
+
+    pub(crate) fn for_navigation(self) -> Option<SemanticTarget<'tree>> {
+        self.into_primary(TargetCapability::NAVIGATE)
+    }
+
+    pub(crate) fn for_references(self) -> Option<SemanticTarget<'tree>> {
+        self.into_primary(TargetCapability::REFERENCES)
+    }
+
+    pub(crate) fn for_highlight(self) -> Option<SemanticTarget<'tree>> {
+        self.into_primary(TargetCapability::HIGHLIGHT)
+    }
+
+    fn into_primary(self, required: TargetCapability) -> Option<SemanticTarget<'tree>> {
+        match self {
+            TargetResolution::Resolved(set) => set.into_primary(required),
+            TargetResolution::Ambiguous(ambiguity) => {
+                let TargetAmbiguity { anchor, reason, candidates } = ambiguity;
+                let _ = (anchor, reason, candidates);
+                None
+            }
+            TargetResolution::Blocked(block) => {
+                let TargetBlock { anchor, reason } = block;
+                let _ = (anchor, reason);
+                None
+            }
+            TargetResolution::Unresolved => None,
         }
-        target
     }
 
     pub(crate) fn from_source_resolution(
@@ -65,61 +88,60 @@ impl<'tree> SemanticTargetResolution<'tree> {
                 let origin = TargetOrigin::from_source_origin(&target.origin);
                 let range = target.range;
                 let capabilities = source_capabilities();
-                Self {
-                    selection: TargetSelection { file_id, range, origin },
-                    target: Some(SemanticTarget::Source(target)),
-                    alternatives: Vec::new(),
-                    status: TargetStatus::Complete,
+                Self::Resolved(TargetSet::single(
+                    TargetAnchor { file_id, range, origin },
+                    SemanticTarget::Source(target),
                     capabilities,
-                }
+                ))
             }
             SourceTargetResolution::Blocked(block) => {
                 let SourceTargetBlock { range, .. } = block.clone();
-                let status = TargetStatus::from_source_block(block.clone());
-                Self {
-                    selection: TargetSelection {
-                        file_id,
-                        range,
-                        origin: TargetOrigin::from_source_block(&block),
-                    },
-                    target: None,
-                    alternatives: Vec::new(),
-                    status,
-                    capabilities: TargetCapability::empty(),
-                }
+                let anchor = TargetAnchor {
+                    file_id,
+                    range,
+                    origin: TargetOrigin::from_source_block(&block),
+                };
+                Self::from_source_block(anchor, block)
             }
         }
     }
 
     fn from_preproc_macro(file_id: FileId, target: PreprocMacroTarget) -> Self {
         let capabilities = target.capabilities();
-        Self {
-            selection: TargetSelection {
-                file_id,
-                range: target.range(),
-                origin: TargetOrigin::PreprocMacro,
-            },
-            target: Some(SemanticTarget::PreprocMacro(target)),
-            alternatives: Vec::new(),
-            status: TargetStatus::Complete,
+        Self::Resolved(TargetSet::single(
+            TargetAnchor { file_id, range: target.range(), origin: TargetOrigin::PreprocMacro },
+            SemanticTarget::PreprocMacro(target),
             capabilities,
-        }
+        ))
     }
 
     fn from_include(file_id: FileId, includes: Vec<IncludeDirective>) -> Option<Self> {
         let range = includes.first()?.range;
-        Some(Self {
-            selection: TargetSelection { file_id, range, origin: TargetOrigin::IncludeDirective },
-            target: Some(SemanticTarget::Include(includes)),
-            alternatives: Vec::new(),
-            status: TargetStatus::Complete,
-            capabilities: TargetCapability::DESCRIBE | TargetCapability::NAVIGATE,
-        })
+        Some(Self::Resolved(TargetSet::single(
+            TargetAnchor { file_id, range, origin: TargetOrigin::IncludeDirective },
+            SemanticTarget::Include(includes),
+            TargetCapability::DESCRIBE | TargetCapability::NAVIGATE,
+        )))
+    }
+
+    fn from_source_block(anchor: TargetAnchor, block: SourceTargetBlock) -> Self {
+        match (block.domain, block.reason) {
+            (SourceTargetDomain::Preproc, SourceTargetBlockReason::Unavailable) => {
+                Self::Blocked(TargetBlock { anchor, reason: TargetBlockReason::PreprocUnavailable })
+            }
+            (SourceTargetDomain::Preproc, SourceTargetBlockReason::Ambiguous { hits }) => {
+                Self::Ambiguous(TargetAmbiguity {
+                    anchor,
+                    reason: TargetAmbiguityReason::PreprocHits { candidate_count: hits.len() },
+                    candidates: Vec::new(),
+                })
+            }
+        }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TargetSelection {
+pub(crate) struct TargetAnchor {
     pub file_id: FileId,
     pub range: TextRange,
     pub origin: TargetOrigin,
@@ -148,36 +170,90 @@ impl TargetOrigin {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TargetStatus {
-    Complete,
-    Ambiguous(TargetAmbiguity),
-    Blocked(TargetBlockReason),
+#[derive(Debug, Clone)]
+pub(crate) struct TargetSet<'tree> {
+    pub anchor: TargetAnchor,
+    pub primary: TargetCandidate<'tree>,
+    pub related: Vec<TargetCandidate<'tree>>,
+    pub quality: TargetQuality,
+}
+
+impl<'tree> TargetSet<'tree> {
+    fn single(
+        anchor: TargetAnchor,
+        target: SemanticTarget<'tree>,
+        capabilities: TargetCapability,
+    ) -> Self {
+        Self {
+            anchor,
+            primary: TargetCandidate {
+                target,
+                role: TargetRole::Primary,
+                capabilities,
+                quality: TargetQuality::Exact,
+            },
+            related: Vec::new(),
+            quality: TargetQuality::Exact,
+        }
+    }
+
+    fn into_primary(self, required: TargetCapability) -> Option<SemanticTarget<'tree>> {
+        let Self { anchor, primary, related, quality } = self;
+        let _ = (anchor, related, quality);
+        primary.into_target(required)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TargetCandidate<'tree> {
+    pub target: SemanticTarget<'tree>,
+    pub role: TargetRole,
+    pub capabilities: TargetCapability,
+    pub quality: TargetQuality,
+}
+
+impl<'tree> TargetCandidate<'tree> {
+    fn into_target(self, required: TargetCapability) -> Option<SemanticTarget<'tree>> {
+        let Self { target, role, capabilities, quality } = self;
+        let _ = (role, quality);
+        if !capabilities.contains(required) {
+            return None;
+        }
+        Some(target)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TargetRole {
+    Primary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TargetQuality {
+    Exact,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TargetAmbiguity<'tree> {
+    pub anchor: TargetAnchor,
+    pub reason: TargetAmbiguityReason,
+    pub candidates: Vec<TargetCandidate<'tree>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TargetAmbiguity {
+pub(crate) enum TargetAmbiguityReason {
     PreprocHits { candidate_count: usize },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TargetBlock {
+    pub anchor: TargetAnchor,
+    pub reason: TargetBlockReason,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TargetBlockReason {
     PreprocUnavailable,
-}
-
-impl TargetStatus {
-    fn from_source_block(block: SourceTargetBlock) -> Self {
-        match (block.domain, block.reason) {
-            (SourceTargetDomain::Preproc, SourceTargetBlockReason::Unavailable) => {
-                TargetStatus::Blocked(TargetBlockReason::PreprocUnavailable)
-            }
-            (SourceTargetDomain::Preproc, SourceTargetBlockReason::Ambiguous { hits }) => {
-                TargetStatus::Ambiguous(TargetAmbiguity::PreprocHits {
-                    candidate_count: hits.len(),
-                })
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -226,21 +302,25 @@ pub(crate) fn resolve_semantic_target<'tree, F>(
     root: Option<SyntaxNode<'tree>>,
     _intent: TargetIntent,
     precedence: F,
-) -> Option<SemanticTargetResolution<'tree>>
+) -> TargetResolution<'tree>
 where
     F: Fn(TokenKind) -> usize,
 {
     if let Some(target) = preproc_macro_target_at(db, file_id, offset) {
-        return Some(SemanticTargetResolution::from_preproc_macro(file_id, target));
+        return TargetResolution::from_preproc_macro(file_id, target);
     }
 
     if let Some(includes) = include_target_at(db, file_id, offset) {
-        return SemanticTargetResolution::from_include(file_id, includes);
+        return TargetResolution::from_include(file_id, includes)
+            .unwrap_or(TargetResolution::Unresolved);
     }
 
-    let root = root?;
+    let Some(root) = root else {
+        return TargetResolution::Unresolved;
+    };
     source_target_at_offset(db, file_id, root, offset, precedence)
-        .map(|resolution| SemanticTargetResolution::from_source_resolution(file_id, resolution))
+        .map(|resolution| TargetResolution::from_source_resolution(file_id, resolution))
+        .unwrap_or(TargetResolution::Unresolved)
 }
 
 fn preproc_macro_target_at(
@@ -340,21 +420,24 @@ mod tests {
         let parsed = sema.parse_file(file_id);
         let root = parsed.root().expect("test source should parse");
 
-        let target = resolve_semantic_target(
+        let resolution = resolve_semantic_target(
             host.raw_db(),
             file_id,
             offset,
             Some(root),
             TargetIntent::Describe,
             token_precedence,
-        )
-        .expect("source token target expected");
+        );
+        assert!(matches!(resolution.clone().for_hover(), Some(SemanticTarget::Source(_))));
 
-        assert_eq!(target.selection.range, range);
-        assert_eq!(target.selection.origin, TargetOrigin::Source);
-        assert_eq!(target.status, TargetStatus::Complete);
-        assert!(target.capabilities.contains(TargetCapability::DESCRIBE));
-        assert!(matches!(target.target, Some(SemanticTarget::Source(_))));
+        let TargetResolution::Resolved(target) = resolution else {
+            panic!("source token should resolve");
+        };
+
+        assert_eq!(target.anchor.range, range);
+        assert_eq!(target.anchor.origin, TargetOrigin::Source);
+        assert_eq!(target.quality, TargetQuality::Exact);
+        assert!(target.primary.capabilities.contains(TargetCapability::DESCRIBE));
     }
 
     #[test]
@@ -365,16 +448,18 @@ mod tests {
             reason: crate::source_targets::SourceTargetBlockReason::Unavailable,
         };
 
-        let target = SemanticTargetResolution::from_source_resolution(
+        let resolution = TargetResolution::from_source_resolution(
             FileId(0),
             crate::source_targets::SourceTargetResolution::Blocked(block.clone()),
         );
 
-        assert_eq!(target.selection.range, block.range);
-        assert_eq!(target.selection.origin, TargetOrigin::MacroExpansion);
-        assert_eq!(target.status, TargetStatus::Blocked(TargetBlockReason::PreprocUnavailable));
-        assert!(target.target.is_none());
-        assert!(target.capabilities.is_empty());
+        let TargetResolution::Blocked(target) = resolution else {
+            panic!("unavailable source target should be blocked");
+        };
+
+        assert_eq!(target.anchor.range, block.range);
+        assert_eq!(target.anchor.origin, TargetOrigin::MacroExpansion);
+        assert_eq!(target.reason, TargetBlockReason::PreprocUnavailable);
     }
 
     #[test]
@@ -385,15 +470,16 @@ mod tests {
             reason: crate::source_targets::SourceTargetBlockReason::Ambiguous { hits: Vec::new() },
         };
 
-        let target = SemanticTargetResolution::from_source_resolution(
+        let resolution = TargetResolution::from_source_resolution(
             FileId(0),
             crate::source_targets::SourceTargetResolution::Blocked(block),
         );
 
-        assert_eq!(
-            target.status,
-            TargetStatus::Ambiguous(TargetAmbiguity::PreprocHits { candidate_count: 0 })
-        );
-        assert!(target.target.is_none());
+        let TargetResolution::Ambiguous(ambiguity) = resolution else {
+            panic!("conflicting source target should be ambiguous");
+        };
+
+        assert_eq!(ambiguity.reason, TargetAmbiguityReason::PreprocHits { candidate_count: 0 });
+        assert!(ambiguity.candidates.is_empty());
     }
 }
