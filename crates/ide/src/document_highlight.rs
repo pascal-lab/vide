@@ -11,6 +11,7 @@ use crate::{
         self, ReferenceCategory, ReferencesConfig,
         search::{ReferencesCtx, SearchScope},
     },
+    semantic_target::{SemanticTarget, TargetCapability, TargetIntent, resolve_semantic_target},
 };
 
 #[derive(Debug, Clone)]
@@ -32,16 +33,18 @@ pub(crate) fn document_highlight(
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
-    let root = parsed_file.root()?;
-    let tokens = crate::source_targets::source_target_at_offset(
+    let target = resolve_semantic_target(
         db,
         file_id,
-        root,
         offset,
+        parsed_file.root(),
+        TargetIntent::Highlight,
         token_precedence,
-    )?
-    .resolved()?
-    .into_tokens();
+    )?;
+    let SemanticTarget::Source(target) = target.into_target(TargetCapability::HIGHLIGHT)? else {
+        return None;
+    };
+    let tokens = target.into_tokens();
     let highlights = tokens
         .into_iter()
         .filter_map(|token| highlight_for_token(&sema, file_id, hir_file_id, token, config.clone()))

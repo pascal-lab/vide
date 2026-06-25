@@ -1,78 +1,52 @@
 use hir::preproc::{
-    MacroDefinition, MacroParamDefinition, MacroReferenceIndexStatus, macro_definition_at,
-    macro_param_definition_at, macro_param_reference_definitions_at, macro_param_references,
-    macro_reference_definitions_at, macro_references,
+    MacroDefinition, MacroParamDefinition, MacroReferenceIndexStatus, macro_param_references,
+    macro_references,
 };
 use itertools::Itertools;
-use utils::line_index::TextSize;
 use vfs::FileId;
 
 use super::{
     ReferenceCategory, References, ReferencesConfig, ReferencesPartialReason, ReferencesStatus,
 };
-use crate::{db::root_db::RootDb, navigation_target::NavTarget};
-
-pub(super) enum PreprocReferencesTarget {
-    MacroParams(Vec<MacroParamDefinition>),
-    Macros(Vec<MacroDefinition>),
-}
-
-pub(super) fn dispatch_preproc_references_target(
-    db: &RootDb,
-    file_id: FileId,
-    offset: TextSize,
-) -> Option<PreprocReferencesTarget> {
-    if let Some(target) = dispatch_preproc_macro_param_references_target(db, file_id, offset) {
-        return Some(target);
-    }
-
-    let definitions = if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
-        vec![definition]
-    } else {
-        macro_reference_definitions_at(db, file_id, offset).ok()??.definitions
-    };
-    if definitions.is_empty() {
-        return None;
-    }
-
-    Some(PreprocReferencesTarget::Macros(definitions))
-}
-
-fn dispatch_preproc_macro_param_references_target(
-    db: &RootDb,
-    file_id: FileId,
-    offset: TextSize,
-) -> Option<PreprocReferencesTarget> {
-    let definitions =
-        if let Some(definition) = macro_param_definition_at(db, file_id, offset).ok()? {
-            vec![definition]
-        } else {
-            macro_param_reference_definitions_at(db, file_id, offset).ok()??.definitions
-        };
-    if definitions.is_empty() {
-        return None;
-    }
-
-    Some(PreprocReferencesTarget::MacroParams(definitions))
-}
+use crate::{
+    db::root_db::RootDb, navigation_target::NavTarget, semantic_target::PreprocMacroTarget,
+};
 
 pub(super) fn render_preproc_references_target(
     db: &RootDb,
     file_id: FileId,
-    target: PreprocReferencesTarget,
+    target: PreprocMacroTarget,
     config: &ReferencesConfig,
 ) -> Option<Vec<References>> {
     match target {
-        PreprocReferencesTarget::MacroParams(definitions) => definitions
-            .into_iter()
-            .map(|definition| {
-                macro_param_references_for_definition(db, file_id, definition, config)
-            })
-            .collect(),
-        PreprocReferencesTarget::Macros(definitions) => definitions
-            .into_iter()
-            .map(|definition| macro_references_for_definition(db, file_id, definition, config))
-            .collect(),
+        PreprocMacroTarget::ParamDefinition(definition) => {
+            Some(vec![macro_param_references_for_definition(db, file_id, definition, config)?])
+        }
+        PreprocMacroTarget::ParamReference(resolution) => {
+            let definitions = resolution.definitions;
+            if definitions.is_empty() {
+                return None;
+            }
+            definitions
+                .into_iter()
+                .map(|definition| {
+                    macro_param_references_for_definition(db, file_id, definition, config)
+                })
+                .collect()
+        }
+        PreprocMacroTarget::Definition(definition) => {
+            Some(vec![macro_references_for_definition(db, file_id, definition, config)?])
+        }
+        PreprocMacroTarget::Reference(resolution) => {
+            let definitions = resolution.definitions;
+            if definitions.is_empty() {
+                return None;
+            }
+            definitions
+                .into_iter()
+                .map(|definition| macro_references_for_definition(db, file_id, definition, config))
+                .collect()
+        }
     }
 }
 
