@@ -3,18 +3,14 @@ use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use syntax::{
-    SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,
+    SyntaxAncestors, SyntaxTokenWithParent, TokenKind,
     ast::{self, AstNode, Expression, Name},
     has_text_range::{HasTextRange, HasTextRangeIn},
     match_ast,
     token::TokenKindExt,
 };
 use thiserror::Error;
-use utils::{
-    line_index::{TextRange, TextSize},
-    text_edit::TextEdit,
-    uniq_vec::UniqVec,
-};
+use utils::{line_index::TextRange, text_edit::TextEdit, uniq_vec::UniqVec};
 use vfs::FileId;
 
 use crate::{
@@ -25,6 +21,7 @@ use crate::{
         ReferencesConfig,
         search::{ReferenceToken, ReferencesCtx, SearchScope},
     },
+    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
     source_change::SourceChange,
 };
 
@@ -106,8 +103,18 @@ pub(crate) fn prepare_rename(
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
-    let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
-    let token = pick_token(root, offset)?;
+    let target = resolve_semantic_target(
+        db,
+        file_id,
+        offset,
+        parsed_file.root(),
+        TargetIntent::Rename,
+        rename_token_precedence,
+    );
+    let SemanticTarget::Source(target) = target.for_rename().ok_or(RenameError::NoRefFound)? else {
+        return Err(RenameError::NoRefFound);
+    };
+    let token = target.into_tokens().into_iter().next().ok_or(RenameError::NoRefFound)?;
     let text_range = token.text_range().ok_or(RenameError::NoRefFound)?;
     let def =
         match DefinitionClass::resolve(&sema, hir_file_id, token).ok_or(RenameError::NoDefFound)? {
@@ -231,8 +238,18 @@ fn resolve_rename_target(
     FilePosition { file_id, offset }: FilePosition,
 ) -> RenameResult<ResolvedRenameTarget> {
     let parsed_file = sema.parse_file(file_id);
-    let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
-    let token = pick_token(root, offset)?;
+    let target = resolve_semantic_target(
+        sema.db,
+        file_id,
+        offset,
+        parsed_file.root(),
+        TargetIntent::Rename,
+        rename_token_precedence,
+    );
+    let SemanticTarget::Source(target) = target.for_rename().ok_or(RenameError::NoRefFound)? else {
+        return Err(RenameError::NoRefFound);
+    };
+    let token = target.into_tokens().into_iter().next().ok_or(RenameError::NoRefFound)?;
     let mut targets = UniqVec::<Definition, DefinitionOrigin>::default();
     let selected_def = match DefinitionClass::resolve(sema, file_id.into(), token)
         .ok_or(RenameError::NoDefFound)?
@@ -572,8 +589,6 @@ fn edits_from_refs(
     (file_id, text_edit.finish())
 }
 
-fn pick_token(node: SyntaxNode, offset: TextSize) -> RenameResult<SyntaxTokenWithParent> {
-    node.token_at_offset(offset)
-        .pick_bext_token(|kind| kind.name_like().into())
-        .ok_or(RenameError::NoRefFound)
+fn rename_token_precedence(kind: TokenKind) -> usize {
+    usize::from(kind.name_like())
 }

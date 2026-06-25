@@ -62,6 +62,10 @@ impl<'tree> TargetResolution<'tree> {
         self.into_primary(TargetCapability::HIGHLIGHT)
     }
 
+    pub(crate) fn for_rename(self) -> Option<SemanticTarget<'tree>> {
+        self.into_primary(TargetCapability::RENAME)
+    }
+
     fn into_primary(self, required: TargetCapability) -> Option<SemanticTarget<'tree>> {
         match self {
             TargetResolution::Resolved(set) => set.into_primary(required),
@@ -429,6 +433,7 @@ mod tests {
             token_precedence,
         );
         assert!(matches!(resolution.clone().for_hover(), Some(SemanticTarget::Source(_))));
+        assert!(matches!(resolution.clone().for_rename(), Some(SemanticTarget::Source(_))));
 
         let TargetResolution::Resolved(target) = resolution else {
             panic!("source token should resolve");
