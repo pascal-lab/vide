@@ -1,33 +1,26 @@
-use std::cell::LazyCell;
-
 use hir::{
-    base_db::{intern::Lookup, salsa::Database, source_db::SourceDb},
+    base_db::{
+        intern::Lookup,
+        salsa::Database,
+        source_db::{SourceDb, SourceRootDb},
+        source_root::SourceRootId,
+    },
     container::{ContainerId, InFile},
     semantics::Semantics,
     source_map::IsSrc,
 };
-use itertools::Itertools;
-use memchr::memmem::Finder;
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
-use smallvec::SmallVec;
-use syntax::{
-    SyntaxNode, SyntaxTokenWithParent, has_text_range::HasTextRange, ptr::SyntaxTokenPtr,
-    token::TokenKindExt,
-};
-use triomphe::Arc;
-use utils::{
-    get::Get,
-    line_index::{TextRange, TextSize},
-};
+use syntax::{SyntaxTokenWithParent, ptr::SyntaxTokenPtr};
+use utils::{get::Get, line_index::TextRange};
 use vfs::FileId;
 
 use super::{ReferenceCategory, ReferencesConfig};
 use crate::{
     ScopeVisibility,
-    db::root_db::RootDb,
-    definitions::{Definition, DefinitionClass},
-    source_targets::SourceTargetRequestCache,
+    db::{root_db::RootDb, workspace_symbol_index_db::source_root_semantic_index_for_root},
+    definitions::Definition,
+    semantic_index::SemanticReference,
 };
 
 /// A search scope is a set of files and ranges within those files that should
@@ -136,6 +129,20 @@ impl SearchScope {
     pub(crate) fn range_for_file(&self, file_id: FileId) -> Option<Option<TextRange>> {
         self.0.get(&file_id).copied()
     }
+
+    pub(crate) fn contains(&self, file_id: FileId, range: TextRange) -> bool {
+        self.range_for_file(file_id).is_some_and(|file_range| {
+            file_range.is_none_or(|file_range| file_range.intersect(range).is_some())
+        })
+    }
+
+    fn source_root_ids(&self, db: &RootDb) -> Vec<SourceRootId> {
+        let mut root_ids =
+            self.0.keys().map(|file_id| db.source_root_id(*file_id)).collect::<Vec<_>>();
+        root_ids.sort_unstable();
+        root_ids.dedup();
+        root_ids
+    }
 }
 
 pub(crate) struct ReferencesCtx<'a, 'b> {
@@ -147,19 +154,17 @@ pub(crate) struct ReferencesCtx<'a, 'b> {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ReferenceToken {
     ptr: SyntaxTokenPtr,
+    range: TextRange,
     category: ReferenceCategory,
 }
 
 impl ReferenceToken {
-    pub fn new(token: SyntaxTokenWithParent) -> Self {
-        Self {
-            ptr: SyntaxTokenPtr::from_token(token),
-            category: ReferenceCategory::from_tok(token),
-        }
+    pub(crate) fn from_semantic_reference(reference: &SemanticReference) -> Self {
+        Self { ptr: reference.ptr, range: reference.range, category: reference.category }
     }
 
     pub fn range(&self) -> TextRange {
-        self.ptr.range()
+        self.range
     }
 
     pub fn category(&self) -> ReferenceCategory {
@@ -184,142 +189,26 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
     }
 
     pub(crate) fn search(&self) -> IntMap<FileId, Vec<ReferenceToken>> {
-        let sema = self.sema;
-        let db = sema.db;
+        let db = self.sema.db;
         let mut res: IntMap<_, Vec<_>> = IntMap::default();
 
-        let Some(name) = self.def.origins().into_iter().find_map(|def| def.name(db)) else {
-            return res;
-        };
-        debug_assert! {{
-            let names = self
-                .def
-                .origins()
-                .into_iter()
-                .filter_map(|def| def.name(sema.db))
-                .collect_vec();
-            !names.is_empty() && names.iter().all(|namei| namei == &name)
-        }};
-
-        let def_ranges: SmallVec<[_; 6]> =
-            self.def.origins().into_iter().filter_map(|def| def.name_range(db)).collect();
-
-        let finder = &Finder::new(&name);
-        let mut source_target_cache = SourceTargetRequestCache::default();
-        for (text, file_id, range) in self.scope_files() {
+        for source_root_id in self.scope.source_root_ids(db) {
             self.sema.db.unwind_if_cancelled();
+            let index = source_root_semantic_index_for_root(db, source_root_id);
+            let Some(group) = index.references_for_definition(self.def) else {
+                continue;
+            };
 
-            let parsed_file = LazyCell::new(|| sema.parse_file(file_id));
-            Self::match_text(&text, finder, range)
-                .flat_map(|offset| {
-                    let Some(root) = (*parsed_file).root() else {
-                        return Vec::new();
-                    };
-                    Self::filter_tokens(
-                        sema.db,
-                        root,
-                        file_id,
-                        &def_ranges,
-                        offset,
-                        &mut source_target_cache,
-                    )
-                })
-                .filter(|tp| self.classify_and_filter(sema, file_id.into(), tp))
-                .for_each(|token| {
-                    res.entry(file_id)
-                        .or_insert_with(|| Vec::with_capacity(Self::FILE_REF_CAPACITY))
-                        .push(ReferenceToken::new(token))
-                });
+            for reference in group.references.iter() {
+                if !self.scope.contains(reference.file_id, reference.range) {
+                    continue;
+                }
+                res.entry(reference.file_id)
+                    .or_insert_with(|| Vec::with_capacity(Self::FILE_REF_CAPACITY))
+                    .push(ReferenceToken::from_semantic_reference(reference));
+            }
         }
 
         res
-    }
-
-    fn scope_files(&self) -> impl Iterator<Item = (Arc<str>, FileId, TextRange)> + '_ {
-        self.scope.0.iter().map(|(file_id, range)| {
-            let text = self.sema.db.file_text(*file_id);
-            let range = range.unwrap_or_else(|| TextRange::up_to(TextSize::of(&*text)));
-            (text, *file_id, range)
-        })
-    }
-
-    fn match_text<'c>(
-        text: &'c str,
-        finder: &'c Finder,
-        search_range: TextRange,
-    ) -> impl Iterator<Item = TextSize> + 'c {
-        finder.find_iter(text.as_bytes()).filter_map(move |idx| {
-            let offset = TextSize::from(idx as u32);
-            if !search_range.contains_inclusive(offset) {
-                return None;
-            }
-
-            // If this is not a word boundary, that means this is only part of an ident.
-            if text[..idx].chars().next_back().is_some_and(|ch| ch.is_alphabetic() || ch == '_')
-                || text[idx + finder.needle().len()..]
-                    .chars()
-                    .next()
-                    .is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
-            {
-                return None;
-            }
-
-            Some(offset)
-        })
-    }
-
-    fn filter_tokens<'tree>(
-        db: &RootDb,
-        node: SyntaxNode<'tree>,
-        file_id: FileId,
-        names: &[InFile<TextRange>],
-        offset: TextSize,
-        source_target_cache: &mut SourceTargetRequestCache,
-    ) -> Vec<SyntaxTokenWithParent<'tree>> {
-        let Some(target) = crate::source_targets::source_target_at_offset_with_cache(
-            db,
-            file_id,
-            node,
-            offset,
-            super::token_precedence,
-            source_target_cache,
-        )
-        .and_then(|resolution| resolution.resolved()) else {
-            return Vec::new();
-        };
-
-        target
-            .into_tokens()
-            .into_iter()
-            .filter(|tok| tok.kind().name_like())
-            .filter(|tok| {
-                let Some(tok_range) = tok.text_range() else {
-                    return false;
-                };
-
-                !names.iter().any(|InFile { value: range, file_id: name_file_id }| {
-                    tok_range == *range && *name_file_id == file_id.into()
-                })
-            })
-            .collect()
-    }
-
-    fn classify_and_filter<'tree>(
-        &self,
-        sema: &Semantics<'_, RootDb>,
-        file_id: hir::file::HirFileId,
-        tp: &SyntaxTokenWithParent<'tree>,
-    ) -> bool {
-        let Some(def) = DefinitionClass::resolve(sema, file_id, *tp) else {
-            return false;
-        };
-
-        match def {
-            DefinitionClass::Definition(def) => def == *self.def,
-            DefinitionClass::PortConnShorthand { local, port } => {
-                local == *self.def || port == *self.def
-            }
-            DefinitionClass::Ambiguous(_) => false,
-        }
     }
 }

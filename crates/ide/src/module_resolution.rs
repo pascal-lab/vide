@@ -1,7 +1,10 @@
 use std::cmp::Ordering;
 
 use hir::{
-    base_db::{source_db::SourceRootDb, source_root::SourceRootRole},
+    base_db::{
+        source_db::{SourceDb, SourceRootDb},
+        source_root::SourceRootRole,
+    },
     container::InModule,
     db::HirDb,
     hir_def::{
@@ -11,7 +14,7 @@ use hir::{
         lower_ident_opt,
         module::{ModuleId, instantiation::Instantiation},
     },
-    scope::{ModuleEntry, ScopeResolution},
+    scope::ModuleEntry,
     semantics::pathres::PathResolution,
 };
 use syntax::{
@@ -21,7 +24,7 @@ use syntax::{
 use utils::get::GetRef;
 use vfs::{FileId, VfsPath};
 
-use crate::db::root_db::RootDb;
+use crate::db::{root_db::RootDb, workspace_symbol_index_db::source_root_module_index_for_root};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ModuleResolution {
@@ -154,13 +157,34 @@ fn resolve_module_name_with_policy(
     name: &Ident,
     policy: ModuleResolutionPolicy,
 ) -> ModuleResolution {
-    match db.unit_scope().resolve_module(name) {
-        ScopeResolution::Unique(module_id) => ModuleResolution::Unique(module_id),
-        ScopeResolution::Unresolved => ModuleResolution::Unresolved,
-        ScopeResolution::Ambiguous(candidates) => {
-            policy.resolve_ambiguous(db, candidates.into_vec())
-        }
+    let candidates = module_candidates(db, name);
+    match candidates.as_slice() {
+        [module_id] => ModuleResolution::Unique(*module_id),
+        [] => ModuleResolution::Unresolved,
+        _ => policy.resolve_ambiguous(db, candidates),
     }
+}
+
+fn module_candidates(db: &RootDb, name: &Ident) -> Vec<ModuleId> {
+    let mut source_root_ids =
+        db.files().iter().map(|&file_id| db.source_root_id(file_id)).collect::<Vec<_>>();
+    source_root_ids.sort_unstable();
+    source_root_ids.dedup();
+
+    let mut candidates = Vec::new();
+    for source_root_id in source_root_ids {
+        let module_index = source_root_module_index_for_root(db, source_root_id);
+        candidates.extend(
+            module_index
+                .module_definitions(name)
+                .iter()
+                .map(|module| (module.file_id, module.name_range.start(), module.module_id)),
+        );
+    }
+
+    candidates.sort_by_key(|(file_id, name_start, _)| (file_id.0, *name_start));
+    candidates.dedup_by_key(|(_, _, module_id)| *module_id);
+    candidates.into_iter().map(|(_, _, module_id)| module_id).collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
