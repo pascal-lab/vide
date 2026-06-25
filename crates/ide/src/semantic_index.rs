@@ -29,9 +29,9 @@ use crate::{
         },
     },
     definitions::{Definition, DefinitionClass, DefinitionOrigin},
+    facts::target::{SemanticTarget, TargetIntent, resolve_semantic_target},
     module_resolution::resolve_hir_instantiation_target,
     references::ReferenceCategory,
-    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
