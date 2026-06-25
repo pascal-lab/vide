@@ -28,7 +28,7 @@ use utils::{
 use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
 use crate::{
-    FilePosition, ScopeVisibility,
+    FilePosition, FileRange, ScopeVisibility,
     analysis_host::AnalysisHost,
     completion::{CompletionItem, CompletionItemKind, context::TriggerChar},
     db::root_db::RootDb,
@@ -36,6 +36,7 @@ use crate::{
     document_symbols::DocumentSymbol,
     facts::{
         SemanticFacts,
+        edit::{EditPlan, EditRequest},
         relation::{RelationKind, RelationQuery},
     },
     folding_ranges::FoldingConfig,
@@ -1059,6 +1060,54 @@ endmodule
             relation.target == leaf.id && relation.range.range.start() == markers["leaf_ref"]
         }),
         "workspace relations should include an instantiation of leaf: {set:?}"
+    );
+}
+
+#[test]
+fn semantic_facts_edit_plan_models_rename_symbols_and_ranges() {
+    let text = r#"
+module top;
+  logic /*marker:def*/sig;
+  assign /*marker:ref*/sig = 1'b0;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let facts = SemanticFacts::new(host.raw_db());
+    let plan = facts
+        .edit_plan(EditRequest::Rename {
+            position: position(file_id, &markers, "ref"),
+            config: RenameConfig::workspace(ScopeVisibility::Public),
+            new_name: "renamed_sig",
+        })
+        .expect("rename edit plan expected");
+    let EditPlan::Rename(plan) = plan else {
+        panic!("rename request should produce a rename edit plan");
+    };
+    let definition_range =
+        FileRange { file_id, range: marked_range(&markers, "def", TextSize::of("sig")) };
+    let reference_range =
+        FileRange { file_id, range: marked_range(&markers, "ref", TextSize::of("sig")) };
+
+    assert!(!plan.recursive);
+    assert_eq!(plan.new_name, "renamed_sig");
+    assert!(!plan.target.selected_symbols.is_empty());
+    assert!(
+        plan.target
+            .selected_symbols
+            .iter()
+            .all(|symbol| plan.target.related_symbols.contains(symbol)),
+        "selected symbols should be part of the related rename target set: {plan:?}"
+    );
+    assert!(
+        plan.symbols.iter().any(|symbol| {
+            symbol.symbol.definition_ranges.contains(&definition_range)
+                && symbol.symbol.reference_ranges.contains(&reference_range)
+        }),
+        "rename plan should expose definition and reference ranges: {plan:?}"
+    );
+    assert!(
+        plan.change.text_edits.get(&file_id).is_some(),
+        "rename plan should carry final source edits: {plan:?}"
     );
 }
 

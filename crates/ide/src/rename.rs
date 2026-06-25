@@ -1,7 +1,6 @@
 use hir::{base_db::source_db::SourceDb, container::InFile, semantics::Semantics};
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
-use smol_str::SmolStr;
 use syntax::{
     SyntaxAncestors, SyntaxTokenWithParent,
     ast::{self, AstNode, Expression, Name},
@@ -51,7 +50,7 @@ impl RenameConfig {
         self
     }
 
-    fn references_config(
+    pub(crate) fn references_config(
         &self,
         db: &RootDb,
         def: &Definition,
@@ -97,126 +96,21 @@ pub struct RenameCollisionInfo {
     pub conflicts: usize,
 }
 
-pub(crate) fn prepare_rename(
-    db: &RootDb,
-    position @ FilePosition { file_id, .. }: FilePosition,
-    config: RenameConfig,
-) -> RenameResult<TextRange> {
-    let sema = Semantics::new(db);
-    let target = resolve_rename_target(&sema, position)?;
-    let _ = config.references_config(db, &target.selected_def, file_id)?;
-    Ok(target.range)
+pub(crate) struct ResolvedRenameTarget {
+    pub(crate) range: TextRange,
+    pub(crate) selected_def: Definition,
+    pub(crate) targets: Vec<Definition>,
 }
 
-pub(crate) fn rename(
-    db: &RootDb,
-    position @ FilePosition { file_id, .. }: FilePosition,
-    config: RenameConfig,
-    new_name: &str,
-) -> RenameResult<SourceChange> {
-    let sema = Semantics::new(db);
-    let ResolvedRenameTarget { selected_def, .. } = resolve_rename_target(&sema, position)?;
-    rename_definition(db, &sema, file_id, &config, &selected_def, new_name, None)
+pub(crate) type ReferenceSearchResult = IntMap<FileId, Vec<ReferenceToken>>;
+
+pub(crate) struct RecursiveRenameTarget {
+    pub(crate) def: Definition,
+    pub(crate) refs: ReferenceSearchResult,
+    pub(crate) same_name_refs: Vec<SameNameConnectionRef>,
 }
 
-pub(crate) fn rename_expansion_info(
-    db: &RootDb,
-    position: FilePosition,
-    config: RenameConfig,
-) -> RenameResult<RecursiveRenameInfo> {
-    let sema = Semantics::new(db);
-    let resolved = resolve_rename_target(&sema, position)?;
-    let targets = recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?;
-    let additional_symbols = targets.len().saturating_sub(1);
-    Ok(RecursiveRenameInfo { additional_symbols })
-}
-
-pub(crate) fn expanded_rename(
-    db: &RootDb,
-    position: FilePosition,
-    config: RenameConfig,
-    new_name: &str,
-) -> RenameResult<SourceChange> {
-    let sema = Semantics::new(db);
-    let resolved = resolve_rename_target(&sema, position)?;
-    let targets = recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?;
-    let mut rename_targets = UniqVec::<(), DefinitionOrigin>::default();
-    for target in &targets {
-        rename_targets.push(target.def.origins(), ());
-    }
-    let mut source_changes = SourceChange::default();
-
-    for target in &targets {
-        let changes = rename_definition_with_refs(
-            db,
-            &sema,
-            &target.def,
-            new_name,
-            Some(&rename_targets),
-            &target.refs,
-            &target.same_name_refs,
-        )?;
-        for (file_id, edit) in changes.text_edits {
-            source_changes
-                .insert_text_edit(file_id, edit)
-                .map_err(|_| RenameError::OverlappingEdits)?;
-        }
-    }
-
-    Ok(source_changes)
-}
-
-pub(crate) fn rename_conflict_info(
-    db: &RootDb,
-    position: FilePosition,
-    config: RenameConfig,
-    new_name: &str,
-    recursive: bool,
-) -> RenameResult<RenameCollisionInfo> {
-    let sema = Semantics::new(db);
-    let resolved = resolve_rename_target(&sema, position)?;
-    let targets: Vec<Definition> = if recursive {
-        recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?
-            .into_iter()
-            .map(|target| target.def)
-            .collect()
-    } else {
-        vec![resolved.selected_def]
-    };
-
-    let new_name = SmolStr::new(new_name);
-    let mut target_index = UniqVec::<(), DefinitionOrigin>::default();
-    for target in &targets {
-        target_index.push(target.origins(), ());
-    }
-    let mut conflicts = UniqVec::<Definition, DefinitionOrigin>::default();
-    for collision in targets.iter().flat_map(|target| target.origins()).filter_map(|origin| {
-        sema.resolve_name(origin.container_id(db), &new_name).map(Definition::from)
-    }) {
-        if collision.origins().iter().any(|origin| target_index.contains(origin)) {
-            continue;
-        }
-        conflicts.push(collision.origins(), collision);
-    }
-
-    Ok(RenameCollisionInfo { conflicts: conflicts.len() })
-}
-
-struct ResolvedRenameTarget {
-    range: TextRange,
-    selected_def: Definition,
-    targets: Vec<Definition>,
-}
-
-type ReferenceSearchResult = IntMap<FileId, Vec<ReferenceToken>>;
-
-struct RecursiveRenameTarget {
-    def: Definition,
-    refs: ReferenceSearchResult,
-    same_name_refs: Vec<SameNameConnectionRef>,
-}
-
-fn resolve_rename_target(
+pub(crate) fn resolve_rename_target(
     sema: &Semantics<'_, RootDb>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> RenameResult<ResolvedRenameTarget> {
@@ -267,33 +161,20 @@ fn resolve_rename_target(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SameNameConnection {
+pub(crate) struct SameNameConnection {
     port: Definition,
     local: Definition,
     collapse_range: TextRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SameNameConnectionRef {
-    file_id: FileId,
-    range: TextRange,
-    conn: SameNameConnection,
+pub(crate) struct SameNameConnectionRef {
+    pub(crate) file_id: FileId,
+    pub(crate) range: TextRange,
+    pub(crate) conn: SameNameConnection,
 }
 
-fn rename_definition(
-    db: &RootDb,
-    sema: &Semantics<'_, RootDb>,
-    request_file_id: FileId,
-    config: &RenameConfig,
-    def: &Definition,
-    new_name: &str,
-    rename_targets: Option<&UniqVec<(), DefinitionOrigin>>,
-) -> RenameResult<SourceChange> {
-    let refs = references_for_definition(db, sema, request_file_id, config, def)?;
-    rename_definition_with_refs(db, sema, def, new_name, rename_targets, &refs, &[])
-}
-
-fn references_for_definition(
+pub(crate) fn references_for_definition(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
     request_file_id: FileId,
@@ -304,7 +185,7 @@ fn references_for_definition(
     Ok(ReferencesCtx::new(sema, def, refs_config).search())
 }
 
-fn rename_definition_with_refs(
+pub(crate) fn rename_definition_with_refs(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
     def: &Definition,
@@ -354,7 +235,7 @@ fn rename_definition_with_refs(
     Ok(source_changes)
 }
 
-fn recursive_rename_targets(
+pub(crate) fn recursive_rename_targets(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
     file_id: FileId,
