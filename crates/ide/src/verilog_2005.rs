@@ -188,6 +188,32 @@ fn setup_marked_with_path(
     (host, file_id, text, markers)
 }
 
+type MarkedFile = (FileId, String, HashMap<String, TextSize>);
+
+fn setup_marked_files(files: &[(&str, &str)]) -> (AnalysisHost, Vec<MarkedFile>) {
+    let mut file_set = FileSet::default();
+    let mut change = Change::new();
+    let mut marked_files = Vec::new();
+
+    for (idx, (path, text)) in files.iter().enumerate() {
+        let file_id = FileId(idx as u32);
+        let text = normalize_fixture_text(text);
+        let (text, markers) = strip_markers(text);
+        file_set.insert(file_id, VfsPath::new_virtual_path((*path).to_owned()));
+        change.add_changed_file(ChangedFile {
+            file_id,
+            change_kind: ChangeKind::Create(Arc::from(text.as_str()), LineEnding::Unix),
+        });
+        marked_files.push((file_id, text, markers));
+    }
+
+    change.set_roots(vec![SourceRoot::new_local(file_set)]);
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+    (host, marked_files)
+}
+
 fn setup_marked_with_predefines(
     text: &str,
     predefines: Vec<String>,
@@ -2799,6 +2825,151 @@ endmodule
         nav.info.iter().any(|target| target.name.as_deref() == Some("mux2X1")),
         "module reference should still resolve to the declaration: {nav:?}"
     );
+}
+
+#[test]
+fn semantic_index_groups_modules_and_references_by_definition() {
+    let (host, files) = setup_marked_files(&[
+        (
+            "/a.sv",
+            r#"
+module /*marker:a_module_def*/mod_a;
+  wire /*marker:a_shared_def*/shared;
+  assign y = /*marker:a_shared_ref*/shared;
+endmodule
+"#,
+        ),
+        (
+            "/b.sv",
+            r#"
+module /*marker:b_module_def*/mod_b;
+  wire /*marker:b_shared_def*/shared;
+  assign y = /*marker:b_shared_ref*/shared;
+endmodule
+"#,
+        ),
+    ]);
+    let [(file_a, _text_a, markers_a), (file_b, _text_b, markers_b)] = files.as_slice() else {
+        panic!("expected two fixture files");
+    };
+
+    let module_index = crate::db::workspace_symbol_index_db::source_root_module_index_for_root(
+        host.raw_db(),
+        SourceRootId(0),
+    );
+    let index = crate::db::workspace_symbol_index_db::source_root_semantic_index_for_root(
+        host.raw_db(),
+        SourceRootId(0),
+    );
+
+    let modules = module_index.module_definitions(&"mod_a".into());
+    assert_eq!(modules.len(), 1, "module index should contain mod_a exactly once");
+    assert_eq!(modules[0].file_id, *file_a);
+    assert_eq!(modules[0].name_range, marked_range(markers_a, "a_module_def", 5));
+
+    let groups = index.reference_groups_named("shared");
+    assert_eq!(groups.len(), 2, "same-name definitions should be separate reference groups");
+
+    let a_def = marked_range(markers_a, "a_shared_def", 6);
+    let a_ref = marked_range(markers_a, "a_shared_ref", 6);
+    let group_a = groups
+        .iter()
+        .find(|group| {
+            group
+                .definition_ranges
+                .iter()
+                .any(|range| range.file_id == *file_a && range.range == a_def)
+        })
+        .expect("shared definition in a.sv should have a reference group");
+    let refs_a = group_a
+        .references
+        .iter()
+        .map(|reference| (reference.file_id, reference.range))
+        .collect::<Vec<_>>();
+    assert_eq!(refs_a, vec![(*file_a, a_ref)]);
+
+    let b_def = marked_range(markers_b, "b_shared_def", 6);
+    let b_ref = marked_range(markers_b, "b_shared_ref", 6);
+    let group_b = groups
+        .iter()
+        .find(|group| {
+            group
+                .definition_ranges
+                .iter()
+                .any(|range| range.file_id == *file_b && range.range == b_def)
+        })
+        .expect("shared definition in b.sv should have a reference group");
+    let refs_b = group_b
+        .references
+        .iter()
+        .map(|reference| (reference.file_id, reference.range))
+        .collect::<Vec<_>>();
+    assert_eq!(refs_b, vec![(*file_b, b_ref)]);
+}
+
+#[test]
+fn semantic_index_records_module_instantiation_edges() {
+    let (host, files) = setup_marked_files(&[
+        (
+            "/top.sv",
+            r#"
+module /*marker:top_def*/top;
+  /*marker:child_call*/child u_child();
+endmodule
+"#,
+        ),
+        (
+            "/child.sv",
+            r#"
+module /*marker:child_def*/child;
+  /*marker:leaf_call*/leaf u_leaf();
+endmodule
+"#,
+        ),
+        (
+            "/leaf.sv",
+            r#"
+module /*marker:leaf_def*/leaf;
+endmodule
+"#,
+        ),
+    ]);
+    let [
+        (top_file, _top_text, top_markers),
+        (child_file, _child_text, child_markers),
+        (leaf_file, _leaf_text, leaf_markers),
+    ] = files.as_slice()
+    else {
+        panic!("expected three fixture files");
+    };
+
+    let top_def = marked_range(top_markers, "top_def", 3);
+    let child_def = marked_range(child_markers, "child_def", 5);
+    let leaf_def = marked_range(leaf_markers, "leaf_def", 4);
+    let child_call = marked_range(top_markers, "child_call", 5);
+    let leaf_call = marked_range(child_markers, "leaf_call", 4);
+
+    let top_outgoing =
+        crate::semantic_index::outgoing_module_edges(host.raw_db(), *top_file, top_def);
+    assert_eq!(top_outgoing.len(), 1);
+    assert_eq!(top_outgoing[0].caller.file_id, *top_file);
+    assert_eq!(top_outgoing[0].caller.name_range, top_def);
+    assert_eq!(top_outgoing[0].callee.file_id, *child_file);
+    assert_eq!(top_outgoing[0].callee.name_range, child_def);
+    assert_eq!(top_outgoing[0].call_range, child_call);
+
+    let child_outgoing =
+        crate::semantic_index::outgoing_module_edges(host.raw_db(), *child_file, child_def);
+    assert_eq!(child_outgoing.len(), 1);
+    assert_eq!(child_outgoing[0].callee.file_id, *leaf_file);
+    assert_eq!(child_outgoing[0].callee.name_range, leaf_def);
+    assert_eq!(child_outgoing[0].call_range, leaf_call);
+
+    let child_incoming =
+        crate::semantic_index::incoming_module_edges(host.raw_db(), *child_file, child_def);
+    assert_eq!(child_incoming.len(), 1);
+    assert_eq!(child_incoming[0].caller.file_id, *top_file);
+    assert_eq!(child_incoming[0].call_range, child_call);
 }
 
 #[test]
