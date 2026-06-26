@@ -3,11 +3,16 @@ use triomphe::Arc;
 
 use crate::{
     base_db::{salsa, source_db::SourceRootDb},
+    container::{InContainer, InSubroutine},
     def_id::{ModuleDef, ModuleDefId},
     file::HirFileId,
     hir_def::{
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
-        expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
+        expr::{
+            ExprId,
+            data_ty::{BuiltinDataTy, BuiltinDataTyId},
+            declarator::DeclId,
+        },
         file::{self, FileSourceMap, HirFile},
         macro_file::{self, ExpansionInfo, MacroCallId, MacroCallLoc, MacroFileId, MacroFileLoc},
         module::{
@@ -16,10 +21,15 @@ use crate::{
                 self, GenerateBlock, GenerateBlockId, GenerateBlockLoc, GenerateBlockSourceMap,
             },
         },
-        subroutine::{self, Subroutine, SubroutineId, SubroutineLoc, SubroutineSourceMap},
+        subroutine::{
+            self, Subroutine, SubroutineId, SubroutineLoc, SubroutinePortId, SubroutineSourceMap,
+        },
+        typedef::TypedefId,
     },
     impl_intern_key, impl_intern_lookup,
     scope::{BlockScope, GenerateBlockScope, ModuleScope, SubroutineScope, UnitScope},
+    semantics::pathres::PathResolution,
+    type_infer::TyResult,
 };
 
 pub(crate) macro impl_intern($id:ident, $loc:ident, $intern:ident, $lookup:ident) {
@@ -120,6 +130,21 @@ pub trait HirDb: InternDb {
 
     #[salsa::invoke(SubroutineScope::subroutine_scope_query)]
     fn subroutine_scope(&self, subroutine_id: SubroutineId) -> Arc<SubroutineScope>;
+
+    #[salsa::invoke(crate::type_infer::type_of_decl_query)]
+    fn type_of_decl(&self, decl: InContainer<DeclId>) -> Arc<TyResult>;
+
+    #[salsa::invoke(crate::type_infer::type_of_typedef_query)]
+    fn type_of_typedef(&self, typedef: InContainer<TypedefId>) -> Arc<TyResult>;
+
+    #[salsa::invoke(crate::type_infer::type_of_expr_query)]
+    fn type_of_expr(&self, expr: InContainer<ExprId>) -> Arc<TyResult>;
+
+    #[salsa::invoke(crate::type_infer::type_of_path_resolution_query)]
+    fn type_of_path_resolution(&self, res: PathResolution) -> Arc<TyResult>;
+
+    #[salsa::invoke(crate::type_infer::type_of_subroutine_port_query)]
+    fn type_of_subroutine_port(&self, port: InSubroutine<SubroutinePortId>) -> Arc<TyResult>;
 }
 
 fn parse(db: &dyn HirDb, file_id: HirFileId) -> SyntaxTree {
