@@ -11,7 +11,7 @@ use crate::{
         module::{ModuleId, generate::GenerateBlockId, instantiation::InstanceId},
     },
     semantics::pathres::{name_scope, resolve_name},
-    symbol::DefLoc,
+    symbol::{DefLoc, NameContext},
 };
 
 #[derive(Default, Debug)]
@@ -41,7 +41,8 @@ impl Source2DefCtx<'_, '_> {
                 Some(res)
             }
             Expr::Ident(ident) => {
-                let res = self.name_to_def(InContainer::new(cont_id, ident.clone()))?;
+                let res =
+                    self.name_to_def(InContainer::new(cont_id, ident.clone()), NameContext::Value)?;
                 self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res.clone());
                 Some(res)
             }
@@ -75,8 +76,9 @@ impl Source2DefCtx<'_, '_> {
     pub(super) fn name_to_def(
         &mut self,
         InContainer { cont_id, value: ident }: InContainer<Ident>,
+        name_ctx: NameContext,
     ) -> Option<PathResolution> {
-        let res = resolve_name(self.db, cont_id, &ident)?;
+        let res = resolve_name(self.db, cont_id, &ident, name_ctx)?;
         self.hir_cache.name_map.insert(InContainer::new(cont_id, ident), res.clone());
         Some(res)
     }
@@ -124,7 +126,7 @@ impl Source2DefCtx<'_, '_> {
         field: &Ident,
     ) -> Option<PathResolution> {
         name_scope(self.db, module_id.into())
-            .lookup_merged(field)
+            .lookup(NameContext::Value, field)
             .and_then(PathResolution::from_def_ids)
     }
 
@@ -134,7 +136,7 @@ impl Source2DefCtx<'_, '_> {
         field: &Ident,
     ) -> Option<PathResolution> {
         name_scope(self.db, block_id.into())
-            .lookup_merged(field)
+            .lookup(NameContext::Value, field)
             .and_then(PathResolution::from_def_ids)
     }
 
@@ -144,7 +146,7 @@ impl Source2DefCtx<'_, '_> {
         field: &Ident,
     ) -> Option<PathResolution> {
         name_scope(self.db, generate_block_id.into())
-            .lookup_merged(field)
+            .lookup(NameContext::Value, field)
             .and_then(PathResolution::from_def_ids)
     }
 

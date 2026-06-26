@@ -22,6 +22,7 @@ use crate::{
         module::{ModuleId, ModuleSrc},
         subroutine::{SubroutineId, SubroutineSrc},
     },
+    symbol::NameContext,
 };
 
 mod hir_to_def;
@@ -157,6 +158,6 @@ impl SemanticsImpl<'_> {
     }
 
     pub fn name_to_def(&self, in_cont: InContainer<Ident>) -> Option<PathResolution> {
-        self.with_ctx(|ctx| ctx.name_to_def(in_cont))
+        self.with_ctx(|ctx| ctx.name_to_def(in_cont, NameContext::Value))
     }
 }

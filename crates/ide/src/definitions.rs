@@ -2,7 +2,7 @@ use hir::{
     def_id::ModuleDefId,
     file::HirFileId,
     semantics::{Semantics, pathres::PathResolution},
-    symbol::DefId,
+    symbol::{DefId, NameContext},
 };
 use smallvec::SmallVec;
 use syntax::{
@@ -66,7 +66,9 @@ impl DefinitionClass {
                     .and_then(|res| res.to_def_id(sema.db));
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
-                    let local = sema.nameres_ident(file_id, tp).and_then(|res| res.to_def_id(sema.db));
+                    let local = sema
+                        .nameres_ident(file_id, tp, NameContext::Value)
+                        .and_then(|res| res.to_def_id(sema.db));
 
                     match (port, local) {
                         (Some(port), Some(local)) => Self::PortConnShorthand { port, local },
@@ -77,7 +79,10 @@ impl DefinitionClass {
                     port?.into()
                 }
             },
-            _ => sema.nameres_ident(file_id, tp)?.to_def_id(sema.db)?.into(),
+            _ => sema
+                .nameres_ident(file_id, tp, name_context_for_token(parent))
+                ?.to_def_id(sema.db)?
+                .into(),
         };
 
         Some(res)
@@ -171,10 +176,23 @@ fn resolve_instantiation_type_name(
         SyntaxAncestors::start_from(parent).find_map(ast::PrimitiveInstantiation::cast)
         && instantiation.type_() == Some(tok)
     {
-        return Some(sema.nameres_ident(file_id, tp)?.to_def_id(sema.db)?.into());
+        return Some(
+            sema.nameres_ident(file_id, tp, NameContext::Value)?.to_def_id(sema.db)?.into(),
+        );
     }
 
     None
+}
+
+fn name_context_for_token(parent: syntax::SyntaxNode<'_>) -> NameContext {
+    if SyntaxAncestors::start_from(parent).any(|node| ast::NamedType::cast(node).is_some()) {
+        NameContext::Type
+    } else {
+        // Value is the conservative default for identifier references in IDE
+        // features; type positions are selected by the syntactic NamedType arm
+        // above.
+        NameContext::Value
+    }
 }
 
 fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {

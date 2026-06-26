@@ -15,7 +15,7 @@ use hir::{
         module::{ModuleId, instantiation::Instantiation},
     },
     semantics::pathres::PathResolution,
-    symbol::DefKind,
+    symbol::{DefKind, NameContext},
 };
 use syntax::{
     SyntaxAncestors,
@@ -125,7 +125,7 @@ fn resolve_named_port_in_module(
     module_id: ModuleId,
     port_name: &Ident,
 ) -> Option<PathResolution> {
-    let defs = db.module_scope(module_id).lookup_merged(port_name)?;
+    let defs = db.module_scope(module_id).lookup(NameContext::Value, port_name)?;
     if defs.iter().any(|def_id| def_id.kind(db) == DefKind::NonAnsiPort) {
         PathResolution::from_def_ids(defs)
     } else {
@@ -140,7 +140,7 @@ fn resolve_named_param_in_module(
     module_id: ModuleId,
     param_name: &Ident,
 ) -> Option<PathResolution> {
-    let defs = db.module_scope(module_id).lookup_merged(param_name)?;
+    let defs = db.module_scope(module_id).lookup(NameContext::Value, param_name)?;
     let module = db.module(module_id);
 
     for def_id in defs {

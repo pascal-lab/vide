@@ -15,7 +15,7 @@ use hir::{
         },
     },
     source_map::IsSrc,
-    symbol::{DefKind, NameScope},
+    symbol::{DefKind, NameContext, NameScope},
 };
 use itertools::Itertools;
 use syntax::{
@@ -220,7 +220,7 @@ fn non_ansi_port_replacement(
     name: &Ident,
     text: &str,
 ) -> Option<NonAnsiPortReplacement> {
-    let defs = module_scope.lookup_merged(name)?;
+    let defs = module_scope.lookup(NameContext::Value, name)?;
     if !defs.iter().any(|def_id| def_id.kind(ctx.sema().db) == DefKind::NonAnsiPort) {
         return None;
     }

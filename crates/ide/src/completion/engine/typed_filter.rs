@@ -8,7 +8,7 @@ use hir::{
         module::{ModuleId, port::Ports},
     },
     semantics::pathres::PathResolution,
-    symbol::DefKind,
+    symbol::{DefKind, NameContext},
     type_infer::{Ty, TyClass, packed_bit_width, type_class},
 };
 use utils::get::GetRef;
@@ -21,7 +21,7 @@ pub(super) fn expected_port_ty(
     port_name: &Ident,
 ) -> Option<Ty> {
     let scope = db.module_scope(target_module_id);
-    let defs = scope.lookup_merged(port_name)?;
+    let defs = scope.lookup(NameContext::Value, port_name)?;
     let res = if defs.iter().any(|def_id| def_id.kind(db) == DefKind::NonAnsiPort) {
         PathResolution::from_def_ids(defs)?
     } else {
@@ -39,7 +39,7 @@ pub(super) fn expected_param_ty(
 ) -> Option<Ty> {
     let target_module = db.module(target_module_id);
     let scope = db.module_scope(target_module_id);
-    let defs = scope.lookup_merged(param_name)?;
+    let defs = scope.lookup(NameContext::Value, param_name)?;
 
     for def_id in defs {
         if def_id.kind(db) != DefKind::Param {

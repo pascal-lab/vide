@@ -1,6 +1,9 @@
 use hir::{
-    base_db::source_db::SourceDb, container::InFile, def_id::ModuleDefId, semantics::Semantics,
-    symbol::DefId,
+    base_db::source_db::SourceDb,
+    container::InFile,
+    def_id::ModuleDefId,
+    semantics::Semantics,
+    symbol::{DefId, NameContext},
 };
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
@@ -192,7 +195,8 @@ pub(crate) fn rename_conflict_info(
     }
     let mut conflicts = UniqVec::<ModuleDefId, DefId>::default();
     for collision in targets.iter().flat_map(|target| target.origins(db)).filter_map(|origin| {
-        sema.resolve_name(origin.container_id(db), &new_name).and_then(|res| res.to_def_id(db))
+        sema.resolve_name(origin.container_id(db), &new_name, origin.kind(db).name_context())
+            .and_then(|res| res.to_def_id(db))
     }) {
         if collision.origins(db).iter().any(|origin| target_index.contains(origin)) {
             continue;
@@ -466,7 +470,7 @@ fn check_same_name_conn(
     let collapse_end = close_paren.text_range_in(conn.syntax())?.end();
     Some(SameNameConnection {
         port,
-        local: sema.nameres_ident(file_id, actual_token)?.to_def_id(sema.db)?,
+        local: sema.nameres_ident(file_id, actual_token, NameContext::Value)?.to_def_id(sema.db)?,
         collapse_range: TextRange::new(name_range.start(), collapse_end),
     })
 }
