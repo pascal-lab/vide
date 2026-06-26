@@ -4,9 +4,8 @@ use utils::impl_from;
 
 use crate::{
     base_db::salsa,
-    container::{ContainerId, InContainer, InFile, InModule, InSubroutine},
+    container::{InContainer, InFile, InModule, InSubroutine},
     db::InternDb,
-    file::HirFileId,
     hir_def::{
         Ident,
         block::BlockId,
@@ -216,49 +215,6 @@ impl DefKind {
             DefKind::Param => SymbolKind::ParamDecl,
             DefKind::Instance => SymbolKind::Instance,
         }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub struct ScopeId(pub salsa::InternId);
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ScopeLoc {
-    File(HirFileId),
-    Module(ModuleId),
-    GenerateBlock(GenerateBlockId),
-    Block(BlockId),
-    Subroutine(SubroutineId),
-}
-
-impl_from! { ScopeLoc =>
-    File(HirFileId),
-    Module(ModuleId),
-    GenerateBlock(GenerateBlockId),
-    Block(BlockId),
-    Subroutine(SubroutineId),
-}
-
-impl From<ContainerId> for ScopeLoc {
-    fn from(cont_id: ContainerId) -> Self {
-        match cont_id {
-            ContainerId::HirFileId(id) => ScopeLoc::File(id),
-            ContainerId::ModuleId(id) => ScopeLoc::Module(id),
-            ContainerId::GenerateBlockId(id) => ScopeLoc::GenerateBlock(id),
-            ContainerId::BlockId(id) => ScopeLoc::Block(id),
-            ContainerId::SubroutineId(id) => ScopeLoc::Subroutine(id),
-        }
-    }
-}
-
-impl ScopeId {
-    pub fn new(db: &dyn InternDb, loc: impl Into<ScopeLoc>) -> Self {
-        db.intern_scope(loc.into())
-    }
-
-    pub fn loc(self, db: &dyn InternDb) -> ScopeLoc {
-        db.lookup_intern_scope(self)
     }
 }
 

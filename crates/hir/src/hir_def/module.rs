@@ -53,7 +53,7 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{ContainerId, InFile},
+    container::{InFile, ScopeId},
     db::{HirDb, InternDb},
     file::HirFileId,
     region_tree::{RegionTree, RegionTreeBuilder},
@@ -355,7 +355,7 @@ impl LowerProc for LowerModuleCtx<'_> {
 
 impl LowerModuleCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ContainerId::ModuleId(self.module_id);
+        let container_id = ScopeId::Module(self.module_id);
         let struct_def =
             lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
 
@@ -379,7 +379,7 @@ impl LowerModuleCtx<'_> {
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            ContainerId::ModuleId(self.module_id),
+            ScopeId::Module(self.module_id),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.expr_ctx().lower_data_ty(ty),
         );

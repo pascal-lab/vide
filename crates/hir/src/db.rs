@@ -29,7 +29,7 @@ use crate::{
     impl_intern_key, impl_intern_lookup,
     scope::{BlockScope, GenerateBlockScope, ModuleScope, SubroutineScope, UnitScope},
     semantics::pathres::PathResolution,
-    symbol::{DefId, DefLoc, ScopeId, ScopeLoc},
+    symbol::{DefId, DefLoc},
     type_infer::TyResult,
 };
 
@@ -63,9 +63,6 @@ pub trait InternDb: SourceRootDb {
 
     #[salsa::interned]
     fn intern_def(&self, def: DefLoc) -> DefId;
-
-    #[salsa::interned]
-    fn intern_scope(&self, scope: ScopeLoc) -> ScopeId;
 }
 
 impl_intern!(BuiltinDataTyId, BuiltinDataTy, intern_ty, lookup_intern_ty);
@@ -81,7 +78,6 @@ impl_intern!(MacroCallId, MacroCallLoc, intern_macro_call, lookup_intern_macro_c
 impl_intern!(MacroFileId, MacroFileLoc, intern_macro_file, lookup_intern_macro_file);
 impl_intern!(ModuleDefId, ModuleDef, intern_module_def, lookup_intern_module_def);
 impl_intern!(DefId, DefLoc, intern_def, lookup_intern_def);
-impl_intern!(ScopeId, ScopeLoc, intern_scope, lookup_intern_scope);
 
 #[salsa::query_group(HirDbStorage)]
 pub trait HirDb: InternDb {

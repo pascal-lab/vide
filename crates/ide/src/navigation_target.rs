@@ -1,6 +1,6 @@
 use hir::{
     base_db::intern::Lookup,
-    container::{ContainerId, InContainer, InFile, InModule, InSubroutine},
+    container::{InContainer, InFile, InModule, InSubroutine, ScopeId},
     db::HirDb,
     def_id::ModuleDefOrigin,
     hir_def::{
@@ -171,7 +171,7 @@ impl ToNav for GenerateBlockId {
 impl ToNav for SubroutineId {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let loc = self.lookup(db);
-        let cont_id: ContainerId = loc.cont_id.into();
+        let cont_id: ScopeId = loc.cont_id.into();
         let cont_name = cont_id.to_container(db).name().cloned();
         let name = db.subroutine(*self).name.clone();
         let focus_range = loc.src.value.name_range();

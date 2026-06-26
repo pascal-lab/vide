@@ -4,7 +4,7 @@ use utils::get::GetRef;
 use super::{Source2DefCtx, pathres::PathResolution};
 use crate::{
     container::{
-        ContainerId, ContainerParent, InBlock, InContainer, InGenerateBlock, InModule, InSubroutine,
+        InBlock, InContainer, InGenerateBlock, InModule, InSubroutine, ScopeId, ScopeParent,
     },
     hir_def::{
         Ident,
@@ -49,23 +49,23 @@ impl Source2DefCtx<'_, '_> {
         };
 
         match cont_id {
-            ContainerId::HirFileId(file_id) => {
+            ScopeId::File(file_id) => {
                 let file = db.hir_file(file_id);
                 resolve(file.get(expr_id))
             }
-            ContainerId::ModuleId(in_file) => {
+            ScopeId::Module(in_file) => {
                 let module = db.module(in_file);
                 resolve(module.get(expr_id))
             }
-            ContainerId::BlockId(block_id) => {
+            ScopeId::Block(block_id) => {
                 let block = db.block(block_id);
                 resolve(block.get(expr_id))
             }
-            ContainerId::GenerateBlockId(generate_block_id) => {
+            ScopeId::GenerateBlock(generate_block_id) => {
                 let generate_block = db.generate_block(generate_block_id);
                 resolve(generate_block.get(expr_id))
             }
-            ContainerId::SubroutineId(subroutine_id) => {
+            ScopeId::Subroutine(subroutine_id) => {
                 let subroutine = db.subroutine(subroutine_id);
                 resolve(subroutine.get(expr_id))
             }
@@ -77,28 +77,28 @@ impl Source2DefCtx<'_, '_> {
         InContainer { cont_id, value: ident }: InContainer<Ident>,
     ) -> Option<PathResolution> {
         let db = self.db;
-        let res = ContainerParent::start_from(db, cont_id).find_map(|id| match id {
-            ContainerId::HirFileId(_) => {
+        let res = ScopeParent::start_from(db, cont_id).find_map(|id| match id {
+            ScopeId::File(_) => {
                 let scope = db.unit_scope();
                 let entry = scope.get(&ident)?;
                 Some(entry.into())
             }
-            ContainerId::ModuleId(module_id) => {
+            ScopeId::Module(module_id) => {
                 let scope = db.module_scope(module_id);
                 let entry = scope.get(&ident)?;
                 Some(InModule::new(module_id, entry).into())
             }
-            ContainerId::BlockId(block_id) => {
+            ScopeId::Block(block_id) => {
                 let scope = db.block_scope(block_id);
                 let entry = scope.get(&ident)?;
                 Some(InBlock::new(block_id, entry).into())
             }
-            ContainerId::GenerateBlockId(generate_block_id) => {
+            ScopeId::GenerateBlock(generate_block_id) => {
                 let scope = db.generate_block_scope(generate_block_id);
                 let entry = scope.get(&ident)?;
                 Some(InGenerateBlock::new(generate_block_id, entry).into())
             }
-            ContainerId::SubroutineId(subroutine_id) => {
+            ScopeId::Subroutine(subroutine_id) => {
                 let scope = db.subroutine_scope(subroutine_id);
                 let entry = scope.get(&ident)?;
                 Some(InSubroutine::new(subroutine_id, entry).into())

@@ -4,8 +4,7 @@ use syntax::{SyntaxNode, SyntaxTokenWithParent};
 use super::SemanticsImpl;
 use crate::{
     container::{
-        ContainerId, ContainerParent, InBlock, InContainer, InFile, InGenerateBlock, InModule,
-        InSubroutine,
+        InBlock, InContainer, InFile, InGenerateBlock, InModule, InSubroutine, ScopeId, ScopeParent,
     },
     db::HirDb,
     def_id::{ModuleDef, ModuleDefId, ModuleDefOrigin},
@@ -40,31 +39,31 @@ impl SemanticsImpl<'_> {
         })
     }
 
-    pub(in crate::semantics) fn find_container(&self, node: InFile<SyntaxNode>) -> ContainerId {
+    pub(in crate::semantics) fn find_container(&self, node: InFile<SyntaxNode>) -> ScopeId {
         self.with_ctx(|ctx| ctx.find_container(node))
     }
 
-    pub fn resolve_name(&self, cont_id: ContainerId, ident: &Ident) -> Option<PathResolution> {
+    pub fn resolve_name(&self, cont_id: ScopeId, ident: &Ident) -> Option<PathResolution> {
         resolve_name(self.db, cont_id, ident)
     }
 }
 
-pub fn resolve_name(db: &dyn HirDb, cont_id: ContainerId, ident: &Ident) -> Option<PathResolution> {
-    ContainerParent::start_from(db, cont_id).find_map(|id| match id {
-        ContainerId::HirFileId(_) => db.unit_scope().get(ident).map(PathResolution::from),
-        ContainerId::ModuleId(module_id) => db
+pub fn resolve_name(db: &dyn HirDb, cont_id: ScopeId, ident: &Ident) -> Option<PathResolution> {
+    ScopeParent::start_from(db, cont_id).find_map(|id| match id {
+        ScopeId::File(_) => db.unit_scope().get(ident).map(PathResolution::from),
+        ScopeId::Module(module_id) => db
             .module_scope(module_id)
             .get(ident)
             .map(|entry| PathResolution::from(InModule::new(module_id, entry))),
-        ContainerId::GenerateBlockId(generate_block_id) => db
+        ScopeId::GenerateBlock(generate_block_id) => db
             .generate_block_scope(generate_block_id)
             .get(ident)
             .map(|entry| PathResolution::from(InGenerateBlock::new(generate_block_id, entry))),
-        ContainerId::BlockId(block_id) => db
+        ScopeId::Block(block_id) => db
             .block_scope(block_id)
             .get(ident)
             .map(|entry| PathResolution::from(InBlock::new(block_id, entry))),
-        ContainerId::SubroutineId(subroutine_id) => db
+        ScopeId::Subroutine(subroutine_id) => db
             .subroutine_scope(subroutine_id)
             .get(ident)
             .map(|entry| PathResolution::from(InSubroutine::new(subroutine_id, entry))),
@@ -108,7 +107,7 @@ impl PathResolution {
 
         match self {
             PathResolution::NonAnsiPort { label, port_decl, data_decl, module } => {
-                let container: ContainerId = module.into();
+                let container: ScopeId = module.into();
                 if let Some(label) = label {
                     add_source(InModule::new(module, label).into());
                 }
@@ -148,7 +147,7 @@ impl PathResolution {
                 Some(InContainer::new(decl_id.module_id.into(), decl_id.value).into())
             }
             PathResolution::NonAnsiPort { label, port_decl, data_decl, module } => {
-                let container: ContainerId = module.into();
+                let container: ScopeId = module.into();
                 if let Some(label) = label {
                     Some(InModule::new(module, label).into())
                 } else if let Some(port_decl) = port_decl {
