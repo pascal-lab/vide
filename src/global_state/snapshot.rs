@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc as StdArc};
 
 use anyhow::Context;
 use hir::base_db::source_root::{SourceRootDiagnosticScope, SourceRootRole};
@@ -18,16 +18,15 @@ use vfs::{FileId, Vfs, VfsPath};
 
 use super::{
     diagnostics::{
-        DiagnosticCommitFreshness, DiagnosticExternalRevision, DiagnosticFileRevision,
-        DiagnosticOwner, DiagnosticPublishFreshness, DiagnosticRequestScope, DiagnosticSnapshotKey,
-        DiagnosticWorkspaceProducer,
+        DiagnosticCommitFreshness, DiagnosticFileRevision, DiagnosticOwner,
+        DiagnosticPublishFreshness, DiagnosticRequestScope, DiagnosticSnapshotKey,
+        DiagnosticSource, DiagnosticWorkspaceProducer,
     },
     mem_docs::MemDocs,
     response_effect::{AcceptedResponseEffect, AcceptedResponseEffects},
 };
 use crate::{
     config::Config,
-    global_state::QiheDiagnosticState,
     lsp_ext::{from_proto, to_proto},
 };
 
@@ -69,7 +68,7 @@ pub(crate) struct GlobalStateSnapshot {
     pub(crate) analysis: Analysis,
     // pub(crate) check_fixes: CheckFixes,
     pub(crate) sema_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
-    pub(crate) qihe_diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
+    pub(crate) external_sources: Vec<StdArc<dyn DiagnosticSource>>,
     pub(crate) diagnostic_publish_freshness: DiagnosticPublishFreshness,
     pub(crate) diagnostic_file_revisions: FxHashMap<FileId, DiagnosticFileRevision>,
     pub(crate) cancellation: CancellationToken,
@@ -161,30 +160,11 @@ impl GlobalStateSnapshot {
             .into_iter()
             .map(|diag| crate::lsp_ext::to_proto::diagnostic(self.config.i18n, &line_info, diag))
             .collect::<Vec<_>>();
-        diagnostics.extend(self.qihe_diagnostics(file_id));
+        let freshness = self.diagnostic_commit_freshness();
+        for source in &self.external_sources {
+            diagnostics.extend(source.diagnostics(file_id, &freshness));
+        }
         Ok(diagnostics)
-    }
-
-    pub(crate) fn qihe_diagnostics(&self, file_id: FileId) -> Vec<lsp_types::Diagnostic> {
-        self.qihe_diagnostics
-            .lock()
-            .get(&file_id)
-            .filter(|state| state.freshness == self.diagnostic_commit_freshness())
-            .map(|state| state.diagnostics.clone())
-            .unwrap_or_default()
-    }
-
-    fn qihe_external_revision(&self, file_id: FileId) -> Option<DiagnosticExternalRevision> {
-        self.qihe_diagnostics
-            .lock()
-            .get(&file_id)
-            .filter(|state| state.freshness == self.diagnostic_commit_freshness())
-            .map(|state| {
-                DiagnosticExternalRevision::new(
-                    DiagnosticOwner::ExternalQihe { file: file_id },
-                    state.generation,
-                )
-            })
     }
 
     pub(crate) fn diagnostic_commit_freshness(&self) -> DiagnosticCommitFreshness {
@@ -227,7 +207,12 @@ impl GlobalStateSnapshot {
                 (file_id, self.diagnostic_file_revisions.get(&file_id).copied().unwrap_or_default())
             })
             .collect::<Vec<_>>();
-        let external_revisions = self.qihe_external_revision(file_id).into_iter().collect();
+        let freshness = self.diagnostic_commit_freshness();
+        let external_revisions = self
+            .external_sources
+            .iter()
+            .filter_map(|source| source.external_revision(file_id, &freshness))
+            .collect();
         Some(
             DiagnosticSnapshotKey::new(
                 owner,
@@ -341,7 +326,7 @@ impl GlobalStateSnapshot {
             DiagnosticOwner::SourceRoot(_) => {
                 self.analysis.source_root_file_ids(representative_file_id).ok()?
             }
-            DiagnosticOwner::File(file_id) | DiagnosticOwner::ExternalQihe { file: file_id } => {
+            DiagnosticOwner::File(file_id) | DiagnosticOwner::External { file: file_id, .. } => {
                 vec![file_id]
             }
         };
@@ -385,7 +370,7 @@ impl GlobalStateSnapshot {
                 self.analysis.source_root_diagnostics(producer.representative_file_id())
             }
             DiagnosticOwner::File(file_id) => self.diagnostics(file_id),
-            DiagnosticOwner::ExternalQihe { .. } => Ok(Vec::new()),
+            DiagnosticOwner::External { .. } => Ok(Vec::new()),
         }
     }
 
