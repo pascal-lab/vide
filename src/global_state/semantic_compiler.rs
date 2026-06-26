@@ -25,13 +25,12 @@ use super::{
     snapshot::GlobalStateSnapshot,
     task::{SemanticCompilerTask, Task},
 };
-use crate::lsp_ext::to_proto;
 
 const SLANG_SEMANTIC: &str = "slang-semantic";
 
 #[derive(Debug)]
 pub(crate) struct SemanticCompilerUpdate {
-    by_file: FxHashMap<FileId, Vec<lsp_types::Diagnostic>>,
+    by_file: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
     touched_files: FxHashSet<FileId>,
     freshness: DiagnosticCommitFreshness,
 }
@@ -66,7 +65,7 @@ impl DiagnosticSource for SemanticDiagnostics {
         &self,
         file_id: FileId,
         freshness: &DiagnosticCommitFreshness,
-    ) -> Vec<lsp_types::Diagnostic> {
+    ) -> Vec<ide::diagnostics::Diagnostic> {
         self.lock()
             .get(&file_id)
             .filter(|state| state.freshness == *freshness)
@@ -296,7 +295,7 @@ impl SemanticCompiler {
 struct SemanticDiagnosticState {
     freshness: DiagnosticCommitFreshness,
     generation: u64,
-    diagnostics: Vec<lsp_types::Diagnostic>,
+    diagnostics: Vec<ide::diagnostics::Diagnostic>,
 }
 
 pub(crate) trait SemanticCompilerCtx {
@@ -513,8 +512,6 @@ fn collect_semantic_diagnostics(
                 continue;
             }
             let file_id = diagnostic.file_id;
-            let line_info = snapshot.line_info(file_id)?;
-            let diagnostic = to_proto::diagnostic(snapshot.config.i18n, &line_info, diagnostic);
             by_file.entry(file_id).or_insert_with(Vec::new).push(diagnostic);
         }
     }

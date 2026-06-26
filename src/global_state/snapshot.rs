@@ -160,9 +160,33 @@ impl GlobalStateSnapshot {
             .into_iter()
             .map(|diag| crate::lsp_ext::to_proto::diagnostic(self.config.i18n, &line_info, diag))
             .collect::<Vec<_>>();
+        diagnostics.extend(self.external_lsp_diagnostics(file_id)?);
+        Ok(diagnostics)
+    }
+
+    pub(crate) fn external_diagnostics(
+        &self,
+        file_id: FileId,
+    ) -> Vec<ide::diagnostics::Diagnostic> {
         let freshness = self.diagnostic_commit_freshness();
+        self.external_sources
+            .iter()
+            .flat_map(|source| source.diagnostics(file_id, &freshness))
+            .collect()
+    }
+
+    pub(crate) fn external_lsp_diagnostics(
+        &self,
+        file_id: FileId,
+    ) -> anyhow::Result<Vec<lsp_types::Diagnostic>> {
+        let freshness = self.diagnostic_commit_freshness();
+        let mut diagnostics = Vec::new();
         for source in &self.external_sources {
-            diagnostics.extend(source.diagnostics(file_id, &freshness));
+            for diagnostic in source.diagnostics(file_id, &freshness) {
+                let line_info = self.line_info(diagnostic.file_id)?;
+                diagnostics.push(to_proto::diagnostic(self.config.i18n, &line_info, diagnostic));
+            }
+            diagnostics.extend(source.lsp_diagnostics(file_id, &freshness));
         }
         Ok(diagnostics)
     }

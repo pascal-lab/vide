@@ -67,10 +67,7 @@ pub(crate) fn handle_workspace_diagnostic(
             .into_iter()
             .map(|diag| to_proto::diagnostic(snap.config.i18n, &line_info, diag))
             .collect::<Vec<_>>();
-        let freshness = snap.diagnostic_commit_freshness();
-        diag_items.extend(
-            snap.external_sources.iter().flat_map(|source| source.diagnostics(file_id, &freshness)),
-        );
+        diag_items.extend(snap.external_lsp_diagnostics(file_id)?);
 
         for target in targets {
             let uri = target.uri().clone();
