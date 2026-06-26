@@ -146,7 +146,7 @@ pub(crate) fn parse_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic>
         .collect()
 }
 
-fn compilation_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+pub(crate) fn compilation_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     db.file_compilation_diagnostics(file_id)
         .iter()
         .map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
@@ -234,17 +234,7 @@ pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
         return Vec::new();
     }
 
-    let mut diagnostics = if slang_semantic_diagnostics_active(db, file_id) {
-        inactive_preprocessor_branch_diagnostics(db, file_id)
-    } else {
-        syntax_diagnostics(db, file_id)
-    };
-
-    diagnostics.extend(
-        compilation_diagnostics(db, file_id).into_iter().filter(|diag| diag.file_id == file_id),
-    );
-
-    diagnostics
+    syntax_diagnostics(db, file_id)
 }
 
 pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
@@ -258,28 +248,7 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
         SourceRootDiagnosticScope::Workspace => {}
     }
 
-    let mut diagnostics = Vec::new();
-
-    if slang_semantic_diagnostics_active(db, file_id) {
-        diagnostics.extend(compilation_diagnostics(db, file_id));
-        diagnostics.extend(
-            source_root
-                .iter()
-                .flat_map(|file_id| inactive_preprocessor_branch_diagnostics(db, file_id)),
-        );
-    } else {
-        for file_id in source_root.iter() {
-            diagnostics.extend(syntax_diagnostics(db, file_id));
-        }
-
-        diagnostics.extend(db.source_root_semantic_diagnostics(file_id).iter().map(
-            |(diag_file_id, diag)| {
-                slang_diagnostic(*diag_file_id, SlangDiagnosticSource::Semantic, diag)
-            },
-        ));
-    }
-
-    diagnostics
+    source_root.iter().flat_map(|file_id| syntax_diagnostics(db, file_id)).collect()
 }
 
 pub(crate) fn source_root_file_ids(db: &RootDb, file_id: FileId) -> Vec<FileId> {
@@ -468,7 +437,7 @@ mod tests {
 
     use super::{
         AMBIGUOUS_MODULE_INSTANTIATION, DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH, DiagnosticSource,
-        DiagnosticTag, INACTIVE_PREPROCESSOR_BRANCH, diagnostics, source_root_diagnostics,
+        DiagnosticTag, INACTIVE_PREPROCESSOR_BRANCH, compilation_profile_diagnostics, diagnostics,
     };
     use crate::db::root_db::RootDb;
 
@@ -747,7 +716,7 @@ mod tests {
             true,
         );
 
-        let diagnostics = diagnostics(&db, FileId(1));
+        let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
         assert!(
             diagnostics.iter().any(|diag| diag.message.contains("port 'b' has no connection")),
@@ -909,7 +878,7 @@ mod tests {
         )));
         db.apply_change(change);
 
-        let diagnostics = diagnostics(&db, FileId(1));
+        let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
         assert!(
             diagnostics.iter().any(|diag| diag.message.contains("missing_name")),
@@ -962,7 +931,7 @@ mod tests {
         assert!(plan.include_only.contains(&FileId(1)));
         assert_eq!(plan.roots, vec![FileId(0)]);
 
-        let diagnostics = diagnostics(&db, FileId(1));
+        let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
         assert!(
             diagnostics
@@ -1033,7 +1002,7 @@ mod tests {
         assert!(plan.include_only.contains(&FileId(1)));
         assert!(plan.include_only.contains(&FileId(2)));
 
-        let diagnostics = source_root_diagnostics(&db, FileId(0));
+        let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
         assert!(
             diagnostics

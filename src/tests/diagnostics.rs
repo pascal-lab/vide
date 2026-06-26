@@ -17,7 +17,17 @@ endmodule
         text,
     );
 
-    let (_result_id, diagnostics) = request_document_diagnostics(&client, uri, 190);
+    let (_result_id, diagnostics) = request_document_diagnostics_until(
+        &client,
+        uri,
+        190,
+        |_result_id, diagnostics| {
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic_option(diagnostic) == Some("port-width-trunc"))
+        },
+        "default semantic diagnostics",
+    );
 
     assert!(
         diagnostics
@@ -558,92 +568,69 @@ fn workspace_diagnostics_use_multi_file_semantic_context() {
     let unused_uri = uris[1].clone();
     let top_uri = uris[2].clone();
 
-    let request_id = lsp_server::RequestId::from(1);
-    let request = Request::new(
-        request_id.clone(),
-        WorkspaceDiagnosticRequest::METHOD.to_string(),
-        WorkspaceDiagnosticParams {
-            identifier: None,
-            previous_result_ids: Vec::new(),
-            work_done_progress_params: WorkDoneProgressParams::default(),
-            partial_result_params: Default::default(),
-        },
-    );
-    client.sender.send(Message::Request(request)).unwrap();
-
-    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
-    while Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(Instant::now());
-        match client.receiver.recv_timeout(timeout).unwrap() {
-            Message::Response(response) if response.id == request_id => {
-                assert!(response.error.is_none(), "{:?}", response.error);
-                let result = serde_json::from_value::<WorkspaceDiagnosticReportResult>(
-                    response.result.unwrap(),
-                )
-                .unwrap();
-                let report = match result {
-                    WorkspaceDiagnosticReportResult::Report(report) => report,
-                    other => panic!("unexpected workspace diagnostic response: {other:?}"),
+    let report = request_workspace_diagnostic_report_until(
+        &client,
+        1,
+        |report| {
+            report.items.iter().any(|item| {
+                let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item else {
+                    return false;
                 };
-                let mut child_diagnostics = None;
-                let mut unused_diagnostics = None;
-                let mut top_diagnostics = None;
-                for item in report.items {
-                    if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item {
-                        if full.uri == child_uri {
-                            child_diagnostics = Some(full.full_document_diagnostic_report.items);
-                        } else if full.uri == unused_uri {
-                            unused_diagnostics = Some(full.full_document_diagnostic_report.items);
-                        } else if full.uri == top_uri {
-                            top_diagnostics = Some(full.full_document_diagnostic_report.items);
-                        }
-                    }
-                }
+                full.uri == top_uri
+                    && full
+                        .full_document_diagnostic_report
+                        .items
+                        .iter()
+                        .any(|diag| diag.message.contains("port 'b' has no connection"))
+            })
+        },
+        "multi-file semantic workspace diagnostics",
+    );
 
-                let child_diagnostics = child_diagnostics.expect("missing child diagnostics");
-                let unused_diagnostics = unused_diagnostics.expect("missing unused diagnostics");
-                let top_diagnostics = top_diagnostics.expect("missing top diagnostics");
-                assert!(
-                    child_diagnostics.is_empty(),
-                    "child.sv should not receive top.sv diagnostics: {child_diagnostics:?}"
-                );
-                assert!(
-                    unused_diagnostics.is_empty(),
-                    "unused.sv should not receive top.sv diagnostics: {unused_diagnostics:?}"
-                );
-                assert!(
-                    top_diagnostics
-                        .iter()
-                        .any(|diag| diag.message.contains("port 'b' has no connection")),
-                    "top.sv should receive semantic diagnostic using child.sv: {top_diagnostics:?}"
-                );
-                assert_eq!(
-                    top_diagnostics
-                        .iter()
-                        .filter(|diag| diag.message.contains("port 'b' has no connection"))
-                        .count(),
-                    1,
-                    "workspace diagnostics should not duplicate source-root diagnostics: {top_diagnostics:?}"
-                );
-                assert!(
-                    !top_diagnostics
-                        .iter()
-                        .any(|diag| diag.message.contains("unknown module 'child'")),
-                    "top.sv should resolve child module from child.sv: {top_diagnostics:?}"
-                );
-                shutdown_test_server(&client, server_thread);
-                return;
+    let mut child_diagnostics = None;
+    let mut unused_diagnostics = None;
+    let mut top_diagnostics = None;
+    for item in report.items {
+        if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item {
+            if full.uri == child_uri {
+                child_diagnostics = Some(full.full_document_diagnostic_report.items);
+            } else if full.uri == unused_uri {
+                unused_diagnostics = Some(full.full_document_diagnostic_report.items);
+            } else if full.uri == top_uri {
+                top_diagnostics = Some(full.full_document_diagnostic_report.items);
             }
-            Message::Notification(notification)
-                if notification.method == lsp_types::notification::Progress::METHOD => {}
-            Message::Request(request) => {
-                panic!("unexpected server request during diagnostics test: {request:?}");
-            }
-            _ => {}
         }
     }
 
-    panic!("workspaceDiagnostic response not received");
+    let child_diagnostics = child_diagnostics.expect("missing child diagnostics");
+    let unused_diagnostics = unused_diagnostics.expect("missing unused diagnostics");
+    let top_diagnostics = top_diagnostics.expect("missing top diagnostics");
+    assert!(
+        child_diagnostics.is_empty(),
+        "child.sv should not receive top.sv diagnostics: {child_diagnostics:?}"
+    );
+    assert!(
+        unused_diagnostics.is_empty(),
+        "unused.sv should not receive top.sv diagnostics: {unused_diagnostics:?}"
+    );
+    assert!(
+        top_diagnostics.iter().any(|diag| diag.message.contains("port 'b' has no connection")),
+        "top.sv should receive semantic diagnostic using child.sv: {top_diagnostics:?}"
+    );
+    assert_eq!(
+        top_diagnostics
+            .iter()
+            .filter(|diag| diag.message.contains("port 'b' has no connection"))
+            .count(),
+        1,
+        "workspace diagnostics should not duplicate source-root diagnostics: {top_diagnostics:?}"
+    );
+    assert!(
+        !top_diagnostics.iter().any(|diag| diag.message.contains("unknown module 'child'")),
+        "top.sv should resolve child module from child.sv: {top_diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
 }
 
 #[test]
@@ -692,7 +679,28 @@ fn workspace_diagnostics_compute_profile_owner_once_across_source_roots() {
     let server_thread = spawn_default_test_server(config, server);
     let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
 
-    let report = request_workspace_diagnostic_report(&client, 1, Vec::new());
+    let report = request_workspace_diagnostic_report_until(
+        &client,
+        1,
+        |report| {
+            report
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    lsp_types::WorkspaceDocumentDiagnosticReport::Full(full)
+                        if full.uri == top_uri =>
+                    {
+                        Some(&full.full_document_diagnostic_report.items)
+                    }
+                    _ => None,
+                })
+                .flatten()
+                .filter(|diag| diag.message.contains("port 'b' has no connection"))
+                .count()
+                == 1
+        },
+        "profile semantic workspace diagnostics",
+    );
     let missing_port_count = report
         .items
         .into_iter()
@@ -1203,109 +1211,48 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
         )))
         .unwrap();
 
-    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
-    while Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(Instant::now());
-        match client.receiver.recv_timeout(timeout).unwrap() {
-            Message::Request(request)
-                if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
-            {
-                client
-                    .sender
-                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
-                    .unwrap();
-                break;
-            }
-            Message::Request(request)
-                if request.method == lsp_types::request::WorkDoneProgressCreate::METHOD =>
-            {
-                client
-                    .sender
-                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
-                    .unwrap();
-            }
-            Message::Notification(notification)
-                if notification.method == lsp_types::notification::Progress::METHOD => {}
-            Message::Request(request) => {
-                panic!(
-                    "unexpected server request while waiting for diagnostic refresh: {request:?}"
-                );
-            }
-            _ => {}
-        }
-    }
-
-    let request_id = lsp_server::RequestId::from(1);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            request_id.clone(),
-            WorkspaceDiagnosticRequest::METHOD.to_string(),
-            WorkspaceDiagnosticParams {
-                identifier: None,
-                previous_result_ids: Vec::new(),
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-
-    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
-    while Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(Instant::now());
-        match client.receiver.recv_timeout(timeout).unwrap() {
-            Message::Response(response) if response.id == request_id => {
-                assert!(response.error.is_none(), "{:?}", response.error);
-                let result = serde_json::from_value::<WorkspaceDiagnosticReportResult>(
-                    response.result.unwrap(),
-                )
-                .unwrap();
-                let report = match result {
-                    WorkspaceDiagnosticReportResult::Report(report) => report,
-                    other => panic!("unexpected workspace diagnostic response: {other:?}"),
+    let report = request_workspace_diagnostic_report_until(
+        &client,
+        1,
+        |report| {
+            report.items.iter().any(|item| {
+                let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item else {
+                    return false;
                 };
-                let mut top_diagnostics = None;
-                for item in report.items {
-                    if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item
-                        && full.uri == top_uri
-                    {
-                        top_diagnostics = Some(full.full_document_diagnostic_report.items);
-                    }
-                }
-                let top_diagnostics = top_diagnostics.expect("missing top diagnostics");
-                assert!(
-                    !top_diagnostics
+                full.uri == top_uri
+                    && !full
+                        .full_document_diagnostic_report
+                        .items
                         .iter()
-                        .any(|diag| diag.message.contains("unknown module 'child'")),
-                    "top.v should resolve child module from unopened child.sv: {top_diagnostics:?}"
-                );
-                assert!(
-                    top_diagnostics
+                        .any(|diag| diag.message.contains("unknown module 'child'"))
+                    && full
+                        .full_document_diagnostic_report
+                        .items
                         .iter()
-                        .any(|diag| diag.message.contains("port 'b' has no connection")),
-                    "top.v should use unopened child.sv module definition: {top_diagnostics:?}"
-                );
-                shutdown_test_server(&client, server_thread);
-                return;
+                        .any(|diag| diag.message.contains("port 'b' has no connection"))
+            })
+        },
+        "workspace semantic diagnostics for unopened dependency",
+    );
+    let top_diagnostics = report
+        .items
+        .into_iter()
+        .find_map(|item| match item {
+            lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) if full.uri == top_uri => {
+                Some(full.full_document_diagnostic_report.items)
             }
-            Message::Notification(notification)
-                if notification.method == lsp_types::notification::Progress::METHOD => {}
-            Message::Request(request)
-                if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
-            {
-                client
-                    .sender
-                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
-                    .unwrap();
-            }
-            Message::Request(request) => {
-                panic!("unexpected server request during workspace diagnostics: {request:?}");
-            }
-            _ => {}
-        }
-    }
-
-    panic!("workspaceDiagnostic response not received");
+            _ => None,
+        })
+        .expect("missing top diagnostics");
+    assert!(
+        !top_diagnostics.iter().any(|diag| diag.message.contains("unknown module 'child'")),
+        "top.v should resolve child module from unopened child.sv: {top_diagnostics:?}"
+    );
+    assert!(
+        top_diagnostics.iter().any(|diag| diag.message.contains("port 'b' has no connection")),
+        "top.v should use unopened child.sv module definition: {top_diagnostics:?}"
+    );
+    shutdown_test_server(&client, server_thread);
 }
 
 #[test]
@@ -1459,7 +1406,24 @@ fn watched_dependency_change_refreshes_workspace_diagnostics() {
     let child_uri = to_proto::url_from_abs_path(child_path.as_path()).unwrap();
     let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
 
-    let first_report = request_workspace_diagnostic_report(&client, 1, Vec::new());
+    let first_report = request_workspace_diagnostic_report_until(
+        &client,
+        1,
+        |report| {
+            report.items.iter().any(|item| {
+                let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item else {
+                    return false;
+                };
+                full.uri == top_uri
+                    && full
+                        .full_document_diagnostic_report
+                        .items
+                        .iter()
+                        .any(|diag| diag.message.contains("port 'b' has no connection"))
+            })
+        },
+        "initial watched dependency semantic diagnostics",
+    );
     let mut saw_missing_port = false;
     for item in first_report.items {
         if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item
@@ -1549,7 +1513,16 @@ fn document_diagnostic_result_id_tracks_diagnostics_config_revision() {
         "module top;\nendmodule\n",
     );
 
-    let (first_result_id, first_items) = request_document_diagnostics(&client, uri.clone(), 1);
+    let (first_result_id, first_items) = request_document_diagnostics_until(
+        &client,
+        uri.clone(),
+        1,
+        |result_id, items| {
+            items.is_empty()
+                && result_id.is_some_and(|result_id| result_id.contains("external-slang-semantic"))
+        },
+        "initial empty semantic diagnostics result id",
+    );
     let first_result_id = first_result_id.expect("expected first diagnostic result id");
     assert!(
         first_items.is_empty(),
@@ -1559,7 +1532,7 @@ fn document_diagnostic_result_id_tracks_diagnostics_config_revision() {
     let (second_result_id, second_items) = request_document_diagnostics_with_previous_result_id(
         &client,
         uri.clone(),
-        2,
+        9,
         Some(first_result_id.clone()),
     );
     assert_eq!(
@@ -1585,7 +1558,7 @@ fn document_diagnostic_result_id_tracks_diagnostics_config_revision() {
         request_document_diagnostics_with_previous_result_id(
             &client,
             uri.clone(),
-            3,
+            10,
             Some(first_result_id.clone()),
         );
     assert_eq!(
@@ -1610,7 +1583,7 @@ fn document_diagnostic_result_id_tracks_diagnostics_config_revision() {
     let (third_result_id, _third_items) = request_document_diagnostics_with_previous_result_id(
         &client,
         uri,
-        4,
+        11,
         Some(first_result_id),
     );
     assert_ne!(
@@ -1642,22 +1615,15 @@ fn document_diagnostic_result_id_changes_when_dependency_changes() {
     let child_uri = uris[0].clone();
     let top_uri = uris[1].clone();
 
-    let first_id = lsp_server::RequestId::from(1);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            first_id.clone(),
-            DocumentDiagnosticRequest::METHOD.to_string(),
-            DocumentDiagnosticParams {
-                text_document: TextDocumentIdentifier { uri: top_uri.clone() },
-                identifier: None,
-                previous_result_id: None,
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-    let (first_result_id, first_items) = recv_document_diagnostics(&client, first_id);
+    let (first_result_id, first_items) = request_document_diagnostics_until(
+        &client,
+        top_uri.clone(),
+        1,
+        |_result_id, items| {
+            items.iter().any(|diag| diag.message.contains("port 'b' has no connection"))
+        },
+        "initial dependency semantic diagnostics",
+    );
     let first_result_id = first_result_id.expect("expected first diagnostic result id");
     assert!(!first_result_id.is_empty(), "diagnostic result id should include open file versions");
     assert!(
@@ -1680,7 +1646,7 @@ fn document_diagnostic_result_id_changes_when_dependency_changes() {
         )))
         .unwrap();
 
-    let second_id = lsp_server::RequestId::from(2);
+    let second_id = lsp_server::RequestId::from(9);
     client
         .sender
         .send(Message::Request(Request::new(

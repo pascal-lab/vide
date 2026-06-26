@@ -11,6 +11,7 @@ mod qihe;
 pub mod reload;
 pub mod respond;
 mod response_effect;
+mod semantic_compiler;
 pub(crate) mod snapshot;
 pub(crate) mod task;
 mod trace;
@@ -20,7 +21,7 @@ use std::{sync::Arc as StdArc, time::Instant};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use hir::base_db::{
-    project::{ProjectConfig, SharedProjectConfig},
+    project::{CompilationProfileId, ProjectConfig, SharedProjectConfig},
     salsa::Durability,
     source_db::SourceDb,
     source_root::SourceRootConfig,
@@ -48,7 +49,7 @@ use self::{
     },
     mem_docs::MemDocs,
     snapshot::GlobalStateSnapshot,
-    task::{QiheTask, Task, TaskPool},
+    task::{QiheTask, SemanticCompilerTask, Task, TaskPool},
     trace::LspTrace,
     workspace_state::WorkspaceVfsReadiness,
 };
@@ -72,6 +73,7 @@ pub(crate) struct GlobalState {
     pub(crate) diagnostics: DiagnosticsState,
     pub(crate) workspace: WorkspaceState,
     pub(crate) qihe: qihe::Qihe,
+    pub(crate) semantic_compiler: semantic_compiler::SemanticCompiler,
     pub(crate) external_sources: Vec<StdArc<dyn DiagnosticSource>>,
     pub(crate) tasks: TaskState,
 }
@@ -151,7 +153,11 @@ impl GlobalState {
         let qihe_diagnostics = qihe::QiheDiagnostics::new();
         let qihe = qihe::Qihe::new(qihe_diagnostics);
         let qihe_source: StdArc<dyn DiagnosticSource> = StdArc::new(qihe.diagnostics_snapshot());
-        let external_sources = vec![qihe_source];
+        let semantic_diagnostics = semantic_compiler::SemanticDiagnostics::new();
+        let semantic_compiler = semantic_compiler::SemanticCompiler::new(semantic_diagnostics);
+        let semantic_source: StdArc<dyn DiagnosticSource> =
+            StdArc::new(semantic_compiler.diagnostics_snapshot());
+        let external_sources = vec![qihe_source, semantic_source];
 
         GlobalState {
             client: ClientState {
@@ -188,6 +194,7 @@ impl GlobalState {
                 registered_client_file_watcher_globs: None,
             },
             qihe,
+            semantic_compiler,
             external_sources,
             tasks: TaskState { task_pool },
         }
@@ -230,6 +237,18 @@ impl GlobalState {
 
     pub(crate) fn handle_qihe_task(&mut self, task: QiheTask) {
         qihe::with_global_ctx(self, |qihe, ctx| qihe.handle(task, ctx));
+    }
+
+    pub(crate) fn schedule_semantic_compiler(&mut self, profile_ids: Vec<CompilationProfileId>) {
+        semantic_compiler::with_global_ctx(self, |semantic_compiler, ctx| {
+            semantic_compiler.schedule(profile_ids, ctx)
+        });
+    }
+
+    pub(crate) fn handle_semantic_compiler_task(&mut self, task: SemanticCompilerTask) {
+        semantic_compiler::with_global_ctx(self, |semantic_compiler, ctx| {
+            semantic_compiler.handle(task, ctx)
+        });
     }
 
     pub(crate) fn cancel_work_done_progress(

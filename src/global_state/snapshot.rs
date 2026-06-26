@@ -360,11 +360,7 @@ impl GlobalStateSnapshot {
     ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
         match producer.owner() {
             DiagnosticOwner::CompilationProfile(profile_id) => {
-                if self.config.diagnostics_config().semantic.enabled {
-                    self.analysis.compilation_profile_diagnostics(profile_id)
-                } else {
-                    self.analysis.compilation_profile_syntax_diagnostics(profile_id)
-                }
+                self.analysis.compilation_profile_syntax_diagnostics(profile_id)
             }
             DiagnosticOwner::SourceRoot(_) => {
                 self.analysis.source_root_diagnostics(producer.representative_file_id())
@@ -372,6 +368,12 @@ impl GlobalStateSnapshot {
             DiagnosticOwner::File(file_id) => self.diagnostics(file_id),
             DiagnosticOwner::External { .. } => Ok(Vec::new()),
         }
+    }
+
+    pub(crate) fn compilation_profile_ids(
+        &self,
+    ) -> Cancellable<Vec<hir::base_db::project::CompilationProfileId>> {
+        self.analysis.compilation_profile_ids()
     }
 
     pub(crate) fn diagnostic_target_file_ids_for_changes(

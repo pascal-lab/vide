@@ -75,6 +75,13 @@ impl Analysis {
         self.with_db(|db| diagnostics::diagnostics(db, file_id))
     }
 
+    pub fn compilation_diagnostics(
+        &self,
+        file_id: FileId,
+    ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
+        self.with_db(|db| diagnostics::compilation_diagnostics(db, file_id))
+    }
+
     pub fn source_root_diagnostics(
         &self,
         file_id: FileId,
@@ -121,6 +128,10 @@ impl Analysis {
 
     pub fn has_compilation_profiles(&self) -> Cancellable<bool> {
         self.with_db(|db| db.project_config().has_compilation_profiles())
+    }
+
+    pub fn compilation_profile_ids(&self) -> Cancellable<Vec<CompilationProfileId>> {
+        self.with_db(|db| db.project_config().profile_ids())
     }
 
     pub fn compilation_profile_file_ids(
