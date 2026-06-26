@@ -2,6 +2,7 @@ use hir::{
     base_db::intern::Lookup,
     container::{ContainerId, InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
+    def_id::ModuleDefOrigin,
     hir_def::{
         block::{BlockId, BlockLoc},
         declaration::Declaration,
@@ -31,7 +32,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::{SymbolKind, db::root_db::RootDb, definitions::DefinitionOrigin};
+use crate::{SymbolKind, db::root_db::RootDb};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NavTarget {
@@ -56,22 +57,22 @@ pub(crate) trait ToNav {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget>;
 }
 
-impl ToNav for DefinitionOrigin {
+impl ToNav for ModuleDefOrigin {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         match self {
-            DefinitionOrigin::ModuleId(module_id) => module_id.to_nav(db),
-            DefinitionOrigin::Config(config_id) => config_id.to_nav(db),
-            DefinitionOrigin::Library(library_id) => library_id.to_nav(db),
-            DefinitionOrigin::Udp(udp_id) => udp_id.to_nav(db),
-            DefinitionOrigin::BlockId(block_id) => block_id.to_nav(db),
-            DefinitionOrigin::GenerateBlockId(generate_block_id) => generate_block_id.to_nav(db),
-            DefinitionOrigin::SubroutineId(subroutine_id) => subroutine_id.to_nav(db),
-            DefinitionOrigin::SubroutinePort(subroutine_port_id) => subroutine_port_id.to_nav(db),
-            DefinitionOrigin::NonAnsiPort(nonansi_port_id) => nonansi_port_id.to_nav(db),
-            DefinitionOrigin::Decl(decl_id) => decl_id.to_nav(db),
-            DefinitionOrigin::Typedef(typedef_id) => typedef_id.to_nav(db),
-            DefinitionOrigin::Instance(instance_id) => instance_id.to_nav(db),
-            DefinitionOrigin::Stmt(stmt_id) => stmt_id.to_nav(db),
+            ModuleDefOrigin::ModuleId(module_id) => module_id.to_nav(db),
+            ModuleDefOrigin::Config(config_id) => config_id.to_nav(db),
+            ModuleDefOrigin::Library(library_id) => library_id.to_nav(db),
+            ModuleDefOrigin::Udp(udp_id) => udp_id.to_nav(db),
+            ModuleDefOrigin::BlockId(block_id) => block_id.to_nav(db),
+            ModuleDefOrigin::GenerateBlockId(generate_block_id) => generate_block_id.to_nav(db),
+            ModuleDefOrigin::SubroutineId(subroutine_id) => subroutine_id.to_nav(db),
+            ModuleDefOrigin::SubroutinePort(subroutine_port_id) => subroutine_port_id.to_nav(db),
+            ModuleDefOrigin::NonAnsiPort(nonansi_port_id) => nonansi_port_id.to_nav(db),
+            ModuleDefOrigin::Decl(decl_id) => decl_id.to_nav(db),
+            ModuleDefOrigin::Typedef(typedef_id) => typedef_id.to_nav(db),
+            ModuleDefOrigin::Instance(instance_id) => instance_id.to_nav(db),
+            ModuleDefOrigin::Stmt(stmt_id) => stmt_id.to_nav(db),
         }
     }
 }

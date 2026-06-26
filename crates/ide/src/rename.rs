@@ -1,4 +1,9 @@
-use hir::{base_db::source_db::SourceDb, container::InFile, semantics::Semantics};
+use hir::{
+    base_db::source_db::SourceDb,
+    container::InFile,
+    def_id::{ModuleDefId, ModuleDefOrigin},
+    semantics::Semantics,
+};
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
@@ -16,7 +21,7 @@ use vfs::FileId;
 use crate::{
     FilePosition, ScopeVisibility,
     db::root_db::RootDb,
-    definitions::{Definition, DefinitionClass, DefinitionOrigin},
+    definitions::DefinitionClass,
     references::{
         ReferencesConfig,
         search::{ReferenceToken, ReferencesCtx, SearchScope},
@@ -52,7 +57,7 @@ impl RenameConfig {
     fn references_config(
         &self,
         db: &RootDb,
-        def: &Definition,
+        def: &ModuleDefId,
         file_id: FileId,
     ) -> RenameResult<ReferencesConfig> {
         let mut config = ReferencesConfig::new(self.scope_visibility.clone(), None);
@@ -138,9 +143,9 @@ pub(crate) fn expanded_rename(
     let sema = Semantics::new(db);
     let resolved = resolve_rename_target(&sema, position)?;
     let targets = recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?;
-    let mut rename_targets = UniqVec::<(), DefinitionOrigin>::default();
+    let mut rename_targets = UniqVec::<(), ModuleDefOrigin>::default();
     for target in &targets {
-        rename_targets.push(target.def.origins(), ());
+        rename_targets.push(target.def.origins(db), ());
     }
     let mut source_changes = SourceChange::default();
 
@@ -173,7 +178,7 @@ pub(crate) fn rename_conflict_info(
 ) -> RenameResult<RenameCollisionInfo> {
     let sema = Semantics::new(db);
     let resolved = resolve_rename_target(&sema, position)?;
-    let targets: Vec<Definition> = if recursive {
+    let targets: Vec<ModuleDefId> = if recursive {
         recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?
             .into_iter()
             .map(|target| target.def)
@@ -183,18 +188,18 @@ pub(crate) fn rename_conflict_info(
     };
 
     let new_name = SmolStr::new(new_name);
-    let mut target_index = UniqVec::<(), DefinitionOrigin>::default();
+    let mut target_index = UniqVec::<(), ModuleDefOrigin>::default();
     for target in &targets {
-        target_index.push(target.origins(), ());
+        target_index.push(target.origins(db), ());
     }
-    let mut conflicts = UniqVec::<Definition, DefinitionOrigin>::default();
-    for collision in targets.iter().flat_map(|target| target.origins()).filter_map(|origin| {
-        sema.resolve_name(origin.container_id(db), &new_name).map(Definition::from)
+    let mut conflicts = UniqVec::<ModuleDefId, ModuleDefOrigin>::default();
+    for collision in targets.iter().flat_map(|target| target.origins(db)).filter_map(|origin| {
+        sema.resolve_name(origin.container_id(db), &new_name).and_then(|res| res.to_def_id(db))
     }) {
-        if collision.origins().iter().any(|origin| target_index.contains(origin)) {
+        if collision.origins(db).iter().any(|origin| target_index.contains(origin)) {
             continue;
         }
-        conflicts.push(collision.origins(), collision);
+        conflicts.push(collision.origins(db), collision);
     }
 
     Ok(RenameCollisionInfo { conflicts: conflicts.len() })
@@ -202,14 +207,14 @@ pub(crate) fn rename_conflict_info(
 
 struct ResolvedRenameTarget {
     range: TextRange,
-    selected_def: Definition,
-    targets: Vec<Definition>,
+    selected_def: ModuleDefId,
+    targets: Vec<ModuleDefId>,
 }
 
 type ReferenceSearchResult = IntMap<FileId, Vec<ReferenceToken>>;
 
 struct RecursiveRenameTarget {
-    def: Definition,
+    def: ModuleDefId,
     refs: ReferenceSearchResult,
     same_name_refs: Vec<SameNameConnectionRef>,
 }
@@ -234,19 +239,19 @@ fn resolve_rename_target(
     };
     let (range, tokens) = target.into_parts();
     let mut selected_def = None;
-    let mut targets = UniqVec::<Definition, DefinitionOrigin>::default();
+    let mut targets = UniqVec::<ModuleDefId, ModuleDefOrigin>::default();
 
     for token in tokens {
         let token_selected = match DefinitionClass::resolve(sema, hir_file_id, token)
             .ok_or(RenameError::NoDefFound)?
         {
             DefinitionClass::Definition(def) => {
-                targets.push(def.origins(), def.clone());
+                targets.push(def.origins(sema.db), def);
                 def
             }
             DefinitionClass::PortConnShorthand { port, local } => {
-                targets.push(local.origins(), local.clone());
-                targets.push(port.origins(), port);
+                targets.push(local.origins(sema.db), local);
+                targets.push(port.origins(sema.db), port);
                 local
             }
             DefinitionClass::Ambiguous(_) => return Err(RenameError::NoDefFound),
@@ -267,8 +272,8 @@ fn resolve_rename_target(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SameNameConnection {
-    port: Definition,
-    local: Definition,
+    port: ModuleDefId,
+    local: ModuleDefId,
     collapse_range: TextRange,
 }
 
@@ -284,9 +289,9 @@ fn rename_definition(
     sema: &Semantics<'_, RootDb>,
     request_file_id: FileId,
     config: &RenameConfig,
-    def: &Definition,
+    def: &ModuleDefId,
     new_name: &str,
-    rename_targets: Option<&UniqVec<(), DefinitionOrigin>>,
+    rename_targets: Option<&UniqVec<(), ModuleDefOrigin>>,
 ) -> RenameResult<SourceChange> {
     let refs = references_for_definition(db, sema, request_file_id, config, def)?;
     rename_definition_with_refs(db, sema, def, new_name, rename_targets, &refs, &[])
@@ -297,7 +302,7 @@ fn references_for_definition(
     sema: &Semantics<'_, RootDb>,
     request_file_id: FileId,
     config: &RenameConfig,
-    def: &Definition,
+    def: &ModuleDefId,
 ) -> RenameResult<ReferenceSearchResult> {
     let refs_config = config.references_config(db, def, request_file_id)?;
     Ok(ReferencesCtx::new(sema, def, refs_config).search())
@@ -306,14 +311,14 @@ fn references_for_definition(
 fn rename_definition_with_refs(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
-    def: &Definition,
+    def: &ModuleDefId,
     new_name: &str,
-    rename_targets: Option<&UniqVec<(), DefinitionOrigin>>,
+    rename_targets: Option<&UniqVec<(), ModuleDefOrigin>>,
     refs: &ReferenceSearchResult,
     same_name_refs: &[SameNameConnectionRef],
 ) -> RenameResult<SourceChange> {
     let old_name = def
-        .origins()
+        .origins(db)
         .into_iter()
         .find_map(|origin| origin.name(db))
         .ok_or(RenameError::NoRefFound)?;
@@ -337,7 +342,7 @@ fn rename_definition_with_refs(
                 .map_err(|_| RenameError::OverlappingEdits)
         })?;
 
-    for def in def.origins() {
+    for def in def.origins(db) {
         let Some(InFile { value: focus_range, file_id }) = def.name_range(db) else {
             continue;
         };
@@ -358,23 +363,23 @@ fn recursive_rename_targets(
     sema: &Semantics<'_, RootDb>,
     file_id: FileId,
     config: &RenameConfig,
-    initial_targets: Vec<Definition>,
+    initial_targets: Vec<ModuleDefId>,
 ) -> RenameResult<Vec<RecursiveRenameTarget>> {
-    let mut targets = UniqVec::<Definition, DefinitionOrigin>::default();
+    let mut targets = UniqVec::<ModuleDefId, ModuleDefOrigin>::default();
     for target in initial_targets {
-        targets.push(target.origins(), target);
+        targets.push(target.origins(db), target);
     }
     let mut resolved_targets = Vec::new();
     let mut idx = 0;
     while idx < targets.len() {
-        let current = targets.get(idx).clone();
+        let current = *targets.get(idx);
         idx += 1;
 
         let refs = references_for_definition(db, sema, file_id, config, &current)?;
         let same_name_refs = same_name_refs_collect(sema, &refs);
         for conn_ref in &same_name_refs {
-            targets.push(conn_ref.conn.port.origins(), conn_ref.conn.port.clone());
-            targets.push(conn_ref.conn.local.origins(), conn_ref.conn.local.clone());
+            targets.push(conn_ref.conn.port.origins(db), conn_ref.conn.port);
+            targets.push(conn_ref.conn.local.origins(db), conn_ref.conn.local);
         }
         resolved_targets.push(RecursiveRenameTarget { def: current, refs, same_name_refs });
     }
@@ -463,13 +468,13 @@ fn check_same_name_conn(
     let collapse_end = close_paren.text_range_in(conn.syntax())?.end();
     Some(SameNameConnection {
         port,
-        local: Definition::from(sema.nameres_ident(file_id, actual_token)?),
+        local: sema.nameres_ident(file_id, actual_token)?.to_def_id(sema.db)?,
         collapse_range: TextRange::new(name_range.start(), collapse_end),
     })
 }
 
-fn origins_are_editable(db: &RootDb, def: &Definition, file_id: FileId) -> bool {
-    def.origins().into_iter().all(|origin| {
+fn origins_are_editable(db: &RootDb, def: &ModuleDefId, file_id: FileId) -> bool {
+    def.origins(db).into_iter().all(|origin| {
         matches!(
             origin.name_range(db),
             Some(InFile { file_id: origin_file_id, .. }) if origin_file_id.file_id() == file_id
@@ -482,23 +487,23 @@ fn edits_from_refs(
     sema: &Semantics<'_, RootDb>,
     file_id: FileId,
     toks: &[ReferenceToken],
-    def: &Definition,
+    def: &ModuleDefId,
     old_name: &str,
     new_name: &str,
-    rename_targets: Option<&UniqVec<(), DefinitionOrigin>>,
+    rename_targets: Option<&UniqVec<(), ModuleDefOrigin>>,
     same_name_refs: &[SameNameConnectionRef],
 ) -> (FileId, TextEdit) {
     let mut text_edit = TextEdit::builder();
     let text = sema.db.file_text(file_id);
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
-    let def_origins = def.origins();
+    let def_origins = def.origins(sema.db);
     let same_name_refs: FxHashMap<_, _> = same_name_refs
         .iter()
         .filter(|it| it.file_id == file_id)
         .map(|SameNameConnectionRef { range, conn, .. }| {
             let SameNameConnection { port, local, collapse_range } = conn;
-            (*range, (port.origins(), local.origins(), *collapse_range))
+            (*range, (port.origins(sema.db), local.origins(sema.db), *collapse_range))
         })
         .collect();
 

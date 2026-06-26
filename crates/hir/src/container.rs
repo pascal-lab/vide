@@ -30,7 +30,7 @@ use crate::{
 };
 
 define_enum_deriving_from! {
-    #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
     pub enum ContainerId {
         HirFileId(HirFileId),
         ModuleId(ModuleId),
@@ -40,7 +40,7 @@ define_enum_deriving_from! {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct InContainer<T> {
     pub value: T,
     pub cont_id: ContainerId,
@@ -60,7 +60,7 @@ impl<T> InContainer<T> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct InSubroutine<T> {
     pub value: T,
     pub subroutine: SubroutineId,
@@ -85,7 +85,7 @@ impl<T> From<InSubroutine<T>> for InContainer<T> {
 macro_rules! define_container_id {
     ($($name:ident[$id:ident : $ty:ty]),* $(,)?) => {
         $(
-            #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+            #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
             pub struct $name<T> {
                 pub value: T,
                 pub $id: $ty,

@@ -67,15 +67,15 @@ fn render_source_declaration_target(
         .into_iter()
         .filter_map(|token| match DefinitionClass::resolve(sema, hir_file_id, token)? {
             DefinitionClass::Definition(definition) => {
-                Some(definition.declaration_origins().into_iter().collect_vec())
+                Some(definition.declaration_origin(db).into_iter().collect_vec())
             }
             DefinitionClass::PortConnShorthand { port, .. } => {
-                Some(port.declaration_origins().into_iter().collect_vec())
+                Some(port.declaration_origin(db).into_iter().collect_vec())
             }
             DefinitionClass::Ambiguous(definitions) => Some(
                 definitions
                     .into_iter()
-                    .filter_map(|definition| definition.declaration_origins())
+                    .filter_map(|definition| definition.declaration_origin(db))
                     .collect_vec(),
             ),
         })
