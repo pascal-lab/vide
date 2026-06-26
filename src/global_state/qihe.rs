@@ -88,7 +88,7 @@ impl QiheDiagnostics {
 }
 
 impl DiagnosticSource for QiheDiagnostics {
-    fn diagnostics(
+    fn lsp_diagnostics(
         &self,
         file_id: FileId,
         freshness: &DiagnosticCommitFreshness,

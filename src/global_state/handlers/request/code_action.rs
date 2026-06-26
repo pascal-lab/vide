@@ -6,8 +6,6 @@ use ide::{
     },
     diagnostics as ide_diagnostics,
 };
-use serde::Deserialize;
-use syntax::DiagnosticSeverity;
 use utils::text_edit::TextRange;
 use vfs::FileId;
 
@@ -95,7 +93,7 @@ fn server_diagnostics_for_code_action(
     line_info: &utils::lines::LineInfo,
 ) -> anyhow::Result<Vec<ide_diagnostics::Diagnostic>> {
     let mut server_diagnostics = snap.diagnostics(file_id)?;
-    server_diagnostics.extend(cached_external_diagnostics(snap, file_id, line_info));
+    server_diagnostics.extend(snap.external_diagnostics(file_id));
     let client_locators = client_diagnostics
         .iter()
         .filter_map(|diag| DiagnosticLocator::from_lsp(line_info, diag))
@@ -117,88 +115,6 @@ fn server_diagnostics_for_code_action(
     };
 
     Ok(diagnostics)
-}
-
-fn cached_external_diagnostics(
-    snap: &GlobalStateSnapshot,
-    file_id: FileId,
-    line_info: &utils::lines::LineInfo,
-) -> Vec<ide_diagnostics::Diagnostic> {
-    let freshness = snap.diagnostic_commit_freshness();
-    snap.external_sources
-        .iter()
-        .flat_map(|source| source.diagnostics(file_id, &freshness))
-        .filter_map(|diag| cached_lsp_diagnostic_to_ide(file_id, line_info, diag))
-        .collect()
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CachedDiagnosticData {
-    source: String,
-    subsystem: u16,
-    code: u16,
-    name: String,
-    #[serde(rename = "option")]
-    option_name: Option<String>,
-    #[serde(default)]
-    groups: Vec<String>,
-    #[serde(default)]
-    args: Vec<String>,
-}
-
-fn cached_lsp_diagnostic_to_ide(
-    file_id: FileId,
-    line_info: &utils::lines::LineInfo,
-    diag: lsp_types::Diagnostic,
-) -> Option<ide_diagnostics::Diagnostic> {
-    let data = serde_json::from_value::<CachedDiagnosticData>(diag.data.clone()?).ok()?;
-    let source = match data.source.as_str() {
-        "parse" => ide_diagnostics::DiagnosticSource::SlangParse,
-        "semantic" => ide_diagnostics::DiagnosticSource::SlangSemantic,
-        _ => return None,
-    };
-    Some(ide_diagnostics::Diagnostic {
-        file_id,
-        code: data.code,
-        subsystem: data.subsystem,
-        name: data.name,
-        option_name: data.option_name,
-        groups: data.groups,
-        source,
-        range: from_proto::text_range(line_info, diag.range).ok()?,
-        severity: lsp_severity_to_ide(diag.severity),
-        message: diag.message,
-        args: data.args,
-        message_key: None,
-        message_args: Vec::new(),
-        tags: lsp_tags_to_ide(diag.tags),
-    })
-}
-
-fn lsp_severity_to_ide(severity: Option<lsp_types::DiagnosticSeverity>) -> DiagnosticSeverity {
-    match severity {
-        Some(lsp_types::DiagnosticSeverity::ERROR) => DiagnosticSeverity::Error,
-        Some(lsp_types::DiagnosticSeverity::WARNING) => DiagnosticSeverity::Warning,
-        Some(lsp_types::DiagnosticSeverity::INFORMATION | lsp_types::DiagnosticSeverity::HINT) => {
-            DiagnosticSeverity::Note
-        }
-        _ => DiagnosticSeverity::Error,
-    }
-}
-
-fn lsp_tags_to_ide(
-    tags: Option<Vec<lsp_types::DiagnosticTag>>,
-) -> Vec<ide_diagnostics::DiagnosticTag> {
-    tags.unwrap_or_default()
-        .into_iter()
-        .filter_map(|tag| match tag {
-            lsp_types::DiagnosticTag::UNNECESSARY => {
-                Some(ide_diagnostics::DiagnosticTag::Unnecessary)
-            }
-            _ => None,
-        })
-        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
