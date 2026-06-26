@@ -309,11 +309,26 @@ fn qihe_diagnostics_are_scoped_to_diagnostic_commit_freshness() {
         QiheDiagnosticState { freshness, generation: 1, diagnostics: vec![diagnostic.clone()] },
     );
 
-    assert_eq!(state.make_snapshot().qihe_diagnostics(file_id), vec![diagnostic]);
+    let snapshot = state.make_snapshot();
+    let freshness = snapshot.diagnostic_commit_freshness();
+    let diagnostics = snapshot
+        .external_sources
+        .iter()
+        .flat_map(|source| source.diagnostics(file_id, &freshness))
+        .collect::<Vec<_>>();
+    assert_eq!(diagnostics, vec![diagnostic]);
 
     state.diagnostics.diagnostics_revision += 1;
     let snapshot = state.make_snapshot();
-    assert!(snapshot.qihe_diagnostics(file_id).is_empty());
+    let freshness = snapshot.diagnostic_commit_freshness();
+    assert!(
+        snapshot
+            .external_sources
+            .iter()
+            .flat_map(|source| source.diagnostics(file_id, &freshness))
+            .collect::<Vec<_>>()
+            .is_empty()
+    );
 }
 
 #[test]
