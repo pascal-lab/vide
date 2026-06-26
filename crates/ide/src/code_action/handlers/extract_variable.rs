@@ -3,8 +3,9 @@ use std::ops::Range;
 use hir::{
     base_db::source_db::SourceDb,
     container::InContainer,
+    db::HirDb,
     display::HirDisplay,
-    type_infer::{BuiltinTy, Ty, type_of_expr, type_of_path_resolution},
+    type_infer::{BuiltinTy, Ty},
 };
 use syntax::{
     SyntaxAncestors, SyntaxKind, TokenKind, WalkEvent,
@@ -176,7 +177,8 @@ fn trim_range(text: &str, range: TextRange) -> Option<TextRange> {
 }
 
 fn extracted_variable_type(ctx: &CodeActionCtx<'_>, expr: ast::Expression<'_>) -> Option<String> {
-    let ty = type_of_expr(ctx.sema().db, ctx.sema().resolve_expr(ctx.file_id().into(), expr)?).ty;
+    let ty =
+        ctx.sema().db.type_of_expr(ctx.sema().resolve_expr(ctx.file_id().into(), expr)?).ty.clone();
     render_ty(ctx, &ty)
         .or_else(|| expected_type_for_assignment_rhs(ctx, expr).and_then(|ty| render_ty(ctx, &ty)))
 }
@@ -189,7 +191,7 @@ fn expected_type_for_assignment_rhs(
     let res = ctx
         .sema()
         .expr_to_def(ctx.sema().resolve_expr(ctx.file_id().into(), assignment.left())?)?;
-    Some(type_of_path_resolution(ctx.sema().db, res).ty)
+    Some(ctx.sema().db.type_of_path_resolution(res).ty.clone())
 }
 
 fn render_ty(ctx: &CodeActionCtx<'_>, ty: &Ty) -> Option<String> {
