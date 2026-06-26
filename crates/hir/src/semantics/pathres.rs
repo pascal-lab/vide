@@ -24,6 +24,7 @@ use crate::{
         typedef::TypedefId,
     },
     scope::{self, BlockEntry, GenerateBlockEntry, ModuleEntry, SubroutineEntry, UnitEntry},
+    symbol::DefLoc,
 };
 
 impl SemanticsImpl<'_> {
@@ -97,13 +98,13 @@ pub enum PathResolution {
 
 impl PathResolution {
     pub fn to_def_id(self, db: &dyn HirDb) -> Option<ModuleDefId> {
-        let module_def = ModuleDef::from_origins(self.origins())?;
+        let module_def = ModuleDef::from_origins(self.origins(db))?;
         Some(db.intern_module_def(module_def))
     }
 
-    fn origins(self) -> SmallVec<[ModuleDefOrigin; 3]> {
+    fn origins(self, db: &dyn HirDb) -> SmallVec<[ModuleDefOrigin; 3]> {
         let mut res = smallvec![];
-        let mut add_source = |source| res.push(source);
+        let mut add_source = |source: DefLoc| res.push(ModuleDefOrigin::from_loc(db, source));
 
         match self {
             PathResolution::NonAnsiPort { label, port_decl, data_decl, module } => {
@@ -129,7 +130,7 @@ impl PathResolution {
     }
 
     #[inline]
-    fn pick(self) -> Option<ModuleDefOrigin> {
+    fn pick(self) -> Option<DefLoc> {
         match self {
             PathResolution::Module(module_id) => Some(module_id.into()),
             PathResolution::Config(config_id) => Some(config_id.into()),

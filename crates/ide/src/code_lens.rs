@@ -87,7 +87,7 @@ pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLens
             };
             let module_id = ModuleId::new(hir_file_id, local_module_id);
 
-            let def = ModuleDefOrigin::ModuleId(module_id);
+            let def = ModuleDefOrigin::from_loc(sema.db, module_id);
             let def = hir::def_id::ModuleDef::from_origins([def])
                 .expect("module definition should have an origin");
             let def = sema.db.intern_module_def(def);

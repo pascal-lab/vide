@@ -6,7 +6,6 @@ use syntax::{
 };
 use utils::{
     get::{Get, GetRef},
-    impl_from,
     line_index::TextRange,
 };
 
@@ -15,160 +14,178 @@ use crate::{
     container::{ContainerId, InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
     hir_def::{
-        block::{BlockId, BlockLoc},
-        expr::declarator::{DeclId, DeclaratorParent},
-        file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
-        module::{
-            ModuleId,
-            generate::{GenerateBlockId, GenerateBlockLoc},
-            instantiation::InstanceId,
-            port::NonAnsiPortId,
-        },
-        stmt::StmtId,
-        subroutine::{SubroutineId, SubroutinePortId},
-        typedef::TypedefId,
+        block::BlockLoc,
+        expr::declarator::DeclaratorParent,
+        module::generate::GenerateBlockLoc,
     },
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
+    symbol::{DefId, DefLoc},
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ModuleDefOrigin {
-    ModuleId(ModuleId),
-    Config(InFile<ConfigDeclId>),
-    Library(InFile<LibraryDeclId>),
-    Udp(InFile<UdpDeclId>),
-    BlockId(BlockId),
-    GenerateBlockId(GenerateBlockId),
-    SubroutineId(SubroutineId),
-    SubroutinePort(InSubroutine<SubroutinePortId>),
+    Module(DefId),
+    Config(DefId),
+    Library(DefId),
+    Udp(DefId),
+    Block(DefId),
+    GenerateBlock(DefId),
+    Subroutine(DefId),
+    SubroutinePort(DefId),
 
-    NonAnsiPort(InModule<NonAnsiPortId>),
-    Decl(InContainer<DeclId>),
-    Typedef(InContainer<TypedefId>),
-    Instance(InModule<InstanceId>),
-    Stmt(InContainer<StmtId>),
-}
-
-impl_from! { ModuleDefOrigin =>
-    ModuleId,
-    Config(InFile<ConfigDeclId>),
-    Library(InFile<LibraryDeclId>),
-    Udp(InFile<UdpDeclId>),
-    BlockId,
-    GenerateBlockId,
-    SubroutineId,
-    SubroutinePort(InSubroutine<SubroutinePortId>),
-    NonAnsiPort(InModule<NonAnsiPortId>),
-    Decl(InContainer<DeclId>),
-    Typedef(InContainer<TypedefId>),
-    Instance(InModule<InstanceId>),
-    Stmt(InContainer<StmtId>),
+    NonAnsiPort(DefId),
+    Decl(DefId),
+    Typedef(DefId),
+    Instance(DefId),
+    Stmt(DefId),
 }
 
 impl ModuleDefOrigin {
+    pub fn from_loc(db: &dyn HirDb, loc: impl Into<DefLoc>) -> Self {
+        let loc = loc.into();
+        let def_id = DefId::new(db, loc);
+        Self::from_def_loc(def_id, loc)
+    }
+
+    fn from_def_loc(def_id: DefId, loc: DefLoc) -> Self {
+        match loc {
+            DefLoc::Module(_) => Self::Module(def_id),
+            DefLoc::Config(_) => Self::Config(def_id),
+            DefLoc::Library(_) => Self::Library(def_id),
+            DefLoc::Udp(_) => Self::Udp(def_id),
+            DefLoc::Block(_) => Self::Block(def_id),
+            DefLoc::GenerateBlock(_) => Self::GenerateBlock(def_id),
+            DefLoc::Subroutine(_) => Self::Subroutine(def_id),
+            DefLoc::SubroutinePort(_) => Self::SubroutinePort(def_id),
+            DefLoc::NonAnsiPort(_) => Self::NonAnsiPort(def_id),
+            DefLoc::Decl(_) => Self::Decl(def_id),
+            DefLoc::Typedef(_) => Self::Typedef(def_id),
+            DefLoc::Instance(_) => Self::Instance(def_id),
+            DefLoc::Stmt(_) => Self::Stmt(def_id),
+        }
+    }
+
+    pub fn def_id(&self) -> DefId {
+        match *self {
+            Self::Module(def_id)
+            | Self::Config(def_id)
+            | Self::Library(def_id)
+            | Self::Udp(def_id)
+            | Self::Block(def_id)
+            | Self::GenerateBlock(def_id)
+            | Self::Subroutine(def_id)
+            | Self::SubroutinePort(def_id)
+            | Self::NonAnsiPort(def_id)
+            | Self::Decl(def_id)
+            | Self::Typedef(def_id)
+            | Self::Instance(def_id)
+            | Self::Stmt(def_id) => def_id,
+        }
+    }
+
+    pub fn loc(&self, db: &dyn HirDb) -> DefLoc {
+        self.def_id().loc(db)
+    }
+
     #[inline]
     pub fn container_id(&self, db: &dyn HirDb) -> ContainerId {
-        match *self {
-            ModuleDefOrigin::ModuleId(InFile { file_id, .. }) => file_id.into(),
-            ModuleDefOrigin::Config(InFile { file_id, .. }) => file_id.into(),
-            ModuleDefOrigin::Library(InFile { file_id, .. }) => file_id.into(),
-            ModuleDefOrigin::Udp(InFile { file_id, .. }) => file_id.into(),
-            ModuleDefOrigin::BlockId(block_id) => block_id.lookup(db).cont_id,
-            ModuleDefOrigin::GenerateBlockId(generate_block_id) => {
-                generate_block_id.lookup(db).cont_id
-            }
-            ModuleDefOrigin::SubroutineId(subroutine_id) => subroutine_id.lookup(db).cont_id.into(),
-            ModuleDefOrigin::SubroutinePort(InSubroutine { subroutine, .. }) => {
+        match self.loc(db) {
+            DefLoc::Module(InFile { file_id, .. }) => file_id.into(),
+            DefLoc::Config(InFile { file_id, .. }) => file_id.into(),
+            DefLoc::Library(InFile { file_id, .. }) => file_id.into(),
+            DefLoc::Udp(InFile { file_id, .. }) => file_id.into(),
+            DefLoc::Block(block_id) => block_id.lookup(db).cont_id,
+            DefLoc::GenerateBlock(generate_block_id) => generate_block_id.lookup(db).cont_id,
+            DefLoc::Subroutine(subroutine_id) => subroutine_id.lookup(db).cont_id.into(),
+            DefLoc::SubroutinePort(InSubroutine { subroutine, .. }) => {
                 ContainerId::SubroutineId(subroutine)
             }
-            ModuleDefOrigin::NonAnsiPort(InModule { module_id, .. }) => module_id.into(),
-            ModuleDefOrigin::Decl(InContainer { cont_id, .. }) => cont_id,
-            ModuleDefOrigin::Typedef(InContainer { cont_id, .. }) => cont_id,
-            ModuleDefOrigin::Instance(InModule { module_id, .. }) => module_id.into(),
-            ModuleDefOrigin::Stmt(InContainer { cont_id, .. }) => cont_id,
+            DefLoc::NonAnsiPort(InModule { module_id, .. }) => module_id.into(),
+            DefLoc::Decl(InContainer { cont_id, .. }) => cont_id,
+            DefLoc::Typedef(InContainer { cont_id, .. }) => cont_id,
+            DefLoc::Instance(InModule { module_id, .. }) => module_id.into(),
+            DefLoc::Stmt(InContainer { cont_id, .. }) => cont_id,
         }
     }
 
     pub fn name(&self, db: &dyn HirDb) -> Option<SmolStr> {
-        match *self {
-            ModuleDefOrigin::ModuleId(InFile { value, file_id }) => {
+        match self.loc(db) {
+            DefLoc::Module(InFile { value, file_id }) => {
                 file_id.to_container(db).get(value).name.clone()
             }
-            ModuleDefOrigin::Config(InFile { value, file_id }) => {
+            DefLoc::Config(InFile { value, file_id }) => {
                 file_id.to_container(db).get(value).name.clone()
             }
-            ModuleDefOrigin::Library(InFile { value, file_id }) => {
+            DefLoc::Library(InFile { value, file_id }) => {
                 file_id.to_container(db).get(value).name.clone()
             }
-            ModuleDefOrigin::Udp(InFile { value, file_id }) => {
+            DefLoc::Udp(InFile { value, file_id }) => {
                 file_id.to_container(db).get(value).name.clone()
             }
-            ModuleDefOrigin::BlockId(block_id) => {
+            DefLoc::Block(block_id) => {
                 let BlockLoc { cont_id, src: InFile { value, file_id: _ } } = block_id.lookup(db);
                 let cont = cont_id.to_container(db);
                 value.hir(&cont, &cont_id.to_container_src_map(db))?.name.clone()
             }
-            ModuleDefOrigin::GenerateBlockId(generate_block_id) => {
+            DefLoc::GenerateBlock(generate_block_id) => {
                 db.generate_block(generate_block_id).name.clone()
             }
-            ModuleDefOrigin::SubroutineId(subroutine_id) => {
-                db.subroutine(subroutine_id).name.clone()
-            }
-            ModuleDefOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
+            DefLoc::Subroutine(subroutine_id) => db.subroutine(subroutine_id).name.clone(),
+            DefLoc::SubroutinePort(InSubroutine { subroutine, value }) => {
                 db.subroutine(subroutine).ports.get(value.0 as usize)?.name.clone()
             }
-            ModuleDefOrigin::NonAnsiPort(InModule { value, module_id }) => {
+            DefLoc::NonAnsiPort(InModule { value, module_id }) => {
                 module_id.to_container(db).get(value).label.clone()
             }
-            ModuleDefOrigin::Decl(InContainer { value, cont_id }) => {
+            DefLoc::Decl(InContainer { value, cont_id }) => {
                 cont_id.to_container(db).get(value).name.clone()
             }
-            ModuleDefOrigin::Typedef(InContainer { value, cont_id }) => {
+            DefLoc::Typedef(InContainer { value, cont_id }) => {
                 cont_id.to_container(db).get(value).name.clone()
             }
-            ModuleDefOrigin::Instance(InModule { value, module_id }) => {
+            DefLoc::Instance(InModule { value, module_id }) => {
                 module_id.to_container(db).get(value).name.clone()
             }
-            ModuleDefOrigin::Stmt(InContainer { value, cont_id }) => {
+            DefLoc::Stmt(InContainer { value, cont_id }) => {
                 cont_id.to_container(db).get(value).label.clone()
             }
         }
     }
 
     pub fn name_range(&self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
-        match *self {
-            ModuleDefOrigin::ModuleId(InFile { value, file_id }) => {
+        match self.loc(db) {
+            DefLoc::Module(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
             }
-            ModuleDefOrigin::Config(InFile { value, file_id }) => {
+            DefLoc::Config(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
             }
-            ModuleDefOrigin::Library(InFile { value, file_id }) => {
+            DefLoc::Library(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
             }
-            ModuleDefOrigin::Udp(InFile { value, file_id }) => {
+            DefLoc::Udp(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
             }
-            ModuleDefOrigin::BlockId(block_id) => {
+            DefLoc::Block(block_id) => {
                 let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
                 let range = value.name_range()?;
                 Some(InFile::new(file_id, range))
             }
-            ModuleDefOrigin::GenerateBlockId(generate_block_id) => {
+            DefLoc::GenerateBlock(generate_block_id) => {
                 let GenerateBlockLoc { src: InFile { value, file_id }, .. } =
                     generate_block_id.lookup(db);
                 let range = value.name_range()?;
                 Some(InFile::new(file_id, range))
             }
-            ModuleDefOrigin::SubroutineId(subroutine_id) => {
+            DefLoc::Subroutine(subroutine_id) => {
                 let src = subroutine_id.lookup(db).src;
                 Some(InFile::new(src.file_id, src.value.name_or_full_range()))
             }
-            ModuleDefOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
+            DefLoc::SubroutinePort(InSubroutine { subroutine, value }) => {
                 let src = subroutine.lookup(db).src;
                 let tree = db.parse(src.file_id);
                 let func = src.value.to_node(&tree)?;
@@ -185,23 +202,23 @@ impl ModuleDefOrigin {
                 let range = declarator.name()?.text_range_in(declarator.syntax())?;
                 Some(InFile::new(src.file_id, range))
             }
-            ModuleDefOrigin::NonAnsiPort(InModule { value, module_id }) => {
+            DefLoc::NonAnsiPort(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(module_id.file_id, range))
             }
-            ModuleDefOrigin::Decl(InContainer { value, cont_id }) => {
+            DefLoc::Decl(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db).into(), range))
             }
-            ModuleDefOrigin::Typedef(InContainer { value, cont_id }) => {
+            DefLoc::Typedef(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db).into(), range))
             }
-            ModuleDefOrigin::Instance(InModule { value, module_id }) => {
+            DefLoc::Instance(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(module_id.file_id, range))
             }
-            ModuleDefOrigin::Stmt(InContainer { value, cont_id }) => {
+            DefLoc::Stmt(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db).into(), range))
             }
@@ -209,40 +226,40 @@ impl ModuleDefOrigin {
     }
 
     pub fn range(&self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
-        Some(match *self {
-            ModuleDefOrigin::ModuleId(InFile { value, file_id }) => {
+        Some(match self.loc(db) {
+            DefLoc::Module(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(file_id, range)
             }
-            ModuleDefOrigin::Config(InFile { value, file_id }) => {
+            DefLoc::Config(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(file_id, range)
             }
-            ModuleDefOrigin::Library(InFile { value, file_id }) => {
+            DefLoc::Library(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(file_id, range)
             }
-            ModuleDefOrigin::Udp(InFile { value, file_id }) => {
+            DefLoc::Udp(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(file_id, range)
             }
-            ModuleDefOrigin::BlockId(block_id) => {
+            DefLoc::Block(block_id) => {
                 let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
                 let range = value.range();
                 InFile::new(file_id, range)
             }
-            ModuleDefOrigin::GenerateBlockId(generate_block_id) => {
+            DefLoc::GenerateBlock(generate_block_id) => {
                 let GenerateBlockLoc { src: InFile { value, file_id }, .. } =
                     generate_block_id.lookup(db);
                 let range = value.range();
                 InFile::new(file_id, range)
             }
-            ModuleDefOrigin::SubroutineId(subroutine_id) => {
+            DefLoc::Subroutine(subroutine_id) => {
                 let src = subroutine_id.lookup(db).src;
                 let range = src.value.range();
                 InFile::new(src.file_id, range)
             }
-            ModuleDefOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
+            DefLoc::SubroutinePort(InSubroutine { subroutine, value }) => {
                 let src = subroutine.lookup(db).src;
                 let tree = db.parse(src.file_id);
                 let func = src.value.to_node(&tree)?;
@@ -255,23 +272,23 @@ impl ModuleDefOrigin {
                 let range = port.syntax().text_range()?;
                 InFile::new(src.file_id, range)
             }
-            ModuleDefOrigin::NonAnsiPort(InModule { value, module_id }) => {
+            DefLoc::NonAnsiPort(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(module_id.file_id, range)
             }
-            ModuleDefOrigin::Decl(InContainer { value, cont_id }) => {
+            DefLoc::Decl(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(cont_id.file_id(db).into(), range)
             }
-            ModuleDefOrigin::Typedef(InContainer { value, cont_id }) => {
+            DefLoc::Typedef(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(cont_id.file_id(db).into(), range)
             }
-            ModuleDefOrigin::Instance(InModule { value, module_id }) => {
+            DefLoc::Instance(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(module_id.file_id, range)
             }
-            ModuleDefOrigin::Stmt(InContainer { value, cont_id }) => {
+            DefLoc::Stmt(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(cont_id.file_id(db).into(), range)
             }
@@ -359,7 +376,7 @@ impl ModuleDefId {
 }
 
 fn is_port_decl_origin(db: &dyn HirDb, origin: &ModuleDefOrigin) -> bool {
-    let ModuleDefOrigin::Decl(decl_id) = origin else {
+    let DefLoc::Decl(decl_id) = origin.loc(db) else {
         return false;
     };
     matches!(
