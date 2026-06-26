@@ -33,7 +33,7 @@ use super::{
 };
 use crate::{
     base_db::intern::Lookup,
-    container::{ContainerId, InFile},
+    container::{InFile, ScopeId},
     db::{HirDb, InternDb},
     file::HirFileId,
     region_tree::{RegionTree, RegionTreeBuilder},
@@ -212,7 +212,7 @@ pub struct BlockId(pub salsa::InternId);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct BlockLoc {
-    pub cont_id: ContainerId,
+    pub cont_id: ScopeId,
     pub src: InFile<BlockSrc>,
 }
 
@@ -235,7 +235,7 @@ impl_lower_declaration!(LowerBlockCtx<'_>, block, block_source_map);
 
 impl LowerBlockCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ContainerId::BlockId(self.block_id);
+        let container_id = ScopeId::Block(self.block_id);
         let struct_def =
             lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
 
@@ -259,7 +259,7 @@ impl LowerBlockCtx<'_> {
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            ContainerId::BlockId(self.block_id),
+            ScopeId::Block(self.block_id),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.expr_ctx().lower_data_ty(ty),
         );

@@ -12,7 +12,7 @@ use utils::text_edit::TextSize;
 use vfs::FileId;
 
 use crate::{
-    container::{ContainerId, InContainer, InFile},
+    container::{InContainer, InFile, ScopeId},
     db::HirDb,
     file::HirFileId,
     hir_def::{
@@ -114,7 +114,7 @@ impl<'db> SemanticsImpl<'db> {
         ParsedFile { file_id, tree: self.db.parse(file_id) }
     }
 
-    pub fn container_for_node(&self, file_id: HirFileId, node: SyntaxNode) -> Option<ContainerId> {
+    pub fn container_for_node(&self, file_id: HirFileId, node: SyntaxNode) -> Option<ScopeId> {
         self.with_ctx(|ctx| Some(ctx.find_container(InFile::new(file_id, node))))
     }
 

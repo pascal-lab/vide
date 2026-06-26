@@ -31,7 +31,7 @@ use super::{
 };
 use crate::{
     base_db::intern::Lookup,
-    container::{ContainerId, InFile},
+    container::{InFile, ScopeId},
     db::{HirDb, InternDb},
     file::HirFileId,
     hir_def::{
@@ -176,7 +176,7 @@ impl From<GenerateBlockId> for SubroutineContainerId {
     }
 }
 
-impl From<SubroutineContainerId> for ContainerId {
+impl From<SubroutineContainerId> for ScopeId {
     fn from(cont_id: SubroutineContainerId) -> Self {
         match cont_id {
             SubroutineContainerId::HirFileId(file_id) => file_id.into(),
@@ -186,15 +186,15 @@ impl From<SubroutineContainerId> for ContainerId {
     }
 }
 
-impl TryFrom<ContainerId> for SubroutineContainerId {
+impl TryFrom<ScopeId> for SubroutineContainerId {
     type Error = ();
 
-    fn try_from(cont_id: ContainerId) -> Result<Self, Self::Error> {
+    fn try_from(cont_id: ScopeId) -> Result<Self, Self::Error> {
         match cont_id {
-            ContainerId::HirFileId(file_id) => Ok(file_id.into()),
-            ContainerId::ModuleId(module_id) => Ok(module_id.into()),
-            ContainerId::GenerateBlockId(generate_block_id) => Ok(generate_block_id.into()),
-            ContainerId::BlockId(_) | ContainerId::SubroutineId(_) => Err(()),
+            ScopeId::File(file_id) => Ok(file_id.into()),
+            ScopeId::Module(module_id) => Ok(module_id.into()),
+            ScopeId::GenerateBlock(generate_block_id) => Ok(generate_block_id.into()),
+            ScopeId::Block(_) | ScopeId::Subroutine(_) => Err(()),
         }
     }
 }
@@ -279,8 +279,8 @@ impl_lower_stmt!(LowerSubroutineBodyCtx<'_>, subroutine_id, subroutine, subrouti
 impl_lower_declaration!(LowerSubroutineBodyCtx<'_>, subroutine, subroutine_source_map);
 
 impl LowerSubroutineBodyCtx<'_> {
-    fn container_id(&self) -> ContainerId {
-        ContainerId::SubroutineId(self.subroutine_id)
+    fn container_id(&self) -> ScopeId {
+        ScopeId::Subroutine(self.subroutine_id)
     }
 
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {

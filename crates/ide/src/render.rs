@@ -3,7 +3,7 @@ use hir::{
         intern::Lookup,
         source_db::{SourceDb, SourceRootDb},
     },
-    container::{ContainerId, ContainerParent, InContainer, InFile, InModule, InSubroutine},
+    container::{InContainer, InFile, InModule, InSubroutine, ScopeId, ScopeParent},
     db::HirDb,
     def_id::{ModuleDefId, ModuleDefOrigin},
     display::HirDisplay,
@@ -525,7 +525,7 @@ fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<St
 
     match decl.parent {
         DeclaratorParent::PortDeclId(port_decl_id) => {
-            let ContainerId::ModuleId(module_id) = decl_id.cont_id else {
+            let ScopeId::Module(module_id) = decl_id.cont_id else {
                 return None;
             };
             let module = db.module(module_id);
@@ -555,7 +555,7 @@ fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<St
 
 fn render_declaration_prefix(
     db: &RootDb,
-    cont_id: ContainerId,
+    cont_id: ScopeId,
     declaration: &Declaration,
 ) -> Option<String> {
     let ty = render_data_ty(db, cont_id, declaration.ty()).unwrap_or_default();
@@ -615,7 +615,7 @@ fn render_initializer(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<Strin
     Some(rendered)
 }
 
-fn render_data_ty(db: &RootDb, container: ContainerId, ty: DataTy) -> Option<String> {
+fn render_data_ty(db: &RootDb, container: ScopeId, ty: DataTy) -> Option<String> {
     InContainer::new(container, ty).display_source(db).ok()
 }
 
@@ -685,7 +685,7 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &ModuleDefOrigin) -> Opti
 
     let mut containers = Vec::new();
 
-    for cont_id in ContainerParent::start_from(db, cont_id) {
+    for cont_id in ScopeParent::start_from(db, cont_id) {
         let src_map = cont_id.to_container_src_map(db);
 
         if let Some(region_tree) = src_map.region_tree()
@@ -696,7 +696,7 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &ModuleDefOrigin) -> Opti
             }
         }
 
-        if !matches!(cont_id, ContainerId::HirFileId(_)) {
+        if !matches!(cont_id, ScopeId::File(_)) {
             if let Some(name) = cont_id.to_container(db).name() {
                 containers.push(name.to_string());
             } else {

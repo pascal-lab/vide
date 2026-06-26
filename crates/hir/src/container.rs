@@ -27,27 +27,28 @@ use crate::{
         typedef::{Typedef, TypedefId, TypedefSrc},
     },
     region_tree::RegionTree,
+    symbol::ScopeKind,
 };
 
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-    pub enum ContainerId {
-        HirFileId(HirFileId),
-        ModuleId(ModuleId),
-        GenerateBlockId(GenerateBlockId),
-        BlockId(BlockId),
-        SubroutineId(SubroutineId),
+    pub enum ScopeId {
+        File(HirFileId),
+        Module(ModuleId),
+        GenerateBlock(GenerateBlockId),
+        Block(BlockId),
+        Subroutine(SubroutineId),
     }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct InContainer<T> {
     pub value: T,
-    pub cont_id: ContainerId,
+    pub cont_id: ScopeId,
 }
 
 impl<T> InContainer<T> {
-    pub fn new(cont_id: ContainerId, value: T) -> InContainer<T> {
+    pub fn new(cont_id: ScopeId, value: T) -> InContainer<T> {
         InContainer { value, cont_id }
     }
 
@@ -78,7 +79,7 @@ impl<T> InSubroutine<T> {
 
 impl<T> From<InSubroutine<T>> for InContainer<T> {
     fn from(item: InSubroutine<T>) -> InContainer<T> {
-        InContainer::new(ContainerId::SubroutineId(item.subroutine), item.value)
+        InContainer::new(ScopeId::Subroutine(item.subroutine), item.value)
     }
 }
 
@@ -121,40 +122,46 @@ define_container_id! {
     InBlock[block_id: BlockId],
 }
 
-impl ContainerId {
+impl ScopeId {
+    pub fn kind(self) -> ScopeKind {
+        match self {
+            ScopeId::File(_) => ScopeKind::File,
+            ScopeId::Module(_) => ScopeKind::Module,
+            ScopeId::GenerateBlock(_) => ScopeKind::GenerateBlock,
+            ScopeId::Block(_) => ScopeKind::Block,
+            ScopeId::Subroutine(_) => ScopeKind::Subroutine,
+        }
+    }
+
     pub fn file_id(self, db: &dyn InternDb) -> FileId {
         match self {
-            ContainerId::HirFileId(file_id) => file_id.file_id(),
-            ContainerId::ModuleId(module_id) => module_id.file_id(),
-            ContainerId::GenerateBlockId(generate_block_id) => generate_block_id.file_id(db),
-            ContainerId::BlockId(block_id) => block_id.file_id(db),
-            ContainerId::SubroutineId(subroutine_id) => {
-                subroutine_id.lookup(db).src.file_id.file_id()
-            }
+            ScopeId::File(file_id) => file_id.file_id(),
+            ScopeId::Module(module_id) => module_id.file_id(),
+            ScopeId::GenerateBlock(generate_block_id) => generate_block_id.file_id(db),
+            ScopeId::Block(block_id) => block_id.file_id(db),
+            ScopeId::Subroutine(subroutine_id) => subroutine_id.lookup(db).src.file_id.file_id(),
         }
     }
 
     pub fn to_container(self, db: &dyn HirDb) -> Container {
         match self {
-            ContainerId::HirFileId(file_id) => file_id.to_container(db).into(),
-            ContainerId::ModuleId(module_id) => module_id.to_container(db).into(),
-            ContainerId::GenerateBlockId(generate_block_id) => {
-                generate_block_id.to_container(db).into()
-            }
-            ContainerId::BlockId(block_id) => block_id.to_container(db).into(),
-            ContainerId::SubroutineId(subroutine_id) => db.subroutine(subroutine_id).into(),
+            ScopeId::File(file_id) => file_id.to_container(db).into(),
+            ScopeId::Module(module_id) => module_id.to_container(db).into(),
+            ScopeId::GenerateBlock(generate_block_id) => generate_block_id.to_container(db).into(),
+            ScopeId::Block(block_id) => block_id.to_container(db).into(),
+            ScopeId::Subroutine(subroutine_id) => db.subroutine(subroutine_id).into(),
         }
     }
 
     pub fn to_container_src_map(self, db: &dyn HirDb) -> ContainerSrcMap {
         match self {
-            ContainerId::HirFileId(file_id) => file_id.to_container_src_map(db).into(),
-            ContainerId::ModuleId(module_id) => module_id.to_container_src_map(db).into(),
-            ContainerId::GenerateBlockId(generate_block_id) => {
+            ScopeId::File(file_id) => file_id.to_container_src_map(db).into(),
+            ScopeId::Module(module_id) => module_id.to_container_src_map(db).into(),
+            ScopeId::GenerateBlock(generate_block_id) => {
                 generate_block_id.to_container_src_map(db).into()
             }
-            ContainerId::BlockId(block_id) => block_id.to_container_src_map(db).into(),
-            ContainerId::SubroutineId(subroutine_id) => {
+            ScopeId::Block(block_id) => block_id.to_container_src_map(db).into(),
+            ScopeId::Subroutine(subroutine_id) => {
                 db.subroutine_with_source_map(subroutine_id).1.into()
             }
         }
@@ -282,30 +289,30 @@ impl AsRef<ContainerSrcMap> for ContainerSrcMap {
 }
 
 /// Parents of a scope.
-pub struct ContainerParent<'db> {
+pub struct ScopeParent<'db> {
     db: &'db dyn InternDb,
-    cont_id: Option<ContainerId>,
+    cont_id: Option<ScopeId>,
 }
 
-impl ContainerParent<'_> {
-    pub fn start_from(db: &dyn InternDb, cont_id: ContainerId) -> ContainerParent<'_> {
-        ContainerParent { db, cont_id: Some(cont_id) }
+impl ScopeParent<'_> {
+    pub fn start_from(db: &dyn InternDb, cont_id: ScopeId) -> ScopeParent<'_> {
+        ScopeParent { db, cont_id: Some(cont_id) }
     }
 }
 
-impl Iterator for ContainerParent<'_> {
-    type Item = ContainerId;
+impl Iterator for ScopeParent<'_> {
+    type Item = ScopeId;
 
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.cont_id;
         self.cont_id = match self.cont_id? {
-            ContainerId::HirFileId(_) => None,
-            ContainerId::ModuleId(module_id) => Some(module_id.file_id.into()),
-            ContainerId::GenerateBlockId(generate_block_id) => {
+            ScopeId::File(_) => None,
+            ScopeId::Module(module_id) => Some(module_id.file_id.into()),
+            ScopeId::GenerateBlock(generate_block_id) => {
                 Some(generate_block_id.lookup(self.db).cont_id)
             }
-            ContainerId::BlockId(block_id) => Some(block_id.lookup(self.db).cont_id),
-            ContainerId::SubroutineId(subroutine_id) => {
+            ScopeId::Block(block_id) => Some(block_id.lookup(self.db).cont_id),
+            ScopeId::Subroutine(subroutine_id) => {
                 Some(subroutine_id.lookup(self.db).cont_id.into())
             }
         };

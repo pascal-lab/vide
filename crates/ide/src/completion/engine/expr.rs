@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use hir::{
-    container::{ContainerId, ContainerParent, InContainer, InSubroutine},
+    container::{InContainer, InSubroutine, ScopeId, ScopeParent},
     db::HirDb,
     file::HirFileId,
     hir_def::{
@@ -68,7 +68,7 @@ fn complete_expression_impl(
 
     if let Some(container_id) = container_id_at_offset(&sema, file_id, root, position.offset) {
         current_module_id = module_id_for_container(db, container_id);
-        for container_id in ContainerParent::start_from(db, container_id) {
+        for container_id in ScopeParent::start_from(db, container_id) {
             collect_container_names(db, container_id, &mut names);
         }
     }
@@ -102,7 +102,7 @@ fn container_id_at_offset(
     file_id: HirFileId,
     root: SyntaxNode<'_>,
     offset: TextSize,
-) -> Option<ContainerId> {
+) -> Option<ScopeId> {
     let elem = root.covering_element(utils::line_index::TextRange::empty(offset));
     let node = elem.as_node().or_else(|| elem.parent())?;
     sema.container_for_node(file_id, node)
@@ -110,13 +110,13 @@ fn container_id_at_offset(
 
 fn collect_container_names(
     db: &RootDb,
-    container_id: ContainerId,
+    container_id: ScopeId,
     names: &mut BTreeMap<String, NameKind>,
 ) {
     match container_id {
-        ContainerId::HirFileId(file_id) => collect_file_names(db, file_id, names),
-        ContainerId::ModuleId(module_id) => collect_module_names(db, module_id, names),
-        ContainerId::GenerateBlockId(generate_block_id) => {
+        ScopeId::File(file_id) => collect_file_names(db, file_id, names),
+        ScopeId::Module(module_id) => collect_module_names(db, module_id, names),
+        ScopeId::GenerateBlock(generate_block_id) => {
             let scope = db.generate_block_scope(generate_block_id);
             for (ident, entry) in scope.iter() {
                 match entry {
@@ -134,7 +134,7 @@ fn collect_container_names(
                 }
             }
         }
-        ContainerId::BlockId(block_id) => {
+        ScopeId::Block(block_id) => {
             let scope = db.block_scope(block_id);
             for (ident, entry) in scope.iter() {
                 if let BlockEntry::DeclId(decl_id) = entry {
@@ -144,7 +144,7 @@ fn collect_container_names(
                 }
             }
         }
-        ContainerId::SubroutineId(subroutine_id) => {
+        ScopeId::Subroutine(subroutine_id) => {
             let scope = db.subroutine_scope(subroutine_id);
             for (ident, entry) in scope.iter() {
                 match entry {
@@ -175,7 +175,7 @@ fn collect_file_names(db: &RootDb, file_id: HirFileId, names: &mut BTreeMap<Stri
         if let UnitEntry::FiledDeclId(decl_id) = entry {
             names.entry(ident.to_string()).or_insert(NameKind::Value {
                 ty: db
-                    .type_of_decl(InContainer::new(ContainerId::HirFileId(file_id), decl_id.value))
+                    .type_of_decl(InContainer::new(ScopeId::File(file_id), decl_id.value))
                     .ty
                     .clone(),
             });
@@ -219,15 +219,15 @@ fn collect_module_names(db: &RootDb, module_id: ModuleId, names: &mut BTreeMap<S
 fn subroutine_return_ty(db: &RootDb, subroutine_id: SubroutineId) -> Ty {
     match db.subroutine(subroutine_id).kind {
         SubroutineKind::Function { return_ty: Some(return_ty) } => {
-            normalize_data_ty(db, ContainerId::SubroutineId(subroutine_id), return_ty).ty
+            normalize_data_ty(db, ScopeId::Subroutine(subroutine_id), return_ty).ty
         }
         SubroutineKind::Function { return_ty: None } | SubroutineKind::Task => Ty::Unknown,
     }
 }
 
-fn module_id_for_container(db: &RootDb, container_id: ContainerId) -> Option<ModuleId> {
-    ContainerParent::start_from(db, container_id).find_map(|container_id| match container_id {
-        ContainerId::ModuleId(module_id) => Some(module_id),
+fn module_id_for_container(db: &RootDb, container_id: ScopeId) -> Option<ModuleId> {
+    ScopeParent::start_from(db, container_id).find_map(|container_id| match container_id {
+        ScopeId::Module(module_id) => Some(module_id),
         _ => None,
     })
 }

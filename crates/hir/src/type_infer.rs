@@ -3,7 +3,7 @@ use triomphe::Arc;
 use utils::get::GetRef;
 
 use crate::{
-    container::{ContainerId, InContainer, InGenerateBlock, InModule, InSubroutine},
+    container::{InContainer, InGenerateBlock, InModule, InSubroutine, ScopeId},
     db::HirDb,
     hir_def::{
         Ident,
@@ -25,7 +25,7 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinTy {
-    Data { id: BuiltinDataTyId, container: ContainerId },
+    Data { id: BuiltinDataTyId, container: ScopeId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,7 +72,7 @@ pub enum TyClass {
     String,
 }
 
-pub fn normalize_data_ty(db: &dyn HirDb, container: ContainerId, data_ty: DataTy) -> TyResult {
+pub fn normalize_data_ty(db: &dyn HirDb, container: ScopeId, data_ty: DataTy) -> TyResult {
     normalize_data_ty_inner(db, container, data_ty, &mut FxHashSet::default())
 }
 
@@ -268,7 +268,7 @@ pub fn packed_bit_width(db: &dyn HirDb, ty: &Ty) -> Option<u64> {
 
 fn normalize_data_ty_inner(
     db: &dyn HirDb,
-    container: ContainerId,
+    container: ScopeId,
     data_ty: DataTy,
     seen: &mut FxHashSet<InContainer<TypedefId>>,
 ) -> TyResult {
@@ -290,7 +290,7 @@ fn normalize_data_ty_inner(
 
 fn type_of_named_data_ty(
     db: &dyn HirDb,
-    container: ContainerId,
+    container: ScopeId,
     named: NamedDataTy,
     seen: &mut FxHashSet<InContainer<TypedefId>>,
 ) -> TyResult {
@@ -417,8 +417,8 @@ fn data_ty_of_decl(db: &dyn HirDb, decl: InContainer<DeclId>) -> Option<DataTy> 
     }
 }
 
-fn port_decl_ty(db: &dyn HirDb, cont_id: ContainerId, port_decl_id: PortDeclId) -> Option<DataTy> {
-    let ContainerId::ModuleId(module_id) = cont_id else {
+fn port_decl_ty(db: &dyn HirDb, cont_id: ScopeId, port_decl_id: PortDeclId) -> Option<DataTy> {
+    let ScopeId::Module(module_id) = cont_id else {
         return None;
     };
     let module = db.module(module_id);
@@ -427,7 +427,7 @@ fn port_decl_ty(db: &dyn HirDb, cont_id: ContainerId, port_decl_id: PortDeclId) 
 
 fn for_init_decl_ty(
     db: &dyn HirDb,
-    cont_id: ContainerId,
+    cont_id: ScopeId,
     stmt_id: crate::hir_def::stmt::StmtId,
     decl_id: DeclId,
 ) -> Option<DataTy> {
@@ -445,7 +445,7 @@ fn type_of_subroutine_port_impl(db: &dyn HirDb, port: InSubroutine<SubroutinePor
         return TyResult::new(Ty::Unknown);
     };
     port.ty
-        .map(|ty| normalize_data_ty(db, ContainerId::SubroutineId(port_id.subroutine), ty))
+        .map(|ty| normalize_data_ty(db, ScopeId::Subroutine(port_id.subroutine), ty))
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
 }
 
@@ -472,7 +472,7 @@ fn int_kind_width(kind: IntKind) -> usize {
     }
 }
 
-fn eval_const_i128(db: &dyn HirDb, container: ContainerId, expr_id: ExprId) -> Option<i128> {
+fn eval_const_i128(db: &dyn HirDb, container: ScopeId, expr_id: ExprId) -> Option<i128> {
     match expr_of(db, InContainer::new(container, expr_id))? {
         Expr::Literal(Literal::Int(int)) => int.get_single_word().map(|v| v as i128),
         Expr::Unary { op, expr } => {
@@ -510,13 +510,13 @@ fn eval_const_i128(db: &dyn HirDb, container: ContainerId, expr_id: ExprId) -> O
 
 fn expr_of(db: &dyn HirDb, expr: InContainer<ExprId>) -> Option<Expr> {
     match expr.cont_id {
-        ContainerId::HirFileId(file_id) => Some(db.hir_file(file_id).get(expr.value).clone()),
-        ContainerId::ModuleId(module_id) => Some(db.module(module_id).get(expr.value).clone()),
-        ContainerId::GenerateBlockId(generate_block_id) => {
+        ScopeId::File(file_id) => Some(db.hir_file(file_id).get(expr.value).clone()),
+        ScopeId::Module(module_id) => Some(db.module(module_id).get(expr.value).clone()),
+        ScopeId::GenerateBlock(generate_block_id) => {
             Some(db.generate_block(generate_block_id).get(expr.value).clone())
         }
-        ContainerId::BlockId(block_id) => Some(db.block(block_id).get(expr.value).clone()),
-        ContainerId::SubroutineId(subroutine_id) => {
+        ScopeId::Block(block_id) => Some(db.block(block_id).get(expr.value).clone()),
+        ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id).get(expr.value).clone())
         }
     }
@@ -527,13 +527,13 @@ fn decl_of(
     decl: InContainer<DeclId>,
 ) -> Option<crate::hir_def::expr::declarator::Declarator> {
     match decl.cont_id {
-        ContainerId::HirFileId(file_id) => Some(db.hir_file(file_id).get(decl.value).clone()),
-        ContainerId::ModuleId(module_id) => Some(db.module(module_id).get(decl.value).clone()),
-        ContainerId::GenerateBlockId(generate_block_id) => {
+        ScopeId::File(file_id) => Some(db.hir_file(file_id).get(decl.value).clone()),
+        ScopeId::Module(module_id) => Some(db.module(module_id).get(decl.value).clone()),
+        ScopeId::GenerateBlock(generate_block_id) => {
             Some(db.generate_block(generate_block_id).get(decl.value).clone())
         }
-        ContainerId::BlockId(block_id) => Some(db.block(block_id).get(decl.value).clone()),
-        ContainerId::SubroutineId(subroutine_id) => {
+        ScopeId::Block(block_id) => Some(db.block(block_id).get(decl.value).clone()),
+        ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id).get(decl.value).clone())
         }
     }
@@ -544,13 +544,13 @@ fn declaration_of(
     decl: InContainer<crate::hir_def::declaration::DeclarationId>,
 ) -> Option<Declaration> {
     match decl.cont_id {
-        ContainerId::HirFileId(file_id) => Some(db.hir_file(file_id).get(decl.value).clone()),
-        ContainerId::ModuleId(module_id) => Some(db.module(module_id).get(decl.value).clone()),
-        ContainerId::GenerateBlockId(generate_block_id) => {
+        ScopeId::File(file_id) => Some(db.hir_file(file_id).get(decl.value).clone()),
+        ScopeId::Module(module_id) => Some(db.module(module_id).get(decl.value).clone()),
+        ScopeId::GenerateBlock(generate_block_id) => {
             Some(db.generate_block(generate_block_id).get(decl.value).clone())
         }
-        ContainerId::BlockId(block_id) => Some(db.block(block_id).get(decl.value).clone()),
-        ContainerId::SubroutineId(subroutine_id) => {
+        ScopeId::Block(block_id) => Some(db.block(block_id).get(decl.value).clone()),
+        ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id).get(decl.value).clone())
         }
     }
@@ -561,13 +561,13 @@ fn typedef_of(
     typedef: InContainer<TypedefId>,
 ) -> Option<crate::hir_def::typedef::Typedef> {
     match typedef.cont_id {
-        ContainerId::HirFileId(file_id) => Some(db.hir_file(file_id).get(typedef.value).clone()),
-        ContainerId::ModuleId(module_id) => Some(db.module(module_id).get(typedef.value).clone()),
-        ContainerId::GenerateBlockId(generate_block_id) => {
+        ScopeId::File(file_id) => Some(db.hir_file(file_id).get(typedef.value).clone()),
+        ScopeId::Module(module_id) => Some(db.module(module_id).get(typedef.value).clone()),
+        ScopeId::GenerateBlock(generate_block_id) => {
             Some(db.generate_block(generate_block_id).get(typedef.value).clone())
         }
-        ContainerId::BlockId(block_id) => Some(db.block(block_id).get(typedef.value).clone()),
-        ContainerId::SubroutineId(subroutine_id) => {
+        ScopeId::Block(block_id) => Some(db.block(block_id).get(typedef.value).clone()),
+        ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id).get(typedef.value).clone())
         }
     }
@@ -578,13 +578,13 @@ fn struct_of(
     struct_id: InContainer<StructId>,
 ) -> Option<crate::hir_def::aggregate::StructDef> {
     match struct_id.cont_id {
-        ContainerId::HirFileId(file_id) => Some(db.hir_file(file_id).get(struct_id.value).clone()),
-        ContainerId::ModuleId(module_id) => Some(db.module(module_id).get(struct_id.value).clone()),
-        ContainerId::GenerateBlockId(generate_block_id) => {
+        ScopeId::File(file_id) => Some(db.hir_file(file_id).get(struct_id.value).clone()),
+        ScopeId::Module(module_id) => Some(db.module(module_id).get(struct_id.value).clone()),
+        ScopeId::GenerateBlock(generate_block_id) => {
             Some(db.generate_block(generate_block_id).get(struct_id.value).clone())
         }
-        ContainerId::BlockId(block_id) => Some(db.block(block_id).get(struct_id.value).clone()),
-        ContainerId::SubroutineId(subroutine_id) => {
+        ScopeId::Block(block_id) => Some(db.block(block_id).get(struct_id.value).clone()),
+        ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id).get(struct_id.value).clone())
         }
     }
@@ -595,13 +595,13 @@ fn stmt_of(
     stmt: InContainer<crate::hir_def::stmt::StmtId>,
 ) -> Option<crate::hir_def::stmt::Stmt> {
     match stmt.cont_id {
-        ContainerId::HirFileId(file_id) => Some(db.hir_file(file_id).get(stmt.value).clone()),
-        ContainerId::ModuleId(module_id) => Some(db.module(module_id).get(stmt.value).clone()),
-        ContainerId::GenerateBlockId(generate_block_id) => {
+        ScopeId::File(file_id) => Some(db.hir_file(file_id).get(stmt.value).clone()),
+        ScopeId::Module(module_id) => Some(db.module(module_id).get(stmt.value).clone()),
+        ScopeId::GenerateBlock(generate_block_id) => {
             Some(db.generate_block(generate_block_id).get(stmt.value).clone())
         }
-        ContainerId::BlockId(block_id) => Some(db.block(block_id).get(stmt.value).clone()),
-        ContainerId::SubroutineId(subroutine_id) => {
+        ScopeId::Block(block_id) => Some(db.block(block_id).get(stmt.value).clone()),
+        ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id).get(stmt.value).clone())
         }
     }

@@ -11,12 +11,10 @@ use utils::{
 
 use crate::{
     base_db::{intern::Lookup, salsa},
-    container::{ContainerId, InContainer, InFile, InModule, InSubroutine},
+    container::{InContainer, InFile, InModule, InSubroutine, ScopeId},
     db::HirDb,
     hir_def::{
-        block::BlockLoc,
-        expr::declarator::DeclaratorParent,
-        module::generate::GenerateBlockLoc,
+        block::BlockLoc, expr::declarator::DeclaratorParent, module::generate::GenerateBlockLoc,
     },
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
     symbol::{DefId, DefLoc},
@@ -88,7 +86,7 @@ impl ModuleDefOrigin {
     }
 
     #[inline]
-    pub fn container_id(&self, db: &dyn HirDb) -> ContainerId {
+    pub fn container_id(&self, db: &dyn HirDb) -> ScopeId {
         match self.loc(db) {
             DefLoc::Module(InFile { file_id, .. }) => file_id.into(),
             DefLoc::Config(InFile { file_id, .. }) => file_id.into(),
@@ -98,7 +96,7 @@ impl ModuleDefOrigin {
             DefLoc::GenerateBlock(generate_block_id) => generate_block_id.lookup(db).cont_id,
             DefLoc::Subroutine(subroutine_id) => subroutine_id.lookup(db).cont_id.into(),
             DefLoc::SubroutinePort(InSubroutine { subroutine, .. }) => {
-                ContainerId::SubroutineId(subroutine)
+                ScopeId::Subroutine(subroutine)
             }
             DefLoc::NonAnsiPort(InModule { module_id, .. }) => module_id.into(),
             DefLoc::Decl(InContainer { cont_id, .. }) => cont_id,
@@ -365,7 +363,7 @@ impl ModuleDefId {
         })
     }
 
-    pub fn container_id(self, db: &dyn HirDb) -> Option<ContainerId> {
+    pub fn container_id(self, db: &dyn HirDb) -> Option<ScopeId> {
         let origins = self.origins(db);
         let container_id = origins.first().map(|origin| origin.container_id(db))?;
         debug_assert! {
