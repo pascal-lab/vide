@@ -277,6 +277,14 @@ fn shutdown_test_server(
                 if notification.method == lsp_types::notification::PublishDiagnostics::METHOD => {}
             Message::Notification(notification)
                 if notification.method == ProjectStatusNotification::METHOD => {}
+            Message::Request(request)
+                if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
+            {
+                client
+                    .sender
+                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
+                    .unwrap();
+            }
             other => panic!("unexpected message while shutting down test server: {other:?}"),
         }
     }
@@ -335,6 +343,25 @@ fn request_document_diagnostics(
     request_id: i32,
 ) -> (Option<String>, Vec<lsp_types::Diagnostic>) {
     request_document_diagnostics_with_previous_result_id(client, uri, request_id, None)
+}
+
+fn request_document_diagnostics_until(
+    client: &Connection,
+    uri: Url,
+    first_request_id: i32,
+    mut predicate: impl FnMut(Option<&str>, &[lsp_types::Diagnostic]) -> bool,
+    context: &str,
+) -> (Option<String>, Vec<lsp_types::Diagnostic>) {
+    for attempt in 0..50 {
+        let (result_id, diagnostics) =
+            request_document_diagnostics(client, uri.clone(), first_request_id + attempt);
+        if predicate(result_id.as_deref(), &diagnostics) {
+            return (result_id, diagnostics);
+        }
+        wait_for_workspace_diagnostic_refresh_or_tick(client, context);
+    }
+
+    panic!("document diagnostics did not satisfy predicate during {context}");
 }
 
 fn request_document_diagnostics_with_previous_result_id(
@@ -726,6 +753,47 @@ fn request_workspace_diagnostic_report(
         panic!("unexpected workspaceDiagnostic response: {result:?}");
     };
     report
+}
+
+fn request_workspace_diagnostic_report_until(
+    client: &Connection,
+    first_request_id: i32,
+    mut predicate: impl FnMut(&lsp_types::WorkspaceDiagnosticReport) -> bool,
+    context: &str,
+) -> lsp_types::WorkspaceDiagnosticReport {
+    for attempt in 0..50 {
+        let report =
+            request_workspace_diagnostic_report(client, first_request_id + attempt, Vec::new());
+        if predicate(&report) {
+            return report;
+        }
+        wait_for_workspace_diagnostic_refresh_or_tick(client, context);
+    }
+
+    panic!("workspace diagnostics did not satisfy predicate during {context}");
+}
+
+fn wait_for_workspace_diagnostic_refresh_or_tick(client: &Connection, context: &str) {
+    let deadline = Instant::now() + Duration::from_millis(100);
+    while let Some(message) = recv_lsp_message_until(client, deadline, context) {
+        match message {
+            Message::Request(request)
+                if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
+            {
+                client
+                    .sender
+                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
+                    .unwrap();
+                return;
+            }
+            Message::Request(request) => handle_test_server_request(client, request, context),
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::Progress::METHOD => {}
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::PublishDiagnostics::METHOD => {}
+            _ => {}
+        }
+    }
 }
 
 fn request_workspace_diagnostic_uris(client: &Connection, request_id: i32) -> Vec<Url> {

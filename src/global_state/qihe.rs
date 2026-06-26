@@ -679,6 +679,7 @@ pub(super) fn with_global_ctx<T>(
         diagnostics,
         workspace,
         qihe,
+        semantic_compiler: _,
         external_sources,
         tasks,
     } = state;

@@ -14,6 +14,7 @@ use super::{
     qihe::{QiheRunId, QiheUpdate},
     reload::FetchWorkspaceProgress,
     response_effect::AcceptedResponseEffect,
+    semantic_compiler::{SemanticCompilerRunId, SemanticCompilerUpdate},
 };
 
 #[derive(Debug)]
@@ -23,6 +24,7 @@ pub(crate) enum Task {
     FetchWorkspace(FetchWorkspaceProgress),
     Diagnostics(PublishDiagnosticsBatch),
     Qihe(QiheTask),
+    SemanticCompiler(SemanticCompilerTask),
 }
 
 impl Task {
@@ -40,6 +42,7 @@ impl Task {
             Task::FetchWorkspace(FetchWorkspaceProgress::End { .. }) => "task.fetch_workspace.end",
             Task::Diagnostics(_) => "task.diagnostics",
             Task::Qihe(task) => task.kind(),
+            Task::SemanticCompiler(task) => task.kind(),
         }
     }
 
@@ -65,6 +68,7 @@ impl Task {
                 )
             }
             Task::Qihe(task) => task.summary(),
+            Task::SemanticCompiler(task) => task.summary(),
         }
     }
 }
@@ -253,6 +257,41 @@ impl QiheTask {
             }
             QiheTask::Failed { progress_token, message, .. } => {
                 format!("task qihe failed token={progress_token} message={message}")
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum SemanticCompilerTask {
+    Finished { run_id: SemanticCompilerRunId, update: SemanticCompilerUpdate },
+    Cancelled { run_id: SemanticCompilerRunId },
+    Failed { run_id: SemanticCompilerRunId, message: String },
+}
+
+impl SemanticCompilerTask {
+    pub(super) fn kind(&self) -> &'static str {
+        match self {
+            SemanticCompilerTask::Finished { .. } => "task.semantic_compiler.finished",
+            SemanticCompilerTask::Cancelled { .. } => "task.semantic_compiler.cancelled",
+            SemanticCompilerTask::Failed { .. } => "task.semantic_compiler.failed",
+        }
+    }
+
+    pub(super) fn summary(&self) -> String {
+        match self {
+            SemanticCompilerTask::Finished { run_id, update } => {
+                format!(
+                    "task semantic compiler finished run={run_id:?} files={} diagnostics={}",
+                    update.touched_file_count(),
+                    update.diagnostic_count()
+                )
+            }
+            SemanticCompilerTask::Cancelled { run_id } => {
+                format!("task semantic compiler cancelled run={run_id:?}")
+            }
+            SemanticCompilerTask::Failed { run_id, message } => {
+                format!("task semantic compiler failed run={run_id:?} message={message}")
             }
         }
     }

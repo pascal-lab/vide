@@ -313,6 +313,7 @@ impl GlobalState {
             }
             Task::Diagnostics(diags) => self.publish_diagnostics_tasks(diags),
             Task::Qihe(task) => self.handle_qihe_task(task),
+            Task::SemanticCompiler(task) => self.handle_semantic_compiler_task(task),
         }
     }
 
