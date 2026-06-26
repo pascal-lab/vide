@@ -14,7 +14,7 @@ use hir::{
         SubroutineEntry, UnitEntry,
     },
     semantics::{Semantics, pathres::PathResolution},
-    type_infer::{Ty, normalize_data_ty, type_class, type_of_decl, type_of_path_resolution},
+    type_infer::{Ty, normalize_data_ty, type_class},
 };
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxNodeExt,
@@ -122,7 +122,7 @@ fn collect_container_names(
                 match entry {
                     GenerateBlockEntry::DeclId(decl_id) => {
                         names.entry(ident.to_string()).or_insert(NameKind::Value {
-                            ty: type_of_decl(db, InContainer::new(container_id, decl_id)).ty,
+                            ty: db.type_of_decl(InContainer::new(container_id, decl_id)).ty.clone(),
                         });
                     }
                     GenerateBlockEntry::SubroutineId(subroutine_id) => {
@@ -139,7 +139,7 @@ fn collect_container_names(
             for (ident, entry) in scope.iter() {
                 if let BlockEntry::DeclId(decl_id) = entry {
                     names.entry(ident.to_string()).or_insert(NameKind::Value {
-                        ty: type_of_decl(db, InContainer::new(container_id, decl_id)).ty,
+                        ty: db.type_of_decl(InContainer::new(container_id, decl_id)).ty.clone(),
                     });
                 }
             }
@@ -150,18 +150,16 @@ fn collect_container_names(
                 match entry {
                     SubroutineEntry::DeclId(decl_id) => {
                         names.entry(ident.to_string()).or_insert(NameKind::Value {
-                            ty: type_of_decl(db, InContainer::new(container_id, decl_id)).ty,
+                            ty: db.type_of_decl(InContainer::new(container_id, decl_id)).ty.clone(),
                         });
                     }
                     SubroutineEntry::SubroutinePortId(port_id) => {
-                        let ty = type_of_path_resolution(
-                            db,
-                            PathResolution::SubroutinePort(InSubroutine::new(
-                                subroutine_id,
-                                port_id,
-                            )),
-                        )
-                        .ty;
+                        let ty = db
+                            .type_of_path_resolution(PathResolution::SubroutinePort(
+                                InSubroutine::new(subroutine_id, port_id),
+                            ))
+                            .ty
+                            .clone();
                         names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
                     }
                     _ => {}
@@ -176,11 +174,10 @@ fn collect_file_names(db: &RootDb, file_id: HirFileId, names: &mut BTreeMap<Stri
     for (ident, entry) in scope.iter() {
         if let UnitEntry::FiledDeclId(decl_id) = entry {
             names.entry(ident.to_string()).or_insert(NameKind::Value {
-                ty: type_of_decl(
-                    db,
-                    InContainer::new(ContainerId::HirFileId(file_id), decl_id.value),
-                )
-                .ty,
+                ty: db
+                    .type_of_decl(InContainer::new(ContainerId::HirFileId(file_id), decl_id.value))
+                    .ty
+                    .clone(),
             });
         }
     }
@@ -192,18 +189,20 @@ fn collect_module_names(db: &RootDb, module_id: ModuleId, names: &mut BTreeMap<S
         match entry {
             ModuleEntry::DeclId(decl_id) => {
                 names.entry(ident.to_string()).or_insert(NameKind::Value {
-                    ty: type_of_decl(db, InContainer::new(module_id.into(), decl_id)).ty,
+                    ty: db.type_of_decl(InContainer::new(module_id.into(), decl_id)).ty.clone(),
                 });
             }
             ModuleEntry::AnsiPortEntry(AnsiPortEntry(decl_id)) => {
                 names.entry(ident.to_string()).or_insert(NameKind::Value {
-                    ty: type_of_decl(db, InContainer::new(module_id.into(), decl_id)).ty,
+                    ty: db.type_of_decl(InContainer::new(module_id.into(), decl_id)).ty.clone(),
                 });
             }
             ModuleEntry::NonAnsiPortEntry(NonAnsiPortEntry { port_decl, data_decl, .. }) => {
                 let ty = data_decl
                     .or(port_decl)
-                    .map(|decl_id| type_of_decl(db, InContainer::new(module_id.into(), decl_id)).ty)
+                    .map(|decl_id| {
+                        db.type_of_decl(InContainer::new(module_id.into(), decl_id)).ty.clone()
+                    })
                     .unwrap_or(Ty::Unknown);
                 names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
             }
@@ -280,7 +279,7 @@ fn expected_type_for_assignment_rhs(
     }
 
     let res = sema.expr_to_def(sema.resolve_expr(file_id, assignment.left())?)?;
-    Some(type_of_path_resolution(db, res).ty)
+    Some(db.type_of_path_resolution(res).ty.clone())
 }
 
 fn expected_type_for_declarator_initializer(
@@ -301,7 +300,7 @@ fn expected_type_for_declarator_initializer(
     let ident = lower_ident_opt(declarator.name())?;
     let container_id = sema.container_for_node(file_id, declarator.syntax())?;
     let res = sema.name_to_def(InContainer::new(container_id, ident))?;
-    Some(type_of_path_resolution(db, res).ty)
+    Some(db.type_of_path_resolution(res).ty.clone())
 }
 
 fn is_assignment_expression(kind: SyntaxKind) -> bool {

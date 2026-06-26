@@ -1,7 +1,8 @@
 use hir::{
+    db::HirDb,
     file::HirFileId,
     semantics::Semantics,
-    type_infer::{TyMember, members_of_ty, type_of_expr, type_of_path_resolution},
+    type_infer::{TyMember, members_of_ty},
 };
 use syntax::{
     SyntaxAncestors, SyntaxNode, SyntaxNodeExt,
@@ -84,7 +85,8 @@ fn members_for_incomplete_scoped_access(
     }
     let left = root.token_before_offset(separator.text_range()?.start())?;
     let res = sema.nameres_ident(file_id, left)?;
-    let members = members_of_ty(db, &type_of_path_resolution(db, res).ty);
+    let ty = db.type_of_path_resolution(res);
+    let members = members_of_ty(db, &ty.ty);
     (!members.is_empty()).then_some(members)
 }
 
@@ -123,8 +125,8 @@ fn members_for_expr(
     file_id: HirFileId,
     expr: ast::Expression<'_>,
 ) -> Option<Vec<TyMember>> {
-    let ty = type_of_expr(db, sema.resolve_expr(file_id, expr)?).ty;
-    let members = members_of_ty(db, &ty);
+    let ty = db.type_of_expr(sema.resolve_expr(file_id, expr)?);
+    let members = members_of_ty(db, &ty.ty);
     (!members.is_empty()).then_some(members)
 }
 

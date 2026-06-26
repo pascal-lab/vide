@@ -1,4 +1,5 @@
 use rustc_hash::FxHashSet;
+use triomphe::Arc;
 use utils::get::GetRef;
 
 use crate::{
@@ -40,7 +41,7 @@ pub enum Ty {
     Block(crate::hir_def::block::BlockId),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TyResult {
     pub ty: Ty,
     pub diagnostics: Vec<TyInferDiagnostic>,
@@ -75,30 +76,56 @@ pub fn normalize_data_ty(db: &dyn HirDb, container: ContainerId, data_ty: DataTy
     normalize_data_ty_inner(db, container, data_ty, &mut FxHashSet::default())
 }
 
-pub fn type_of_typedef(db: &dyn HirDb, typedef: InContainer<TypedefId>) -> TyResult {
+pub(crate) fn type_of_typedef_query(
+    db: &dyn HirDb,
+    typedef: InContainer<TypedefId>,
+) -> Arc<TyResult> {
+    Arc::new(type_of_typedef_impl(db, typedef))
+}
+
+pub(crate) fn type_of_decl_query(db: &dyn HirDb, decl: InContainer<DeclId>) -> Arc<TyResult> {
+    Arc::new(type_of_decl_impl(db, decl))
+}
+
+pub(crate) fn type_of_path_resolution_query(db: &dyn HirDb, res: PathResolution) -> Arc<TyResult> {
+    Arc::new(type_of_path_resolution_impl(db, res))
+}
+
+pub(crate) fn type_of_expr_query(db: &dyn HirDb, expr: InContainer<ExprId>) -> Arc<TyResult> {
+    Arc::new(type_of_expr_impl(db, expr))
+}
+
+pub(crate) fn type_of_subroutine_port_query(
+    db: &dyn HirDb,
+    port: InSubroutine<SubroutinePortId>,
+) -> Arc<TyResult> {
+    Arc::new(type_of_subroutine_port_impl(db, port))
+}
+
+fn type_of_typedef_impl(db: &dyn HirDb, typedef: InContainer<TypedefId>) -> TyResult {
     type_of_typedef_inner(db, typedef, &mut FxHashSet::default())
 }
 
-pub fn type_of_decl(db: &dyn HirDb, decl: InContainer<DeclId>) -> TyResult {
+fn type_of_decl_impl(db: &dyn HirDb, decl: InContainer<DeclId>) -> TyResult {
     let Some(data_ty) = data_ty_of_decl(db, decl) else {
         return TyResult::new(Ty::Unknown);
     };
     normalize_data_ty(db, decl.cont_id, data_ty)
 }
 
-pub fn type_of_path_resolution(db: &dyn HirDb, res: PathResolution) -> TyResult {
+fn type_of_path_resolution_impl(db: &dyn HirDb, res: PathResolution) -> TyResult {
     match res {
         PathResolution::Module(module_id) => TyResult::new(Ty::Module(module_id)),
-        PathResolution::Decl(decl) => type_of_decl(db, decl),
-        PathResolution::Typedef(typedef) => type_of_typedef(db, typedef),
+        PathResolution::Decl(decl) => type_of_decl_impl(db, decl),
+        PathResolution::Typedef(typedef) => type_of_typedef_impl(db, typedef),
         PathResolution::ParamDecl(decl) | PathResolution::AnsiPort(decl) => {
-            type_of_decl(db, decl.into())
+            type_of_decl_impl(db, decl.into())
         }
         PathResolution::NonAnsiPort { port_decl, data_decl, module, .. } => data_decl
             .or(port_decl)
-            .map(|decl| type_of_decl(db, InContainer::new(module.into(), decl)))
+            .map(|decl| type_of_decl_impl(db, InContainer::new(module.into(), decl)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        PathResolution::SubroutinePort(port) => type_of_subroutine_port(db, port),
+        PathResolution::SubroutinePort(port) => type_of_subroutine_port_impl(db, port),
         PathResolution::Instance(instance) => {
             instance_target_module_id(db, instance.module_id, instance.value)
                 .map(|module_id| TyResult::new(Ty::Module(module_id)))
@@ -116,20 +143,20 @@ pub fn type_of_path_resolution(db: &dyn HirDb, res: PathResolution) -> TyResult 
     }
 }
 
-pub fn type_of_expr(db: &dyn HirDb, expr: InContainer<ExprId>) -> TyResult {
+fn type_of_expr_impl(db: &dyn HirDb, expr: InContainer<ExprId>) -> TyResult {
     let Some(hir_expr) = expr_of(db, expr) else {
         return TyResult::new(Ty::Unknown);
     };
 
     match hir_expr {
         Expr::Ident(ident) => resolve_name(db, expr.cont_id, &ident)
-            .map(|res| type_of_path_resolution(db, res))
+            .map(|res| type_of_path_resolution_impl(db, res))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         Expr::Field { receiver, field } => {
             let Some(field) = field else {
                 return TyResult::new(Ty::Unknown);
             };
-            let base = type_of_expr(db, expr.with_value(receiver));
+            let base = type_of_expr_impl(db, expr.with_value(receiver));
             if matches!(base.ty, Ty::Unknown | Ty::Error) {
                 return base;
             }
@@ -137,7 +164,7 @@ pub fn type_of_expr(db: &dyn HirDb, expr: InContainer<ExprId>) -> TyResult {
             selected.diagnostics.extend(base.diagnostics);
             selected
         }
-        Expr::ElementSelect { receiver, .. } => type_of_expr(db, expr.with_value(receiver)),
+        Expr::ElementSelect { receiver, .. } => type_of_expr_impl(db, expr.with_value(receiver)),
         Expr::Cast { ty, .. } => normalize_data_ty(db, expr.cont_id, ty),
         _ => TyResult::new(Ty::Unknown),
     }
@@ -276,7 +303,7 @@ fn type_of_named_data_ty(
 
     match resolve_name(db, container, &ident) {
         Some(PathResolution::Typedef(typedef)) => type_of_typedef_inner(db, typedef, seen),
-        Some(res) => type_of_path_resolution(db, res),
+        Some(res) => type_of_path_resolution_impl(db, res),
         None => TyResult::new(Ty::Unknown),
     }
 }
@@ -336,7 +363,7 @@ fn module_members(db: &dyn HirDb, module_id: ModuleId) -> Vec<TyMember> {
         .iter()
         .map(|(name, entry)| {
             let origin = PathResolution::from(InModule::new(module_id, entry));
-            let ty = type_of_path_resolution(db, origin).ty;
+            let ty = type_of_path_resolution_impl(db, origin).ty;
             TyMember { name: name.clone(), ty, origin: Some(origin) }
         })
         .collect();
@@ -350,7 +377,7 @@ fn generate_block_members(db: &dyn HirDb, generate_block_id: GenerateBlockId) ->
         .iter()
         .map(|(name, entry)| {
             let origin = PathResolution::from(InGenerateBlock::new(generate_block_id, entry));
-            let ty = type_of_path_resolution(db, origin).ty;
+            let ty = type_of_path_resolution_impl(db, origin).ty;
             TyMember { name: name.clone(), ty, origin: Some(origin) }
         })
         .collect();
@@ -364,7 +391,7 @@ fn block_members(db: &dyn HirDb, block_id: crate::hir_def::block::BlockId) -> Ve
         .iter()
         .map(|(name, entry)| {
             let origin = PathResolution::from(crate::container::InBlock::new(block_id, entry));
-            let ty = type_of_path_resolution(db, origin).ty;
+            let ty = type_of_path_resolution_impl(db, origin).ty;
             TyMember { name: name.clone(), ty, origin: Some(origin) }
         })
         .collect();
@@ -411,7 +438,7 @@ fn for_init_decl_ty(
     inits.iter().find_map(|(ty, decl)| (*decl == decl_id).then_some(*ty).flatten())
 }
 
-fn type_of_subroutine_port(db: &dyn HirDb, port: InSubroutine<SubroutinePortId>) -> TyResult {
+fn type_of_subroutine_port_impl(db: &dyn HirDb, port: InSubroutine<SubroutinePortId>) -> TyResult {
     let subroutine = db.subroutine(port.subroutine);
     let port_id = port;
     let Some(port) = subroutine.ports.get(port_id.value.0 as usize) else {

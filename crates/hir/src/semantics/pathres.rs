@@ -70,7 +70,7 @@ pub fn resolve_name(db: &dyn HirDb, cont_id: ContainerId, ident: &Ident) -> Opti
     })
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum PathResolution {
     Module(ModuleId),
     Config(InFile<ConfigDeclId>),

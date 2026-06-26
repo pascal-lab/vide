@@ -9,9 +9,7 @@ use hir::{
     },
     scope::ModuleEntry,
     semantics::pathres::PathResolution,
-    type_infer::{
-        Ty, TyClass, packed_bit_width, type_class, type_of_decl, type_of_path_resolution,
-    },
+    type_infer::{Ty, TyClass, packed_bit_width, type_class},
 };
 use utils::get::GetRef;
 
@@ -27,11 +25,12 @@ pub(super) fn expected_port_ty(
 
     match entry {
         ModuleEntry::AnsiPortEntry(_) | ModuleEntry::NonAnsiPortEntry(_) => Some(
-            type_of_path_resolution(
-                db,
-                PathResolution::from(hir::container::InModule::new(target_module_id, entry)),
-            )
-            .ty,
+            db.type_of_path_resolution(PathResolution::from(hir::container::InModule::new(
+                target_module_id,
+                entry,
+            )))
+            .ty
+            .clone(),
         ),
         _ => None,
     }
@@ -58,7 +57,7 @@ pub(super) fn expected_param_ty(
     param_decl
         .kind
         .is_overridable()
-        .then(|| type_of_decl(db, InContainer::new(target_module_id.into(), decl_id)).ty)
+        .then(|| db.type_of_decl(InContainer::new(target_module_id.into(), decl_id)).ty.clone())
 }
 
 pub(super) fn value_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Vec<(String, Ty)> {
@@ -73,7 +72,8 @@ pub(super) fn value_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Ve
             | Declaration::SpecparamDecl(_) => {
                 for decl_id in decl.decls().clone() {
                     if let Some(name) = module.get(decl_id).name.as_ref() {
-                        let ty = type_of_decl(db, InContainer::new(module_id.into(), decl_id)).ty;
+                        let ty =
+                            db.type_of_decl(InContainer::new(module_id.into(), decl_id)).ty.clone();
                         candidates.push((name.to_string(), ty));
                     }
                 }
@@ -87,7 +87,8 @@ pub(super) fn value_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Ve
             for (_, port_decl) in port_decls.iter() {
                 for decl_id in port_decl.decls.clone() {
                     if let Some(name) = module.get(decl_id).name.as_ref() {
-                        let ty = type_of_decl(db, InContainer::new(module_id.into(), decl_id)).ty;
+                        let ty =
+                            db.type_of_decl(InContainer::new(module_id.into(), decl_id)).ty.clone();
                         candidates.push((name.to_string(), ty));
                     }
                 }
@@ -97,7 +98,8 @@ pub(super) fn value_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Ve
             for (_, port_decl) in decls.iter() {
                 for decl_id in port_decl.decls.clone() {
                     if let Some(name) = module.get(decl_id).name.as_ref() {
-                        let ty = type_of_decl(db, InContainer::new(module_id.into(), decl_id)).ty;
+                        let ty =
+                            db.type_of_decl(InContainer::new(module_id.into(), decl_id)).ty.clone();
                         candidates.push((name.to_string(), ty));
                     }
                 }
@@ -120,7 +122,7 @@ pub(super) fn const_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Ve
         };
         for decl_id in param_decl.decls.clone() {
             if let Some(name) = module.get(decl_id).name.as_ref() {
-                let ty = type_of_decl(db, InContainer::new(module_id.into(), decl_id)).ty;
+                let ty = db.type_of_decl(InContainer::new(module_id.into(), decl_id)).ty.clone();
                 candidates.push((name.to_string(), ty));
             }
         }
