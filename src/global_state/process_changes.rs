@@ -117,7 +117,7 @@ impl GlobalState {
         if diagnostic_targets_changed {
             self.diagnostics.diagnostic_target_revision += 1;
         }
-        self.remove_deleted_qihe_diagnostics(&deleted_file_ids);
+        self.qihe.remove_deleted(&deleted_file_ids);
         self.clear_deleted_push_diagnostics(&deleted_push_diagnostics);
         if has_structure_changes {
             self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
@@ -187,17 +187,6 @@ impl GlobalState {
             DiagnosticInvalidation::WorkspaceChanged => self.open_mem_doc_file_ids(),
         };
         self.request_diagnostics(file_ids);
-    }
-
-    fn remove_deleted_qihe_diagnostics(&mut self, deleted_file_ids: &FxHashSet<FileId>) {
-        if deleted_file_ids.is_empty() {
-            return;
-        }
-
-        let mut qihe_diagnostics = self.qihe.qihe_diagnostics.lock();
-        for file_id in deleted_file_ids {
-            qihe_diagnostics.remove(file_id);
-        }
     }
 
     fn clear_deleted_push_diagnostics(&mut self, deleted_files: &[(FileId, VfsPath)]) {

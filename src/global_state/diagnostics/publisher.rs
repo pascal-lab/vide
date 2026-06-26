@@ -1,8 +1,13 @@
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use vfs::FileId;
 
 use super::DiagnosticPublishFreshness;
-use crate::global_state::{GlobalState, snapshot::DiagnosticPublishTarget};
+use crate::{
+    config::Config,
+    global_state::{
+        GlobalState, snapshot::DiagnosticPublishTarget, workspace_state::WorkspaceVfsReadiness,
+    },
+};
 
 #[derive(Debug)]
 pub(crate) struct PublishDiagnosticsTask {
@@ -103,23 +108,38 @@ impl PublishDiagnosticsTask {
     }
 }
 
-impl GlobalState {
-    pub(in crate::global_state) fn publish_diagnostics_tasks(
-        &mut self,
-        batch: PublishDiagnosticsBatch,
-    ) {
+pub(in crate::global_state) struct DiagnosticsPublisher<'a> {
+    config: &'a Config,
+    workspace_vfs: &'a mut WorkspaceVfsReadiness,
+    published_diagnostics: &'a mut FxHashMap<DiagnosticPublishKey, Vec<lsp_types::Diagnostic>>,
+    sender: &'a crossbeam_channel::Sender<lsp_server::Message>,
+    current_freshness: DiagnosticPublishFreshness,
+}
+
+impl<'a> DiagnosticsPublisher<'a> {
+    pub(in crate::global_state) fn new(
+        config: &'a Config,
+        workspace_vfs: &'a mut WorkspaceVfsReadiness,
+        published_diagnostics: &'a mut FxHashMap<DiagnosticPublishKey, Vec<lsp_types::Diagnostic>>,
+        sender: &'a crossbeam_channel::Sender<lsp_server::Message>,
+        current_freshness: DiagnosticPublishFreshness,
+    ) -> Self {
+        Self { config, workspace_vfs, published_diagnostics, sender, current_freshness }
+    }
+
+    pub(in crate::global_state) fn publish(&mut self, batch: PublishDiagnosticsBatch) {
         let task_count = batch.touched_file_count();
         let diagnostic_count = batch.diagnostic_count();
         let _span =
             tracing::info_span!("diagnostics.publish", task_count, diagnostic_count).entered();
 
-        if self.config_state.config.cli_pull_diagnostics_support() {
+        if self.config.cli_pull_diagnostics_support() {
             tracing::info!("skipping push diagnostics for pull-capable client");
             return;
         }
 
-        if !self.workspace.workspace_vfs.is_ready() {
-            self.workspace.workspace_vfs.defer_diagnostics_until_ready();
+        if !self.workspace_vfs.is_ready() {
+            self.workspace_vfs.defer_diagnostics_until_ready();
             tracing::debug!("diagnostics publish deferred until workspace/VFS is ready");
             return;
         }
@@ -128,22 +148,24 @@ impl GlobalState {
         let mut published_diagnostics = 0usize;
         let mut skipped_files = 0usize;
         let PublishDiagnosticsBatch { freshness, touched_file_ids, tasks } = batch;
-        let current_freshness = self.diagnostic_publish_freshness();
-        if freshness != current_freshness {
-            tracing::debug!(?freshness, ?current_freshness, "stale diagnostics batch ignored");
+        if freshness != self.current_freshness {
+            tracing::debug!(
+                freshness = ?freshness,
+                current_freshness = ?self.current_freshness,
+                "stale diagnostics batch ignored"
+            );
             return;
         }
         let current_targets =
             tasks.iter().map(PublishDiagnosticsTask::cache_key).collect::<FxHashSet<_>>();
         let stale_targets = self
-            .diagnostics
             .published_diagnostics
             .keys()
             .filter(|key| touched_file_ids.contains(&key.file_id) && !current_targets.contains(key))
             .cloned()
             .collect::<Vec<_>>();
         for key in stale_targets {
-            self.diagnostics.published_diagnostics.remove(&key);
+            self.published_diagnostics.remove(&key);
             self.send_notification::<lsp_types::notification::PublishDiagnostics>(
                 lsp_types::PublishDiagnosticsParams {
                     uri: key.uri,
@@ -157,7 +179,7 @@ impl GlobalState {
         for diag in tasks {
             let file_diagnostics = diag.diagnostics.len();
             let cache_key = diag.cache_key();
-            let should_publish = match self.diagnostics.published_diagnostics.get(&cache_key) {
+            let should_publish = match self.published_diagnostics.get(&cache_key) {
                 Some(prev) => prev != &diag.diagnostics,
                 None => !diag.diagnostics.is_empty(),
             };
@@ -168,9 +190,9 @@ impl GlobalState {
             }
 
             if diag.diagnostics.is_empty() {
-                self.diagnostics.published_diagnostics.remove(&cache_key);
+                self.published_diagnostics.remove(&cache_key);
             } else {
-                self.diagnostics.published_diagnostics.insert(cache_key, diag.diagnostics.clone());
+                self.published_diagnostics.insert(cache_key, diag.diagnostics.clone());
             }
 
             self.send_notification::<lsp_types::notification::PublishDiagnostics>(
@@ -189,5 +211,29 @@ impl GlobalState {
             skipped_files,
             "publish diagnostics complete"
         );
+    }
+
+    fn send_notification<N: lsp_types::notification::Notification>(&self, params: N::Params) {
+        let notif = lsp_server::Notification::new(N::METHOD.to_string(), params);
+        if self.sender.send(notif.into()).is_err() {
+            tracing::debug!("LSP message dropped because client connection is closed");
+        }
+    }
+}
+
+impl GlobalState {
+    pub(in crate::global_state) fn publish_diagnostics_tasks(
+        &mut self,
+        batch: PublishDiagnosticsBatch,
+    ) {
+        let current_freshness = self.diagnostic_publish_freshness();
+        DiagnosticsPublisher::new(
+            &self.config_state.config,
+            &mut self.workspace.workspace_vfs,
+            &mut self.diagnostics.published_diagnostics,
+            &self.client.sender,
+            current_freshness,
+        )
+        .publish(batch);
     }
 }
