@@ -14,79 +14,16 @@ use crate::{
     container::{InContainer, InFile, InModule, InSubroutine, ScopeId},
     db::HirDb,
     hir_def::{
-        block::BlockLoc, expr::declarator::DeclaratorParent, module::generate::GenerateBlockLoc,
+        block::BlockLoc, declaration::Declaration, expr::declarator::DeclaratorParent,
+        module::generate::GenerateBlockLoc,
     },
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
-    symbol::{DefId, DefLoc},
+    symbol::{DefId, DefKind, DefLoc},
 };
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ModuleDefOrigin {
-    Module(DefId),
-    Config(DefId),
-    Library(DefId),
-    Udp(DefId),
-    Block(DefId),
-    GenerateBlock(DefId),
-    Subroutine(DefId),
-    SubroutinePort(DefId),
-
-    NonAnsiPort(DefId),
-    Decl(DefId),
-    Typedef(DefId),
-    Instance(DefId),
-    Stmt(DefId),
-}
-
-impl ModuleDefOrigin {
-    pub fn from_loc(db: &dyn HirDb, loc: impl Into<DefLoc>) -> Self {
-        let loc = loc.into();
-        let def_id = DefId::new(db, loc);
-        Self::from_def_loc(def_id, loc)
-    }
-
-    fn from_def_loc(def_id: DefId, loc: DefLoc) -> Self {
-        match loc {
-            DefLoc::Module(_) => Self::Module(def_id),
-            DefLoc::Config(_) => Self::Config(def_id),
-            DefLoc::Library(_) => Self::Library(def_id),
-            DefLoc::Udp(_) => Self::Udp(def_id),
-            DefLoc::Block(_) => Self::Block(def_id),
-            DefLoc::GenerateBlock(_) => Self::GenerateBlock(def_id),
-            DefLoc::Subroutine(_) => Self::Subroutine(def_id),
-            DefLoc::SubroutinePort(_) => Self::SubroutinePort(def_id),
-            DefLoc::NonAnsiPort(_) => Self::NonAnsiPort(def_id),
-            DefLoc::Decl(_) => Self::Decl(def_id),
-            DefLoc::Typedef(_) => Self::Typedef(def_id),
-            DefLoc::Instance(_) => Self::Instance(def_id),
-            DefLoc::Stmt(_) => Self::Stmt(def_id),
-        }
-    }
-
-    pub fn def_id(&self) -> DefId {
-        match *self {
-            Self::Module(def_id)
-            | Self::Config(def_id)
-            | Self::Library(def_id)
-            | Self::Udp(def_id)
-            | Self::Block(def_id)
-            | Self::GenerateBlock(def_id)
-            | Self::Subroutine(def_id)
-            | Self::SubroutinePort(def_id)
-            | Self::NonAnsiPort(def_id)
-            | Self::Decl(def_id)
-            | Self::Typedef(def_id)
-            | Self::Instance(def_id)
-            | Self::Stmt(def_id) => def_id,
-        }
-    }
-
-    pub fn loc(&self, db: &dyn HirDb) -> DefLoc {
-        self.def_id().loc(db)
-    }
-
+impl DefId {
     #[inline]
-    pub fn container_id(&self, db: &dyn HirDb) -> ScopeId {
+    pub fn container_id(self, db: &dyn HirDb) -> ScopeId {
         match self.loc(db) {
             DefLoc::Module(InFile { file_id, .. }) => file_id.into(),
             DefLoc::Config(InFile { file_id, .. }) => file_id.into(),
@@ -106,7 +43,41 @@ impl ModuleDefOrigin {
         }
     }
 
-    pub fn name(&self, db: &dyn HirDb) -> Option<SmolStr> {
+    pub fn kind(self, db: &dyn HirDb) -> DefKind {
+        match self.loc(db) {
+            DefLoc::Module(_) => DefKind::Module,
+            DefLoc::Config(_) => DefKind::Config,
+            DefLoc::Library(_) => DefKind::Library,
+            DefLoc::Udp(_) => DefKind::Udp,
+            DefLoc::Block(_) => DefKind::Block,
+            DefLoc::GenerateBlock(_) => DefKind::GenerateBlock,
+            DefLoc::Subroutine(_) => DefKind::Subroutine,
+            DefLoc::SubroutinePort(_) => DefKind::SubroutinePort,
+            DefLoc::NonAnsiPort(_) => DefKind::NonAnsiPort,
+            DefLoc::Decl(InContainer { value, cont_id }) => {
+                let container = cont_id.to_container(db);
+                let decl = container.get(value);
+                match decl.parent {
+                    DeclaratorParent::PortDeclId(_) => DefKind::Port,
+                    DeclaratorParent::StmtId(_) => DefKind::Variable,
+                    DeclaratorParent::DeclarationId(declaration_id) => {
+                        match container.get(declaration_id) {
+                            Declaration::DataDecl(_) => DefKind::Variable,
+                            Declaration::NetDecl(_) => DefKind::Net,
+                            Declaration::ParamDecl(_) => DefKind::Param,
+                            Declaration::GenvarDecl(_) => DefKind::Genvar,
+                            Declaration::SpecparamDecl(_) => DefKind::Specparam,
+                        }
+                    }
+                }
+            }
+            DefLoc::Typedef(_) => DefKind::Typedef,
+            DefLoc::Instance(_) => DefKind::Instance,
+            DefLoc::Stmt(_) => DefKind::Stmt,
+        }
+    }
+
+    pub fn name(self, db: &dyn HirDb) -> Option<SmolStr> {
         match self.loc(db) {
             DefLoc::Module(InFile { value, file_id }) => {
                 file_id.to_container(db).get(value).name.clone()
@@ -150,7 +121,7 @@ impl ModuleDefOrigin {
         }
     }
 
-    pub fn name_range(&self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
+    pub fn name_range(self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
         match self.loc(db) {
             DefLoc::Module(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
@@ -223,7 +194,7 @@ impl ModuleDefOrigin {
         }
     }
 
-    pub fn range(&self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
+    pub fn range(self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
         Some(match self.loc(db) {
             DefLoc::Module(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value)?.range();
@@ -295,25 +266,23 @@ impl ModuleDefOrigin {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ModuleDef {
-    origins: SmallVec<[ModuleDefOrigin; 3]>,
-}
+pub struct ModuleDef(pub SmallVec<[DefId; 3]>);
 
 impl ModuleDef {
-    pub fn from_origins(origins: impl IntoIterator<Item = ModuleDefOrigin>) -> Option<ModuleDef> {
-        let mut origins = origins.into_iter().collect::<SmallVec<[_; 3]>>();
-        origins.sort_unstable();
-        origins.dedup();
+    pub fn from_def_ids(def_ids: impl IntoIterator<Item = DefId>) -> Option<ModuleDef> {
+        let mut def_ids = def_ids.into_iter().collect::<SmallVec<[_; 3]>>();
+        def_ids.sort_unstable();
+        def_ids.dedup();
 
-        (!origins.is_empty()).then_some(ModuleDef { origins })
+        (!def_ids.is_empty()).then_some(ModuleDef(def_ids))
     }
 
-    pub fn origins(&self) -> &[ModuleDefOrigin] {
-        &self.origins
+    pub fn def_ids(&self) -> &[DefId] {
+        &self.0
     }
 
-    fn into_origins(self) -> SmallVec<[ModuleDefOrigin; 3]> {
-        self.origins
+    fn into_def_ids(self) -> SmallVec<[DefId; 3]> {
+        self.0
     }
 }
 
@@ -322,33 +291,32 @@ impl ModuleDef {
 pub struct ModuleDefId(pub salsa::InternId);
 
 impl ModuleDefId {
-    pub fn origins(self, db: &dyn HirDb) -> SmallVec<[ModuleDefOrigin; 3]> {
-        db.lookup_intern_module_def(self).into_origins()
+    pub fn origins(self, db: &dyn HirDb) -> SmallVec<[DefId; 3]> {
+        db.lookup_intern_module_def(self).into_def_ids()
     }
 
-    pub fn declaration_origin(self, db: &dyn HirDb) -> Option<ModuleDefOrigin> {
+    pub fn declaration_origin(self, db: &dyn HirDb) -> Option<DefId> {
         let origins = self.origins(db);
-        if origins.iter().any(|origin| matches!(origin, ModuleDefOrigin::NonAnsiPort(_))) {
-            return origins.iter().copied().find(|origin| is_port_decl_origin(db, origin)).or_else(
-                || {
-                    origins
-                        .iter()
-                        .copied()
-                        .find(|origin| matches!(origin, ModuleDefOrigin::Decl(_)))
-                },
-            );
+        if origins.iter().any(|origin| origin.kind(db) == DefKind::NonAnsiPort) {
+            return origins
+                .iter()
+                .copied()
+                .find(|origin| is_port_decl_origin(db, *origin))
+                .or_else(|| {
+                    origins.iter().copied().find(|origin| matches!(origin.loc(db), DefLoc::Decl(_)))
+                });
         }
 
         origins.first().copied()
     }
 
-    pub fn def_origins(self, db: &dyn HirDb) -> SmallVec<[ModuleDefOrigin; 2]> {
+    pub fn def_origins(self, db: &dyn HirDb) -> SmallVec<[DefId; 2]> {
         let origins = self.origins(db);
-        if origins.iter().any(|origin| matches!(origin, ModuleDefOrigin::NonAnsiPort(_))) {
+        if origins.iter().any(|origin| origin.kind(db) == DefKind::NonAnsiPort) {
             return origins
                 .iter()
                 .copied()
-                .filter(|origin| matches!(origin, ModuleDefOrigin::Decl(_)))
+                .filter(|origin| matches!(origin.loc(db), DefLoc::Decl(_)))
                 .collect();
         }
 
@@ -356,10 +324,8 @@ impl ModuleDefId {
     }
 
     pub fn is_port(self, db: &dyn HirDb) -> bool {
-        self.origins(db).iter().any(|origin| match origin {
-            ModuleDefOrigin::NonAnsiPort(_) => true,
-            ModuleDefOrigin::Decl(_) => is_port_decl_origin(db, origin),
-            _ => false,
+        self.origins(db).iter().any(|origin| {
+            origin.kind(db) == DefKind::NonAnsiPort || is_port_decl_origin(db, *origin)
         })
     }
 
@@ -373,7 +339,7 @@ impl ModuleDefId {
     }
 }
 
-fn is_port_decl_origin(db: &dyn HirDb, origin: &ModuleDefOrigin) -> bool {
+fn is_port_decl_origin(db: &dyn HirDb, origin: DefId) -> bool {
     let DefLoc::Decl(decl_id) = origin.loc(db) else {
         return false;
     };

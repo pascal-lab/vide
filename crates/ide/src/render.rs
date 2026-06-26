@@ -5,7 +5,7 @@ use hir::{
     },
     container::{InContainer, InFile, InModule, InSubroutine, ScopeId, ScopeParent},
     db::HirDb,
-    def_id::{ModuleDefId, ModuleDefOrigin},
+    def_id::ModuleDefId,
     display::HirDisplay,
     hir_def::{
         DEFAULT_NAME,
@@ -24,7 +24,7 @@ use hir::{
     },
     region_tree::RegionParent,
     semantics::Semantics,
-    symbol::DefLoc,
+    symbol::{DefId, DefLoc},
 };
 use itertools::Itertools;
 use syntax::{
@@ -181,7 +181,7 @@ pub(crate) fn render_definition_location(
 
 fn render_def_origin_location(
     db: &RootDb,
-    origin: &ModuleDefOrigin,
+    origin: &DefId,
     anchor_file_id: vfs::FileId,
 ) -> Option<String> {
     let InFile { value: range, file_id } = origin.range(db)?;
@@ -259,7 +259,7 @@ fn has_normal_path_component(path: &utils::paths::AbsPath) -> bool {
 
 fn render_def_origin(
     sema: &Semantics<RootDb>,
-    origin: &ModuleDefOrigin,
+    origin: &DefId,
     anchor_file_id: vfs::FileId,
 ) -> Markup {
     let mut res = Markup::new();
@@ -284,7 +284,7 @@ fn render_def_origin(
     res
 }
 
-fn render_definition_title(db: &RootDb, origin: &ModuleDefOrigin) -> Option<String> {
+fn render_definition_title(db: &RootDb, origin: &DefId) -> Option<String> {
     let name = origin.name(db)?;
     let kind = match origin.loc(db) {
         DefLoc::Module(_) => "Module",
@@ -327,7 +327,7 @@ fn render_decl_title_kind(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<&
     })
 }
 
-fn render_signature(sema: &Semantics<RootDb>, origin: &ModuleDefOrigin) -> Option<String> {
+fn render_signature(sema: &Semantics<RootDb>, origin: &DefId) -> Option<String> {
     let db = sema.db;
     match origin.loc(db) {
         DefLoc::Module(module_id) => render_module_signature(db, module_id),
@@ -619,7 +619,7 @@ fn render_data_ty(db: &RootDb, container: ScopeId, ty: DataTy) -> Option<String>
     InContainer::new(container, ty).display_source(db).ok()
 }
 
-fn render_label_signature(db: &RootDb, origin: &ModuleDefOrigin) -> Option<String> {
+fn render_label_signature(db: &RootDb, origin: &DefId) -> Option<String> {
     let name = origin.name(db)?;
     let kind = match origin.loc(db) {
         DefLoc::Config(_) => "config",
@@ -639,7 +639,7 @@ fn render_label_signature(db: &RootDb, origin: &ModuleDefOrigin) -> Option<Strin
     Some(format!("{kind} {name}"))
 }
 
-fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &ModuleDefOrigin) -> Option<Markup> {
+fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefId) -> Option<Markup> {
     let db = sema.db;
     let InFile { value: range, file_id } = origin.range(db)?;
 
@@ -677,7 +677,7 @@ fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &ModuleDefOrigin) 
     }
 }
 
-fn render_scope_fact(sema: &Semantics<RootDb>, origin: &ModuleDefOrigin) -> Option<String> {
+fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefId) -> Option<String> {
     // elaboration?
     let db = sema.db;
     let InFile { value: range, .. } = origin.range(db)?;
@@ -713,7 +713,7 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &ModuleDefOrigin) -> Opti
 
 fn render_definition_metadata(
     sema: &Semantics<RootDb>,
-    origin: &ModuleDefOrigin,
+    origin: &DefId,
     anchor_file_id: vfs::FileId,
 ) -> Option<String> {
     let mut parts = Vec::new();

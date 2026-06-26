@@ -14,8 +14,8 @@ use hir::{
             port::{PortDecl, PortDeclSrc, Ports},
         },
     },
-    scope::{ModuleEntry, ModuleScope, NonAnsiPortEntry},
     source_map::IsSrc,
+    symbol::{DefKind, NameScope},
 };
 use itertools::Itertools;
 use syntax::{
@@ -216,18 +216,30 @@ fn non_ansi_port_replacement(
     ctx: &CodeActionCtx,
     module: &Module,
     module_src_map: &ModuleSourceMap,
-    module_scope: &ModuleScope,
+    module_scope: &NameScope,
     name: &Ident,
     text: &str,
 ) -> Option<NonAnsiPortReplacement> {
-    let ModuleEntry::NonAnsiPortEntry(NonAnsiPortEntry {
-        port_decl: Some(port_decl),
-        data_decl,
-        ..
-    }) = module_scope.get(name)?
-    else {
+    let defs = module_scope.lookup_merged(name)?;
+    if !defs.iter().any(|def_id| def_id.kind(ctx.sema().db) == DefKind::NonAnsiPort) {
         return None;
-    };
+    }
+
+    let port_decl = defs
+        .iter()
+        .filter_map(|def_id| def_id.as_decl(ctx.sema().db))
+        .find(|decl_id| {
+            matches!(module.get(decl_id.value).parent, DeclaratorParent::PortDeclId(_))
+        })?
+        .value;
+    let data_decl = defs
+        .iter()
+        .filter_map(|def_id| def_id.as_decl(ctx.sema().db))
+        .find(|decl_id| {
+            matches!(module.get(decl_id.value).parent, DeclaratorParent::DeclarationId(_))
+        })
+        .map(|decl_id| decl_id.value);
+
     let DeclaratorParent::PortDeclId(port_decl_id) = module.get(port_decl).parent else {
         return None;
     };

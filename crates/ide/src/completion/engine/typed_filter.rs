@@ -1,5 +1,5 @@
 use hir::{
-    container::InContainer,
+    container::{InContainer, ScopeId},
     db::HirDb,
     hir_def::{
         Ident,
@@ -7,8 +7,8 @@ use hir::{
         expr::declarator::DeclaratorParent,
         module::{ModuleId, port::Ports},
     },
-    scope::ModuleEntry,
     semantics::pathres::PathResolution,
+    symbol::DefKind,
     type_infer::{Ty, TyClass, packed_bit_width, type_class},
 };
 use utils::get::GetRef;
@@ -21,19 +21,15 @@ pub(super) fn expected_port_ty(
     port_name: &Ident,
 ) -> Option<Ty> {
     let scope = db.module_scope(target_module_id);
-    let entry = scope.get(port_name)?;
-
-    match entry {
-        ModuleEntry::AnsiPortEntry(_) | ModuleEntry::NonAnsiPortEntry(_) => Some(
-            db.type_of_path_resolution(PathResolution::from(hir::container::InModule::new(
-                target_module_id,
-                entry,
-            )))
-            .ty
-            .clone(),
-        ),
-        _ => None,
-    }
+    let defs = scope.lookup_merged(port_name)?;
+    let res = if defs.iter().any(|def_id| def_id.kind(db) == DefKind::NonAnsiPort) {
+        PathResolution::from_def_ids(defs)?
+    } else {
+        PathResolution::from_def_ids(
+            defs.into_iter().filter(|def_id| def_id.kind(db) == DefKind::Port),
+        )?
+    };
+    Some(db.type_of_path_resolution(res).ty.clone())
 }
 
 pub(super) fn expected_param_ty(
@@ -43,21 +39,32 @@ pub(super) fn expected_param_ty(
 ) -> Option<Ty> {
     let target_module = db.module(target_module_id);
     let scope = db.module_scope(target_module_id);
-    let ModuleEntry::DeclId(decl_id) = scope.get(param_name)? else {
-        return None;
-    };
+    let defs = scope.lookup_merged(param_name)?;
 
-    let DeclaratorParent::DeclarationId(declaration_id) = target_module.get(decl_id).parent else {
-        return None;
-    };
-    let Declaration::ParamDecl(param_decl) = target_module.get(declaration_id) else {
-        return None;
-    };
+    for def_id in defs {
+        if def_id.kind(db) != DefKind::Param {
+            continue;
+        }
+        let Some(decl_id) = def_id.as_decl(db) else {
+            continue;
+        };
+        if decl_id.cont_id != ScopeId::Module(target_module_id) {
+            continue;
+        }
+        let DeclaratorParent::DeclarationId(declaration_id) =
+            target_module.get(decl_id.value).parent
+        else {
+            continue;
+        };
+        let Declaration::ParamDecl(param_decl) = target_module.get(declaration_id) else {
+            continue;
+        };
+        if param_decl.kind.is_overridable() {
+            return Some(db.type_of_decl(decl_id).ty.clone());
+        }
+    }
 
-    param_decl
-        .kind
-        .is_overridable()
-        .then(|| db.type_of_decl(InContainer::new(target_module_id.into(), decl_id)).ty.clone())
+    None
 }
 
 pub(super) fn value_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Vec<(String, Ty)> {

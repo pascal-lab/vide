@@ -1,7 +1,8 @@
 use hir::{
-    def_id::{ModuleDefId, ModuleDefOrigin},
+    def_id::ModuleDefId,
     file::HirFileId,
     semantics::{Semantics, pathres::PathResolution},
+    symbol::DefId,
 };
 use smallvec::SmallVec;
 use syntax::{
@@ -82,7 +83,7 @@ impl DefinitionClass {
         Some(res)
     }
 
-    pub(crate) fn origins(self, db: &RootDb) -> SmallVec<[ModuleDefOrigin; 6]> {
+    pub(crate) fn origins(self, db: &RootDb) -> SmallVec<[DefId; 6]> {
         match self {
             DefinitionClass::Definition(definition) => definition.origins(db).into_iter().collect(),
             DefinitionClass::PortConnShorthand { port, local } => {
@@ -104,7 +105,9 @@ fn resolve_declaration_name(
         && module.name() == Some(tok)
     {
         let module_id = sema.module_to_def(file_id, module)?;
-        return Some(PathResolution::Module(module_id).to_def_id(sema.db)?.into());
+        return Some(
+            PathResolution::from_def_id(DefId::new(sema.db, module_id)).to_def_id(sema.db)?.into(),
+        );
     }
 
     None
@@ -146,13 +149,18 @@ fn resolve_instantiation_type_name(
     {
         return match resolve_instantiation_target(sema.db, file_id.file_id(), instantiation) {
             ModuleResolution::Unique(module_id)
-            | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
-                Some(PathResolution::Module(module_id).to_def_id(sema.db)?.into())
-            }
+            | ModuleResolution::BestEffortProximity { selected: module_id, .. } => Some(
+                PathResolution::from_def_id(DefId::new(sema.db, module_id))
+                    .to_def_id(sema.db)?
+                    .into(),
+            ),
             ModuleResolution::Ambiguous { candidates, .. } => Some(DefinitionClass::Ambiguous(
                 candidates
                     .into_iter()
-                    .map(|module_id| PathResolution::Module(module_id).to_def_id(sema.db))
+                    .map(|module_id| {
+                        PathResolution::from_def_id(DefId::new(sema.db, module_id))
+                            .to_def_id(sema.db)
+                    })
                     .collect::<Option<Vec<_>>>()?,
             )),
             ModuleResolution::Unresolved => None,
@@ -184,7 +192,7 @@ mod tests {
 
     use hir::{
         base_db::{change::Change, source_root::SourceRoot},
-        def_id::ModuleDefOrigin,
+        symbol::DefKind,
     };
     use syntax::SyntaxNodeExt;
     use triomphe::Arc;
@@ -260,11 +268,11 @@ mod tests {
 
             let origins = def.origins(db);
             let (resolution, range) = match origins.first().copied() {
-                Some(origin @ ModuleDefOrigin::NonAnsiPort(_)) => (
+                Some(origin) if origin.kind(db) == DefKind::NonAnsiPort => (
                     "NonAnsiPort",
                     origin.name_range(db).expect("non-ANSI port label should have a name range"),
                 ),
-                Some(origin @ ModuleDefOrigin::Decl(_)) => {
+                Some(origin) if origin.kind(db) == DefKind::Port => {
                     ("AnsiPort", origin.name_range(db).expect("ANSI port should have a name range"))
                 }
                 other => panic!("unexpected definition for {name}: {other:?}"),

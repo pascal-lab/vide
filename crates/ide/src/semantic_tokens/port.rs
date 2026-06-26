@@ -13,9 +13,9 @@ use hir::{
             port::{NonAnsiPort, PortDirection, Ports},
         },
     },
-    scope::{ModuleEntry, NonAnsiPortEntry},
     semantics::Semantics,
     source_map::{IsNamedSrc, IsSrc},
+    symbol::DefId,
 };
 use regex::{Regex, RegexBuilder};
 use smallvec::SmallVec;
@@ -61,8 +61,8 @@ pub(super) fn collect_port(
                         check_range!(collector, name_range);
 
                         let name = module.get(ref_id).ident.as_ref()?;
-                        let entry = module_scope.get(name)?;
-                        let (dir, ty) = resolve_non_ansi_port(module, &entry)?;
+                        let defs = module_scope.lookup_merged(name)?;
+                        let (_, dir, ty) = resolve_non_ansi_port(db, module, &defs)?;
                         add_port_token(db, name, dir, ty, name_range, collector);
                     };
                 }
@@ -80,8 +80,8 @@ pub(super) fn collect_port(
                             check_range!(collector, name_range);
 
                             let name = decl.name.as_ref()?;
-                            let entry = module_scope.get(name)?;
-                            let (dir, ty) = resolve_non_ansi_port(module, &entry)?;
+                            let defs = module_scope.lookup_merged(name)?;
+                            let (_, dir, ty) = resolve_non_ansi_port(db, module, &defs)?;
                             add_port_token(db, name, dir, ty, name_range, collector);
                         };
                     }
@@ -112,19 +112,22 @@ pub(super) fn collect_port(
     }
 }
 
-pub(super) fn resolve_non_ansi_port(
-    module: &Module,
-    entry: &ModuleEntry,
-) -> Option<(Option<PortDirection>, DataTy)> {
-    let ModuleEntry::NonAnsiPortEntry(NonAnsiPortEntry {
-        port_decl: Some(port_decl_id),
-        data_decl: data_decl_id,
-        ..
-    }) = *entry
-    else {
-        return None;
-    };
+pub(super) fn resolve_non_ansi_port<'a>(
+    db: &RootDb,
+    module: &'a Module,
+    defs: &[DefId],
+) -> Option<(&'a hir::hir_def::Ident, Option<PortDirection>, DataTy)> {
+    let port_decl_id =
+        defs.iter().filter_map(|def_id| def_id.as_decl(db)).map(|decl_id| decl_id.value).find(
+            |decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::PortDeclId(_)),
+        )?;
+    let data_decl_id =
+        defs.iter().filter_map(|def_id| def_id.as_decl(db)).map(|decl_id| decl_id.value).find(
+            |decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::DeclarationId(_)),
+        );
+
     let port_decl = module.get(port_decl_id);
+    let name = port_decl.name.as_ref()?;
     let port_declaration = match port_decl.parent {
         DeclaratorParent::PortDeclId(port_declaration_id) => module.get(port_declaration_id),
         _ => return None,
@@ -144,7 +147,7 @@ pub(super) fn resolve_non_ansi_port(
         header.ty()
     };
 
-    Some((dir, ty))
+    Some((name, dir, ty))
 }
 
 pub(super) fn add_port_token(

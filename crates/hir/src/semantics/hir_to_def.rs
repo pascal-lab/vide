@@ -3,15 +3,15 @@ use utils::get::GetRef;
 
 use super::{Source2DefCtx, pathres::PathResolution};
 use crate::{
-    container::{
-        InBlock, InContainer, InGenerateBlock, InModule, InSubroutine, ScopeId, ScopeParent,
-    },
+    container::{InContainer, ScopeId},
     hir_def::{
         Ident,
         block::BlockId,
         expr::{Expr, ExprId},
         module::{ModuleId, generate::GenerateBlockId, instantiation::InstanceId},
     },
+    semantics::pathres::{name_scope, resolve_name},
+    symbol::DefLoc,
 };
 
 #[derive(Default, Debug)]
@@ -32,17 +32,17 @@ impl Source2DefCtx<'_, '_> {
                 let field = field.as_ref()?;
                 let receiver_res = self.expr_to_def(InContainer::new(cont_id, *receiver))?;
                 let res = self.resolve_member_from_resolution(receiver_res, field)?;
-                self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res);
+                self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res.clone());
                 Some(res)
             }
             Expr::ElementSelect { receiver, .. } => {
                 let res = self.expr_to_def(InContainer::new(cont_id, *receiver))?;
-                self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res);
+                self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res.clone());
                 Some(res)
             }
             Expr::Ident(ident) => {
                 let res = self.name_to_def(InContainer::new(cont_id, ident.clone()))?;
-                self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res);
+                self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res.clone());
                 Some(res)
             }
             _ => None,
@@ -76,35 +76,8 @@ impl Source2DefCtx<'_, '_> {
         &mut self,
         InContainer { cont_id, value: ident }: InContainer<Ident>,
     ) -> Option<PathResolution> {
-        let db = self.db;
-        let res = ScopeParent::start_from(db, cont_id).find_map(|id| match id {
-            ScopeId::File(_) => {
-                let scope = db.unit_scope();
-                let entry = scope.get(&ident)?;
-                Some(entry.into())
-            }
-            ScopeId::Module(module_id) => {
-                let scope = db.module_scope(module_id);
-                let entry = scope.get(&ident)?;
-                Some(InModule::new(module_id, entry).into())
-            }
-            ScopeId::Block(block_id) => {
-                let scope = db.block_scope(block_id);
-                let entry = scope.get(&ident)?;
-                Some(InBlock::new(block_id, entry).into())
-            }
-            ScopeId::GenerateBlock(generate_block_id) => {
-                let scope = db.generate_block_scope(generate_block_id);
-                let entry = scope.get(&ident)?;
-                Some(InGenerateBlock::new(generate_block_id, entry).into())
-            }
-            ScopeId::Subroutine(subroutine_id) => {
-                let scope = db.subroutine_scope(subroutine_id);
-                let entry = scope.get(&ident)?;
-                Some(InSubroutine::new(subroutine_id, entry).into())
-            }
-        })?;
-        self.hir_cache.name_map.insert(InContainer::new(cont_id, ident), res);
+        let res = resolve_name(self.db, cont_id, &ident)?;
+        self.hir_cache.name_map.insert(InContainer::new(cont_id, ident), res.clone());
         Some(res)
     }
 
@@ -113,19 +86,36 @@ impl Source2DefCtx<'_, '_> {
         res: PathResolution,
         field: &Ident,
     ) -> Option<PathResolution> {
-        match res {
-            PathResolution::Module(module_id) => self.resolve_member_in_module(module_id, field),
-            PathResolution::Instance(instance) => {
-                let target_module =
-                    self.instance_target_module_id(instance.module_id, instance.value)?;
-                self.resolve_member_in_module(target_module, field)
+        for def_id in res.def_ids() {
+            match def_id.loc(self.db) {
+                DefLoc::Module(module_id) => {
+                    if let Some(res) = self.resolve_member_in_module(module_id, field) {
+                        return Some(res);
+                    }
+                }
+                DefLoc::Instance(instance) => {
+                    let target_module =
+                        self.instance_target_module_id(instance.module_id, instance.value)?;
+                    if let Some(res) = self.resolve_member_in_module(target_module, field) {
+                        return Some(res);
+                    }
+                }
+                DefLoc::Block(block_id) => {
+                    if let Some(res) = self.resolve_member_in_block(block_id, field) {
+                        return Some(res);
+                    }
+                }
+                DefLoc::GenerateBlock(generate_block_id) => {
+                    if let Some(res) =
+                        self.resolve_member_in_generate_block(generate_block_id, field)
+                    {
+                        return Some(res);
+                    }
+                }
+                _ => {}
             }
-            PathResolution::Block(block_id) => self.resolve_member_in_block(block_id, field),
-            PathResolution::GenerateBlock(generate_block_id) => {
-                self.resolve_member_in_generate_block(generate_block_id, field)
-            }
-            _ => None,
         }
+        None
     }
 
     fn resolve_member_in_module(
@@ -133,9 +123,9 @@ impl Source2DefCtx<'_, '_> {
         module_id: ModuleId,
         field: &Ident,
     ) -> Option<PathResolution> {
-        let scope = self.db.module_scope(module_id);
-        let entry = scope.get(field)?;
-        Some(InModule::new(module_id, entry).into())
+        name_scope(self.db, module_id.into())
+            .lookup_merged(field)
+            .and_then(PathResolution::from_def_ids)
     }
 
     fn resolve_member_in_block(
@@ -143,9 +133,9 @@ impl Source2DefCtx<'_, '_> {
         block_id: BlockId,
         field: &Ident,
     ) -> Option<PathResolution> {
-        let scope = self.db.block_scope(block_id);
-        let entry = scope.get(field)?;
-        Some(InBlock::new(block_id, entry).into())
+        name_scope(self.db, block_id.into())
+            .lookup_merged(field)
+            .and_then(PathResolution::from_def_ids)
     }
 
     fn resolve_member_in_generate_block(
@@ -153,9 +143,9 @@ impl Source2DefCtx<'_, '_> {
         generate_block_id: GenerateBlockId,
         field: &Ident,
     ) -> Option<PathResolution> {
-        let scope = self.db.generate_block_scope(generate_block_id);
-        let entry = scope.get(field)?;
-        Some(InGenerateBlock::new(generate_block_id, entry).into())
+        name_scope(self.db, generate_block_id.into())
+            .lookup_merged(field)
+            .and_then(PathResolution::from_def_ids)
     }
 
     fn instance_target_module_id(
@@ -167,6 +157,6 @@ impl Source2DefCtx<'_, '_> {
         let instance = module.get(instance_id);
         let instantiation = module.get(instance.parent);
         let module_name = instantiation.module_name.as_ref()?;
-        self.db.unit_scope().resolve_module(module_name).unique()
+        self.db.unit_scope().module_ids(self.db, module_name).unique()
     }
 }

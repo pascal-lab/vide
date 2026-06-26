@@ -2,7 +2,6 @@ use hir::{
     base_db::intern::Lookup,
     container::{InContainer, InFile, InModule, InSubroutine, ScopeId},
     db::HirDb,
-    def_id::ModuleDefOrigin,
     hir_def::{
         block::{BlockId, BlockLoc},
         declaration::Declaration,
@@ -19,7 +18,7 @@ use hir::{
         typedef::TypedefId,
     },
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
-    symbol::DefLoc,
+    symbol::DefId,
 };
 use smol_str::SmolStr;
 use syntax::{
@@ -58,23 +57,18 @@ pub(crate) trait ToNav {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget>;
 }
 
-impl ToNav for ModuleDefOrigin {
+impl ToNav for DefId {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        match self.loc(db) {
-            DefLoc::Module(module_id) => module_id.to_nav(db),
-            DefLoc::Config(config_id) => config_id.to_nav(db),
-            DefLoc::Library(library_id) => library_id.to_nav(db),
-            DefLoc::Udp(udp_id) => udp_id.to_nav(db),
-            DefLoc::Block(block_id) => block_id.to_nav(db),
-            DefLoc::GenerateBlock(generate_block_id) => generate_block_id.to_nav(db),
-            DefLoc::Subroutine(subroutine_id) => subroutine_id.to_nav(db),
-            DefLoc::SubroutinePort(subroutine_port_id) => subroutine_port_id.to_nav(db),
-            DefLoc::NonAnsiPort(nonansi_port_id) => nonansi_port_id.to_nav(db),
-            DefLoc::Decl(decl_id) => decl_id.to_nav(db),
-            DefLoc::Typedef(typedef_id) => typedef_id.to_nav(db),
-            DefLoc::Instance(instance_id) => instance_id.to_nav(db),
-            DefLoc::Stmt(stmt_id) => stmt_id.to_nav(db),
-        }
+        let InFile { file_id, value: full_range } = self.range(db)?;
+        let focus_range = self.name_range(db).map(|range| range.value);
+        let name = self.name(db);
+        let kind = self.kind(db).symbol_kind().into();
+        let container_name = match self.container_id(db) {
+            ScopeId::File(_) => None,
+            cont_id => cont_id.to_container(db).name().cloned(),
+        };
+
+        Some(build(file_id.file_id(), focus_range, full_range, name, kind, container_name))
     }
 }
 
