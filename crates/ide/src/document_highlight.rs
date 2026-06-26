@@ -1,4 +1,4 @@
-use hir::{container::InFile, file::HirFileId, semantics::Semantics};
+use hir::{container::InFile, def_id::ModuleDefId, file::HirFileId, semantics::Semantics};
 use syntax::{SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
 use utils::line_index::TextRange;
 use vfs::FileId;
@@ -6,7 +6,7 @@ use vfs::FileId;
 use crate::{
     FilePosition, ScopeVisibility,
     db::root_db::RootDb,
-    definitions::{Definition, DefinitionClass},
+    definitions::DefinitionClass,
     references::{
         self, ReferenceCategory, ReferencesConfig,
         search::{ReferencesCtx, SearchScope},
@@ -89,10 +89,10 @@ fn highlight_for_token(
 fn highlight_refs<'a>(
     sema: &'a Semantics<'a, RootDb>,
     file_id: FileId,
-    def: Definition,
+    def: ModuleDefId,
     DocumentHighlightConfig { scope_visibility }: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
-    let defs = def.origins().into_iter().filter_map(|def| {
+    let defs = def.origins(sema.db).into_iter().filter_map(|def| {
         let InFile { value: range, file_id: def_file_id } = def.name_range(sema.db)?;
         if file_id == def_file_id.file_id() {
             Some(DocumentHighlight { range, category: ReferenceCategory::empty() })

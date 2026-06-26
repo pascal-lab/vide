@@ -3,6 +3,7 @@
 pub mod base_db;
 pub mod container;
 pub mod db;
+pub mod def_id;
 pub mod display;
 pub mod file;
 pub mod has_source;

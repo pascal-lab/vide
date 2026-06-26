@@ -1,11 +1,12 @@
 use hir::{
-    db::HirDb,
+    db::{HirDb, InternDb},
+    def_id::ModuleDefOrigin,
     file::HirFileId,
     hir_def::{
         file::{FileSourceMap, HirFile},
         module::ModuleId,
     },
-    semantics::{Semantics, pathres::PathResolution},
+    semantics::Semantics,
     source_map::IsSrc,
 };
 use syntax::{
@@ -18,7 +19,6 @@ use vfs::FileId;
 use crate::{
     FilePosition, FileRange, ScopeVisibility,
     db::root_db::RootDb,
-    definitions::Definition,
     references::{
         ReferencesConfig,
         search::{ReferencesCtx, SearchScope},
@@ -87,7 +87,10 @@ pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLens
             };
             let module_id = ModuleId::new(hir_file_id, local_module_id);
 
-            let def = Definition(PathResolution::Module(module_id));
+            let def = ModuleDefOrigin::ModuleId(module_id);
+            let def = hir::def_id::ModuleDef::from_origins([def])
+                .expect("module definition should have an origin");
+            let def = sema.db.intern_module_def(def);
 
             let ref_config =
                 ReferencesConfig::new(ScopeVisibility::Public, Some(SearchScope::all(sema.db)));

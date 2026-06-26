@@ -6,6 +6,7 @@ use hir::{
         source_root::SourceRootId,
     },
     container::{ContainerId, InFile},
+    def_id::ModuleDefId,
     semantics::Semantics,
     source_map::IsSrc,
 };
@@ -19,7 +20,6 @@ use super::{ReferenceCategory, ReferencesConfig};
 use crate::{
     ScopeVisibility,
     db::{root_db::RootDb, workspace_symbol_index_db::source_root_semantic_index_for_root},
-    definitions::Definition,
     semantic_index::SemanticReference,
 };
 
@@ -36,7 +36,7 @@ impl SearchScope {
 
     pub(crate) fn new(
         db: &RootDb,
-        def: &Definition,
+        def: &ModuleDefId,
         ReferencesConfig { scope_visibility, search_scope }: ReferencesConfig,
     ) -> Self {
         match scope_visibility {
@@ -46,7 +46,7 @@ impl SearchScope {
                     return search_scope.unwrap_or_default();
                 };
                 let container_id = match container_id {
-                    ContainerId::ModuleId(InFile { file_id, .. }) if def.is_port() => {
+                    ContainerId::ModuleId(InFile { file_id, .. }) if def.is_port(db) => {
                         file_id.into()
                     }
                     cont => cont,
@@ -147,7 +147,7 @@ impl SearchScope {
 
 pub(crate) struct ReferencesCtx<'a, 'b> {
     sema: &'a Semantics<'a, RootDb>,
-    def: &'b Definition,
+    def: &'b ModuleDefId,
     scope: SearchScope,
 }
 
@@ -181,7 +181,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
 
     pub(crate) fn new(
         sema: &'a Semantics<'a, RootDb>,
-        def: &'b Definition,
+        def: &'b ModuleDefId,
         cfg: ReferencesConfig,
     ) -> Self {
         let scope = SearchScope::new(sema.db, def, cfg);
@@ -195,7 +195,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         for source_root_id in self.scope.source_root_ids(db) {
             self.sema.db.unwind_if_cancelled();
             let index = source_root_semantic_index_for_root(db, source_root_id);
-            let Some(group) = index.references_for_definition(self.def) else {
+            let Some(group) = index.references_for_definition(*self.def) else {
                 continue;
             };
 

@@ -5,6 +5,7 @@ use hir::{
     },
     container::InFile,
     db::HirDb,
+    def_id::{ModuleDefId, ModuleDefOrigin},
     file::HirFileId,
     hir_def::{Ident, module::ModuleId},
     scope::UnitEntry,
@@ -28,21 +29,11 @@ use crate::{
             source_root_semantic_index_for_root,
         },
     },
-    definitions::{Definition, DefinitionClass, DefinitionOrigin},
+    definitions::DefinitionClass,
     module_resolution::resolve_hir_instantiation_target,
     references::ReferenceCategory,
     semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
 };
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct DefinitionKey(Box<[DefinitionOrigin]>);
-
-impl DefinitionKey {
-    pub(crate) fn from_definition(definition: &Definition) -> Option<Self> {
-        let origins = definition.origins();
-        (!origins.is_empty()).then(|| Self(origins.into_iter().collect()))
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SemanticDefinitionRange {
@@ -96,14 +87,14 @@ pub struct ModuleIndex {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SemanticIndex {
-    references_by_definition: FxHashMap<DefinitionKey, SemanticReferenceGroup>,
+    references_by_definition: FxHashMap<ModuleDefId, SemanticReferenceGroup>,
     incoming_module_edges: FxHashMap<ModuleId, Box<[ModuleCallEdge]>>,
     outgoing_module_edges: FxHashMap<ModuleId, Box<[ModuleCallEdge]>>,
 }
 
 #[derive(Debug, Default)]
 struct SemanticIndexBuilder {
-    references_by_definition: FxHashMap<DefinitionKey, SemanticReferenceGroupBuilder>,
+    references_by_definition: FxHashMap<ModuleDefId, SemanticReferenceGroupBuilder>,
     incoming_module_edges: FxHashMap<ModuleId, Vec<ModuleCallEdge>>,
     outgoing_module_edges: FxHashMap<ModuleId, Vec<ModuleCallEdge>>,
 }
@@ -172,7 +163,7 @@ impl ModuleIndex {
 
 impl SemanticModuleDefinition {
     fn new(db: &dyn HirDb, module_id: ModuleId) -> Option<Self> {
-        let origin = DefinitionOrigin::ModuleId(module_id);
+        let origin = ModuleDefOrigin::ModuleId(module_id);
         let name = origin.name(db)?;
         let InFile { file_id, value: name_range } = origin.name_range(db)?;
         let InFile { value: full_range, .. } = origin.range(db)?;
@@ -206,10 +197,9 @@ impl SemanticIndex {
 
     pub(crate) fn references_for_definition(
         &self,
-        definition: &Definition,
+        definition: ModuleDefId,
     ) -> Option<&SemanticReferenceGroup> {
-        let key = DefinitionKey::from_definition(definition)?;
-        self.references_by_definition.get(&key)
+        self.references_by_definition.get(&definition)
     }
 
     pub(crate) fn incoming_module_edges(&self, module_id: ModuleId) -> &[ModuleCallEdge] {
@@ -274,11 +264,11 @@ impl SemanticIndexBuilder {
 
         match class {
             DefinitionClass::Definition(definition) => {
-                self.collect_definition_token(db, &definition, file_id.file_id(), range, token)
+                self.collect_definition_token(db, definition, file_id.file_id(), range, token)
             }
             DefinitionClass::PortConnShorthand { port, local } => {
-                self.collect_definition_token(db, &port, file_id.file_id(), range, token);
-                self.collect_definition_token(db, &local, file_id.file_id(), range, token);
+                self.collect_definition_token(db, port, file_id.file_id(), range, token);
+                self.collect_definition_token(db, local, file_id.file_id(), range, token);
             }
             DefinitionClass::Ambiguous(_) => {}
         }
@@ -287,20 +277,17 @@ impl SemanticIndexBuilder {
     fn collect_definition_token(
         &mut self,
         db: &RootDb,
-        definition: &Definition,
+        definition: ModuleDefId,
         file_id: FileId,
         range: TextRange,
         token: SyntaxTokenWithParent<'_>,
     ) {
-        let Some(key) = DefinitionKey::from_definition(definition) else {
+        let origins = definition.origins(db);
+        let Some(name) = origins.iter().find_map(|origin| origin.name(db)) else {
             return;
         };
-        let Some(name) = definition.origins().into_iter().find_map(|origin| origin.name(db)) else {
-            return;
-        };
-        let definition_ranges = definition
-            .origins()
-            .into_iter()
+        let definition_ranges = origins
+            .iter()
             .filter_map(|origin| origin.name_range(db))
             .map(|InFile { file_id, value }| SemanticDefinitionRange {
                 file_id: file_id.file_id(),
@@ -312,7 +299,7 @@ impl SemanticIndexBuilder {
             definition_range.file_id == file_id && definition_range.range == range
         });
 
-        let group = self.references_by_definition.entry(key).or_insert_with(|| {
+        let group = self.references_by_definition.entry(definition).or_insert_with(|| {
             SemanticReferenceGroupBuilder {
                 name: name.to_string(),
                 definition_ranges,

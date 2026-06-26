@@ -91,7 +91,7 @@ fn nav_targets_for_token(
 ) -> Option<Vec<NavTarget>> {
     handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
         DefinitionClass::resolve(sema, hir_file_id, token)?
-            .origins()
+            .origins(db)
             .into_iter()
             .unique()
             .filter_map(|def| def.to_nav(db))
