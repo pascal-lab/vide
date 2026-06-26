@@ -137,23 +137,13 @@ endmodule
     let (_temp_dir, client, server_thread, uri) =
         setup_configured_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
 
-    let diagnostics_id = lsp_server::RequestId::from(210);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            diagnostics_id.clone(),
-            DocumentDiagnosticRequest::METHOD.to_string(),
-            DocumentDiagnosticParams {
-                text_document: TextDocumentIdentifier { uri: uri.clone() },
-                identifier: None,
-                previous_result_id: None,
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-    let (_result_id, mut diagnostics) = recv_document_diagnostics(&client, diagnostics_id);
-    assert!(!diagnostics.is_empty(), "expected mixed connection diagnostic");
+    let (_result_id, mut diagnostics) = request_document_diagnostics_until(
+        &client,
+        uri.clone(),
+        210,
+        |_result_id, diagnostics| !diagnostics.is_empty(),
+        "semantic diagnostics for code action",
+    );
     for diagnostic in &mut diagnostics {
         diagnostic.data = None;
     }

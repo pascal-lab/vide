@@ -92,7 +92,8 @@ fn server_diagnostics_for_code_action(
     client_diagnostics: &[lsp_types::Diagnostic],
     line_info: &utils::lines::LineInfo,
 ) -> anyhow::Result<Vec<ide_diagnostics::Diagnostic>> {
-    let server_diagnostics = snap.diagnostics(file_id)?;
+    let mut server_diagnostics = snap.diagnostics(file_id)?;
+    server_diagnostics.extend(snap.external_diagnostics(file_id));
     let client_locators = client_diagnostics
         .iter()
         .filter_map(|diag| DiagnosticLocator::from_lsp(line_info, diag))

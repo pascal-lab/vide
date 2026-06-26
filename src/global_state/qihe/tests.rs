@@ -314,7 +314,7 @@ fn qihe_diagnostics_are_scoped_to_diagnostic_commit_freshness() {
     let diagnostics = snapshot
         .external_sources
         .iter()
-        .flat_map(|source| source.diagnostics(file_id, &freshness))
+        .flat_map(|source| source.lsp_diagnostics(file_id, &freshness))
         .collect::<Vec<_>>();
     assert_eq!(diagnostics, vec![diagnostic]);
 
@@ -325,7 +325,7 @@ fn qihe_diagnostics_are_scoped_to_diagnostic_commit_freshness() {
         snapshot
             .external_sources
             .iter()
-            .flat_map(|source| source.diagnostics(file_id, &freshness))
+            .flat_map(|source| source.lsp_diagnostics(file_id, &freshness))
             .collect::<Vec<_>>()
             .is_empty()
     );
