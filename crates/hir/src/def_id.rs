@@ -281,7 +281,7 @@ impl ModuleDefOrigin {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ModuleDef {
-    origins: Box<[ModuleDefOrigin]>,
+    origins: SmallVec<[ModuleDefOrigin; 3]>,
 }
 
 impl ModuleDef {
@@ -290,14 +290,14 @@ impl ModuleDef {
         origins.sort_unstable();
         origins.dedup();
 
-        (!origins.is_empty()).then(|| ModuleDef { origins: origins.into_vec().into_boxed_slice() })
+        (!origins.is_empty()).then_some(ModuleDef { origins })
     }
 
     pub fn origins(&self) -> &[ModuleDefOrigin] {
         &self.origins
     }
 
-    fn into_origins(self) -> Box<[ModuleDefOrigin]> {
+    fn into_origins(self) -> SmallVec<[ModuleDefOrigin; 3]> {
         self.origins
     }
 }
@@ -307,7 +307,7 @@ impl ModuleDef {
 pub struct ModuleDefId(pub salsa::InternId);
 
 impl ModuleDefId {
-    pub fn origins(self, db: &dyn HirDb) -> Box<[ModuleDefOrigin]> {
+    pub fn origins(self, db: &dyn HirDb) -> SmallVec<[ModuleDefOrigin; 3]> {
         db.lookup_intern_module_def(self).into_origins()
     }
 
