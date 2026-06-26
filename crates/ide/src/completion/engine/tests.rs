@@ -130,6 +130,28 @@ fn manual_and_triggered_at_use_same_sensitivity_expectation_behavior() {
 }
 
 #[test]
+fn completes_hierarchical_module_root_member_access() {
+    let text = r#"
+module leaf;
+  wire leaf_wire;
+endmodule
+
+module top;
+  leaf u0();
+  initial begin
+    top.u0./*caret*/
+  end
+endmodule
+"#;
+
+    let items = completions_in_text(text, Some(TriggerChar::Dot));
+    assert!(
+        labels(&items).contains(&"leaf_wire"),
+        "hierarchical member completion should include child module members: {items:?}"
+    );
+}
+
+#[test]
 fn completion_fixtures() {
     insta::glob!("fixtures/*.v", |path| {
         let fixture = load_fixture(path);

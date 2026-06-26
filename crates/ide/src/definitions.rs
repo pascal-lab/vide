@@ -56,6 +56,10 @@ impl DefinitionClass {
             return Some(def);
         }
 
+        if token_is_in_non_dot_scoped_name(parent) {
+            return None;
+        }
+
         let res = match_ast! { parent,
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
                 resolve_named_param_assignment(sema.db, file_id.file_id(), it)
@@ -133,6 +137,9 @@ fn resolve_member_or_scoped_name(
     }
 
     let scoped = SyntaxAncestors::start_from(parent).find_map(ast::ScopedName::cast)?;
+    if !scoped_uses_dot(scoped) {
+        return None;
+    }
     let right_tok = scoped_right_token(scoped)?;
     if right_tok != tok {
         return None;
@@ -202,6 +209,20 @@ fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {
         IdentifierSelectName(ident) => ident.identifier(),
         _ => None,
     }
+}
+
+fn scoped_uses_dot(scoped: ast::ScopedName<'_>) -> bool {
+    scoped
+        .syntax()
+        .children()
+        .filter_map(|elem| elem.as_token())
+        .any(|tok| tok.kind() == syntax::Token![.])
+}
+
+fn token_is_in_non_dot_scoped_name(parent: syntax::SyntaxNode<'_>) -> bool {
+    SyntaxAncestors::start_from(parent)
+        .find_map(ast::ScopedName::cast)
+        .is_some_and(|scoped| !scoped_uses_dot(scoped))
 }
 
 #[cfg(test)]
@@ -308,5 +329,45 @@ mod tests {
         }
 
         insta::assert_snapshot!(report);
+    }
+
+    #[test]
+    fn definition_resolves_hierarchical_path_leaf() {
+        let text = r#"
+module leaf;
+  wire leaf_wire;
+endmodule
+
+module top;
+  leaf u0();
+  initial begin
+    top.u0.leaf_/*caret*/wire;
+  end
+endmodule
+"#;
+        let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
+        let text = text.replace("/*caret*/", "");
+        let (host, file_id) = host_with_file(&text);
+        let db = host.raw_db();
+        let sema = Semantics::<RootDb>::new(db);
+        let parsed_file = sema.parse_file(file_id);
+        let file = parsed_file.compilation_unit().unwrap();
+        let token = file
+            .syntax()
+            .token_at_offset(offset)
+            .pick_bext_token(crate::goto_definition::token_precedence)
+            .unwrap();
+
+        let DefinitionClass::Definition(def) =
+            DefinitionClass::resolve(&sema, file_id.into(), token).unwrap()
+        else {
+            panic!("expected plain definition for hierarchical leaf");
+        };
+
+        let origins = def.origins(db);
+        assert!(
+            origins.iter().any(|origin| origin.kind(db) == DefKind::Net),
+            "hierarchical leaf should resolve to child net, got {origins:?}"
+        );
     }
 }
