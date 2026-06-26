@@ -5,7 +5,7 @@ use std::{
     panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::LazyLock,
+    sync::{Arc as StdArc, LazyLock},
     thread::{self, JoinHandle},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -17,7 +17,7 @@ use lsp_types::{
     Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, NumberOrString, notification,
     request,
 };
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
 use project_model::project_manifest::{ProjectManifest, ProjectManifestFileName};
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -37,7 +37,8 @@ use super::{
     AnalysisState, ClientState, ConfigState, DEFAULT_REQ_HANDLER, DiagnosticsState, GlobalState,
     QiheDiagnosticState, TaskState, WorkspaceState,
     diagnostics::{
-        DiagnosticCommitFreshness, DiagnosticPublishFreshness,
+        DiagnosticCommitFreshness, DiagnosticExternalRevision, DiagnosticOwner,
+        DiagnosticPublishFreshness, DiagnosticSource,
         publisher::{DiagnosticsPublisher, PublishDiagnosticsBatch, PublishDiagnosticsTask},
     },
     respond::Progress,
@@ -70,6 +71,59 @@ const QIHE_LOG_BATCH_BYTES: usize = 8 * 1024;
 
 static ANSI_ESCAPE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\x1B\[[0-?]*[ -/]*[@-~]").unwrap());
+
+#[derive(Clone)]
+pub(crate) struct QiheDiagnostics {
+    states: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
+}
+
+impl QiheDiagnostics {
+    pub(crate) fn new() -> Self {
+        Self { states: Arc::new(Mutex::new(FxHashMap::default())) }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, FxHashMap<FileId, QiheDiagnosticState>> {
+        self.states.lock()
+    }
+}
+
+impl DiagnosticSource for QiheDiagnostics {
+    fn diagnostics(
+        &self,
+        file_id: FileId,
+        freshness: &DiagnosticCommitFreshness,
+    ) -> Vec<Diagnostic> {
+        self.lock()
+            .get(&file_id)
+            .filter(|state| state.freshness == *freshness)
+            .map(|state| state.diagnostics.clone())
+            .unwrap_or_default()
+    }
+
+    fn external_revision(
+        &self,
+        file_id: FileId,
+        freshness: &DiagnosticCommitFreshness,
+    ) -> Option<DiagnosticExternalRevision> {
+        self.lock().get(&file_id).filter(|state| state.freshness == *freshness).map(|state| {
+            DiagnosticExternalRevision::new(
+                DiagnosticOwner::External { source: QIHE, file: file_id },
+                state.generation,
+            )
+        })
+    }
+
+    fn remove_deleted(&self, files: &FxHashSet<FileId>) {
+        if files.is_empty() {
+            return;
+        }
+
+        let mut diagnostics = self.lock();
+        for file_id in files {
+            diagnostics.remove(file_id);
+        }
+    }
+}
 
 /// Monotonic identity for a Qihe analysis run.
 ///
@@ -151,23 +205,21 @@ pub(crate) struct Qihe {
     run_generation: QiheRunId,
     active_progress_token: Option<String>,
     active_cancel_token: Option<CancellationToken>,
-    diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
+    diagnostics: QiheDiagnostics,
 }
 
 impl Qihe {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(diagnostics: QiheDiagnostics) -> Self {
         Self {
             run_generation: QiheRunId::default(),
             active_progress_token: None,
             active_cancel_token: None,
-            diagnostics: Arc::new(Mutex::new(FxHashMap::default())),
+            diagnostics,
         }
     }
 
-    pub(crate) fn diagnostics_snapshot(
-        &self,
-    ) -> Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>> {
-        Arc::clone(&self.diagnostics)
+    pub(crate) fn diagnostics_snapshot(&self) -> QiheDiagnostics {
+        self.diagnostics.clone()
     }
 
     pub(crate) fn start<C: QiheCtx>(&mut self, params: RunQiheAnalysisParams, ctx: &mut C) {
@@ -177,7 +229,7 @@ impl Qihe {
         let progress_token = qihe_progress_token(run_id, &params.uri);
         let progress_label = params.uri.path().to_string();
         let cancellation = ctx.task_cancel_token();
-        let snapshot = ctx.make_snapshot(cancellation.clone(), self.diagnostics_snapshot());
+        let snapshot = ctx.make_snapshot(cancellation.clone());
 
         self.active_progress_token = Some(progress_token.clone());
         self.active_cancel_token = Some(cancellation.clone());
@@ -292,23 +344,12 @@ impl Qihe {
         }
     }
 
-    pub(crate) fn remove_deleted(&mut self, deleted_file_ids: &FxHashSet<FileId>) {
-        if deleted_file_ids.is_empty() {
-            return;
-        }
-
-        let mut diagnostics = self.diagnostics.lock();
-        for file_id in deleted_file_ids {
-            diagnostics.remove(file_id);
-        }
-    }
-
     pub(crate) fn publish_diagnostics<C: QiheCtx>(
         &mut self,
         changed_files: FxHashSet<FileId>,
         ctx: &mut C,
     ) {
-        ctx.publish_qihe_diagnostics(changed_files, self.diagnostics_snapshot());
+        ctx.publish_qihe_diagnostics(changed_files);
     }
 
     fn end_superseded<C: QiheCtx>(&mut self, ctx: &mut C) {
@@ -363,11 +404,7 @@ impl Qihe {
 pub(crate) trait QiheCtx {
     fn i18n_text(&self, key: QiheI18nKey) -> &str;
     fn diagnostic_commit_freshness(&self) -> DiagnosticCommitFreshness;
-    fn make_snapshot(
-        &self,
-        cancellation: CancellationToken,
-        diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
-    ) -> GlobalStateSnapshot;
+    fn make_snapshot(&self, cancellation: CancellationToken) -> GlobalStateSnapshot;
     fn spawn_qihe_task<F>(&mut self, task: F)
     where
         F: FnOnce(crossbeam_channel::Sender<Task>) + Send + 'static;
@@ -381,11 +418,7 @@ pub(crate) trait QiheCtx {
         fraction: Option<f64>,
         token: String,
     );
-    fn publish_qihe_diagnostics(
-        &mut self,
-        changed_files: FxHashSet<FileId>,
-        diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
-    );
+    fn publish_qihe_diagnostics(&mut self, changed_files: FxHashSet<FileId>);
 }
 
 #[derive(Clone, Copy)]
@@ -402,6 +435,7 @@ pub(super) struct QiheGlobalCtx<'a> {
     analysis: &'a mut AnalysisState,
     diagnostics: &'a mut DiagnosticsState,
     workspace: &'a mut WorkspaceState,
+    external_sources: &'a [StdArc<dyn DiagnosticSource>],
     tasks: &'a mut TaskState,
 }
 
@@ -469,11 +503,7 @@ impl QiheCtx for QiheGlobalCtx<'_> {
         self.diagnostic_publish_freshness().commit()
     }
 
-    fn make_snapshot(
-        &self,
-        cancellation: CancellationToken,
-        diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
-    ) -> GlobalStateSnapshot {
+    fn make_snapshot(&self, cancellation: CancellationToken) -> GlobalStateSnapshot {
         GlobalStateSnapshot {
             config: Arc::clone(&self.config_state.config),
             workspaces: Arc::clone(&self.workspace.workspaces),
@@ -481,7 +511,7 @@ impl QiheCtx for QiheGlobalCtx<'_> {
             vfs: Arc::clone(&self.workspace.vfs),
             mem_docs: self.analysis.mem_docs.clone(),
             sema_tokens_cache: Arc::clone(&self.analysis.semantic_tokens_cache),
-            qihe_diagnostics: diagnostics,
+            external_sources: self.external_sources.to_vec(),
             diagnostic_publish_freshness: self.diagnostic_publish_freshness(),
             diagnostic_file_revisions: self.diagnostics.diagnostic_file_revisions.clone(),
             cancellation,
@@ -562,11 +592,7 @@ impl QiheCtx for QiheGlobalCtx<'_> {
         });
     }
 
-    fn publish_qihe_diagnostics(
-        &mut self,
-        changed_files: FxHashSet<FileId>,
-        diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
-    ) {
+    fn publish_qihe_diagnostics(&mut self, changed_files: FxHashSet<FileId>) {
         if changed_files.is_empty() {
             return;
         }
@@ -576,7 +602,7 @@ impl QiheCtx for QiheGlobalCtx<'_> {
             return;
         }
 
-        let snapshot = self.make_snapshot(self.task_cancel_token(), diagnostics);
+        let snapshot = self.make_snapshot(self.task_cancel_token());
         let mut publish_tasks = Vec::with_capacity(changed_files.len());
         let mut touched_file_ids = FxHashSet::default();
         for file_id in changed_files.iter().copied() {
@@ -646,8 +672,25 @@ pub(super) fn with_global_ctx<T>(
     state: &mut GlobalState,
     f: impl FnOnce(&mut Qihe, &mut QiheGlobalCtx<'_>) -> T,
 ) -> T {
-    let GlobalState { client, config_state, analysis, diagnostics, workspace, qihe, tasks } = state;
-    let mut ctx = QiheGlobalCtx { client, config_state, analysis, diagnostics, workspace, tasks };
+    let GlobalState {
+        client,
+        config_state,
+        analysis,
+        diagnostics,
+        workspace,
+        qihe,
+        external_sources,
+        tasks,
+    } = state;
+    let mut ctx = QiheGlobalCtx {
+        client,
+        config_state,
+        analysis,
+        diagnostics,
+        workspace,
+        external_sources,
+        tasks,
+    };
     f(qihe, &mut ctx)
 }
 

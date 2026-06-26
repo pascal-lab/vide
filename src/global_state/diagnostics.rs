@@ -1,5 +1,6 @@
 use hir::base_db::{project::CompilationProfileId, source_root::SourceRootId};
 use lsp_types::Url;
+use rustc_hash::FxHashSet;
 use vfs::FileId;
 
 pub(crate) mod publisher;
@@ -18,6 +19,22 @@ impl DiagnosticCommitFreshness {
     pub(crate) fn readiness_revision(self) -> u64 {
         self.readiness_revision
     }
+}
+
+pub(crate) trait DiagnosticSource: Send + Sync {
+    fn diagnostics(
+        &self,
+        file_id: FileId,
+        freshness: &DiagnosticCommitFreshness,
+    ) -> Vec<lsp_types::Diagnostic>;
+
+    fn external_revision(
+        &self,
+        file_id: FileId,
+        freshness: &DiagnosticCommitFreshness,
+    ) -> Option<DiagnosticExternalRevision>;
+
+    fn remove_deleted(&self, files: &FxHashSet<FileId>);
 }
 
 /// Freshness token for a diagnostics publish batch.
@@ -56,7 +73,7 @@ pub(crate) enum DiagnosticOwner {
     File(FileId),
     SourceRoot(SourceRootId),
     CompilationProfile(CompilationProfileId),
-    ExternalQihe { file: FileId },
+    External { source: &'static str, file: FileId },
 }
 
 impl DiagnosticOwner {
@@ -69,7 +86,7 @@ impl DiagnosticOwner {
             DiagnosticOwner::CompilationProfile(profile_id) => {
                 format!("compilation-profile:{}", profile_id.0)
             }
-            DiagnosticOwner::ExternalQihe { file } => format!("external-qihe:{}", file.0),
+            DiagnosticOwner::External { source, file } => format!("external-{source}:{}", file.0),
         }
     }
 }
