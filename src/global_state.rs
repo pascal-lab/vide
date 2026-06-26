@@ -27,7 +27,7 @@ use hir::base_db::{
 };
 use ide::analysis_host::AnalysisHost;
 use lsp_server::{Message, ReqQueue, Request};
-use lsp_types::{TraceValue, Url};
+use lsp_types::{NumberOrString, TraceValue, Url};
 use nohash_hasher::IntMap;
 use parking_lot::{Mutex, RwLock};
 use project_model::Workspace;
@@ -48,11 +48,14 @@ use self::{
     },
     mem_docs::MemDocs,
     snapshot::GlobalStateSnapshot,
-    task::{Task, TaskPool},
+    task::{QiheTask, Task, TaskPool},
     trace::LspTrace,
     workspace_state::WorkspaceVfsReadiness,
 };
-use crate::config::{Config, ConfigError};
+use crate::{
+    config::{Config, ConfigError},
+    lsp_ext::ext::RunQiheAnalysisParams,
+};
 
 pub(crate) struct Handle<H, C> {
     pub(crate) handle: H,
@@ -68,7 +71,7 @@ pub(crate) struct GlobalState {
     pub(crate) analysis: AnalysisState,
     pub(crate) diagnostics: DiagnosticsState,
     pub(crate) workspace: WorkspaceState,
-    pub(crate) qihe: QiheState,
+    pub(crate) qihe: qihe::Qihe,
     pub(crate) tasks: TaskState,
 }
 
@@ -105,14 +108,6 @@ pub(crate) struct DiagnosticsState {
     pub(crate) diagnostics_revision: u64,
     pub(crate) diagnostic_target_revision: u64,
     pub(crate) diagnostic_file_revisions: FxHashMap<FileId, DiagnosticFileRevision>,
-}
-
-pub(crate) struct QiheState {
-    pub(crate) qihe_diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
-    // Only the latest Qihe run is allowed to commit diagnostics or logs.
-    pub(crate) qihe_run_generation: qihe::QiheRunId,
-    pub(crate) qihe_active_progress_token: Option<String>,
-    pub(crate) qihe_active_cancel_token: Option<CancellationToken>,
 }
 
 pub(crate) struct WorkspaceState {
@@ -186,12 +181,7 @@ impl GlobalState {
                 fetch_workspaces_task: ExclTask::default(),
                 registered_client_file_watcher_globs: None,
             },
-            qihe: QiheState {
-                qihe_diagnostics: Arc::new(Mutex::new(FxHashMap::default())),
-                qihe_run_generation: qihe::QiheRunId::default(),
-                qihe_active_progress_token: None,
-                qihe_active_cancel_token: None,
-            },
+            qihe: qihe::Qihe::new(),
             tasks: TaskState { task_pool },
         }
     }
@@ -211,7 +201,7 @@ impl GlobalState {
             vfs: Arc::clone(&self.workspace.vfs),
             mem_docs: self.analysis.mem_docs.clone(),
             sema_tokens_cache: Arc::clone(&self.analysis.semantic_tokens_cache),
-            qihe_diagnostics: Arc::clone(&self.qihe.qihe_diagnostics),
+            qihe_diagnostics: self.qihe.diagnostics_snapshot(),
             diagnostic_publish_freshness: self.diagnostic_publish_freshness(),
             diagnostic_file_revisions: self.diagnostics.diagnostic_file_revisions.clone(),
             cancellation,
@@ -227,8 +217,28 @@ impl GlobalState {
         )
     }
 
-    pub(crate) fn diagnostic_commit_freshness(&self) -> DiagnosticCommitFreshness {
-        self.diagnostic_publish_freshness().commit()
+    pub(crate) fn spawn_qihe_analysis(&mut self, params: RunQiheAnalysisParams) {
+        qihe::with_global_ctx(self, |qihe, ctx| qihe.start(params, ctx));
+    }
+
+    pub(crate) fn handle_qihe_task(&mut self, task: QiheTask) {
+        qihe::with_global_ctx(self, |qihe, ctx| qihe.handle(task, ctx));
+    }
+
+    pub(crate) fn cancel_work_done_progress(
+        &mut self,
+        params: lsp_types::WorkDoneProgressCancelParams,
+    ) {
+        let token = match params.token {
+            NumberOrString::String(token) => token,
+            NumberOrString::Number(token) => token.to_string(),
+        };
+        self.qihe.cancel_progress_token(&token);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn publish_qihe_diagnostics(&mut self, changed_files: FxHashSet<FileId>) {
+        qihe::with_global_ctx(self, |qihe, ctx| qihe.publish_diagnostics(changed_files, ctx));
     }
 }
 
