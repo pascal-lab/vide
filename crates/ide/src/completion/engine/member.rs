@@ -126,8 +126,15 @@ fn members_for_expr(
     file_id: HirFileId,
     expr: ast::Expression<'_>,
 ) -> Option<Vec<TyMember>> {
-    let ty = db.type_of_expr(sema.resolve_expr(file_id, expr)?);
-    let members = members_of_ty(db, &ty.ty);
+    let expr_id = sema.resolve_expr(file_id, expr)?;
+    let ty = db.type_of_expr(expr_id);
+    let mut members = members_of_ty(db, &ty.ty);
+    if members.is_empty()
+        && let Some(res) = sema.expr_to_def(expr_id)
+    {
+        let ty = db.type_of_path_resolution(res);
+        members = members_of_ty(db, &ty.ty);
+    }
     (!members.is_empty()).then_some(members)
 }
 
