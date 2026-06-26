@@ -5,6 +5,7 @@ use hir::{
     },
     container::{ContainerId, ContainerParent, InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
+    def_id::{ModuleDefId, ModuleDefOrigin},
     display::HirDisplay,
     hir_def::{
         DEFAULT_NAME,
@@ -35,7 +36,6 @@ use utils::get::GetRef;
 
 use crate::{
     db::{line_index_db::LineIndexDb, root_db::RootDb},
-    definitions::{Definition, DefinitionOrigin},
     markup::{Markup, display_project_path, file_link_target, inline_code, markdown_link},
     module_resolution::resolve_module_name,
 };
@@ -138,10 +138,10 @@ fn render_svint_as_ieee754(svint: &SVInt) -> Option<String> {
 
 pub(crate) fn render_definition(
     sema: &Semantics<RootDb>,
-    def: Definition,
+    def: ModuleDefId,
     anchor_file_id: vfs::FileId,
 ) -> Markup {
-    def.def_origins().into_iter().fold(Markup::new(), |mut res, origin| {
+    def.def_origins(sema.db).into_iter().fold(Markup::new(), |mut res, origin| {
         let origin = render_def_origin(sema, &origin, anchor_file_id);
 
         if !res.is_empty() && !origin.is_empty() {
@@ -155,12 +155,12 @@ pub(crate) fn render_definition(
 
 pub(crate) fn render_definition_location(
     sema: &Semantics<RootDb>,
-    def: Definition,
+    def: ModuleDefId,
     anchor_file_id: vfs::FileId,
 ) -> Markup {
     let db = sema.db;
     let mut locations = def
-        .def_origins()
+        .def_origins(db)
         .into_iter()
         .filter_map(|origin| render_def_origin_location(db, &origin, anchor_file_id))
         .collect_vec();
@@ -180,7 +180,7 @@ pub(crate) fn render_definition_location(
 
 fn render_def_origin_location(
     db: &RootDb,
-    origin: &DefinitionOrigin,
+    origin: &ModuleDefOrigin,
     anchor_file_id: vfs::FileId,
 ) -> Option<String> {
     let InFile { value: range, file_id } = origin.range(db)?;
@@ -258,7 +258,7 @@ fn has_normal_path_component(path: &utils::paths::AbsPath) -> bool {
 
 fn render_def_origin(
     sema: &Semantics<RootDb>,
-    origin: &DefinitionOrigin,
+    origin: &ModuleDefOrigin,
     anchor_file_id: vfs::FileId,
 ) -> Markup {
     let mut res = Markup::new();
@@ -283,24 +283,24 @@ fn render_def_origin(
     res
 }
 
-fn render_definition_title(db: &RootDb, origin: &DefinitionOrigin) -> Option<String> {
+fn render_definition_title(db: &RootDb, origin: &ModuleDefOrigin) -> Option<String> {
     let name = origin.name(db)?;
     let kind = match origin {
-        DefinitionOrigin::ModuleId(_) => "Module",
-        DefinitionOrigin::Config(_) => "Config",
-        DefinitionOrigin::Library(_) => "Library",
-        DefinitionOrigin::Udp(_) => "Primitive",
-        DefinitionOrigin::BlockId(_) => "Block",
-        DefinitionOrigin::GenerateBlockId(_) => "Generate block",
-        DefinitionOrigin::SubroutineId(subroutine_id) => match db.subroutine(*subroutine_id).kind {
+        ModuleDefOrigin::ModuleId(_) => "Module",
+        ModuleDefOrigin::Config(_) => "Config",
+        ModuleDefOrigin::Library(_) => "Library",
+        ModuleDefOrigin::Udp(_) => "Primitive",
+        ModuleDefOrigin::BlockId(_) => "Block",
+        ModuleDefOrigin::GenerateBlockId(_) => "Generate block",
+        ModuleDefOrigin::SubroutineId(subroutine_id) => match db.subroutine(*subroutine_id).kind {
             SubroutineKind::Task => "Task",
             SubroutineKind::Function { .. } => "Function",
         },
-        DefinitionOrigin::SubroutinePort(_) | DefinitionOrigin::NonAnsiPort(_) => "Port",
-        DefinitionOrigin::Decl(decl_id) => render_decl_title_kind(db, *decl_id)?,
-        DefinitionOrigin::Typedef(_) => "Typedef",
-        DefinitionOrigin::Instance(_) => "Instance",
-        DefinitionOrigin::Stmt(_) => "Statement",
+        ModuleDefOrigin::SubroutinePort(_) | ModuleDefOrigin::NonAnsiPort(_) => "Port",
+        ModuleDefOrigin::Decl(decl_id) => render_decl_title_kind(db, *decl_id)?,
+        ModuleDefOrigin::Typedef(_) => "Typedef",
+        ModuleDefOrigin::Instance(_) => "Instance",
+        ModuleDefOrigin::Stmt(_) => "Statement",
     };
 
     Some(format!("{kind} {}", inline_code(name.as_str())))
@@ -326,18 +326,18 @@ fn render_decl_title_kind(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<&
     })
 }
 
-fn render_signature(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Option<String> {
+fn render_signature(sema: &Semantics<RootDb>, origin: &ModuleDefOrigin) -> Option<String> {
     let db = sema.db;
     match origin {
-        DefinitionOrigin::ModuleId(module_id) => render_module_signature(db, *module_id),
-        DefinitionOrigin::SubroutineId(subroutine_id) => {
+        ModuleDefOrigin::ModuleId(module_id) => render_module_signature(db, *module_id),
+        ModuleDefOrigin::SubroutineId(subroutine_id) => {
             render_subroutine_signature(db, *subroutine_id)
         }
-        DefinitionOrigin::SubroutinePort(port_id) => render_subroutine_port_signature(db, *port_id),
-        DefinitionOrigin::NonAnsiPort(port_id) => render_non_ansi_port_signature(db, *port_id),
-        DefinitionOrigin::Decl(decl_id) => render_decl_signature(db, *decl_id),
-        DefinitionOrigin::Typedef(typedef) => typedef.display_signature(db).ok(),
-        DefinitionOrigin::Instance(instance_id) => render_instance_signature(db, *instance_id),
+        ModuleDefOrigin::SubroutinePort(port_id) => render_subroutine_port_signature(db, *port_id),
+        ModuleDefOrigin::NonAnsiPort(port_id) => render_non_ansi_port_signature(db, *port_id),
+        ModuleDefOrigin::Decl(decl_id) => render_decl_signature(db, *decl_id),
+        ModuleDefOrigin::Typedef(typedef) => typedef.display_signature(db).ok(),
+        ModuleDefOrigin::Instance(instance_id) => render_instance_signature(db, *instance_id),
         _ => render_label_signature(db, origin),
     }
 }
@@ -620,27 +620,27 @@ fn render_data_ty(db: &RootDb, container: ContainerId, ty: DataTy) -> Option<Str
     InContainer::new(container, ty).display_source(db).ok()
 }
 
-fn render_label_signature(db: &RootDb, origin: &DefinitionOrigin) -> Option<String> {
+fn render_label_signature(db: &RootDb, origin: &ModuleDefOrigin) -> Option<String> {
     let name = origin.name(db)?;
     let kind = match origin {
-        DefinitionOrigin::Config(_) => "config",
-        DefinitionOrigin::Library(_) => "library",
-        DefinitionOrigin::Udp(_) => "primitive",
-        DefinitionOrigin::BlockId(_) => "block",
-        DefinitionOrigin::GenerateBlockId(_) => "generate",
-        DefinitionOrigin::Instance(_) => "instance",
-        DefinitionOrigin::Stmt(_) => "statement",
-        DefinitionOrigin::Typedef(_) => "typedef",
-        DefinitionOrigin::ModuleId(_)
-        | DefinitionOrigin::SubroutineId(_)
-        | DefinitionOrigin::SubroutinePort(_)
-        | DefinitionOrigin::NonAnsiPort(_)
-        | DefinitionOrigin::Decl(_) => return None,
+        ModuleDefOrigin::Config(_) => "config",
+        ModuleDefOrigin::Library(_) => "library",
+        ModuleDefOrigin::Udp(_) => "primitive",
+        ModuleDefOrigin::BlockId(_) => "block",
+        ModuleDefOrigin::GenerateBlockId(_) => "generate",
+        ModuleDefOrigin::Instance(_) => "instance",
+        ModuleDefOrigin::Stmt(_) => "statement",
+        ModuleDefOrigin::Typedef(_) => "typedef",
+        ModuleDefOrigin::ModuleId(_)
+        | ModuleDefOrigin::SubroutineId(_)
+        | ModuleDefOrigin::SubroutinePort(_)
+        | ModuleDefOrigin::NonAnsiPort(_)
+        | ModuleDefOrigin::Decl(_) => return None,
     };
     Some(format!("{kind} {name}"))
 }
 
-fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefinitionOrigin) -> Option<Markup> {
+fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &ModuleDefOrigin) -> Option<Markup> {
     let db = sema.db;
     let InFile { value: range, file_id } = origin.range(db)?;
 
@@ -678,7 +678,7 @@ fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefinitionOrigin)
     }
 }
 
-fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Option<String> {
+fn render_scope_fact(sema: &Semantics<RootDb>, origin: &ModuleDefOrigin) -> Option<String> {
     // elaboration?
     let db = sema.db;
     let InFile { value: range, .. } = origin.range(db)?;
@@ -714,7 +714,7 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Opt
 
 fn render_definition_metadata(
     sema: &Semantics<RootDb>,
-    origin: &DefinitionOrigin,
+    origin: &ModuleDefOrigin,
     anchor_file_id: vfs::FileId,
 ) -> Option<String> {
     let mut parts = Vec::new();

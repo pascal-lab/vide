@@ -2,7 +2,7 @@ use vfs::FileId;
 
 use crate::hir_def::macro_file::MacroFileId;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum HirFileId {
     File(FileId),
     Macro(MacroFileId),
