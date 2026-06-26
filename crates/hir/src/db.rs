@@ -22,7 +22,7 @@ use crate::{
             },
         },
         subroutine::{
-            self, Subroutine, SubroutineId, SubroutineLoc, SubroutinePortId, SubroutineSourceMap,
+            self, LocalSubroutineId, Subroutine, SubroutinePortId, SubroutineSourceMap,
         },
         typedef::TypedefId,
     },
@@ -46,9 +46,6 @@ pub trait InternDb: SourceRootDb {
     fn intern_block(&self, block: BlockLoc) -> BlockId;
 
     #[salsa::interned]
-    fn intern_subroutine(&self, subroutine: SubroutineLoc) -> SubroutineId;
-
-    #[salsa::interned]
     fn intern_generate_block(&self, generate_block: GenerateBlockLoc) -> GenerateBlockId;
 
     #[salsa::interned]
@@ -66,7 +63,6 @@ pub trait InternDb: SourceRootDb {
 
 impl_intern!(BuiltinDataTyId, BuiltinDataTy, intern_ty, lookup_intern_ty);
 impl_intern!(BlockId, BlockLoc, intern_block, lookup_intern_block);
-impl_intern!(SubroutineId, SubroutineLoc, intern_subroutine, lookup_intern_subroutine);
 impl_intern!(
     GenerateBlockId,
     GenerateBlockLoc,
@@ -104,10 +100,10 @@ pub trait HirDb: InternDb {
     #[salsa::invoke(subroutine::subroutine_with_source_map_query)]
     fn subroutine_with_source_map(
         &self,
-        subroutine: SubroutineId,
+        subroutine: InContainer<LocalSubroutineId>,
     ) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>);
 
-    fn subroutine(&self, subroutine_id: SubroutineId) -> Arc<Subroutine>;
+    fn subroutine(&self, subroutine_id: InContainer<LocalSubroutineId>) -> Arc<Subroutine>;
 
     #[salsa::invoke(generate::generate_block_with_source_map_query)]
     fn generate_block_with_source_map(
@@ -133,7 +129,7 @@ pub trait HirDb: InternDb {
     fn block_scope(&self, block_id: BlockId) -> Arc<NameScope>;
 
     #[salsa::invoke(NameScope::subroutine_scope_query)]
-    fn subroutine_scope(&self, subroutine_id: SubroutineId) -> Arc<NameScope>;
+    fn subroutine_scope(&self, subroutine_id: InContainer<LocalSubroutineId>) -> Arc<NameScope>;
 
     #[salsa::invoke(NameScope::package_export_signature_query)]
     fn package_export_signature(&self, package_id: PackageId) -> Arc<NameScope>;
@@ -176,7 +172,7 @@ fn block(db: &dyn HirDb, block_id: BlockId) -> Arc<Block> {
     db.block_with_source_map(block_id).0
 }
 
-fn subroutine(db: &dyn HirDb, subroutine_id: SubroutineId) -> Arc<Subroutine> {
+fn subroutine(db: &dyn HirDb, subroutine_id: InContainer<LocalSubroutineId>) -> Arc<Subroutine> {
     db.subroutine_with_source_map(subroutine_id).0
 }
 

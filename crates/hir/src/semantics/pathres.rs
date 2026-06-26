@@ -72,7 +72,7 @@ pub(crate) fn name_scope(db: &dyn HirDb, scope_id: ScopeId) -> Arc<NameScope> {
         ScopeId::Module(module_id) => db.module_scope(module_id),
         ScopeId::GenerateBlock(generate_block_id) => db.generate_block_scope(generate_block_id),
         ScopeId::Block(block_id) => db.block_scope(block_id),
-        ScopeId::Subroutine(subroutine_id) => db.subroutine_scope(subroutine_id),
+        ScopeId::Subroutine(subroutine_id) => db.subroutine_scope(subroutine_id.as_in_container()),
     }
 }
 

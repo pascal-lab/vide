@@ -14,17 +14,16 @@ use hir::{
             port::NonAnsiPortId,
         },
         stmt::StmtId,
-        subroutine::{SubroutineId, SubroutinePortId},
+        subroutine::{LocalSubroutineId, SubroutinePortId},
         typedef::TypedefId,
     },
-    source_map::{IsNamedSrc, IsSrc, ToAstNode},
+    source_map::{IsNamedSrc, IsSrc},
     symbol::DefId,
 };
 use smol_str::SmolStr;
 use syntax::{
     SyntaxTokenWithParent,
-    ast::AstNode,
-    has_text_range::{HasTextRange, HasTextRangeIn},
+    has_text_range::HasTextRange,
 };
 use utils::{
     get::{Get, GetRef},
@@ -162,51 +161,15 @@ impl ToNav for GenerateBlockId {
     }
 }
 
-impl ToNav for SubroutineId {
+impl ToNav for InContainer<LocalSubroutineId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let loc = self.lookup(db);
-        let cont_id: ScopeId = loc.cont_id.into();
-        let cont_name = cont_id.to_container(db).name().cloned();
-        let name = db.subroutine(*self).name.clone();
-        let focus_range = loc.src.value.name_range();
-
-        let file_id = loc.src.file_id.file_id();
-        Some(build(file_id, focus_range, loc.src.value.range(), name, SymbolKind::Fn, cont_name))
+        DefId::new(db, *self).to_nav(db)
     }
 }
 
 impl ToNav for InSubroutine<SubroutinePortId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let InSubroutine { subroutine, value } = *self;
-        let loc = subroutine.lookup(db);
-        let cont_name = db.subroutine(subroutine).name.clone();
-        let subroutine_src = loc.src;
-        let tree = db.parse(subroutine_src.file_id);
-        let func = subroutine_src.value.to_node(&tree)?;
-        let ports = func.prototype().port_list()?;
-        let port = ports
-            .ports()
-            .children()
-            .nth(value.0 as usize)
-            .and_then(|port| port.as_function_port())?;
-        let name = db
-            .subroutine(subroutine)
-            .ports
-            .get(value.0 as usize)
-            .and_then(|port| port.name.clone());
-        let declarator = port.declarator();
-        let focus_range =
-            declarator.name().and_then(|name| name.text_range_in(declarator.syntax()));
-        let full_range = port.syntax().text_range()?;
-
-        Some(build(
-            subroutine_src.file_id.file_id(),
-            focus_range,
-            full_range,
-            name,
-            SymbolKind::PortDecl,
-            cont_name,
-        ))
+        DefId::new(db, *self).to_nav(db)
     }
 }
 

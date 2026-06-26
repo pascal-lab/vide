@@ -32,13 +32,13 @@ use super::{
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
-        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc, SubroutineSrc,
-        lower_subroutine, lower_subroutine_body,
+        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineSrc, lower_subroutine,
+        lower_subroutine_body,
     },
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{InFile, ScopeId},
+    container::{InContainer, ScopeId},
     db::{HirDb, InternDb},
     file::HirFileId,
     hir_def::lower_ident_opt,
@@ -223,12 +223,7 @@ impl LowerFileCtx<'_> {
             func => self.file_source_map.subroutine_srcs,
         };
 
-        let src = SubroutineSrc::from_ast(self.file_id, func);
-        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
-            cont_id: self.file_id.into(),
-            src: InFile::new(self.file_id, src),
-            local_id: local_subroutine_id,
-        });
+        let subroutine_id = InContainer::new(self.file_id.into(), local_subroutine_id);
 
         if func.end().is_some() {
             let subroutine = &mut self.file.subroutines[local_subroutine_id];
@@ -236,7 +231,7 @@ impl LowerFileCtx<'_> {
             let mut ctx = LowerSubroutineBodyCtx {
                 db: self.db,
                 file_id: self.file_id,
-                subroutine_id: subroutine_def_id,
+                subroutine_id,
                 subroutine,
                 subroutine_source_map: &mut subroutine_source_map,
                 region_tree: RegionTreeBuilder::new(),

@@ -1,8 +1,5 @@
 use hir::{
-    base_db::{
-        intern::Lookup,
-        source_db::{SourceDb, SourceRootDb},
-    },
+    base_db::source_db::{SourceDb, SourceRootDb},
     container::{InContainer, InFile, InModule, InSubroutine, ScopeId, ScopeParent},
     db::HirDb,
     def_id::ModuleDefId,
@@ -20,7 +17,7 @@ use hir::{
             instantiation::InstanceId,
             port::{NonAnsiPortId, Ports},
         },
-        subroutine::{LocalSubroutineId, SubroutineId, SubroutineKind, SubroutinePortId},
+        subroutine::{LocalSubroutineId, SubroutineKind, SubroutinePortId},
     },
     region_tree::RegionParent,
     semantics::Semantics,
@@ -297,12 +294,6 @@ fn render_definition_title(db: &RootDb, origin: &DefId) -> Option<String> {
             SubroutineKind::Task => "Task",
             SubroutineKind::Function { .. } => "Function",
         },
-        DefLoc::PackageSubroutine(subroutine_id) => {
-            match db.module(subroutine_id.module_id).get(subroutine_id.value).kind {
-                SubroutineKind::Task => "Task",
-                SubroutineKind::Function { .. } => "Function",
-            }
-        }
         DefLoc::SubroutinePort(_) | DefLoc::NonAnsiPort(_) => "Port",
         DefLoc::Decl(decl_id) => render_decl_title_kind(db, decl_id)?,
         DefLoc::Typedef(_) => "Typedef",
@@ -338,9 +329,6 @@ fn render_signature(sema: &Semantics<RootDb>, origin: &DefId) -> Option<String> 
     match origin.loc(db) {
         DefLoc::Module(module_id) => render_module_signature(db, module_id),
         DefLoc::Subroutine(subroutine_id) => render_subroutine_signature(db, subroutine_id),
-        DefLoc::PackageSubroutine(subroutine_id) => {
-            render_package_subroutine_signature(db, subroutine_id)
-        }
         DefLoc::SubroutinePort(port_id) => render_subroutine_port_signature(db, port_id),
         DefLoc::NonAnsiPort(port_id) => render_non_ansi_port_signature(db, port_id),
         DefLoc::Decl(decl_id) => render_decl_signature(db, decl_id),
@@ -408,7 +396,7 @@ fn render_subroutine_port_signature(
     let subroutine = db.subroutine(port_id.subroutine);
     let port = subroutine.ports.get(port_id.value.0 as usize)?;
     let name = port.name.as_ref()?;
-    let container = port_id.subroutine.lookup(db).cont_id.into();
+    let container = port_id.subroutine.cont_id;
     let ty = port.ty.and_then(|ty| render_data_ty(db, container, ty));
     let dir = port.direction.display_source(db).ok()?;
 
@@ -420,10 +408,13 @@ fn render_subroutine_port_signature(
     }
 }
 
-fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineId) -> Option<String> {
+fn render_subroutine_signature(
+    db: &RootDb,
+    subroutine_id: InContainer<LocalSubroutineId>,
+) -> Option<String> {
     let subroutine = db.subroutine(subroutine_id);
     let name = subroutine.name.as_ref()?;
-    let container = subroutine_id.lookup(db).cont_id.into();
+    let container = subroutine_id.cont_id;
     let mut signature = match subroutine.kind {
         SubroutineKind::Task => format!("task {name}"),
         SubroutineKind::Function { return_ty } => {
@@ -452,51 +443,6 @@ fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineId) -> Opti
         signature.push_str("(\n");
         signature.push_str(&render_indented_list(&ports));
         signature.push_str("\n)");
-    }
-    Some(signature)
-}
-
-fn render_package_subroutine_signature(
-    db: &RootDb,
-    subroutine_id: InModule<LocalSubroutineId>,
-) -> Option<String> {
-    let subroutine = db.module(subroutine_id.module_id);
-    let subroutine = subroutine.get(subroutine_id.value);
-    let name = subroutine.name.as_ref()?;
-    let container = subroutine_id.module_id.into();
-    let mut signature = match subroutine.kind {
-        SubroutineKind::Task => format!("task {name}"),
-        SubroutineKind::Function { return_ty } => {
-            if let Some(return_ty) = return_ty.and_then(|ty| render_data_ty(db, container, ty)) {
-                format!("function {return_ty} {name}")
-            } else {
-                format!("function {name}")
-            }
-        }
-    };
-
-    let ports = subroutine
-        .ports
-        .iter()
-        .filter_map(|port| {
-            let name = port.name.as_ref()?;
-            let ty = port.ty.and_then(|ty| render_data_ty(db, container, ty));
-            let dir = port.direction.display_source(db).ok()?;
-
-            match (dir.is_empty(), ty) {
-                (false, Some(ty)) => Some(format!("{dir} {ty} {name}")),
-                (false, None) => Some(format!("{dir} {name}")),
-                (true, Some(ty)) => Some(format!("{ty} {name}")),
-                (true, None) => Some(name.to_string()),
-            }
-        })
-        .collect_vec();
-    if ports.is_empty() {
-        signature.push_str("()");
-    } else {
-        signature.push('(');
-        signature.push_str(&ports.join(", "));
-        signature.push(')');
     }
     Some(signature)
 }
@@ -686,7 +632,6 @@ fn render_label_signature(db: &RootDb, origin: &DefId) -> Option<String> {
         DefLoc::Typedef(_) => "typedef",
         DefLoc::Module(_)
         | DefLoc::Subroutine(_)
-        | DefLoc::PackageSubroutine(_)
         | DefLoc::SubroutinePort(_)
         | DefLoc::NonAnsiPort(_)
         | DefLoc::Decl(_) => return None,

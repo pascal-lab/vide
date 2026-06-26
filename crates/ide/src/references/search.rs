@@ -9,6 +9,7 @@ use hir::{
     def_id::ModuleDefId,
     semantics::Semantics,
     source_map::IsSrc,
+    symbol::DefId,
 };
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
@@ -92,8 +93,12 @@ impl SearchScope {
                 Self::single_range(src.file_id.file_id(), src.value.range())
             }
             ScopeId::Subroutine(subroutine_id) => {
-                let src = subroutine_id.lookup(db).src;
-                Self::single_range(src.file_id.file_id(), src.value.range())
+                let def_id = DefId::new(db, subroutine_id.as_in_container());
+                if let Some(InFile { file_id, value: range }) = def_id.range(db) {
+                    Self::single_range(file_id.file_id(), range)
+                } else {
+                    Self::all(db)
+                }
             }
         }
     }

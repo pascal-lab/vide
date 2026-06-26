@@ -500,7 +500,7 @@ fn type_of_subroutine_port_impl(db: &dyn HirDb, port: InSubroutine<SubroutinePor
         return TyResult::new(Ty::Unknown);
     };
     port.ty
-        .map(|ty| normalize_data_ty(db, ScopeId::Subroutine(port_id.subroutine), ty))
+        .map(|ty| normalize_data_ty(db, port_id.subroutine.into(), ty))
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
 }
 
@@ -572,7 +572,7 @@ fn expr_of(db: &dyn HirDb, expr: InContainer<ExprId>) -> Option<Expr> {
         }
         ScopeId::Block(block_id) => Some(db.block(block_id).get(expr.value).clone()),
         ScopeId::Subroutine(subroutine_id) => {
-            Some(db.subroutine(subroutine_id).get(expr.value).clone())
+            Some(db.subroutine(subroutine_id.as_in_container()).get(expr.value).clone())
         }
     }
 }
@@ -589,7 +589,7 @@ fn decl_of(
         }
         ScopeId::Block(block_id) => Some(db.block(block_id).get(decl.value).clone()),
         ScopeId::Subroutine(subroutine_id) => {
-            Some(db.subroutine(subroutine_id).get(decl.value).clone())
+            Some(db.subroutine(subroutine_id.as_in_container()).get(decl.value).clone())
         }
     }
 }
@@ -606,7 +606,7 @@ fn declaration_of(
         }
         ScopeId::Block(block_id) => Some(db.block(block_id).get(decl.value).clone()),
         ScopeId::Subroutine(subroutine_id) => {
-            Some(db.subroutine(subroutine_id).get(decl.value).clone())
+            Some(db.subroutine(subroutine_id.as_in_container()).get(decl.value).clone())
         }
     }
 }
@@ -623,7 +623,7 @@ fn typedef_of(
         }
         ScopeId::Block(block_id) => Some(db.block(block_id).get(typedef.value).clone()),
         ScopeId::Subroutine(subroutine_id) => {
-            Some(db.subroutine(subroutine_id).get(typedef.value).clone())
+            Some(db.subroutine(subroutine_id.as_in_container()).get(typedef.value).clone())
         }
     }
 }
@@ -640,7 +640,7 @@ fn struct_of(
         }
         ScopeId::Block(block_id) => Some(db.block(block_id).get(struct_id.value).clone()),
         ScopeId::Subroutine(subroutine_id) => {
-            Some(db.subroutine(subroutine_id).get(struct_id.value).clone())
+            Some(db.subroutine(subroutine_id.as_in_container()).get(struct_id.value).clone())
         }
     }
 }
@@ -657,7 +657,7 @@ fn stmt_of(
         }
         ScopeId::Block(block_id) => Some(db.block(block_id).get(stmt.value).clone()),
         ScopeId::Subroutine(subroutine_id) => {
-            Some(db.subroutine(subroutine_id).get(stmt.value).clone())
+            Some(db.subroutine(subroutine_id.as_in_container()).get(stmt.value).clone())
         }
     }
 }

@@ -25,13 +25,11 @@ use super::{
         timing_control::{EventExpr, EventExprSrc},
     },
     lower_ident_opt,
-    module::{ModuleId, generate::GenerateBlockId},
     stmt::{LowerStmt, Stmt, StmtId, StmtSrc, impl_lower_stmt},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    base_db::intern::Lookup,
-    container::{InFile, ScopeId},
+    container::{InContainer, ScopeId},
     db::{HirDb, InternDb},
     file::HirFileId,
     hir_def::{
@@ -141,64 +139,6 @@ pub type SubroutineSrc = NamedAstId<FunctionDeclarationAst>;
 
 pub type LocalSubroutineId = Idx<Subroutine>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct SubroutineId(pub salsa::InternId);
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub struct SubroutineLoc {
-    pub cont_id: SubroutineContainerId,
-    pub src: InFile<SubroutineSrc>,
-    pub local_id: LocalSubroutineId,
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum SubroutineContainerId {
-    HirFileId(HirFileId),
-    ModuleId(ModuleId),
-    GenerateBlockId(GenerateBlockId),
-}
-
-impl From<HirFileId> for SubroutineContainerId {
-    fn from(file_id: HirFileId) -> Self {
-        Self::HirFileId(file_id)
-    }
-}
-
-impl From<ModuleId> for SubroutineContainerId {
-    fn from(module_id: ModuleId) -> Self {
-        Self::ModuleId(module_id)
-    }
-}
-
-impl From<GenerateBlockId> for SubroutineContainerId {
-    fn from(generate_block_id: GenerateBlockId) -> Self {
-        Self::GenerateBlockId(generate_block_id)
-    }
-}
-
-impl From<SubroutineContainerId> for ScopeId {
-    fn from(cont_id: SubroutineContainerId) -> Self {
-        match cont_id {
-            SubroutineContainerId::HirFileId(file_id) => file_id.into(),
-            SubroutineContainerId::ModuleId(module_id) => module_id.into(),
-            SubroutineContainerId::GenerateBlockId(generate_block_id) => generate_block_id.into(),
-        }
-    }
-}
-
-impl TryFrom<ScopeId> for SubroutineContainerId {
-    type Error = ();
-
-    fn try_from(cont_id: ScopeId) -> Result<Self, Self::Error> {
-        match cont_id {
-            ScopeId::File(file_id) => Ok(file_id.into()),
-            ScopeId::Module(module_id) => Ok(module_id.into()),
-            ScopeId::GenerateBlock(generate_block_id) => Ok(generate_block_id.into()),
-            ScopeId::Block(_) | ScopeId::Subroutine(_) => Err(()),
-        }
-    }
-}
-
 pub fn lower_subroutine<F>(func: &ast::FunctionDeclaration, mut lower_ty: F) -> Option<Subroutine>
 where
     F: FnMut(ast::DataType) -> DataTy,
@@ -266,7 +206,7 @@ fn map_direction(kind: Option<TokenKind>) -> SubroutinePortDir {
 pub struct LowerSubroutineBodyCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
     pub(crate) file_id: HirFileId,
-    pub(crate) subroutine_id: SubroutineId,
+    pub(crate) subroutine_id: InContainer<LocalSubroutineId>,
     pub(crate) subroutine: &'a mut Subroutine,
     pub(crate) subroutine_source_map: &'a mut SubroutineSourceMap,
     pub(crate) region_tree: RegionTreeBuilder,
@@ -280,7 +220,7 @@ impl_lower_declaration!(LowerSubroutineBodyCtx<'_>, subroutine, subroutine_sourc
 
 impl LowerSubroutineBodyCtx<'_> {
     fn container_id(&self) -> ScopeId {
-        ScopeId::Subroutine(self.subroutine_id)
+        self.subroutine_id.into()
     }
 
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
@@ -391,28 +331,29 @@ pub fn lower_subroutine_body(ctx: &mut LowerSubroutineBodyCtx<'_>, func: ast::Fu
 
 pub(crate) fn subroutine_with_source_map_query(
     db: &dyn HirDb,
-    subroutine_id: SubroutineId,
+    subroutine_id: InContainer<LocalSubroutineId>,
 ) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>) {
-    let SubroutineLoc { cont_id, local_id, .. } = subroutine_id.lookup(db);
-
-    match cont_id {
-        SubroutineContainerId::HirFileId(file_id) => {
+    match subroutine_id.cont_id {
+        ScopeId::File(file_id) => {
             let file = db.hir_file(file_id);
-            let subroutine = file.subroutines[local_id].clone();
+            let subroutine = file.subroutines[subroutine_id.value].clone();
             let source_map = subroutine.source_map.clone();
             (Arc::new(subroutine), Arc::new(source_map))
         }
-        SubroutineContainerId::ModuleId(module_id) => {
+        ScopeId::Module(module_id) => {
             let module = db.module(module_id);
-            let subroutine = module.subroutines[local_id].clone();
+            let subroutine = module.subroutines[subroutine_id.value].clone();
             let source_map = subroutine.source_map.clone();
             (Arc::new(subroutine), Arc::new(source_map))
         }
-        SubroutineContainerId::GenerateBlockId(generate_block_id) => {
+        ScopeId::GenerateBlock(generate_block_id) => {
             let generate_block = db.generate_block(generate_block_id);
-            let subroutine = generate_block.subroutines[local_id].clone();
+            let subroutine = generate_block.subroutines[subroutine_id.value].clone();
             let source_map = subroutine.source_map.clone();
             (Arc::new(subroutine), Arc::new(source_map))
+        }
+        ScopeId::Block(_) | ScopeId::Subroutine(_) => {
+            unreachable!("subroutines are lowered only in file, module, or generate-block scopes")
         }
     }
 }
