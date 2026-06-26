@@ -19,6 +19,7 @@ use hir::{
         typedef::TypedefId,
     },
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
+    symbol::DefLoc,
 };
 use smol_str::SmolStr;
 use syntax::{
@@ -59,20 +60,20 @@ pub(crate) trait ToNav {
 
 impl ToNav for ModuleDefOrigin {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        match self {
-            ModuleDefOrigin::ModuleId(module_id) => module_id.to_nav(db),
-            ModuleDefOrigin::Config(config_id) => config_id.to_nav(db),
-            ModuleDefOrigin::Library(library_id) => library_id.to_nav(db),
-            ModuleDefOrigin::Udp(udp_id) => udp_id.to_nav(db),
-            ModuleDefOrigin::BlockId(block_id) => block_id.to_nav(db),
-            ModuleDefOrigin::GenerateBlockId(generate_block_id) => generate_block_id.to_nav(db),
-            ModuleDefOrigin::SubroutineId(subroutine_id) => subroutine_id.to_nav(db),
-            ModuleDefOrigin::SubroutinePort(subroutine_port_id) => subroutine_port_id.to_nav(db),
-            ModuleDefOrigin::NonAnsiPort(nonansi_port_id) => nonansi_port_id.to_nav(db),
-            ModuleDefOrigin::Decl(decl_id) => decl_id.to_nav(db),
-            ModuleDefOrigin::Typedef(typedef_id) => typedef_id.to_nav(db),
-            ModuleDefOrigin::Instance(instance_id) => instance_id.to_nav(db),
-            ModuleDefOrigin::Stmt(stmt_id) => stmt_id.to_nav(db),
+        match self.loc(db) {
+            DefLoc::Module(module_id) => module_id.to_nav(db),
+            DefLoc::Config(config_id) => config_id.to_nav(db),
+            DefLoc::Library(library_id) => library_id.to_nav(db),
+            DefLoc::Udp(udp_id) => udp_id.to_nav(db),
+            DefLoc::Block(block_id) => block_id.to_nav(db),
+            DefLoc::GenerateBlock(generate_block_id) => generate_block_id.to_nav(db),
+            DefLoc::Subroutine(subroutine_id) => subroutine_id.to_nav(db),
+            DefLoc::SubroutinePort(subroutine_port_id) => subroutine_port_id.to_nav(db),
+            DefLoc::NonAnsiPort(nonansi_port_id) => nonansi_port_id.to_nav(db),
+            DefLoc::Decl(decl_id) => decl_id.to_nav(db),
+            DefLoc::Typedef(typedef_id) => typedef_id.to_nav(db),
+            DefLoc::Instance(instance_id) => instance_id.to_nav(db),
+            DefLoc::Stmt(stmt_id) => stmt_id.to_nav(db),
         }
     }
 }

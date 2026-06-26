@@ -6,7 +6,6 @@ use crate::{
     base_db::salsa,
     container::{ContainerId, InContainer, InFile, InModule, InSubroutine},
     db::InternDb,
-    def_id::ModuleDefOrigin,
     file::HirFileId,
     hir_def::{
         Ident,
@@ -57,26 +56,6 @@ impl_from! { DefLoc =>
     Typedef(InContainer<TypedefId>),
     Instance(InModule<InstanceId>),
     Stmt(InContainer<StmtId>),
-}
-
-impl From<ModuleDefOrigin> for DefLoc {
-    fn from(origin: ModuleDefOrigin) -> Self {
-        match origin {
-            ModuleDefOrigin::ModuleId(id) => Self::Module(id),
-            ModuleDefOrigin::Config(id) => Self::Config(id),
-            ModuleDefOrigin::Library(id) => Self::Library(id),
-            ModuleDefOrigin::Udp(id) => Self::Udp(id),
-            ModuleDefOrigin::BlockId(id) => Self::Block(id),
-            ModuleDefOrigin::GenerateBlockId(id) => Self::GenerateBlock(id),
-            ModuleDefOrigin::SubroutineId(id) => Self::Subroutine(id),
-            ModuleDefOrigin::SubroutinePort(id) => Self::SubroutinePort(id),
-            ModuleDefOrigin::NonAnsiPort(id) => Self::NonAnsiPort(id),
-            ModuleDefOrigin::Decl(id) => Self::Decl(id),
-            ModuleDefOrigin::Typedef(id) => Self::Typedef(id),
-            ModuleDefOrigin::Instance(id) => Self::Instance(id),
-            ModuleDefOrigin::Stmt(id) => Self::Stmt(id),
-        }
-    }
 }
 
 impl DefId {

@@ -163,7 +163,7 @@ impl ModuleIndex {
 
 impl SemanticModuleDefinition {
     fn new(db: &dyn HirDb, module_id: ModuleId) -> Option<Self> {
-        let origin = ModuleDefOrigin::ModuleId(module_id);
+        let origin = ModuleDefOrigin::from_loc(db, module_id);
         let name = origin.name(db)?;
         let InFile { file_id, value: name_range } = origin.name_range(db)?;
         let InFile { value: full_range, .. } = origin.range(db)?;
