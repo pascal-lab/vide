@@ -1,4 +1,4 @@
-use hir::{file::HirFileId, semantics::Semantics};
+use hir::{def_id::ModuleDefId, file::HirFileId, semantics::Semantics};
 use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
@@ -14,7 +14,7 @@ use self::preproc::render_preproc_references_target;
 use crate::{
     FilePosition, ScopeVisibility,
     db::root_db::RootDb,
-    definitions::{Definition, DefinitionClass},
+    definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
     semantic_target::{SemanticTarget, TargetIntent, TargetResolution, resolve_semantic_target},
     source_targets::SourceTarget,
@@ -49,7 +49,7 @@ impl ReferencesConfig {
         Self { scope_visibility, search_scope }
     }
 
-    pub(crate) fn search_scope(&self, db: &RootDb, def: &Definition) -> SearchScope {
+    pub(crate) fn search_scope(&self, db: &RootDb, def: &ModuleDefId) -> SearchScope {
         SearchScope::new(db, def, self.clone())
     }
 }
@@ -178,7 +178,7 @@ pub(crate) fn handle_ctrl_flow_kw(
 
 fn search_refs<'a>(
     sema: &'a Semantics<'a, RootDb>,
-    def: Definition,
+    def: ModuleDefId,
     config: ReferencesConfig,
 ) -> References {
     let refs = ReferencesCtx::new(sema, &def, config)
@@ -189,7 +189,8 @@ fn search_refs<'a>(
             (file_id, res)
         })
         .collect();
-    let def = def.origins().into_iter().filter_map(|def| def.to_nav(sema.db)).collect_vec().into();
+    let def =
+        def.origins(sema.db).iter().filter_map(|def| def.to_nav(sema.db)).collect_vec().into();
     References { def, refs, status: ReferencesStatus::Complete }
 }
 

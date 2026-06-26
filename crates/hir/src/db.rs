@@ -3,6 +3,7 @@ use triomphe::Arc;
 
 use crate::{
     base_db::{salsa, source_db::SourceRootDb},
+    def_id::{ModuleDef, ModuleDefId},
     file::HirFileId,
     hir_def::{
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
@@ -45,6 +46,9 @@ pub trait InternDb: SourceRootDb {
 
     #[salsa::interned]
     fn intern_macro_file(&self, macro_file: MacroFileLoc) -> MacroFileId;
+
+    #[salsa::interned]
+    fn intern_module_def(&self, module_def: ModuleDef) -> ModuleDefId;
 }
 
 impl_intern!(BuiltinDataTyId, BuiltinDataTy, intern_ty, lookup_intern_ty);
@@ -58,6 +62,7 @@ impl_intern!(
 );
 impl_intern!(MacroCallId, MacroCallLoc, intern_macro_call, lookup_intern_macro_call);
 impl_intern!(MacroFileId, MacroFileLoc, intern_macro_file, lookup_intern_macro_file);
+impl_intern!(ModuleDefId, ModuleDef, intern_module_def, lookup_intern_module_def);
 
 #[salsa::query_group(HirDbStorage)]
 pub trait HirDb: InternDb {
