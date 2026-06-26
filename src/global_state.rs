@@ -16,7 +16,7 @@ pub(crate) mod task;
 mod trace;
 mod workspace_state;
 
-use std::time::Instant;
+use std::{sync::Arc as StdArc, time::Instant};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use hir::base_db::{
@@ -44,7 +44,7 @@ pub(crate) use self::workspace_state::{
 use self::{
     diagnostics::{
         DiagnosticCommitFreshness, DiagnosticFileRevision, DiagnosticPublishFreshness,
-        publisher::DiagnosticPublishKey,
+        DiagnosticSource, publisher::DiagnosticPublishKey,
     },
     mem_docs::MemDocs,
     snapshot::GlobalStateSnapshot,
@@ -72,6 +72,7 @@ pub(crate) struct GlobalState {
     pub(crate) diagnostics: DiagnosticsState,
     pub(crate) workspace: WorkspaceState,
     pub(crate) qihe: qihe::Qihe,
+    pub(crate) external_sources: Vec<StdArc<dyn DiagnosticSource>>,
     pub(crate) tasks: TaskState,
 }
 
@@ -147,6 +148,11 @@ impl GlobalState {
             .raw_db_mut()
             .set_diagnostics_config_with_durability(diagnostics_config, Durability::HIGH);
 
+        let qihe_diagnostics = qihe::QiheDiagnostics::new();
+        let qihe = qihe::Qihe::new(qihe_diagnostics);
+        let qihe_source: StdArc<dyn DiagnosticSource> = StdArc::new(qihe.diagnostics_snapshot());
+        let external_sources = vec![qihe_source];
+
         GlobalState {
             client: ClientState {
                 sender,
@@ -181,7 +187,8 @@ impl GlobalState {
                 fetch_workspaces_task: ExclTask::default(),
                 registered_client_file_watcher_globs: None,
             },
-            qihe: qihe::Qihe::new(),
+            qihe,
+            external_sources,
             tasks: TaskState { task_pool },
         }
     }
@@ -201,7 +208,7 @@ impl GlobalState {
             vfs: Arc::clone(&self.workspace.vfs),
             mem_docs: self.analysis.mem_docs.clone(),
             sema_tokens_cache: Arc::clone(&self.analysis.semantic_tokens_cache),
-            qihe_diagnostics: self.qihe.diagnostics_snapshot(),
+            external_sources: self.external_sources.clone(),
             diagnostic_publish_freshness: self.diagnostic_publish_freshness(),
             diagnostic_file_revisions: self.diagnostics.diagnostic_file_revisions.clone(),
             cancellation,

@@ -117,7 +117,9 @@ impl GlobalState {
         if diagnostic_targets_changed {
             self.diagnostics.diagnostic_target_revision += 1;
         }
-        self.qihe.remove_deleted(&deleted_file_ids);
+        for source in &self.external_sources {
+            source.remove_deleted(&deleted_file_ids);
+        }
         self.clear_deleted_push_diagnostics(&deleted_push_diagnostics);
         if has_structure_changes {
             self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
