@@ -105,7 +105,7 @@ fn complete_non_ansi_port_list(
 
     let scope = db.module_scope(module_id);
     scope
-        .iter_merged()
+        .iter_listing()
         .filter_map(|(ident, defs)| {
             defs.iter()
                 .any(|def_id| matches!(def_id.kind(db), DefKind::Port | DefKind::NonAnsiPort))

@@ -14,6 +14,7 @@ use udp::{UdpDecl, UdpDeclId, UdpDeclSrc};
 use utils::{define_enum_deriving_from, get::Get};
 
 use super::{
+    PackageImport,
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_idx_and_src,
     block::{BlockInfo, BlockSrc, LocalBlockId},
@@ -26,7 +27,8 @@ use super::{
         impl_lower_expr,
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
-    module::{LocalModuleId, ModuleInfo, ModuleSrc},
+    lower_package_imports,
+    module::{LocalModuleId, ModuleInfo, ModuleKind, ModuleSrc},
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
@@ -61,6 +63,7 @@ define_container! {
         library_decls: [LibraryDecl],
         library_includes: [LibraryInclude],
         subroutines: [Subroutine],
+        package_imports: [PackageImport],
 
         declarations: [Declaration],
         exprs: [Expr],
@@ -295,10 +298,11 @@ impl LowerFileCtx<'_> {
             let idx = match member {
                 ModuleDeclaration(decl) => {
                     let name = lower_ident_opt(decl.header().name());
+                    let kind = ModuleKind::from_ast(decl);
 
                     alloc_idx_and_src! {
                     self.file_id;
-                                ModuleInfo { name } => self.file.modules,
+                                ModuleInfo { name, kind } => self.file.modules,
                                 decl => self.file_source_map.module_srcs,
                             }
                     .into()
@@ -314,6 +318,12 @@ impl LowerFileCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
+                PackageImportDeclaration(import_decl) => {
+                    for import in lower_package_imports(import_decl) {
+                        self.file.package_imports.alloc(import);
+                    }
+                    continue;
+                }
                 UdpDeclaration(udp_decl) => self.lower_udp_decl(udp_decl).into(),
                 ConfigDeclaration(config_decl) => self.lower_config_decl(config_decl).into(),
                 _ => continue,

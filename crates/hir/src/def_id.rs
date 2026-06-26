@@ -14,8 +14,10 @@ use crate::{
     container::{InContainer, InFile, InModule, InSubroutine, ScopeId},
     db::HirDb,
     hir_def::{
-        block::BlockLoc, declaration::Declaration, expr::declarator::DeclaratorParent,
-        module::generate::GenerateBlockLoc,
+        block::BlockLoc,
+        declaration::Declaration,
+        expr::declarator::DeclaratorParent,
+        module::{ModuleKind, generate::GenerateBlockLoc},
     },
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
     symbol::{DefId, DefKind, DefLoc},
@@ -32,6 +34,7 @@ impl DefId {
             DefLoc::Block(block_id) => block_id.lookup(db).cont_id,
             DefLoc::GenerateBlock(generate_block_id) => generate_block_id.lookup(db).cont_id,
             DefLoc::Subroutine(subroutine_id) => subroutine_id.lookup(db).cont_id.into(),
+            DefLoc::PackageSubroutine(InModule { module_id, .. }) => module_id.into(),
             DefLoc::SubroutinePort(InSubroutine { subroutine, .. }) => {
                 ScopeId::Subroutine(subroutine)
             }
@@ -45,13 +48,22 @@ impl DefId {
 
     pub fn kind(self, db: &dyn HirDb) -> DefKind {
         match self.loc(db) {
-            DefLoc::Module(_) => DefKind::Module,
+            DefLoc::Module(module_id) => {
+                let file = db.hir_file(module_id.file_id);
+                match file.get(module_id.value).kind {
+                    ModuleKind::Module => DefKind::Module,
+                    ModuleKind::Interface => DefKind::Interface,
+                    ModuleKind::Program => DefKind::Program,
+                    ModuleKind::Package => DefKind::Package,
+                }
+            }
             DefLoc::Config(_) => DefKind::Config,
             DefLoc::Library(_) => DefKind::Library,
             DefLoc::Udp(_) => DefKind::Udp,
             DefLoc::Block(_) => DefKind::Block,
             DefLoc::GenerateBlock(_) => DefKind::GenerateBlock,
             DefLoc::Subroutine(_) => DefKind::Subroutine,
+            DefLoc::PackageSubroutine(_) => DefKind::Subroutine,
             DefLoc::SubroutinePort(_) => DefKind::SubroutinePort,
             DefLoc::NonAnsiPort(_) => DefKind::NonAnsiPort,
             DefLoc::Decl(InContainer { value, cont_id }) => {
@@ -100,6 +112,9 @@ impl DefId {
                 db.generate_block(generate_block_id).name.clone()
             }
             DefLoc::Subroutine(subroutine_id) => db.subroutine(subroutine_id).name.clone(),
+            DefLoc::PackageSubroutine(InModule { module_id, value }) => {
+                db.module(module_id).get(value).name.clone()
+            }
             DefLoc::SubroutinePort(InSubroutine { subroutine, value }) => {
                 db.subroutine(subroutine).ports.get(value.0 as usize)?.name.clone()
             }
@@ -153,6 +168,11 @@ impl DefId {
             DefLoc::Subroutine(subroutine_id) => {
                 let src = subroutine_id.lookup(db).src;
                 Some(InFile::new(src.file_id, src.value.name_or_full_range()))
+            }
+            DefLoc::PackageSubroutine(InModule { module_id, value }) => {
+                let (_, src_map) = db.module_with_source_map(module_id);
+                let range = src_map.get(value)?.name_range()?;
+                Some(InFile::new(module_id.file_id, range))
             }
             DefLoc::SubroutinePort(InSubroutine { subroutine, value }) => {
                 let src = subroutine.lookup(db).src;
@@ -227,6 +247,11 @@ impl DefId {
                 let src = subroutine_id.lookup(db).src;
                 let range = src.value.range();
                 InFile::new(src.file_id, range)
+            }
+            DefLoc::PackageSubroutine(InModule { module_id, value }) => {
+                let (_, src_map) = db.module_with_source_map(module_id);
+                let range = src_map.get(value)?.range();
+                InFile::new(module_id.file_id, range)
             }
             DefLoc::SubroutinePort(InSubroutine { subroutine, value }) => {
                 let src = subroutine.lookup(db).src;

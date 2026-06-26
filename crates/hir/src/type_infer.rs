@@ -15,13 +15,13 @@ use crate::{
             declarator::{DeclId, DeclaratorParent},
         },
         literal::Literal,
-        module::{ModuleId, generate::GenerateBlockId, port::PortDeclId},
+        module::{ModuleId, ModuleKind, generate::GenerateBlockId, port::PortDeclId},
         stmt::{ForInit, StmtKind},
         subroutine::SubroutinePortId,
         typedef::TypedefId,
     },
     semantics::pathres::{PathResolution, resolve_name},
-    symbol::{DefId, DefKind},
+    symbol::{DefId, DefKind, NameContext},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -132,7 +132,7 @@ fn type_of_path_resolution_impl(db: &dyn HirDb, res: PathResolution) -> TyResult
 
 fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
     match def_id.kind(db) {
-        DefKind::Module => def_id
+        DefKind::Module | DefKind::Package => def_id
             .as_module(db)
             .map(|module_id| TyResult::new(Ty::Module(module_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
@@ -167,7 +167,6 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
             .map(|block_id| TyResult::new(Ty::Block(block_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Interface
-        | DefKind::Package
         | DefKind::Program
         | DefKind::Class
         | DefKind::Covergroup
@@ -193,7 +192,7 @@ fn type_of_expr_impl(db: &dyn HirDb, expr: InContainer<ExprId>) -> TyResult {
     };
 
     match hir_expr {
-        Expr::Ident(ident) => resolve_name(db, expr.cont_id, &ident)
+        Expr::Ident(ident) => resolve_name(db, expr.cont_id, &ident, NameContext::Value)
             .map(|res| type_of_path_resolution_impl(db, res))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         Expr::Field { receiver, field } => {
@@ -345,7 +344,7 @@ fn type_of_named_data_ty(
         return TyResult::new(Ty::Unknown);
     };
 
-    match resolve_name(db, container, &ident) {
+    match resolve_name(db, container, &ident, NameContext::Type) {
         Some(res) => {
             for def_id in res.def_ids() {
                 if let Some(typedef) = def_id.as_typedef(db) {
@@ -408,9 +407,15 @@ fn struct_members(db: &dyn HirDb, struct_id: InContainer<StructId>) -> Vec<TyMem
 }
 
 fn module_members(db: &dyn HirDb, module_id: ModuleId) -> Vec<TyMember> {
-    let mut members: Vec<_> = db
-        .module_scope(module_id)
-        .iter_merged()
+    let file = db.hir_file(crate::file::HirFileId::File(module_id.file_id()));
+    let scope = if file.get(module_id.value).kind == ModuleKind::Package {
+        db.package_export_scope(module_id)
+    } else {
+        db.module_scope(module_id)
+    };
+
+    let mut members: Vec<_> = scope
+        .iter_listing()
         .filter_map(|(name, defs)| {
             let origin = PathResolution::from_def_ids(defs)?;
             let ty = type_of_path_resolution_impl(db, origin.clone()).ty;
@@ -424,7 +429,7 @@ fn module_members(db: &dyn HirDb, module_id: ModuleId) -> Vec<TyMember> {
 fn generate_block_members(db: &dyn HirDb, generate_block_id: GenerateBlockId) -> Vec<TyMember> {
     let mut members: Vec<_> = db
         .generate_block_scope(generate_block_id)
-        .iter_merged()
+        .iter_listing()
         .filter_map(|(name, defs)| {
             let origin = PathResolution::from_def_ids(defs)?;
             let ty = type_of_path_resolution_impl(db, origin.clone()).ty;
@@ -438,7 +443,7 @@ fn generate_block_members(db: &dyn HirDb, generate_block_id: GenerateBlockId) ->
 fn block_members(db: &dyn HirDb, block_id: crate::hir_def::block::BlockId) -> Vec<TyMember> {
     let mut members: Vec<_> = db
         .block_scope(block_id)
-        .iter_merged()
+        .iter_listing()
         .filter_map(|(name, defs)| {
             let origin = PathResolution::from_def_ids(defs)?;
             let ty = type_of_path_resolution_impl(db, origin.clone()).ty;

@@ -17,7 +17,7 @@ use hir::{
     },
     preproc::{MacroCallResolution, macro_call_resolutions_in_range},
     source_map::{IsNamedSrc, IsSrc},
-    symbol::{DefKind, NameScope},
+    symbol::{DefKind, NameContext, NameScope},
 };
 use syntax::{ast, match_ast_kind};
 use utils::{
@@ -490,7 +490,7 @@ fn non_ansi_port_id_for_conn<'a>(
             Some((port_id, name, dir))
         }
         PortConn::Named(Some(name), _) => {
-            let defs = scope.lookup_merged(name)?;
+            let defs = scope.lookup(NameContext::Value, name)?;
             let port_id = defs
                 .iter()
                 .find(|def_id| def_id.kind(db) == DefKind::NonAnsiPort)
@@ -542,7 +542,7 @@ fn ansi_port_decl_id_for_conn(
             Some((port_decl_id, decl_id))
         }
         PortConn::Named(Some(name), _) => {
-            let defs = scope.lookup_merged(name)?;
+            let defs = scope.lookup(NameContext::Value, name)?;
             let decl_id = defs
                 .iter()
                 .filter(|def_id| def_id.kind(db) == DefKind::Port)

@@ -5,7 +5,7 @@ use utils::impl_from;
 use crate::{
     base_db::salsa,
     container::{InContainer, InFile, InModule, InSubroutine},
-    db::InternDb,
+    db::{HirDb, InternDb},
     hir_def::{
         Ident,
         block::BlockId,
@@ -15,7 +15,7 @@ use crate::{
             ModuleId, generate::GenerateBlockId, instantiation::InstanceId, port::NonAnsiPortId,
         },
         stmt::StmtId,
-        subroutine::{SubroutineId, SubroutinePortId},
+        subroutine::{LocalSubroutineId, SubroutineId, SubroutinePortId},
         typedef::TypedefId,
     },
 };
@@ -33,6 +33,7 @@ pub enum DefLoc {
     Block(BlockId),
     GenerateBlock(GenerateBlockId),
     Subroutine(SubroutineId),
+    PackageSubroutine(InModule<LocalSubroutineId>),
     SubroutinePort(InSubroutine<SubroutinePortId>),
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
@@ -49,6 +50,7 @@ impl_from! { DefLoc =>
     Block(BlockId),
     GenerateBlock(GenerateBlockId),
     Subroutine(SubroutineId),
+    PackageSubroutine(InModule<LocalSubroutineId>),
     SubroutinePort(InSubroutine<SubroutinePortId>),
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
@@ -228,6 +230,20 @@ impl DefKind {
             DefKind::Stmt => SymbolKind::Stmt,
         }
     }
+
+    pub fn name_context(self) -> NameContext {
+        match self {
+            DefKind::Module
+            | DefKind::Interface
+            | DefKind::Package
+            | DefKind::Program
+            | DefKind::Class
+            | DefKind::Typedef
+            | DefKind::Enum
+            | DefKind::Struct => NameContext::Type,
+            _ => NameContext::Value,
+        }
+    }
 }
 
 #[non_exhaustive]
@@ -255,10 +271,17 @@ pub struct NameScope {
     pub imports: SmallVec<[Import; 2]>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Import {
-    pub named: Option<DefId>,
-    pub wildcard_pkg: Option<DefId>,
+    pub package: Ident,
+    pub name: Option<Ident>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NameContext {
+    Type,
+    Value,
+    Listing,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -302,7 +325,15 @@ impl NameScope {
         Self::insert(&mut self.assertions, ident, def_id);
     }
 
-    pub fn lookup_merged(&self, ident: &Ident) -> Option<SmallVec<[DefId; 1]>> {
+    pub fn lookup(&self, ctx: NameContext, ident: &Ident) -> Option<SmallVec<[DefId; 1]>> {
+        match ctx {
+            NameContext::Type => self.types.get(ident).map(|defs| SmallVec::from_slice(defs)),
+            NameContext::Value => self.values.get(ident).map(|defs| SmallVec::from_slice(defs)),
+            NameContext::Listing => self.lookup_listing(ident),
+        }
+    }
+
+    pub fn lookup_listing(&self, ident: &Ident) -> Option<SmallVec<[DefId; 1]>> {
         let mut defs = SmallVec::new();
         if let Some(type_defs) = self.types.get(ident) {
             defs.extend_from_slice(type_defs);
@@ -314,7 +345,7 @@ impl NameScope {
         (!defs.is_empty()).then_some(defs)
     }
 
-    pub fn iter_merged(&self) -> impl Iterator<Item = (&Ident, SmallVec<[DefId; 1]>)> + '_ {
+    pub fn iter_listing(&self) -> impl Iterator<Item = (&Ident, SmallVec<[DefId; 1]>)> + '_ {
         self.types
             .iter()
             .map(|(ident, type_defs)| {
@@ -334,14 +365,15 @@ impl NameScope {
 
     pub fn module_ids(
         &self,
-        db: &dyn InternDb,
+        db: &dyn HirDb,
         ident: &Ident,
     ) -> NameResolution<crate::hir_def::module::ModuleId> {
         let entries = self
-            .values
+            .types
             .get(ident)
             .into_iter()
             .flat_map(|defs| defs.iter())
+            .filter(|def_id| def_id.kind(db) == DefKind::Module)
             .filter_map(|def_id| def_id.as_module(db))
             .collect::<SmallVec<[_; 2]>>();
 
@@ -352,12 +384,32 @@ impl NameScope {
         }
     }
 
-    pub fn module_names<'a>(
-        &'a self,
-        db: &'a dyn InternDb,
-    ) -> impl Iterator<Item = &'a Ident> + 'a {
-        self.values.iter().filter_map(move |(ident, defs)| {
-            defs.iter().any(|def_id| def_id.as_module(db).is_some()).then_some(ident)
+    pub fn package_ids(
+        &self,
+        db: &dyn HirDb,
+        ident: &Ident,
+    ) -> NameResolution<crate::hir_def::module::PackageId> {
+        let entries = self
+            .types
+            .get(ident)
+            .into_iter()
+            .flat_map(|defs| defs.iter())
+            .filter(|def_id| def_id.kind(db) == DefKind::Package)
+            .filter_map(|def_id| def_id.as_module(db))
+            .collect::<SmallVec<[_; 2]>>();
+
+        match entries.as_slice() {
+            [package_id] => NameResolution::Unique(*package_id),
+            [] => NameResolution::Unresolved,
+            _ => NameResolution::Ambiguous(entries),
+        }
+    }
+
+    pub fn module_names<'a>(&'a self, db: &'a dyn HirDb) -> impl Iterator<Item = &'a Ident> + 'a {
+        self.types.iter().filter_map(move |(ident, defs)| {
+            defs.iter()
+                .any(|def_id| def_id.kind(db) == DefKind::Module && def_id.as_module(db).is_some())
+                .then_some(ident)
         })
     }
 

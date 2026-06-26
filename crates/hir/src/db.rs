@@ -16,7 +16,7 @@ use crate::{
         file::{self, FileSourceMap, HirFile},
         macro_file::{self, ExpansionInfo, MacroCallId, MacroCallLoc, MacroFileId, MacroFileLoc},
         module::{
-            self, Module, ModuleId, ModuleSourceMap,
+            self, Module, ModuleId, ModuleSourceMap, PackageId,
             generate::{
                 self, GenerateBlock, GenerateBlockId, GenerateBlockLoc, GenerateBlockSourceMap,
             },
@@ -134,6 +134,12 @@ pub trait HirDb: InternDb {
 
     #[salsa::invoke(NameScope::subroutine_scope_query)]
     fn subroutine_scope(&self, subroutine_id: SubroutineId) -> Arc<NameScope>;
+
+    #[salsa::invoke(NameScope::package_export_signature_query)]
+    fn package_export_signature(&self, package_id: PackageId) -> Arc<NameScope>;
+
+    #[salsa::invoke(NameScope::package_export_scope_query)]
+    fn package_export_scope(&self, package_id: PackageId) -> Arc<NameScope>;
 
     #[salsa::invoke(crate::type_infer::type_of_decl_query)]
     fn type_of_decl(&self, decl: InContainer<DeclId>) -> Arc<TyResult>;

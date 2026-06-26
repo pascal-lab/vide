@@ -115,19 +115,19 @@ fn collect_container_names(
         ScopeId::Module(module_id) => collect_module_names(db, module_id, names),
         ScopeId::GenerateBlock(generate_block_id) => {
             let scope = db.generate_block_scope(generate_block_id);
-            for (ident, defs) in scope.iter_merged() {
+            for (ident, defs) in scope.iter_listing() {
                 collect_def_names(db, ident, defs, names);
             }
         }
         ScopeId::Block(block_id) => {
             let scope = db.block_scope(block_id);
-            for (ident, defs) in scope.iter_merged() {
+            for (ident, defs) in scope.iter_listing() {
                 collect_def_names(db, ident, defs, names);
             }
         }
         ScopeId::Subroutine(subroutine_id) => {
             let scope = db.subroutine_scope(subroutine_id);
-            for (ident, defs) in scope.iter_merged() {
+            for (ident, defs) in scope.iter_listing() {
                 collect_def_names(db, ident, defs, names);
             }
         }
@@ -136,14 +136,14 @@ fn collect_container_names(
 
 fn collect_file_names(db: &RootDb, file_id: HirFileId, names: &mut BTreeMap<String, NameKind>) {
     let scope = db.file_scope(file_id);
-    for (ident, defs) in scope.iter_merged() {
+    for (ident, defs) in scope.iter_listing() {
         collect_def_names(db, ident, defs, names);
     }
 }
 
 fn collect_module_names(db: &RootDb, module_id: ModuleId, names: &mut BTreeMap<String, NameKind>) {
     let scope = db.module_scope(module_id);
-    for (ident, defs) in scope.iter_merged() {
+    for (ident, defs) in scope.iter_listing() {
         collect_def_names(db, ident, defs, names);
     }
 }

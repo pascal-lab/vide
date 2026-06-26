@@ -15,7 +15,7 @@ use hir::{
     },
     semantics::Semantics,
     source_map::{IsNamedSrc, IsSrc},
-    symbol::DefId,
+    symbol::{DefId, NameContext},
 };
 use regex::{Regex, RegexBuilder};
 use smallvec::SmallVec;
@@ -61,7 +61,7 @@ pub(super) fn collect_port(
                         check_range!(collector, name_range);
 
                         let name = module.get(ref_id).ident.as_ref()?;
-                        let defs = module_scope.lookup_merged(name)?;
+                        let defs = module_scope.lookup(NameContext::Value, name)?;
                         let (_, dir, ty) = resolve_non_ansi_port(db, module, &defs)?;
                         add_port_token(db, name, dir, ty, name_range, collector);
                     };
@@ -80,7 +80,7 @@ pub(super) fn collect_port(
                             check_range!(collector, name_range);
 
                             let name = decl.name.as_ref()?;
-                            let defs = module_scope.lookup_merged(name)?;
+                            let defs = module_scope.lookup(NameContext::Value, name)?;
                             let (_, dir, ty) = resolve_non_ansi_port(db, module, &defs)?;
                             add_port_token(db, name, dir, ty, name_range, collector);
                         };
