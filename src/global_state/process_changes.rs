@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 
-use hir::base_db::change::Change;
+use hir::base_db::{change::Change, project::CompilationProfileId};
 use itertools::Itertools;
 use lsp_types::request::WorkspaceDiagnosticRefresh;
 use nohash_hasher::IntMap;
@@ -169,6 +169,9 @@ impl GlobalState {
             return;
         }
 
+        let semantic_profile_ids = self.semantic_compiler_profiles_for_invalidation(&invalidation);
+        self.schedule_semantic_compiler(semantic_profile_ids);
+
         if self.config_state.config.cli_pull_diagnostics_support()
             && self.config_state.config.cli_workspace_diagnostic_refresh_support()
             && match &invalidation {
@@ -189,6 +192,41 @@ impl GlobalState {
             DiagnosticInvalidation::WorkspaceChanged => self.open_mem_doc_file_ids(),
         };
         self.request_diagnostics(file_ids);
+    }
+
+    fn semantic_compiler_profiles_for_invalidation(
+        &self,
+        invalidation: &DiagnosticInvalidation,
+    ) -> Vec<CompilationProfileId> {
+        let config = self.config_state.config.diagnostics_config();
+        if !config.enabled || !config.semantic.enabled {
+            return Vec::new();
+        }
+
+        let snapshot = self.make_snapshot();
+        let profile_ids = match snapshot.compilation_profile_ids() {
+            Ok(profile_ids) => profile_ids,
+            Err(error) => {
+                tracing::debug!("skipping semantic compiler profile discovery: {error:#}");
+                return Vec::new();
+            }
+        };
+
+        match invalidation {
+            DiagnosticInvalidation::WorkspaceChanged => profile_ids,
+            DiagnosticInvalidation::FileChanges(changed_file_ids) => profile_ids
+                .into_iter()
+                .filter(|profile_id| {
+                    snapshot.analysis.compilation_profile_file_ids(*profile_id).is_ok_and(
+                        |profile_file_ids| {
+                            profile_file_ids
+                                .iter()
+                                .any(|file_id| changed_file_ids.contains(file_id))
+                        },
+                    )
+                })
+                .collect(),
+        }
     }
 
     fn clear_deleted_push_diagnostics(&mut self, deleted_files: &[(FileId, VfsPath)]) {

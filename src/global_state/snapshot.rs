@@ -160,9 +160,33 @@ impl GlobalStateSnapshot {
             .into_iter()
             .map(|diag| crate::lsp_ext::to_proto::diagnostic(self.config.i18n, &line_info, diag))
             .collect::<Vec<_>>();
+        diagnostics.extend(self.external_lsp_diagnostics(file_id)?);
+        Ok(diagnostics)
+    }
+
+    pub(crate) fn external_diagnostics(
+        &self,
+        file_id: FileId,
+    ) -> Vec<ide::diagnostics::Diagnostic> {
         let freshness = self.diagnostic_commit_freshness();
+        self.external_sources
+            .iter()
+            .flat_map(|source| source.diagnostics(file_id, &freshness))
+            .collect()
+    }
+
+    pub(crate) fn external_lsp_diagnostics(
+        &self,
+        file_id: FileId,
+    ) -> anyhow::Result<Vec<lsp_types::Diagnostic>> {
+        let freshness = self.diagnostic_commit_freshness();
+        let mut diagnostics = Vec::new();
         for source in &self.external_sources {
-            diagnostics.extend(source.diagnostics(file_id, &freshness));
+            for diagnostic in source.diagnostics(file_id, &freshness) {
+                let line_info = self.line_info(diagnostic.file_id)?;
+                diagnostics.push(to_proto::diagnostic(self.config.i18n, &line_info, diagnostic));
+            }
+            diagnostics.extend(source.lsp_diagnostics(file_id, &freshness));
         }
         Ok(diagnostics)
     }
@@ -360,11 +384,7 @@ impl GlobalStateSnapshot {
     ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
         match producer.owner() {
             DiagnosticOwner::CompilationProfile(profile_id) => {
-                if self.config.diagnostics_config().semantic.enabled {
-                    self.analysis.compilation_profile_diagnostics(profile_id)
-                } else {
-                    self.analysis.compilation_profile_syntax_diagnostics(profile_id)
-                }
+                self.analysis.compilation_profile_syntax_diagnostics(profile_id)
             }
             DiagnosticOwner::SourceRoot(_) => {
                 self.analysis.source_root_diagnostics(producer.representative_file_id())
@@ -372,6 +392,12 @@ impl GlobalStateSnapshot {
             DiagnosticOwner::File(file_id) => self.diagnostics(file_id),
             DiagnosticOwner::External { .. } => Ok(Vec::new()),
         }
+    }
+
+    pub(crate) fn compilation_profile_ids(
+        &self,
+    ) -> Cancellable<Vec<hir::base_db::project::CompilationProfileId>> {
+        self.analysis.compilation_profile_ids()
     }
 
     pub(crate) fn diagnostic_target_file_ids_for_changes(

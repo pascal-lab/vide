@@ -22,11 +22,26 @@ impl DiagnosticCommitFreshness {
 }
 
 pub(crate) trait DiagnosticSource: Send + Sync {
+    /// Domain diagnostics consumed by IDE features before protocol conversion.
     fn diagnostics(
         &self,
         file_id: FileId,
         freshness: &DiagnosticCommitFreshness,
-    ) -> Vec<lsp_types::Diagnostic>;
+    ) -> Vec<ide::diagnostics::Diagnostic> {
+        let _ = (file_id, freshness);
+        Vec::new()
+    }
+
+    /// Protocol-native diagnostics for sources that are produced outside the
+    /// IDE model.
+    fn lsp_diagnostics(
+        &self,
+        file_id: FileId,
+        freshness: &DiagnosticCommitFreshness,
+    ) -> Vec<lsp_types::Diagnostic> {
+        let _ = (file_id, freshness);
+        Vec::new()
+    }
 
     fn external_revision(
         &self,

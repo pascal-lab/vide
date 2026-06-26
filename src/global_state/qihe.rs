@@ -88,7 +88,7 @@ impl QiheDiagnostics {
 }
 
 impl DiagnosticSource for QiheDiagnostics {
-    fn diagnostics(
+    fn lsp_diagnostics(
         &self,
         file_id: FileId,
         freshness: &DiagnosticCommitFreshness,
@@ -679,6 +679,7 @@ pub(super) fn with_global_ctx<T>(
         diagnostics,
         workspace,
         qihe,
+        semantic_compiler: _,
         external_sources,
         tasks,
     } = state;

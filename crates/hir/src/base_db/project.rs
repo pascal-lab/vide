@@ -107,6 +107,12 @@ impl ProjectConfig {
         !self.profiles.is_empty()
     }
 
+    pub fn profile_ids(&self) -> Vec<CompilationProfileId> {
+        (0..self.profiles.len())
+            .map(|idx| CompilationProfileId(u32::try_from(idx).unwrap_or(u32::MAX)))
+            .collect()
+    }
+
     pub fn preprocess_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
