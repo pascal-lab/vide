@@ -46,14 +46,14 @@ use super::{
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
-        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc, SubroutineSrc,
-        lower_subroutine, lower_subroutine_body,
+        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineSrc, lower_subroutine,
+        lower_subroutine_body,
     },
     ty::NetKind,
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{InFile, ScopeId},
+    container::{InContainer, InFile, ScopeId},
     db::{HirDb, InternDb},
     file::HirFileId,
     region_tree::{RegionTree, RegionTreeBuilder},
@@ -432,12 +432,7 @@ impl LowerModuleCtx<'_> {
             func => self.module_source_map.subroutine_srcs,
         };
 
-        let src = SubroutineSrc::from_ast(self.file_id, func);
-        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
-            cont_id: self.module_id.into(),
-            src: InFile::new(self.file_id, src),
-            local_id: subroutine_id,
-        });
+        let subroutine_def_id = InContainer::new(self.module_id.into(), subroutine_id);
 
         if func.end().is_some() {
             let subroutine = &mut self.module.subroutines[subroutine_id];

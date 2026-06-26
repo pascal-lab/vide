@@ -67,7 +67,7 @@ impl Source2DefCtx<'_, '_> {
                 resolve(generate_block.get(expr_id))
             }
             ScopeId::Subroutine(subroutine_id) => {
-                let subroutine = db.subroutine(subroutine_id);
+                let subroutine = db.subroutine(subroutine_id.as_in_container());
                 resolve(subroutine.get(expr_id))
             }
         }

@@ -18,10 +18,33 @@ use crate::{
         declaration::Declaration,
         expr::declarator::DeclaratorParent,
         module::{ModuleKind, generate::GenerateBlockLoc},
+        subroutine::{LocalSubroutineId, SubroutineSrc},
     },
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
     symbol::{DefId, DefKind, DefLoc},
 };
+
+fn subroutine_src(
+    db: &dyn HirDb,
+    subroutine: InContainer<LocalSubroutineId>,
+) -> Option<InFile<SubroutineSrc>> {
+    match subroutine.cont_id {
+        ScopeId::File(file_id) => {
+            let (_, source_map) = db.hir_file_with_source_map(file_id);
+            Some(InFile::new(file_id, source_map.get(subroutine.value)?))
+        }
+        ScopeId::Module(module_id) => {
+            let (_, source_map) = db.module_with_source_map(module_id);
+            Some(InFile::new(module_id.file_id, source_map.get(subroutine.value)?))
+        }
+        ScopeId::GenerateBlock(generate_block_id) => {
+            let (_, source_map) = db.generate_block_with_source_map(generate_block_id);
+            let file_id = generate_block_id.lookup(db).src.file_id;
+            Some(InFile::new(file_id, source_map.get(subroutine.value)?))
+        }
+        ScopeId::Block(_) | ScopeId::Subroutine(_) => None,
+    }
+}
 
 impl DefId {
     #[inline]
@@ -33,10 +56,9 @@ impl DefId {
             DefLoc::Udp(InFile { file_id, .. }) => file_id.into(),
             DefLoc::Block(block_id) => block_id.lookup(db).cont_id,
             DefLoc::GenerateBlock(generate_block_id) => generate_block_id.lookup(db).cont_id,
-            DefLoc::Subroutine(subroutine_id) => subroutine_id.lookup(db).cont_id.into(),
-            DefLoc::PackageSubroutine(InModule { module_id, .. }) => module_id.into(),
+            DefLoc::Subroutine(subroutine_id) => subroutine_id.cont_id,
             DefLoc::SubroutinePort(InSubroutine { subroutine, .. }) => {
-                ScopeId::Subroutine(subroutine)
+                ScopeId::Subroutine(subroutine.into())
             }
             DefLoc::NonAnsiPort(InModule { module_id, .. }) => module_id.into(),
             DefLoc::Decl(InContainer { cont_id, .. }) => cont_id,
@@ -63,7 +85,6 @@ impl DefId {
             DefLoc::Block(_) => DefKind::Block,
             DefLoc::GenerateBlock(_) => DefKind::GenerateBlock,
             DefLoc::Subroutine(_) => DefKind::Subroutine,
-            DefLoc::PackageSubroutine(_) => DefKind::Subroutine,
             DefLoc::SubroutinePort(_) => DefKind::SubroutinePort,
             DefLoc::NonAnsiPort(_) => DefKind::NonAnsiPort,
             DefLoc::Decl(InContainer { value, cont_id }) => {
@@ -112,9 +133,6 @@ impl DefId {
                 db.generate_block(generate_block_id).name.clone()
             }
             DefLoc::Subroutine(subroutine_id) => db.subroutine(subroutine_id).name.clone(),
-            DefLoc::PackageSubroutine(InModule { module_id, value }) => {
-                db.module(module_id).get(value).name.clone()
-            }
             DefLoc::SubroutinePort(InSubroutine { subroutine, value }) => {
                 db.subroutine(subroutine).ports.get(value.0 as usize)?.name.clone()
             }
@@ -166,16 +184,11 @@ impl DefId {
                 Some(InFile::new(file_id, range))
             }
             DefLoc::Subroutine(subroutine_id) => {
-                let src = subroutine_id.lookup(db).src;
+                let src = subroutine_src(db, subroutine_id)?;
                 Some(InFile::new(src.file_id, src.value.name_or_full_range()))
             }
-            DefLoc::PackageSubroutine(InModule { module_id, value }) => {
-                let (_, src_map) = db.module_with_source_map(module_id);
-                let range = src_map.get(value)?.name_range()?;
-                Some(InFile::new(module_id.file_id, range))
-            }
             DefLoc::SubroutinePort(InSubroutine { subroutine, value }) => {
-                let src = subroutine.lookup(db).src;
+                let src = subroutine_src(db, subroutine)?;
                 let tree = db.parse(src.file_id);
                 let func = src.value.to_node(&tree)?;
                 let ports = func
@@ -244,17 +257,12 @@ impl DefId {
                 InFile::new(file_id, range)
             }
             DefLoc::Subroutine(subroutine_id) => {
-                let src = subroutine_id.lookup(db).src;
+                let src = subroutine_src(db, subroutine_id)?;
                 let range = src.value.range();
                 InFile::new(src.file_id, range)
             }
-            DefLoc::PackageSubroutine(InModule { module_id, value }) => {
-                let (_, src_map) = db.module_with_source_map(module_id);
-                let range = src_map.get(value)?.range();
-                InFile::new(module_id.file_id, range)
-            }
             DefLoc::SubroutinePort(InSubroutine { subroutine, value }) => {
-                let src = subroutine.lookup(db).src;
+                let src = subroutine_src(db, subroutine)?;
                 let tree = db.parse(src.file_id);
                 let func = src.value.to_node(&tree)?;
                 let ports = func.prototype().port_list()?;

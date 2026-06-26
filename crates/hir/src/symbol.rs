@@ -15,7 +15,7 @@ use crate::{
             ModuleId, generate::GenerateBlockId, instantiation::InstanceId, port::NonAnsiPortId,
         },
         stmt::StmtId,
-        subroutine::{LocalSubroutineId, SubroutineId, SubroutinePortId},
+        subroutine::{LocalSubroutineId, SubroutinePortId},
         typedef::TypedefId,
     },
 };
@@ -32,8 +32,7 @@ pub enum DefLoc {
     Udp(InFile<UdpDeclId>),
     Block(BlockId),
     GenerateBlock(GenerateBlockId),
-    Subroutine(SubroutineId),
-    PackageSubroutine(InModule<LocalSubroutineId>),
+    Subroutine(InContainer<LocalSubroutineId>),
     SubroutinePort(InSubroutine<SubroutinePortId>),
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
@@ -49,8 +48,7 @@ impl_from! { DefLoc =>
     Udp(InFile<UdpDeclId>),
     Block(BlockId),
     GenerateBlock(GenerateBlockId),
-    Subroutine(SubroutineId),
-    PackageSubroutine(InModule<LocalSubroutineId>),
+    Subroutine(InContainer<LocalSubroutineId>),
     SubroutinePort(InSubroutine<SubroutinePortId>),
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
@@ -110,7 +108,7 @@ impl DefId {
         }
     }
 
-    pub fn as_subroutine(self, db: &dyn InternDb) -> Option<SubroutineId> {
+    pub fn as_subroutine(self, db: &dyn InternDb) -> Option<InContainer<LocalSubroutineId>> {
         match self.loc(db) {
             DefLoc::Subroutine(id) => Some(id),
             _ => None,

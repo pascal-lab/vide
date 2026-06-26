@@ -7,7 +7,7 @@ use hir::{
     hir_def::{
         lower_ident_opt,
         module::ModuleId,
-        subroutine::{SubroutineId, SubroutineKind},
+        subroutine::{LocalSubroutineId, SubroutineKind},
     },
     semantics::{Semantics, pathres::PathResolution},
     symbol::{DefId, DefKind},
@@ -126,7 +126,7 @@ fn collect_container_names(
             }
         }
         ScopeId::Subroutine(subroutine_id) => {
-            let scope = db.subroutine_scope(subroutine_id);
+            let scope = db.subroutine_scope(subroutine_id.as_in_container());
             for (ident, defs) in scope.iter_listing() {
                 collect_def_names(db, ident, defs, names);
             }
@@ -182,10 +182,10 @@ fn collect_def_names(
     }
 }
 
-fn subroutine_return_ty(db: &RootDb, subroutine_id: SubroutineId) -> Ty {
+fn subroutine_return_ty(db: &RootDb, subroutine_id: InContainer<LocalSubroutineId>) -> Ty {
     match db.subroutine(subroutine_id).kind {
         SubroutineKind::Function { return_ty: Some(return_ty) } => {
-            normalize_data_ty(db, ScopeId::Subroutine(subroutine_id), return_ty).ty
+            normalize_data_ty(db, subroutine_id.into(), return_ty).ty
         }
         SubroutineKind::Function { return_ty: None } | SubroutineKind::Task => Ty::Unknown,
     }

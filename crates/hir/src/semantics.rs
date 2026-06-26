@@ -20,7 +20,7 @@ use crate::{
         block::{BlockId, BlockSrc},
         expr::ExprId,
         module::{ModuleId, ModuleSrc},
-        subroutine::{SubroutineId, SubroutineSrc},
+        subroutine::{LocalSubroutineId, SubroutineSrc},
     },
     symbol::NameContext,
 };
@@ -148,7 +148,7 @@ impl SemanticsImpl<'_> {
         &self,
         file_id: HirFileId,
         subroutine: ast::FunctionDeclaration,
-    ) -> Option<SubroutineId> {
+    ) -> Option<InContainer<LocalSubroutineId>> {
         let subroutine_src = SubroutineSrc::from_ast(file_id, subroutine);
         self.with_ctx(|ctx| ctx.subroutine_to_def(InFile::new(file_id, subroutine_src)))
     }

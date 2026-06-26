@@ -20,7 +20,7 @@ use crate::{
             port::{PortDeclId, Ports},
         },
         stmt::StmtKind,
-        subroutine::{LocalSubroutineId, SubroutineLoc, SubroutinePortId},
+        subroutine::{LocalSubroutineId, SubroutinePortId},
         typedef::TypedefId,
     },
     source_map::ToAstNode,
@@ -137,7 +137,6 @@ impl NameScope {
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
         let (module, module_src_map) = db.module_with_source_map(module_id);
-        let file_id = HirFileId::File(module_id.file_id());
 
         if let Ports::NonAnsi { ports, .. } = &module.ports {
             for (port_id, port) in ports.iter() {
@@ -150,14 +149,7 @@ impl NameScope {
         }
 
         for (local_subroutine_id, subroutine) in module.subroutines.iter() {
-            let Some(src) = module_src_map.get(local_subroutine_id) else {
-                continue;
-            };
-            let subroutine_id = db.intern_subroutine(SubroutineLoc {
-                cont_id: module_id.into(),
-                src: InFile::new(file_id, src),
-                local_id: local_subroutine_id,
-            });
+            let subroutine_id = InContainer::new(module_id.into(), local_subroutine_id);
             scope.insert_value_opt(&subroutine.name, def_id(db, subroutine_id));
         }
 
@@ -216,20 +208,12 @@ impl NameScope {
         generate_block_id: GenerateBlockId,
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
-        let (generate_block, source_map) = db.generate_block_with_source_map(generate_block_id);
-        let file_id = HirFileId::File(generate_block_id.file_id(db));
+        let (generate_block, _) = db.generate_block_with_source_map(generate_block_id);
 
         scope.insert_value_opt(&generate_block.name, def_id(db, generate_block_id));
 
         for (local_subroutine_id, subroutine) in generate_block.subroutines.iter() {
-            let Some(src) = source_map.get(local_subroutine_id) else {
-                continue;
-            };
-            let subroutine_id = db.intern_subroutine(SubroutineLoc {
-                cont_id: generate_block_id.into(),
-                src: InFile::new(file_id, src),
-                local_id: local_subroutine_id,
-            });
+            let subroutine_id = InContainer::new(generate_block_id.into(), local_subroutine_id);
             scope.insert_value_opt(&subroutine.name, def_id(db, subroutine_id));
         }
 
@@ -307,7 +291,7 @@ impl NameScope {
 
     pub fn subroutine_scope_query(
         db: &dyn HirDb,
-        subroutine_id: crate::hir_def::subroutine::SubroutineId,
+        subroutine_id: InContainer<LocalSubroutineId>,
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
         let subroutine = db.subroutine(subroutine_id);
@@ -472,8 +456,10 @@ impl PackageExportSignatureBuilder<'_> {
     fn record_subroutine(&mut self, subroutine: ast::FunctionDeclaration<'_>) {
         let local_id = self.next_subroutine_id();
         let name = lower_name(subroutine.prototype().name());
-        self.scope
-            .insert_value_opt(&name, def_id(self.db, InModule::new(self.package_id, local_id)));
+        self.scope.insert_value_opt(
+            &name,
+            def_id(self.db, InContainer::new(self.package_id.into(), local_id)),
+        );
     }
 
     fn next_declaration_id(&mut self) -> DeclarationId {
@@ -539,7 +525,7 @@ mod tests {
         db::{HirDb, HirDbStorage, InternDbStorage},
         hir_def::Ident,
         semantics::pathres::resolve_name,
-        symbol::{DefKind, NameContext},
+        symbol::{DefKind, DefLoc, NameContext},
     };
 
     const TOP: FileId = FileId(0);
@@ -839,6 +825,79 @@ endmodule
             .is_none(),
             "named import should not expose unrelated package symbols"
         );
+    }
+
+    #[test]
+    fn package_subroutine_def_id_is_canonical_across_imports() {
+        let db = db_with_root_text(
+            r#"
+package pkg;
+  function automatic int f();
+    return 1;
+  endfunction
+endpackage
+
+module named_importer;
+  import pkg::f;
+endmodule
+
+module wildcard_importer;
+  import pkg::*;
+endmodule
+"#,
+        );
+
+        let package_id = db
+            .unit_scope()
+            .package_ids(&db, &ident("pkg"))
+            .unique()
+            .expect("package should resolve uniquely");
+        let package_f = resolve_name(
+            &db,
+            ScopeId::Module(package_id),
+            &ident("f"),
+            NameContext::Value,
+        )
+        .and_then(|res| res.primary_def_id())
+        .expect("package scope should resolve package subroutine");
+
+        let DefLoc::Subroutine(package_subroutine) = package_f.loc(&db) else {
+            panic!("package f should resolve to a subroutine");
+        };
+        assert_eq!(package_subroutine.cont_id, ScopeId::Module(package_id));
+
+        let named_importer = db
+            .unit_scope()
+            .module_ids(&db, &ident("named_importer"))
+            .unique()
+            .expect("named importer should resolve uniquely");
+        let named_import_f = resolve_name(
+            &db,
+            ScopeId::Module(named_importer),
+            &ident("f"),
+            NameContext::Value,
+        )
+        .and_then(|res| res.primary_def_id())
+        .expect("named import should resolve package subroutine");
+
+        let wildcard_importer = db
+            .unit_scope()
+            .module_ids(&db, &ident("wildcard_importer"))
+            .unique()
+            .expect("wildcard importer should resolve uniquely");
+        let wildcard_import_f = resolve_name(
+            &db,
+            ScopeId::Module(wildcard_importer),
+            &ident("f"),
+            NameContext::Value,
+        )
+        .and_then(|res| res.primary_def_id())
+        .expect("wildcard import should resolve package subroutine");
+
+        assert_eq!(package_f, named_import_f);
+        assert_eq!(package_f.loc(&db), named_import_f.loc(&db));
+        assert_eq!(package_f, wildcard_import_f);
+        assert_eq!(package_f.loc(&db), wildcard_import_f.loc(&db));
     }
 
     #[test]

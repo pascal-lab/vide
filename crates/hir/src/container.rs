@@ -23,7 +23,7 @@ use crate::{
             generate::{GenerateBlock, GenerateBlockId, GenerateBlockSourceMap},
         },
         stmt::{Stmt, StmtId, StmtSrc},
-        subroutine::{Subroutine, SubroutineId, SubroutineSourceMap},
+        subroutine::{LocalSubroutineId, Subroutine, SubroutineSourceMap},
         typedef::{Typedef, TypedefId, TypedefSrc},
     },
     region_tree::RegionTree,
@@ -37,7 +37,79 @@ define_enum_deriving_from! {
         Module(ModuleId),
         GenerateBlock(GenerateBlockId),
         Block(BlockId),
-        Subroutine(SubroutineId),
+        Subroutine(SubroutineScope),
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+pub struct SubroutineScope {
+    pub cont_id: SubroutineParent,
+    pub value: LocalSubroutineId,
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+pub enum SubroutineParent {
+    File(HirFileId),
+    Module(ModuleId),
+    GenerateBlock(GenerateBlockId),
+}
+
+impl SubroutineScope {
+    pub fn new(cont_id: SubroutineParent, value: LocalSubroutineId) -> Self {
+        Self { cont_id, value }
+    }
+
+    pub fn parent_scope(self) -> ScopeId {
+        self.cont_id.into()
+    }
+
+    pub fn as_in_container(self) -> InContainer<LocalSubroutineId> {
+        InContainer::new(self.parent_scope(), self.value)
+    }
+
+    pub fn file_id(self, db: &dyn InternDb) -> FileId {
+        match self.cont_id {
+            SubroutineParent::File(file_id) => file_id.file_id(),
+            SubroutineParent::Module(module_id) => module_id.file_id(),
+            SubroutineParent::GenerateBlock(generate_block_id) => generate_block_id.file_id(db),
+        }
+    }
+}
+
+impl From<SubroutineParent> for ScopeId {
+    fn from(cont_id: SubroutineParent) -> Self {
+        match cont_id {
+            SubroutineParent::File(file_id) => file_id.into(),
+            SubroutineParent::Module(module_id) => module_id.into(),
+            SubroutineParent::GenerateBlock(generate_block_id) => generate_block_id.into(),
+        }
+    }
+}
+
+impl TryFrom<ScopeId> for SubroutineParent {
+    type Error = ();
+
+    fn try_from(cont_id: ScopeId) -> Result<Self, Self::Error> {
+        match cont_id {
+            ScopeId::File(file_id) => Ok(Self::File(file_id)),
+            ScopeId::Module(module_id) => Ok(Self::Module(module_id)),
+            ScopeId::GenerateBlock(generate_block_id) => Ok(Self::GenerateBlock(generate_block_id)),
+            ScopeId::Block(_) | ScopeId::Subroutine(_) => Err(()),
+        }
+    }
+}
+
+impl From<InContainer<LocalSubroutineId>> for SubroutineScope {
+    fn from(subroutine: InContainer<LocalSubroutineId>) -> Self {
+        let parent = SubroutineParent::try_from(subroutine.cont_id)
+            .expect("subroutines are lowered only in file, module, or generate-block scopes");
+        Self::new(parent, subroutine.value)
+    }
+}
+
+impl From<InContainer<LocalSubroutineId>> for ScopeId {
+    fn from(subroutine: InContainer<LocalSubroutineId>) -> Self {
+        ScopeId::Subroutine(subroutine.into())
     }
 }
 
@@ -64,11 +136,11 @@ impl<T> InContainer<T> {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct InSubroutine<T> {
     pub value: T,
-    pub subroutine: SubroutineId,
+    pub subroutine: InContainer<LocalSubroutineId>,
 }
 
 impl<T> InSubroutine<T> {
-    pub fn new(subroutine: SubroutineId, value: T) -> Self {
+    pub fn new(subroutine: InContainer<LocalSubroutineId>, value: T) -> Self {
         Self { value, subroutine }
     }
 
@@ -79,7 +151,7 @@ impl<T> InSubroutine<T> {
 
 impl<T> From<InSubroutine<T>> for InContainer<T> {
     fn from(item: InSubroutine<T>) -> InContainer<T> {
-        InContainer::new(ScopeId::Subroutine(item.subroutine), item.value)
+        InContainer::new(item.subroutine.into(), item.value)
     }
 }
 
@@ -139,7 +211,7 @@ impl ScopeId {
             ScopeId::Module(module_id) => module_id.file_id(),
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.file_id(db),
             ScopeId::Block(block_id) => block_id.file_id(db),
-            ScopeId::Subroutine(subroutine_id) => subroutine_id.lookup(db).src.file_id.file_id(),
+            ScopeId::Subroutine(subroutine) => subroutine.file_id(db),
         }
     }
 
@@ -149,7 +221,7 @@ impl ScopeId {
             ScopeId::Module(module_id) => module_id.to_container(db).into(),
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.to_container(db).into(),
             ScopeId::Block(block_id) => block_id.to_container(db).into(),
-            ScopeId::Subroutine(subroutine_id) => db.subroutine(subroutine_id).into(),
+            ScopeId::Subroutine(subroutine) => db.subroutine(subroutine.as_in_container()).into(),
         }
     }
 
@@ -161,8 +233,8 @@ impl ScopeId {
                 generate_block_id.to_container_src_map(db).into()
             }
             ScopeId::Block(block_id) => block_id.to_container_src_map(db).into(),
-            ScopeId::Subroutine(subroutine_id) => {
-                db.subroutine_with_source_map(subroutine_id).1.into()
+            ScopeId::Subroutine(subroutine) => {
+                db.subroutine_with_source_map(subroutine.as_in_container()).1.into()
             }
         }
     }
@@ -312,9 +384,7 @@ impl Iterator for ScopeParent<'_> {
                 Some(generate_block_id.lookup(self.db).cont_id)
             }
             ScopeId::Block(block_id) => Some(block_id.lookup(self.db).cont_id),
-            ScopeId::Subroutine(subroutine_id) => {
-                Some(subroutine_id.lookup(self.db).cont_id.into())
-            }
+            ScopeId::Subroutine(subroutine) => Some(subroutine.parent_scope()),
         };
         next
     }

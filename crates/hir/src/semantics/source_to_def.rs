@@ -9,7 +9,7 @@ use utils::get::{Get, GetRef};
 
 use super::hir_to_def::Hir2DefCache;
 use crate::{
-    container::{InFile, ScopeId},
+    container::{InContainer, InFile, ScopeId},
     db::HirDb,
     file::HirFileId,
     hir_def::{
@@ -18,9 +18,7 @@ use crate::{
             ModuleId, ModuleSrc,
             generate::{GenerateBlockLoc, GenerateBlockSrc},
         },
-        subroutine::{
-            LocalSubroutineId, SubroutineContainerId, SubroutineId, SubroutineLoc, SubroutineSrc,
-        },
+        subroutine::{LocalSubroutineId, SubroutineSrc},
     },
     source_map::ToAstNode,
 };
@@ -57,7 +55,7 @@ impl Source2DefCtx<'_, '_> {
     pub(super) fn subroutine_to_def(
         &mut self,
         InFile { file_id, value: subroutine_src }: InFile<SubroutineSrc>,
-    ) -> Option<SubroutineId> {
+    ) -> Option<InContainer<LocalSubroutineId>> {
         let tree = self.db.parse(file_id);
         let node = subroutine_src.to_node(&tree)?;
         self.subroutine_to_def_inner(file_id, node, subroutine_src)
@@ -97,7 +95,7 @@ impl Source2DefCtx<'_, '_> {
             }
             ScopeId::Subroutine(subroutine_id) => {
                 let (subroutine, subroutine_src_map) =
-                    self.db.subroutine_with_source_map(subroutine_id);
+                    self.db.subroutine_with_source_map(subroutine_id.as_in_container());
                 let local_block_id = *subroutine_src_map.block_srcs.get(&block_src)?;
                 subroutine.stmts.get(local_block_id).block_id
             }
@@ -151,7 +149,7 @@ impl Source2DefCtx<'_, '_> {
         file_id: HirFileId,
         node: ast::FunctionDeclaration,
         src: SubroutineSrc,
-    ) -> Option<SubroutineId> {
+    ) -> Option<InContainer<LocalSubroutineId>> {
         let parent = ast::Member::cast(node.syntax())
             .and_then(|member| self.single_member_generate_block_to_def(file_id, member))
             .or_else(|| {
@@ -160,33 +158,29 @@ impl Source2DefCtx<'_, '_> {
                     .find_map(|node| self.container_to_def(file_id, node))
             })
             .unwrap_or(file_id.into());
-        let cont_id = SubroutineContainerId::try_from(parent).ok()?;
-        let local_id = self.local_subroutine_id(cont_id, src)?;
-        Some(self.db.intern_subroutine(SubroutineLoc {
-            cont_id,
-            src: InFile::new(file_id, src),
-            local_id,
-        }))
+        let local_id = self.local_subroutine_id(parent, src)?;
+        Some(InContainer::new(parent, local_id))
     }
 
     fn local_subroutine_id(
         &self,
-        cont_id: SubroutineContainerId,
+        cont_id: ScopeId,
         src: SubroutineSrc,
     ) -> Option<LocalSubroutineId> {
         match cont_id {
-            SubroutineContainerId::HirFileId(file_id) => {
+            ScopeId::File(file_id) => {
                 let (_, source_map) = self.db.hir_file_with_source_map(file_id);
                 source_map.get(src)
             }
-            SubroutineContainerId::ModuleId(module_id) => {
+            ScopeId::Module(module_id) => {
                 let (_, source_map) = self.db.module_with_source_map(module_id);
                 source_map.get(src)
             }
-            SubroutineContainerId::GenerateBlockId(generate_block_id) => {
+            ScopeId::GenerateBlock(generate_block_id) => {
                 let (_, source_map) = self.db.generate_block_with_source_map(generate_block_id);
                 source_map.get(src)
             }
+            ScopeId::Block(_) | ScopeId::Subroutine(_) => None,
         }
     }
 
