@@ -13,11 +13,16 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use hir::base_db::compilation_plan::CompilationPlan;
 use ide::FileRange;
-use lsp_types::{Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, NumberOrString};
+use lsp_types::{
+    Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, NumberOrString, notification,
+    request,
+};
+use parking_lot::Mutex;
 use project_model::project_manifest::{ProjectManifest, ProjectManifestFileName};
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Deserialize;
+use triomphe::Arc;
 use utils::{
     cancellation::{CancellationError, CancellationToken},
     line_index::{LineCol, TextRange, TextSize},
@@ -29,18 +34,18 @@ use utils::{
 use vfs::FileId;
 
 use super::{
-    GlobalState, QiheDiagnosticState,
+    AnalysisState, ClientState, ConfigState, DEFAULT_REQ_HANDLER, DiagnosticsState, GlobalState,
+    QiheDiagnosticState, TaskState, WorkspaceState,
     diagnostics::{
-        DiagnosticCommitFreshness,
-        publisher::{PublishDiagnosticsBatch, PublishDiagnosticsTask},
+        DiagnosticCommitFreshness, DiagnosticPublishFreshness,
+        publisher::{DiagnosticsPublisher, PublishDiagnosticsBatch, PublishDiagnosticsTask},
     },
     respond::Progress,
     snapshot::GlobalStateSnapshot,
-    task::QiheTask,
+    task::{QiheTask, Task},
 };
 use crate::{
     config::user_config::QiheConfig,
-    global_state::task::Task,
     i18n::{I18n, keys},
     lsp_ext::{
         ext::{
@@ -141,21 +146,44 @@ impl QiheUpdate {
     }
 }
 
-impl GlobalState {
-    pub(crate) fn spawn_qihe_analysis(&mut self, params: RunQiheAnalysisParams) {
-        self.end_superseded_qihe_progress();
-        self.qihe.qihe_run_generation = self.qihe.qihe_run_generation.next();
-        let run_id = self.qihe.qihe_run_generation;
+pub(crate) struct Qihe {
+    // Only the latest Qihe run is allowed to commit diagnostics or logs.
+    run_generation: QiheRunId,
+    active_progress_token: Option<String>,
+    active_cancel_token: Option<CancellationToken>,
+    diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
+}
+
+impl Qihe {
+    pub(crate) fn new() -> Self {
+        Self {
+            run_generation: QiheRunId::default(),
+            active_progress_token: None,
+            active_cancel_token: None,
+            diagnostics: Arc::new(Mutex::new(FxHashMap::default())),
+        }
+    }
+
+    pub(crate) fn diagnostics_snapshot(
+        &self,
+    ) -> Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>> {
+        Arc::clone(&self.diagnostics)
+    }
+
+    pub(crate) fn start<C: QiheCtx>(&mut self, params: RunQiheAnalysisParams, ctx: &mut C) {
+        self.end_superseded(ctx);
+        self.run_generation = self.run_generation.next();
+        let run_id = self.run_generation;
         let progress_token = qihe_progress_token(run_id, &params.uri);
         let progress_label = params.uri.path().to_string();
-        let cancellation = self.tasks.task_pool.handle.task_token();
-        let snapshot = self.make_snapshot_with_cancel(cancellation.clone());
+        let cancellation = ctx.task_cancel_token();
+        let snapshot = ctx.make_snapshot(cancellation.clone(), self.diagnostics_snapshot());
 
-        self.qihe.qihe_active_progress_token = Some(progress_token.clone());
-        self.qihe.qihe_active_cancel_token = Some(cancellation.clone());
-        self.begin_qihe_progress(&progress_token, progress_label);
+        self.active_progress_token = Some(progress_token.clone());
+        self.active_cancel_token = Some(cancellation.clone());
+        begin_qihe_progress(ctx, &progress_token, progress_label);
 
-        self.tasks.task_pool.handle.spawn_and_send_cps(ThreadIntent::Worker, move |sender| {
+        ctx.spawn_qihe_task(move |sender| {
             let log_sink = QiheLogSink::new(sender.clone(), run_id, progress_token.clone());
             let task = Task::Qihe(
                 panic::catch_unwind(AssertUnwindSafe(|| {
@@ -181,133 +209,140 @@ impl GlobalState {
         });
     }
 
-    pub(crate) fn handle_qihe_task(&mut self, task: QiheTask) {
+    pub(crate) fn handle<C: QiheCtx>(&mut self, task: QiheTask, ctx: &mut C) {
         match task {
             QiheTask::Log { run_id, token, message } => {
-                if run_id == self.qihe.qihe_run_generation {
-                    self.log_qihe_message(token, message);
+                if run_id == self.run_generation {
+                    ctx.log_qihe(token, message);
                 }
             }
             QiheTask::Finished { run_id, update, progress_token } => {
-                if run_id != self.qihe.qihe_run_generation {
+                if run_id != self.run_generation {
                     tracing::debug!(
                         ?run_id,
-                        current = ?self.qihe.qihe_run_generation,
+                        current = ?self.run_generation,
                         "stale qihe result ignored"
                     );
                     return;
                 }
-                if self
-                    .qihe
-                    .qihe_active_cancel_token
-                    .as_ref()
-                    .is_some_and(CancellationToken::is_cancelled)
-                    && self.qihe.qihe_active_progress_token.as_deref()
-                        == Some(progress_token.as_str())
+                if self.active_cancel_token.as_ref().is_some_and(CancellationToken::is_cancelled)
+                    && self.active_progress_token.as_deref() == Some(progress_token.as_str())
                 {
-                    let message =
-                        self.config_state.config.i18n.text(keys::QIHE_CANCELLED).to_owned();
-                    self.end_current_qihe_progress(progress_token, "end", message.clone(), message);
+                    let message = ctx.i18n_text(QiheI18nKey::Cancelled).to_owned();
+                    self.end_current(progress_token, "end", message.clone(), message, ctx);
                     return;
                 }
-                if update.freshness != self.diagnostic_commit_freshness() {
+                let current_freshness = ctx.diagnostic_commit_freshness();
+                if update.freshness != current_freshness {
                     tracing::debug!(
                         ?run_id,
                         freshness = ?update.freshness,
-                        current = ?self.diagnostic_commit_freshness(),
+                        current = ?current_freshness,
                         "stale qihe diagnostics ignored"
                     );
-                    let message = self.config_state.config.i18n.text(keys::QIHE_STALE).to_owned();
-                    self.end_current_qihe_progress(progress_token, "end", message.clone(), message);
+                    let message = ctx.i18n_text(QiheI18nKey::Stale).to_owned();
+                    self.end_current(progress_token, "end", message.clone(), message, ctx);
                     return;
                 }
                 let summary = update.summary.clone();
-                let changed_files = self.replace_qihe_diagnostics(update.by_file);
-                self.publish_qihe_diagnostics(changed_files);
-                self.end_current_qihe_progress(progress_token, "end", summary.clone(), summary);
+                let changed_files = self.replace_diagnostics(update.by_file, current_freshness);
+                self.publish_diagnostics(changed_files, ctx);
+                self.end_current(progress_token, "end", summary.clone(), summary, ctx);
             }
             QiheTask::Cancelled { run_id, message, progress_token } => {
-                if run_id != self.qihe.qihe_run_generation {
+                if run_id != self.run_generation {
                     tracing::debug!(
                         ?run_id,
-                        current = ?self.qihe.qihe_run_generation,
+                        current = ?self.run_generation,
                         "stale qihe cancellation ignored"
                     );
                     return;
                 }
-                self.end_current_qihe_progress(progress_token, "end", message.clone(), message);
+                self.end_current(progress_token, "end", message.clone(), message, ctx);
             }
             QiheTask::Failed { run_id, message, progress_token } => {
-                if run_id != self.qihe.qihe_run_generation {
+                if run_id != self.run_generation {
                     tracing::debug!(
                         ?run_id,
-                        current = ?self.qihe.qihe_run_generation,
+                        current = ?self.run_generation,
                         "stale qihe failure ignored"
                     );
                     return;
                 }
-                self.end_current_qihe_progress(
+                self.end_current(
                     progress_token,
                     "failed",
                     message.clone(),
-                    self.config_state.config.i18n.text(keys::QIHE_FAILED).to_owned(),
+                    ctx.i18n_text(QiheI18nKey::Failed).to_owned(),
+                    ctx,
                 );
             }
         }
     }
 
-    fn cancel_active_qihe_analysis(&mut self) {
-        if let Some(cancel) = &self.qihe.qihe_active_cancel_token {
+    pub(crate) fn cancel_active(&mut self) {
+        if let Some(cancel) = &self.active_cancel_token {
             cancel.cancel();
         }
     }
 
-    fn end_superseded_qihe_progress(&mut self) {
-        self.cancel_active_qihe_analysis();
-        self.qihe.qihe_active_cancel_token = None;
-        let Some(progress_token) = self.qihe.qihe_active_progress_token.take() else {
+    pub(crate) fn cancel_progress_token(&mut self, token: &str) {
+        if self.active_progress_token.as_deref() == Some(token) {
+            self.cancel_active();
+        }
+    }
+
+    pub(crate) fn remove_deleted(&mut self, deleted_file_ids: &FxHashSet<FileId>) {
+        if deleted_file_ids.is_empty() {
+            return;
+        }
+
+        let mut diagnostics = self.diagnostics.lock();
+        for file_id in deleted_file_ids {
+            diagnostics.remove(file_id);
+        }
+    }
+
+    pub(crate) fn publish_diagnostics<C: QiheCtx>(
+        &mut self,
+        changed_files: FxHashSet<FileId>,
+        ctx: &mut C,
+    ) {
+        ctx.publish_qihe_diagnostics(changed_files, self.diagnostics_snapshot());
+    }
+
+    fn end_superseded<C: QiheCtx>(&mut self, ctx: &mut C) {
+        self.cancel_active();
+        self.active_cancel_token = None;
+        let Some(progress_token) = self.active_progress_token.take() else {
             return;
         };
 
         let message = "Superseded by newer Qihe analysis".to_owned();
-        self.end_qihe_progress(progress_token, "end", message.clone(), message);
+        end_qihe_progress(ctx, progress_token, "end", message.clone(), message);
     }
 
-    fn end_current_qihe_progress(
+    fn end_current<C: QiheCtx>(
         &mut self,
         progress_token: String,
         state: &str,
         message: String,
         progress_message: String,
+        ctx: &mut C,
     ) {
-        if self.qihe.qihe_active_progress_token.as_deref() == Some(progress_token.as_str()) {
-            self.qihe.qihe_active_progress_token = None;
-            self.qihe.qihe_active_cancel_token = None;
+        if self.active_progress_token.as_deref() == Some(progress_token.as_str()) {
+            self.active_progress_token = None;
+            self.active_cancel_token = None;
         }
-        self.end_qihe_progress(progress_token, state, message, progress_message);
+        end_qihe_progress(ctx, progress_token, state, message, progress_message);
     }
 
-    pub(crate) fn cancel_work_done_progress(
-        &mut self,
-        params: lsp_types::WorkDoneProgressCancelParams,
-    ) {
-        let token = match params.token {
-            NumberOrString::String(token) => token,
-            NumberOrString::Number(token) => token.to_string(),
-        };
-
-        if self.qihe.qihe_active_progress_token.as_deref() != Some(token.as_str()) {
-            return;
-        }
-
-        self.cancel_active_qihe_analysis();
-    }
-
-    fn replace_qihe_diagnostics(
+    fn replace_diagnostics(
         &mut self,
         mut by_file: FxHashMap<FileId, Vec<Diagnostic>>,
+        freshness: DiagnosticCommitFreshness,
     ) -> FxHashSet<FileId> {
-        let mut cache = self.qihe.qihe_diagnostics.lock();
+        let mut cache = self.diagnostics.lock();
         let mut changed_files = cache
             .iter()
             .filter_map(|(&file_id, state)| (!state.diagnostics.is_empty()).then_some(file_id))
@@ -318,32 +353,230 @@ impl GlobalState {
             let diagnostics = by_file.remove(file_id).unwrap_or_default();
             let generation =
                 cache.get(file_id).map_or(1, |state| state.generation.saturating_add(1));
-            cache.insert(
-                *file_id,
-                QiheDiagnosticState {
-                    freshness: self.diagnostic_commit_freshness(),
-                    generation,
-                    diagnostics,
-                },
-            );
+            cache.insert(*file_id, QiheDiagnosticState { freshness, generation, diagnostics });
         }
 
         changed_files
     }
+}
 
-    fn publish_qihe_diagnostics(&mut self, changed_files: FxHashSet<FileId>) {
+pub(crate) trait QiheCtx {
+    fn i18n_text(&self, key: QiheI18nKey) -> &str;
+    fn diagnostic_commit_freshness(&self) -> DiagnosticCommitFreshness;
+    fn make_snapshot(
+        &self,
+        cancellation: CancellationToken,
+        diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
+    ) -> GlobalStateSnapshot;
+    fn spawn_qihe_task<F>(&mut self, task: F)
+    where
+        F: FnOnce(crossbeam_channel::Sender<Task>) + Send + 'static;
+    fn task_cancel_token(&self) -> CancellationToken;
+    fn send_qihe_status(&mut self, token: &str, state: &str, message: Option<String>);
+    fn log_qihe(&mut self, token: String, message: String);
+    fn report_qihe_progress(
+        &mut self,
+        state: Progress,
+        message: String,
+        fraction: Option<f64>,
+        token: String,
+    );
+    fn publish_qihe_diagnostics(
+        &mut self,
+        changed_files: FxHashSet<FileId>,
+        diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
+    );
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum QiheI18nKey {
+    ProgressTitle,
+    Cancelled,
+    Stale,
+    Failed,
+}
+
+pub(super) struct QiheGlobalCtx<'a> {
+    client: &'a mut ClientState,
+    config_state: &'a mut ConfigState,
+    analysis: &'a mut AnalysisState,
+    diagnostics: &'a mut DiagnosticsState,
+    workspace: &'a mut WorkspaceState,
+    tasks: &'a mut TaskState,
+}
+
+impl QiheGlobalCtx<'_> {
+    fn diagnostic_publish_freshness(&self) -> DiagnosticPublishFreshness {
+        DiagnosticPublishFreshness::new(
+            self.diagnostics.diagnostics_revision,
+            self.diagnostics.diagnostic_target_revision,
+            self.workspace.workspace_vfs.diagnostic_readiness_revision(),
+        )
+    }
+
+    fn send(&self, message: lsp_server::Message) {
+        if self.client.sender.send(message).is_err() {
+            tracing::debug!("LSP message dropped because client connection is closed");
+        }
+    }
+
+    fn send_notification<N: notification::Notification>(&self, params: N::Params) {
+        let notif = lsp_server::Notification::new(N::METHOD.to_string(), params);
+        self.send(notif.into());
+    }
+
+    fn send_request<R: request::Request>(&mut self, params: R::Params) {
+        let request = self.client.req_queue.outgoing.register(
+            R::METHOD.to_string(),
+            params,
+            DEFAULT_REQ_HANDLER,
+        );
+        self.send(request.into());
+    }
+
+    fn refresh_pull_diagnostics(&mut self, changed_files: FxHashSet<FileId>) {
+        if changed_files.is_empty() {
+            return;
+        }
+
+        if !self.workspace.workspace_vfs.is_ready() {
+            self.workspace.workspace_vfs.defer_diagnostics_until_ready();
+            tracing::debug!(
+                ?changed_files,
+                "diagnostics invalidation deferred until workspace/VFS is ready"
+            );
+            return;
+        }
+
+        if self.config_state.config.cli_workspace_diagnostic_refresh_support() {
+            self.send_request::<request::WorkspaceDiagnosticRefresh>(());
+        }
+    }
+}
+
+impl QiheCtx for QiheGlobalCtx<'_> {
+    fn i18n_text(&self, key: QiheI18nKey) -> &str {
+        let key = match key {
+            QiheI18nKey::ProgressTitle => keys::QIHE_PROGRESS_TITLE,
+            QiheI18nKey::Cancelled => keys::QIHE_CANCELLED,
+            QiheI18nKey::Stale => keys::QIHE_STALE,
+            QiheI18nKey::Failed => keys::QIHE_FAILED,
+        };
+        self.config_state.config.i18n.text(key)
+    }
+
+    fn diagnostic_commit_freshness(&self) -> DiagnosticCommitFreshness {
+        self.diagnostic_publish_freshness().commit()
+    }
+
+    fn make_snapshot(
+        &self,
+        cancellation: CancellationToken,
+        diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
+    ) -> GlobalStateSnapshot {
+        GlobalStateSnapshot {
+            config: Arc::clone(&self.config_state.config),
+            workspaces: Arc::clone(&self.workspace.workspaces),
+            analysis: self.analysis.analysis_host.make_analysis(),
+            vfs: Arc::clone(&self.workspace.vfs),
+            mem_docs: self.analysis.mem_docs.clone(),
+            sema_tokens_cache: Arc::clone(&self.analysis.semantic_tokens_cache),
+            qihe_diagnostics: diagnostics,
+            diagnostic_publish_freshness: self.diagnostic_publish_freshness(),
+            diagnostic_file_revisions: self.diagnostics.diagnostic_file_revisions.clone(),
+            cancellation,
+            accepted_response_effects: Default::default(),
+        }
+    }
+
+    fn spawn_qihe_task<F>(&mut self, task: F)
+    where
+        F: FnOnce(crossbeam_channel::Sender<Task>) + Send + 'static,
+    {
+        self.tasks.task_pool.handle.spawn_and_send_cps(ThreadIntent::Worker, task);
+    }
+
+    fn task_cancel_token(&self) -> CancellationToken {
+        self.tasks.task_pool.handle.task_token()
+    }
+
+    fn send_qihe_status(&mut self, token: &str, state: &str, message: Option<String>) {
+        self.send_notification::<QiheStatusNotification>(QiheStatusParams {
+            token: token.to_owned(),
+            state: state.to_owned(),
+            message,
+        });
+    }
+
+    fn log_qihe(&mut self, token: String, message: String) {
+        self.send_notification::<QiheLogNotification>(QiheLogParams { token, message });
+    }
+
+    fn report_qihe_progress(
+        &mut self,
+        state: Progress,
+        message: String,
+        fraction: Option<f64>,
+        token: String,
+    ) {
+        if !self.config_state.config.cli_work_done_progress() {
+            return;
+        }
+
+        let percentage = fraction.map(|f| {
+            assert!((0.0..=1.0).contains(&f));
+            (f * 100.0) as u32
+        });
+
+        let cancellable = Some(true);
+        let token = lsp_types::ProgressToken::String(token);
+        let title = self.i18n_text(QiheI18nKey::ProgressTitle).to_owned();
+        let work_done_progress = match state {
+            Progress::Begin => {
+                self.send_request::<request::WorkDoneProgressCreate>(
+                    lsp_types::WorkDoneProgressCreateParams { token: token.clone() },
+                );
+
+                lsp_types::WorkDoneProgress::Begin(lsp_types::WorkDoneProgressBegin {
+                    title,
+                    cancellable,
+                    message: Some(message),
+                    percentage,
+                })
+            }
+            Progress::Report => {
+                lsp_types::WorkDoneProgress::Report(lsp_types::WorkDoneProgressReport {
+                    cancellable,
+                    message: Some(message),
+                    percentage,
+                })
+            }
+            Progress::End => lsp_types::WorkDoneProgress::End(lsp_types::WorkDoneProgressEnd {
+                message: Some(message),
+            }),
+        };
+
+        self.send_notification::<notification::Progress>(lsp_types::ProgressParams {
+            token,
+            value: lsp_types::ProgressParamsValue::WorkDone(work_done_progress),
+        });
+    }
+
+    fn publish_qihe_diagnostics(
+        &mut self,
+        changed_files: FxHashSet<FileId>,
+        diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
+    ) {
         if changed_files.is_empty() {
             return;
         }
 
         if self.config_state.config.cli_pull_diagnostics_support() {
-            self.invalidate_diagnostics(
-                super::process_changes::DiagnosticInvalidation::FileChanges(changed_files),
-            );
+            self.refresh_pull_diagnostics(changed_files);
             return;
         }
 
-        let snapshot = self.make_snapshot();
+        let snapshot = self.make_snapshot(self.task_cancel_token(), diagnostics);
         let mut publish_tasks = Vec::with_capacity(changed_files.len());
         let mut touched_file_ids = FxHashSet::default();
         for file_id in changed_files.iter().copied() {
@@ -376,57 +609,46 @@ impl GlobalState {
                     .map(|target| PublishDiagnosticsTask::from_target(target, diagnostics.clone())),
             );
         }
-        self.publish_diagnostics_tasks(PublishDiagnosticsBatch::for_touched_files(
+        let current_freshness = self.diagnostic_publish_freshness();
+        DiagnosticsPublisher::new(
+            &self.config_state.config,
+            &mut self.workspace.workspace_vfs,
+            &mut self.diagnostics.published_diagnostics,
+            &self.client.sender,
+            current_freshness,
+        )
+        .publish(PublishDiagnosticsBatch::for_touched_files(
             touched_file_ids,
             publish_tasks,
             snapshot.diagnostic_publish_freshness,
         ));
     }
+}
 
-    fn begin_qihe_progress(&mut self, progress_token: &str, label: String) {
-        self.send_qihe_status(progress_token, "begin", Some(label.clone()));
-        self.report_qihe_progress(Progress::Begin, label, None, progress_token.to_owned());
-    }
+fn begin_qihe_progress<C: QiheCtx>(ctx: &mut C, progress_token: &str, label: String) {
+    ctx.send_qihe_status(progress_token, "begin", Some(label.clone()));
+    ctx.report_qihe_progress(Progress::Begin, label, None, progress_token.to_owned());
+}
 
-    fn end_qihe_progress(
-        &mut self,
-        token: String,
-        state: &str,
-        message: String,
-        progress_message: String,
-    ) {
-        self.send_qihe_status(&token, state, Some(message.clone()));
-        self.log_qihe_message(token.clone(), message);
-        self.report_qihe_progress(Progress::End, progress_message, Some(1.0), token);
-    }
+fn end_qihe_progress<C: QiheCtx>(
+    ctx: &mut C,
+    token: String,
+    state: &str,
+    message: String,
+    progress_message: String,
+) {
+    ctx.send_qihe_status(&token, state, Some(message.clone()));
+    ctx.log_qihe(token.clone(), message);
+    ctx.report_qihe_progress(Progress::End, progress_message, Some(1.0), token);
+}
 
-    fn report_qihe_progress(
-        &mut self,
-        state: Progress,
-        message: String,
-        fraction: Option<f64>,
-        token: String,
-    ) {
-        self.report_progress(
-            self.config_state.config.i18n.text(keys::QIHE_PROGRESS_TITLE),
-            state,
-            Some(message),
-            fraction,
-            Some(token),
-        );
-    }
-
-    fn send_qihe_status(&mut self, token: &str, state: &str, message: Option<String>) {
-        self.send_notification::<QiheStatusNotification>(QiheStatusParams {
-            token: token.to_owned(),
-            state: state.to_owned(),
-            message,
-        });
-    }
-
-    fn log_qihe_message(&mut self, token: String, message: String) {
-        self.send_notification::<QiheLogNotification>(QiheLogParams { token, message });
-    }
+pub(super) fn with_global_ctx<T>(
+    state: &mut GlobalState,
+    f: impl FnOnce(&mut Qihe, &mut QiheGlobalCtx<'_>) -> T,
+) -> T {
+    let GlobalState { client, config_state, analysis, diagnostics, workspace, qihe, tasks } = state;
+    let mut ctx = QiheGlobalCtx { client, config_state, analysis, diagnostics, workspace, tasks };
+    f(qihe, &mut ctx)
 }
 
 fn panic_message(panic: &(dyn std::any::Any + Send)) -> Option<&str> {
@@ -1161,723 +1383,4 @@ struct QiheJsonSupportInfo {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::{ffi::OsStr, fs, io::Cursor, path::PathBuf, process::Command};
-
-    use crossbeam_channel::unbounded;
-    use hir::base_db::compilation_plan::CompilationPlan;
-    use lsp_types::{
-        Diagnostic, DiagnosticClientCapabilities, DiagnosticSeverity,
-        DiagnosticWorkspaceClientCapabilities, NumberOrString, Position, Range,
-        TextDocumentClientCapabilities, TraceValue, WorkspaceClientCapabilities, request::Request,
-    };
-    use project_model::project_manifest::ProjectManifestFileName;
-    use utils::{cancellation::CancellationToken, paths::AbsPathBuf, test_support::TestDir};
-    use vfs::FileId;
-
-    use super::{
-        QIHE_OPTIONS_RUN_PATH, QiheCompileInput, QiheCompileInputSource, QiheLogSink, QiheRunId,
-        QiheRunPlan, QiheUpdate, command_line, has_compile_mode, join_command_output,
-        parse_source_loc, prepare_qihe_compile_command, prepare_qihe_run_command,
-        qihe_compile_input_from_plan, qihe_progress_token, qihe_working_directory,
-        resolve_qihe_run_plan, split_compile_args, stream_command_output, strip_ansi,
-    };
-    use crate::{
-        Opt,
-        config::{
-            self,
-            user_config::{QiheConfig, UserConfig},
-        },
-        global_state::{
-            GlobalState, QiheDiagnosticState,
-            task::{QiheTask, Task},
-        },
-        i18n::I18n,
-    };
-
-    fn new_test_state(name: &str) -> (TestDir, GlobalState) {
-        let root = TestDir::new(name);
-        let config = config::Config::new(
-            Opt {
-                process_name: "vide-test".to_string(),
-                log: "error".to_string(),
-                log_filename: None,
-                profile_trace: None,
-            },
-            root.path().to_path_buf(),
-            lsp_types::ClientCapabilities::default(),
-            vec![root.path().to_path_buf()],
-            I18n::default(),
-            UserConfig::default(),
-            Vec::new(),
-        );
-        let (server, _client) = lsp_server::Connection::memory();
-        (root, GlobalState::new(server.sender, config, TraceValue::Off))
-    }
-
-    #[test]
-    fn parses_line_col_only_locations() {
-        let loc = parse_source_loc("12:34").expect("location");
-        assert_eq!((loc.file_name.as_deref(), loc.line, loc.column), (None, 12, 34));
-    }
-
-    #[test]
-    fn parses_file_locations_with_colons() {
-        let loc = parse_source_loc("/tmp/a:b.sv:12:34").expect("location");
-        assert_eq!((loc.file_name.as_deref(), loc.line, loc.column), (Some("/tmp/a:b.sv"), 12, 34));
-    }
-
-    #[test]
-    fn ignores_symbolic_locations() {
-        for raw in ["@buggy", "#SourceUnknown"] {
-            assert!(parse_source_loc(raw).is_none());
-        }
-    }
-
-    #[test]
-    fn strips_ansi_escape_sequences() {
-        assert_eq!(strip_ansi("\u{1b}[32mINFO\u{1b}[m hello"), "INFO hello");
-    }
-
-    #[test]
-    fn command_line_includes_cwd_program_and_arguments() {
-        let cwd = if cfg!(windows) { "C:/repo with space" } else { "/repo with space" };
-        let mut command = Command::new("qihe");
-        command.current_dir(cwd).arg("compile").arg("rtl/top module.sv");
-
-        let rendered = command_line(&command);
-
-        assert!(rendered.contains("cwd="));
-        assert!(rendered.contains("qihe"));
-        assert!(rendered.contains("compile"));
-        assert!(rendered.contains("\"rtl/top module.sv\""));
-    }
-
-    #[test]
-    fn qihe_working_directory_uses_normal_windows_path() {
-        let cwd = std::env::current_dir().expect("current dir");
-        let root = AbsPathBuf::assert_utf8(cwd.clone());
-
-        let resolved = qihe_working_directory(Some(cwd), root.as_path());
-
-        assert!(resolved.is_absolute());
-        if cfg!(windows) {
-            let rendered = resolved.to_string_lossy().replace('\\', "/");
-            assert!(!rendered.starts_with("//?/"), "{rendered}");
-        }
-    }
-
-    #[test]
-    fn command_output_streamer_strips_ansi_and_logs_lines() {
-        let (sender, receiver) = unbounded();
-        let sink = QiheLogSink::new(sender, QiheRunId::new(1), "test-token".to_owned());
-        let handle = stream_command_output(
-            Cursor::new("\u{1b}[32mfirst\u{1b}[m\nsecond\n".as_bytes().to_vec()),
-            "qihe run".to_owned(),
-            "stdout",
-            sink,
-        );
-
-        let output = join_command_output(Some(handle));
-
-        assert_eq!(output, "first\nsecond\n");
-        let messages = receiver
-            .try_iter()
-            .filter_map(|task| match task {
-                Task::Qihe(QiheTask::Log { message, .. }) => Some(message),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(messages, ["qihe run stdout: first\nqihe run stdout: second"]);
-    }
-
-    #[test]
-    fn stale_qihe_result_does_not_replace_current_diagnostics() {
-        let root = TestDir::new("stale-qihe-result");
-        let config = config::Config::new(
-            Opt {
-                process_name: "vide-test".to_string(),
-                log: "error".to_string(),
-                log_filename: None,
-                profile_trace: None,
-            },
-            root.path().to_path_buf(),
-            lsp_types::ClientCapabilities::default(),
-            vec![root.path().to_path_buf()],
-            I18n::default(),
-            UserConfig::default(),
-            Vec::new(),
-        );
-        let (server, _client) = lsp_server::Connection::memory();
-        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
-        state.qihe.qihe_run_generation = QiheRunId::new(2);
-        let file_id = FileId(0);
-        let current = Diagnostic {
-            range: Range::new(Position::new(0, 0), Position::new(0, 1)),
-            severity: Some(DiagnosticSeverity::WARNING),
-            source: Some("qihe".to_owned()),
-            message: "current".to_owned(),
-            ..Diagnostic::default()
-        };
-        let stale = Diagnostic { message: "stale".to_owned(), ..current.clone() };
-        let freshness = state.diagnostic_commit_freshness();
-        state.qihe.qihe_diagnostics.lock().insert(
-            file_id,
-            QiheDiagnosticState { freshness, generation: 1, diagnostics: vec![current.clone()] },
-        );
-
-        state.handle_qihe_task(QiheTask::Finished {
-            run_id: QiheRunId::new(1),
-            update: QiheUpdate {
-                by_file: rustc_hash::FxHashMap::from_iter([(file_id, vec![stale])]),
-                summary: "old run".to_owned(),
-                freshness,
-            },
-            progress_token: "old".to_owned(),
-        });
-
-        let stored = state.qihe.qihe_diagnostics.lock().get(&file_id).unwrap().diagnostics.clone();
-        assert_eq!(stored, vec![current]);
-    }
-
-    #[test]
-    fn current_qihe_result_closes_active_progress() {
-        let root = TestDir::new("current-qihe-progress");
-        let config = config::Config::new(
-            Opt {
-                process_name: "vide-test".to_string(),
-                log: "error".to_string(),
-                log_filename: None,
-                profile_trace: None,
-            },
-            root.path().to_path_buf(),
-            lsp_types::ClientCapabilities::default(),
-            vec![root.path().to_path_buf()],
-            I18n::default(),
-            UserConfig::default(),
-            Vec::new(),
-        );
-        let (server, _client) = lsp_server::Connection::memory();
-        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
-        state.qihe.qihe_run_generation = QiheRunId::new(1);
-        state.qihe.qihe_active_progress_token = Some("current".to_owned());
-
-        state.handle_qihe_task(QiheTask::Finished {
-            run_id: QiheRunId::new(1),
-            update: QiheUpdate {
-                by_file: rustc_hash::FxHashMap::default(),
-                summary: "done".to_owned(),
-                freshness: state.diagnostic_commit_freshness(),
-            },
-            progress_token: "current".to_owned(),
-        });
-
-        assert_eq!(state.qihe.qihe_active_progress_token, None);
-    }
-
-    #[test]
-    fn cancelled_qihe_finished_result_does_not_commit_diagnostics() {
-        let (_root, mut state) = new_test_state("cancelled-qihe-finished-result");
-        let file_id = FileId(0);
-        let diagnostic = Diagnostic {
-            range: Range::new(Position::new(0, 0), Position::new(0, 1)),
-            severity: Some(DiagnosticSeverity::WARNING),
-            source: Some("qihe".to_owned()),
-            message: "cancelled result".to_owned(),
-            ..Diagnostic::default()
-        };
-        let cancellation = CancellationToken::new();
-        cancellation.cancel();
-        state.qihe.qihe_run_generation = QiheRunId::new(1);
-        state.qihe.qihe_active_progress_token = Some("current".to_owned());
-        state.qihe.qihe_active_cancel_token = Some(cancellation);
-
-        state.handle_qihe_task(QiheTask::Finished {
-            run_id: QiheRunId::new(1),
-            update: QiheUpdate {
-                by_file: rustc_hash::FxHashMap::from_iter([(file_id, vec![diagnostic])]),
-                summary: "done".to_owned(),
-                freshness: state.diagnostic_commit_freshness(),
-            },
-            progress_token: "current".to_owned(),
-        });
-
-        assert!(state.qihe.qihe_diagnostics.lock().get(&file_id).is_none());
-        assert_eq!(state.qihe.qihe_active_progress_token, None);
-        assert!(state.qihe.qihe_active_cancel_token.is_none());
-    }
-
-    #[test]
-    fn work_done_progress_cancel_cancels_active_qihe_run() {
-        let (_root, mut state) = new_test_state("cancel-active-qihe-run");
-        let uri = lsp_types::Url::parse("file:///workspace/top.sv").unwrap();
-        let progress_token = qihe_progress_token(QiheRunId::new(7), &uri);
-        let token = CancellationToken::new();
-        state.qihe.qihe_active_progress_token = Some(progress_token.clone());
-        state.qihe.qihe_active_cancel_token = Some(token.clone());
-
-        state.cancel_work_done_progress(lsp_types::WorkDoneProgressCancelParams {
-            token: NumberOrString::String(progress_token),
-        });
-
-        assert!(token.is_cancelled());
-    }
-
-    #[test]
-    fn work_done_progress_cancel_ignores_stale_qihe_run_token() {
-        let (_root, mut state) = new_test_state("cancel-stale-qihe-run");
-        let uri = lsp_types::Url::parse("file:///workspace/top.sv").unwrap();
-        let active_token = qihe_progress_token(QiheRunId::new(8), &uri);
-        let stale_token = qihe_progress_token(QiheRunId::new(7), &uri);
-        let cancellation = CancellationToken::new();
-        state.qihe.qihe_active_progress_token = Some(active_token);
-        state.qihe.qihe_active_cancel_token = Some(cancellation.clone());
-
-        state.cancel_work_done_progress(lsp_types::WorkDoneProgressCancelParams {
-            token: NumberOrString::String(stale_token),
-        });
-
-        assert!(!cancellation.is_cancelled());
-    }
-
-    #[test]
-    fn qihe_diagnostics_are_scoped_to_diagnostic_commit_freshness() {
-        let root = TestDir::new("qihe-diagnostic-freshness");
-        let config = config::Config::new(
-            Opt {
-                process_name: "vide-test".to_string(),
-                log: "error".to_string(),
-                log_filename: None,
-                profile_trace: None,
-            },
-            root.path().to_path_buf(),
-            lsp_types::ClientCapabilities::default(),
-            vec![root.path().to_path_buf()],
-            I18n::default(),
-            UserConfig::default(),
-            Vec::new(),
-        );
-        let (server, _client) = lsp_server::Connection::memory();
-        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
-        let file_id = FileId(0);
-        let diagnostic = Diagnostic {
-            range: Range::new(Position::new(0, 0), Position::new(0, 1)),
-            severity: Some(DiagnosticSeverity::WARNING),
-            source: Some("qihe".to_owned()),
-            message: "current".to_owned(),
-            ..Diagnostic::default()
-        };
-        let freshness = state.diagnostic_commit_freshness();
-        state.qihe.qihe_diagnostics.lock().insert(
-            file_id,
-            QiheDiagnosticState { freshness, generation: 1, diagnostics: vec![diagnostic.clone()] },
-        );
-
-        assert_eq!(state.make_snapshot().qihe_diagnostics(file_id), vec![diagnostic]);
-
-        state.diagnostics.diagnostics_revision += 1;
-        let snapshot = state.make_snapshot();
-        assert!(snapshot.qihe_diagnostics(file_id).is_empty());
-    }
-
-    #[test]
-    fn qihe_result_with_stale_diagnostic_freshness_does_not_commit() {
-        let root = TestDir::new("stale-qihe-freshness");
-        let config = config::Config::new(
-            Opt {
-                process_name: "vide-test".to_string(),
-                log: "error".to_string(),
-                log_filename: None,
-                profile_trace: None,
-            },
-            root.path().to_path_buf(),
-            lsp_types::ClientCapabilities::default(),
-            vec![root.path().to_path_buf()],
-            I18n::default(),
-            UserConfig::default(),
-            Vec::new(),
-        );
-        let (server, _client) = lsp_server::Connection::memory();
-        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
-        state.qihe.qihe_run_generation = QiheRunId::new(1);
-        state.qihe.qihe_active_progress_token = Some("current".to_owned());
-        let freshness = state.diagnostic_commit_freshness();
-        state.diagnostics.diagnostics_revision += 1;
-
-        state.handle_qihe_task(QiheTask::Finished {
-            run_id: QiheRunId::new(1),
-            update: QiheUpdate {
-                by_file: rustc_hash::FxHashMap::from_iter([(
-                    FileId(0),
-                    vec![Diagnostic {
-                        range: Range::new(Position::new(0, 0), Position::new(0, 1)),
-                        severity: Some(DiagnosticSeverity::WARNING),
-                        source: Some("qihe".to_owned()),
-                        message: "stale".to_owned(),
-                        ..Diagnostic::default()
-                    }],
-                )]),
-                summary: "old workspace".to_owned(),
-                freshness,
-            },
-            progress_token: "current".to_owned(),
-        });
-
-        assert!(state.qihe.qihe_diagnostics.lock().is_empty());
-        assert_eq!(state.qihe.qihe_active_progress_token, None);
-    }
-
-    #[test]
-    fn qihe_diagnostics_use_pull_refresh_for_pull_capable_clients() {
-        let root = TestDir::new("qihe-pull-diagnostics");
-        let caps = lsp_types::ClientCapabilities {
-            text_document: Some(TextDocumentClientCapabilities {
-                diagnostic: Some(DiagnosticClientCapabilities::default()),
-                ..Default::default()
-            }),
-            workspace: Some(WorkspaceClientCapabilities {
-                diagnostic: Some(DiagnosticWorkspaceClientCapabilities {
-                    refresh_support: Some(true),
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let config = config::Config::new(
-            Opt {
-                process_name: "vide-test".to_string(),
-                log: "error".to_string(),
-                log_filename: None,
-                profile_trace: None,
-            },
-            root.path().to_path_buf(),
-            caps,
-            vec![root.path().to_path_buf()],
-            I18n::default(),
-            UserConfig::default(),
-            Vec::new(),
-        );
-        let (server, client) = lsp_server::Connection::memory();
-        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
-
-        state.publish_qihe_diagnostics(rustc_hash::FxHashSet::from_iter([FileId(0)]));
-
-        let message = client
-            .receiver
-            .recv_timeout(std::time::Duration::from_millis(50))
-            .expect("expected workspace diagnostic refresh request");
-        match message {
-            lsp_server::Message::Request(request) => {
-                assert_eq!(request.method, lsp_types::request::WorkspaceDiagnosticRefresh::METHOD);
-            }
-            other => panic!("expected workspace diagnostic refresh request, got {other:?}"),
-        }
-        assert!(
-            client.receiver.recv_timeout(std::time::Duration::from_millis(50)).is_err(),
-            "pull-capable clients should not receive forced Qihe publishDiagnostics"
-        );
-    }
-
-    #[test]
-    fn split_compile_args_preserves_forwarded_slang_args() {
-        let args = ["--mode", "sv", "--", "-I", "include"].map(ToOwned::to_owned).to_vec();
-
-        let (qihe_args, slang_args) = split_compile_args(&args);
-
-        assert_eq!(qihe_args, ["--mode", "sv"]);
-        assert_eq!(slang_args, ["-I", "include"]);
-    }
-
-    #[test]
-    fn detects_existing_compile_mode() {
-        assert!(has_compile_mode(&["--mode".to_owned(), "sv".to_owned()]));
-        assert!(has_compile_mode(&["--mode=sv".to_owned()]));
-        assert!(has_compile_mode(&["-m".to_owned(), "sv".to_owned()]));
-        assert!(!has_compile_mode(&["--foo".to_owned()]));
-    }
-
-    #[test]
-    fn project_compile_command_synthesizes_sv_mode_and_slang_args() {
-        let config = QiheConfig {
-            command: "qihe".to_owned(),
-            auto_configure_args_from_manifest: true,
-            compile_args: vec!["--flag".to_owned(), "--".to_owned(), "--lint".to_owned()],
-            run_args: Vec::new(),
-        };
-        let input = QiheCompileInput {
-            files: vec![PathBuf::from("/repo/rtl/a.sv"), PathBuf::from("/repo/rtl/b.sv")],
-            manifest_slang_args: vec![
-                "--top".to_owned(),
-                "top".to_owned(),
-                "-I".to_owned(),
-                "/repo/include".to_owned(),
-                "-DDEBUG".to_owned(),
-            ],
-            source: QiheCompileInputSource::Manifest(ProjectManifestFileName::Primary),
-        };
-        let mut command = Command::new("qihe");
-
-        prepare_qihe_compile_command(
-            &mut command,
-            &config,
-            &input,
-            PathBuf::from("/tmp/in.qh").as_path(),
-        );
-
-        let args = command_args(&command);
-        assert_eq!(
-            args,
-            [
-                "--flag",
-                "--mode",
-                "sv",
-                "/repo/rtl/a.sv",
-                "/repo/rtl/b.sv",
-                "-o",
-                "/tmp/in.qh",
-                "--",
-                "--lint",
-                "--top",
-                "top",
-                "-I",
-                "/repo/include",
-                "-DDEBUG",
-            ]
-        );
-    }
-
-    #[test]
-    fn project_compile_command_can_disable_manifest_args() {
-        let config = QiheConfig {
-            command: "qihe".to_owned(),
-            auto_configure_args_from_manifest: false,
-            compile_args: vec![
-                "--mode".to_owned(),
-                "custom".to_owned(),
-                "--".to_owned(),
-                "--lint".to_owned(),
-            ],
-            run_args: Vec::new(),
-        };
-        let input = QiheCompileInput {
-            files: vec![PathBuf::from("/repo/rtl/a.sv"), PathBuf::from("/repo/rtl/b.sv")],
-            manifest_slang_args: vec![
-                "--top".to_owned(),
-                "top".to_owned(),
-                "-I".to_owned(),
-                "/repo/include".to_owned(),
-                "-DDEBUG".to_owned(),
-            ],
-            source: QiheCompileInputSource::Manifest(ProjectManifestFileName::Primary),
-        };
-        let mut command = Command::new("qihe");
-
-        prepare_qihe_compile_command(
-            &mut command,
-            &config,
-            &input,
-            PathBuf::from("/tmp/in.qh").as_path(),
-        );
-
-        assert_eq!(
-            command_args(&command),
-            [
-                "--mode",
-                "custom",
-                "/repo/rtl/a.sv",
-                "/repo/rtl/b.sv",
-                "-o",
-                "/tmp/in.qh",
-                "--",
-                "--lint",
-            ]
-        );
-    }
-
-    #[test]
-    fn single_file_compile_command_does_not_force_sv_mode() {
-        let config = QiheConfig {
-            command: "qihe".to_owned(),
-            auto_configure_args_from_manifest: true,
-            compile_args: Vec::new(),
-            run_args: Vec::new(),
-        };
-        let input = QiheCompileInput {
-            files: vec![PathBuf::from("/repo/top.sv")],
-            manifest_slang_args: Vec::new(),
-            source: QiheCompileInputSource::SingleFile,
-        };
-        let mut command = Command::new("qihe");
-
-        prepare_qihe_compile_command(
-            &mut command,
-            &config,
-            &input,
-            PathBuf::from("/tmp/in.qh").as_path(),
-        );
-
-        assert_eq!(command_args(&command), ["/repo/top.sv", "-o", "/tmp/in.qh"]);
-    }
-
-    #[test]
-    fn run_plan_falls_back_to_temp_storage_without_options_file() {
-        let root = TestDir::new("qihe-run-paths-no-options");
-        let active_path = root.path().join("top.sv");
-        fs::write(&active_path, "module top; endmodule\n").unwrap();
-        let run_plan =
-            resolve_qihe_run_plan(active_path.as_path(), root.path().as_ref(), &[]).unwrap();
-
-        assert!(run_plan.ir_path.starts_with(std::env::temp_dir()));
-        assert!(run_plan.storage_root.starts_with(std::env::temp_dir()));
-        assert!(run_plan.options_path.is_none());
-        assert!(run_plan.append_storage_root_arg);
-    }
-
-    #[test]
-    fn run_plan_uses_storage_root_from_qihe_options() {
-        let root = TestDir::new("qihe-run-paths-options-storage");
-        let active_path = root.path().join("top.sv");
-        fs::write(&active_path, "module top; endmodule\n").unwrap();
-        fs::write(root.path().join("qihe-options.toml"), "[storage]\nroot = \"artifacts/qihe\"\n")
-            .unwrap();
-        let run_plan =
-            resolve_qihe_run_plan(active_path.as_path(), root.path().as_ref(), &[]).unwrap();
-
-        assert_eq!(run_plan.storage_root, PathBuf::from(root.path().join("artifacts/qihe")));
-        assert_eq!(
-            run_plan.options_path,
-            Some(PathBuf::from(root.path().join("qihe-options.toml")))
-        );
-        assert!(run_plan.ir_path.parent().is_some_and(|path| path.is_dir()));
-        assert!(run_plan.append_options_arg);
-        assert!(!run_plan.append_storage_root_arg);
-    }
-
-    #[test]
-    fn run_plan_falls_back_when_qihe_options_has_no_storage_root() {
-        let root = TestDir::new("qihe-run-paths-options-no-storage");
-        let active_path = root.path().join("top.sv");
-        fs::write(&active_path, "module top; endmodule\n").unwrap();
-        fs::write(root.path().join("qihe-options.toml"), "[storage]\n").unwrap();
-        let run_plan =
-            resolve_qihe_run_plan(active_path.as_path(), root.path().as_ref(), &[]).unwrap();
-
-        assert!(run_plan.storage_root.starts_with(std::env::temp_dir()));
-        assert_eq!(
-            run_plan.options_path,
-            Some(PathBuf::from(root.path().join("qihe-options.toml")))
-        );
-        assert!(run_plan.append_options_arg);
-        assert!(run_plan.append_storage_root_arg);
-    }
-
-    #[test]
-    fn run_plan_prefers_explicit_storage_root_from_run_args() {
-        let root = TestDir::new("qihe-run-plan-explicit-storage-root");
-        let active_path = root.path().join("top.sv");
-        fs::write(&active_path, "module top; endmodule\n").unwrap();
-        fs::write(root.path().join("qihe-options.toml"), "[storage]\nroot = \"artifacts/qihe\"\n")
-            .unwrap();
-        let run_args = vec![
-            "-c".to_owned(),
-            "cfg.dump=true".to_owned(),
-            "-c".to_owned(),
-            "storage.root=./my-storage/".to_owned(),
-        ];
-
-        let run_plan =
-            resolve_qihe_run_plan(active_path.as_path(), root.path().as_ref(), &run_args).unwrap();
-
-        assert_eq!(run_plan.storage_root, PathBuf::from(root.path().join("my-storage")));
-        assert_eq!(
-            run_plan.options_path,
-            Some(PathBuf::from(root.path().join("qihe-options.toml")))
-        );
-        assert!(run_plan.append_options_arg);
-        assert!(!run_plan.append_storage_root_arg);
-    }
-
-    #[test]
-    fn run_command_uses_options_file_without_overriding_storage_root() {
-        let config = QiheConfig {
-            command: "qihe".to_owned(),
-            auto_configure_args_from_manifest: true,
-            compile_args: Vec::new(),
-            run_args: vec!["-g".to_owned(), "std".to_owned()],
-        };
-        let run_plan = QiheRunPlan {
-            ir_path: PathBuf::from("/tmp/in.qh"),
-            options_path: Some(PathBuf::from("/repo/qihe-options.toml")),
-            storage_root: PathBuf::from("/repo/artifacts/qihe"),
-            append_options_arg: true,
-            append_storage_root_arg: false,
-        };
-        let mut command = Command::new("qihe");
-
-        prepare_qihe_run_command(&mut command, &config, &run_plan);
-
-        assert_eq!(
-            command_args(&command),
-            ["-g", "std", "--options", QIHE_OPTIONS_RUN_PATH, "-i", "/tmp/in.qh"]
-        );
-    }
-
-    #[test]
-    fn run_command_falls_back_to_temp_storage_override() {
-        let config = QiheConfig {
-            command: "qihe".to_owned(),
-            auto_configure_args_from_manifest: true,
-            compile_args: Vec::new(),
-            run_args: vec!["-g".to_owned(), "std".to_owned()],
-        };
-        let run_plan = QiheRunPlan {
-            ir_path: PathBuf::from("/tmp/in.qh"),
-            options_path: None,
-            storage_root: PathBuf::from("/tmp/storage"),
-            append_options_arg: false,
-            append_storage_root_arg: true,
-        };
-        let mut command = Command::new("qihe");
-
-        prepare_qihe_run_command(&mut command, &config, &run_plan);
-
-        assert_eq!(
-            command_args(&command),
-            ["-g", "std", "-i", "/tmp/in.qh", "-c", "storage.root=/tmp/storage"]
-        );
-    }
-
-    #[test]
-    fn empty_project_plan_falls_back_to_single_file_input() {
-        let active_path = if cfg!(windows) {
-            AbsPathBuf::assert("C:/repo/top.sv".into())
-        } else {
-            AbsPathBuf::assert("/repo/top.sv".into())
-        };
-        let plan = CompilationPlan::default();
-
-        let input = qihe_compile_input_from_plan(
-            &plan,
-            Vec::new(),
-            active_path.as_ref(),
-            ProjectManifestFileName::Primary,
-        );
-
-        assert_eq!(
-            input,
-            QiheCompileInput {
-                files: vec![active_path.into()],
-                manifest_slang_args: Vec::new(),
-                source: QiheCompileInputSource::SingleFile,
-            }
-        );
-    }
-
-    fn command_args(command: &Command) -> Vec<&str> {
-        command
-            .get_args()
-            .map(OsStr::to_str)
-            .collect::<Option<Vec<_>>>()
-            .expect("utf-8 command args")
-    }
-}
+mod tests;
