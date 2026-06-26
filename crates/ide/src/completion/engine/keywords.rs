@@ -39,16 +39,13 @@ fn module_instantiation_snippets(
     ctx: &CompletionContext,
     enabled: bool,
 ) -> Vec<CompletionCandidate> {
-    use hir::scope::UnitEntry;
-
     if !enabled || prefix.is_empty() {
         return Vec::new();
     }
 
     let mut modules: Vec<String> = db
         .unit_scope()
-        .iter()
-        .filter_map(|(ident, entry)| matches!(entry, UnitEntry::ModuleId(_)).then_some(ident))
+        .module_names(db)
         .map(|ident| ident.to_string())
         .filter(|name| name.starts_with(prefix))
         .collect();

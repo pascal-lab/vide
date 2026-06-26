@@ -27,9 +27,8 @@ use crate::{
         typedef::TypedefId,
     },
     impl_intern_key, impl_intern_lookup,
-    scope::{BlockScope, GenerateBlockScope, ModuleScope, SubroutineScope, UnitScope},
     semantics::pathres::PathResolution,
-    symbol::{DefId, DefLoc},
+    symbol::{DefId, DefLoc, NameScope},
     type_infer::TyResult,
 };
 
@@ -118,23 +117,23 @@ pub trait HirDb: InternDb {
 
     fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock>;
 
-    #[salsa::invoke(UnitScope::unit_scope_query)]
-    fn unit_scope(&self) -> Arc<UnitScope>;
+    #[salsa::invoke(NameScope::unit_scope_query)]
+    fn unit_scope(&self) -> Arc<NameScope>;
 
-    #[salsa::invoke(UnitScope::file_scope_query)]
-    fn file_scope(&self, file_id: HirFileId) -> Arc<UnitScope>;
+    #[salsa::invoke(NameScope::file_scope_query)]
+    fn file_scope(&self, file_id: HirFileId) -> Arc<NameScope>;
 
-    #[salsa::invoke(ModuleScope::module_scope_query)]
-    fn module_scope(&self, module_id: ModuleId) -> Arc<ModuleScope>;
+    #[salsa::invoke(NameScope::module_scope_query)]
+    fn module_scope(&self, module_id: ModuleId) -> Arc<NameScope>;
 
-    #[salsa::invoke(GenerateBlockScope::generate_block_scope_query)]
-    fn generate_block_scope(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlockScope>;
+    #[salsa::invoke(NameScope::generate_block_scope_query)]
+    fn generate_block_scope(&self, generate_block_id: GenerateBlockId) -> Arc<NameScope>;
 
-    #[salsa::invoke(BlockScope::block_scope_query)]
-    fn block_scope(&self, block_id: BlockId) -> Arc<BlockScope>;
+    #[salsa::invoke(NameScope::block_scope_query)]
+    fn block_scope(&self, block_id: BlockId) -> Arc<NameScope>;
 
-    #[salsa::invoke(SubroutineScope::subroutine_scope_query)]
-    fn subroutine_scope(&self, subroutine_id: SubroutineId) -> Arc<SubroutineScope>;
+    #[salsa::invoke(NameScope::subroutine_scope_query)]
+    fn subroutine_scope(&self, subroutine_id: SubroutineId) -> Arc<NameScope>;
 
     #[salsa::invoke(crate::type_infer::type_of_decl_query)]
     fn type_of_decl(&self, decl: InContainer<DeclId>) -> Arc<TyResult>;

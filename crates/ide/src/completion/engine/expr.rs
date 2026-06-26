@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use hir::{
-    container::{InContainer, InSubroutine, ScopeId, ScopeParent},
+    container::{InContainer, ScopeId, ScopeParent},
     db::HirDb,
     file::HirFileId,
     hir_def::{
@@ -9,11 +9,8 @@ use hir::{
         module::ModuleId,
         subroutine::{SubroutineId, SubroutineKind},
     },
-    scope::{
-        AnsiPortEntry, BlockEntry, GenerateBlockEntry, ModuleEntry, NonAnsiPortEntry,
-        SubroutineEntry, UnitEntry,
-    },
     semantics::{Semantics, pathres::PathResolution},
+    symbol::{DefId, DefKind},
     type_infer::{Ty, normalize_data_ty, type_class},
 };
 use syntax::{
@@ -118,52 +115,20 @@ fn collect_container_names(
         ScopeId::Module(module_id) => collect_module_names(db, module_id, names),
         ScopeId::GenerateBlock(generate_block_id) => {
             let scope = db.generate_block_scope(generate_block_id);
-            for (ident, entry) in scope.iter() {
-                match entry {
-                    GenerateBlockEntry::DeclId(decl_id) => {
-                        names.entry(ident.to_string()).or_insert(NameKind::Value {
-                            ty: db.type_of_decl(InContainer::new(container_id, decl_id)).ty.clone(),
-                        });
-                    }
-                    GenerateBlockEntry::SubroutineId(subroutine_id) => {
-                        names.entry(ident.to_string()).or_insert(NameKind::SubroutineCall {
-                            return_ty: subroutine_return_ty(db, subroutine_id),
-                        });
-                    }
-                    _ => {}
-                }
+            for (ident, defs) in scope.iter_merged() {
+                collect_def_names(db, ident, defs, names);
             }
         }
         ScopeId::Block(block_id) => {
             let scope = db.block_scope(block_id);
-            for (ident, entry) in scope.iter() {
-                if let BlockEntry::DeclId(decl_id) = entry {
-                    names.entry(ident.to_string()).or_insert(NameKind::Value {
-                        ty: db.type_of_decl(InContainer::new(container_id, decl_id)).ty.clone(),
-                    });
-                }
+            for (ident, defs) in scope.iter_merged() {
+                collect_def_names(db, ident, defs, names);
             }
         }
         ScopeId::Subroutine(subroutine_id) => {
             let scope = db.subroutine_scope(subroutine_id);
-            for (ident, entry) in scope.iter() {
-                match entry {
-                    SubroutineEntry::DeclId(decl_id) => {
-                        names.entry(ident.to_string()).or_insert(NameKind::Value {
-                            ty: db.type_of_decl(InContainer::new(container_id, decl_id)).ty.clone(),
-                        });
-                    }
-                    SubroutineEntry::SubroutinePortId(port_id) => {
-                        let ty = db
-                            .type_of_path_resolution(PathResolution::SubroutinePort(
-                                InSubroutine::new(subroutine_id, port_id),
-                            ))
-                            .ty
-                            .clone();
-                        names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
-                    }
-                    _ => {}
-                }
+            for (ident, defs) in scope.iter_merged() {
+                collect_def_names(db, ident, defs, names);
             }
         }
     }
@@ -171,48 +136,49 @@ fn collect_container_names(
 
 fn collect_file_names(db: &RootDb, file_id: HirFileId, names: &mut BTreeMap<String, NameKind>) {
     let scope = db.file_scope(file_id);
-    for (ident, entry) in scope.iter() {
-        if let UnitEntry::FiledDeclId(decl_id) = entry {
-            names.entry(ident.to_string()).or_insert(NameKind::Value {
-                ty: db
-                    .type_of_decl(InContainer::new(ScopeId::File(file_id), decl_id.value))
-                    .ty
-                    .clone(),
-            });
-        }
+    for (ident, defs) in scope.iter_merged() {
+        collect_def_names(db, ident, defs, names);
     }
 }
 
 fn collect_module_names(db: &RootDb, module_id: ModuleId, names: &mut BTreeMap<String, NameKind>) {
     let scope = db.module_scope(module_id);
-    for (ident, entry) in scope.iter() {
-        match entry {
-            ModuleEntry::DeclId(decl_id) => {
-                names.entry(ident.to_string()).or_insert(NameKind::Value {
-                    ty: db.type_of_decl(InContainer::new(module_id.into(), decl_id)).ty.clone(),
-                });
-            }
-            ModuleEntry::AnsiPortEntry(AnsiPortEntry(decl_id)) => {
-                names.entry(ident.to_string()).or_insert(NameKind::Value {
-                    ty: db.type_of_decl(InContainer::new(module_id.into(), decl_id)).ty.clone(),
-                });
-            }
-            ModuleEntry::NonAnsiPortEntry(NonAnsiPortEntry { port_decl, data_decl, .. }) => {
-                let ty = data_decl
-                    .or(port_decl)
-                    .map(|decl_id| {
-                        db.type_of_decl(InContainer::new(module_id.into(), decl_id)).ty.clone()
-                    })
-                    .unwrap_or(Ty::Unknown);
-                names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
-            }
-            ModuleEntry::SubroutineId(subroutine_id) => {
-                names.entry(ident.to_string()).or_insert(NameKind::SubroutineCall {
-                    return_ty: subroutine_return_ty(db, subroutine_id),
-                });
-            }
-            _ => {}
-        }
+    for (ident, defs) in scope.iter_merged() {
+        collect_def_names(db, ident, defs, names);
+    }
+}
+
+fn collect_def_names(
+    db: &RootDb,
+    ident: &hir::hir_def::Ident,
+    defs: impl IntoIterator<Item = DefId>,
+    names: &mut BTreeMap<String, NameKind>,
+) {
+    let defs = defs.into_iter().collect::<Vec<_>>();
+
+    if let Some(subroutine_id) = defs.iter().find_map(|def_id| def_id.as_subroutine(db)) {
+        names.entry(ident.to_string()).or_insert(NameKind::SubroutineCall {
+            return_ty: subroutine_return_ty(db, subroutine_id),
+        });
+        return;
+    }
+
+    if defs.iter().any(|def_id| {
+        matches!(
+            def_id.kind(db),
+            DefKind::Variable
+                | DefKind::Net
+                | DefKind::Param
+                | DefKind::Port
+                | DefKind::Genvar
+                | DefKind::Specparam
+                | DefKind::SubroutinePort
+                | DefKind::NonAnsiPort
+        )
+    }) && let Some(res) = PathResolution::from_def_ids(defs.iter().copied())
+    {
+        let ty = db.type_of_path_resolution(res).ty.clone();
+        names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
     }
 }
 

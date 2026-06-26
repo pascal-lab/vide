@@ -171,8 +171,11 @@ pub enum DefKind {
     Udp,
     Config,
     Library,
+    Block,
+    GenerateBlock,
     Subroutine,
     SubroutinePort,
+    NonAnsiPort,
     Typedef,
     Enum,
     Struct,
@@ -180,6 +183,8 @@ pub enum DefKind {
     Variable,
     Param,
     Port,
+    Genvar,
+    Specparam,
     Instance,
     ClassField,
     Method,
@@ -187,6 +192,7 @@ pub enum DefKind {
     ClockingBlock,
     Sequence,
     Property,
+    Stmt,
 }
 
 impl DefKind {
@@ -206,14 +212,20 @@ impl DefKind {
             DefKind::Udp => SymbolKind::Primitive,
             DefKind::Config => SymbolKind::Config,
             DefKind::Library => SymbolKind::Library,
+            DefKind::Block => SymbolKind::Block,
+            DefKind::GenerateBlock => SymbolKind::Generate,
             DefKind::Subroutine | DefKind::Method => SymbolKind::Fn,
+            DefKind::NonAnsiPort => SymbolKind::NonAnsiPortLabel,
             DefKind::SubroutinePort | DefKind::Port => SymbolKind::PortDecl,
             DefKind::Typedef | DefKind::Enum => SymbolKind::Typedef,
             DefKind::Struct => SymbolKind::Struct,
             DefKind::Net => SymbolKind::NetDecl,
             DefKind::Variable | DefKind::ClassField => SymbolKind::DataDecl,
             DefKind::Param => SymbolKind::ParamDecl,
+            DefKind::Genvar => SymbolKind::Genvar,
+            DefKind::Specparam => SymbolKind::Specparam,
             DefKind::Instance => SymbolKind::Instance,
+            DefKind::Stmt => SymbolKind::Stmt,
         }
     }
 }
@@ -247,6 +259,123 @@ pub struct NameScope {
 pub struct Import {
     pub named: Option<DefId>,
     pub wildcard_pkg: Option<DefId>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum NameResolution<T> {
+    Unique(T),
+    Ambiguous(SmallVec<[T; 2]>),
+    Unresolved,
+}
+
+impl<T> NameResolution<T> {
+    pub fn unique(self) -> Option<T> {
+        match self {
+            NameResolution::Unique(value) => Some(value),
+            NameResolution::Ambiguous(_) | NameResolution::Unresolved => None,
+        }
+    }
+}
+
+impl NameScope {
+    pub fn insert_type(&mut self, ident: &Ident, def_id: DefId) {
+        Self::insert(&mut self.types, ident, def_id);
+    }
+
+    pub fn insert_type_opt(&mut self, ident: &Option<Ident>, def_id: DefId) {
+        if let Some(ident) = ident {
+            self.insert_type(ident, def_id);
+        }
+    }
+
+    pub fn insert_value(&mut self, ident: &Ident, def_id: DefId) {
+        Self::insert(&mut self.values, ident, def_id);
+    }
+
+    pub fn insert_value_opt(&mut self, ident: &Option<Ident>, def_id: DefId) {
+        if let Some(ident) = ident {
+            self.insert_value(ident, def_id);
+        }
+    }
+
+    pub fn insert_assertion(&mut self, ident: &Ident, def_id: DefId) {
+        Self::insert(&mut self.assertions, ident, def_id);
+    }
+
+    pub fn lookup_merged(&self, ident: &Ident) -> Option<SmallVec<[DefId; 1]>> {
+        let mut defs = SmallVec::new();
+        if let Some(type_defs) = self.types.get(ident) {
+            defs.extend_from_slice(type_defs);
+        }
+        if let Some(value_defs) = self.values.get(ident) {
+            defs.extend_from_slice(value_defs);
+        }
+
+        (!defs.is_empty()).then_some(defs)
+    }
+
+    pub fn iter_merged(&self) -> impl Iterator<Item = (&Ident, SmallVec<[DefId; 1]>)> + '_ {
+        self.types
+            .iter()
+            .map(|(ident, type_defs)| {
+                let mut defs = SmallVec::from_slice(type_defs);
+                if let Some(value_defs) = self.values.get(ident) {
+                    defs.extend_from_slice(value_defs);
+                }
+                (ident, defs)
+            })
+            .chain(
+                self.values
+                    .iter()
+                    .filter(|(ident, _)| !self.types.contains_key(*ident))
+                    .map(|(ident, defs)| (ident, SmallVec::from_slice(defs))),
+            )
+    }
+
+    pub fn module_ids(
+        &self,
+        db: &dyn InternDb,
+        ident: &Ident,
+    ) -> NameResolution<crate::hir_def::module::ModuleId> {
+        let entries = self
+            .values
+            .get(ident)
+            .into_iter()
+            .flat_map(|defs| defs.iter())
+            .filter_map(|def_id| def_id.as_module(db))
+            .collect::<SmallVec<[_; 2]>>();
+
+        match entries.as_slice() {
+            [module_id] => NameResolution::Unique(*module_id),
+            [] => NameResolution::Unresolved,
+            _ => NameResolution::Ambiguous(entries),
+        }
+    }
+
+    pub fn module_names<'a>(
+        &'a self,
+        db: &'a dyn InternDb,
+    ) -> impl Iterator<Item = &'a Ident> + 'a {
+        self.values.iter().filter_map(move |(ident, defs)| {
+            defs.iter().any(|def_id| def_id.as_module(db).is_some()).then_some(ident)
+        })
+    }
+
+    pub fn typedef_names<'a>(
+        &'a self,
+        db: &'a dyn InternDb,
+    ) -> impl Iterator<Item = &'a Ident> + 'a {
+        self.types.iter().filter_map(move |(ident, defs)| {
+            defs.iter().any(|def_id| matches!(def_id.loc(db), DefLoc::Typedef(_))).then_some(ident)
+        })
+    }
+
+    fn insert(map: &mut FxHashMap<Ident, SmallVec<[DefId; 1]>>, ident: &Ident, def_id: DefId) {
+        let defs = map.entry(ident.clone()).or_default();
+        if !defs.contains(&def_id) {
+            defs.push(def_id);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
