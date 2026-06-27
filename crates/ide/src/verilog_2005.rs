@@ -2701,6 +2701,80 @@ endmodule
 }
 
 #[test]
+fn systemverilog_interface_modport_hover_and_navigation() {
+    let text = r#"
+interface /*marker:iface_def*/bus_if;
+  wire /*marker:clk_def*/clk;
+  modport /*marker:modport_def*/host(input clk);
+endinterface
+
+module top;
+  /*marker:iface_ref*/bus_if /*marker:inst_ref*/u_if();
+  assign u_if./*marker:clk_ref*/clk = 1'b0;
+  initial begin
+    u_if./*marker:modport_ref*/host;
+  end
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let iface_def_range = marked_range(&markers, "iface_def", TextSize::of("bus_if"));
+    let iface_nav = analysis
+        .goto_definition(position(file_id, &markers, "iface_ref"))
+        .unwrap()
+        .expect("interface definition expected");
+    assert!(
+        iface_nav.info.iter().any(|target| target.focus_range == Some(iface_def_range)),
+        "interface reference should navigate to interface definition: {iface_nav:?}"
+    );
+
+    let modport_def_range = marked_range(&markers, "modport_def", TextSize::of("host"));
+    let modport_nav = analysis
+        .goto_definition(position(file_id, &markers, "modport_ref"))
+        .unwrap()
+        .expect("modport definition expected");
+    assert!(
+        modport_nav.info.iter().any(|target| target.focus_range == Some(modport_def_range)),
+        "modport reference should navigate to modport definition: {modport_nav:?}"
+    );
+
+    let clk_def_range = marked_range(&markers, "clk_def", TextSize::of("clk"));
+    let clk_nav = analysis
+        .goto_definition(position(file_id, &markers, "clk_ref"))
+        .unwrap()
+        .expect("interface member definition expected");
+    assert!(
+        clk_nav.info.iter().any(|target| target.focus_range == Some(clk_def_range)),
+        "interface member reference should navigate to net definition: {clk_nav:?}"
+    );
+
+    let instance_hover = analysis
+        .hover(
+            position(file_id, &markers, "inst_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("interface instance hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_interface_modport_hover_and_navigation__instance",
+        instance_hover.info.as_str(),
+    );
+
+    let modport_hover = analysis
+        .hover(
+            position(file_id, &markers, "modport_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("modport hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_interface_modport_hover_and_navigation__modport",
+        modport_hover.info.as_str(),
+    );
+}
+
+#[test]
 fn verilog_2005_hover_uses_relative_source_label_for_absolute_workspace_path() {
     let dir = TestDir::new("hover-source-label");
     let rtl_dir = dir.path().join("rtl");
@@ -2833,6 +2907,9 @@ fn semantic_index_groups_modules_and_references_by_definition() {
         (
             "/a.sv",
             r#"
+interface /*marker:a_iface_def*/bus_if;
+endinterface
+
 module /*marker:a_module_def*/mod_a;
   wire /*marker:a_shared_def*/shared;
   assign y = /*marker:a_shared_ref*/shared;
@@ -2866,6 +2943,10 @@ endmodule
     assert_eq!(modules.len(), 1, "module index should contain mod_a exactly once");
     assert_eq!(modules[0].file_id, *file_a);
     assert_eq!(modules[0].name_range, marked_range(markers_a, "a_module_def", 5));
+    let interfaces = module_index.module_definitions(&"bus_if".into());
+    assert_eq!(interfaces.len(), 1, "module index should contain bus_if exactly once");
+    assert_eq!(interfaces[0].file_id, *file_a);
+    assert_eq!(interfaces[0].name_range, marked_range(markers_a, "a_iface_def", 6));
 
     let groups = index.reference_groups_named("shared");
     assert_eq!(groups.len(), 2, "same-name definitions should be separate reference groups");

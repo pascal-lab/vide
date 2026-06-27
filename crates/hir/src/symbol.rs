@@ -12,7 +12,8 @@ use crate::{
         expr::declarator::DeclId,
         file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
         module::{
-            ModuleId, generate::GenerateBlockId, instantiation::InstanceId, port::NonAnsiPortId,
+            ModuleId, generate::GenerateBlockId, instantiation::InstanceId, modport::ModportId,
+            port::NonAnsiPortId,
         },
         stmt::StmtId,
         subroutine::{LocalSubroutineId, SubroutinePortId},
@@ -25,6 +26,7 @@ use crate::{
 pub struct DefId(pub salsa::InternId);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum DefLoc {
     Module(ModuleId),
     Config(InFile<ConfigDeclId>),
@@ -38,6 +40,7 @@ pub enum DefLoc {
     Decl(InContainer<DeclId>),
     Typedef(InContainer<TypedefId>),
     Instance(InModule<InstanceId>),
+    Modport(InModule<ModportId>),
     Stmt(InContainer<StmtId>),
 }
 
@@ -54,6 +57,7 @@ impl_from! { DefLoc =>
     Decl(InContainer<DeclId>),
     Typedef(InContainer<TypedefId>),
     Instance(InModule<InstanceId>),
+    Modport(InModule<ModportId>),
     Stmt(InContainer<StmtId>),
 }
 
@@ -150,6 +154,13 @@ impl DefId {
         }
     }
 
+    pub fn as_modport(self, db: &dyn InternDb) -> Option<InModule<ModportId>> {
+        match self.loc(db) {
+            DefLoc::Modport(id) => Some(id),
+            _ => None,
+        }
+    }
+
     pub fn as_stmt(self, db: &dyn InternDb) -> Option<InContainer<StmtId>> {
         match self.loc(db) {
             DefLoc::Stmt(id) => Some(id),
@@ -181,10 +192,15 @@ pub enum DefKind {
     Genvar,
     Specparam,
     Instance,
+    Modport,
     Stmt,
 }
 
 impl DefKind {
+    pub fn is_instantiable_def(self) -> bool {
+        matches!(self, DefKind::Module | DefKind::Interface | DefKind::Program)
+    }
+
     pub fn symbol_kind(self) -> SymbolKind {
         match self {
             DefKind::Module => SymbolKind::Module,
@@ -205,6 +221,7 @@ impl DefKind {
             DefKind::Genvar => SymbolKind::Genvar,
             DefKind::Specparam => SymbolKind::Specparam,
             DefKind::Instance => SymbolKind::Instance,
+            DefKind::Modport => SymbolKind::Unknown,
             DefKind::Stmt => SymbolKind::Stmt,
         }
     }
@@ -348,7 +365,7 @@ impl NameScope {
             .get(ident)
             .into_iter()
             .flat_map(|defs| defs.iter())
-            .filter(|def_id| def_id.kind(db) == DefKind::Module)
+            .filter(|def_id| def_id.kind(db).is_instantiable_def())
             .filter_map(|def_id| def_id.as_module(db))
             .collect::<SmallVec<[_; 2]>>();
 
@@ -383,7 +400,9 @@ impl NameScope {
     pub fn module_names<'a>(&'a self, db: &'a dyn HirDb) -> impl Iterator<Item = &'a Ident> + 'a {
         self.types.iter().filter_map(move |(ident, defs)| {
             defs.iter()
-                .any(|def_id| def_id.kind(db) == DefKind::Module && def_id.as_module(db).is_some())
+                .any(|def_id| {
+                    def_id.kind(db).is_instantiable_def() && def_id.as_module(db).is_some()
+                })
                 .then_some(ident)
         })
     }
