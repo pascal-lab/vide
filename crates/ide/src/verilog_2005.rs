@@ -2876,6 +2876,98 @@ endmodule
 }
 
 #[test]
+fn systemverilog_covergroup_supports_items_instantiation_hover_and_outline() {
+    let text = r#"
+module top(input clk, input a);
+  covergroup /*marker:covergroup_def*/cg @(posedge clk);
+    /*marker:coverpoint_def*/cp: coverpoint a;
+    /*marker:cross_def*/cx: cross /*marker:coverpoint_ref*/cp, cp;
+  endgroup
+
+  /*marker:covergroup_ref*/cg /*marker:inst_ref*/u();
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let covergroup_def_range = marked_range(&markers, "covergroup_def", TextSize::of("cg"));
+    let covergroup_nav = analysis
+        .goto_definition(position(file_id, &markers, "covergroup_ref"))
+        .unwrap()
+        .expect("covergroup definition expected");
+    assert!(
+        covergroup_nav.info.iter().any(|target| target.focus_range == Some(covergroup_def_range)),
+        "covergroup instantiation should navigate to covergroup declaration: {covergroup_nav:?}"
+    );
+
+    let coverpoint_def_range = marked_range(&markers, "coverpoint_def", TextSize::of("cp"));
+    let coverpoint_nav = analysis
+        .goto_definition(position(file_id, &markers, "coverpoint_ref"))
+        .unwrap()
+        .expect("coverpoint definition expected");
+    assert!(
+        coverpoint_nav.info.iter().any(|target| target.focus_range == Some(coverpoint_def_range)),
+        "coverpoint reference should navigate to coverpoint label: {coverpoint_nav:?}"
+    );
+
+    let covergroup_hover = analysis
+        .hover(
+            position(file_id, &markers, "covergroup_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("covergroup hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_covergroup_supports_items_instantiation_hover_and_outline__covergroup",
+        covergroup_hover.info.as_str(),
+    );
+
+    let coverpoint_hover = analysis
+        .hover(
+            position(file_id, &markers, "coverpoint_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("coverpoint hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_covergroup_supports_items_instantiation_hover_and_outline__coverpoint",
+        coverpoint_hover.info.as_str(),
+    );
+
+    let cross_hover = analysis
+        .hover(
+            position(file_id, &markers, "cross_def"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("cross hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_covergroup_supports_items_instantiation_hover_and_outline__cross",
+        cross_hover.info.as_str(),
+    );
+
+    let instance_hover = analysis
+        .hover(
+            position(file_id, &markers, "inst_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("covergroup instance hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_covergroup_supports_items_instantiation_hover_and_outline__instance",
+        instance_hover.info.as_str(),
+    );
+
+    let symbols = analysis.document_symbol(file_id).unwrap();
+    let mut lines = Vec::new();
+    collect_symbol_lines(&symbols, 0, &mut lines);
+    assert_snapshot!(
+        "systemverilog_covergroup_supports_items_instantiation_hover_and_outline__outline",
+        lines.join("\n")
+    );
+}
+
+#[test]
 fn verilog_2005_hover_uses_relative_source_label_for_absolute_workspace_path() {
     let dir = TestDir::new("hover-source-label");
     let rtl_dir = dir.path().join("rtl");

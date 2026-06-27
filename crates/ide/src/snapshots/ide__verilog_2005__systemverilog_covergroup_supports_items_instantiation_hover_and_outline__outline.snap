@@ -1,0 +1,11 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: "lines.join(\"\\n\")"
+---
+top Module container=None
+  clk PortDecl container=Some("top")
+  a PortDecl container=Some("top")
+  cg Unknown container=Some("top")
+    cp Unknown container=Some("cg")
+    cx Unknown container=Some("cg")
+  u Instance container=Some("top")

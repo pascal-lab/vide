@@ -35,6 +35,10 @@ use super::{
     alloc_idx_and_src,
     block::{BlockInfo, BlockSrc, LocalBlockId},
     checker::{CheckerDef, CheckerId, CheckerSrc, lower_checker_decl},
+    covergroup::{
+        CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointSrc, CrossDef,
+        CrossSrc, lower_covergroup_decl, lower_coverpoint, lower_cross,
+    },
     declaration::{
         Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, ParamDeclKind,
         impl_lower_declaration,
@@ -99,6 +103,9 @@ define_container! {
         modports: [ModportDef],
         clocking_blocks: [ClockingBlockDef],
         checkers: [CheckerDef],
+        covergroups: [CovergroupDef],
+        coverpoints: [CoverpointDef],
+        crosses: [CrossDef],
         package_imports: [PackageImport],
 
         instantiations: [Instantiation],
@@ -142,6 +149,9 @@ define_container! {
         modport_srcs: [ModportDef | ModportSrc],
         clocking_block_srcs: [ClockingBlockDef | ClockingBlockSrc],
         checker_srcs: [CheckerDef | CheckerSrc],
+        covergroup_srcs: [CovergroupDef | CovergroupSrc],
+        coverpoint_srcs: [CoverpointDef | CoverpointSrc],
+        cross_srcs: [CrossDef | CrossSrc],
 
         instantiation_srcs: [Instantiation | InstantiationSrc],
         inst_param_assign_srcs: [ParamAssign | ParamAssignSrc],
@@ -293,6 +303,7 @@ impl ModuleSourceMap {
             ModuleItem::ModportId(idx) => self.get(*idx)?.node,
             ModuleItem::ClockingBlockId(idx) => self.get(*idx)?.node,
             ModuleItem::CheckerId(idx) => self.get(*idx)?.node,
+            ModuleItem::CovergroupId(idx) => self.get(*idx)?.node,
         })
     }
 }
@@ -315,6 +326,7 @@ define_enum_deriving_from! {
         ModportId(ModportId),
         ClockingBlockId(ClockingBlockId),
         CheckerId(CheckerId),
+        CovergroupId(CovergroupId),
     }
 }
 
@@ -467,6 +479,43 @@ impl LowerModuleCtx<'_> {
         Some(subroutine_id)
     }
 
+    fn lower_covergroup_decl(
+        &mut self,
+        covergroup_decl: ast::CovergroupDeclaration,
+    ) -> CovergroupId {
+        let mut covergroup = lower_covergroup_decl(covergroup_decl);
+
+        for member in covergroup_decl.members().children() {
+            match member {
+                ast::Member::Coverpoint(coverpoint_ast) => {
+                    let coverpoint = lower_coverpoint(coverpoint_ast);
+                    let coverpoint_id = alloc_idx_and_src! {
+                        self.file_id;
+                        coverpoint => self.module.coverpoints,
+                        coverpoint_ast => self.module_source_map.coverpoint_srcs,
+                    };
+                    covergroup.coverpoints.push(coverpoint_id);
+                }
+                ast::Member::CoverCross(cross_ast) => {
+                    let cross = lower_cross(cross_ast);
+                    let cross_id = alloc_idx_and_src! {
+                        self.file_id;
+                        cross => self.module.crosses,
+                        cross_ast => self.module_source_map.cross_srcs,
+                    };
+                    covergroup.crosses.push(cross_id);
+                }
+                _ => {}
+            }
+        }
+
+        alloc_idx_and_src! {
+            self.file_id;
+            covergroup => self.module.covergroups,
+            covergroup_decl => self.module_source_map.covergroup_srcs,
+        }
+    }
+
     pub(crate) fn lower_module_decl(&mut self, decl: ast::ModuleDeclaration) {
         let header = decl.header();
         let has_param_ports = header.parameters().is_some();
@@ -592,11 +641,8 @@ impl LowerModuleCtx<'_> {
                 | ConcurrentAssertionMember(_) => continue,
 
                 // Coverage
-                CovergroupDeclaration(_)
-                | Coverpoint(_)
-                | CoverCross(_)
-                | CoverageBins(_)
-                | BinsSelection(_)
+                CovergroupDeclaration(covergroup) => self.lower_covergroup_decl(covergroup).into(),
+                Coverpoint(_) | CoverCross(_) | CoverageBins(_) | BinsSelection(_)
                 | CoverageOption(_) => continue,
 
                 // Specify blocks

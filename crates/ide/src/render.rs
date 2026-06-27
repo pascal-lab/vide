@@ -550,7 +550,7 @@ fn render_clocking_block_signature(
     let name = clocking_block.name.as_ref()?;
     let mut signature = format!("clocking {name}");
     if !clocking_block.signals.is_empty() {
-        signature.push_str("\n");
+        signature.push('\n');
         let signals = clocking_block
             .signals
             .iter()
