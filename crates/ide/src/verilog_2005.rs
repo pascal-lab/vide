@@ -2820,6 +2820,62 @@ endmodule
 }
 
 #[test]
+fn systemverilog_checker_supports_instantiation_navigation_hover_and_outline() {
+    let text = r#"
+checker /*marker:checker_def*/c(input logic clk);
+endchecker
+
+module top(input clk);
+  /*marker:checker_ref*/c /*marker:inst_ref*/u(clk);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let checker_def_range = marked_range(&markers, "checker_def", TextSize::of("c"));
+    let nav = analysis
+        .goto_definition(position(file_id, &markers, "checker_ref"))
+        .unwrap()
+        .expect("checker definition expected");
+    assert!(
+        nav.info.iter().any(|target| target.focus_range == Some(checker_def_range)),
+        "checker instantiation should navigate to checker declaration: {nav:?}"
+    );
+
+    let checker_hover = analysis
+        .hover(
+            position(file_id, &markers, "checker_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("checker hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_checker_supports_instantiation_navigation_hover_and_outline__checker",
+        checker_hover.info.as_str(),
+    );
+
+    let instance_hover = analysis
+        .hover(
+            position(file_id, &markers, "inst_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("checker instance hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_checker_supports_instantiation_navigation_hover_and_outline__instance",
+        instance_hover.info.as_str(),
+    );
+
+    let symbols = analysis.document_symbol(file_id).unwrap();
+    let mut lines = Vec::new();
+    collect_symbol_lines(&symbols, 0, &mut lines);
+    assert_snapshot!(
+        "systemverilog_checker_supports_instantiation_navigation_hover_and_outline__outline",
+        lines.join("\n")
+    );
+}
+
+#[test]
 fn verilog_2005_hover_uses_relative_source_label_for_absolute_workspace_path() {
     let dir = TestDir::new("hover-source-label");
     let rtl_dir = dir.path().join("rtl");

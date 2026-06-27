@@ -273,7 +273,11 @@ fn resolve_instantiation_type_name(
                     })
                     .collect::<Option<Vec<_>>>()?,
             )),
-            ModuleResolution::Unresolved => None,
+            ModuleResolution::Unresolved => Some(
+                sema.nameres_ident(file_id, tp, NameContext::Type)?
+                    .to_def_id(sema.db)?
+                    .into(),
+            ),
         };
     }
 
@@ -283,6 +287,15 @@ fn resolve_instantiation_type_name(
     {
         return Some(
             sema.nameres_ident(file_id, tp, NameContext::Value)?.to_def_id(sema.db)?.into(),
+        );
+    }
+
+    if let Some(instantiation) =
+        SyntaxAncestors::start_from(parent).find_map(ast::CheckerInstantiation::cast)
+        && rightmost_name_token(instantiation.type_()) == Some(tok)
+    {
+        return Some(
+            sema.nameres_ident(file_id, tp, NameContext::Type)?.to_def_id(sema.db)?.into(),
         );
     }
 
@@ -328,6 +341,16 @@ fn scoped_uses_dot(scoped: ast::ScopedName<'_>) -> bool {
         .children()
         .filter_map(|elem| elem.as_token())
         .any(|tok| tok.kind() == syntax::Token![.])
+}
+
+fn rightmost_name_token(name: ast::Name<'_>) -> Option<SyntaxToken<'_>> {
+    use ast::Name::*;
+    match name {
+        IdentifierName(ident) => ident.identifier(),
+        IdentifierSelectName(ident) => ident.identifier(),
+        ScopedName(scoped) => rightmost_name_token(scoped.right()),
+        _ => None,
+    }
 }
 
 fn token_is_in_non_dot_scoped_name(parent: syntax::SyntaxNode<'_>) -> bool {
