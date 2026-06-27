@@ -20,7 +20,7 @@ use crate::{
         subroutine::SubroutinePortId,
         typedef::TypedefId,
     },
-    semantics::pathres::{PathResolution, resolve_name},
+    semantics::pathres::{PathResolution, instance_target_module_id, resolve_name},
     symbol::{DefId, DefKind, NameContext},
 };
 
@@ -502,18 +502,6 @@ fn type_of_subroutine_port_impl(db: &dyn HirDb, port: InSubroutine<SubroutinePor
     port.ty
         .map(|ty| normalize_data_ty(db, port_id.subroutine.into(), ty))
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
-}
-
-fn instance_target_module_id(
-    db: &dyn HirDb,
-    module_id: ModuleId,
-    instance_id: crate::hir_def::module::instantiation::InstanceId,
-) -> Option<ModuleId> {
-    let module = db.module(module_id);
-    let instance = module.get(instance_id);
-    let instantiation = module.get(instance.parent);
-    let module_name = instantiation.module_name.as_ref()?;
-    db.unit_scope().module_ids(db, module_name).unique()
 }
 
 fn int_kind_width(kind: IntKind) -> usize {

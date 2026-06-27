@@ -8,7 +8,7 @@ use hir::{
         Ident,
         block::{BlockId, BlockInfo},
         expr::{
-            Expr, ExprId,
+            Expr, ExprId, ExprSrc,
             data_ty::{DataTy, NamedDataTy},
             declarator::DeclaratorParent,
         },
@@ -25,7 +25,11 @@ use hir::{
 };
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
-use syntax::{ast, has_text_range::HasTextRange};
+use syntax::{
+    SyntaxTree,
+    ast::{self, AstNode},
+    has_text_range::{HasTextRange, HasTextRangeIn},
+};
 use utils::{
     get::{Get, GetRef},
     text_edit::TextRange,
@@ -187,6 +191,7 @@ fn collect_file(
     collector: &mut SemaTokenCollector,
 ) {
     let (hir_file, file_src_map) = sema.db.hir_file_with_source_map(file_id);
+    let tree = sema.db.parse(file_id);
 
     for (local_module_id, _) in hir_file.modules.iter() {
         let Some(range) = file_src_map.get(local_module_id).map(|src| src.range()) else {
@@ -232,7 +237,12 @@ fn collect_file(
             continue;
         }
         match expr {
-            Expr::Field { .. } => {}
+            Expr::Field { .. } => {
+                let _: Option<()> = try {
+                    let src = file_src_map.get(expr_id)?;
+                    collect_field_like(sema, file_id.into(), expr_id, src, &tree, collector)?;
+                };
+            }
             Expr::Ident(name) => {
                 let Some(range) = file_src_map.get(expr_id).map(|src| src.range()) else {
                     continue;
@@ -285,6 +295,7 @@ fn collect_module(
     let db = sema.db;
     let (module, module_src_map) = db.module_with_source_map(module_id);
     let (module, module_src_map) = (module.as_ref(), module_src_map.as_ref());
+    let tree = db.parse(module_id.file_id);
     port::collect_port(sema, module_id, collector);
 
     let collect_ident_like =
@@ -335,7 +346,12 @@ fn collect_module(
             continue;
         }
         match expr {
-            Expr::Field { .. } => {}
+            Expr::Field { .. } => {
+                let _: Option<()> = try {
+                    let src = module_src_map.get(expr_id)?;
+                    collect_field_like(sema, module_id.into(), expr_id, src, &tree, collector)?;
+                };
+            }
             Expr::Ident(name) => {
                 let Some(range) = module_src_map.get(expr_id).map(|src| src.range()) else {
                     continue;
@@ -388,6 +404,7 @@ fn collect_block(
     let db = sema.db;
     let (block, block_src_map) = db.block_with_source_map(block_id);
     let (block, block_src_map) = (block.as_ref(), block_src_map.as_ref());
+    let tree = db.parse(HirFileId::File(block_id.file_id(db)));
 
     let collect_ident_like =
         |name: &SmolStr, range: TextRange, collector: &mut SemaTokenCollector| {
@@ -425,7 +442,12 @@ fn collect_block(
             continue;
         }
         match expr {
-            Expr::Field { .. } => {}
+            Expr::Field { .. } => {
+                let _: Option<()> = try {
+                    let src = block_src_map.get(expr_id)?;
+                    collect_field_like(sema, block_id.into(), expr_id, src, &tree, collector)?;
+                };
+            }
             Expr::Ident(name) => {
                 let Some(range) = block_src_map.get(expr_id).map(|src| src.range()) else {
                     continue;
@@ -558,6 +580,55 @@ fn collect_type_ident_like(
     };
     let res = sema.resolve_name(cont_id, name, NameContext::Type)?;
     collect_resolved_path(sema, res, range, collector)
+}
+
+fn collect_field_like(
+    sema: &Semantics<'_, RootDb>,
+    cont_id: ScopeId,
+    expr_id: ExprId,
+    src: ExprSrc,
+    tree: &SyntaxTree,
+    collector: &mut SemaTokenCollector,
+) -> Option<()> {
+    let expr = src.to_node(tree)?;
+    let range = field_name_range(expr)?;
+    if !collector.range.intersect(range).is_some() {
+        return None;
+    }
+    let res = sema.expr_to_def(InContainer::new(cont_id, expr_id))?;
+    collect_resolved_path(sema, res, range, collector)
+}
+
+fn field_name_range(expr: ast::Expression<'_>) -> Option<TextRange> {
+    if let Some(access) = ast::MemberAccessExpression::cast(expr.syntax()) {
+        return access.name()?.text_range_in(access.syntax());
+    }
+
+    if let Some(scoped) = ast::ScopedName::cast(expr.syntax()) {
+        if !scoped_uses_dot(scoped) {
+            return None;
+        }
+        return scoped_right_token(scoped)?.text_range_in(scoped.syntax());
+    }
+
+    None
+}
+
+fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<syntax::SyntaxToken<'_>> {
+    use ast::Name::*;
+    match scoped.right() {
+        IdentifierName(ident) => ident.identifier(),
+        IdentifierSelectName(ident) => ident.identifier(),
+        _ => None,
+    }
+}
+
+fn scoped_uses_dot(scoped: ast::ScopedName<'_>) -> bool {
+    scoped
+        .syntax()
+        .children()
+        .filter_map(|elem| elem.as_token())
+        .any(|tok| tok.kind() == syntax::Token![.])
 }
 
 fn named_data_ty_expr_id(ty: DataTy) -> Option<ExprId> {
