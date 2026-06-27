@@ -1,27 +1,27 @@
-use la_arena::{Idx, RawIdx};
+use la_arena::{Arena, Idx, RawIdx};
 use smol_str::SmolStr;
 use syntax::ast;
 use triomphe::Arc;
 use utils::get::{Get, GetRef};
 
 use crate::{
-    container::{InContainer, InFile, InModule, InSubroutine},
+    container::{InContainer, InFile, InModule, InSubroutine, ScopeId},
     db::HirDb,
     file::HirFileId,
     hir_def::{
         PackageImport,
         block::BlockInfo,
         declaration::DeclarationId,
-        expr::declarator::{DeclId, DeclaratorParent},
+        expr::declarator::{DeclId, Declarator, DeclaratorParent},
         lower_ident_opt,
         module::{
             Module, ModuleKind, PackageId,
             generate::GenerateBlockId,
             port::{PortDeclId, Ports},
         },
-        stmt::StmtKind,
+        stmt::{Stmt, StmtKind},
         subroutine::{LocalSubroutineId, SubroutinePortId},
-        typedef::TypedefId,
+        typedef::{Typedef, TypedefId},
     },
     source_map::ToAstNode,
     symbol::{DefId, DefLoc, Import, NameScope},
@@ -36,6 +36,38 @@ use crate::{
 
 fn def_id(db: &dyn HirDb, loc: impl Into<DefLoc>) -> DefId {
     DefId::new(db, loc)
+}
+
+/// Inserts the data-net-param declarations and typedefs that every scope
+/// owns, keyed by `cont_id`. The declaration/typedef loops are identical across
+/// file, module, generate-block, block, and subroutine scopes, so they live
+/// here as the single source of truth.
+fn insert_decls_and_typedefs(
+    scope: &mut NameScope,
+    db: &dyn HirDb,
+    cont_id: ScopeId,
+    decls: &Arena<Declarator>,
+    typedefs: &Arena<Typedef>,
+) {
+    for (decl_id, decl) in decls.iter() {
+        scope.insert_value_opt(&decl.name, def_id(db, InContainer::new(cont_id, decl_id)));
+    }
+    for (typedef_id, typedef) in typedefs.iter() {
+        scope.insert_type_opt(&typedef.name, def_id(db, InContainer::new(cont_id, typedef_id)));
+    }
+}
+
+/// Inserts statement labels (and their nested named blocks), which every
+/// scope owns. Kept separate from `insert_decls_and_typedefs` so callers can
+/// place module/generate specific members between the two while preserving
+/// insertion order.
+fn insert_stmts(scope: &mut NameScope, db: &dyn HirDb, cont_id: ScopeId, stmts: &Arena<Stmt>) {
+    for (stmt_id, stmt) in stmts.iter() {
+        scope.insert_value_opt(&stmt.label, def_id(db, InContainer::new(cont_id, stmt_id)));
+        if let StmtKind::Block(BlockInfo { name, block_id }) = &stmt.kind {
+            scope.insert_value_opt(name, def_id(db, *block_id));
+        }
+    }
 }
 
 impl NameScope {
@@ -153,19 +185,13 @@ impl NameScope {
             scope.insert_value_opt(&subroutine.name, def_id(db, subroutine_id));
         }
 
-        for (decl_id, decl) in module.decls.iter() {
-            scope.insert_value_opt(
-                &decl.name,
-                def_id(db, InContainer::new(module_id.into(), decl_id)),
-            );
-        }
-
-        for (typedef_id, typedef) in module.typedefs.iter() {
-            scope.insert_type_opt(
-                &typedef.name,
-                def_id(db, InContainer::new(module_id.into(), typedef_id)),
-            );
-        }
+        insert_decls_and_typedefs(
+            &mut scope,
+            db,
+            module_id.into(),
+            &module.decls,
+            &module.typedefs,
+        );
 
         for (instance_id, instance) in module.instances.iter() {
             scope.insert_value_opt(
@@ -189,16 +215,7 @@ impl NameScope {
             }
         }
 
-        for (stmt_id, stmt) in module.stmts.iter() {
-            scope.insert_value_opt(
-                &stmt.label,
-                def_id(db, InContainer::new(module_id.into(), stmt_id)),
-            );
-
-            if let StmtKind::Block(BlockInfo { name, block_id }) = &stmt.kind {
-                scope.insert_value_opt(name, def_id(db, *block_id));
-            }
-        }
+        insert_stmts(&mut scope, db, module_id.into(), &module.stmts);
 
         Arc::new(scope)
     }
@@ -217,19 +234,13 @@ impl NameScope {
             scope.insert_value_opt(&subroutine.name, def_id(db, subroutine_id));
         }
 
-        for (decl_id, decl) in generate_block.decls.iter() {
-            scope.insert_value_opt(
-                &decl.name,
-                def_id(db, InContainer::new(generate_block_id.into(), decl_id)),
-            );
-        }
-
-        for (typedef_id, typedef) in generate_block.typedefs.iter() {
-            scope.insert_type_opt(
-                &typedef.name,
-                def_id(db, InContainer::new(generate_block_id.into(), typedef_id)),
-            );
-        }
+        insert_decls_and_typedefs(
+            &mut scope,
+            db,
+            generate_block_id.into(),
+            &generate_block.decls,
+            &generate_block.typedefs,
+        );
 
         for item in &generate_block.items {
             if let crate::hir_def::module::generate::GenerateBlockItem::GenerateBlockId(child_id) =
@@ -240,16 +251,7 @@ impl NameScope {
             }
         }
 
-        for (stmt_id, stmt) in generate_block.stmts.iter() {
-            scope.insert_value_opt(
-                &stmt.label,
-                def_id(db, InContainer::new(generate_block_id.into(), stmt_id)),
-            );
-
-            if let StmtKind::Block(BlockInfo { name, block_id }) = &stmt.kind {
-                scope.insert_value_opt(name, def_id(db, *block_id));
-            }
-        }
+        insert_stmts(&mut scope, db, generate_block_id.into(), &generate_block.stmts);
 
         Arc::new(scope)
     }
@@ -261,30 +263,8 @@ impl NameScope {
         let mut scope = NameScope::default();
         let block = db.block(block_id);
 
-        for (decl_id, decl) in block.decls.iter() {
-            scope.insert_value_opt(
-                &decl.name,
-                def_id(db, InContainer::new(block_id.into(), decl_id)),
-            );
-        }
-
-        for (typedef_id, typedef) in block.typedefs.iter() {
-            scope.insert_type_opt(
-                &typedef.name,
-                def_id(db, InContainer::new(block_id.into(), typedef_id)),
-            );
-        }
-
-        for (stmt_id, stmt) in block.stmts.iter() {
-            scope.insert_value_opt(
-                &stmt.label,
-                def_id(db, InContainer::new(block_id.into(), stmt_id)),
-            );
-
-            if let StmtKind::Block(BlockInfo { name, block_id }) = &stmt.kind {
-                scope.insert_value_opt(name, def_id(db, *block_id));
-            }
-        }
+        insert_decls_and_typedefs(&mut scope, db, block_id.into(), &block.decls, &block.typedefs);
+        insert_stmts(&mut scope, db, block_id.into(), &block.stmts);
 
         Arc::new(scope)
     }
@@ -304,30 +284,14 @@ impl NameScope {
             );
         }
 
-        for (decl_id, decl) in subroutine.decls.iter() {
-            scope.insert_value_opt(
-                &decl.name,
-                def_id(db, InContainer::new(subroutine_id.into(), decl_id)),
-            );
-        }
-
-        for (typedef_id, typedef) in subroutine.typedefs.iter() {
-            scope.insert_type_opt(
-                &typedef.name,
-                def_id(db, InContainer::new(subroutine_id.into(), typedef_id)),
-            );
-        }
-
-        for (stmt_id, stmt) in subroutine.stmts.iter() {
-            scope.insert_value_opt(
-                &stmt.label,
-                def_id(db, InContainer::new(subroutine_id.into(), stmt_id)),
-            );
-
-            if let StmtKind::Block(BlockInfo { name, block_id }) = &stmt.kind {
-                scope.insert_value_opt(name, def_id(db, *block_id));
-            }
-        }
+        insert_decls_and_typedefs(
+            &mut scope,
+            db,
+            subroutine_id.into(),
+            &subroutine.decls,
+            &subroutine.typedefs,
+        );
+        insert_stmts(&mut scope, db, subroutine_id.into(), &subroutine.stmts);
 
         Arc::new(scope)
     }

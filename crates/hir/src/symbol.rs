@@ -165,9 +165,6 @@ pub enum DefKind {
     Interface,
     Package,
     Program,
-    Class,
-    Covergroup,
-    Checker,
     Udp,
     Config,
     Library,
@@ -177,8 +174,6 @@ pub enum DefKind {
     SubroutinePort,
     NonAnsiPort,
     Typedef,
-    Enum,
-    Struct,
     Net,
     Variable,
     Param,
@@ -186,12 +181,6 @@ pub enum DefKind {
     Genvar,
     Specparam,
     Instance,
-    ClassField,
-    Method,
-    Modport,
-    ClockingBlock,
-    Sequence,
-    Property,
     Stmt,
 }
 
@@ -200,27 +189,18 @@ impl DefKind {
         match self {
             DefKind::Module => SymbolKind::Module,
             DefKind::Interface => SymbolKind::Interface,
-            DefKind::Package
-            | DefKind::Program
-            | DefKind::Class
-            | DefKind::Covergroup
-            | DefKind::Checker
-            | DefKind::Modport
-            | DefKind::ClockingBlock
-            | DefKind::Sequence
-            | DefKind::Property => SymbolKind::Unknown,
+            DefKind::Package | DefKind::Program => SymbolKind::Unknown,
             DefKind::Udp => SymbolKind::Primitive,
             DefKind::Config => SymbolKind::Config,
             DefKind::Library => SymbolKind::Library,
             DefKind::Block => SymbolKind::Block,
             DefKind::GenerateBlock => SymbolKind::Generate,
-            DefKind::Subroutine | DefKind::Method => SymbolKind::Fn,
+            DefKind::Subroutine => SymbolKind::Fn,
             DefKind::NonAnsiPort => SymbolKind::NonAnsiPortLabel,
             DefKind::SubroutinePort | DefKind::Port => SymbolKind::PortDecl,
-            DefKind::Typedef | DefKind::Enum => SymbolKind::Typedef,
-            DefKind::Struct => SymbolKind::Struct,
+            DefKind::Typedef => SymbolKind::Typedef,
             DefKind::Net => SymbolKind::NetDecl,
-            DefKind::Variable | DefKind::ClassField => SymbolKind::DataDecl,
+            DefKind::Variable => SymbolKind::DataDecl,
             DefKind::Param => SymbolKind::ParamDecl,
             DefKind::Genvar => SymbolKind::Genvar,
             DefKind::Specparam => SymbolKind::Specparam,
@@ -235,10 +215,7 @@ impl DefKind {
             | DefKind::Interface
             | DefKind::Package
             | DefKind::Program
-            | DefKind::Class
-            | DefKind::Typedef
-            | DefKind::Enum
-            | DefKind::Struct => NameContext::Type,
+            | DefKind::Typedef => NameContext::Type,
             _ => NameContext::Value,
         }
     }
