@@ -100,6 +100,30 @@ impl SearchScope {
                     Self::all(db)
                 }
             }
+            ScopeId::ClockingBlock(clocking_block_id) => {
+                let def_id = DefId::new(db, clocking_block_id);
+                if let Some(InFile { file_id, value: range }) = def_id.range(db) {
+                    Self::single_range(file_id.file_id(), range)
+                } else {
+                    Self::all(db)
+                }
+            }
+            ScopeId::Checker(checker_id) => {
+                let def_id = DefId::new(db, checker_id.as_in_container());
+                if let Some(InFile { file_id, value: range }) = def_id.range(db) {
+                    Self::single_range(file_id.file_id(), range)
+                } else {
+                    Self::all(db)
+                }
+            }
+            ScopeId::Covergroup(covergroup_id) => {
+                let def_id = DefId::new(db, covergroup_id.as_in_container());
+                if let Some(InFile { file_id, value: range }) = def_id.range(db) {
+                    Self::single_range(file_id.file_id(), range)
+                } else {
+                    Self::all(db)
+                }
+            }
         }
     }
 
