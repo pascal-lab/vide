@@ -388,14 +388,12 @@ fn normalize_data_ty_inner(
     seen: &mut FxHashSet<InContainer<TypedefId>>,
 ) -> TyResult {
     match data_ty {
-        DataTy::Builtin(builtin) => {
-            match db.lookup_intern_ty(builtin) {
-                BuiltinDataTy::Void => TyResult::new(Ty::Void),
-                BuiltinDataTy::Event => TyResult::new(Ty::Event),
-                BuiltinDataTy::Chandle => TyResult::new(Ty::Chandle),
-                _ => TyResult::new(Ty::Builtin(BuiltinTy::Data { id: builtin, container })),
-            }
-        }
+        DataTy::Builtin(builtin) => match db.lookup_intern_ty(builtin) {
+            BuiltinDataTy::Void => TyResult::new(Ty::Void),
+            BuiltinDataTy::Event => TyResult::new(Ty::Event),
+            BuiltinDataTy::Chandle => TyResult::new(Ty::Chandle),
+            _ => TyResult::new(Ty::Builtin(BuiltinTy::Data { id: builtin, container })),
+        },
         DataTy::Struct(struct_id) => match struct_kind(db, struct_id) {
             Some(StructKind::Union) => owner
                 .map(Ty::Union)
@@ -403,10 +401,9 @@ fn normalize_data_ty_inner(
                 .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
             Some(StructKind::Struct) | None => TyResult::new(Ty::Struct(struct_id)),
         },
-        DataTy::Enum => owner
-            .map(Ty::Enum)
-            .map(TyResult::new)
-            .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
+        DataTy::Enum => {
+            owner.map(Ty::Enum).map(TyResult::new).unwrap_or_else(|| TyResult::new(Ty::Unknown))
+        }
         DataTy::Named(named) => type_of_named_data_ty(db, container, named, seen),
     }
 }
@@ -850,8 +847,8 @@ mod tests {
             },
             source_root::{SourceRoot, SourceRootId},
         },
-        display::HirDisplay,
         db::{HirDbStorage, InternDbStorage},
+        display::HirDisplay,
         hir_def::module::ModuleId,
         symbol::{DefLoc, NameContext},
     };

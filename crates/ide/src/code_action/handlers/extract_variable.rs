@@ -1,11 +1,6 @@
 use std::ops::Range;
 
-use hir::{
-    base_db::source_db::SourceDb,
-    db::HirDb,
-    display::HirDisplay,
-    type_infer::Ty,
-};
+use hir::{base_db::source_db::SourceDb, db::HirDb, display::HirDisplay, type_infer::Ty};
 use syntax::{
     SyntaxAncestors, SyntaxKind, TokenKind, WalkEvent,
     ast::{self, AstNode},

@@ -137,7 +137,11 @@ impl HirDisplay for Ty {
             }
             Ty::Module(module_id) => {
                 let module = f.db.module(*module_id);
-                if let Some(name) = &module.name { f.write_str(name) } else { f.write_str("module") }
+                if let Some(name) = &module.name {
+                    f.write_str(name)
+                } else {
+                    f.write_str("module")
+                }
             }
             Ty::GenerateBlock(generate_block_id) => {
                 let block = f.db.generate_block(*generate_block_id);
