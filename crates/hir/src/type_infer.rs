@@ -43,19 +43,10 @@ pub enum Ty {
     Dynamic(Box<Ty>),
     Event,
     Chandle,
-    ClassHandle { def: DefId, spec_args: Vec<SpecArg> },
-    VirtualInterface { def: DefId, modport: Option<DefId> },
     Alias { typedef: InContainer<TypedefId>, target: Box<Ty> },
     Module(ModuleId),
     GenerateBlock(GenerateBlockId),
     Block(crate::hir_def::block::BlockId),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SpecArg {
-    Default,
-    Value(ExprId),
-    Type(Ty),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -251,9 +242,7 @@ pub fn members_of_ty(db: &dyn HirDb, ty: &Ty) -> Vec<TyMember> {
         | Ty::Assoc { .. }
         | Ty::Dynamic(_)
         | Ty::Event
-        | Ty::Chandle
-        | Ty::ClassHandle { .. }
-        | Ty::VirtualInterface { .. } => Vec::new(),
+        | Ty::Chandle => Vec::new(),
     }
 }
 
@@ -285,8 +274,6 @@ pub fn type_class(db: &dyn HirDb, ty: &Ty) -> Option<TyClass> {
         | Ty::Dynamic(_)
         | Ty::Event
         | Ty::Chandle
-        | Ty::ClassHandle { .. }
-        | Ty::VirtualInterface { .. }
         | Ty::Module(_)
         | Ty::GenerateBlock(_)
         | Ty::Block(_) => None,
@@ -359,8 +346,6 @@ pub fn packed_bit_width(db: &dyn HirDb, ty: &Ty) -> Option<u64> {
         | Ty::Dynamic(_)
         | Ty::Event
         | Ty::Chandle
-        | Ty::ClassHandle { .. }
-        | Ty::VirtualInterface { .. }
         | Ty::Module(_)
         | Ty::GenerateBlock(_)
         | Ty::Block(_) => None,
