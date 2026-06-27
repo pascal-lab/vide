@@ -460,4 +460,36 @@ endmodule
             DefKind::Net
         );
     }
+
+    #[test]
+    fn resolve_path_descends_interface_instances_to_modports() {
+        let db = db_with_root_text(
+            r#"
+interface bus_if;
+  wire clk;
+  modport host(input clk);
+endinterface
+
+module top;
+  bus_if u_if();
+endmodule
+"#,
+        );
+
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+
+        let res = resolve_path(&db, top.into(), &path(&["u_if", "host"]), NameContext::Value)
+            .expect("interface instance modport should resolve");
+
+        let def = res.primary_def_id().expect("modport should produce a definition");
+        assert_eq!(def.name(&db).as_deref(), Some("host"));
+        assert_eq!(
+            resolved_kind(&db, top.into(), &["u_if", "clk"], NameContext::Value),
+            DefKind::Net
+        );
+    }
 }

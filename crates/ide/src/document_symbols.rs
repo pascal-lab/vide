@@ -327,6 +327,13 @@ fn collect_module_items(
             ModuleItem::SubroutineId(subroutine_id) => {
                 build_subroutine(collector, subroutine_id, module, src_map)
             }
+            ModuleItem::ModportId(modport_id) => {
+                let modport = module.get(modport_id);
+                if let Some(src) = src_map.get(modport_id) {
+                    collector.push_symbol(&modport.name, src);
+                    collector.pop();
+                }
+            }
             ModuleItem::StructId(struct_id) => build_struct(collector, struct_id, module, src_map),
         }
     }

@@ -64,6 +64,7 @@ impl DefId {
             DefLoc::Decl(InContainer { cont_id, .. }) => cont_id,
             DefLoc::Typedef(InContainer { cont_id, .. }) => cont_id,
             DefLoc::Instance(InModule { module_id, .. }) => module_id.into(),
+            DefLoc::Modport(InModule { module_id, .. }) => module_id.into(),
             DefLoc::Stmt(InContainer { cont_id, .. }) => cont_id,
         }
     }
@@ -106,6 +107,7 @@ impl DefId {
             }
             DefLoc::Typedef(_) => DefKind::Typedef,
             DefLoc::Instance(_) => DefKind::Instance,
+            DefLoc::Modport(_) => DefKind::Modport,
             DefLoc::Stmt(_) => DefKind::Stmt,
         }
     }
@@ -146,6 +148,9 @@ impl DefId {
                 cont_id.to_container(db).get(value).name.clone()
             }
             DefLoc::Instance(InModule { value, module_id }) => {
+                module_id.to_container(db).get(value).name.clone()
+            }
+            DefLoc::Modport(InModule { value, module_id }) => {
                 module_id.to_container(db).get(value).name.clone()
             }
             DefLoc::Stmt(InContainer { value, cont_id }) => {
@@ -220,6 +225,10 @@ impl DefId {
                 let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(module_id.file_id, range))
             }
+            DefLoc::Modport(InModule { value, module_id }) => {
+                let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
+                Some(InFile::new(module_id.file_id, range))
+            }
             DefLoc::Stmt(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db).into(), range))
@@ -287,6 +296,10 @@ impl DefId {
                 InFile::new(cont_id.file_id(db).into(), range)
             }
             DefLoc::Instance(InModule { value, module_id }) => {
+                let range = module_id.to_container_src_map(db).get(value)?.range();
+                InFile::new(module_id.file_id, range)
+            }
+            DefLoc::Modport(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(module_id.file_id, range)
             }

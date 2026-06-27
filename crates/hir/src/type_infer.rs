@@ -45,6 +45,7 @@ pub enum Ty {
     Chandle,
     Alias { typedef: InContainer<TypedefId>, target: Box<Ty> },
     Module(ModuleId),
+    VirtualInterface { def: DefId, modport: Option<DefId> },
     GenerateBlock(GenerateBlockId),
     Block(crate::hir_def::block::BlockId),
 }
@@ -157,6 +158,7 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
             .as_module(db)
             .map(|module_id| TyResult::new(Ty::Module(module_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
+        DefKind::Interface => TyResult::new(Ty::VirtualInterface { def: def_id, modport: None }),
         DefKind::Port
         | DefKind::Variable
         | DefKind::Net
@@ -177,7 +179,26 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
         DefKind::Instance => def_id
             .as_instance(db)
             .and_then(|instance| instance_target_module_id(db, instance.module_id, instance.value))
-            .map(|module_id| TyResult::new(Ty::Module(module_id)))
+            .map(|module_id| {
+                let module_kind = db.hir_file(module_id.file_id).get(module_id.value).kind;
+                if module_kind == ModuleKind::Interface {
+                    TyResult::new(Ty::VirtualInterface {
+                        def: DefId::new(db, module_id),
+                        modport: None,
+                    })
+                } else {
+                    TyResult::new(Ty::Module(module_id))
+                }
+            })
+            .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
+        DefKind::Modport => def_id
+            .as_modport(db)
+            .map(|modport| {
+                TyResult::new(Ty::VirtualInterface {
+                    def: DefId::new(db, modport.module_id),
+                    modport: Some(def_id),
+                })
+            })
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::GenerateBlock => def_id
             .as_generate_block(db)
@@ -187,8 +208,7 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
             .as_block(db)
             .map(|block_id| TyResult::new(Ty::Block(block_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::Interface
-        | DefKind::Program
+        DefKind::Program
         | DefKind::Udp
         | DefKind::Config
         | DefKind::Library
@@ -231,6 +251,9 @@ pub fn members_of_ty(db: &dyn HirDb, ty: &Ty) -> Vec<TyMember> {
         Ty::Struct(struct_id) => struct_members(db, *struct_id),
         Ty::Union(def_id) => union_members(db, *def_id),
         Ty::Module(module_id) => module_members(db, *module_id),
+        Ty::VirtualInterface { def, .. } => {
+            def.as_module(db).map(|module_id| module_members(db, module_id)).unwrap_or_default()
+        }
         Ty::GenerateBlock(generate_block_id) => generate_block_members(db, *generate_block_id),
         Ty::Block(block_id) => block_members(db, *block_id),
         Ty::Unknown
@@ -275,6 +298,7 @@ pub fn type_class(db: &dyn HirDb, ty: &Ty) -> Option<TyClass> {
         | Ty::Event
         | Ty::Chandle
         | Ty::Module(_)
+        | Ty::VirtualInterface { .. }
         | Ty::GenerateBlock(_)
         | Ty::Block(_) => None,
     }
@@ -347,6 +371,7 @@ pub fn packed_bit_width(db: &dyn HirDb, ty: &Ty) -> Option<u64> {
         | Ty::Event
         | Ty::Chandle
         | Ty::Module(_)
+        | Ty::VirtualInterface { .. }
         | Ty::GenerateBlock(_)
         | Ty::Block(_) => None,
     }
@@ -911,6 +936,18 @@ mod tests {
         db.type_of_decl(decl).ty.clone()
     }
 
+    fn path_ty(db: &TestDb, module_id: ModuleId, segments: &[&str]) -> Ty {
+        let path = segments.iter().map(|segment| ident(segment)).collect::<Vec<_>>();
+        let res = crate::semantics::pathres::resolve_path(
+            db,
+            module_id.into(),
+            &path,
+            NameContext::Value,
+        )
+        .unwrap_or_else(|| panic!("path {segments:?} should resolve"));
+        db.type_of_path_resolution(res).ty.clone()
+    }
+
     fn typedef_ty(db: &TestDb, module_id: ModuleId, name: &str) -> Ty {
         let res = resolve_name(db, module_id.into(), &ident(name), NameContext::Type)
             .expect("typedef should resolve");
@@ -1029,6 +1066,32 @@ endmodule
                 "event",
                 "chandle",
             ]
+        );
+    }
+
+    #[test]
+    fn virtual_interface_type_display_covers_instance_and_modport() {
+        let db = db_with_root_text(
+            r#"
+interface bus_if;
+  wire clk;
+  modport host(input clk);
+endinterface
+
+module top;
+  bus_if u_if();
+endmodule
+"#,
+        );
+        let top = module_id(&db, "top");
+
+        assert_eq!(
+            path_ty(&db, top, &["u_if"]).display_source(&db).unwrap(),
+            "virtual interface bus_if"
+        );
+        assert_eq!(
+            path_ty(&db, top, &["u_if", "host"]).display_source(&db).unwrap(),
+            "virtual interface bus_if.host"
         );
     }
 }
