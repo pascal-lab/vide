@@ -2775,6 +2775,51 @@ endmodule
 }
 
 #[test]
+fn systemverilog_clocking_block_supports_navigation_hover_and_outline() {
+    let text = r#"
+module /*marker:module_def*/m(input clk, input a);
+  clocking /*marker:clocking_def*/cb @(posedge clk);
+    input #1ps a;
+  endclocking
+
+  default clocking /*marker:clocking_ref*/cb;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let clocking_def_range = marked_range(&markers, "clocking_def", TextSize::of("cb"));
+    let nav = analysis
+        .goto_definition(position(file_id, &markers, "clocking_ref"))
+        .unwrap()
+        .expect("clocking block definition expected");
+    assert!(
+        nav.info.iter().any(|target| target.focus_range == Some(clocking_def_range)),
+        "clocking block reference should navigate to definition: {nav:?}"
+    );
+
+    let hover = analysis
+        .hover(
+            position(file_id, &markers, "clocking_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("clocking block hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_clocking_block_supports_navigation_hover_and_outline__hover",
+        hover.info.as_str(),
+    );
+
+    let symbols = analysis.document_symbol(file_id).unwrap();
+    let mut lines = Vec::new();
+    collect_symbol_lines(&symbols, 0, &mut lines);
+    assert_snapshot!(
+        "systemverilog_clocking_block_supports_navigation_hover_and_outline__outline",
+        lines.join("\n")
+    );
+}
+
+#[test]
 fn verilog_2005_hover_uses_relative_source_label_for_absolute_workspace_path() {
     let dir = TestDir::new("hover-source-label");
     let rtl_dir = dir.path().join("rtl");

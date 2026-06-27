@@ -1,3 +1,4 @@
+use clocking::{ClockingBlockDef, ClockingBlockId, ClockingBlockSrc, LowerClocking};
 use continuous_assgin::{
     ContAssign, ContAssignId, ContAssignSrc, LowerContAssign, impl_lower_cont_assign,
 };
@@ -64,6 +65,7 @@ use crate::{
     },
 };
 
+pub mod clocking;
 pub mod continuous_assgin;
 pub mod defparam;
 pub mod generate;
@@ -94,6 +96,7 @@ define_container! {
         structs: [StructDef],
         subroutines: [Subroutine],
         modports: [ModportDef],
+        clocking_blocks: [ClockingBlockDef],
         package_imports: [PackageImport],
 
         instantiations: [Instantiation],
@@ -135,6 +138,7 @@ define_container! {
         struct_srcs: [StructDef | StructSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
         modport_srcs: [ModportDef | ModportSrc],
+        clocking_block_srcs: [ClockingBlockDef | ClockingBlockSrc],
 
         instantiation_srcs: [Instantiation | InstantiationSrc],
         inst_param_assign_srcs: [ParamAssign | ParamAssignSrc],
@@ -284,6 +288,7 @@ impl ModuleSourceMap {
             ModuleItem::TypedefId(idx) => self.get(*idx)?.ptr(),
             ModuleItem::SubroutineId(idx) => self.get(*idx)?.node,
             ModuleItem::ModportId(idx) => self.get(*idx)?.node,
+            ModuleItem::ClockingBlockId(idx) => self.get(*idx)?.node,
         })
     }
 }
@@ -304,6 +309,7 @@ define_enum_deriving_from! {
         TypedefId(TypedefId),
         SubroutineId(LocalSubroutineId),
         ModportId(ModportId),
+        ClockingBlockId(ClockingBlockId),
     }
 }
 
@@ -567,10 +573,10 @@ impl LowerModuleCtx<'_> {
                 | gen_item @ LoopGenerate(_) => self.lower_direct_generate_region(gen_item).into(),
 
                 // Timing and clocking
-                TimeUnitsDeclaration(_)
-                | ClockingDeclaration(_)
-                | DefaultClockingReference(_)
-                | ClockingItem(_) => continue,
+                TimeUnitsDeclaration(_) | DefaultClockingReference(_) | ClockingItem(_) => {
+                    continue;
+                }
+                ClockingDeclaration(clocking) => self.lower_clocking_declaration(clocking).into(),
 
                 // Assertions and properties
                 PropertyDeclaration(_)

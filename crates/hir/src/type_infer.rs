@@ -213,6 +213,11 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
         | DefKind::Library
         | DefKind::Subroutine
         | DefKind::NonAnsiPort
+        | DefKind::ClockingBlock
+        | DefKind::Checker
+        | DefKind::Covergroup
+        | DefKind::Coverpoint
+        | DefKind::Cross
         | DefKind::Stmt => TyResult::new(Ty::Unknown),
     }
 }
