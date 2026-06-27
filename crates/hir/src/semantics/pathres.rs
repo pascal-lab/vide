@@ -118,7 +118,7 @@ fn resolve_top_level_module_root(
     // segment value fallback: `top` alone remains a type-space module name.
     let type_res = resolve_name(db, cont_id, ident, NameContext::Type)?;
     let module_defs =
-        type_res.def_ids().iter().copied().filter(|def_id| def_id.kind(db) == DefKind::Module);
+        type_res.def_ids().iter().copied().filter(|def_id| def_id.kind(db).is_instantiable_def());
     PathResolution::from_def_ids(module_defs)
 }
 
@@ -147,7 +147,7 @@ fn resolve_child_name(
 
 pub fn descend_scope(db: &dyn HirDb, def_id: DefId) -> Option<ScopeId> {
     match def_id.kind(db) {
-        DefKind::Module => def_id.as_module(db).map(Into::into),
+        kind if kind.is_instantiable_def() => def_id.as_module(db).map(Into::into),
         DefKind::Instance => {
             let instance = def_id.as_instance(db)?;
             instance_target_module_id(db, instance.module_id, instance.value).map(Into::into)
@@ -458,6 +458,48 @@ endmodule
                 NameContext::Value,
             ),
             DefKind::Net
+        );
+    }
+
+    #[test]
+    fn resolve_path_descends_interface_instances_to_modports() {
+        let db = db_with_root_text(
+            r#"
+interface bus_if;
+  wire clk;
+  modport host(input clk);
+endinterface
+
+module top;
+  bus_if u_if();
+endmodule
+"#,
+        );
+
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+
+        let res = resolve_path(&db, top.into(), &path(&["u_if", "host"]), NameContext::Value)
+            .expect("interface instance modport should resolve");
+
+        let def = res.primary_def_id().expect("modport should produce a definition");
+        assert_eq!(def.name(&db).as_deref(), Some("host"));
+        assert_eq!(def.kind(&db), DefKind::Modport);
+        assert_eq!(
+            resolved_kind(&db, top.into(), &["u_if", "clk"], NameContext::Value),
+            DefKind::Net
+        );
+        assert_eq!(
+            resolved_kind(
+                &db,
+                ScopeId::File(HirFileId::File(TOP)),
+                &["top", "u_if", "host"],
+                NameContext::Value,
+            ),
+            DefKind::Modport
         );
     }
 }

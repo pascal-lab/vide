@@ -130,6 +130,19 @@ impl HirDisplay for Ty {
                     f.write_str("module")
                 }
             }
+            Ty::VirtualInterface { def, modport } => {
+                f.write_str("virtual interface ")?;
+                if let Some(name) = def.name(f.db) {
+                    f.write_str(&name)?;
+                } else {
+                    f.write_str("interface")?;
+                }
+                if let Some(modport_name) = modport.and_then(|modport| modport.name(f.db)) {
+                    f.write_str(".")?;
+                    f.write_str(&modport_name)?;
+                }
+                Ok(())
+            }
             Ty::GenerateBlock(generate_block_id) => {
                 let block = f.db.generate_block(*generate_block_id);
                 if let Some(name) = &block.name {

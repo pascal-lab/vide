@@ -185,6 +185,10 @@ impl NameScope {
             scope.insert_value_opt(&subroutine.name, def_id(db, subroutine_id));
         }
 
+        for (modport_id, modport) in module.modports.iter() {
+            scope.insert_value_opt(&modport.name, def_id(db, InModule::new(module_id, modport_id)));
+        }
+
         insert_decls_and_typedefs(
             &mut scope,
             db,
