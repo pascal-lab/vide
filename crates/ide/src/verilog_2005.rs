@@ -662,7 +662,7 @@ endmodule
     let clean_text = normalize_fixture_text(text);
     let offset = TextSize::from(clean_text.find("input a").expect("top port") as u32 + 6);
     let position = FilePosition { file_id, offset };
-    let config = RenameConfig::workspace(ScopeVisibility::Private);
+    let config = RenameConfig::workspace(ScopeVisibility::Public);
 
     let info = analysis
         .rename_expansion_info(position, config.clone())
@@ -2775,6 +2775,199 @@ endmodule
 }
 
 #[test]
+fn systemverilog_clocking_block_supports_navigation_hover_and_outline() {
+    let text = r#"
+module /*marker:module_def*/m(input clk, input a);
+  clocking /*marker:clocking_def*/cb @(posedge clk);
+    input #1ps a;
+  endclocking
+
+  default clocking /*marker:clocking_ref*/cb;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let clocking_def_range = marked_range(&markers, "clocking_def", TextSize::of("cb"));
+    let nav = analysis
+        .goto_definition(position(file_id, &markers, "clocking_ref"))
+        .unwrap()
+        .expect("clocking block definition expected");
+    assert!(
+        nav.info.iter().any(|target| target.focus_range == Some(clocking_def_range)),
+        "clocking block reference should navigate to definition: {nav:?}"
+    );
+
+    let hover = analysis
+        .hover(
+            position(file_id, &markers, "clocking_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("clocking block hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_clocking_block_supports_navigation_hover_and_outline__hover",
+        hover.info.as_str(),
+    );
+
+    let symbols = analysis.document_symbol(file_id).unwrap();
+    let mut lines = Vec::new();
+    collect_symbol_lines(&symbols, 0, &mut lines);
+    assert_snapshot!(
+        "systemverilog_clocking_block_supports_navigation_hover_and_outline__outline",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn systemverilog_checker_supports_instantiation_navigation_hover_and_outline() {
+    let text = r#"
+checker /*marker:checker_def*/c(input logic clk);
+endchecker
+
+module top(input clk);
+  /*marker:checker_ref*/c /*marker:inst_ref*/u(clk);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let checker_def_range = marked_range(&markers, "checker_def", TextSize::of("c"));
+    let nav = analysis
+        .goto_definition(position(file_id, &markers, "checker_ref"))
+        .unwrap()
+        .expect("checker definition expected");
+    assert!(
+        nav.info.iter().any(|target| target.focus_range == Some(checker_def_range)),
+        "checker instantiation should navigate to checker declaration: {nav:?}"
+    );
+
+    let checker_hover = analysis
+        .hover(
+            position(file_id, &markers, "checker_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("checker hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_checker_supports_instantiation_navigation_hover_and_outline__checker",
+        checker_hover.info.as_str(),
+    );
+
+    let instance_hover = analysis
+        .hover(
+            position(file_id, &markers, "inst_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("checker instance hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_checker_supports_instantiation_navigation_hover_and_outline__instance",
+        instance_hover.info.as_str(),
+    );
+
+    let symbols = analysis.document_symbol(file_id).unwrap();
+    let mut lines = Vec::new();
+    collect_symbol_lines(&symbols, 0, &mut lines);
+    assert_snapshot!(
+        "systemverilog_checker_supports_instantiation_navigation_hover_and_outline__outline",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn systemverilog_covergroup_supports_items_instantiation_hover_and_outline() {
+    let text = r#"
+module top(input clk, input a);
+  covergroup /*marker:covergroup_def*/cg @(posedge clk);
+    /*marker:coverpoint_def*/cp: coverpoint a;
+    /*marker:cross_def*/cx: cross /*marker:coverpoint_ref*/cp, cp;
+  endgroup
+
+  /*marker:covergroup_ref*/cg /*marker:inst_ref*/u();
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let covergroup_def_range = marked_range(&markers, "covergroup_def", TextSize::of("cg"));
+    let covergroup_nav = analysis
+        .goto_definition(position(file_id, &markers, "covergroup_ref"))
+        .unwrap()
+        .expect("covergroup definition expected");
+    assert!(
+        covergroup_nav.info.iter().any(|target| target.focus_range == Some(covergroup_def_range)),
+        "covergroup instantiation should navigate to covergroup declaration: {covergroup_nav:?}"
+    );
+
+    let coverpoint_def_range = marked_range(&markers, "coverpoint_def", TextSize::of("cp"));
+    let coverpoint_nav = analysis
+        .goto_definition(position(file_id, &markers, "coverpoint_ref"))
+        .unwrap()
+        .expect("coverpoint definition expected");
+    assert!(
+        coverpoint_nav.info.iter().any(|target| target.focus_range == Some(coverpoint_def_range)),
+        "coverpoint reference should navigate to coverpoint label: {coverpoint_nav:?}"
+    );
+
+    let covergroup_hover = analysis
+        .hover(
+            position(file_id, &markers, "covergroup_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("covergroup hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_covergroup_supports_items_instantiation_hover_and_outline__covergroup",
+        covergroup_hover.info.as_str(),
+    );
+
+    let coverpoint_hover = analysis
+        .hover(
+            position(file_id, &markers, "coverpoint_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("coverpoint hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_covergroup_supports_items_instantiation_hover_and_outline__coverpoint",
+        coverpoint_hover.info.as_str(),
+    );
+
+    let cross_hover = analysis
+        .hover(
+            position(file_id, &markers, "cross_def"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("cross hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_covergroup_supports_items_instantiation_hover_and_outline__cross",
+        cross_hover.info.as_str(),
+    );
+
+    let instance_hover = analysis
+        .hover(
+            position(file_id, &markers, "inst_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("covergroup instance hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_covergroup_supports_items_instantiation_hover_and_outline__instance",
+        instance_hover.info.as_str(),
+    );
+
+    let symbols = analysis.document_symbol(file_id).unwrap();
+    let mut lines = Vec::new();
+    collect_symbol_lines(&symbols, 0, &mut lines);
+    assert_snapshot!(
+        "systemverilog_covergroup_supports_items_instantiation_hover_and_outline__outline",
+        lines.join("\n")
+    );
+}
+
+#[test]
 fn verilog_2005_hover_uses_relative_source_label_for_absolute_workspace_path() {
     let dir = TestDir::new("hover-source-label");
     let rtl_dir = dir.path().join("rtl");
@@ -2899,6 +3092,117 @@ endmodule
         nav.info.iter().any(|target| target.name.as_deref() == Some("mux2X1")),
         "module reference should still resolve to the declaration: {nav:?}"
     );
+}
+
+#[test]
+fn systemverilog_program_definition_names_support_navigation_and_hover() {
+    let text = r#"
+program /*marker:program_def*/p;
+endprogram
+
+module top;
+  /*marker:program_ref*/p /*marker:inst_ref*/u_p();
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let program_def_range = marked_range(&markers, "program_def", TextSize::of("p"));
+    let nav = analysis
+        .goto_definition(position(file_id, &markers, "program_ref"))
+        .unwrap()
+        .expect("program reference definition expected");
+    assert!(
+        nav.info.iter().any(|target| target.focus_range == Some(program_def_range)),
+        "program instantiation should navigate to the program declaration: {nav:?}"
+    );
+
+    let hover = analysis
+        .hover(
+            position(file_id, &markers, "inst_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("program instance hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_program_definition_names_support_navigation_and_hover",
+        hover.info.as_str(),
+    );
+}
+
+#[test]
+fn systemverilog_package_scoped_names_support_ide_features() {
+    let text = r#"
+package /*marker:pkg_def*/pkg;
+  typedef logic /*marker:type_def*/exported_t;
+  function int /*marker:func_def*/make();
+    return 1;
+  endfunction
+endpackage
+
+module top;
+  import /*marker:pkg_import*/pkg::/*marker:type_import*/exported_t;
+  typedef pkg::/*marker:completion*/ exported_t alias_t;
+  /*marker:type_use*/exported_t value;
+  initial value = /*marker:pkg_call*/pkg::/*marker:func_call*/make();
+endmodule
+"#;
+    let (host, file_id, clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let completion_items =
+        analysis.completions_with_trigger(position(file_id, &markers, "completion"), None).unwrap();
+    assert!(
+        completion_items.iter().any(|item| item.label == "exported_t"),
+        "package completion should include exported_t: {completion_items:?}"
+    );
+    assert!(
+        completion_items.iter().any(|item| item.label == "make"),
+        "package completion should include make: {completion_items:?}"
+    );
+
+    let type_def_range = marked_range(&markers, "type_def", TextSize::of("exported_t"));
+    let type_nav = analysis
+        .goto_definition(position(file_id, &markers, "type_import"))
+        .unwrap()
+        .expect("package-scoped type definition expected");
+    assert!(
+        type_nav.info.iter().any(|target| target.focus_range == Some(type_def_range)),
+        "pkg::exported_t should navigate to typedef: {type_nav:?}"
+    );
+
+    let func_def_range = marked_range(&markers, "func_def", TextSize::of("make"));
+    let func_nav = analysis
+        .goto_definition(position(file_id, &markers, "func_call"))
+        .unwrap()
+        .expect("package-scoped function definition expected");
+    assert!(
+        func_nav.info.iter().any(|target| target.focus_range == Some(func_def_range)),
+        "pkg::make should navigate to function: {func_nav:?}"
+    );
+
+    let package_hover = analysis
+        .hover(
+            position(file_id, &markers, "pkg_import"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("package import hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_package_scoped_names_support_ide_features__package_hover",
+        package_hover.info.as_str(),
+    );
+
+    let config = RenameConfig::workspace(ScopeVisibility::Public);
+    let rename = analysis
+        .rename(position(file_id, &markers, "func_call"), config, "renamed_make")
+        .unwrap()
+        .expect("package-scoped rename expected");
+    let edit = rename.text_edits.get(&file_id).expect("rename should edit the current file");
+    let mut renamed = clean_text;
+    edit.apply(&mut renamed);
+    assert!(renamed.contains("function int renamed_make();"), "{renamed}");
+    assert!(renamed.contains("initial value = pkg::renamed_make();"), "{renamed}");
 }
 
 #[test]

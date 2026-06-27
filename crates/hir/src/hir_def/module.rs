@@ -1,3 +1,4 @@
+use clocking::{ClockingBlockDef, ClockingBlockId, ClockingBlockSrc, LowerClocking};
 use continuous_assgin::{
     ContAssign, ContAssignId, ContAssignSrc, LowerContAssign, impl_lower_cont_assign,
 };
@@ -33,6 +34,11 @@ use super::{
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_idx_and_src,
     block::{BlockInfo, BlockSrc, LocalBlockId},
+    checker::{CheckerDef, CheckerId, CheckerSrc, LowerChecker},
+    covergroup::{
+        CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointSrc, CrossDef,
+        CrossSrc, lower_covergroup_decl, lower_coverpoint, lower_cross,
+    },
     declaration::{
         Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, ParamDeclKind,
         impl_lower_declaration,
@@ -64,6 +70,7 @@ use crate::{
     },
 };
 
+pub mod clocking;
 pub mod continuous_assgin;
 pub mod defparam;
 pub mod generate;
@@ -94,6 +101,11 @@ define_container! {
         structs: [StructDef],
         subroutines: [Subroutine],
         modports: [ModportDef],
+        clocking_blocks: [ClockingBlockDef],
+        checkers: [CheckerDef],
+        covergroups: [CovergroupDef],
+        coverpoints: [CoverpointDef],
+        crosses: [CrossDef],
         package_imports: [PackageImport],
 
         instantiations: [Instantiation],
@@ -135,6 +147,11 @@ define_container! {
         struct_srcs: [StructDef | StructSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
         modport_srcs: [ModportDef | ModportSrc],
+        clocking_block_srcs: [ClockingBlockDef | ClockingBlockSrc],
+        checker_srcs: [CheckerDef | CheckerSrc],
+        covergroup_srcs: [CovergroupDef | CovergroupSrc],
+        coverpoint_srcs: [CoverpointDef | CoverpointSrc],
+        cross_srcs: [CrossDef | CrossSrc],
 
         instantiation_srcs: [Instantiation | InstantiationSrc],
         inst_param_assign_srcs: [ParamAssign | ParamAssignSrc],
@@ -284,6 +301,9 @@ impl ModuleSourceMap {
             ModuleItem::TypedefId(idx) => self.get(*idx)?.ptr(),
             ModuleItem::SubroutineId(idx) => self.get(*idx)?.node,
             ModuleItem::ModportId(idx) => self.get(*idx)?.node,
+            ModuleItem::ClockingBlockId(idx) => self.get(*idx)?.node,
+            ModuleItem::CheckerId(idx) => self.get(*idx)?.node,
+            ModuleItem::CovergroupId(idx) => self.get(*idx)?.node,
         })
     }
 }
@@ -304,6 +324,9 @@ define_enum_deriving_from! {
         TypedefId(TypedefId),
         SubroutineId(LocalSubroutineId),
         ModportId(ModportId),
+        ClockingBlockId(ClockingBlockId),
+        CheckerId(CheckerId),
+        CovergroupId(CovergroupId),
     }
 }
 
@@ -456,6 +479,43 @@ impl LowerModuleCtx<'_> {
         Some(subroutine_id)
     }
 
+    fn lower_covergroup_decl(
+        &mut self,
+        covergroup_decl: ast::CovergroupDeclaration,
+    ) -> CovergroupId {
+        let mut covergroup = lower_covergroup_decl(covergroup_decl);
+
+        for member in covergroup_decl.members().children() {
+            match member {
+                ast::Member::Coverpoint(coverpoint_ast) => {
+                    let coverpoint = lower_coverpoint(coverpoint_ast);
+                    let coverpoint_id = alloc_idx_and_src! {
+                        self.file_id;
+                        coverpoint => self.module.coverpoints,
+                        coverpoint_ast => self.module_source_map.coverpoint_srcs,
+                    };
+                    covergroup.coverpoints.push(coverpoint_id);
+                }
+                ast::Member::CoverCross(cross_ast) => {
+                    let cross = lower_cross(cross_ast);
+                    let cross_id = alloc_idx_and_src! {
+                        self.file_id;
+                        cross => self.module.crosses,
+                        cross_ast => self.module_source_map.cross_srcs,
+                    };
+                    covergroup.crosses.push(cross_id);
+                }
+                _ => {}
+            }
+        }
+
+        alloc_idx_and_src! {
+            self.file_id;
+            covergroup => self.module.covergroups,
+            covergroup_decl => self.module_source_map.covergroup_srcs,
+        }
+    }
+
     pub(crate) fn lower_module_decl(&mut self, decl: ast::ModuleDeclaration) {
         let header = decl.header();
         let has_param_ports = header.parameters().is_some();
@@ -530,7 +590,9 @@ impl LowerModuleCtx<'_> {
                 PrimitiveInstantiation(instantiation) => {
                     self.instantiation_ctx().lower_primitive_instantiation(instantiation).into()
                 }
-                CheckerInstantiation(_) => continue,
+                CheckerInstantiation(instantiation) => {
+                    self.instantiation_ctx().lower_checker_instantiation(instantiation).into()
+                }
 
                 // Subroutines
                 FunctionDeclaration(fn_decl) => match self.lower_subroutine_decl(fn_decl) {
@@ -567,10 +629,10 @@ impl LowerModuleCtx<'_> {
                 | gen_item @ LoopGenerate(_) => self.lower_direct_generate_region(gen_item).into(),
 
                 // Timing and clocking
-                TimeUnitsDeclaration(_)
-                | ClockingDeclaration(_)
-                | DefaultClockingReference(_)
-                | ClockingItem(_) => continue,
+                TimeUnitsDeclaration(_) | DefaultClockingReference(_) | ClockingItem(_) => {
+                    continue;
+                }
+                ClockingDeclaration(clocking) => self.lower_clocking_declaration(clocking).into(),
 
                 // Assertions and properties
                 PropertyDeclaration(_)
@@ -579,11 +641,8 @@ impl LowerModuleCtx<'_> {
                 | ConcurrentAssertionMember(_) => continue,
 
                 // Coverage
-                CovergroupDeclaration(_)
-                | Coverpoint(_)
-                | CoverCross(_)
-                | CoverageBins(_)
-                | BinsSelection(_)
+                CovergroupDeclaration(covergroup) => self.lower_covergroup_decl(covergroup).into(),
+                Coverpoint(_) | CoverCross(_) | CoverageBins(_) | BinsSelection(_)
                 | CoverageOption(_) => continue,
 
                 // Specify blocks
@@ -634,7 +693,8 @@ impl LowerModuleCtx<'_> {
                 | ClassMethodPrototype(_) => continue,
 
                 // Checker
-                CheckerDeclaration(_) | CheckerDataDeclaration(_) => continue,
+                CheckerDeclaration(checker_decl) => self.lower_checker_decl(checker_decl).into(),
+                CheckerDataDeclaration(_) => continue,
 
                 // Constraints
                 ConstraintDeclaration(_) | ConstraintPrototype(_) => continue,

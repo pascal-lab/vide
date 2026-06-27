@@ -76,6 +76,7 @@ impl Source2DefCtx<'_, '_> {
                 let subroutine = db.subroutine(subroutine_id.as_in_container());
                 resolve(subroutine.get(expr_id))
             }
+            ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
         }
     }
 
@@ -142,6 +143,7 @@ impl Source2DefCtx<'_, '_> {
             ScopeId::Subroutine(subroutine_id) => {
                 Some(self.db.subroutine(subroutine_id.as_in_container()).get(expr_id).clone())
             }
+            ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
         }
     }
 }

@@ -113,6 +113,24 @@ fn collect_container_names(
     match container_id {
         ScopeId::File(file_id) => collect_file_names(db, file_id, names),
         ScopeId::Module(module_id) => collect_module_names(db, module_id, names),
+        ScopeId::ClockingBlock(clocking_block_id) => {
+            let scope = db.clocking_block_scope(clocking_block_id);
+            for (ident, defs) in scope.iter_listing() {
+                collect_def_names(db, ident, defs, names);
+            }
+        }
+        ScopeId::Checker(checker_id) => {
+            let scope = db.checker_scope(checker_id.as_in_container());
+            for (ident, defs) in scope.iter_listing() {
+                collect_def_names(db, ident, defs, names);
+            }
+        }
+        ScopeId::Covergroup(covergroup_id) => {
+            let scope = db.covergroup_scope(covergroup_id.as_in_container());
+            for (ident, defs) in scope.iter_listing() {
+                collect_def_names(db, ident, defs, names);
+            }
+        }
         ScopeId::GenerateBlock(generate_block_id) => {
             let scope = db.generate_block_scope(generate_block_id);
             for (ident, defs) in scope.iter_listing() {

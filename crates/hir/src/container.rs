@@ -11,6 +11,8 @@ use crate::{
     hir_def::{
         aggregate::{StructDef, StructId, StructSrc},
         block::{Block, BlockId, BlockInfo, BlockSourceMap, BlockSrc, LocalBlockId},
+        checker::CheckerId,
+        covergroup::CovergroupId,
         declaration::{Declaration, DeclarationId, DeclarationSrc},
         expr::{
             Expr, ExprId, ExprSrc,
@@ -20,6 +22,7 @@ use crate::{
         file::{FileSourceMap, HirFile},
         module::{
             Module, ModuleId, ModuleSourceMap,
+            clocking::ClockingBlockId,
             generate::{GenerateBlock, GenerateBlockId, GenerateBlockSourceMap},
         },
         stmt::{Stmt, StmtId, StmtSrc},
@@ -38,6 +41,84 @@ define_enum_deriving_from! {
         GenerateBlock(GenerateBlockId),
         Block(BlockId),
         Subroutine(SubroutineScope),
+        ClockingBlock(InModule<ClockingBlockId>),
+        Checker(InFileOrModule<CheckerId>),
+        Covergroup(InFileOrModule<CovergroupId>),
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+pub struct InFileOrModule<T> {
+    pub value: T,
+    pub cont_id: FileOrModule,
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+pub enum FileOrModule {
+    File(HirFileId),
+    Module(ModuleId),
+}
+
+impl<T> InFileOrModule<T> {
+    pub fn new(cont_id: FileOrModule, value: T) -> Self {
+        Self { value, cont_id }
+    }
+
+    pub fn parent_scope(&self) -> ScopeId {
+        self.cont_id.into()
+    }
+
+    pub fn as_in_container(self) -> InContainer<T> {
+        InContainer::new(self.cont_id.into(), self.value)
+    }
+}
+
+impl FileOrModule {
+    pub fn file_id(self) -> FileId {
+        match self {
+            FileOrModule::File(file_id) => file_id.file_id(),
+            FileOrModule::Module(module_id) => module_id.file_id(),
+        }
+    }
+}
+
+impl From<FileOrModule> for ScopeId {
+    fn from(cont_id: FileOrModule) -> Self {
+        match cont_id {
+            FileOrModule::File(file_id) => file_id.into(),
+            FileOrModule::Module(module_id) => module_id.into(),
+        }
+    }
+}
+
+impl TryFrom<ScopeId> for FileOrModule {
+    type Error = ();
+
+    fn try_from(cont_id: ScopeId) -> Result<Self, Self::Error> {
+        match cont_id {
+            ScopeId::File(file_id) => Ok(Self::File(file_id)),
+            ScopeId::Module(module_id) => Ok(Self::Module(module_id)),
+            ScopeId::GenerateBlock(_)
+            | ScopeId::Block(_)
+            | ScopeId::Subroutine(_)
+            | ScopeId::ClockingBlock(_)
+            | ScopeId::Checker(_)
+            | ScopeId::Covergroup(_) => Err(()),
+        }
+    }
+}
+
+impl<T> TryFrom<InContainer<T>> for InFileOrModule<T> {
+    type Error = ();
+
+    fn try_from(item: InContainer<T>) -> Result<Self, Self::Error> {
+        Ok(Self::new(FileOrModule::try_from(item.cont_id)?, item.value))
+    }
+}
+
+impl<T> From<InFileOrModule<T>> for InContainer<T> {
+    fn from(item: InFileOrModule<T>) -> Self {
+        item.as_in_container()
     }
 }
 
@@ -94,7 +175,11 @@ impl TryFrom<ScopeId> for SubroutineParent {
             ScopeId::File(file_id) => Ok(Self::File(file_id)),
             ScopeId::Module(module_id) => Ok(Self::Module(module_id)),
             ScopeId::GenerateBlock(generate_block_id) => Ok(Self::GenerateBlock(generate_block_id)),
-            ScopeId::Block(_) | ScopeId::Subroutine(_) => Err(()),
+            ScopeId::Block(_)
+            | ScopeId::Subroutine(_)
+            | ScopeId::ClockingBlock(_)
+            | ScopeId::Checker(_)
+            | ScopeId::Covergroup(_) => Err(()),
         }
     }
 }
@@ -202,6 +287,9 @@ impl ScopeId {
             ScopeId::GenerateBlock(_) => ScopeKind::GenerateBlock,
             ScopeId::Block(_) => ScopeKind::Block,
             ScopeId::Subroutine(_) => ScopeKind::Subroutine,
+            ScopeId::ClockingBlock(_) => ScopeKind::ClockingBlock,
+            ScopeId::Checker(_) => ScopeKind::Checker,
+            ScopeId::Covergroup(_) => ScopeKind::Covergroup,
         }
     }
 
@@ -212,6 +300,9 @@ impl ScopeId {
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.file_id(db),
             ScopeId::Block(block_id) => block_id.file_id(db),
             ScopeId::Subroutine(subroutine) => subroutine.file_id(db),
+            ScopeId::ClockingBlock(clocking_block) => clocking_block.module_id.file_id(),
+            ScopeId::Checker(checker) => checker.cont_id.file_id(),
+            ScopeId::Covergroup(covergroup) => covergroup.cont_id.file_id(),
         }
     }
 
@@ -222,6 +313,15 @@ impl ScopeId {
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.to_container(db).into(),
             ScopeId::Block(block_id) => block_id.to_container(db).into(),
             ScopeId::Subroutine(subroutine) => db.subroutine(subroutine.as_in_container()).into(),
+            ScopeId::ClockingBlock(_) => {
+                panic!("clocking block scopes do not expose a generic HIR container")
+            }
+            ScopeId::Checker(_) => {
+                panic!("checker scopes do not expose a generic HIR container")
+            }
+            ScopeId::Covergroup(_) => {
+                panic!("covergroup scopes do not expose a generic HIR container")
+            }
         }
     }
 
@@ -235,6 +335,15 @@ impl ScopeId {
             ScopeId::Block(block_id) => block_id.to_container_src_map(db).into(),
             ScopeId::Subroutine(subroutine) => {
                 db.subroutine_with_source_map(subroutine.as_in_container()).1.into()
+            }
+            ScopeId::ClockingBlock(_) => {
+                panic!("clocking block scopes do not expose a generic source map")
+            }
+            ScopeId::Checker(_) => {
+                panic!("checker scopes do not expose a generic source map")
+            }
+            ScopeId::Covergroup(_) => {
+                panic!("covergroup scopes do not expose a generic source map")
             }
         }
     }
@@ -385,6 +494,9 @@ impl Iterator for ScopeParent<'_> {
             }
             ScopeId::Block(block_id) => Some(block_id.lookup(self.db).cont_id),
             ScopeId::Subroutine(subroutine) => Some(subroutine.parent_scope()),
+            ScopeId::ClockingBlock(clocking_block) => Some(clocking_block.module_id.into()),
+            ScopeId::Checker(checker) => Some(checker.parent_scope()),
+            ScopeId::Covergroup(covergroup) => Some(covergroup.parent_scope()),
         };
         next
     }

@@ -5,17 +5,20 @@ use triomphe::Arc;
 use utils::get::{Get, GetRef};
 
 use crate::{
-    container::{InContainer, InFile, InModule, InSubroutine, ScopeId},
+    container::{InContainer, InFile, InFileOrModule, InModule, InSubroutine, ScopeId},
     db::HirDb,
     file::HirFileId,
     hir_def::{
         PackageImport,
         block::BlockInfo,
+        checker::{CheckerDef, CheckerId, CheckerPortId},
+        covergroup::{CovergroupDef, CovergroupId},
         declaration::DeclarationId,
         expr::declarator::{DeclId, Declarator, DeclaratorParent},
         lower_ident_opt,
         module::{
             Module, ModuleKind, PackageId,
+            clocking::{ClockingBlockId, ClockingSignalId},
             generate::GenerateBlockId,
             port::{PortDeclId, Ports},
         },
@@ -153,6 +156,34 @@ impl NameScope {
             );
         }
 
+        for (checker_id, checker) in hir_file.checkers.iter() {
+            scope.insert_type_opt(
+                &checker.name,
+                def_id(db, InContainer::new(file_id.into(), checker_id)),
+            );
+        }
+
+        for (covergroup_id, covergroup) in hir_file.covergroups.iter() {
+            scope.insert_type_opt(
+                &covergroup.name,
+                def_id(db, InContainer::new(file_id.into(), covergroup_id)),
+            );
+        }
+
+        for (coverpoint_id, coverpoint) in hir_file.coverpoints.iter() {
+            scope.insert_value_opt(
+                &coverpoint.name,
+                def_id(db, InContainer::new(file_id.into(), coverpoint_id)),
+            );
+        }
+
+        for (cross_id, cross) in hir_file.crosses.iter() {
+            scope.insert_value_opt(
+                &cross.name,
+                def_id(db, InContainer::new(file_id.into(), cross_id)),
+            );
+        }
+
         for (typedef_id, typedef) in hir_file.typedefs.iter() {
             scope.insert_type_opt(
                 &typedef.name,
@@ -189,6 +220,41 @@ impl NameScope {
             scope.insert_value_opt(&modport.name, def_id(db, InModule::new(module_id, modport_id)));
         }
 
+        for (clocking_block_id, clocking_block) in module.clocking_blocks.iter() {
+            scope.insert_value_opt(
+                &clocking_block.name,
+                def_id(db, InModule::new(module_id, clocking_block_id)),
+            );
+        }
+
+        for (checker_id, checker) in module.checkers.iter() {
+            scope.insert_type_opt(
+                &checker.name,
+                def_id(db, InContainer::new(module_id.into(), checker_id)),
+            );
+        }
+
+        for (covergroup_id, covergroup) in module.covergroups.iter() {
+            scope.insert_type_opt(
+                &covergroup.name,
+                def_id(db, InContainer::new(module_id.into(), covergroup_id)),
+            );
+        }
+
+        for (coverpoint_id, coverpoint) in module.coverpoints.iter() {
+            scope.insert_value_opt(
+                &coverpoint.name,
+                def_id(db, InContainer::new(module_id.into(), coverpoint_id)),
+            );
+        }
+
+        for (cross_id, cross) in module.crosses.iter() {
+            scope.insert_value_opt(
+                &cross.name,
+                def_id(db, InContainer::new(module_id.into(), cross_id)),
+            );
+        }
+
         insert_decls_and_typedefs(
             &mut scope,
             db,
@@ -220,6 +286,122 @@ impl NameScope {
         }
 
         insert_stmts(&mut scope, db, module_id.into(), &module.stmts);
+
+        Arc::new(scope)
+    }
+
+    pub fn clocking_block_scope_query(
+        db: &dyn HirDb,
+        clocking_block_id: InModule<ClockingBlockId>,
+    ) -> Arc<NameScope> {
+        let mut scope = NameScope::default();
+        let module = db.module(clocking_block_id.module_id);
+        let clocking_block = module.get(clocking_block_id.value);
+        let clocking_scope = ScopeId::ClockingBlock(clocking_block_id);
+
+        for (idx, signal) in clocking_block.signals.iter().enumerate() {
+            let signal_id = ClockingSignalId(idx as u32);
+            scope.insert_value(
+                &signal.name,
+                def_id(db, InContainer::new(clocking_scope, signal_id)),
+            );
+        }
+
+        Arc::new(scope)
+    }
+
+    pub fn checker_scope_query(
+        db: &dyn HirDb,
+        checker_id: InContainer<CheckerId>,
+    ) -> Arc<NameScope> {
+        let mut scope = NameScope::default();
+        let Some(checker) = checker_def(db, checker_id) else {
+            return Arc::new(scope);
+        };
+        let Ok(checker_scope_id) = InFileOrModule::try_from(checker_id) else {
+            return Arc::new(scope);
+        };
+        let checker_scope = ScopeId::Checker(checker_scope_id);
+
+        for (idx, port) in checker.ports.iter().enumerate() {
+            scope.insert_value(
+                &port.name,
+                def_id(db, InContainer::new(checker_scope, CheckerPortId(idx as u32))),
+            );
+        }
+
+        let container = checker_id.cont_id.to_container(db);
+        for declaration_id in &checker.declarations {
+            let declaration = container.get(*declaration_id);
+            for decl_id in declaration.decls() {
+                let decl = container.get(decl_id);
+                scope.insert_value_opt(
+                    &decl.name,
+                    def_id(db, InContainer::new(checker_id.cont_id, decl_id)),
+                );
+            }
+        }
+
+        Arc::new(scope)
+    }
+
+    pub fn covergroup_scope_query(
+        db: &dyn HirDb,
+        covergroup_id: InContainer<CovergroupId>,
+    ) -> Arc<NameScope> {
+        let mut scope = NameScope::default();
+        let Some(covergroup) = covergroup_def(db, covergroup_id) else {
+            return Arc::new(scope);
+        };
+        let Ok(covergroup_scope_id) = InFileOrModule::try_from(covergroup_id) else {
+            return Arc::new(scope);
+        };
+        let covergroup_scope = ScopeId::Covergroup(covergroup_scope_id);
+
+        match covergroup_id.cont_id {
+            ScopeId::File(file_id) => {
+                let file = db.hir_file(file_id);
+                for coverpoint_id in &covergroup.coverpoints {
+                    let coverpoint = file.get(*coverpoint_id);
+                    scope.insert_value_opt(
+                        &coverpoint.name,
+                        def_id(db, InContainer::new(covergroup_scope, *coverpoint_id)),
+                    );
+                }
+
+                for cross_id in &covergroup.crosses {
+                    let cross = file.get(*cross_id);
+                    scope.insert_value_opt(
+                        &cross.name,
+                        def_id(db, InContainer::new(covergroup_scope, *cross_id)),
+                    );
+                }
+            }
+            ScopeId::Module(module_id) => {
+                let module = db.module(module_id);
+                for coverpoint_id in &covergroup.coverpoints {
+                    let coverpoint = module.get(*coverpoint_id);
+                    scope.insert_value_opt(
+                        &coverpoint.name,
+                        def_id(db, InContainer::new(covergroup_scope, *coverpoint_id)),
+                    );
+                }
+
+                for cross_id in &covergroup.crosses {
+                    let cross = module.get(*cross_id);
+                    scope.insert_value_opt(
+                        &cross.name,
+                        def_id(db, InContainer::new(covergroup_scope, *cross_id)),
+                    );
+                }
+            }
+            ScopeId::GenerateBlock(_)
+            | ScopeId::Block(_)
+            | ScopeId::Subroutine(_)
+            | ScopeId::ClockingBlock(_)
+            | ScopeId::Checker(_)
+            | ScopeId::Covergroup(_) => {}
+        }
 
         Arc::new(scope)
     }
@@ -336,6 +518,35 @@ impl NameScope {
                 self.insert_assertion(ident, *def_id);
             }
         }
+    }
+}
+
+fn checker_def(db: &dyn HirDb, checker_id: InContainer<CheckerId>) -> Option<CheckerDef> {
+    match checker_id.cont_id {
+        ScopeId::File(file_id) => Some(db.hir_file(file_id).get(checker_id.value).clone()),
+        ScopeId::Module(module_id) => Some(db.module(module_id).get(checker_id.value).clone()),
+        ScopeId::GenerateBlock(_)
+        | ScopeId::Block(_)
+        | ScopeId::Subroutine(_)
+        | ScopeId::ClockingBlock(_)
+        | ScopeId::Checker(_)
+        | ScopeId::Covergroup(_) => None,
+    }
+}
+
+fn covergroup_def(
+    db: &dyn HirDb,
+    covergroup_id: InContainer<CovergroupId>,
+) -> Option<CovergroupDef> {
+    match covergroup_id.cont_id {
+        ScopeId::File(file_id) => Some(db.hir_file(file_id).get(covergroup_id.value).clone()),
+        ScopeId::Module(module_id) => Some(db.module(module_id).get(covergroup_id.value).clone()),
+        ScopeId::GenerateBlock(_)
+        | ScopeId::Block(_)
+        | ScopeId::Subroutine(_)
+        | ScopeId::ClockingBlock(_)
+        | ScopeId::Checker(_)
+        | ScopeId::Covergroup(_) => None,
     }
 }
 
@@ -475,7 +686,10 @@ mod tests {
     use rustc_hash::FxHashSet;
     use smol_str::SmolStr;
     use triomphe::Arc;
-    use utils::paths::{AbsPathBuf, Utf8PathBuf};
+    use utils::{
+        get::GetRef,
+        paths::{AbsPathBuf, Utf8PathBuf},
+    };
     use vfs::{FileId, FileSet, VfsPath, anchored_path::AnchoredPath};
 
     use crate::{
@@ -489,7 +703,7 @@ mod tests {
             },
             source_root::{SourceRoot, SourceRootId},
         },
-        container::ScopeId,
+        container::{InContainer, ScopeId},
         db::{HirDb, HirDbStorage, InternDbStorage},
         hir_def::Ident,
         semantics::pathres::resolve_name,
@@ -668,6 +882,184 @@ endmodule
         // Adding an interface lowering should create a DefKind::Interface
         // producer and insert the resulting DefId into NameScope; IDE
         // feature matches already have default no-op arms.
+    }
+
+    #[test]
+    fn module_scope_exposes_clocking_blocks() {
+        let db = db_with_root_text(
+            r#"
+module m(input clk, input a);
+  clocking cb @(posedge clk);
+    input #1ps a;
+  endclocking
+endmodule
+"#,
+        );
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let module = db.module(module_id);
+        let (clocking_block_id, clocking_block) =
+            module.clocking_blocks.iter().next().expect("clocking block should lower");
+        assert_eq!(clocking_block.name.as_deref(), Some("cb"));
+        assert_eq!(clocking_block.signals.len(), 1);
+        assert_eq!(clocking_block.signals[0].name.as_str(), "a");
+
+        let defs = db
+            .module_scope(module_id)
+            .lookup(NameContext::Value, &ident("cb"))
+            .expect("module scope should expose the clocking block");
+        assert!(defs.iter().any(|def_id| {
+            def_id.kind(&db) == DefKind::ClockingBlock
+                && def_id.as_clocking_block(&db).is_some_and(|id| id.value == clocking_block_id)
+        }));
+    }
+
+    #[test]
+    fn file_scope_exposes_checkers_and_lowers_checker_instances() {
+        let db = db_with_root_text(
+            r#"
+checker c(input logic clk);
+  logic sig;
+endchecker
+
+module m;
+  c u();
+endmodule
+"#,
+        );
+
+        let checker_defs = db
+            .unit_scope()
+            .lookup(NameContext::Type, &ident("c"))
+            .expect("checker should be visible as a type");
+        assert!(checker_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Checker));
+        let checker_id = checker_defs
+            .iter()
+            .copied()
+            .find_map(|def_id| def_id.as_checker(&db))
+            .expect("checker definition should have a concrete id");
+        let checker_scope = db.checker_scope(checker_id);
+        assert!(
+            checker_scope
+                .lookup(NameContext::Value, &ident("clk"))
+                .expect("checker scope should expose checker ports")
+                .iter()
+                .any(|def_id| def_id.kind(&db) == DefKind::CheckerPort)
+        );
+        assert!(
+            checker_scope
+                .lookup(NameContext::Value, &ident("sig"))
+                .expect("checker scope should expose checker declarations")
+                .iter()
+                .any(|def_id| def_id.kind(&db) == DefKind::Variable)
+        );
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let module = db.module(module_id);
+        let instantiation = module
+            .instantiations
+            .values()
+            .find(|instantiation| instantiation.module_name.as_deref() == Some("c"))
+            .expect("checker instantiation should lower into the instance arena");
+        let instance = instantiation
+            .instances
+            .first()
+            .map(|instance_id| module.get(*instance_id))
+            .expect("checker instantiation should lower its instance");
+        assert_eq!(instance.name.as_deref(), Some("u"));
+    }
+
+    #[test]
+    fn module_scope_exposes_covergroups_and_coverage_items() {
+        let db = db_with_root_text(
+            r#"
+module m(input clk, input a);
+  covergroup cg @(posedge clk);
+    cp: coverpoint a;
+    cx: cross cp, cp;
+  endgroup
+
+  cg u();
+endmodule
+"#,
+        );
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let module = db.module(module_id);
+        let (covergroup_id, covergroup) =
+            module.covergroups.iter().next().expect("covergroup should lower");
+        assert_eq!(covergroup.name.as_deref(), Some("cg"));
+        assert_eq!(covergroup.coverpoints.len(), 1);
+        assert_eq!(covergroup.crosses.len(), 1);
+
+        let coverpoint_id = covergroup.coverpoints[0];
+        let cross_id = covergroup.crosses[0];
+        assert_eq!(module.get(coverpoint_id).name.as_deref(), Some("cp"));
+        assert_eq!(module.get(cross_id).name.as_deref(), Some("cx"));
+
+        let module_scope = db.module_scope(module_id);
+        let covergroup_defs = module_scope
+            .lookup(NameContext::Type, &ident("cg"))
+            .expect("module scope should expose covergroup type");
+        assert!(covergroup_defs.iter().any(|def_id| {
+            def_id.kind(&db) == DefKind::Covergroup
+                && def_id.as_covergroup(&db).is_some_and(|id| id.value == covergroup_id)
+        }));
+
+        let coverpoint_defs = module_scope
+            .lookup(NameContext::Value, &ident("cp"))
+            .expect("module scope should expose coverpoint label");
+        assert!(coverpoint_defs.iter().any(|def_id| {
+            matches!(def_id.loc(&db), DefLoc::Coverpoint(id) if id.value == coverpoint_id)
+        }));
+
+        let cross_defs = module_scope
+            .lookup(NameContext::Value, &ident("cx"))
+            .expect("module scope should expose cross label");
+        assert!(
+            cross_defs
+                .iter()
+                .any(|def_id| matches!(def_id.loc(&db), DefLoc::Cross(id) if id.value == cross_id))
+        );
+
+        let covergroup_scope =
+            db.covergroup_scope(InContainer::new(module_id.into(), covergroup_id));
+        let scoped_coverpoint_defs = covergroup_scope
+            .lookup(NameContext::Value, &ident("cp"))
+            .expect("covergroup scope should expose coverpoint label");
+        assert!(scoped_coverpoint_defs.iter().any(|def_id| {
+            matches!(def_id.loc(&db), DefLoc::Coverpoint(id) if matches!(id.cont_id, ScopeId::Covergroup(_)) && id.value == coverpoint_id)
+        }));
+        let scoped_cross_defs = covergroup_scope
+            .lookup(NameContext::Value, &ident("cx"))
+            .expect("covergroup scope should expose cross label");
+        assert!(scoped_cross_defs.iter().any(|def_id| {
+            matches!(def_id.loc(&db), DefLoc::Cross(id) if matches!(id.cont_id, ScopeId::Covergroup(_)) && id.value == cross_id)
+        }));
+
+        let instantiation = module
+            .instantiations
+            .values()
+            .find(|instantiation| instantiation.module_name.as_deref() == Some("cg"))
+            .expect("covergroup instantiation should lower into the instance arena");
+        let instance = instantiation
+            .instances
+            .first()
+            .map(|instance_id| module.get(*instance_id))
+            .expect("covergroup instantiation should lower its instance");
+        assert_eq!(instance.name.as_deref(), Some("u"));
     }
 
     #[test]

@@ -1,0 +1,16 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: normalize_hover_snapshot(hover.info.as_str())
+---
+Instance `u_p`
+
+```systemverilog
+instance u_p of p
+
+program p ()
+```
+
+
+---
+
+in `top` from [feature.v](<feature.v>) line 6
