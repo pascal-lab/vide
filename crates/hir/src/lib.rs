@@ -13,4 +13,5 @@ pub mod region_tree;
 pub mod scope;
 pub mod semantics;
 pub mod source_map;
+pub mod symbol;
 pub mod type_infer;

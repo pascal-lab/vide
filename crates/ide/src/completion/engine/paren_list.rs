@@ -4,7 +4,6 @@ use hir::{
         Ident, lower_ident_opt,
         module::{ModuleId, ModuleSrc},
     },
-    scope::{ModuleEntry, UnitEntry},
     semantics::Semantics,
 };
 use rustc_hash::FxHashSet;
@@ -98,11 +97,8 @@ fn complete_parameter_port_list_with_typedefs(
 
     let mut items: Vec<CompletionCandidate> = db
         .unit_scope()
-        .iter()
-        .filter_map(|(ident, entry)| matches!(entry, UnitEntry::FiledTypedefId(_)).then_some(ident))
-        .chain(db.module_scope(module_id).iter().filter_map(|(ident, entry)| {
-            matches!(entry, ModuleEntry::TypedefId(_)).then_some(ident)
-        }))
+        .typedef_names(db)
+        .chain(db.module_scope(module_id).typedef_names(db))
         .map(|ident| ident.to_string())
         .filter(|name| name.starts_with(prefix))
         .map(|name| CompletionCandidate::text(name, ctx.replacement))

@@ -16,8 +16,8 @@ use hir::{
         },
     },
     preproc::{MacroCallResolution, macro_call_resolutions_in_range},
-    scope::{AnsiPortEntry, ModuleEntry, ModuleScope, NonAnsiPortEntry},
     source_map::{IsNamedSrc, IsSrc},
+    symbol::{DefKind, NameContext, NameScope},
 };
 use syntax::{ast, match_ast_kind};
 use utils::{
@@ -383,16 +383,26 @@ fn process_instantiation(
 
                     match &target_module.ports {
                         Ports::NonAnsi { .. } => {
-                            let (port_id, name, dir) =
-                                non_ansi_port_id_for_conn(target_module, target_scope, conn, idx)?;
+                            let (port_id, name, dir) = non_ansi_port_id_for_conn(
+                                db,
+                                target_module,
+                                target_scope,
+                                conn,
+                                idx,
+                            )?;
                             let target_src = InFile::new(target_file, target_src_map.get(port_id)?);
                             collect_connection_hint(
                                 module, src_map, conn_id, name, dir, target_src, collector,
                             );
                         }
                         Ports::Ansi(_) => {
-                            let (port_decl_id, decl_id) =
-                                ansi_port_decl_id_for_conn(target_module, target_scope, conn, idx)?;
+                            let (port_decl_id, decl_id) = ansi_port_decl_id_for_conn(
+                                db,
+                                target_module,
+                                target_scope,
+                                conn,
+                                idx,
+                            )?;
                             let port_decl = target_module.get(port_decl_id);
                             let name = target_module.get(decl_id).name.as_ref()?;
                             let dir = port_decl.header.dir();
@@ -463,8 +473,9 @@ fn collect_connection_hint(
 }
 
 fn non_ansi_port_id_for_conn<'a>(
+    db: &RootDb,
     module: &'a Module,
-    scope: &ModuleScope,
+    scope: &NameScope,
     conn: &'a PortConn,
     idx: usize,
 ) -> Option<(NonAnsiPortId, &'a Ident, PortDirection)> {
@@ -475,17 +486,18 @@ fn non_ansi_port_id_for_conn<'a>(
             };
             let (port_id, port) = ports.iter().nth(idx)?;
             let name = port.label.as_ref()?;
-            let dir = non_ansi_port_dir_by_port_id(module, scope, port_id)?;
+            let dir = non_ansi_port_dir_by_port_id(db, module, scope, port_id)?;
             Some((port_id, name, dir))
         }
         PortConn::Named(Some(name), _) => {
-            let ModuleEntry::NonAnsiPortEntry(NonAnsiPortEntry { label, .. }) = scope.get(name)?
-            else {
-                return None;
-            };
-            let port_id = label?;
+            let defs = scope.lookup(NameContext::Value, name)?;
+            let port_id = defs
+                .iter()
+                .find(|def_id| def_id.kind(db) == DefKind::NonAnsiPort)
+                .and_then(|def_id| def_id.as_non_ansi_port(db))?
+                .value;
             let port_name = module.get(port_id).label.as_ref()?;
-            let dir = non_ansi_port_dir_by_port_id(module, scope, port_id)?;
+            let dir = non_ansi_port_dir_by_port_id(db, module, scope, port_id)?;
             Some((port_id, port_name, dir))
         }
         PortConn::Named(None, _) | PortConn::Wildcard => None,
@@ -493,8 +505,9 @@ fn non_ansi_port_id_for_conn<'a>(
 }
 
 fn non_ansi_port_dir_by_port_id(
+    db: &RootDb,
     module: &Module,
-    scope: &ModuleScope,
+    scope: &NameScope,
     port_id: NonAnsiPortId,
 ) -> Option<PortDirection> {
     let port = module.get(port_id);
@@ -504,20 +517,21 @@ fn non_ansi_port_dir_by_port_id(
             let Some(name) = module.get(ref_id).ident.as_ref() else {
                 continue;
             };
-            if let Some(port_decl_id) = scope.non_ansi_port_decl_id_by_name(module, name) {
+            if let Some(port_decl_id) = scope.non_ansi_port_decl_id_by_name(db, module, name) {
                 return Some(module.get(port_decl_id).header.dir());
             }
         }
     }
 
     let name = port.label.as_ref()?;
-    let port_decl_id = scope.non_ansi_port_decl_id_by_name(module, name)?;
+    let port_decl_id = scope.non_ansi_port_decl_id_by_name(db, module, name)?;
     Some(module.get(port_decl_id).header.dir())
 }
 
 fn ansi_port_decl_id_for_conn(
+    db: &RootDb,
     module: &Module,
-    scope: &ModuleScope,
+    scope: &NameScope,
     conn: &PortConn,
     idx: usize,
 ) -> Option<(PortDeclId, DeclId)> {
@@ -528,9 +542,15 @@ fn ansi_port_decl_id_for_conn(
             Some((port_decl_id, decl_id))
         }
         PortConn::Named(Some(name), _) => {
-            let ModuleEntry::AnsiPortEntry(AnsiPortEntry(decl_id)) = scope.get(name)? else {
-                return None;
-            };
+            let defs = scope.lookup(NameContext::Value, name)?;
+            let decl_id = defs
+                .iter()
+                .filter(|def_id| def_id.kind(db) == DefKind::Port)
+                .filter_map(|def_id| def_id.as_decl(db))
+                .map(|decl_id| decl_id.value)
+                .find(|decl_id| {
+                    matches!(module.get(*decl_id).parent, DeclaratorParent::PortDeclId(_))
+                })?;
             let DeclaratorParent::PortDeclId(port_decl_id) = module.get(decl_id).parent else {
                 return None;
             };

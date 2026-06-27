@@ -9,7 +9,7 @@ use utils::text_edit::TextRange;
 
 use super::{Ident, aggregate::StructId, expr::data_ty::DataTy};
 use crate::{
-    container::{ContainerId, InContainer},
+    container::{InContainer, ScopeId},
     source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, ToAstNode, root_token_in},
 };
 
@@ -92,7 +92,7 @@ impl TypedefSrc {
 pub(crate) fn lower_typedef_data_ty<Ctx>(
     ctx: &mut Ctx,
     data_ty: ast::DataType,
-    container_id: ContainerId,
+    container_id: ScopeId,
     mut lower_struct_type: impl FnMut(&mut Ctx, ast::StructUnionType) -> StructId,
     mut lower_data_ty: impl FnMut(&mut Ctx, ast::DataType) -> DataTy,
 ) -> DataTy {

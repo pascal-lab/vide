@@ -2,12 +2,6 @@
 #![feature(decl_macro)]
 
 pub use hir::base_db::Cancelled;
-use hir::hir_def::{
-    block::BlockId,
-    expr::declarator::DeclId,
-    module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
-    stmt::StmtId,
-};
 pub use range::{ErasedFileAstId, FilePosition, FileRange, RangeInfo};
 use syntax::{SyntaxKind, ast, match_ast_kind};
 pub type Cancellable<T> = Result<T, Cancelled>;
@@ -104,40 +98,32 @@ impl SymbolKind {
     }
 }
 
-// TODO: const impl
-impl From<ModuleId> for SymbolKind {
-    fn from(_: ModuleId) -> Self {
-        SymbolKind::Module
-    }
-}
-
-impl From<BlockId> for SymbolKind {
-    fn from(_: BlockId) -> Self {
-        SymbolKind::Block
-    }
-}
-
-impl From<NonAnsiPortId> for SymbolKind {
-    fn from(_: NonAnsiPortId) -> Self {
-        SymbolKind::NonAnsiPortLabel
-    }
-}
-
-impl From<DeclId> for SymbolKind {
-    fn from(_: DeclId) -> Self {
-        SymbolKind::DataDecl
-    }
-}
-
-impl From<InstanceId> for SymbolKind {
-    fn from(_: InstanceId) -> Self {
-        SymbolKind::Instance
-    }
-}
-
-impl From<StmtId> for SymbolKind {
-    fn from(_: StmtId) -> Self {
-        SymbolKind::Stmt
+impl From<hir::symbol::SymbolKind> for SymbolKind {
+    fn from(kind: hir::symbol::SymbolKind) -> Self {
+        match kind {
+            hir::symbol::SymbolKind::Module => SymbolKind::Module,
+            hir::symbol::SymbolKind::Config => SymbolKind::Config,
+            hir::symbol::SymbolKind::Primitive => SymbolKind::Primitive,
+            hir::symbol::SymbolKind::NonAnsiPortLabel => SymbolKind::NonAnsiPortLabel,
+            hir::symbol::SymbolKind::PortDecl => SymbolKind::PortDecl,
+            hir::symbol::SymbolKind::ParamDecl => SymbolKind::ParamDecl,
+            hir::symbol::SymbolKind::NetDecl => SymbolKind::NetDecl,
+            hir::symbol::SymbolKind::DataDecl => SymbolKind::DataDecl,
+            hir::symbol::SymbolKind::Genvar => SymbolKind::Genvar,
+            hir::symbol::SymbolKind::Specparam => SymbolKind::Specparam,
+            hir::symbol::SymbolKind::Typedef => SymbolKind::Typedef,
+            hir::symbol::SymbolKind::Struct => SymbolKind::Struct,
+            hir::symbol::SymbolKind::Instance => SymbolKind::Instance,
+            hir::symbol::SymbolKind::Block => SymbolKind::Block,
+            hir::symbol::SymbolKind::Stmt => SymbolKind::Stmt,
+            hir::symbol::SymbolKind::Fn => SymbolKind::Fn,
+            hir::symbol::SymbolKind::Generate => SymbolKind::Generate,
+            hir::symbol::SymbolKind::Specify => SymbolKind::Specify,
+            hir::symbol::SymbolKind::Interface => SymbolKind::Interface,
+            hir::symbol::SymbolKind::Library => SymbolKind::Library,
+            hir::symbol::SymbolKind::Region => SymbolKind::Region,
+            hir::symbol::SymbolKind::Unknown => SymbolKind::Unknown,
+        }
     }
 }
 

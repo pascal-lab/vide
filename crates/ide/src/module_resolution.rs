@@ -5,7 +5,7 @@ use hir::{
         source_db::{SourceDb, SourceRootDb},
         source_root::SourceRootRole,
     },
-    container::InModule,
+    container::ScopeId,
     db::HirDb,
     hir_def::{
         Ident,
@@ -14,8 +14,8 @@ use hir::{
         lower_ident_opt,
         module::{ModuleId, instantiation::Instantiation},
     },
-    scope::ModuleEntry,
     semantics::pathres::PathResolution,
+    symbol::{DefKind, NameContext},
 };
 use syntax::{
     SyntaxAncestors,
@@ -125,11 +125,13 @@ fn resolve_named_port_in_module(
     module_id: ModuleId,
     port_name: &Ident,
 ) -> Option<PathResolution> {
-    let entry = db.module_scope(module_id).get(port_name)?;
-    if matches!(entry, ModuleEntry::AnsiPortEntry(_) | ModuleEntry::NonAnsiPortEntry(_)) {
-        Some(PathResolution::from(InModule::new(module_id, entry)))
+    let defs = db.module_scope(module_id).lookup(NameContext::Value, port_name)?;
+    if defs.iter().any(|def_id| def_id.kind(db) == DefKind::NonAnsiPort) {
+        PathResolution::from_def_ids(defs)
     } else {
-        None
+        PathResolution::from_def_ids(
+            defs.into_iter().filter(|def_id| def_id.kind(db) == DefKind::Port),
+        )
     }
 }
 
@@ -138,18 +140,25 @@ fn resolve_named_param_in_module(
     module_id: ModuleId,
     param_name: &Ident,
 ) -> Option<PathResolution> {
-    let ModuleEntry::DeclId(decl_id) = db.module_scope(module_id).get(param_name)? else {
-        return None;
-    };
+    let defs = db.module_scope(module_id).lookup(NameContext::Value, param_name)?;
     let module = db.module(module_id);
-    if let DeclaratorParent::DeclarationId(declaration_id) = module.get(decl_id).parent
-        && let Declaration::ParamDecl(param_decl) = module.get(declaration_id)
-        && param_decl.kind.is_overridable()
-    {
-        Some(PathResolution::ParamDecl(InModule::new(module_id, decl_id)))
-    } else {
-        None
+
+    for def_id in defs {
+        let Some(decl_id) = def_id.as_decl(db) else {
+            continue;
+        };
+        if decl_id.cont_id != ScopeId::Module(module_id) {
+            continue;
+        }
+        if let DeclaratorParent::DeclarationId(declaration_id) = module.get(decl_id.value).parent
+            && let Declaration::ParamDecl(param_decl) = module.get(declaration_id)
+            && param_decl.kind.is_overridable()
+        {
+            return Some(PathResolution::from_def_id(def_id));
+        }
     }
+
+    None
 }
 
 fn resolve_module_name_with_policy(
@@ -321,8 +330,8 @@ mod tests {
 
     use hir::{
         base_db::{change::Change, source_db::SourceDb, source_root::SourceRoot},
-        container::InModule,
         semantics::pathres::PathResolution,
+        symbol::DefLoc,
     };
     use smol_str::SmolStr;
     use syntax::{SyntaxNodeExt, ast};
@@ -487,7 +496,8 @@ mod tests {
                     .find_node_at_offset::<ast::NamedPortConnection>(offset)
                     .expect("named port connection should parse at /*caret*/");
                 match resolve_named_port_connection(&db, fixture.focus, port_conn) {
-                    Some(PathResolution::AnsiPort(InModule { module_id, .. })) => {
+                    Some(res) if resolution_module_id(&db, &res, DefKind::Port).is_some() => {
+                        let module_id = resolution_module_id(&db, &res, DefKind::Port).unwrap();
                         format!(
                             "AnsiPort module={}",
                             file_path(&fixture.files, module_id.file_id.file_id())
@@ -504,7 +514,8 @@ mod tests {
                     .find_node_at_offset::<ast::NamedParamAssignment>(offset)
                     .expect("named parameter assignment should parse at /*caret*/");
                 match resolve_named_param_assignment(&db, fixture.focus, param_assign) {
-                    Some(PathResolution::ParamDecl(InModule { module_id, .. })) => {
+                    Some(res) if resolution_module_id(&db, &res, DefKind::Param).is_some() => {
+                        let module_id = resolution_module_id(&db, &res, DefKind::Param).unwrap();
                         format!(
                             "ParamDecl module={}",
                             file_path(&fixture.files, module_id.file_id.file_id())
@@ -514,6 +525,22 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn resolution_module_id(db: &RootDb, res: &PathResolution, kind: DefKind) -> Option<ModuleId> {
+        res.def_ids().iter().find_map(|def_id| {
+            if def_id.kind(db) != kind {
+                return None;
+            }
+            match def_id.loc(db) {
+                DefLoc::Decl(decl_id) => match decl_id.cont_id {
+                    ScopeId::Module(module_id) => Some(module_id),
+                    _ => None,
+                },
+                DefLoc::NonAnsiPort(nonansi_port_id) => Some(nonansi_port_id.module_id),
+                _ => None,
+            }
+        })
     }
 
     fn format_module_resolution(files: &[(String, String)], result: ModuleResolution) -> String {

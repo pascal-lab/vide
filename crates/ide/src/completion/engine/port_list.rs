@@ -1,8 +1,8 @@
 use hir::{
     db::HirDb,
     hir_def::module::{ModuleId, ModuleSrc},
-    scope::{ModuleEntry, UnitEntry},
     semantics::Semantics,
+    symbol::DefKind,
 };
 use syntax::ast;
 use utils::get::Get;
@@ -71,21 +71,10 @@ fn visible_typedefs_in_module_header(db: &RootDb, position: FilePosition) -> Vec
         return Vec::new();
     };
 
-    let mut names: Vec<String> = db
-        .unit_scope()
-        .iter()
-        .filter_map(|(ident, entry)| matches!(entry, UnitEntry::FiledTypedefId(_)).then_some(ident))
-        .map(|ident| ident.to_string())
-        .collect();
+    let mut names: Vec<String> =
+        db.unit_scope().typedef_names(db).map(|ident| ident.to_string()).collect();
 
-    names.extend(
-        db.module_scope(module_id)
-            .iter()
-            .filter_map(|(ident, entry)| {
-                matches!(entry, ModuleEntry::TypedefId(_)).then_some(ident)
-            })
-            .map(|ident| ident.to_string()),
-    );
+    names.extend(db.module_scope(module_id).typedef_names(db).map(|ident| ident.to_string()));
 
     names.sort();
     names.dedup();
@@ -116,14 +105,11 @@ fn complete_non_ansi_port_list(
 
     let scope = db.module_scope(module_id);
     scope
-        .iter()
-        .filter_map(|(ident, entry)| {
-            matches!(
-                entry,
-                hir::scope::ModuleEntry::AnsiPortEntry(_)
-                    | hir::scope::ModuleEntry::NonAnsiPortEntry(_)
-            )
-            .then_some(ident.to_string())
+        .iter_listing()
+        .filter_map(|(ident, defs)| {
+            defs.iter()
+                .any(|def_id| matches!(def_id.kind(db), DefKind::Port | DefKind::NonAnsiPort))
+                .then(|| ident.to_string())
         })
         .filter(|name| name.starts_with(prefix))
         .map(|name| CompletionCandidate::text(name, ctx.replacement))

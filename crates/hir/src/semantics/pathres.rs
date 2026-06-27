@@ -1,29 +1,15 @@
-use smallvec::{SmallVec, smallvec};
+use smallvec::SmallVec;
 use syntax::{SyntaxNode, SyntaxTokenWithParent};
+use triomphe::Arc;
 
 use super::SemanticsImpl;
 use crate::{
-    container::{
-        ContainerId, ContainerParent, InBlock, InContainer, InFile, InGenerateBlock, InModule,
-        InSubroutine,
-    },
+    container::{InContainer, InFile, ScopeId, ScopeParent},
     db::HirDb,
-    def_id::{ModuleDef, ModuleDefId, ModuleDefOrigin},
+    def_id::{ModuleDef, ModuleDefId},
     file::HirFileId,
-    hir_def::{
-        Ident,
-        block::BlockId,
-        expr::declarator::DeclId,
-        file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
-        lower_ident_opt,
-        module::{
-            ModuleId, generate::GenerateBlockId, instantiation::InstanceId, port::NonAnsiPortId,
-        },
-        stmt::StmtId,
-        subroutine::{SubroutineId, SubroutinePortId},
-        typedef::TypedefId,
-    },
-    scope::{self, BlockEntry, GenerateBlockEntry, ModuleEntry, SubroutineEntry, UnitEntry},
+    hir_def::{Ident, lower_ident_opt},
+    symbol::{DefId, NameContext, NameScope},
 };
 
 impl SemanticsImpl<'_> {
@@ -31,203 +17,157 @@ impl SemanticsImpl<'_> {
         &self,
         file_id: HirFileId,
         SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+        name_ctx: NameContext,
     ) -> Option<PathResolution> {
         let ident = lower_ident_opt(Some(tok))?;
-        self.with_ctx(|ctx| {
-            let container = ctx.find_container(InFile::new(file_id, parent));
-            ctx.name_to_def(InContainer::new(container, ident))
+        self.with_ctx(|source_ctx| {
+            let container = source_ctx.find_container(InFile::new(file_id, parent));
+            source_ctx.name_to_def(InContainer::new(container, ident), name_ctx)
         })
     }
 
-    pub(in crate::semantics) fn find_container(&self, node: InFile<SyntaxNode>) -> ContainerId {
+    pub(in crate::semantics) fn find_container(&self, node: InFile<SyntaxNode>) -> ScopeId {
         self.with_ctx(|ctx| ctx.find_container(node))
     }
 
-    pub fn resolve_name(&self, cont_id: ContainerId, ident: &Ident) -> Option<PathResolution> {
-        resolve_name(self.db, cont_id, ident)
+    pub fn resolve_name(
+        &self,
+        cont_id: ScopeId,
+        ident: &Ident,
+        ctx: NameContext,
+    ) -> Option<PathResolution> {
+        resolve_name(self.db, cont_id, ident, ctx)
     }
 }
 
-pub fn resolve_name(db: &dyn HirDb, cont_id: ContainerId, ident: &Ident) -> Option<PathResolution> {
-    ContainerParent::start_from(db, cont_id).find_map(|id| match id {
-        ContainerId::HirFileId(_) => db.unit_scope().get(ident).map(PathResolution::from),
-        ContainerId::ModuleId(module_id) => db
-            .module_scope(module_id)
-            .get(ident)
-            .map(|entry| PathResolution::from(InModule::new(module_id, entry))),
-        ContainerId::GenerateBlockId(generate_block_id) => db
-            .generate_block_scope(generate_block_id)
-            .get(ident)
-            .map(|entry| PathResolution::from(InGenerateBlock::new(generate_block_id, entry))),
-        ContainerId::BlockId(block_id) => db
-            .block_scope(block_id)
-            .get(ident)
-            .map(|entry| PathResolution::from(InBlock::new(block_id, entry))),
-        ContainerId::SubroutineId(subroutine_id) => db
-            .subroutine_scope(subroutine_id)
-            .get(ident)
-            .map(|entry| PathResolution::from(InSubroutine::new(subroutine_id, entry))),
-    })
+pub fn resolve_name(
+    db: &dyn HirDb,
+    cont_id: ScopeId,
+    ident: &Ident,
+    ctx: NameContext,
+) -> Option<PathResolution> {
+    let scopes = ScopeParent::start_from(db, cont_id).collect::<SmallVec<[_; 4]>>();
+
+    for id in &scopes {
+        let scope = name_scope(db, *id);
+        if let Some(res) = scope.lookup(ctx, ident).and_then(PathResolution::from_def_ids) {
+            return Some(res);
+        }
+    }
+
+    // IEEE 1800-2017 keeps package imports distinct from ordinary lexical
+    // declarations: visible declarations in the lexical chain win, then
+    // package imports are considered, and `$unit` remains an explicit outer
+    // scope. `NameContext` chooses the namespace bucket at every phase.
+    if let Some(res) = resolve_imported_name(db, &scopes, ident, ctx) {
+        return Some(res);
+    }
+
+    db.unit_scope().lookup(ctx, ident).and_then(PathResolution::from_def_ids)
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum PathResolution {
-    Module(ModuleId),
-    Config(InFile<ConfigDeclId>),
-    Library(InFile<LibraryDeclId>),
-    Udp(InFile<UdpDeclId>),
-    Decl(InContainer<DeclId>),
-    Typedef(InContainer<TypedefId>),
-    ParamDecl(InModule<DeclId>),
-    Subroutine(SubroutineId),
-    SubroutinePort(InSubroutine<SubroutinePortId>),
-    NonAnsiPort {
-        // There won't be a situation where all fields are None.
-        label: Option<NonAnsiPortId>,
-        port_decl: Option<DeclId>,
-        data_decl: Option<DeclId>,
-        module: ModuleId,
-    },
-    AnsiPort(InModule<DeclId>),
-    Instance(InModule<InstanceId>),
-    Stmt(InContainer<StmtId>),
-    Block(BlockId),
-    GenerateBlock(GenerateBlockId),
+pub(crate) fn name_scope(db: &dyn HirDb, scope_id: ScopeId) -> Arc<NameScope> {
+    match scope_id {
+        ScopeId::File(file_id) => db.file_scope(file_id),
+        ScopeId::Module(module_id) => db.module_scope(module_id),
+        ScopeId::GenerateBlock(generate_block_id) => db.generate_block_scope(generate_block_id),
+        ScopeId::Block(block_id) => db.block_scope(block_id),
+        ScopeId::Subroutine(subroutine_id) => db.subroutine_scope(subroutine_id.as_in_container()),
+    }
+}
+
+fn resolve_imported_name(
+    db: &dyn HirDb,
+    scopes: &[ScopeId],
+    ident: &Ident,
+    ctx: NameContext,
+) -> Option<PathResolution> {
+    let mut defs = SmallVec::<[DefId; 3]>::new();
+
+    for scope_id in scopes {
+        let scope = name_scope(db, *scope_id);
+        collect_imports(db, &scope, ident, ctx, true, &mut defs);
+        if !defs.is_empty() {
+            return PathResolution::from_def_ids(defs);
+        }
+    }
+
+    for scope_id in scopes {
+        let scope = name_scope(db, *scope_id);
+        collect_imports(db, &scope, ident, ctx, false, &mut defs);
+        if !defs.is_empty() {
+            return PathResolution::from_def_ids(defs);
+        }
+    }
+
+    None
+}
+
+fn collect_imports(
+    db: &dyn HirDb,
+    scope: &NameScope,
+    ident: &Ident,
+    ctx: NameContext,
+    named_only: bool,
+    defs: &mut SmallVec<[DefId; 3]>,
+) {
+    for import in &scope.imports {
+        match (&import.name, named_only) {
+            (Some(name), true) if name == ident => {}
+            (None, false) => {}
+            _ => continue,
+        }
+
+        let Some(package_id) = db.unit_scope().package_ids(db, &import.package).unique() else {
+            continue;
+        };
+        let package_scope = db.package_export_scope(package_id);
+        if let Some(imported) = package_scope.lookup(ctx, ident) {
+            for def_id in imported {
+                if !defs.contains(&def_id) {
+                    defs.push(def_id);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PathResolution {
+    def_ids: SmallVec<[DefId; 3]>,
 }
 
 impl PathResolution {
-    pub fn to_def_id(self, db: &dyn HirDb) -> Option<ModuleDefId> {
-        let module_def = ModuleDef::from_origins(self.origins())?;
+    pub fn from_def_id(def_id: DefId) -> Self {
+        Self { def_ids: SmallVec::from_slice(&[def_id]) }
+    }
+
+    pub fn from_def_ids(def_ids: impl IntoIterator<Item = DefId>) -> Option<Self> {
+        let mut resolved = SmallVec::<[DefId; 3]>::new();
+        for def_id in def_ids {
+            if !resolved.contains(&def_id) {
+                resolved.push(def_id);
+            }
+        }
+        (!resolved.is_empty()).then_some(Self { def_ids: resolved })
+    }
+
+    pub fn def_ids(&self) -> &[DefId] {
+        &self.def_ids
+    }
+
+    pub fn primary_def_id(&self) -> Option<DefId> {
+        self.def_ids.first().copied()
+    }
+
+    pub fn to_def_id(&self, db: &dyn HirDb) -> Option<ModuleDefId> {
+        let module_def = ModuleDef::from_def_ids(self.def_ids.iter().copied())?;
         Some(db.intern_module_def(module_def))
     }
-
-    fn origins(self) -> SmallVec<[ModuleDefOrigin; 3]> {
-        let mut res = smallvec![];
-        let mut add_source = |source| res.push(source);
-
-        match self {
-            PathResolution::NonAnsiPort { label, port_decl, data_decl, module } => {
-                let container: ContainerId = module.into();
-                if let Some(label) = label {
-                    add_source(InModule::new(module, label).into());
-                }
-                if let Some(port_decl) = port_decl {
-                    add_source(InContainer::new(container, port_decl).into());
-                }
-                if let Some(decl) = data_decl {
-                    add_source(InContainer::new(container, decl).into());
-                }
-            }
-            _ => {
-                if let Some(origin) = self.pick() {
-                    add_source(origin);
-                }
-            }
-        };
-
-        res
-    }
-
-    #[inline]
-    fn pick(self) -> Option<ModuleDefOrigin> {
-        match self {
-            PathResolution::Module(module_id) => Some(module_id.into()),
-            PathResolution::Config(config_id) => Some(config_id.into()),
-            PathResolution::Library(library_id) => Some(library_id.into()),
-            PathResolution::Udp(udp_id) => Some(udp_id.into()),
-            PathResolution::Decl(decl_id) => Some(decl_id.into()),
-            PathResolution::Typedef(typedef_id) => Some(typedef_id.into()),
-            PathResolution::Instance(instance_id) => Some(instance_id.into()),
-            PathResolution::Stmt(stmt_id) => Some(stmt_id.into()),
-            PathResolution::Block(blk_id) => Some(blk_id.into()),
-            PathResolution::GenerateBlock(generate_block_id) => Some(generate_block_id.into()),
-            PathResolution::Subroutine(subroutine_id) => Some(subroutine_id.into()),
-            PathResolution::SubroutinePort(port_id) => Some(port_id.into()),
-            PathResolution::ParamDecl(decl_id) | PathResolution::AnsiPort(decl_id) => {
-                Some(InContainer::new(decl_id.module_id.into(), decl_id.value).into())
-            }
-            PathResolution::NonAnsiPort { label, port_decl, data_decl, module } => {
-                let container: ContainerId = module.into();
-                if let Some(label) = label {
-                    Some(InModule::new(module, label).into())
-                } else if let Some(port_decl) = port_decl {
-                    Some(InContainer::new(container, port_decl).into())
-                } else {
-                    data_decl.map(|decl| InContainer::new(container, decl).into())
-                }
-            }
-        }
-    }
 }
 
-impl From<UnitEntry> for PathResolution {
-    fn from(entry: UnitEntry) -> Self {
-        use UnitEntry::*;
-        match entry {
-            ModuleId(idx) => Self::Module(idx),
-            FiledConfigDeclId(idx) => Self::Config(idx),
-            FiledLibraryDeclId(idx) => Self::Library(idx),
-            FiledUdpDeclId(idx) => Self::Udp(idx),
-            FiledDeclId(idx) => Self::Decl(idx.into()),
-            FiledTypedefId(idx) => Self::Typedef(idx.into()),
-        }
-    }
-}
-
-impl From<InModule<ModuleEntry>> for PathResolution {
-    fn from(entry: InModule<ModuleEntry>) -> Self {
-        use ModuleEntry::*;
-        match entry.value {
-            DeclId(decl_id) => Self::Decl(entry.with_value(decl_id).into()),
-            TypedefId(typedef_id) => Self::Typedef(entry.with_value(typedef_id).into()),
-            InstanceId(idx) => Self::Instance(entry.with_value(idx)),
-            GenerateBlockId(generate_block_id) => Self::GenerateBlock(generate_block_id),
-            StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
-            SubroutineId(subroutine_id) => Self::Subroutine(subroutine_id),
-            NonAnsiPortEntry(scope::NonAnsiPortEntry { label, port_decl, data_decl }) => {
-                Self::NonAnsiPort { label, port_decl, data_decl, module: entry.module_id }
-            }
-            AnsiPortEntry(scope::AnsiPortEntry(idx)) => Self::AnsiPort(entry.with_value(idx)),
-            BlockId(block_id) => Self::Block(block_id),
-        }
-    }
-}
-
-impl From<InGenerateBlock<GenerateBlockEntry>> for PathResolution {
-    fn from(entry: InGenerateBlock<GenerateBlockEntry>) -> Self {
-        use GenerateBlockEntry::*;
-        match entry.value {
-            DeclId(idx) => Self::Decl(entry.with_value(idx).into()),
-            TypedefId(idx) => Self::Typedef(entry.with_value(idx).into()),
-            GenerateBlockId(generate_block_id) => Self::GenerateBlock(generate_block_id),
-            StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
-            BlockId(block_id) => Self::Block(block_id),
-            SubroutineId(subroutine_id) => Self::Subroutine(subroutine_id),
-        }
-    }
-}
-
-impl From<InBlock<BlockEntry>> for PathResolution {
-    fn from(entry: InBlock<BlockEntry>) -> Self {
-        use BlockEntry::*;
-        match entry.value {
-            DeclId(idx) => Self::Decl(entry.with_value(idx).into()),
-            TypedefId(idx) => Self::Typedef(entry.with_value(idx).into()),
-            StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
-            BlockId(block_id) => Self::Block(block_id),
-        }
-    }
-}
-
-impl From<InSubroutine<SubroutineEntry>> for PathResolution {
-    fn from(entry: InSubroutine<SubroutineEntry>) -> Self {
-        use SubroutineEntry::*;
-        match entry.value {
-            DeclId(idx) => Self::Decl(entry.with_value(idx).into()),
-            TypedefId(idx) => Self::Typedef(entry.with_value(idx).into()),
-            StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
-            BlockId(block_id) => Self::Block(block_id),
-            SubroutinePortId(idx) => Self::SubroutinePort(entry.with_value(idx)),
-        }
+impl From<DefId> for PathResolution {
+    fn from(def_id: DefId) -> Self {
+        Self::from_def_id(def_id)
     }
 }
