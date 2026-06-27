@@ -34,6 +34,7 @@ cfg_top Config container=None
 264..267 Port(Clk) SemaTokenModifier(READ)
 520..523 Port(Clk) SemaTokenModifier(READ)
 626..633 Instance SemaTokenModifier(0x0)
+634..635 Port(Others) SemaTokenModifier(WRITE)
 
 # navigation
 module_ref: ["Some(\"child\"):Some(Module)"]
