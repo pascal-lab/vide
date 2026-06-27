@@ -2,20 +2,16 @@ use std::ops::Range;
 
 use hir::{
     base_db::source_db::SourceDb,
-    container::InContainer,
     db::HirDb,
     display::HirDisplay,
-    type_infer::{BuiltinTy, Ty},
+    type_infer::Ty,
 };
 use syntax::{
     SyntaxAncestors, SyntaxKind, TokenKind, WalkEvent,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
-use utils::{
-    get::GetRef,
-    text_edit::{TextRange, TextSize},
-};
+use utils::text_edit::{TextRange, TextSize};
 
 use crate::code_action::{
     CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, line_indent,
@@ -196,25 +192,13 @@ fn expected_type_for_assignment_rhs(
 
 fn render_ty(ctx: &CodeActionCtx<'_>, ty: &Ty) -> Option<String> {
     match ty {
-        Ty::Builtin(BuiltinTy::Data { id, container }) => {
-            InContainer::new(*container, hir::hir_def::expr::data_ty::DataTy::Builtin(*id))
-                .display_source(ctx.sema().db)
-                .ok()
-        }
-        Ty::Alias { typedef, .. } => {
-            let container = typedef.cont_id.to_container(ctx.sema().db);
-            container.get(typedef.value).name.as_ref().map(ToString::to_string)
-        }
-        Ty::Struct(struct_ref) => {
-            let container = struct_ref.cont_id.to_container(ctx.sema().db);
-            container.get(struct_ref.value).name.as_ref().map(ToString::to_string)
-        }
         Ty::Unknown
         | Ty::Error
         | Ty::Void
         | Ty::Module(_)
         | Ty::GenerateBlock(_)
         | Ty::Block(_) => None,
+        _ => ty.display_source(ctx.sema().db).ok(),
     }
 }
 

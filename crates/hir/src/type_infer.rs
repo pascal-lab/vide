@@ -7,7 +7,7 @@ use crate::{
     db::HirDb,
     hir_def::{
         Ident,
-        aggregate::StructId,
+        aggregate::{StructId, StructKind},
         declaration::Declaration,
         expr::{
             BinaryOp, Expr, ExprId, UnaryOp,
@@ -21,7 +21,7 @@ use crate::{
         typedef::TypedefId,
     },
     semantics::pathres::{PathResolution, instance_target_module_id, resolve_name},
-    symbol::{DefId, DefKind, NameContext},
+    symbol::{DefId, DefKind, DefLoc, NameContext},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -36,10 +36,26 @@ pub enum Ty {
     Void,
     Builtin(BuiltinTy),
     Struct(InContainer<StructId>),
+    Enum(DefId),
+    Union(DefId),
+    Queue { elem: Box<Ty>, size: Option<ExprId> },
+    Assoc { key: Box<Ty>, elem: Box<Ty> },
+    Dynamic(Box<Ty>),
+    Event,
+    Chandle,
+    ClassHandle { def: DefId, spec_args: Vec<SpecArg> },
+    VirtualInterface { def: DefId, modport: Option<DefId> },
     Alias { typedef: InContainer<TypedefId>, target: Box<Ty> },
     Module(ModuleId),
     GenerateBlock(GenerateBlockId),
     Block(crate::hir_def::block::BlockId),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpecArg {
+    Default,
+    Value(ExprId),
+    Type(Ty),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +90,16 @@ pub enum TyClass {
 }
 
 pub fn normalize_data_ty(db: &dyn HirDb, container: ScopeId, data_ty: DataTy) -> TyResult {
-    normalize_data_ty_inner(db, container, data_ty, &mut FxHashSet::default())
+    normalize_data_ty_with_owner(db, container, data_ty, None)
+}
+
+fn normalize_data_ty_with_owner(
+    db: &dyn HirDb,
+    container: ScopeId,
+    data_ty: DataTy,
+    owner: Option<DefId>,
+) -> TyResult {
+    normalize_data_ty_inner(db, container, data_ty, owner, &mut FxHashSet::default())
 }
 
 pub(crate) fn type_of_typedef_query(
@@ -111,7 +136,12 @@ fn type_of_decl_impl(db: &dyn HirDb, decl: InContainer<DeclId>) -> TyResult {
     let Some(data_ty) = data_ty_of_decl(db, decl) else {
         return TyResult::new(Ty::Unknown);
     };
-    normalize_data_ty(db, decl.cont_id, data_ty)
+    let owner = DefId::new(db, decl);
+    let mut result = normalize_data_ty_with_owner(db, decl.cont_id, data_ty, Some(owner));
+    if let Some(declarator) = decl_of(db, decl) {
+        result.ty = apply_unpacked_dimensions(db, decl.cont_id, result.ty, &declarator.dimensions);
+    }
+    result
 }
 
 fn type_of_path_resolution_impl(db: &dyn HirDb, res: PathResolution) -> TyResult {
@@ -145,10 +175,14 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
             .as_decl(db)
             .map(|decl| type_of_decl_impl(db, decl))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::Typedef | DefKind::Enum | DefKind::Struct => def_id
+        DefKind::Typedef | DefKind::Struct => def_id
             .as_typedef(db)
             .map(|typedef| type_of_typedef_impl(db, typedef))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
+        DefKind::Enum => def_id
+            .as_typedef(db)
+            .map(|typedef| type_of_typedef_impl(db, typedef))
+            .unwrap_or_else(|| TyResult::new(Ty::Enum(def_id))),
         DefKind::SubroutinePort => def_id
             .as_subroutine_port(db)
             .map(|port| type_of_subroutine_port_impl(db, port))
@@ -217,10 +251,22 @@ pub fn members_of_ty(db: &dyn HirDb, ty: &Ty) -> Vec<TyMember> {
     match ty {
         Ty::Alias { target, .. } => members_of_ty(db, target),
         Ty::Struct(struct_id) => struct_members(db, *struct_id),
+        Ty::Union(def_id) => union_members(db, *def_id),
         Ty::Module(module_id) => module_members(db, *module_id),
         Ty::GenerateBlock(generate_block_id) => generate_block_members(db, *generate_block_id),
         Ty::Block(block_id) => block_members(db, *block_id),
-        Ty::Unknown | Ty::Error | Ty::Void | Ty::Builtin(_) => Vec::new(),
+        Ty::Unknown
+        | Ty::Error
+        | Ty::Void
+        | Ty::Builtin(_)
+        | Ty::Enum(_)
+        | Ty::Queue { .. }
+        | Ty::Assoc { .. }
+        | Ty::Dynamic(_)
+        | Ty::Event
+        | Ty::Chandle
+        | Ty::ClassHandle { .. }
+        | Ty::VirtualInterface { .. } => Vec::new(),
     }
 }
 
@@ -239,12 +285,21 @@ pub fn type_class(db: &dyn HirDb, ty: &Ty) -> Option<TyClass> {
             BuiltinDataTy::Int { .. } | BuiltinDataTy::Vector { .. } => Some(TyClass::Integral),
             BuiltinDataTy::Real(_) => Some(TyClass::Real),
             BuiltinDataTy::String => Some(TyClass::String),
-            BuiltinDataTy::Void => None,
+            BuiltinDataTy::Event | BuiltinDataTy::Chandle | BuiltinDataTy::Void => None,
         },
+        Ty::Enum(_) => Some(TyClass::Integral),
         Ty::Unknown
         | Ty::Error
         | Ty::Void
         | Ty::Struct(_)
+        | Ty::Union(_)
+        | Ty::Queue { .. }
+        | Ty::Assoc { .. }
+        | Ty::Dynamic(_)
+        | Ty::Event
+        | Ty::Chandle
+        | Ty::ClassHandle { .. }
+        | Ty::VirtualInterface { .. }
         | Ty::Module(_)
         | Ty::GenerateBlock(_)
         | Ty::Block(_) => None,
@@ -275,7 +330,11 @@ pub fn packed_bit_width(db: &dyn HirDb, ty: &Ty) -> Option<u64> {
     match ty {
         Ty::Alias { target, .. } => packed_bit_width(db, target),
         Ty::Builtin(BuiltinTy::Data { id, container }) => match db.lookup_intern_ty(*id) {
-            BuiltinDataTy::String | BuiltinDataTy::Real(_) | BuiltinDataTy::Void => None,
+            BuiltinDataTy::String
+            | BuiltinDataTy::Real(_)
+            | BuiltinDataTy::Event
+            | BuiltinDataTy::Chandle
+            | BuiltinDataTy::Void => None,
             BuiltinDataTy::Int { kind, .. } => Some(int_kind_width(kind) as u64),
             BuiltinDataTy::Vector { dimensions, .. } => {
                 if dimensions.is_empty() {
@@ -292,6 +351,9 @@ pub fn packed_bit_width(db: &dyn HirDb, ty: &Ty) -> Option<u64> {
                             i128::abs(left - right).checked_add(1)?
                         }
                         Dimension::Size(size) => eval_const_i128(db, *container, size)?,
+                        Dimension::Queue(_) | Dimension::Assoc(_) | Dimension::Dynamic => {
+                            return None;
+                        }
                     };
                     let width: u64 = width.try_into().ok()?;
                     product = product.checked_mul(width)?;
@@ -303,6 +365,15 @@ pub fn packed_bit_width(db: &dyn HirDb, ty: &Ty) -> Option<u64> {
         | Ty::Error
         | Ty::Void
         | Ty::Struct(_)
+        | Ty::Enum(_)
+        | Ty::Union(_)
+        | Ty::Queue { .. }
+        | Ty::Assoc { .. }
+        | Ty::Dynamic(_)
+        | Ty::Event
+        | Ty::Chandle
+        | Ty::ClassHandle { .. }
+        | Ty::VirtualInterface { .. }
         | Ty::Module(_)
         | Ty::GenerateBlock(_)
         | Ty::Block(_) => None,
@@ -313,20 +384,29 @@ fn normalize_data_ty_inner(
     db: &dyn HirDb,
     container: ScopeId,
     data_ty: DataTy,
+    owner: Option<DefId>,
     seen: &mut FxHashSet<InContainer<TypedefId>>,
 ) -> TyResult {
     match data_ty {
         DataTy::Builtin(builtin) => {
-            if matches!(
-                db.lookup_intern_ty(builtin),
-                crate::hir_def::expr::data_ty::BuiltinDataTy::Void
-            ) {
-                TyResult::new(Ty::Void)
-            } else {
-                TyResult::new(Ty::Builtin(BuiltinTy::Data { id: builtin, container }))
+            match db.lookup_intern_ty(builtin) {
+                BuiltinDataTy::Void => TyResult::new(Ty::Void),
+                BuiltinDataTy::Event => TyResult::new(Ty::Event),
+                BuiltinDataTy::Chandle => TyResult::new(Ty::Chandle),
+                _ => TyResult::new(Ty::Builtin(BuiltinTy::Data { id: builtin, container })),
             }
         }
-        DataTy::Struct(struct_id) => TyResult::new(Ty::Struct(struct_id)),
+        DataTy::Struct(struct_id) => match struct_kind(db, struct_id) {
+            Some(StructKind::Union) => owner
+                .map(Ty::Union)
+                .map(TyResult::new)
+                .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
+            Some(StructKind::Struct) | None => TyResult::new(Ty::Struct(struct_id)),
+        },
+        DataTy::Enum => owner
+            .map(Ty::Enum)
+            .map(TyResult::new)
+            .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DataTy::Named(named) => type_of_named_data_ty(db, container, named, seen),
     }
 }
@@ -378,7 +458,8 @@ fn type_of_typedef_inner(
         return TyResult::new(Ty::Unknown);
     };
 
-    let mut target = normalize_data_ty_inner(db, typedef.cont_id, data_ty, seen);
+    let owner = DefId::new(db, typedef);
+    let mut target = normalize_data_ty_inner(db, typedef.cont_id, data_ty, Some(owner), seen);
     seen.remove(&typedef);
     let ty = if matches!(target.ty, Ty::Error) {
         Ty::Error
@@ -404,6 +485,96 @@ fn struct_members(db: &dyn HirDb, struct_id: InContainer<StructId>) -> Vec<TyMem
             Some(TyMember { name, ty, origin: None })
         })
         .collect()
+}
+
+fn union_members(db: &dyn HirDb, def_id: DefId) -> Vec<TyMember> {
+    aggregate_struct_id_from_def(db, def_id)
+        .filter(|struct_id| struct_kind(db, *struct_id) == Some(StructKind::Union))
+        .map(|struct_id| struct_members(db, struct_id))
+        .unwrap_or_default()
+}
+
+fn aggregate_struct_id_from_def(db: &dyn HirDb, def_id: DefId) -> Option<InContainer<StructId>> {
+    match def_id.loc(db) {
+        DefLoc::Typedef(typedef) => match typedef_of(db, typedef)?.ty? {
+            DataTy::Struct(struct_id) => Some(struct_id),
+            _ => None,
+        },
+        DefLoc::Decl(decl) => match data_ty_of_decl(db, decl)? {
+            DataTy::Struct(struct_id) => Some(struct_id),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn struct_kind(db: &dyn HirDb, struct_id: InContainer<StructId>) -> Option<StructKind> {
+    struct_of(db, struct_id).map(|def| def.kind)
+}
+
+fn apply_unpacked_dimensions(
+    db: &dyn HirDb,
+    container: ScopeId,
+    mut ty: Ty,
+    dimensions: &[Option<Dimension>],
+) -> Ty {
+    for dim in dimensions.iter().flatten() {
+        ty = match dim {
+            Dimension::Queue(size) => Ty::Queue { elem: Box::new(ty), size: *size },
+            Dimension::Assoc(key) => Ty::Assoc {
+                key: Box::new(type_of_dimension_key(db, container, *key)),
+                elem: Box::new(ty),
+            },
+            Dimension::Dynamic => Ty::Dynamic(Box::new(ty)),
+            Dimension::Size(key) if builtin_dimension_key_ty(db, container, *key).is_some() => {
+                Ty::Assoc {
+                    key: Box::new(type_of_dimension_key(db, container, *key)),
+                    elem: Box::new(ty),
+                }
+            }
+            Dimension::Range(_, _) | Dimension::Size(_) => ty,
+        };
+    }
+    ty
+}
+
+fn type_of_dimension_key(db: &dyn HirDb, container: ScopeId, expr_id: ExprId) -> Ty {
+    if let Some(ty) = builtin_dimension_key_ty(db, container, expr_id) {
+        return ty;
+    }
+    type_of_expr_impl(db, InContainer::new(container, expr_id)).ty
+}
+
+fn builtin_dimension_key_ty(db: &dyn HirDb, container: ScopeId, expr_id: ExprId) -> Option<Ty> {
+    if let Some(Expr::Ident(ident)) = expr_of(db, InContainer::new(container, expr_id)) {
+        return builtin_type_name_ty(db, container, &ident);
+    }
+    None
+}
+
+fn builtin_type_name_ty(db: &dyn HirDb, container: ScopeId, ident: &Ident) -> Option<Ty> {
+    let ty = match ident.as_str() {
+        "string" => BuiltinDataTy::String,
+        "byte" => BuiltinDataTy::Int { kind: IntKind::Byte, signing: true },
+        "shortint" => BuiltinDataTy::Int { kind: IntKind::ShortInt, signing: true },
+        "int" => BuiltinDataTy::Int { kind: IntKind::Int, signing: true },
+        "longint" => BuiltinDataTy::Int { kind: IntKind::LongInt, signing: true },
+        "integer" => BuiltinDataTy::Int { kind: IntKind::Integer, signing: true },
+        "time" => BuiltinDataTy::Int { kind: IntKind::Time, signing: false },
+        "bit" => BuiltinDataTy::Vector {
+            kind: crate::hir_def::expr::data_ty::VecKind::Bit,
+            signing: false,
+            dimensions: Default::default(),
+        },
+        "logic" => BuiltinDataTy::default(),
+        "reg" => BuiltinDataTy::Vector {
+            kind: crate::hir_def::expr::data_ty::VecKind::Reg,
+            signing: false,
+            dimensions: Default::default(),
+        },
+        _ => return None,
+    };
+    Some(Ty::Builtin(BuiltinTy::Data { id: db.intern_ty(ty), container }))
 }
 
 fn module_members(db: &dyn HirDb, module_id: ModuleId) -> Vec<TyMember> {
@@ -500,7 +671,14 @@ fn type_of_subroutine_port_impl(db: &dyn HirDb, port: InSubroutine<SubroutinePor
         return TyResult::new(Ty::Unknown);
     };
     port.ty
-        .map(|ty| normalize_data_ty(db, port_id.subroutine.into(), ty))
+        .map(|ty| {
+            normalize_data_ty_with_owner(
+                db,
+                port_id.subroutine.into(),
+                ty,
+                Some(DefId::new(db, port_id)),
+            )
+        })
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
 }
 
@@ -647,5 +825,241 @@ fn stmt_of(
         ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id.as_in_container()).get(stmt.value).clone())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fmt;
+
+    use rustc_hash::FxHashSet;
+    use smol_str::SmolStr;
+    use triomphe::Arc;
+    use utils::paths::{AbsPathBuf, Utf8PathBuf};
+    use vfs::{FileId, FileSet, VfsPath, anchored_path::AnchoredPath};
+
+    use super::*;
+    use crate::{
+        base_db::{
+            diagnostics_config::DiagnosticsConfig,
+            project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+            salsa::{self, Durability},
+            source_db::{
+                FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
+                SourceRootDbStorage,
+            },
+            source_root::{SourceRoot, SourceRootId},
+        },
+        display::HirDisplay,
+        db::{HirDbStorage, InternDbStorage},
+        hir_def::module::ModuleId,
+        symbol::{DefLoc, NameContext},
+    };
+
+    const TOP: FileId = FileId(0);
+    const ROOT: SourceRootId = SourceRootId(0);
+    const PROFILE: CompilationProfileId = CompilationProfileId(0);
+
+    #[salsa::database(SourceDbStorage, SourceRootDbStorage, InternDbStorage, HirDbStorage)]
+    #[derive(Default)]
+    struct TestDb {
+        storage: salsa::Storage<Self>,
+    }
+
+    impl salsa::Database for TestDb {}
+
+    impl fmt::Debug for TestDb {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("TestDb").finish()
+        }
+    }
+
+    impl FileLoader for TestDb {
+        fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId> {
+            let source_root_id = SourceRootDb::source_root_id(self, path.anchor_id);
+            SourceRootDb::source_root(self, source_root_id).resolve_path(path)
+        }
+    }
+
+    fn db_with_root_text(root_text: &str) -> TestDb {
+        let top_path = abs_path("rtl/top.sv");
+        let mut file_set = FileSet::default();
+        file_set.insert(TOP, VfsPath::from(top_path.clone()));
+        let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
+        let mut files = FxHashSet::default();
+        files.insert(TOP);
+
+        let preprocess = PreprocessConfig::default();
+        let project_config = ProjectConfig::new(
+            vec![Some(PROFILE)],
+            vec![CompilationProfile {
+                source_roots: vec![ROOT],
+                top_modules: Vec::new(),
+                preprocess: preprocess.clone(),
+            }],
+        );
+
+        let mut db = TestDb::default();
+        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_project_config_with_durability(Arc::new(project_config), Durability::HIGH);
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig::default()),
+            Durability::HIGH,
+        );
+        db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
+        db.set_source_root_id_with_durability(TOP, ROOT, Durability::LOW);
+        db.set_file_path_with_durability(TOP, Some(top_path), Durability::LOW);
+        db.set_file_kind_with_durability(TOP, SourceFileKind::SystemVerilog, Durability::LOW);
+        db.set_file_text_with_durability(TOP, Arc::from(root_text), Durability::LOW);
+        db.set_file_preprocess_config_with_durability(TOP, Arc::new(preprocess), Durability::LOW);
+        db
+    }
+
+    fn abs_path(path: &str) -> AbsPathBuf {
+        let prefix = if cfg!(windows) { "C:/repo" } else { "/repo" };
+        AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}/{path}")))
+    }
+
+    fn ident(name: &str) -> Ident {
+        SmolStr::new(name)
+    }
+
+    fn module_id(db: &TestDb, name: &str) -> ModuleId {
+        db.unit_scope()
+            .module_ids(db, &ident(name))
+            .unique()
+            .expect("module should resolve uniquely")
+    }
+
+    fn decl_ty(db: &TestDb, module_id: ModuleId, name: &str) -> Ty {
+        let res = resolve_name(db, module_id.into(), &ident(name), NameContext::Value)
+            .expect("declaration should resolve");
+        let decl = res
+            .def_ids()
+            .iter()
+            .find_map(|def_id| def_id.as_decl(db))
+            .expect("resolved value should include a declaration");
+        db.type_of_decl(decl).ty.clone()
+    }
+
+    fn typedef_ty(db: &TestDb, module_id: ModuleId, name: &str) -> Ty {
+        let res = resolve_name(db, module_id.into(), &ident(name), NameContext::Type)
+            .expect("typedef should resolve");
+        let typedef = res
+            .def_ids()
+            .iter()
+            .find_map(|def_id| def_id.as_typedef(db))
+            .expect("resolved type should include a typedef");
+        db.type_of_typedef(typedef).ty.clone()
+    }
+
+    fn assert_owner_is_decl(db: &TestDb, def: DefId, name: &str) {
+        let DefLoc::Decl(decl) = def.loc(db) else {
+            panic!("expected {name} owner to be a declaration");
+        };
+        assert_eq!(decl.cont_id.to_container(db).get(decl.value).name.as_deref(), Some(name));
+    }
+
+    fn assert_owner_is_typedef(db: &TestDb, def: DefId, name: &str) {
+        let DefLoc::Typedef(typedef) = def.loc(db) else {
+            panic!("expected {name} owner to be a typedef");
+        };
+        assert_eq!(typedef.cont_id.to_container(db).get(typedef.value).name.as_deref(), Some(name));
+    }
+
+    #[test]
+    fn sv_type_adt_covers_enum_union_and_unpacked_array_kinds() {
+        let db = db_with_root_text(
+            r#"
+module m;
+  typedef enum logic [1:0] { A, B } state_t;
+  enum { C, D } anon_enum;
+  typedef union packed { logic [7:0] byte_v; int int_v; } payload_u;
+  logic queue_var[$];
+  logic bounded_queue[$:4];
+  logic assoc_var[string];
+  logic dyn_var[];
+  event ev;
+  chandle handle;
+endmodule
+"#,
+        );
+        let module_id = module_id(&db, "m");
+
+        let Ty::Alias { target: state_target, .. } = typedef_ty(&db, module_id, "state_t") else {
+            panic!("state_t should infer as an alias");
+        };
+        let Ty::Enum(state_def) = *state_target else {
+            panic!("state_t target should be an enum");
+        };
+        assert_owner_is_typedef(&db, state_def, "state_t");
+
+        let Ty::Enum(anon_enum_def) = decl_ty(&db, module_id, "anon_enum") else {
+            panic!("anonymous enum declaration should infer as Ty::Enum");
+        };
+        assert_owner_is_decl(&db, anon_enum_def, "anon_enum");
+
+        let Ty::Alias { target: payload_target, .. } = typedef_ty(&db, module_id, "payload_u")
+        else {
+            panic!("payload_u should infer as an alias");
+        };
+        let Ty::Union(payload_def) = *payload_target else {
+            panic!("payload_u target should be a union");
+        };
+        assert_owner_is_typedef(&db, payload_def, "payload_u");
+
+        assert!(matches!(decl_ty(&db, module_id, "queue_var"), Ty::Queue { size: None, .. }));
+        assert!(matches!(
+            decl_ty(&db, module_id, "bounded_queue"),
+            Ty::Queue { size: Some(_), .. }
+        ));
+        assert!(matches!(decl_ty(&db, module_id, "assoc_var"), Ty::Assoc { .. }));
+        assert!(matches!(decl_ty(&db, module_id, "dyn_var"), Ty::Dynamic(_)));
+        assert!(matches!(decl_ty(&db, module_id, "ev"), Ty::Event));
+        assert!(matches!(decl_ty(&db, module_id, "handle"), Ty::Chandle));
+    }
+
+    #[test]
+    fn sv_type_adt_display_covers_new_variants() {
+        let db = db_with_root_text(
+            r#"
+module m;
+  typedef enum { A, B } state_t;
+  typedef union packed { logic [7:0] byte_v; int int_v; } payload_u;
+  logic queue_var[$];
+  logic bounded_queue[$:4];
+  logic assoc_var[string];
+  logic dyn_var[];
+  event ev;
+  chandle handle;
+endmodule
+"#,
+        );
+        let module_id = module_id(&db, "m");
+
+        let rendered = [
+            typedef_ty(&db, module_id, "state_t").display_source(&db).unwrap(),
+            typedef_ty(&db, module_id, "payload_u").display_source(&db).unwrap(),
+            decl_ty(&db, module_id, "queue_var").display_source(&db).unwrap(),
+            decl_ty(&db, module_id, "bounded_queue").display_source(&db).unwrap(),
+            decl_ty(&db, module_id, "assoc_var").display_source(&db).unwrap(),
+            decl_ty(&db, module_id, "dyn_var").display_source(&db).unwrap(),
+            decl_ty(&db, module_id, "ev").display_source(&db).unwrap(),
+            decl_ty(&db, module_id, "handle").display_source(&db).unwrap(),
+        ];
+
+        assert_eq!(
+            rendered,
+            [
+                "state_t",
+                "payload_u",
+                "logic [$]",
+                "logic [$:4]",
+                "logic [string]",
+                "logic []",
+                "event",
+                "chandle",
+            ]
+        );
     }
 }
