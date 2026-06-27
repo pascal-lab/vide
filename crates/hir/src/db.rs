@@ -21,9 +21,7 @@ use crate::{
                 self, GenerateBlock, GenerateBlockId, GenerateBlockLoc, GenerateBlockSourceMap,
             },
         },
-        subroutine::{
-            self, LocalSubroutineId, Subroutine, SubroutinePortId, SubroutineSourceMap,
-        },
+        subroutine::{self, LocalSubroutineId, Subroutine, SubroutinePortId, SubroutineSourceMap},
         typedef::TypedefId,
     },
     impl_intern_key, impl_intern_lookup,

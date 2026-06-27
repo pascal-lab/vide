@@ -21,10 +21,7 @@ use hir::{
     symbol::DefId,
 };
 use smol_str::SmolStr;
-use syntax::{
-    SyntaxTokenWithParent,
-    has_text_range::HasTextRange,
-};
+use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange};
 use utils::{
     get::{Get, GetRef},
     line_index::TextRange,

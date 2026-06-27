@@ -852,14 +852,10 @@ endmodule
             .package_ids(&db, &ident("pkg"))
             .unique()
             .expect("package should resolve uniquely");
-        let package_f = resolve_name(
-            &db,
-            ScopeId::Module(package_id),
-            &ident("f"),
-            NameContext::Value,
-        )
-        .and_then(|res| res.primary_def_id())
-        .expect("package scope should resolve package subroutine");
+        let package_f =
+            resolve_name(&db, ScopeId::Module(package_id), &ident("f"), NameContext::Value)
+                .and_then(|res| res.primary_def_id())
+                .expect("package scope should resolve package subroutine");
 
         let DefLoc::Subroutine(package_subroutine) = package_f.loc(&db) else {
             panic!("package f should resolve to a subroutine");
@@ -871,28 +867,20 @@ endmodule
             .module_ids(&db, &ident("named_importer"))
             .unique()
             .expect("named importer should resolve uniquely");
-        let named_import_f = resolve_name(
-            &db,
-            ScopeId::Module(named_importer),
-            &ident("f"),
-            NameContext::Value,
-        )
-        .and_then(|res| res.primary_def_id())
-        .expect("named import should resolve package subroutine");
+        let named_import_f =
+            resolve_name(&db, ScopeId::Module(named_importer), &ident("f"), NameContext::Value)
+                .and_then(|res| res.primary_def_id())
+                .expect("named import should resolve package subroutine");
 
         let wildcard_importer = db
             .unit_scope()
             .module_ids(&db, &ident("wildcard_importer"))
             .unique()
             .expect("wildcard importer should resolve uniquely");
-        let wildcard_import_f = resolve_name(
-            &db,
-            ScopeId::Module(wildcard_importer),
-            &ident("f"),
-            NameContext::Value,
-        )
-        .and_then(|res| res.primary_def_id())
-        .expect("wildcard import should resolve package subroutine");
+        let wildcard_import_f =
+            resolve_name(&db, ScopeId::Module(wildcard_importer), &ident("f"), NameContext::Value)
+                .and_then(|res| res.primary_def_id())
+                .expect("wildcard import should resolve package subroutine");
 
         assert_eq!(package_f, named_import_f);
         assert_eq!(package_f.loc(&db), named_import_f.loc(&db));

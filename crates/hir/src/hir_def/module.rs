@@ -301,8 +301,9 @@ define_enum_deriving_from! {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Default)]
 pub enum ModuleKind {
+    #[default]
     Module,
     Interface,
     Program,
@@ -320,12 +321,6 @@ impl ModuleKind {
         } else {
             ModuleKind::Module
         }
-    }
-}
-
-impl Default for ModuleKind {
-    fn default() -> Self {
-        ModuleKind::Module
     }
 }
 
