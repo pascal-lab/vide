@@ -1,8 +1,10 @@
 use hir::{
+    db::HirDb,
     def_id::ModuleDefId,
     file::HirFileId,
+    hir_def::lower_ident_opt,
     semantics::{Semantics, pathres::PathResolution},
-    symbol::{DefId, NameContext},
+    symbol::{DefId, DefKind, NameContext},
 };
 use smallvec::SmallVec;
 use syntax::{
@@ -53,6 +55,14 @@ impl DefinitionClass {
         }
 
         if let Some(def) = resolve_instantiation_type_name(sema, file_id, tp) {
+            return Some(def);
+        }
+
+        if let Some(def) = resolve_package_import_item(sema, file_id, tp) {
+            return Some(def);
+        }
+
+        if let Some(def) = resolve_package_scoped_name(sema, file_id, tp) {
             return Some(def);
         }
 
@@ -150,6 +160,94 @@ fn resolve_member_or_scoped_name(
     Some(res.to_def_id(sema.db)?.into())
 }
 
+fn resolve_package_scoped_name(
+    sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
+    SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+) -> Option<DefinitionClass> {
+    let scoped = SyntaxAncestors::start_from(parent).find_map(ast::ScopedName::cast)?;
+    if scoped_uses_dot(scoped) {
+        return None;
+    }
+
+    let left = scoped_left_token(scoped)?;
+    if left.tok == tok {
+        return package_def(sema, file_id, left).map(Into::into);
+    }
+
+    let right_tok = scoped_right_token(scoped)?;
+    if right_tok != tok {
+        return None;
+    }
+
+    let package_def = package_def(sema, file_id, left)?;
+    let package_id = package_id_from_def(sema, package_def)?;
+    let ident = lower_ident_opt(Some(tok))?;
+    let primary_ctx = name_context_for_token(parent);
+    package_member_def(sema, package_id, &ident, primary_ctx).map(Into::into)
+}
+
+fn resolve_package_import_item(
+    sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
+    tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+) -> Option<DefinitionClass> {
+    let item = SyntaxAncestors::start_from(parent).find_map(ast::PackageImportItem::cast)?;
+    if item.package() == Some(tok) {
+        return package_def(sema, file_id, tp).map(Into::into);
+    }
+
+    if item.item() != Some(tok) {
+        return None;
+    }
+    let package_tok = item.package()?;
+    let package_def = package_def(
+        sema,
+        file_id,
+        SyntaxTokenWithParent { parent: item.syntax(), tok: package_tok },
+    )?;
+    let package_id = package_id_from_def(sema, package_def)?;
+    let ident = lower_ident_opt(Some(tok))?;
+    package_member_def(sema, package_id, &ident, NameContext::Type).map(Into::into)
+}
+
+fn package_def(
+    sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
+    left: SyntaxTokenWithParent<'_>,
+) -> Option<ModuleDefId> {
+    sema.nameres_ident(file_id, left, NameContext::Type)?
+        .def_ids()
+        .iter()
+        .copied()
+        .find(|def| def.kind(sema.db) == DefKind::Package)
+        .and_then(|def| PathResolution::from_def_id(def).to_def_id(sema.db))
+}
+
+fn package_id_from_def(
+    sema: &Semantics<'_, RootDb>,
+    package_def: ModuleDefId,
+) -> Option<hir::hir_def::module::PackageId> {
+    package_def.origins(sema.db).into_iter().find_map(|def| {
+        (def.kind(sema.db) == DefKind::Package).then(|| def.as_module(sema.db)).flatten()
+    })
+}
+
+fn package_member_def(
+    sema: &Semantics<'_, RootDb>,
+    package_id: hir::hir_def::module::PackageId,
+    ident: &hir::hir_def::Ident,
+    primary_ctx: NameContext,
+) -> Option<ModuleDefId> {
+    let package_scope = sema.db.package_export_scope(package_id);
+    let fallback_ctx =
+        if primary_ctx == NameContext::Type { NameContext::Value } else { NameContext::Type };
+    let defs = package_scope
+        .lookup(primary_ctx, ident)
+        .or_else(|| package_scope.lookup(fallback_ctx, ident))?;
+    PathResolution::from_def_ids(defs)?.to_def_id(sema.db)
+}
+
 fn resolve_instantiation_type_name(
     sema: &Semantics<'_, RootDb>,
     file_id: HirFileId,
@@ -175,7 +273,9 @@ fn resolve_instantiation_type_name(
                     })
                     .collect::<Option<Vec<_>>>()?,
             )),
-            ModuleResolution::Unresolved => None,
+            ModuleResolution::Unresolved => {
+                Some(sema.nameres_ident(file_id, tp, NameContext::Type)?.to_def_id(sema.db)?.into())
+            }
         };
     }
 
@@ -185,6 +285,15 @@ fn resolve_instantiation_type_name(
     {
         return Some(
             sema.nameres_ident(file_id, tp, NameContext::Value)?.to_def_id(sema.db)?.into(),
+        );
+    }
+
+    if let Some(instantiation) =
+        SyntaxAncestors::start_from(parent).find_map(ast::CheckerInstantiation::cast)
+        && rightmost_name_token(instantiation.type_()) == Some(tok)
+    {
+        return Some(
+            sema.nameres_ident(file_id, tp, NameContext::Type)?.to_def_id(sema.db)?.into(),
         );
     }
 
@@ -211,12 +320,35 @@ fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {
     }
 }
 
+fn scoped_left_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxTokenWithParent<'_>> {
+    use ast::Name::*;
+    match scoped.left() {
+        IdentifierName(ident) => {
+            Some(SyntaxTokenWithParent { parent: ident.syntax(), tok: ident.identifier()? })
+        }
+        IdentifierSelectName(ident) => {
+            Some(SyntaxTokenWithParent { parent: ident.syntax(), tok: ident.identifier()? })
+        }
+        _ => None,
+    }
+}
+
 fn scoped_uses_dot(scoped: ast::ScopedName<'_>) -> bool {
     scoped
         .syntax()
         .children()
         .filter_map(|elem| elem.as_token())
         .any(|tok| tok.kind() == syntax::Token![.])
+}
+
+fn rightmost_name_token(name: ast::Name<'_>) -> Option<SyntaxToken<'_>> {
+    use ast::Name::*;
+    match name {
+        IdentifierName(ident) => ident.identifier(),
+        IdentifierSelectName(ident) => ident.identifier(),
+        ScopedName(scoped) => rightmost_name_token(scoped.right()),
+        _ => None,
+    }
 }
 
 fn token_is_in_non_dot_scoped_name(parent: syntax::SyntaxNode<'_>) -> bool {

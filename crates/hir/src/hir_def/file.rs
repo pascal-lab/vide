@@ -18,6 +18,11 @@ use super::{
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_idx_and_src,
     block::{BlockInfo, BlockSrc, LocalBlockId},
+    checker::{CheckerDef, CheckerId, CheckerSrc, LowerChecker},
+    covergroup::{
+        CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointSrc, CrossDef,
+        CrossSrc, lower_covergroup_decl, lower_coverpoint, lower_cross,
+    },
     declaration::{
         Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, impl_lower_declaration,
     },
@@ -62,6 +67,10 @@ define_container! {
         udp_decls: [UdpDecl],
         library_decls: [LibraryDecl],
         library_includes: [LibraryInclude],
+        checkers: [CheckerDef],
+        covergroups: [CovergroupDef],
+        coverpoints: [CoverpointDef],
+        crosses: [CrossDef],
         subroutines: [Subroutine],
         package_imports: [PackageImport],
 
@@ -92,6 +101,10 @@ define_container! {
         udp_decl_srcs: [UdpDecl | UdpDeclSrc],
         library_decl_srcs: [LibraryDecl | LibraryDeclSrc],
         library_include_srcs: [LibraryInclude | LibraryIncludeSrc],
+        checker_srcs: [CheckerDef | CheckerSrc],
+        covergroup_srcs: [CovergroupDef | CovergroupSrc],
+        coverpoint_srcs: [CoverpointDef | CoverpointSrc],
+        cross_srcs: [CrossDef | CrossSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
         expr_srcs: [Expr | ExprSrc],
         event_expr_srcs: [EventExpr | EventExprSrc],
@@ -115,6 +128,8 @@ define_enum_deriving_from! {
         UdpDeclId(UdpDeclId),
         LibraryDeclId(LibraryDeclId),
         LibraryIncludeId(LibraryIncludeId),
+        CheckerId(CheckerId),
+        CovergroupId(CovergroupId),
         SubroutineId(LocalSubroutineId),
     }
 }
@@ -131,6 +146,8 @@ impl FileSourceMap {
             FileItem::UdpDeclId(idx) => self.get(*idx)?.node,
             FileItem::LibraryDeclId(idx) => self.get(*idx)?.node,
             FileItem::LibraryIncludeId(idx) => self.get(*idx)?.0,
+            FileItem::CheckerId(idx) => self.get(*idx)?.node,
+            FileItem::CovergroupId(idx) => self.get(*idx)?.node,
             FileItem::SubroutineId(idx) => self.get(*idx)?.node,
         })
     }
@@ -287,6 +304,43 @@ impl LowerFileCtx<'_> {
         }
     }
 
+    fn lower_covergroup_decl(
+        &mut self,
+        covergroup_decl: ast::CovergroupDeclaration,
+    ) -> CovergroupId {
+        let mut covergroup = lower_covergroup_decl(covergroup_decl);
+
+        for member in covergroup_decl.members().children() {
+            match member {
+                ast::Member::Coverpoint(coverpoint_ast) => {
+                    let coverpoint = lower_coverpoint(coverpoint_ast);
+                    let coverpoint_id = alloc_idx_and_src! {
+                        self.file_id;
+                        coverpoint => self.file.coverpoints,
+                        coverpoint_ast => self.file_source_map.coverpoint_srcs,
+                    };
+                    covergroup.coverpoints.push(coverpoint_id);
+                }
+                ast::Member::CoverCross(cross_ast) => {
+                    let cross = lower_cross(cross_ast);
+                    let cross_id = alloc_idx_and_src! {
+                        self.file_id;
+                        cross => self.file.crosses,
+                        cross_ast => self.file_source_map.cross_srcs,
+                    };
+                    covergroup.crosses.push(cross_id);
+                }
+                _ => {}
+            }
+        }
+
+        alloc_idx_and_src! {
+            self.file_id;
+            covergroup => self.file.covergroups,
+            covergroup_decl => self.file_source_map.covergroup_srcs,
+        }
+    }
+
     pub(crate) fn lower_file(&mut self, root: ast::CompilationUnit) {
         for member in root.members().children() {
             use ast::Member::*;
@@ -321,6 +375,10 @@ impl LowerFileCtx<'_> {
                 }
                 UdpDeclaration(udp_decl) => self.lower_udp_decl(udp_decl).into(),
                 ConfigDeclaration(config_decl) => self.lower_config_decl(config_decl).into(),
+                CheckerDeclaration(checker_decl) => self.lower_checker_decl(checker_decl).into(),
+                CovergroupDeclaration(covergroup_decl) => {
+                    self.lower_covergroup_decl(covergroup_decl).into()
+                }
                 _ => continue,
             };
             self.file_source_map.items.push(idx);

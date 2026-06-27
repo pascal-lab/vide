@@ -1,5 +1,7 @@
 pub mod aggregate;
 pub mod block;
+pub mod checker;
+pub mod covergroup;
 pub mod declaration;
 pub mod expr;
 pub mod file;

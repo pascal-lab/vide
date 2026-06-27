@@ -99,6 +99,9 @@ impl Source2DefCtx<'_, '_> {
                 let local_block_id = *subroutine_src_map.block_srcs.get(&block_src)?;
                 subroutine.stmts.get(local_block_id).block_id
             }
+            ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => {
+                return None;
+            }
         };
 
         Some(block_id)
@@ -180,7 +183,11 @@ impl Source2DefCtx<'_, '_> {
                 let (_, source_map) = self.db.generate_block_with_source_map(generate_block_id);
                 source_map.get(src)
             }
-            ScopeId::Block(_) | ScopeId::Subroutine(_) => None,
+            ScopeId::Block(_)
+            | ScopeId::Subroutine(_)
+            | ScopeId::ClockingBlock(_)
+            | ScopeId::Checker(_)
+            | ScopeId::Covergroup(_) => None,
         }
     }
 

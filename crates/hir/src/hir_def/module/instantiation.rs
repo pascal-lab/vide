@@ -1,6 +1,6 @@
 use la_arena::{Arena, Idx};
 use smallvec::SmallVec;
-use syntax::ast;
+use syntax::{SyntaxToken, ast};
 
 use crate::{
     db::InternDb,
@@ -40,9 +40,17 @@ impl AstKind for PrimitiveInstantiationAst {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct CheckerInstantiationAst;
+
+impl AstKind for CheckerInstantiationAst {
+    type Node<'a> = ast::CheckerInstantiation<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum InstantiationSrc {
     HierarchyInstantiation(AstId<HierarchyInstantiationAst>),
     PrimitiveInstantiation(AstId<PrimitiveInstantiationAst>),
+    CheckerInstantiation(AstId<CheckerInstantiationAst>),
 }
 
 impl IsSrc for InstantiationSrc {
@@ -69,6 +77,15 @@ impl<'a> ToAstNode<'a, ast::PrimitiveInstantiation<'a>> for InstantiationSrc {
     }
 }
 
+impl<'a> ToAstNode<'a, ast::CheckerInstantiation<'a>> for InstantiationSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::CheckerInstantiation<'a>> {
+        let InstantiationSrc::CheckerInstantiation(src) = self else {
+            return None;
+        };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
 impl<'a> FromSourceAst<'a, ast::HierarchyInstantiation<'a>> for InstantiationSrc {
     fn from_source_ast(node: SourceAst<ast::HierarchyInstantiation<'a>>) -> Self {
         Self::HierarchyInstantiation(AstId::from_source_ast(node))
@@ -81,11 +98,18 @@ impl<'a> FromSourceAst<'a, ast::PrimitiveInstantiation<'a>> for InstantiationSrc
     }
 }
 
+impl<'a> FromSourceAst<'a, ast::CheckerInstantiation<'a>> for InstantiationSrc {
+    fn from_source_ast(node: SourceAst<ast::CheckerInstantiation<'a>>) -> Self {
+        Self::CheckerInstantiation(AstId::from_source_ast(node))
+    }
+}
+
 impl From<InstantiationSrc> for syntax::ptr::SyntaxNodePtr {
     fn from(src: InstantiationSrc) -> Self {
         match src {
             InstantiationSrc::HierarchyInstantiation(src) => src.ptr(),
             InstantiationSrc::PrimitiveInstantiation(src) => src.ptr(),
+            InstantiationSrc::CheckerInstantiation(src) => src.ptr(),
         }
     }
 }
@@ -236,6 +260,27 @@ impl LowerInstantiationCtx<'_> {
         }
     }
 
+    pub(crate) fn lower_checker_instantiation(
+        &mut self,
+        inst: ast::CheckerInstantiation,
+    ) -> InstantiationId {
+        let module_name = lower_name(inst.type_());
+        let param_assigns = self.lower_param_assign(inst.parameters());
+
+        let next_instantiation_id = self.instantiations.nxt_idx();
+        let instances = inst
+            .instances()
+            .children()
+            .map(|hier| self.lower_instance(hier, next_instantiation_id))
+            .collect();
+
+        alloc_idx_and_src! {
+            self.file_id;
+            Instantiation { module_name, param_assigns, instances } => self.instantiations,
+            inst => self.instantiation_srcs,
+        }
+    }
+
     fn lower_param_assign(
         &mut self,
         assigns: Option<ast::ParameterValueAssignment>,
@@ -318,5 +363,18 @@ impl LowerInstantiationCtx<'_> {
             Instance { name, dimensions, connections, parent } => self.instances,
             instance => self.instance_srcs,
         }
+    }
+}
+
+fn lower_name(name: ast::Name<'_>) -> Option<Ident> {
+    lower_ident_opt(rightmost_name_token(name))
+}
+
+fn rightmost_name_token(name: ast::Name<'_>) -> Option<SyntaxToken<'_>> {
+    match name {
+        ast::Name::IdentifierName(name) => name.identifier(),
+        ast::Name::IdentifierSelectName(name) => name.identifier(),
+        ast::Name::ScopedName(name) => rightmost_name_token(name.right()),
+        _ => None,
     }
 }

@@ -20,8 +20,8 @@ use crate::{
         subroutine::SubroutinePortId,
         typedef::TypedefId,
     },
-    semantics::pathres::{PathResolution, instance_target_module_id, resolve_name},
-    symbol::{DefId, DefKind, DefLoc, NameContext},
+    semantics::pathres::{PathResolution, instance_target_def_id, resolve_name},
+    symbol::{DefId, DefKind, DefLoc, NameContext, NameScope},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -45,6 +45,8 @@ pub enum Ty {
     Chandle,
     Alias { typedef: InContainer<TypedefId>, target: Box<Ty> },
     Module(ModuleId),
+    Checker(DefId),
+    Covergroup(DefId),
     VirtualInterface { def: DefId, modport: Option<DefId> },
     GenerateBlock(GenerateBlockId),
     Block(crate::hir_def::block::BlockId),
@@ -154,12 +156,15 @@ fn type_of_path_resolution_impl(db: &dyn HirDb, res: PathResolution) -> TyResult
 
 fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
     match def_id.kind(db) {
-        DefKind::Module | DefKind::Package => def_id
+        DefKind::Module | DefKind::Package | DefKind::Program => def_id
             .as_module(db)
             .map(|module_id| TyResult::new(Ty::Module(module_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Interface => TyResult::new(Ty::VirtualInterface { def: def_id, modport: None }),
+        DefKind::Checker => TyResult::new(Ty::Checker(def_id)),
+        DefKind::Covergroup => TyResult::new(Ty::Covergroup(def_id)),
         DefKind::Port
+        | DefKind::CheckerPort
         | DefKind::Variable
         | DefKind::Net
         | DefKind::Param
@@ -178,17 +183,18 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Instance => def_id
             .as_instance(db)
-            .and_then(|instance| instance_target_module_id(db, instance.module_id, instance.value))
-            .map(|module_id| {
-                let module_kind = db.hir_file(module_id.file_id).get(module_id.value).kind;
-                if module_kind == ModuleKind::Interface {
-                    TyResult::new(Ty::VirtualInterface {
-                        def: DefId::new(db, module_id),
-                        modport: None,
-                    })
-                } else {
-                    TyResult::new(Ty::Module(module_id))
+            .and_then(|instance| instance_target_def_id(db, instance.module_id, instance.value))
+            .map(|target| match target.kind(db) {
+                DefKind::Interface => {
+                    TyResult::new(Ty::VirtualInterface { def: target, modport: None })
                 }
+                DefKind::Module | DefKind::Program => target
+                    .as_module(db)
+                    .map(|module_id| TyResult::new(Ty::Module(module_id)))
+                    .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
+                DefKind::Checker => TyResult::new(Ty::Checker(target)),
+                DefKind::Covergroup => TyResult::new(Ty::Covergroup(target)),
+                _ => TyResult::new(Ty::Unknown),
             })
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Modport => def_id
@@ -208,12 +214,15 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
             .as_block(db)
             .map(|block_id| TyResult::new(Ty::Block(block_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::Program
-        | DefKind::Udp
+        DefKind::Udp
         | DefKind::Config
         | DefKind::Library
         | DefKind::Subroutine
         | DefKind::NonAnsiPort
+        | DefKind::ClockingBlock
+        | DefKind::ClockingSignal
+        | DefKind::Coverpoint
+        | DefKind::Cross
         | DefKind::Stmt => TyResult::new(Ty::Unknown),
     }
 }
@@ -251,6 +260,8 @@ pub fn members_of_ty(db: &dyn HirDb, ty: &Ty) -> Vec<TyMember> {
         Ty::Struct(struct_id) => struct_members(db, *struct_id),
         Ty::Union(def_id) => union_members(db, *def_id),
         Ty::Module(module_id) => module_members(db, *module_id),
+        Ty::Checker(def_id) => checker_members(db, *def_id),
+        Ty::Covergroup(def_id) => covergroup_members(db, *def_id),
         Ty::VirtualInterface { def, .. } => {
             def.as_module(db).map(|module_id| module_members(db, module_id)).unwrap_or_default()
         }
@@ -298,6 +309,8 @@ pub fn type_class(db: &dyn HirDb, ty: &Ty) -> Option<TyClass> {
         | Ty::Event
         | Ty::Chandle
         | Ty::Module(_)
+        | Ty::Checker(_)
+        | Ty::Covergroup(_)
         | Ty::VirtualInterface { .. }
         | Ty::GenerateBlock(_)
         | Ty::Block(_) => None,
@@ -371,6 +384,8 @@ pub fn packed_bit_width(db: &dyn HirDb, ty: &Ty) -> Option<u64> {
         | Ty::Event
         | Ty::Chandle
         | Ty::Module(_)
+        | Ty::Checker(_)
+        | Ty::Covergroup(_)
         | Ty::VirtualInterface { .. }
         | Ty::GenerateBlock(_)
         | Ty::Block(_) => None,
@@ -591,23 +606,30 @@ fn module_members(db: &dyn HirDb, module_id: ModuleId) -> Vec<TyMember> {
     members
 }
 
+fn checker_members(db: &dyn HirDb, def_id: DefId) -> Vec<TyMember> {
+    let Some(checker_id) = def_id.as_checker(db) else {
+        return Vec::new();
+    };
+    scope_members(db, &db.checker_scope(checker_id))
+}
+
+fn covergroup_members(db: &dyn HirDb, def_id: DefId) -> Vec<TyMember> {
+    let Some(covergroup_id) = def_id.as_covergroup(db) else {
+        return Vec::new();
+    };
+    scope_members(db, &db.covergroup_scope(covergroup_id))
+}
+
 fn generate_block_members(db: &dyn HirDb, generate_block_id: GenerateBlockId) -> Vec<TyMember> {
-    let mut members: Vec<_> = db
-        .generate_block_scope(generate_block_id)
-        .iter_listing()
-        .filter_map(|(name, defs)| {
-            let origin = PathResolution::from_def_ids(defs)?;
-            let ty = type_of_path_resolution_impl(db, origin.clone()).ty;
-            Some(TyMember { name: name.clone(), ty, origin: Some(origin) })
-        })
-        .collect();
-    sort_members(&mut members);
-    members
+    scope_members(db, &db.generate_block_scope(generate_block_id))
 }
 
 fn block_members(db: &dyn HirDb, block_id: crate::hir_def::block::BlockId) -> Vec<TyMember> {
-    let mut members: Vec<_> = db
-        .block_scope(block_id)
+    scope_members(db, &db.block_scope(block_id))
+}
+
+fn scope_members(db: &dyn HirDb, scope: &NameScope) -> Vec<TyMember> {
+    let mut members: Vec<_> = scope
         .iter_listing()
         .filter_map(|(name, defs)| {
             let origin = PathResolution::from_def_ids(defs)?;
@@ -734,6 +756,7 @@ fn expr_of(db: &dyn HirDb, expr: InContainer<ExprId>) -> Option<Expr> {
         ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id.as_in_container()).get(expr.value).clone())
         }
+        ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
     }
 }
 
@@ -751,6 +774,7 @@ fn decl_of(
         ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id.as_in_container()).get(decl.value).clone())
         }
+        ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
     }
 }
 
@@ -768,6 +792,7 @@ fn declaration_of(
         ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id.as_in_container()).get(decl.value).clone())
         }
+        ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
     }
 }
 
@@ -785,6 +810,7 @@ fn typedef_of(
         ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id.as_in_container()).get(typedef.value).clone())
         }
+        ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
     }
 }
 
@@ -802,6 +828,7 @@ fn struct_of(
         ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id.as_in_container()).get(struct_id.value).clone())
         }
+        ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
     }
 }
 
@@ -819,6 +846,7 @@ fn stmt_of(
         ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id.as_in_container()).get(stmt.value).clone())
         }
+        ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
     }
 }
 
@@ -1093,5 +1121,26 @@ endmodule
             path_ty(&db, top, &["u_if", "host"]).display_source(&db).unwrap(),
             "virtual interface bus_if.host"
         );
+    }
+
+    #[test]
+    fn program_instance_type_displays_as_module_shaped_definition() {
+        let db = db_with_root_text(
+            r#"
+program p;
+endprogram
+
+module top;
+  p u_p();
+endmodule
+"#,
+        );
+        let top = module_id(&db, "top");
+        let program = module_id(&db, "p");
+
+        let program_res =
+            crate::semantics::pathres::PathResolution::from_def_id(DefId::new(&db, program));
+        assert_eq!(db.type_of_path_resolution(program_res).ty.display_source(&db).unwrap(), "p");
+        assert_eq!(path_ty(&db, top, &["u_p"]).display_source(&db).unwrap(), "p");
     }
 }
