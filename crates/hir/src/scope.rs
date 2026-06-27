@@ -16,6 +16,7 @@ use crate::{
         lower_ident_opt,
         module::{
             Module, ModuleKind, PackageId,
+            clocking::{ClockingBlockId, ClockingSignalId},
             generate::GenerateBlockId,
             port::{PortDeclId, Ports},
         },
@@ -283,6 +284,26 @@ impl NameScope {
         }
 
         insert_stmts(&mut scope, db, module_id.into(), &module.stmts);
+
+        Arc::new(scope)
+    }
+
+    pub fn clocking_block_scope_query(
+        db: &dyn HirDb,
+        clocking_block_id: InModule<ClockingBlockId>,
+    ) -> Arc<NameScope> {
+        let mut scope = NameScope::default();
+        let module = db.module(clocking_block_id.module_id);
+        let clocking_block = module.get(clocking_block_id.value);
+        let clocking_scope = ScopeId::ClockingBlock(clocking_block_id);
+
+        for (idx, signal) in clocking_block.signals.iter().enumerate() {
+            let signal_id = ClockingSignalId(idx as u32);
+            scope.insert_value(
+                &signal.name,
+                def_id(db, InContainer::new(clocking_scope, signal_id)),
+            );
+        }
 
         Arc::new(scope)
     }

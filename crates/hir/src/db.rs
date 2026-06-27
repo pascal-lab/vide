@@ -3,7 +3,7 @@ use triomphe::Arc;
 
 use crate::{
     base_db::{salsa, source_db::SourceRootDb},
-    container::{InContainer, InSubroutine},
+    container::{InContainer, InModule, InSubroutine},
     def_id::{ModuleDef, ModuleDefId},
     file::HirFileId,
     hir_def::{
@@ -17,6 +17,7 @@ use crate::{
         macro_file::{self, ExpansionInfo, MacroCallId, MacroCallLoc, MacroFileId, MacroFileLoc},
         module::{
             self, Module, ModuleId, ModuleSourceMap, PackageId,
+            clocking::ClockingBlockId,
             generate::{
                 self, GenerateBlock, GenerateBlockId, GenerateBlockLoc, GenerateBlockSourceMap,
             },
@@ -119,6 +120,9 @@ pub trait HirDb: InternDb {
 
     #[salsa::invoke(NameScope::module_scope_query)]
     fn module_scope(&self, module_id: ModuleId) -> Arc<NameScope>;
+
+    #[salsa::invoke(NameScope::clocking_block_scope_query)]
+    fn clocking_block_scope(&self, clocking_block_id: InModule<ClockingBlockId>) -> Arc<NameScope>;
 
     #[salsa::invoke(NameScope::generate_block_scope_query)]
     fn generate_block_scope(&self, generate_block_id: GenerateBlockId) -> Arc<NameScope>;
