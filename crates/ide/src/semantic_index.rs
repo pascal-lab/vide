@@ -10,7 +10,7 @@ use hir::{
     hir_def::{Ident, module::ModuleId},
     semantics::Semantics,
     source_map::IsSrc,
-    symbol::{DefId, DefKind},
+    symbol::DefId,
 };
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
@@ -120,12 +120,7 @@ impl ModuleIndex {
             for (_, defs) in db.file_scope(hir_file_id).iter_listing() {
                 for module_id in defs
                     .iter()
-                    .filter(|def_id| {
-                        matches!(
-                            def_id.kind(db),
-                            DefKind::Module | DefKind::Interface | DefKind::Program
-                        )
-                    })
+                    .filter(|def_id| def_id.kind(db).is_instantiable_def())
                     .filter_map(|def_id| def_id.as_module(db))
                 {
                     let Some(module) = SemanticModuleDefinition::new(db, module_id) else {
