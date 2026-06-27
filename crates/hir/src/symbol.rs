@@ -14,8 +14,12 @@ use crate::{
         expr::declarator::DeclId,
         file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
         module::{
-            ModuleId, clocking::ClockingBlockId, generate::GenerateBlockId,
-            instantiation::InstanceId, modport::ModportId, port::NonAnsiPortId,
+            ModuleId,
+            clocking::{ClockingBlockId, ClockingSignalId},
+            generate::GenerateBlockId,
+            instantiation::InstanceId,
+            modport::ModportId,
+            port::NonAnsiPortId,
         },
         stmt::StmtId,
         subroutine::{LocalSubroutineId, SubroutinePortId},
@@ -44,6 +48,7 @@ pub enum DefLoc {
     Instance(InModule<InstanceId>),
     Modport(InModule<ModportId>),
     ClockingBlock(InModule<ClockingBlockId>),
+    ClockingSignal(InContainer<ClockingSignalId>),
     Checker(InContainer<CheckerId>),
     Covergroup(InContainer<CovergroupId>),
     Coverpoint(InContainer<CoverpointId>),
@@ -66,6 +71,7 @@ impl_from! { DefLoc =>
     Instance(InModule<InstanceId>),
     Modport(InModule<ModportId>),
     ClockingBlock(InModule<ClockingBlockId>),
+    ClockingSignal(InContainer<ClockingSignalId>),
     Checker(InContainer<CheckerId>),
     Covergroup(InContainer<CovergroupId>),
     Coverpoint(InContainer<CoverpointId>),
@@ -180,6 +186,13 @@ impl DefId {
         }
     }
 
+    pub fn as_clocking_signal(self, db: &dyn InternDb) -> Option<InContainer<ClockingSignalId>> {
+        match self.loc(db) {
+            DefLoc::ClockingSignal(id) => Some(id),
+            _ => None,
+        }
+    }
+
     pub fn as_checker(self, db: &dyn InternDb) -> Option<InContainer<CheckerId>> {
         match self.loc(db) {
             DefLoc::Checker(id) => Some(id),
@@ -227,6 +240,7 @@ pub enum DefKind {
     Instance,
     Modport,
     ClockingBlock,
+    ClockingSignal,
     Checker,
     Covergroup,
     Coverpoint,
@@ -268,6 +282,7 @@ impl DefKind {
             DefKind::Instance => SymbolKind::Instance,
             DefKind::Modport
             | DefKind::ClockingBlock
+            | DefKind::ClockingSignal
             | DefKind::Checker
             | DefKind::Covergroup
             | DefKind::Coverpoint

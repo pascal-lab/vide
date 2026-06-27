@@ -214,6 +214,7 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
         | DefKind::Subroutine
         | DefKind::NonAnsiPort
         | DefKind::ClockingBlock
+        | DefKind::ClockingSignal
         | DefKind::Checker
         | DefKind::Covergroup
         | DefKind::Coverpoint
@@ -738,6 +739,7 @@ fn expr_of(db: &dyn HirDb, expr: InContainer<ExprId>) -> Option<Expr> {
         ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id.as_in_container()).get(expr.value).clone())
         }
+        ScopeId::ClockingBlock(_) => None,
     }
 }
 
@@ -755,6 +757,7 @@ fn decl_of(
         ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id.as_in_container()).get(decl.value).clone())
         }
+        ScopeId::ClockingBlock(_) => None,
     }
 }
 
@@ -772,6 +775,7 @@ fn declaration_of(
         ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id.as_in_container()).get(decl.value).clone())
         }
+        ScopeId::ClockingBlock(_) => None,
     }
 }
 
@@ -789,6 +793,7 @@ fn typedef_of(
         ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id.as_in_container()).get(typedef.value).clone())
         }
+        ScopeId::ClockingBlock(_) => None,
     }
 }
 
@@ -806,6 +811,7 @@ fn struct_of(
         ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id.as_in_container()).get(struct_id.value).clone())
         }
+        ScopeId::ClockingBlock(_) => None,
     }
 }
 
@@ -823,6 +829,7 @@ fn stmt_of(
         ScopeId::Subroutine(subroutine_id) => {
             Some(db.subroutine(subroutine_id.as_in_container()).get(stmt.value).clone())
         }
+        ScopeId::ClockingBlock(_) => None,
     }
 }
 

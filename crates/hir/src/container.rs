@@ -20,6 +20,7 @@ use crate::{
         file::{FileSourceMap, HirFile},
         module::{
             Module, ModuleId, ModuleSourceMap,
+            clocking::ClockingBlockId,
             generate::{GenerateBlock, GenerateBlockId, GenerateBlockSourceMap},
         },
         stmt::{Stmt, StmtId, StmtSrc},
@@ -38,6 +39,7 @@ define_enum_deriving_from! {
         GenerateBlock(GenerateBlockId),
         Block(BlockId),
         Subroutine(SubroutineScope),
+        ClockingBlock(InModule<ClockingBlockId>),
     }
 }
 
@@ -94,7 +96,7 @@ impl TryFrom<ScopeId> for SubroutineParent {
             ScopeId::File(file_id) => Ok(Self::File(file_id)),
             ScopeId::Module(module_id) => Ok(Self::Module(module_id)),
             ScopeId::GenerateBlock(generate_block_id) => Ok(Self::GenerateBlock(generate_block_id)),
-            ScopeId::Block(_) | ScopeId::Subroutine(_) => Err(()),
+            ScopeId::Block(_) | ScopeId::Subroutine(_) | ScopeId::ClockingBlock(_) => Err(()),
         }
     }
 }
@@ -202,6 +204,7 @@ impl ScopeId {
             ScopeId::GenerateBlock(_) => ScopeKind::GenerateBlock,
             ScopeId::Block(_) => ScopeKind::Block,
             ScopeId::Subroutine(_) => ScopeKind::Subroutine,
+            ScopeId::ClockingBlock(_) => ScopeKind::ClockingBlock,
         }
     }
 
@@ -212,6 +215,7 @@ impl ScopeId {
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.file_id(db),
             ScopeId::Block(block_id) => block_id.file_id(db),
             ScopeId::Subroutine(subroutine) => subroutine.file_id(db),
+            ScopeId::ClockingBlock(clocking_block) => clocking_block.module_id.file_id(),
         }
     }
 
@@ -222,6 +226,9 @@ impl ScopeId {
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.to_container(db).into(),
             ScopeId::Block(block_id) => block_id.to_container(db).into(),
             ScopeId::Subroutine(subroutine) => db.subroutine(subroutine.as_in_container()).into(),
+            ScopeId::ClockingBlock(_) => {
+                panic!("clocking block scopes do not expose a generic HIR container")
+            }
         }
     }
 
@@ -235,6 +242,9 @@ impl ScopeId {
             ScopeId::Block(block_id) => block_id.to_container_src_map(db).into(),
             ScopeId::Subroutine(subroutine) => {
                 db.subroutine_with_source_map(subroutine.as_in_container()).1.into()
+            }
+            ScopeId::ClockingBlock(_) => {
+                panic!("clocking block scopes do not expose a generic source map")
             }
         }
     }
@@ -385,6 +395,7 @@ impl Iterator for ScopeParent<'_> {
             }
             ScopeId::Block(block_id) => Some(block_id.lookup(self.db).cont_id),
             ScopeId::Subroutine(subroutine) => Some(subroutine.parent_scope()),
+            ScopeId::ClockingBlock(clocking_block) => Some(clocking_block.module_id.into()),
         };
         next
     }

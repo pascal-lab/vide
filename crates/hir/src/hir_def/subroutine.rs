@@ -352,7 +352,7 @@ pub(crate) fn subroutine_with_source_map_query(
             let source_map = subroutine.source_map.clone();
             (Arc::new(subroutine), Arc::new(source_map))
         }
-        ScopeId::Block(_) | ScopeId::Subroutine(_) => {
+        ScopeId::Block(_) | ScopeId::Subroutine(_) | ScopeId::ClockingBlock(_) => {
             unreachable!("subroutines are lowered only in file, module, or generate-block scopes")
         }
     }

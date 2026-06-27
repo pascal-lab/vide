@@ -3,6 +3,7 @@ use smallvec::SmallVec;
 use syntax::{
     SyntaxKind, TokenKind,
     ast::{self, AstNode},
+    has_text_range::HasTextRange,
     ptr::{SyntaxNodePtr, SyntaxTokenPtr},
     slang_ext::AstNodeExt,
 };
@@ -35,7 +36,11 @@ pub type ClockingBlockId = Idx<ClockingBlockDef>;
 pub struct ClockingSignal {
     pub name: Ident,
     pub dir: PortDirection,
+    pub name_range: Option<TextRange>,
 }
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+pub struct ClockingSignalId(pub u32);
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct ClockingBlockSrc {
@@ -102,16 +107,18 @@ impl LowerClocking for LowerModuleCtx<'_> {
 
 fn lower_clocking_signals(clocking: ast::ClockingDeclaration<'_>) -> SmallVec<[ClockingSignal; 4]> {
     let mut signals = SmallVec::new();
+    let syntax = clocking.syntax();
     for item in clocking.items().children() {
         let ast::Member::ClockingItem(item) = item else {
             continue;
         };
         let dir = lower_clocking_direction(item.direction());
         for decl in item.decls().children() {
+            let name_range = decl.name().and_then(|name| root_token_in(syntax, name)?.text_range());
             let Some(name) = lower_ident_opt(decl.name()) else {
                 continue;
             };
-            signals.push(ClockingSignal { name, dir });
+            signals.push(ClockingSignal { name, dir, name_range });
         }
     }
     signals

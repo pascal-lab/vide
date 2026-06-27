@@ -148,6 +148,7 @@ fn resolve_child_name(
 pub fn descend_scope(db: &dyn HirDb, def_id: DefId) -> Option<ScopeId> {
     match def_id.kind(db) {
         kind if kind.is_instantiable_def() => def_id.as_module(db).map(Into::into),
+        DefKind::ClockingBlock => def_id.as_clocking_block(db).map(Into::into),
         DefKind::Instance => {
             let instance = def_id.as_instance(db)?;
             instance_target_module_id(db, instance.module_id, instance.value).map(Into::into)
@@ -174,6 +175,7 @@ pub(crate) fn name_scope(db: &dyn HirDb, scope_id: ScopeId) -> Arc<NameScope> {
     match scope_id {
         ScopeId::File(file_id) => db.file_scope(file_id),
         ScopeId::Module(module_id) => db.module_scope(module_id),
+        ScopeId::ClockingBlock(clocking_block_id) => db.clocking_block_scope(clocking_block_id),
         ScopeId::GenerateBlock(generate_block_id) => db.generate_block_scope(generate_block_id),
         ScopeId::Block(block_id) => db.block_scope(block_id),
         ScopeId::Subroutine(subroutine_id) => db.subroutine_scope(subroutine_id.as_in_container()),
@@ -500,6 +502,30 @@ endmodule
                 NameContext::Value,
             ),
             DefKind::Modport
+        );
+    }
+
+    #[test]
+    fn resolve_path_descends_clocking_blocks_to_signals() {
+        let db = db_with_root_text(
+            r#"
+module top(input clk, input a);
+  clocking cb @(posedge clk);
+    input #1ps a;
+  endclocking
+endmodule
+"#,
+        );
+
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+
+        assert_eq!(
+            resolved_kind(&db, top.into(), &["cb", "a"], NameContext::Value),
+            DefKind::ClockingSignal
         );
     }
 }
