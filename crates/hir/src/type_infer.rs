@@ -175,14 +175,10 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
             .as_decl(db)
             .map(|decl| type_of_decl_impl(db, decl))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::Typedef | DefKind::Struct => def_id
+        DefKind::Typedef => def_id
             .as_typedef(db)
             .map(|typedef| type_of_typedef_impl(db, typedef))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::Enum => def_id
-            .as_typedef(db)
-            .map(|typedef| type_of_typedef_impl(db, typedef))
-            .unwrap_or_else(|| TyResult::new(Ty::Enum(def_id))),
         DefKind::SubroutinePort => def_id
             .as_subroutine_port(db)
             .map(|port| type_of_subroutine_port_impl(db, port))
@@ -202,20 +198,11 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Interface
         | DefKind::Program
-        | DefKind::Class
-        | DefKind::Covergroup
-        | DefKind::Checker
         | DefKind::Udp
         | DefKind::Config
         | DefKind::Library
         | DefKind::Subroutine
         | DefKind::NonAnsiPort
-        | DefKind::ClassField
-        | DefKind::Method
-        | DefKind::Modport
-        | DefKind::ClockingBlock
-        | DefKind::Sequence
-        | DefKind::Property
         | DefKind::Stmt => TyResult::new(Ty::Unknown),
     }
 }
