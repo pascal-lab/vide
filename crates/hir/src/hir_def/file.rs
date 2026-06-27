@@ -18,7 +18,7 @@ use super::{
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_idx_and_src,
     block::{BlockInfo, BlockSrc, LocalBlockId},
-    checker::{CheckerDef, CheckerId, CheckerSrc, lower_checker_decl},
+    checker::{CheckerDef, CheckerId, CheckerSrc, LowerChecker},
     covergroup::{
         CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointSrc, CrossDef,
         CrossSrc, lower_covergroup_decl, lower_coverpoint, lower_cross,
@@ -375,15 +375,7 @@ impl LowerFileCtx<'_> {
                 }
                 UdpDeclaration(udp_decl) => self.lower_udp_decl(udp_decl).into(),
                 ConfigDeclaration(config_decl) => self.lower_config_decl(config_decl).into(),
-                CheckerDeclaration(checker_decl) => {
-                    let checker = lower_checker_decl(checker_decl);
-                    alloc_idx_and_src! {
-                        self.file_id;
-                        checker => self.file.checkers,
-                        checker_decl => self.file_source_map.checker_srcs,
-                    }
-                    .into()
-                }
+                CheckerDeclaration(checker_decl) => self.lower_checker_decl(checker_decl).into(),
                 CovergroupDeclaration(covergroup_decl) => {
                     self.lower_covergroup_decl(covergroup_decl).into()
                 }

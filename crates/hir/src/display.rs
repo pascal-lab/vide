@@ -130,6 +130,8 @@ impl HirDisplay for Ty {
                     f.write_str("module")
                 }
             }
+            Ty::Checker(def) => hir_fmt_named_def_type(f, "checker", *def),
+            Ty::Covergroup(def) => hir_fmt_named_def_type(f, "covergroup", *def),
             Ty::VirtualInterface { def, modport } => {
                 f.write_str("virtual interface ")?;
                 if let Some(name) = def.name(f.db) {
@@ -171,6 +173,19 @@ fn hir_fmt_def_backed_type(
             f.write_str(" ")?;
             f.write_str(name)?;
         }
+    }
+    Ok(())
+}
+
+fn hir_fmt_named_def_type(
+    f: &mut HirFormatter<'_>,
+    keyword: &str,
+    def: crate::symbol::DefId,
+) -> Result<(), HirDisplayError> {
+    f.write_str(keyword)?;
+    if let Some(name) = def.name(f.db) {
+        f.write_str(" ")?;
+        f.write_str(&name)?;
     }
     Ok(())
 }

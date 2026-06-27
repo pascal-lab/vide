@@ -9,7 +9,7 @@ use crate::{
     hir_def::{
         Ident,
         block::BlockId,
-        checker::CheckerId,
+        checker::{CheckerId, CheckerPortId},
         covergroup::{CovergroupId, CoverpointId, CrossId},
         expr::declarator::DeclId,
         file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
@@ -50,6 +50,7 @@ pub enum DefLoc {
     ClockingBlock(InModule<ClockingBlockId>),
     ClockingSignal(InContainer<ClockingSignalId>),
     Checker(InContainer<CheckerId>),
+    CheckerPort(InContainer<CheckerPortId>),
     Covergroup(InContainer<CovergroupId>),
     Coverpoint(InContainer<CoverpointId>),
     Cross(InContainer<CrossId>),
@@ -73,6 +74,7 @@ impl_from! { DefLoc =>
     ClockingBlock(InModule<ClockingBlockId>),
     ClockingSignal(InContainer<ClockingSignalId>),
     Checker(InContainer<CheckerId>),
+    CheckerPort(InContainer<CheckerPortId>),
     Covergroup(InContainer<CovergroupId>),
     Coverpoint(InContainer<CoverpointId>),
     Cross(InContainer<CrossId>),
@@ -200,6 +202,13 @@ impl DefId {
         }
     }
 
+    pub fn as_checker_port(self, db: &dyn InternDb) -> Option<InContainer<CheckerPortId>> {
+        match self.loc(db) {
+            DefLoc::CheckerPort(id) => Some(id),
+            _ => None,
+        }
+    }
+
     pub fn as_covergroup(self, db: &dyn InternDb) -> Option<InContainer<CovergroupId>> {
         match self.loc(db) {
             DefLoc::Covergroup(id) => Some(id),
@@ -242,6 +251,7 @@ pub enum DefKind {
     ClockingBlock,
     ClockingSignal,
     Checker,
+    CheckerPort,
     Covergroup,
     Coverpoint,
     Cross,
@@ -273,6 +283,7 @@ impl DefKind {
             DefKind::Subroutine => SymbolKind::Fn,
             DefKind::NonAnsiPort => SymbolKind::NonAnsiPortLabel,
             DefKind::SubroutinePort | DefKind::Port => SymbolKind::PortDecl,
+            DefKind::CheckerPort => SymbolKind::PortDecl,
             DefKind::Typedef => SymbolKind::Typedef,
             DefKind::Net => SymbolKind::NetDecl,
             DefKind::Variable => SymbolKind::DataDecl,
