@@ -118,7 +118,7 @@ fn resolve_top_level_module_root(
     // segment value fallback: `top` alone remains a type-space module name.
     let type_res = resolve_name(db, cont_id, ident, NameContext::Type)?;
     let module_defs =
-        type_res.def_ids().iter().copied().filter(|def_id| def_id.kind(db) == DefKind::Module);
+        type_res.def_ids().iter().copied().filter(|def_id| is_module_like(db, *def_id));
     PathResolution::from_def_ids(module_defs)
 }
 
@@ -147,7 +147,9 @@ fn resolve_child_name(
 
 pub fn descend_scope(db: &dyn HirDb, def_id: DefId) -> Option<ScopeId> {
     match def_id.kind(db) {
-        DefKind::Module => def_id.as_module(db).map(Into::into),
+        DefKind::Module | DefKind::Interface | DefKind::Program => {
+            def_id.as_module(db).map(Into::into)
+        }
         DefKind::Instance => {
             let instance = def_id.as_instance(db)?;
             instance_target_module_id(db, instance.module_id, instance.value).map(Into::into)
@@ -156,6 +158,10 @@ pub fn descend_scope(db: &dyn HirDb, def_id: DefId) -> Option<ScopeId> {
         DefKind::GenerateBlock => def_id.as_generate_block(db).map(Into::into),
         _ => None,
     }
+}
+
+fn is_module_like(db: &dyn HirDb, def_id: DefId) -> bool {
+    matches!(def_id.kind(db), DefKind::Module | DefKind::Interface | DefKind::Program)
 }
 
 pub(crate) fn instance_target_module_id(
@@ -487,9 +493,19 @@ endmodule
 
         let def = res.primary_def_id().expect("modport should produce a definition");
         assert_eq!(def.name(&db).as_deref(), Some("host"));
+        assert_eq!(def.kind(&db), DefKind::Modport);
         assert_eq!(
             resolved_kind(&db, top.into(), &["u_if", "clk"], NameContext::Value),
             DefKind::Net
+        );
+        assert_eq!(
+            resolved_kind(
+                &db,
+                ScopeId::File(HirFileId::File(TOP)),
+                &["top", "u_if", "host"],
+                NameContext::Value,
+            ),
+            DefKind::Modport
         );
     }
 }
