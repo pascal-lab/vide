@@ -13,7 +13,7 @@ use hir::{
         },
         literal::Literal,
         module::{
-            ModuleId,
+            ModuleId, ModuleKind,
             instantiation::InstanceId,
             port::{NonAnsiPortId, Ports},
         },
@@ -284,7 +284,13 @@ fn render_def_origin(
 fn render_definition_title(db: &RootDb, origin: &DefId) -> Option<String> {
     let name = origin.name(db)?;
     let kind = match origin.loc(db) {
-        DefLoc::Module(_) => "Module",
+        DefLoc::Module(module_id) => match db.hir_file(module_id.file_id).get(module_id.value).kind
+        {
+            ModuleKind::Module => "Module",
+            ModuleKind::Interface => "Interface",
+            ModuleKind::Program => "Program",
+            ModuleKind::Package => "Package",
+        },
         DefLoc::Config(_) => "Config",
         DefLoc::Library(_) => "Library",
         DefLoc::Udp(_) => "Primitive",
@@ -298,7 +304,9 @@ fn render_definition_title(db: &RootDb, origin: &DefId) -> Option<String> {
         DefLoc::Decl(decl_id) => render_decl_title_kind(db, decl_id)?,
         DefLoc::Typedef(_) => "Typedef",
         DefLoc::Instance(_) => "Instance",
+        DefLoc::Modport(_) => "Modport",
         DefLoc::Stmt(_) => "Statement",
+        _ => return None,
     };
 
     Some(format!("{kind} {}", inline_code(name.as_str())))
@@ -341,7 +349,13 @@ fn render_signature(sema: &Semantics<RootDb>, origin: &DefId) -> Option<String> 
 fn render_module_signature(db: &RootDb, module_id: ModuleId) -> Option<String> {
     let module = db.module(module_id);
     let name = module.name.as_ref()?;
-    let mut signature = format!("module {name}");
+    let keyword = match db.hir_file(module_id.file_id).get(module_id.value).kind {
+        ModuleKind::Module => "module",
+        ModuleKind::Interface => "interface",
+        ModuleKind::Program => "program",
+        ModuleKind::Package => "package",
+    };
+    let mut signature = format!("{keyword} {name}");
 
     let params = render_module_param_ports(db, module_id);
     if !params.is_empty() {
@@ -628,6 +642,7 @@ fn render_label_signature(db: &RootDb, origin: &DefId) -> Option<String> {
         DefLoc::Block(_) => "block",
         DefLoc::GenerateBlock(_) => "generate",
         DefLoc::Instance(_) => "instance",
+        DefLoc::Modport(_) => "modport",
         DefLoc::Stmt(_) => "statement",
         DefLoc::Typedef(_) => "typedef",
         DefLoc::Module(_)
@@ -635,6 +650,7 @@ fn render_label_signature(db: &RootDb, origin: &DefId) -> Option<String> {
         | DefLoc::SubroutinePort(_)
         | DefLoc::NonAnsiPort(_)
         | DefLoc::Decl(_) => return None,
+        _ => return None,
     };
     Some(format!("{kind} {name}"))
 }

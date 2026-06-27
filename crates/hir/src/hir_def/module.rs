@@ -8,6 +8,7 @@ use instantiation::{
     ParamAssign, ParamAssignSrc, PortConn, PortConnSrc, impl_lower_instantiation,
 };
 use la_arena::{Arena, Idx, IdxRange, RawIdx};
+use modport::{LowerModport, ModportDef, ModportId, ModportSrc};
 use port::{
     NonAnsiPort, NonAnsiPortId, NonAnsiPortSrc, PortDecl, PortDeclId, PortDeclSrc, PortRef,
     PortRefId, PortRefSrc, PortSrcs, Ports,
@@ -67,6 +68,7 @@ pub mod continuous_assgin;
 pub mod defparam;
 pub mod generate;
 pub mod instantiation;
+pub mod modport;
 pub mod port;
 pub mod specify;
 
@@ -91,6 +93,7 @@ define_container! {
         typedefs: [Typedef],
         structs: [StructDef],
         subroutines: [Subroutine],
+        modports: [ModportDef],
         package_imports: [PackageImport],
 
         instantiations: [Instantiation],
@@ -131,6 +134,7 @@ define_container! {
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
+        modport_srcs: [ModportDef | ModportSrc],
 
         instantiation_srcs: [Instantiation | InstantiationSrc],
         inst_param_assign_srcs: [ParamAssign | ParamAssignSrc],
@@ -279,6 +283,7 @@ impl ModuleSourceMap {
             ModuleItem::PortDeclId(idx) => self.get(*idx)?.ptr(),
             ModuleItem::TypedefId(idx) => self.get(*idx)?.ptr(),
             ModuleItem::SubroutineId(idx) => self.get(*idx)?.node,
+            ModuleItem::ModportId(idx) => self.get(*idx)?.node,
         })
     }
 }
@@ -298,6 +303,7 @@ define_enum_deriving_from! {
         PortDeclId(PortDeclId),
         TypedefId(TypedefId),
         SubroutineId(LocalSubroutineId),
+        ModportId(ModportId),
     }
 }
 
@@ -611,8 +617,14 @@ impl LowerModuleCtx<'_> {
                 NetAlias(_) => continue,
 
                 // Modport
-                ModportDeclaration(_)
-                | ModportClockingPort(_)
+                ModportDeclaration(modport) => {
+                    for modport_id in self.lower_modport_declaration(modport) {
+                        self.module_source_map.items.push(modport_id.into());
+                    }
+                    self.region_tree.handle_node(member.syntax());
+                    continue;
+                }
+                ModportClockingPort(_)
                 | ModportSimplePortList(_)
                 | ModportSubroutinePortList(_) => continue,
 
