@@ -1,4 +1,5 @@
 use la_arena::Idx;
+use smallvec::SmallVec;
 use syntax::{
     SyntaxKind, TokenKind,
     ast::{self, AstNode},
@@ -15,6 +16,8 @@ use crate::{
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CovergroupDef {
     pub name: Option<Ident>,
+    pub coverpoints: SmallVec<[CoverpointId; 4]>,
+    pub crosses: SmallVec<[CrossId; 2]>,
 }
 
 pub type CovergroupId = Idx<CovergroupDef>;
@@ -119,7 +122,11 @@ impl<'a> FromSourceAst<'a, ast::CoverCross<'a>> for CrossSrc {
 }
 
 pub fn lower_covergroup_decl(covergroup: ast::CovergroupDeclaration<'_>) -> CovergroupDef {
-    CovergroupDef { name: lower_ident_opt(covergroup.name()) }
+    CovergroupDef {
+        name: lower_ident_opt(covergroup.name()),
+        coverpoints: SmallVec::new(),
+        crosses: SmallVec::new(),
+    }
 }
 
 pub fn lower_coverpoint(coverpoint: ast::Coverpoint<'_>) -> CoverpointDef {

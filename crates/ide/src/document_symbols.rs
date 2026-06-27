@@ -10,6 +10,10 @@ use hir::{
         aggregate::{StructDef, StructId, StructKind, StructSrc},
         block::{BlockId, BlockInfo, BlockItem, BlockSrc, LocalBlockId},
         checker::{CheckerDef, CheckerId, CheckerSrc},
+        covergroup::{
+            CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointId, CoverpointSrc,
+            CrossDef, CrossId, CrossSrc,
+        },
         declaration::{Declaration, DeclarationId, DeclarationSrc},
         expr::declarator::{DeclId, Declarator, DeclaratorSrc, DeclsRange},
         file::{
@@ -238,6 +242,9 @@ pub(crate) fn document_symbols(db: &dyn HirDb, file_id: FileId) -> Vec<DocumentS
             FileItem::CheckerId(checker_id) => {
                 build_checker(&mut collector, checker_id, file, src_map)
             }
+            FileItem::CovergroupId(covergroup_id) => {
+                build_covergroup(&mut collector, covergroup_id, file, src_map)
+            }
             FileItem::UdpDeclId(udp_id) => build_udp_decl(&mut collector, udp_id, file, src_map),
         }
     }
@@ -344,6 +351,9 @@ fn collect_module_items(
             }
             ModuleItem::CheckerId(checker_id) => {
                 build_checker(collector, checker_id, module, src_map);
+            }
+            ModuleItem::CovergroupId(covergroup_id) => {
+                build_covergroup(collector, covergroup_id, module, src_map);
             }
             ModuleItem::StructId(struct_id) => build_struct(collector, struct_id, module, src_map),
         }
@@ -637,6 +647,74 @@ fn build_clocking_block<Arn, SrcMap>(
         return;
     };
     collector.push_symbol(&clocking_block.name, src);
+    collector.pop();
+}
+
+#[inline]
+fn build_covergroup<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    covergroup_id: CovergroupId,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<CovergroupId, Output = CovergroupDef>
+        + GetRef<CoverpointId, Output = CoverpointDef>
+        + GetRef<CrossId, Output = CrossDef>,
+    SrcMap: Get<CovergroupId, Output = Option<CovergroupSrc>>
+        + Get<CoverpointId, Output = Option<CoverpointSrc>>
+        + Get<CrossId, Output = Option<CrossSrc>>,
+{
+    let covergroup = arena.get(covergroup_id);
+    let Some(src) = src_map.get(covergroup_id) else {
+        return;
+    };
+    collector.push_symbol_with_children(
+        &covergroup.name,
+        src,
+        covergroup.coverpoints.len() + covergroup.crosses.len(),
+    );
+    for &coverpoint_id in &covergroup.coverpoints {
+        build_coverpoint(collector, coverpoint_id, arena, src_map);
+    }
+    for &cross_id in &covergroup.crosses {
+        build_cross(collector, cross_id, arena, src_map);
+    }
+    collector.pop();
+}
+
+#[inline]
+fn build_coverpoint<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    coverpoint_id: CoverpointId,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<CoverpointId, Output = CoverpointDef>,
+    SrcMap: Get<CoverpointId, Output = Option<CoverpointSrc>>,
+{
+    let coverpoint = arena.get(coverpoint_id);
+    let Some(src) = src_map.get(coverpoint_id) else {
+        return;
+    };
+    collector.push_symbol(&coverpoint.name, src);
+    collector.pop();
+}
+
+#[inline]
+fn build_cross<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    cross_id: CrossId,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<CrossId, Output = CrossDef>,
+    SrcMap: Get<CrossId, Output = Option<CrossSrc>>,
+{
+    let cross = arena.get(cross_id);
+    let Some(src) = src_map.get(cross_id) else {
+        return;
+    };
+    collector.push_symbol(&cross.name, src);
     collector.pop();
 }
 

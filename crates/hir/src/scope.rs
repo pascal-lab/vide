@@ -160,6 +160,27 @@ impl NameScope {
             );
         }
 
+        for (covergroup_id, covergroup) in hir_file.covergroups.iter() {
+            scope.insert_type_opt(
+                &covergroup.name,
+                def_id(db, InContainer::new(file_id.into(), covergroup_id)),
+            );
+        }
+
+        for (coverpoint_id, coverpoint) in hir_file.coverpoints.iter() {
+            scope.insert_value_opt(
+                &coverpoint.name,
+                def_id(db, InContainer::new(file_id.into(), coverpoint_id)),
+            );
+        }
+
+        for (cross_id, cross) in hir_file.crosses.iter() {
+            scope.insert_value_opt(
+                &cross.name,
+                def_id(db, InContainer::new(file_id.into(), cross_id)),
+            );
+        }
+
         for (typedef_id, typedef) in hir_file.typedefs.iter() {
             scope.insert_type_opt(
                 &typedef.name,
@@ -207,6 +228,27 @@ impl NameScope {
             scope.insert_type_opt(
                 &checker.name,
                 def_id(db, InContainer::new(module_id.into(), checker_id)),
+            );
+        }
+
+        for (covergroup_id, covergroup) in module.covergroups.iter() {
+            scope.insert_type_opt(
+                &covergroup.name,
+                def_id(db, InContainer::new(module_id.into(), covergroup_id)),
+            );
+        }
+
+        for (coverpoint_id, coverpoint) in module.coverpoints.iter() {
+            scope.insert_value_opt(
+                &coverpoint.name,
+                def_id(db, InContainer::new(module_id.into(), coverpoint_id)),
+            );
+        }
+
+        for (cross_id, cross) in module.crosses.iter() {
+            scope.insert_value_opt(
+                &cross.name,
+                def_id(db, InContainer::new(module_id.into(), cross_id)),
             );
         }
 
@@ -763,6 +805,76 @@ endmodule
             .first()
             .map(|instance_id| module.get(*instance_id))
             .expect("checker instantiation should lower its instance");
+        assert_eq!(instance.name.as_deref(), Some("u"));
+    }
+
+    #[test]
+    fn module_scope_exposes_covergroups_and_coverage_items() {
+        let db = db_with_root_text(
+            r#"
+module m(input clk, input a);
+  covergroup cg @(posedge clk);
+    cp: coverpoint a;
+    cx: cross cp, cp;
+  endgroup
+
+  cg u();
+endmodule
+"#,
+        );
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let module = db.module(module_id);
+        let (covergroup_id, covergroup) =
+            module.covergroups.iter().next().expect("covergroup should lower");
+        assert_eq!(covergroup.name.as_deref(), Some("cg"));
+        assert_eq!(covergroup.coverpoints.len(), 1);
+        assert_eq!(covergroup.crosses.len(), 1);
+
+        let coverpoint_id = covergroup.coverpoints[0];
+        let cross_id = covergroup.crosses[0];
+        assert_eq!(module.get(coverpoint_id).name.as_deref(), Some("cp"));
+        assert_eq!(module.get(cross_id).name.as_deref(), Some("cx"));
+
+        let module_scope = db.module_scope(module_id);
+        let covergroup_defs = module_scope
+            .lookup(NameContext::Type, &ident("cg"))
+            .expect("module scope should expose covergroup type");
+        assert!(covergroup_defs.iter().any(|def_id| {
+            def_id.kind(&db) == DefKind::Covergroup
+                && def_id.as_covergroup(&db).is_some_and(|id| id.value == covergroup_id)
+        }));
+
+        let coverpoint_defs = module_scope
+            .lookup(NameContext::Value, &ident("cp"))
+            .expect("module scope should expose coverpoint label");
+        assert!(coverpoint_defs.iter().any(|def_id| {
+            matches!(def_id.loc(&db), DefLoc::Coverpoint(id) if id.value == coverpoint_id)
+        }));
+
+        let cross_defs = module_scope
+            .lookup(NameContext::Value, &ident("cx"))
+            .expect("module scope should expose cross label");
+        assert!(
+            cross_defs
+                .iter()
+                .any(|def_id| matches!(def_id.loc(&db), DefLoc::Cross(id) if id.value == cross_id))
+        );
+
+        let instantiation = module
+            .instantiations
+            .values()
+            .find(|instantiation| instantiation.module_name.as_deref() == Some("cg"))
+            .expect("covergroup instantiation should lower into the instance arena");
+        let instance = instantiation
+            .instances
+            .first()
+            .map(|instance_id| module.get(*instance_id))
+            .expect("covergroup instantiation should lower its instance");
         assert_eq!(instance.name.as_deref(), Some("u"));
     }
 

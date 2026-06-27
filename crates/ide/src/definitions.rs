@@ -273,11 +273,9 @@ fn resolve_instantiation_type_name(
                     })
                     .collect::<Option<Vec<_>>>()?,
             )),
-            ModuleResolution::Unresolved => Some(
-                sema.nameres_ident(file_id, tp, NameContext::Type)?
-                    .to_def_id(sema.db)?
-                    .into(),
-            ),
+            ModuleResolution::Unresolved => {
+                Some(sema.nameres_ident(file_id, tp, NameContext::Type)?.to_def_id(sema.db)?.into())
+            }
         };
     }
 
