@@ -99,6 +99,8 @@ impl LowerModport for LowerModuleCtx<'_> {
 fn lower_modport_ports(item: ast::ModportItem<'_>) -> SmallVec<[ModportPort; 4]> {
     let mut ports = SmallVec::new();
 
+    // slang models a modport item as named entries whose `ports()` members are
+    // simple or subroutine port lists; each list then owns its inner ports.
     for member in item.ports().ports().children() {
         match member {
             ast::Member::ModportSimplePortList(port_list) => {
