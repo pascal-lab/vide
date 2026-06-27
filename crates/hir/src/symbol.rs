@@ -197,6 +197,10 @@ pub enum DefKind {
 }
 
 impl DefKind {
+    pub fn is_instantiable_def(self) -> bool {
+        matches!(self, DefKind::Module | DefKind::Interface | DefKind::Program)
+    }
+
     pub fn symbol_kind(self) -> SymbolKind {
         match self {
             DefKind::Module => SymbolKind::Module,
@@ -361,9 +365,7 @@ impl NameScope {
             .get(ident)
             .into_iter()
             .flat_map(|defs| defs.iter())
-            .filter(|def_id| {
-                matches!(def_id.kind(db), DefKind::Module | DefKind::Interface | DefKind::Program)
-            })
+            .filter(|def_id| def_id.kind(db).is_instantiable_def())
             .filter_map(|def_id| def_id.as_module(db))
             .collect::<SmallVec<[_; 2]>>();
 
@@ -399,10 +401,7 @@ impl NameScope {
         self.types.iter().filter_map(move |(ident, defs)| {
             defs.iter()
                 .any(|def_id| {
-                    matches!(
-                        def_id.kind(db),
-                        DefKind::Module | DefKind::Interface | DefKind::Program
-                    ) && def_id.as_module(db).is_some()
+                    def_id.kind(db).is_instantiable_def() && def_id.as_module(db).is_some()
                 })
                 .then_some(ident)
         })
