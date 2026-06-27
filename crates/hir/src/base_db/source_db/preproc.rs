@@ -41,7 +41,7 @@ pub use self::{
     },
     source_mapping::{
         preproc_virtual_builtin_path, preproc_virtual_predefines_path,
-        preproc_virtual_speculative_path,
+        preproc_virtual_predefines_text, preproc_virtual_speculative_path,
     },
 };
 pub(super) use self::{

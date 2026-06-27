@@ -173,6 +173,14 @@ fn include_buffer_texts_by_path(options: &SyntaxTreeOptions) -> FxHashMap<String
         .collect()
 }
 
+pub fn preproc_virtual_predefines_text(predefines: &[Predefine]) -> String {
+    let mut text = String::new();
+    for predefine in predefines {
+        text.push_str(&materialized_predefine_text(predefine.as_str()));
+    }
+    text
+}
+
 pub(in crate::base_db::source_db) fn materialized_predefine_text(predefine: &str) -> String {
     let mut definition = predefine.to_owned();
     if let Some(index) = definition.find('=') {
