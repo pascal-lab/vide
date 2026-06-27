@@ -2902,6 +2902,42 @@ endmodule
 }
 
 #[test]
+fn systemverilog_program_definition_names_support_navigation_and_hover() {
+    let text = r#"
+program /*marker:program_def*/p;
+endprogram
+
+module top;
+  /*marker:program_ref*/p /*marker:inst_ref*/u_p();
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let program_def_range = marked_range(&markers, "program_def", TextSize::of("p"));
+    let nav = analysis
+        .goto_definition(position(file_id, &markers, "program_ref"))
+        .unwrap()
+        .expect("program reference definition expected");
+    assert!(
+        nav.info.iter().any(|target| target.focus_range == Some(program_def_range)),
+        "program instantiation should navigate to the program declaration: {nav:?}"
+    );
+
+    let hover = analysis
+        .hover(
+            position(file_id, &markers, "inst_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("program instance hover expected");
+    assert_hover_snapshot!(
+        "systemverilog_program_definition_names_support_navigation_and_hover",
+        hover.info.as_str(),
+    );
+}
+
+#[test]
 fn semantic_index_groups_modules_and_references_by_definition() {
     let (host, files) = setup_marked_files(&[
         (
