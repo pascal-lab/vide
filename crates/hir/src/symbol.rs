@@ -9,11 +9,13 @@ use crate::{
     hir_def::{
         Ident,
         block::BlockId,
+        checker::CheckerId,
+        covergroup::{CovergroupId, CoverpointId, CrossId},
         expr::declarator::DeclId,
         file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
         module::{
-            ModuleId, generate::GenerateBlockId, instantiation::InstanceId, modport::ModportId,
-            port::NonAnsiPortId,
+            ModuleId, clocking::ClockingBlockId, generate::GenerateBlockId,
+            instantiation::InstanceId, modport::ModportId, port::NonAnsiPortId,
         },
         stmt::StmtId,
         subroutine::{LocalSubroutineId, SubroutinePortId},
@@ -41,6 +43,11 @@ pub enum DefLoc {
     Typedef(InContainer<TypedefId>),
     Instance(InModule<InstanceId>),
     Modport(InModule<ModportId>),
+    ClockingBlock(InModule<ClockingBlockId>),
+    Checker(InContainer<CheckerId>),
+    Covergroup(InContainer<CovergroupId>),
+    Coverpoint(InContainer<CoverpointId>),
+    Cross(InContainer<CrossId>),
     Stmt(InContainer<StmtId>),
 }
 
@@ -58,6 +65,11 @@ impl_from! { DefLoc =>
     Typedef(InContainer<TypedefId>),
     Instance(InModule<InstanceId>),
     Modport(InModule<ModportId>),
+    ClockingBlock(InModule<ClockingBlockId>),
+    Checker(InContainer<CheckerId>),
+    Covergroup(InContainer<CovergroupId>),
+    Coverpoint(InContainer<CoverpointId>),
+    Cross(InContainer<CrossId>),
     Stmt(InContainer<StmtId>),
 }
 
@@ -161,6 +173,27 @@ impl DefId {
         }
     }
 
+    pub fn as_clocking_block(self, db: &dyn InternDb) -> Option<InModule<ClockingBlockId>> {
+        match self.loc(db) {
+            DefLoc::ClockingBlock(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    pub fn as_checker(self, db: &dyn InternDb) -> Option<InContainer<CheckerId>> {
+        match self.loc(db) {
+            DefLoc::Checker(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    pub fn as_covergroup(self, db: &dyn InternDb) -> Option<InContainer<CovergroupId>> {
+        match self.loc(db) {
+            DefLoc::Covergroup(id) => Some(id),
+            _ => None,
+        }
+    }
+
     pub fn as_stmt(self, db: &dyn InternDb) -> Option<InContainer<StmtId>> {
         match self.loc(db) {
             DefLoc::Stmt(id) => Some(id),
@@ -193,12 +226,24 @@ pub enum DefKind {
     Specparam,
     Instance,
     Modport,
+    ClockingBlock,
+    Checker,
+    Covergroup,
+    Coverpoint,
+    Cross,
     Stmt,
 }
 
 impl DefKind {
     pub fn is_instantiable_def(self) -> bool {
-        matches!(self, DefKind::Module | DefKind::Interface | DefKind::Program)
+        matches!(
+            self,
+            DefKind::Module
+                | DefKind::Interface
+                | DefKind::Program
+                | DefKind::Checker
+                | DefKind::Covergroup
+        )
     }
 
     pub fn symbol_kind(self) -> SymbolKind {
@@ -221,7 +266,12 @@ impl DefKind {
             DefKind::Genvar => SymbolKind::Genvar,
             DefKind::Specparam => SymbolKind::Specparam,
             DefKind::Instance => SymbolKind::Instance,
-            DefKind::Modport => SymbolKind::Unknown,
+            DefKind::Modport
+            | DefKind::ClockingBlock
+            | DefKind::Checker
+            | DefKind::Covergroup
+            | DefKind::Coverpoint
+            | DefKind::Cross => SymbolKind::Unknown,
             DefKind::Stmt => SymbolKind::Stmt,
         }
     }
@@ -232,6 +282,8 @@ impl DefKind {
             | DefKind::Interface
             | DefKind::Package
             | DefKind::Program
+            | DefKind::Checker
+            | DefKind::Covergroup
             | DefKind::Typedef => NameContext::Type,
             _ => NameContext::Value,
         }

@@ -189,6 +189,13 @@ impl NameScope {
             scope.insert_value_opt(&modport.name, def_id(db, InModule::new(module_id, modport_id)));
         }
 
+        for (clocking_block_id, clocking_block) in module.clocking_blocks.iter() {
+            scope.insert_value_opt(
+                &clocking_block.name,
+                def_id(db, InModule::new(module_id, clocking_block_id)),
+            );
+        }
+
         insert_decls_and_typedefs(
             &mut scope,
             db,
@@ -668,6 +675,40 @@ endmodule
         // Adding an interface lowering should create a DefKind::Interface
         // producer and insert the resulting DefId into NameScope; IDE
         // feature matches already have default no-op arms.
+    }
+
+    #[test]
+    fn module_scope_exposes_clocking_blocks() {
+        let db = db_with_root_text(
+            r#"
+module m(input clk, input a);
+  clocking cb @(posedge clk);
+    input #1ps a;
+  endclocking
+endmodule
+"#,
+        );
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let module = db.module(module_id);
+        let (clocking_block_id, clocking_block) =
+            module.clocking_blocks.iter().next().expect("clocking block should lower");
+        assert_eq!(clocking_block.name.as_deref(), Some("cb"));
+        assert_eq!(clocking_block.signals.len(), 1);
+        assert_eq!(clocking_block.signals[0].name.as_str(), "a");
+
+        let defs = db
+            .module_scope(module_id)
+            .lookup(NameContext::Value, &ident("cb"))
+            .expect("module scope should expose the clocking block");
+        assert!(defs.iter().any(|def_id| {
+            def_id.kind(&db) == DefKind::ClockingBlock
+                && def_id.as_clocking_block(&db).is_some_and(|id| id.value == clocking_block_id)
+        }));
     }
 
     #[test]

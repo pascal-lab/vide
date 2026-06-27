@@ -14,6 +14,7 @@ use hir::{
         literal::Literal,
         module::{
             ModuleId, ModuleKind,
+            clocking::ClockingBlockId,
             instantiation::InstanceId,
             port::{NonAnsiPortId, Ports},
         },
@@ -305,6 +306,11 @@ fn render_definition_title(db: &RootDb, origin: &DefId) -> Option<String> {
         DefLoc::Typedef(_) => "Typedef",
         DefLoc::Instance(_) => "Instance",
         DefLoc::Modport(_) => "Modport",
+        DefLoc::ClockingBlock(_) => "Clocking block",
+        DefLoc::Checker(_) => "Checker",
+        DefLoc::Covergroup(_) => "Covergroup",
+        DefLoc::Coverpoint(_) => "Coverpoint",
+        DefLoc::Cross(_) => "Cross",
         DefLoc::Stmt(_) => "Statement",
         _ => return None,
     };
@@ -342,6 +348,9 @@ fn render_signature(sema: &Semantics<RootDb>, origin: &DefId) -> Option<String> 
         DefLoc::Decl(decl_id) => render_decl_signature(db, decl_id),
         DefLoc::Typedef(typedef) => typedef.display_signature(db).ok(),
         DefLoc::Instance(instance_id) => render_instance_signature(db, instance_id),
+        DefLoc::ClockingBlock(clocking_block_id) => {
+            render_clocking_block_signature(db, clocking_block_id)
+        }
         _ => render_label_signature(db, origin),
     }
 }
@@ -532,6 +541,30 @@ fn render_instance_signature(db: &RootDb, instance_id: InModule<InstanceId>) -> 
     Some(signature)
 }
 
+fn render_clocking_block_signature(
+    db: &RootDb,
+    clocking_block_id: InModule<ClockingBlockId>,
+) -> Option<String> {
+    let module = db.module(clocking_block_id.module_id);
+    let clocking_block = module.get(clocking_block_id.value);
+    let name = clocking_block.name.as_ref()?;
+    let mut signature = format!("clocking {name}");
+    if !clocking_block.signals.is_empty() {
+        signature.push_str("\n");
+        let signals = clocking_block
+            .signals
+            .iter()
+            .map(|signal| {
+                let dir = signal.dir.display_source(db).unwrap_or_default();
+                format!("    {dir} {}", signal.name)
+            })
+            .collect_vec()
+            .join("\n");
+        signature.push_str(&signals);
+    }
+    Some(signature)
+}
+
 fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<String> {
     let container = decl_id.cont_id.to_container(db);
     let decl = container.get(decl_id.value);
@@ -643,6 +676,11 @@ fn render_label_signature(db: &RootDb, origin: &DefId) -> Option<String> {
         DefLoc::GenerateBlock(_) => "generate",
         DefLoc::Instance(_) => "instance",
         DefLoc::Modport(_) => "modport",
+        DefLoc::ClockingBlock(_) => "clocking",
+        DefLoc::Checker(_) => "checker",
+        DefLoc::Covergroup(_) => "covergroup",
+        DefLoc::Coverpoint(_) => "coverpoint",
+        DefLoc::Cross(_) => "cross",
         DefLoc::Stmt(_) => "statement",
         DefLoc::Typedef(_) => "typedef",
         DefLoc::Module(_)

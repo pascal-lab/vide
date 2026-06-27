@@ -65,6 +65,11 @@ impl DefId {
             DefLoc::Typedef(InContainer { cont_id, .. }) => cont_id,
             DefLoc::Instance(InModule { module_id, .. }) => module_id.into(),
             DefLoc::Modport(InModule { module_id, .. }) => module_id.into(),
+            DefLoc::ClockingBlock(InModule { module_id, .. }) => module_id.into(),
+            DefLoc::Checker(InContainer { cont_id, .. }) => cont_id,
+            DefLoc::Covergroup(InContainer { cont_id, .. }) => cont_id,
+            DefLoc::Coverpoint(InContainer { cont_id, .. }) => cont_id,
+            DefLoc::Cross(InContainer { cont_id, .. }) => cont_id,
             DefLoc::Stmt(InContainer { cont_id, .. }) => cont_id,
         }
     }
@@ -108,6 +113,11 @@ impl DefId {
             DefLoc::Typedef(_) => DefKind::Typedef,
             DefLoc::Instance(_) => DefKind::Instance,
             DefLoc::Modport(_) => DefKind::Modport,
+            DefLoc::ClockingBlock(_) => DefKind::ClockingBlock,
+            DefLoc::Checker(_) => DefKind::Checker,
+            DefLoc::Covergroup(_) => DefKind::Covergroup,
+            DefLoc::Coverpoint(_) => DefKind::Coverpoint,
+            DefLoc::Cross(_) => DefKind::Cross,
             DefLoc::Stmt(_) => DefKind::Stmt,
         }
     }
@@ -153,6 +163,13 @@ impl DefId {
             DefLoc::Modport(InModule { value, module_id }) => {
                 module_id.to_container(db).get(value).name.clone()
             }
+            DefLoc::ClockingBlock(InModule { value, module_id }) => {
+                module_id.to_container(db).get(value).name.clone()
+            }
+            DefLoc::Checker(_)
+            | DefLoc::Covergroup(_)
+            | DefLoc::Coverpoint(_)
+            | DefLoc::Cross(_) => None,
             DefLoc::Stmt(InContainer { value, cont_id }) => {
                 cont_id.to_container(db).get(value).label.clone()
             }
@@ -229,6 +246,14 @@ impl DefId {
                 let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(module_id.file_id, range))
             }
+            DefLoc::ClockingBlock(InModule { value, module_id }) => {
+                let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
+                Some(InFile::new(module_id.file_id, range))
+            }
+            DefLoc::Checker(_)
+            | DefLoc::Covergroup(_)
+            | DefLoc::Coverpoint(_)
+            | DefLoc::Cross(_) => None,
             DefLoc::Stmt(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db).into(), range))
@@ -303,6 +328,14 @@ impl DefId {
                 let range = module_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(module_id.file_id, range)
             }
+            DefLoc::ClockingBlock(InModule { value, module_id }) => {
+                let range = module_id.to_container_src_map(db).get(value)?.range();
+                InFile::new(module_id.file_id, range)
+            }
+            DefLoc::Checker(_)
+            | DefLoc::Covergroup(_)
+            | DefLoc::Coverpoint(_)
+            | DefLoc::Cross(_) => return None,
             DefLoc::Stmt(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(cont_id.file_id(db).into(), range)

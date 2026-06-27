@@ -19,6 +19,7 @@ use hir::{
         },
         module::{
             ModuleId, ModuleItem, ModuleSrc,
+            clocking::{ClockingBlockDef, ClockingBlockId, ClockingBlockSrc},
             generate::{
                 GenerateBlockId, GenerateBlockItem, GenerateBlockLoc, GenerateItem, GenerateRegion,
                 GenerateRegionId, GenerateRegionSrc,
@@ -334,6 +335,9 @@ fn collect_module_items(
                     collector.pop();
                 }
             }
+            ModuleItem::ClockingBlockId(clocking_block_id) => {
+                build_clocking_block(collector, clocking_block_id, module, src_map);
+            }
             ModuleItem::StructId(struct_id) => build_struct(collector, struct_id, module, src_map),
         }
     }
@@ -590,6 +594,24 @@ fn build_generate_block(
             }
         }
     }
+    collector.pop();
+}
+
+#[inline]
+fn build_clocking_block<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    clocking_block_id: ClockingBlockId,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<ClockingBlockId, Output = ClockingBlockDef>,
+    SrcMap: Get<ClockingBlockId, Output = Option<ClockingBlockSrc>>,
+{
+    let clocking_block = arena.get(clocking_block_id);
+    let Some(src) = src_map.get(clocking_block_id) else {
+        return;
+    };
+    collector.push_symbol(&clocking_block.name, src);
     collector.pop();
 }
 
