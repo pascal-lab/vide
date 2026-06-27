@@ -154,7 +154,7 @@ fn type_of_path_resolution_impl(db: &dyn HirDb, res: PathResolution) -> TyResult
 
 fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
     match def_id.kind(db) {
-        DefKind::Module | DefKind::Package => def_id
+        DefKind::Module | DefKind::Package | DefKind::Program => def_id
             .as_module(db)
             .map(|module_id| TyResult::new(Ty::Module(module_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
@@ -208,8 +208,7 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
             .as_block(db)
             .map(|block_id| TyResult::new(Ty::Block(block_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::Program
-        | DefKind::Udp
+        DefKind::Udp
         | DefKind::Config
         | DefKind::Library
         | DefKind::Subroutine
@@ -1093,5 +1092,26 @@ endmodule
             path_ty(&db, top, &["u_if", "host"]).display_source(&db).unwrap(),
             "virtual interface bus_if.host"
         );
+    }
+
+    #[test]
+    fn program_instance_type_displays_as_module_shaped_definition() {
+        let db = db_with_root_text(
+            r#"
+program p;
+endprogram
+
+module top;
+  p u_p();
+endmodule
+"#,
+        );
+        let top = module_id(&db, "top");
+        let program = module_id(&db, "p");
+
+        let program_res =
+            crate::semantics::pathres::PathResolution::from_def_id(DefId::new(&db, program));
+        assert_eq!(db.type_of_path_resolution(program_res).ty.display_source(&db).unwrap(), "p");
+        assert_eq!(path_ty(&db, top, &["u_p"]).display_source(&db).unwrap(), "p");
     }
 }
