@@ -14,11 +14,18 @@ pub mod typedef;
 
 use la_arena::{Arena, Idx, RawIdx};
 use smol_str::{SmolStr, ToSmolStr};
-use syntax::{SyntaxToken, ast};
+use syntax::{SyntaxToken, TokenKind, ast};
 
 pub type Ident = SmolStr;
 
 pub const DEFAULT_NAME: SmolStr = SmolStr::new_static("unnamed");
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PackageImport {
+    pub package: Ident,
+    /// `None` represents `pkg::*`.
+    pub item: Option<Ident>,
+}
 
 #[inline]
 pub fn lower_ident(ident: Option<SyntaxToken>) -> Option<Ident> {
@@ -36,6 +43,22 @@ pub fn lower_ident_opt(ident: Option<SyntaxToken>) -> Option<Ident> {
 pub(crate) fn lower_named_label_opt(label: Option<ast::NamedLabel>) -> Option<Ident> {
     let ident = lower_ident(label?.name())?;
     if ident.is_empty() { None } else { Some(ident) }
+}
+
+pub(crate) fn lower_package_imports(
+    import_decl: ast::PackageImportDeclaration,
+) -> Vec<PackageImport> {
+    import_decl
+        .items()
+        .children()
+        .filter_map(|item| {
+            let package = lower_ident_opt(item.package())?;
+            let item = item.item()?;
+            let item =
+                (item.kind() != TokenKind::STAR).then(|| lower_ident_opt(Some(item))).flatten();
+            Some(PackageImport { package, item })
+        })
+        .collect()
 }
 
 macro alloc_idx_and_src($file_id:expr; $hir:expr => $arena:expr, $ast:expr => $src_map:expr $(,)?) {{

@@ -28,7 +28,7 @@ use utils::{
 };
 
 use super::{
-    HirData, Ident,
+    HirData, Ident, PackageImport,
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_idx_and_src,
     block::{BlockInfo, BlockSrc, LocalBlockId},
@@ -42,18 +42,18 @@ use super::{
         impl_lower_expr,
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
-    lower_ident_opt,
+    lower_ident_opt, lower_package_imports,
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
-        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc, SubroutineSrc,
-        lower_subroutine, lower_subroutine_body,
+        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineSrc, lower_subroutine,
+        lower_subroutine_body,
     },
     ty::NetKind,
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{ContainerId, InFile},
+    container::{InContainer, InFile, ScopeId},
     db::{HirDb, InternDb},
     file::HirFileId,
     region_tree::{RegionTree, RegionTreeBuilder},
@@ -91,6 +91,7 @@ define_container! {
         typedefs: [Typedef],
         structs: [StructDef],
         subroutines: [Subroutine],
+        package_imports: [PackageImport],
 
         instantiations: [Instantiation],
         inst_param_assigns: [ParamAssign],
@@ -300,13 +301,38 @@ define_enum_deriving_from! {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Default)]
+pub enum ModuleKind {
+    #[default]
+    Module,
+    Interface,
+    Program,
+    Package,
+}
+
+impl ModuleKind {
+    pub fn from_ast(decl: ast::ModuleDeclaration) -> Self {
+        if decl.as_package_declaration().is_some() {
+            ModuleKind::Package
+        } else if decl.as_interface_declaration().is_some() {
+            ModuleKind::Interface
+        } else if decl.as_program_declaration().is_some() {
+            ModuleKind::Program
+        } else {
+            ModuleKind::Module
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ModuleInfo {
     pub name: Option<Ident>,
+    pub kind: ModuleKind,
 }
 
 pub type LocalModuleId = Idx<ModuleInfo>;
 pub type ModuleId = InFile<LocalModuleId>;
+pub type PackageId = ModuleId;
 
 pub(crate) struct LowerModuleCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
@@ -355,7 +381,7 @@ impl LowerProc for LowerModuleCtx<'_> {
 
 impl LowerModuleCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ContainerId::ModuleId(self.module_id);
+        let container_id = ScopeId::Module(self.module_id);
         let struct_def =
             lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
 
@@ -379,7 +405,7 @@ impl LowerModuleCtx<'_> {
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            ContainerId::ModuleId(self.module_id),
+            ScopeId::Module(self.module_id),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.expr_ctx().lower_data_ty(ty),
         );
@@ -401,12 +427,7 @@ impl LowerModuleCtx<'_> {
             func => self.module_source_map.subroutine_srcs,
         };
 
-        let src = SubroutineSrc::from_ast(self.file_id, func);
-        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
-            cont_id: self.module_id.into(),
-            src: InFile::new(self.file_id, src),
-            local_id: subroutine_id,
-        });
+        let subroutine_def_id = InContainer::new(self.module_id.into(), subroutine_id);
 
         if func.end().is_some() {
             let subroutine = &mut self.module.subroutines[subroutine_id];
@@ -519,7 +540,12 @@ impl LowerModuleCtx<'_> {
                 ExplicitAnsiPort(_) | ImplicitAnsiPort(_) => continue,
 
                 // Imports
-                PackageImportDeclaration(_) => continue,
+                PackageImportDeclaration(import_decl) => {
+                    for import in lower_package_imports(import_decl) {
+                        self.module.package_imports.alloc(import);
+                    }
+                    continue;
+                }
 
                 // Aggregates
                 ClassDeclaration(_) => continue,
@@ -643,7 +669,8 @@ pub(crate) fn module_with_source_map_query(
     let (file, file_source_map) = db.hir_file_with_source_map(file_id);
     let tree = db.parse(file_id);
 
-    let mut module = Module { name: file.get(local_module_id).name.clone(), ..Default::default() };
+    let module_info = file.get(local_module_id);
+    let mut module = Module { name: module_info.name.clone(), ..Default::default() };
     let mut module_source_map = ModuleSourceMap::default();
 
     let Some(ast_module) = file_source_map.get(local_module_id).and_then(|src| src.to_node(&tree))

@@ -20,7 +20,7 @@ use super::{
     lower_ident_opt,
 };
 use crate::{
-    container::{ContainerId, InFile},
+    container::{InFile, ScopeId},
     db::InternDb,
     file::HirFileId,
     hir_def::{alloc_idx_and_src, lower_named_label_opt},
@@ -180,7 +180,7 @@ pub(in crate::hir_def) macro impl_lower_stmt {
 pub(crate) struct LowerStmtCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
     pub(crate) file_id: HirFileId,
-    pub(crate) cont_id: ContainerId,
+    pub(crate) cont_id: ScopeId,
 
     pub(crate) stmts: &'a mut Arena<Stmt>,
     pub(crate) stmt_srcs: &'a mut SourceMap<StmtSrc, Stmt>,

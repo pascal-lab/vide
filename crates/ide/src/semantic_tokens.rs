@@ -1,13 +1,17 @@
 use bitflags::bitflags;
 use collector::SemaTokenCollectorTree;
 use hir::{
-    container::{InContainer, InModule},
+    container::{InContainer, ScopeId},
     db::HirDb,
     file::HirFileId,
     hir_def::{
         Ident,
         block::{BlockId, BlockInfo},
-        expr::{Expr, declarator::DeclaratorParent},
+        expr::{
+            Expr, ExprId,
+            data_ty::{DataTy, NamedDataTy},
+            declarator::DeclaratorParent,
+        },
         module::{
             ModuleId,
             instantiation::{ParamAssign, PortConn},
@@ -15,10 +19,11 @@ use hir::{
         stmt::StmtKind,
     },
     preproc::macro_references_in_range,
-    scope::NonAnsiPortEntry,
     semantics::{Semantics, pathres::PathResolution},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
+    symbol::{DefKind, DefLoc, NameContext},
 };
+use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use syntax::{ast, has_text_range::HasTextRange};
 use utils::{
@@ -197,7 +202,35 @@ fn collect_file(
             collect_ident_like(sema, name_in_cont, range, collector);
         };
 
+    let mut type_expr_ids = FxHashSet::default();
+    for (_, declaration) in hir_file.declarations.iter() {
+        if let Some(expr_id) = named_data_ty_expr_id(declaration.ty()) {
+            type_expr_ids.insert(expr_id);
+            let Some(range) = file_src_map.get(expr_id).map(|src| src.range()) else {
+                continue;
+            };
+            check_range!(collector, range);
+            collect_type_ident_like(sema, file_id.into(), hir_file.get(expr_id), range, collector);
+        }
+    }
+    for (_, typedef) in hir_file.typedefs.iter() {
+        let Some(ty) = typedef.ty else {
+            continue;
+        };
+        if let Some(expr_id) = named_data_ty_expr_id(ty) {
+            type_expr_ids.insert(expr_id);
+            let Some(range) = file_src_map.get(expr_id).map(|src| src.range()) else {
+                continue;
+            };
+            check_range!(collector, range);
+            collect_type_ident_like(sema, file_id.into(), hir_file.get(expr_id), range, collector);
+        }
+    }
+
     for (expr_id, expr) in hir_file.exprs.iter() {
+        if type_expr_ids.contains(&expr_id) {
+            continue;
+        }
         match expr {
             Expr::Field { .. } => {}
             Expr::Ident(name) => {
@@ -260,6 +293,31 @@ fn collect_module(
             collect_ident_like(sema, name_in_cont, range, collector);
         };
 
+    let mut type_expr_ids = FxHashSet::default();
+    for (_, declaration) in module.declarations.iter() {
+        if let Some(expr_id) = named_data_ty_expr_id(declaration.ty()) {
+            type_expr_ids.insert(expr_id);
+            let Some(range) = module_src_map.get(expr_id).map(|src| src.range()) else {
+                continue;
+            };
+            check_range!(collector, range);
+            collect_type_ident_like(sema, module_id.into(), module.get(expr_id), range, collector);
+        }
+    }
+    for (_, typedef) in module.typedefs.iter() {
+        let Some(ty) = typedef.ty else {
+            continue;
+        };
+        if let Some(expr_id) = named_data_ty_expr_id(ty) {
+            type_expr_ids.insert(expr_id);
+            let Some(range) = module_src_map.get(expr_id).map(|src| src.range()) else {
+                continue;
+            };
+            check_range!(collector, range);
+            collect_type_ident_like(sema, module_id.into(), module.get(expr_id), range, collector);
+        }
+    }
+
     for (instance_id, _) in module.instances.iter() {
         if let Some(range) = module_src_map.get(instance_id).and_then(|src| src.name_range()) {
             check_range!(collector, range);
@@ -273,6 +331,9 @@ fn collect_module(
     collect_named_port_connections(sema, module_id, collector);
 
     for (expr_id, expr) in module.exprs.iter() {
+        if type_expr_ids.contains(&expr_id) {
+            continue;
+        }
         match expr {
             Expr::Field { .. } => {}
             Expr::Ident(name) => {
@@ -334,7 +395,35 @@ fn collect_block(
             collect_ident_like(sema, name_in_cont, range, collector);
         };
 
+    let mut type_expr_ids = FxHashSet::default();
+    for (_, declaration) in block.declarations.iter() {
+        if let Some(expr_id) = named_data_ty_expr_id(declaration.ty()) {
+            type_expr_ids.insert(expr_id);
+            let Some(range) = block_src_map.get(expr_id).map(|src| src.range()) else {
+                continue;
+            };
+            check_range!(collector, range);
+            collect_type_ident_like(sema, block_id.into(), block.get(expr_id), range, collector);
+        }
+    }
+    for (_, typedef) in block.typedefs.iter() {
+        let Some(ty) = typedef.ty else {
+            continue;
+        };
+        if let Some(expr_id) = named_data_ty_expr_id(ty) {
+            type_expr_ids.insert(expr_id);
+            let Some(range) = block_src_map.get(expr_id).map(|src| src.range()) else {
+                continue;
+            };
+            check_range!(collector, range);
+            collect_type_ident_like(sema, block_id.into(), block.get(expr_id), range, collector);
+        }
+    }
+
     for (expr_id, expr) in block.exprs.iter() {
+        if type_expr_ids.contains(&expr_id) {
+            continue;
+        }
         match expr {
             Expr::Field { .. } => {}
             Expr::Ident(name) => {
@@ -453,8 +542,29 @@ fn collect_ident_like(
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) -> Option<()> {
-    let res = sema.name_to_def(in_cont)?;
+    let res = sema.resolve_name(in_cont.cont_id, &in_cont.value, NameContext::Value)?;
     collect_resolved_path(sema, res, range, collector)
+}
+
+fn collect_type_ident_like(
+    sema: &Semantics<'_, RootDb>,
+    cont_id: ScopeId,
+    expr: &Expr,
+    range: TextRange,
+    collector: &mut SemaTokenCollector,
+) -> Option<()> {
+    let Expr::Ident(name) = expr else {
+        return None;
+    };
+    let res = sema.resolve_name(cont_id, name, NameContext::Type)?;
+    collect_resolved_path(sema, res, range, collector)
+}
+
+fn named_data_ty_expr_id(ty: DataTy) -> Option<ExprId> {
+    match ty {
+        DataTy::Named(NamedDataTy::Ident(expr_id) | NamedDataTy::Field(expr_id)) => Some(expr_id),
+        DataTy::Builtin(_) | DataTy::Struct(_) => None,
+    }
 }
 
 fn collect_resolved_path(
@@ -465,40 +575,58 @@ fn collect_resolved_path(
 ) -> Option<()> {
     let db = sema.db;
 
-    match res {
-        PathResolution::NonAnsiPort { label, port_decl, data_decl, module } => {
-            let module = db.module(module);
-            let name = module.get(port_decl?).name.as_ref()?;
-            let entry = NonAnsiPortEntry { label, port_decl, data_decl };
-            let (dir, ty) = port::resolve_non_ansi_port(module.as_ref(), &entry.into())?;
-            port::add_port_token(db, name, dir, ty, range, collector);
-        }
-        PathResolution::AnsiPort(InModule { value: decl_id, module_id }) => {
-            let module = db.module(module_id);
-            let name = module.get(decl_id).name.as_ref()?;
+    if res.def_ids().iter().any(|def_id| def_id.kind(db) == DefKind::NonAnsiPort) {
+        let module_id = res.def_ids().iter().find_map(|def_id| match def_id.loc(db) {
+            DefLoc::NonAnsiPort(port_id) => Some(port_id.module_id),
+            DefLoc::Decl(decl_id) => match decl_id.cont_id {
+                ScopeId::Module(module_id) => Some(module_id),
+                _ => None,
+            },
+            _ => None,
+        })?;
+        let module = db.module(module_id);
+        let (name, dir, ty) = port::resolve_non_ansi_port(db, module.as_ref(), res.def_ids())?;
+        port::add_port_token(db, name, dir, ty, range, collector);
+        return Some(());
+    }
 
-            let DeclaratorParent::PortDeclId(port_declaration_id) = module.get(decl_id).parent
-            else {
-                return None;
-            };
-            let port_decl = module.get(port_declaration_id);
-            let header = &port_decl.header;
-            let (dir, ty) = (Some(header.dir()), header.ty());
-            port::add_port_token(db, name, dir, ty, range, collector);
+    for def_id in res.def_ids() {
+        match def_id.kind(db) {
+            DefKind::Port => {
+                let decl_id = def_id.as_decl(db)?;
+                let ScopeId::Module(module_id) = decl_id.cont_id else {
+                    return None;
+                };
+                let module = db.module(module_id);
+                let name = module.get(decl_id.value).name.as_ref()?;
+
+                let DeclaratorParent::PortDeclId(port_declaration_id) =
+                    module.get(decl_id.value).parent
+                else {
+                    return None;
+                };
+                let port_decl = module.get(port_declaration_id);
+                let header = &port_decl.header;
+                let (dir, ty) = (Some(header.dir()), header.ty());
+                port::add_port_token(db, name, dir, ty, range, collector);
+            }
+            DefKind::Instance => {
+                let sema_token = SemaToken {
+                    range,
+                    tag: SemaTokenTag::Instance,
+                    mods: SemaTokenModifier::empty(),
+                };
+                collector.tokens.add(sema_token);
+            }
+            DefKind::Typedef | DefKind::Struct | DefKind::Enum => {
+                collector.tokens.add(SemaToken {
+                    range,
+                    tag: SemaTokenTag::Type,
+                    mods: SemaTokenModifier::REF,
+                });
+            }
+            _ => {}
         }
-        PathResolution::Instance(_) => {
-            let sema_token =
-                SemaToken { range, tag: SemaTokenTag::Instance, mods: SemaTokenModifier::empty() };
-            collector.tokens.add(sema_token);
-        }
-        PathResolution::Typedef(_) => {
-            collector.tokens.add(SemaToken {
-                range,
-                tag: SemaTokenTag::Type,
-                mods: SemaTokenModifier::REF,
-            });
-        }
-        _ => {}
     }
 
     Some(())

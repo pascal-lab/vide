@@ -24,7 +24,7 @@ use super::{
 };
 use crate::{
     base_db::intern::Lookup,
-    container::{ContainerId, InFile},
+    container::{InContainer, InFile, ScopeId},
     db::{HirDb, InternDb},
     file::HirFileId,
     hir_def::{
@@ -44,8 +44,8 @@ use crate::{
         proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
         stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
         subroutine::{
-            LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc, SubroutineSrc,
-            lower_subroutine, lower_subroutine_body,
+            LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineSrc, lower_subroutine,
+            lower_subroutine_body,
         },
         typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
     },
@@ -397,7 +397,7 @@ pub struct GenerateBlockId(pub salsa::InternId);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct GenerateBlockLoc {
-    pub cont_id: ContainerId,
+    pub cont_id: ScopeId,
     pub src: InFile<GenerateBlockSrc>,
 }
 
@@ -453,7 +453,7 @@ impl LowerProc for LowerGenerateBlockCtx<'_> {
 
 impl LowerGenerateBlockCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ContainerId::GenerateBlockId(self.generate_block_id);
+        let container_id = ScopeId::GenerateBlock(self.generate_block_id);
         let struct_def =
             lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
 
@@ -477,7 +477,7 @@ impl LowerGenerateBlockCtx<'_> {
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            ContainerId::GenerateBlockId(self.generate_block_id),
+            ScopeId::GenerateBlock(self.generate_block_id),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.expr_ctx().lower_data_ty(ty),
         );
@@ -499,12 +499,7 @@ impl LowerGenerateBlockCtx<'_> {
             func => self.generate_block_source_map.subroutine_srcs,
         };
 
-        let src = SubroutineSrc::from_ast(self.file_id, func);
-        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
-            cont_id: self.generate_block_id.into(),
-            src: InFile::new(self.file_id, src),
-            local_id: subroutine_id,
-        });
+        let subroutine_def_id = InContainer::new(self.generate_block_id.into(), subroutine_id);
 
         if func.end().is_some() {
             let subroutine = &mut self.generate_block.subroutines[subroutine_id];

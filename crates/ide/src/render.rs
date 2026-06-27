@@ -1,11 +1,8 @@
 use hir::{
-    base_db::{
-        intern::Lookup,
-        source_db::{SourceDb, SourceRootDb},
-    },
-    container::{ContainerId, ContainerParent, InContainer, InFile, InModule, InSubroutine},
+    base_db::source_db::{SourceDb, SourceRootDb},
+    container::{InContainer, InFile, InModule, InSubroutine, ScopeId, ScopeParent},
     db::HirDb,
-    def_id::{ModuleDefId, ModuleDefOrigin},
+    def_id::ModuleDefId,
     display::HirDisplay,
     hir_def::{
         DEFAULT_NAME,
@@ -20,10 +17,11 @@ use hir::{
             instantiation::InstanceId,
             port::{NonAnsiPortId, Ports},
         },
-        subroutine::{SubroutineId, SubroutineKind, SubroutinePortId},
+        subroutine::{LocalSubroutineId, SubroutineKind, SubroutinePortId},
     },
     region_tree::RegionParent,
     semantics::Semantics,
+    symbol::{DefId, DefLoc},
 };
 use itertools::Itertools;
 use syntax::{
@@ -180,7 +178,7 @@ pub(crate) fn render_definition_location(
 
 fn render_def_origin_location(
     db: &RootDb,
-    origin: &ModuleDefOrigin,
+    origin: &DefId,
     anchor_file_id: vfs::FileId,
 ) -> Option<String> {
     let InFile { value: range, file_id } = origin.range(db)?;
@@ -258,7 +256,7 @@ fn has_normal_path_component(path: &utils::paths::AbsPath) -> bool {
 
 fn render_def_origin(
     sema: &Semantics<RootDb>,
-    origin: &ModuleDefOrigin,
+    origin: &DefId,
     anchor_file_id: vfs::FileId,
 ) -> Markup {
     let mut res = Markup::new();
@@ -283,24 +281,24 @@ fn render_def_origin(
     res
 }
 
-fn render_definition_title(db: &RootDb, origin: &ModuleDefOrigin) -> Option<String> {
+fn render_definition_title(db: &RootDb, origin: &DefId) -> Option<String> {
     let name = origin.name(db)?;
-    let kind = match origin {
-        ModuleDefOrigin::ModuleId(_) => "Module",
-        ModuleDefOrigin::Config(_) => "Config",
-        ModuleDefOrigin::Library(_) => "Library",
-        ModuleDefOrigin::Udp(_) => "Primitive",
-        ModuleDefOrigin::BlockId(_) => "Block",
-        ModuleDefOrigin::GenerateBlockId(_) => "Generate block",
-        ModuleDefOrigin::SubroutineId(subroutine_id) => match db.subroutine(*subroutine_id).kind {
+    let kind = match origin.loc(db) {
+        DefLoc::Module(_) => "Module",
+        DefLoc::Config(_) => "Config",
+        DefLoc::Library(_) => "Library",
+        DefLoc::Udp(_) => "Primitive",
+        DefLoc::Block(_) => "Block",
+        DefLoc::GenerateBlock(_) => "Generate block",
+        DefLoc::Subroutine(subroutine_id) => match db.subroutine(subroutine_id).kind {
             SubroutineKind::Task => "Task",
             SubroutineKind::Function { .. } => "Function",
         },
-        ModuleDefOrigin::SubroutinePort(_) | ModuleDefOrigin::NonAnsiPort(_) => "Port",
-        ModuleDefOrigin::Decl(decl_id) => render_decl_title_kind(db, *decl_id)?,
-        ModuleDefOrigin::Typedef(_) => "Typedef",
-        ModuleDefOrigin::Instance(_) => "Instance",
-        ModuleDefOrigin::Stmt(_) => "Statement",
+        DefLoc::SubroutinePort(_) | DefLoc::NonAnsiPort(_) => "Port",
+        DefLoc::Decl(decl_id) => render_decl_title_kind(db, decl_id)?,
+        DefLoc::Typedef(_) => "Typedef",
+        DefLoc::Instance(_) => "Instance",
+        DefLoc::Stmt(_) => "Statement",
     };
 
     Some(format!("{kind} {}", inline_code(name.as_str())))
@@ -326,18 +324,16 @@ fn render_decl_title_kind(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<&
     })
 }
 
-fn render_signature(sema: &Semantics<RootDb>, origin: &ModuleDefOrigin) -> Option<String> {
+fn render_signature(sema: &Semantics<RootDb>, origin: &DefId) -> Option<String> {
     let db = sema.db;
-    match origin {
-        ModuleDefOrigin::ModuleId(module_id) => render_module_signature(db, *module_id),
-        ModuleDefOrigin::SubroutineId(subroutine_id) => {
-            render_subroutine_signature(db, *subroutine_id)
-        }
-        ModuleDefOrigin::SubroutinePort(port_id) => render_subroutine_port_signature(db, *port_id),
-        ModuleDefOrigin::NonAnsiPort(port_id) => render_non_ansi_port_signature(db, *port_id),
-        ModuleDefOrigin::Decl(decl_id) => render_decl_signature(db, *decl_id),
-        ModuleDefOrigin::Typedef(typedef) => typedef.display_signature(db).ok(),
-        ModuleDefOrigin::Instance(instance_id) => render_instance_signature(db, *instance_id),
+    match origin.loc(db) {
+        DefLoc::Module(module_id) => render_module_signature(db, module_id),
+        DefLoc::Subroutine(subroutine_id) => render_subroutine_signature(db, subroutine_id),
+        DefLoc::SubroutinePort(port_id) => render_subroutine_port_signature(db, port_id),
+        DefLoc::NonAnsiPort(port_id) => render_non_ansi_port_signature(db, port_id),
+        DefLoc::Decl(decl_id) => render_decl_signature(db, decl_id),
+        DefLoc::Typedef(typedef) => typedef.display_signature(db).ok(),
+        DefLoc::Instance(instance_id) => render_instance_signature(db, instance_id),
         _ => render_label_signature(db, origin),
     }
 }
@@ -400,7 +396,7 @@ fn render_subroutine_port_signature(
     let subroutine = db.subroutine(port_id.subroutine);
     let port = subroutine.ports.get(port_id.value.0 as usize)?;
     let name = port.name.as_ref()?;
-    let container = port_id.subroutine.lookup(db).cont_id.into();
+    let container = port_id.subroutine.cont_id;
     let ty = port.ty.and_then(|ty| render_data_ty(db, container, ty));
     let dir = port.direction.display_source(db).ok()?;
 
@@ -412,10 +408,13 @@ fn render_subroutine_port_signature(
     }
 }
 
-fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineId) -> Option<String> {
+fn render_subroutine_signature(
+    db: &RootDb,
+    subroutine_id: InContainer<LocalSubroutineId>,
+) -> Option<String> {
     let subroutine = db.subroutine(subroutine_id);
     let name = subroutine.name.as_ref()?;
-    let container = subroutine_id.lookup(db).cont_id.into();
+    let container = subroutine_id.cont_id;
     let mut signature = match subroutine.kind {
         SubroutineKind::Task => format!("task {name}"),
         SubroutineKind::Function { return_ty } => {
@@ -526,7 +525,7 @@ fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<St
 
     match decl.parent {
         DeclaratorParent::PortDeclId(port_decl_id) => {
-            let ContainerId::ModuleId(module_id) = decl_id.cont_id else {
+            let ScopeId::Module(module_id) = decl_id.cont_id else {
                 return None;
             };
             let module = db.module(module_id);
@@ -556,7 +555,7 @@ fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<St
 
 fn render_declaration_prefix(
     db: &RootDb,
-    cont_id: ContainerId,
+    cont_id: ScopeId,
     declaration: &Declaration,
 ) -> Option<String> {
     let ty = render_data_ty(db, cont_id, declaration.ty()).unwrap_or_default();
@@ -616,31 +615,31 @@ fn render_initializer(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<Strin
     Some(rendered)
 }
 
-fn render_data_ty(db: &RootDb, container: ContainerId, ty: DataTy) -> Option<String> {
+fn render_data_ty(db: &RootDb, container: ScopeId, ty: DataTy) -> Option<String> {
     InContainer::new(container, ty).display_source(db).ok()
 }
 
-fn render_label_signature(db: &RootDb, origin: &ModuleDefOrigin) -> Option<String> {
+fn render_label_signature(db: &RootDb, origin: &DefId) -> Option<String> {
     let name = origin.name(db)?;
-    let kind = match origin {
-        ModuleDefOrigin::Config(_) => "config",
-        ModuleDefOrigin::Library(_) => "library",
-        ModuleDefOrigin::Udp(_) => "primitive",
-        ModuleDefOrigin::BlockId(_) => "block",
-        ModuleDefOrigin::GenerateBlockId(_) => "generate",
-        ModuleDefOrigin::Instance(_) => "instance",
-        ModuleDefOrigin::Stmt(_) => "statement",
-        ModuleDefOrigin::Typedef(_) => "typedef",
-        ModuleDefOrigin::ModuleId(_)
-        | ModuleDefOrigin::SubroutineId(_)
-        | ModuleDefOrigin::SubroutinePort(_)
-        | ModuleDefOrigin::NonAnsiPort(_)
-        | ModuleDefOrigin::Decl(_) => return None,
+    let kind = match origin.loc(db) {
+        DefLoc::Config(_) => "config",
+        DefLoc::Library(_) => "library",
+        DefLoc::Udp(_) => "primitive",
+        DefLoc::Block(_) => "block",
+        DefLoc::GenerateBlock(_) => "generate",
+        DefLoc::Instance(_) => "instance",
+        DefLoc::Stmt(_) => "statement",
+        DefLoc::Typedef(_) => "typedef",
+        DefLoc::Module(_)
+        | DefLoc::Subroutine(_)
+        | DefLoc::SubroutinePort(_)
+        | DefLoc::NonAnsiPort(_)
+        | DefLoc::Decl(_) => return None,
     };
     Some(format!("{kind} {name}"))
 }
 
-fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &ModuleDefOrigin) -> Option<Markup> {
+fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefId) -> Option<Markup> {
     let db = sema.db;
     let InFile { value: range, file_id } = origin.range(db)?;
 
@@ -678,7 +677,7 @@ fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &ModuleDefOrigin) 
     }
 }
 
-fn render_scope_fact(sema: &Semantics<RootDb>, origin: &ModuleDefOrigin) -> Option<String> {
+fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefId) -> Option<String> {
     // elaboration?
     let db = sema.db;
     let InFile { value: range, .. } = origin.range(db)?;
@@ -686,7 +685,7 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &ModuleDefOrigin) -> Opti
 
     let mut containers = Vec::new();
 
-    for cont_id in ContainerParent::start_from(db, cont_id) {
+    for cont_id in ScopeParent::start_from(db, cont_id) {
         let src_map = cont_id.to_container_src_map(db);
 
         if let Some(region_tree) = src_map.region_tree()
@@ -697,7 +696,7 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &ModuleDefOrigin) -> Opti
             }
         }
 
-        if !matches!(cont_id, ContainerId::HirFileId(_)) {
+        if !matches!(cont_id, ScopeId::File(_)) {
             if let Some(name) = cont_id.to_container(db).name() {
                 containers.push(name.to_string());
             } else {
@@ -714,7 +713,7 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &ModuleDefOrigin) -> Opti
 
 fn render_definition_metadata(
     sema: &Semantics<RootDb>,
-    origin: &ModuleDefOrigin,
+    origin: &DefId,
     anchor_file_id: vfs::FileId,
 ) -> Option<String> {
     let mut parts = Vec::new();

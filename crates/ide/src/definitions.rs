@@ -1,7 +1,8 @@
 use hir::{
-    def_id::{ModuleDefId, ModuleDefOrigin},
+    def_id::ModuleDefId,
     file::HirFileId,
     semantics::{Semantics, pathres::PathResolution},
+    symbol::{DefId, NameContext},
 };
 use smallvec::SmallVec;
 use syntax::{
@@ -65,7 +66,9 @@ impl DefinitionClass {
                     .and_then(|res| res.to_def_id(sema.db));
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
-                    let local = sema.nameres_ident(file_id, tp).and_then(|res| res.to_def_id(sema.db));
+                    let local = sema
+                        .nameres_ident(file_id, tp, NameContext::Value)
+                        .and_then(|res| res.to_def_id(sema.db));
 
                     match (port, local) {
                         (Some(port), Some(local)) => Self::PortConnShorthand { port, local },
@@ -76,13 +79,16 @@ impl DefinitionClass {
                     port?.into()
                 }
             },
-            _ => sema.nameres_ident(file_id, tp)?.to_def_id(sema.db)?.into(),
+            _ => sema
+                .nameres_ident(file_id, tp, name_context_for_token(parent))
+                ?.to_def_id(sema.db)?
+                .into(),
         };
 
         Some(res)
     }
 
-    pub(crate) fn origins(self, db: &RootDb) -> SmallVec<[ModuleDefOrigin; 6]> {
+    pub(crate) fn origins(self, db: &RootDb) -> SmallVec<[DefId; 6]> {
         match self {
             DefinitionClass::Definition(definition) => definition.origins(db).into_iter().collect(),
             DefinitionClass::PortConnShorthand { port, local } => {
@@ -104,7 +110,9 @@ fn resolve_declaration_name(
         && module.name() == Some(tok)
     {
         let module_id = sema.module_to_def(file_id, module)?;
-        return Some(PathResolution::Module(module_id).to_def_id(sema.db)?.into());
+        return Some(
+            PathResolution::from_def_id(DefId::new(sema.db, module_id)).to_def_id(sema.db)?.into(),
+        );
     }
 
     None
@@ -146,13 +154,18 @@ fn resolve_instantiation_type_name(
     {
         return match resolve_instantiation_target(sema.db, file_id.file_id(), instantiation) {
             ModuleResolution::Unique(module_id)
-            | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
-                Some(PathResolution::Module(module_id).to_def_id(sema.db)?.into())
-            }
+            | ModuleResolution::BestEffortProximity { selected: module_id, .. } => Some(
+                PathResolution::from_def_id(DefId::new(sema.db, module_id))
+                    .to_def_id(sema.db)?
+                    .into(),
+            ),
             ModuleResolution::Ambiguous { candidates, .. } => Some(DefinitionClass::Ambiguous(
                 candidates
                     .into_iter()
-                    .map(|module_id| PathResolution::Module(module_id).to_def_id(sema.db))
+                    .map(|module_id| {
+                        PathResolution::from_def_id(DefId::new(sema.db, module_id))
+                            .to_def_id(sema.db)
+                    })
                     .collect::<Option<Vec<_>>>()?,
             )),
             ModuleResolution::Unresolved => None,
@@ -163,10 +176,23 @@ fn resolve_instantiation_type_name(
         SyntaxAncestors::start_from(parent).find_map(ast::PrimitiveInstantiation::cast)
         && instantiation.type_() == Some(tok)
     {
-        return Some(sema.nameres_ident(file_id, tp)?.to_def_id(sema.db)?.into());
+        return Some(
+            sema.nameres_ident(file_id, tp, NameContext::Value)?.to_def_id(sema.db)?.into(),
+        );
     }
 
     None
+}
+
+fn name_context_for_token(parent: syntax::SyntaxNode<'_>) -> NameContext {
+    if SyntaxAncestors::start_from(parent).any(|node| ast::NamedType::cast(node).is_some()) {
+        NameContext::Type
+    } else {
+        // Value is the conservative default for identifier references in IDE
+        // features; type positions are selected by the syntactic NamedType arm
+        // above.
+        NameContext::Value
+    }
 }
 
 fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {
@@ -184,7 +210,7 @@ mod tests {
 
     use hir::{
         base_db::{change::Change, source_root::SourceRoot},
-        def_id::ModuleDefOrigin,
+        symbol::DefKind,
     };
     use syntax::SyntaxNodeExt;
     use triomphe::Arc;
@@ -260,11 +286,11 @@ mod tests {
 
             let origins = def.origins(db);
             let (resolution, range) = match origins.first().copied() {
-                Some(origin @ ModuleDefOrigin::NonAnsiPort(_)) => (
+                Some(origin) if origin.kind(db) == DefKind::NonAnsiPort => (
                     "NonAnsiPort",
                     origin.name_range(db).expect("non-ANSI port label should have a name range"),
                 ),
-                Some(origin @ ModuleDefOrigin::Decl(_)) => {
+                Some(origin) if origin.kind(db) == DefKind::Port => {
                     ("AnsiPort", origin.name_range(db).expect("ANSI port should have a name range"))
                 }
                 other => panic!("unexpected definition for {name}: {other:?}"),

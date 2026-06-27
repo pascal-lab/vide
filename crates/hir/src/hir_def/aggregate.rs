@@ -10,7 +10,7 @@ use utils::text_edit::TextRange;
 
 use super::{Ident, expr::data_ty::DataTy, lower_ident_opt};
 use crate::{
-    container::{ContainerId, InContainer},
+    container::{InContainer, ScopeId},
     source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, ToAstNode, root_token_in},
 };
 
@@ -40,7 +40,7 @@ pub type StructId = Idx<StructDef>;
 
 pub(crate) fn lower_struct_def(
     struct_ty: StructUnionType,
-    container_id: ContainerId,
+    container_id: ScopeId,
     mut lower_data_ty: impl FnMut(DataType) -> DataTy,
 ) -> StructDef {
     let kind = match struct_ty {

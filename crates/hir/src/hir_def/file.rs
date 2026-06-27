@@ -14,6 +14,7 @@ use udp::{UdpDecl, UdpDeclId, UdpDeclSrc};
 use utils::{define_enum_deriving_from, get::Get};
 
 use super::{
+    PackageImport,
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_idx_and_src,
     block::{BlockInfo, BlockSrc, LocalBlockId},
@@ -26,17 +27,18 @@ use super::{
         impl_lower_expr,
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
-    module::{LocalModuleId, ModuleInfo, ModuleSrc},
+    lower_package_imports,
+    module::{LocalModuleId, ModuleInfo, ModuleKind, ModuleSrc},
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
-        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc, SubroutineSrc,
-        lower_subroutine, lower_subroutine_body,
+        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineSrc, lower_subroutine,
+        lower_subroutine_body,
     },
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{ContainerId, InFile},
+    container::{InContainer, ScopeId},
     db::{HirDb, InternDb},
     file::HirFileId,
     hir_def::lower_ident_opt,
@@ -61,6 +63,7 @@ define_container! {
         library_decls: [LibraryDecl],
         library_includes: [LibraryInclude],
         subroutines: [Subroutine],
+        package_imports: [PackageImport],
 
         declarations: [Declaration],
         exprs: [Expr],
@@ -175,7 +178,7 @@ impl LowerProc for LowerFileCtx<'_> {
 
 impl LowerFileCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ContainerId::HirFileId(self.file_id);
+        let container_id = ScopeId::File(self.file_id);
         let struct_def =
             lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
 
@@ -198,7 +201,7 @@ impl LowerFileCtx<'_> {
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            ContainerId::HirFileId(self.file_id),
+            ScopeId::File(self.file_id),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.expr_ctx().lower_data_ty(ty),
         );
@@ -220,12 +223,7 @@ impl LowerFileCtx<'_> {
             func => self.file_source_map.subroutine_srcs,
         };
 
-        let src = SubroutineSrc::from_ast(self.file_id, func);
-        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
-            cont_id: self.file_id.into(),
-            src: InFile::new(self.file_id, src),
-            local_id: local_subroutine_id,
-        });
+        let subroutine_id = InContainer::new(self.file_id.into(), local_subroutine_id);
 
         if func.end().is_some() {
             let subroutine = &mut self.file.subroutines[local_subroutine_id];
@@ -233,7 +231,7 @@ impl LowerFileCtx<'_> {
             let mut ctx = LowerSubroutineBodyCtx {
                 db: self.db,
                 file_id: self.file_id,
-                subroutine_id: subroutine_def_id,
+                subroutine_id,
                 subroutine,
                 subroutine_source_map: &mut subroutine_source_map,
                 region_tree: RegionTreeBuilder::new(),
@@ -295,10 +293,11 @@ impl LowerFileCtx<'_> {
             let idx = match member {
                 ModuleDeclaration(decl) => {
                     let name = lower_ident_opt(decl.header().name());
+                    let kind = ModuleKind::from_ast(decl);
 
                     alloc_idx_and_src! {
                     self.file_id;
-                                ModuleInfo { name } => self.file.modules,
+                                ModuleInfo { name, kind } => self.file.modules,
                                 decl => self.file_source_map.module_srcs,
                             }
                     .into()
@@ -314,6 +313,12 @@ impl LowerFileCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
+                PackageImportDeclaration(import_decl) => {
+                    for import in lower_package_imports(import_decl) {
+                        self.file.package_imports.alloc(import);
+                    }
+                    continue;
+                }
                 UdpDeclaration(udp_decl) => self.lower_udp_decl(udp_decl).into(),
                 ConfigDeclaration(config_decl) => self.lower_config_decl(config_decl).into(),
                 _ => continue,

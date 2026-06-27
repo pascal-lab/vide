@@ -5,10 +5,11 @@ use hir::{
         source_db::{SourceDb, SourceRootDb},
         source_root::SourceRootId,
     },
-    container::{ContainerId, InFile},
+    container::{InFile, ScopeId},
     def_id::ModuleDefId,
     semantics::Semantics,
     source_map::IsSrc,
+    symbol::DefId,
 };
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
@@ -46,9 +47,7 @@ impl SearchScope {
                     return search_scope.unwrap_or_default();
                 };
                 let container_id = match container_id {
-                    ContainerId::ModuleId(InFile { file_id, .. }) if def.is_port(db) => {
-                        file_id.into()
-                    }
+                    ScopeId::Module(InFile { file_id, .. }) if def.is_port(db) => file_id.into(),
                     cont => cont,
                 };
 
@@ -73,10 +72,10 @@ impl SearchScope {
         SearchScope(res)
     }
 
-    fn from_conts(db: &RootDb, cont: ContainerId) -> Self {
+    fn from_conts(db: &RootDb, cont: ScopeId) -> Self {
         match cont {
-            ContainerId::HirFileId(_) => Self::all(db),
-            ContainerId::ModuleId(InFile { value: local_module_id, file_id }) => {
+            ScopeId::File(_) => Self::all(db),
+            ScopeId::Module(InFile { value: local_module_id, file_id }) => {
                 if let Some(range) =
                     file_id.to_container_src_map(db).get(local_module_id).map(|src| src.range())
                 {
@@ -85,17 +84,21 @@ impl SearchScope {
                     Self::all(db)
                 }
             }
-            ContainerId::BlockId(block_id) => {
+            ScopeId::Block(block_id) => {
                 let range = block_id.lookup(db).src.value.range();
                 Self::single_range(block_id.file_id(db), range)
             }
-            ContainerId::GenerateBlockId(generate_block_id) => {
+            ScopeId::GenerateBlock(generate_block_id) => {
                 let src = generate_block_id.lookup(db).src;
                 Self::single_range(src.file_id.file_id(), src.value.range())
             }
-            ContainerId::SubroutineId(subroutine_id) => {
-                let src = subroutine_id.lookup(db).src;
-                Self::single_range(src.file_id.file_id(), src.value.range())
+            ScopeId::Subroutine(subroutine_id) => {
+                let def_id = DefId::new(db, subroutine_id.as_in_container());
+                if let Some(InFile { file_id, value: range }) = def_id.range(db) {
+                    Self::single_range(file_id.file_id(), range)
+                } else {
+                    Self::all(db)
+                }
             }
         }
     }

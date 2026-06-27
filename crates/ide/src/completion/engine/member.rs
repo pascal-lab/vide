@@ -2,10 +2,11 @@ use hir::{
     db::HirDb,
     file::HirFileId,
     semantics::Semantics,
+    symbol::NameContext,
     type_infer::{TyMember, members_of_ty},
 };
 use syntax::{
-    SyntaxAncestors, SyntaxNode, SyntaxNodeExt,
+    SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
@@ -84,7 +85,7 @@ fn members_for_incomplete_scoped_access(
         return None;
     }
     let left = root.token_before_offset(separator.text_range()?.start())?;
-    let res = sema.nameres_ident(file_id, left)?;
+    let res = sema.nameres_ident(file_id, left, NameContext::Type)?;
     let ty = db.type_of_path_resolution(res);
     let members = members_of_ty(db, &ty.ty);
     (!members.is_empty()).then_some(members)
@@ -136,6 +137,26 @@ fn members_for_scoped_name(
     file_id: HirFileId,
     scoped: ast::ScopedName<'_>,
 ) -> Option<Vec<TyMember>> {
+    if let Some(left) = scoped_left_token(scoped) {
+        let res = sema.nameres_ident(file_id, left, NameContext::Type)?;
+        let ty = db.type_of_path_resolution(res);
+        let members = members_of_ty(db, &ty.ty);
+        return (!members.is_empty()).then_some(members);
+    }
+
     let left = ast::Expression::cast(scoped.left().syntax())?;
     members_for_expr(db, sema, file_id, left)
+}
+
+fn scoped_left_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxTokenWithParent<'_>> {
+    use ast::Name::*;
+    match scoped.left() {
+        IdentifierName(ident) => {
+            Some(SyntaxTokenWithParent { parent: ident.syntax(), tok: ident.identifier()? })
+        }
+        IdentifierSelectName(ident) => {
+            Some(SyntaxTokenWithParent { parent: ident.syntax(), tok: ident.identifier()? })
+        }
+        _ => None,
+    }
 }

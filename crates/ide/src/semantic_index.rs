@@ -5,12 +5,12 @@ use hir::{
     },
     container::InFile,
     db::HirDb,
-    def_id::{ModuleDefId, ModuleDefOrigin},
+    def_id::ModuleDefId,
     file::HirFileId,
     hir_def::{Ident, module::ModuleId},
-    scope::UnitEntry,
     semantics::Semantics,
     source_map::IsSrc,
+    symbol::{DefId, DefKind},
 };
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
@@ -117,14 +117,17 @@ impl ModuleIndex {
 
         for file_id in source_root.iter() {
             let hir_file_id = HirFileId::from(file_id);
-            for (_, entry) in db.file_scope(hir_file_id).iter() {
-                let UnitEntry::ModuleId(module_id) = entry else {
-                    continue;
-                };
-                let Some(module) = SemanticModuleDefinition::new(db, module_id) else {
-                    continue;
-                };
-                modules_by_name.entry(module.name.clone()).or_default().push(module);
+            for (_, defs) in db.file_scope(hir_file_id).iter_listing() {
+                for module_id in defs
+                    .iter()
+                    .filter(|def_id| def_id.kind(db) == DefKind::Module)
+                    .filter_map(|def_id| def_id.as_module(db))
+                {
+                    let Some(module) = SemanticModuleDefinition::new(db, module_id) else {
+                        continue;
+                    };
+                    modules_by_name.entry(module.name.clone()).or_default().push(module);
+                }
             }
         }
 
@@ -163,7 +166,7 @@ impl ModuleIndex {
 
 impl SemanticModuleDefinition {
     fn new(db: &dyn HirDb, module_id: ModuleId) -> Option<Self> {
-        let origin = ModuleDefOrigin::ModuleId(module_id);
+        let origin = DefId::new(db, module_id);
         let name = origin.name(db)?;
         let InFile { file_id, value: name_range } = origin.name_range(db)?;
         let InFile { value: full_range, .. } = origin.range(db)?;
