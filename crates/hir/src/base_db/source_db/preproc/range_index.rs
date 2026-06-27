@@ -2,8 +2,8 @@ use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MappedSourcePreprocModel {
-    pub model: SourcePreprocModel,
-    pub source_map: PreprocSourceMap,
+    pub(crate) model: SourcePreprocModel,
+    pub(crate) source_map: PreprocSourceMap,
     range_index: PreprocRangeIndex,
 }
 
@@ -117,9 +117,7 @@ fn mapped_file_range(
     source_map: &PreprocSourceMap,
     source_range: SourceRange,
 ) -> Option<(FileId, TextRange)> {
-    let range = source_map.map_range(source_range).ok()?;
-    let file_id = source_map.file_id(source_range.source).ok()?;
-    Some((file_id, range))
+    source_map.map_range(source_range).ok()
 }
 
 fn sort_indexed_ranges<T: Copy>(ranges: &mut [IndexedRange<T>]) {

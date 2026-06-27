@@ -12,6 +12,7 @@ use vfs::{ChangedFile, FileId, Vfs, VfsPath};
 use super::{
     DEFAULT_REQ_HANDLER, GlobalState,
     diagnostics::publisher::{PublishDiagnosticsBatch, PublishDiagnosticsTask},
+    preproc_virtual_files::materialize_preproc_virtual_files,
     reload::should_refresh_for_change,
     task::Task,
 };
@@ -268,11 +269,18 @@ impl GlobalState {
 
     fn collect_changes(
         &self,
-        bytes: Vec<ChangedFile>,
+        mut bytes: Vec<ChangedFile>,
         line_ending_map: &mut IntMap<FileId, LineEnding>,
         vfs: &mut Vfs,
-        has_structure_changes: bool,
+        mut has_structure_changes: bool,
     ) -> Change {
+        if has_structure_changes {
+            materialize_preproc_virtual_files(&self.config_state.project_config, vfs);
+            let virtual_changes = vfs.take_changes();
+            has_structure_changes |= virtual_changes.iter().any(ChangedFile::is_created_or_deleted);
+            bytes.extend(virtual_changes);
+        }
+
         let mut change = Change::new();
         for changed_file in bytes {
             let file_id = changed_file.file_id;

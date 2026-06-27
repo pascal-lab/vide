@@ -19,9 +19,10 @@ mod preproc;
 pub(crate) use self::preproc::workspace_preproc_model_file_ids;
 pub use self::preproc::{
     MappedSourcePreprocModel, PreprocManifestSource, PreprocSourceMap, PreprocSourceMapError,
-    PreprocSourceMapping, PreprocSpeculativeUniverseId, PreprocVirtualOrigin,
-    SourcePreprocContextIndex, SourcePreprocContextStatus, SourcePreprocQueryError,
-    SourcePreprocRelevantContexts, preproc_virtual_builtin_path, preproc_virtual_predefines_path,
+    PreprocSourceMapping, PreprocSpeculativeUniverseId, PreprocUnavailableReason,
+    PreprocVirtualOrigin, SourcePreprocContextIndex, SourcePreprocContextStatus,
+    SourcePreprocQueryError, SourcePreprocRelevantContexts, preproc_virtual_builtin_path,
+    preproc_virtual_predefines_path, preproc_virtual_predefines_text,
     preproc_virtual_speculative_path,
 };
 #[cfg(test)]
@@ -70,10 +71,14 @@ pub enum SourceFileKind {
     IncludeHeader,
     LibraryMap,
     ProjectManifest,
+    PreprocVirtual,
 }
 
 impl SourceFileKind {
     pub fn from_path(path: &VfsPath) -> Self {
+        if is_preproc_virtual_path(path) {
+            return Self::PreprocVirtual;
+        }
         match path.name_and_extension() {
             Some((name, Some(ext))) if name == "vide" && ext.eq_ignore_ascii_case("toml") => {
                 Self::ProjectManifest
@@ -97,12 +102,18 @@ impl SourceFileKind {
     }
 }
 
+fn is_preproc_virtual_path(path: &VfsPath) -> bool {
+    path.starts_with(&VfsPath::new_virtual_path("/__vide/preproc".to_owned()))
+}
+
 fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
     let _span = tracing::info_span!("slang.parse_src", ?file_id).entered();
     let text = db.file_text(file_id);
 
     match db.file_kind(file_id) {
-        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
+        SourceFileKind::SystemVerilog
+        | SourceFileKind::IncludeHeader
+        | SourceFileKind::PreprocVirtual => {
             // HIR source maps are local to the queried file; project-aware
             // include expansion belongs to parse_src_for_compilation.
             let preprocess = db.file_preprocess_config(file_id);
@@ -245,7 +256,7 @@ fn parsed_compilation_unit(db: &dyn SourceRootDb, file_id: FileId) -> ParsedComp
             syntax_tree: SyntaxTree::from_library_map_text(&text, &identity.name, &identity.path),
             preprocessor_trace: None,
         },
-        SourceFileKind::ProjectManifest => ParsedCompilationUnit {
+        SourceFileKind::ProjectManifest | SourceFileKind::PreprocVirtual => ParsedCompilationUnit {
             syntax_tree: SyntaxTree::from_text("", "", ""),
             preprocessor_trace: None,
         },
@@ -269,7 +280,9 @@ fn parser_expected_syntax(
     let identity = source_file_identity(db, file_id);
     let offset = usize::from(offset);
     let expected = match db.file_kind(file_id) {
-        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
+        SourceFileKind::SystemVerilog
+        | SourceFileKind::IncludeHeader
+        | SourceFileKind::PreprocVirtual => {
             let options = syntax_tree_options_for_file(db, file_id);
             SyntaxTree::expected_syntax_at_offset_with_options(
                 &text,
@@ -540,7 +553,9 @@ fn compilation_profile_diagnostics(
                     &identity.name,
                     &identity.path,
                 ),
-                SourceFileKind::IncludeHeader | SourceFileKind::ProjectManifest => continue,
+                SourceFileKind::IncludeHeader
+                | SourceFileKind::ProjectManifest
+                | SourceFileKind::PreprocVirtual => continue,
             };
             compilation_root_count += 1;
             compilation_buffer_count += 1 + buffer_ids.source_buffers.len();
@@ -660,7 +675,7 @@ fn source_root_semantic_diagnostics(
 mod tests {
     use std::fmt;
 
-    use ::preproc::source::{PreprocSourceId, SourcePreprocUnavailable, SourceRange};
+    use ::preproc::source::{PreprocSourceId, SourceRange};
     use rustc_hash::FxHashSet;
     use syntax::{SourceBufferId, SourceBufferOrigin, SyntaxTreeOptions, preproc::Trace};
     use utils::{
@@ -677,6 +692,7 @@ mod tests {
 
     const TOP: FileId = FileId(0);
     const MANIFEST: FileId = FileId(1);
+    const VIRTUAL: FileId = FileId(2);
     const ROOT: SourceRootId = SourceRootId(0);
 
     #[salsa::database(SourceDbStorage, SourceRootDbStorage)]
@@ -701,12 +717,22 @@ mod tests {
     }
 
     fn db_with_root_file() -> TestDb {
+        db_with_root_file_and_virtuals(Vec::new())
+    }
+
+    fn db_with_root_file_and_virtuals(virtuals: Vec<(FileId, VfsPath, String)>) -> TestDb {
         let top_path = abs_path("rtl/top.v");
         let mut file_set = FileSet::default();
         file_set.insert(TOP, VfsPath::from(top_path.clone()));
+        for (file_id, path, _) in &virtuals {
+            file_set.insert(*file_id, path.clone());
+        }
         let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
         let mut files = FxHashSet::default();
         files.insert(TOP);
+        for (file_id, _, _) in &virtuals {
+            files.insert(*file_id);
+        }
 
         let mut db = TestDb::default();
         db.set_files_with_durability(Box::new(files), Durability::HIGH);
@@ -723,19 +749,42 @@ mod tests {
             Arc::from("module top; endmodule\n"),
             Durability::LOW,
         );
+        for (file_id, path, text) in virtuals {
+            db.set_source_root_id_with_durability(file_id, ROOT, Durability::LOW);
+            db.set_file_path_with_durability(file_id, None, Durability::LOW);
+            db.set_file_kind_with_durability(
+                file_id,
+                SourceFileKind::from_path(&path),
+                Durability::LOW,
+            );
+            db.set_file_text_with_durability(file_id, Arc::from(text.as_str()), Durability::LOW);
+        }
         db
     }
 
     fn db_with_root_and_manifest(manifest_text: &str) -> TestDb {
+        db_with_root_and_manifest_and_virtuals(manifest_text, Vec::new())
+    }
+
+    fn db_with_root_and_manifest_and_virtuals(
+        manifest_text: &str,
+        virtuals: Vec<(FileId, VfsPath, String)>,
+    ) -> TestDb {
         let top_path = abs_path("rtl/top.v");
         let manifest_path = abs_path("vide.toml");
         let mut file_set = FileSet::default();
         file_set.insert(TOP, VfsPath::from(top_path.clone()));
         file_set.insert(MANIFEST, VfsPath::from(manifest_path.clone()));
+        for (file_id, path, _) in &virtuals {
+            file_set.insert(*file_id, path.clone());
+        }
         let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
         let mut files = FxHashSet::default();
         files.insert(TOP);
         files.insert(MANIFEST);
+        for (file_id, _, _) in &virtuals {
+            files.insert(*file_id);
+        }
 
         let mut db = TestDb::default();
         db.set_files_with_durability(Box::new(files), Durability::HIGH);
@@ -752,6 +801,16 @@ mod tests {
             db.set_file_path_with_durability(file_id, Some(path), Durability::LOW);
             db.set_file_kind_with_durability(file_id, kind, Durability::LOW);
             db.set_file_text_with_durability(file_id, Arc::from(text), Durability::LOW);
+        }
+        for (file_id, path, text) in virtuals {
+            db.set_source_root_id_with_durability(file_id, ROOT, Durability::LOW);
+            db.set_file_path_with_durability(file_id, None, Durability::LOW);
+            db.set_file_kind_with_durability(
+                file_id,
+                SourceFileKind::from_path(&path),
+                Durability::LOW,
+            );
+            db.set_file_text_with_durability(file_id, Arc::from(text.as_str()), Durability::LOW);
         }
         db
     }
@@ -792,6 +851,49 @@ mod tests {
 
         assert_eq!(kind, SourceFileKind::ProjectManifest);
         assert!(!kind.is_slang_parse_unit());
+    }
+
+    #[test]
+    fn preproc_virtual_files_are_not_slang_parse_or_semantic_units() {
+        let kind = SourceFileKind::from_path(&preproc_virtual_predefines_path(None));
+
+        assert_eq!(kind, SourceFileKind::PreprocVirtual);
+        assert!(!kind.is_slang_parse_unit());
+        assert!(!kind.is_semantic_compilation_unit());
+    }
+
+    #[test]
+    fn materialized_preproc_virtual_files_do_not_enter_semantic_or_preproc_roots() {
+        let profile = CompilationProfileId(0);
+        let virtual_path = preproc_virtual_predefines_path(Some(profile));
+        let virtual_text = materialized_predefine_text("FOO=1");
+        let mut db = db_with_root_file_and_virtuals(vec![(VIRTUAL, virtual_path, virtual_text)]);
+        db.set_project_config_with_durability(
+            Arc::new(ProjectConfig::new(
+                vec![Some(profile)],
+                vec![CompilationProfile {
+                    source_roots: vec![ROOT],
+                    top_modules: Vec::new(),
+                    preprocess: PreprocessConfig::with_predefine_strings(["FOO=1"], Vec::new()),
+                }],
+            )),
+            Durability::LOW,
+        );
+
+        assert_eq!(db.file_kind(VIRTUAL), SourceFileKind::PreprocVirtual);
+        assert!(!db.file_kind(VIRTUAL).is_semantic_compilation_unit());
+        assert!(db.parse_diagnostics(VIRTUAL).is_empty());
+
+        let plan = db.compilation_plan_for_root(ROOT);
+        assert_eq!(plan.roots, vec![TOP]);
+        assert!(!plan.include_only.contains(&VIRTUAL));
+
+        let preproc_model_files = workspace_preproc_model_file_ids(&db, Some(profile));
+        assert_eq!(preproc_model_files, vec![TOP]);
+        assert_eq!(
+            db.source_preproc_model(VIRTUAL).as_ref(),
+            &Err(SourcePreprocQueryError::UnsupportedFileKind(SourceFileKind::PreprocVirtual))
+        );
     }
 
     #[test]
@@ -881,8 +983,8 @@ mod tests {
 
         assert_eq!(
             source_map.get(PreprocSourceId::from(2)),
-            Some(&PreprocSourceMapping::Unmapped(SourcePreprocUnavailable::DetachedSource {
-                source: PreprocSourceId::from(2),
+            Some(&PreprocSourceMapping::Unmapped(PreprocUnavailableReason::DetachedSource {
+                buffer_id: 2,
             }))
         );
         assert!(matches!(
@@ -893,9 +995,14 @@ mod tests {
 
     #[test]
     fn source_preproc_mapping_records_predefines_by_verified_source_text() {
-        let db = db_with_root_file();
         let first_text = materialized_predefine_text("FIRST=1");
         let second_text = materialized_predefine_text("SECOND");
+        let expected_path = preproc_virtual_predefines_path(None);
+        let db = db_with_root_file_and_virtuals(vec![(
+            VIRTUAL,
+            expected_path.clone(),
+            format!("{first_text}{second_text}"),
+        )]);
         let trace = Trace {
             root_buffer_id: 1,
             source_buffers: vec![
@@ -940,18 +1047,20 @@ mod tests {
         let first = PreprocSourceId::from(9);
         let second = PreprocSourceId::from(2);
         let extra = PreprocSourceId::from(4);
-        let expected_path = preproc_virtual_predefines_path(None);
 
-        let Some(PreprocSourceMapping::VirtualDisplay { path, origin }) = source_map.get(first)
+        let Some(PreprocSourceMapping::VirtualFile { file_id, path, origin }) =
+            source_map.get(first)
         else {
-            panic!("first predefine should map to display-only virtual source");
+            panic!("first predefine should map to materialized virtual source");
         };
+        assert_eq!(*file_id, VIRTUAL);
         assert_eq!(path, &expected_path);
         assert_eq!(origin, &PreprocVirtualOrigin::Predefines { profile: None });
 
         assert_eq!(
             source_map.get(second),
-            Some(&PreprocSourceMapping::VirtualDisplay {
+            Some(&PreprocSourceMapping::VirtualFile {
+                file_id: VIRTUAL,
                 path: expected_path,
                 origin: PreprocVirtualOrigin::Predefines { profile: None },
             })
@@ -959,24 +1068,21 @@ mod tests {
         assert_eq!(
             source_map.get(extra),
             Some(&PreprocSourceMapping::Unmapped(
-                SourcePreprocUnavailable::UnverifiedPredefineSource { source: extra }
+                PreprocUnavailableReason::UnverifiedPredefineSource { buffer_id: extra.raw() }
             ))
         );
-        assert!(matches!(
-            source_map.file_id(first),
-            Err(PreprocSourceMapError::DisplayOnlyVirtualSource { .. })
-        ));
+        assert_eq!(source_map.file_id(first), Ok(VIRTUAL));
+        assert_eq!(db.file_kind(VIRTUAL), SourceFileKind::PreprocVirtual);
+        assert!(!db.file_kind(VIRTUAL).is_semantic_compilation_unit());
 
         let second_range = SourceRange {
             source: second,
             range: TextRange::new(TextSize::from(0), TextSize::from(7)),
         };
+        let first_text_len = TextSize::of(&first_text);
         assert_eq!(
             source_map.map_range(second_range).unwrap(),
-            TextRange::new(
-                TextSize::from(u32::try_from(first_text.len()).unwrap()),
-                TextSize::from(u32::try_from(first_text.len() + 7).unwrap()),
-            )
+            (VIRTUAL, TextRange::new(first_text_len, first_text_len + TextSize::from(7)))
         );
     }
 
@@ -993,8 +1099,12 @@ mod tests {
             TextSize::from(u32::try_from(second_start).unwrap()),
             TextSize::from(u32::try_from(second_start + "\"FOO=1\"".len()).unwrap()),
         );
-        let db = db_with_root_and_manifest(manifest_text);
         let predefine_text = materialized_predefine_text("FOO");
+        let virtual_path = preproc_virtual_predefines_path(None);
+        let db = db_with_root_and_manifest_and_virtuals(
+            manifest_text,
+            vec![(VIRTUAL, virtual_path, format!("{predefine_text}{predefine_text}"))],
+        );
         let trace = Trace {
             root_buffer_id: 1,
             source_buffers: vec![
@@ -1044,11 +1154,16 @@ mod tests {
         let first = PreprocSourceId::from(2);
         let second = PreprocSourceId::from(3);
 
-        assert!(matches!(source_map.get(first), Some(PreprocSourceMapping::VirtualDisplay { .. })));
+        assert!(matches!(
+            source_map.get(first),
+            Some(PreprocSourceMapping::VirtualFile { file_id: VIRTUAL, .. })
+        ));
         assert!(matches!(
             source_map.get(second),
-            Some(PreprocSourceMapping::VirtualDisplay { .. })
+            Some(PreprocSourceMapping::VirtualFile { file_id: VIRTUAL, .. })
         ));
+        assert_eq!(source_map.file_id(first), Ok(VIRTUAL));
+        assert_eq!(source_map.file_id(second), Ok(VIRTUAL));
         assert_eq!(source_map.predefine_manifest_source(first).unwrap().range, first_range);
         assert_eq!(source_map.predefine_manifest_source(second).unwrap().range, second_range);
         assert_eq!(
@@ -1056,16 +1171,19 @@ mod tests {
                 source: first,
                 range: TextRange::new(TextSize::from(0), TextSize::from(1)),
             }),
-            Ok(TextRange::new(TextSize::from(0), TextSize::from(1)))
+            Ok((VIRTUAL, TextRange::new(TextSize::from(0), TextSize::from(1))))
         );
         assert_eq!(
             source_map.map_range(SourceRange {
                 source: second,
                 range: TextRange::new(TextSize::from(0), TextSize::from(1)),
             }),
-            Ok(TextRange::new(
-                TextSize::from(u32::try_from(predefine_text.len()).unwrap()),
-                TextSize::from(u32::try_from(predefine_text.len() + 1).unwrap()),
+            Ok((
+                VIRTUAL,
+                TextRange::new(
+                    TextSize::of(&predefine_text),
+                    TextSize::of(&predefine_text) + TextSize::from(1)
+                )
             ))
         );
     }
@@ -1106,7 +1224,7 @@ mod tests {
         assert_eq!(
             source_map.get(source),
             Some(&PreprocSourceMapping::Unmapped(
-                SourcePreprocUnavailable::UnverifiedPredefineSource { source }
+                PreprocUnavailableReason::UnverifiedPredefineSource { buffer_id: source.raw() }
             ))
         );
         assert!(matches!(
@@ -1165,15 +1283,22 @@ mod tests {
         assert_eq!(
             source_map.get(source),
             Some(&PreprocSourceMapping::Unmapped(
-                SourcePreprocUnavailable::UnverifiedPredefineSource { source }
+                PreprocUnavailableReason::UnverifiedPredefineSource { buffer_id: source.raw() }
             ))
         );
     }
 
     #[test]
-    fn source_preproc_mapping_records_external_include_buffer_as_display_virtual_source() {
-        let db = db_with_root_file();
+    fn source_preproc_mapping_records_external_include_buffer_as_virtual_file() {
         let external_path = "/external/generated_defs.vh".to_owned();
+        let virtual_path = VfsPath::new_virtual_path(
+            "/__vide/preproc/profile-7/include-buffer/4/generated_defs.svh".to_owned(),
+        );
+        let db = db_with_root_file_and_virtuals(vec![(
+            VIRTUAL,
+            virtual_path.clone(),
+            "`define FROM_BUFFER 1\n".to_owned(),
+        )]);
         let trace = Trace {
             root_buffer_id: 1,
             source_buffers: vec![
@@ -1213,18 +1338,19 @@ mod tests {
         )
         .unwrap();
         let source = PreprocSourceId::from(4);
-        let Some(PreprocSourceMapping::VirtualDisplay { path, origin }) = source_map.get(source)
+        let Some(PreprocSourceMapping::VirtualFile { file_id, path, origin }) =
+            source_map.get(source)
         else {
-            panic!("external include buffer should map to display-only virtual source");
+            panic!("external include buffer should map to materialized virtual source");
         };
 
+        assert_eq!(*file_id, VIRTUAL);
+        assert_eq!(path, &virtual_path);
         assert_eq!(
-            path,
-            &VfsPath::new_virtual_path(
-                "/__vide/preproc/profile-7/include-buffer/4/generated_defs.svh".to_owned()
-            )
+            origin,
+            &PreprocVirtualOrigin::ExternalIncludeBuffer { buffer_id: source.raw() }
         );
-        assert_eq!(origin, &PreprocVirtualOrigin::ExternalIncludeBuffer { source });
+        assert_eq!(source_map.file_id(source), Ok(VIRTUAL));
         assert!(matches!(
             source_map.map_range(SourceRange {
                 source,

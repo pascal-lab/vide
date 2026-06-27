@@ -5,6 +5,7 @@ pub(crate) mod event_loop;
 mod handlers;
 pub mod main_loop;
 mod mem_docs;
+mod preproc_virtual_files;
 pub(crate) mod process_changes;
 mod project_status;
 mod qihe;

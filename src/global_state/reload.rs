@@ -9,7 +9,7 @@ use utils::{
     thread::ThreadIntent,
 };
 
-use super::task::Task;
+use super::{preproc_virtual_files::materialize_preproc_virtual_files, task::Task};
 use crate::{
     config::{Config, FilesWatcher},
     global_state::{
@@ -164,7 +164,11 @@ impl GlobalState {
             get_workspace_folder(&self.workspace.workspaces, &files_config.exclude);
         let mut change = Change::new();
         {
-            let vfs = self.workspace.vfs.read();
+            let mut vfs = self.workspace.vfs.write();
+            materialize_preproc_virtual_files(&project_config, &mut vfs.0);
+            for changed_file in vfs.0.take_changes() {
+                change.add_changed_file(changed_file);
+            }
             change.set_roots(source_root_config.partition(&vfs.0));
         }
         self.config_state.project_config = project_config.clone();

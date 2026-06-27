@@ -24,7 +24,7 @@ pub enum PreprocError {
     /// Mapping a preproc source range back to file/text-range failed.
     SourceMap(PreprocSourceMapError),
     /// The source-side preproc model marked the requested data unavailable.
-    SourceModel(SourcePreprocUnavailable),
+    SourceModel(PreprocUnavailableReason),
     /// Multiple distinct preproc contexts produced conflicting answers and
     /// no single context can be selected.
     Ambiguous { kind: AmbiguousKind, count: usize },

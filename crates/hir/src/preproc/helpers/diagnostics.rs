@@ -42,8 +42,7 @@ fn diagnostic_target_for_token(
 ) -> PreprocResult<TokenDiagnosticTarget> {
     Ok(match origin {
         SourceTokenOrigin::Source { token_range } => {
-            let (source, range) = map_source_mapping_range(mapped, *token_range)?;
-            let file_id = require_file_backed_source(&source)?;
+            let (file_id, range) = map_source_range(mapped, *token_range)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::File { file: file_id, range },
                 file_id,
@@ -58,8 +57,7 @@ fn diagnostic_target_for_token(
             ..
         } => {
             let _call = mapped_macro_call(mapped, *call)?;
-            let (source, range) = map_source_mapping_range(mapped, *body_token_range)?;
-            let file_id = require_file_backed_source(&source)?;
+            let (file_id, range) = map_source_range(mapped, *body_token_range)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::MacroBody {
                     call: hir_macro_call(db, model_file, *trace_call),
@@ -78,11 +76,9 @@ fn diagnostic_target_for_token(
             ..
         } => {
             let _call = mapped_macro_call(mapped, *call)?;
-            let Ok((source, range)) = map_source_mapping_range(mapped, *argument_token_range)
-            else {
+            let Ok((file_id, range)) = map_source_range(mapped, *argument_token_range) else {
                 return Ok(TokenDiagnosticTarget::Blocked);
             };
-            let file_id = require_file_backed_source(&source)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::MacroArg {
                     call: hir_macro_call(db, model_file, *trace_call),
@@ -102,7 +98,7 @@ fn diagnostic_target_for_token(
             TokenDiagnosticTarget::Blocked
         }
         SourceTokenOrigin::Predefine { source } => {
-            let _source = map_source_mapping_id(mapped, *source)?;
+            let _source = map_source_id(mapped, *source)?;
             TokenDiagnosticTarget::Skip
         }
         SourceTokenOrigin::Builtin { name, trace_call, call, .. } => {

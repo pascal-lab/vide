@@ -11,7 +11,9 @@ use utils::{
 use vfs::FileId;
 
 use crate::{
-    base_db::source_db::{PreprocSourceMapError, SourcePreprocQueryError},
+    base_db::source_db::{
+        PreprocSourceMapError, PreprocUnavailableReason, SourcePreprocQueryError,
+    },
     hir_def::macro_file::Origin,
 };
 

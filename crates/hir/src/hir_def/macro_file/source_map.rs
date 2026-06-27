@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use ::preproc::source::{
-    PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange, SourceRange,
-};
+use ::preproc::source::{SourceEmittedTokenId, SourceEmittedTokenRange};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SourceBufferRange,
@@ -270,14 +268,8 @@ fn source_location(
     source_map: &PreprocSourceMap,
     token_range: &SourceBufferRange,
 ) -> Option<OriginSource> {
-    let source_range = source_range_from_trace(token_range)?;
-    let range = source_map.map_range(source_range).ok()?;
-    let file = source_map.file_id(source_range.source).ok()?;
+    let (file, range) = source_map.map_buffer_range(token_range)?.ok()?;
     Some(OriginSource { file, range })
-}
-
-fn source_range_from_trace(range: &SourceBufferRange) -> Option<SourceRange> {
-    Some(SourceRange { source: PreprocSourceId::from(range.buffer_id), range: text_range(range)? })
 }
 
 fn text_range(range: &SourceBufferRange) -> Option<TextRange> {

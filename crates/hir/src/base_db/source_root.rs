@@ -154,8 +154,12 @@ impl SourceRoot {
         let Some(source_files) = &self.source_files else {
             return kind;
         };
-        if matches!(kind, SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest)
-            || source_files.contains(file)
+        if matches!(
+            kind,
+            SourceFileKind::LibraryMap
+                | SourceFileKind::ProjectManifest
+                | SourceFileKind::PreprocVirtual
+        ) || source_files.contains(file)
         {
             kind
         } else {

@@ -222,7 +222,7 @@ fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
             mapped
                 .source_map
                 .map_range(call.call_range)
-                .is_ok_and(|range| text_at_range(root_text, range) == "`DECL")
+                .is_ok_and(|(_, range)| text_at_range(root_text, range) == "`DECL")
         })
         .expect("macro call should be recorded");
 

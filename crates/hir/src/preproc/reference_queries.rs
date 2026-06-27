@@ -47,8 +47,7 @@ pub fn macro_usage_resolutions_at(
                 }
                 continue;
             };
-            let (source, range) = map_reference_ranges(mapped, reference)?;
-            let usage_file_id = require_file_backed_source(&source)?;
+            let (usage_file_id, range) = map_reference_ranges(mapped, reference)?;
             let source_definition =
                 mapped.model.macro_definitions().get(*definition).ok_or_else(|| {
                     PreprocError::SourceQuery(SourcePreprocQueryError::Model(
