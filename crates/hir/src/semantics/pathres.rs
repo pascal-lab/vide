@@ -147,11 +147,21 @@ fn resolve_child_name(
 
 pub fn descend_scope(db: &dyn HirDb, def_id: DefId) -> Option<ScopeId> {
     match def_id.kind(db) {
-        kind if kind.is_instantiable_def() => def_id.as_module(db).map(Into::into),
+        DefKind::Module | DefKind::Interface | DefKind::Program => {
+            def_id.as_module(db).map(Into::into)
+        }
         DefKind::ClockingBlock => def_id.as_clocking_block(db).map(Into::into),
+        DefKind::Checker => {
+            def_id.as_checker(db).and_then(|checker| checker.try_into().ok()).map(ScopeId::Checker)
+        }
+        DefKind::Covergroup => def_id
+            .as_covergroup(db)
+            .and_then(|covergroup| covergroup.try_into().ok())
+            .map(ScopeId::Covergroup),
         DefKind::Instance => {
             let instance = def_id.as_instance(db)?;
-            instance_target_module_id(db, instance.module_id, instance.value).map(Into::into)
+            let target = instance_target_def_id(db, instance.module_id, instance.value)?;
+            descend_scope(db, target)
         }
         DefKind::Block => def_id.as_block(db).map(Into::into),
         DefKind::GenerateBlock => def_id.as_generate_block(db).map(Into::into),
@@ -159,16 +169,20 @@ pub fn descend_scope(db: &dyn HirDb, def_id: DefId) -> Option<ScopeId> {
     }
 }
 
-pub(crate) fn instance_target_module_id(
+pub(crate) fn instance_target_def_id(
     db: &dyn HirDb,
     module_id: ModuleId,
     instance_id: InstanceId,
-) -> Option<ModuleId> {
+) -> Option<DefId> {
     let module = db.module(module_id);
     let instance = module.get(instance_id);
     let instantiation = module.get(instance.parent);
     let module_name = instantiation.module_name.as_ref()?;
-    db.unit_scope().module_ids(db, module_name).unique()
+    resolve_name(db, module_id.into(), module_name, NameContext::Type)?
+        .def_ids()
+        .iter()
+        .copied()
+        .find(|def_id| def_id.kind(db).is_instantiable_def())
 }
 
 pub(crate) fn name_scope(db: &dyn HirDb, scope_id: ScopeId) -> Arc<NameScope> {
@@ -176,6 +190,8 @@ pub(crate) fn name_scope(db: &dyn HirDb, scope_id: ScopeId) -> Arc<NameScope> {
         ScopeId::File(file_id) => db.file_scope(file_id),
         ScopeId::Module(module_id) => db.module_scope(module_id),
         ScopeId::ClockingBlock(clocking_block_id) => db.clocking_block_scope(clocking_block_id),
+        ScopeId::Checker(checker_id) => db.checker_scope(checker_id.as_in_container()),
+        ScopeId::Covergroup(covergroup_id) => db.covergroup_scope(covergroup_id.as_in_container()),
         ScopeId::GenerateBlock(generate_block_id) => db.generate_block_scope(generate_block_id),
         ScopeId::Block(block_id) => db.block_scope(block_id),
         ScopeId::Subroutine(subroutine_id) => db.subroutine_scope(subroutine_id.as_in_container()),
@@ -526,6 +542,67 @@ endmodule
         assert_eq!(
             resolved_kind(&db, top.into(), &["cb", "a"], NameContext::Value),
             DefKind::ClockingSignal
+        );
+    }
+
+    #[test]
+    fn resolve_path_descends_checker_instances_to_ports_and_members() {
+        let db = db_with_root_text(
+            r#"
+checker c(input logic clk);
+  logic sig;
+endchecker
+
+module top;
+  c u();
+endmodule
+"#,
+        );
+
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+
+        assert_eq!(
+            resolved_kind(&db, top.into(), &["u", "clk"], NameContext::Value),
+            DefKind::CheckerPort
+        );
+        assert_eq!(
+            resolved_kind(&db, top.into(), &["u", "sig"], NameContext::Value),
+            DefKind::Variable
+        );
+    }
+
+    #[test]
+    fn resolve_path_descends_covergroup_instances_to_coverage_items() {
+        let db = db_with_root_text(
+            r#"
+module top(input clk, input a);
+  covergroup cg @(posedge clk);
+    cp: coverpoint a;
+    cx: cross cp;
+  endgroup
+
+  cg u();
+endmodule
+"#,
+        );
+
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+
+        assert_eq!(
+            resolved_kind(&db, top.into(), &["u", "cp"], NameContext::Value),
+            DefKind::Coverpoint
+        );
+        assert_eq!(
+            resolved_kind(&db, top.into(), &["u", "cx"], NameContext::Value),
+            DefKind::Cross
         );
     }
 }

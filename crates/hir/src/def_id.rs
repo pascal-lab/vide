@@ -11,10 +11,13 @@ use utils::{
 
 use crate::{
     base_db::{intern::Lookup, salsa},
-    container::{InContainer, InFile, InModule, InSubroutine, ScopeId},
+    container::{FileOrModule, InContainer, InFile, InModule, InSubroutine, ScopeId},
     db::HirDb,
+    file::HirFileId,
     hir_def::{
         block::BlockLoc,
+        checker::{CheckerDef, CheckerPort, CheckerPortId},
+        covergroup::{CoverpointDef, CoverpointId, CrossDef, CrossId},
         declaration::Declaration,
         expr::declarator::DeclaratorParent,
         module::{ModuleKind, clocking::ClockingSignal, generate::GenerateBlockLoc},
@@ -42,7 +45,11 @@ fn subroutine_src(
             let file_id = generate_block_id.lookup(db).src.file_id;
             Some(InFile::new(file_id, source_map.get(subroutine.value)?))
         }
-        ScopeId::Block(_) | ScopeId::Subroutine(_) | ScopeId::ClockingBlock(_) => None,
+        ScopeId::Block(_)
+        | ScopeId::Subroutine(_)
+        | ScopeId::ClockingBlock(_)
+        | ScopeId::Checker(_)
+        | ScopeId::Covergroup(_) => None,
     }
 }
 
@@ -57,6 +64,81 @@ fn clocking_signal_of(
     let clocking = module.get(clocking_block.value);
     let signal = clocking.signals.get(signal.value.0 as usize)?.clone();
     Some((InModule::new(clocking_block.module_id, signal), clocking_block.module_id.file_id()))
+}
+
+fn checker_of(
+    db: &dyn HirDb,
+    checker: InContainer<crate::hir_def::checker::CheckerId>,
+) -> Option<(CheckerDef, HirFileId)> {
+    match checker.cont_id {
+        ScopeId::File(file_id) => Some((db.hir_file(file_id).get(checker.value).clone(), file_id)),
+        ScopeId::Module(module_id) => {
+            Some((db.module(module_id).get(checker.value).clone(), module_id.file_id))
+        }
+        ScopeId::GenerateBlock(_)
+        | ScopeId::Block(_)
+        | ScopeId::Subroutine(_)
+        | ScopeId::ClockingBlock(_)
+        | ScopeId::Checker(_)
+        | ScopeId::Covergroup(_) => None,
+    }
+}
+
+fn checker_port_of(
+    db: &dyn HirDb,
+    port: InContainer<CheckerPortId>,
+) -> Option<(CheckerPort, HirFileId)> {
+    let ScopeId::Checker(checker) = port.cont_id else {
+        return None;
+    };
+    let (checker, file_id) = checker_of(db, checker.as_in_container())?;
+    let port = checker.ports.get(port.value.0 as usize)?.clone();
+    Some((port, file_id))
+}
+
+fn coverpoint_of(
+    db: &dyn HirDb,
+    coverpoint: InContainer<CoverpointId>,
+) -> Option<(CoverpointDef, HirFileId)> {
+    let cont_id = match coverpoint.cont_id {
+        ScopeId::Covergroup(covergroup) => covergroup.parent_scope(),
+        cont_id => cont_id,
+    };
+
+    match cont_id {
+        ScopeId::File(file_id) => {
+            Some((db.hir_file(file_id).get(coverpoint.value).clone(), file_id))
+        }
+        ScopeId::Module(module_id) => {
+            Some((db.module(module_id).get(coverpoint.value).clone(), module_id.file_id))
+        }
+        ScopeId::GenerateBlock(_)
+        | ScopeId::Block(_)
+        | ScopeId::Subroutine(_)
+        | ScopeId::ClockingBlock(_)
+        | ScopeId::Checker(_)
+        | ScopeId::Covergroup(_) => None,
+    }
+}
+
+fn cross_of(db: &dyn HirDb, cross: InContainer<CrossId>) -> Option<(CrossDef, HirFileId)> {
+    let cont_id = match cross.cont_id {
+        ScopeId::Covergroup(covergroup) => covergroup.parent_scope(),
+        cont_id => cont_id,
+    };
+
+    match cont_id {
+        ScopeId::File(file_id) => Some((db.hir_file(file_id).get(cross.value).clone(), file_id)),
+        ScopeId::Module(module_id) => {
+            Some((db.module(module_id).get(cross.value).clone(), module_id.file_id))
+        }
+        ScopeId::GenerateBlock(_)
+        | ScopeId::Block(_)
+        | ScopeId::Subroutine(_)
+        | ScopeId::ClockingBlock(_)
+        | ScopeId::Checker(_)
+        | ScopeId::Covergroup(_) => None,
+    }
 }
 
 impl DefId {
@@ -81,6 +163,7 @@ impl DefId {
             DefLoc::ClockingBlock(InModule { module_id, .. }) => module_id.into(),
             DefLoc::ClockingSignal(InContainer { cont_id, .. }) => cont_id,
             DefLoc::Checker(InContainer { cont_id, .. }) => cont_id,
+            DefLoc::CheckerPort(InContainer { cont_id, .. }) => cont_id,
             DefLoc::Covergroup(InContainer { cont_id, .. }) => cont_id,
             DefLoc::Coverpoint(InContainer { cont_id, .. }) => cont_id,
             DefLoc::Cross(InContainer { cont_id, .. }) => cont_id,
@@ -130,6 +213,7 @@ impl DefId {
             DefLoc::ClockingBlock(_) => DefKind::ClockingBlock,
             DefLoc::ClockingSignal(_) => DefKind::ClockingSignal,
             DefLoc::Checker(_) => DefKind::Checker,
+            DefLoc::CheckerPort(_) => DefKind::CheckerPort,
             DefLoc::Covergroup(_) => DefKind::Covergroup,
             DefLoc::Coverpoint(_) => DefKind::Coverpoint,
             DefLoc::Cross(_) => DefKind::Cross,
@@ -190,32 +274,25 @@ impl DefId {
                 ScopeId::GenerateBlock(_)
                 | ScopeId::Block(_)
                 | ScopeId::Subroutine(_)
-                | ScopeId::ClockingBlock(_) => None,
+                | ScopeId::ClockingBlock(_)
+                | ScopeId::Checker(_)
+                | ScopeId::Covergroup(_) => None,
             },
+            DefLoc::CheckerPort(port) => checker_port_of(db, port).map(|(port, _)| port.name),
             DefLoc::Covergroup(InContainer { value, cont_id }) => match cont_id {
                 ScopeId::File(file_id) => file_id.to_container(db).get(value).name.clone(),
                 ScopeId::Module(module_id) => module_id.to_container(db).get(value).name.clone(),
                 ScopeId::GenerateBlock(_)
                 | ScopeId::Block(_)
                 | ScopeId::Subroutine(_)
-                | ScopeId::ClockingBlock(_) => None,
+                | ScopeId::ClockingBlock(_)
+                | ScopeId::Checker(_)
+                | ScopeId::Covergroup(_) => None,
             },
-            DefLoc::Coverpoint(InContainer { value, cont_id }) => match cont_id {
-                ScopeId::File(file_id) => file_id.to_container(db).get(value).name.clone(),
-                ScopeId::Module(module_id) => module_id.to_container(db).get(value).name.clone(),
-                ScopeId::GenerateBlock(_)
-                | ScopeId::Block(_)
-                | ScopeId::Subroutine(_)
-                | ScopeId::ClockingBlock(_) => None,
-            },
-            DefLoc::Cross(InContainer { value, cont_id }) => match cont_id {
-                ScopeId::File(file_id) => file_id.to_container(db).get(value).name.clone(),
-                ScopeId::Module(module_id) => module_id.to_container(db).get(value).name.clone(),
-                ScopeId::GenerateBlock(_)
-                | ScopeId::Block(_)
-                | ScopeId::Subroutine(_)
-                | ScopeId::ClockingBlock(_) => None,
-            },
+            DefLoc::Coverpoint(coverpoint) => {
+                coverpoint_of(db, coverpoint).and_then(|(coverpoint, _)| coverpoint.name)
+            }
+            DefLoc::Cross(cross) => cross_of(db, cross).and_then(|(cross, _)| cross.name),
             DefLoc::Stmt(InContainer { value, cont_id }) => {
                 cont_id.to_container(db).get(value).label.clone()
             }
@@ -312,8 +389,14 @@ impl DefId {
                 ScopeId::GenerateBlock(_)
                 | ScopeId::Block(_)
                 | ScopeId::Subroutine(_)
-                | ScopeId::ClockingBlock(_) => None,
+                | ScopeId::ClockingBlock(_)
+                | ScopeId::Checker(_)
+                | ScopeId::Covergroup(_) => None,
             },
+            DefLoc::CheckerPort(port) => {
+                let (port, file_id) = checker_port_of(db, port)?;
+                Some(InFile::new(file_id, port.name_range?))
+            }
             DefLoc::Covergroup(InContainer { value, cont_id }) => match cont_id {
                 ScopeId::File(file_id) => {
                     let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
@@ -326,36 +409,80 @@ impl DefId {
                 ScopeId::GenerateBlock(_)
                 | ScopeId::Block(_)
                 | ScopeId::Subroutine(_)
-                | ScopeId::ClockingBlock(_) => None,
+                | ScopeId::ClockingBlock(_)
+                | ScopeId::Checker(_)
+                | ScopeId::Covergroup(_) => None,
             },
-            DefLoc::Coverpoint(InContainer { value, cont_id }) => match cont_id {
-                ScopeId::File(file_id) => {
-                    let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
-                    Some(InFile::new(file_id, range))
+            DefLoc::Coverpoint(coverpoint) => {
+                let (_, file_id) = coverpoint_of(db, coverpoint)?;
+                match coverpoint.cont_id {
+                    ScopeId::Covergroup(covergroup) => match covergroup.cont_id {
+                        FileOrModule::File(storage_file) => {
+                            let range = storage_file
+                                .to_container_src_map(db)
+                                .get(coverpoint.value)?
+                                .name_range()?;
+                            Some(InFile::new(file_id, range))
+                        }
+                        FileOrModule::Module(storage_module) => {
+                            let range = storage_module
+                                .to_container_src_map(db)
+                                .get(coverpoint.value)?
+                                .name_range()?;
+                            Some(InFile::new(file_id, range))
+                        }
+                    },
+                    ScopeId::File(storage_file) => {
+                        let range = storage_file
+                            .to_container_src_map(db)
+                            .get(coverpoint.value)?
+                            .name_range()?;
+                        Some(InFile::new(file_id, range))
+                    }
+                    ScopeId::Module(storage_module) => {
+                        let range = storage_module
+                            .to_container_src_map(db)
+                            .get(coverpoint.value)?
+                            .name_range()?;
+                        Some(InFile::new(file_id, range))
+                    }
+                    _ => None,
                 }
-                ScopeId::Module(module_id) => {
-                    let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
-                    Some(InFile::new(module_id.file_id, range))
+            }
+            DefLoc::Cross(cross) => {
+                let (_, file_id) = cross_of(db, cross)?;
+                match cross.cont_id {
+                    ScopeId::Covergroup(covergroup) => match covergroup.cont_id {
+                        FileOrModule::File(storage_file) => {
+                            let range = storage_file
+                                .to_container_src_map(db)
+                                .get(cross.value)?
+                                .name_range()?;
+                            Some(InFile::new(file_id, range))
+                        }
+                        FileOrModule::Module(storage_module) => {
+                            let range = storage_module
+                                .to_container_src_map(db)
+                                .get(cross.value)?
+                                .name_range()?;
+                            Some(InFile::new(file_id, range))
+                        }
+                    },
+                    ScopeId::File(storage_file) => {
+                        let range =
+                            storage_file.to_container_src_map(db).get(cross.value)?.name_range()?;
+                        Some(InFile::new(file_id, range))
+                    }
+                    ScopeId::Module(storage_module) => {
+                        let range = storage_module
+                            .to_container_src_map(db)
+                            .get(cross.value)?
+                            .name_range()?;
+                        Some(InFile::new(file_id, range))
+                    }
+                    _ => None,
                 }
-                ScopeId::GenerateBlock(_)
-                | ScopeId::Block(_)
-                | ScopeId::Subroutine(_)
-                | ScopeId::ClockingBlock(_) => None,
-            },
-            DefLoc::Cross(InContainer { value, cont_id }) => match cont_id {
-                ScopeId::File(file_id) => {
-                    let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
-                    Some(InFile::new(file_id, range))
-                }
-                ScopeId::Module(module_id) => {
-                    let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
-                    Some(InFile::new(module_id.file_id, range))
-                }
-                ScopeId::GenerateBlock(_)
-                | ScopeId::Block(_)
-                | ScopeId::Subroutine(_)
-                | ScopeId::ClockingBlock(_) => None,
-            },
+            }
             DefLoc::Stmt(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db).into(), range))
@@ -450,10 +577,16 @@ impl DefId {
                 ScopeId::GenerateBlock(_)
                 | ScopeId::Block(_)
                 | ScopeId::Subroutine(_)
-                | ScopeId::ClockingBlock(_) => {
+                | ScopeId::ClockingBlock(_)
+                | ScopeId::Checker(_)
+                | ScopeId::Covergroup(_) => {
                     return None;
                 }
             },
+            DefLoc::CheckerPort(port) => {
+                let (port, file_id) = checker_port_of(db, port)?;
+                InFile::new(file_id, port.name_range?)
+            }
             DefLoc::Covergroup(InContainer { value, cont_id }) => match cont_id {
                 ScopeId::File(file_id) => {
                     let range = file_id.to_container_src_map(db).get(value)?.range();
@@ -466,42 +599,71 @@ impl DefId {
                 ScopeId::GenerateBlock(_)
                 | ScopeId::Block(_)
                 | ScopeId::Subroutine(_)
-                | ScopeId::ClockingBlock(_) => {
+                | ScopeId::ClockingBlock(_)
+                | ScopeId::Checker(_)
+                | ScopeId::Covergroup(_) => {
                     return None;
                 }
             },
-            DefLoc::Coverpoint(InContainer { value, cont_id }) => match cont_id {
-                ScopeId::File(file_id) => {
-                    let range = file_id.to_container_src_map(db).get(value)?.range();
-                    InFile::new(file_id, range)
+            DefLoc::Coverpoint(coverpoint) => {
+                let (_, file_id) = coverpoint_of(db, coverpoint)?;
+                match coverpoint.cont_id {
+                    ScopeId::Covergroup(covergroup) => match covergroup.cont_id {
+                        FileOrModule::File(storage_file) => {
+                            let range = storage_file
+                                .to_container_src_map(db)
+                                .get(coverpoint.value)?
+                                .range();
+                            InFile::new(file_id, range)
+                        }
+                        FileOrModule::Module(storage_module) => {
+                            let range = storage_module
+                                .to_container_src_map(db)
+                                .get(coverpoint.value)?
+                                .range();
+                            InFile::new(file_id, range)
+                        }
+                    },
+                    ScopeId::File(storage_file) => {
+                        let range =
+                            storage_file.to_container_src_map(db).get(coverpoint.value)?.range();
+                        InFile::new(file_id, range)
+                    }
+                    ScopeId::Module(storage_module) => {
+                        let range =
+                            storage_module.to_container_src_map(db).get(coverpoint.value)?.range();
+                        InFile::new(file_id, range)
+                    }
+                    _ => return None,
                 }
-                ScopeId::Module(module_id) => {
-                    let range = module_id.to_container_src_map(db).get(value)?.range();
-                    InFile::new(module_id.file_id, range)
+            }
+            DefLoc::Cross(cross) => {
+                let (_, file_id) = cross_of(db, cross)?;
+                match cross.cont_id {
+                    ScopeId::Covergroup(covergroup) => match covergroup.cont_id {
+                        FileOrModule::File(storage_file) => {
+                            let range =
+                                storage_file.to_container_src_map(db).get(cross.value)?.range();
+                            InFile::new(file_id, range)
+                        }
+                        FileOrModule::Module(storage_module) => {
+                            let range =
+                                storage_module.to_container_src_map(db).get(cross.value)?.range();
+                            InFile::new(file_id, range)
+                        }
+                    },
+                    ScopeId::File(storage_file) => {
+                        let range = storage_file.to_container_src_map(db).get(cross.value)?.range();
+                        InFile::new(file_id, range)
+                    }
+                    ScopeId::Module(storage_module) => {
+                        let range =
+                            storage_module.to_container_src_map(db).get(cross.value)?.range();
+                        InFile::new(file_id, range)
+                    }
+                    _ => return None,
                 }
-                ScopeId::GenerateBlock(_)
-                | ScopeId::Block(_)
-                | ScopeId::Subroutine(_)
-                | ScopeId::ClockingBlock(_) => {
-                    return None;
-                }
-            },
-            DefLoc::Cross(InContainer { value, cont_id }) => match cont_id {
-                ScopeId::File(file_id) => {
-                    let range = file_id.to_container_src_map(db).get(value)?.range();
-                    InFile::new(file_id, range)
-                }
-                ScopeId::Module(module_id) => {
-                    let range = module_id.to_container_src_map(db).get(value)?.range();
-                    InFile::new(module_id.file_id, range)
-                }
-                ScopeId::GenerateBlock(_)
-                | ScopeId::Block(_)
-                | ScopeId::Subroutine(_)
-                | ScopeId::ClockingBlock(_) => {
-                    return None;
-                }
-            },
+            }
             DefLoc::Stmt(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(cont_id.file_id(db).into(), range)

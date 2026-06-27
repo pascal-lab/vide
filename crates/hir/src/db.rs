@@ -8,6 +8,8 @@ use crate::{
     file::HirFileId,
     hir_def::{
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
+        checker::CheckerId,
+        covergroup::CovergroupId,
         expr::{
             ExprId,
             data_ty::{BuiltinDataTy, BuiltinDataTyId},
@@ -123,6 +125,12 @@ pub trait HirDb: InternDb {
 
     #[salsa::invoke(NameScope::clocking_block_scope_query)]
     fn clocking_block_scope(&self, clocking_block_id: InModule<ClockingBlockId>) -> Arc<NameScope>;
+
+    #[salsa::invoke(NameScope::checker_scope_query)]
+    fn checker_scope(&self, checker_id: InContainer<CheckerId>) -> Arc<NameScope>;
+
+    #[salsa::invoke(NameScope::covergroup_scope_query)]
+    fn covergroup_scope(&self, covergroup_id: InContainer<CovergroupId>) -> Arc<NameScope>;
 
     #[salsa::invoke(NameScope::generate_block_scope_query)]
     fn generate_block_scope(&self, generate_block_id: GenerateBlockId) -> Arc<NameScope>;

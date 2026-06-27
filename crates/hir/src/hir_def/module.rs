@@ -34,7 +34,7 @@ use super::{
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_idx_and_src,
     block::{BlockInfo, BlockSrc, LocalBlockId},
-    checker::{CheckerDef, CheckerId, CheckerSrc, lower_checker_decl},
+    checker::{CheckerDef, CheckerId, CheckerSrc, LowerChecker},
     covergroup::{
         CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointSrc, CrossDef,
         CrossSrc, lower_covergroup_decl, lower_coverpoint, lower_cross,
@@ -693,15 +693,7 @@ impl LowerModuleCtx<'_> {
                 | ClassMethodPrototype(_) => continue,
 
                 // Checker
-                CheckerDeclaration(checker_decl) => {
-                    let checker = lower_checker_decl(checker_decl);
-                    alloc_idx_and_src! {
-                        self.file_id;
-                        checker => self.module.checkers,
-                        checker_decl => self.module_source_map.checker_srcs,
-                    }
-                    .into()
-                }
+                CheckerDeclaration(checker_decl) => self.lower_checker_decl(checker_decl).into(),
                 CheckerDataDeclaration(_) => continue,
 
                 // Constraints
