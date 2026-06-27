@@ -689,7 +689,7 @@ fn collect_resolved_path(
                 };
                 collector.tokens.add(sema_token);
             }
-            DefKind::Typedef | DefKind::Struct | DefKind::Enum => {
+            DefKind::Typedef => {
                 collector.tokens.add(SemaToken {
                     range,
                     tag: SemaTokenTag::Type,

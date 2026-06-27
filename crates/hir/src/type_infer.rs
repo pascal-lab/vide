@@ -43,19 +43,10 @@ pub enum Ty {
     Dynamic(Box<Ty>),
     Event,
     Chandle,
-    ClassHandle { def: DefId, spec_args: Vec<SpecArg> },
-    VirtualInterface { def: DefId, modport: Option<DefId> },
     Alias { typedef: InContainer<TypedefId>, target: Box<Ty> },
     Module(ModuleId),
     GenerateBlock(GenerateBlockId),
     Block(crate::hir_def::block::BlockId),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SpecArg {
-    Default,
-    Value(ExprId),
-    Type(Ty),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -175,14 +166,10 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
             .as_decl(db)
             .map(|decl| type_of_decl_impl(db, decl))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::Typedef | DefKind::Struct => def_id
+        DefKind::Typedef => def_id
             .as_typedef(db)
             .map(|typedef| type_of_typedef_impl(db, typedef))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::Enum => def_id
-            .as_typedef(db)
-            .map(|typedef| type_of_typedef_impl(db, typedef))
-            .unwrap_or_else(|| TyResult::new(Ty::Enum(def_id))),
         DefKind::SubroutinePort => def_id
             .as_subroutine_port(db)
             .map(|port| type_of_subroutine_port_impl(db, port))
@@ -202,20 +189,11 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Interface
         | DefKind::Program
-        | DefKind::Class
-        | DefKind::Covergroup
-        | DefKind::Checker
         | DefKind::Udp
         | DefKind::Config
         | DefKind::Library
         | DefKind::Subroutine
         | DefKind::NonAnsiPort
-        | DefKind::ClassField
-        | DefKind::Method
-        | DefKind::Modport
-        | DefKind::ClockingBlock
-        | DefKind::Sequence
-        | DefKind::Property
         | DefKind::Stmt => TyResult::new(Ty::Unknown),
     }
 }
@@ -264,9 +242,7 @@ pub fn members_of_ty(db: &dyn HirDb, ty: &Ty) -> Vec<TyMember> {
         | Ty::Assoc { .. }
         | Ty::Dynamic(_)
         | Ty::Event
-        | Ty::Chandle
-        | Ty::ClassHandle { .. }
-        | Ty::VirtualInterface { .. } => Vec::new(),
+        | Ty::Chandle => Vec::new(),
     }
 }
 
@@ -298,8 +274,6 @@ pub fn type_class(db: &dyn HirDb, ty: &Ty) -> Option<TyClass> {
         | Ty::Dynamic(_)
         | Ty::Event
         | Ty::Chandle
-        | Ty::ClassHandle { .. }
-        | Ty::VirtualInterface { .. }
         | Ty::Module(_)
         | Ty::GenerateBlock(_)
         | Ty::Block(_) => None,
@@ -372,8 +346,6 @@ pub fn packed_bit_width(db: &dyn HirDb, ty: &Ty) -> Option<u64> {
         | Ty::Dynamic(_)
         | Ty::Event
         | Ty::Chandle
-        | Ty::ClassHandle { .. }
-        | Ty::VirtualInterface { .. }
         | Ty::Module(_)
         | Ty::GenerateBlock(_)
         | Ty::Block(_) => None,

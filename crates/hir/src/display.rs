@@ -114,19 +114,6 @@ impl HirDisplay for Ty {
             }
             Ty::Event => f.write_str("event"),
             Ty::Chandle => f.write_str("chandle"),
-            Ty::ClassHandle { def, .. } => hir_fmt_def_backed_type(f, "class", *def),
-            Ty::VirtualInterface { def, modport } => {
-                f.write_str("virtual interface")?;
-                if let Some(name) = def.name(f.db) {
-                    f.write_str(" ")?;
-                    f.write_str(name.as_str())?;
-                }
-                if let Some(modport) = modport.and_then(|def| def.name(f.db)) {
-                    f.write_str(".")?;
-                    f.write_str(modport.as_str())?;
-                }
-                Ok(())
-            }
             Ty::Alias { typedef, target } => {
                 let container = typedef.cont_id.to_container(f.db);
                 if let Some(name) = &container.get(typedef.value).name {
