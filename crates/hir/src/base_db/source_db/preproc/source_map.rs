@@ -12,8 +12,40 @@ pub struct PreprocSourceMap {
 pub enum PreprocSourceMapping {
     RealFile(FileId),
     VirtualFile { file_id: FileId, path: VfsPath, origin: PreprocVirtualOrigin },
-    VirtualDisplay { path: VfsPath, origin: PreprocVirtualOrigin },
-    Unmapped(SourcePreprocUnavailable),
+    Unmapped(PreprocUnavailableReason),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreprocUnavailableReason {
+    DetachedSource { buffer_id: u32 },
+    MissingPredefineSourceText { buffer_id: u32 },
+    UnverifiedPredefineSource { buffer_id: u32 },
+    MissingMacroCall { call: SourceMacroCallId },
+    MissingMacroExpansion { call: SourceMacroCallId },
+    UnknownMacroUsageDefinition { definition: MacroDefinitionId },
+}
+
+impl From<SourcePreprocUnavailable> for PreprocUnavailableReason {
+    fn from(reason: SourcePreprocUnavailable) -> Self {
+        match reason {
+            SourcePreprocUnavailable::DetachedSource { source } => {
+                Self::DetachedSource { buffer_id: source.raw() }
+            }
+            SourcePreprocUnavailable::MissingPredefineSourceText { source } => {
+                Self::MissingPredefineSourceText { buffer_id: source.raw() }
+            }
+            SourcePreprocUnavailable::UnverifiedPredefineSource { source } => {
+                Self::UnverifiedPredefineSource { buffer_id: source.raw() }
+            }
+            SourcePreprocUnavailable::MissingMacroCall { call } => Self::MissingMacroCall { call },
+            SourcePreprocUnavailable::MissingMacroExpansion { call } => {
+                Self::MissingMacroExpansion { call }
+            }
+            SourcePreprocUnavailable::UnknownMacroUsageDefinition { definition } => {
+                Self::UnknownMacroUsageDefinition { definition }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,7 +58,7 @@ pub struct PreprocManifestSource {
 pub enum PreprocVirtualOrigin {
     Predefines { profile: Option<CompilationProfileId> },
     Builtin { name: SmolStr },
-    ExternalIncludeBuffer { source: PreprocSourceId },
+    ExternalIncludeBuffer { buffer_id: u32 },
     Speculative { universe: PreprocSpeculativeUniverseId },
 }
 
@@ -35,26 +67,10 @@ pub struct PreprocSpeculativeUniverseId(pub u32);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreprocSourceMapError {
-    MissingSource {
-        source: PreprocSourceId,
-    },
-    UnmappedSource {
-        source: PreprocSourceId,
-        reason: SourcePreprocUnavailable,
-    },
-    RangeOutOfBounds {
-        source: PreprocSourceId,
-        range: TextRange,
-        mapped_range: TextRange,
-        text_len: usize,
-    },
-    MissingEmittedToken {
-        token: SourceEmittedTokenId,
-    },
-    DisplayOnlyVirtualSource {
-        path: VfsPath,
-        origin: PreprocVirtualOrigin,
-    },
+    MissingSource { buffer_id: u32 },
+    UnmappedSource { buffer_id: u32, reason: PreprocUnavailableReason },
+    RangeOutOfBounds { buffer_id: u32, range: TextRange, mapped_range: TextRange, text_len: usize },
+    MissingEmittedToken { token: SourceEmittedTokenId },
 }
 
 mod mapping;

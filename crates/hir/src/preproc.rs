@@ -16,7 +16,7 @@ use crate::{
     base_db::{
         project::{CompilationProfileId, Predefine},
         source_db::{
-            MappedSourcePreprocModel, PreprocSourceMapError, PreprocSourceMapping, SourceFileKind,
+            MappedSourcePreprocModel, PreprocSourceMapError, SourceFileKind,
             SourcePreprocContextStatus, SourcePreprocQueryError, SourceRootDb,
             workspace_preproc_model_file_ids,
         },

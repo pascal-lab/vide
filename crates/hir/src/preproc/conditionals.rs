@@ -19,15 +19,8 @@ pub fn inactive_branches(
         };
 
         for source_range in mapped.model.inactive_ranges() {
-            let (source, range) = match map_source_mapping_range(mapped, *source_range) {
+            let (branch_file_id, range) = match map_source_range(mapped, *source_range) {
                 Ok(mapped_range) => mapped_range,
-                Err(error) => {
-                    record_first_error(&mut first_error, error);
-                    continue;
-                }
-            };
-            let branch_file_id = match require_file_backed_source(&source) {
-                Ok(file_id) => file_id,
                 Err(error) => {
                     record_first_error(&mut first_error, error);
                     continue;

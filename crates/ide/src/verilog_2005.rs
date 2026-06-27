@@ -12,7 +12,7 @@ use hir::{
             ProjectConfig,
         },
         salsa::Durability,
-        source_db::SourceDb,
+        source_db::{SourceDb, preproc_virtual_predefines_path, preproc_virtual_predefines_text},
         source_root::{SourceRoot, SourceRootId},
     },
     preproc::{IncludeTarget, include_directive_at},
@@ -219,19 +219,27 @@ fn setup_marked_with_predefines(
     predefines: Vec<String>,
 ) -> (AnalysisHost, FileId, String, HashMap<String, TextSize>) {
     let (text, markers) = strip_markers(normalize_fixture_text(text));
+    let predefines = predefines.into_iter().map(Predefine::new).collect::<Vec<_>>();
 
     let file_id = FileId(0);
     let mut file_set = FileSet::default();
     file_set.insert(file_id, VfsPath::new_virtual_path("/feature.v".to_owned()));
 
     let mut change = Change::new();
+    add_predefine_virtual_file(
+        &mut file_set,
+        &mut change,
+        FileId(10_000),
+        Some(CompilationProfileId(0)),
+        &predefines,
+    );
     change.set_roots(vec![SourceRoot::new_local(file_set)]);
     change.set_project_config(Arc::new(ProjectConfig::new(
         vec![Some(CompilationProfileId(0))],
         vec![CompilationProfile {
             source_roots: vec![SourceRootId(0)],
             top_modules: Vec::new(),
-            preprocess: PreprocessConfig::with_predefine_strings(predefines, Vec::new()),
+            preprocess: PreprocessConfig { predefines, include_dirs: Vec::new() },
         }],
     )));
     change.add_changed_file(ChangedFile {
@@ -242,6 +250,25 @@ fn setup_marked_with_predefines(
     let mut host = AnalysisHost::default();
     host.apply_change(change);
     (host, file_id, text, markers)
+}
+
+fn add_predefine_virtual_file(
+    file_set: &mut FileSet,
+    change: &mut Change,
+    file_id: FileId,
+    profile_id: Option<CompilationProfileId>,
+    predefines: &[Predefine],
+) {
+    if predefines.is_empty() {
+        return;
+    }
+    let path = preproc_virtual_predefines_path(profile_id);
+    let text = preproc_virtual_predefines_text(predefines);
+    file_set.insert(file_id, path);
+    change.add_changed_file(ChangedFile {
+        file_id,
+        change_kind: ChangeKind::Create(Arc::from(text), LineEnding::Unix),
+    });
 }
 
 struct IncludeMacroFixture {
@@ -1083,21 +1110,26 @@ endmodule
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
     file_set.insert(manifest_file_id, VfsPath::from(manifest_path.clone()));
+    let predefines = vec![Predefine::with_source(
+        "FROM_MANIFEST=1",
+        PredefineSource { path: manifest_path, range: manifest_range },
+    )];
 
     let mut change = Change::new();
+    add_predefine_virtual_file(
+        &mut file_set,
+        &mut change,
+        FileId(10_001),
+        Some(CompilationProfileId(0)),
+        &predefines,
+    );
     change.set_roots(vec![SourceRoot::new_local_with_source_files(file_set, vec![top_file_id])]);
     change.set_project_config(Arc::new(ProjectConfig::new(
         vec![Some(CompilationProfileId(0))],
         vec![CompilationProfile {
             source_roots: vec![SourceRootId(0)],
             top_modules: Vec::new(),
-            preprocess: PreprocessConfig {
-                predefines: vec![Predefine::with_source(
-                    "FROM_MANIFEST=1",
-                    PredefineSource { path: manifest_path, range: manifest_range },
-                )],
-                include_dirs: Vec::new(),
-            },
+            preprocess: PreprocessConfig { predefines, include_dirs: Vec::new() },
         }],
     )));
     change.add_changed_file(ChangedFile {
@@ -1784,21 +1816,26 @@ endmodule
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
     file_set.insert(manifest_file_id, VfsPath::from(manifest_path.clone()));
+    let predefines = vec![Predefine::with_source(
+        "LANE_WIDTH=12",
+        PredefineSource { path: manifest_path, range: manifest_range },
+    )];
 
     let mut change = Change::new();
+    add_predefine_virtual_file(
+        &mut file_set,
+        &mut change,
+        FileId(10_001),
+        Some(CompilationProfileId(0)),
+        &predefines,
+    );
     change.set_roots(vec![SourceRoot::new_local_with_source_files(file_set, vec![top_file_id])]);
     change.set_project_config(Arc::new(ProjectConfig::new(
         vec![Some(CompilationProfileId(0))],
         vec![CompilationProfile {
             source_roots: vec![SourceRootId(0)],
             top_modules: Vec::new(),
-            preprocess: PreprocessConfig {
-                predefines: vec![Predefine::with_source(
-                    "LANE_WIDTH=12",
-                    PredefineSource { path: manifest_path, range: manifest_range },
-                )],
-                include_dirs: Vec::new(),
-            },
+            preprocess: PreprocessConfig { predefines, include_dirs: Vec::new() },
         }],
     )));
     change.add_changed_file(ChangedFile {

@@ -1,11 +1,11 @@
 use ::preproc::source::{
-    PreprocSourceId, SourceEmittedTokenId, SourceMacroCallId, SourceMacroReferenceId,
-    SourcePosition, SourcePreprocError, SourcePreprocModel, SourcePreprocUnavailable, SourceRange,
-    SourceTokenOrigin,
+    MacroDefinitionId, PreprocSourceId, SourceEmittedTokenId, SourceMacroCallId,
+    SourceMacroReferenceId, SourcePosition, SourcePreprocError, SourcePreprocModel,
+    SourcePreprocUnavailable, SourceRange, SourceTokenOrigin,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
-use syntax::{SourceBufferOrigin, SyntaxTreeOptions, preproc::Trace};
+use syntax::{SourceBufferOrigin, SourceBufferRange, SyntaxTreeOptions, preproc::Trace};
 use triomphe::Arc;
 use utils::{
     line_index::{TextRange, TextSize},
@@ -37,7 +37,7 @@ pub use self::{
     range_index::MappedSourcePreprocModel,
     source_map::{
         PreprocManifestSource, PreprocSourceMap, PreprocSourceMapError, PreprocSourceMapping,
-        PreprocSpeculativeUniverseId, PreprocVirtualOrigin,
+        PreprocSpeculativeUniverseId, PreprocUnavailableReason, PreprocVirtualOrigin,
     },
     source_mapping::{
         preproc_virtual_builtin_path, preproc_virtual_predefines_path,

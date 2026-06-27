@@ -19,10 +19,11 @@ mod preproc;
 pub(crate) use self::preproc::workspace_preproc_model_file_ids;
 pub use self::preproc::{
     MappedSourcePreprocModel, PreprocManifestSource, PreprocSourceMap, PreprocSourceMapError,
-    PreprocSourceMapping, PreprocSpeculativeUniverseId, PreprocVirtualOrigin,
-    SourcePreprocContextIndex, SourcePreprocContextStatus, SourcePreprocQueryError,
-    SourcePreprocRelevantContexts, preproc_virtual_builtin_path, preproc_virtual_predefines_path,
-    preproc_virtual_predefines_text, preproc_virtual_speculative_path,
+    PreprocSourceMapping, PreprocSpeculativeUniverseId, PreprocUnavailableReason,
+    PreprocVirtualOrigin, SourcePreprocContextIndex, SourcePreprocContextStatus,
+    SourcePreprocQueryError, SourcePreprocRelevantContexts, preproc_virtual_builtin_path,
+    preproc_virtual_predefines_path, preproc_virtual_predefines_text,
+    preproc_virtual_speculative_path,
 };
 #[cfg(test)]
 use self::preproc::{materialized_predefine_text, source_preproc_file_ids};
@@ -674,7 +675,7 @@ fn source_root_semantic_diagnostics(
 mod tests {
     use std::fmt;
 
-    use ::preproc::source::{PreprocSourceId, SourcePreprocUnavailable, SourceRange};
+    use ::preproc::source::{PreprocSourceId, SourceRange};
     use rustc_hash::FxHashSet;
     use syntax::{SourceBufferId, SourceBufferOrigin, SyntaxTreeOptions, preproc::Trace};
     use utils::{
@@ -982,8 +983,8 @@ mod tests {
 
         assert_eq!(
             source_map.get(PreprocSourceId::from(2)),
-            Some(&PreprocSourceMapping::Unmapped(SourcePreprocUnavailable::DetachedSource {
-                source: PreprocSourceId::from(2),
+            Some(&PreprocSourceMapping::Unmapped(PreprocUnavailableReason::DetachedSource {
+                buffer_id: 2,
             }))
         );
         assert!(matches!(
@@ -1067,7 +1068,7 @@ mod tests {
         assert_eq!(
             source_map.get(extra),
             Some(&PreprocSourceMapping::Unmapped(
-                SourcePreprocUnavailable::UnverifiedPredefineSource { source: extra }
+                PreprocUnavailableReason::UnverifiedPredefineSource { buffer_id: extra.raw() }
             ))
         );
         assert_eq!(source_map.file_id(first), Ok(VIRTUAL));
@@ -1078,12 +1079,10 @@ mod tests {
             source: second,
             range: TextRange::new(TextSize::from(0), TextSize::from(7)),
         };
+        let first_text_len = TextSize::of(&first_text);
         assert_eq!(
             source_map.map_range(second_range).unwrap(),
-            TextRange::new(
-                TextSize::from(u32::try_from(first_text.len()).unwrap()),
-                TextSize::from(u32::try_from(first_text.len() + 7).unwrap()),
-            )
+            (VIRTUAL, TextRange::new(first_text_len, first_text_len + TextSize::from(7)))
         );
     }
 
@@ -1172,16 +1171,19 @@ mod tests {
                 source: first,
                 range: TextRange::new(TextSize::from(0), TextSize::from(1)),
             }),
-            Ok(TextRange::new(TextSize::from(0), TextSize::from(1)))
+            Ok((VIRTUAL, TextRange::new(TextSize::from(0), TextSize::from(1))))
         );
         assert_eq!(
             source_map.map_range(SourceRange {
                 source: second,
                 range: TextRange::new(TextSize::from(0), TextSize::from(1)),
             }),
-            Ok(TextRange::new(
-                TextSize::from(u32::try_from(predefine_text.len()).unwrap()),
-                TextSize::from(u32::try_from(predefine_text.len() + 1).unwrap()),
+            Ok((
+                VIRTUAL,
+                TextRange::new(
+                    TextSize::of(&predefine_text),
+                    TextSize::of(&predefine_text) + TextSize::from(1)
+                )
             ))
         );
     }
@@ -1222,7 +1224,7 @@ mod tests {
         assert_eq!(
             source_map.get(source),
             Some(&PreprocSourceMapping::Unmapped(
-                SourcePreprocUnavailable::UnverifiedPredefineSource { source }
+                PreprocUnavailableReason::UnverifiedPredefineSource { buffer_id: source.raw() }
             ))
         );
         assert!(matches!(
@@ -1281,7 +1283,7 @@ mod tests {
         assert_eq!(
             source_map.get(source),
             Some(&PreprocSourceMapping::Unmapped(
-                SourcePreprocUnavailable::UnverifiedPredefineSource { source }
+                PreprocUnavailableReason::UnverifiedPredefineSource { buffer_id: source.raw() }
             ))
         );
     }
@@ -1344,7 +1346,10 @@ mod tests {
 
         assert_eq!(*file_id, VIRTUAL);
         assert_eq!(path, &virtual_path);
-        assert_eq!(origin, &PreprocVirtualOrigin::ExternalIncludeBuffer { source });
+        assert_eq!(
+            origin,
+            &PreprocVirtualOrigin::ExternalIncludeBuffer { buffer_id: source.raw() }
+        );
         assert_eq!(source_map.file_id(source), Ok(VIRTUAL));
         assert!(matches!(
             source_map.map_range(SourceRange {

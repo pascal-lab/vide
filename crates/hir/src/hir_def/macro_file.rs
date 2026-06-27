@@ -107,9 +107,10 @@ pub fn macro_file_expansion(db: &dyn HirDb, macro_file: MacroFileId) -> Option<M
     let mapped = mapped.as_ref().as_ref().ok()?;
     let call = source_call_for_trace_call(&mapped.model, call_loc.trace_call)?;
     let expansion = source_expansion_for_call(&mapped.model, call.id)?;
+    let (call_file_id, call_range) = mapped.source_map.map_range(call.call_range).ok()?;
     Some(MacroFileExpansion {
-        call_file_id: mapped.source_map.file_id(call.call_range.source).ok()?,
-        call_range: mapped.source_map.map_range(call.call_range).ok()?,
+        call_file_id,
+        call_range,
         definition: macro_expansion_definition(mapped, expansion)?,
     })
 }

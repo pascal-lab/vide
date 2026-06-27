@@ -20,7 +20,7 @@ use crate::{
         salsa::{self, Durability},
         source_db::{
             FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
-            SourceRootDbStorage,
+            SourceRootDbStorage, preproc_virtual_predefines_path, preproc_virtual_predefines_text,
         },
         source_root::{SourceRoot, SourceRootId},
     },
@@ -37,6 +37,7 @@ const TOP: FileId = FileId(0);
 const HEADER: FileId = FileId(1);
 const LEAF: FileId = FileId(2);
 const MANIFEST: FileId = FileId(3);
+const PREDEFINES: FileId = FileId(4);
 const ROOT: SourceRootId = SourceRootId(0);
 const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
@@ -97,6 +98,12 @@ fn db_with_entries_and_predefine_entries(
     for (file_id, path, _) in entries {
         file_set.insert(*file_id, VfsPath::from(abs_path(path)));
     }
+    let predefine_virtual_path = preproc_virtual_predefines_path(Some(PROFILE));
+    let predefine_virtual_text = preproc_virtual_predefines_text(&predefines);
+    let has_predefine_virtual_file = !predefines.is_empty();
+    if has_predefine_virtual_file {
+        file_set.insert(PREDEFINES, predefine_virtual_path.clone());
+    }
     let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
 
     let preprocess = PreprocessConfig { predefines, include_dirs: vec![include_dir.clone()] };
@@ -112,6 +119,9 @@ fn db_with_entries_and_predefine_entries(
     let mut files = FxHashSet::default();
     for (file_id, _, _) in entries {
         files.insert(*file_id);
+    }
+    if has_predefine_virtual_file {
+        files.insert(PREDEFINES);
     }
 
     let mut db = TestDb::default();
@@ -136,6 +146,25 @@ fn db_with_entries_and_predefine_entries(
         db.set_file_text_with_durability(*file_id, Arc::from(*text), Durability::LOW);
         db.set_file_preprocess_config_with_durability(
             *file_id,
+            Arc::new(preprocess.clone()),
+            Durability::LOW,
+        );
+    }
+    if has_predefine_virtual_file {
+        db.set_source_root_id_with_durability(PREDEFINES, ROOT, Durability::LOW);
+        db.set_file_path_with_durability(PREDEFINES, None, Durability::LOW);
+        db.set_file_kind_with_durability(
+            PREDEFINES,
+            SourceFileKind::from_path(&predefine_virtual_path),
+            Durability::LOW,
+        );
+        db.set_file_text_with_durability(
+            PREDEFINES,
+            Arc::from(predefine_virtual_text),
+            Durability::LOW,
+        );
+        db.set_file_preprocess_config_with_durability(
+            PREDEFINES,
             Arc::new(preprocess.clone()),
             Durability::LOW,
         );

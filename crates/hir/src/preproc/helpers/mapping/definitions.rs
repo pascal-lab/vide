@@ -4,7 +4,7 @@ pub(crate) fn map_macro_definition(
     mapped: &MappedSourcePreprocModel,
     definition: &SourceMacroDefinition,
 ) -> PreprocResult<MacroDefinition> {
-    let (mut source, mut directive_range, mut name_range) = map_definition_ranges(
+    let (mut file_id, mut directive_range, mut name_range) = map_definition_ranges(
         mapped,
         definition.event_id.raw(),
         definition.directive_range,
@@ -13,7 +13,7 @@ pub(crate) fn map_macro_definition(
     if let Some(manifest_source) =
         mapped.source_map.predefine_manifest_source(definition.name_range.source)
     {
-        source = PreprocSourceMapping::RealFile(manifest_source.file_id);
+        file_id = manifest_source.file_id;
         directive_range = manifest_source.range;
         name_range = manifest_source.range;
     }
@@ -27,16 +27,13 @@ pub(crate) fn map_macro_definition(
                 .map(|(param_index, param)| {
                     let range = param
                         .name_range
-                        .map(|range| {
-                            map_source_mapping_range(mapped, range).map(|(_, range)| range)
-                        })
+                        .map(|range| map_source_range(mapped, range).map(|(_, range)| range))
                         .transpose()?;
                     Ok(MacroDefinitionParam { param_index, name: param.name.clone(), range })
                 })
                 .collect::<PreprocResult<Vec<_>>>()
         })
         .transpose()?;
-    let file_id = require_file_backed_source(&source)?;
     let source_range = definition_source_range(mapped, file_id, directive_range, definition);
     Ok(MacroDefinition {
         id: definition.id.into(),
@@ -58,10 +55,7 @@ fn definition_source_range(
 ) -> TextRange {
     let mut source_range = directive_range;
     for token_range in definition.body_tokens.iter().filter_map(|token| token.range) {
-        let Ok((token_source, token_range)) = map_source_mapping_range(mapped, token_range) else {
-            continue;
-        };
-        let Ok(token_file_id) = require_file_backed_source(&token_source) else {
+        let Ok((token_file_id, token_range)) = map_source_range(mapped, token_range) else {
             continue;
         };
         if token_file_id == file_id && token_range.end() > source_range.end() {
@@ -84,8 +78,7 @@ pub(in crate::preproc) fn map_macro_param_definition(
         return Ok(None);
     };
     let macro_definition = map_macro_definition(mapped, definition)?;
-    let (source, range) = map_source_mapping_range(mapped, name_source_range)?;
-    let name_file_id = require_file_backed_source(&source)?;
+    let (name_file_id, range) = map_source_range(mapped, name_source_range)?;
     if name_file_id != macro_definition.file_id {
         return Err(PreprocError::MismatchedRangeFiles {
             kind: RangeFilesKind::Definition,
@@ -96,7 +89,7 @@ pub(in crate::preproc) fn map_macro_param_definition(
     }
     let param_range = param
         .range
-        .map(|range| map_source_mapping_range(mapped, range).map(|(_, range)| range))
+        .map(|range| map_source_range(mapped, range).map(|(_, range)| range))
         .transpose()?;
 
     Ok(Some(MacroParamDefinition {
@@ -113,13 +106,10 @@ pub(in crate::preproc) fn map_definition_ranges(
     event_id: u32,
     directive_source_range: SourceRange,
     name_source_range: SourceRange,
-) -> PreprocResult<(PreprocSourceMapping, TextRange, TextRange)> {
-    let (directive_source, directive_range) =
-        map_source_mapping_range(mapped, directive_source_range)?;
-    let (name_source, name_range) = map_source_mapping_range(mapped, name_source_range)?;
-    if directive_source != name_source {
-        let directive_file_id = require_file_backed_source(&directive_source)?;
-        let name_file_id = require_file_backed_source(&name_source)?;
+) -> PreprocResult<(FileId, TextRange, TextRange)> {
+    let (directive_file_id, directive_range) = map_source_range(mapped, directive_source_range)?;
+    let (name_file_id, name_range) = map_source_range(mapped, name_source_range)?;
+    if directive_file_id != name_file_id {
         return Err(PreprocError::MismatchedRangeFiles {
             kind: RangeFilesKind::Definition,
             event_id,
@@ -127,7 +117,7 @@ pub(in crate::preproc) fn map_definition_ranges(
             name_file_id,
         });
     }
-    Ok((directive_source, directive_range, name_range))
+    Ok((directive_file_id, directive_range, name_range))
 }
 
 pub(in crate::preproc) fn same_macro_definition(

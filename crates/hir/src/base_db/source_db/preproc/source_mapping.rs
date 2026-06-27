@@ -47,14 +47,22 @@ pub(in crate::base_db::source_db) fn source_preproc_file_ids(
                 if let Some(text) = include_buffer_texts.get(&source.path) {
                     let path =
                         preproc_virtual_include_buffer_path(profile_id, source_id, &source.path);
-                    let file_id = materialized_preproc_virtual_file_id(db, &path);
-                    source_map.insert_virtual_file(
-                        source_id,
-                        file_id,
-                        path,
-                        PreprocVirtualOrigin::ExternalIncludeBuffer { source: source_id },
-                        text.len(),
-                    );
+                    if let Some(file_id) = materialized_preproc_virtual_file_id(db, &path) {
+                        source_map.insert_virtual_file(
+                            source_id,
+                            file_id,
+                            path,
+                            PreprocVirtualOrigin::ExternalIncludeBuffer {
+                                buffer_id: source_id.raw(),
+                            },
+                            text.len(),
+                        );
+                    } else {
+                        source_map.insert_unmapped(
+                            source_id,
+                            SourcePreprocUnavailable::DetachedSource { source: source_id },
+                        );
+                    }
                     continue;
                 }
 
@@ -72,9 +80,18 @@ pub(in crate::base_db::source_db) fn source_preproc_file_ids(
                             continue;
                         }
                     };
+                    let Some(file_id) = entry.file_id else {
+                        source_map.insert_unmapped(
+                            source_id,
+                            SourcePreprocUnavailable::UnverifiedPredefineSource {
+                                source: source_id,
+                            },
+                        );
+                        continue;
+                    };
                     source_map.insert_virtual_file_with_offset(
                         source_id,
-                        entry.file_id,
+                        file_id,
                         entry.path.clone(),
                         PreprocVirtualOrigin::Predefines { profile: profile_id },
                         entry.text_len,
