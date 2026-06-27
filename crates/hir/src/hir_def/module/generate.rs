@@ -44,8 +44,8 @@ use crate::{
         proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
         stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
         subroutine::{
-            LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineSrc,
-            lower_subroutine, lower_subroutine_body,
+            LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineSrc, lower_subroutine,
+            lower_subroutine_body,
         },
         typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
     },
