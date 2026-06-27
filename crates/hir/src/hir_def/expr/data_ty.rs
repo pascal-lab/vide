@@ -1,18 +1,29 @@
 use itertools::Either;
 use smallvec::SmallVec;
 use syntax::{
-    SyntaxToken, TokenKind,
+    SyntaxNode, SyntaxToken, TokenKind,
     ast::{self, AstNode},
 };
 
-use super::{ExprId, LowerExprCtx, Selector};
-use crate::{container::InContainer, hir_def::aggregate::StructId};
+use super::{Expr, ExprId, LowerExprCtx, Selector};
+use crate::{
+    container::InContainer,
+    hir_def::{aggregate::StructId, lower_ident},
+};
 
+// slang exposes enum types directly as `DataType::EnumType`, while struct and
+// union types share `DataType::StructUnionType` and are lowered by the owning
+// declaration/typedef container into `aggregate::StructDef` with a `StructKind`.
+// Unpacked dimensions carry SV array shape: `[]` is dynamic, `[$]`/`[$:N]` is a
+// queue, and `[string]`/other builtin key types are associative. Plain `[expr]`
+// stays a fixed-size unpacked dimension; typedef-key and wildcard associative
+// arrays need scope-aware key lowering and are left for a later construct PR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DataTy {
     Builtin(BuiltinDataTyId),
     Named(NamedDataTy),
     Struct(InContainer<StructId>),
+    Enum,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -24,6 +35,8 @@ pub enum BuiltinDataTy {
     Vector { kind: VecKind, signing: bool, dimensions: SmallVec<[Option<Dimension>; 2]> },
     Real(Real),
     String,
+    Event,
+    Chandle,
     Void,
 }
 
@@ -66,6 +79,9 @@ pub enum Real {
 pub enum Dimension {
     Range(ExprId, ExprId),
     Size(ExprId),
+    Queue(Option<ExprId>),
+    Assoc(ExprId),
+    Dynamic,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -77,19 +93,15 @@ pub enum NamedDataTy {
 impl LowerExprCtx<'_> {
     pub(crate) fn lower_data_ty(&mut self, ty: ast::DataType) -> DataTy {
         use ast::DataType::*;
-        let ty = match ty {
-            KeywordType(ty) => Either::Left(self.lower_keyword_ty(ty)),
-            NamedType(named_type) => Either::Right(self.lower_named_ty(named_type)),
-            IntegerType(ty) => Either::Left(self.lower_integer_type(ty)),
-            ImplicitType(ty) => Either::Left(self.lower_implicit_type(ty)),
-            EnumType(enum_ty) => Either::Right(self.lower_enum_type(enum_ty)),
-            StructUnionType(_) | TypeReference(_) | VirtualInterfaceType(_) => {
-                return self.default_data_ty();
-            }
-        };
         match ty {
-            Either::Left(ty) => DataTy::Builtin(self.db.intern_ty(ty)),
-            Either::Right(ty) => DataTy::Named(ty),
+            KeywordType(ty) => DataTy::Builtin(self.db.intern_ty(self.lower_keyword_ty(ty))),
+            NamedType(named_type) => DataTy::Named(self.lower_named_ty(named_type)),
+            IntegerType(ty) => DataTy::Builtin(self.db.intern_ty(self.lower_integer_type(ty))),
+            ImplicitType(ty) => DataTy::Builtin(self.db.intern_ty(self.lower_implicit_type(ty))),
+            EnumType(enum_ty) => self.lower_enum_type(enum_ty),
+            StructUnionType(_) | TypeReference(_) | VirtualInterfaceType(_) => {
+                self.default_data_ty()
+            }
         }
     }
 
@@ -101,6 +113,8 @@ impl LowerExprCtx<'_> {
             ShortRealType(_) => BuiltinDataTy::Real(Real::ShortReal),
             RealTimeType(_) => BuiltinDataTy::Real(Real::RealTime),
             VoidType(_) => BuiltinDataTy::Void,
+            EventType(_) => BuiltinDataTy::Event,
+            CHandleType(_) => BuiltinDataTy::Chandle,
             _ => BuiltinDataTy::default(),
         }
     }
@@ -118,12 +132,8 @@ impl LowerExprCtx<'_> {
         }
     }
 
-    fn lower_enum_type(&mut self, _enum_ty: ast::EnumType) -> NamedDataTy {
-        // For now, treat enum types as implicit types
-        // TODO: properly handle enum member completion
-        // We return a missing expression since enum types are anonymous
-        let expr_id = self.alloc_missing();
-        NamedDataTy::Ident(expr_id)
+    fn lower_enum_type(&mut self, _enum_ty: ast::EnumType) -> DataTy {
+        DataTy::Enum
     }
 
     fn lower_integer_type(&mut self, ty: ast::IntegerType) -> BuiltinDataTy {
@@ -171,19 +181,74 @@ impl LowerExprCtx<'_> {
 
     pub(crate) fn lower_dimension(&mut self, dim: ast::VariableDimension) -> Option<Dimension> {
         use ast::DimensionSpecifier::*;
-        match dim.specifier()? {
-            RangeDimensionSpecifier(spec) => match self.lower_selector(spec.selector()) {
-                Selector::Bit(idx) => Some(Dimension::Size(idx)),
+        match dim.specifier() {
+            None => Some(Dimension::Dynamic),
+            Some(RangeDimensionSpecifier(spec)) => self.lower_range_dimension(spec),
+            Some(QueueDimensionSpecifier(spec)) => {
+                Some(Dimension::Queue(spec.max_size_clause().map(|clause| {
+                    self.lower_expr(clause.expr())
+                })))
+            }
+            Some(WildcardDimensionSpecifier(_)) => None,
+        }
+    }
+
+    fn lower_range_dimension(&mut self, spec: ast::RangeDimensionSpecifier) -> Option<Dimension> {
+        let selector = spec.selector();
+        if let ast::Selector::BitSelect(bit_select) = selector {
+            let expr = bit_select.expr();
+            if let Some(key) = Self::associative_dimension_key_token(expr) {
+                let expr_id = lower_ident(Some(key))
+                    .map(Expr::Ident)
+                    .map(|expr| self.exprs.alloc(expr))
+                    .unwrap_or_else(|| self.lower_expr(expr));
+                return Some(Dimension::Assoc(expr_id));
+            }
+            Some(Dimension::Size(self.lower_expr(expr)))
+        } else {
+            match self.lower_selector(selector) {
                 Selector::Range(left, right) => Some(Dimension::Range(left, right)),
                 _ => None,
-            },
-            _ => None,
+            }
         }
+    }
+
+    fn associative_dimension_key_token(expr: ast::Expression) -> Option<SyntaxToken> {
+        let token = first_token(expr.syntax())?;
+        is_builtin_dimension_key_token(token.kind()).then_some(token)
     }
 
     fn default_data_ty(&self) -> DataTy {
         DataTy::Builtin(self.db.intern_ty(BuiltinDataTy::default()))
     }
+}
+
+fn first_token(node: SyntaxNode<'_>) -> Option<SyntaxToken<'_>> {
+    for idx in 0..node.child_count() {
+        if let Some(token) = node.child_token(idx) {
+            return Some(token);
+        }
+        if let Some(token) = node.child_node(idx).and_then(first_token) {
+            return Some(token);
+        }
+    }
+    None
+}
+
+fn is_builtin_dimension_key_token(kind: TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::STRING_KEYWORD
+            | TokenKind::BYTE_KEYWORD
+            | TokenKind::SHORT_INT_KEYWORD
+            | TokenKind::INT_KEYWORD
+            | TokenKind::LONG_INT_KEYWORD
+            | TokenKind::INTEGER_KEYWORD
+            | TokenKind::TIME_KEYWORD
+            | TokenKind::BIT_KEYWORD
+            | TokenKind::LOGIC_KEYWORD
+            | TokenKind::REG_KEYWORD
+    )
 }
 
 impl DataTy {

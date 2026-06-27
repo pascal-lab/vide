@@ -21,6 +21,8 @@ use crate::{
         ty::{NetKind, NetType},
         typedef::TypedefId,
     },
+    symbol::DefLoc,
+    type_infer::{BuiltinTy, Ty},
 };
 
 pub struct HirFormatter<'a> {
@@ -74,6 +76,116 @@ pub trait HirDisplay {
 impl<T: HirDisplay> HirDisplay for Arc<T> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         (**self).hir_fmt(f)
+    }
+}
+
+impl HirDisplay for Ty {
+    fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
+        match self {
+            Ty::Unknown => f.write_str("unknown"),
+            Ty::Error => f.write_str("error"),
+            Ty::Void => f.write_str("void"),
+            Ty::Builtin(BuiltinTy::Data { id, container }) => {
+                InContainer::new(*container, DataTy::Builtin(*id)).hir_fmt(f)
+            }
+            Ty::Struct(struct_ref) => {
+                InContainer::new(struct_ref.cont_id, DataTy::Struct(*struct_ref)).hir_fmt(f)
+            }
+            Ty::Enum(def) => hir_fmt_def_backed_type(f, "enum", *def),
+            Ty::Union(def) => hir_fmt_def_backed_type(f, "union", *def),
+            Ty::Queue { elem, size } => {
+                elem.hir_fmt(f)?;
+                f.write_str(" [$")?;
+                if let (Some(size), Some(container)) = (size, ty_expr_container(f.db, elem)) {
+                    f.write_str(":")?;
+                    InContainer::new(container, *size).hir_fmt(f)?;
+                }
+                f.write_str("]")
+            }
+            Ty::Assoc { key, elem } => {
+                elem.hir_fmt(f)?;
+                f.write_str(" [")?;
+                key.hir_fmt(f)?;
+                f.write_str("]")
+            }
+            Ty::Dynamic(elem) => {
+                elem.hir_fmt(f)?;
+                f.write_str(" []")
+            }
+            Ty::Event => f.write_str("event"),
+            Ty::Chandle => f.write_str("chandle"),
+            Ty::ClassHandle { def, .. } => hir_fmt_def_backed_type(f, "class", *def),
+            Ty::VirtualInterface { def, modport } => {
+                f.write_str("virtual interface")?;
+                if let Some(name) = def.name(f.db) {
+                    f.write_str(" ")?;
+                    f.write_str(name.as_str())?;
+                }
+                if let Some(modport) = modport.and_then(|def| def.name(f.db)) {
+                    f.write_str(".")?;
+                    f.write_str(modport.as_str())?;
+                }
+                Ok(())
+            }
+            Ty::Alias { typedef, target } => {
+                let container = typedef.cont_id.to_container(f.db);
+                if let Some(name) = &container.get(typedef.value).name {
+                    f.write_str(name)
+                } else {
+                    target.hir_fmt(f)
+                }
+            }
+            Ty::Module(module_id) => {
+                let module = f.db.module(*module_id);
+                if let Some(name) = &module.name { f.write_str(name) } else { f.write_str("module") }
+            }
+            Ty::GenerateBlock(generate_block_id) => {
+                let block = f.db.generate_block(*generate_block_id);
+                if let Some(name) = &block.name {
+                    f.write_str(name)
+                } else {
+                    f.write_str("generate block")
+                }
+            }
+            Ty::Block(block_id) => {
+                let block = f.db.block(*block_id);
+                if let Some(name) = &block.name { f.write_str(name) } else { f.write_str("block") }
+            }
+        }
+    }
+}
+
+fn hir_fmt_def_backed_type(
+    f: &mut HirFormatter<'_>,
+    keyword: &str,
+    def: crate::symbol::DefId,
+) -> Result<(), HirDisplayError> {
+    f.write_str(keyword)?;
+    if let DefLoc::Typedef(typedef) = def.loc(f.db) {
+        let container = typedef.cont_id.to_container(f.db);
+        if let Some(name) = &container.get(typedef.value).name {
+            f.write_str(" ")?;
+            f.write_str(name)?;
+        }
+    }
+    Ok(())
+}
+
+fn ty_expr_container(db: &dyn crate::db::HirDb, ty: &Ty) -> Option<crate::container::ScopeId> {
+    match ty {
+        Ty::Builtin(BuiltinTy::Data { container, .. }) => Some(*container),
+        Ty::Struct(struct_ref) => Some(struct_ref.cont_id),
+        Ty::Alias { typedef, .. } => Some(typedef.cont_id),
+        Ty::Enum(def) | Ty::Union(def) => match def.loc(db) {
+            DefLoc::Decl(decl) => Some(decl.cont_id),
+            DefLoc::Typedef(typedef) => Some(typedef.cont_id),
+            DefLoc::SubroutinePort(port) => Some(port.subroutine.into()),
+            _ => None,
+        },
+        Ty::Queue { elem, .. } | Ty::Assoc { elem, .. } | Ty::Dynamic(elem) => {
+            ty_expr_container(db, elem)
+        }
+        _ => None,
     }
 }
 
@@ -161,12 +273,15 @@ impl HirDisplay for InContainer<DataTy> {
                     Real::RealTime => f.write_str("realtime"),
                 },
                 BuiltinDataTy::String => f.write_str("string"),
+                BuiltinDataTy::Event => f.write_str("event"),
+                BuiltinDataTy::Chandle => f.write_str("chandle"),
                 BuiltinDataTy::Void => f.write_str("void"),
             },
             DataTy::Named(named) => match named {
                 NamedDataTy::Ident(expr_id) => self.with_value(expr_id).hir_fmt(f),
                 NamedDataTy::Field(expr_id) => self.with_value(expr_id).hir_fmt(f),
             },
+            DataTy::Enum => f.write_str("enum"),
             DataTy::Struct(struct_ref) => {
                 let cont = struct_ref.cont_id.to_container(f.db);
                 let def = cont.get(struct_ref.value);
@@ -511,6 +626,15 @@ impl HirDisplay for InContainer<Dimension> {
                 self.with_value(end).hir_fmt(f)?;
             }
             Dimension::Size(idx) => self.with_value(idx).hir_fmt(f)?,
+            Dimension::Queue(size) => {
+                f.write_str("$")?;
+                if let Some(size) = size {
+                    f.write_str(":")?;
+                    self.with_value(size).hir_fmt(f)?;
+                }
+            }
+            Dimension::Assoc(key) => self.with_value(key).hir_fmt(f)?,
+            Dimension::Dynamic => {}
         }
         f.write_char(']')
     }
