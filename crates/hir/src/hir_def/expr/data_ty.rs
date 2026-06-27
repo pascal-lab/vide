@@ -13,11 +13,12 @@ use crate::{
 
 // slang exposes enum types directly as `DataType::EnumType`, while struct and
 // union types share `DataType::StructUnionType` and are lowered by the owning
-// declaration/typedef container into `aggregate::StructDef` with a `StructKind`.
-// Unpacked dimensions carry SV array shape: `[]` is dynamic, `[$]`/`[$:N]` is a
-// queue, and `[string]`/other builtin key types are associative. Plain `[expr]`
-// stays a fixed-size unpacked dimension; typedef-key and wildcard associative
-// arrays need scope-aware key lowering and are left for a later construct PR.
+// declaration/typedef container into `aggregate::StructDef` with a
+// `StructKind`. Unpacked dimensions carry SV array shape: `[]` is dynamic,
+// `[$]`/`[$:N]` is a queue, and `[string]`/other builtin key types are
+// associative. Plain `[expr]` stays a fixed-size unpacked dimension;
+// typedef-key and wildcard associative arrays need scope-aware key lowering and
+// are left for a later construct PR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DataTy {
     Builtin(BuiltinDataTyId),
@@ -184,11 +185,9 @@ impl LowerExprCtx<'_> {
         match dim.specifier() {
             None => Some(Dimension::Dynamic),
             Some(RangeDimensionSpecifier(spec)) => self.lower_range_dimension(spec),
-            Some(QueueDimensionSpecifier(spec)) => {
-                Some(Dimension::Queue(spec.max_size_clause().map(|clause| {
-                    self.lower_expr(clause.expr())
-                })))
-            }
+            Some(QueueDimensionSpecifier(spec)) => Some(Dimension::Queue(
+                spec.max_size_clause().map(|clause| self.lower_expr(clause.expr())),
+            )),
             Some(WildcardDimensionSpecifier(_)) => None,
         }
     }
