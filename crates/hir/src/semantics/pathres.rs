@@ -89,9 +89,8 @@ pub fn resolve_path(
     ctx: NameContext,
 ) -> Option<PathResolution> {
     let (first, rest) = path.split_first()?;
-    let mut current = resolve_name(db, cont_id, first, ctx).or_else(|| {
-        resolve_top_level_module_root(db, cont_id, first, ctx, !rest.is_empty())
-    })?;
+    let mut current = resolve_name(db, cont_id, first, ctx)
+        .or_else(|| resolve_top_level_module_root(db, cont_id, first, ctx, !rest.is_empty()))?;
 
     for (idx, segment) in rest.iter().enumerate() {
         let segment_ctx = if idx + 1 == rest.len() { ctx } else { NameContext::Value };
@@ -118,11 +117,8 @@ fn resolve_top_level_module_root(
     // a module definition as an explicit hierarchy root. This is not a single
     // segment value fallback: `top` alone remains a type-space module name.
     let type_res = resolve_name(db, cont_id, ident, NameContext::Type)?;
-    let module_defs = type_res
-        .def_ids()
-        .iter()
-        .copied()
-        .filter(|def_id| def_id.kind(db) == DefKind::Module);
+    let module_defs =
+        type_res.def_ids().iter().copied().filter(|def_id| def_id.kind(db) == DefKind::Module);
     PathResolution::from_def_ids(module_defs)
 }
 
@@ -425,10 +421,7 @@ endmodule
             .unique()
             .expect("top module should resolve uniquely");
 
-        assert_eq!(
-            resolved_kind(&db, top.into(), &["u", "sig"], NameContext::Value),
-            DefKind::Net
-        );
+        assert_eq!(resolved_kind(&db, top.into(), &["u", "sig"], NameContext::Value), DefKind::Net);
         assert_eq!(
             resolved_kind(&db, top.into(), &["arr", "sig"], NameContext::Value),
             DefKind::Net
