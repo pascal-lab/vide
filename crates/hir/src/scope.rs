@@ -153,6 +153,13 @@ impl NameScope {
             );
         }
 
+        for (checker_id, checker) in hir_file.checkers.iter() {
+            scope.insert_type_opt(
+                &checker.name,
+                def_id(db, InContainer::new(file_id.into(), checker_id)),
+            );
+        }
+
         for (typedef_id, typedef) in hir_file.typedefs.iter() {
             scope.insert_type_opt(
                 &typedef.name,
@@ -193,6 +200,13 @@ impl NameScope {
             scope.insert_value_opt(
                 &clocking_block.name,
                 def_id(db, InModule::new(module_id, clocking_block_id)),
+            );
+        }
+
+        for (checker_id, checker) in module.checkers.iter() {
+            scope.insert_type_opt(
+                &checker.name,
+                def_id(db, InContainer::new(module_id.into(), checker_id)),
             );
         }
 
@@ -482,7 +496,10 @@ mod tests {
     use rustc_hash::FxHashSet;
     use smol_str::SmolStr;
     use triomphe::Arc;
-    use utils::paths::{AbsPathBuf, Utf8PathBuf};
+    use utils::{
+        get::GetRef,
+        paths::{AbsPathBuf, Utf8PathBuf},
+    };
     use vfs::{FileId, FileSet, VfsPath, anchored_path::AnchoredPath};
 
     use crate::{
@@ -709,6 +726,44 @@ endmodule
             def_id.kind(&db) == DefKind::ClockingBlock
                 && def_id.as_clocking_block(&db).is_some_and(|id| id.value == clocking_block_id)
         }));
+    }
+
+    #[test]
+    fn file_scope_exposes_checkers_and_lowers_checker_instances() {
+        let db = db_with_root_text(
+            r#"
+checker c(input logic clk);
+endchecker
+
+module m;
+  c u();
+endmodule
+"#,
+        );
+
+        let checker_defs = db
+            .unit_scope()
+            .lookup(NameContext::Type, &ident("c"))
+            .expect("checker should be visible as a type");
+        assert!(checker_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Checker));
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let module = db.module(module_id);
+        let instantiation = module
+            .instantiations
+            .values()
+            .find(|instantiation| instantiation.module_name.as_deref() == Some("c"))
+            .expect("checker instantiation should lower into the instance arena");
+        let instance = instantiation
+            .instances
+            .first()
+            .map(|instance_id| module.get(*instance_id))
+            .expect("checker instantiation should lower its instance");
+        assert_eq!(instance.name.as_deref(), Some("u"));
     }
 
     #[test]

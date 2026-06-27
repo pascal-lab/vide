@@ -9,6 +9,7 @@ use hir::{
         DEFAULT_NAME,
         aggregate::{StructDef, StructId, StructKind, StructSrc},
         block::{BlockId, BlockInfo, BlockItem, BlockSrc, LocalBlockId},
+        checker::{CheckerDef, CheckerId, CheckerSrc},
         declaration::{Declaration, DeclarationId, DeclarationSrc},
         expr::declarator::{DeclId, Declarator, DeclaratorSrc, DeclsRange},
         file::{
@@ -234,6 +235,9 @@ pub(crate) fn document_symbols(db: &dyn HirDb, file_id: FileId) -> Vec<DocumentS
                 build_library_decl(&mut collector, library_id, file, src_map)
             }
             FileItem::LibraryIncludeId(_) => {}
+            FileItem::CheckerId(checker_id) => {
+                build_checker(&mut collector, checker_id, file, src_map)
+            }
             FileItem::UdpDeclId(udp_id) => build_udp_decl(&mut collector, udp_id, file, src_map),
         }
     }
@@ -337,6 +341,9 @@ fn collect_module_items(
             }
             ModuleItem::ClockingBlockId(clocking_block_id) => {
                 build_clocking_block(collector, clocking_block_id, module, src_map);
+            }
+            ModuleItem::CheckerId(checker_id) => {
+                build_checker(collector, checker_id, module, src_map);
             }
             ModuleItem::StructId(struct_id) => build_struct(collector, struct_id, module, src_map),
         }
@@ -594,6 +601,24 @@ fn build_generate_block(
             }
         }
     }
+    collector.pop();
+}
+
+#[inline]
+fn build_checker<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    checker_id: CheckerId,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<CheckerId, Output = CheckerDef>,
+    SrcMap: Get<CheckerId, Output = Option<CheckerSrc>>,
+{
+    let checker = arena.get(checker_id);
+    let Some(src) = src_map.get(checker_id) else {
+        return;
+    };
+    collector.push_symbol(&checker.name, src);
     collector.pop();
 }
 

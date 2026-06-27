@@ -18,6 +18,7 @@ use super::{
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_idx_and_src,
     block::{BlockInfo, BlockSrc, LocalBlockId},
+    checker::{CheckerDef, CheckerId, CheckerSrc, lower_checker_decl},
     declaration::{
         Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, impl_lower_declaration,
     },
@@ -62,6 +63,7 @@ define_container! {
         udp_decls: [UdpDecl],
         library_decls: [LibraryDecl],
         library_includes: [LibraryInclude],
+        checkers: [CheckerDef],
         subroutines: [Subroutine],
         package_imports: [PackageImport],
 
@@ -92,6 +94,7 @@ define_container! {
         udp_decl_srcs: [UdpDecl | UdpDeclSrc],
         library_decl_srcs: [LibraryDecl | LibraryDeclSrc],
         library_include_srcs: [LibraryInclude | LibraryIncludeSrc],
+        checker_srcs: [CheckerDef | CheckerSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
         expr_srcs: [Expr | ExprSrc],
         event_expr_srcs: [EventExpr | EventExprSrc],
@@ -115,6 +118,7 @@ define_enum_deriving_from! {
         UdpDeclId(UdpDeclId),
         LibraryDeclId(LibraryDeclId),
         LibraryIncludeId(LibraryIncludeId),
+        CheckerId(CheckerId),
         SubroutineId(LocalSubroutineId),
     }
 }
@@ -131,6 +135,7 @@ impl FileSourceMap {
             FileItem::UdpDeclId(idx) => self.get(*idx)?.node,
             FileItem::LibraryDeclId(idx) => self.get(*idx)?.node,
             FileItem::LibraryIncludeId(idx) => self.get(*idx)?.0,
+            FileItem::CheckerId(idx) => self.get(*idx)?.node,
             FileItem::SubroutineId(idx) => self.get(*idx)?.node,
         })
     }
@@ -321,6 +326,15 @@ impl LowerFileCtx<'_> {
                 }
                 UdpDeclaration(udp_decl) => self.lower_udp_decl(udp_decl).into(),
                 ConfigDeclaration(config_decl) => self.lower_config_decl(config_decl).into(),
+                CheckerDeclaration(checker_decl) => {
+                    let checker = lower_checker_decl(checker_decl);
+                    alloc_idx_and_src! {
+                        self.file_id;
+                        checker => self.file.checkers,
+                        checker_decl => self.file_source_map.checker_srcs,
+                    }
+                    .into()
+                }
                 _ => continue,
             };
             self.file_source_map.items.push(idx);

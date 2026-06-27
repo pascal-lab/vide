@@ -34,6 +34,7 @@ use super::{
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_idx_and_src,
     block::{BlockInfo, BlockSrc, LocalBlockId},
+    checker::{CheckerDef, CheckerId, CheckerSrc, lower_checker_decl},
     declaration::{
         Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, ParamDeclKind,
         impl_lower_declaration,
@@ -97,6 +98,7 @@ define_container! {
         subroutines: [Subroutine],
         modports: [ModportDef],
         clocking_blocks: [ClockingBlockDef],
+        checkers: [CheckerDef],
         package_imports: [PackageImport],
 
         instantiations: [Instantiation],
@@ -139,6 +141,7 @@ define_container! {
         subroutine_srcs: [Subroutine | SubroutineSrc],
         modport_srcs: [ModportDef | ModportSrc],
         clocking_block_srcs: [ClockingBlockDef | ClockingBlockSrc],
+        checker_srcs: [CheckerDef | CheckerSrc],
 
         instantiation_srcs: [Instantiation | InstantiationSrc],
         inst_param_assign_srcs: [ParamAssign | ParamAssignSrc],
@@ -289,6 +292,7 @@ impl ModuleSourceMap {
             ModuleItem::SubroutineId(idx) => self.get(*idx)?.node,
             ModuleItem::ModportId(idx) => self.get(*idx)?.node,
             ModuleItem::ClockingBlockId(idx) => self.get(*idx)?.node,
+            ModuleItem::CheckerId(idx) => self.get(*idx)?.node,
         })
     }
 }
@@ -310,6 +314,7 @@ define_enum_deriving_from! {
         SubroutineId(LocalSubroutineId),
         ModportId(ModportId),
         ClockingBlockId(ClockingBlockId),
+        CheckerId(CheckerId),
     }
 }
 
@@ -536,7 +541,9 @@ impl LowerModuleCtx<'_> {
                 PrimitiveInstantiation(instantiation) => {
                     self.instantiation_ctx().lower_primitive_instantiation(instantiation).into()
                 }
-                CheckerInstantiation(_) => continue,
+                CheckerInstantiation(instantiation) => {
+                    self.instantiation_ctx().lower_checker_instantiation(instantiation).into()
+                }
 
                 // Subroutines
                 FunctionDeclaration(fn_decl) => match self.lower_subroutine_decl(fn_decl) {
@@ -640,7 +647,16 @@ impl LowerModuleCtx<'_> {
                 | ClassMethodPrototype(_) => continue,
 
                 // Checker
-                CheckerDeclaration(_) | CheckerDataDeclaration(_) => continue,
+                CheckerDeclaration(checker_decl) => {
+                    let checker = lower_checker_decl(checker_decl);
+                    alloc_idx_and_src! {
+                        self.file_id;
+                        checker => self.module.checkers,
+                        checker_decl => self.module_source_map.checker_srcs,
+                    }
+                    .into()
+                }
+                CheckerDataDeclaration(_) => continue,
 
                 // Constraints
                 ConstraintDeclaration(_) | ConstraintPrototype(_) => continue,
