@@ -21,7 +21,6 @@ hir.workspace = true
 ide.workspace = true
 project-model.workspace = true
 syntax.workspace = true
-slang.workspace = true
 utils.workspace = true
 vfs.workspace = true
 
