@@ -1,7 +1,7 @@
-use hir::base_db::project::{Predefine, PredefineSource};
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use utils::{line_index::TextRange, paths::AbsPathBuf};
+use workspace_model::project::{Predefine, PredefineSource};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub enum MacroAtom {

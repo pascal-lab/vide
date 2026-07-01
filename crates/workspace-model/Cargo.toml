@@ -1,0 +1,11 @@
+[package]
+name = "workspace-model"
+version = "0.0.0"
+description = "Shared workspace model types"
+
+edition.workspace = true
+
+[dependencies]
+triomphe.workspace = true
+utils.workspace = true
+vfs.workspace = true

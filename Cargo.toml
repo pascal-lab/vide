@@ -59,6 +59,7 @@ project-model = { path = "./crates/project-model/", version = "0.0.0" }
 syntax = { path = "./crates/syntax/", version = "0.0.0" }
 utils = { path = "./crates/utils", version = "0.0.0" }
 vfs = { path = "./crates/vfs", version = "0.0.0" }
+workspace-model = { path = "./crates/workspace-model/", version = "0.0.0" }
 slang = { path = "./crates/slang", version = "0.0.1" }
 parking_lot = "0.12.1"
 

@@ -5,10 +5,6 @@ mod toml_workspace;
 use std::collections::VecDeque;
 
 use anyhow::{Context, bail};
-use hir::base_db::{
-    project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
-    source_root::{SourceRootConfig, SourceRootId, SourceRootRole},
-};
 use itertools::Itertools;
 use rustc_hash::{FxHashMap, FxHashSet};
 #[cfg(feature = "manifest-schema")]
@@ -22,6 +18,10 @@ use utils::{
     paths::{AbsPathBuf, Utf8Component, Utf8Path, sort_and_remove_subfolders},
 };
 use vfs::{FileSetConfig, FileSetFilter, PathGlobMatcher, PathMatcher, VfsPath};
+use workspace_model::{
+    project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+    source_root::{SourceRootConfig, SourceRootId, SourceRootRole},
+};
 
 use crate::{
     macro_def::MacroDef, project_manifest::ProjectManifest, toml_workspace::TomlWorkspace,
@@ -827,9 +827,9 @@ fn collect_dependency_roots(
 mod tests {
     use std::fs;
 
-    use hir::base_db::{source_db::SourceFileKind, source_root::SourceRootRole};
     use utils::{lines::LineEnding, test_support::TestDir};
     use vfs::{Vfs, loader::LoadResult};
+    use workspace_model::{source_db::SourceFileKind, source_root::SourceRootRole};
 
     use super::*;
 

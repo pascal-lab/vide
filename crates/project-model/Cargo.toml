@@ -12,7 +12,6 @@ manifest-schema = ["dep:schemars", "dep:serde_json"]
 vfs.workspace = true
 anyhow.workspace = true
 const_format.workspace = true
-hir.workspace = true
 itertools.workspace = true
 regex.workspace = true
 rustc-hash.workspace = true
@@ -22,6 +21,7 @@ smol_str.workspace = true
 toml = "0.8.8"
 triomphe.workspace = true
 utils = { workspace = true, features = ["camino_serde1"] }
+workspace-model.workspace = true
 schemars = { version = "1.2.1", features = ["preserve_order"], optional = true }
 
 [dev-dependencies]
