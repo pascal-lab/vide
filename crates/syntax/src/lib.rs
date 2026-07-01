@@ -3,7 +3,18 @@ pub mod has_text_range;
 pub mod ptr;
 pub mod slang_ext;
 
-pub use slang::*;
+pub use slang::{
+    ActualArgument, Bit, ChildrenIter, Compilation, CxxSV, DiagnosticSeverity, EmittedToken, Event,
+    EventId, IncludeEdge, LexedTokenAtOffset, LiteralBase, MacroCallId, MacroDefinitionId,
+    MacroExpansionId, MacroParam, ParserExpectedSyntax, SVInt, SVLogic, SemanticFacts,
+    SourceBufferId, SourceBufferOrigin, SourceBufferRange, SourceLocation, SourceRange,
+    SyntaxAncestors, SyntaxChildren, SyntaxCursor, SyntaxDiagnostic, SyntaxElemPreorder,
+    SyntaxElement, SyntaxElementKind, SyntaxFacts, SyntaxIdxChildren, SyntaxKeywordContext,
+    SyntaxKind, SyntaxNode, SyntaxNodePreorder, SyntaxToken, SyntaxTokenWithParent, SyntaxTree,
+    SyntaxTreeBuffer, SyntaxTreeBufferIds, SyntaxTreeOptions, SyntaxTreeWithTrace, SyntaxTrivia,
+    SyntaxTriviaIter, SyntaxTriviaLoc, TimeUnit, Token, TokenKind, TokenOrigin, Trace, Trivia,
+    TriviaKind, WalkEvent, ast, preproc,
+};
 pub use slang_ext::*;
 
 #[macro_export]
