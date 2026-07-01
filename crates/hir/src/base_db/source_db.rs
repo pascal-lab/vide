@@ -5,7 +5,7 @@ use syntax::{
 };
 use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
-use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
+use vfs::{FileId, anchored_path::AnchoredPath};
 
 use crate::base_db::{
     compilation_plan::{self, CompilationPlan},
@@ -15,6 +15,8 @@ use crate::base_db::{
 };
 
 mod preproc;
+
+pub use workspace_model::source_db::SourceFileKind;
 
 pub(crate) use self::preproc::workspace_preproc_model_file_ids;
 pub use self::preproc::{
@@ -61,40 +63,6 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
 
     #[salsa::input]
     fn project_config(&self) -> Arc<ProjectConfig>;
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SourceFileKind {
-    #[default]
-    SystemVerilog,
-    IncludeHeader,
-    LibraryMap,
-    ProjectManifest,
-}
-
-impl SourceFileKind {
-    pub fn from_path(path: &VfsPath) -> Self {
-        match path.name_and_extension() {
-            Some((name, Some(ext))) if name == "vide" && ext.eq_ignore_ascii_case("toml") => {
-                Self::ProjectManifest
-            }
-            Some((_, Some(ext))) if ext.eq_ignore_ascii_case("map") => Self::LibraryMap,
-            Some((_, Some(ext)))
-                if ["vh", "svh", "svi"].iter().any(|header| ext.eq_ignore_ascii_case(header)) =>
-            {
-                Self::IncludeHeader
-            }
-            _ => Self::SystemVerilog,
-        }
-    }
-
-    pub(crate) fn is_semantic_compilation_unit(self) -> bool {
-        matches!(self, Self::SystemVerilog | Self::LibraryMap)
-    }
-
-    fn is_slang_parse_unit(self) -> bool {
-        matches!(self, Self::SystemVerilog | Self::LibraryMap)
-    }
 }
 
 fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
