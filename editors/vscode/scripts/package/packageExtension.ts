@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { type PackageContext, createPackageContext } from './context';
 import {
   restorePackageJson,
+  stageDistFilesForTarget,
   stageProfileTraceAssets,
   stagePackageJsonForTarget,
   syncReadmeFromRepoRoot,
@@ -25,7 +26,13 @@ export function packageExtension(
 
   if (plan.targetSpec.kind === 'web') {
     cleanRuntimeServerFiles(context);
-    runVscePackage(context, plan);
+    stageDistFilesForTarget(context, plan);
+    const originalPackageJson = stagePackageJsonForTarget(context, plan);
+    try {
+      runVscePackage(context, plan);
+    } finally {
+      restorePackageJson(context, originalPackageJson);
+    }
     return path.join(context.vscodeDir, plan.vsixFile);
   }
 
@@ -38,6 +45,7 @@ export function packageExtension(
   );
   cleanRuntimeServerFiles(context);
   const runtimeServerPath = stageRuntimeServer(context, targetServerPath, plan.targetSpec);
+  stageDistFilesForTarget(context, plan);
   const originalPackageJson = stagePackageJsonForTarget(context, plan);
 
   try {

@@ -8,6 +8,7 @@ import type { PackageContext } from '../scripts/package/context';
 import { parsePackageCliArgs } from '../scripts/package/cli';
 import {
   restorePackageJson,
+  stageDistFilesForTarget,
   stagePackageJsonForTarget,
   stageProfileTraceAssets,
 } from '../scripts/package/manifest';
@@ -86,6 +87,90 @@ describe('package staging', () => {
       fs.readFileSync(path.join(context.vscodeDir, 'package.json'), 'utf8'),
       /vide\.profileDiagnostics/,
     );
+  });
+
+  it('removes desktop entry points from web packages', () => {
+    const context = temporaryPackageContext();
+    fs.writeFileSync(
+      path.join(context.vscodeDir, 'package.json'),
+      `${JSON.stringify(
+        {
+          main: './dist/extension.js',
+          browser: './dist/browser/extension.js',
+          contributes: {
+            commands: [
+              { command: 'vide.profileDiagnostics' },
+              { command: 'vide.showOutput' },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const plan = createPackagePlan({
+      target: 'web',
+      profile: 'release',
+      serverMode: 'build',
+    });
+    const originalPackageJson = stagePackageJsonForTarget(context, plan);
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(context.vscodeDir, 'package.json'), 'utf8'),
+    ) as {
+      main?: unknown;
+      browser?: unknown;
+      contributes?: { commands?: Array<{ command?: unknown }> };
+    };
+
+    assert.equal(packageJson.main, undefined);
+    assert.equal(packageJson.browser, './dist/browser/extension.js');
+    assert.deepEqual(packageJson.contributes?.commands, [{ command: 'vide.showOutput' }]);
+
+    restorePackageJson(context, originalPackageJson);
+    const restored = fs.readFileSync(path.join(context.vscodeDir, 'package.json'), 'utf8');
+    assert.match(restored, /"main"/);
+    assert.match(restored, /vide\.profileDiagnostics/);
+  });
+
+  it('removes stale desktop bundle from web packages', () => {
+    const context = temporaryPackageContext();
+    const nodeBundle = path.join(context.vscodeDir, 'dist', 'extension.js');
+    const browserBundle = path.join(context.vscodeDir, 'dist', 'browser', 'extension.js');
+    fs.mkdirSync(path.dirname(nodeBundle), { recursive: true });
+    fs.mkdirSync(path.dirname(browserBundle), { recursive: true });
+    fs.writeFileSync(nodeBundle, '');
+    fs.writeFileSync(browserBundle, '');
+
+    const plan = createPackagePlan({
+      target: 'web',
+      profile: 'release',
+      serverMode: 'build',
+    });
+    stageDistFilesForTarget(context, plan);
+
+    assert.equal(fs.existsSync(nodeBundle), false);
+    assert.equal(fs.existsSync(browserBundle), true);
+  });
+
+  it('removes stale browser bundle from native packages', () => {
+    const context = temporaryPackageContext();
+    const nodeBundle = path.join(context.vscodeDir, 'dist', 'extension.js');
+    const browserBundle = path.join(context.vscodeDir, 'dist', 'browser', 'extension.js');
+    fs.mkdirSync(path.dirname(nodeBundle), { recursive: true });
+    fs.mkdirSync(path.dirname(browserBundle), { recursive: true });
+    fs.writeFileSync(nodeBundle, '');
+    fs.writeFileSync(browserBundle, '');
+
+    const plan = createPackagePlan({
+      target: 'linux-x64',
+      profile: 'release',
+      serverMode: 'build',
+    });
+    stageDistFilesForTarget(context, plan);
+
+    assert.equal(fs.existsSync(nodeBundle), true);
+    assert.equal(fs.existsSync(browserBundle), false);
   });
 
   it('removes stale profile trace assets when profile trace is disabled', () => {
