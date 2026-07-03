@@ -1,7 +1,5 @@
-import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { promisify } from 'node:util';
 
 import * as vscode from 'vscode';
 import {
@@ -10,7 +8,7 @@ import {
 } from 'vscode-languageclient/node';
 
 import { registerDiagnosticActions } from './diagnosticActions';
-import { profileDiagnosticsCommand, registerProfilingCommand } from './profiling';
+import { profileDiagnosticsCommand } from './profiling';
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
   PROJECT_CONFIG_FILE_NAMES,
@@ -35,6 +33,12 @@ import {
   readConfiguration,
   resolveServerLaunch,
 } from './node/serverLaunch';
+import {
+  extensionBuildLabel,
+  isProfileTraceEnabled,
+} from './node/buildInfo';
+import { registerProfilingIntegration } from './node/profilingIntegration';
+import { showServerVersion } from './node/serverVersion';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
@@ -42,7 +46,6 @@ let qiheOutputChannel: vscode.OutputChannel | undefined;
 let videStatusController: VideStatusController | undefined;
 let qiheStatusBarItem: vscode.StatusBarItem | undefined;
 
-const execFileAsync = promisify(execFile);
 const restartServerCommand = 'vide.restartServer';
 const showServerVersionCommand = 'vide.showServerVersion';
 const showQiheOutputCommand = 'vide.showQiheOutput';
@@ -54,14 +57,6 @@ const qiheAnalysisIcon = '$(beaker)';
 // Output channel names are stable identifiers in the Output view.
 const languageServerOutputChannelName = 'Vide Language Server';
 const qiheOutputChannelName = 'Vide Qihe';
-const versionTimeoutMs = 5000;
-
-interface ExtensionBuildInfo {
-  kind?: string;
-  commitHash?: string;
-  buildDate?: string;
-  profileTrace?: boolean;
-}
 
 const activeQiheTokens = new Set<string>();
 const qiheProgressNotifications = new Map<string, { resolve: () => void }>();
@@ -97,34 +92,6 @@ function showOutput(): void {
 
 function showQiheOutput(): void {
   requireQiheOutputChannel().show(true);
-}
-
-function extensionVersion(context: vscode.ExtensionContext): string {
-  const packageJson = context.extension.packageJSON as { version?: unknown };
-  return typeof packageJson.version === 'string' && packageJson.version.length > 0
-    ? packageJson.version
-    : 'unknown';
-}
-
-function extensionBuildInfo(context: vscode.ExtensionContext): ExtensionBuildInfo | undefined {
-  const buildInfoPath = path.join(context.extensionPath, 'build-info.json');
-  if (!fs.existsSync(buildInfoPath)) {
-    return undefined;
-  }
-  return JSON.parse(fs.readFileSync(buildInfoPath, 'utf8')) as ExtensionBuildInfo;
-}
-
-function extensionBuildLabel(context: vscode.ExtensionContext): string {
-  const version = extensionVersion(context);
-  const buildInfo = extensionBuildInfo(context);
-  const details = [buildInfo?.kind, buildInfo?.commitHash, buildInfo?.buildDate].filter(
-    (part): part is string => typeof part === 'string' && part.length > 0,
-  );
-  return details.length > 0 ? `${version} (${details.join(', ')})` : version;
-}
-
-function isProfileTraceEnabled(context: vscode.ExtensionContext): boolean {
-  return extensionBuildInfo(context)?.profileTrace === true;
 }
 
 async function showLanguageServerErrorMessage(message: string): Promise<void> {
@@ -547,37 +514,6 @@ async function restartClient(context: vscode.ExtensionContext): Promise<void> {
   await startClient(context);
 }
 
-async function showServerVersion(context: vscode.ExtensionContext): Promise<void> {
-  try {
-    const config = readConfiguration();
-    const launch = resolveServerLaunch(context, config, log);
-    const versionArgs = [...launch.args, '--version'];
-    log(`[INFO] Checking server version: ${launch.command} ${versionArgs.join(' ')}`);
-    const { stdout, stderr } = await execFileAsync(launch.command, versionArgs, {
-      cwd: launch.cwd,
-      env: createServerEnv(),
-      timeout: versionTimeoutMs,
-    });
-    const output = `${stdout}${stderr}`.trim() || vscode.l10n.t('No version output');
-    const firstLine = output.split(/\r?\n/, 1)[0] ?? output;
-    log(`[INFO] Server version output:\n${output}`);
-    vscode.window.showInformationMessage(
-      vscode.l10n.t(
-        'Vide extension: {0}; server: {1}',
-        extensionBuildLabel(context),
-        firstLine,
-      ),
-    );
-  } catch (error) {
-    const message = vscode.l10n.t(
-      'Failed to query Vide server version: {0}',
-      (error as Error).message,
-    );
-    log(`[ERROR] ${message}`);
-    await showLanguageServerErrorMessage(message);
-  }
-}
-
 async function reloadWorkspace(): Promise<void> {
   if (!client) {
     await showLanguageServerErrorMessage(vscode.l10n.t('Vide language server is not running.'));
@@ -717,7 +653,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     showServerVersionCommand,
     async () => {
       log('[INFO] Server version command triggered');
-      await showServerVersion(context);
+      await showServerVersion(context, { log, showLanguageServerErrorMessage });
     },
   );
   context.subscriptions.push(showVersionRegistration);
@@ -737,13 +673,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  if (profileTraceEnabled) {
-    context.subscriptions.push(
-      registerProfilingCommand(context, {
-        resolveLaunch: () => resolveServerLaunch(context, readConfiguration(), log),
-        createEnv: createServerEnv,
-      }),
-    );
+  const profilingRegistration = registerProfilingIntegration(context, {
+    enabled: profileTraceEnabled,
+    log,
+  });
+  if (profilingRegistration) {
+    context.subscriptions.push(profilingRegistration);
   }
 
   const reloadWorkspaceRegistration = vscode.commands.registerCommand(
