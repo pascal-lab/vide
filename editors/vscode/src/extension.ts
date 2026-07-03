@@ -16,7 +16,6 @@ import {
   PROJECT_SOURCE_FILE_GLOB,
   getProjectConfigPath,
 } from './projectConfig';
-import { registerQiheOptionsCommand } from './qiheOptions';
 import {
   projectStatusNotification,
   reloadWorkspaceCommand,
@@ -39,35 +38,20 @@ import {
 } from './node/buildInfo';
 import { registerProfilingIntegration } from './node/profilingIntegration';
 import { showServerVersion } from './node/serverVersion';
+import { QiheController } from './node/qihe';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
-let qiheOutputChannel: vscode.OutputChannel | undefined;
 let videStatusController: VideStatusController | undefined;
-let qiheStatusBarItem: vscode.StatusBarItem | undefined;
+let qiheController: QiheController | undefined;
 
 const restartServerCommand = 'vide.restartServer';
 const showServerVersionCommand = 'vide.showServerVersion';
-const showQiheOutputCommand = 'vide.showQiheOutput';
-const runQiheAnalysisCommand = 'vide.runQiheAnalysis';
-const runQiheAnalysisRequest = 'vide.server.runQiheAnalysis';
-const qiheStatusNotification = 'vide/qiheStatus';
-const qiheLogNotification = 'vide/qiheLog';
-const qiheAnalysisIcon = '$(beaker)';
 // Output channel names are stable identifiers in the Output view.
 const languageServerOutputChannelName = 'Vide Language Server';
-const qiheOutputChannelName = 'Vide Qihe';
-
-const activeQiheTokens = new Set<string>();
-const qiheProgressNotifications = new Map<string, { resolve: () => void }>();
-let qiheStatusHideTimer: NodeJS.Timeout | undefined;
 
 function log(message: string): void {
   outputChannel?.appendLine(message);
-}
-
-function logQihe(message: string): void {
-  qiheOutputChannel?.appendLine(message);
 }
 
 function requireOutputChannel(): vscode.OutputChannel {
@@ -78,20 +62,8 @@ function requireOutputChannel(): vscode.OutputChannel {
   return outputChannel;
 }
 
-function requireQiheOutputChannel(): vscode.OutputChannel {
-  if (!qiheOutputChannel) {
-    throw new Error(vscode.l10n.t('Vide Qihe output channel has not been initialized.'));
-  }
-
-  return qiheOutputChannel;
-}
-
 function showOutput(): void {
   requireOutputChannel().show(true);
-}
-
-function showQiheOutput(): void {
-  requireQiheOutputChannel().show(true);
 }
 
 async function showLanguageServerErrorMessage(message: string): Promise<void> {
@@ -102,152 +74,8 @@ async function showLanguageServerErrorMessage(message: string): Promise<void> {
   }
 }
 
-async function showQiheErrorMessage(message: string): Promise<void> {
-  const showOutputAction = vscode.l10n.t('Show Qihe Output');
-  const selection = await vscode.window.showErrorMessage(message, showOutputAction);
-  if (selection === showOutputAction) {
-    showQiheOutput();
-  }
-}
-
 function updateServerStatus(status: ServerStatus, detail?: string): void {
   videStatusController?.updateServerStatus(status, detail);
-}
-
-function clearQiheStatusHideTimer(): void {
-  if (!qiheStatusHideTimer) {
-    return;
-  }
-
-  clearTimeout(qiheStatusHideTimer);
-  qiheStatusHideTimer = undefined;
-}
-
-function updateQiheStatus(
-  tooltip: string,
-  hideAfterMs?: number,
-  command: string | vscode.Command = runQiheAnalysisCommand,
-): void {
-  if (!qiheStatusBarItem) {
-    return;
-  }
-
-  clearQiheStatusHideTimer();
-  qiheStatusBarItem.text = `${qiheAnalysisIcon} Qihe`;
-  qiheStatusBarItem.tooltip = tooltip;
-  qiheStatusBarItem.command = command;
-  qiheStatusBarItem.show();
-
-  if (!hideAfterMs) {
-    return;
-  }
-
-  qiheStatusHideTimer = setTimeout(() => {
-    qiheStatusBarItem?.hide();
-    qiheStatusHideTimer = undefined;
-  }, hideAfterMs);
-}
-
-function createQiheStatusBarItem(): vscode.StatusBarItem {
-  const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  item.name = vscode.l10n.t('Qihe Analysis Status');
-  item.command = runQiheAnalysisCommand;
-  item.hide();
-  return item;
-}
-
-function startQiheNotification(token: string, message?: string): void {
-  if (qiheProgressNotifications.has(token)) {
-    return;
-  }
-
-  let resolveProgress = () => {};
-  const progressPromise = new Promise<void>((resolve) => {
-    resolveProgress = resolve;
-  });
-
-  qiheProgressNotifications.set(token, { resolve: resolveProgress });
-
-  void vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: vscode.l10n.t('Running Qihe analysis'),
-    },
-    async (progress) => {
-      if (message) {
-        progress.report({ message });
-      }
-      await progressPromise;
-    },
-  );
-}
-
-function finishQiheNotification(token: string): void {
-  const entry = qiheProgressNotifications.get(token);
-  if (!entry) {
-    return;
-  }
-
-  qiheProgressNotifications.delete(token);
-  entry.resolve();
-}
-
-function registerQiheNotifications(languageClient: LanguageClient): void {
-  languageClient.onNotification(
-    qiheLogNotification,
-    (params: { token?: unknown; message?: unknown }) => {
-      const message =
-        typeof params.message === 'string' ? params.message : undefined;
-
-      if (!message) {
-        return;
-      }
-
-      logQihe(message);
-    },
-  );
-
-  languageClient.onNotification(
-    qiheStatusNotification,
-    (params: { token?: unknown; state?: unknown; message?: unknown }) => {
-      const token =
-        typeof params.token === 'string' ? params.token : undefined;
-      const state =
-        typeof params.state === 'string' ? params.state : undefined;
-      const message =
-        typeof params.message === 'string' ? params.message : undefined;
-
-      if (!token || !state) {
-        return;
-      }
-
-      switch (state) {
-        case 'begin':
-          activeQiheTokens.add(token);
-          updateQiheStatus(message ?? vscode.l10n.t('Qihe analysis is running'));
-          startQiheNotification(token, message);
-          break;
-        case 'end':
-          activeQiheTokens.delete(token);
-          finishQiheNotification(token);
-          if (activeQiheTokens.size === 0) {
-            updateQiheStatus(message ?? vscode.l10n.t('Qihe analysis finished'), 4000);
-          }
-          break;
-        case 'failed':
-          activeQiheTokens.delete(token);
-          finishQiheNotification(token);
-          if (activeQiheTokens.size === 0) {
-            const failureMessage = message ?? vscode.l10n.t('Qihe analysis failed');
-            updateQiheStatus(failureMessage, 6000, showQiheOutputCommand);
-            void showQiheErrorMessage(failureMessage);
-          }
-          break;
-        default:
-          break;
-      }
-    },
-  );
 }
 
 function registerProjectStatusNotifications(languageClient: LanguageClient): void {
@@ -473,7 +301,7 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
     log('[INFO] Starting language server...');
     client = await createClient(context);
     registerProjectStatusNotifications(client);
-    registerQiheNotifications(client);
+    qiheController?.registerNotifications(client);
     await client.start();
     log('[INFO] Language server started successfully');
     updateServerStatus('ready');
@@ -535,62 +363,6 @@ async function reloadWorkspace(): Promise<void> {
   }
 }
 
-async function runQiheAnalysis(resource: unknown): Promise<void> {
-  const targetUri = qiheAnalysisTargetUri(resource);
-  if (!targetUri) {
-    vscode.window.showWarningMessage(vscode.l10n.t('Open a Verilog or SystemVerilog file first.'));
-    return;
-  }
-
-  if (!isQiheSourceUri(targetUri)) {
-    vscode.window.showWarningMessage(
-      vscode.l10n.t('Qihe analysis is only available for Verilog files.'),
-    );
-    return;
-  }
-
-  if (!client) {
-    await showLanguageServerErrorMessage(vscode.l10n.t('Vide language server is not running.'));
-    return;
-  }
-
-  const workspaceFolder = vscode.workspace.getWorkspaceFolder(targetUri);
-  const payload = {
-    uri: targetUri.toString(),
-    cwd: workspaceFolder?.uri.fsPath,
-  };
-
-  const target = workspaceFolder
-    ? `workspace ${workspaceFolder.uri.fsPath}`
-    : `file ${targetUri.fsPath}`;
-  logQihe(`[INFO] Starting Qihe analysis for ${target}`);
-
-  try {
-    await client.sendRequest('workspace/executeCommand', {
-      command: runQiheAnalysisRequest,
-      arguments: [payload],
-    });
-  } catch (error) {
-    const message = vscode.l10n.t('Failed to run Qihe analysis: {0}', (error as Error).message);
-    log(`[ERROR] ${message}`);
-    await showLanguageServerErrorMessage(message);
-  }
-}
-
-function qiheAnalysisTargetUri(resource: unknown): vscode.Uri | undefined {
-  if (resource instanceof vscode.Uri) {
-    return resource;
-  }
-  return vscode.window.activeTextEditor?.document.uri;
-}
-
-function isQiheSourceUri(uri: vscode.Uri): boolean {
-  if (uri.scheme !== 'file') {
-    return false;
-  }
-  return ['.v', '.vh', '.sv', '.svh', '.svi'].includes(path.extname(uri.fsPath).toLowerCase());
-}
-
 function affectsServerLaunchConfiguration(event: vscode.ConfigurationChangeEvent): boolean {
   return (
     event.affectsConfiguration('vide.server.command') ||
@@ -604,8 +376,12 @@ function affectsServerLaunchConfiguration(event: vscode.ConfigurationChangeEvent
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel(languageServerOutputChannelName);
   context.subscriptions.push(outputChannel);
-  qiheOutputChannel = vscode.window.createOutputChannel(qiheOutputChannelName);
-  context.subscriptions.push(qiheOutputChannel);
+  qiheController = new QiheController({
+    getClient: () => client,
+    logLanguageServer: log,
+    showLanguageServerErrorMessage,
+  });
+  qiheController.register(context);
   const profileTraceEnabled = isProfileTraceEnabled(context);
   videStatusController = new VideStatusController({
     createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
@@ -620,8 +396,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     log,
   });
   context.subscriptions.push(videStatusController);
-  qiheStatusBarItem = createQiheStatusBarItem();
-  context.subscriptions.push(qiheStatusBarItem);
   updateServerStatus('stopped');
 
   log('[INFO] Vide extension activating...');
@@ -634,11 +408,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     showOutput();
   });
   context.subscriptions.push(showOutputRegistration);
-
-  const showQiheOutputRegistration = vscode.commands.registerCommand(showQiheOutputCommand, () => {
-    showQiheOutput();
-  });
-  context.subscriptions.push(showQiheOutputRegistration);
 
   const restartCommandRegistration = vscode.commands.registerCommand(
     restartServerCommand,
@@ -657,21 +426,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
   context.subscriptions.push(showVersionRegistration);
-
-  const runQiheRegistration = vscode.commands.registerCommand(
-    runQiheAnalysisCommand,
-    async (resource) => {
-      await runQiheAnalysis(resource);
-    },
-  );
-  context.subscriptions.push(runQiheRegistration);
-
-  context.subscriptions.push(
-    registerQiheOptionsCommand({
-      logQihe,
-      showQiheErrorMessage,
-    }),
-  );
 
   const profilingRegistration = registerProfilingIntegration(context, {
     enabled: profileTraceEnabled,
@@ -726,12 +480,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export async function deactivate(): Promise<void> {
-  clearQiheStatusHideTimer();
-  for (const { resolve } of qiheProgressNotifications.values()) {
-    resolve();
-  }
-  qiheProgressNotifications.clear();
-  activeQiheTokens.clear();
+  qiheController?.dispose();
+  qiheController = undefined;
 
   if (outputChannel) {
     log('[INFO] Vide extension deactivating...');
