@@ -9,7 +9,6 @@ import {
   type MessageTransports,
 } from "vscode-languageclient/browser";
 
-import { videInitializationOptions } from "../../../../packages/vide-extension-shared/src/config/initialization-options";
 import type {
   LspTraceEntry,
   WorkerRequest,
@@ -20,6 +19,7 @@ import {
   BROWSER_WORKSPACE_FOLDER_NAME,
   type BrowserWorkspaceSnapshot,
 } from "./workspaceSnapshot";
+import { serverInitializationOptions } from "../common/initializationOptions";
 import { createProvideExpandedRenameEdits } from "../common/renameMiddleware";
 
 const CLIENT_DISPOSED_MESSAGE = "Vide browser client has been disposed.";
@@ -137,7 +137,7 @@ export class VideBrowserClient {
         name: BROWSER_WORKSPACE_FOLDER_NAME,
         uri: vscode.Uri.parse(this.snapshot.rootUri),
       },
-      initializationOptions: videInitializationOptions(
+      initializationOptions: serverInitializationOptions(
         vscode.workspace.getConfiguration("vide"),
       ),
       diagnosticPullOptions: {

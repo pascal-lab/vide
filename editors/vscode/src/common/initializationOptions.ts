@@ -1,5 +1,8 @@
-import { USER_CONFIG_SETTINGS } from './generated/configuration';
-import type { ConfigurationReader } from './qiheCommand';
+import { USER_CONFIG_SETTINGS } from '../generated/configuration';
+
+export type ConfigurationReader = {
+  get<T>(section: string): T | undefined;
+};
 
 function setting<T>(config: ConfigurationReader, section: string, fallback: T): T {
   return config.get<T>(section) ?? fallback;

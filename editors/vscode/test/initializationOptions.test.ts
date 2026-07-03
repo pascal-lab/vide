@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   diagnosticsProfilingInitializationOptions,
   serverInitializationOptions,
-} from '../src/initializationOptions';
+} from '../src/common/initializationOptions';
 import { USER_CONFIG_SETTINGS } from '../src/generated/configuration';
 import { resolvedQiheCommand } from '../src/qiheCommand';
 

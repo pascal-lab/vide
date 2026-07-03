@@ -4,7 +4,7 @@ import {
   RevealOutputChannelOn,
 } from 'vscode-languageclient';
 
-import { serverInitializationOptions } from '../initializationOptions';
+import { serverInitializationOptions } from './initializationOptions';
 
 type ClientMiddleware = NonNullable<LanguageClientOptions['middleware']>;
 
