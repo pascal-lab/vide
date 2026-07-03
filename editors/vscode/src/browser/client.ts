@@ -19,8 +19,8 @@ import {
   BROWSER_WORKSPACE_FOLDER_NAME,
   type BrowserWorkspaceSnapshot,
 } from "./workspaceSnapshot";
+import { createVideClientOptionsCore } from "../common/clientOptionsCore";
 import { createVideDocumentSelector } from "../common/documentSelector";
-import { serverInitializationOptions } from "../common/initializationOptions";
 import { createProvideExpandedRenameEdits } from "../common/renameMiddleware";
 
 const CLIENT_DISPOSED_MESSAGE = "Vide browser client has been disposed.";
@@ -127,17 +127,19 @@ export class VideBrowserClient {
       () => this.requireLanguageClient(),
       (message) => this.onLog(message, "warn"),
     );
+    const coreOptions = createVideClientOptionsCore({
+      documentSelector: createVideDocumentSelector(),
+      configuration: vscode.workspace.getConfiguration("vide"),
+      provideRenameEdits,
+    });
 
     return {
-      documentSelector: createVideDocumentSelector(),
+      ...coreOptions,
       workspaceFolder: {
         index: 0,
         name: BROWSER_WORKSPACE_FOLDER_NAME,
         uri: vscode.Uri.parse(this.snapshot.rootUri),
       },
-      initializationOptions: serverInitializationOptions(
-        vscode.workspace.getConfiguration("vide"),
-      ),
       diagnosticPullOptions: {
         onChange: false,
         onSave: false,
@@ -151,10 +153,10 @@ export class VideBrowserClient {
         closed: () => ({ action: CloseAction.DoNotRestart }),
       },
       middleware: {
+        ...coreOptions.middleware,
         handleDiagnostics: (uri, diagnostics, next) => {
           next(uri, diagnostics);
         },
-        provideRenameEdits,
         workspace: {
           configuration: () => [],
         },

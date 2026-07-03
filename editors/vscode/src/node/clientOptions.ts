@@ -4,8 +4,8 @@ import {
   RevealOutputChannelOn,
 } from 'vscode-languageclient';
 
+import { createVideClientOptionsCore } from '../common/clientOptionsCore';
 import { fileDocumentSelector } from '../common/documentSelector';
-import { serverInitializationOptions } from '../common/initializationOptions';
 
 type ClientMiddleware = NonNullable<LanguageClientOptions['middleware']>;
 
@@ -20,21 +20,26 @@ export function createNodeClientOptions({
   trace,
   provideRenameEdits,
 }: NodeClientOptionsParams): LanguageClientOptions {
-  return {
+  const coreOptions = createVideClientOptionsCore({
     documentSelector: fileDocumentSelector,
+    configuration: vscode.workspace.getConfiguration('vide'),
+    provideRenameEdits,
+  });
+
+  return {
+    ...coreOptions,
     synchronize: {
       configurationSection: ['vide'],
     },
     outputChannel,
     traceOutputChannel: outputChannel,
     revealOutputChannelOn: RevealOutputChannelOn.Never,
-    initializationOptions: serverInitializationOptions(vscode.workspace.getConfiguration('vide')),
     middleware: {
+      ...coreOptions.middleware,
       provideReferences: async (document, position, options, token, next) => {
         options.includeDeclaration = includeDeclarationInReferences(document);
         return await next(document, position, options, token);
       },
-      provideRenameEdits,
     },
     ...(trace !== 'off' && { trace }),
   };
