@@ -9,16 +9,14 @@ import {
   isProjectSourceFileName,
 } from "../projectConfigCommon";
 import {
-  projectStatusNotification,
   reloadWorkspaceCommand,
   showOutputCommand,
   showStatusCommand,
   VideStatusController,
 } from "../videStatus";
 import type { ServerStatus } from "../status";
-import { VideBrowserClient } from "./client";
+import { BrowserClientController } from "./clientController";
 import {
-  buildBrowserWorkspaceSnapshot,
   createProjectConfigAtRoot,
   shouldRestartForWatchedUri,
 } from "./workspaceSnapshot";
@@ -37,11 +35,9 @@ interface ExtensionBuildInfo {
   profileTrace?: boolean;
 }
 
-let client: VideBrowserClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 let videStatusController: VideStatusController | undefined;
-let restartChain: Promise<void> = Promise.resolve();
-let workspaceRestartTimer: ReturnType<typeof setTimeout> | undefined;
+let clientController: BrowserClientController | undefined;
 
 function log(message: string): void {
   outputChannel?.appendLine(message);
@@ -106,98 +102,7 @@ async function extensionBuildLabel(
   return details.length > 0 ? `${version} (${details.join(", ")})` : version;
 }
 
-async function startClient(context: vscode.ExtensionContext): Promise<void> {
-  updateServerStatus("starting");
-  log("[INFO] Building browser workspace snapshot...");
-
-  try {
-    const snapshot = await buildBrowserWorkspaceSnapshot(log);
-    const browserClient = new VideBrowserClient(context, snapshot);
-    client = browserClient;
-
-    browserClient.onStatus = (status) => {
-      if (client !== browserClient) {
-        return;
-      }
-      updateServerStatus(status.ready ? "ready" : "error", status.detail);
-    };
-    browserClient.onServerCapabilities = () => undefined;
-    browserClient.onLog = (message, level) => {
-      if (client !== browserClient) {
-        return;
-      }
-      log(`[${level.toUpperCase()}] ${message}`);
-    };
-    browserClient.onTrace = (entry) => {
-      if (client !== browserClient) {
-        return;
-      }
-      log(`[TRACE] ${entry.direction} ${entry.method} ${entry.detail}`);
-    };
-
-    browserClient.start();
-    browserClient.onNotification(projectStatusNotification, (params) => {
-      if (client !== browserClient) {
-        return;
-      }
-      videStatusController?.handleProjectNotification(params);
-    });
-    log("[INFO] Browser language client booted.");
-  } catch (error) {
-    client = undefined;
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to start the Vide browser extension.";
-    log(`[ERROR] ${message}`);
-    updateServerStatus("error", message);
-    await showLanguageServerErrorMessage(
-      vscode.l10n.t("Failed to start Vide Language Server: {0}", message),
-    );
-  }
-}
-
-async function stopClient(): Promise<void> {
-  if (!client) {
-    updateServerStatus("stopped");
-    return;
-  }
-
-  updateServerStatus("stopping");
-  client.dispose();
-  client = undefined;
-  updateServerStatus("stopped");
-}
-
-function queueRestart(
-  context: vscode.ExtensionContext,
-  reason: string,
-): Promise<void> {
-  restartChain = restartChain
-    .catch(() => undefined)
-    .then(async () => {
-      log(`[INFO] Restarting browser language client: ${reason}`);
-      await stopClient();
-      await startClient(context);
-    });
-  return restartChain;
-}
-
-function scheduleWorkspaceRestart(
-  context: vscode.ExtensionContext,
-  reason: string,
-): void {
-  if (workspaceRestartTimer) {
-    clearTimeout(workspaceRestartTimer);
-  }
-  workspaceRestartTimer = setTimeout(() => {
-    workspaceRestartTimer = undefined;
-    void queueRestart(context, reason);
-  }, 250);
-}
-
 async function createProjectConfigsFromRootUris(
-  context: vscode.ExtensionContext,
   rootUris: readonly string[],
 ): Promise<void> {
   const created: vscode.Uri[] = [];
@@ -205,7 +110,7 @@ async function createProjectConfigsFromRootUris(
     created.push(await createProjectConfigAtRoot(rootUri));
   }
 
-  await queueRestart(context, "project manifest created");
+  await clientController?.queueRestart("project manifest created");
 
   const action = vscode.l10n.t("Open Manifest");
   const selection = await vscode.window.showInformationMessage(
@@ -228,7 +133,7 @@ async function showServerVersion(
   context: vscode.ExtensionContext,
 ): Promise<void> {
   const buildLabel = await extensionBuildLabel(context);
-  const serverInfo = client?.initializeServerInfo();
+  const serverInfo = clientController?.initializeServerInfo();
   const serverLabel = serverInfo
     ? `${serverInfo.name ?? "Vide"} ${serverInfo.version ?? ""}`.trim()
     : "unavailable";
@@ -243,9 +148,7 @@ async function showUnavailableInBrowser(feature: string): Promise<void> {
   );
 }
 
-function registerWorkspaceWatchers(
-  context: vscode.ExtensionContext,
-): void {
+function registerWorkspaceWatchers(context: vscode.ExtensionContext): void {
   const sourceWatcher = vscode.workspace.createFileSystemWatcher(
     PROJECT_SOURCE_FILE_GLOB,
   );
@@ -268,7 +171,7 @@ function registerWorkspaceWatchers(
       return;
     }
     log(`[INFO] Workspace ${label}: ${uri.toString()}`);
-    scheduleWorkspaceRestart(context, `${label}: ${uri.toString()}`);
+    clientController?.scheduleRestart(`${label}: ${uri.toString()}`);
   };
 
   sourceWatcher.onDidCreate((uri) => handleSourceEvent(uri, "source created"));
@@ -291,16 +194,28 @@ export async function activate(
   const profileTraceEnabled = buildInfo?.profileTrace === true;
 
   videStatusController = new VideStatusController({
-    createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
+    createManifest: (rootUris) => createProjectConfigsFromRootUris(rootUris),
     profileDiagnostics: profileTraceEnabled
       ? () => showUnavailableInBrowser("Diagnostics profiling")
       : undefined,
-    reloadProject: () => queueRestart(context, "reload project"),
-    restartServer: () => queueRestart(context, "restart command"),
+    reloadProject: async () => {
+      await clientController?.queueRestart("reload project");
+    },
+    restartServer: async () => {
+      await clientController?.queueRestart("restart command");
+    },
     showOutput,
     log,
   });
   context.subscriptions.push(videStatusController);
+  clientController = new BrowserClientController(context, {
+    log,
+    updateServerStatus,
+    showLanguageServerErrorMessage,
+    handleProjectStatusNotification: (params) => {
+      videStatusController?.handleProjectNotification(params);
+    },
+  });
   updateServerStatus("stopped");
 
   log("[INFO] Vide browser extension activating...");
@@ -313,10 +228,10 @@ export async function activate(
       await videStatusController?.show();
     }),
     vscode.commands.registerCommand(restartServerCommand, async () => {
-      await queueRestart(context, "restart command");
+      await clientController?.queueRestart("restart command");
     }),
     vscode.commands.registerCommand(reloadWorkspaceCommand, async () => {
-      await queueRestart(context, "reload project command");
+      await clientController?.queueRestart("reload project command");
     }),
     vscode.commands.registerCommand(showServerVersionCommand, async () => {
       await showServerVersion(context);
@@ -342,19 +257,16 @@ export async function activate(
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration("vide")) {
-        scheduleWorkspaceRestart(context, "Vide configuration changed");
+        clientController?.scheduleRestart("Vide configuration changed");
       }
     }),
   );
 
-  await queueRestart(context, "activation");
+  await clientController.queueRestart("activation");
   log("[INFO] Vide browser extension activated.");
 }
 
 export async function deactivate(): Promise<void> {
-  if (workspaceRestartTimer) {
-    clearTimeout(workspaceRestartTimer);
-    workspaceRestartTimer = undefined;
-  }
-  await stopClient();
+  await clientController?.stop();
+  clientController = undefined;
 }
