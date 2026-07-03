@@ -16,6 +16,7 @@ import {
 } from "../videStatus";
 import type { ServerStatus } from "../status";
 import { BrowserClientController } from "./clientController";
+import { affectsBrowserClientConfiguration } from "./configuration";
 import {
   createProjectConfigAtRoot,
   shouldRestartForWatchedUri,
@@ -256,7 +257,7 @@ export async function activate(
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("vide")) {
+      if (affectsBrowserClientConfiguration(event)) {
         clientController?.scheduleRestart("Vide configuration changed");
       }
     }),
