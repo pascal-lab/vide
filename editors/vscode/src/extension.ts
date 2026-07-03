@@ -29,7 +29,7 @@ import {
 } from './videStatus';
 import type { ServerStatus } from './status';
 import { createNodeClientOptions } from './common/clientOptions';
-import { createProvideExpandedRenameEdits } from './node/renameMiddleware';
+import { createProvideExpandedRenameEdits } from './common/renameMiddleware';
 import {
   createServerEnv,
   readConfiguration,
@@ -485,7 +485,10 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
   const clientOptions = createNodeClientOptions({
     outputChannel: channel,
     trace: config.trace,
-    provideRenameEdits: createProvideExpandedRenameEdits(() => client, log),
+    provideRenameEdits: createProvideExpandedRenameEdits(
+      () => client,
+      (message) => log(`[WARN] ${message}`),
+    ),
   });
 
   log('[INFO] Creating LanguageClient instance...');

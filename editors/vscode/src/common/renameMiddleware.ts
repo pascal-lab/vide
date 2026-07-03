@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
-import type { LanguageClient, LanguageClientOptions } from 'vscode-languageclient/node';
+import type { LanguageClientOptions } from 'vscode-languageclient';
 
-type Logger = (message: string) => void;
 type ClientMiddleware = NonNullable<LanguageClientOptions['middleware']>;
 
 const renameExpansionInfoRequest = 'vide.server.renameExpansionInfo';
@@ -16,9 +15,27 @@ type RenameConflictInfo = {
   conflicts: number;
 };
 
+export type RenameMiddlewareClient = {
+  code2ProtocolConverter: {
+    asTextDocumentIdentifier(document: vscode.TextDocument): unknown;
+    asPosition(position: vscode.Position): unknown;
+  };
+  protocol2CodeConverter: {
+    asWorkspaceEdit(
+      edit: never,
+      token: vscode.CancellationToken,
+    ): Promise<vscode.WorkspaceEdit>;
+  };
+  sendRequest<T>(
+    method: string,
+    params: unknown,
+    token: vscode.CancellationToken,
+  ): Promise<T>;
+};
+
 export function createProvideExpandedRenameEdits(
-  getClient: () => LanguageClient | undefined,
-  log: Logger,
+  getClient: () => RenameMiddlewareClient | undefined,
+  warn: (message: string) => void,
 ): NonNullable<ClientMiddleware['provideRenameEdits']> {
   return async (document, position, newName, token, next) => {
     const languageClient = getClient();
@@ -57,7 +74,7 @@ export function createProvideExpandedRenameEdits(
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log(`[WARN] Falling back to standard rename: ${message}`);
+      warn(`Falling back to standard rename: ${message}`);
     }
 
     if (!info || info.additionalSymbols === 0) {
@@ -112,7 +129,7 @@ function emptyRenameEdit(): vscode.WorkspaceEdit {
 }
 
 async function confirmRenameCollision(
-  languageClient: LanguageClient,
+  languageClient: RenameMiddlewareClient,
   textDocumentPosition: unknown,
   newName: string,
   recursive: boolean,
