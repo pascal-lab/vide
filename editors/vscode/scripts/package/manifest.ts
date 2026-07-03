@@ -32,17 +32,16 @@ export function stagePackageJsonForTarget(
   context: PackageContext,
   plan: PackagePlan,
 ): string | undefined {
-  if (!plan.targetSpec.removeBrowserEntry && plan.profileTrace) {
-    return undefined;
-  }
-
   const packagePath = packageJsonPath(context);
   const originalPackageJson = fs.readFileSync(packagePath, 'utf8');
   const packageJson = JSON.parse(originalPackageJson) as {
+    main?: unknown;
     browser?: unknown;
     contributes?: { commands?: Array<{ command?: unknown }> };
   };
-  if (plan.targetSpec.removeBrowserEntry) {
+  if (plan.targetSpec.kind === 'web') {
+    delete packageJson.main;
+  } else if (plan.targetSpec.removeBrowserEntry) {
     delete packageJson.browser;
   }
   if (!plan.profileTrace) {
@@ -53,6 +52,16 @@ export function stagePackageJsonForTarget(
   }
   fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
   return originalPackageJson;
+}
+
+export function stageDistFilesForTarget(context: PackageContext, plan: PackagePlan): void {
+  const distDir = path.join(context.vscodeDir, 'dist');
+  if (plan.targetSpec.kind === 'web') {
+    fs.rmSync(path.join(distDir, 'extension.js'), { force: true });
+    return;
+  }
+
+  fs.rmSync(path.join(distDir, 'browser'), { recursive: true, force: true });
 }
 
 export function stageProfileTraceAssets(context: PackageContext, plan: PackagePlan): void {
