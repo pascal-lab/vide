@@ -4,8 +4,8 @@ import {
   RevealOutputChannelOn,
 } from 'vscode-languageclient';
 
-import { fileDocumentSelector } from './documentSelector';
-import { serverInitializationOptions } from './initializationOptions';
+import { fileDocumentSelector } from '../common/documentSelector';
+import { serverInitializationOptions } from '../common/initializationOptions';
 
 type ClientMiddleware = NonNullable<LanguageClientOptions['middleware']>;
 

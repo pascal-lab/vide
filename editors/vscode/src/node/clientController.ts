@@ -4,7 +4,6 @@ import {
   type ServerOptions,
 } from 'vscode-languageclient/node';
 
-import { createNodeClientOptions } from '../common/clientOptions';
 import { createProvideExpandedRenameEdits } from '../common/renameMiddleware';
 import {
   projectStatusNotification,
@@ -16,6 +15,7 @@ import {
   readConfiguration,
   resolveServerLaunch,
 } from './serverLaunch';
+import { createNodeClientOptions } from './clientOptions';
 
 type Logger = (message: string) => void;
 
