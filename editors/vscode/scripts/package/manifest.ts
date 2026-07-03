@@ -58,6 +58,7 @@ export function stageDistFilesForTarget(context: PackageContext, plan: PackagePl
   const distDir = path.join(context.vscodeDir, 'dist');
   if (plan.targetSpec.kind === 'web') {
     fs.rmSync(path.join(distDir, 'extension.js'), { force: true });
+    fs.rmSync(path.join(distDir, 'node'), { recursive: true, force: true });
     return;
   }
 
