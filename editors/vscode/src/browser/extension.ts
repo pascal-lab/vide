@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 import { registerDiagnosticActions } from "../diagnosticActions";
+import { createVideCodeDocumentSelector } from "../common/documentSelector";
 import {
   PROJECT_CONFIG_FILE_NAME,
   PROJECT_SOURCE_FILE_GLOB,
@@ -335,7 +336,7 @@ export async function activate(
     );
   }
 
-  registerDiagnosticActions(context);
+  registerDiagnosticActions(context, createVideCodeDocumentSelector());
   registerWorkspaceWatchers(context);
 
   context.subscriptions.push(

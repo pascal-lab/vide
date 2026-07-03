@@ -19,6 +19,7 @@ import {
   BROWSER_WORKSPACE_FOLDER_NAME,
   type BrowserWorkspaceSnapshot,
 } from "./workspaceSnapshot";
+import { createVideDocumentSelector } from "../common/documentSelector";
 import { serverInitializationOptions } from "../common/initializationOptions";
 import { createProvideExpandedRenameEdits } from "../common/renameMiddleware";
 
@@ -128,10 +129,7 @@ export class VideBrowserClient {
     );
 
     return {
-      documentSelector: [
-        { language: "verilog" },
-        { language: "systemverilog" },
-      ],
+      documentSelector: createVideDocumentSelector(),
       workspaceFolder: {
         index: 0,
         name: BROWSER_WORKSPACE_FOLDER_NAME,

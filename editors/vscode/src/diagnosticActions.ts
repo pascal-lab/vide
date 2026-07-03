@@ -7,6 +7,7 @@ import {
   type DiagnosticRuleTarget,
   upsertDiagnosticRule,
 } from './diagnosticRules';
+import { fileCodeDocumentSelector } from './common/documentSelector';
 
 export const configureDiagnosticRuleCommand = 'vide.configureDiagnosticRule';
 
@@ -17,12 +18,11 @@ interface ConfigureDiagnosticRuleArgs {
 }
 
 const diagnosticRulesSetting = 'diagnostics.slang.rules';
-const documentSelector: vscode.DocumentSelector = [
-  { scheme: 'file', language: 'verilog' },
-  { scheme: 'file', language: 'systemverilog' },
-];
 
-export function registerDiagnosticActions(context: vscode.ExtensionContext): void {
+export function registerDiagnosticActions(
+  context: vscode.ExtensionContext,
+  documentSelector: vscode.DocumentSelector = fileCodeDocumentSelector,
+): void {
   context.subscriptions.push(
     vscode.commands.registerCommand(configureDiagnosticRuleCommand, configureDiagnosticRule),
   );

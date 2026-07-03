@@ -4,6 +4,7 @@ import {
   RevealOutputChannelOn,
 } from 'vscode-languageclient';
 
+import { fileDocumentSelector } from './documentSelector';
 import { serverInitializationOptions } from './initializationOptions';
 
 type ClientMiddleware = NonNullable<LanguageClientOptions['middleware']>;
@@ -13,11 +14,6 @@ export type NodeClientOptionsParams = {
   trace: 'off' | 'messages' | 'verbose';
   provideRenameEdits: NonNullable<ClientMiddleware['provideRenameEdits']>;
 };
-
-export const fileDocumentSelector: LanguageClientOptions['documentSelector'] = [
-  { scheme: 'file', language: 'verilog' },
-  { scheme: 'file', language: 'systemverilog' },
-];
 
 export function createNodeClientOptions({
   outputChannel,
