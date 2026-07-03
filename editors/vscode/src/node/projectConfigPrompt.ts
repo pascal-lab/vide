@@ -15,7 +15,7 @@ type Logger = (message: string) => void;
 
 export type ProjectConfigPromptActions = {
   hasClient: () => boolean;
-  restartClient: (context: vscode.ExtensionContext) => Promise<void>;
+  restartClient: () => Promise<void>;
   log: Logger;
 };
 
@@ -160,7 +160,7 @@ async function createProjectConfigs(
   }
 
   if (actions.hasClient()) {
-    await actions.restartClient(context);
+    await actions.restartClient();
   }
 
   const createdMessage =
