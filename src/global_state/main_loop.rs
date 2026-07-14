@@ -309,7 +309,7 @@ mod tests {
 
         state.publish_diagnostics_tasks(PublishDiagnosticsBatch::from_tasks(
             vec![PublishDiagnosticsTask::for_test(file_id, uri, None, vec![diagnostic])],
-            DiagnosticPublishFreshness::new(1, 0, 0),
+            DiagnosticPublishFreshness::new(state.analysis.analysis_host.snapshot_id(), 1, 0, 0),
         ));
 
         assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());

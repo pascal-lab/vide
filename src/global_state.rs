@@ -236,6 +236,7 @@ impl GlobalState {
 
     pub(crate) fn diagnostic_publish_freshness(&self) -> DiagnosticPublishFreshness {
         DiagnosticPublishFreshness::new(
+            self.analysis.analysis_host.snapshot_id(),
             self.diagnostics.diagnostics_revision,
             self.diagnostics.diagnostic_target_revision,
             self.workspace.workspace_vfs.diagnostic_readiness_revision(),

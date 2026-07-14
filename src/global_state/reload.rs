@@ -215,6 +215,7 @@ impl GlobalState {
                 Arc::new(diagnostics_config),
                 Durability::HIGH,
             );
+            self.analysis.analysis_host.mark_changed();
             self.diagnostics.diagnostics_revision += 1;
             self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
         }
