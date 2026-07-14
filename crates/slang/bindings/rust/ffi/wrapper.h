@@ -131,6 +131,7 @@ namespace wrapper {
       const slang::ast::Compilation& inner() const { return *innerCompilation; }
 
       void addSyntaxTree(std::shared_ptr<syntax::SyntaxTree> tree) {
+        syntaxTreeWrapperStorage.push_back(tree);
         syntaxTreeStorage.push_back(tree);
         innerCompilation->addSyntaxTree(tree->sharedInner());
       }
@@ -153,6 +154,7 @@ namespace wrapper {
 
     private:
       std::vector<std::string> topModuleStorage;
+      std::vector<std::shared_ptr<syntax::SyntaxTree>> syntaxTreeWrapperStorage;
       std::vector<std::shared_ptr<syntax::SyntaxTree>> syntaxTreeStorage;
       std::shared_ptr<syntax::SourceSession> sourceSession =
           std::make_shared<syntax::SourceSession>();
