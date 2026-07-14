@@ -441,12 +441,7 @@ pub(super) struct QiheGlobalCtx<'a> {
 
 impl QiheGlobalCtx<'_> {
     fn diagnostic_publish_freshness(&self) -> DiagnosticPublishFreshness {
-        DiagnosticPublishFreshness::new(
-            self.analysis.analysis_host.snapshot_id(),
-            self.diagnostics.diagnostics_revision,
-            self.diagnostics.diagnostic_target_revision,
-            self.workspace.workspace_vfs.diagnostic_readiness_revision(),
-        )
+        super::diagnostic_publish_freshness(self.analysis, self.diagnostics, self.workspace)
     }
 
     fn send(&self, message: lsp_server::Message) {
@@ -505,19 +500,16 @@ impl QiheCtx for QiheGlobalCtx<'_> {
     }
 
     fn make_snapshot(&self, cancellation: CancellationToken) -> GlobalStateSnapshot {
-        GlobalStateSnapshot {
-            config: Arc::clone(&self.config_state.config),
-            workspaces: Arc::clone(&self.workspace.workspaces),
-            analysis: self.analysis.analysis_host.make_analysis(),
-            vfs: Arc::clone(&self.workspace.vfs),
-            mem_docs: self.analysis.mem_docs.clone(),
-            sema_tokens_cache: Arc::clone(&self.analysis.semantic_tokens_cache),
-            external_sources: self.external_sources.to_vec(),
-            diagnostic_publish_freshness: self.diagnostic_publish_freshness(),
-            diagnostic_file_revisions: self.diagnostics.diagnostic_file_revisions.clone(),
+        super::make_snapshot(
+            &self.config_state.config,
+            &self.workspace.workspaces,
+            self.analysis,
+            &self.workspace.vfs,
+            self.external_sources,
+            self.diagnostics,
+            self.workspace,
             cancellation,
-            accepted_response_effects: Default::default(),
-        }
+        )
     }
 
     fn spawn_qihe_task<F>(&mut self, task: F)

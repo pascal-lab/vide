@@ -78,6 +78,16 @@ pub(crate) struct GlobalStateSnapshot {
     pub(crate) workspaces: Arc<Vec<Workspace>>,
 }
 
+impl std::fmt::Debug for GlobalStateSnapshot {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GlobalStateSnapshot")
+            .field("snapshot_id", &self.analysis_snapshot_id())
+            .field("diagnostic_publish_freshness", &self.diagnostic_publish_freshness)
+            .finish()
+    }
+}
+
 impl std::panic::UnwindSafe for GlobalStateSnapshot {}
 
 impl GlobalStateSnapshot {
@@ -142,6 +152,13 @@ impl GlobalStateSnapshot {
 
         if self.open_file_syntax_diagnostics_for_disabled_root(file_id) {
             return self.analysis.parse_diagnostics(file_id);
+        }
+
+        if let Some(DiagnosticOwner::CompilationProfile(profile_id)) =
+            self.diagnostic_owner(file_id, DiagnosticRequestScope::Document)
+        {
+            let diagnostics = self.analysis.compilation_profile_diagnostics(profile_id)?;
+            return Ok(diagnostics.into_iter().filter(|diag| diag.file_id == file_id).collect());
         }
 
         self.analysis.diagnostics(file_id)
@@ -391,7 +408,7 @@ impl GlobalStateSnapshot {
     ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
         match producer.owner() {
             DiagnosticOwner::CompilationProfile(profile_id) => {
-                self.analysis.compilation_profile_syntax_diagnostics(profile_id)
+                self.analysis.compilation_profile_diagnostics(profile_id)
             }
             DiagnosticOwner::SourceRoot(_) => {
                 self.analysis.source_root_diagnostics(producer.representative_file_id())

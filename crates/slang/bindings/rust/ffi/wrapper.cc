@@ -1499,6 +1499,31 @@ std::shared_ptr<syntax::SyntaxTree> Compilation::parseLibraryMapSyntaxTreeFromTe
   return sourceSession->parseLibraryMapText(text, name, path);
 }
 
+std::shared_ptr<syntax::SyntaxTree> Compilation_parse_syntax_tree_from_text(
+    Compilation& compilation,
+    std::string_view text,
+    std::string_view name,
+    std::string_view path,
+    rust::Vec<rust::String> predefines,
+    rust::Vec<rust::String> includePaths,
+    rust::Vec<::RawSourceBuffer> includeBuffers) {
+  return compilation.parseSyntaxTreeFromText(
+      text,
+      name,
+      path,
+      std::move(predefines),
+      std::move(includePaths),
+      std::move(includeBuffers));
+}
+
+std::shared_ptr<syntax::SyntaxTree> Compilation_parse_library_map_syntax_tree_from_text(
+    Compilation& compilation,
+    std::string_view text,
+    std::string_view name,
+    std::string_view path) {
+  return compilation.parseLibraryMapSyntaxTreeFromText(text, name, path);
+}
+
 ::RawSyntaxTreeBufferIds Compilation::addSyntaxTreeFromText(
     std::string_view text,
     std::string_view name,

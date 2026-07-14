@@ -106,13 +106,6 @@ impl AnalysisSnapshot {
         self.with_db(|db| diagnostics::compilation_profile_diagnostics(db, profile_id))
     }
 
-    pub fn compilation_profile_syntax_diagnostics(
-        &self,
-        profile_id: CompilationProfileId,
-    ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
-        self.with_db(|db| diagnostics::compilation_profile_syntax_diagnostics(db, profile_id))
-    }
-
     pub fn parse_diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
         self.with_db(|db| diagnostics::parse_diagnostics(db, file_id))
     }

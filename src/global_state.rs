@@ -136,6 +136,59 @@ fn spawn_vfs_loader(
     }
 }
 
+pub(super) fn diagnostic_publish_freshness(
+    analysis: &AnalysisState,
+    diagnostics: &DiagnosticsState,
+    workspace: &WorkspaceState,
+) -> DiagnosticPublishFreshness {
+    let snapshot_id = analysis.analysis_host.snapshot_id();
+    let freshness = DiagnosticPublishFreshness::new(
+        snapshot_id,
+        diagnostics.diagnostics_revision,
+        diagnostics.diagnostic_target_revision,
+        workspace.workspace_vfs.diagnostic_readiness_revision(),
+    );
+    assert_eq!(
+        snapshot_id,
+        freshness.commit().snapshot_id(),
+        "analysis snapshot and diagnostic freshness must agree"
+    );
+    freshness
+}
+
+pub(super) fn make_snapshot(
+    config: &Arc<Config>,
+    workspaces: &Arc<Vec<Workspace>>,
+    analysis_state: &AnalysisState,
+    vfs: &Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
+    external_sources: &[StdArc<dyn DiagnosticSource>],
+    diagnostics: &DiagnosticsState,
+    workspace: &WorkspaceState,
+    cancellation: CancellationToken,
+) -> GlobalStateSnapshot {
+    let analysis = analysis_state.analysis_host.make_analysis();
+    let diagnostic_publish_freshness =
+        diagnostic_publish_freshness(analysis_state, diagnostics, workspace);
+    assert_eq!(
+        analysis.snapshot_id(),
+        diagnostic_publish_freshness.commit().snapshot_id(),
+        "analysis snapshot and diagnostic freshness must agree"
+    );
+    GlobalStateSnapshot {
+        config: Arc::clone(config),
+        workspaces: Arc::clone(workspaces),
+        analysis,
+        vfs: Arc::clone(vfs),
+        mem_docs: analysis_state.mem_docs.clone(),
+        sema_tokens_cache: Arc::clone(&analysis_state.semantic_tokens_cache),
+        external_sources: external_sources.to_vec(),
+        diagnostic_publish_freshness,
+        diagnostic_file_revisions: diagnostics.diagnostic_file_revisions.clone(),
+        cancellation,
+        accepted_response_effects: Default::default(),
+    }
+}
+
 impl GlobalState {
     pub(crate) fn new(
         sender: Sender<lsp_server::Message>,
@@ -161,11 +214,8 @@ impl GlobalState {
         let qihe_diagnostics = qihe::QiheDiagnostics::new();
         let qihe = qihe::Qihe::new(qihe_diagnostics);
         let qihe_source: StdArc<dyn DiagnosticSource> = StdArc::new(qihe.diagnostics_snapshot());
-        let semantic_diagnostics = semantic_compiler::SemanticDiagnostics::new();
-        let semantic_compiler = semantic_compiler::SemanticCompiler::new(semantic_diagnostics);
-        let semantic_source: StdArc<dyn DiagnosticSource> =
-            StdArc::new(semantic_compiler.diagnostics_snapshot());
-        let external_sources = vec![qihe_source, semantic_source];
+        let semantic_compiler = semantic_compiler::SemanticCompiler::new();
+        let external_sources = vec![qihe_source];
 
         GlobalState {
             client: ClientState {
@@ -215,28 +265,20 @@ impl GlobalState {
         &self,
         cancellation: CancellationToken,
     ) -> GlobalStateSnapshot {
-        GlobalStateSnapshot {
-            config: Arc::clone(&self.config_state.config),
-            workspaces: Arc::clone(&self.workspace.workspaces),
-            analysis: self.analysis.analysis_host.make_analysis(),
-            vfs: Arc::clone(&self.workspace.vfs),
-            mem_docs: self.analysis.mem_docs.clone(),
-            sema_tokens_cache: Arc::clone(&self.analysis.semantic_tokens_cache),
-            external_sources: self.external_sources.clone(),
-            diagnostic_publish_freshness: self.diagnostic_publish_freshness(),
-            diagnostic_file_revisions: self.diagnostics.diagnostic_file_revisions.clone(),
+        make_snapshot(
+            &self.config_state.config,
+            &self.workspace.workspaces,
+            &self.analysis,
+            &self.workspace.vfs,
+            &self.external_sources,
+            &self.diagnostics,
+            &self.workspace,
             cancellation,
-            accepted_response_effects: Default::default(),
-        }
+        )
     }
 
     pub(crate) fn diagnostic_publish_freshness(&self) -> DiagnosticPublishFreshness {
-        DiagnosticPublishFreshness::new(
-            self.analysis.analysis_host.snapshot_id(),
-            self.diagnostics.diagnostics_revision,
-            self.diagnostics.diagnostic_target_revision,
-            self.workspace.workspace_vfs.diagnostic_readiness_revision(),
-        )
+        diagnostic_publish_freshness(&self.analysis, &self.diagnostics, &self.workspace)
     }
 
     pub(crate) fn spawn_qihe_analysis(&mut self, params: RunQiheAnalysisParams) {
