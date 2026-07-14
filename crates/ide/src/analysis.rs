@@ -66,6 +66,13 @@ impl AnalysisSnapshot {
         &self.compilation_contexts
     }
 
+    pub fn document_revision(&self) -> u64 {
+        self.compilation_contexts
+            .first()
+            .map(|context| context.document_revision)
+            .unwrap_or_default()
+    }
+
     pub fn compilation_context(
         &self,
         profile: Option<CompilationProfileId>,
@@ -77,6 +84,7 @@ impl AnalysisSnapshot {
     where
         F: FnOnce(&RootDb) -> T + std::panic::UnwindSafe,
     {
+        let _span = tracing::debug_span!("ide.analysis", snapshot_id = ?self.snapshot_id).entered();
         Cancelled::catch(|| f(&self.db))
     }
 
