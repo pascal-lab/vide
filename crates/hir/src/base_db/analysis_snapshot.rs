@@ -72,6 +72,10 @@ impl CompilationContext {
     pub fn library_map_ids(&self) -> &[FileId] {
         &self.library_maps
     }
+
+    pub fn with_document_revision(&self, document_revision: u64) -> Self {
+        Self { document_revision, ..self.clone() }
+    }
 }
 
 #[cfg(test)]

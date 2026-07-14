@@ -45,10 +45,6 @@ impl AnalysisHost {
     fn advance_revision(&mut self) {
         self.document_revision = self.document_revision.saturating_add(1);
         self.snapshot_id = self.snapshot_id.next();
-        self.db.set_document_revision_with_durability(
-            self.document_revision,
-            hir::base_db::salsa::Durability::HIGH,
-        );
     }
 
     pub fn snapshot_id(&self) -> AnalysisSnapshotId {
@@ -74,7 +70,12 @@ impl AnalysisHost {
         profiles.extend(db.project_config().profile_ids().into_iter().map(Some));
         profiles
             .into_iter()
-            .map(|profile| db.compilation_context(profile).as_ref().clone())
+            .map(|profile| {
+                db.compilation_context(profile)
+                    .as_ref()
+                    .clone()
+                    .with_document_revision(self.document_revision)
+            })
             .collect()
     }
 }
