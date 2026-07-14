@@ -2,7 +2,7 @@ use hir::base_db::{
     analysis_snapshot::AnalysisSnapshotId, project::CompilationProfileId, source_root::SourceRootId,
 };
 use lsp_types::Url;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 use vfs::FileId;
 
 pub(crate) mod publisher;
@@ -239,25 +239,6 @@ impl DiagnosticSnapshotKey {
             dependency_revisions,
             external_revisions
         )
-    }
-}
-
-/// Semantic diagnostics produced from one immutable analysis snapshot and one
-/// compilation profile.
-#[derive(Debug)]
-pub(crate) struct DiagnosticResult {
-    pub(crate) snapshot_id: AnalysisSnapshotId,
-    pub(crate) profile_id: CompilationProfileId,
-    pub(crate) diagnostics: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
-}
-
-impl DiagnosticResult {
-    pub(crate) fn new(
-        snapshot_id: AnalysisSnapshotId,
-        profile_id: CompilationProfileId,
-        diagnostics: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
-    ) -> Self {
-        Self { snapshot_id, profile_id, diagnostics }
     }
 }
 

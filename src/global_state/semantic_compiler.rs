@@ -5,9 +5,7 @@ use std::{
 
 use anyhow::Result;
 use hir::base_db::project::CompilationProfileId;
-use parking_lot::{Mutex, MutexGuard};
-use rustc_hash::{FxHashMap, FxHashSet};
-use triomphe::Arc;
+use rustc_hash::FxHashSet;
 use utils::{
     cancellation::{CancellationError, CancellationToken},
     thread::ThreadIntent,
@@ -18,21 +16,19 @@ use super::{
     AnalysisState, ClientState, ConfigState, DEFAULT_REQ_HANDLER, DiagnosticsState, GlobalState,
     TaskState, WorkspaceState,
     diagnostics::{
-        DiagnosticCommitFreshness, DiagnosticExternalRevision, DiagnosticOwner,
-        DiagnosticPublishFreshness, DiagnosticResult, DiagnosticSource,
+        DiagnosticPublishFreshness, DiagnosticSource,
         publisher::{DiagnosticsPublisher, PublishDiagnosticsBatch, PublishDiagnosticsTask},
     },
     snapshot::GlobalStateSnapshot,
     task::{SemanticCompilerTask, Task},
 };
 
-const SLANG_SEMANTIC: &str = "slang-semantic";
-
 #[derive(Debug)]
 pub(crate) struct SemanticCompilerUpdate {
-    results: Vec<DiagnosticResult>,
+    snapshot: GlobalStateSnapshot,
     touched_files: FxHashSet<FileId>,
-    freshness: DiagnosticCommitFreshness,
+    diagnostic_count: usize,
+    freshness: DiagnosticPublishFreshness,
 }
 
 impl SemanticCompilerUpdate {
@@ -41,63 +37,7 @@ impl SemanticCompilerUpdate {
     }
 
     pub(crate) fn diagnostic_count(&self) -> usize {
-        self.results
-            .iter()
-            .map(|result| result.diagnostics.values().map(Vec::len).sum::<usize>())
-            .sum()
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct SemanticDiagnostics {
-    states: Arc<Mutex<FxHashMap<FileId, SemanticDiagnosticState>>>,
-}
-
-impl SemanticDiagnostics {
-    pub(crate) fn new() -> Self {
-        Self { states: Arc::new(Mutex::new(FxHashMap::default())) }
-    }
-
-    fn lock(&self) -> MutexGuard<'_, FxHashMap<FileId, SemanticDiagnosticState>> {
-        self.states.lock()
-    }
-}
-
-impl DiagnosticSource for SemanticDiagnostics {
-    fn diagnostics(
-        &self,
-        file_id: FileId,
-        freshness: &DiagnosticCommitFreshness,
-    ) -> Vec<ide::diagnostics::Diagnostic> {
-        self.lock()
-            .get(&file_id)
-            .filter(|state| state.freshness == *freshness)
-            .map(|state| state.diagnostics.clone())
-            .unwrap_or_default()
-    }
-
-    fn external_revision(
-        &self,
-        file_id: FileId,
-        freshness: &DiagnosticCommitFreshness,
-    ) -> Option<DiagnosticExternalRevision> {
-        self.lock().get(&file_id).filter(|state| state.freshness == *freshness).map(|state| {
-            DiagnosticExternalRevision::new(
-                DiagnosticOwner::External { source: SLANG_SEMANTIC, file: file_id },
-                state.generation,
-            )
-        })
-    }
-
-    fn remove_deleted(&self, files: &FxHashSet<FileId>) {
-        if files.is_empty() {
-            return;
-        }
-
-        let mut diagnostics = self.lock();
-        for file_id in files {
-            diagnostics.remove(file_id);
-        }
+        self.diagnostic_count
     }
 }
 
@@ -114,21 +54,15 @@ pub(crate) struct SemanticCompiler {
     run_generation: SemanticCompilerRunId,
     active_cancel_token: Option<CancellationToken>,
     pending_profiles: FxHashSet<CompilationProfileId>,
-    diagnostics: SemanticDiagnostics,
 }
 
 impl SemanticCompiler {
-    pub(crate) fn new(diagnostics: SemanticDiagnostics) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             run_generation: SemanticCompilerRunId::default(),
             active_cancel_token: None,
             pending_profiles: FxHashSet::default(),
-            diagnostics,
         }
-    }
-
-    pub(crate) fn diagnostics_snapshot(&self) -> SemanticDiagnostics {
-        self.diagnostics.clone()
     }
 
     pub(crate) fn schedule<C: SemanticCompilerCtx>(
@@ -172,7 +106,7 @@ impl SemanticCompiler {
                 }
 
                 self.active_cancel_token = None;
-                let current_freshness = ctx.diagnostic_commit_freshness();
+                let current_freshness = ctx.diagnostic_publish_freshness();
                 if update.freshness != current_freshness {
                     tracing::debug!(
                         ?run_id,
@@ -184,8 +118,8 @@ impl SemanticCompiler {
                     return;
                 }
 
-                let changed_files = self.replace_diagnostics(update);
-                self.publish_diagnostics(changed_files, ctx);
+                let SemanticCompilerUpdate { snapshot, touched_files, .. } = update;
+                self.publish_diagnostics(snapshot, touched_files, ctx);
                 self.start_pending(ctx);
             }
             SemanticCompilerTask::Cancelled { run_id } => {
@@ -257,71 +191,26 @@ impl SemanticCompiler {
 
     fn publish_diagnostics<C: SemanticCompilerCtx>(
         &mut self,
+        snapshot: GlobalStateSnapshot,
         changed_files: FxHashSet<FileId>,
         ctx: &mut C,
     ) {
-        ctx.publish_semantic_diagnostics(changed_files);
+        ctx.publish_semantic_diagnostics(snapshot, changed_files);
     }
-
-    fn replace_diagnostics(&mut self, update: SemanticCompilerUpdate) -> FxHashSet<FileId> {
-        let SemanticCompilerUpdate { results, mut touched_files, freshness } = update;
-        let mut by_file = FxHashMap::default();
-        for result in results {
-            assert_eq!(
-                result.snapshot_id,
-                freshness.snapshot_id(),
-                "semantic diagnostic result must belong to its commit snapshot"
-            );
-            tracing::debug!(
-                snapshot_id = ?result.snapshot_id,
-                profile_id = ?result.profile_id,
-                diagnostic_count = result.diagnostics.values().map(Vec::len).sum::<usize>(),
-                "semantic diagnostic result committed"
-            );
-            for (file_id, diagnostics) in result.diagnostics {
-                by_file.entry(file_id).or_insert_with(Vec::new).extend(diagnostics);
-            }
-        }
-        touched_files.extend(by_file.keys().copied());
-
-        let mut cache = self.diagnostics.lock();
-        let mut changed_files = touched_files
-            .iter()
-            .filter_map(|file_id| {
-                cache
-                    .get(file_id)
-                    .is_some_and(|state| !state.diagnostics.is_empty())
-                    .then_some(*file_id)
-            })
-            .collect::<FxHashSet<_>>();
-        changed_files.extend(by_file.keys().copied());
-
-        for file_id in touched_files {
-            let diagnostics = by_file.remove(&file_id).unwrap_or_default();
-            let generation =
-                cache.get(&file_id).map_or(1, |state| state.generation.saturating_add(1));
-            cache.insert(file_id, SemanticDiagnosticState { freshness, generation, diagnostics });
-        }
-
-        changed_files
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-struct SemanticDiagnosticState {
-    freshness: DiagnosticCommitFreshness,
-    generation: u64,
-    diagnostics: Vec<ide::diagnostics::Diagnostic>,
 }
 
 pub(crate) trait SemanticCompilerCtx {
-    fn diagnostic_commit_freshness(&self) -> DiagnosticCommitFreshness;
+    fn diagnostic_publish_freshness(&self) -> DiagnosticPublishFreshness;
     fn make_snapshot(&self, cancellation: CancellationToken) -> GlobalStateSnapshot;
     fn spawn_semantic_compiler_task<F>(&mut self, task: F)
     where
         F: FnOnce(crossbeam_channel::Sender<Task>) + Send + 'static;
     fn task_cancel_token(&self) -> CancellationToken;
-    fn publish_semantic_diagnostics(&mut self, changed_files: FxHashSet<FileId>);
+    fn publish_semantic_diagnostics(
+        &mut self,
+        snapshot: GlobalStateSnapshot,
+        changed_files: FxHashSet<FileId>,
+    );
 }
 
 pub(super) struct SemanticCompilerGlobalCtx<'a> {
@@ -335,15 +224,6 @@ pub(super) struct SemanticCompilerGlobalCtx<'a> {
 }
 
 impl SemanticCompilerGlobalCtx<'_> {
-    fn diagnostic_publish_freshness(&self) -> DiagnosticPublishFreshness {
-        DiagnosticPublishFreshness::new(
-            self.analysis.analysis_host.snapshot_id(),
-            self.diagnostics.diagnostics_revision,
-            self.diagnostics.diagnostic_target_revision,
-            self.workspace.workspace_vfs.diagnostic_readiness_revision(),
-        )
-    }
-
     fn send(&self, message: lsp_server::Message) {
         if self.client.sender.send(message).is_err() {
             tracing::debug!("LSP message dropped because client connection is closed");
@@ -380,24 +260,21 @@ impl SemanticCompilerGlobalCtx<'_> {
 }
 
 impl SemanticCompilerCtx for SemanticCompilerGlobalCtx<'_> {
-    fn diagnostic_commit_freshness(&self) -> DiagnosticCommitFreshness {
-        self.diagnostic_publish_freshness().commit()
+    fn diagnostic_publish_freshness(&self) -> DiagnosticPublishFreshness {
+        super::diagnostic_publish_freshness(self.analysis, self.diagnostics, self.workspace)
     }
 
     fn make_snapshot(&self, cancellation: CancellationToken) -> GlobalStateSnapshot {
-        GlobalStateSnapshot {
-            config: Arc::clone(&self.config_state.config),
-            workspaces: Arc::clone(&self.workspace.workspaces),
-            analysis: self.analysis.analysis_host.make_analysis(),
-            vfs: Arc::clone(&self.workspace.vfs),
-            mem_docs: self.analysis.mem_docs.clone(),
-            sema_tokens_cache: Arc::clone(&self.analysis.semantic_tokens_cache),
-            external_sources: self.external_sources.to_vec(),
-            diagnostic_publish_freshness: self.diagnostic_publish_freshness(),
-            diagnostic_file_revisions: self.diagnostics.diagnostic_file_revisions.clone(),
+        super::make_snapshot(
+            &self.config_state.config,
+            &self.workspace.workspaces,
+            self.analysis,
+            &self.workspace.vfs,
+            self.external_sources,
+            self.diagnostics,
+            self.workspace,
             cancellation,
-            accepted_response_effects: Default::default(),
-        }
+        )
     }
 
     fn spawn_semantic_compiler_task<F>(&mut self, task: F)
@@ -411,7 +288,11 @@ impl SemanticCompilerCtx for SemanticCompilerGlobalCtx<'_> {
         self.tasks.task_pool.handle.task_token()
     }
 
-    fn publish_semantic_diagnostics(&mut self, changed_files: FxHashSet<FileId>) {
+    fn publish_semantic_diagnostics(
+        &mut self,
+        snapshot: GlobalStateSnapshot,
+        changed_files: FxHashSet<FileId>,
+    ) {
         if changed_files.is_empty() {
             return;
         }
@@ -421,7 +302,6 @@ impl SemanticCompilerCtx for SemanticCompilerGlobalCtx<'_> {
             return;
         }
 
-        let snapshot = self.make_snapshot(self.task_cancel_token());
         let mut publish_tasks = Vec::with_capacity(changed_files.len());
         let mut touched_file_ids = FxHashSet::default();
         for file_id in changed_files.iter().copied() {
@@ -503,7 +383,7 @@ fn run_semantic_compiler_task(
     run_id: SemanticCompilerRunId,
     cancellation: CancellationToken,
 ) -> SemanticCompilerTask {
-    match collect_semantic_diagnostics(&snapshot, profile_ids, &cancellation) {
+    match collect_semantic_diagnostics(snapshot, profile_ids, &cancellation) {
         Ok(update) => SemanticCompilerTask::Finished { run_id, update },
         Err(err) if err.is::<CancellationError>() => SemanticCompilerTask::Cancelled { run_id },
         Err(err) => SemanticCompilerTask::Failed { run_id, message: err.to_string() },
@@ -511,33 +391,32 @@ fn run_semantic_compiler_task(
 }
 
 fn collect_semantic_diagnostics(
-    snapshot: &GlobalStateSnapshot,
+    snapshot: GlobalStateSnapshot,
     profile_ids: Vec<CompilationProfileId>,
     cancellation: &CancellationToken,
 ) -> Result<SemanticCompilerUpdate> {
-    let freshness = snapshot.diagnostic_commit_freshness();
-    let snapshot_id = snapshot.analysis.snapshot_id();
-    let mut results = Vec::with_capacity(profile_ids.len());
+    let freshness = snapshot.diagnostic_publish_freshness;
     let mut touched_files = FxHashSet::default();
+    let mut diagnostic_count = 0;
+    let profile_count = profile_ids.len();
 
     for profile_id in profile_ids {
         cancellation.check()?;
         touched_files.extend(snapshot.analysis.compilation_profile_file_ids(profile_id)?);
-        let mut by_file = FxHashMap::default();
         let diagnostics = snapshot.analysis.compilation_profile_diagnostics(profile_id)?;
-        for diagnostic in diagnostics {
-            cancellation.check()?;
-            if diagnostic.source != ide::diagnostics::DiagnosticSource::SlangSemantic {
-                continue;
-            }
-            let file_id = diagnostic.file_id;
-            by_file.entry(file_id).or_insert_with(Vec::new).push(diagnostic);
-        }
-        results.push(DiagnosticResult::new(snapshot_id, profile_id, by_file));
+        diagnostic_count += diagnostics.len();
+        cancellation.check()?;
     }
     cancellation.check()?;
 
-    Ok(SemanticCompilerUpdate { results, touched_files, freshness })
+    tracing::debug!(
+        snapshot_id = ?snapshot.analysis_snapshot_id(),
+        profile_count,
+        root_file_count = touched_files.len(),
+        diagnostic_count,
+        "semantic compiler prewarmed profile diagnostics"
+    );
+    Ok(SemanticCompilerUpdate { snapshot, touched_files, diagnostic_count, freshness })
 }
 
 fn normalize_profile_ids(mut profile_ids: Vec<CompilationProfileId>) -> Vec<CompilationProfileId> {

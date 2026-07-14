@@ -172,16 +172,6 @@ pub(crate) fn compilation_profile_diagnostics(
     diagnostics
 }
 
-pub(crate) fn compilation_profile_syntax_diagnostics(
-    db: &RootDb,
-    profile_id: CompilationProfileId,
-) -> Vec<Diagnostic> {
-    compilation_profile_file_ids(db, profile_id)
-        .into_iter()
-        .flat_map(|file_id| syntax_diagnostics(db, file_id))
-        .collect()
-}
-
 fn compilation_profile_file_ids(db: &RootDb, profile_id: CompilationProfileId) -> Vec<FileId> {
     let plan = db.compilation_plan_for_profile(Some(profile_id));
     let mut file_ids = plan.roots.clone();
