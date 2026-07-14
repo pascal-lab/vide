@@ -1,9 +1,8 @@
 use hir::base_db::{
     analysis_snapshot::{AnalysisSnapshotId, CompilationContext},
     change::Change,
-    project::CompilationProfileId,
     salsa::ParallelDatabase,
-    source_db::{SourceDb, SourceFileKind, SourceRootDb},
+    source_db::{SourceDb, SourceRootDb},
 };
 use triomphe::Arc;
 
@@ -36,13 +35,20 @@ impl AnalysisHost {
 
     pub fn apply_change(&mut self, change: Change) {
         self.db.apply_change(change);
-        self.document_revision = self.document_revision.saturating_add(1);
-        self.snapshot_id = self.snapshot_id.next();
+        self.advance_revision();
     }
 
     pub fn mark_changed(&mut self) {
+        self.advance_revision();
+    }
+
+    fn advance_revision(&mut self) {
         self.document_revision = self.document_revision.saturating_add(1);
         self.snapshot_id = self.snapshot_id.next();
+        self.db.set_document_revision_with_durability(
+            self.document_revision,
+            hir::base_db::salsa::Durability::HIGH,
+        );
     }
 
     pub fn snapshot_id(&self) -> AnalysisSnapshotId {
@@ -64,30 +70,11 @@ impl AnalysisHost {
 
 impl AnalysisHost {
     fn compilation_contexts(&self, db: &RootDb) -> Vec<CompilationContext> {
-        let mut profiles = db.project_config().profile_ids();
-        profiles.insert(0, CompilationProfileId(u32::MAX));
-
+        let mut profiles = vec![None];
+        profiles.extend(db.project_config().profile_ids().into_iter().map(Some));
         profiles
             .into_iter()
-            .map(|profile| {
-                let profile = (profile != CompilationProfileId(u32::MAX)).then_some(profile);
-                let plan = db.compilation_plan_for_profile(profile);
-                let library_maps = plan
-                    .roots
-                    .iter()
-                    .copied()
-                    .filter(|file_id| matches!(db.file_kind(*file_id), SourceFileKind::LibraryMap))
-                    .collect::<Vec<_>>();
-                CompilationContext::new(
-                    profile,
-                    plan.roots.clone(),
-                    plan.include_dirs.clone(),
-                    plan.predefines.clone(),
-                    library_maps,
-                    plan.top_modules.clone(),
-                    self.document_revision,
-                )
-            })
+            .map(|profile| db.compilation_context(profile).as_ref().clone())
             .collect()
     }
 }
