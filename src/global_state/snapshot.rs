@@ -233,7 +233,8 @@ impl GlobalStateSnapshot {
             .filter_map(|source| source.external_revision(file_id, &freshness))
             .collect();
         Some(
-            DiagnosticSnapshotKey::new(
+            DiagnosticSnapshotKey::new_with_snapshot_id(
+                freshness.snapshot_id(),
                 owner,
                 self.diagnostic_publish_freshness.commit().readiness_revision(),
                 self.config.diagnostics_config().revision,
