@@ -707,7 +707,7 @@ mod tests {
 
     use super::*;
     use crate::base_db::{
-        project::{CompilationProfile, Predefine, PredefineSource},
+        project::{CompilationProfile, Predefine, PredefineSource, PreprocessConfig},
         salsa::{self, Durability},
     };
 
@@ -824,13 +824,35 @@ mod tests {
 
     #[test]
     fn parsed_profile_uses_the_compilation_context() {
-        let db = db_with_root_file();
+        let mut db = db_with_root_file();
         db.set_project_config_with_durability(Arc::new(ProjectConfig::default()), Durability::LOW);
         let profile = db.parsed_profile(None);
         assert_eq!(profile.units.len(), 1);
         let tree = profile.units[0].1.syntax_tree.clone();
         let root = tree.root().expect("compilation parse should have a root");
         assert!(root.children().next().is_some());
+    }
+
+    #[test]
+    fn profile_compilation_units_reuse_the_authoritative_profile_parse() {
+        let mut db = db_with_root_file();
+        db.set_project_config_with_durability(
+            Arc::new(ProjectConfig::new(
+                vec![Some(CompilationProfileId(0))],
+                vec![CompilationProfile {
+                    source_roots: vec![ROOT],
+                    top_modules: Vec::new(),
+                    preprocess: PreprocessConfig::default(),
+                }],
+            )),
+            Durability::LOW,
+        );
+
+        let profile_tree =
+            db.parsed_profile(Some(CompilationProfileId(0))).units[0].1.syntax_tree.clone();
+        let compilation_tree = db.parsed_compilation_unit(TOP).syntax_tree;
+
+        assert_eq!(profile_tree, compilation_tree);
     }
 
     #[test]
