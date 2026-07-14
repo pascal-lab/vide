@@ -66,6 +66,7 @@ struct SyntaxTreeSourceInfo {
   const slang::SourceManager* sourceManager;
   const slang::parsing::PreprocessorTraceSnapshot* preprocessorTrace;
   slang::SourceLocation rootLocation;
+  size_t owners = 1;
 };
 
 struct LexedTokenAtOffset {
@@ -1152,10 +1153,12 @@ SyntaxTree::SyntaxTree(std::shared_ptr<::slang::syntax::SyntaxTree> tree,
     return;
 
   std::lock_guard lock(syntaxTreeSourceInfoMutex);
-  syntaxTreeSourceInfo.emplace(
+  auto [it, inserted] = syntaxTreeSourceInfo.emplace(
       &root,
       SyntaxTreeSourceInfo{
           &innerTree->sourceManager(), innerTree->getPreprocessorTrace(), rootLocation});
+  if (!inserted)
+    it->second.owners++;
 }
 
 SyntaxTree::~SyntaxTree() {
@@ -1163,7 +1166,14 @@ SyntaxTree::~SyntaxTree() {
     return;
 
   std::lock_guard lock(syntaxTreeSourceInfoMutex);
-  syntaxTreeSourceInfo.erase(&innerTree->root());
+  auto it = syntaxTreeSourceInfo.find(&innerTree->root());
+  if (it == syntaxTreeSourceInfo.end())
+    return;
+  if (it->second.owners > 1) {
+    it->second.owners--;
+    return;
+  }
+  syntaxTreeSourceInfo.erase(it);
 }
 
 SourceSession::SourceSession() : sourceManager(std::make_shared<slang::SourceManager>()) {}
