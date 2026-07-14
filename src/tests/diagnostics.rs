@@ -1735,7 +1735,7 @@ fn syntax_only_document_result_id_changes_when_include_dependency_changes() {
 }
 
 #[test]
-fn document_diagnostic_result_id_ignores_unrelated_profile_changes() {
+fn document_diagnostic_result_id_tracks_unrelated_profile_snapshot() {
     let pull_caps = ClientCapabilities {
         text_document: Some(TextDocumentClientCapabilities {
             diagnostic: Some(DiagnosticClientCapabilities::default()),
@@ -1800,10 +1800,10 @@ fn document_diagnostic_result_id_ignores_unrelated_profile_changes() {
         2,
         Some(first_result_id.clone()),
     );
-    assert_eq!(
+    assert_ne!(
         second_result_id.as_deref(),
         Some(first_result_id.as_str()),
-        "edits in a different semantic profile must not invalidate this result id"
+        "edits in a different semantic profile advance the authoritative analysis snapshot id"
     );
     assert!(
         second_items.is_empty(),

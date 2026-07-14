@@ -62,12 +62,6 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
 
     #[salsa::input]
     fn project_config(&self) -> Arc<ProjectConfig>;
-
-    /// Monotonic document revision owned by the analysis host. Keeping this as
-    /// an input makes every compilation context part of the same salsa state
-    /// as the text it describes.
-    #[salsa::input]
-    fn document_revision(&self) -> u64;
 }
 
 struct SourceFileIdentity {
@@ -396,7 +390,7 @@ fn compilation_context(
         plan.predefines.clone(),
         library_maps,
         plan.top_modules.clone(),
-        db.document_revision(),
+        0,
     ))
 }
 
