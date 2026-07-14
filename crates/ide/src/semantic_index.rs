@@ -446,7 +446,7 @@ fn instantiation_name_range(
     file_id: FileId,
     src: hir::hir_def::module::instantiation::InstantiationSrc,
 ) -> Option<TextRange> {
-    let tree = db.parse_src(file_id);
+    let tree = db.parse_src_for_compilation(file_id);
     let root = tree.root()?;
     let instantiation_range = src.range();
     let mut offset = instantiation_range.start();

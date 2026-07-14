@@ -12,7 +12,7 @@ use hir::{
             ProjectConfig,
         },
         salsa::Durability,
-        source_db::SourceDb,
+        source_db::{SourceDb, SourceRootDb},
         source_root::{SourceRoot, SourceRootId},
     },
     preproc::{IncludeTarget, include_directive_at},
@@ -157,8 +157,8 @@ fn parsed_file_nodes_survive_parse_lru_eviction() {
     let child_count = root.child_count();
     assert!(child_count > 0);
 
-    let _ = db.parse_src(FileId::from_raw(1));
-    let _ = db.parse_src(FileId::from_raw(2));
+    let _ = db.parse_src_for_compilation(FileId::from_raw(1));
+    let _ = db.parse_src_for_compilation(FileId::from_raw(2));
 
     assert_eq!(root.child_count(), child_count);
     assert!(root.first_token().is_some());
