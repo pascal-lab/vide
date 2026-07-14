@@ -11,7 +11,6 @@ use hir::{
             CompilationProfile, CompilationProfileId, Predefine, PredefineSource, PreprocessConfig,
             ProjectConfig,
         },
-        salsa::Durability,
         source_db::{SourceDb, SourceRootDb},
         source_root::{SourceRoot, SourceRootId},
     },
@@ -1119,11 +1118,7 @@ endmodule
 "#;
     let (mut host, file_id, _clean_text, markers) =
         setup_marked_with_predefines(text, vec!["SOMETHING=1".to_owned()]);
-    host.raw_db_mut().set_file_preprocess_config_with_durability(
-        file_id,
-        Arc::new(PreprocessConfig::default()),
-        Durability::LOW,
-    );
+    host.set_file_preprocess_config(file_id, Arc::new(PreprocessConfig::default()));
 
     let analysis = host.make_analysis();
     let range_at = |marker: &str, len: TextSize| {

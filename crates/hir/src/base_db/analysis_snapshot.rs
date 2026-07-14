@@ -22,7 +22,7 @@ impl AnalysisSnapshotId {
     }
 
     pub const fn next(self) -> Self {
-        Self(self.0.saturating_add(1))
+        Self(self.0.checked_add(1).expect("analysis snapshot id exhausted"))
     }
 }
 
@@ -88,6 +88,12 @@ mod tests {
         assert_eq!(initial.get(), 41);
         assert_eq!(initial.next().get(), 42);
         assert_eq!(AnalysisSnapshotId::default().get(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "analysis snapshot id exhausted")]
+    fn snapshot_id_overflow_fails_fast() {
+        AnalysisSnapshotId::new(u64::MAX).next();
     }
 
     #[test]

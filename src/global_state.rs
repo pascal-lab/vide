@@ -22,8 +22,6 @@ use std::{sync::Arc as StdArc, time::Instant};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use hir::base_db::{
     project::{CompilationProfileId, ProjectConfig, SharedProjectConfig},
-    salsa::Durability,
-    source_db::SourceDb,
     source_root::SourceRootConfig,
 };
 use ide::analysis_host::AnalysisHost;
@@ -158,9 +156,7 @@ impl GlobalState {
 
         let mut analysis_host = AnalysisHost::new(None);
         let diagnostics_config = Arc::new(config.diagnostics_config());
-        analysis_host
-            .raw_db_mut()
-            .set_diagnostics_config_with_durability(diagnostics_config, Durability::HIGH);
+        analysis_host.set_diagnostics_config(diagnostics_config);
 
         let qihe_diagnostics = qihe::QiheDiagnostics::new();
         let qihe = qihe::Qihe::new(qihe_diagnostics);
