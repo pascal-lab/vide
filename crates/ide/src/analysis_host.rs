@@ -1,7 +1,10 @@
+#[cfg(test)]
+use hir::base_db::project::PreprocessConfig;
 use hir::base_db::{
     analysis_snapshot::{AnalysisSnapshotId, CompilationContext},
     change::Change,
-    salsa::ParallelDatabase,
+    diagnostics_config::DiagnosticsConfig,
+    salsa::{Durability, ParallelDatabase},
     source_db::{SourceDb, SourceRootDb},
 };
 use triomphe::Arc;
@@ -38,12 +41,24 @@ impl AnalysisHost {
         self.advance_revision();
     }
 
-    pub fn mark_changed(&mut self) {
+    pub fn set_diagnostics_config(&mut self, config: Arc<DiagnosticsConfig>) {
+        self.db.set_diagnostics_config_with_durability(config, Durability::HIGH);
+        self.advance_revision();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_file_preprocess_config(
+        &mut self,
+        file_id: vfs::FileId,
+        config: Arc<PreprocessConfig>,
+    ) {
+        self.db.set_file_preprocess_config_with_durability(file_id, config, Durability::LOW);
         self.advance_revision();
     }
 
     fn advance_revision(&mut self) {
-        self.document_revision = self.document_revision.saturating_add(1);
+        self.document_revision =
+            self.document_revision.checked_add(1).expect("document revision exhausted");
         self.snapshot_id = self.snapshot_id.next();
     }
 
@@ -57,10 +72,6 @@ impl AnalysisHost {
 
     pub fn raw_db(&self) -> &RootDb {
         &self.db
-    }
-
-    pub fn raw_db_mut(&mut self) -> &mut RootDb {
-        &mut self.db
     }
 }
 
