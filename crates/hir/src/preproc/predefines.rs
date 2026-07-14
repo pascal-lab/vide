@@ -10,12 +10,6 @@ pub(super) fn configured_predefine_names(db: &dyn SourceRootDb, file_id: FileId)
         }
     }
 
-    for predefine in &db.file_preprocess_config(file_id).predefines {
-        if let Some(name) = predefine_macro_name(predefine.as_str()) {
-            names.push_unique(name);
-        }
-    }
-
     names.into_vec()
 }
 
@@ -38,11 +32,6 @@ pub(super) fn configured_predefine_definitions_for_name(
             definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
         }
     }
-    for predefine in &db.file_preprocess_config(context_file_id).predefines {
-        if let Some(definition) = configured_predefine_definition(db, predefine, name) {
-            definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
-        }
-    }
     definitions.into_vec()
 }
 
@@ -57,13 +46,6 @@ pub(super) fn configured_predefine_definitions_at(
         let profile_id = db.file_compilation_profile(context_file_id);
         let project_preprocess = db.project_config().preprocess_for_profile(profile_id);
         for predefine in &project_preprocess.predefines {
-            if let Some(definition) =
-                configured_predefine_definition_at(db, predefine, file_id, offset)
-            {
-                definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
-            }
-        }
-        for predefine in &db.file_preprocess_config(context_file_id).predefines {
             if let Some(definition) =
                 configured_predefine_definition_at(db, predefine, file_id, offset)
             {

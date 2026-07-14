@@ -1136,6 +1136,10 @@ rust::Vec<::RawExpectedSyntax> collect_expected_syntax(
 
 namespace syntax {
 
+::RawSyntaxTreeBufferIds SyntaxTree_buffer_ids(const SyntaxTree& tree) {
+  return collectSyntaxTreeBufferIds(tree);
+}
+
 SyntaxTree::SyntaxTree(std::shared_ptr<::slang::syntax::SyntaxTree> tree,
                        std::shared_ptr<SourceSession> sourceSession) :
     innerTree(std::move(tree)), sourceSession(std::move(sourceSession)) {
@@ -1468,6 +1472,32 @@ std::unique_ptr<SourceRange> SyntaxToken_rangeWithContext(
 } // namespace syntax
 
 namespace ast {
+
+std::shared_ptr<syntax::SyntaxTree> Compilation::parseSyntaxTreeFromText(
+    std::string_view text,
+    std::string_view name,
+    std::string_view path,
+    rust::Vec<rust::String> predefines,
+    rust::Vec<rust::String> includePaths,
+    rust::Vec<::RawSourceBuffer> includeBuffers) {
+  return sourceSession->parseText(
+      text,
+      name,
+      path,
+      std::move(predefines),
+      std::move(includePaths),
+      std::move(includeBuffers),
+      std::nullopt,
+      true,
+      true);
+}
+
+std::shared_ptr<syntax::SyntaxTree> Compilation::parseLibraryMapSyntaxTreeFromText(
+    std::string_view text,
+    std::string_view name,
+    std::string_view path) {
+  return sourceSession->parseLibraryMapText(text, name, path);
+}
 
 ::RawSyntaxTreeBufferIds Compilation::addSyntaxTreeFromText(
     std::string_view text,

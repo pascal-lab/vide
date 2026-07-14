@@ -1102,7 +1102,7 @@ endmodule
 }
 
 #[test]
-fn file_preprocess_config_selects_same_ifdef_branch_for_diagnostics_and_navigation() {
+fn project_profile_selects_same_ifdef_branch_for_diagnostics_and_navigation() {
     let text = r#"
 module ifdef_nav(
   input logic clk_i,
@@ -1116,9 +1116,8 @@ module ifdef_nav(
 `endif
 endmodule
 "#;
-    let (mut host, file_id, _clean_text, markers) =
+    let (host, file_id, _clean_text, markers) =
         setup_marked_with_predefines(text, vec!["SOMETHING=1".to_owned()]);
-    host.set_file_preprocess_config(file_id, Arc::new(PreprocessConfig::default()));
 
     let analysis = host.make_analysis();
     let range_at = |marker: &str, len: TextSize| {

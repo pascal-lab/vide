@@ -66,7 +66,7 @@ pub(in crate::base_db::source_db) fn source_preproc_model(
     }
 
     let profile_id = db.file_compilation_profile(file_id);
-    let preprocess = db.file_preprocess_config(file_id);
+    let preprocess = db.project_config().preprocess_for_profile(profile_id);
     let options = syntax_tree_options_for_file(db, file_id);
     let Some(trace) = db.parsed_compilation_unit(file_id).preprocessor_trace.clone() else {
         return Arc::new(Err(SourcePreprocQueryError::TraceUnavailable));
