@@ -503,6 +503,10 @@ impl SyntaxTree {
         }
     }
 
+    pub fn preprocessor_trace(&self) -> Option<Trace> {
+        Trace::from_raw(self._ptr.preprocessorTraceFromParsed())
+    }
+
     #[inline]
     pub fn root(&self) -> Option<SyntaxNode<'_>> {
         SyntaxNode::from_raw_ptr(self._ptr.root())
@@ -867,6 +871,12 @@ impl Compilation {
             CxxSV::new(name),
             CxxSV::new(path),
         ))
+    }
+
+    pub fn syntax_trees(&self) -> Vec<SyntaxTree> {
+        (0..ffi::Compilation::syntax_tree_count(&self._ptr))
+            .map(|index| SyntaxTree { _ptr: ffi::Compilation::syntax_tree(&self._ptr, index) })
+            .collect()
     }
 
     pub fn semantic_diagnostics(&self) -> Vec<SyntaxDiagnostic> {

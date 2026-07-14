@@ -594,6 +594,13 @@ mod slang_ffi {
         ) -> RawSyntaxTreeBufferIds;
 
         #[namespace = "wrapper::ast"]
+        fn Compilation_syntax_tree_count(compilation: &Compilation) -> usize;
+        fn Compilation_syntax_tree(
+            compilation: &Compilation,
+            index: usize,
+        ) -> SharedPtr<SyntaxTree>;
+
+        #[namespace = "wrapper::ast"]
         fn Compilation_semantic_diagnostics(compilation: &Compilation) -> Vec<RawSyntaxDiagnostic>;
 
         #[namespace = "wrapper::ast"]
@@ -784,6 +791,8 @@ impl_functions! {
         fn add_syntax_tree(self_: Pin<&mut Compilation>, tree: SharedPtr<SyntaxTree>) -> () |> Compilation_add_syntax_tree;
         fn add_syntax_tree_from_text(self_: Pin<&mut Compilation>, text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>, include_paths: Vec<String>, include_buffers: Vec<RawSourceBuffer>, expand_includes: bool) -> RawSyntaxTreeBufferIds |> Compilation_add_syntax_tree_from_text;
         fn add_library_map_syntax_tree_from_text(self_: Pin<&mut Compilation>, text: CxxSV, name: CxxSV, path: CxxSV) -> RawSyntaxTreeBufferIds |> Compilation_add_library_map_syntax_tree_from_text;
+        fn syntax_tree_count(&self) -> usize |> Compilation_syntax_tree_count;
+        fn syntax_tree(&self, index: usize) -> SharedPtr<SyntaxTree> |> Compilation_syntax_tree;
         fn semantic_diagnostics(&self) -> Vec<RawSyntaxDiagnostic> |> Compilation_semantic_diagnostics;
         fn parse_diagnostics_with_options(&self, warning_options: Vec<String>) -> Vec<RawSyntaxDiagnostic> |> Compilation_parse_diagnostics_with_options;
         fn semantic_diagnostics_with_options(&self, warning_options: Vec<String>) -> Vec<RawSyntaxDiagnostic> |> Compilation_semantic_diagnostics_with_options;
