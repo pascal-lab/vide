@@ -66,13 +66,6 @@ impl AnalysisSnapshot {
         &self.compilation_contexts
     }
 
-    pub fn document_revision(&self) -> u64 {
-        self.compilation_contexts
-            .first()
-            .map(|context| context.document_revision)
-            .unwrap_or_default()
-    }
-
     pub fn compilation_context(
         &self,
         profile: Option<CompilationProfileId>,

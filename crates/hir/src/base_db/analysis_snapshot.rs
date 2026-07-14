@@ -40,11 +40,9 @@ pub struct CompilationContext {
     pub predefines: Arc<[String]>,
     pub library_maps: Arc<[FileId]>,
     pub top_modules: Arc<[String]>,
-    pub document_revision: u64,
 }
 
 impl CompilationContext {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         profile: Option<CompilationProfileId>,
         roots: impl Into<Arc<[FileId]>>,
@@ -52,7 +50,6 @@ impl CompilationContext {
         predefines: impl Into<Arc<[String]>>,
         library_maps: impl Into<Arc<[FileId]>>,
         top_modules: impl Into<Arc<[String]>>,
-        document_revision: u64,
     ) -> Self {
         Self {
             profile,
@@ -61,7 +58,6 @@ impl CompilationContext {
             predefines: predefines.into(),
             library_maps: library_maps.into(),
             top_modules: top_modules.into(),
-            document_revision,
         }
     }
 
@@ -71,10 +67,6 @@ impl CompilationContext {
 
     pub fn library_map_ids(&self) -> &[FileId] {
         &self.library_maps
-    }
-
-    pub fn with_document_revision(&self, document_revision: u64) -> Self {
-        Self { document_revision, ..self.clone() }
     }
 }
 
@@ -105,12 +97,10 @@ mod tests {
             vec!["FEATURE=1".to_owned()],
             vec![FileId(2)],
             vec!["top".to_owned()],
-            9,
         );
 
         assert_eq!(context.profile, Some(CompilationProfileId(3)));
         assert_eq!(context.root_ids(), [FileId(1)]);
         assert_eq!(context.library_map_ids(), [FileId(2)]);
-        assert_eq!(context.document_revision, 9);
     }
 }
