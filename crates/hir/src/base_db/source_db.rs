@@ -399,7 +399,6 @@ fn compilation_context(
         plan.predefines.clone(),
         library_maps,
         plan.top_modules.clone(),
-        0,
     ))
 }
 
@@ -414,7 +413,6 @@ fn compilation_context_for_file(db: &dyn SourceRootDb, file_id: FileId) -> Arc<C
         preprocess.predefine_strings(),
         context.library_maps.clone(),
         context.top_modules.clone(),
-        context.document_revision,
     ))
 }
 
