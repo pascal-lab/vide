@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use hir::base_db::{
     Cancelled,
+    analysis_snapshot::{AnalysisSnapshotId, CompilationContext},
     compilation_plan::CompilationPlan,
     project::CompilationProfileId,
     salsa,
@@ -47,11 +48,31 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Analysis {
+pub struct AnalysisSnapshot {
     pub(crate) db: salsa::Snapshot<RootDb>,
+    pub(crate) snapshot_id: AnalysisSnapshotId,
+    pub(crate) compilation_contexts: Arc<[CompilationContext]>,
 }
 
-impl Analysis {
+/// Backwards-compatible name for callers that only need an analysis view.
+pub type Analysis = AnalysisSnapshot;
+
+impl AnalysisSnapshot {
+    pub fn snapshot_id(&self) -> AnalysisSnapshotId {
+        self.snapshot_id
+    }
+
+    pub fn compilation_contexts(&self) -> &[CompilationContext] {
+        &self.compilation_contexts
+    }
+
+    pub fn compilation_context(
+        &self,
+        profile: Option<CompilationProfileId>,
+    ) -> Option<&CompilationContext> {
+        self.compilation_contexts.iter().find(|context| context.profile == profile)
+    }
+
     fn with_db<F, T>(&self, f: F) -> Cancellable<T>
     where
         F: FnOnce(&RootDb) -> T + std::panic::UnwindSafe,

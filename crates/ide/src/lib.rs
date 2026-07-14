@@ -1,7 +1,10 @@
 #![feature(try_blocks)]
 #![feature(decl_macro)]
 
-pub use hir::base_db::Cancelled;
+pub use hir::base_db::{
+    Cancelled,
+    analysis_snapshot::{AnalysisSnapshotId, CompilationContext},
+};
 pub use range::{ErasedFileAstId, FilePosition, FileRange, RangeInfo};
 use syntax::{SyntaxKind, ast, match_ast_kind};
 pub type Cancellable<T> = Result<T, Cancelled>;
