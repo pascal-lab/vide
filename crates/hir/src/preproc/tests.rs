@@ -134,11 +134,6 @@ fn db_with_entries_and_predefine_entries(
             Durability::LOW,
         );
         db.set_file_text_with_durability(*file_id, Arc::from(*text), Durability::LOW);
-        db.set_file_preprocess_config_with_durability(
-            *file_id,
-            Arc::new(preprocess.clone()),
-            Durability::LOW,
-        );
     }
 
     db

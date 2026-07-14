@@ -1,11 +1,9 @@
-#[cfg(test)]
-use hir::base_db::project::PreprocessConfig;
 use hir::base_db::{
-    analysis_snapshot::{AnalysisSnapshotId, CompilationContext},
+    analysis_snapshot::AnalysisSnapshotId,
     change::Change,
     diagnostics_config::DiagnosticsConfig,
     salsa::{Durability, ParallelDatabase},
-    source_db::{SourceDb, SourceRootDb},
+    source_db::SourceDb,
 };
 use triomphe::Arc;
 
@@ -23,12 +21,7 @@ impl AnalysisHost {
 
     pub fn make_analysis(&self) -> Analysis {
         let db = self.db.snapshot();
-        let compilation_contexts = self.compilation_contexts(&db);
-        Analysis {
-            db,
-            snapshot_id: self.snapshot_id,
-            compilation_contexts: Arc::from(compilation_contexts),
-        }
+        Analysis { db, snapshot_id: self.snapshot_id }
     }
 
     pub fn apply_change(&mut self, change: Change) {
@@ -38,16 +31,6 @@ impl AnalysisHost {
 
     pub fn set_diagnostics_config(&mut self, config: Arc<DiagnosticsConfig>) {
         self.db.set_diagnostics_config_with_durability(config, Durability::HIGH);
-        self.advance_revision();
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_file_preprocess_config(
-        &mut self,
-        file_id: vfs::FileId,
-        config: Arc<PreprocessConfig>,
-    ) {
-        self.db.set_file_preprocess_config_with_durability(file_id, config, Durability::LOW);
         self.advance_revision();
     }
 
@@ -61,17 +44,6 @@ impl AnalysisHost {
 
     pub fn raw_db(&self) -> &RootDb {
         &self.db
-    }
-}
-
-impl AnalysisHost {
-    fn compilation_contexts(&self, db: &RootDb) -> Vec<CompilationContext> {
-        let mut profiles = vec![None];
-        profiles.extend(db.project_config().profile_ids().into_iter().map(Some));
-        profiles
-            .into_iter()
-            .map(|profile| db.compilation_context(profile).as_ref().clone())
-            .collect()
     }
 }
 

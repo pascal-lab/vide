@@ -6,8 +6,8 @@ use hir::{
         project::ProjectConfig,
         salsa::{self, Durability},
         source_db::{
-            FileLoader, ParseSrcForCompilationQuery, SourceDb, SourceDbStorage, SourceRootDb,
-            SourceRootDbStorage,
+            FileLoader, ParseSrcForCompilationQuery, ParsedProfileQuery, SourceDb, SourceDbStorage,
+            SourceRootDb, SourceRootDbStorage,
         },
     },
     db::{
@@ -77,6 +77,7 @@ impl RootDb {
     pub fn update_parse_query_lru_capacity(&mut self, lru_capacity: Option<usize>) {
         let lru_capacity = lru_capacity.unwrap_or(DEFAULT_PARSE_LRU_CAP);
         ParseSrcForCompilationQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        ParsedProfileQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         HirFileWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         ModuleWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         BlockWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);

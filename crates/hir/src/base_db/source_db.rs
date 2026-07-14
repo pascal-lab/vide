@@ -11,7 +11,7 @@ use crate::base_db::{
     analysis_snapshot::CompilationContext,
     compilation_plan::{self, CompilationPlan},
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
-    project::{CompilationProfileId, PreprocessConfig, ProjectConfig},
+    project::{CompilationProfileId, ProjectConfig},
     source_root::{SourceRoot, SourceRootId},
 };
 
@@ -52,9 +52,6 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
     fn file_path(&self, file_id: FileId) -> Option<utils::paths::AbsPathBuf>;
 
     #[salsa::input]
-    fn file_preprocess_config(&self, file_id: FileId) -> Arc<PreprocessConfig>;
-
-    #[salsa::input]
     fn files(&self) -> Box<FxHashSet<FileId>>;
 
     #[salsa::input]
@@ -84,9 +81,16 @@ pub struct ParsedCompilationUnit {
     pub preprocessor_trace: Option<Trace>,
 }
 
+pub type ParsedProfileUnits = Arc<[(FileId, ParsedCompilationUnit, SyntaxTreeBufferIds)]>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompilationProfileAnalysis {
-    diagnostics: Arc<[CompilationDiagnostic]>,
+pub struct ParsedProfile {
+    pub units: ParsedProfileUnits,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilationProfileDiagnostics {
+    pub diagnostics: Arc<[CompilationDiagnostic]>,
 }
 
 fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentity {
@@ -151,7 +155,36 @@ fn syntax_tree_options_for_profile(
 }
 
 fn parsed_compilation_unit(db: &dyn SourceRootDb, file_id: FileId) -> ParsedCompilationUnit {
-    let _span = tracing::info_span!("slang.parse_for_compilation", ?file_id).entered();
+    let profile_id = db.file_compilation_profile(file_id);
+    if let Some(profile_id) = profile_id {
+        let plan = db.compilation_plan_for_profile(Some(profile_id));
+        if plan.roots.contains(&file_id) {
+            let parsed_profile = db.parsed_profile(Some(profile_id));
+            let Some((_, parsed, _)) =
+                parsed_profile.units.iter().find(|(root_file_id, _, _)| *root_file_id == file_id)
+            else {
+                panic!(
+                    "profile root {file_id:?} is missing from authoritative parse for profile {profile_id:?}"
+                );
+            };
+            tracing::debug!(
+                ?profile_id,
+                ?file_id,
+                root_count = plan.roots.len(),
+                parse_mode = "authoritative",
+                "reusing profile root syntax tree"
+            );
+            return parsed.clone();
+        }
+    }
+
+    let _span = tracing::info_span!(
+        "slang.parse_for_compilation",
+        ?profile_id,
+        ?file_id,
+        parse_mode = "authoritative"
+    )
+    .entered();
     let text = {
         let _span =
             tracing::info_span!("slang.parse_for_compilation.file_text", ?file_id).entered();
@@ -192,6 +225,68 @@ fn parsed_compilation_unit(db: &dyn SourceRootDb, file_id: FileId) -> ParsedComp
     }
 }
 
+fn parsed_profile(
+    db: &dyn SourceRootDb,
+    profile_id: Option<CompilationProfileId>,
+) -> Arc<ParsedProfile> {
+    let context = db.compilation_context(profile_id);
+    let plan = db.compilation_plan_for_profile(profile_id);
+    let include_buffers = compilation_plan::include_buffers_for_plan(db, &plan);
+    let root_count = plan.roots.len();
+    let _span = tracing::info_span!(
+        "slang.profile_parse",
+        ?profile_id,
+        root_count,
+        parse_mode = "authoritative"
+    )
+    .entered();
+
+    let mut session = Compilation::new_with_top_modules(&context.top_modules);
+    let mut units = Vec::with_capacity(root_count);
+    for file_id in plan.roots.iter().copied() {
+        let text = db.file_text(file_id);
+        let identity = source_file_identity(db, file_id);
+        let (syntax_tree, preprocessor_trace) = match db.file_kind(file_id) {
+            SourceFileKind::SystemVerilog => {
+                let options = syntax_tree_options_for_profile(&context, include_buffers.clone());
+                let syntax_tree = session.parse_syntax_tree_from_text(
+                    &text,
+                    &identity.name,
+                    &identity.path,
+                    &options,
+                );
+                let preprocessor_trace = syntax_tree.preprocessor_trace();
+                (syntax_tree, preprocessor_trace)
+            }
+            SourceFileKind::LibraryMap => (
+                session.parse_library_map_syntax_tree_from_text(
+                    &text,
+                    &identity.name,
+                    &identity.path,
+                ),
+                None,
+            ),
+            SourceFileKind::IncludeHeader | SourceFileKind::ProjectManifest => {
+                panic!("non-compilation unit {file_id:?} appeared in profile roots")
+            }
+        };
+        let buffer_ids = syntax_tree.buffer_ids();
+        units.push((
+            file_id,
+            ParsedCompilationUnit { syntax_tree, preprocessor_trace },
+            buffer_ids,
+        ));
+    }
+
+    tracing::debug!(
+        ?profile_id,
+        root_count = units.len(),
+        parse_mode = "authoritative",
+        "profile authoritative parse complete"
+    );
+    Arc::new(ParsedProfile { units: Arc::from(units) })
+}
+
 fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTree {
     db.parsed_compilation_unit(file_id).syntax_tree.clone()
 }
@@ -205,6 +300,14 @@ fn parser_expected_syntax(
         return Arc::from(Vec::<ParserExpectedSyntax>::new());
     }
 
+    let profile_id = db.file_compilation_profile(file_id);
+    let _span = tracing::info_span!(
+        "slang.parser_expected_syntax",
+        ?profile_id,
+        ?file_id,
+        parse_mode = "completion"
+    )
+    .entered();
     let text = db.file_text(file_id);
     let identity = source_file_identity(db, file_id);
     let offset = usize::from(offset);
@@ -301,7 +404,7 @@ pub trait SourceRootDb: SourceDb {
     fn compilation_profile_diagnostics(
         &self,
         profile_id: CompilationProfileId,
-    ) -> Arc<[CompilationDiagnostic]>;
+    ) -> Arc<CompilationProfileDiagnostics>;
     fn include_buffers_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
@@ -323,10 +426,7 @@ pub trait SourceRootDb: SourceDb {
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<crate::preproc::MacroReferenceIndex>;
     fn parsed_compilation_unit(&self, file_id: FileId) -> ParsedCompilationUnit;
-    fn compilation_profile_analysis(
-        &self,
-        profile_id: Option<CompilationProfileId>,
-    ) -> Arc<CompilationProfileAnalysis>;
+    fn parsed_profile(&self, profile_id: Option<CompilationProfileId>) -> Arc<ParsedProfile>;
     fn parse_src_for_compilation(&self, file_id: FileId) -> SyntaxTree;
     fn parser_expected_syntax(
         &self,
@@ -404,73 +504,36 @@ fn compilation_context(
 
 fn compilation_context_for_file(db: &dyn SourceRootDb, file_id: FileId) -> Arc<CompilationContext> {
     let profile_id = db.file_compilation_profile(file_id);
-    let context = db.compilation_context(profile_id);
-    let preprocess = db.file_preprocess_config(file_id);
-    Arc::new(CompilationContext::new(
-        context.profile,
-        context.roots.clone(),
-        preprocess.include_dirs.clone(),
-        preprocess.predefine_strings(),
-        context.library_maps.clone(),
-        context.top_modules.clone(),
-    ))
+    db.compilation_context(profile_id)
 }
 
-fn compilation_profile_analysis(
+fn compilation_profile_diagnostics(
     db: &dyn SourceRootDb,
-    profile_id: Option<CompilationProfileId>,
-) -> Arc<CompilationProfileAnalysis> {
+    profile_id: CompilationProfileId,
+) -> Arc<CompilationProfileDiagnostics> {
     let config = db.diagnostics_config();
-    let plan = db.compilation_plan_for_profile(profile_id);
-    let context = db.compilation_context(profile_id);
-    let compilation_include_buffers = {
-        let _span = tracing::info_span!("slang.compilation_profile_parse_buffers").entered();
-        compilation_plan::include_buffers_for_plan(db, &plan)
-    };
-    let root_count = context.roots.len();
-    let include_buffer_count = compilation_include_buffers.len();
-    let _span = tracing::info_span!(
-        "slang.compilation_profile_parse",
-        ?profile_id,
-        root_count,
-        include_buffer_count
-    )
-    .entered();
+    let _span =
+        tracing::info_span!("slang.profile_compilation", ?profile_id, parse_mode = "authoritative")
+            .entered();
+    if !config.enabled {
+        return Arc::new(CompilationProfileDiagnostics { diagnostics: Arc::from(Vec::new()) });
+    }
+
+    let context = db.compilation_context(Some(profile_id));
+    let parsed_profile = db.parsed_profile(Some(profile_id));
     let mut compilation = Compilation::new_with_top_modules(&context.top_modules);
     let mut buffer_file_ids = FxHashMap::default();
     let path_file_ids = path_file_ids(db);
 
-    for file_id in context.roots.iter().copied() {
-        let text = db.file_text(file_id);
-        let identity = source_file_identity(db, file_id);
-        let buffer_ids = match db.file_kind(file_id) {
-            SourceFileKind::SystemVerilog => {
-                let file_context = db.compilation_context_for_file(file_id);
-                let options = syntax_tree_options_for_profile(
-                    &file_context,
-                    compilation_include_buffers.clone(),
-                );
-                compilation.add_syntax_tree_from_text(
-                    &text,
-                    &identity.name,
-                    &identity.path,
-                    &options,
-                )
-            }
-            SourceFileKind::LibraryMap => compilation.add_library_map_syntax_tree_from_text(
-                &text,
-                &identity.name,
-                &identity.path,
-            ),
-            SourceFileKind::IncludeHeader | SourceFileKind::ProjectManifest => continue,
-        };
+    for (file_id, parsed_unit, buffer_ids) in parsed_profile.units.iter() {
+        compilation.add_syntax_tree(parsed_unit.syntax_tree.clone());
         let buffer_ids_for_map = buffer_ids.clone();
-        insert_buffer_file_ids(&mut buffer_file_ids, &path_file_ids, buffer_ids_for_map, file_id);
+        insert_buffer_file_ids(&mut buffer_file_ids, &path_file_ids, buffer_ids_for_map, *file_id);
     }
 
     let diagnostics =
         compilation_diagnostics_from_compilation(&config, &compilation, &buffer_file_ids);
-    Arc::new(CompilationProfileAnalysis { diagnostics })
+    Arc::new(CompilationProfileDiagnostics { diagnostics })
 }
 
 fn compilation_diagnostics_from_compilation(
@@ -529,42 +592,46 @@ fn compilation_diagnostics_from_compilation(
         );
     }
 
-    let raw_semantic_diagnostics = {
-        let _span = tracing::info_span!("slang.semantic.raw_diagnostics").entered();
-        compilation.semantic_diagnostics_with_options(&config.slang.warnings)
-    };
-    let raw_semantic_diagnostic_count = raw_semantic_diagnostics.len();
-    let mut unmapped_semantic_buffer_count = 0usize;
-    let mut ignored_semantic_diagnostic_count = 0usize;
-    {
-        let _span =
-            tracing::info_span!("slang.semantic.map_diagnostics", raw_semantic_diagnostic_count)
-                .entered();
-        diagnostics.extend(raw_semantic_diagnostics.into_iter().filter_map(|diag| {
-            let diag_file_id =
-                diag.buffer_id.and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied());
-            let Some(diag_file_id) = diag_file_id else {
-                unmapped_semantic_buffer_count += 1;
-                return None;
-            };
-            let Some(diag) = config.apply_rules(DiagnosticSource::Semantic, diag) else {
-                ignored_semantic_diagnostic_count += 1;
-                return None;
-            };
-            Some(CompilationDiagnostic {
-                file_id: diag_file_id,
-                source: DiagnosticSource::Semantic,
-                diagnostic: diag,
-            })
-        }));
+    if config.semantic.enabled {
+        let raw_semantic_diagnostics = {
+            let _span = tracing::info_span!("slang.semantic.raw_diagnostics").entered();
+            compilation.semantic_diagnostics_with_options(&config.slang.warnings)
+        };
+        let raw_semantic_diagnostic_count = raw_semantic_diagnostics.len();
+        let mut unmapped_semantic_buffer_count = 0usize;
+        let mut ignored_semantic_diagnostic_count = 0usize;
+        {
+            let _span = tracing::info_span!(
+                "slang.semantic.map_diagnostics",
+                raw_semantic_diagnostic_count
+            )
+            .entered();
+            diagnostics.extend(raw_semantic_diagnostics.into_iter().filter_map(|diag| {
+                let diag_file_id =
+                    diag.buffer_id.and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied());
+                let Some(diag_file_id) = diag_file_id else {
+                    unmapped_semantic_buffer_count += 1;
+                    return None;
+                };
+                let Some(diag) = config.apply_rules(DiagnosticSource::Semantic, diag) else {
+                    ignored_semantic_diagnostic_count += 1;
+                    return None;
+                };
+                Some(CompilationDiagnostic {
+                    file_id: diag_file_id,
+                    source: DiagnosticSource::Semantic,
+                    diagnostic: diag,
+                })
+            }));
+        }
+        tracing::info!(
+            raw_semantic_diagnostic_count,
+            unmapped_semantic_buffer_count,
+            ignored_semantic_diagnostic_count,
+            diagnostic_count = diagnostics.len(),
+            "semantic diagnostics complete"
+        );
     }
-    tracing::info!(
-        raw_semantic_diagnostic_count,
-        unmapped_semantic_buffer_count,
-        ignored_semantic_diagnostic_count,
-        diagnostic_count = diagnostics.len(),
-        "semantic diagnostics complete"
-    );
 
     Arc::from(diagnostics)
 }
@@ -599,7 +666,7 @@ fn file_compilation_diagnostics(
 ) -> Arc<[CompilationDiagnostic]> {
     let source_root_id = db.source_root_id(file_id);
     let config = db.diagnostics_config();
-    if !config.enabled || !config.semantic.enabled || db.file_is_project_ignored(file_id) {
+    if !config.enabled || db.file_is_project_ignored(file_id) {
         return Arc::from(Vec::<CompilationDiagnostic>::new());
     }
 
@@ -607,18 +674,7 @@ fn file_compilation_diagnostics(
     let Some(profile_id) = project_config.profile_for_root(source_root_id) else {
         return Arc::from(Vec::<CompilationDiagnostic>::new());
     };
-    db.compilation_profile_diagnostics(profile_id)
-}
-
-fn compilation_profile_diagnostics(
-    db: &dyn SourceRootDb,
-    profile_id: CompilationProfileId,
-) -> Arc<[CompilationDiagnostic]> {
-    let config = db.diagnostics_config();
-    if !config.enabled || !config.semantic.enabled {
-        return Arc::from(Vec::<CompilationDiagnostic>::new());
-    }
-    db.compilation_profile_analysis(Some(profile_id)).diagnostics.clone()
+    db.compilation_profile_diagnostics(profile_id).diagnostics.clone()
 }
 
 fn source_root_semantic_diagnostics(
@@ -767,20 +823,14 @@ mod tests {
     }
 
     #[test]
-    fn compilation_profile_analysis_uses_the_compilation_context() {
-        let mut db = db_with_root_file();
+    fn parsed_profile_uses_the_compilation_context() {
+        let db = db_with_root_file();
         db.set_project_config_with_durability(Arc::new(ProjectConfig::default()), Durability::LOW);
-        db.set_file_preprocess_config_with_durability(
-            TOP,
-            Arc::new(PreprocessConfig::default()),
-            Durability::LOW,
-        );
-        let tree = db.parse_src_for_compilation(TOP);
+        let profile = db.parsed_profile(None);
+        assert_eq!(profile.units.len(), 1);
+        let tree = profile.units[0].1.syntax_tree.clone();
         let root = tree.root().expect("compilation parse should have a root");
         assert!(root.children().next().is_some());
-
-        let profile_analysis = db.compilation_profile_analysis(None);
-        assert!(profile_analysis.diagnostics.is_empty());
     }
 
     #[test]

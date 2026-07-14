@@ -159,6 +159,7 @@ pub(crate) fn compilation_profile_diagnostics(
 ) -> Vec<Diagnostic> {
     let mut diagnostics = db
         .compilation_profile_diagnostics(profile_id)
+        .diagnostics
         .iter()
         .map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
         .collect::<Vec<_>>();
