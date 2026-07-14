@@ -271,6 +271,13 @@ fn parsed_profile(
             }
         };
         let buffer_ids = syntax_tree.buffer_ids();
+        tracing::debug!(
+            ?profile_id,
+            ?file_id,
+            root_count,
+            parse_mode = "authoritative",
+            "profile root syntax tree parsed"
+        );
         units.push((
             file_id,
             ParsedCompilationUnit { syntax_tree, preprocessor_trace },
