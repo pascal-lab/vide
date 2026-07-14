@@ -1,7 +1,7 @@
 use std::{path::Path, sync::Arc as StdArc};
 
 use hir::base_db::source_root::{SourceRootDiagnosticScope, SourceRootRole};
-use ide::{Cancellable, analysis::Analysis};
+use ide::{Cancellable, analysis::AnalysisSnapshot};
 use lsp_types::Url;
 use nohash_hasher::IntMap;
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
@@ -64,7 +64,7 @@ impl DiagnosticPublishTarget {
 // immutable
 pub(crate) struct GlobalStateSnapshot {
     pub(crate) config: Arc<Config>,
-    pub(crate) analysis: Analysis,
+    pub(crate) analysis: AnalysisSnapshot,
     // pub(crate) check_fixes: CheckFixes,
     pub(crate) sema_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
     pub(crate) external_sources: Vec<StdArc<dyn DiagnosticSource>>,
@@ -81,6 +81,12 @@ pub(crate) struct GlobalStateSnapshot {
 impl std::panic::UnwindSafe for GlobalStateSnapshot {}
 
 impl GlobalStateSnapshot {
+    pub(crate) fn analysis_snapshot_id(
+        &self,
+    ) -> hir::base_db::analysis_snapshot::AnalysisSnapshotId {
+        self.analysis.snapshot_id()
+    }
+
     fn vfs_read(&self) -> MappedRwLockReadGuard<'_, Vfs> {
         RwLockReadGuard::map(self.vfs.read(), |(it, _)| it)
     }
@@ -145,6 +151,11 @@ impl GlobalStateSnapshot {
         &self,
         file_id: FileId,
     ) -> anyhow::Result<Vec<lsp_types::Diagnostic>> {
+        tracing::debug!(
+            snapshot_id = ?self.analysis_snapshot_id(),
+            ?file_id,
+            "resolve diagnostics for analysis snapshot"
+        );
         if !self.document_diagnostics_enabled(file_id) {
             return Ok(Vec::new());
         }
