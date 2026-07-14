@@ -1485,7 +1485,8 @@ namespace ast {
       std::move(includePaths),
       std::move(includeBuffers),
       std::nullopt,
-      expandIncludes);
+      expandIncludes,
+      true);
   auto bufferIds = collectSyntaxTreeBufferIds(*tree);
   addSyntaxTree(std::move(tree));
   return bufferIds;
@@ -1499,6 +1500,17 @@ namespace ast {
   auto bufferIds = collectSyntaxTreeBufferIds(*tree);
   addSyntaxTree(std::move(tree));
   return bufferIds;
+}
+
+size_t Compilation::syntaxTreeCount() const {
+  return innerCompilation->getSyntaxTrees().size();
+}
+
+std::shared_ptr<syntax::SyntaxTree> Compilation::syntaxTree(size_t index) const {
+  auto trees = innerCompilation->getSyntaxTrees();
+  if (index >= trees.size())
+    return nullptr;
+  return std::make_shared<syntax::SyntaxTree>(trees[index], sourceSession);
 }
 
 ::RawSyntaxTreeBufferIds Compilation_add_syntax_tree_from_text(
@@ -1526,6 +1538,16 @@ namespace ast {
     std::string_view name,
     std::string_view path) {
   return compilation.addLibraryMapSyntaxTreeFromText(text, name, path);
+}
+
+size_t Compilation_syntax_tree_count(const Compilation& compilation) {
+  return compilation.syntaxTreeCount();
+}
+
+std::shared_ptr<syntax::SyntaxTree> Compilation_syntax_tree(
+    const Compilation& compilation,
+    size_t index) {
+  return compilation.syntaxTree(index);
 }
 
 rust::Vec<::RawSyntaxDiagnostic> Compilation_semantic_diagnostics(const Compilation& compilation) {
