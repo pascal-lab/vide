@@ -8,6 +8,7 @@ use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
 use vfs::{AnchoredPath, FileId};
 
 use crate::base_db::{
+    analysis_snapshot::CompilationContext,
     compilation_plan::{self, CompilationPlan},
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
     project::{CompilationProfileId, PreprocessConfig, ProjectConfig},
@@ -63,6 +64,12 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
 
     #[salsa::input]
     fn project_config(&self) -> Arc<ProjectConfig>;
+
+    /// Monotonic document revision owned by the analysis host. Keeping this as
+    /// an input makes every compilation context part of the same salsa state
+    /// as the text it describes.
+    #[salsa::input]
+    fn document_revision(&self) -> u64;
 }
 
 fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
@@ -152,27 +159,24 @@ fn syntax_tree_options_for_file(
     file_id: FileId,
 ) -> syntax::SyntaxTreeOptions {
     let _span = tracing::info_span!("slang.syntax_tree_options.file", ?file_id).entered();
-    let preprocess = db.file_preprocess_config(file_id);
     let profile_id = db.file_compilation_profile(file_id);
+    let context = db.compilation_context(profile_id);
     let include_buffers = db.include_buffers_for_profile(profile_id).as_ref().clone();
     syntax::SyntaxTreeOptions {
-        predefines: preprocess.predefine_strings(),
-        include_paths: preprocess.include_dir_strings(),
+        predefines: context.predefines.to_vec(),
+        include_paths: context.include_dirs.iter().map(ToString::to_string).collect(),
         include_buffers,
         ..syntax::SyntaxTreeOptions::default()
     }
 }
 
 fn syntax_tree_options_for_profile(
-    project_config: &ProjectConfig,
-    profile_id: Option<CompilationProfileId>,
+    context: &CompilationContext,
     include_buffers: Vec<SyntaxTreeBuffer>,
 ) -> syntax::SyntaxTreeOptions {
-    let preprocess = project_config.preprocess_for_profile(profile_id);
-    let include_paths = preprocess.include_dir_strings();
     syntax::SyntaxTreeOptions {
-        predefines: preprocess.predefine_strings(),
-        include_paths,
+        predefines: context.predefines.to_vec(),
+        include_paths: context.include_dirs.iter().map(ToString::to_string).collect(),
         include_buffers,
         ..syntax::SyntaxTreeOptions::default()
     }
@@ -317,6 +321,10 @@ pub trait SourceRootDb: SourceDb {
         &self,
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<CompilationPlan>;
+    fn compilation_context(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> Arc<CompilationContext>;
     /// Diagnostics produced by one slang compilation profile. This is the
     /// semantic diagnostics path, but it also returns parse diagnostics from
     /// the same syntax trees so one request does not parse the same roots
@@ -400,6 +408,28 @@ fn compilation_plan_for_profile(
     Arc::new(CompilationPlan::for_profile(db, profile_id))
 }
 
+fn compilation_context(
+    db: &dyn SourceRootDb,
+    profile_id: Option<CompilationProfileId>,
+) -> Arc<CompilationContext> {
+    let plan = db.compilation_plan_for_profile(profile_id);
+    let library_maps = plan
+        .roots
+        .iter()
+        .copied()
+        .filter(|file_id| matches!(db.file_kind(*file_id), SourceFileKind::LibraryMap))
+        .collect::<Vec<_>>();
+    Arc::new(CompilationContext::new(
+        profile_id,
+        plan.roots.clone(),
+        plan.include_dirs.clone(),
+        plan.predefines.clone(),
+        library_maps,
+        plan.top_modules.clone(),
+        db.document_revision(),
+    ))
+}
+
 fn include_buffers_for_profile(
     db: &dyn SourceRootDb,
     profile_id: Option<CompilationProfileId>,
@@ -450,14 +480,14 @@ fn compilation_profile_diagnostics(
         return Arc::from(Vec::<CompilationDiagnostic>::new());
     }
 
-    let project_config = db.project_config();
     let plan = db.compilation_plan_for_profile(Some(profile_id));
+    let context = db.compilation_context(Some(profile_id));
     let compilation_include_buffers = {
         let _span = tracing::info_span!("slang.semantic.compilation_buffers").entered();
         compilation_plan::compilation_source_buffers_for_plan(db, &plan)
     };
     let root_count = plan.roots.len();
-    let top_module_count = plan.top_modules.len();
+    let top_module_count = context.top_modules.len();
     let include_buffer_count = compilation_include_buffers.len();
     let _span = tracing::info_span!(
         "slang.compilation_profile_diagnostics",
@@ -467,19 +497,16 @@ fn compilation_profile_diagnostics(
         include_buffer_count
     )
     .entered();
-    let compilation_options = syntax_tree_options_for_profile(
-        &project_config,
-        Some(profile_id),
-        compilation_include_buffers,
-    );
-    let mut compilation = Compilation::new_with_top_modules(&plan.top_modules);
+    let compilation_options =
+        syntax_tree_options_for_profile(&context, compilation_include_buffers);
+    let mut compilation = Compilation::new_with_top_modules(&context.top_modules);
     let mut buffer_file_ids = FxHashMap::default();
     let path_file_ids = path_file_ids(db);
     let mut compilation_root_count = 0usize;
     let mut compilation_buffer_count = 0usize;
     {
         let _span = tracing::info_span!("slang.semantic.add_roots", root_count).entered();
-        for file_id in plan.roots.iter().copied() {
+        for file_id in context.roots.iter().copied() {
             let text = {
                 let _span =
                     tracing::info_span!("slang.semantic.add_root.file_text", ?file_id).entered();

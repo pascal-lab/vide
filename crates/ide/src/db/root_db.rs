@@ -70,6 +70,7 @@ impl RootDb {
             Durability::HIGH,
         );
         db.set_project_config_with_durability(Arc::new(ProjectConfig::default()), Durability::HIGH);
+        db.set_document_revision_with_durability(0, Durability::HIGH);
         db.update_parse_query_lru_capacity(lru_capacity);
         db
     }
