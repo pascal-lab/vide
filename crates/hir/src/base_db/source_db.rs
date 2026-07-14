@@ -54,8 +54,6 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
     #[salsa::input]
     fn file_preprocess_config(&self, file_id: FileId) -> Arc<PreprocessConfig>;
 
-    fn parse_src(&self, file_id: FileId) -> SyntaxTree;
-
     #[salsa::input]
     fn files(&self) -> Box<FxHashSet<FileId>>;
 
@@ -70,35 +68,6 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
     /// as the text it describes.
     #[salsa::input]
     fn document_revision(&self) -> u64;
-}
-
-fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
-    let _span = tracing::info_span!("slang.parse_src", ?file_id).entered();
-    let text = db.file_text(file_id);
-
-    match db.file_kind(file_id) {
-        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
-            // HIR source maps are local to the queried file; project-aware
-            // include expansion belongs to parse_src_for_compilation.
-            let preprocess = db.file_preprocess_config(file_id);
-            let include_paths = preprocess.include_dir_strings();
-            let options = syntax::SyntaxTreeOptions {
-                predefines: preprocess.predefine_strings(),
-                include_paths,
-                ..syntax::SyntaxTreeOptions::without_include_expansion()
-            };
-            let _span = tracing::info_span!(
-                "slang.syntax_tree.from_text",
-                ?file_id,
-                bytes = text.len(),
-                include_buffer_count = 0usize
-            )
-            .entered();
-            SyntaxTree::from_text_with_options(&text, "", "", &options)
-        }
-        SourceFileKind::LibraryMap => SyntaxTree::from_library_map_text(&text, "", ""),
-        SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
-    }
 }
 
 struct SourceFileIdentity {
@@ -160,7 +129,7 @@ fn syntax_tree_options_for_file(
 ) -> syntax::SyntaxTreeOptions {
     let _span = tracing::info_span!("slang.syntax_tree_options.file", ?file_id).entered();
     let profile_id = db.file_compilation_profile(file_id);
-    let context = db.compilation_context(profile_id);
+    let context = db.compilation_context_for_file(file_id);
     let include_buffers = db.include_buffers_for_profile(profile_id).as_ref().clone();
     syntax::SyntaxTreeOptions {
         predefines: context.predefines.to_vec(),
@@ -325,6 +294,7 @@ pub trait SourceRootDb: SourceDb {
         &self,
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<CompilationContext>;
+    fn compilation_context_for_file(&self, file_id: FileId) -> Arc<CompilationContext>;
     /// Diagnostics produced by one slang compilation profile. This is the
     /// semantic diagnostics path, but it also returns parse diagnostics from
     /// the same syntax trees so one request does not parse the same roots
@@ -430,6 +400,21 @@ fn compilation_context(
     ))
 }
 
+fn compilation_context_for_file(db: &dyn SourceRootDb, file_id: FileId) -> Arc<CompilationContext> {
+    let profile_id = db.file_compilation_profile(file_id);
+    let context = db.compilation_context(profile_id);
+    let preprocess = db.file_preprocess_config(file_id);
+    Arc::new(CompilationContext::new(
+        context.profile,
+        context.roots.clone(),
+        preprocess.include_dirs.clone(),
+        preprocess.predefine_strings(),
+        context.library_maps.clone(),
+        context.top_modules.clone(),
+        context.document_revision,
+    ))
+}
+
 fn include_buffers_for_profile(
     db: &dyn SourceRootDb,
     profile_id: Option<CompilationProfileId>,
@@ -497,8 +482,6 @@ fn compilation_profile_diagnostics(
         include_buffer_count
     )
     .entered();
-    let compilation_options =
-        syntax_tree_options_for_profile(&context, compilation_include_buffers);
     let mut compilation = Compilation::new_with_top_modules(&context.top_modules);
     let mut buffer_file_ids = FxHashMap::default();
     let path_file_ids = path_file_ids(db);
@@ -515,6 +498,11 @@ fn compilation_profile_diagnostics(
             let identity = source_file_identity(db, file_id);
             let buffer_ids = match db.file_kind(file_id) {
                 SourceFileKind::SystemVerilog => {
+                    let file_context = db.compilation_context_for_file(file_id);
+                    let compilation_options = syntax_tree_options_for_profile(
+                        &file_context,
+                        compilation_include_buffers.clone(),
+                    );
                     let include_buffer_count = compilation_options.include_buffers.len();
                     let _span = tracing::info_span!(
                         "slang.semantic.add_root.from_text",
