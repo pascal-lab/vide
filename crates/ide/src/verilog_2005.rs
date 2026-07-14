@@ -1134,23 +1134,27 @@ endmodule
         .find(|diagnostic| diagnostic.name == "inactive-preprocessor-branch")
         .expect("expected inactive branch diagnostic");
     assert!(
-        inactive.range.intersect(if_branch).is_some(),
-        "file-level preprocess should mark the if branch inactive: {diagnostics:?}"
+        inactive.range.intersect(else_branch).is_some(),
+        "project profile preprocess should mark the else branch inactive: {diagnostics:?}"
     );
     assert!(
-        inactive.range.intersect(else_branch).is_none(),
-        "file-level preprocess should keep the else branch semantically active: {diagnostics:?}"
+        inactive.range.intersect(if_branch).is_none(),
+        "project profile preprocess should keep the if branch semantically active: {diagnostics:?}"
     );
 
     assert!(
-        analysis.goto_definition(position(file_id, &markers, "if_ref")).unwrap().is_none(),
-        "inactive if branch should not drive semantic navigation"
+        analysis.goto_definition(position(file_id, &markers, "if_ref")).unwrap().is_some(),
+        "active if branch should drive semantic navigation"
     );
 
+    assert!(
+        analysis.goto_definition(position(file_id, &markers, "else_ref")).unwrap().is_none(),
+        "inactive else branch should not drive semantic navigation"
+    );
     let nav = analysis
-        .goto_definition(position(file_id, &markers, "else_ref"))
+        .goto_definition(position(file_id, &markers, "if_ref"))
         .unwrap()
-        .expect("active else branch should navigate");
+        .expect("active if branch should navigate");
     assert!(
         nav.info.iter().any(|target| target.focus_range == Some(d_i_range)),
         "active else branch should resolve d_i to the port definition: {nav:?}"
