@@ -66,7 +66,6 @@ struct SyntaxTreeSourceInfo {
   const slang::SourceManager* sourceManager;
   const slang::parsing::PreprocessorTraceSnapshot* preprocessorTrace;
   slang::SourceLocation rootLocation;
-  size_t owners = 1;
 };
 
 struct LexedTokenAtOffset {
@@ -1153,12 +1152,10 @@ SyntaxTree::SyntaxTree(std::shared_ptr<::slang::syntax::SyntaxTree> tree,
     return;
 
   std::lock_guard lock(syntaxTreeSourceInfoMutex);
-  auto [it, inserted] = syntaxTreeSourceInfo.emplace(
+  syntaxTreeSourceInfo.emplace(
       &root,
       SyntaxTreeSourceInfo{
           &innerTree->sourceManager(), innerTree->getPreprocessorTrace(), rootLocation});
-  if (!inserted)
-    it->second.owners++;
 }
 
 SyntaxTree::~SyntaxTree() {
@@ -1166,14 +1163,7 @@ SyntaxTree::~SyntaxTree() {
     return;
 
   std::lock_guard lock(syntaxTreeSourceInfoMutex);
-  auto it = syntaxTreeSourceInfo.find(&innerTree->root());
-  if (it == syntaxTreeSourceInfo.end())
-    return;
-  if (it->second.owners > 1) {
-    it->second.owners--;
-    return;
-  }
-  syntaxTreeSourceInfo.erase(it);
+  syntaxTreeSourceInfo.erase(&innerTree->root());
 }
 
 SourceSession::SourceSession() : sourceManager(std::make_shared<slang::SourceManager>()) {}
@@ -1495,8 +1485,7 @@ namespace ast {
       std::move(includePaths),
       std::move(includeBuffers),
       std::nullopt,
-      expandIncludes,
-      true);
+      expandIncludes);
   auto bufferIds = collectSyntaxTreeBufferIds(*tree);
   addSyntaxTree(std::move(tree));
   return bufferIds;
@@ -1510,17 +1499,6 @@ namespace ast {
   auto bufferIds = collectSyntaxTreeBufferIds(*tree);
   addSyntaxTree(std::move(tree));
   return bufferIds;
-}
-
-size_t Compilation::syntaxTreeCount() const {
-  return innerCompilation->getSyntaxTrees().size();
-}
-
-std::shared_ptr<syntax::SyntaxTree> Compilation::syntaxTree(size_t index) const {
-  auto trees = innerCompilation->getSyntaxTrees();
-  if (index >= trees.size())
-    return nullptr;
-  return std::make_shared<syntax::SyntaxTree>(trees[index], sourceSession);
 }
 
 ::RawSyntaxTreeBufferIds Compilation_add_syntax_tree_from_text(
@@ -1548,16 +1526,6 @@ std::shared_ptr<syntax::SyntaxTree> Compilation::syntaxTree(size_t index) const 
     std::string_view name,
     std::string_view path) {
   return compilation.addLibraryMapSyntaxTreeFromText(text, name, path);
-}
-
-size_t Compilation_syntax_tree_count(const Compilation& compilation) {
-  return compilation.syntaxTreeCount();
-}
-
-std::shared_ptr<syntax::SyntaxTree> Compilation_syntax_tree(
-    const Compilation& compilation,
-    size_t index) {
-  return compilation.syntaxTree(index);
 }
 
 rust::Vec<::RawSyntaxDiagnostic> Compilation_semantic_diagnostics(const Compilation& compilation) {
