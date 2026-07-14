@@ -1,5 +1,6 @@
 pub use salsa::{self, Cancelled};
 
+pub mod analysis_snapshot;
 pub mod change;
 pub mod compilation_plan;
 pub mod diagnostics_config;
