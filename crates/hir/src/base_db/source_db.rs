@@ -84,11 +84,8 @@ pub struct ParsedCompilationUnit {
     pub preprocessor_trace: Option<Trace>,
 }
 
-type CompilationProfileParsedUnits = Arc<[(FileId, ParsedCompilationUnit, SyntaxTreeBufferIds)]>;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompilationProfileAnalysis {
-    parsed_units: CompilationProfileParsedUnits,
     diagnostics: Arc<[CompilationDiagnostic]>,
 }
 
@@ -442,8 +439,6 @@ fn compilation_profile_analysis(
     )
     .entered();
     let mut compilation = Compilation::new_with_top_modules(&context.top_modules);
-    let mut root_file_ids = Vec::with_capacity(root_count);
-    let mut root_buffer_ids = Vec::with_capacity(root_count);
     let mut buffer_file_ids = FxHashMap::default();
     let path_file_ids = path_file_ids(db);
 
@@ -472,35 +467,12 @@ fn compilation_profile_analysis(
             SourceFileKind::IncludeHeader | SourceFileKind::ProjectManifest => continue,
         };
         let buffer_ids_for_map = buffer_ids.clone();
-        root_file_ids.push(file_id);
-        root_buffer_ids.push(buffer_ids);
         insert_buffer_file_ids(&mut buffer_file_ids, &path_file_ids, buffer_ids_for_map, file_id);
     }
 
-    let syntax_trees = compilation.syntax_trees();
-    assert_eq!(
-        syntax_trees.len(),
-        root_file_ids.len(),
-        "slang compilation returned a different number of syntax trees than roots"
-    );
-    let parsed_units = root_file_ids
-        .into_iter()
-        .zip(root_buffer_ids)
-        .zip(syntax_trees)
-        .map(|((file_id, buffer_ids), syntax_tree)| {
-            (
-                file_id,
-                ParsedCompilationUnit {
-                    preprocessor_trace: syntax_tree.preprocessor_trace(),
-                    syntax_tree,
-                },
-                buffer_ids,
-            )
-        })
-        .collect::<Vec<_>>();
     let diagnostics =
         compilation_diagnostics_from_compilation(&config, &compilation, &buffer_file_ids);
-    Arc::new(CompilationProfileAnalysis { parsed_units: Arc::from(parsed_units), diagnostics })
+    Arc::new(CompilationProfileAnalysis { diagnostics })
 }
 
 fn compilation_diagnostics_from_compilation(
@@ -797,7 +769,7 @@ mod tests {
     }
 
     #[test]
-    fn compilation_profile_parse_exposes_a_root_syntax_tree() {
+    fn compilation_profile_analysis_uses_the_compilation_context() {
         let mut db = db_with_root_file();
         db.set_project_config_with_durability(Arc::new(ProjectConfig::default()), Durability::LOW);
         db.set_file_preprocess_config_with_durability(
@@ -810,8 +782,7 @@ mod tests {
         assert!(root.children().next().is_some());
 
         let profile_analysis = db.compilation_profile_analysis(None);
-        assert_eq!(profile_analysis.parsed_units.len(), 1);
-        assert!(profile_analysis.parsed_units[0].1.syntax_tree.root().is_some());
+        assert!(profile_analysis.diagnostics.is_empty());
     }
 
     #[test]

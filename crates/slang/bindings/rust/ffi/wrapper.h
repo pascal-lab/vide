@@ -131,7 +131,6 @@ namespace wrapper {
       const slang::ast::Compilation& inner() const { return *innerCompilation; }
 
       void addSyntaxTree(std::shared_ptr<syntax::SyntaxTree> tree) {
-        syntaxTreeWrapperStorage.push_back(tree);
         syntaxTreeStorage.push_back(tree);
         innerCompilation->addSyntaxTree(tree->sharedInner());
       }
@@ -149,12 +148,8 @@ namespace wrapper {
                                                                std::string_view name,
                                                                std::string_view path);
 
-      size_t syntaxTreeCount() const;
-      std::shared_ptr<syntax::SyntaxTree> syntaxTree(size_t index) const;
-
     private:
       std::vector<std::string> topModuleStorage;
-      std::vector<std::shared_ptr<syntax::SyntaxTree>> syntaxTreeWrapperStorage;
       std::vector<std::shared_ptr<syntax::SyntaxTree>> syntaxTreeStorage;
       std::shared_ptr<syntax::SourceSession> sourceSession =
           std::make_shared<syntax::SourceSession>();
@@ -631,11 +626,6 @@ namespace wrapper {
         std::string_view text,
         std::string_view name,
         std::string_view path);
-
-    size_t Compilation_syntax_tree_count(const Compilation& compilation);
-    std::shared_ptr<syntax::SyntaxTree> Compilation_syntax_tree(
-        const Compilation& compilation,
-        size_t index);
 
     rust::Vec<::RawSyntaxDiagnostic> Compilation_semantic_diagnostics(const Compilation& compilation);
     rust::Vec<::RawSyntaxDiagnostic> Compilation_parse_diagnostics_with_options(
