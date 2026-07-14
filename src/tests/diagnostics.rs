@@ -1438,7 +1438,11 @@ fn document_diagnostic_result_id_tracks_diagnostics_config_revision() {
         &client,
         uri.clone(),
         1,
-        |result_id, items| items.is_empty() && result_id.is_some(),
+        |result_id, items| {
+            items.is_empty()
+                && result_id
+                    .is_some_and(|result_id| result_id.contains("owner:compilation-profile:0"))
+        },
         "initial empty semantic diagnostics result id",
     );
     let first_result_id = first_result_id.expect("expected first diagnostic result id");
