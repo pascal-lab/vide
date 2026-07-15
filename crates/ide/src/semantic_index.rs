@@ -135,7 +135,8 @@ impl ModuleIndex {
             modules_by_name: modules_by_name
                 .into_iter()
                 .map(|(name, mut modules)| {
-                    modules.sort_by_key(|module| (module.file_id.index(), module.name_range.start()));
+                    modules
+                        .sort_by_key(|module| (module.file_id.index(), module.name_range.start()));
                     modules.dedup_by(|lhs, rhs| {
                         lhs.module_id == rhs.module_id
                             || (lhs.file_id == rhs.file_id && lhs.name_range == rhs.name_range)

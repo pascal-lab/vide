@@ -31,7 +31,8 @@ impl VfsPath {
         VfsPath::from(AbsPathBuf::assert(path.into()))
     }
 
-    /// Returns the `AbsPath` representation of `self` if `self` is on the file system.
+    /// Returns the `AbsPath` representation of `self` if `self` is on the file
+    /// system.
     pub fn as_path(&self) -> Option<&AbsPath> {
         match &self.0 {
             VfsPathRepr::PathBuf(it) => Some(it.as_path()),
@@ -124,8 +125,8 @@ impl VfsPath {
     ///
     /// Encode the path in the given buffer.
     ///
-    /// The encoding will be `0` if [`AbsPathBuf`], `1` if [`VirtualPath`], followed
-    /// by `self`'s representation.
+    /// The encoding will be `0` if [`AbsPathBuf`], `1` if [`VirtualPath`],
+    /// followed by `self`'s representation.
     ///
     /// Note that this encoding is dependent on the operating system.
     pub(crate) fn encode(&self, buf: &mut Vec<u8>) {
@@ -406,7 +407,8 @@ impl VirtualPath {
     ///
     /// # Returns
     /// - `None` if `self` ends with `"//"`.
-    /// - `Some((name, None))` if `self`'s base contains no `.`, or only one `.` at the start.
+    /// - `Some((name, None))` if `self`'s base contains no `.`, or only one `.`
+    ///   at the start.
     /// - `Some((name, Some(extension))` else.
     ///
     /// # Note

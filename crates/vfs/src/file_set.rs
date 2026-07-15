@@ -3,10 +3,7 @@ use nohash_hasher::IntMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 use utils::paths::{AbsPath, AbsPathBuf};
 
-use crate::{
-    AnchoredPath, FileId, Vfs, VfsPath,
-    path_glob::PathGlobMatcher,
-};
+use crate::{AnchoredPath, FileId, Vfs, VfsPath, path_glob::PathGlobMatcher};
 
 /// Bidirectional path map for a single source root.
 ///
@@ -250,11 +247,13 @@ impl FileSetConfigBuilder {
         self.roots.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.roots.is_empty()
+    }
+
     pub fn add_file_set(&mut self, roots: Vec<VfsPath>) {
-        let include_paths: Vec<AbsPathBuf> = roots
-            .iter()
-            .filter_map(|root| root.as_path().map(|path| path.to_path_buf()))
-            .collect();
+        let include_paths: Vec<AbsPathBuf> =
+            roots.iter().filter_map(|root| root.as_path().map(|path| path.to_path_buf())).collect();
         let include = if include_paths.is_empty() {
             Vec::new()
         } else {
@@ -322,7 +321,6 @@ impl fst::Automaton for PrefixOf<'_> {
         if self.prefix_of.get(state) == Some(&byte) { state + 1 } else { !0 }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

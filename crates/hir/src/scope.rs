@@ -690,7 +690,7 @@ mod tests {
         get::GetRef,
         paths::{AbsPathBuf, Utf8PathBuf},
     };
-    use vfs::{FileId, FileSet, VfsPath, AnchoredPath};
+    use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
     use crate::{
         base_db::{

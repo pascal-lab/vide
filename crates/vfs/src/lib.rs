@@ -6,36 +6,37 @@
 //! # Virtual File System
 //!
 //! VFS records all file changes pushed to it via [`set_file_contents`].
-//! As such it only ever stores changes, not the actual content of a file at any given moment.
-//! All file changes are logged, and can be retrieved via
+//! As such it only ever stores changes, not the actual content of a file at any
+//! given moment. All file changes are logged, and can be retrieved via
 //! [`take_changes`] method. The pack of changes is then pushed to `salsa` and
 //! triggers incremental recomputation.
 //!
-//! Files in VFS are identified with [`FileId`]s -- interned paths. The notion of
-//! the path, [`VfsPath`] is somewhat abstract: at the moment, it is represented
-//! as an [`std::path::PathBuf`] internally, but this is an implementation detail.
+//! Files in VFS are identified with [`FileId`]s -- interned paths. The notion
+//! of the path, [`VfsPath`] is somewhat abstract: at the moment, it is
+//! represented as an [`std::path::PathBuf`] internally, but this is an
+//! implementation detail.
 //!
 //! VFS doesn't do IO or file watching itself. For that, see the [`loader`]
 //! module. [`loader::Handle`] is an object-safe trait which abstracts both file
-//! loading and file watching. [`Handle`] is dynamically configured with a set of
-//! directory entries which should be scanned and watched. [`Handle`] then
+//! loading and file watching. [`Handle`] is dynamically configured with a set
+//! of directory entries which should be scanned and watched. [`Handle`] then
 //! asynchronously pushes file changes. Directory entries are configured in
-//! free-form via list of globs, it's up to the [`Handle`] to interpret the globs
-//! in any specific way.
+//! free-form via list of globs, it's up to the [`Handle`] to interpret the
+//! globs in any specific way.
 //!
-//! VFS stores a flat list of files. [`file_set::FileSet`] can partition this list
-//! of files into disjoint sets of files. Traversal-like operations (including
-//! getting the neighbor file by the relative path) are handled by the [`FileSet`].
-//! [`FileSet`]s are also pushed to salsa and cause it to re-check `mod foo;`
-//! declarations when files are created or deleted.
+//! VFS stores a flat list of files. [`file_set::FileSet`] can partition this
+//! list of files into disjoint sets of files. Traversal-like operations
+//! (including getting the neighbor file by the relative path) are handled by
+//! the [`FileSet`]. [`FileSet`]s are also pushed to salsa and cause it to
+//! re-check `mod foo;` declarations when files are created or deleted.
 //!
 //! [`FileSet`] and [`loader::Entry`] play similar, but different roles.
 //! Both specify the "set of paths/files", one is geared towards file watching,
 //! the other towards salsa changes. In particular, single [`FileSet`]
 //! may correspond to several [`loader::Entry`]. For example, a crate from
-//! crates.io which uses code generation would have two [`Entries`] -- for sources
-//! in `~/.cargo`, and for generated code in `./target/debug/build`. It will
-//! have a single [`FileSet`] which unions the two sources.
+//! crates.io which uses code generation would have two [`Entries`] -- for
+//! sources in `~/.cargo`, and for generated code in `./target/debug/build`. It
+//! will have a single [`FileSet`] which unions the two sources.
 //!
 //! [`set_file_contents`]: Vfs::set_file_contents
 //! [`take_changes`]: Vfs::take_changes
@@ -58,26 +59,27 @@ use std::{
     mem,
 };
 
-use crate::path_interner::PathInterner;
-
-pub use crate::{
-    anchored_path::{AnchoredPath, AnchoredPathBuf},
-    file_set::{FileSet, FileSetConfig, FileSetConfigBuilder, FileSetFilter, PartitionedFileSet, PathMatcher},
-    vfs_path::VfsPath,
-};
 use indexmap::{IndexMap, map::Entry};
-pub use crate::path_glob::PathGlobMatcher;
-pub use utils::paths::{AbsPath, AbsPathBuf};
-
 use rustc_hash::FxHasher;
 use tracing::{Level, span};
+pub use utils::paths::{AbsPath, AbsPathBuf};
+
+use crate::path_interner::PathInterner;
+pub use crate::{
+    anchored_path::{AnchoredPath, AnchoredPathBuf},
+    file_set::{
+        FileSet, FileSetConfig, FileSetConfigBuilder, FileSetFilter, PartitionedFileSet,
+        PathMatcher,
+    },
+    path_glob::PathGlobMatcher,
+    vfs_path::VfsPath,
+};
 
 fn hash_once<Hasher: std::hash::Hasher + Default>(thing: impl std::hash::Hash) -> u64 {
     let mut h = Hasher::default();
     thing.hash(&mut h);
     h.finish()
 }
-
 
 /// Handle to a file in [`Vfs`]
 ///
@@ -120,8 +122,8 @@ pub enum FileState {
     Exists(u64),
     /// The file is deleted.
     Deleted,
-    /// The file was specifically excluded by the user. We still include excluded files
-    /// when they're opened (without their contents).
+    /// The file was specifically excluded by the user. We still include
+    /// excluded files when they're opened (without their contents).
     Excluded,
 }
 
@@ -180,6 +182,25 @@ impl ChangedFile {
             Change::Create(bytes, _) | Change::Modify(bytes, _) => Some(bytes.as_slice()),
             Change::Delete => None,
         }
+    }
+
+    /// Test/host helper: create a file with UTF-8 text contents.
+    pub fn create(file_id: FileId, text: impl AsRef<str>) -> Self {
+        let bytes = text.as_ref().as_bytes().to_vec();
+        let hash = hash_once::<FxHasher>(&*bytes);
+        Self { file_id, change: Change::Create(bytes, hash) }
+    }
+
+    /// Test/host helper: modify a file with UTF-8 text contents.
+    pub fn modify(file_id: FileId, text: impl AsRef<str>) -> Self {
+        let bytes = text.as_ref().as_bytes().to_vec();
+        let hash = hash_once::<FxHasher>(&*bytes);
+        Self { file_id, change: Change::Modify(bytes, hash) }
+    }
+
+    /// Test/host helper: delete a file.
+    pub fn delete(file_id: FileId) -> Self {
+        Self { file_id, change: Change::Delete }
     }
 }
 
@@ -257,9 +278,11 @@ impl Vfs {
             })
     }
 
-    /// Update the `path` with the given `contents`. `None` means the file was deleted.
+    /// Update the `path` with the given `contents`. `None` means the file was
+    /// deleted.
     ///
-    /// Returns `true` if the file was modified, and saves the [change](ChangedFile).
+    /// Returns `true` if the file was modified, and saves the
+    /// [change](ChangedFile).
     ///
     /// If the path does not currently exists in the `Vfs`, allocates a new
     /// [`FileId`] for it.
@@ -342,8 +365,8 @@ impl Vfs {
 
     /// Returns the id associated with `path`
     ///
-    /// - If `path` does not exists in the `Vfs`, allocate a new id for it, associated with a
-    ///   deleted file;
+    /// - If `path` does not exists in the `Vfs`, allocate a new id for it,
+    ///   associated with a deleted file;
     /// - Else, returns `path`'s id.
     ///
     /// Does not record a change.
@@ -364,8 +387,9 @@ impl Vfs {
         self.data[file_id.0 as usize]
     }
 
-    /// We cannot ignore excluded files, because this will lead to errors when the client
-    /// requests semantic information for them, so we instead mark them specially.
+    /// We cannot ignore excluded files, because this will lead to errors when
+    /// the client requests semantic information for them, so we instead
+    /// mark them specially.
     pub fn insert_excluded_file(&mut self, path: VfsPath) {
         let file_id = self.alloc_file_id(path);
         self.data[file_id.0 as usize] = FileState::Excluded;

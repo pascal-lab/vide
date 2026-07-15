@@ -101,7 +101,9 @@ impl DiagnosticOwner {
             DiagnosticOwner::CompilationProfile(profile_id) => {
                 format!("compilation-profile:{}", profile_id.0)
             }
-            DiagnosticOwner::External { source, file } => format!("external-{source}:{}", file.index()),
+            DiagnosticOwner::External { source, file } => {
+                format!("external-{source}:{}", file.index())
+            }
         }
     }
 }
@@ -197,7 +199,9 @@ impl DiagnosticSnapshotKey {
         let dependency_revisions = self
             .dependency_revisions
             .iter()
-            .map(|(file_id, revision)| format!("{}:{}", file_id.index(), revision.result_id_fragment()))
+            .map(|(file_id, revision)| {
+                format!("{}:{}", file_id.index(), revision.result_id_fragment())
+            })
             .collect::<Vec<_>>()
             .join(",");
         let external_revisions = self

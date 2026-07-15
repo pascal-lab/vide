@@ -50,7 +50,8 @@ pub struct Config {
     pub load: Vec<Entry>,
     /// Index of watched entries in `load`.
     ///
-    /// If a path in a watched entry is modified,the [`Handle`] should notify it.
+    /// If a path in a watched entry is modified,the [`Handle`] should notify
+    /// it.
     pub watch: Vec<usize>,
 }
 
@@ -187,8 +188,8 @@ impl Directories {
     ///
     /// It is included if
     ///   - An element in `self.include` is a prefix of `path`.
-    ///   - This path is longer than any element in `self.exclude` that is a prefix
-    ///     of `path`. In case of equality, exclusion wins.
+    ///   - This path is longer than any element in `self.exclude` that is a
+    ///     prefix of `path`. In case of equality, exclusion wins.
     ///   - Optional `exclude_globs` does not match (vide extension).
     fn includes_path(&self, path: &AbsPath) -> bool {
         let mut include: Option<&AbsPathBuf> = None;
