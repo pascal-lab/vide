@@ -180,22 +180,7 @@ endmodule
     let (_temp_dir, client, server_thread, uri) =
         setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
 
-    let diagnostics_id = lsp_server::RequestId::from(212);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            diagnostics_id.clone(),
-            DocumentDiagnosticRequest::METHOD.to_string(),
-            DocumentDiagnosticParams {
-                text_document: TextDocumentIdentifier { uri: uri.clone() },
-                identifier: None,
-                previous_result_id: None,
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-    let (_result_id, diagnostics) = recv_document_diagnostics(&client, diagnostics_id);
+    let (_result_id, diagnostics) = request_document_diagnostics(&client, uri.clone(), 212);
     assert!(
         diagnostics.iter().any(|diag| diag.message == "expected ';'"),
         "expected parse diagnostic for missing semicolon, got {diagnostics:?}"
