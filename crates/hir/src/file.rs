@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn as_file_returns_source_file_when_hir_file_is_real_file() {
-        let file_id = FileId(7);
+        let file_id = FileId::from_raw(7);
 
         let hir_file_id = HirFileId::from(file_id);
 

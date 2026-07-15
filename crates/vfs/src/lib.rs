@@ -48,6 +48,7 @@ pub mod file_set;
 pub mod loader;
 #[cfg(feature = "notify-backend")]
 pub mod notify;
+mod path_glob;
 mod path_interner;
 mod vfs_path;
 
@@ -61,9 +62,11 @@ use crate::path_interner::PathInterner;
 
 pub use crate::{
     anchored_path::{AnchoredPath, AnchoredPathBuf},
+    file_set::{FileSet, FileSetConfig, FileSetConfigBuilder, FileSetFilter, PartitionedFileSet, PathMatcher},
     vfs_path::VfsPath,
 };
 use indexmap::{IndexMap, map::Entry};
+pub use crate::path_glob::PathGlobMatcher;
 pub use utils::paths::{AbsPath, AbsPathBuf};
 
 use rustc_hash::FxHasher;
@@ -158,6 +161,36 @@ impl ChangedFile {
             Change::Create(_, _) => ChangeKind::Create,
             Change::Modify(_, _) => ChangeKind::Modify,
             Change::Delete => ChangeKind::Delete,
+        }
+    }
+
+    /// UTF-8 file text for analysis; invalid UTF-8 becomes empty.
+    pub fn text(&self) -> Option<triomphe::Arc<str>> {
+        let bytes = match &self.change {
+            Change::Create(bytes, _) | Change::Modify(bytes, _) => bytes.as_slice(),
+            Change::Delete => return None,
+        };
+        let text = std::str::from_utf8(bytes).unwrap_or("");
+        Some(triomphe::Arc::<str>::from(text))
+    }
+
+    /// Bytes for Create/Modify; `None` for Delete.
+    pub fn contents(&self) -> Option<&[u8]> {
+        match &self.change {
+            Change::Create(bytes, _) | Change::Modify(bytes, _) => Some(bytes.as_slice()),
+            Change::Delete => None,
+        }
+    }
+}
+
+impl Change {
+    pub fn from_bytes(bytes: Option<Vec<u8>>) -> Self {
+        match bytes {
+            None => Change::Delete,
+            Some(v) => {
+                let hash = hash_once::<FxHasher>(&*v);
+                Change::Create(v, hash)
+            }
         }
     }
 }

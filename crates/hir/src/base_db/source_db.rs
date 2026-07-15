@@ -5,7 +5,7 @@ use syntax::{
 };
 use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
-use vfs::{FileId, anchored_path::AnchoredPath};
+use vfs::{FileId, AnchoredPath};
 
 use crate::base_db::{
     compilation_plan::{self, CompilationPlan},
@@ -643,8 +643,8 @@ mod tests {
         salsa::{self, Durability},
     };
 
-    const TOP: FileId = FileId(0);
-    const MANIFEST: FileId = FileId(1);
+    const TOP: FileId = FileId::from_raw(0);
+    const MANIFEST: FileId = FileId::from_raw(1);
     const ROOT: SourceRootId = SourceRootId(0);
 
     #[salsa::database(SourceDbStorage, SourceRootDbStorage)]
@@ -663,7 +663,7 @@ mod tests {
 
     impl FileLoader for TestDb {
         fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId> {
-            let source_root_id = SourceRootDb::source_root_id(self, path.anchor_id);
+            let source_root_id = SourceRootDb::source_root_id(self, path.anchor);
             SourceRootDb::source_root(self, source_root_id).resolve_path(path)
         }
     }

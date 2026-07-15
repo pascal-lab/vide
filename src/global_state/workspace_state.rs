@@ -28,6 +28,7 @@ pub(crate) struct VfsProgress {
 }
 
 impl VfsProgress {
+    #[allow(dead_code)]
     pub(crate) fn in_progress(&self) -> bool {
         self.n_done < self.n_total
     }
@@ -142,16 +143,22 @@ impl WorkspaceVfsReadiness {
         config_version: u32,
         n_done: usize,
         n_total: usize,
+        finished: bool,
     ) -> Option<VfsProgress> {
         if config_version != self.vfs_config_version {
             return None;
         }
-        if n_done < self.vfs_progress.n_done {
+        if !finished && n_done < self.vfs_progress.n_done {
             return None;
         }
 
         self.vfs_progress = VfsProgress { config_version, n_done, n_total };
-        self.vfs_ready = !self.vfs_progress.in_progress();
+        // rust-analyzer style: generation is ready when Progress reports Finished
+        // (or empty total with Finished), not when content batches carry a version.
+        self.vfs_ready = finished || (n_total == 0 && n_done == 0);
+        if finished {
+            self.vfs_progress.n_done = n_total;
+        }
         Some(self.vfs_progress)
     }
 
@@ -161,10 +168,6 @@ impl WorkspaceVfsReadiness {
 
     pub(crate) fn note_vfs_client_progress_finished(&mut self) {
         self.vfs_client_progress_active = false;
-    }
-
-    pub(crate) fn accepts_vfs_loaded(&self, config_version: u32) -> bool {
-        config_version == self.vfs_config_version
     }
 
     pub(crate) fn current_vfs_config_version(&self) -> u32 {

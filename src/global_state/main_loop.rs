@@ -68,8 +68,8 @@ mod tests {
     use project_model::{ProjectModel, project_manifest::ProjectManifest};
     use rustc_hash::FxHashSet;
     use triomphe::Arc;
-    use utils::{lines::LineEnding, paths::AbsPathBuf, test_support::TestDir};
-    use vfs::{FileId, VfsPath, loader as vfs_loader, loader::LoadResult};
+    use utils::{paths::AbsPathBuf, test_support::TestDir};
+    use vfs::{FileId, VfsPath, loader as vfs_loader};
 
     use super::*;
     use crate::{
@@ -172,7 +172,7 @@ mod tests {
         );
         let (server, client) = Connection::memory();
         let mut state = GlobalState::new(server.sender, config, lsp_types::TraceValue::Off);
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         let primary_uri =
             to_proto::url_from_abs_path(root.write("workspace/top.sv", "").as_path()).unwrap();
         let alias_uri =
@@ -237,7 +237,7 @@ mod tests {
         );
         let (server, client) = Connection::memory();
         let mut state = GlobalState::new(server.sender, config, lsp_types::TraceValue::Off);
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         let alias_uri =
             to_proto::url_from_abs_path(root.write("alias/top.sv", "").as_path()).unwrap();
         let diagnostic = Diagnostic {
@@ -296,7 +296,7 @@ mod tests {
         let (server, client) = Connection::memory();
         let mut state = GlobalState::new(server.sender, config, lsp_types::TraceValue::Off);
         state.diagnostics.diagnostics_revision = 2;
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         let uri =
             to_proto::url_from_abs_path(root.write("workspace/top.sv", "").as_path()).unwrap();
         let diagnostic = Diagnostic {
@@ -317,28 +317,24 @@ mod tests {
     }
 
     #[test]
-    fn stale_loaded_batches_do_not_update_vfs() {
-        let root = TestDir::new("stale-loaded-batches");
+    fn content_batches_apply_without_generation_token() {
+        // rust-analyzer style: Loaded/Changed carry no config_version. Generation
+        // readiness is gated only by Progress; content batches always apply.
+        let root = TestDir::new("content-batches-apply");
         let root_path = root.path().to_path_buf();
-        let file_path = root_path.join("stale.sv");
+        let file_path = root_path.join("file.sv");
         let mut state = test_state(root_path);
-        let stale_load = state.workspace.workspace_vfs.begin_vfs_load(1);
-        let current_load = state.workspace.workspace_vfs.begin_vfs_load(1);
-        assert!(!stale_load.superseded_client_progress_active);
-        assert!(!current_load.superseded_client_progress_active);
+        let _ = state.workspace.workspace_vfs.begin_vfs_load(1);
+        let _ = state.workspace.workspace_vfs.begin_vfs_load(1);
 
         state.process_vfs_msg(vfs_loader::Message::Loaded {
-            files: vec![(
-                file_path.clone(),
-                LoadResult::Loaded("module stale; endmodule\n".to_string(), LineEnding::Unix),
-            )],
-            config_version: 1,
+            files: vec![(file_path.clone(), Some(b"module top; endmodule\n".to_vec()))],
         });
 
         let vfs_path = VfsPath::from(file_path);
         let mut vfs = state.workspace.vfs.write();
-        assert!(vfs.0.file_id(&vfs_path).is_none());
-        assert!(vfs.0.take_changes().is_empty());
+        assert!(vfs.0.file_id(&vfs_path).is_some());
+        assert!(!vfs.0.take_changes().is_empty());
     }
 
     #[test]
@@ -361,7 +357,8 @@ mod tests {
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 0,
-            n_done: 0,
+            n_done: vfs_loader::LoadingProgress::Finished,
+            dir: None,
             config_version,
         });
 
@@ -422,7 +419,8 @@ mod tests {
         state
             .handle_event(Event::Vfs(vfs_loader::Message::Progress {
                 n_total: 1,
-                n_done: 1,
+                n_done: vfs_loader::LoadingProgress::Finished,
+                dir: None,
                 config_version,
             }))
             .unwrap();
@@ -584,7 +582,8 @@ mod tests {
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 4,
-            n_done: 4,
+            n_done: vfs_loader::LoadingProgress::Finished,
+            dir: None,
             config_version: stale_config,
         });
 
@@ -601,7 +600,8 @@ mod tests {
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 4,
-            n_done: 2,
+            n_done: vfs_loader::LoadingProgress::Progress(2),
+            dir: None,
             config_version: current_config,
         });
 
@@ -644,7 +644,8 @@ mod tests {
         let stale_config = state.workspace.workspace_vfs.begin_vfs_load(4).config_version;
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 4,
-            n_done: 0,
+            n_done: vfs_loader::LoadingProgress::Started,
+            dir: None,
             config_version: stale_config,
         });
         assert!(matches!(recv_work_done_progress(&client), WorkDoneProgress::Begin(_)));
@@ -679,7 +680,8 @@ mod tests {
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 2,
-            n_done: 2,
+            n_done: vfs_loader::LoadingProgress::Finished,
+            dir: None,
             config_version,
         });
 
@@ -692,7 +694,8 @@ mod tests {
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 2,
-            n_done: 1,
+            n_done: vfs_loader::LoadingProgress::Progress(1),
+            dir: None,
             config_version,
         });
 

@@ -1,6 +1,6 @@
 use salsa::Durability;
 use triomphe::Arc;
-use vfs::ChangedFile;
+use vfs::{Change as VfsChange, ChangedFile};
 
 use crate::base_db::{
     project::{PreprocessConfig, SharedProjectConfig},
@@ -66,15 +66,15 @@ impl Change {
                 .path_for_file(&file_id)
                 .and_then(|path| path.as_abs_path().map(ToOwned::to_owned));
 
-            match changed_file.change_kind {
-                vfs::ChangeKind::Create(_, _) => {
+            match &changed_file.change {
+                VfsChange::Create(_, _) => {
                     files_changed |= files.insert(file_id);
                 }
-                vfs::ChangeKind::Delete => {
+                VfsChange::Delete => {
                     files.remove(&file_id);
                     files_changed = true;
                 }
-                vfs::ChangeKind::Modify(_, _) => {}
+                VfsChange::Modify(_, _) => {}
             }
 
             let text = changed_file.text().unwrap_or_else(|| Arc::from(""));

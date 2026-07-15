@@ -135,7 +135,7 @@ impl ModuleIndex {
             modules_by_name: modules_by_name
                 .into_iter()
                 .map(|(name, mut modules)| {
-                    modules.sort_by_key(|module| (module.file_id.0, module.name_range.start()));
+                    modules.sort_by_key(|module| (module.file_id.index(), module.name_range.start()));
                     modules.dedup_by(|lhs, rhs| {
                         lhs.module_id == rhs.module_id
                             || (lhs.file_id == rhs.file_id && lhs.name_range == rhs.name_range)
@@ -486,9 +486,9 @@ fn finish_edge_map(
 fn sort_and_dedup_edges(edges: &mut Vec<ModuleCallEdge>) {
     edges.sort_by_key(|edge| {
         (
-            edge.caller.file_id.0,
+            edge.caller.file_id.index(),
             edge.caller.name_range.start(),
-            edge.callee.file_id.0,
+            edge.callee.file_id.index(),
             edge.callee.name_range.start(),
             edge.call_range.start(),
         )

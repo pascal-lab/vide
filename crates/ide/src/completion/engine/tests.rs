@@ -18,7 +18,7 @@ fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FilePosition) {
     let mut owned = text;
     owned = owned.replace(marker, "");
 
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let path = VfsPath::new_virtual_path(path.to_string());
 
     let mut file_set = FileSet::default();

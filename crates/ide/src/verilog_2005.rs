@@ -99,7 +99,7 @@ fn setup(text: &str) -> (AnalysisHost, FileId) {
 
 fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FileId) {
     let text = normalize_fixture_text(text);
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let path = VfsPath::new_virtual_path(path.to_string());
 
     let mut file_set = FileSet::default();
@@ -120,7 +120,7 @@ fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FileId) {
 
 fn setup_best_effort_with_path(text: &str, path: &str) -> (AnalysisHost, FileId, String) {
     let text = normalize_fixture_text(text);
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let path = VfsPath::new_virtual_path(path.to_string());
 
     let mut file_set = FileSet::default();
@@ -143,9 +143,9 @@ fn setup_best_effort_with_path(text: &str, path: &str) -> (AnalysisHost, FileId,
 fn parsed_file_nodes_survive_parse_lru_eviction() {
     let mut file_set = FileSet::default();
     let files = [
-        (FileId(0), "/a.sv", "module a;\n  wire x;\nendmodule\n"),
-        (FileId(1), "/b.sv", "module b;\nendmodule\n"),
-        (FileId(2), "/c.sv", "module c;\nendmodule\n"),
+        (FileId::from_raw(0), "/a.sv", "module a;\n  wire x;\nendmodule\n"),
+        (FileId::from_raw(1), "/b.sv", "module b;\nendmodule\n"),
+        (FileId::from_raw(2), "/c.sv", "module c;\nendmodule\n"),
     ];
 
     let mut change = Change::new();
@@ -162,13 +162,13 @@ fn parsed_file_nodes_survive_parse_lru_eviction() {
     db.apply_change(change);
 
     let sema = Semantics::new(&db);
-    let parsed_file = sema.parse_file(FileId(0));
+    let parsed_file = sema.parse_file(FileId::from_raw(0));
     let root = parsed_file.root().expect("a.sv should parse");
     let child_count = root.child_count();
     assert!(child_count > 0);
 
-    let _ = db.parse_src(FileId(1));
-    let _ = db.parse_src(FileId(2));
+    let _ = db.parse_src(FileId::from_raw(1));
+    let _ = db.parse_src(FileId::from_raw(2));
 
     assert_eq!(root.child_count(), child_count);
     assert!(root.first_token().is_some());
@@ -220,7 +220,7 @@ fn setup_marked_with_predefines(
 ) -> (AnalysisHost, FileId, String, HashMap<String, TextSize>) {
     let (text, markers) = strip_markers(normalize_fixture_text(text));
 
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let mut file_set = FileSet::default();
     file_set.insert(file_id, VfsPath::new_virtual_path("/feature.v".to_owned()));
 
@@ -273,8 +273,8 @@ fn setup_include_macro_project(
     std::fs::write(&top_path, &top_text).unwrap();
     std::fs::write(&header_path, &header_text).unwrap();
 
-    let top_file_id = FileId(0);
-    let header_file_id = FileId(1);
+    let top_file_id = FileId::from_raw(0);
+    let header_file_id = FileId::from_raw(1);
 
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
@@ -610,8 +610,8 @@ endmodule
 fn best_effort_single_file_rename_rejects_cross_file_symbol() {
     let child_text = "module child;\nendmodule\n";
     let top_text = "module top;\n  child u();\nendmodule\n";
-    let child_file_id = FileId(0);
-    let top_file_id = FileId(1);
+    let child_file_id = FileId::from_raw(0);
+    let top_file_id = FileId::from_raw(1);
 
     let mut file_set = FileSet::default();
     file_set.insert(child_file_id, VfsPath::new_virtual_path("/child.sv".to_owned()));
@@ -1078,8 +1078,8 @@ endmodule
     let manifest_range =
         marked_range(&manifest_markers, "def", TextSize::of("\"FROM_MANIFEST=1\""));
 
-    let top_file_id = FileId(0);
-    let manifest_file_id = FileId(1);
+    let top_file_id = FileId::from_raw(0);
+    let manifest_file_id = FileId::from_raw(1);
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
     file_set.insert(manifest_file_id, VfsPath::from(manifest_path.clone()));
@@ -1234,8 +1234,8 @@ endmodule
     std::fs::write(&top_path, &top_text).unwrap();
     std::fs::write(&define_path, define_text).unwrap();
 
-    let top_file_id = FileId(0);
-    let define_file_id = FileId(1);
+    let top_file_id = FileId::from_raw(0);
+    let define_file_id = FileId::from_raw(1);
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
     file_set.insert(define_file_id, VfsPath::from(define_path));
@@ -1390,8 +1390,8 @@ endmodule
     std::fs::write(&top_path, &top_text).unwrap();
     std::fs::write(&defs_path, defs_text).unwrap();
 
-    let top_file_id = FileId(0);
-    let defs_file_id = FileId(1);
+    let top_file_id = FileId::from_raw(0);
+    let defs_file_id = FileId::from_raw(1);
 
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
@@ -1779,8 +1779,8 @@ endmodule
     let (manifest_text, manifest_markers) = strip_markers(marked_manifest_text);
     let manifest_range = marked_range(&manifest_markers, "def", TextSize::of("\"LANE_WIDTH=12\""));
 
-    let top_file_id = FileId(0);
-    let manifest_file_id = FileId(1);
+    let top_file_id = FileId::from_raw(0);
+    let manifest_file_id = FileId::from_raw(1);
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
     file_set.insert(manifest_file_id, VfsPath::from(manifest_path.clone()));
@@ -2984,7 +2984,7 @@ endmodule
     ));
     std::fs::write(&file_path, &text).unwrap();
 
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let mut file_set = FileSet::default();
     file_set.insert(file_id, VfsPath::from(file_path));
 

@@ -341,8 +341,7 @@ impl NotifyActor {
                         if !is_file {
                             return None;
                         }
-                        let ext = abs_path.extension().unwrap_or_default();
-                        if dirs.extensions.iter().all(|it| it.as_str() != ext) {
+                        if !dirs.contains_file(abs_path.as_path()) {
                             return None;
                         }
                         Some(abs_path)

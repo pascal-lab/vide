@@ -39,6 +39,11 @@ impl VfsPath {
         }
     }
 
+    /// Alias kept for vide call sites (rust-analyzer name is `as_path`).
+    pub fn as_abs_path(&self) -> Option<&AbsPath> {
+        self.as_path()
+    }
+
     pub fn into_abs_path(self) -> Option<AbsPathBuf> {
         match self.0 {
             VfsPathRepr::PathBuf(it) => Some(it),

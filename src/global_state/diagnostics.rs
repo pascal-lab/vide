@@ -94,14 +94,14 @@ pub(crate) enum DiagnosticOwner {
 impl DiagnosticOwner {
     fn result_id_fragment(self) -> String {
         match self {
-            DiagnosticOwner::File(file_id) => format!("file:{}", file_id.0),
+            DiagnosticOwner::File(file_id) => format!("file:{}", file_id.index()),
             DiagnosticOwner::SourceRoot(source_root_id) => {
                 format!("source-root:{}", source_root_id.0)
             }
             DiagnosticOwner::CompilationProfile(profile_id) => {
                 format!("compilation-profile:{}", profile_id.0)
             }
-            DiagnosticOwner::External { source, file } => format!("external-{source}:{}", file.0),
+            DiagnosticOwner::External { source, file } => format!("external-{source}:{}", file.index()),
         }
     }
 }
@@ -197,7 +197,7 @@ impl DiagnosticSnapshotKey {
         let dependency_revisions = self
             .dependency_revisions
             .iter()
-            .map(|(file_id, revision)| format!("{}:{}", file_id.0, revision.result_id_fragment()))
+            .map(|(file_id, revision)| format!("{}:{}", file_id.index(), revision.result_id_fragment()))
             .collect::<Vec<_>>()
             .join(",");
         let external_revisions = self

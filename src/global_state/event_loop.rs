@@ -55,12 +55,12 @@ impl Event {
             }
             Event::Task(task) => task.summary(),
             Event::Vfs(vfs_loader::Message::Progress { n_done, n_total, .. }) => {
-                format!("vfs progress {n_done}/{n_total}")
+                format!("vfs progress {n_done:?}/{n_total}")
             }
-            Event::Vfs(vfs_loader::Message::Loaded { files, .. }) => {
+            Event::Vfs(vfs_loader::Message::Loaded { files }) => {
                 format!("vfs loaded files={}", files.len())
             }
-            Event::Vfs(vfs_loader::Message::Changed { files, .. }) => {
+            Event::Vfs(vfs_loader::Message::Changed { files }) => {
                 format!("vfs changed files={}", files.len())
             }
         }
@@ -344,15 +344,23 @@ impl GlobalState {
 
     pub(in crate::global_state) fn process_vfs_msg(&mut self, msg: vfs_loader::Message) {
         match msg {
-            vfs_loader::Message::Progress { n_total, n_done, config_version } => {
+            vfs_loader::Message::Progress { n_total, n_done, dir: _, config_version } => {
                 always!(
                     config_version <= self.workspace.workspace_vfs.current_vfs_config_version()
                 );
 
+                use vfs_loader::LoadingProgress;
+                let (n_done_count, state) = match n_done {
+                    LoadingProgress::Started => (0, Progress::Begin),
+                    LoadingProgress::Progress(n) => (n.min(n_total), Progress::Report),
+                    LoadingProgress::Finished => (n_total, Progress::End),
+                };
+
                 let Some(progress) = self.workspace.workspace_vfs.accept_vfs_progress(
                     config_version,
-                    n_done,
+                    n_done_count,
                     n_total,
+                    matches!(n_done, LoadingProgress::Finished),
                 ) else {
                     tracing::debug!(
                         config_version,
@@ -363,18 +371,12 @@ impl GlobalState {
                     return;
                 };
 
+                // Empty loads still flip readiness via Finished Progress, but do not
+                // spam the client with a 0/0 work-done sequence.
                 if progress.n_total == 0 {
                     return;
                 }
 
-                let state = if progress.n_done == 0 {
-                    Progress::Begin
-                } else if progress.n_done < progress.n_total {
-                    Progress::Report
-                } else {
-                    assert_eq!(progress.n_done, progress.n_total);
-                    Progress::End
-                };
                 let starts_client_progress = state == Progress::Begin;
                 let finishes_client_progress = state == Progress::End;
 
@@ -394,50 +396,40 @@ impl GlobalState {
                     }
                 }
             }
-            vfs_loader::Message::Loaded { files, config_version } => {
-                self.process_vfs_files(files, config_version, VfsFileSource::ConfigScan);
+            // rust-analyzer style: content batches have no config_version; only
+            // Progress gates generation readiness.
+            vfs_loader::Message::Loaded { files } => {
+                self.process_vfs_files(files, VfsFileSource::ConfigScan);
             }
-            vfs_loader::Message::Changed { files, config_version } => {
-                self.process_vfs_files(files, config_version, VfsFileSource::ExternalChange);
+            vfs_loader::Message::Changed { files } => {
+                self.process_vfs_files(files, VfsFileSource::ExternalChange);
             }
         }
     }
 
     fn process_vfs_files(
         &mut self,
-        files: Vec<(utils::paths::AbsPathBuf, vfs_loader::LoadResult)>,
-        config_version: u32,
+        files: Vec<(utils::paths::AbsPathBuf, Option<Vec<u8>>)>,
         source: VfsFileSource,
     ) {
-        always!(config_version <= self.workspace.workspace_vfs.current_vfs_config_version());
-        if !self.workspace.workspace_vfs.accepts_vfs_loaded(config_version) {
-            tracing::debug!(
-                config_version,
-                current_config_version = self.workspace.workspace_vfs.current_vfs_config_version(),
-                files = files.len(),
-                ?source,
-                "stale VFS file batch ignored"
-            );
-            return;
-        }
-
         let workspace_manifest_change = {
             let vfs = &mut self.workspace.vfs.write().0;
             let mut manifest_change = None;
 
             for (abs_path, content) in files {
                 let path = VfsPath::from(abs_path.clone());
-                let existing_file_id = vfs.file_id(&path);
-                let existed = existing_file_id.is_some_and(|file_id| vfs.exists(file_id));
-                let exists_after = matches!(&content, vfs_loader::LoadResult::Loaded(..));
+                let existing = vfs.file_id(&path);
+                let existed = existing.is_some_and(|(file_id, _)| vfs.exists(file_id));
+                let exists_after = content.is_some();
                 let has_structure_change = existed != exists_after;
-                let open_file_id = existing_file_id
-                    .is_some_and(|file_id| self.analysis.mem_docs.contains_file_id(file_id));
+                let open_file_id = existing.is_some_and(|(file_id, _)| {
+                    self.analysis.mem_docs.contains_file_id(file_id)
+                });
                 if self.analysis.mem_docs.contains_path(&path) || open_file_id {
                     continue;
                 }
 
-                let changed = vfs.set_file_contents(&path, content);
+                let changed = vfs.set_file_contents(path, content);
                 if changed
                     && source == VfsFileSource::ExternalChange
                     && reload::should_refresh_for_change(&abs_path, has_structure_change)
@@ -451,7 +443,6 @@ impl GlobalState {
 
         if let Some(path) = workspace_manifest_change {
             tracing::info!(
-                config_version,
                 %path,
                 "server file watcher reported a workspace manifest change"
             );

@@ -160,7 +160,7 @@ impl GlobalState {
         }
 
         let files_config = self.config_state.config.files();
-        let (to_load, to_watch, source_root_config, project_config) =
+        let (load, watch, source_root_config, project_config) =
             get_workspace_folder(&self.workspace.workspaces, &files_config.exclude);
         let mut change = Change::new();
         {
@@ -171,13 +171,13 @@ impl GlobalState {
         change.set_project_config(project_config);
         self.analysis.analysis_host.apply_change(change);
 
-        let to_watch = match files_config.watcher {
+        let watch = match files_config.watcher {
             FilesWatcher::Client => vec![],
-            FilesWatcher::Server => to_watch,
+            FilesWatcher::Server => watch,
         };
 
-        let to_load_len = to_load.len();
-        let vfs_load = self.workspace.workspace_vfs.begin_vfs_load(to_load_len);
+        let load_len = load.len();
+        let vfs_load = self.workspace.workspace_vfs.begin_vfs_load(load_len);
         if vfs_load.superseded_client_progress_active {
             self.report_progress(
                 self.config_state.config.i18n.text(keys::PROGRESS_ROOTS_SCANNING),
@@ -189,8 +189,8 @@ impl GlobalState {
         }
 
         self.workspace.vfs_loader.handle.set_config(vfs::loader::Config {
-            to_load,
-            to_watch,
+            load,
+            watch,
             version: vfs_load.config_version,
         });
 

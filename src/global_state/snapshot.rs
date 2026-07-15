@@ -1,6 +1,5 @@
 use std::{path::Path, sync::Arc as StdArc};
 
-use anyhow::Context;
 use hir::base_db::source_root::{SourceRootDiagnosticScope, SourceRootRole};
 use ide::{Cancellable, analysis::Analysis};
 use lsp_types::Url;
@@ -89,7 +88,7 @@ impl GlobalStateSnapshot {
     pub(crate) fn file_id(&self, url: &lsp_types::Url) -> anyhow::Result<FileId> {
         let path = from_proto::vfs_path(url)?;
         let vfs = self.vfs_read();
-        let file_id =
+        let (file_id, _) =
             vfs.file_id(&path).ok_or_else(|| anyhow::format_err!("file not found: {path}"))?;
         Ok(file_id)
     }
@@ -104,11 +103,11 @@ impl GlobalStateSnapshot {
 
     pub(crate) fn file_id_for_path(&self, path: &Path) -> Option<FileId> {
         let path = VfsPath::from(AbsPathBuf::try_from(path.to_path_buf()).ok()?);
-        self.vfs_read().file_id(&path)
+        self.vfs_read().file_id(&path).map(|(file_id, _)| file_id)
     }
 
     pub(crate) fn file_path(&self, file_id: FileId) -> Option<AbsPathBuf> {
-        self.vfs_read().file_path(file_id)?.as_abs_path().map(ToOwned::to_owned)
+        self.vfs_read().file_path(file_id).as_abs_path().map(ToOwned::to_owned)
     }
 
     pub(crate) fn line_info(&self, file_id: FileId) -> anyhow::Result<LineInfo> {
@@ -117,8 +116,7 @@ impl GlobalStateSnapshot {
             vfs.1
                 .get(&file_id)
                 .copied()
-                .or_else(|| vfs.0.line_ending(file_id))
-                .with_context(|| format!("missing line ending metadata for {file_id:?}"))?
+                .unwrap_or(utils::lines::LineEnding::Unix)
         };
         let index = self.analysis.line_index(file_id)?;
         let encoding = self.config.position_encoding();
@@ -458,8 +456,7 @@ impl GlobalStateSnapshot {
     /// URI and document version come from the same open document spelling.
     pub(crate) fn url(&self, id: FileId) -> anyhow::Result<Url> {
         let vfs = &self.vfs_read();
-        let path =
-            vfs.file_path(id).ok_or_else(|| anyhow::format_err!("unknown file id: {id:?}"))?;
+        let path = vfs.file_path(id);
         let path = path
             .as_abs_path()
             .ok_or_else(|| anyhow::format_err!("file {id:?} has no file URI: {path}"))?;
@@ -517,8 +514,8 @@ impl GlobalStateSnapshot {
 mod tests {
     use lsp_server::Connection;
     use lsp_types::{ClientCapabilities, TraceValue};
-    use utils::{lines::LineEnding, test_support::TestDir};
-    use vfs::{FileId, VfsPath, loader::LoadResult};
+    use utils::{test_support::TestDir};
+    use vfs::{FileId, VfsPath, /*removed*/};
 
     use crate::{
         Opt,
@@ -549,22 +546,22 @@ mod tests {
         let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
 
         state.workspace.vfs.write().0.set_file_contents(
-            &VfsPath::from(root.join("top.sv")),
-            LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
+            VfsPath::from(root.join("top.sv")),
+            Some(b"module top; endmodule\n".to_vec()),
         );
         assert!(state.process_changes());
         let snapshot = state.make_snapshot();
 
         state.workspace.vfs.write().0.set_file_contents(
-            &VfsPath::from(root.join("child.sv")),
-            LoadResult::Loaded("module child; endmodule\n".to_owned(), LineEnding::Unix),
+            VfsPath::from(root.join("child.sv")),
+            Some(b"module child; endmodule\n".to_vec()),
         );
 
         let mut live_file_ids =
             state.workspace.vfs.read().0.iter().map(|(file_id, _)| file_id).collect::<Vec<_>>();
-        live_file_ids.sort_unstable_by_key(|file_id| file_id.0);
-        assert_eq!(live_file_ids, vec![FileId(0), FileId(1)]);
+        live_file_ids.sort_unstable_by_key(|file_id| file_id.index());
+        assert_eq!(live_file_ids, vec![FileId::from_raw(0), FileId::from_raw(1)]);
 
-        assert_eq!(snapshot.file_ids(), vec![FileId(0)]);
+        assert_eq!(snapshot.file_ids(), vec![FileId::from_raw(0)]);
     }
 }

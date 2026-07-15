@@ -94,6 +94,7 @@ impl MemDocs {
         true
     }
 
+    #[allow(dead_code)]
     pub(crate) fn remap_file_id(&mut self, from: FileId, to: FileId) {
         if from == to {
             return;
@@ -219,8 +220,8 @@ mod tests {
     fn mem_docs_alias_matrix() {
         let canonical_path = VfsPath::new_virtual_path("/workspace/top.sv".to_owned());
         let alias_path = VfsPath::new_virtual_path("/alias/top.sv".to_owned());
-        let duplicate = FileId(1);
-        let canonical = FileId(0);
+        let duplicate = FileId::from_raw(1);
+        let canonical = FileId::from_raw(0);
         let mut report = String::new();
 
         let path = canonical_path.clone();
