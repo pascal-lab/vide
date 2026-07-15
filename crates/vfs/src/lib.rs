@@ -45,6 +45,7 @@
 //! [`Entries`]: loader::Entry
 
 mod anchored_path;
+pub mod dummy;
 pub mod file_set;
 pub mod loader;
 #[cfg(feature = "notify-backend")]

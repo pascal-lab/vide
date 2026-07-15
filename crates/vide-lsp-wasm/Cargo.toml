@@ -9,5 +9,6 @@ name = "vide-lsp-wasm"
 path = "src/main.rs"
 
 [dependencies]
-vide = { path = "../.." }
+# No server-side notify watcher under wasm/emscripten; client supplies files.
+vide = { path = "../..", default-features = false }
 serde_json.workspace = true

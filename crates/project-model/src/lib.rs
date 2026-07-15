@@ -62,6 +62,10 @@ pub struct WorkspaceRoot {
     pub extra_files: Vec<AbsPathBuf>,
     /// Include/search roots loaded as headers and passed to preprocessing.
     pub include_dirs: Vec<AbsPathBuf>,
+    /// Absolute directory prefixes excluded from directory loads (expanded from
+    /// manifest exclude globs before the loader sees them).
+    pub exclude_prefixes: Vec<AbsPathBuf>,
+    /// Glob matcher retained for FileSet classification of opened files.
     pub exclude_globs: Option<PathGlobMatcher>,
 }
 
@@ -192,6 +196,7 @@ impl Workspace {
         let source_policy = ManifestSourcePolicy::from_manifest(source_patterns);
         let source_patterns = validate_manifest_patterns(source_policy.patterns(), "sources")?;
         let exclude_patterns = validate_manifest_patterns(exclude_patterns, "exclude")?;
+        let exclude_prefixes = exclude_prefixes_from_patterns(&workspace_root, &exclude_patterns);
         let exclude_globs = compile_manifest_globs(&workspace_root, exclude_patterns, "exclude")?;
 
         let source_locations = source_locations_for_patterns(&workspace_root, &source_patterns);
@@ -224,6 +229,7 @@ impl Workspace {
             source_files: source_locations.source_files,
             extra_files: vec![manifest_path.clone()],
             include_dirs: include_dirs.clone(),
+            exclude_prefixes,
             exclude_globs,
         };
         let roots = workspace_roots(kind, &source_policy, has_source_paths, root_parts);
@@ -246,6 +252,7 @@ impl Workspace {
             source_files: Vec::new(),
             extra_files: Vec::new(),
             include_dirs: include_dirs.clone(),
+            exclude_prefixes: Vec::new(),
             exclude_globs: None,
         };
         let roots = workspace_roots(kind, &ManifestSourcePolicy::DefaultIndex, true, root_parts);
@@ -308,6 +315,7 @@ struct WorkspaceRootParts {
     source_files: Vec<AbsPathBuf>,
     extra_files: Vec<AbsPathBuf>,
     include_dirs: Vec<AbsPathBuf>,
+    exclude_prefixes: Vec<AbsPathBuf>,
     exclude_globs: Option<PathGlobMatcher>,
 }
 
@@ -319,6 +327,7 @@ impl WorkspaceRootParts {
             source_files: Vec::new(),
             extra_files: self.extra_files.clone(),
             include_dirs: self.include_dirs.clone(),
+            exclude_prefixes: self.exclude_prefixes.clone(),
             exclude_globs: self.exclude_globs.clone(),
         }
     }
@@ -330,6 +339,7 @@ impl WorkspaceRootParts {
             source_files: self.source_files.clone(),
             extra_files: Vec::new(),
             include_dirs: Vec::new(),
+            exclude_prefixes: self.exclude_prefixes.clone(),
             exclude_globs: self.exclude_globs.clone(),
         }
     }
@@ -379,6 +389,7 @@ fn push_workspace_root(
         source_files: parts.source_files,
         extra_files: parts.extra_files,
         include_dirs: parts.include_dirs,
+        exclude_prefixes: parts.exclude_prefixes,
         exclude_globs: parts.exclude_globs,
     };
     if root.has_load_paths() {
@@ -446,6 +457,36 @@ fn compile_manifest_globs(
     PathGlobMatcher::new(workspace_root.clone(), patterns)
         .map(Some)
         .with_context(|| format!("failed to compile manifest {field} glob patterns"))
+}
+
+/// Expand exclude globs into absolute directory prefixes for the loader.
+///
+/// Patterns that are pure wildcards (e.g. `**/*.sv`) are skipped here; those
+/// still participate in FileSet classification via
+/// [`WorkspaceRoot::exclude_globs`].
+fn exclude_prefixes_from_patterns(
+    workspace_root: &AbsPathBuf,
+    patterns: &[String],
+) -> Vec<AbsPathBuf> {
+    let mut out = Vec::new();
+    for pattern in patterns {
+        let mut p = pattern.as_str();
+        while let Some(stripped) = p.strip_suffix("/**") {
+            p = stripped;
+        }
+        while let Some(stripped) = p.strip_suffix("/*") {
+            p = stripped;
+        }
+        while let Some(stripped) = p.strip_suffix('/') {
+            p = stripped;
+        }
+        if p.is_empty() || p.contains(['*', '?', '[']) {
+            continue;
+        }
+        out.push(workspace_root.join(p));
+    }
+    sort_and_remove_subfolders(&mut out);
+    out
 }
 
 /// Normalized manifest source-pattern facts, separated by how each consumer
@@ -623,6 +664,10 @@ pub fn get_workspace_folder(
                     exclude_paths.push(excl.clone());
                 }
             }
+            // Manifest exclude globs are expanded to directory prefixes before
+            // the loader (r-a-shaped Directories has no glob field).
+            exclude_paths.extend(root.exclude_prefixes.iter().cloned());
+            sort_and_remove_subfolders(&mut exclude_paths);
             let mut include = Vec::new();
             if !root.include_dirs.is_empty() {
                 include.push(PathMatcher::all_under_roots(root.include_dirs.clone()));
@@ -667,7 +712,6 @@ pub fn get_workspace_folder(
                     extensions: source_file_extensions(),
                     include: directory_include,
                     exclude: exclude_paths.clone(),
-                    exclude_globs: root.exclude_globs.clone(),
                 };
                 load_entries.push(vfs::loader::Entry::Directories(dirs));
             }
@@ -1361,12 +1405,17 @@ exclude = ["**/*_bb.v"]
         let (load, _, source_root_config, _) = get_workspace_folder(&model.workspaces, &[]);
 
         assert!(errors.is_empty(), "{errors:#?}");
+        // Filename globs like `**/*_bb.v` cannot be expressed as loader directory
+        // prefixes (r-a-shaped Directories). They still classify via FileSet.
         let dirs = match &load[0] {
             vfs::loader::Entry::Directories(dirs) => dirs,
             other => panic!("expected directory loader entry, got {other:?}"),
         };
         assert!(dirs.contains_file(top.as_path()));
-        assert!(!dirs.contains_file(blackbox.as_path()));
+        assert!(
+            dirs.contains_file(blackbox.as_path()),
+            "loader may still discover filename-glob matches; FileSet drops them"
+        );
 
         let mut vfs = Vfs::default();
         for file in [&top, &blackbox] {

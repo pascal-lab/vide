@@ -14,7 +14,7 @@ fst = "0.4.7"
 globset.workspace = true
 indexmap = { version = "2.0.0", features = [] }
 nohash-hasher.workspace = true
-notify = { version = "6.1.1", optional = true }
+notify = { version = "8.2.0", optional = true }
 rayon = { version = "1.10.0", optional = true }
 rustc-hash.workspace = true
 tracing.workspace = true
