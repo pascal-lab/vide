@@ -18,9 +18,10 @@ same approach as tinymist-vfs: copy upstream code, adapt to vide, do not track
 ## Intentional fork deltas (vide)
 
 - Map `paths` / `stdx` onto `utils` instead of rust-analyzer workspace crates
-- Feature-gate notify backend for wasm (`notify-backend`)
+- Feature-gate OS notify backend (`notify-backend`); `dummy::DummyHandle` when disabled (wasm)
 - No VFS hardlink / path-identity redirects (removed relative to prior vide Vfs)
-- SV-oriented loader configuration is supplied by callers (extensions, roots)
+- SV-oriented loader configuration is supplied by callers (extensions, exclude prefixes)
+- FileSet keeps PathMatcher / source filters for workspace source roots
 
 ## Sync policy
 

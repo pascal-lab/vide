@@ -1,12 +1,11 @@
 //! Dynamically compatible interface for file watching and reading.
 //!
-//! Owned fork of rust-analyzer `vfs::loader` with vide deltas for SystemVerilog
-//! extensions and optional exclude globs.
+//! Owned fork of rust-analyzer `vfs::loader`. SystemVerilog extensions and
+//! exclude prefixes are supplied by callers (`project-model`); glob expansion
+//! happens before `set_config`, not inside the loader.
 use std::fmt;
 
 use utils::paths::{AbsPath, AbsPathBuf};
-
-use crate::PathGlobMatcher;
 
 /// File extensions loaded from recursive directory entries for SystemVerilog.
 pub const SOURCE_FILE_EXTENSIONS: &[&str] = &["v", "sv", "vh", "svh", "svi", "map"];
@@ -30,14 +29,11 @@ pub enum Entry {
 /// If many include/exclude paths match, the longest one wins.
 ///
 /// If a path is in both `include` and `exclude`, the `exclude` one wins.
-///
-/// `exclude_globs` is a vide-specific extension for project-config globs.
 #[derive(Debug, Clone, Default)]
 pub struct Directories {
     pub extensions: Vec<String>,
     pub include: Vec<AbsPathBuf>,
     pub exclude: Vec<AbsPathBuf>,
-    pub exclude_globs: Option<PathGlobMatcher>,
 }
 
 /// [`Handle`]'s configuration.
@@ -190,7 +186,6 @@ impl Directories {
     ///   - An element in `self.include` is a prefix of `path`.
     ///   - This path is longer than any element in `self.exclude` that is a
     ///     prefix of `path`. In case of equality, exclusion wins.
-    ///   - Optional `exclude_globs` does not match (vide extension).
     fn includes_path(&self, path: &AbsPath) -> bool {
         let mut include: Option<&AbsPathBuf> = None;
         for incl in &self.include {
@@ -207,11 +202,7 @@ impl Directories {
             None => return false,
         };
 
-        if self.exclude.iter().any(|excl| path.starts_with(excl) && excl.starts_with(include)) {
-            return false;
-        }
-
-        !self.exclude_globs.as_ref().is_some_and(|globs| globs.is_match(path))
+        !self.exclude.iter().any(|excl| path.starts_with(excl) && excl.starts_with(include))
     }
 }
 
@@ -225,12 +216,7 @@ impl Directories {
 /// ```
 fn dirs(base: AbsPathBuf, exclude: &[&str]) -> Directories {
     let exclude = exclude.iter().map(|it| base.join(it)).collect::<Vec<_>>();
-    Directories {
-        extensions: vec!["rs".to_owned()],
-        include: vec![base],
-        exclude,
-        exclude_globs: None,
-    }
+    Directories { extensions: vec!["rs".to_owned()], include: vec![base], exclude }
 }
 
 impl fmt::Debug for Message {

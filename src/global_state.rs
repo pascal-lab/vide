@@ -35,7 +35,7 @@ use project_model::Workspace;
 use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 use utils::{cancellation::CancellationToken, excl_task::ExclTask, lines::LineEnding};
-use vfs::{self, FileId, Vfs, notify::NotifyHandle};
+use vfs::{self, FileId, Vfs};
 
 #[cfg(test)]
 pub(crate) use self::workspace_state::VfsProgress;
@@ -123,6 +123,21 @@ pub(crate) struct WorkspaceState {
     pub(crate) registered_client_file_watcher_globs: Option<Vec<String>>,
 }
 
+fn spawn_vfs_loader(
+    sender: crossbeam_channel::Sender<vfs::loader::Message>,
+) -> Box<dyn vfs::loader::Handle> {
+    #[cfg(feature = "server-file-watcher")]
+    {
+        let handle: vfs::notify::NotifyHandle = vfs::loader::Handle::spawn(sender);
+        Box::new(handle)
+    }
+    #[cfg(not(feature = "server-file-watcher"))]
+    {
+        let handle: vfs::dummy::DummyHandle = vfs::loader::Handle::spawn(sender);
+        Box::new(handle)
+    }
+}
+
 impl GlobalState {
     pub(crate) fn new(
         sender: Sender<lsp_server::Message>,
@@ -131,8 +146,7 @@ impl GlobalState {
     ) -> GlobalState {
         let vfs_loader = {
             let (sender, receiver) = unbounded::<vfs::loader::Message>();
-            let handle: NotifyHandle = vfs::loader::Handle::spawn(sender);
-            let handle = Box::new(handle) as Box<dyn vfs::loader::Handle>;
+            let handle = spawn_vfs_loader(sender);
             Handle { handle, receiver }
         };
 
