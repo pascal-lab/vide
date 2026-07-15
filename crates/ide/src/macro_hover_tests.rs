@@ -76,8 +76,8 @@ endmodule
     std::fs::write(&top_path, &top_text).unwrap();
     std::fs::write(&header_path, &header_text).unwrap();
 
-    let top_file_id = FileId(0);
-    let header_file_id = FileId(1);
+    let top_file_id = FileId::from_raw(0);
+    let header_file_id = FileId::from_raw(1);
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
     file_set.insert(header_file_id, VfsPath::from(header_path));

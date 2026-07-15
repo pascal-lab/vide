@@ -267,8 +267,8 @@ impl Ord for RankedSymbol<'_> {
 fn compare_search_entries(lhs: &SymbolEntry, rhs: &SymbolEntry) -> Ordering {
     lhs.symbol
         .file_id
-        .0
-        .cmp(&rhs.symbol.file_id.0)
+        .index()
+        .cmp(&rhs.symbol.file_id.index())
         .then_with(|| lhs.symbol.focus_range.start().cmp(&rhs.symbol.focus_range.start()))
         .then_with(|| lhs.normalized_name.cmp(&rhs.normalized_name))
         .then_with(|| lhs.symbol.name.cmp(&rhs.symbol.name))
@@ -277,7 +277,7 @@ fn compare_search_entries(lhs: &SymbolEntry, rhs: &SymbolEntry) -> Ordering {
 fn compare_symbol_entries(lhs: &SymbolEntry, rhs: &SymbolEntry) -> Ordering {
     lhs.normalized_name
         .cmp(&rhs.normalized_name)
-        .then_with(|| lhs.symbol.file_id.0.cmp(&rhs.symbol.file_id.0))
+        .then_with(|| lhs.symbol.file_id.index().cmp(&rhs.symbol.file_id.index()))
         .then_with(|| lhs.symbol.focus_range.start().cmp(&rhs.symbol.focus_range.start()))
         .then_with(|| lhs.symbol.name.cmp(&rhs.symbol.name))
 }
@@ -333,7 +333,7 @@ mod tests {
 
     fn symbol(name: &str, container_name: Option<&str>) -> WorkspaceSymbol {
         WorkspaceSymbol {
-            file_id: FileId(0),
+            file_id: FileId::from_raw(0),
             name: name.to_owned(),
             focus_range: TextRange::empty(0.into()),
             full_range: TextRange::empty(0.into()),

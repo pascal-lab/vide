@@ -354,7 +354,7 @@ mod tests {
     }
 
     fn setup(text: &str, needle: &str) -> (AnalysisHost, FileId, TextSize, TextRange) {
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         let path = VfsPath::new_virtual_path("/test.sv".to_string());
         let mut file_set = FileSet::default();
         file_set.insert(file_id, path);
@@ -417,7 +417,7 @@ mod tests {
         };
 
         let resolution = TargetResolution::from_source_resolution(
-            FileId(0),
+            FileId::from_raw(0),
             crate::source_targets::SourceTargetResolution::Blocked(block.clone()),
         );
 
@@ -439,7 +439,7 @@ mod tests {
         };
 
         let resolution = TargetResolution::from_source_resolution(
-            FileId(0),
+            FileId::from_raw(0),
             crate::source_targets::SourceTargetResolution::Blocked(block),
         );
 
@@ -468,7 +468,7 @@ mod tests {
         };
 
         let resolution = TargetResolution::from_source_resolution(
-            FileId(0),
+            FileId::from_raw(0),
             crate::source_targets::SourceTargetResolution::Ambiguous(alternatives),
         );
 

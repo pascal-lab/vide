@@ -1032,7 +1032,7 @@ mod tests {
             encoding: PositionEncoding::Utf8,
         };
         let diag = IdeDiagnostic {
-            file_id: FileId(0),
+            file_id: FileId::from_raw(0),
             code: 2,
             subsystem: 0,
             name: "inactive-preprocessor-branch".to_owned(),

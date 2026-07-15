@@ -1,4 +1,4 @@
-use vfs::{FileId, FileSet, FileSetConfig, Vfs, VfsPath, anchored_path::AnchoredPath};
+use vfs::{FileId, FileSet, FileSetConfig, Vfs, VfsPath, AnchoredPath};
 
 use crate::source_db::SourceFileKind;
 
@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn ignored_root_preserves_file_kind() {
         let mut file_set = FileSet::default();
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         file_set.insert(file_id, VfsPath::new_virtual_path("/ignored/file.sv".into()));
         let root = SourceRoot::new_ignored(file_set);
 
@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn best_effort_index_root_preserves_file_kind() {
         let mut file_set = FileSet::default();
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         file_set.insert(file_id, VfsPath::new_virtual_path("/indexed/file.sv".into()));
         let root = SourceRoot::new_best_effort_index(file_set);
 
@@ -282,7 +282,7 @@ mod tests {
     #[test]
     fn source_filtered_root_preserves_project_manifest_kind() {
         let mut file_set = FileSet::default();
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         file_set.insert(file_id, VfsPath::new_virtual_path("/root/vide.toml".into()));
         let root = SourceRoot::new_local_with_source_files(file_set, Vec::new());
 

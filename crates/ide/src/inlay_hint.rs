@@ -590,7 +590,7 @@ mod tests {
     use crate::db::root_db::RootDb;
 
     fn db_with_file(text: &str) -> (RootDb, FileId) {
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         let path = VfsPath::new_virtual_path("/test.sv".to_owned());
 
         let mut file_set = FileSet::default();

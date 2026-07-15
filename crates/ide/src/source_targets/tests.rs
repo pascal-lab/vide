@@ -12,7 +12,7 @@ mod macro_gate;
 
 #[test]
 fn source_targets_origin_source_range_hit_test_is_half_open() {
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let range = TextRange::new(5.into(), 10.into());
     let origin = Origin::File { file: file_id, range };
 
@@ -34,7 +34,7 @@ fn source_targets_origin_source_range_hit_test_is_half_open() {
 fn source_targets_source_token_range_mismatch_uses_original_syntax_hit() {
     let (root, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 2);
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let origin_range = TextRange::new(
         parser_range.start() + TextSize::from(1),
         parser_range.end() - TextSize::from(1),
@@ -60,7 +60,7 @@ fn source_targets_source_token_range_mismatch_uses_original_syntax_hit() {
 #[test]
 fn source_targets_macro_argument_selects_syntax_token_by_trace_identity() {
     let db = RootDb::new(None);
-    let model_file = FileId(0);
+    let model_file = FileId::from_raw(0);
     let source = r#"`define ID(x) x
 module m;
   assign y = `ID(payload_i);
@@ -125,7 +125,7 @@ endmodule
 #[test]
 fn source_targets_macro_argument_selects_only_the_hit_emitted_token() {
     let db = RootDb::new(None);
-    let model_file = FileId(0);
+    let model_file = FileId::from_raw(0);
     let source = r#"`define DUP(x) x x
 module m;
   assign y = `DUP(payload_i);
@@ -228,7 +228,7 @@ fn source_targets_normal_syntax_path_still_selects_non_preproc_offsets() {
 fn source_targets_same_origin_hits_are_available_without_dropping_emitted_tokens() {
     let (root, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let hits =
         vec![test_source_hit(file_id, parser_range, 0), test_source_hit(file_id, parser_range, 1)];
 
@@ -248,7 +248,7 @@ fn source_targets_same_origin_hits_are_available_without_dropping_emitted_tokens
 fn source_targets_reports_ambiguous_preproc_hits_for_conflicting_targets() {
     let (root, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 2);
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let first = TextRange::new(parser_range.start(), parser_range.start() + TextSize::from(4));
     let second = TextRange::new(parser_range.start() + TextSize::from(1), parser_range.end());
     let hits = vec![test_source_hit(file_id, first, 0), test_source_hit(file_id, second, 1)];

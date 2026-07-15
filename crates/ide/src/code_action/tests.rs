@@ -113,7 +113,7 @@ fn db_with_file(text: &str) -> (RootDb, FileId, TextSize) {
 }
 
 fn db_with_text(text: &str) -> (RootDb, FileId) {
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let mut file_set = FileSet::default();
     file_set.insert(file_id, VfsPath::new_virtual_path("/test.sv".to_owned()));
 

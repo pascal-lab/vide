@@ -858,7 +858,7 @@ mod tests {
     use smol_str::SmolStr;
     use triomphe::Arc;
     use utils::paths::{AbsPathBuf, Utf8PathBuf};
-    use vfs::{FileId, FileSet, VfsPath, anchored_path::AnchoredPath};
+    use vfs::{FileId, FileSet, VfsPath, AnchoredPath};
 
     use super::*;
     use crate::{
@@ -878,7 +878,7 @@ mod tests {
         symbol::{DefLoc, NameContext},
     };
 
-    const TOP: FileId = FileId(0);
+    const TOP: FileId = FileId::from_raw(0);
     const ROOT: SourceRootId = SourceRootId(0);
     const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
@@ -898,7 +898,7 @@ mod tests {
 
     impl FileLoader for TestDb {
         fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId> {
-            let source_root_id = SourceRootDb::source_root_id(self, path.anchor_id);
+            let source_root_id = SourceRootDb::source_root_id(self, path.anchor);
             SourceRootDb::source_root(self, source_root_id).resolve_path(path)
         }
     }

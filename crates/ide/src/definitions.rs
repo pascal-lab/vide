@@ -374,7 +374,7 @@ mod tests {
     use crate::{analysis_host::AnalysisHost, db::root_db::RootDb};
 
     fn host_with_file(text: &str) -> (AnalysisHost, FileId) {
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         let path = VfsPath::new_virtual_path("/test.v".to_string());
 
         let mut file_set = FileSet::default();

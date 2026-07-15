@@ -191,7 +191,7 @@ fn module_candidates(db: &RootDb, name: &Ident) -> Vec<ModuleId> {
         );
     }
 
-    candidates.sort_by_key(|(file_id, name_start, _)| (file_id.0, *name_start));
+    candidates.sort_by_key(|(file_id, name_start, _)| (file_id.index(), *name_start));
     candidates.dedup_by_key(|(_, _, module_id)| *module_id);
     candidates.into_iter().map(|(_, _, module_id)| module_id).collect()
 }
@@ -254,7 +254,7 @@ fn resolve_by_proximity(
         }
     }
 
-    candidates.sort_by_key(|module_id| module_id.file_id.file_id().0);
+    candidates.sort_by_key(|module_id| module_id.file_id.file_id().index());
 
     match best_modules.as_slice() {
         [] => ModuleResolution::Unresolved,
@@ -572,7 +572,7 @@ mod tests {
 
     fn file_path(files: &[(String, String)], file_id: FileId) -> String {
         files
-            .get(file_id.0 as usize)
+            .get(file_id.index() as usize)
             .map(|(path, _)| path.clone())
             .unwrap_or_else(|| format!("<unknown {:?}>", file_id))
     }

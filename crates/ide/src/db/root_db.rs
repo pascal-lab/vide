@@ -17,7 +17,7 @@ use hir::{
     },
 };
 use triomphe::Arc;
-use vfs::{FileId, anchored_path::AnchoredPath};
+use vfs::{FileId, AnchoredPath};
 
 use crate::db::{
     line_index_db::LineIndexDbStorage, workspace_symbol_index_db::WorkspaceSymbolIndexDbStorage,
@@ -53,7 +53,7 @@ impl fmt::Debug for RootDb {
 
 impl FileLoader for RootDb {
     fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId> {
-        let source_root_id = SourceRootDb::source_root_id(self, path.anchor_id);
+        let source_root_id = SourceRootDb::source_root_id(self, path.anchor);
         let source_root = SourceRootDb::source_root(self, source_root_id);
         source_root.resolve_path(path)
     }

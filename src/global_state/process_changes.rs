@@ -27,23 +27,12 @@ impl GlobalState {
     pub(crate) fn process_changes(&mut self) -> bool {
         let pending_diagnostic_targets =
             std::mem::take(&mut self.diagnostics.pending_document_diagnostic_targets);
-        let mut diagnostic_targets_changed = !pending_diagnostic_targets.is_empty();
+        let diagnostic_targets_changed = !pending_diagnostic_targets.is_empty();
         let mut write_guard = self.workspace.vfs.write();
-        let changed_files = write_guard.0.take_changes();
+        let changed_files: Vec<ChangedFile> = write_guard.0.take_changes().into_values().collect();
         // downgrade earlier to allow more reader
         let read_guard = RwLockWriteGuard::downgrade_to_upgradable(write_guard);
         let vfs = &read_guard.0;
-        let file_id_redirects = changed_files
-            .iter()
-            .filter_map(|changed_file| {
-                let canonical = vfs.canonical_file_id(changed_file.file_id);
-                (canonical != changed_file.file_id).then_some((changed_file.file_id, canonical))
-            })
-            .collect_vec();
-        diagnostic_targets_changed |= !file_id_redirects.is_empty();
-        for (from, to) in file_id_redirects {
-            self.analysis.mem_docs.remap_file_id(from, to);
-        }
 
         // collect changes
         let Some(changed_files) = Self::colease_modifications(changed_files) else {
@@ -62,18 +51,12 @@ impl GlobalState {
         let mut deleted_file_ids = FxHashSet::default();
         let mut deleted_push_diagnostics = Vec::new();
         for changed_file in changed_files {
-            let is_identity_redirect =
-                vfs.canonical_file_id(changed_file.file_id) != changed_file.file_id;
-            let path = if is_identity_redirect {
-                vfs.original_file_path(changed_file.file_id)
-            } else {
-                vfs.file_path(changed_file.file_id)
-            };
-            if path.and_then(VfsPath::as_abs_path).is_some() {
+            let path = Some(vfs.file_path(changed_file.file_id));
+            if path.and_then(|path| path.as_abs_path()).is_some() {
                 has_structure_changes |= changed_file.is_created_or_deleted();
             }
 
-            if matches!(&changed_file.change_kind, vfs::ChangeKind::Delete) {
+            if matches!(changed_file.kind(), vfs::ChangeKind::Delete) {
                 deleted_file_ids.insert(changed_file.file_id);
                 if let Some(path) = path.cloned() {
                     deleted_push_diagnostics.push((changed_file.file_id, path));
@@ -262,8 +245,13 @@ impl GlobalState {
         let mut change = Change::new();
         for changed_file in bytes {
             let file_id = changed_file.file_id;
-            if let Some(line_ending) = changed_file.ending() {
-                line_ending_map.insert(file_id, line_ending);
+            if let Some(raw) = changed_file.contents() {
+                if let Ok(text) = std::str::from_utf8(raw) {
+                    let (_, ending) = LineEnding::normalize(text.to_owned());
+                    line_ending_map.insert(file_id, ending);
+                }
+            } else {
+                line_ending_map.remove(&file_id);
             }
             change.add_changed_file(changed_file)
         }
@@ -280,8 +268,8 @@ impl GlobalState {
             return None;
         }
 
-        // collapse modifications
-        use vfs::ChangeKind::*;
+        // collapse modifications (r-a Change carries raw bytes + content hash)
+        use vfs::Change::*;
 
         let mut file_changes = FxHashMap::default();
         for changed_file in vfs_changes {
@@ -289,54 +277,50 @@ impl GlobalState {
                 Occupied(mut entry) => {
                     let (change, just_created) = entry.get_mut();
 
-                    match (change, *just_created, changed_file.change_kind) {
+                    match (change, *just_created, changed_file.change) {
                         (change, _, Delete) => *change = Delete,
-                        (
-                            Create(prev, prev_ending),
-                            _,
-                            Create(new, new_ending) | Modify(new, new_ending),
-                        ) => {
+                        (Create(prev, prev_hash), _, Create(new, new_hash) | Modify(new, new_hash)) => {
                             *prev = new;
-                            *prev_ending = new_ending;
+                            *prev_hash = new_hash;
                         }
-                        (Modify(prev, prev_ending), _, Modify(new, new_ending)) => {
+                        (Modify(prev, prev_hash), _, Modify(new, new_hash)) => {
                             *prev = new;
-                            *prev_ending = new_ending;
+                            *prev_hash = new_hash;
                         }
-                        (change @ Delete, _, Create(new, new_ending)) => {
-                            *change = Modify(new, new_ending);
+                        (change @ Delete, _, Create(new, new_hash)) => {
+                            *change = Modify(new, new_hash);
                             *just_created = true;
                         }
-                        (change @ Delete, _, Modify(new, new_ending)) => {
+                        (change @ Delete, _, Modify(new, new_hash)) => {
                             tracing::debug!(
                                 ?changed_file.file_id,
                                 "received modify after delete while coalescing VFS changes"
                             );
-                            *change = Modify(new, new_ending);
+                            *change = Modify(new, new_hash);
                         }
-                        (Modify(prev, prev_ending), _, Create(new, new_ending)) => {
+                        (Modify(prev, prev_hash), _, Create(new, new_hash)) => {
                             tracing::debug!(
                                 ?changed_file.file_id,
                                 "received create after modify while coalescing VFS changes"
                             );
                             *prev = new;
-                            *prev_ending = new_ending;
+                            *prev_hash = new_hash;
                         }
                     }
                 }
                 Vacant(v) => {
-                    let just_created = matches!(&changed_file.change_kind, Create(_, _));
-                    v.insert((changed_file.change_kind, just_created));
+                    let just_created = matches!(&changed_file.change, Create(_, _));
+                    v.insert((changed_file.change, just_created));
                 }
             }
         }
 
         let changed_file = file_changes
             .into_iter()
-            .filter(|(_, (change_kind, just_created))| {
-                !(*just_created && matches!(change_kind, Delete))
+            .filter(|(_, (change, just_created))| {
+                !(*just_created && matches!(change, Delete))
             })
-            .map(|(file_id, (change_kind, _))| ChangedFile { file_id, change_kind })
+            .map(|(file_id, (change, _))| ChangedFile { file_id, change })
             .collect_vec();
 
         Some(changed_file)
@@ -407,11 +391,8 @@ impl GlobalState {
 mod tests {
     use lsp_server::Connection;
     use lsp_types::{ClientCapabilities, TraceValue};
-    use utils::{lines::LineEnding, paths::AbsPathBuf, test_support::TestDir};
-    use vfs::{
-        VfsPath,
-        loader::{LoadResult, Message as VfsMessage},
-    };
+    use utils::{paths::AbsPathBuf, test_support::TestDir};
+    use vfs::{VfsPath, loader::Message as VfsMessage};
 
     use crate::{
         Opt,
@@ -439,17 +420,12 @@ mod tests {
         GlobalState::new(server.sender, config, TraceValue::Off)
     }
 
-    fn vfs_manifest_message(
-        manifest_path: AbsPathBuf,
-        config_version: u32,
-        changed: bool,
-    ) -> VfsMessage {
-        let files =
-            vec![(manifest_path, LoadResult::Loaded("[project]\n".to_owned(), LineEnding::Unix))];
+    fn vfs_manifest_message(manifest_path: AbsPathBuf, changed: bool) -> VfsMessage {
+        let files = vec![(manifest_path, Some(b"[project]\n".to_vec()))];
         if changed {
-            VfsMessage::Changed { files, config_version }
+            VfsMessage::Changed { files }
         } else {
-            VfsMessage::Loaded { files, config_version }
+            VfsMessage::Loaded { files }
         }
     }
 
@@ -461,8 +437,8 @@ mod tests {
         let file_path = root.join("top.sv");
 
         state.workspace.vfs.write().0.set_file_contents(
-            &VfsPath::from(file_path),
-            LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
+            VfsPath::from(file_path),
+            Some(b"module top; endmodule\n".to_vec()),
         );
 
         assert!(state.process_changes());
@@ -476,9 +452,9 @@ mod tests {
     fn config_scan_manifest_does_not_request_workspace_reload() {
         let root = TestDir::new("config-scan-manifest-no-reload");
         let mut state = test_state(root.path().to_path_buf());
-        let config_version = state.workspace.workspace_vfs.begin_vfs_load(1).config_version;
+        let _ = state.workspace.workspace_vfs.begin_vfs_load(1);
 
-        state.process_vfs_msg(vfs_manifest_message(root.join("vide.toml"), config_version, false));
+        state.process_vfs_msg(vfs_manifest_message(root.join("vide.toml"), false));
         assert!(state.process_changes());
 
         assert!(
@@ -491,9 +467,9 @@ mod tests {
     fn external_manifest_change_requests_workspace_reload() {
         let root = TestDir::new("external-manifest-reload");
         let mut state = test_state(root.path().to_path_buf());
-        let config_version = state.workspace.workspace_vfs.begin_vfs_load(1).config_version;
+        let _ = state.workspace.workspace_vfs.begin_vfs_load(1);
 
-        state.process_vfs_msg(vfs_manifest_message(root.join("vide.toml"), config_version, true));
+        state.process_vfs_msg(vfs_manifest_message(root.join("vide.toml"), true));
 
         assert!(
             state.workspace.fetch_workspaces_task.has_op_requested(),
@@ -506,10 +482,10 @@ mod tests {
         let root = TestDir::new("unchanged-external-manifest-no-reload");
         let mut state = test_state(root.path().to_path_buf());
         let manifest_path = root.join("vide.toml");
-        let config_version = state.workspace.workspace_vfs.begin_vfs_load(1).config_version;
+        let _ = state.workspace.workspace_vfs.begin_vfs_load(1);
 
-        state.process_vfs_msg(vfs_manifest_message(manifest_path.clone(), config_version, false));
-        state.process_vfs_msg(vfs_manifest_message(manifest_path, config_version, true));
+        state.process_vfs_msg(vfs_manifest_message(manifest_path.clone(), false));
+        state.process_vfs_msg(vfs_manifest_message(manifest_path, true));
         assert!(state.process_changes());
 
         assert!(
