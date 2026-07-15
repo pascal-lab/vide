@@ -92,15 +92,15 @@ mod tests {
     fn compilation_context_owns_immutable_inputs() {
         let context = CompilationContext::new(
             Some(CompilationProfileId(3)),
-            vec![FileId(1)],
+            vec![FileId::from_raw(1)],
             Vec::<AbsPathBuf>::new(),
             vec!["FEATURE=1".to_owned()],
-            vec![FileId(2)],
+            vec![FileId::from_raw(2)],
             vec!["top".to_owned()],
         );
 
         assert_eq!(context.profile, Some(CompilationProfileId(3)));
-        assert_eq!(context.root_ids(), [FileId(1)]);
-        assert_eq!(context.library_map_ids(), [FileId(2)]);
+        assert_eq!(context.root_ids(), [FileId::from_raw(1)]);
+        assert_eq!(context.library_map_ids(), [FileId::from_raw(2)]);
     }
 }

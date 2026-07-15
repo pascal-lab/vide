@@ -662,7 +662,7 @@ mod tests {
 
         assert!(
             diagnostics.iter().any(|diagnostic| {
-                diagnostic.file_id == FileId(1)
+                diagnostic.file_id == FileId::from_raw(1)
                     && diagnostic.source == DiagnosticSource::Vide
                     && diagnostic.name == AMBIGUOUS_MODULE_INSTANTIATION.name
             }),

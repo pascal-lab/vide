@@ -191,6 +191,7 @@ pub(crate) struct DiagnosticSnapshotKey {
 }
 
 impl DiagnosticSnapshotKey {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_with_snapshot_id(
         snapshot_id: AnalysisSnapshotId,
         owner: DiagnosticOwner,
@@ -268,7 +269,7 @@ mod tests {
     #[test]
     fn diagnostic_result_identity_includes_analysis_snapshot() {
         let uri = Url::parse("file:///workspace/top.sv").unwrap();
-        let owner = DiagnosticOwner::File(FileId(7));
+        let owner = DiagnosticOwner::File(FileId::from_raw(7));
         let first = DiagnosticSnapshotKey::new_with_snapshot_id(
             AnalysisSnapshotId::new(10),
             owner,
