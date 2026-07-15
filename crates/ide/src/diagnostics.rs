@@ -185,7 +185,7 @@ fn compilation_profile_file_ids(db: &RootDb, profile_id: CompilationProfileId) -
     let plan = db.compilation_plan_for_profile(Some(profile_id));
     let mut file_ids = plan.roots.clone();
     file_ids.extend(plan.include_only.iter().copied());
-    file_ids.sort_unstable_by_key(|file_id| file_id.0);
+    file_ids.sort_unstable_by_key(|file_id| file_id.index());
     file_ids.dedup();
     file_ids
 }
@@ -429,11 +429,10 @@ mod tests {
     use triomphe::Arc;
     use utils::{
         line_index::{TextRange, TextSize},
-        lines::LineEnding,
         paths::AbsPathBuf,
         test_support::TestDir,
     };
-    use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
+    use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
     use super::{
         AMBIGUOUS_MODULE_INSTANTIATION, DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH, DiagnosticSource,
@@ -486,13 +485,10 @@ mod tests {
         let mut change = Change::new();
 
         for (idx, (path, text)) in files.iter().enumerate() {
-            let file_id = FileId(idx as u32);
+            let file_id = FileId::from_raw(idx as u32);
             let path = VfsPath::new_virtual_path((*path).to_owned());
             file_set.insert(file_id, path);
-            change.add_changed_file(ChangedFile {
-                file_id,
-                change_kind: ChangeKind::Create(Arc::from(*text), LineEnding::Unix),
-            });
+            change.add_changed_file(ChangedFile::create(file_id, *text));
         }
 
         change.set_roots(vec![SourceRoot::new(role, file_set)]);
@@ -527,7 +523,7 @@ mod tests {
             false,
         );
 
-        let diagnostics = diagnostics(&db, FileId(2));
+        let diagnostics = diagnostics(&db, FileId::from_raw(2));
 
         assert!(
             diagnostics.iter().any(|diag| {
@@ -552,7 +548,7 @@ mod tests {
             false,
         );
 
-        let diagnostics = diagnostics(&db, FileId(1));
+        let diagnostics = diagnostics(&db, FileId::from_raw(1));
 
         assert!(
             diagnostics.iter().all(|diag| diag.source != DiagnosticSource::Vide),
@@ -571,7 +567,7 @@ mod tests {
             false,
         );
 
-        let diagnostics = diagnostics(&db, FileId(2));
+        let diagnostics = diagnostics(&db, FileId::from_raw(2));
 
         assert!(
             diagnostics.iter().any(|diag| {
@@ -596,7 +592,7 @@ mod tests {
             false,
         );
 
-        let diagnostics = diagnostics(&db, FileId(2));
+        let diagnostics = diagnostics(&db, FileId::from_raw(2));
         let diagnostic = diagnostics
             .iter()
             .find(|diag| {
@@ -607,7 +603,7 @@ mod tests {
                 panic!("expected generated instantiation diagnostic: {diagnostics:?}")
             });
 
-        assert_eq!(diagnostic.file_id, FileId(2));
+        assert_eq!(diagnostic.file_id, FileId::from_raw(2));
         assert_eq!(diagnostic.range, range_of(top, "child"));
         assert_ne!(diagnostic.range, range_of(top, "`MAKE"));
     }
@@ -625,7 +621,7 @@ mod tests {
         );
         disable_semantic_diagnostics(&mut db);
 
-        let diagnostics = diagnostics(&db, FileId(2));
+        let diagnostics = diagnostics(&db, FileId::from_raw(2));
 
         assert!(
             diagnostics.iter().all(|diag| {
@@ -635,7 +631,7 @@ mod tests {
             "display-only virtual expansion must not publish ambiguous module diagnostics: {diagnostics:?}"
         );
         assert!(
-            diagnostics.iter().all(|diag| diag.file_id.0 < 3),
+            diagnostics.iter().all(|diag| diag.file_id.index() < 3),
             "diagnostics must not target synthetic virtual FileIds: {diagnostics:?}"
         );
     }
@@ -651,7 +647,7 @@ mod tests {
             true,
         );
 
-        let diagnostics = diagnostics(&db, FileId(1));
+        let diagnostics = diagnostics(&db, FileId::from_raw(1));
 
         assert!(
             diagnostics.iter().all(|diag| diag.source != DiagnosticSource::Vide),
@@ -664,7 +660,7 @@ mod tests {
         let text = "`ifdef USE_IMPL\nlogic if_body;\n`else\nlogic else_body;\n`endif\n";
         let db = db_with_files(&[("/top.sv", text)], false);
 
-        let diagnostics = diagnostics(&db, FileId(0));
+        let diagnostics = diagnostics(&db, FileId::from_raw(0));
         let inactive = diagnostics
             .iter()
             .find(|diag| diag.name == INACTIVE_PREPROCESSOR_BRANCH.name)
@@ -681,7 +677,7 @@ mod tests {
         let text = "`ifdef USE_IMPL\nlogic if_body;\n`else\nlogic else_body;\n`endif\n";
         let db = db_with_predefines(&[("/top.sv", text)], vec!["USE_IMPL".to_owned()]);
 
-        let diagnostics = diagnostics(&db, FileId(0));
+        let diagnostics = diagnostics(&db, FileId::from_raw(0));
         let inactive = diagnostics
             .iter()
             .find(|diag| diag.name == INACTIVE_PREPROCESSOR_BRANCH.name)
@@ -698,7 +694,7 @@ mod tests {
         );
         disable_diagnostics(&mut db);
 
-        let diagnostics = diagnostics(&db, FileId(0));
+        let diagnostics = diagnostics(&db, FileId::from_raw(0));
 
         assert!(
             diagnostics.is_empty(),
@@ -723,11 +719,11 @@ mod tests {
             "expected semantic diagnostic from module declared in another file: {diagnostics:?}"
         );
         assert!(
-            diagnostics.iter().all(|diag| diag.file_id == FileId(1)),
+            diagnostics.iter().all(|diag| diag.file_id == FileId::from_raw(1)),
             "document diagnostics should only include diagnostics attributed to the requested file: {diagnostics:?}"
         );
         assert!(
-            db.semantic_diagnostics(FileId(0)).is_empty(),
+            db.semantic_diagnostics(FileId::from_raw(0)).is_empty(),
             "child file should not receive diagnostics that belong to top.sv"
         );
     }
@@ -742,7 +738,7 @@ mod tests {
             false,
         );
 
-        let diagnostics = diagnostics(&db, FileId(1));
+        let diagnostics = diagnostics(&db, FileId::from_raw(1));
 
         assert!(!diagnostics.is_empty(), "expected syntax diagnostics: {diagnostics:?}");
         assert!(
@@ -759,7 +755,7 @@ mod tests {
             true,
         );
 
-        let diagnostics = diagnostics(&db, FileId(0));
+        let diagnostics = diagnostics(&db, FileId::from_raw(0));
 
         assert!(
             diagnostics.is_empty(),
@@ -769,8 +765,8 @@ mod tests {
 
     #[test]
     fn syntax_only_manifest_does_not_disable_open_file_syntax_diagnostics() {
-        let manifest_id = FileId(0);
-        let open_file_id = FileId(1);
+        let manifest_id = FileId::from_raw(0);
+        let open_file_id = FileId::from_raw(1);
         let mut manifest_files = FileSet::default();
         manifest_files.insert(manifest_id, VfsPath::new_virtual_path("/project/vide.toml".into()));
         let mut open_files = FileSet::default();
@@ -782,17 +778,8 @@ mod tests {
             SourceRoot::new_ignored(open_files),
         ]);
         change.set_project_config(Arc::new(ProjectConfig::new(vec![None, None], Vec::new())));
-        change.add_changed_file(ChangedFile {
-            file_id: manifest_id,
-            change_kind: ChangeKind::Create(Arc::from(""), LineEnding::Unix),
-        });
-        change.add_changed_file(ChangedFile {
-            file_id: open_file_id,
-            change_kind: ChangeKind::Create(
-                Arc::from("module open(;\nendmodule\n"),
-                LineEnding::Unix,
-            ),
-        });
+        change.add_changed_file(ChangedFile::create(manifest_id, ""));
+        change.add_changed_file(ChangedFile::create(open_file_id, "module open(;\nendmodule\n"));
 
         let mut db = RootDb::new(None);
         db.apply_change(change);
@@ -818,16 +805,13 @@ mod tests {
     #[test]
     fn best_effort_index_root_does_not_produce_fallback_compilation_plan() {
         let mut db = RootDb::new(None);
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         let mut file_set = FileSet::default();
         file_set.insert(file_id, VfsPath::new_virtual_path("/top.sv".to_owned()));
 
         let mut change = Change::new();
         change.set_roots(vec![SourceRoot::new_best_effort_index(file_set)]);
-        change.add_changed_file(ChangedFile {
-            file_id,
-            change_kind: ChangeKind::Create(Arc::from("module top; endmodule\n"), LineEnding::Unix),
-        });
+        change.add_changed_file(ChangedFile::create(file_id, "module top; endmodule\n"));
         db.apply_change(change);
 
         let plan = db.compilation_plan_for_root(SourceRootId(0));
@@ -846,24 +830,18 @@ mod tests {
 
         let mut db = RootDb::new(None);
         let mut file_set = FileSet::default();
-        file_set.insert(FileId(0), VfsPath::from(top_path.clone()));
-        file_set.insert(FileId(1), VfsPath::from(header_path));
+        file_set.insert(FileId::from_raw(0), VfsPath::from(top_path.clone()));
+        file_set.insert(FileId::from_raw(1), VfsPath::from(header_path));
 
         let mut change = Change::new();
-        change.add_changed_file(ChangedFile {
-            file_id: FileId(0),
-            change_kind: ChangeKind::Create(
-                Arc::from("module top;\n`include \"defs.vh\"\nendmodule\n"),
-                LineEnding::Unix,
-            ),
-        });
-        change.add_changed_file(ChangedFile {
-            file_id: FileId(1),
-            change_kind: ChangeKind::Create(
-                Arc::from("logic value = missing_name;\n"),
-                LineEnding::Unix,
-            ),
-        });
+        change.add_changed_file(ChangedFile::create(
+            FileId::from_raw(0),
+            "module top;\n`include \"defs.vh\"\nendmodule\n",
+        ));
+        change.add_changed_file(ChangedFile::create(
+            FileId::from_raw(1),
+            "logic value = missing_name;\n",
+        ));
         change.set_roots(vec![SourceRoot::new_local(file_set)]);
         change.set_project_config(Arc::new(ProjectConfig::new(
             vec![Some(CompilationProfileId(0))],
@@ -885,7 +863,7 @@ mod tests {
             "expected semantic diagnostic in included header: {diagnostics:?}"
         );
         assert!(
-            diagnostics.iter().all(|diag| diag.file_id == FileId(1)),
+            diagnostics.iter().all(|diag| diag.file_id == FileId::from_raw(1)),
             "header diagnostics should be attributed to the header file: {diagnostics:?}"
         );
     }
@@ -904,18 +882,12 @@ mod tests {
 
         let mut db = RootDb::new(None);
         let mut file_set = FileSet::default();
-        file_set.insert(FileId(0), VfsPath::from(pkg_path.clone()));
-        file_set.insert(FileId(1), VfsPath::from(frag_path));
+        file_set.insert(FileId::from_raw(0), VfsPath::from(pkg_path.clone()));
+        file_set.insert(FileId::from_raw(1), VfsPath::from(frag_path));
 
         let mut change = Change::new();
-        change.add_changed_file(ChangedFile {
-            file_id: FileId(0),
-            change_kind: ChangeKind::Create(Arc::from(pkg_text), LineEnding::Unix),
-        });
-        change.add_changed_file(ChangedFile {
-            file_id: FileId(1),
-            change_kind: ChangeKind::Create(Arc::from(vfs_frag_text), LineEnding::Unix),
-        });
+        change.add_changed_file(ChangedFile::create(FileId::from_raw(0), pkg_text));
+        change.add_changed_file(ChangedFile::create(FileId::from_raw(1), vfs_frag_text));
         change.set_roots(vec![SourceRoot::new_local(file_set)]);
         change.set_project_config(Arc::new(ProjectConfig::new(
             vec![Some(CompilationProfileId(0))],
@@ -928,15 +900,16 @@ mod tests {
         db.apply_change(change);
 
         let plan = db.compilation_plan_for_root(SourceRootId(0));
-        assert!(plan.include_only.contains(&FileId(1)));
-        assert_eq!(plan.roots, vec![FileId(0)]);
+        assert!(plan.include_only.contains(&FileId::from_raw(1)));
+        assert_eq!(plan.roots, vec![FileId::from_raw(0)]);
 
         let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
         assert!(
             diagnostics
                 .iter()
-                .any(|diag| diag.file_id == FileId(1) && diag.message.contains("missing_name")),
+                .any(|diag| diag.file_id == FileId::from_raw(1)
+                    && diag.message.contains("missing_name")),
             "included .sv should use VFS text and receive mapped diagnostics: {diagnostics:?}"
         );
     }
@@ -962,24 +935,15 @@ mod tests {
 
         let mut db = RootDb::new(None);
         let mut src_files = FileSet::default();
-        src_files.insert(FileId(0), VfsPath::from(top_path));
+        src_files.insert(FileId::from_raw(0), VfsPath::from(top_path));
         let mut include_files = FileSet::default();
-        include_files.insert(FileId(1), VfsPath::from(mid_path));
-        include_files.insert(FileId(2), VfsPath::from(leaf_path));
+        include_files.insert(FileId::from_raw(1), VfsPath::from(mid_path));
+        include_files.insert(FileId::from_raw(2), VfsPath::from(leaf_path));
 
         let mut change = Change::new();
-        change.add_changed_file(ChangedFile {
-            file_id: FileId(0),
-            change_kind: ChangeKind::Create(Arc::from(top_text), LineEnding::Unix),
-        });
-        change.add_changed_file(ChangedFile {
-            file_id: FileId(1),
-            change_kind: ChangeKind::Create(Arc::from(mid_text), LineEnding::Unix),
-        });
-        change.add_changed_file(ChangedFile {
-            file_id: FileId(2),
-            change_kind: ChangeKind::Create(Arc::from(vfs_leaf_text), LineEnding::Unix),
-        });
+        change.add_changed_file(ChangedFile::create(FileId::from_raw(0), top_text));
+        change.add_changed_file(ChangedFile::create(FileId::from_raw(1), mid_text));
+        change.add_changed_file(ChangedFile::create(FileId::from_raw(2), vfs_leaf_text));
         change.set_roots(vec![
             SourceRoot::new_local(src_files),
             SourceRoot::new_local(include_files),
@@ -999,15 +963,16 @@ mod tests {
 
         let plan = db.compilation_plan_for_root(SourceRootId(0));
         assert_eq!(plan.include_only.len(), 2);
-        assert!(plan.include_only.contains(&FileId(1)));
-        assert!(plan.include_only.contains(&FileId(2)));
+        assert!(plan.include_only.contains(&FileId::from_raw(1)));
+        assert!(plan.include_only.contains(&FileId::from_raw(2)));
 
         let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
         assert!(
             diagnostics
                 .iter()
-                .any(|diag| diag.file_id == FileId(2) && diag.message.contains("missing_name")),
+                .any(|diag| diag.file_id == FileId::from_raw(2)
+                    && diag.message.contains("missing_name")),
             "transitively included .sv should use VFS text: {diagnostics:?}"
         );
     }
@@ -1025,23 +990,17 @@ mod tests {
 
         let mut db = RootDb::new(None);
         let mut file_set = FileSet::default();
-        file_set.insert(FileId(0), VfsPath::from(a_path.clone()));
-        file_set.insert(FileId(1), VfsPath::from(b_path.clone()));
+        file_set.insert(FileId::from_raw(0), VfsPath::from(a_path.clone()));
+        file_set.insert(FileId::from_raw(1), VfsPath::from(b_path.clone()));
 
         let mut change = Change::new();
-        change.add_changed_file(ChangedFile {
-            file_id: FileId(0),
-            change_kind: ChangeKind::Create(Arc::from(a_text), LineEnding::Unix),
-        });
-        change.add_changed_file(ChangedFile {
-            file_id: FileId(1),
-            change_kind: ChangeKind::Create(Arc::from(b_text), LineEnding::Unix),
-        });
+        change.add_changed_file(ChangedFile::create(FileId::from_raw(0), a_text));
+        change.add_changed_file(ChangedFile::create(FileId::from_raw(1), b_text));
         change.set_roots(vec![SourceRoot::new_local(file_set)]);
         db.apply_change(change);
 
         let plan = db.compilation_plan_for_root(SourceRootId(0));
-        assert_eq!(plan.roots, vec![FileId(0), FileId(1)]);
+        assert_eq!(plan.roots, vec![FileId::from_raw(0), FileId::from_raw(1)]);
         let buffers = compilation_source_buffers_for_plan(&db, &plan);
         let buffer_paths = buffers.iter().map(|buffer| buffer.path.as_str()).collect::<Vec<_>>();
         let a_path = a_path.to_string();

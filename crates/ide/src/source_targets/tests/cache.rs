@@ -4,7 +4,7 @@ use super::*;
 fn source_target_request_cache_reuses_origin_lookup_for_repeated_reference_hits() {
     let mut cache = SourceTargetRequestCache::default();
     let mut lookups = 0usize;
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let offset = TextSize::from(12);
 
     for _ in 0..3 {

@@ -6,8 +6,8 @@ use hir::base_db::{
     source_root::{SourceRoot, SourceRootId},
 };
 use triomphe::Arc;
-use utils::{lines::LineEnding, test_support::TestDir, text_edit::TextSize};
-use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
+use utils::{test_support::TestDir, text_edit::TextSize};
+use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
 use crate::{
     FilePosition,
@@ -76,8 +76,8 @@ endmodule
     std::fs::write(&top_path, &top_text).unwrap();
     std::fs::write(&header_path, &header_text).unwrap();
 
-    let top_file_id = FileId(0);
-    let header_file_id = FileId(1);
+    let top_file_id = FileId::from_raw(0);
+    let header_file_id = FileId::from_raw(1);
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
     file_set.insert(header_file_id, VfsPath::from(header_path));
@@ -95,14 +95,8 @@ endmodule
             preprocess: PreprocessConfig::with_predefine_strings(predefines, vec![include_dir]),
         }],
     )));
-    change.add_changed_file(ChangedFile {
-        file_id: top_file_id,
-        change_kind: ChangeKind::Create(Arc::from(top_text.as_str()), LineEnding::Unix),
-    });
-    change.add_changed_file(ChangedFile {
-        file_id: header_file_id,
-        change_kind: ChangeKind::Create(Arc::from(header_text.as_str()), LineEnding::Unix),
-    });
+    change.add_changed_file(ChangedFile::create(top_file_id, top_text.as_str()));
+    change.add_changed_file(ChangedFile::create(header_file_id, header_text.as_str()));
 
     let mut host = AnalysisHost::default();
     host.apply_change(change);

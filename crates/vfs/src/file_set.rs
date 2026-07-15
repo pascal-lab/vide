@@ -3,18 +3,9 @@ use nohash_hasher::IntMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 use utils::paths::{AbsPath, AbsPathBuf};
 
-use crate::{
-    anchored_path::AnchoredPath,
-    path_glob::PathGlobMatcher,
-    vfs::{FileId, Vfs},
-    vfs_path::VfsPath,
-};
+use crate::{AnchoredPath, FileId, Vfs, VfsPath, path_glob::PathGlobMatcher};
 
-/// Bidirectional path map for a single source root.
-///
-/// A `FileSet` stores the path spelling selected during source-root
-/// partitioning. That spelling may be a VFS alias rather than the primary path
-/// if the alias is the one that belongs to this root.
+/// Files belonging to one source root.
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct FileSet {
     files: FxHashMap<VfsPath, FileId>,
@@ -39,7 +30,7 @@ impl FileSet {
     }
 
     pub fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId> {
-        let mut base = self.paths.get(&path.anchor_id)?.clone();
+        let mut base = self.paths.get(&path.anchor)?.clone();
         base.pop();
         let path = base.join(path.path)?;
         self.files.get(&path).copied()
@@ -55,35 +46,23 @@ impl FileSet {
     }
 }
 
-/// Rules for partitioning VFS files into ordered source roots.
-///
-/// Root order is significant. For one VFS file with several aliases,
-/// classification evaluates every alias and chooses the earliest non-ignored
-/// root. Within a single alias, normal prefix matching still picks the most
-/// specific configured root.
+/// Partitions VFS files into ordered source roots (earlier roots win).
 #[derive(Debug)]
 pub struct FileSetConfig {
-    // Number of sets that can partition into.
-    // This should be `self.map.len() + 1` for files that don't fit in any defined set.
+    /// `map` size + 1 for files that match no root.
     len: usize,
-    // Encoded paths -> sets they belong to.
     map: fst::Map<Vec<u8>>,
     filters: Vec<FileSetFilter>,
 }
 
-/// A source-root partition plus the subset that matched semantic source rules.
+/// One partition: all files in the root, plus optional semantic source subset.
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct PartitionedFileSet {
     pub file_set: FileSet,
     pub source_files: Option<FxHashSet<FileId>>,
 }
 
-/// Matcher used separately for source classification, directory scans, and
-/// include/search roots.
-///
-/// Keeping those roles separate lets exact source files participate in source
-/// ownership without forcing the loader or watcher to scan their parent
-/// directories recursively.
+/// Path include rule: recursive roots and/or a glob.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct PathMatcher {
     scan_roots: Vec<AbsPathBuf>,
@@ -131,8 +110,58 @@ impl PathMatcher {
         self.scan_roots.iter()
     }
 
+    /// True if this can be loaded as recursive directory roots (`**` globs or
+    /// plain roots).
+    pub fn prefers_recursive_directory_load(&self) -> bool {
+        match &self.kind {
+            PathMatcherKind::AllUnderRoots => true,
+            PathMatcherKind::Glob(matcher) => {
+                matcher.patterns().iter().all(|pattern| pattern.contains("**"))
+            }
+        }
+    }
+
+    /// Files under `scan_roots` matching this rule and `extensions`.
+    pub fn collect_matching_files(&self, extensions: &[&str]) -> Vec<AbsPathBuf> {
+        let mut files = Vec::new();
+        for root in &self.scan_roots {
+            collect_files_under(root, &mut files);
+        }
+        files.retain(|path| {
+            let ext = path.extension().unwrap_or_default();
+            extensions.iter().any(|candidate| ext.eq_ignore_ascii_case(candidate))
+                && self.contains_file(path.as_path())
+        });
+        files.sort();
+        files.dedup();
+        files
+    }
+
     fn contains_scan_root(&self, path: &AbsPath) -> bool {
         self.scan_roots.iter().any(|root| path.starts_with(root))
+    }
+}
+
+fn collect_files_under(root: &AbsPathBuf, out: &mut Vec<AbsPathBuf>) {
+    let Ok(entries) = std::fs::read_dir(root.as_path()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_dir() {
+            if let Ok(dir) = AbsPathBuf::try_from(path) {
+                collect_files_under(&dir, out);
+            }
+            continue;
+        }
+        if file_type.is_file()
+            && let Ok(file) = AbsPathBuf::try_from(path)
+        {
+            out.push(file);
+        }
     }
 }
 
@@ -147,7 +176,7 @@ pub struct FileSetFilter {
 
 impl FileSetFilter {
     fn matches(&self, path: &VfsPath) -> bool {
-        let Some(path) = path.as_abs_path() else {
+        let Some(path) = path.as_path() else {
             return self.include.is_empty() && self.exclude_paths.is_empty();
         };
         self.include.iter().any(|include| include.contains_file(path))
@@ -159,7 +188,7 @@ impl FileSetFilter {
         let Some(source) = &self.source else {
             return false;
         };
-        let Some(path) = path.as_abs_path() else {
+        let Some(path) = path.as_path() else {
             return false;
         };
         source.iter().any(|source| source.contains_file(path))
@@ -210,20 +239,12 @@ impl FileSetConfig {
 
     fn classify_vfs_file<'a>(
         &self,
-        vfs: &'a Vfs,
-        file_id: FileId,
+        _vfs: &'a Vfs,
+        _file_id: FileId,
         primary_path: &'a VfsPath,
         scratch_space: &mut Vec<u8>,
     ) -> (usize, &'a VfsPath) {
-        let ignored = self.len - 1;
-        let mut best = None;
-        for path in vfs.file_paths(file_id) {
-            let root = self.classify(path, scratch_space);
-            if root != ignored && best.is_none_or(|(best_root, _)| root < best_root) {
-                best = Some((root, path));
-            }
-        }
-        best.unwrap_or((ignored, primary_path))
+        (self.classify(primary_path, scratch_space), primary_path)
     }
 
     fn classify(&self, path: &VfsPath, scratch_space: &mut Vec<u8>) -> usize {
@@ -258,11 +279,13 @@ impl FileSetConfigBuilder {
         self.roots.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.roots.is_empty()
+    }
+
     pub fn add_file_set(&mut self, roots: Vec<VfsPath>) {
-        let include_paths: Vec<AbsPathBuf> = roots
-            .iter()
-            .filter_map(|root| root.as_abs_path().map(|path| path.to_path_buf()))
-            .collect();
+        let include_paths: Vec<AbsPathBuf> =
+            roots.iter().filter_map(|root| root.as_path().map(|path| path.to_path_buf())).collect();
         let include = if include_paths.is_empty() {
             Vec::new()
         } else {
@@ -333,67 +356,39 @@ impl fst::Automaton for PrefixOf<'_> {
 
 #[cfg(test)]
 mod tests {
-    use utils::lines::LineEnding;
-
     use super::*;
-    use crate::{loader::LoadResult, test_support::TestDir};
 
     #[test]
-    fn partition_uses_project_alias_when_first_ingress_was_another_path() {
-        let dir = TestDir::new("alias-partition");
-        let workspace = dir.join("workspace");
-        let source = dir.write("workspace/top.sv", "module top; endmodule\n");
-        let alias = dir.join("workspace/../workspace/top.sv");
-
-        let alias_vfs_path = VfsPath::from(alias);
-        let source_vfs_path = VfsPath::from(source);
+    fn partition_places_file_under_matching_root() {
+        let root = VfsPath::new_virtual_path("/workspace".into());
+        let file = VfsPath::new_virtual_path("/workspace/top.sv".into());
         let mut vfs = Vfs::default();
-        vfs.set_file_contents(
-            &alias_vfs_path,
-            LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
-        );
-        let file_id = vfs.file_id(&alias_vfs_path).unwrap();
-        vfs.set_file_contents(
-            &source_vfs_path,
-            LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
-        );
-        assert_eq!(vfs.file_id(&source_vfs_path), Some(file_id));
+        assert!(vfs.set_file_contents(file.clone(), Some(b"module top; endmodule\n".to_vec())));
+        let file_id = vfs.file_id(&file).unwrap().0;
 
         let mut builder = FileSetConfig::builder();
-        builder.add_file_set(vec![VfsPath::from(workspace)]);
+        builder.add_file_set(vec![root]);
         let partitions = builder.build().partition(&vfs);
 
-        assert_eq!(partitions[0].get_path(&file_id), Some(&source_vfs_path));
+        assert_eq!(partitions[0].get_path(&file_id), Some(&file));
         assert_eq!(partitions[1].get_path(&file_id), None);
     }
 
     #[test]
-    fn partition_prefers_earlier_root_when_aliases_match_multiple_roots() {
-        let dir = TestDir::new("alias-root-priority");
-        let local_root = dir.join("local");
-        let library_root = dir.join("library");
-        let local = dir.write("local/top.sv", "module top; endmodule\n");
-        let library = dir.join("library/../local/top.sv");
-
-        let local_vfs_path = VfsPath::from(local);
-        let library_vfs_path = VfsPath::from(library);
+    fn partition_prefers_earlier_root_when_prefixes_overlap() {
+        let local_root = VfsPath::new_virtual_path("/local".into());
+        let library_root = VfsPath::new_virtual_path("/".into());
+        let file = VfsPath::new_virtual_path("/local/top.sv".into());
         let mut vfs = Vfs::default();
-        vfs.set_file_contents(
-            &library_vfs_path,
-            LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
-        );
-        let file_id = vfs.file_id(&library_vfs_path).unwrap();
-        vfs.set_file_contents(
-            &local_vfs_path,
-            LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
-        );
+        assert!(vfs.set_file_contents(file.clone(), Some(b"module top; endmodule\n".to_vec())));
+        let file_id = vfs.file_id(&file).unwrap().0;
 
         let mut builder = FileSetConfig::builder();
-        builder.add_file_set(vec![VfsPath::from(local_root)]);
-        builder.add_file_set(vec![VfsPath::from(library_root)]);
+        builder.add_file_set(vec![local_root]);
+        builder.add_file_set(vec![library_root]);
         let partitions = builder.build().partition(&vfs);
 
-        assert_eq!(partitions[0].get_path(&file_id), Some(&local_vfs_path));
+        assert_eq!(partitions[0].get_path(&file_id), Some(&file));
         assert_eq!(partitions[1].get_path(&file_id), None);
         assert_eq!(partitions[2].get_path(&file_id), None);
     }

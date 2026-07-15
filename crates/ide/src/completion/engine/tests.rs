@@ -1,9 +1,8 @@
 use std::path::Path;
 
 use hir::base_db::{change::Change, source_root::SourceRoot};
-use triomphe::Arc;
-use utils::{lines::LineEnding, text_edit::TextSize};
-use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
+use utils::text_edit::TextSize;
+use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
 use super::*;
 use crate::{
@@ -18,7 +17,7 @@ fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FilePosition) {
     let mut owned = text;
     owned = owned.replace(marker, "");
 
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let path = VfsPath::new_virtual_path(path.to_string());
 
     let mut file_set = FileSet::default();
@@ -27,10 +26,7 @@ fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FilePosition) {
 
     let mut change = Change::new();
     change.set_roots(vec![root]);
-    change.add_changed_file(ChangedFile {
-        file_id,
-        change_kind: ChangeKind::Create(Arc::from(owned.as_str()), LineEnding::Unix),
-    });
+    change.add_changed_file(ChangedFile::create(file_id, owned.as_str()));
 
     let mut host = AnalysisHost::default();
     host.apply_change(change);

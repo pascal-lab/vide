@@ -51,16 +51,6 @@ impl GlobalState {
         };
         handler(self, res)
     }
-
-    pub(in crate::global_state) fn drain_pending_workspace_readiness_requests(&mut self) {
-        let pending_requests =
-            std::mem::take(&mut self.workspace.pending_workspace_readiness_requests);
-        for req in pending_requests {
-            if !self.is_completed(&req) {
-                self.handle_request(req);
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -78,8 +68,8 @@ mod tests {
     use project_model::{ProjectModel, project_manifest::ProjectManifest};
     use rustc_hash::FxHashSet;
     use triomphe::Arc;
-    use utils::{lines::LineEnding, paths::AbsPathBuf, test_support::TestDir};
-    use vfs::{FileId, VfsPath, loader as vfs_loader, loader::LoadResult};
+    use utils::{paths::AbsPathBuf, test_support::TestDir};
+    use vfs::{FileId, VfsPath, loader as vfs_loader};
 
     use super::*;
     use crate::{
@@ -182,7 +172,7 @@ mod tests {
         );
         let (server, client) = Connection::memory();
         let mut state = GlobalState::new(server.sender, config, lsp_types::TraceValue::Off);
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         let primary_uri =
             to_proto::url_from_abs_path(root.write("workspace/top.sv", "").as_path()).unwrap();
         let alias_uri =
@@ -247,7 +237,7 @@ mod tests {
         );
         let (server, client) = Connection::memory();
         let mut state = GlobalState::new(server.sender, config, lsp_types::TraceValue::Off);
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         let alias_uri =
             to_proto::url_from_abs_path(root.write("alias/top.sv", "").as_path()).unwrap();
         let diagnostic = Diagnostic {
@@ -306,7 +296,7 @@ mod tests {
         let (server, client) = Connection::memory();
         let mut state = GlobalState::new(server.sender, config, lsp_types::TraceValue::Off);
         state.diagnostics.diagnostics_revision = 2;
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         let uri =
             to_proto::url_from_abs_path(root.write("workspace/top.sv", "").as_path()).unwrap();
         let diagnostic = Diagnostic {
@@ -327,28 +317,22 @@ mod tests {
     }
 
     #[test]
-    fn stale_loaded_batches_do_not_update_vfs() {
-        let root = TestDir::new("stale-loaded-batches");
+    fn content_batches_apply_without_generation_token() {
+        let root = TestDir::new("content-batches-apply");
         let root_path = root.path().to_path_buf();
-        let file_path = root_path.join("stale.sv");
+        let file_path = root_path.join("file.sv");
         let mut state = test_state(root_path);
-        let stale_load = state.workspace.workspace_vfs.begin_vfs_load(1);
-        let current_load = state.workspace.workspace_vfs.begin_vfs_load(1);
-        assert!(!stale_load.superseded_client_progress_active);
-        assert!(!current_load.superseded_client_progress_active);
+        let _ = state.workspace.workspace_vfs.begin_vfs_load(1);
+        let _ = state.workspace.workspace_vfs.begin_vfs_load(1);
 
         state.process_vfs_msg(vfs_loader::Message::Loaded {
-            files: vec![(
-                file_path.clone(),
-                LoadResult::Loaded("module stale; endmodule\n".to_string(), LineEnding::Unix),
-            )],
-            config_version: 1,
+            files: vec![(file_path.clone(), Some(b"module top; endmodule\n".to_vec()))],
         });
 
         let vfs_path = VfsPath::from(file_path);
         let mut vfs = state.workspace.vfs.write();
-        assert!(vfs.0.file_id(&vfs_path).is_none());
-        assert!(vfs.0.take_changes().is_empty());
+        assert!(vfs.0.file_id(&vfs_path).is_some());
+        assert!(!vfs.0.take_changes().is_empty());
     }
 
     #[test]
@@ -371,7 +355,8 @@ mod tests {
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 0,
-            n_done: 0,
+            n_done: vfs_loader::LoadingProgress::Finished,
+            dir: None,
             config_version,
         });
 
@@ -380,10 +365,25 @@ mod tests {
     }
 
     #[test]
-    fn diagnostic_requests_are_parked_until_workspace_ready() {
-        let root = TestDir::new("diagnostic-request-readiness-queue");
+    fn diagnostic_request_gets_terminal_fallback_before_workspace_ready() {
+        let root = TestDir::new("diagnostic-request-readiness-fallback");
         let root_path = root.path().to_path_buf();
-        let mut state = test_state(root_path);
+        let (mut state, client) = test_state_with_caps(
+            root_path,
+            ClientCapabilities {
+                text_document: Some(lsp_types::TextDocumentClientCapabilities {
+                    diagnostic: Some(Default::default()),
+                    ..Default::default()
+                }),
+                workspace: Some(lsp_types::WorkspaceClientCapabilities {
+                    diagnostic: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
+                        refresh_support: Some(true),
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
         let config_version = state.workspace.workspace_vfs.begin_vfs_load(1).config_version;
         let request_id = lsp_server::RequestId::from(7);
         let req = Request::new(
@@ -400,31 +400,85 @@ mod tests {
         state.register_request(Instant::now(), &req);
         state.handle_request(req);
 
-        assert_eq!(state.workspace.pending_workspace_readiness_requests.len(), 1);
-        assert!(state.tasks.task_pool.receiver.recv_timeout(Duration::from_millis(50)).is_err());
+        let response = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let Message::Response(response) = response else {
+            panic!("expected immediate workspace diagnostic fallback response");
+        };
+        assert_eq!(response.id, request_id);
+        assert!(response.error.is_none(), "{:?}", response.error);
+        let report: lsp_types::WorkspaceDiagnosticReportResult =
+            serde_json::from_value(response.result.unwrap()).unwrap();
+        let lsp_types::WorkspaceDiagnosticReportResult::Report(report) = report else {
+            panic!("expected a full workspace diagnostic fallback report");
+        };
+        assert!(report.items.is_empty());
+        assert!(state.tasks.task_pool.receiver.try_recv().is_err());
 
         state
             .handle_event(Event::Vfs(vfs_loader::Message::Progress {
                 n_total: 1,
-                n_done: 1,
+                n_done: vfs_loader::LoadingProgress::Finished,
+                dir: None,
                 config_version,
             }))
             .unwrap();
 
-        assert!(state.workspace.pending_workspace_readiness_requests.is_empty());
-        let task = state.tasks.task_pool.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        let Task::Response(response) = task else {
-            panic!("expected parked diagnostic request to resume as response task, got {task:?}");
+        let refresh = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let Message::Request(refresh) = refresh else {
+            panic!("expected diagnostic refresh after workspace readiness");
         };
-        assert_eq!(response.response.id, request_id);
+        assert_eq!(refresh.method, lsp_types::request::WorkspaceDiagnosticRefresh::METHOD);
     }
 
     #[test]
-    fn workspace_symbol_requests_are_parked_until_workspace_ready() {
-        let root = TestDir::new("workspace-symbol-readiness-queue");
+    fn document_diagnostic_request_gets_empty_report_before_workspace_ready() {
+        let root = TestDir::new("document-diagnostic-readiness-fallback");
         let root_path = root.path().to_path_buf();
-        let mut state = test_state(root_path);
-        let config_version = state.workspace.workspace_vfs.begin_vfs_load(1).config_version;
+        let (mut state, client) = test_state_with_caps(root_path, ClientCapabilities::default());
+        let _ = state.workspace.workspace_vfs.begin_vfs_load(1);
+        let request_id = lsp_server::RequestId::from(9);
+        let req = Request::new(
+            request_id.clone(),
+            lsp_types::request::DocumentDiagnosticRequest::METHOD.to_owned(),
+            lsp_types::DocumentDiagnosticParams {
+                text_document: lsp_types::TextDocumentIdentifier {
+                    uri: lsp_types::Url::parse("file:///not-loaded-yet.sv").unwrap(),
+                },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            },
+        );
+
+        state.register_request(Instant::now(), &req);
+        state.handle_request(req);
+
+        let response = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let Message::Response(response) = response else {
+            panic!("expected immediate document diagnostic fallback response");
+        };
+        assert_eq!(response.id, request_id);
+        assert!(response.error.is_none(), "{:?}", response.error);
+        let report: lsp_types::DocumentDiagnosticReportResult =
+            serde_json::from_value(response.result.unwrap()).unwrap();
+        let lsp_types::DocumentDiagnosticReportResult::Report(
+            lsp_types::DocumentDiagnosticReport::Full(report),
+        ) = report
+        else {
+            panic!("expected a full document diagnostic fallback report");
+        };
+        assert!(report.full_document_diagnostic_report.result_id.is_none());
+        assert!(report.full_document_diagnostic_report.items.is_empty());
+        assert!(state.tasks.task_pool.receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn workspace_symbol_request_gets_empty_result_before_workspace_ready() {
+        let root = TestDir::new("workspace-symbol-readiness-fallback");
+        let root_path = root.path().to_path_buf();
+        let (mut state, client) = test_state_with_caps(root_path, ClientCapabilities::default());
+        let _ = state.workspace.workspace_vfs.begin_vfs_load(1);
         let request_id = lsp_server::RequestId::from(8);
         let req = Request::new(
             request_id.clone(),
@@ -439,25 +493,16 @@ mod tests {
         state.register_request(Instant::now(), &req);
         state.handle_request(req);
 
-        assert_eq!(state.workspace.pending_workspace_readiness_requests.len(), 1);
-        assert!(state.tasks.task_pool.receiver.try_recv().is_err());
-
-        state
-            .handle_event(Event::Vfs(vfs_loader::Message::Progress {
-                n_total: 1,
-                n_done: 1,
-                config_version,
-            }))
-            .unwrap();
-
-        assert!(state.workspace.pending_workspace_readiness_requests.is_empty());
-        let task = state.tasks.task_pool.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        let Task::Response(response) = task else {
-            panic!(
-                "expected parked workspace symbol request to resume as response task, got {task:?}"
-            );
+        let response = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let Message::Response(response) = response else {
+            panic!("expected immediate workspace symbol fallback response");
         };
-        assert_eq!(response.response.id, request_id);
+        assert_eq!(response.id, request_id);
+        assert!(response.error.is_none(), "{:?}", response.error);
+        let symbols: Option<lsp_types::WorkspaceSymbolResponse> =
+            serde_json::from_value(response.result.unwrap()).unwrap();
+        assert_eq!(symbols, Some(lsp_types::WorkspaceSymbolResponse::Flat(Vec::new())));
+        assert!(state.tasks.task_pool.receiver.try_recv().is_err());
     }
 
     #[test]
@@ -535,7 +580,8 @@ mod tests {
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 4,
-            n_done: 4,
+            n_done: vfs_loader::LoadingProgress::Finished,
+            dir: None,
             config_version: stale_config,
         });
 
@@ -552,7 +598,8 @@ mod tests {
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 4,
-            n_done: 2,
+            n_done: vfs_loader::LoadingProgress::Progress(2),
+            dir: None,
             config_version: current_config,
         });
 
@@ -595,7 +642,8 @@ mod tests {
         let stale_config = state.workspace.workspace_vfs.begin_vfs_load(4).config_version;
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 4,
-            n_done: 0,
+            n_done: vfs_loader::LoadingProgress::Started,
+            dir: None,
             config_version: stale_config,
         });
         assert!(matches!(recv_work_done_progress(&client), WorkDoneProgress::Begin(_)));
@@ -630,7 +678,8 @@ mod tests {
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 2,
-            n_done: 2,
+            n_done: vfs_loader::LoadingProgress::Finished,
+            dir: None,
             config_version,
         });
 
@@ -643,7 +692,8 @@ mod tests {
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 2,
-            n_done: 1,
+            n_done: vfs_loader::LoadingProgress::Progress(1),
+            dir: None,
             config_version,
         });
 
