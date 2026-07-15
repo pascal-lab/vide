@@ -3,7 +3,7 @@ use std::{
     sync::Arc as StdArc,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use hir::base_db::project::CompilationProfileId;
 use rustc_hash::FxHashSet;
 use utils::{
@@ -25,10 +25,16 @@ use super::{
 
 #[derive(Debug)]
 pub(crate) struct SemanticCompilerUpdate {
-    snapshot: GlobalStateSnapshot,
+    delivery: SemanticDiagnosticsDelivery,
     touched_files: FxHashSet<FileId>,
     diagnostic_count: usize,
     freshness: DiagnosticPublishFreshness,
+}
+
+#[derive(Debug)]
+enum SemanticDiagnosticsDelivery {
+    PullRefresh,
+    Push(PublishDiagnosticsBatch),
 }
 
 impl SemanticCompilerUpdate {
@@ -118,8 +124,15 @@ impl SemanticCompiler {
                     return;
                 }
 
-                let SemanticCompilerUpdate { snapshot, touched_files, .. } = update;
-                self.publish_diagnostics(snapshot, touched_files, ctx);
+                let SemanticCompilerUpdate { delivery, touched_files, .. } = update;
+                match delivery {
+                    SemanticDiagnosticsDelivery::PullRefresh => {
+                        ctx.refresh_semantic_diagnostics(touched_files);
+                    }
+                    SemanticDiagnosticsDelivery::Push(batch) => {
+                        ctx.publish_semantic_diagnostics(batch);
+                    }
+                }
                 self.start_pending(ctx);
             }
             SemanticCompilerTask::Cancelled { run_id } => {
@@ -188,15 +201,6 @@ impl SemanticCompiler {
             self.start_run(profile_ids, ctx);
         }
     }
-
-    fn publish_diagnostics<C: SemanticCompilerCtx>(
-        &mut self,
-        snapshot: GlobalStateSnapshot,
-        changed_files: FxHashSet<FileId>,
-        ctx: &mut C,
-    ) {
-        ctx.publish_semantic_diagnostics(snapshot, changed_files);
-    }
 }
 
 pub(crate) trait SemanticCompilerCtx {
@@ -206,11 +210,8 @@ pub(crate) trait SemanticCompilerCtx {
     where
         F: FnOnce(crossbeam_channel::Sender<Task>) + Send + 'static;
     fn task_cancel_token(&self) -> CancellationToken;
-    fn publish_semantic_diagnostics(
-        &mut self,
-        snapshot: GlobalStateSnapshot,
-        changed_files: FxHashSet<FileId>,
-    );
+    fn refresh_semantic_diagnostics(&mut self, changed_files: FxHashSet<FileId>);
+    fn publish_semantic_diagnostics(&mut self, batch: PublishDiagnosticsBatch);
 }
 
 pub(super) struct SemanticCompilerGlobalCtx<'a> {
@@ -288,52 +289,15 @@ impl SemanticCompilerCtx for SemanticCompilerGlobalCtx<'_> {
         self.tasks.task_pool.handle.task_token()
     }
 
-    fn publish_semantic_diagnostics(
-        &mut self,
-        snapshot: GlobalStateSnapshot,
-        changed_files: FxHashSet<FileId>,
-    ) {
-        if changed_files.is_empty() {
+    fn refresh_semantic_diagnostics(&mut self, changed_files: FxHashSet<FileId>) {
+        self.refresh_pull_diagnostics(changed_files);
+    }
+
+    fn publish_semantic_diagnostics(&mut self, batch: PublishDiagnosticsBatch) {
+        if batch.touched_file_count() == 0 {
             return;
         }
 
-        if self.config_state.config.cli_pull_diagnostics_support() {
-            self.refresh_pull_diagnostics(changed_files);
-            return;
-        }
-
-        let mut publish_tasks = Vec::with_capacity(changed_files.len());
-        let mut touched_file_ids = FxHashSet::default();
-        for file_id in changed_files.iter().copied() {
-            let targets = match snapshot.diagnostic_publish_targets(file_id) {
-                Ok(targets) => targets,
-                Err(error) => {
-                    tracing::debug!(
-                        ?file_id,
-                        "skipping semantic diagnostics for file without URI: {error:#}"
-                    );
-                    continue;
-                }
-            };
-            let diagnostics = match snapshot.lsp_diagnostics(file_id) {
-                Ok(diagnostics) => diagnostics,
-                Err(error) if error.is::<ide::Cancelled>() => {
-                    tracing::debug!(?file_id, "semantic diagnostic publish cancelled");
-                    continue;
-                }
-                Err(error) => {
-                    tracing::debug!(?file_id, "semantic diagnostic publish failed: {error:#}");
-                    continue;
-                }
-            };
-            touched_file_ids.insert(file_id);
-
-            publish_tasks.extend(
-                targets
-                    .into_iter()
-                    .map(|target| PublishDiagnosticsTask::from_target(target, diagnostics.clone())),
-            );
-        }
         let current_freshness = self.diagnostic_publish_freshness();
         DiagnosticsPublisher::new(
             &self.config_state.config,
@@ -342,11 +306,7 @@ impl SemanticCompilerCtx for SemanticCompilerGlobalCtx<'_> {
             &self.client.sender,
             current_freshness,
         )
-        .publish(PublishDiagnosticsBatch::for_touched_files(
-            touched_file_ids,
-            publish_tasks,
-            snapshot.diagnostic_publish_freshness,
-        ));
+        .publish(batch);
     }
 }
 
@@ -416,7 +376,56 @@ fn collect_semantic_diagnostics(
         diagnostic_count,
         "semantic compiler prewarmed profile diagnostics"
     );
-    Ok(SemanticCompilerUpdate { snapshot, touched_files, diagnostic_count, freshness })
+
+    let delivery = if snapshot.config.cli_pull_diagnostics_support() {
+        SemanticDiagnosticsDelivery::PullRefresh
+    } else {
+        SemanticDiagnosticsDelivery::Push(materialize_semantic_publish_batch(
+            &snapshot,
+            &touched_files,
+            cancellation,
+        )?)
+    };
+    drop(snapshot);
+
+    Ok(SemanticCompilerUpdate { delivery, touched_files, diagnostic_count, freshness })
+}
+
+fn materialize_semantic_publish_batch(
+    snapshot: &GlobalStateSnapshot,
+    changed_files: &FxHashSet<FileId>,
+    cancellation: &CancellationToken,
+) -> Result<PublishDiagnosticsBatch> {
+    let mut publish_tasks = Vec::with_capacity(changed_files.len());
+    let mut touched_file_ids = FxHashSet::default();
+    for file_id in changed_files.iter().copied() {
+        cancellation.check()?;
+        let targets = snapshot
+            .diagnostic_publish_targets(file_id)
+            .with_context(|| format!("failed to resolve diagnostic targets for {file_id:?}"))?;
+        let diagnostics = match snapshot.lsp_diagnostics(file_id) {
+            Ok(diagnostics) => diagnostics,
+            Err(error) if error.is::<ide::Cancelled>() => return Err(CancellationError.into()),
+            Err(error) => {
+                return Err(error.context(format!(
+                    "failed to materialize semantic diagnostics for {file_id:?}"
+                )));
+            }
+        };
+        touched_file_ids.insert(file_id);
+        publish_tasks.extend(
+            targets
+                .into_iter()
+                .map(|target| PublishDiagnosticsTask::from_target(target, diagnostics.clone())),
+        );
+    }
+    cancellation.check()?;
+
+    Ok(PublishDiagnosticsBatch::for_touched_files(
+        touched_file_ids,
+        publish_tasks,
+        snapshot.diagnostic_publish_freshness,
+    ))
 }
 
 fn normalize_profile_ids(mut profile_ids: Vec<CompilationProfileId>) -> Vec<CompilationProfileId> {
@@ -430,4 +439,69 @@ fn panic_message(panic: &(dyn std::any::Any + Send)) -> Option<&str> {
         .downcast_ref::<String>()
         .map(String::as_str)
         .or_else(|| panic.downcast_ref::<&str>().copied())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use hir::base_db::change::Change;
+    use lsp_server::Connection;
+    use lsp_types::{ClientCapabilities, TraceValue};
+    use utils::test_support::TestDir;
+
+    use super::*;
+    use crate::{
+        Opt,
+        config::{self, user_config::UserConfig},
+        i18n::I18n,
+    };
+
+    #[test]
+    fn semantic_compiler_task_does_not_retain_analysis_snapshot() {
+        let root = TestDir::new("semantic-compiler-snapshot-lifetime");
+        let root_path = root.path().to_path_buf();
+        let config = config::Config::new(
+            Opt {
+                process_name: "vide-test".to_owned(),
+                log: "error".to_owned(),
+                log_filename: None,
+                profile_trace: None,
+            },
+            root_path.clone(),
+            ClientCapabilities::default(),
+            vec![root_path],
+            I18n::default(),
+            UserConfig::default(),
+            Vec::new(),
+        );
+        let (server, _client) = Connection::memory();
+        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
+        let cancellation = CancellationToken::new();
+        let snapshot = state.make_snapshot_with_cancel(cancellation.clone());
+        let task = run_semantic_compiler_task(
+            snapshot,
+            Vec::new(),
+            SemanticCompilerRunId::default(),
+            cancellation,
+        );
+
+        let mut analysis_host = std::mem::take(&mut state.analysis.analysis_host);
+        let (finished_tx, finished_rx) = crossbeam_channel::bounded(1);
+        let writer = std::thread::spawn(move || {
+            analysis_host.apply_change(Change::new());
+            finished_tx.send(()).unwrap();
+            analysis_host
+        });
+
+        let completed_while_task_was_retained =
+            finished_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+        drop(task);
+        state.analysis.analysis_host = writer.join().unwrap();
+
+        assert!(
+            completed_while_task_was_retained,
+            "semantic compiler task retained an analysis snapshot and blocked the next change"
+        );
+    }
 }
