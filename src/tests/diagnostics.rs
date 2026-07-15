@@ -1113,29 +1113,11 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
         )))
         .unwrap();
 
-    let second_id = lsp_server::RequestId::from(2);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            second_id.clone(),
-            WorkspaceDiagnosticRequest::METHOD.to_string(),
-            WorkspaceDiagnosticParams {
-                identifier: None,
-                previous_result_ids: vec![lsp_types::PreviousResultId {
-                    uri: ignored_uri.clone(),
-                    value: ignored_result_id,
-                }],
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-    let second: WorkspaceDiagnosticReportResult =
-        recv_response(&client, second_id, "workspaceDiagnostic");
-    let second_report = match second {
-        WorkspaceDiagnosticReportResult::Report(report) => report,
-        other => panic!("unexpected workspace diagnostic response: {other:?}"),
-    };
+    let second_report = request_workspace_diagnostic_report(
+        &client,
+        2,
+        vec![lsp_types::PreviousResultId { uri: ignored_uri.clone(), value: ignored_result_id }],
+    );
     for item in second_report.items {
         if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item
             && full.uri == ignored_uri
