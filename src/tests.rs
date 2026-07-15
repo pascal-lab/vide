@@ -370,7 +370,38 @@ fn request_document_diagnostics_with_previous_result_id(
     request_id: i32,
     previous_result_id: Option<String>,
 ) -> (Option<String>, Vec<lsp_types::Diagnostic>) {
-    let request_id = lsp_server::RequestId::from(request_id);
+    for attempt in 0..50 {
+        let current_request_id = if attempt == 0 {
+            lsp_server::RequestId::from(request_id)
+        } else {
+            lsp_server::RequestId::from(format!(
+                "document-diagnostic-{request_id}-readiness-{attempt}"
+            ))
+        };
+        let result = request_document_diagnostics_once(
+            client,
+            uri.clone(),
+            current_request_id,
+            previous_result_id.clone(),
+        );
+        if result.0.is_some() || !result.1.is_empty() {
+            return result;
+        }
+        wait_for_workspace_diagnostic_refresh_or_tick(
+            client,
+            "document diagnostics workspace readiness",
+        );
+    }
+
+    panic!("document diagnostics remained in the cold-start fallback state");
+}
+
+fn request_document_diagnostics_once(
+    client: &Connection,
+    uri: Url,
+    request_id: lsp_server::RequestId,
+    previous_result_id: Option<String>,
+) -> (Option<String>, Vec<lsp_types::Diagnostic>) {
     client
         .sender
         .send(Message::Request(Request::new(
@@ -732,7 +763,36 @@ fn request_workspace_diagnostic_report(
     request_id: i32,
     previous_result_ids: Vec<lsp_types::PreviousResultId>,
 ) -> lsp_types::WorkspaceDiagnosticReport {
-    let request_id = lsp_server::RequestId::from(request_id);
+    for attempt in 0..50 {
+        let current_request_id = if attempt == 0 {
+            lsp_server::RequestId::from(request_id)
+        } else {
+            lsp_server::RequestId::from(format!(
+                "workspace-diagnostic-{request_id}-readiness-{attempt}"
+            ))
+        };
+        let report = request_workspace_diagnostic_report_once(
+            client,
+            current_request_id,
+            previous_result_ids.clone(),
+        );
+        if !report.items.is_empty() {
+            return report;
+        }
+        wait_for_workspace_diagnostic_refresh_or_tick(
+            client,
+            "workspace diagnostics workspace readiness",
+        );
+    }
+
+    panic!("workspace diagnostics remained in the cold-start fallback state");
+}
+
+fn request_workspace_diagnostic_report_once(
+    client: &Connection,
+    request_id: lsp_server::RequestId,
+    previous_result_ids: Vec<lsp_types::PreviousResultId>,
+) -> lsp_types::WorkspaceDiagnosticReport {
     client
         .sender
         .send(Message::Request(Request::new(
