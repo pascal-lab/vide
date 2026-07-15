@@ -153,8 +153,6 @@ impl WorkspaceVfsReadiness {
         }
 
         self.vfs_progress = VfsProgress { config_version, n_done, n_total };
-        // rust-analyzer style: generation is ready when Progress reports Finished
-        // (or empty total with Finished), not when content batches carry a version.
         self.vfs_ready = finished || (n_total == 0 && n_done == 0);
         if finished {
             self.vfs_progress.n_done = n_total;

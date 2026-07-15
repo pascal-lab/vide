@@ -371,8 +371,7 @@ impl GlobalState {
                     return;
                 };
 
-                // Empty loads still flip readiness via Finished Progress, but do not
-                // spam the client with a 0/0 work-done sequence.
+                // Ready already updated; skip empty 0/0 client progress.
                 if progress.n_total == 0 {
                     return;
                 }
@@ -396,8 +395,6 @@ impl GlobalState {
                     }
                 }
             }
-            // rust-analyzer style: content batches have no config_version; only
-            // Progress gates generation readiness.
             vfs_loader::Message::Loaded { files } => {
                 self.process_vfs_files(files, VfsFileSource::ConfigScan);
             }

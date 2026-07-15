@@ -1,15 +1,4 @@
-//! Owned fork of rust-analyzer `vfs-notify`.
-//!
-//! Upstream: <https://github.com/rust-lang/rust-analyzer/tree/master/crates/vfs-notify>
-//!
-//! An implementation of `loader::Handle`, based on `walkdir` and `notify`.
-//!
-//! The file watching bits here are untested and quite probably buggy. For this
-//! reason, by default we don't watch files and rely on editor's file watching
-//! capabilities.
-//!
-//! Hopefully, one day a reliable file watching/walking crate appears on
-//! crates.io, and we can reduce this to trivial glue code.
+//! `loader::Handle` backed by `walkdir` and OS `notify` (best-effort).
 
 use std::{
     fs,

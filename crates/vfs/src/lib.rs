@@ -1,47 +1,12 @@
-//! Owned fork of rust-analyzer's virtual file system (tinymist-style).
+//! Virtual file system: interned paths, content change log, and loader
+//! interface.
 //!
-//! Upstream: <https://github.com/rust-lang/rust-analyzer/tree/master/crates/vfs>
-//!
-//! # Virtual File System
-//!
-//! VFS records all file changes pushed to it via [`set_file_contents`].
-//! As such it only ever stores changes, not the actual content of a file at any
-//! given moment. All file changes are logged, and can be retrieved via
-//! [`take_changes`] method. The pack of changes is then pushed to `salsa` and
-//! triggers incremental recomputation.
-//!
-//! Files in VFS are identified with [`FileId`]s -- interned paths. The notion
-//! of the path, [`VfsPath`] is somewhat abstract: at the moment, it is
-//! represented as an [`std::path::PathBuf`] internally, but this is an
-//! implementation detail.
-//!
-//! VFS doesn't do IO or file watching itself. For that, see the [`loader`]
-//! module. [`loader::Handle`] is an object-safe trait which abstracts both file
-//! loading and file watching. [`Handle`] is dynamically configured with a set
-//! of directory entries which should be scanned and watched. [`Handle`] then
-//! asynchronously pushes file changes. Directory entries are configured in
-//! free-form via list of globs, it's up to the [`Handle`] to interpret the
-//! globs in any specific way.
-//!
-//! VFS stores a flat list of files. [`file_set::FileSet`] can partition this
-//! list of files into disjoint sets of files. Traversal-like operations
-//! (including getting the neighbor file by the relative path) are handled by
-//! the [`FileSet`]. [`FileSet`]s are also pushed to salsa and cause it to
-//! re-check `mod foo;` declarations when files are created or deleted.
-//!
-//! [`FileSet`] and [`loader::Entry`] play similar, but different roles.
-//! Both specify the "set of paths/files", one is geared towards file watching,
-//! the other towards salsa changes. In particular, single [`FileSet`]
-//! may correspond to several [`loader::Entry`]. For example, a crate from
-//! crates.io which uses code generation would have two [`Entries`] -- for
-//! sources in `~/.cargo`, and for generated code in `./target/debug/build`. It
-//! will have a single [`FileSet`] which unions the two sources.
+//! Based on rust-analyzer's `vfs` crate
+//! (<https://github.com/rust-lang/rust-analyzer/tree/master/crates/vfs>).
+//! IO and watching live in [`loader`] backends ([`notify`], [`dummy`]).
 //!
 //! [`set_file_contents`]: Vfs::set_file_contents
 //! [`take_changes`]: Vfs::take_changes
-//! [`FileSet`]: file_set::FileSet
-//! [`Handle`]: loader::Handle
-//! [`Entries`]: loader::Entry
 
 mod anchored_path;
 pub mod dummy;
@@ -81,12 +46,9 @@ fn hash_once<Hasher: std::hash::Hasher + Default>(thing: impl std::hash::Hash) -
     h.finish()
 }
 
-/// Handle to a file in [`Vfs`]
-///
-/// Most functions in rust-analyzer use this when they need to refer to a file.
+/// Interned file identity in [`Vfs`].
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct FileId(u32);
-// pub struct FileId(NonMaxU32);
 
 impl FileId {
     const MAX: u32 = 0x7fff_ffff;
@@ -166,7 +128,7 @@ impl ChangedFile {
         }
     }
 
-    /// UTF-8 file text for analysis; invalid UTF-8 becomes empty.
+    /// UTF-8 text; invalid UTF-8 becomes empty.
     pub fn text(&self) -> Option<triomphe::Arc<str>> {
         let bytes = match &self.change {
             Change::Create(bytes, _) | Change::Modify(bytes, _) => bytes.as_slice(),
@@ -176,7 +138,6 @@ impl ChangedFile {
         Some(triomphe::Arc::<str>::from(text))
     }
 
-    /// Bytes for Create/Modify; `None` for Delete.
     pub fn contents(&self) -> Option<&[u8]> {
         match &self.change {
             Change::Create(bytes, _) | Change::Modify(bytes, _) => Some(bytes.as_slice()),
@@ -184,21 +145,18 @@ impl ChangedFile {
         }
     }
 
-    /// Test/host helper: create a file with UTF-8 text contents.
     pub fn create(file_id: FileId, text: impl AsRef<str>) -> Self {
         let bytes = text.as_ref().as_bytes().to_vec();
         let hash = hash_once::<FxHasher>(&*bytes);
         Self { file_id, change: Change::Create(bytes, hash) }
     }
 
-    /// Test/host helper: modify a file with UTF-8 text contents.
     pub fn modify(file_id: FileId, text: impl AsRef<str>) -> Self {
         let bytes = text.as_ref().as_bytes().to_vec();
         let hash = hash_once::<FxHasher>(&*bytes);
         Self { file_id, change: Change::Modify(bytes, hash) }
     }
 
-    /// Test/host helper: delete a file.
     pub fn delete(file_id: FileId) -> Self {
         Self { file_id, change: Change::Delete }
     }
@@ -339,7 +297,6 @@ impl Vfs {
                     }
                     // shouldn't occur, but collapse into `Create`
                     (change @ Delete, Modify(new, new_hash)) => {
-                        // Shouldn't occur; collapse into Create like upstream.
                         *change = Create(new, new_hash);
                     }
                     // shouldn't occur, but keep the Create

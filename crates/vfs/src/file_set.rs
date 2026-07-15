@@ -5,11 +5,7 @@ use utils::paths::{AbsPath, AbsPathBuf};
 
 use crate::{AnchoredPath, FileId, Vfs, VfsPath, path_glob::PathGlobMatcher};
 
-/// Bidirectional path map for a single source root.
-///
-/// A `FileSet` stores the path spelling selected during source-root
-/// partitioning. That spelling may be a VFS alias rather than the primary path
-/// if the alias is the one that belongs to this root.
+/// Files belonging to one source root.
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct FileSet {
     files: FxHashMap<VfsPath, FileId>,
@@ -50,35 +46,23 @@ impl FileSet {
     }
 }
 
-/// Rules for partitioning VFS files into ordered source roots.
-///
-/// Root order is significant. For one VFS file with several aliases,
-/// classification evaluates every alias and chooses the earliest non-ignored
-/// root. Within a single alias, normal prefix matching still picks the most
-/// specific configured root.
+/// Partitions VFS files into ordered source roots (earlier roots win).
 #[derive(Debug)]
 pub struct FileSetConfig {
-    // Number of sets that can partition into.
-    // This should be `self.map.len() + 1` for files that don't fit in any defined set.
+    /// `map` size + 1 for files that match no root.
     len: usize,
-    // Encoded paths -> sets they belong to.
     map: fst::Map<Vec<u8>>,
     filters: Vec<FileSetFilter>,
 }
 
-/// A source-root partition plus the subset that matched semantic source rules.
+/// One partition: all files in the root, plus optional semantic source subset.
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct PartitionedFileSet {
     pub file_set: FileSet,
     pub source_files: Option<FxHashSet<FileId>>,
 }
 
-/// Matcher used separately for source classification, directory scans, and
-/// include/search roots.
-///
-/// Keeping those roles separate lets exact source files participate in source
-/// ownership without forcing the loader or watcher to scan their parent
-/// directories recursively.
+/// Path include rule: recursive roots and/or a glob.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct PathMatcher {
     scan_roots: Vec<AbsPathBuf>,
@@ -126,11 +110,8 @@ impl PathMatcher {
         self.scan_roots.iter()
     }
 
-    /// Whether the loader may use recursive `Directories` for this matcher.
-    ///
-    /// - `AllUnderRoots` → yes
-    /// - Glob patterns that contain `**` (e.g. `rtl/**`) → yes (prefix roots)
-    /// - Shallow globs like `rtl/*.sv` → no; expand to `Entry::Files` instead
+    /// True if this can be loaded as recursive directory roots (`**` globs or
+    /// plain roots).
     pub fn prefers_recursive_directory_load(&self) -> bool {
         match &self.kind {
             PathMatcherKind::AllUnderRoots => true,
@@ -140,9 +121,7 @@ impl PathMatcher {
         }
     }
 
-    /// Walk `scan_roots` and collect absolute files that match this matcher and
-    /// one of `extensions` (no leading dot). Used to expand shallow globs like
-    /// `rtl/*.sv` without putting glob logic inside the loader.
+    /// Files under `scan_roots` matching this rule and `extensions`.
     pub fn collect_matching_files(&self, extensions: &[&str]) -> Vec<AbsPathBuf> {
         let mut files = Vec::new();
         for root in &self.scan_roots {
@@ -265,8 +244,6 @@ impl FileSetConfig {
         primary_path: &'a VfsPath,
         scratch_space: &mut Vec<u8>,
     ) -> (usize, &'a VfsPath) {
-        // Path identity aliases were removed with the r-a VFS fork; classify the
-        // primary interned spelling only.
         (self.classify(primary_path, scratch_space), primary_path)
     }
 

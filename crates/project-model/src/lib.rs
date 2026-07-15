@@ -62,10 +62,10 @@ pub struct WorkspaceRoot {
     pub extra_files: Vec<AbsPathBuf>,
     /// Include/search roots loaded as headers and passed to preprocessing.
     pub include_dirs: Vec<AbsPathBuf>,
-    /// Absolute directory prefixes excluded from directory loads (expanded from
-    /// manifest exclude globs before the loader sees them).
+    /// Exclude directory prefixes for loader `Directories` (from manifest
+    /// globs).
     pub exclude_prefixes: Vec<AbsPathBuf>,
-    /// Glob matcher retained for FileSet classification of opened files.
+    /// Exclude globs for FileSet classification.
     pub exclude_globs: Option<PathGlobMatcher>,
 }
 
@@ -459,11 +459,8 @@ fn compile_manifest_globs(
         .with_context(|| format!("failed to compile manifest {field} glob patterns"))
 }
 
-/// Expand exclude globs into absolute directory prefixes for the loader.
-///
-/// Patterns that are pure wildcards (e.g. `**/*.sv`) are skipped here; those
-/// still participate in FileSet classification via
-/// [`WorkspaceRoot::exclude_globs`].
+/// Expand exclude globs to directory prefixes; skip pure wildcards (e.g.
+/// `**/*.sv`).
 fn exclude_prefixes_from_patterns(
     workspace_root: &AbsPathBuf,
     patterns: &[String],
@@ -664,8 +661,6 @@ pub fn get_workspace_folder(
                     exclude_paths.push(excl.clone());
                 }
             }
-            // Manifest exclude globs are expanded to directory prefixes before
-            // the loader (r-a-shaped Directories has no glob field).
             exclude_paths.extend(root.exclude_prefixes.iter().cloned());
             sort_and_remove_subfolders(&mut exclude_paths);
             let mut include = Vec::new();
@@ -700,9 +695,6 @@ pub fn get_workspace_folder(
                 load_entries.push(vfs::loader::Entry::Files(source_files));
             }
 
-            // Recursive loads: include_dirs + pure root matchers.
-            // Glob source patterns (e.g. `rtl/*.sv`) are expanded to Entry::Files
-            // so the r-a-style loader does not need glob semantics.
             let mut directory_include = root.include_dirs.clone();
             if !root.source_directories.is_empty() {
                 if root.source_directories.prefers_recursive_directory_load() {
@@ -1305,7 +1297,6 @@ include_dirs = []
         let (load, _, _, _) = get_workspace_folder(&model.workspaces, &[]);
 
         assert!(errors.is_empty(), "{errors:#?}");
-        // Shallow globs expand to Entry::Files (loader has no glob depth rules).
         let files = match load.iter().find_map(|entry| match entry {
             vfs::loader::Entry::Files(files) => Some(files),
             _ => None,
@@ -1432,17 +1423,12 @@ exclude = ["**/*_bb.v"]
         let (load, _, source_root_config, _) = get_workspace_folder(&model.workspaces, &[]);
 
         assert!(errors.is_empty(), "{errors:#?}");
-        // Filename globs like `**/*_bb.v` cannot be expressed as loader directory
-        // prefixes (r-a-shaped Directories). They still classify via FileSet.
         let dirs = match &load[0] {
             vfs::loader::Entry::Directories(dirs) => dirs,
             other => panic!("expected directory loader entry, got {other:?}"),
         };
         assert!(dirs.contains_file(top.as_path()));
-        assert!(
-            dirs.contains_file(blackbox.as_path()),
-            "loader may still discover filename-glob matches; FileSet drops them"
-        );
+        assert!(dirs.contains_file(blackbox.as_path()));
 
         let mut vfs = Vfs::default();
         for file in [&top, &blackbox] {
