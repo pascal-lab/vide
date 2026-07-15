@@ -156,6 +156,7 @@ pub(super) fn diagnostic_publish_freshness(
     freshness
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn make_snapshot(
     config: &Arc<Config>,
     workspaces: &Arc<Vec<Workspace>>,
