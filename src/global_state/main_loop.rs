@@ -370,37 +370,6 @@ mod tests {
     }
 
     #[test]
-    fn scan_failure_keeps_terminal_vfs_generation_unready() {
-        let root = TestDir::new("failed-vfs-scan-stays-unready");
-        let root_path = root.path().to_path_buf();
-        let mut state = test_state(root_path.clone());
-        let config_version = state.workspace.workspace_vfs.begin_vfs_load(1).config_version;
-
-        state.process_vfs_msg(vfs_loader::Message::ScanFailed {
-            config_version,
-            failure: vfs_loader::ScanFailure {
-                root: root_path,
-                error: "injected scan failure".to_owned(),
-            },
-        });
-        state.process_vfs_msg(vfs_loader::Message::Progress {
-            n_total: 1,
-            n_done: 1,
-            config_version,
-        });
-
-        assert!(!state.workspace.workspace_vfs.is_ready());
-
-        let next_version = state.workspace.workspace_vfs.begin_vfs_load(0).config_version;
-        state.process_vfs_msg(vfs_loader::Message::Progress {
-            n_total: 0,
-            n_done: 0,
-            config_version: next_version,
-        });
-        assert!(state.workspace.workspace_vfs.is_ready());
-    }
-
-    #[test]
     fn diagnostic_request_gets_terminal_fallback_before_workspace_ready() {
         let root = TestDir::new("diagnostic-request-readiness-fallback");
         let root_path = root.path().to_path_buf();

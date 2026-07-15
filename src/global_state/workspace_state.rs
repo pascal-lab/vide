@@ -49,7 +49,6 @@ pub(crate) struct WorkspaceVfsReadiness {
     vfs_config_version: u32,
     vfs_progress: VfsProgress,
     vfs_ready: bool,
-    vfs_scan_failed: bool,
     vfs_client_progress_active: bool,
     diagnostic_readiness_revision: u64,
     diagnostics_deferred_until_ready: bool,
@@ -65,7 +64,6 @@ impl Default for WorkspaceVfsReadiness {
             vfs_config_version: 0,
             vfs_progress: VfsProgress::default(),
             vfs_ready: true,
-            vfs_scan_failed: false,
             vfs_client_progress_active: false,
             diagnostic_readiness_revision: 0,
             diagnostics_deferred_until_ready: false,
@@ -135,7 +133,6 @@ impl WorkspaceVfsReadiness {
         self.vfs_progress =
             VfsProgress { config_version: self.vfs_config_version, n_done: 0, n_total };
         self.vfs_ready = false;
-        self.vfs_scan_failed = false;
         self.vfs_client_progress_active = false;
         BeginVfsLoad { config_version: self.vfs_config_version, superseded_client_progress_active }
     }
@@ -154,18 +151,8 @@ impl WorkspaceVfsReadiness {
         }
 
         self.vfs_progress = VfsProgress { config_version, n_done, n_total };
-        self.vfs_ready = !self.vfs_progress.in_progress() && !self.vfs_scan_failed;
+        self.vfs_ready = !self.vfs_progress.in_progress();
         Some(self.vfs_progress)
-    }
-
-    pub(crate) fn fail_vfs_scan(&mut self, config_version: u32) -> bool {
-        if config_version != self.vfs_config_version {
-            return false;
-        }
-
-        self.vfs_scan_failed = true;
-        self.vfs_ready = false;
-        true
     }
 
     pub(crate) fn note_vfs_client_progress_started(&mut self) {

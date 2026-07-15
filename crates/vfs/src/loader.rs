@@ -42,12 +42,19 @@ pub struct Config {
 }
 
 /// Messages sent by a loader generation back to the main loop.
+///
+/// Mirrors rust-analyzer's `vfs::loader::Message` shape: configuration scans
+/// report [`Loaded`], while later disk or explicit invalidations report
+/// [`Changed`]. Server-side watching is best-effort; failures are logged rather
+/// than modeled as protocol-level readiness failures.
 pub enum Message {
     Progress { n_total: usize, n_done: usize, config_version: u32 },
+    /// Initial contents discovered by a configuration scan (or its unload
+    /// reconciliation). Must not be treated as an external workspace edit.
     Loaded { files: Vec<(AbsPathBuf, LoadResult)>, config_version: u32 },
+    /// Contents that changed after the current configuration generation was
+    /// established (file watcher events or explicit invalidation).
     Changed { files: Vec<(AbsPathBuf, LoadResult)>, config_version: u32 },
-    ScanFailed { config_version: u32, failure: ScanFailure },
-    WatcherStatus(WatcherStatus),
 }
 
 pub type Sender = crossbeam_channel::Sender<Message>;
@@ -58,37 +65,6 @@ pub enum LoadResult {
     Loaded(String, LineEnding),
     LoadError,
     DecodeError,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WatcherStatus {
-    Ready { config_version: u32 },
-    Failed { config_version: u32, failure: WatcherFailure },
-}
-
-impl WatcherStatus {
-    pub fn config_version(&self) -> u32 {
-        match self {
-            Self::Ready { config_version } | Self::Failed { config_version, .. } => *config_version,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WatcherFailure {
-    Create { error: String },
-    Watch { path: AbsPathBuf, error: String },
-    Unwatch { path: AbsPathBuf, error: String },
-    Notify { error: String },
-    Protocol { error: String },
-    Stopped { error: String },
-}
-
-/// A content scan that could not produce a complete VFS generation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScanFailure {
-    pub root: AbsPathBuf,
-    pub error: String,
 }
 
 pub trait Handle: fmt::Debug {
@@ -170,12 +146,6 @@ impl fmt::Debug for Message {
                 .field("n_files", &files.len())
                 .field("config_version", config_version)
                 .finish(),
-            Message::ScanFailed { config_version, failure } => f
-                .debug_struct("ScanFailed")
-                .field("config_version", config_version)
-                .field("failure", failure)
-                .finish(),
-            Message::WatcherStatus(status) => f.debug_tuple("WatcherStatus").field(status).finish(),
             Message::Progress { n_total, n_done, config_version } => f
                 .debug_struct("Progress")
                 .field("n_total", n_total)
