@@ -1,7 +1,6 @@
 //! Owned fork of rust-analyzer's virtual file system (tinymist-style).
 //!
 //! Upstream: <https://github.com/rust-lang/rust-analyzer/tree/master/crates/vfs>
-//! See `UPSTREAM.md` for the pinned commit and license notes.
 //!
 //! # Virtual File System
 //!
