@@ -700,10 +700,31 @@ pub fn get_workspace_folder(
                 load_entries.push(vfs::loader::Entry::Files(source_files));
             }
 
-            let mut directory_include = Vec::new();
-            directory_include.extend(root.include_dirs.iter().cloned());
+            // Recursive loads: include_dirs + pure root matchers.
+            // Glob source patterns (e.g. `rtl/*.sv`) are expanded to Entry::Files
+            // so the r-a-style loader does not need glob semantics.
+            let mut directory_include = root.include_dirs.clone();
             if !root.source_directories.is_empty() {
-                directory_include.extend(root.source_directories.scan_roots().cloned());
+                if root.source_directories.prefers_recursive_directory_load() {
+                    directory_include.extend(root.source_directories.scan_roots().cloned());
+                } else {
+                    let matched = root
+                        .source_directories
+                        .collect_matching_files(vfs::loader::SOURCE_FILE_EXTENSIONS);
+                    let matched = matched
+                        .into_iter()
+                        .filter(|path| {
+                            !is_excluded_load_file(
+                                path.as_path(),
+                                &exclude_paths,
+                                &root.exclude_globs,
+                            )
+                        })
+                        .collect_vec();
+                    if !matched.is_empty() {
+                        load_entries.push(vfs::loader::Entry::Files(matched));
+                    }
+                }
             }
             directory_include.sort();
             directory_include.dedup();
@@ -1277,17 +1298,23 @@ include_dirs = []
 
         let top = rtl.join("top.sv");
         let nested_top = rtl.join("nested/top.sv");
+        fs::write(&top, "module top; endmodule\n").unwrap();
+        fs::write(&nested_top, "module nested; endmodule\n").unwrap();
         let manifest = ProjectManifest::from_path(&root).unwrap();
         let (model, errors) = ProjectModel::load(vec![manifest]);
         let (load, _, _, _) = get_workspace_folder(&model.workspaces, &[]);
 
         assert!(errors.is_empty(), "{errors:#?}");
-        let dirs = match &load[0] {
-            vfs::loader::Entry::Directories(dirs) => dirs,
-            other => panic!("expected directory loader entry, got {other:?}"),
+        // Shallow globs expand to Entry::Files (loader has no glob depth rules).
+        let files = match load.iter().find_map(|entry| match entry {
+            vfs::loader::Entry::Files(files) => Some(files),
+            _ => None,
+        }) {
+            Some(files) => files,
+            None => panic!("expected file loader entry for rtl/*.sv, got {load:?}"),
         };
-        assert!(dirs.contains_file(top.as_path()));
-        assert!(!dirs.contains_file(nested_top.as_path()));
+        assert!(files.iter().any(|path| path == &top));
+        assert!(!files.iter().any(|path| path == &nested_top));
     }
 
     #[test]
