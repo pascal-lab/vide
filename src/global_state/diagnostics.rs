@@ -1,4 +1,6 @@
-use hir::base_db::{project::CompilationProfileId, source_root::SourceRootId};
+use hir::base_db::{
+    analysis_snapshot::AnalysisSnapshotId, project::CompilationProfileId, source_root::SourceRootId,
+};
 use lsp_types::Url;
 use rustc_hash::FxHashSet;
 use vfs::FileId;
@@ -7,13 +9,22 @@ pub(crate) mod publisher;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct DiagnosticCommitFreshness {
+    snapshot_id: AnalysisSnapshotId,
     diagnostics_revision: u64,
     readiness_revision: u64,
 }
 
 impl DiagnosticCommitFreshness {
-    pub(crate) fn new(diagnostics_revision: u64, readiness_revision: u64) -> Self {
-        Self { diagnostics_revision, readiness_revision }
+    pub(crate) fn for_snapshot(
+        snapshot_id: AnalysisSnapshotId,
+        diagnostics_revision: u64,
+        readiness_revision: u64,
+    ) -> Self {
+        Self { snapshot_id, diagnostics_revision, readiness_revision }
+    }
+
+    pub(crate) fn snapshot_id(self) -> AnalysisSnapshotId {
+        self.snapshot_id
     }
 
     pub(crate) fn readiness_revision(self) -> u64 {
@@ -68,12 +79,17 @@ pub(crate) struct DiagnosticPublishFreshness {
 
 impl DiagnosticPublishFreshness {
     pub(crate) fn new(
+        snapshot_id: AnalysisSnapshotId,
         diagnostics_revision: u64,
         target_revision: u64,
         readiness_revision: u64,
     ) -> Self {
         Self {
-            commit: DiagnosticCommitFreshness::new(diagnostics_revision, readiness_revision),
+            commit: DiagnosticCommitFreshness::for_snapshot(
+                snapshot_id,
+                diagnostics_revision,
+                readiness_revision,
+            ),
             target_revision,
         }
     }
@@ -165,6 +181,7 @@ impl DiagnosticFileRevision {
 
 #[derive(Debug, Clone)]
 pub(crate) struct DiagnosticSnapshotKey {
+    snapshot_id: AnalysisSnapshotId,
     owner: DiagnosticOwner,
     readiness_revision: u64,
     diagnostics_config_revision: u64,
@@ -174,7 +191,9 @@ pub(crate) struct DiagnosticSnapshotKey {
 }
 
 impl DiagnosticSnapshotKey {
-    pub(crate) fn new(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_with_snapshot_id(
+        snapshot_id: AnalysisSnapshotId,
         owner: DiagnosticOwner,
         readiness_revision: u64,
         diagnostics_config_revision: u64,
@@ -186,6 +205,7 @@ impl DiagnosticSnapshotKey {
         dependency_revisions.sort_unstable();
         external_revisions.sort_by_key(|revision| revision.result_id_fragment());
         Self {
+            snapshot_id,
             owner,
             readiness_revision,
             diagnostics_config_revision,
@@ -211,7 +231,8 @@ impl DiagnosticSnapshotKey {
             .collect::<Vec<_>>()
             .join(",");
         format!(
-            "diag:config:{}:ready:{}:owner:{}:target:{}:deps:{}:external:{}",
+            "diag:snapshot:{}:config:{}:ready:{}:owner:{}:target:{}:deps:{}:external:{}",
+            self.snapshot_id.get(),
             self.diagnostics_config_revision,
             self.readiness_revision,
             self.owner.result_id_fragment(),
@@ -238,5 +259,42 @@ impl DiagnosticTargetIdentity {
             Some(version) => format!("{}:{version}", self.uri),
             None => self.uri.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagnostic_result_identity_includes_analysis_snapshot() {
+        let uri = Url::parse("file:///workspace/top.sv").unwrap();
+        let owner = DiagnosticOwner::File(FileId::from_raw(7));
+        let first = DiagnosticSnapshotKey::new_with_snapshot_id(
+            AnalysisSnapshotId::new(10),
+            owner,
+            0,
+            0,
+            &uri,
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .result_id();
+        let second = DiagnosticSnapshotKey::new_with_snapshot_id(
+            AnalysisSnapshotId::new(11),
+            owner,
+            0,
+            0,
+            &uri,
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .result_id();
+
+        assert_ne!(first, second);
+        assert!(first.contains("diag:snapshot:10:"));
+        assert!(second.contains("diag:snapshot:11:"));
     }
 }

@@ -148,8 +148,11 @@ mod tests {
         panic!("expected work-done progress notification");
     }
 
-    fn publish_batch(tasks: Vec<PublishDiagnosticsTask>) -> PublishDiagnosticsBatch {
-        PublishDiagnosticsBatch::from_tasks(tasks, DiagnosticPublishFreshness::default())
+    fn publish_batch(
+        state: &GlobalState,
+        tasks: Vec<PublishDiagnosticsTask>,
+    ) -> PublishDiagnosticsBatch {
+        PublishDiagnosticsBatch::from_tasks(tasks, state.diagnostic_publish_freshness())
     }
 
     #[test]
@@ -185,22 +188,28 @@ mod tests {
             ..Diagnostic::default()
         };
 
-        state.publish_diagnostics_tasks(publish_batch(vec![PublishDiagnosticsTask::for_test(
-            file_id,
-            primary_uri.clone(),
-            None,
-            vec![diagnostic.clone()],
-        )]));
+        state.publish_diagnostics_tasks(publish_batch(
+            &state,
+            vec![PublishDiagnosticsTask::for_test(
+                file_id,
+                primary_uri.clone(),
+                None,
+                vec![diagnostic.clone()],
+            )],
+        ));
         let first = recv_publish(&client);
         assert_eq!(first.uri, primary_uri);
         assert_eq!(first.diagnostics, vec![diagnostic.clone()]);
 
-        state.publish_diagnostics_tasks(publish_batch(vec![PublishDiagnosticsTask::for_test(
-            file_id,
-            alias_uri.clone(),
-            Some(7),
-            vec![diagnostic.clone()],
-        )]));
+        state.publish_diagnostics_tasks(publish_batch(
+            &state,
+            vec![PublishDiagnosticsTask::for_test(
+                file_id,
+                alias_uri.clone(),
+                Some(7),
+                vec![diagnostic.clone()],
+            )],
+        ));
 
         let clear_primary = recv_publish(&client);
         assert_eq!(clear_primary.uri, primary_uri);
@@ -248,12 +257,15 @@ mod tests {
             ..Diagnostic::default()
         };
 
-        state.publish_diagnostics_tasks(publish_batch(vec![PublishDiagnosticsTask::for_test(
-            file_id,
-            alias_uri.clone(),
-            Some(9),
-            vec![diagnostic],
-        )]));
+        state.publish_diagnostics_tasks(publish_batch(
+            &state,
+            vec![PublishDiagnosticsTask::for_test(
+                file_id,
+                alias_uri.clone(),
+                Some(9),
+                vec![diagnostic],
+            )],
+        ));
         let published = recv_publish(&client);
         assert_eq!(published.uri, alias_uri);
         assert!(!published.diagnostics.is_empty());
@@ -261,7 +273,7 @@ mod tests {
         state.publish_diagnostics_tasks(PublishDiagnosticsBatch::for_touched_files(
             FxHashSet::from_iter([file_id]),
             Vec::new(),
-            DiagnosticPublishFreshness::default(),
+            state.diagnostic_publish_freshness(),
         ));
 
         let cleared = recv_publish(&client);
@@ -309,7 +321,7 @@ mod tests {
 
         state.publish_diagnostics_tasks(PublishDiagnosticsBatch::from_tasks(
             vec![PublishDiagnosticsTask::for_test(file_id, uri, None, vec![diagnostic])],
-            DiagnosticPublishFreshness::new(1, 0, 0),
+            DiagnosticPublishFreshness::new(state.analysis.analysis_host.snapshot_id(), 1, 0, 0),
         ));
 
         assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());

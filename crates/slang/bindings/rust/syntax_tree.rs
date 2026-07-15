@@ -503,6 +503,10 @@ impl SyntaxTree {
         }
     }
 
+    pub fn preprocessor_trace(&self) -> Option<Trace> {
+        Trace::from_raw(self._ptr.preprocessorTraceFromParsed())
+    }
+
     #[inline]
     pub fn root(&self) -> Option<SyntaxNode<'_>> {
         SyntaxNode::from_raw_ptr(self._ptr.root())
@@ -604,6 +608,10 @@ impl SyntaxTree {
 
     pub fn buffer_id(&self) -> u32 {
         self._ptr.buffer_id()
+    }
+
+    pub fn buffer_ids(&self) -> SyntaxTreeBufferIds {
+        SyntaxTreeBufferIds::from_raw(ffi::SyntaxTree_buffer_ids(&self._ptr))
     }
 }
 
@@ -827,6 +835,49 @@ impl Compilation {
 
     pub fn add_syntax_tree(&mut self, tree: SyntaxTree) {
         ffi::Compilation::add_syntax_tree(self._ptr.as_mut().unwrap(), tree._ptr);
+    }
+
+    pub fn parse_syntax_tree_from_text(
+        &mut self,
+        text: &str,
+        name: &str,
+        path: &str,
+        options: &SyntaxTreeOptions,
+    ) -> SyntaxTree {
+        SyntaxTree {
+            _ptr: ffi::Compilation::parse_syntax_tree_from_text(
+                self._ptr.as_mut().unwrap(),
+                CxxSV::new(text),
+                CxxSV::new(name),
+                CxxSV::new(path),
+                options.predefines.clone(),
+                options.include_paths.clone(),
+                options
+                    .include_buffers
+                    .iter()
+                    .map(|buffer| ffi::RawSourceBuffer {
+                        path: buffer.path.clone(),
+                        text: buffer.text.clone(),
+                    })
+                    .collect(),
+            ),
+        }
+    }
+
+    pub fn parse_library_map_syntax_tree_from_text(
+        &mut self,
+        text: &str,
+        name: &str,
+        path: &str,
+    ) -> SyntaxTree {
+        SyntaxTree {
+            _ptr: ffi::Compilation::parse_library_map_syntax_tree_from_text(
+                self._ptr.as_mut().unwrap(),
+                CxxSV::new(text),
+                CxxSV::new(name),
+                CxxSV::new(path),
+            ),
+        }
     }
 
     pub fn add_syntax_tree_from_text(

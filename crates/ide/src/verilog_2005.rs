@@ -11,8 +11,7 @@ use hir::{
             CompilationProfile, CompilationProfileId, Predefine, PredefineSource, PreprocessConfig,
             ProjectConfig,
         },
-        salsa::Durability,
-        source_db::SourceDb,
+        source_db::SourceRootDb,
         source_root::{SourceRoot, SourceRootId},
     },
     preproc::{IncludeTarget, include_directive_at},
@@ -157,8 +156,8 @@ fn parsed_file_nodes_survive_parse_lru_eviction() {
     let child_count = root.child_count();
     assert!(child_count > 0);
 
-    let _ = db.parse_src(FileId::from_raw(1));
-    let _ = db.parse_src(FileId::from_raw(2));
+    let _ = db.parse_src_for_compilation(FileId::from_raw(1));
+    let _ = db.parse_src_for_compilation(FileId::from_raw(2));
 
     assert_eq!(root.child_count(), child_count);
     assert!(root.first_token().is_some());
@@ -1103,7 +1102,7 @@ endmodule
 }
 
 #[test]
-fn file_preprocess_config_selects_same_ifdef_branch_for_diagnostics_and_navigation() {
+fn project_profile_selects_same_ifdef_branch_for_diagnostics_and_navigation() {
     let text = r#"
 module ifdef_nav(
   input logic clk_i,
@@ -1117,13 +1116,8 @@ module ifdef_nav(
 `endif
 endmodule
 "#;
-    let (mut host, file_id, _clean_text, markers) =
+    let (host, file_id, _clean_text, markers) =
         setup_marked_with_predefines(text, vec!["SOMETHING=1".to_owned()]);
-    host.raw_db_mut().set_file_preprocess_config_with_durability(
-        file_id,
-        Arc::new(PreprocessConfig::default()),
-        Durability::LOW,
-    );
 
     let analysis = host.make_analysis();
     let range_at = |marker: &str, len: TextSize| {
@@ -1140,23 +1134,27 @@ endmodule
         .find(|diagnostic| diagnostic.name == "inactive-preprocessor-branch")
         .expect("expected inactive branch diagnostic");
     assert!(
-        inactive.range.intersect(if_branch).is_some(),
-        "file-level preprocess should mark the if branch inactive: {diagnostics:?}"
+        inactive.range.intersect(else_branch).is_some(),
+        "project profile preprocess should mark the else branch inactive: {diagnostics:?}"
     );
     assert!(
-        inactive.range.intersect(else_branch).is_none(),
-        "file-level preprocess should keep the else branch semantically active: {diagnostics:?}"
+        inactive.range.intersect(if_branch).is_none(),
+        "project profile preprocess should keep the if branch semantically active: {diagnostics:?}"
     );
 
     assert!(
-        analysis.goto_definition(position(file_id, &markers, "if_ref")).unwrap().is_none(),
-        "inactive if branch should not drive semantic navigation"
+        analysis.goto_definition(position(file_id, &markers, "if_ref")).unwrap().is_some(),
+        "active if branch should drive semantic navigation"
     );
 
+    assert!(
+        analysis.goto_definition(position(file_id, &markers, "else_ref")).unwrap().is_none(),
+        "inactive else branch should not drive semantic navigation"
+    );
     let nav = analysis
-        .goto_definition(position(file_id, &markers, "else_ref"))
+        .goto_definition(position(file_id, &markers, "if_ref"))
         .unwrap()
-        .expect("active else branch should navigate");
+        .expect("active if branch should navigate");
     assert!(
         nav.info.iter().any(|target| target.focus_range == Some(d_i_range)),
         "active else branch should resolve d_i to the port definition: {nav:?}"
