@@ -286,7 +286,7 @@ mod tests {
         option_name: Option<&str>,
     ) -> IdeDiagnostic {
         IdeDiagnostic {
-            file_id: FileId(0),
+            file_id: FileId::from_raw(0),
             code,
             subsystem,
             name: name.to_owned(),
@@ -368,7 +368,7 @@ mod tests {
             data: None,
         };
         let ide_diag = IdeDiagnostic {
-            file_id: FileId(0),
+            file_id: FileId::from_raw(0),
             code: 129,
             subsystem: 6,
             name: "MixingOrderedAndNamedPorts".to_owned(),
@@ -393,7 +393,7 @@ mod tests {
     #[test]
     fn code_action_diagnostics_are_built_from_server_diagnostics() {
         let diag = IdeDiagnostic {
-            file_id: FileId(0),
+            file_id: FileId::from_raw(0),
             code: 129,
             subsystem: 6,
             name: "MixingOrderedAndNamedPorts".to_owned(),

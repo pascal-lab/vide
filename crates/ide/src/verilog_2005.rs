@@ -21,11 +21,10 @@ use hir::{
 use insta::assert_snapshot;
 use triomphe::Arc;
 use utils::{
-    lines::LineEnding,
     test_support::TestDir,
     text_edit::{TextRange, TextSize},
 };
-use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
+use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
 use crate::{
     FilePosition, ScopeVisibility,
@@ -99,7 +98,7 @@ fn setup(text: &str) -> (AnalysisHost, FileId) {
 
 fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FileId) {
     let text = normalize_fixture_text(text);
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let path = VfsPath::new_virtual_path(path.to_string());
 
     let mut file_set = FileSet::default();
@@ -108,10 +107,7 @@ fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FileId) {
 
     let mut change = Change::new();
     change.set_roots(vec![root]);
-    change.add_changed_file(ChangedFile {
-        file_id,
-        change_kind: ChangeKind::Create(Arc::from(text.as_str()), LineEnding::Unix),
-    });
+    change.add_changed_file(ChangedFile::create(file_id, text.as_str()));
 
     let mut host = AnalysisHost::default();
     host.apply_change(change);
@@ -120,7 +116,7 @@ fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FileId) {
 
 fn setup_best_effort_with_path(text: &str, path: &str) -> (AnalysisHost, FileId, String) {
     let text = normalize_fixture_text(text);
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let path = VfsPath::new_virtual_path(path.to_string());
 
     let mut file_set = FileSet::default();
@@ -129,10 +125,7 @@ fn setup_best_effort_with_path(text: &str, path: &str) -> (AnalysisHost, FileId,
 
     let mut change = Change::new();
     change.set_roots(vec![root]);
-    change.add_changed_file(ChangedFile {
-        file_id,
-        change_kind: ChangeKind::Create(Arc::from(text.as_str()), LineEnding::Unix),
-    });
+    change.add_changed_file(ChangedFile::create(file_id, text.as_str()));
 
     let mut host = AnalysisHost::default();
     host.apply_change(change);
@@ -143,18 +136,15 @@ fn setup_best_effort_with_path(text: &str, path: &str) -> (AnalysisHost, FileId,
 fn parsed_file_nodes_survive_parse_lru_eviction() {
     let mut file_set = FileSet::default();
     let files = [
-        (FileId(0), "/a.sv", "module a;\n  wire x;\nendmodule\n"),
-        (FileId(1), "/b.sv", "module b;\nendmodule\n"),
-        (FileId(2), "/c.sv", "module c;\nendmodule\n"),
+        (FileId::from_raw(0), "/a.sv", "module a;\n  wire x;\nendmodule\n"),
+        (FileId::from_raw(1), "/b.sv", "module b;\nendmodule\n"),
+        (FileId::from_raw(2), "/c.sv", "module c;\nendmodule\n"),
     ];
 
     let mut change = Change::new();
     for (file_id, path, text) in files {
         file_set.insert(file_id, VfsPath::new_virtual_path(path.to_owned()));
-        change.add_changed_file(ChangedFile {
-            file_id,
-            change_kind: ChangeKind::Create(Arc::from(text), LineEnding::Unix),
-        });
+        change.add_changed_file(ChangedFile::create(file_id, text));
     }
     change.set_roots(vec![SourceRoot::new_local(file_set)]);
 
@@ -162,13 +152,13 @@ fn parsed_file_nodes_survive_parse_lru_eviction() {
     db.apply_change(change);
 
     let sema = Semantics::new(&db);
-    let parsed_file = sema.parse_file(FileId(0));
+    let parsed_file = sema.parse_file(FileId::from_raw(0));
     let root = parsed_file.root().expect("a.sv should parse");
     let child_count = root.child_count();
     assert!(child_count > 0);
 
-    let _ = db.parse_src(FileId(1));
-    let _ = db.parse_src(FileId(2));
+    let _ = db.parse_src(FileId::from_raw(1));
+    let _ = db.parse_src(FileId::from_raw(2));
 
     assert_eq!(root.child_count(), child_count);
     assert!(root.first_token().is_some());
@@ -196,14 +186,11 @@ fn setup_marked_files(files: &[(&str, &str)]) -> (AnalysisHost, Vec<MarkedFile>)
     let mut marked_files = Vec::new();
 
     for (idx, (path, text)) in files.iter().enumerate() {
-        let file_id = FileId(idx as u32);
+        let file_id = FileId::from_raw(idx as u32);
         let text = normalize_fixture_text(text);
         let (text, markers) = strip_markers(text);
         file_set.insert(file_id, VfsPath::new_virtual_path((*path).to_owned()));
-        change.add_changed_file(ChangedFile {
-            file_id,
-            change_kind: ChangeKind::Create(Arc::from(text.as_str()), LineEnding::Unix),
-        });
+        change.add_changed_file(ChangedFile::create(file_id, text.as_str()));
         marked_files.push((file_id, text, markers));
     }
 
@@ -220,7 +207,7 @@ fn setup_marked_with_predefines(
 ) -> (AnalysisHost, FileId, String, HashMap<String, TextSize>) {
     let (text, markers) = strip_markers(normalize_fixture_text(text));
 
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let mut file_set = FileSet::default();
     file_set.insert(file_id, VfsPath::new_virtual_path("/feature.v".to_owned()));
 
@@ -234,10 +221,7 @@ fn setup_marked_with_predefines(
             preprocess: PreprocessConfig::with_predefine_strings(predefines, Vec::new()),
         }],
     )));
-    change.add_changed_file(ChangedFile {
-        file_id,
-        change_kind: ChangeKind::Create(Arc::from(text.as_str()), LineEnding::Unix),
-    });
+    change.add_changed_file(ChangedFile::create(file_id, text.as_str()));
 
     let mut host = AnalysisHost::default();
     host.apply_change(change);
@@ -273,8 +257,8 @@ fn setup_include_macro_project(
     std::fs::write(&top_path, &top_text).unwrap();
     std::fs::write(&header_path, &header_text).unwrap();
 
-    let top_file_id = FileId(0);
-    let header_file_id = FileId(1);
+    let top_file_id = FileId::from_raw(0);
+    let header_file_id = FileId::from_raw(1);
 
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
@@ -293,14 +277,8 @@ fn setup_include_macro_project(
             },
         }],
     )));
-    change.add_changed_file(ChangedFile {
-        file_id: top_file_id,
-        change_kind: ChangeKind::Create(Arc::from(top_text.as_str()), LineEnding::Unix),
-    });
-    change.add_changed_file(ChangedFile {
-        file_id: header_file_id,
-        change_kind: ChangeKind::Create(Arc::from(header_text.as_str()), LineEnding::Unix),
-    });
+    change.add_changed_file(ChangedFile::create(top_file_id, top_text.as_str()));
+    change.add_changed_file(ChangedFile::create(header_file_id, header_text.as_str()));
 
     let mut host = AnalysisHost::default();
     host.apply_change(change);
@@ -610,8 +588,8 @@ endmodule
 fn best_effort_single_file_rename_rejects_cross_file_symbol() {
     let child_text = "module child;\nendmodule\n";
     let top_text = "module top;\n  child u();\nendmodule\n";
-    let child_file_id = FileId(0);
-    let top_file_id = FileId(1);
+    let child_file_id = FileId::from_raw(0);
+    let top_file_id = FileId::from_raw(1);
 
     let mut file_set = FileSet::default();
     file_set.insert(child_file_id, VfsPath::new_virtual_path("/child.sv".to_owned()));
@@ -619,14 +597,8 @@ fn best_effort_single_file_rename_rejects_cross_file_symbol() {
 
     let mut change = Change::new();
     change.set_roots(vec![SourceRoot::new_best_effort_index(file_set)]);
-    change.add_changed_file(ChangedFile {
-        file_id: child_file_id,
-        change_kind: ChangeKind::Create(Arc::from(child_text), LineEnding::Unix),
-    });
-    change.add_changed_file(ChangedFile {
-        file_id: top_file_id,
-        change_kind: ChangeKind::Create(Arc::from(top_text), LineEnding::Unix),
-    });
+    change.add_changed_file(ChangedFile::create(child_file_id, child_text));
+    change.add_changed_file(ChangedFile::create(top_file_id, top_text));
 
     let mut host = AnalysisHost::default();
     host.apply_change(change);
@@ -1078,8 +1050,8 @@ endmodule
     let manifest_range =
         marked_range(&manifest_markers, "def", TextSize::of("\"FROM_MANIFEST=1\""));
 
-    let top_file_id = FileId(0);
-    let manifest_file_id = FileId(1);
+    let top_file_id = FileId::from_raw(0);
+    let manifest_file_id = FileId::from_raw(1);
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
     file_set.insert(manifest_file_id, VfsPath::from(manifest_path.clone()));
@@ -1100,14 +1072,8 @@ endmodule
             },
         }],
     )));
-    change.add_changed_file(ChangedFile {
-        file_id: top_file_id,
-        change_kind: ChangeKind::Create(Arc::from(top_text.as_str()), LineEnding::Unix),
-    });
-    change.add_changed_file(ChangedFile {
-        file_id: manifest_file_id,
-        change_kind: ChangeKind::Create(Arc::from(manifest_text.as_str()), LineEnding::Unix),
-    });
+    change.add_changed_file(ChangedFile::create(top_file_id, top_text.as_str()));
+    change.add_changed_file(ChangedFile::create(manifest_file_id, manifest_text.as_str()));
 
     let mut host = AnalysisHost::default();
     host.apply_change(change);
@@ -1234,8 +1200,8 @@ endmodule
     std::fs::write(&top_path, &top_text).unwrap();
     std::fs::write(&define_path, define_text).unwrap();
 
-    let top_file_id = FileId(0);
-    let define_file_id = FileId(1);
+    let top_file_id = FileId::from_raw(0);
+    let define_file_id = FileId::from_raw(1);
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
     file_set.insert(define_file_id, VfsPath::from(define_path));
@@ -1253,14 +1219,8 @@ endmodule
             },
         }],
     )));
-    change.add_changed_file(ChangedFile {
-        file_id: top_file_id,
-        change_kind: ChangeKind::Create(Arc::from(top_text.as_str()), LineEnding::Unix),
-    });
-    change.add_changed_file(ChangedFile {
-        file_id: define_file_id,
-        change_kind: ChangeKind::Create(Arc::from(define_text), LineEnding::Unix),
-    });
+    change.add_changed_file(ChangedFile::create(top_file_id, top_text.as_str()));
+    change.add_changed_file(ChangedFile::create(define_file_id, define_text));
 
     let mut host = AnalysisHost::default();
     host.apply_change(change);
@@ -1390,8 +1350,8 @@ endmodule
     std::fs::write(&top_path, &top_text).unwrap();
     std::fs::write(&defs_path, defs_text).unwrap();
 
-    let top_file_id = FileId(0);
-    let defs_file_id = FileId(1);
+    let top_file_id = FileId::from_raw(0);
+    let defs_file_id = FileId::from_raw(1);
 
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
@@ -1399,14 +1359,8 @@ endmodule
 
     let mut change = Change::new();
     change.set_roots(vec![SourceRoot::new_local(file_set)]);
-    change.add_changed_file(ChangedFile {
-        file_id: top_file_id,
-        change_kind: ChangeKind::Create(Arc::from(top_text.as_str()), LineEnding::Unix),
-    });
-    change.add_changed_file(ChangedFile {
-        file_id: defs_file_id,
-        change_kind: ChangeKind::Create(Arc::from(defs_text), LineEnding::Unix),
-    });
+    change.add_changed_file(ChangedFile::create(top_file_id, top_text.as_str()));
+    change.add_changed_file(ChangedFile::create(defs_file_id, defs_text));
 
     let mut host = AnalysisHost::default();
     host.apply_change(change);
@@ -1779,8 +1733,8 @@ endmodule
     let (manifest_text, manifest_markers) = strip_markers(marked_manifest_text);
     let manifest_range = marked_range(&manifest_markers, "def", TextSize::of("\"LANE_WIDTH=12\""));
 
-    let top_file_id = FileId(0);
-    let manifest_file_id = FileId(1);
+    let top_file_id = FileId::from_raw(0);
+    let manifest_file_id = FileId::from_raw(1);
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
     file_set.insert(manifest_file_id, VfsPath::from(manifest_path.clone()));
@@ -1801,14 +1755,8 @@ endmodule
             },
         }],
     )));
-    change.add_changed_file(ChangedFile {
-        file_id: top_file_id,
-        change_kind: ChangeKind::Create(Arc::from(top_text.as_str()), LineEnding::Unix),
-    });
-    change.add_changed_file(ChangedFile {
-        file_id: manifest_file_id,
-        change_kind: ChangeKind::Create(Arc::from(manifest_text.as_str()), LineEnding::Unix),
-    });
+    change.add_changed_file(ChangedFile::create(top_file_id, top_text.as_str()));
+    change.add_changed_file(ChangedFile::create(manifest_file_id, manifest_text.as_str()));
 
     let mut host = AnalysisHost::default();
     host.apply_change(change);
@@ -2195,10 +2143,7 @@ endmodule
 
     let updated_header = "`define HEADER_WIDTH 16\n";
     let mut change = Change::new();
-    change.add_changed_file(ChangedFile {
-        file_id: fixture.header_file_id,
-        change_kind: ChangeKind::Modify(Arc::from(updated_header), LineEnding::Unix),
-    });
+    change.add_changed_file(ChangedFile::modify(fixture.header_file_id, updated_header));
     fixture.host.apply_change(change);
 
     let analysis = fixture.host.make_analysis();
@@ -2569,13 +2514,10 @@ fn verilog_2005_hover_after_truncation_uses_current_syntax_context() {
     let (mut host, file_id, _clean_text, markers) = setup_marked(full);
 
     let mut change = Change::new();
-    change.add_changed_file(ChangedFile {
+    change.add_changed_file(ChangedFile::modify(
         file_id,
-        change_kind: ChangeKind::Modify(
-            Arc::from("module\taxi_addr_miter(i_last_addr, i_size, i_burst, i_len);"),
-            LineEnding::Unix,
-        ),
-    });
+        "module\taxi_addr_miter(i_last_addr, i_size, i_burst, i_len);",
+    ));
     host.apply_change(change);
 
     let hover = host
@@ -2984,16 +2926,13 @@ endmodule
     ));
     std::fs::write(&file_path, &text).unwrap();
 
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let mut file_set = FileSet::default();
     file_set.insert(file_id, VfsPath::from(file_path));
 
     let mut change = Change::new();
     change.set_roots(vec![SourceRoot::new_local(file_set)]);
-    change.add_changed_file(ChangedFile {
-        file_id,
-        change_kind: ChangeKind::Create(Arc::from(text.as_str()), LineEnding::Unix),
-    });
+    change.add_changed_file(ChangedFile::create(file_id, text.as_str()));
 
     let mut host = AnalysisHost::default();
     host.apply_change(change);

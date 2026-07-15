@@ -191,7 +191,7 @@ fn module_candidates(db: &RootDb, name: &Ident) -> Vec<ModuleId> {
         );
     }
 
-    candidates.sort_by_key(|(file_id, name_start, _)| (file_id.0, *name_start));
+    candidates.sort_by_key(|(file_id, name_start, _)| (file_id.index(), *name_start));
     candidates.dedup_by_key(|(_, _, module_id)| *module_id);
     candidates.into_iter().map(|(_, _, module_id)| module_id).collect()
 }
@@ -254,7 +254,7 @@ fn resolve_by_proximity(
         }
     }
 
-    candidates.sort_by_key(|module_id| module_id.file_id.file_id().0);
+    candidates.sort_by_key(|module_id| module_id.file_id.file_id().index());
 
     match best_modules.as_slice() {
         [] => ModuleResolution::Unresolved,
@@ -335,9 +335,8 @@ mod tests {
     };
     use smol_str::SmolStr;
     use syntax::{SyntaxNodeExt, ast};
-    use triomphe::Arc;
-    use utils::{lines::LineEnding, text_edit::TextSize};
-    use vfs::{ChangeKind, ChangedFile, FileId, FileSet};
+    use utils::text_edit::TextSize;
+    use vfs::{ChangedFile, FileId, FileSet};
 
     use super::*;
 
@@ -350,12 +349,9 @@ mod tests {
         let mut change = Change::new();
 
         for (idx, (path, text)) in files.iter().enumerate() {
-            let file_id = FileId(idx as u32);
+            let file_id = FileId::from_raw(idx as u32);
             file_set.insert(file_id, VfsPath::new_virtual_path(path.clone()));
-            change.add_changed_file(ChangedFile {
-                file_id,
-                change_kind: ChangeKind::Create(Arc::from(text.as_str()), LineEnding::Unix),
-            });
+            change.add_changed_file(ChangedFile::create(file_id, text.as_str()));
         }
 
         change.set_roots(vec![root(file_set)]);
@@ -453,7 +449,7 @@ mod tests {
             ResolutionFixture {
                 root: root.unwrap_or_else(|| panic!("missing root in {}", path.display())),
                 query: query.unwrap_or_else(|| panic!("missing query in {}", path.display())),
-                focus: FileId(
+                focus: FileId::from_raw(
                     focus_index
                         .unwrap_or_else(|| panic!("missing focus file in {}", path.display()))
                         as u32,
@@ -572,7 +568,7 @@ mod tests {
 
     fn file_path(files: &[(String, String)], file_id: FileId) -> String {
         files
-            .get(file_id.0 as usize)
+            .get(file_id.index() as usize)
             .map(|(path, _)| path.clone())
             .unwrap_or_else(|| format!("<unknown {:?}>", file_id))
     }

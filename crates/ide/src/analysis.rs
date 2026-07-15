@@ -142,7 +142,7 @@ impl Analysis {
             let plan = db.compilation_plan_for_profile(Some(profile_id));
             let mut file_ids = plan.roots.clone();
             file_ids.extend(plan.include_only.iter().copied());
-            file_ids.sort_unstable_by_key(|file_id| file_id.0);
+            file_ids.sort_unstable_by_key(|file_id| file_id.index());
             file_ids.dedup();
             file_ids
         })

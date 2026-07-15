@@ -147,7 +147,7 @@ fn stale_qihe_result_does_not_replace_current_diagnostics() {
     let (server, _client) = lsp_server::Connection::memory();
     let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
     state.qihe.run_generation = QiheRunId::new(2);
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let current = Diagnostic {
         range: Range::new(Position::new(0, 0), Position::new(0, 1)),
         severity: Some(DiagnosticSeverity::WARNING),
@@ -214,7 +214,7 @@ fn current_qihe_result_closes_active_progress() {
 #[test]
 fn cancelled_qihe_finished_result_does_not_commit_diagnostics() {
     let (_root, mut state) = new_test_state("cancelled-qihe-finished-result");
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let diagnostic = Diagnostic {
         range: Range::new(Position::new(0, 0), Position::new(0, 1)),
         severity: Some(DiagnosticSeverity::WARNING),
@@ -295,7 +295,7 @@ fn qihe_diagnostics_are_scoped_to_diagnostic_commit_freshness() {
     );
     let (server, _client) = lsp_server::Connection::memory();
     let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
-    let file_id = FileId(0);
+    let file_id = FileId::from_raw(0);
     let diagnostic = Diagnostic {
         range: Range::new(Position::new(0, 0), Position::new(0, 1)),
         severity: Some(DiagnosticSeverity::WARNING),
@@ -359,7 +359,7 @@ fn qihe_result_with_stale_diagnostic_freshness_does_not_commit() {
         run_id: QiheRunId::new(1),
         update: QiheUpdate {
             by_file: rustc_hash::FxHashMap::from_iter([(
-                FileId(0),
+                FileId::from_raw(0),
                 vec![Diagnostic {
                     range: Range::new(Position::new(0, 0), Position::new(0, 1)),
                     severity: Some(DiagnosticSeverity::WARNING),
@@ -409,7 +409,7 @@ fn qihe_diagnostics_use_pull_refresh_for_pull_capable_clients() {
     let (server, client) = lsp_server::Connection::memory();
     let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
 
-    state.publish_qihe_diagnostics(rustc_hash::FxHashSet::from_iter([FileId(0)]));
+    state.publish_qihe_diagnostics(rustc_hash::FxHashSet::from_iter([FileId::from_raw(0)]));
 
     let message = client
         .receiver

@@ -137,5 +137,8 @@ insta.workspace = true
 utils = { workspace = true, features = ["test-support"] }
 
 [features]
+default = ["server-file-watcher"]
+# Server OS file watching (off for wasm).
+server-file-watcher = ["vfs/notify-backend"]
 profile-trace = ["dep:tracing-chrome"]
 user-config-schema = ["dep:schemars"]

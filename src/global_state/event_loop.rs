@@ -10,7 +10,7 @@ use vfs::{VfsPath, loader as vfs_loader};
 use super::{
     GlobalState, WorkspaceFetchCompletion,
     process_changes::DiagnosticInvalidation,
-    reload::FetchWorkspaceProgress,
+    reload::{self, FetchWorkspaceProgress},
     respond::Progress,
     task::{ResponseTask, Task},
 };
@@ -23,6 +23,12 @@ pub(in crate::global_state) enum Event {
     Vfs(vfs_loader::Message),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum VfsFileSource {
+    ConfigScan,
+    ExternalChange,
+}
+
 impl Event {
     fn kind(&self) -> &'static str {
         match self {
@@ -32,6 +38,7 @@ impl Event {
             Event::Task(task) => task.kind(),
             Event::Vfs(vfs_loader::Message::Progress { .. }) => "vfs.progress",
             Event::Vfs(vfs_loader::Message::Loaded { .. }) => "vfs.loaded",
+            Event::Vfs(vfs_loader::Message::Changed { .. }) => "vfs.changed",
         }
     }
 
@@ -48,10 +55,13 @@ impl Event {
             }
             Event::Task(task) => task.summary(),
             Event::Vfs(vfs_loader::Message::Progress { n_done, n_total, .. }) => {
-                format!("vfs progress {n_done}/{n_total}")
+                format!("vfs progress {n_done:?}/{n_total}")
             }
-            Event::Vfs(vfs_loader::Message::Loaded { files, .. }) => {
+            Event::Vfs(vfs_loader::Message::Loaded { files }) => {
                 format!("vfs loaded files={}", files.len())
+            }
+            Event::Vfs(vfs_loader::Message::Changed { files }) => {
+                format!("vfs changed files={}", files.len())
             }
         }
     }
@@ -176,8 +186,6 @@ impl GlobalState {
         }
 
         if self.is_workspace_ready() {
-            self.drain_pending_workspace_readiness_requests();
-
             let client_refresh = !was_workspace_ready || state_changed;
 
             if client_refresh && self.config_state.config.cli_code_lens_refresh_support() {
@@ -336,15 +344,23 @@ impl GlobalState {
 
     pub(in crate::global_state) fn process_vfs_msg(&mut self, msg: vfs_loader::Message) {
         match msg {
-            vfs_loader::Message::Progress { n_total, n_done, config_version } => {
+            vfs_loader::Message::Progress { n_total, n_done, dir: _, config_version } => {
                 always!(
                     config_version <= self.workspace.workspace_vfs.current_vfs_config_version()
                 );
 
+                use vfs_loader::LoadingProgress;
+                let (n_done_count, state) = match n_done {
+                    LoadingProgress::Started => (0, Progress::Begin),
+                    LoadingProgress::Progress(n) => (n.min(n_total), Progress::Report),
+                    LoadingProgress::Finished => (n_total, Progress::End),
+                };
+
                 let Some(progress) = self.workspace.workspace_vfs.accept_vfs_progress(
                     config_version,
-                    n_done,
+                    n_done_count,
                     n_total,
+                    matches!(n_done, LoadingProgress::Finished),
                 ) else {
                     tracing::debug!(
                         config_version,
@@ -355,18 +371,11 @@ impl GlobalState {
                     return;
                 };
 
+                // Ready already updated; skip empty 0/0 client progress.
                 if progress.n_total == 0 {
                     return;
                 }
 
-                let state = if progress.n_done == 0 {
-                    Progress::Begin
-                } else if progress.n_done < progress.n_total {
-                    Progress::Report
-                } else {
-                    assert_eq!(progress.n_done, progress.n_total);
-                    Progress::End
-                };
                 let starts_client_progress = state == Progress::Begin;
                 let finishes_client_progress = state == Progress::End;
 
@@ -386,33 +395,56 @@ impl GlobalState {
                     }
                 }
             }
-            vfs_loader::Message::Loaded { files, config_version } => {
-                always!(
-                    config_version <= self.workspace.workspace_vfs.current_vfs_config_version()
-                );
-                if !self.workspace.workspace_vfs.accepts_vfs_loaded(config_version) {
-                    tracing::debug!(
-                        config_version,
-                        current_config_version =
-                            self.workspace.workspace_vfs.current_vfs_config_version(),
-                        files = files.len(),
-                        "stale VFS loaded batch ignored"
-                    );
-                    return;
+            vfs_loader::Message::Loaded { files } => {
+                self.process_vfs_files(files, VfsFileSource::ConfigScan);
+            }
+            vfs_loader::Message::Changed { files } => {
+                self.process_vfs_files(files, VfsFileSource::ExternalChange);
+            }
+        }
+    }
+
+    fn process_vfs_files(
+        &mut self,
+        files: Vec<(utils::paths::AbsPathBuf, Option<Vec<u8>>)>,
+        source: VfsFileSource,
+    ) {
+        let workspace_manifest_change = {
+            let vfs = &mut self.workspace.vfs.write().0;
+            let mut manifest_change = None;
+
+            for (abs_path, content) in files {
+                let path = VfsPath::from(abs_path.clone());
+                let existing = vfs.file_id(&path);
+                let existed = existing.is_some_and(|(file_id, _)| vfs.exists(file_id));
+                let exists_after = content.is_some();
+                let has_structure_change = existed != exists_after;
+                let open_file_id = existing
+                    .is_some_and(|(file_id, _)| self.analysis.mem_docs.contains_file_id(file_id));
+                if self.analysis.mem_docs.contains_path(&path) || open_file_id {
+                    continue;
                 }
 
-                let vfs = &mut self.workspace.vfs.write().0;
-
-                for (path, content) in files {
-                    let path = VfsPath::from(path);
-                    let open_file_id = vfs
-                        .file_id(&path)
-                        .is_some_and(|file_id| self.analysis.mem_docs.contains_file_id(file_id));
-                    if !self.analysis.mem_docs.contains_path(&path) && !open_file_id {
-                        vfs.set_file_contents(&path, content);
-                    }
+                let changed = vfs.set_file_contents(path, content);
+                if changed
+                    && source == VfsFileSource::ExternalChange
+                    && reload::should_refresh_for_change(&abs_path, has_structure_change)
+                {
+                    manifest_change.get_or_insert(abs_path);
                 }
             }
+
+            manifest_change
+        };
+
+        if let Some(path) = workspace_manifest_change {
+            tracing::info!(
+                %path,
+                "server file watcher reported a workspace manifest change"
+            );
+            let config = Arc::make_mut(&mut self.config_state.config);
+            config.refresh_project_manifests();
+            self.request_workspace_auto_reload(format!("server file watcher change: {path}"));
         }
     }
 }

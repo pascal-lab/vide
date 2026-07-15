@@ -26,6 +26,11 @@ endmodule
         &files,
     );
 
+    // Workspace symbols use the same workspace/VFS readiness boundary.  A
+    // document diagnostic result id gives the test an explicit synchronization
+    // point before asserting on symbol contents.
+    let _ = request_document_diagnostics(&client, uris[0].clone(), 180);
+
     let symbols_id = lsp_server::RequestId::from(181);
     client
         .sender

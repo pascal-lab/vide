@@ -579,18 +579,14 @@ fn should_skip(expr: &Expr, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use hir::base_db::{change::Change, source_root::SourceRoot};
-    use triomphe::Arc;
-    use utils::{
-        lines::LineEnding,
-        text_edit::{TextRange, TextSize},
-    };
-    use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
+    use utils::text_edit::{TextRange, TextSize};
+    use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
     use super::{InlayHintConfig, inlay_hint};
     use crate::db::root_db::RootDb;
 
     fn db_with_file(text: &str) -> (RootDb, FileId) {
-        let file_id = FileId(0);
+        let file_id = FileId::from_raw(0);
         let path = VfsPath::new_virtual_path("/test.sv".to_owned());
 
         let mut file_set = FileSet::default();
@@ -599,10 +595,7 @@ mod tests {
 
         let mut change = Change::new();
         change.set_roots(vec![root]);
-        change.add_changed_file(ChangedFile {
-            file_id,
-            change_kind: ChangeKind::Create(Arc::from(text), LineEnding::Unix),
-        });
+        change.add_changed_file(ChangedFile::create(file_id, text));
 
         let mut db = RootDb::new(None);
         change.apply(&mut db);

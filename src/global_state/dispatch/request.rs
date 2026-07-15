@@ -1,6 +1,8 @@
 use lsp_server::Request;
-use lsp_types::request::{
-    DocumentDiagnosticRequest, Request as _, WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
+use lsp_types::{
+    DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport,
+    RelatedFullDocumentDiagnosticReport, WorkspaceDiagnosticReport,
+    WorkspaceDiagnosticReportResult, WorkspaceSymbolResponse,
 };
 
 use crate::{
@@ -9,14 +11,31 @@ use crate::{
 };
 
 impl GlobalState {
-    pub(in crate::global_state) fn handle_request(&mut self, req: Request) {
-        if !self.is_workspace_ready() && Self::is_workspace_readiness_request(&req) {
-            if Self::is_pull_diagnostic_request(&req) {
-                self.workspace.workspace_vfs.defer_diagnostics_until_ready();
-            }
+    pub(in crate::global_state) fn handle_request(&mut self, mut req: Request) {
+        if !self.is_workspace_ready() {
+            tracing::debug!(
+                method = %req.method,
+                id = ?req.id,
+                readiness = ?self.workspace.workspace_vfs,
+                "workspace is not ready; checking for a terminal fallback response"
+            );
 
-            self.workspace.pending_workspace_readiness_requests.push(req);
-            return;
+            let mut readiness_dispatcher = ReqDispatcher { req: Some(req), global_state: self };
+            readiness_dispatcher
+                .on_sync_mut::<DocumentDiagnosticRequest>(
+                    handle_document_diagnostic_before_workspace_ready,
+                )
+                .on_sync_mut::<WorkspaceDiagnosticRequest>(
+                    handle_workspace_diagnostic_before_workspace_ready,
+                )
+                .on_sync_mut::<WorkspaceSymbolRequest>(
+                    handle_workspace_symbol_before_workspace_ready,
+                );
+
+            let Some(pending_req) = readiness_dispatcher.req.take() else {
+                return;
+            };
+            req = pending_req;
         }
 
         let mut dispatcher = ReqDispatcher { req: Some(req), global_state: self };
@@ -84,20 +103,34 @@ impl GlobalState {
             .on::<SelectionRangeRequest>(handle_selection_range)
             .finish();
     }
+}
 
-    fn is_pull_diagnostic_request(req: &Request) -> bool {
-        matches!(
-            req.method.as_str(),
-            DocumentDiagnosticRequest::METHOD | WorkspaceDiagnosticRequest::METHOD
-        )
-    }
+fn handle_document_diagnostic_before_workspace_ready(
+    state: &mut GlobalState,
+    _: lsp_types::DocumentDiagnosticParams,
+) -> anyhow::Result<DocumentDiagnosticReportResult> {
+    state.workspace.workspace_vfs.defer_diagnostics_until_ready();
+    Ok(DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+        related_documents: None,
+        full_document_diagnostic_report: FullDocumentDiagnosticReport {
+            result_id: None,
+            items: Vec::new(),
+        },
+    })
+    .into())
+}
 
-    fn is_workspace_readiness_request(req: &Request) -> bool {
-        matches!(
-            req.method.as_str(),
-            DocumentDiagnosticRequest::METHOD
-                | WorkspaceDiagnosticRequest::METHOD
-                | WorkspaceSymbolRequest::METHOD
-        )
-    }
+fn handle_workspace_diagnostic_before_workspace_ready(
+    state: &mut GlobalState,
+    _: lsp_types::WorkspaceDiagnosticParams,
+) -> anyhow::Result<WorkspaceDiagnosticReportResult> {
+    state.workspace.workspace_vfs.defer_diagnostics_until_ready();
+    Ok(WorkspaceDiagnosticReportResult::Report(WorkspaceDiagnosticReport { items: Vec::new() }))
+}
+
+fn handle_workspace_symbol_before_workspace_ready(
+    _: &mut GlobalState,
+    _: lsp_types::WorkspaceSymbolParams,
+) -> anyhow::Result<Option<WorkspaceSymbolResponse>> {
+    Ok(Some(WorkspaceSymbolResponse::Flat(Vec::new())))
 }
