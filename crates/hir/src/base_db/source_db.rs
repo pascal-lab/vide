@@ -5,7 +5,7 @@ use syntax::{
 };
 use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
-use vfs::{FileId, AnchoredPath};
+use vfs::{AnchoredPath, FileId};
 
 use crate::base_db::{
     compilation_plan::{self, CompilationPlan},

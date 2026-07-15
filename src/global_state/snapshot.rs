@@ -113,10 +113,7 @@ impl GlobalStateSnapshot {
     pub(crate) fn line_info(&self, file_id: FileId) -> anyhow::Result<LineInfo> {
         let ending = {
             let vfs = self.vfs.read();
-            vfs.1
-                .get(&file_id)
-                .copied()
-                .unwrap_or(utils::lines::LineEnding::Unix)
+            vfs.1.get(&file_id).copied().unwrap_or(utils::lines::LineEnding::Unix)
         };
         let index = self.analysis.line_index(file_id)?;
         let encoding = self.config.position_encoding();
@@ -514,8 +511,8 @@ impl GlobalStateSnapshot {
 mod tests {
     use lsp_server::Connection;
     use lsp_types::{ClientCapabilities, TraceValue};
-    use utils::{test_support::TestDir};
-    use vfs::{FileId, VfsPath, /*removed*/};
+    use utils::test_support::TestDir;
+    use vfs::{FileId, VfsPath /* removed */};
 
     use crate::{
         Opt,

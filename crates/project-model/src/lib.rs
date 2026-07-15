@@ -658,8 +658,7 @@ pub fn get_workspace_folder(
             let mut directory_include = Vec::new();
             directory_include.extend(root.include_dirs.iter().cloned());
             if !root.source_directories.is_empty() {
-                directory_include
-                    .extend(root.source_directories.scan_roots().cloned());
+                directory_include.extend(root.source_directories.scan_roots().cloned());
             }
             directory_include.sort();
             directory_include.dedup();
@@ -828,7 +827,7 @@ fn collect_dependency_roots(
 mod tests {
     use std::fs;
 
-    use utils::{lines::LineEnding, test_support::TestDir};
+    use utils::test_support::TestDir;
     use vfs::Vfs;
     use workspace_model::{source_db::SourceFileKind, source_root::SourceRootRole};
 
@@ -1057,7 +1056,10 @@ include_dirs = ["include"]
 
         let mut vfs = Vfs::default();
         for file in [&header, &top] {
-            vfs.set_file_contents(VfsPath::from(file.clone()).clone(), Some(String::new().into_bytes()));
+            vfs.set_file_contents(
+                VfsPath::from(file.clone()).clone(),
+                Some(String::new().into_bytes()),
+            );
         }
 
         let roots = source_root_config.partition(&vfs);
@@ -1118,7 +1120,10 @@ include_dirs = ["include"]
 
         let mut vfs = Vfs::default();
         for file in [&top, &manifest] {
-            vfs.set_file_contents(VfsPath::from(file.clone()).clone(), Some(String::new().into_bytes()));
+            vfs.set_file_contents(
+                VfsPath::from(file.clone()).clone(),
+                Some(String::new().into_bytes()),
+            );
         }
 
         let roots = source_root_config.partition(&vfs);
@@ -1197,7 +1202,10 @@ exclude = ["rtl/excluded/**"]
 
         let mut vfs = Vfs::default();
         for file in [&top, &excluded_top] {
-            vfs.set_file_contents(VfsPath::from(file.clone()).clone(), Some(String::new().into_bytes()));
+            vfs.set_file_contents(
+                VfsPath::from(file.clone()).clone(),
+                Some(String::new().into_bytes()),
+            );
         }
 
         let roots = source_root_config.partition(&vfs);
@@ -1278,7 +1286,10 @@ include_dirs = []
 
         let mut vfs = Vfs::default();
         for file in [&top, &sibling] {
-            vfs.set_file_contents(VfsPath::from(file.clone()).clone(), Some(String::new().into_bytes()));
+            vfs.set_file_contents(
+                VfsPath::from(file.clone()).clone(),
+                Some(String::new().into_bytes()),
+            );
         }
 
         let roots = source_root_config.partition(&vfs);
@@ -1316,7 +1327,10 @@ include_dirs = []
 
         let mut vfs = Vfs::default();
         for file in [&top, &sibling] {
-            vfs.set_file_contents(VfsPath::from(file.clone()).clone(), Some(String::new().into_bytes()));
+            vfs.set_file_contents(
+                VfsPath::from(file.clone()).clone(),
+                Some(String::new().into_bytes()),
+            );
         }
 
         let roots = source_root_config.partition(&vfs);
@@ -1356,7 +1370,10 @@ exclude = ["**/*_bb.v"]
 
         let mut vfs = Vfs::default();
         for file in [&top, &blackbox] {
-            vfs.set_file_contents(VfsPath::from(file.clone()).clone(), Some(String::new().into_bytes()));
+            vfs.set_file_contents(
+                VfsPath::from(file.clone()).clone(),
+                Some(String::new().into_bytes()),
+            );
         }
 
         let roots = source_root_config.partition(&vfs);

@@ -279,7 +279,11 @@ impl GlobalState {
 
                     match (change, *just_created, changed_file.change) {
                         (change, _, Delete) => *change = Delete,
-                        (Create(prev, prev_hash), _, Create(new, new_hash) | Modify(new, new_hash)) => {
+                        (
+                            Create(prev, prev_hash),
+                            _,
+                            Create(new, new_hash) | Modify(new, new_hash),
+                        ) => {
                             *prev = new;
                             *prev_hash = new_hash;
                         }
@@ -317,9 +321,7 @@ impl GlobalState {
 
         let changed_file = file_changes
             .into_iter()
-            .filter(|(_, (change, just_created))| {
-                !(*just_created && matches!(change, Delete))
-            })
+            .filter(|(_, (change, just_created))| !(*just_created && matches!(change, Delete)))
             .map(|(file_id, (change, _))| ChangedFile { file_id, change })
             .collect_vec();
 
@@ -422,11 +424,7 @@ mod tests {
 
     fn vfs_manifest_message(manifest_path: AbsPathBuf, changed: bool) -> VfsMessage {
         let files = vec![(manifest_path, Some(b"[project]\n".to_vec()))];
-        if changed {
-            VfsMessage::Changed { files }
-        } else {
-            VfsMessage::Loaded { files }
-        }
+        if changed { VfsMessage::Changed { files } } else { VfsMessage::Loaded { files } }
     }
 
     #[test]
@@ -436,10 +434,12 @@ mod tests {
         let mut state = test_state(root_path);
         let file_path = root.join("top.sv");
 
-        state.workspace.vfs.write().0.set_file_contents(
-            VfsPath::from(file_path),
-            Some(b"module top; endmodule\n".to_vec()),
-        );
+        state
+            .workspace
+            .vfs
+            .write()
+            .0
+            .set_file_contents(VfsPath::from(file_path), Some(b"module top; endmodule\n".to_vec()));
 
         assert!(state.process_changes());
         assert!(

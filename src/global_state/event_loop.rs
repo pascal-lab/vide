@@ -422,9 +422,8 @@ impl GlobalState {
                 let existed = existing.is_some_and(|(file_id, _)| vfs.exists(file_id));
                 let exists_after = content.is_some();
                 let has_structure_change = existed != exists_after;
-                let open_file_id = existing.is_some_and(|(file_id, _)| {
-                    self.analysis.mem_docs.contains_file_id(file_id)
-                });
+                let open_file_id = existing
+                    .is_some_and(|(file_id, _)| self.analysis.mem_docs.contains_file_id(file_id));
                 if self.analysis.mem_docs.contains_path(&path) || open_file_id {
                     continue;
                 }

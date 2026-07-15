@@ -19,11 +19,12 @@ use std::{
 
 use crossbeam_channel::{Receiver, Sender, select, unbounded};
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher, event::AccessKind};
-use utils::paths::{AbsPath, AbsPathBuf, Utf8PathBuf};
 use rayon::iter::{IndexedParallelIterator as _, IntoParallelIterator as _, ParallelIterator};
 use rustc_hash::FxHashSet;
-use crate::loader::{self, LoadingProgress};
+use utils::paths::{AbsPath, AbsPathBuf, Utf8PathBuf};
 use walkdir::WalkDir;
+
+use crate::loader::{self, LoadingProgress};
 
 #[derive(Debug)]
 pub struct NotifyHandle {
@@ -315,13 +316,17 @@ impl NotifyActor {
                                 return false;
                             }
 
-                            // We want to filter out subdirectories that are roots themselves, because they will be visited separately.
+                            // We want to filter out subdirectories that are roots themselves,
+                            // because they will be visited separately.
                             let path: &Path = path;
-                            dirs.exclude.iter().all(|it| <AbsPathBuf as AsRef<Path>>::as_ref(it) != path)
+                            dirs.exclude
+                                .iter()
+                                .all(|it| <AbsPathBuf as AsRef<Path>>::as_ref(it) != path)
                                 && (<AbsPathBuf as AsRef<Path>>::as_ref(root) == path
-                                    || dirs.include.iter().all(|it| {
-                                        <AbsPathBuf as AsRef<Path>>::as_ref(it) != path
-                                    }))
+                                    || dirs
+                                        .include
+                                        .iter()
+                                        .all(|it| <AbsPathBuf as AsRef<Path>>::as_ref(it) != path))
                         });
 
                     let files = walkdir.filter_map(|it| it.ok()).filter_map(|entry| {

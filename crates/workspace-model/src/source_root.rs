@@ -1,4 +1,4 @@
-use vfs::{FileId, FileSet, FileSetConfig, Vfs, VfsPath, AnchoredPath};
+use vfs::{AnchoredPath, FileId, FileSet, FileSetConfig, Vfs, VfsPath};
 
 use crate::source_db::SourceFileKind;
 

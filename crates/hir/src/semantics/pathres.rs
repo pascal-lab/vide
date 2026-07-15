@@ -302,7 +302,7 @@ mod tests {
     use smol_str::SmolStr;
     use triomphe::Arc;
     use utils::paths::{AbsPathBuf, Utf8PathBuf};
-    use vfs::{FileId, FileSet, VfsPath, AnchoredPath};
+    use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
     use super::*;
     use crate::{

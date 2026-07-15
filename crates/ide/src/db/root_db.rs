@@ -17,7 +17,7 @@ use hir::{
     },
 };
 use triomphe::Arc;
-use vfs::{FileId, AnchoredPath};
+use vfs::{AnchoredPath, FileId};
 
 use crate::db::{
     line_index_db::LineIndexDbStorage, workspace_symbol_index_db::WorkspaceSymbolIndexDbStorage,
