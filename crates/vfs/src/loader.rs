@@ -1,13 +1,9 @@
-//! Dynamically compatible interface for file watching and reading.
-//!
-//! Owned fork of rust-analyzer `vfs::loader`. SystemVerilog extensions and
-//! exclude prefixes are supplied by callers (`project-model`); glob expansion
-//! happens before `set_config`, not inside the loader.
+//! File loading and watching interface used by the VFS.
 use std::fmt;
 
 use utils::paths::{AbsPath, AbsPathBuf};
 
-/// File extensions loaded from recursive directory entries for SystemVerilog.
+/// Extensions for recursive directory loads (SystemVerilog sources).
 pub const SOURCE_FILE_EXTENSIONS: &[&str] = &["v", "sv", "vh", "svh", "svi", "map"];
 
 /// A set of files on the file system.

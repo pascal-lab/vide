@@ -1,11 +1,4 @@
-//! In-memory / no-OS loader used when the notify backend is disabled (e.g.
-//! wasm).
-//!
-//! Does not scan the real filesystem or install watchers. Configuration scans
-//! complete immediately with empty file batches so the host can still drive
-//! readiness from Progress. File contents must come from the client (mem docs)
-//! or explicit `invalidate` / `load_sync` against whatever FS the host
-//! provides.
+//! Loader with no OS file watching (e.g. wasm).
 
 use std::fmt;
 
@@ -32,7 +25,6 @@ impl loader::Handle for DummyHandle {
             dir: None,
             config_version,
         });
-        // No disk scan: report empty loads so Progress can finish.
         for _ in &config.load {
             let _ = self.sender.send(loader::Message::Loaded { files: Vec::new() });
         }

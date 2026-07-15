@@ -318,8 +318,6 @@ mod tests {
 
     #[test]
     fn content_batches_apply_without_generation_token() {
-        // rust-analyzer style: Loaded/Changed carry no config_version. Generation
-        // readiness is gated only by Progress; content batches always apply.
         let root = TestDir::new("content-batches-apply");
         let root_path = root.path().to_path_buf();
         let file_path = root_path.join("file.sv");
