@@ -141,7 +141,7 @@ impl BrowserLoader {
         let contents = read(path.as_path());
         let files = vec![(path, contents)];
         self.record_loaded_files(&files);
-        self.send(loader::Message::Loaded { files, config_version: self.config_version });
+        self.send(loader::Message::Changed { files, config_version: self.config_version });
     }
 
     fn record_loaded_files(&mut self, files: &[(AbsPathBuf, LoadResult)]) {
@@ -321,7 +321,7 @@ impl NotifyActor {
                         let contents = read(path.as_path());
                         let files = vec![(path, contents)];
                         self.record_loaded_files(&files);
-                        self.send(loader::Message::Loaded {
+                        self.send(loader::Message::Changed {
                             files,
                             config_version: self.config_version,
                         });
@@ -334,7 +334,7 @@ impl NotifyActor {
 
                     let files = self.process_notify_event(event);
                     self.record_loaded_files(&files);
-                    self.send(loader::Message::Loaded {
+                    self.send(loader::Message::Changed {
                         files,
                         config_version: self.config_version,
                     });
@@ -585,6 +585,7 @@ mod tests {
             let message = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
             match &message {
                 loader::Message::Loaded { config_version, .. }
+                | loader::Message::Changed { config_version, .. }
                 | loader::Message::Progress { config_version, .. }
                     if *config_version == version =>
                 {

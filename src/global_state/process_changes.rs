@@ -12,7 +12,6 @@ use vfs::{ChangedFile, FileId, Vfs, VfsPath};
 use super::{
     DEFAULT_REQ_HANDLER, GlobalState,
     diagnostics::publisher::{PublishDiagnosticsBatch, PublishDiagnosticsTask},
-    reload::should_refresh_for_change,
     task::Task,
 };
 use crate::{config::user_config::DiagnosticsUpdateUserConfig, lsp_ext::to_proto};
@@ -56,7 +55,6 @@ impl GlobalState {
             return false;
         };
 
-        let mut workspace_structure_change = None;
         let mut has_structure_changes = false; // Any file was added or deleted
         let mut bytes = vec![];
         let mut changed_file_ids = FxHashSet::default();
@@ -71,14 +69,8 @@ impl GlobalState {
             } else {
                 vfs.file_path(changed_file.file_id)
             };
-            if let Some(path) =
-                path.and_then(|path| path.as_abs_path()).map(|apath| apath.to_path_buf())
-            {
-                let created_or_deleted = changed_file.is_created_or_deleted();
-                has_structure_changes |= created_or_deleted;
-                if !is_identity_redirect && should_refresh_for_change(&path, created_or_deleted) {
-                    workspace_structure_change = Some(path.clone());
-                }
+            if path.and_then(VfsPath::as_abs_path).is_some() {
+                has_structure_changes |= changed_file.is_created_or_deleted();
             }
 
             if matches!(&changed_file.change_kind, vfs::ChangeKind::Delete) {
@@ -144,12 +136,6 @@ impl GlobalState {
                     != DiagnosticsUpdateUserConfig::OnType)
         {
             self.request_diagnostics(pending_diagnostic_targets.into_iter().collect());
-        }
-
-        if let Some(path) = workspace_structure_change {
-            let config = triomphe::Arc::make_mut(&mut self.config_state.config);
-            config.refresh_project_manifests();
-            self.request_workspace_auto_reload(format!("workspace vfs change: {:?}", path));
         }
 
         true
@@ -421,8 +407,11 @@ impl GlobalState {
 mod tests {
     use lsp_server::Connection;
     use lsp_types::{ClientCapabilities, TraceValue};
-    use utils::{lines::LineEnding, test_support::TestDir};
-    use vfs::{VfsPath, loader::LoadResult};
+    use utils::{lines::LineEnding, paths::AbsPathBuf, test_support::TestDir};
+    use vfs::{
+        VfsPath,
+        loader::{LoadResult, Message as VfsMessage},
+    };
 
     use crate::{
         Opt,
@@ -431,10 +420,7 @@ mod tests {
         i18n::I18n,
     };
 
-    #[test]
-    fn ordinary_file_creation_does_not_request_workspace_reload() {
-        let root = TestDir::new("ordinary-file-no-workspace-reload");
-        let root_path = root.path().to_path_buf();
+    fn test_state(root_path: AbsPathBuf) -> GlobalState {
         let config = config::Config::new(
             Opt {
                 process_name: "vide-test".to_string(),
@@ -450,7 +436,28 @@ mod tests {
             Vec::new(),
         );
         let (server, _client) = Connection::memory();
-        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
+        GlobalState::new(server.sender, config, TraceValue::Off)
+    }
+
+    fn vfs_manifest_message(
+        manifest_path: AbsPathBuf,
+        config_version: u32,
+        changed: bool,
+    ) -> VfsMessage {
+        let files =
+            vec![(manifest_path, LoadResult::Loaded("[project]\n".to_owned(), LineEnding::Unix))];
+        if changed {
+            VfsMessage::Changed { files, config_version }
+        } else {
+            VfsMessage::Loaded { files, config_version }
+        }
+    }
+
+    #[test]
+    fn ordinary_file_creation_does_not_request_workspace_reload() {
+        let root = TestDir::new("ordinary-file-no-workspace-reload");
+        let root_path = root.path().to_path_buf();
+        let mut state = test_state(root_path);
         let file_path = root.join("top.sv");
 
         state.workspace.vfs.write().0.set_file_contents(
@@ -462,6 +469,52 @@ mod tests {
         assert!(
             !state.workspace.fetch_workspaces_task.has_op_requested(),
             "loading an ordinary source file should not queue a project configuration reload"
+        );
+    }
+
+    #[test]
+    fn config_scan_manifest_does_not_request_workspace_reload() {
+        let root = TestDir::new("config-scan-manifest-no-reload");
+        let mut state = test_state(root.path().to_path_buf());
+        let config_version = state.workspace.workspace_vfs.begin_vfs_load(1).config_version;
+
+        state.process_vfs_msg(vfs_manifest_message(root.join("vide.toml"), config_version, false));
+        assert!(state.process_changes());
+
+        assert!(
+            !state.workspace.fetch_workspaces_task.has_op_requested(),
+            "initial manifest discovery must not recursively reload the workspace"
+        );
+    }
+
+    #[test]
+    fn external_manifest_change_requests_workspace_reload() {
+        let root = TestDir::new("external-manifest-reload");
+        let mut state = test_state(root.path().to_path_buf());
+        let config_version = state.workspace.workspace_vfs.begin_vfs_load(1).config_version;
+
+        state.process_vfs_msg(vfs_manifest_message(root.join("vide.toml"), config_version, true));
+
+        assert!(
+            state.workspace.fetch_workspaces_task.has_op_requested(),
+            "an external manifest change must reload the workspace"
+        );
+    }
+
+    #[test]
+    fn unchanged_external_manifest_does_not_request_workspace_reload() {
+        let root = TestDir::new("unchanged-external-manifest-no-reload");
+        let mut state = test_state(root.path().to_path_buf());
+        let manifest_path = root.join("vide.toml");
+        let config_version = state.workspace.workspace_vfs.begin_vfs_load(1).config_version;
+
+        state.process_vfs_msg(vfs_manifest_message(manifest_path.clone(), config_version, false));
+        state.process_vfs_msg(vfs_manifest_message(manifest_path, config_version, true));
+        assert!(state.process_changes());
+
+        assert!(
+            !state.workspace.fetch_workspaces_task.has_op_requested(),
+            "an unchanged watcher event must not reclassify an initial scan change"
         );
     }
 }

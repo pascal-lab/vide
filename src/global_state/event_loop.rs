@@ -10,7 +10,7 @@ use vfs::{VfsPath, loader as vfs_loader};
 use super::{
     GlobalState, WorkspaceFetchCompletion,
     process_changes::DiagnosticInvalidation,
-    reload::FetchWorkspaceProgress,
+    reload::{self, FetchWorkspaceProgress},
     respond::Progress,
     task::{ResponseTask, Task},
 };
@@ -32,6 +32,7 @@ impl Event {
             Event::Task(task) => task.kind(),
             Event::Vfs(vfs_loader::Message::Progress { .. }) => "vfs.progress",
             Event::Vfs(vfs_loader::Message::Loaded { .. }) => "vfs.loaded",
+            Event::Vfs(vfs_loader::Message::Changed { .. }) => "vfs.changed",
         }
     }
 
@@ -52,6 +53,9 @@ impl Event {
             }
             Event::Vfs(vfs_loader::Message::Loaded { files, .. }) => {
                 format!("vfs loaded files={}", files.len())
+            }
+            Event::Vfs(vfs_loader::Message::Changed { files, .. }) => {
+                format!("vfs changed files={}", files.len())
             }
         }
     }
@@ -385,32 +389,69 @@ impl GlobalState {
                 }
             }
             vfs_loader::Message::Loaded { files, config_version } => {
-                always!(
-                    config_version <= self.workspace.workspace_vfs.current_vfs_config_version()
-                );
-                if !self.workspace.workspace_vfs.accepts_vfs_loaded(config_version) {
-                    tracing::debug!(
-                        config_version,
-                        current_config_version =
-                            self.workspace.workspace_vfs.current_vfs_config_version(),
-                        files = files.len(),
-                        "stale VFS loaded batch ignored"
-                    );
-                    return;
+                self.process_vfs_files(files, config_version, false);
+            }
+            vfs_loader::Message::Changed { files, config_version } => {
+                self.process_vfs_files(files, config_version, true);
+            }
+        }
+    }
+
+    fn process_vfs_files(
+        &mut self,
+        files: Vec<(utils::paths::AbsPathBuf, vfs_loader::LoadResult)>,
+        config_version: u32,
+        external_change: bool,
+    ) {
+        always!(config_version <= self.workspace.workspace_vfs.current_vfs_config_version());
+        if !self.workspace.workspace_vfs.accepts_vfs_loaded(config_version) {
+            tracing::debug!(
+                config_version,
+                current_config_version = self.workspace.workspace_vfs.current_vfs_config_version(),
+                files = files.len(),
+                external_change,
+                "stale VFS file batch ignored"
+            );
+            return;
+        }
+
+        let workspace_manifest_change = {
+            let vfs = &mut self.workspace.vfs.write().0;
+            let mut manifest_change = None;
+
+            for (abs_path, content) in files {
+                let path = VfsPath::from(abs_path.clone());
+                let existing_file_id = vfs.file_id(&path);
+                let existed = existing_file_id.is_some_and(|file_id| vfs.exists(file_id));
+                let exists_after = matches!(&content, vfs_loader::LoadResult::Loaded(..));
+                let has_structure_change = existed != exists_after;
+                let open_file_id = existing_file_id
+                    .is_some_and(|file_id| self.analysis.mem_docs.contains_file_id(file_id));
+                if self.analysis.mem_docs.contains_path(&path) || open_file_id {
+                    continue;
                 }
 
-                let vfs = &mut self.workspace.vfs.write().0;
-
-                for (path, content) in files {
-                    let path = VfsPath::from(path);
-                    let open_file_id = vfs
-                        .file_id(&path)
-                        .is_some_and(|file_id| self.analysis.mem_docs.contains_file_id(file_id));
-                    if !self.analysis.mem_docs.contains_path(&path) && !open_file_id {
-                        vfs.set_file_contents(&path, content);
-                    }
+                let changed = vfs.set_file_contents(&path, content);
+                if changed
+                    && external_change
+                    && reload::should_refresh_for_change(&abs_path, has_structure_change)
+                {
+                    manifest_change.get_or_insert(abs_path);
                 }
             }
+
+            manifest_change
+        };
+
+        if let Some(path) = workspace_manifest_change {
+            tracing::info!(
+                config_version,
+                %path,
+                "server file watcher reported a workspace manifest change"
+            );
+            let config = Arc::make_mut(&mut self.config_state.config);
+            config.refresh_project_manifests();
+            self.request_workspace_auto_reload(format!("server file watcher change: {path}"));
         }
     }
 }
