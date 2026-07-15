@@ -23,6 +23,12 @@ pub(in crate::global_state) enum Event {
     Vfs(vfs_loader::Message),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum VfsFileSource {
+    ConfigScan,
+    ExternalChange,
+}
+
 impl Event {
     fn kind(&self) -> &'static str {
         match self {
@@ -33,6 +39,8 @@ impl Event {
             Event::Vfs(vfs_loader::Message::Progress { .. }) => "vfs.progress",
             Event::Vfs(vfs_loader::Message::Loaded { .. }) => "vfs.loaded",
             Event::Vfs(vfs_loader::Message::Changed { .. }) => "vfs.changed",
+            Event::Vfs(vfs_loader::Message::ScanFailed { .. }) => "vfs.scan_failed",
+            Event::Vfs(vfs_loader::Message::WatcherStatus(_)) => "vfs.watcher_status",
         }
     }
 
@@ -57,6 +65,22 @@ impl Event {
             Event::Vfs(vfs_loader::Message::Changed { files, .. }) => {
                 format!("vfs changed files={}", files.len())
             }
+            Event::Vfs(vfs_loader::Message::ScanFailed { config_version, failure }) => {
+                format!(
+                    "vfs scan failed config_version={config_version} root={} error={}",
+                    failure.root, failure.error
+                )
+            }
+            Event::Vfs(vfs_loader::Message::WatcherStatus(status)) => match status {
+                vfs_loader::WatcherStatus::Ready { config_version } => {
+                    format!("vfs watcher ready config_version={config_version}")
+                }
+                vfs_loader::WatcherStatus::Failed { config_version, failure } => {
+                    format!(
+                        "vfs watcher failed config_version={config_version} failure={failure:?}"
+                    )
+                }
+            },
         }
     }
 }
@@ -389,10 +413,56 @@ impl GlobalState {
                 }
             }
             vfs_loader::Message::Loaded { files, config_version } => {
-                self.process_vfs_files(files, config_version, false);
+                self.process_vfs_files(files, config_version, VfsFileSource::ConfigScan);
             }
             vfs_loader::Message::Changed { files, config_version } => {
-                self.process_vfs_files(files, config_version, true);
+                self.process_vfs_files(files, config_version, VfsFileSource::ExternalChange);
+            }
+            vfs_loader::Message::ScanFailed { config_version, failure } => {
+                let current_config_version =
+                    self.workspace.workspace_vfs.current_vfs_config_version();
+                always!(config_version <= current_config_version);
+                if !self.workspace.workspace_vfs.fail_vfs_scan(config_version) {
+                    tracing::debug!(
+                        config_version,
+                        current_config_version,
+                        %failure.root,
+                        error = %failure.error,
+                        "stale VFS scan failure ignored"
+                    );
+                    return;
+                }
+
+                tracing::error!(
+                    config_version,
+                    %failure.root,
+                    error = %failure.error,
+                    "VFS content scan failed; workspace remains unavailable"
+                );
+            }
+            vfs_loader::Message::WatcherStatus(status) => {
+                let config_version = status.config_version();
+                let current_config_version =
+                    self.workspace.workspace_vfs.current_vfs_config_version();
+                always!(config_version <= current_config_version);
+                if config_version != current_config_version {
+                    tracing::debug!(
+                        config_version,
+                        current_config_version,
+                        ?status,
+                        "stale server file watcher status ignored"
+                    );
+                    return;
+                }
+
+                match status {
+                    vfs_loader::WatcherStatus::Ready { .. } => {
+                        tracing::info!(config_version, "server file watcher is ready");
+                    }
+                    vfs_loader::WatcherStatus::Failed { failure, .. } => {
+                        tracing::error!(config_version, ?failure, "server file watcher failed");
+                    }
+                }
             }
         }
     }
@@ -401,7 +471,7 @@ impl GlobalState {
         &mut self,
         files: Vec<(utils::paths::AbsPathBuf, vfs_loader::LoadResult)>,
         config_version: u32,
-        external_change: bool,
+        source: VfsFileSource,
     ) {
         always!(config_version <= self.workspace.workspace_vfs.current_vfs_config_version());
         if !self.workspace.workspace_vfs.accepts_vfs_loaded(config_version) {
@@ -409,7 +479,7 @@ impl GlobalState {
                 config_version,
                 current_config_version = self.workspace.workspace_vfs.current_vfs_config_version(),
                 files = files.len(),
-                external_change,
+                ?source,
                 "stale VFS file batch ignored"
             );
             return;
@@ -433,7 +503,7 @@ impl GlobalState {
 
                 let changed = vfs.set_file_contents(&path, content);
                 if changed
-                    && external_change
+                    && source == VfsFileSource::ExternalChange
                     && reload::should_refresh_for_change(&abs_path, has_structure_change)
                 {
                     manifest_change.get_or_insert(abs_path);
