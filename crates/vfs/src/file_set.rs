@@ -126,8 +126,63 @@ impl PathMatcher {
         self.scan_roots.iter()
     }
 
+    /// Whether the loader may use recursive `Directories` for this matcher.
+    ///
+    /// - `AllUnderRoots` → yes
+    /// - Glob patterns that contain `**` (e.g. `rtl/**`) → yes (prefix roots)
+    /// - Shallow globs like `rtl/*.sv` → no; expand to `Entry::Files` instead
+    pub fn prefers_recursive_directory_load(&self) -> bool {
+        match &self.kind {
+            PathMatcherKind::AllUnderRoots => true,
+            PathMatcherKind::Glob(matcher) => {
+                matcher.patterns().iter().all(|pattern| pattern.contains("**"))
+            }
+        }
+    }
+
+    /// Walk `scan_roots` and collect absolute files that match this matcher and
+    /// one of `extensions` (no leading dot). Used to expand shallow globs like
+    /// `rtl/*.sv` without putting glob logic inside the loader.
+    pub fn collect_matching_files(&self, extensions: &[&str]) -> Vec<AbsPathBuf> {
+        let mut files = Vec::new();
+        for root in &self.scan_roots {
+            collect_files_under(root, &mut files);
+        }
+        files.retain(|path| {
+            let ext = path.extension().unwrap_or_default();
+            extensions.iter().any(|candidate| ext.eq_ignore_ascii_case(candidate))
+                && self.contains_file(path.as_path())
+        });
+        files.sort();
+        files.dedup();
+        files
+    }
+
     fn contains_scan_root(&self, path: &AbsPath) -> bool {
         self.scan_roots.iter().any(|root| path.starts_with(root))
+    }
+}
+
+fn collect_files_under(root: &AbsPathBuf, out: &mut Vec<AbsPathBuf>) {
+    let Ok(entries) = std::fs::read_dir(root.as_path()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_dir() {
+            if let Ok(dir) = AbsPathBuf::try_from(path) {
+                collect_files_under(&dir, out);
+            }
+            continue;
+        }
+        if file_type.is_file()
+            && let Ok(file) = AbsPathBuf::try_from(path)
+        {
+            out.push(file);
+        }
     }
 }
 
