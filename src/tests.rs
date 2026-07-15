@@ -384,7 +384,11 @@ fn request_document_diagnostics_with_previous_result_id(
             current_request_id,
             previous_result_id.clone(),
         );
-        if result.0.is_some() || !result.1.is_empty() {
+        // A diagnostically enabled document gets a result id once the workspace
+        // is ready, even when its diagnostic list is legitimately empty.  The
+        // cold-start fallback deliberately has no result id.  Do not use the
+        // item count as a readiness signal: an empty list is valid data.
+        if result.0.is_some() {
             return result;
         }
         wait_for_workspace_diagnostic_refresh_or_tick(
@@ -763,29 +767,11 @@ fn request_workspace_diagnostic_report(
     request_id: i32,
     previous_result_ids: Vec<lsp_types::PreviousResultId>,
 ) -> lsp_types::WorkspaceDiagnosticReport {
-    for attempt in 0..50 {
-        let current_request_id = if attempt == 0 {
-            lsp_server::RequestId::from(request_id)
-        } else {
-            lsp_server::RequestId::from(format!(
-                "workspace-diagnostic-{request_id}-readiness-{attempt}"
-            ))
-        };
-        let report = request_workspace_diagnostic_report_once(
-            client,
-            current_request_id,
-            previous_result_ids.clone(),
-        );
-        if !report.items.is_empty() {
-            return report;
-        }
-        wait_for_workspace_diagnostic_refresh_or_tick(
-            client,
-            "workspace diagnostics workspace readiness",
-        );
-    }
-
-    panic!("workspace diagnostics remained in the cold-start fallback state");
+    request_workspace_diagnostic_report_once(
+        client,
+        lsp_server::RequestId::from(request_id),
+        previous_result_ids,
+    )
 }
 
 fn request_workspace_diagnostic_report_once(

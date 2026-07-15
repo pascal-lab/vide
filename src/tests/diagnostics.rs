@@ -76,8 +76,22 @@ fn pull_capable_client_does_not_receive_duplicate_publish_diagnostics() {
         }),
         ..Default::default()
     };
-    let (_temp_dir, client, server_thread, uri) =
-        setup_diagnostics_test(pull_caps, UserConfig::default(), "module broken(;\nendmodule\n");
+    let file_text = "module broken(;\nendmodule\n";
+    let temp_dir = TempDir::new("pull-diagnostics-no-publish");
+    let file_path = temp_dir.path().join("broken.sv");
+    let readiness_path = temp_dir.path().join("readiness.sv");
+    fs::write(&readiness_path, "module readiness;\nendmodule\n").unwrap();
+    let (client, server_thread) =
+        spawn_test_workspace(temp_dir.path().to_path_buf(), pull_caps, UserConfig::default());
+    let uri = to_proto::url_from_abs_path(file_path.as_path()).unwrap();
+    let readiness_uri = to_proto::url_from_abs_path(readiness_path.as_path()).unwrap();
+
+    // Establish workspace readiness before opening the document.  This keeps
+    // the publishDiagnostics observation below intact: no notification for the
+    // target document can be consumed as part of readiness synchronization.
+    let _ = request_document_diagnostics(&client, readiness_uri, 100);
+    open_test_document(&client, uri.clone(), file_text);
+
     let request_id = lsp_server::RequestId::from(1);
     let request = Request::new(
         request_id.clone(),
@@ -309,23 +323,7 @@ endmodule
     let (_temp_dir, client, server_thread, uri) =
         setup_diagnostics_test(pull_caps, UserConfig::default(), file_text);
 
-    let request_id = lsp_server::RequestId::from(1);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            request_id.clone(),
-            DocumentDiagnosticRequest::METHOD.to_string(),
-            DocumentDiagnosticParams {
-                text_document: TextDocumentIdentifier { uri },
-                identifier: None,
-                previous_result_id: None,
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-
-    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    let (_result_id, diagnostics) = request_document_diagnostics(&client, uri, 1);
     assert!(
         diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
         "unconfigured workspaces should suppress semantic diagnostics: {diagnostics:?}"
@@ -393,23 +391,7 @@ endmodule
     let (_temp_dir, client, server_thread, uri) =
         setup_syntax_only_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
 
-    let request_id = lsp_server::RequestId::from(1);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            request_id.clone(),
-            DocumentDiagnosticRequest::METHOD.to_string(),
-            DocumentDiagnosticParams {
-                text_document: TextDocumentIdentifier { uri },
-                identifier: None,
-                previous_result_id: None,
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-
-    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    let (_result_id, diagnostics) = request_document_diagnostics(&client, uri, 1);
     assert!(
         diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
         "syntax-only configs should suppress semantic diagnostics: {diagnostics:?}"
@@ -439,23 +421,7 @@ endmodule
     let (_temp_dir, client, server_thread, uri) =
         setup_empty_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
 
-    let request_id = lsp_server::RequestId::from(1);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            request_id.clone(),
-            DocumentDiagnosticRequest::METHOD.to_string(),
-            DocumentDiagnosticParams {
-                text_document: TextDocumentIdentifier { uri },
-                identifier: None,
-                previous_result_id: None,
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-
-    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    let (_result_id, diagnostics) = request_document_diagnostics(&client, uri, 1);
     assert!(
         diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
         "empty configs should suppress semantic diagnostics: {diagnostics:?}"
@@ -480,23 +446,7 @@ endmodule
     let (_temp_dir, client, server_thread, uri) =
         setup_syntax_only_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
 
-    let request_id = lsp_server::RequestId::from(1);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            request_id.clone(),
-            DocumentDiagnosticRequest::METHOD.to_string(),
-            DocumentDiagnosticParams {
-                text_document: TextDocumentIdentifier { uri },
-                identifier: None,
-                previous_result_id: None,
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-
-    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    let (_result_id, diagnostics) = request_document_diagnostics(&client, uri, 1);
     assert!(
         diagnostics.iter().any(|diag| diag.message.contains("expected")),
         "syntax-only configs should still report parse diagnostics: {diagnostics:?}"
@@ -529,14 +479,25 @@ fn document_diagnostics_respect_disabled_source_root_policy() {
     let ignored_path = ignored_dir.join("ignored.sv");
     let ignored_text = "module ignored(;\nendmodule\n";
     fs::write(&ignored_path, ignored_text).unwrap();
-    fs::write(rtl_dir.join("top.sv"), "module top;\nendmodule\n").unwrap();
+    let top_path = rtl_dir.join("top.sv");
+    fs::write(&top_path, "module top;\nendmodule\n").unwrap();
 
     let (client, server_thread) =
         spawn_test_workspace(temp_dir.path().to_path_buf(), pull_caps, user_config);
     let ignored_uri = to_proto::url_from_abs_path(ignored_path.as_path()).unwrap();
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
     open_test_document(&client, ignored_uri.clone(), ignored_text);
 
-    let (result_id, diagnostics) = request_document_diagnostics(&client, ignored_uri, 1);
+    // The ignored document legitimately has no result id, just like the cold
+    // fallback.  Synchronize through an enabled source first, then make one raw
+    // request so the two empty responses are never conflated.
+    let _ = request_document_diagnostics(&client, top_uri, 1);
+    let (result_id, diagnostics) = request_document_diagnostics_once(
+        &client,
+        ignored_uri,
+        lsp_server::RequestId::from(3),
+        None,
+    );
     assert!(result_id.is_none(), "disabled source roots should not receive result ids");
     assert!(
         diagnostics.is_empty(),
@@ -861,22 +822,7 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
     let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
     let header_uri = to_proto::url_from_abs_path(header_path.as_path()).unwrap();
 
-    let first_id = lsp_server::RequestId::from(1);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            first_id.clone(),
-            DocumentDiagnosticRequest::METHOD.to_string(),
-            DocumentDiagnosticParams {
-                text_document: TextDocumentIdentifier { uri: top_uri.clone() },
-                identifier: None,
-                previous_result_id: None,
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-    let (_, initial_diagnostics) = recv_document_diagnostics(&client, first_id);
+    let (_, initial_diagnostics) = request_document_diagnostics(&client, top_uri.clone(), 1);
     assert!(
         initial_diagnostics.is_empty(),
         "saved library include header should define ENABLE_COUNTER: {initial_diagnostics:?}"
@@ -975,22 +921,7 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
     let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
     let header_uri = to_proto::url_from_abs_path(header_path.as_path()).unwrap();
 
-    let first_id = lsp_server::RequestId::from(1);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            first_id.clone(),
-            DocumentDiagnosticRequest::METHOD.to_string(),
-            DocumentDiagnosticParams {
-                text_document: TextDocumentIdentifier { uri: top_uri.clone() },
-                identifier: None,
-                previous_result_id: None,
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-    let (_, initial_diagnostics) = recv_document_diagnostics(&client, first_id);
+    let (_, initial_diagnostics) = request_document_diagnostics(&client, top_uri.clone(), 1);
     assert!(
         initial_diagnostics.is_empty(),
         "saved include header should define ENABLE_COUNTER: {initial_diagnostics:?}"
@@ -1053,7 +984,8 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
     fs::create_dir_all(&rtl_dir).unwrap();
     fs::write(&manifest_path, DEFAULT_TEST_CONFIG).unwrap();
     fs::write(ignored_dir.join("ignored.sv"), "module ignored(;\nendmodule\n").unwrap();
-    fs::write(rtl_dir.join("top.sv"), "module top;\nendmodule\n").unwrap();
+    let top_path = rtl_dir.join("top.sv");
+    fs::write(&top_path, "module top;\nendmodule\n").unwrap();
 
     let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
@@ -1076,8 +1008,10 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
     let server_thread = spawn_default_test_server(config, server);
     let ignored_uri =
         to_proto::url_from_abs_path(ignored_dir.join("ignored.sv").as_path()).unwrap();
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
     let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
 
+    let _ = request_document_diagnostics(&client, ignored_uri.clone(), 100);
     let first_report = request_workspace_diagnostic_report(&client, 1, Vec::new());
     let mut saw_ignored_diagnostic = false;
     let mut ignored_result_id = None;
@@ -1113,6 +1047,10 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
         )))
         .unwrap();
 
+    // The second workspace report is expected to contain a legitimate empty
+    // cleanup entry.  Synchronize through the still-enabled top-level source so
+    // an empty cold fallback cannot satisfy that assertion by accident.
+    let _ = request_document_diagnostics(&client, top_uri, 101);
     let second_report = request_workspace_diagnostic_report(
         &client,
         2,
@@ -1278,6 +1216,7 @@ fn deleted_workspace_file_requests_diagnostic_refresh() {
     let server_thread = spawn_default_test_server(config, server);
     let broken_uri = to_proto::url_from_abs_path(broken_path.as_path()).unwrap();
 
+    let _ = request_document_diagnostics(&client, broken_uri.clone(), 100);
     let first_report = request_workspace_diagnostic_report(&client, 1, Vec::new());
     let mut saw_broken_diagnostic = false;
     let mut broken_result_id = None;
