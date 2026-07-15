@@ -272,16 +272,17 @@ impl Vfs {
             .filter_map(move |file_id| self.file_path(file_id).map(|path| (file_id, path)))
     }
 
-    pub fn set_file_contents(&mut self, path: &VfsPath, contents: LoadResult) {
+    /// Updates a file and returns whether the observable VFS contents changed.
+    pub fn set_file_contents(&mut self, path: &VfsPath, contents: LoadResult) -> bool {
         let file_id = self.file_id_or_alloc(path);
         use FileState::*;
         use LoadResult::*;
         let Some(state) = self.file_states.get_mut(file_id.0 as usize) else {
-            return;
+            return false;
         };
         let change_kind = match contents {
             Loaded(new, new_ending) => match state {
-                Exists(old, _) if *old == new => return,
+                Exists(old, _) if *old == new => return false,
                 Exists(_, _) => {
                     let change_kind = ChangeKind::Modify(Arc::from(new.as_str()), new_ending);
                     *state = Exists(new, new_ending);
@@ -298,13 +299,14 @@ impl Vfs {
                     *state = Deleted;
                     ChangeKind::Delete
                 }
-                Deleted => return,
+                Deleted => return false,
             },
-            DecodeError => return,
+            DecodeError => return false,
         };
 
         let changed_file = ChangedFile { file_id, change_kind };
         self.changes.push(changed_file);
+        true
     }
 
     pub fn has_changes(&self) -> bool {
