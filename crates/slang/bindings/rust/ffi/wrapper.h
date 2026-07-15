@@ -135,6 +135,19 @@ namespace wrapper {
         innerCompilation->addSyntaxTree(tree->sharedInner());
       }
 
+      std::shared_ptr<syntax::SyntaxTree> parseSyntaxTreeFromText(
+          std::string_view text,
+          std::string_view name,
+          std::string_view path,
+          rust::Vec<rust::String> predefines,
+          rust::Vec<rust::String> includePaths,
+          rust::Vec<::RawSourceBuffer> includeBuffers);
+
+      std::shared_ptr<syntax::SyntaxTree> parseLibraryMapSyntaxTreeFromText(
+          std::string_view text,
+          std::string_view name,
+          std::string_view path);
+
       ::RawSyntaxTreeBufferIds addSyntaxTreeFromText(
           std::string_view text,
           std::string_view name,
@@ -485,6 +498,8 @@ namespace wrapper {
       return tree.inner().root().sourceRange().start().buffer().getId();
     }
 
+    ::RawSyntaxTreeBufferIds SyntaxTree_buffer_ids(const SyntaxTree& tree);
+
     std::unique_ptr<SourceRange> SyntaxNode_range(const SyntaxNode& node);
 
     std::unique_ptr<SourceRange> SyntaxNode_rangeWithContext(
@@ -610,6 +625,21 @@ namespace wrapper {
     inline static void Compilation_add_syntax_tree(Compilation& compilation, std::shared_ptr<syntax::SyntaxTree> tree) {
         compilation.addSyntaxTree(std::move(tree));
     }
+
+    std::shared_ptr<syntax::SyntaxTree> Compilation_parse_syntax_tree_from_text(
+        Compilation& compilation,
+        std::string_view text,
+        std::string_view name,
+        std::string_view path,
+        rust::Vec<rust::String> predefines,
+        rust::Vec<rust::String> includePaths,
+        rust::Vec<::RawSourceBuffer> includeBuffers);
+
+    std::shared_ptr<syntax::SyntaxTree> Compilation_parse_library_map_syntax_tree_from_text(
+        Compilation& compilation,
+        std::string_view text,
+        std::string_view name,
+        std::string_view path);
 
     ::RawSyntaxTreeBufferIds Compilation_add_syntax_tree_from_text(
         Compilation& compilation,

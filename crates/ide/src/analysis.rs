@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use hir::base_db::{
     Cancelled,
+    analysis_snapshot::AnalysisSnapshotId,
     compilation_plan::CompilationPlan,
     project::CompilationProfileId,
     salsa,
@@ -47,15 +48,24 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Analysis {
+pub struct AnalysisSnapshot {
     pub(crate) db: salsa::Snapshot<RootDb>,
+    pub(crate) snapshot_id: AnalysisSnapshotId,
 }
 
-impl Analysis {
+/// Backwards-compatible name for callers that only need an analysis view.
+pub type Analysis = AnalysisSnapshot;
+
+impl AnalysisSnapshot {
+    pub fn snapshot_id(&self) -> AnalysisSnapshotId {
+        self.snapshot_id
+    }
+
     fn with_db<F, T>(&self, f: F) -> Cancellable<T>
     where
         F: FnOnce(&RootDb) -> T + std::panic::UnwindSafe,
     {
+        let _span = tracing::debug_span!("ide.analysis", snapshot_id = ?self.snapshot_id).entered();
         Cancelled::catch(|| f(&self.db))
     }
 
@@ -94,13 +104,6 @@ impl Analysis {
         profile_id: CompilationProfileId,
     ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
         self.with_db(|db| diagnostics::compilation_profile_diagnostics(db, profile_id))
-    }
-
-    pub fn compilation_profile_syntax_diagnostics(
-        &self,
-        profile_id: CompilationProfileId,
-    ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
-        self.with_db(|db| diagnostics::compilation_profile_syntax_diagnostics(db, profile_id))
     }
 
     pub fn parse_diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {

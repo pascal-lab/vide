@@ -933,7 +933,6 @@ mod tests {
         db.set_file_path_with_durability(TOP, Some(top_path), Durability::LOW);
         db.set_file_kind_with_durability(TOP, SourceFileKind::SystemVerilog, Durability::LOW);
         db.set_file_text_with_durability(TOP, Arc::from(root_text), Durability::LOW);
-        db.set_file_preprocess_config_with_durability(TOP, Arc::new(preprocess), Durability::LOW);
         db
     }
 

@@ -159,6 +159,7 @@ pub(crate) fn compilation_profile_diagnostics(
 ) -> Vec<Diagnostic> {
     let mut diagnostics = db
         .compilation_profile_diagnostics(profile_id)
+        .diagnostics
         .iter()
         .map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
         .collect::<Vec<_>>();
@@ -166,19 +167,9 @@ pub(crate) fn compilation_profile_diagnostics(
     diagnostics.extend(
         compilation_profile_file_ids(db, profile_id)
             .into_iter()
-            .flat_map(|file_id| inactive_preprocessor_branch_diagnostics(db, file_id)),
+            .flat_map(|file_id| vide_diagnostics(db, file_id)),
     );
     diagnostics
-}
-
-pub(crate) fn compilation_profile_syntax_diagnostics(
-    db: &RootDb,
-    profile_id: CompilationProfileId,
-) -> Vec<Diagnostic> {
-    compilation_profile_file_ids(db, profile_id)
-        .into_iter()
-        .flat_map(|file_id| syntax_diagnostics(db, file_id))
-        .collect()
 }
 
 fn compilation_profile_file_ids(db: &RootDb, profile_id: CompilationProfileId) -> Vec<FileId> {
@@ -652,6 +643,30 @@ mod tests {
         assert!(
             diagnostics.iter().all(|diag| diag.source != DiagnosticSource::Vide),
             "vide ambiguity warning should not duplicate active slang semantic diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn compilation_profile_diagnostics_include_vide_diagnostics() {
+        let mut db = db_with_files(
+            &[
+                ("/project/a/child.sv", "module child; endmodule\n"),
+                ("/project/a/top.sv", "module top; child u(); endmodule\n"),
+                ("/project/b/child.sv", "module child; endmodule\n"),
+            ],
+            true,
+        );
+        disable_semantic_diagnostics(&mut db);
+
+        let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
+
+        assert!(
+            diagnostics.iter().any(|diagnostic| {
+                diagnostic.file_id == FileId::from_raw(1)
+                    && diagnostic.source == DiagnosticSource::Vide
+                    && diagnostic.name == AMBIGUOUS_MODULE_INSTANTIATION.name
+            }),
+            "profile diagnostics should include Vide diagnostics: {diagnostics:?}"
         );
     }
 

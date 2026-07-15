@@ -329,7 +329,7 @@ mod tests {
     use std::path::Path;
 
     use hir::{
-        base_db::{change::Change, source_db::SourceDb, source_root::SourceRoot},
+        base_db::{change::Change, source_root::SourceRoot},
         semantics::pathres::PathResolution,
         symbol::DefLoc,
     };
@@ -486,7 +486,7 @@ mod tests {
             }
             Query::NamedPort => {
                 let offset = fixture.offset.expect("named_port query requires /*caret*/");
-                let tree = db.parse_src(fixture.focus);
+                let tree = db.parse_src_for_compilation(fixture.focus);
                 let root = tree.root().expect("test source should parse");
                 let port_conn = root
                     .find_node_at_offset::<ast::NamedPortConnection>(offset)
@@ -504,7 +504,7 @@ mod tests {
             }
             Query::NamedParam => {
                 let offset = fixture.offset.expect("named_param query requires /*caret*/");
-                let tree = db.parse_src(fixture.focus);
+                let tree = db.parse_src_for_compilation(fixture.focus);
                 let root = tree.root().expect("test source should parse");
                 let param_assign = root
                     .find_node_at_offset::<ast::NamedParamAssignment>(offset)

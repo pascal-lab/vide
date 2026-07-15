@@ -545,6 +545,7 @@ mod slang_ffi {
 
         #[namespace = "wrapper::syntax"]
         fn SyntaxTree_buffer_id(tree: &SyntaxTree) -> u32;
+        fn SyntaxTree_buffer_ids(tree: &SyntaxTree) -> RawSyntaxTreeBufferIds;
     }
 
     impl SharedPtr<SyntaxTree> {}
@@ -572,6 +573,25 @@ mod slang_ffi {
             compilation: Pin<&mut Compilation>,
             tree: SharedPtr<SyntaxTree>,
         );
+
+        #[namespace = "wrapper::ast"]
+        fn Compilation_parse_syntax_tree_from_text(
+            compilation: Pin<&mut Compilation>,
+            text: CxxSV,
+            name: CxxSV,
+            path: CxxSV,
+            predefines: Vec<String>,
+            include_paths: Vec<String>,
+            include_buffers: Vec<RawSourceBuffer>,
+        ) -> SharedPtr<SyntaxTree>;
+
+        #[namespace = "wrapper::ast"]
+        fn Compilation_parse_library_map_syntax_tree_from_text(
+            compilation: Pin<&mut Compilation>,
+            text: CxxSV,
+            name: CxxSV,
+            path: CxxSV,
+        ) -> SharedPtr<SyntaxTree>;
 
         #[namespace = "wrapper::ast"]
         fn Compilation_add_syntax_tree_from_text(
@@ -782,6 +802,8 @@ impl_functions! {
         fn system_function_names() -> Vec<String> |> Compilation_system_function_names;
         fn system_task_names() -> Vec<String> |> Compilation_system_task_names;
         fn add_syntax_tree(self_: Pin<&mut Compilation>, tree: SharedPtr<SyntaxTree>) -> () |> Compilation_add_syntax_tree;
+        fn parse_syntax_tree_from_text(self_: Pin<&mut Compilation>, text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>, include_paths: Vec<String>, include_buffers: Vec<RawSourceBuffer>) -> SharedPtr<SyntaxTree> |> Compilation_parse_syntax_tree_from_text;
+        fn parse_library_map_syntax_tree_from_text(self_: Pin<&mut Compilation>, text: CxxSV, name: CxxSV, path: CxxSV) -> SharedPtr<SyntaxTree> |> Compilation_parse_library_map_syntax_tree_from_text;
         fn add_syntax_tree_from_text(self_: Pin<&mut Compilation>, text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>, include_paths: Vec<String>, include_buffers: Vec<RawSourceBuffer>, expand_includes: bool) -> RawSyntaxTreeBufferIds |> Compilation_add_syntax_tree_from_text;
         fn add_library_map_syntax_tree_from_text(self_: Pin<&mut Compilation>, text: CxxSV, name: CxxSV, path: CxxSV) -> RawSyntaxTreeBufferIds |> Compilation_add_library_map_syntax_tree_from_text;
         fn semantic_diagnostics(&self) -> Vec<RawSyntaxDiagnostic> |> Compilation_semantic_diagnostics;

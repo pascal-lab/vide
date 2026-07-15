@@ -1,6 +1,6 @@
 use std::panic::{self, AssertUnwindSafe};
 
-use hir::base_db::{change::Change, salsa::Durability, source_db::SourceDb};
+use hir::base_db::change::Change;
 use itertools::Itertools;
 use project_model::{ProjectModel, Workspace, get_workspace_folder, project_manifest};
 use triomphe::Arc;
@@ -211,10 +211,7 @@ impl GlobalState {
         let _old_config = std::mem::replace(&mut self.config_state.config, Arc::new(config));
 
         if diagnostics_config_changed {
-            self.analysis.analysis_host.raw_db_mut().set_diagnostics_config_with_durability(
-                Arc::new(diagnostics_config),
-                Durability::HIGH,
-            );
+            self.analysis.analysis_host.set_diagnostics_config(Arc::new(diagnostics_config));
             self.diagnostics.diagnostics_revision += 1;
             self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
         }
