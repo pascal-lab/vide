@@ -1,181 +1,81 @@
-use std::{fs, mem, sync::atomic::AtomicUsize};
+//! Owned fork of rust-analyzer `vfs-notify`.
+//!
+//! Upstream: <https://github.com/rust-lang/rust-analyzer/tree/master/crates/vfs-notify>
+//!
+//! An implementation of `loader::Handle`, based on `walkdir` and `notify`.
+//!
+//! The file watching bits here are untested and quite probably buggy. For this
+//! reason, by default we don't watch files and rely on editor's file watching
+//! capabilities.
+//!
+//! Hopefully, one day a reliable file watching/walking crate appears on
+//! crates.io, and we can reduce this to trivial glue code.
 
-use ::notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
-use crossbeam_channel::{Receiver, Sender, select, unbounded};
-use itertools::Itertools;
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
-use rustc_hash::FxHashSet;
-use utils::{
-    lines::LineEnding,
-    paths::{AbsPath, AbsPathBuf},
-    thread,
+use std::{
+    fs,
+    path::{Component, Path},
+    sync::atomic::AtomicUsize,
 };
-use walkdir::WalkDir;
 
-use crate::loader::{self, LoadResult};
+use crossbeam_channel::{Receiver, Sender, select, unbounded};
+use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher, event::AccessKind};
+use utils::paths::{AbsPath, AbsPathBuf, Utf8PathBuf};
+use rayon::iter::{IndexedParallelIterator as _, IntoParallelIterator as _, ParallelIterator};
+use rustc_hash::FxHashSet;
+use crate::loader::{self, LoadingProgress};
+use walkdir::WalkDir;
 
 #[derive(Debug)]
 pub struct NotifyHandle {
     // Relative order of fields below is significant.
-    sender: Sender<ServerMsg>,
-    _handler: Option<thread::JoinHandle>,
-    browser_loader: Option<BrowserLoader>,
+    sender: Sender<Message>,
+    _thread: utils::thread::JoinHandle,
 }
 
 #[derive(Debug)]
-enum ServerMsg {
+enum Message {
     Config(loader::Config),
     Invalidate(AbsPathBuf),
 }
 
 impl loader::Handle for NotifyHandle {
     fn spawn(sender: loader::Sender) -> NotifyHandle {
-        if cfg!(target_os = "emscripten") {
-            let (server_sender, _) = unbounded::<ServerMsg>();
-            return NotifyHandle {
-                sender: server_sender,
-                _handler: None,
-                browser_loader: Some(BrowserLoader::new(sender)),
-            };
-        }
-
         let actor = NotifyActor::new(sender);
-        let (sender, receiver) = unbounded::<ServerMsg>();
-        let thread = match thread::Builder::new(thread::ThreadIntent::Worker)
+        let (sender, receiver) = unbounded::<Message>();
+        let thread = utils::thread::Builder::new(utils::thread::ThreadIntent::Worker)
             .name("VfsLoader".to_owned())
             .spawn(move || actor.run(receiver))
-        {
-            Ok(thread) => Some(thread),
-            Err(err) => {
-                tracing::error!(%err, "failed to spawn VFS loader thread");
-                None
-            }
-        };
-        NotifyHandle { sender, _handler: thread, browser_loader: None }
+            .expect("failed to spawn thread");
+        NotifyHandle { sender, _thread: thread }
     }
 
     fn set_config(&mut self, config: loader::Config) {
-        if let Some(loader) = &mut self.browser_loader {
-            loader.set_config(config);
-            return;
-        }
-
-        if self.sender.send(ServerMsg::Config(config)).is_err() {
-            tracing::error!("failed to send VFS config to loader thread");
-        }
+        self.sender.send(Message::Config(config)).unwrap();
     }
 
     fn invalidate(&mut self, path: AbsPathBuf) {
-        if let Some(loader) = &mut self.browser_loader {
-            loader.invalidate(path);
-            return;
-        }
-
-        if self.sender.send(ServerMsg::Invalidate(path)).is_err() {
-            tracing::error!("failed to send VFS invalidation to loader thread");
-        }
+        self.sender.send(Message::Invalidate(path)).unwrap();
     }
 
-    fn load_sync(&mut self, path: &AbsPath) -> LoadResult {
+    fn load_sync(&mut self, path: &AbsPath) -> Option<Vec<u8>> {
         read(path)
     }
 }
 
-#[derive(Debug)]
-struct BrowserLoader {
-    sender: loader::Sender,
-    config_version: u32,
-    loaded_paths: FxHashSet<AbsPathBuf>,
-}
-
-impl BrowserLoader {
-    fn new(sender: loader::Sender) -> Self {
-        Self { sender, config_version: 0, loaded_paths: FxHashSet::default() }
-    }
-
-    fn set_config(&mut self, config: loader::Config) {
-        let config_version = config.version;
-        self.config_version = config_version;
-        let has_reconcile_step = !self.loaded_paths.is_empty();
-        let n_entries = config.to_load.len();
-        let n_total = n_entries + usize::from(has_reconcile_step);
-        if n_total > 0 {
-            self.send(loader::Message::Progress { n_total, n_done: 0, config_version });
-        }
-
-        let previous_loaded_paths = mem::take(&mut self.loaded_paths);
-        let mut reported_paths = FxHashSet::default();
-        let mut loaded_paths = FxHashSet::default();
-
-        for (index, entry) in config.to_load.into_iter().enumerate() {
-            let (watch_tx, _) = unbounded();
-            let files = NotifyActor::load_entry(&watch_tx, entry, false);
-            reported_paths.extend(files.iter().map(|(path, _)| path.clone()));
-            loaded_paths.extend(
-                files
-                    .iter()
-                    .filter(|(_, result)| !matches!(result, LoadResult::LoadError))
-                    .map(|(path, _)| path.clone()),
-            );
-            self.send(loader::Message::Loaded { files, config_version });
-            self.send(loader::Message::Progress { n_total, n_done: index + 1, config_version });
-        }
-
-        let unloaded = previous_loaded_paths
-            .difference(&reported_paths)
-            .cloned()
-            .map(|path| (path, LoadResult::LoadError))
-            .collect_vec();
-        self.loaded_paths = loaded_paths;
-        if !unloaded.is_empty() {
-            self.send(loader::Message::Loaded { files: unloaded, config_version });
-        }
-        if has_reconcile_step {
-            self.send(loader::Message::Progress { n_total, n_done: n_total, config_version });
-        } else if n_total == 0 {
-            self.send(loader::Message::Progress { n_total, n_done: 0, config_version });
-        }
-    }
-
-    fn invalidate(&mut self, path: AbsPathBuf) {
-        let contents = read(path.as_path());
-        let files = vec![(path, contents)];
-        self.record_loaded_files(&files);
-        self.send(loader::Message::Changed { files, config_version: self.config_version });
-    }
-
-    fn record_loaded_files(&mut self, files: &[(AbsPathBuf, LoadResult)]) {
-        for (path, result) in files {
-            if matches!(result, LoadResult::LoadError) {
-                self.loaded_paths.remove(path);
-            } else {
-                self.loaded_paths.insert(path.clone());
-            }
-        }
-    }
-
-    fn send(&self, msg: loader::Message) {
-        if self.sender.send(msg).is_err() {
-            tracing::error!("failed to send browser VFS loader message to main loop");
-        }
-    }
-}
-
-type NotifyEvent = ::notify::Result<::notify::Event>;
+type NotifyEvent = notify::Result<notify::Event>;
 
 struct NotifyActor {
     sender: loader::Sender,
-    config_version: u32,
-    watched_files: FxHashSet<AbsPathBuf>,
-    watched_dirs: Vec<loader::Directories>,
-    loaded_paths: FxHashSet<AbsPathBuf>,
+    watched_file_entries: FxHashSet<AbsPathBuf>,
+    watched_dir_entries: Vec<loader::Directories>,
+    seen_paths: FxHashSet<AbsPathBuf>,
     // Drop order is significant.
     watcher: Option<(RecommendedWatcher, Receiver<NotifyEvent>)>,
 }
 
 #[derive(Debug)]
 enum Event {
-    ServerMsg(ServerMsg),
+    Message(Message),
     NotifyEvent(NotifyEvent),
 }
 
@@ -183,41 +83,39 @@ impl NotifyActor {
     fn new(sender: loader::Sender) -> NotifyActor {
         NotifyActor {
             sender,
-            config_version: 0,
-            watched_files: FxHashSet::default(),
-            watched_dirs: Vec::new(),
-            loaded_paths: FxHashSet::default(),
+            watched_dir_entries: Vec::new(),
+            watched_file_entries: FxHashSet::default(),
+            seen_paths: FxHashSet::default(),
             watcher: None,
         }
     }
 
-    fn next_event(&self, receiver: &Receiver<ServerMsg>) -> Option<Event> {
+    fn next_event(&self, receiver: &Receiver<Message>) -> Option<Event> {
         let Some((_, watcher_receiver)) = &self.watcher else {
-            return receiver.recv().ok().map(Event::ServerMsg);
+            return receiver.recv().ok().map(Event::Message);
         };
 
         select! {
-            recv(receiver) -> it => it.ok().map(Event::ServerMsg),
-            recv(watcher_receiver) -> it => it.ok().map(Event::NotifyEvent),
+            recv(receiver) -> it => it.ok().map(Event::Message),
+            recv(watcher_receiver) -> it => Some(Event::NotifyEvent(it.unwrap())),
         }
     }
 
-    fn run(mut self, server_inbox: Receiver<ServerMsg>) {
-        while let Some(event) = self.next_event(&server_inbox) {
-            tracing::debug!(?event, "vfs-loader event");
+    fn run(mut self, inbox: Receiver<Message>) {
+        while let Some(event) = self.next_event(&inbox) {
+            tracing::debug!(?event, "vfs-notify event");
             match event {
-                Event::ServerMsg(msg) => match msg {
-                    ServerMsg::Config(config) => {
+                Event::Message(msg) => match msg {
+                    Message::Config(config) => {
                         self.watcher = None;
-                        if !config.to_watch.is_empty() {
+                        if !config.watch.is_empty() {
                             let (watcher_sender, watcher_receiver) = unbounded();
                             let watcher = log_notify_error(RecommendedWatcher::new(
                                 move |event| {
-                                    if watcher_sender.send(event).is_err() {
-                                        tracing::debug!(
-                                            "notify event dropped because watcher receiver is closed"
-                                        );
-                                    }
+                                    // we don't care about the error. If sending fails that usually
+                                    // means we were dropped, so unwrapping will just add to the
+                                    // panic noise.
+                                    _ = watcher_sender.send(event);
                                 },
                                 Config::default(),
                             ));
@@ -225,61 +123,53 @@ impl NotifyActor {
                         }
 
                         let config_version = config.version;
-                        self.config_version = config_version;
-                        let has_reconcile_step = !self.loaded_paths.is_empty();
-                        let n_entries = config.to_load.len();
-                        let n_total = n_entries + usize::from(has_reconcile_step);
-                        if n_total > 0 {
-                            self.send(loader::Message::Progress {
-                                n_total,
-                                n_done: 0,
-                                config_version,
-                            });
-                        }
 
-                        self.watched_files.clear();
-                        self.watched_dirs.clear();
-                        let previous_loaded_paths = mem::take(&mut self.loaded_paths);
+                        let n_total = config.load.len();
+                        self.watched_dir_entries.clear();
+                        self.watched_file_entries.clear();
+                        self.seen_paths.clear();
+
+                        self.send(loader::Message::Progress {
+                            n_total,
+                            n_done: LoadingProgress::Started,
+                            config_version,
+                            dir: None,
+                        });
 
                         let (entry_tx, entry_rx) = unbounded();
                         let (watch_tx, watch_rx) = unbounded();
-                        let (loaded_tx, loaded_rx) = unbounded();
                         let processed = AtomicUsize::new(0);
 
-                        config.to_load.into_par_iter().enumerate().for_each(|(i, entry)| {
-                            let do_watch = config.to_watch.contains(&i);
-                            if do_watch && entry_tx.send(entry.clone()).is_err() {
-                                tracing::debug!("watched entry dropped because receiver is closed");
+                        config.load.into_par_iter().enumerate().for_each(|(i, entry)| {
+                            let do_watch = config.watch.contains(&i);
+                            if do_watch {
+                                _ = entry_tx.send(entry.clone());
                             }
-                            let files = Self::load_entry(&watch_tx, entry, do_watch);
-                            let reported_paths =
-                                files.iter().map(|(path, _)| path.clone()).collect_vec();
-                            let loaded_paths = files
-                                .iter()
-                                .filter(|(_, result)| !matches!(result, LoadResult::LoadError))
-                                .map(|(path, _)| path.clone())
-                                .collect_vec();
-                            if loaded_tx.send((reported_paths, loaded_paths)).is_err() {
-                                tracing::debug!(
-                                    "loaded path batch dropped because receiver is closed"
-                                );
-                            }
-                            self.send(loader::Message::Loaded { files, config_version });
+                            let files = Self::load_entry(
+                                |f| _ = watch_tx.send(f.to_owned()),
+                                entry,
+                                do_watch,
+                                |file| {
+                                    self.send(loader::Message::Progress {
+                                        n_total,
+                                        n_done: LoadingProgress::Progress(
+                                            processed.load(std::sync::atomic::Ordering::Relaxed),
+                                        ),
+                                        dir: Some(file),
+                                        config_version,
+                                    });
+                                },
+                            );
+                            self.send(loader::Message::Loaded { files });
                             self.send(loader::Message::Progress {
                                 n_total,
-                                n_done: 1 + processed
-                                    .fetch_add(1, std::sync::atomic::Ordering::AcqRel),
+                                n_done: LoadingProgress::Progress(
+                                    processed.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1,
+                                ),
                                 config_version,
+                                dir: None,
                             });
                         });
-
-                        drop(loaded_tx);
-                        let mut reported_paths = FxHashSet::default();
-                        let mut loaded_paths = FxHashSet::default();
-                        for (reported, loaded) in loaded_rx {
-                            reported_paths.extend(reported);
-                            loaded_paths.extend(loaded);
-                        }
 
                         drop(watch_tx);
                         for path in watch_rx {
@@ -289,561 +179,219 @@ impl NotifyActor {
                         drop(entry_tx);
                         for entry in entry_rx {
                             match entry {
-                                loader::Entry::Files(files) => self.watched_files.extend(files),
-                                loader::Entry::Directories(dir) => self.watched_dirs.push(dir),
+                                loader::Entry::Files(files) => {
+                                    self.watched_file_entries.extend(files)
+                                }
+                                loader::Entry::Directories(dir) => {
+                                    self.watched_dir_entries.push(dir)
+                                }
                             }
                         }
 
-                        let unloaded = previous_loaded_paths
-                            .difference(&reported_paths)
-                            .cloned()
-                            .map(|path| (path, LoadResult::LoadError))
-                            .collect_vec();
-                        self.loaded_paths = loaded_paths;
-                        if !unloaded.is_empty() {
-                            self.send(loader::Message::Loaded { files: unloaded, config_version });
-                        }
-                        if has_reconcile_step {
-                            self.send(loader::Message::Progress {
-                                n_total,
-                                n_done: n_total,
-                                config_version,
-                            });
-                        } else if n_total == 0 {
-                            self.send(loader::Message::Progress {
-                                n_total,
-                                n_done: 0,
-                                config_version,
-                            });
-                        }
+                        self.send(loader::Message::Progress {
+                            n_total,
+                            n_done: LoadingProgress::Finished,
+                            config_version,
+                            dir: None,
+                        });
                     }
-                    ServerMsg::Invalidate(path) => {
+                    Message::Invalidate(path) => {
                         let contents = read(path.as_path());
                         let files = vec![(path, contents)];
-                        self.record_loaded_files(&files);
-                        self.send(loader::Message::Changed {
-                            files,
-                            config_version: self.config_version,
-                        });
+                        self.send(loader::Message::Changed { files });
                     }
                 },
                 Event::NotifyEvent(event) => {
-                    let Some(event) = log_notify_error(event) else {
-                        continue;
-                    };
+                    if let Some(event) = log_notify_error(event)
+                        && let EventKind::Create(_)
+                        | EventKind::Modify(_)
+                        | EventKind::Remove(_)
+                        | EventKind::Access(AccessKind::Open(_)) = event.kind
+                    {
+                        let abs_paths: Vec<AbsPathBuf> = event
+                            .paths
+                            .into_iter()
+                            .filter_map(|path| {
+                                Some(
+                                    AbsPathBuf::try_from(Utf8PathBuf::from_path_buf(path).ok()?)
+                                        .expect("path is absolute"),
+                                )
+                            })
+                            .collect();
 
-                    let files = self.process_notify_event(event);
-                    if files.is_empty() {
-                        continue;
+                        let mut saw_new_file = false;
+                        for abs_path in &abs_paths {
+                            if self.seen_paths.insert(abs_path.clone()) {
+                                saw_new_file = true;
+                            }
+                        }
+
+                        // Only consider access events for files that we haven't seen
+                        // before.
+                        //
+                        // This is important on FUSE filesystems, where we may not get a
+                        // Create event. In other cases we're about to access the file, so
+                        // we don't want an infinite loop where processing an Access event
+                        // creates another Access event.
+                        if matches!(event.kind, EventKind::Access(_)) && !saw_new_file {
+                            continue;
+                        }
+
+                        let files = abs_paths
+                            .into_iter()
+                            .filter_map(|path| -> Option<(AbsPathBuf, Option<Vec<u8>>)> {
+                                // Ignore events for files/directories that we're not watching.
+                                if !(self.watched_file_entries.contains(&path)
+                                    || self
+                                        .watched_dir_entries
+                                        .iter()
+                                        .any(|dir| dir.contains_file(&path)))
+                                {
+                                    return None;
+                                }
+
+                                // For removed files, fs::metadata() will return Err, but
+                                // we still want to update the VFS.
+                                if matches!(event.kind, EventKind::Remove(_)) {
+                                    return Some((path, None));
+                                }
+
+                                let meta = fs::metadata(&path).ok()?;
+                                if meta.file_type().is_dir()
+                                    && self
+                                        .watched_dir_entries
+                                        .iter()
+                                        .any(|dir| dir.contains_dir(&path))
+                                {
+                                    self.watch(path.as_ref());
+                                    return None;
+                                }
+
+                                if !meta.file_type().is_file() {
+                                    return None;
+                                }
+
+                                let contents = read(&path);
+                                Some((path, contents))
+                            })
+                            .collect();
+                        self.send(loader::Message::Changed { files });
                     }
-                    self.record_loaded_files(&files);
-                    self.send(loader::Message::Changed {
-                        files,
-                        config_version: self.config_version,
-                    });
                 }
             }
         }
-    }
-
-    fn process_notify_event(&mut self, event: ::notify::Event) -> Vec<(AbsPathBuf, LoadResult)> {
-        if !(event.kind.is_create() || event.kind.is_modify() || event.kind.is_remove()) {
-            return Vec::new();
-        }
-
-        let mut files = Vec::new();
-        for path in event.paths.into_iter().filter_map(|path| AbsPathBuf::try_from(path).ok()) {
-            if event.kind.is_remove() {
-                let unloaded = self.unload_removed_path(&path);
-                if !unloaded.is_empty() {
-                    files.extend(unloaded);
-                    continue;
-                }
-            }
-
-            let metadata = fs::metadata(&path).ok();
-            let file_type = metadata.as_ref().map(|meta| meta.file_type());
-            let is_file = file_type.as_ref().is_some_and(|it| it.is_file());
-            let is_dir = file_type.as_ref().is_some_and(|it| it.is_dir());
-
-            if is_dir && self.is_watched_dir(&path) {
-                files.extend(self.load_created_directory(&path));
-                continue;
-            }
-
-            if metadata.is_some() && !is_file {
-                continue;
-            }
-
-            if !self.is_watched_file(&path) {
-                continue;
-            }
-
-            files.push((path.clone(), read(&path)));
-        }
-
-        files
-    }
-
-    fn is_watched_dir(&self, path: &AbsPathBuf) -> bool {
-        self.watched_dirs.iter().any(|dir| dir.contains_dir(path))
-    }
-
-    fn is_watched_file(&self, path: &AbsPathBuf) -> bool {
-        self.watched_files.contains(path)
-            || self.watched_dirs.iter().any(|dir| dir.contains_file(path))
-    }
-
-    fn load_created_directory(&mut self, path: &AbsPathBuf) -> Vec<(AbsPathBuf, LoadResult)> {
-        let dirs =
-            self.watched_dirs.iter().filter(|dir| dir.contains_dir(path)).cloned().collect_vec();
-        let mut files = Vec::new();
-
-        for dir in dirs {
-            let (watch_tx, watch_rx) = unbounded();
-            files.extend(Self::load_directory_subtree(&watch_tx, &dir, path, true));
-            drop(watch_tx);
-            for path in watch_rx {
-                self.watch(&path);
-            }
-        }
-
-        files
-    }
-
-    fn unload_removed_path(&self, path: &AbsPathBuf) -> Vec<(AbsPathBuf, LoadResult)> {
-        self.loaded_paths
-            .iter()
-            .filter(|loaded_path| loaded_path.starts_with(path))
-            .cloned()
-            .map(|path| (path, LoadResult::LoadError))
-            .collect_vec()
     }
 
     fn load_entry(
-        watch_tx: &Sender<AbsPathBuf>,
+        mut watch: impl FnMut(&Path),
         entry: loader::Entry,
-        watch: bool,
-    ) -> Vec<(AbsPathBuf, LoadResult)> {
+        do_watch: bool,
+        send_message: impl Fn(AbsPathBuf),
+    ) -> Vec<(AbsPathBuf, Option<Vec<u8>>)> {
         match entry {
             loader::Entry::Files(files) => files
                 .into_iter()
                 .map(|file| {
-                    if watch && watch_tx.send(file.to_owned()).is_err() {
-                        tracing::debug!("watched file path dropped because receiver is closed");
+                    if do_watch {
+                        watch(file.as_ref());
                     }
                     let contents = read(file.as_path());
                     (file, contents)
                 })
-                .collect_vec(),
+                .collect::<Vec<_>>(),
             loader::Entry::Directories(dirs) => {
                 let mut res = Vec::new();
 
-                for root in dirs.include_roots() {
-                    res.extend(Self::load_directory_subtree(watch_tx, &dirs, root, watch));
+                for root in &dirs.include {
+                    send_message(root.clone());
+                    let walkdir =
+                        WalkDir::new(root).follow_links(true).into_iter().filter_entry(|entry| {
+                            if !entry.file_type().is_dir() {
+                                return true;
+                            }
+                            let path = entry.path();
+
+                            if path_might_be_cyclic(path) {
+                                return false;
+                            }
+
+                            // We want to filter out subdirectories that are roots themselves, because they will be visited separately.
+                            let path: &Path = path;
+                            dirs.exclude.iter().all(|it| <AbsPathBuf as AsRef<Path>>::as_ref(it) != path)
+                                && (<AbsPathBuf as AsRef<Path>>::as_ref(root) == path
+                                    || dirs.include.iter().all(|it| {
+                                        <AbsPathBuf as AsRef<Path>>::as_ref(it) != path
+                                    }))
+                        });
+
+                    let files = walkdir.filter_map(|it| it.ok()).filter_map(|entry| {
+                        let depth = entry.depth();
+                        let is_dir = entry.file_type().is_dir();
+                        let is_file = entry.file_type().is_file();
+                        let abs_path = AbsPathBuf::try_from(
+                            Utf8PathBuf::from_path_buf(entry.into_path()).ok()?,
+                        )
+                        .ok()?;
+                        if depth < 2 && is_dir {
+                            send_message(abs_path.clone());
+                        }
+                        if is_dir && do_watch {
+                            watch(abs_path.as_ref());
+                        }
+                        if !is_file {
+                            return None;
+                        }
+                        let ext = abs_path.extension().unwrap_or_default();
+                        if dirs.extensions.iter().all(|it| it.as_str() != ext) {
+                            return None;
+                        }
+                        Some(abs_path)
+                    });
+
+                    res.extend(files.map(|file| {
+                        let contents = read(file.as_path());
+                        (file, contents)
+                    }));
                 }
                 res
             }
         }
     }
 
-    fn load_directory_subtree(
-        watch_tx: &Sender<AbsPathBuf>,
-        dirs: &loader::Directories,
-        root: &AbsPathBuf,
-        watch: bool,
-    ) -> Vec<(AbsPathBuf, LoadResult)> {
-        let walkdir = WalkDir::new(root).follow_links(true).into_iter().filter_entry(|entry| {
-            if !entry.file_type().is_dir() {
-                return true;
-            }
-            let Ok(path) = AbsPathBuf::try_from(entry.path().to_path_buf()) else {
-                return false;
-            };
-            root == &path || dirs.contains_dir(&path)
-        });
-
-        let files = walkdir.filter_map(|it| it.ok()).filter_map(|entry| {
-            let is_dir = entry.file_type().is_dir();
-            let is_file = entry.file_type().is_file();
-            let abs_path = AbsPathBuf::try_from(entry.into_path()).ok()?;
-
-            if is_dir && watch && watch_tx.send(abs_path.to_owned()).is_err() {
-                tracing::debug!("watched directory path dropped because receiver is closed");
-            }
-
-            if !is_file {
-                return None;
-            }
-
-            if !dirs.contains_file(&abs_path) {
-                return None;
-            }
-
-            Some(abs_path)
-        });
-
-        files
-            .map(|file| {
-                let contents = read(file.as_path());
-                (file, contents)
-            })
-            .collect_vec()
-    }
-
-    fn watch(&mut self, path: &AbsPathBuf) {
+    fn watch(&mut self, path: &Path) {
         if let Some((watcher, _)) = &mut self.watcher {
-            log_notify_error(watcher.watch(path.as_ref(), RecursiveMode::NonRecursive));
+            log_notify_error(watcher.watch(path, RecursiveMode::Recursive));
         }
     }
 
-    fn record_loaded_files(&mut self, files: &[(AbsPathBuf, LoadResult)]) {
-        for (path, result) in files {
-            if matches!(result, LoadResult::LoadError) {
-                self.loaded_paths.remove(path);
-            } else {
-                self.loaded_paths.insert(path.clone());
-            }
-        }
-    }
-
+    #[track_caller]
     fn send(&self, msg: loader::Message) {
-        // Call self.sender with msg
-        if self.sender.send(msg).is_err() {
-            tracing::error!("failed to send VFS loader message to main loop");
-        }
+        self.sender.send(msg).unwrap();
     }
 }
 
-fn read(path: &AbsPath) -> LoadResult {
-    let Ok(bytes) = std::fs::read(path) else {
-        return LoadResult::LoadError;
-    };
-    let Ok(text) = String::from_utf8(bytes) else {
-        return LoadResult::DecodeError;
-    };
-    let (text, ending) = LineEnding::normalize(text);
-    LoadResult::Loaded(text, ending)
+fn read(path: &AbsPath) -> Option<Vec<u8>> {
+    std::fs::read(path).ok()
 }
 
-fn log_notify_error<T>(res: ::notify::Result<T>) -> Option<T> {
+fn log_notify_error<T>(res: notify::Result<T>) -> Option<T> {
     res.map_err(|err| tracing::warn!("notify error: {}", err)).ok()
 }
 
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use ::notify::{
-        Event as NotifyEvent, EventKind,
-        event::{CreateKind, RemoveKind},
-    };
-    use utils::paths::AbsPathBuf;
-
-    use super::*;
-    use crate::{
-        PathMatcher,
-        loader::{self, Handle as _},
+/// Is `path` a symlink to a parent directory?
+///
+/// Including this path is guaranteed to cause an infinite loop. This
+/// heuristic is not sufficient to catch all symlink cycles (it's
+/// possible to construct cycle using two or more symlinks), but it
+/// catches common cases.
+fn path_might_be_cyclic(path: &Path) -> bool {
+    let Ok(destination) = std::fs::read_link(path) else {
+        return false;
     };
 
-    struct TestDir {
-        _dir: tempfile::TempDir,
-        path: AbsPathBuf,
-    }
+    // If the symlink is of the form "../..", it's a parent symlink.
+    let is_relative_parent =
+        destination.components().all(|c| matches!(c, Component::CurDir | Component::ParentDir));
 
-    impl TestDir {
-        fn new(name: &str) -> Self {
-            let dir = tempfile::Builder::new().prefix(&format!("vide-{name}-")).tempdir().unwrap();
-            let path = AbsPathBuf::assert_utf8(dir.path().to_path_buf());
-            Self { _dir: dir, path }
-        }
-
-        fn join(&self, path: &str) -> AbsPathBuf {
-            self.path.join(path)
-        }
-    }
-
-    fn collect_until_progress_done(
-        receiver: &Receiver<loader::Message>,
-        version: u32,
-    ) -> Vec<Vec<(AbsPathBuf, LoadResult)>> {
-        let mut loaded_batches = Vec::new();
-        loop {
-            match receiver.recv_timeout(Duration::from_secs(1)).unwrap() {
-                loader::Message::Loaded { files, config_version } if config_version == version => {
-                    loaded_batches.push(files);
-                }
-                loader::Message::Changed { .. } => {}
-                loader::Message::Progress { n_total, n_done, config_version }
-                    if config_version == version && n_done == n_total =>
-                {
-                    return loaded_batches;
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn recv_version_message(receiver: &Receiver<loader::Message>, version: u32) -> loader::Message {
-        loop {
-            let message = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-            match &message {
-                loader::Message::Loaded { config_version, .. }
-                | loader::Message::Changed { config_version, .. }
-                | loader::Message::Progress { config_version, .. }
-                    if *config_version == version =>
-                {
-                    return message;
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn spawn_loader() -> (NotifyHandle, Receiver<loader::Message>) {
-        let (sender, receiver) = unbounded();
-        (<NotifyHandle as loader::Handle>::spawn(sender), receiver)
-    }
-
-    fn assert_loaded(batches: &[Vec<(AbsPathBuf, LoadResult)>], expected_path: &AbsPathBuf) {
-        assert!(
-            batches.iter().flatten().any(|(path, result)| {
-                path == expected_path && matches!(result, LoadResult::Loaded(_, _))
-            }),
-            "expected loaded path {expected_path}, got {batches:?}"
-        );
-    }
-
-    fn path_buf(path: &AbsPathBuf) -> std::path::PathBuf {
-        let path: &std::path::Path = path.as_ref();
-        path.to_path_buf()
-    }
-
-    fn watched_sv_dir(root: AbsPathBuf) -> loader::Directories {
-        loader::Directories {
-            extensions: vec!["sv".to_owned()],
-            include: vec![PathMatcher::all_under_roots(vec![root])],
-            exclude: Vec::new(),
-            exclude_globs: None,
-        }
-    }
-
-    fn actor() -> NotifyActor {
-        let (sender, _receiver) = unbounded();
-        NotifyActor::new(sender)
-    }
-
-    #[test]
-    fn empty_config_emits_ready_ack_progress() {
-        let (mut handle, receiver) = spawn_loader();
-
-        handle.set_config(loader::Config { version: 1, to_load: Vec::new(), to_watch: Vec::new() });
-
-        assert!(matches!(
-            recv_version_message(&receiver, 1),
-            loader::Message::Progress { n_done: 0, n_total: 0, .. }
-        ));
-    }
-
-    #[test]
-    fn removed_config_file_is_unloaded() {
-        let dir = TestDir::new("vfs-loader-unload-file");
-        let file = dir.join("top.sv");
-        std::fs::write(&file, "module top; endmodule\n").unwrap();
-        let (mut handle, receiver) = spawn_loader();
-
-        handle.set_config(loader::Config {
-            version: 1,
-            to_load: vec![loader::Entry::Files(vec![file.clone()])],
-            to_watch: Vec::new(),
-        });
-        let loaded = collect_until_progress_done(&receiver, 1);
-        assert_loaded(&loaded, &file);
-
-        handle.set_config(loader::Config { version: 2, to_load: Vec::new(), to_watch: Vec::new() });
-
-        assert!(matches!(
-            recv_version_message(&receiver, 2),
-            loader::Message::Progress { n_done: 0, n_total: 1, .. }
-        ));
-        let loader::Message::Loaded { files: unloaded, .. } = recv_version_message(&receiver, 2)
-        else {
-            panic!("expected unload batch before final progress");
-        };
-        assert_eq!(unloaded, vec![(file, LoadResult::LoadError)]);
-        assert!(matches!(
-            recv_version_message(&receiver, 2),
-            loader::Message::Progress { n_done: 1, n_total: 1, .. }
-        ));
-    }
-
-    #[test]
-    fn configured_missing_file_is_not_reconciled_twice() {
-        let dir = TestDir::new("vfs-loader-missing-config-file");
-        let file = dir.join("top.sv");
-        std::fs::write(&file, "module top; endmodule\n").unwrap();
-        let (mut handle, receiver) = spawn_loader();
-
-        handle.set_config(loader::Config {
-            version: 1,
-            to_load: vec![loader::Entry::Files(vec![file.clone()])],
-            to_watch: Vec::new(),
-        });
-        let loaded = collect_until_progress_done(&receiver, 1);
-        assert_loaded(&loaded, &file);
-
-        std::fs::remove_file(&file).unwrap();
-        handle.set_config(loader::Config {
-            version: 2,
-            to_load: vec![loader::Entry::Files(vec![file.clone()])],
-            to_watch: Vec::new(),
-        });
-
-        let mut unload_count = 0;
-        loop {
-            match recv_version_message(&receiver, 2) {
-                loader::Message::Loaded { files, .. } => {
-                    unload_count += files
-                        .iter()
-                        .filter(|(path, result)| {
-                            path == &file && matches!(result, LoadResult::LoadError)
-                        })
-                        .count();
-                }
-                loader::Message::Progress { n_done, n_total, .. } if n_done == n_total => break,
-                _ => {}
-            }
-        }
-
-        assert_eq!(unload_count, 1);
-    }
-
-    #[test]
-    fn removed_config_directory_is_unloaded() {
-        let dir = TestDir::new("vfs-loader-unload-directory");
-        let source_dir = dir.join("rtl");
-        std::fs::create_dir_all(&source_dir).unwrap();
-        let file = source_dir.join("top.sv");
-        std::fs::write(&file, "module top; endmodule\n").unwrap();
-        let (mut handle, receiver) = spawn_loader();
-
-        handle.set_config(loader::Config {
-            version: 1,
-            to_load: vec![loader::Entry::Directories(loader::Directories {
-                extensions: vec!["sv".to_owned()],
-                include: vec![PathMatcher::all_under_roots(vec![source_dir])],
-                exclude: Vec::new(),
-                exclude_globs: None,
-            })],
-            to_watch: Vec::new(),
-        });
-        let loaded = collect_until_progress_done(&receiver, 1);
-        assert_loaded(&loaded, &file);
-
-        handle.set_config(loader::Config { version: 2, to_load: Vec::new(), to_watch: Vec::new() });
-
-        assert!(matches!(
-            recv_version_message(&receiver, 2),
-            loader::Message::Progress { n_done: 0, n_total: 1, .. }
-        ));
-        let loader::Message::Loaded { files: unloaded, .. } = recv_version_message(&receiver, 2)
-        else {
-            panic!("expected unload batch before final progress");
-        };
-        assert_eq!(unloaded, vec![(file, LoadResult::LoadError)]);
-        assert!(matches!(
-            recv_version_message(&receiver, 2),
-            loader::Message::Progress { n_done: 1, n_total: 1, .. }
-        ));
-    }
-
-    #[test]
-    fn created_watched_directory_is_loaded_immediately() {
-        let dir = TestDir::new("vfs-loader-created-directory-load");
-        let root = dir.join("workspace");
-        let created_dir = root.join("generated");
-        let nested_dir = created_dir.join("nested");
-        std::fs::create_dir_all(&nested_dir).unwrap();
-        let top = created_dir.join("top.sv");
-        let child = nested_dir.join("child.sv");
-        let ignored = created_dir.join("notes.txt");
-        std::fs::write(&top, "module top; endmodule\n").unwrap();
-        std::fs::write(&child, "module child; endmodule\n").unwrap();
-        std::fs::write(&ignored, "not systemverilog").unwrap();
-        let mut actor = actor();
-        actor.watched_dirs.push(watched_sv_dir(root));
-
-        let files = actor.process_notify_event(
-            NotifyEvent::new(EventKind::Create(CreateKind::Folder))
-                .add_path(path_buf(&created_dir)),
-        );
-        actor.record_loaded_files(&files);
-
-        assert!(
-            files.iter().any(|(path, result)| {
-                path == &top && matches!(result, LoadResult::Loaded(_, _))
-            })
-        );
-        assert!(files.iter().any(|(path, result)| {
-            path == &child && matches!(result, LoadResult::Loaded(_, _))
-        }));
-        assert!(!files.iter().any(|(path, _)| path == &ignored));
-        assert!(actor.loaded_paths.contains(&top));
-        assert!(actor.loaded_paths.contains(&child));
-    }
-
-    #[test]
-    fn invalidate_reports_changed_not_loaded() {
-        let dir = TestDir::new("vfs-loader-invalidate-changed");
-        let file = dir.join("top.sv");
-        std::fs::write(&file, "module top; endmodule\n").unwrap();
-        let (mut handle, receiver) = spawn_loader();
-
-        handle.set_config(loader::Config {
-            version: 1,
-            to_load: vec![loader::Entry::Files(vec![file.clone()])],
-            to_watch: Vec::new(),
-        });
-        collect_until_progress_done(&receiver, 1);
-
-        std::fs::write(&file, "module top2; endmodule\n").unwrap();
-        handle.invalidate(file.clone());
-
-        let loader::Message::Changed { files, config_version } = recv_version_message(&receiver, 1)
-        else {
-            panic!("invalidate must report Changed, not Loaded");
-        };
-        assert_eq!(config_version, 1);
-        assert!(files.iter().any(|(path, result)| {
-            path == &file && matches!(result, LoadResult::Loaded(text, _) if text.contains("top2"))
-        }));
-    }
-
-    #[test]
-    fn removed_watched_directory_unloads_loaded_descendants() {
-        let dir = TestDir::new("vfs-loader-removed-directory-unload");
-        let root = dir.join("workspace");
-        let removed_dir = root.join("removed");
-        let top = removed_dir.join("top.sv");
-        let child = removed_dir.join("nested/child.sv");
-        let sibling = root.join("sibling.sv");
-        let mut actor = actor();
-        actor.watched_dirs.push(watched_sv_dir(root));
-        actor.loaded_paths.extend([top.clone(), child.clone(), sibling.clone()]);
-
-        let mut files = actor.process_notify_event(
-            NotifyEvent::new(EventKind::Remove(RemoveKind::Folder))
-                .add_path(path_buf(&removed_dir)),
-        );
-        files.sort_by(|lhs, rhs| lhs.0.cmp(&rhs.0));
-        actor.record_loaded_files(&files);
-
-        let mut expected =
-            vec![(child.clone(), LoadResult::LoadError), (top.clone(), LoadResult::LoadError)];
-        expected.sort_by(|lhs, rhs| lhs.0.cmp(&rhs.0));
-        assert_eq!(files, expected);
-        assert!(!actor.loaded_paths.contains(&top));
-        assert!(!actor.loaded_paths.contains(&child));
-        assert!(actor.loaded_paths.contains(&sibling));
-    }
+    is_relative_parent || path.starts_with(destination)
 }
