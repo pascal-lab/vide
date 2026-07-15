@@ -117,8 +117,6 @@ pub(crate) struct WorkspaceState {
     pub(crate) vfs_loader: Handle<Box<dyn vfs::loader::Handle>, Receiver<vfs::loader::Message>>,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
     pub(crate) workspace_vfs: WorkspaceVfsReadiness,
-    pub(crate) pending_workspace_readiness_requests: Vec<Request>,
-
     pub(crate) workspaces: Arc<Vec<Workspace>>,
     pub(crate) fetch_workspaces_task:
         ExclTask<(Arc<Vec<Workspace>>, Vec<anyhow::Error>), WorkspaceFetchCause>,
@@ -188,7 +186,6 @@ impl GlobalState {
                 vfs_loader,
                 vfs: Arc::new(RwLock::new((Vfs::default(), IntMap::default()))),
                 workspace_vfs: WorkspaceVfsReadiness::default(),
-                pending_workspace_readiness_requests: Vec::new(),
                 workspaces: Arc::from(vec![]),
                 fetch_workspaces_task: ExclTask::default(),
                 registered_client_file_watcher_globs: None,
