@@ -3,25 +3,26 @@ title: VS Code 安装
 description: 安装 Vide 扩展并确认 VS Code 中的语言服务已经启动。
 ---
 
-import ThinLinkCard from '../../../components/ThinLinkCard.astro';
-
 这一页带你安装 Vide 的 VS Code 扩展并验证 Vide 正在正确工作。如果你还没有安装 VS Code，可以先到 [VS Code 官网](https://code.visualstudio.com/)下载安装。
 
 ## 1. 安装扩展
 
-常规使用只需要安装 VS Code 扩展市场发布的稳定版。以下卡片可以跳转到 VS Code 扩展市场：
+由于未知原因，VS Code 扩展市场中的 Vide 无法正常访问，请从 GitHub Release 下载与你的系统和架构匹配的 VSIX：
 
-<ThinLinkCard
-  href="https://marketplace.visualstudio.com/items?itemName=pascal-lab.vide-ide"
-  title="Visual Studio Marketplace"
-  action="打开"
->
-  安装稳定版 Vide，扩展 ID：<code>pascal-lab.vide-ide</code>
-</ThinLinkCard>
+| 系统 | 架构 | VSIX |
+| --- | --- | --- |
+| Linux | x64 | [下载 `vide-vscode-linux-x64.vsix`](https://github.com/pascal-lab/vide/releases/latest/download/vide-vscode-linux-x64.vsix) |
+| Linux | arm64 | [下载 `vide-vscode-linux-arm64.vsix`](https://github.com/pascal-lab/vide/releases/latest/download/vide-vscode-linux-arm64.vsix) |
+| Alpine Linux / musl | x64 | [下载 `vide-vscode-alpine-x64.vsix`](https://github.com/pascal-lab/vide/releases/latest/download/vide-vscode-alpine-x64.vsix) |
+| macOS | Apple Silicon (arm64) | [下载 `vide-vscode-darwin-arm64.vsix`](https://github.com/pascal-lab/vide/releases/latest/download/vide-vscode-darwin-arm64.vsix) |
+| Windows | x64 | [下载 `vide-vscode-win32-x64.vsix`](https://github.com/pascal-lab/vide/releases/latest/download/vide-vscode-win32-x64.vsix) |
 
-也可以在 VS Code 的扩展面板搜索显示名 `Vide`，或搜索扩展 ID `pascal-lab.vide-ide`。
+下载后，在 VS Code 中按以下步骤安装：
 
-![vide in extension market](../assets/quick-start/extension-marketplace.png)
+1. 打开扩展面板（<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd>，macOS 使用 <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd>）。
+2. 点击扩展面板右上角的三个点（`...`）。
+3. 选择「从 VSIX 安装…」。
+4. 选择刚下载的 `vide-vscode-*.vsix` 文件。
 
 ## 2. 打开 RTL 工程目录
 
