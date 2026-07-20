@@ -1,8 +1,8 @@
 <p align="center">
   <a href="https://vide.pascal-lab.net/">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pascal-lab/vide/master/docs/src/assets/vide-logo-dark.png">
-      <img src="https://raw.githubusercontent.com/pascal-lab/vide/master/docs/src/assets/vide-logo-light.png" alt="Vide" width="520">
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pascal-lab/vide/master/website/site/src/assets/vide-logo-dark.png">
+      <img src="https://raw.githubusercontent.com/pascal-lab/vide/master/website/site/src/assets/vide-logo-light.png" alt="Vide" width="520">
     </picture>
   </a>
 </p>

@@ -6,9 +6,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths:
-      # Documentation pages and the browser playground shell.
-      - "docs/**"
-      - "playground/**"
+      # Website pages and the browser playground shell.
+      - "website/**"
       # WASM playground server inputs. The WASM crate links the root server
       # browser entry point, so request/IDE changes can affect PR previews.
       - "src/**"
@@ -80,15 +79,15 @@ jobs:
         id: playground-wasm-cache
         uses: actions/cache/restore@v4
         with:
-          path: playground/public/wasm
-          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          path: website/playground/public/wasm
+          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'website/playground/scripts/build-vide-wasm.mjs', 'website/playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
 
       - name: Verify cached playground WASM
         if: steps.playground-wasm-cache.outputs.cache-hit == 'true'
         run: |
-          test -s playground/public/wasm/vide-lsp.js
-          test -s playground/public/wasm/vide-core.js
-          test -s playground/public/wasm/vide-core.wasm
+          test -s website/playground/public/wasm/vide-lsp.js
+          test -s website/playground/public/wasm/vide-core.js
+          test -s website/playground/public/wasm/vide-core.wasm
 
       - name: Install Rust
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
@@ -106,7 +105,7 @@ jobs:
         continue-on-error: true
         with:
           shared-key: docs-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}
-          key: wasm-src-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          key: wasm-src-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'website/playground/scripts/build-vide-wasm.mjs', 'website/playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
 
@@ -121,36 +120,30 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            docs/package-lock.json
-            playground/package-lock.json
+          cache-dependency-path: website/package-lock.json
 
-      - name: Install playground dependencies
+      - name: Install dependencies
         run: npm ci
-        working-directory: playground
+        working-directory: website
 
       - name: Build playground WASM
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
         run: |
           source "${EMSDK}/emsdk_env.sh"
           npm run build:wasm
-        working-directory: playground
+        working-directory: website
 
       - name: Save playground WASM cache
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         continue-on-error: true
         with:
-          path: playground/public/wasm
+          path: website/playground/public/wasm
           key: ${{ steps.playground-wasm-cache.outputs.cache-primary-key }}
-
-      - name: Install dependencies
-        run: npm ci
-        working-directory: docs
 
       - name: Build docs
         run: npm run build
-        working-directory: docs
+        working-directory: website
 
       - name: Add preview summary
         if: github.event_name == 'pull_request'
@@ -163,7 +156,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vide-docs-preview
-          path: docs/dist
+          path: website/site/dist
           retention-days: 7
 
       - name: Add master docs summary
@@ -177,5 +170,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vide-docs-master
-          path: docs/dist
+          path: website/site/dist
           retention-days: 7

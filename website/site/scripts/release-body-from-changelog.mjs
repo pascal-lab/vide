@@ -14,7 +14,7 @@ import { visit } from 'unist-util-visit';
 
 const repo = 'pascal-lab/vide';
 const docsSite = 'https://vide.pascal-lab.net';
-const docsRoot = 'docs/src/content/docs';
+const docsRoot = 'website/site/src/content/docs';
 
 const { values } = parseArgs({
   options: {
@@ -25,7 +25,7 @@ const { values } = parseArgs({
 
 if (!values.tag || !values.output) {
   console.error(
-    'Usage: node docs/scripts/release-body-from-changelog.mjs --tag <vX.Y.Z> --output <path>'
+    'Usage: node website/site/scripts/release-body-from-changelog.mjs --tag <vX.Y.Z> --output <path>'
   );
   process.exit(2);
 }

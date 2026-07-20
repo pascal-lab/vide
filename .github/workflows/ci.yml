@@ -151,15 +151,15 @@ jobs:
         id: playground-wasm-cache
         uses: actions/cache/restore@v4
         with:
-          path: playground/public/wasm
-          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          path: website/playground/public/wasm
+          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'website/playground/scripts/build-vide-wasm.mjs', 'website/playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
       - name: Verify cached playground WASM
         if: steps.playground-wasm-cache.outputs.cache-hit == 'true'
         working-directory: .
         run: |
-          test -s playground/public/wasm/vide-lsp.js
-          test -s playground/public/wasm/vide-core.js
-          test -s playground/public/wasm/vide-core.wasm
+          test -s website/playground/public/wasm/vide-lsp.js
+          test -s website/playground/public/wasm/vide-core.js
+          test -s website/playground/public/wasm/vide-core.wasm
       - name: Install Rust
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-rust
@@ -174,7 +174,7 @@ jobs:
         continue-on-error: true
         with:
           shared-key: vscode-web-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}
-          key: wasm-src-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          key: wasm-src-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'website/playground/scripts/build-vide-wasm.mjs', 'website/playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Install Emscripten SDK
@@ -197,7 +197,7 @@ jobs:
         run: npm ci
       - name: Build playground WASM
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
-        working-directory: playground
+        working-directory: website
         run: |
           source "${EMSDK}/emsdk_env.sh"
           npm run build:wasm
@@ -206,7 +206,7 @@ jobs:
         uses: actions/cache/save@v4
         continue-on-error: true
         with:
-          path: playground/public/wasm
+          path: website/playground/public/wasm
           key: ${{ steps.playground-wasm-cache.outputs.cache-primary-key }}
       - name: Web smoke test
         run: npm run test:web
@@ -221,4 +221,3 @@ jobs:
       build-kind: nightly
       cargo-profile: debug
       vsix-profile: debug
-
