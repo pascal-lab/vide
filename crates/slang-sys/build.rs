@@ -1,15 +1,19 @@
 use std::{
-    env,
+    env, fs,
     path::{Path, PathBuf},
 };
 
 const SLANG_SOURCE_DIR: &str = "../../third_party/slang";
 const SLANG_SYS_SOURCE_DIR: &str = "./src";
+const SCRIPTS_DIR: &str = "./scripts";
+/// Build directory from cargo target directory.
+const BUILD_DIR: &str = "slang-sys";
 
 fn main() {
     // Prepare environment
     let slang_dir = env_detection::find_slang_dir();
     let source_dir = PathBuf::from(SLANG_SYS_SOURCE_DIR);
+    let scripts_dir = PathBuf::from(SCRIPTS_DIR);
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is not set"));
     let debug = cfg!(debug_assertions);
 
@@ -20,13 +24,13 @@ fn main() {
 
     // Setup cargo configuration
     setup_linking(&install_dir, debug);
-    setup_rerun_triggers(&slang_dir, &source_dir);
+    setup_rerun_triggers(&slang_dir, &source_dir, &scripts_dir);
 }
 
 mod env_detection {
     use std::{env, path::PathBuf};
 
-    use super::SLANG_SOURCE_DIR;
+    use super::{BUILD_DIR, SLANG_SOURCE_DIR};
 
     pub fn find_slang_dir() -> PathBuf {
         let slang_source_dir = PathBuf::from(SLANG_SOURCE_DIR);
@@ -50,6 +54,18 @@ mod env_detection {
     pub fn target_is_windows() -> bool {
         env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
     }
+
+    pub fn build_dir() -> PathBuf {
+        let workspace_target_dir =
+            env::var_os("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|| {
+                PathBuf::from(
+                    env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"),
+                )
+                .join("../..")
+                .join("target")
+            });
+        workspace_target_dir.join(BUILD_DIR)
+    }
 }
 
 fn generate_rust_defs(_slang_dir: &Path, _out_dir: &Path) {
@@ -57,15 +73,16 @@ fn generate_rust_defs(_slang_dir: &Path, _out_dir: &Path) {
 }
 
 fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
-    // TODO: We may build slang under slang source directory, so the clangd can work
-    // normally.
     let cmake_profile = if debug { "Debug" } else { "Release" };
+    let cmake_out_dir = env_detection::build_dir().join(cmake_profile.to_ascii_lowercase());
     let emscripten = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("emscripten");
 
     // Configure CMake build
     let config = &mut cmake::Config::new(slang_dir);
     config
+        .out_dir(cmake_out_dir)
         .define("FETCHCONTENT_TRY_FIND_PACKAGE_MODE", "NEVER")
+        .define("CMAKE_EXPORT_COMPILE_COMMANDS", "ON")
         .profile(cmake_profile)
         .define("CMAKE_VERBOSE_MAKEFILE", "ON");
     if let Ok(jobs) = env::var("NUM_JOBS") {
@@ -127,9 +144,24 @@ fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
 }
 
 fn build_cxx_bridge(slang_dir: &Path, install_dir: &Path) {
+    // Setup clangd include directory for cxx crate
+    let cxx_header = PathBuf::from(
+        env::var_os("DEP_CXXBRIDGE1_HEADER")
+            .expect("DEP_CXXBRIDGE1_HEADER is not set; the cxx crate should expose its C++ header"),
+    );
+    let cxx_include_dir = cxx_header
+        .parent()
+        .expect("DEP_CXXBRIDGE1_HEADER should point to a header under an include directory")
+        .to_path_buf();
+    let clangd_include_dir = env_detection::build_dir().join("cxx").join("include");
+    fs::create_dir_all(&clangd_include_dir).expect("failed to create clangd cxx include directory");
+    fs::copy(cxx_header, clangd_include_dir.join("cxx.h"))
+        .expect("failed to copy cxx.h for clangd");
+    // Build cxx bridge
     cxx_build::bridge("src/ffi.rs")
         .file("src/wrapper.cpp")
         .include("src")
+        .include(cxx_include_dir)
         .include(install_dir.join("include"))
         .include(slang_dir.join("external"))
         .define("SLANG_BOOST_SINGLE_HEADER", None)
@@ -152,11 +184,14 @@ fn setup_linking(install_dir: &Path, debug: bool) {
     }
 }
 
-fn setup_rerun_triggers(slang_dir: &Path, source_dir: &Path) {
+fn setup_rerun_triggers(slang_dir: &Path, source_dir: &Path, scripts_dir: &Path) {
     let watch = [
         env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"),
         slang_dir.to_string_lossy().to_string(),
-        source_dir.to_string_lossy().to_string(),
+        source_dir.join("ffi.rs").to_string_lossy().to_string(),
+        source_dir.join("wrapper.cpp").to_string_lossy().to_string(),
+        source_dir.join("wrapper.h").to_string_lossy().to_string(),
+        scripts_dir.to_string_lossy().to_string(),
     ];
 
     for path in watch {
