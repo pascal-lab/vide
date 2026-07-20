@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-#include "rust/cxx.h"
+#include "cxx.h"
 
 namespace slang_sys
 {
