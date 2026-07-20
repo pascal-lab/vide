@@ -1,0 +1,18 @@
+[package]
+name = "slang-sys"
+description = "Thin Rust bindings for the upstream slang SystemVerilog frontend"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+build = "build.rs"
+
+[lib]
+name = "slang_sys"
+path = "src/lib.rs"
+
+[dependencies]
+cxx = { version = "1.0.124", features = ["c++20"] }
+
+[build-dependencies]
+cmake = "0.1.50"
+cxx-build = "1.0.124"
