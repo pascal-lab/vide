@@ -187,8 +187,8 @@ jobs:
         id: playground-wasm-cache
         uses: actions/cache/restore@v4
         with:
-          path: playground/public/wasm
-          key: playground-wasm-${{ runner.os }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          path: website/playground/public/wasm
+          key: playground-wasm-${{ runner.os }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'website/playground/scripts/build-vide-wasm.mjs', 'website/playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
 
       - name: Setup Rust
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
@@ -218,7 +218,7 @@ jobs:
 
       - name: Build playground WASM
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
-        working-directory: playground
+        working-directory: website
         run: |
           source "${EMSDK}/emsdk_env.sh"
           npm run build:wasm
@@ -228,7 +228,7 @@ jobs:
         uses: actions/cache/save@v4
         continue-on-error: true
         with:
-          path: playground/public/wasm
+          path: website/playground/public/wasm
           key: ${{ steps.playground-wasm-cache.outputs.cache-primary-key }}
 
       - name: Set VSIX build metadata
