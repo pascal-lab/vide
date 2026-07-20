@@ -1,12 +1,14 @@
 use std::{
     env, fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 const SLANG_SOURCE_DIR: &str = "../../third_party/slang";
 const SLANG_SYS_SOURCE_DIR: &str = "./src";
 const SCRIPTS_DIR: &str = "./scripts";
 /// Build directory from cargo target directory.
+/// This will influence clangd's include path.
 const BUILD_DIR: &str = "slang-sys";
 
 fn main() {
@@ -18,7 +20,7 @@ fn main() {
     let debug = cfg!(debug_assertions);
 
     // Build
-    generate_rust_defs(&slang_dir, &out_dir);
+    generate_rust_defs(&slang_dir, &out_dir, &scripts_dir);
     let install_dir = build_slang(&slang_dir, debug);
     build_cxx_bridge(&slang_dir, &install_dir);
 
@@ -66,10 +68,68 @@ mod env_detection {
             });
         workspace_target_dir.join(BUILD_DIR)
     }
+
+    pub fn find_python() -> PathBuf {
+        env::var_os("PYTHON").map(PathBuf::from).unwrap_or_else(|| "python3".into())
+    }
+
+    pub fn cargo_manifest_dir() -> PathBuf {
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"))
+    }
 }
 
-fn generate_rust_defs(_slang_dir: &Path, _out_dir: &Path) {
-    // TODO: Support generating Rust definitions for the Slang API.
+fn generate_rust_defs(slang_dir: &Path, out_dir: &Path, scripts_dir: &Path) {
+    let python = env_detection::find_python();
+    let slang_scripts_dir = slang_dir.join("scripts");
+    let generators = [
+        (
+            scripts_dir.join("generate_syntax_kind.py"),
+            slang_scripts_dir.join("syntax.txt"),
+            out_dir.join("syntax_kind.rs"),
+            Vec::<PathBuf>::new(),
+        ),
+        (
+            scripts_dir.join("generate_token_kind.py"),
+            slang_scripts_dir.join("tokenkinds.txt"),
+            out_dir.join("token_kind.rs"),
+            Vec::<PathBuf>::new(),
+        ),
+        (
+            scripts_dir.join("generate_trivia_kind.py"),
+            slang_scripts_dir.join("triviakinds.txt"),
+            out_dir.join("trivia_kind.rs"),
+            Vec::<PathBuf>::new(),
+        ),
+        (
+            scripts_dir.join("generate_diagnostic.py"),
+            slang_scripts_dir.join("diagnostics.txt"),
+            out_dir.join("diagnostic.rs"),
+            vec![
+                "--diagnostics-header".into(),
+                slang_dir.join("include/slang/diagnostics/Diagnostics.h"),
+            ],
+        ),
+    ];
+
+    let mut children = generators.map(|(generator, input, output, extra_args)| {
+        let mut command = Command::new(&python);
+        command.arg(generator).arg("--input").arg(input);
+        for arg in extra_args {
+            command.arg(arg);
+        }
+        command
+            .arg("--out")
+            .arg(output)
+            .spawn()
+            .expect("failed to run slang-sys Rust definition generator")
+    });
+
+    for child in &mut children {
+        let status = child.wait().expect("failed to wait for slang-sys Rust definition generator");
+        if !status.success() {
+            panic!("slang-sys Rust definition generator failed with status {status}");
+        }
+    }
 }
 
 fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
@@ -186,7 +246,7 @@ fn setup_linking(install_dir: &Path, debug: bool) {
 
 fn setup_rerun_triggers(slang_dir: &Path, source_dir: &Path, scripts_dir: &Path) {
     let watch = [
-        env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"),
+        env_detection::cargo_manifest_dir().join("build.rs").to_string_lossy().to_string(),
         slang_dir.to_string_lossy().to_string(),
         source_dir.join("ffi.rs").to_string_lossy().to_string(),
         source_dir.join("wrapper.cpp").to_string_lossy().to_string(),
