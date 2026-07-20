@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import process from "node:process";
 
-import { USER_CONFIG_SETTINGS } from "../../../editors/vscode/src/generated/configuration";
-
-export type UserConfigSettingsLocale = "en" | "zh";
+export type VscodeSettingsLocale = "en" | "zh";
 
 type VscodeSettingDefinition = {
+  default?: unknown;
+  description?: string;
+  markdownDescription?: string;
   enum?: string[];
   enumDescriptions?: string[];
 };
@@ -19,52 +20,47 @@ type VscodePackage = {
   };
 };
 
-export type UserConfigSettingEnumValue = {
+export type VscodeSettingEnumValue = {
   value: string;
   description?: string;
 };
 
-export type UserConfigSettingRow = {
+export type VscodeSettingRow = {
   name: string;
-  vscodeName: string;
   defaultValue: string;
   description: string;
-  enumValues?: UserConfigSettingEnumValue[];
+  enumValues?: VscodeSettingEnumValue[];
 };
 
-const docsRoot = basename(process.cwd()) === "docs" ? process.cwd() : resolve(process.cwd(), "docs");
-const repoRoot = resolve(docsRoot, "..");
+const siteRoot = process.cwd();
+const repoRoot = resolve(siteRoot, "..", "..");
 const extensionRoot = resolve(repoRoot, "editors/vscode");
 
 const vscodePackage = readJson<VscodePackage>(resolve(extensionRoot, "package.json"));
 const localeMessages = {
   en: readJson<Record<string, string>>(resolve(extensionRoot, "package.nls.json")),
   zh: readJson<Record<string, string>>(resolve(extensionRoot, "package.nls.zh-cn.json")),
-} satisfies Record<UserConfigSettingsLocale, Record<string, string>>;
+} satisfies Record<VscodeSettingsLocale, Record<string, string>>;
 
-const settingsByPath = new Map(
-  USER_CONFIG_SETTINGS.map((setting) => [setting.path.join("."), setting]),
-);
-
-export function getUserConfigSettingRows(
+export function getVscodeSettingRows(
   names: string[],
-  locale: UserConfigSettingsLocale,
-): UserConfigSettingRow[] {
+  locale: VscodeSettingsLocale,
+): VscodeSettingRow[] {
   const properties = vscodePackage.contributes.configuration.properties;
   return names.map((name) => {
-    const setting = settingsByPath.get(name);
-    if (!setting) {
-      throw new Error(`Unknown user config setting: ${name}`);
+    const definition = properties[name];
+    if (!definition) {
+      throw new Error(`Unknown VS Code setting: ${name}`);
     }
-
-    const definition = properties[setting.vscodeKey];
 
     return {
       name,
-      vscodeName: setting.vscodeKey,
-      defaultValue: formatDefaultValue(setting.defaultValue),
-      description: localizeKey(setting.markdownDescriptionKey ?? setting.descriptionKey, locale),
-      enumValues: definition?.enum?.map((value, index) => {
+      defaultValue: formatDefaultValue(definition.default),
+      description: localize(
+        definition.markdownDescription ?? definition.description ?? "",
+        locale,
+      ),
+      enumValues: definition.enum?.map((value, index) => {
         const description = definition.enumDescriptions?.[index];
         return {
           value,
@@ -79,17 +75,13 @@ function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
 }
 
-function localizeKey(key: string, locale: UserConfigSettingsLocale): string {
-  return localeMessages[locale][key] ?? localeMessages.en[key] ?? key;
-}
-
-function localize(value: string, locale: UserConfigSettingsLocale): string {
+function localize(value: string, locale: VscodeSettingsLocale): string {
   const key = /^%(.+)%$/.exec(value)?.[1];
   if (!key) {
     return value;
   }
 
-  return localizeKey(key, locale);
+  return localeMessages[locale][key] ?? localeMessages.en[key] ?? value;
 }
 
 function formatDefaultValue(value: unknown): string {

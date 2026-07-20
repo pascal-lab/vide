@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "workspaces": [
+    "site",
+    "playground"
+  ],
+  "scripts": {
+    "setup": "npm install && npm --workspace playground run build:embed && npm --workspace playground run build:wasm",
+    "dev": "npm --workspace site run dev"
+  }
+}

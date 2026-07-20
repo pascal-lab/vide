@@ -3,9 +3,9 @@ import EditorWorker from "@codingame/monaco-vscode-editor-api/esm/vs/editor/edit
 import { createOnigScanner, createOnigString, loadWASM } from "vscode-oniguruma";
 import onigWasm from "vscode-oniguruma/release/onig.wasm?url";
 import { INITIAL, parseRawGrammar, Registry, type IOnigLib, type StateStack } from "vscode-textmate";
-import languageConfiguration from "../../../editors/vscode/language-configuration.json";
-import systemVerilogGrammar from "../../../editors/vscode/syntaxes/systemverilog.tmLanguage.json?raw";
-import verilogGrammar from "../../../editors/vscode/syntaxes/verilog.tmLanguage.json?raw";
+import languageConfiguration from "../../../../editors/vscode/language-configuration.json";
+import systemVerilogGrammar from "../../../../editors/vscode/syntaxes/systemverilog.tmLanguage.json?raw";
+import verilogGrammar from "../../../../editors/vscode/syntaxes/verilog.tmLanguage.json?raw";
 import { startVideVscodePlatform } from "./vscode-platform";
 
 let configured = false;

@@ -3,8 +3,10 @@ import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-export const workspaceRoot = resolve(repoRoot, "..");
+export const playgroundRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+export const websiteRoot = resolve(playgroundRoot, "..");
+export const workspaceRoot = resolve(websiteRoot, "..");
+export const repoRoot = playgroundRoot;
 
 export function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
