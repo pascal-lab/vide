@@ -121,16 +121,19 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: website/package-lock.json
-
+      # TODO: Remove this `npm install` workaround once npm reliably restores platform optional
+      # dependencies from package-lock.json. see <https://github.com/npm/cli/issues/4828>.
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          npm install --no-save
         working-directory: website
 
       - name: Build playground WASM
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
         run: |
           source "${EMSDK}/emsdk_env.sh"
-          npm run build:wasm
+          npm --workspace playground run build:wasm
         working-directory: website
 
       - name: Save playground WASM cache
