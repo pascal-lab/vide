@@ -74,6 +74,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Restore Vide LSP WASM cache
         id: vide-lsp-wasm-cache
