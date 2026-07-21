@@ -327,6 +327,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.event.release.tag_name || github.ref }}
+          submodules: recursive
 
       - name: Restore playground WASM cache
         id: playground-wasm-cache

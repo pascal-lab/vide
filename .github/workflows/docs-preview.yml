@@ -75,6 +75,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Restore playground WASM cache
         id: playground-wasm-cache
