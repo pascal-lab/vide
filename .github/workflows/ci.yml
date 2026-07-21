@@ -200,7 +200,7 @@ jobs:
         working-directory: website
         run: |
           source "${EMSDK}/emsdk_env.sh"
-          npm run build:wasm
+          npm --workspace playground run build:wasm
       - name: Save playground WASM cache
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4

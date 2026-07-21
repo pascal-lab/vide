@@ -7,7 +7,6 @@
   "scripts": {
     "setup": "npm install && npm --workspace playground run build:embed && npm --workspace playground run build:wasm",
     "dev": "npm --workspace site run dev",
-    "build": "npm --workspace site run build",
-    "build:wasm": "npm --workspace playground run build:wasm"
+    "build": "npm --workspace site run build"
   }
 }
