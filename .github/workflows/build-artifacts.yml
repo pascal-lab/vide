@@ -68,6 +68,8 @@ jobs:
       CARGO_PROFILE_RELEASE_INCREMENTAL: "false"
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -146,6 +148,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Download binary artifacts
         uses: actions/download-artifact@v4
@@ -185,6 +188,8 @@ jobs:
         working-directory: editors/vscode
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Restore Vide LSP WASM cache
         id: vide-lsp-wasm-cache
