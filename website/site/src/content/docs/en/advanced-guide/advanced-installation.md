@@ -40,7 +40,7 @@ If you also want to build the Playground WASM version, additionally install:
 - Emscripten SDK 5.0.2
 - `ninja`
 - The Rust `wasm32-unknown-emscripten` target
-  - `playground/scripts/build-vide-wasm.mjs` automatically runs `rustup target add wasm32-unknown-emscripten`
+  - `website/playground/scripts/build-vide-wasm.mjs` automatically runs `rustup target add wasm32-unknown-emscripten`
 
 If you want to package a local VSIX, you need both sets of tools above. If you also want to build the Playground WASM version, you need all three sets.
 

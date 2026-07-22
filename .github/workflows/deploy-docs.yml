@@ -332,15 +332,15 @@ jobs:
         id: playground-wasm-cache
         uses: actions/cache/restore@v4
         with:
-          path: playground/public/wasm
-          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          path: website/playground/public/wasm
+          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'website/playground/scripts/build-vide-wasm.mjs', 'website/playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
 
       - name: Verify cached playground WASM
         if: steps.playground-wasm-cache.outputs.cache-hit == 'true'
         run: |
-          test -s playground/public/wasm/vide-lsp.js
-          test -s playground/public/wasm/vide-core.js
-          test -s playground/public/wasm/vide-core.wasm
+          test -s website/playground/public/wasm/vide-lsp.js
+          test -s website/playground/public/wasm/vide-core.js
+          test -s website/playground/public/wasm/vide-core.wasm
 
       - name: Install Rust
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
@@ -358,7 +358,7 @@ jobs:
         continue-on-error: true
         with:
           shared-key: docs-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}
-          key: wasm-src-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          key: wasm-src-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'website/playground/scripts/build-vide-wasm.mjs', 'website/playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
 
@@ -373,36 +373,34 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            docs/package-lock.json
-            playground/package-lock.json
+          cache-dependency-path: website/package-lock.json
 
-      - name: Install playground dependencies
-        run: npm ci
-        working-directory: playground
+      # TODO: Remove this `npm install` workaround once npm reliably restores platform optional
+      # dependencies from package-lock.json. see <https://github.com/npm/cli/issues/4828>.
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install --no-save
+        working-directory: website
 
       - name: Build playground WASM
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
         run: |
           source "${EMSDK}/emsdk_env.sh"
-          npm run build:wasm
-        working-directory: playground
+          npm --workspace playground run build:wasm
+        working-directory: website
 
       - name: Save playground WASM cache
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         continue-on-error: true
         with:
-          path: playground/public/wasm
+          path: website/playground/public/wasm
           key: ${{ steps.playground-wasm-cache.outputs.cache-primary-key }}
-
-      - name: Install dependencies
-        run: npm ci
-        working-directory: docs
 
       - name: Build docs
         run: npm run build
-        working-directory: docs
+        working-directory: website
 
       - name: Setup ossutil
         env:
@@ -444,4 +442,4 @@ jobs:
             ossutil rm "oss://${OSS_BUCKET_NAME}/${key}" -rf || true
           done
 
-          ossutil cp docs/dist "oss://${OSS_BUCKET_NAME}/" -rf --disable-dir-object
+          ossutil cp website/site/dist "oss://${OSS_BUCKET_NAME}/" -rf --disable-dir-object

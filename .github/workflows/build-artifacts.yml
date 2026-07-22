@@ -22,6 +22,9 @@ on:
 permissions:
   contents: read
 
+env:
+  EMSDK_VERSION: 5.0.2
+
 jobs:
   native:
     name: ${{ matrix.rust-target }}
@@ -187,8 +190,8 @@ jobs:
         id: playground-wasm-cache
         uses: actions/cache/restore@v4
         with:
-          path: playground/public/wasm
-          key: playground-wasm-${{ runner.os }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          path: website/playground/public/wasm
+          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'website/playground/scripts/build-vide-wasm.mjs', 'website/playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
 
       - name: Setup Rust
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
@@ -204,7 +207,7 @@ jobs:
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-emscripten
         with:
-          version: 5.0.2
+          version: ${{ env.EMSDK_VERSION }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -218,17 +221,17 @@ jobs:
 
       - name: Build playground WASM
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
-        working-directory: playground
+        working-directory: website
         run: |
           source "${EMSDK}/emsdk_env.sh"
-          npm run build:wasm
+          npm --workspace playground run build:wasm
 
       - name: Save playground WASM cache
         if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         continue-on-error: true
         with:
-          path: playground/public/wasm
+          path: website/playground/public/wasm
           key: ${{ steps.playground-wasm-cache.outputs.cache-primary-key }}
 
       - name: Set VSIX build metadata
