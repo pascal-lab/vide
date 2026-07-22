@@ -1,4 +1,4 @@
-mod syntax_kind {
+mod slang_syntax_kind {
     include!(concat!(env!("OUT_DIR"), "/syntax_kind.rs"));
 }
-pub use syntax_kind::*;
+pub use slang_syntax_kind::*;

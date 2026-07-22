@@ -3,7 +3,7 @@
 // diagnostic from different subsystem into one enum. This may confused rust
 // compiler. So we may need to split the diagnostic into different enum for each
 // subsystem.
-mod diagnostic {
+mod slang_diagnostic {
     include!(concat!(env!("OUT_DIR"), "/diagnostic.rs"));
 }
-pub use diagnostic::*;
+pub use slang_diagnostic::*;
