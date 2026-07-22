@@ -1,10 +1,10 @@
 import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
-import { repoRoot, workspaceRoot } from "./script-utils.mjs";
+import { playgroundRoot, websiteRoot } from "./script-utils.mjs";
 
-const docsAssetRoot = resolve(workspaceRoot, "docs", "public", "vide-lab");
-const embedSource = resolve(repoRoot, "dist", "embed");
-const wasmSource = resolve(repoRoot, "public", "wasm");
+const docsAssetRoot = resolve(websiteRoot, "site", "public", "vide-lab");
+const embedSource = resolve(playgroundRoot, "dist", "embed");
+const wasmSource = resolve(playgroundRoot, "public", "wasm");
 const wasmTarget = resolve(docsAssetRoot, "wasm");
 
 const requiredEmbedFiles = ["vide-lab.es.js", "locale-zh-hans.es.js", "vide-playground.css"];

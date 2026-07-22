@@ -61,7 +61,7 @@ export default defineConfig({
       },
       defaultLocale: 'root',
       editLink: {
-        baseUrl: 'https://github.com/pascal-lab/vide/edit/master/docs/',
+        baseUrl: 'https://github.com/pascal-lab/vide/edit/master/website/site/',
       },
       social: [
         {
