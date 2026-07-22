@@ -6,10 +6,11 @@ const repoRoot = path.resolve(vscodeDir, "..", "..");
 const sourceDir = path.join(repoRoot, "website", "playground", "public", "wasm");
 const targetDir = path.join(vscodeDir, "dist", "browser", "wasm");
 const requiredFiles = ["vide-lsp.js", "vide-core.js", "vide-core.wasm"];
+const buildWasmCommand = "npm --prefix website --workspace playground run build:wasm";
 
 if (!fs.existsSync(sourceDir)) {
   throw new Error(
-    `Missing ${sourceDir}. Run \`npm --prefix website run build:wasm\` first.`,
+    `Missing ${sourceDir}. Run \`${buildWasmCommand}\` first.`,
   );
 }
 
@@ -17,7 +18,7 @@ for (const fileName of requiredFiles) {
   const sourcePath = path.join(sourceDir, fileName);
   if (!fs.existsSync(sourcePath)) {
     throw new Error(
-      `Missing ${sourcePath}. Run \`npm --prefix website run build:wasm\` first.`,
+      `Missing ${sourcePath}. Run \`${buildWasmCommand}\` first.`,
     );
   }
 }
