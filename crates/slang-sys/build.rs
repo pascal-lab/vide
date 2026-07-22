@@ -218,16 +218,21 @@ fn build_cxx_bridge(slang_dir: &Path, install_dir: &Path) {
     fs::copy(cxx_header, clangd_include_dir.join("cxx.h"))
         .expect("failed to copy cxx.h for clangd");
     // Build cxx bridge
-    cxx_build::bridge("src/ffi.rs")
+    let mut build = cxx_build::bridge("src/ffi.rs");
+    build
         .file("src/wrapper.cpp")
         .include("src")
         .include(cxx_include_dir)
         .include(install_dir.join("include"))
         .include(slang_dir.join("external"))
         .define("SLANG_BOOST_SINGLE_HEADER", None)
-        .define("SLANG_STATIC_DEFINE", None)
-        .flag_if_supported("-std=c++20")
-        .compile("slang_sys_bridge");
+        .define("SLANG_STATIC_DEFINE", None);
+    if env_detection::target_is_msvc() {
+        build.flag_if_supported("/std:c++20");
+    } else {
+        build.flag_if_supported("-std=c++20");
+    }
+    build.compile("slang_sys_bridge");
 }
 
 fn setup_linking(install_dir: &Path, debug: bool) {
