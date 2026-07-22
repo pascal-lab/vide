@@ -1,6 +1,10 @@
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { delimiter, dirname, resolve } from "node:path";
-import { repoRoot, run, workspaceRoot } from "./script-utils.mjs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const crateRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const workspaceRoot = resolve(crateRoot, "..", "..");
 
 if (process.argv.slice(2).some((arg) => arg !== "--")) {
   throw new Error(`build:wasm does not accept arguments.`);
@@ -53,7 +57,7 @@ const coreWasm = resolve(targetRoot, "vide_lsp_wasm.wasm");
 assertFile(coreJs, "Emscripten JavaScript output");
 assertFile(coreWasm, "Emscripten WASM output");
 
-const outWasmRoot = resolve(repoRoot, "public", "wasm");
+const outWasmRoot = resolve(crateRoot, "dist");
 mkdirSync(outWasmRoot, { recursive: true });
 copyFileSync(coreJs, resolve(outWasmRoot, "vide-core.js"));
 copyFileSync(coreWasm, resolve(outWasmRoot, "vide-core.wasm"));
@@ -64,6 +68,22 @@ console.log(`Built Vide WASM adapter into ${outWasmRoot}`);
 function assertFile(path, label) {
   if (!existsSync(path)) {
     throw new Error(`${label} not found at ${path}`);
+  }
+}
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: workspaceRoot,
+    env: process.env,
+    stdio: "inherit",
+    shell: false,
+    ...options,
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
   }
 }
 
@@ -81,7 +101,7 @@ function findEmscriptenRoot() {
   }
 
   throw new Error(
-    "Emscripten SDK is not configured. Activate emsdk_env first or set EMSDK before running npm run build:wasm.",
+    "Emscripten SDK is not configured. Activate emsdk_env first or set EMSDK before building vide-lsp-wasm.",
   );
 }
 
