@@ -21,7 +21,6 @@ rust:
 
 vscode:
   - "editors/vscode/**"
-  - "packages/vide-extension-shared/**"
   - ".github/scripts/**"
   - ".github/ci-modules.yml"
   - ".github/workflows/ci.yml"
@@ -41,7 +40,6 @@ package:
   - "editors/vscode/src/**"
   - "editors/vscode/syntaxes/**"
   - "xtask/**"
-  - "packages/vide-extension-shared/**"
   - "website/package.json"
   - "website/playground/package.json"
   - "website/package-lock.json"
