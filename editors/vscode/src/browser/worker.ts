@@ -1,3 +1,3 @@
-import { installVideWorkerRuntime } from "../../../../packages/vide-extension-shared/src/browser/worker-runtime";
+import { installVideWorkerRuntime } from "./shared/worker-runtime";
 
 installVideWorkerRuntime();

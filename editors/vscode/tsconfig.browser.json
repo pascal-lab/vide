@@ -5,7 +5,6 @@
     "moduleResolution": "Bundler"
   },
   "include": [
-    "../../packages/vide-extension-shared/src/**/*.ts",
     "src/browser/**/*.ts",
     "src/diagnosticActions.ts",
     "src/diagnosticRules.ts",
