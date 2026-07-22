@@ -9,13 +9,13 @@ import {
   type MessageTransports,
 } from "vscode-languageclient/browser";
 
-import { videInitializationOptions } from "../../../../packages/vide-extension-shared/src/config/initialization-options";
+import { videInitializationOptions } from "./shared/initialization-options";
 import type {
   LspTraceEntry,
   WorkerRequest,
   WorkerResponse,
   WorkerStatus,
-} from "../../../../packages/vide-extension-shared/src/browser/types";
+} from "./shared/types";
 import {
   BROWSER_WORKSPACE_FOLDER_NAME,
   type BrowserWorkspaceSnapshot,

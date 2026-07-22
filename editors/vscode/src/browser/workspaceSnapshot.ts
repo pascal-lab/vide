@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import type { WorkerWorkspaceFile } from "../../../../packages/vide-extension-shared/src/browser/types";
+import type { WorkerWorkspaceFile } from "./shared/types";
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
   PROJECT_CONFIG_FILE_NAME,
