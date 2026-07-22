@@ -375,11 +375,12 @@ jobs:
           cache: npm
           cache-dependency-path: website/package-lock.json
 
-      # TODO: Remove this `npm install` workaround once npm reliably restores platform optional
-      # dependencies from package-lock.json. see <https://github.com/npm/cli/issues/4828>.
+      # npm prunes platform-specific optional dependencies from package-lock.json when
+      # node_modules exists. Reinstall from a clean tree until npm/cli#7961 is fixed.
       - name: Install dependencies
         run: |
           npm ci
+          rm -rf node_modules
           npm install --no-save
         working-directory: website
 
