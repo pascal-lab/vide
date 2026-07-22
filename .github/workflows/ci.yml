@@ -73,8 +73,6 @@ jobs:
           submodules: recursive
       - name: Install Rust
         uses: ./.github/actions/setup-rust
-        with:
-          components: clippy, rustfmt
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
         with:
