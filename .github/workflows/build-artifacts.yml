@@ -186,25 +186,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore playground WASM cache
-        id: playground-wasm-cache
+      - name: Restore Vide LSP WASM cache
+        id: vide-lsp-wasm-cache
         uses: actions/cache/restore@v4
         with:
-          path: website/playground/public/wasm
-          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'website/playground/scripts/build-vide-wasm.mjs', 'website/playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          path: crates/vide-lsp-wasm/dist
+          key: vide-lsp-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
 
       - name: Setup Rust
-        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-rust
 
       - name: Setup sccache
-        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-sccache
         with:
           cmake-launcher: "true"
 
       - name: Install Emscripten SDK
-        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-emscripten
         with:
           version: ${{ env.EMSDK_VERSION }}
@@ -219,20 +219,20 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
-      - name: Build playground WASM
-        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
-        working-directory: website
+      - name: Build Vide LSP WASM
+        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ github.workspace }}
         run: |
           source "${EMSDK}/emsdk_env.sh"
-          npm --workspace playground run build:wasm
+          node crates/vide-lsp-wasm/scripts/build.mjs
 
-      - name: Save playground WASM cache
-        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+      - name: Save Vide LSP WASM cache
+        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         continue-on-error: true
         with:
-          path: website/playground/public/wasm
-          key: ${{ steps.playground-wasm-cache.outputs.cache-primary-key }}
+          path: crates/vide-lsp-wasm/dist
+          key: ${{ steps.vide-lsp-wasm-cache.outputs.cache-primary-key }}
 
       - name: Set VSIX build metadata
         working-directory: .

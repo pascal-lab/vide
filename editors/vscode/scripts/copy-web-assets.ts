@@ -3,7 +3,7 @@ import * as path from "node:path";
 
 const vscodeDir = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(vscodeDir, "..", "..");
-const sourceDir = path.join(repoRoot, "website", "playground", "public", "wasm");
+const sourceDir = path.join(repoRoot, "crates", "vide-lsp-wasm", "dist");
 const targetDir = path.join(vscodeDir, "dist", "browser", "wasm");
 const requiredFiles = ["vide-lsp.js", "vide-core.js", "vide-core.wasm"];
 const buildWasmCommand = "npm --prefix website --workspace playground run build:wasm";
