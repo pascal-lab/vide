@@ -4,7 +4,7 @@ import { playgroundRoot, websiteRoot } from "./script-utils.mjs";
 
 const docsAssetRoot = resolve(websiteRoot, "site", "public", "vide-lab");
 const embedSource = resolve(playgroundRoot, "dist", "embed");
-const wasmSource = resolve(playgroundRoot, "public", "wasm");
+const wasmSource = resolve(websiteRoot, "..", "crates", "vide-lsp-wasm", "dist");
 const wasmTarget = resolve(docsAssetRoot, "wasm");
 
 const requiredEmbedFiles = ["vide-lab.es.js", "locale-zh-hans.es.js", "vide-playground.css"];
@@ -26,7 +26,7 @@ mkdirSync(docsAssetRoot, { recursive: true });
 cpSync(embedSource, docsAssetRoot, { recursive: true });
 console.log(`Copied Vide Lab embed assets to ${docsAssetRoot}`);
 
-requireFiles(wasmSource, requiredWasmFiles, "Run npm run build:wasm in the playground package first.");
+requireFiles(wasmSource, requiredWasmFiles, "Run the vide-lsp-wasm build first.");
 rmSync(wasmTarget, { recursive: true, force: true });
 cpSync(wasmSource, wasmTarget, { recursive: true });
 console.log(`Copied Vide WASM docs assets to ${wasmTarget}`);
