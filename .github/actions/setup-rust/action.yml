@@ -2,10 +2,6 @@ name: Setup pinned Rust
 description: Install the Rust toolchain pinned by rust-toolchain.toml.
 
 inputs:
-  components:
-    description: Comma-separated Rust components to install.
-    required: false
-    default: ""
   targets:
     description: Comma-separated Rust targets to install.
     required: false
@@ -19,21 +15,28 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Read pinned toolchain
+    - name: Install pinned Rust
+      shell: bash
+      run: rustup toolchain install --no-self-update
+
+    - name: Install Rust targets
+      if: inputs.targets != ''
+      shell: bash
+      env:
+        RUST_TARGETS: ${{ inputs.targets }}
+      run: |
+        set -euo pipefail
+        IFS=',' read -ra targets <<< "${RUST_TARGETS}"
+        rustup target add "${targets[@]}"
+
+    - name: Resolve active toolchain
       id: toolchain
       shell: bash
       run: |
         set -euo pipefail
-        toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' "${GITHUB_WORKSPACE}/rust-toolchain.toml")"
+        toolchain="$(rustup show active-toolchain | awk '{ print $1 }')"
         if [ -z "${toolchain}" ]; then
-          echo "rust-toolchain.toml does not define a toolchain channel." >&2
+          echo "rustup did not report an active toolchain." >&2
           exit 1
         fi
         echo "toolchain=${toolchain}" >> "${GITHUB_OUTPUT}"
-
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ steps.toolchain.outputs.toolchain }}
-        components: ${{ inputs.components }}
-        targets: ${{ inputs.targets }}

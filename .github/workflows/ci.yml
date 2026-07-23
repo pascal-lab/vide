@@ -28,6 +28,8 @@ jobs:
       plan: ${{ steps.plan.outputs.result }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Detect changed paths
         id: filter
         if: github.event_name != 'workflow_dispatch'
@@ -67,10 +69,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Install Rust
         uses: ./.github/actions/setup-rust
-        with:
-          components: clippy, rustfmt
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
         with:
@@ -99,6 +101,8 @@ jobs:
       matrix: ${{ fromJSON(needs.changes.outputs.plan).rust_test_matrix }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Install Rust
         uses: ./.github/actions/setup-rust
       - name: Setup sccache
@@ -126,6 +130,8 @@ jobs:
         working-directory: editors/vscode
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -147,6 +153,8 @@ jobs:
         working-directory: editors/vscode
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Restore playground WASM cache
         id: playground-wasm-cache
         uses: actions/cache/restore@v4
@@ -221,4 +229,3 @@ jobs:
       build-kind: nightly
       cargo-profile: debug
       vsix-profile: debug
-

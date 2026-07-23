@@ -1,0 +1,23 @@
+If:
+  PathMatch: crates/slang-sys/src/.*\.(cc|cpp|h|hpp)$
+
+CompileFlags:
+  CompilationDatabase: None
+  Add:
+    - -std=c++20
+    - -I.
+    - -I../../../third_party/slang/include
+    - -I../../../third_party/slang/external
+    - -I../../../target/slang-sys/debug/include
+    - -I../../../target/slang-sys/cxx/include
+    - -include
+    - cstdlib
+    - -DSLANG_BOOST_SINGLE_HEADER
+    - -DSLANG_STATIC_DEFINE
+
+---
+If:
+  PathMatch: third_party/slang/.*
+
+CompileFlags:
+  CompilationDatabase: target/slang-sys/debug/build
