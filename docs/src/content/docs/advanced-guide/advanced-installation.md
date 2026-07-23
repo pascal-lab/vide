@@ -152,7 +152,7 @@ code --install-extension ./vide-vscode-win32-x64-debug.vsix
 
 | 版本 | 获取方式 | 适合场景 |
 | --- | --- | --- |
-| 稳定版 | [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=pascal-lab.vide-ide)，或 [GitHub Releases](https://github.com/pascal-lab/vide/releases) 中最新的正式 Release | 常规使用和离线安装 |
+| 稳定版 | [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=pascal-lab.vide-code-extension)，或 [GitHub Releases](https://github.com/pascal-lab/vide/releases) 中最新的正式 Release | 常规使用和离线安装 |
 | Beta 版 | [GitHub Releases](https://github.com/pascal-lab/vide/releases) 中标记为 Pre-release 的发布 | 提前验证下一版功能 |
 | Nightly 开发包 | [GitHub Actions CI](https://github.com/pascal-lab/vide/actions/workflows/ci.yml) 的运行产物，artifact 名称形如 `vide-vscode-dev-<target>-<commit>` | 验证某个提交或排查最新修复 |
 
