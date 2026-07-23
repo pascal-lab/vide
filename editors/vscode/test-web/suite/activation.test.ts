@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-const EXTENSION_ID = "pascal-lab.vide-ide";
+const EXTENSION_ID = "pascal-lab.vide-code-extension";
 
 suite("Vide web extension smoke", () => {
   test("activates in the web host", async () => {
