@@ -39,8 +39,9 @@ jobs:
           fi
           gh release upload "$tag" "${vsixes[@]}" --clobber
 
-  publish-marketplaces:
-    name: Publish VS Code marketplaces
+  # VS Code Marketplace publication is intentionally manual for this release.
+  publish-openvsx:
+    name: Publish Open VSX
     if: ${{ !fromJson(inputs.plan).announcement_is_prerelease }}
     needs: upload-github-release
     runs-on: ubuntu-latest
@@ -67,28 +68,6 @@ jobs:
           pattern: vsix-*
           path: artifacts
           merge-multiple: true
-
-      - name: Publish VSIX packages to VS Code Marketplace
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${VSCE_PAT:-}" ]]; then
-            echo "VSCE_PAT secret is not set; cannot publish to VS Code Marketplace." >&2
-            exit 1
-          fi
-          shopt -s nullglob
-          vsixes=(../../artifacts/*.vsix)
-          if (( ${#vsixes[@]} == 0 )); then
-            echo "No VSIX artifacts found to publish." >&2
-            exit 1
-          fi
-          for vsix in "${vsixes[@]}"; do
-            echo "::group::Publish $(basename "$vsix") to VS Code Marketplace"
-            node node_modules/@vscode/vsce/vsce publish --packagePath "$vsix"
-            echo "::endgroup::"
-          done
 
       - name: Publish VSIX packages to Open VSX
         env:
