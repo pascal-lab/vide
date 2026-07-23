@@ -6,7 +6,7 @@ const repoRoot = path.resolve(vscodeDir, "..", "..");
 const sourceDir = path.join(repoRoot, "crates", "vide-lsp-wasm", "dist");
 const targetDir = path.join(vscodeDir, "dist", "browser", "wasm");
 const requiredFiles = ["vide-lsp.js", "vide-core.js", "vide-core.wasm"];
-const buildWasmCommand = `node "${path.join(repoRoot, "crates", "vide-lsp-wasm", "scripts", "build.mjs")}"`;
+const buildWasmCommand = "npm --prefix website --workspace playground run build:wasm";
 
 if (!fs.existsSync(sourceDir)) {
   throw new Error(
