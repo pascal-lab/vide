@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { delimiter, dirname, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { run } from "../../website/playground/scripts/script-utils.mjs";
 
 const crateRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceRoot = resolve(crateRoot, "..", "..");
@@ -22,8 +22,8 @@ if (!buildEnv.EM_CONFIG && existsSync(emConfig)) {
   buildEnv.EM_CONFIG = emConfig;
 }
 
-run("rustup", ["target", "add", "wasm32-unknown-emscripten"], { env: buildEnv });
-run("ninja", ["--version"], { env: buildEnv });
+run("rustup", ["target", "add", "wasm32-unknown-emscripten"], { cwd: workspaceRoot, env: buildEnv });
+run("ninja", ["--version"], { cwd: workspaceRoot, env: buildEnv });
 
 const linkArgs = [
   "-C", "link-arg=-sENVIRONMENT=web,worker",
@@ -48,6 +48,7 @@ Object.assign(buildEnv, {
 
 const crateManifest = resolve(workspaceRoot, "crates", "vide-lsp-wasm", "Cargo.toml");
 run("cargo", ["build", "--manifest-path", crateManifest, "--target", "wasm32-unknown-emscripten", "--release"], {
+  cwd: workspaceRoot,
   env: buildEnv,
 });
 
@@ -70,23 +71,6 @@ function assertFile(path, label) {
     throw new Error(`${label} not found at ${path}`);
   }
 }
-
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    cwd: workspaceRoot,
-    env: process.env,
-    stdio: "inherit",
-    shell: false,
-    ...options,
-  });
-  if (result.error) {
-    throw result.error;
-  }
-  if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
-  }
-}
-
 function findEmscriptenRoot() {
   if (process.env.EMSDK) {
     const root = resolve(process.env.EMSDK, "upstream", "emscripten");
