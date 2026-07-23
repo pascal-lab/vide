@@ -1,6 +1,10 @@
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { delimiter, dirname, resolve } from "node:path";
-import { repoRoot, run, workspaceRoot } from "./script-utils.mjs";
+import { fileURLToPath } from "node:url";
+import { run } from "../../website/playground/scripts/script-utils.mjs";
+
+const crateRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const workspaceRoot = resolve(crateRoot, "..", "..");
 
 if (process.argv.slice(2).some((arg) => arg !== "--")) {
   throw new Error(`build:wasm does not accept arguments.`);
@@ -18,8 +22,8 @@ if (!buildEnv.EM_CONFIG && existsSync(emConfig)) {
   buildEnv.EM_CONFIG = emConfig;
 }
 
-run("rustup", ["target", "add", "wasm32-unknown-emscripten"], { env: buildEnv });
-run("ninja", ["--version"], { env: buildEnv });
+run("rustup", ["target", "add", "wasm32-unknown-emscripten"], { cwd: workspaceRoot, env: buildEnv });
+run("ninja", ["--version"], { cwd: workspaceRoot, env: buildEnv });
 
 const linkArgs = [
   "-C", "link-arg=-sENVIRONMENT=web,worker",
@@ -44,6 +48,7 @@ Object.assign(buildEnv, {
 
 const crateManifest = resolve(workspaceRoot, "crates", "vide-lsp-wasm", "Cargo.toml");
 run("cargo", ["build", "--manifest-path", crateManifest, "--target", "wasm32-unknown-emscripten", "--release"], {
+  cwd: workspaceRoot,
   env: buildEnv,
 });
 
@@ -53,7 +58,7 @@ const coreWasm = resolve(targetRoot, "vide_lsp_wasm.wasm");
 assertFile(coreJs, "Emscripten JavaScript output");
 assertFile(coreWasm, "Emscripten WASM output");
 
-const outWasmRoot = resolve(repoRoot, "public", "wasm");
+const outWasmRoot = resolve(crateRoot, "dist");
 mkdirSync(outWasmRoot, { recursive: true });
 copyFileSync(coreJs, resolve(outWasmRoot, "vide-core.js"));
 copyFileSync(coreWasm, resolve(outWasmRoot, "vide-core.wasm"));
@@ -66,7 +71,6 @@ function assertFile(path, label) {
     throw new Error(`${label} not found at ${path}`);
   }
 }
-
 function findEmscriptenRoot() {
   if (process.env.EMSDK) {
     const root = resolve(process.env.EMSDK, "upstream", "emscripten");
@@ -81,7 +85,7 @@ function findEmscriptenRoot() {
   }
 
   throw new Error(
-    "Emscripten SDK is not configured. Activate emsdk_env first or set EMSDK before running npm run build:wasm.",
+    "Emscripten SDK is not configured. Activate emsdk_env first or set EMSDK before building vide-lsp-wasm.",
   );
 }
 
