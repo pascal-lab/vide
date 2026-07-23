@@ -8,6 +8,8 @@ export const websiteRoot = resolve(playgroundRoot, "..");
 export const workspaceRoot = resolve(websiteRoot, "..");
 export const repoRoot = playgroundRoot;
 
+export const WASM_FILES = ["vide-lsp.js", "vide-core.js", "vide-core.wasm"];
+
 export function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
@@ -92,4 +94,13 @@ export function findFirstFile(root, extension) {
 
 export function directoryExists(path) {
   return existsSync(path) && statSync(path).isDirectory();
+}
+
+export function requireFiles(root, files, hint) {
+  for (const file of files) {
+    const path = resolve(root, file);
+    if (!existsSync(path)) {
+      throw new Error(`Missing ${path}. ${hint}`);
+    }
+  }
 }
