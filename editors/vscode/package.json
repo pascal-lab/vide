@@ -1,6 +1,6 @@
 {
   "name": "vide-code-extension",
-  "displayName": "Vide - Verilog/SystemVerilog Coding IDE",
+  "displayName": "Vide — Verilog/SystemVerilog",
   "description": "%extension.description%",
   "version": "1.2.5",
   "publisher": "pascal-lab",
