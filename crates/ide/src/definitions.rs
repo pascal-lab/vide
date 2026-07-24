@@ -231,20 +231,15 @@ fn package_member_resolution(
 ) -> DefinitionResolution {
     let fallback_ctx =
         if primary_ctx == NameContext::Type { NameContext::Value } else { NameContext::Type };
-    let mut members = SmallVec::<[DefId; 2]>::new();
-    for package in packages.into_candidates() {
-        let Some(package_id) = package.primary_origin(sema.db).as_module(sema.db) else {
-            continue;
-        };
-        members.extend(
-            sema.db
-                .package_export_scope(package_id)
-                .lookup(primary_ctx, ident)
-                .or_else(|| sema.db.package_export_scope(package_id).lookup(fallback_ctx, ident))
-                .into_candidates(),
-        );
-    }
-    Resolution::from_candidates(members).map(DefinitionClass::Definition)
+    packages
+        .and_then(|package| {
+            let Some(package_id) = package.primary_origin(sema.db).as_module(sema.db) else {
+                return Resolution::Unresolved;
+            };
+            let scope = sema.db.package_export_scope(package_id);
+            scope.lookup(primary_ctx, ident).or_else(|| scope.lookup(fallback_ctx, ident))
+        })
+        .map(DefinitionClass::Definition)
 }
 
 fn resolve_instantiation_type_name(
@@ -560,6 +555,61 @@ endmodule
         assert!(candidates.iter().all(
             |candidate| matches!(candidate, DefinitionClass::Definition(def) if def.kind(db) == DefKind::Param)
         ));
+    }
+
+    #[test]
+    fn package_member_does_not_disambiguate_ambiguous_package() {
+        for (case, text) in [
+            (
+                "scoped member",
+                r#"
+package p;
+  int only_left;
+endpackage
+
+package p;
+endpackage
+
+module top;
+  int x = p::only_/*caret*/left;
+endmodule
+"#,
+            ),
+            (
+                "explicit import",
+                r#"
+package p;
+  int only_left;
+endpackage
+
+package p;
+endpackage
+
+module top;
+  import p::only_/*caret*/left;
+endmodule
+"#,
+            ),
+        ] {
+            let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
+            let text = text.replace("/*caret*/", "");
+            let (host, file_id) = host_with_file(&text);
+            let sema = Semantics::<RootDb>::new(host.raw_db());
+            let parsed = sema.parse_file(file_id);
+            let token = parsed
+                .compilation_unit()
+                .unwrap()
+                .syntax()
+                .token_at_offset(offset)
+                .pick_bext_token(crate::goto_definition::token_precedence)
+                .unwrap();
+
+            assert_eq!(
+                DefinitionClass::resolve(&sema, file_id.into(), token),
+                Resolution::Unresolved,
+                "{case} must not use child existence to disambiguate its package"
+            );
+        }
     }
 
     #[test]

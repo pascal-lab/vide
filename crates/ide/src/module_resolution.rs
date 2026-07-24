@@ -129,15 +129,9 @@ fn resolve_named_port_in_instantiation(
     instantiation: ast::HierarchyInstantiation,
     port_name: &Ident,
 ) -> Resolution<DefId> {
-    Resolution::from_candidates(
-        resolve_instantiation_target(db, from_file, instantiation)
-            .into_resolution()
-            .into_candidates()
-            .into_iter()
-            .flat_map(|module_id| {
-                resolve_named_port_in_module(db, module_id, port_name).into_candidates()
-            }),
-    )
+    resolve_instantiation_target(db, from_file, instantiation)
+        .into_resolution()
+        .and_then(|module_id| resolve_named_port_in_module(db, module_id, port_name))
 }
 
 fn resolve_named_param_in_instantiation(
@@ -146,15 +140,9 @@ fn resolve_named_param_in_instantiation(
     instantiation: ast::HierarchyInstantiation,
     param_name: &Ident,
 ) -> Resolution<DefId> {
-    Resolution::from_candidates(
-        resolve_instantiation_target(db, from_file, instantiation)
-            .into_resolution()
-            .into_candidates()
-            .into_iter()
-            .flat_map(|module_id| {
-                resolve_named_param_in_module(db, module_id, param_name).into_candidates()
-            }),
-    )
+    resolve_instantiation_target(db, from_file, instantiation)
+        .into_resolution()
+        .and_then(|module_id| resolve_named_param_in_module(db, module_id, param_name))
 }
 
 fn resolve_named_port_in_module(
