@@ -1,7 +1,7 @@
 use super::*;
-use crate::base_db::project::{Predefine, PreprocessConfig};
+use crate::project::{Predefine, PreprocessConfig};
 
-pub(in crate::base_db::source_db) fn source_preproc_file_ids(
+pub(in crate::source_db) fn source_preproc_file_ids(
     db: &dyn SourceRootDb,
     file_id: FileId,
     profile_id: Option<CompilationProfileId>,
@@ -173,7 +173,7 @@ fn include_buffer_texts_by_path(options: &SyntaxTreeOptions) -> FxHashMap<String
         .collect()
 }
 
-pub(in crate::base_db::source_db) fn materialized_predefine_text(predefine: &str) -> String {
+pub(in crate::source_db) fn materialized_predefine_text(predefine: &str) -> String {
     let mut definition = predefine.to_owned();
     if let Some(index) = definition.find('=') {
         definition.replace_range(index..index + 1, " ");
@@ -371,7 +371,7 @@ fn file_id_for_vfs_path(db: &dyn SourceRootDb, path: &VfsPath) -> Option<FileId>
     None
 }
 
-pub(in crate::base_db::source_db::preproc) fn shift_text_range(
+pub(in crate::source_db::preproc) fn shift_text_range(
     range: TextRange,
     offset: usize,
 ) -> Option<TextRange> {
@@ -383,7 +383,7 @@ pub(in crate::base_db::source_db::preproc) fn shift_text_range(
     ))
 }
 
-pub(in crate::base_db::source_db::preproc) fn unshift_text_size(
+pub(in crate::source_db::preproc) fn unshift_text_size(
     offset: TextSize,
     range_offset: usize,
 ) -> Option<TextSize> {

@@ -1,6 +1,7 @@
 #![feature(decl_macro)]
 
-pub mod base_db;
+pub use base_db;
+pub use base_db::{impl_intern_key, impl_intern_lookup};
 pub mod container;
 pub mod db;
 pub mod def_id;

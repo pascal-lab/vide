@@ -51,6 +51,7 @@ triomphe.workspace = true
 
 
 [workspace.dependencies]
+base-db = { path = "./crates/base-db/", version = "0.0.0" }
 hir = { path = "./crates/hir/", version = "0.0.0" }
 ide = { path = "./crates/ide/", version = "0.0.0" }
 preproc = { path = "./crates/preproc/", version = "0.0.0" }

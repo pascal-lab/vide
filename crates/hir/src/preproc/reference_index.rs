@@ -1,7 +1,7 @@
 use super::{predefines::configured_predefine_definitions_for_name, *};
 
 pub fn macro_references(
-    db: &dyn SourceRootDb,
+    db: &dyn PreprocDb,
     file_id: FileId,
     definition: &MacroDefinition,
 ) -> PreprocResult<MacroReferences> {
@@ -13,7 +13,7 @@ pub fn macro_references(
 }
 
 pub fn macro_param_references(
-    db: &dyn SourceRootDb,
+    db: &dyn PreprocDb,
     file_id: FileId,
     definition: &MacroParamDefinition,
 ) -> PreprocResult<MacroParamReferences> {
@@ -87,7 +87,7 @@ pub fn macro_param_references(
 }
 
 pub(crate) fn build_macro_reference_index(
-    db: &dyn SourceRootDb,
+    db: &dyn PreprocDb,
     profile_id: Option<CompilationProfileId>,
 ) -> MacroReferenceIndex {
     let mut index = MacroReferenceIndex::default();
@@ -110,8 +110,15 @@ pub(crate) fn build_macro_reference_index(
     index
 }
 
+pub(crate) fn macro_reference_index_for_profile_query(
+    db: &dyn PreprocDb,
+    profile_id: Option<CompilationProfileId>,
+) -> Arc<MacroReferenceIndex> {
+    Arc::new(build_macro_reference_index(db, profile_id))
+}
+
 fn collect_macro_references_in_model(
-    db: &dyn SourceRootDb,
+    db: &dyn PreprocDb,
     mapped: &MappedSourcePreprocModel,
     model_file_id: FileId,
     index: &mut MacroReferenceIndex,
@@ -166,7 +173,7 @@ fn collect_macro_references_in_model(
 }
 
 fn collect_configured_predefine_reference(
-    db: &dyn SourceRootDb,
+    db: &dyn PreprocDb,
     mapped: &MappedSourcePreprocModel,
     model_file_id: FileId,
     source_reference: &SourceMacroReference,

@@ -8,7 +8,7 @@ pub enum SourcePreprocQueryError {
     UnmappedSource { buffer_id: u32, path: String },
 }
 
-pub(crate) fn workspace_preproc_model_file_ids(
+pub fn workspace_preproc_model_file_ids(
     db: &dyn SourceRootDb,
     profile_id: Option<CompilationProfileId>,
 ) -> Vec<FileId> {
@@ -56,7 +56,7 @@ pub(crate) fn workspace_preproc_model_file_ids(
     file_ids
 }
 
-pub(in crate::base_db::source_db) fn source_preproc_model(
+pub(in crate::source_db) fn source_preproc_model(
     db: &dyn SourceRootDb,
     file_id: FileId,
 ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>> {

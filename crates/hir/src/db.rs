@@ -2,7 +2,7 @@ use syntax::SyntaxTree;
 use triomphe::Arc;
 
 use crate::{
-    base_db::{salsa, source_db::SourceRootDb},
+    base_db::salsa,
     container::{InContainer, InFileOrModule, InModule, InSubroutine, SubroutineScope},
     def_id::{DefId, Definition},
     file::HirFileId,
@@ -30,6 +30,7 @@ use crate::{
         typedef::TypedefId,
     },
     impl_intern_key, impl_intern_lookup,
+    preproc::PreprocDb,
     symbol::{DefOrigin, DefOriginLoc, NameScope, Resolution},
     type_infer::TyResult,
 };
@@ -40,7 +41,7 @@ pub(crate) macro impl_intern($id:ident, $loc:ident, $intern:ident, $lookup:ident
 }
 
 #[salsa::query_group(InternDbStorage)]
-pub trait InternDb: SourceRootDb {
+pub trait InternDb: PreprocDb {
     #[salsa::interned]
     fn intern_ty(&self, ty: BuiltinDataTy) -> BuiltinDataTyId;
 

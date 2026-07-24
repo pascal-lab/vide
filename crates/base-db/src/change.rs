@@ -2,7 +2,7 @@ use salsa::Durability;
 use triomphe::Arc;
 use vfs::{Change as VfsChange, ChangedFile};
 
-use crate::base_db::{
+use crate::{
     project::SharedProjectConfig,
     source_db::SourceRootDb,
     source_root::{SourceRoot, SourceRootId},

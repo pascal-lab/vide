@@ -24,6 +24,17 @@ use crate::{
     db::HirDb,
 };
 
+use triomphe::Arc;
+
+#[salsa::query_group(PreprocDbStorage)]
+pub trait PreprocDb: SourceRootDb {
+    #[salsa::invoke(reference_index::macro_reference_index_for_profile_query)]
+    fn macro_reference_index_for_profile(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> Arc<MacroReferenceIndex>;
+}
+
 mod conditionals;
 mod definitions;
 mod diagnostics;

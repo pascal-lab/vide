@@ -15,7 +15,7 @@ use utils::{
 use vfs::{FileId, VfsPath};
 
 use super::{SourceFileKind, SourceRootDb, path_file_ids, syntax_tree_options_for_file};
-use crate::base_db::project::CompilationProfileId;
+use crate::project::CompilationProfileId;
 
 mod context;
 mod queries;
@@ -23,7 +23,7 @@ mod range_index;
 mod source_map;
 mod source_mapping;
 
-pub(crate) use self::queries::workspace_preproc_model_file_ids;
+pub use self::queries::workspace_preproc_model_file_ids;
 #[cfg(not(test))]
 use self::source_mapping::source_preproc_file_ids;
 #[cfg(test)]
