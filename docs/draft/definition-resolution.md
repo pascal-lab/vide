@@ -25,6 +25,8 @@ It owns source-level operations:
 
 Most definitions have one origin. A definition with several source representations has a `primary_origin` and additional origins.
 
+The intern key contains only `primary_origin`. Additional origins are computed on demand, so adding or removing an auxiliary declaration does not change the `DefId`.
+
 `primary_origin` is the stable representative of the definition. It is not necessarily the target for “go to declaration”; callers should use `declaration_origin()` for that purpose.
 
 ### `Resolution<T>`
@@ -94,9 +96,7 @@ Ambiguous([DefId(first), DefId(second)])
 
 - Every `DefId` has at least one origin.
 - Selecting `primary_origin` must not depend on salsa intern IDs or collection ordering.
+- Adding or removing an additional origin does not change the `DefId`.
 - `NameScope::lookup()` and path resolution return `Resolution<DefId>`.
 - Source-level `as_*` projections belong to `DefOrigin`, not `DefId`.
 
-## Open question
-
-The current intern key includes additional origins. A future revision may intern only the logical identity and compute origins on demand, so adding or removing an auxiliary declaration does not change the definition ID.

@@ -672,41 +672,38 @@ impl DefOrigin {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Definition {
     primary_origin: DefOrigin,
-    additional_origins: SmallVec<[DefOrigin; 2]>,
 }
 
 impl Definition {
-    fn from_origin(origin: DefOrigin) -> Self {
-        Self { primary_origin: origin, additional_origins: SmallVec::new() }
+    fn from_origin(primary_origin: DefOrigin) -> Self {
+        Self { primary_origin }
     }
 
-    fn from_non_ansi_port(
-        db: &dyn HirDb,
-        port_id: InModule<crate::hir_def::module::port::NonAnsiPortId>,
-    ) -> Self {
-        let module = db.module(port_id.module_id);
-        let port_name = module.get(port_id.value).label.as_ref();
-        let primary_origin = DefOrigin::new(db, port_id);
-        let additional_origins = module
-            .decls
-            .iter()
-            .filter(|(_, decl)| port_name.is_some() && decl.name.as_ref() == port_name)
-            .map(|(decl_id, _)| {
-                DefOrigin::new(db, InContainer::new(port_id.module_id.into(), decl_id))
-            })
-            .collect::<SmallVec<[_; 2]>>();
-        Self { primary_origin, additional_origins }
-    }
-
-    fn origins(self) -> SmallVec<[DefOrigin; 3]> {
-        let mut origins = SmallVec::with_capacity(1 + self.additional_origins.len());
+    fn origins(self, db: &dyn HirDb) -> SmallVec<[DefOrigin; 3]> {
+        let mut origins = SmallVec::new();
         origins.push(self.primary_origin);
-        origins.extend(self.additional_origins);
+        origins.extend(additional_origins(db, self.primary_origin));
         origins
     }
+}
+
+fn additional_origins(db: &dyn HirDb, primary_origin: DefOrigin) -> SmallVec<[DefOrigin; 2]> {
+    let Some(port_id) = primary_origin.as_non_ansi_port(db) else {
+        return SmallVec::new();
+    };
+    let module = db.module(port_id.module_id);
+    let Some(port_name) = module.get(port_id.value).label.as_ref() else {
+        return SmallVec::new();
+    };
+    module
+        .decls
+        .iter()
+        .filter(|(_, decl)| decl.name.as_ref() == Some(port_name))
+        .map(|(decl_id, _)| DefOrigin::new(db, InContainer::new(port_id.module_id.into(), decl_id)))
+        .collect()
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -716,14 +713,15 @@ pub struct DefId(pub salsa::InternId);
 impl DefId {
     pub fn new(db: &dyn HirDb, loc: impl Into<DefOriginLoc>) -> Self {
         let origin = DefOrigin::new(db, loc);
-        let definition = non_ansi_port_for_origin(db, origin)
-            .map(|port_id| Definition::from_non_ansi_port(db, port_id))
-            .unwrap_or_else(|| Definition::from_origin(origin));
+        let primary_origin = non_ansi_port_for_origin(db, origin)
+            .map(|port_id| DefOrigin::new(db, port_id))
+            .unwrap_or(origin);
+        let definition = Definition::from_origin(primary_origin);
         db.intern_def(definition)
     }
 
     pub fn origins(self, db: &dyn HirDb) -> SmallVec<[DefOrigin; 3]> {
-        db.lookup_intern_def(self).origins()
+        db.lookup_intern_def(self).origins(db)
     }
 
     pub fn primary_origin(self, db: &dyn HirDb) -> DefOrigin {
@@ -731,32 +729,30 @@ impl DefId {
     }
 
     pub fn declaration_origin(self, db: &dyn HirDb) -> DefOrigin {
-        let definition = db.lookup_intern_def(self);
-        if definition.primary_origin.as_non_ansi_port(db).is_some() {
-            return definition
-                .additional_origins
+        let primary_origin = self.primary_origin(db);
+        if primary_origin.as_non_ansi_port(db).is_some() {
+            let additional_origins = additional_origins(db, primary_origin);
+            return additional_origins
                 .iter()
                 .copied()
                 .find(|origin| is_port_decl_origin(db, *origin))
-                .or_else(|| definition.additional_origins.first().copied())
-                .unwrap_or(definition.primary_origin);
+                .or_else(|| additional_origins.first().copied())
+                .unwrap_or(primary_origin);
         }
 
-        definition.primary_origin
+        primary_origin
     }
 
     pub fn def_origins(self, db: &dyn HirDb) -> SmallVec<[DefOrigin; 2]> {
-        let definition = db.lookup_intern_def(self);
-        if definition.primary_origin.as_non_ansi_port(db).is_some() {
-            return definition
-                .additional_origins
-                .iter()
-                .copied()
+        let primary_origin = self.primary_origin(db);
+        if primary_origin.as_non_ansi_port(db).is_some() {
+            return additional_origins(db, primary_origin)
+                .into_iter()
                 .filter(|origin| matches!(origin.loc(db), DefOriginLoc::Decl(_)))
                 .collect();
         }
 
-        SmallVec::from_slice(&[definition.primary_origin])
+        SmallVec::from_slice(&[primary_origin])
     }
 
     pub fn is_non_ansi_port(self, db: &dyn HirDb) -> bool {
