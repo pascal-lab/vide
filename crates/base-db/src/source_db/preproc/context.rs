@@ -142,7 +142,7 @@ fn collect_context_source(
     }
 }
 
-pub(in crate::base_db::source_db) fn source_preproc_context_index_for_profile(
+pub(in crate::source_db) fn source_preproc_context_index_for_profile(
     db: &dyn SourceRootDb,
     profile_id: Option<CompilationProfileId>,
 ) -> Arc<SourcePreprocContextIndex> {
@@ -187,7 +187,7 @@ pub(in crate::base_db::source_db) fn source_preproc_context_index_for_profile(
     Arc::new(SourcePreprocContextIndex { contexts_by_file, status })
 }
 
-pub(in crate::base_db::source_db) fn source_preproc_contexts_for_file(
+pub(in crate::source_db) fn source_preproc_contexts_for_file(
     db: &dyn SourceRootDb,
     file_id: FileId,
 ) -> Arc<SourcePreprocRelevantContexts> {

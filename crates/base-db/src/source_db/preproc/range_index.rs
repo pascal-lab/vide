@@ -13,7 +13,7 @@ impl MappedSourcePreprocModel {
         Self { model, source_map, range_index }
     }
 
-    pub(crate) fn macro_reference_ids_at(
+    pub fn macro_reference_ids_at(
         &self,
         file_id: FileId,
         offset: TextSize,
@@ -21,7 +21,7 @@ impl MappedSourcePreprocModel {
         self.range_index.reference_ids_at(file_id, offset)
     }
 
-    pub(crate) fn macro_reference_ids_intersecting_range(
+    pub fn macro_reference_ids_intersecting_range(
         &self,
         file_id: FileId,
         range: TextRange,
@@ -29,7 +29,7 @@ impl MappedSourcePreprocModel {
         self.range_index.reference_ids_intersecting_range(file_id, range)
     }
 
-    pub(crate) fn macro_call_ids_at(
+    pub fn macro_call_ids_at(
         &self,
         file_id: FileId,
         offset: TextSize,
@@ -37,7 +37,7 @@ impl MappedSourcePreprocModel {
         self.range_index.call_ids_at(file_id, offset)
     }
 
-    pub(crate) fn macro_call_ids_intersecting_range(
+    pub fn macro_call_ids_intersecting_range(
         &self,
         file_id: FileId,
         range: TextRange,

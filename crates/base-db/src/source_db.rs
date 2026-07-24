@@ -7,7 +7,7 @@ use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
 use vfs::{AnchoredPath, FileId};
 
-use crate::base_db::{
+use crate::{
     analysis_snapshot::CompilationContext,
     compilation_plan::{self, CompilationPlan},
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
@@ -19,7 +19,7 @@ mod preproc;
 
 pub use workspace_model::source_db::SourceFileKind;
 
-pub(crate) use self::preproc::workspace_preproc_model_file_ids;
+pub use self::preproc::workspace_preproc_model_file_ids;
 pub use self::preproc::{
     MappedSourcePreprocModel, PreprocManifestSource, PreprocSourceMap, PreprocSourceMapError,
     PreprocSourceMapping, PreprocSpeculativeUniverseId, PreprocVirtualOrigin,
@@ -428,10 +428,6 @@ pub trait SourceRootDb: SourceDb {
         &self,
         file_id: FileId,
     ) -> Arc<SourcePreprocRelevantContexts>;
-    fn macro_reference_index_for_profile(
-        &self,
-        profile_id: Option<CompilationProfileId>,
-    ) -> Arc<crate::preproc::MacroReferenceIndex>;
     fn parsed_compilation_unit(&self, file_id: FileId) -> ParsedCompilationUnit;
     fn parsed_profile(&self, profile_id: Option<CompilationProfileId>) -> Arc<ParsedProfile>;
     fn parse_src_for_compilation(&self, file_id: FileId) -> SyntaxTree;
@@ -651,12 +647,6 @@ fn include_buffers_for_profile(
     Arc::new(compilation_plan::include_buffers_for_plan(db, &plan))
 }
 
-fn macro_reference_index_for_profile(
-    db: &dyn SourceRootDb,
-    profile_id: Option<CompilationProfileId>,
-) -> Arc<crate::preproc::MacroReferenceIndex> {
-    Arc::new(crate::preproc::build_macro_reference_index(db, profile_id))
-}
 
 fn semantic_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
     Arc::from(
@@ -713,7 +703,7 @@ mod tests {
     use vfs::{FileSet, VfsPath};
 
     use super::*;
-    use crate::base_db::{
+    use crate::{
         project::{CompilationProfile, Predefine, PredefineSource, PreprocessConfig},
         salsa::{self, Durability},
     };

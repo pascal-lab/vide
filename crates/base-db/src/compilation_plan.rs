@@ -7,7 +7,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::base_db::{
+use crate::{
     project::{CompilationProfileId, ProjectConfig},
     source_db::{SourceFileKind, SourceRootDb},
     source_root::SourceRootId,

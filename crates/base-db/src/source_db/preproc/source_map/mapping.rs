@@ -19,7 +19,7 @@ impl PreprocSourceMap {
         self.insert_virtual_file_with_offset(source, file_id, path, origin, text_len, 0);
     }
 
-    pub(in crate::base_db::source_db::preproc) fn insert_virtual_file_with_offset(
+    pub(in crate::source_db::preproc) fn insert_virtual_file_with_offset(
         &mut self,
         source: PreprocSourceId,
         file_id: Option<FileId>,
@@ -45,7 +45,7 @@ impl PreprocSourceMap {
         self.range_offsets.remove(&source);
     }
 
-    pub(in crate::base_db::source_db::preproc) fn insert_predefine_manifest_source(
+    pub(in crate::source_db::preproc) fn insert_predefine_manifest_source(
         &mut self,
         source: PreprocSourceId,
         manifest_source: PreprocManifestSource,

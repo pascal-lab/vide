@@ -2,7 +2,7 @@ use triomphe::Arc;
 use utils::paths::AbsPathBuf;
 use vfs::FileId;
 
-use crate::base_db::project::CompilationProfileId;
+use crate::project::CompilationProfileId;
 
 /// Stable identity for all analysis results derived from one immutable
 /// analysis state.
