@@ -9,7 +9,7 @@ use crate::{
     definitions::DefinitionClass,
     references::{
         self, ReferenceCategory, ReferencesConfig,
-        search::{ReferencesCtx, SearchScope},
+        search::{ReferencesCtx, SearchScope, resolve_source_range},
     },
     semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
 };
@@ -93,11 +93,9 @@ fn highlight_refs<'a>(
 ) -> Option<Vec<DocumentHighlight>> {
     let defs = def.origins(sema.db).into_iter().filter_map(|def| {
         let InFile { value: range, file_id: def_file_id } = def.name_range(sema.db)?;
-        if def_file_id.source_file_id(sema.db) == Some(file_id) {
-            Some(DocumentHighlight { range, category: ReferenceCategory::empty() })
-        } else {
-            None
-        }
+        let (def_file_id, range) = resolve_source_range(sema.db, def_file_id, range)?;
+        (def_file_id == file_id)
+            .then_some(DocumentHighlight { range, category: ReferenceCategory::empty() })
     });
 
     let ref_config =
@@ -116,7 +114,11 @@ fn highlight_refs<'a>(
 mod tests {
     use std::path::PathBuf;
 
-    use hir::base_db::{change::Change, source_root::SourceRoot};
+    use hir::{
+        base_db::{change::Change, source_root::SourceRoot},
+        db::HirDb,
+        hir_def::macro_file::macro_files_at_offset,
+    };
     use insta::assert_debug_snapshot;
     use utils::text_edit::TextSize;
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};
@@ -146,6 +148,47 @@ mod tests {
         host.apply_change(change);
         let position = FilePosition { file_id, offset: TextSize::from(off as u32) };
         (host, position)
+    }
+
+    #[test]
+    fn macro_generated_definition_highlight_uses_call_site_range() {
+        let text = r#"
+`define DECL module generated; endmodule
+`DECL
+
+module top;
+  /*caret*/generated u();
+endmodule
+"#;
+        let clean_text = normalize_fixture_text(text).replace("/*caret*/", "");
+        let call_start = clean_text.find("`DECL\n").expect("macro call");
+        let call_range = TextRange::new(
+            TextSize::from(call_start as u32),
+            TextSize::from((call_start + "`DECL".len()) as u32),
+        );
+        let (host, position) = setup(text);
+        let db = host.raw_db();
+        let macro_file =
+            macro_files_at_offset(db, position.file_id, TextSize::from(call_start as u32))
+                .pop()
+                .expect("macro expansion");
+        let hir_file_id = HirFileId::Macro(macro_file);
+        let (hir_file, _) = db.hir_file_with_source_map(hir_file_id);
+        let (local_module_id, _) = hir_file.modules.iter().next().expect("macro-generated module");
+        let def = DefId::new(db, InFile::new(hir_file_id, local_module_id));
+
+        let highlights = highlight_refs(
+            &Semantics::new(db),
+            position.file_id,
+            def,
+            DocumentHighlightConfig { scope_visibility: ScopeVisibility::Public },
+        )
+        .expect("module highlights");
+
+        let mut ranges =
+            highlights.into_iter().map(|highlight| highlight.range).collect::<Vec<_>>();
+        ranges.sort_unstable_by_key(|range| (range.start(), range.end()));
+        assert_eq!(ranges, vec![call_range], "highlights must contain only source-document ranges");
     }
 
     fn fixtures_dir() -> PathBuf {

@@ -9,7 +9,7 @@ use hir::{
     db::HirDb,
     def_id::DefId,
     file::HirFileId,
-    hir_def::macro_file::macro_file_expansion,
+    hir_def::macro_file::macro_file_call_site,
     semantics::Semantics,
     source_map::IsSrc,
     symbol::DefOrigin,
@@ -270,8 +270,8 @@ pub(crate) fn resolve_source_range(
     match file_id {
         HirFileId::File(file_id) => Some((file_id, range)),
         HirFileId::Macro(macro_file) => {
-            let expansion = macro_file_expansion(db, macro_file)?;
-            Some((expansion.call_file_id, expansion.call_range))
+            let call_site = macro_file_call_site(db, macro_file)?;
+            Some((call_site.call_file_id, call_site.call_range))
         }
     }
 }

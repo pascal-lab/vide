@@ -2,7 +2,7 @@ use vfs::FileId;
 
 use crate::{
     db::HirDb,
-    hir_def::macro_file::{MacroFileId, macro_file_expansion},
+    hir_def::macro_file::{MacroFileId, macro_file_call_site},
 };
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
@@ -31,7 +31,7 @@ impl HirFileId {
         match self {
             Self::File(file_id) => Some(file_id),
             Self::Macro(macro_file) => {
-                macro_file_expansion(db, macro_file).map(|expansion| expansion.call_file_id)
+                macro_file_call_site(db, macro_file).map(|call_site| call_site.call_file_id)
             }
         }
     }
