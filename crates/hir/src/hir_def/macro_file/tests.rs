@@ -26,6 +26,7 @@ use crate::{
         },
         source_root::{SourceRoot, SourceRootId},
     },
+    container::{InFile, ScopeId},
     db::{HirDb, HirDbStorage, InternDb, InternDbStorage},
     file::HirFileId,
 };
@@ -243,6 +244,26 @@ fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
     let module = modules.next().expect("macro expansion should contain a module");
     assert!(modules.next().is_none());
     assert_eq!(module.header().name().unwrap().value_text().to_string(), "from_macro");
+}
+
+#[test]
+fn macro_expanded_module_keeps_macro_hir_file_id() {
+    let root_text = "`define DECL module from_macro; endmodule\n`DECL\n";
+    let db = db_with_root_text(root_text);
+    let macro_file = macro_files_at_offset(&db, TOP, offset(root_text, "`DECL"))
+        .pop()
+        .expect("macro call should expand");
+    let hir_file_id = HirFileId::Macro(macro_file);
+
+    let (hir_file, _) = db.hir_file_with_source_map(hir_file_id);
+    let (local_module_id, _) =
+        hir_file.modules.iter().next().expect("macro expansion should lower a module");
+    let module_id = InFile::new(hir_file_id, local_module_id);
+
+    // Container accessors return the macro HIR file id instead of panicking.
+    assert_eq!(ScopeId::Module(module_id).file_id(&db), hir_file_id);
+    // The user-facing source file is the file containing the macro invocation.
+    assert_eq!(module_id.file_id.source_file_id(&db), Some(TOP));
 }
 
 #[test]

@@ -170,7 +170,7 @@ pub(crate) fn handle_ctrl_flow_kw(
 
     Some(vec![References {
         def: None,
-        refs: IntMap::from_iter([(file_id.file_id(), refs)]),
+        refs: IntMap::from_iter([(file_id.expect_file(), refs)]),
         status: ReferencesStatus::Complete,
     }])
 }

@@ -59,7 +59,7 @@ fn handle_ctrl_flow_kw(
     file_id: HirFileId,
     tp: SyntaxTokenWithParent,
 ) -> Option<Vec<DocumentHighlight>> {
-    let cur_file_id = file_id.file_id();
+    let cur_file_id = file_id.expect_file();
     let highlights = references::handle_ctrl_flow_kw(sema, file_id, tp)?
         .into_iter()
         .filter_map(|mut r| r.refs.remove(&cur_file_id))
@@ -93,7 +93,7 @@ fn highlight_refs<'a>(
 ) -> Option<Vec<DocumentHighlight>> {
     let defs = def.origins(sema.db).into_iter().filter_map(|def| {
         let InFile { value: range, file_id: def_file_id } = def.name_range(sema.db)?;
-        if file_id == def_file_id.file_id() {
+        if def_file_id.source_file_id(sema.db) == Some(file_id) {
             Some(DocumentHighlight { range, category: ReferenceCategory::empty() })
         } else {
             None

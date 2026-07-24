@@ -348,12 +348,12 @@ fn rename_definition_with_refs(
         let Some(InFile { value: focus_range, file_id }) = def.name_range(db) else {
             continue;
         };
+        let Some(file_id) = file_id.as_file() else {
+            continue;
+        };
 
         source_changes
-            .insert_text_edit(
-                file_id.file_id(),
-                TextEdit::replace(focus_range, new_name.to_owned()),
-            )
+            .insert_text_edit(file_id, TextEdit::replace(focus_range, new_name.to_owned()))
             .map_err(|_| RenameError::OverlappingEdits)?;
     }
 
@@ -478,7 +478,7 @@ fn origins_are_editable(db: &RootDb, def: &DefId, file_id: FileId) -> bool {
     def.origins(db).into_iter().all(|origin| {
         matches!(
             origin.name_range(db),
-            Some(InFile { file_id: origin_file_id, .. }) if origin_file_id.file_id() == file_id
+            Some(InFile { file_id: origin_file_id, .. }) if origin_file_id.as_file() == Some(file_id)
         )
     })
 }

@@ -1,6 +1,9 @@
 use vfs::FileId;
 
-use crate::hir_def::macro_file::MacroFileId;
+use crate::{
+    db::HirDb,
+    hir_def::macro_file::{MacroFileId, macro_file_expansion},
+};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum HirFileId {
@@ -20,8 +23,17 @@ impl HirFileId {
         self.as_file().expect("HirFileId is not a source file")
     }
 
-    pub fn file_id(self) -> FileId {
-        self.expect_file()
+    /// The user-facing source file backing this HIR file: the file itself for
+    /// real files, or the file containing the macro invocation for macro
+    /// expansions. Returns `None` when a macro expansion's call site cannot be
+    /// resolved.
+    pub fn source_file_id(self, db: &dyn HirDb) -> Option<FileId> {
+        match self {
+            Self::File(file_id) => Some(file_id),
+            Self::Macro(macro_file) => {
+                macro_file_expansion(db, macro_file).map(|expansion| expansion.call_file_id)
+            }
+        }
     }
 }
 
@@ -42,6 +54,6 @@ mod tests {
         let hir_file_id = HirFileId::from(file_id);
 
         assert_eq!(hir_file_id.as_file(), Some(file_id));
-        assert_eq!(hir_file_id.file_id(), file_id);
+        assert_eq!(hir_file_id.expect_file(), file_id);
     }
 }
