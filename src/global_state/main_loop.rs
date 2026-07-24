@@ -388,7 +388,7 @@ mod tests {
                     ..Default::default()
                 }),
                 workspace: Some(lsp_types::WorkspaceClientCapabilities {
-                    diagnostic: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
+                    diagnostics: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
                         refresh_support: Some(true),
                     }),
                     ..Default::default()

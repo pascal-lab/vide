@@ -387,7 +387,9 @@ fn qihe_diagnostics_use_pull_refresh_for_pull_capable_clients() {
             ..Default::default()
         }),
         workspace: Some(WorkspaceClientCapabilities {
-            diagnostic: Some(DiagnosticWorkspaceClientCapabilities { refresh_support: Some(true) }),
+            diagnostics: Some(DiagnosticWorkspaceClientCapabilities {
+                refresh_support: Some(true),
+            }),
             ..Default::default()
         }),
         ..Default::default()

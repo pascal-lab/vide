@@ -142,3 +142,6 @@ default = ["server-file-watcher"]
 server-file-watcher = ["vfs/notify-backend"]
 profile-trace = ["dep:tracing-chrome"]
 user-config-schema = ["dep:schemars"]
+
+[patch.crates-io]
+lsp-types = { git = "https://github.com/snowsignal/lsp-types", rev = "0f58d628799182647f688908ba752a33f854fb3a" }

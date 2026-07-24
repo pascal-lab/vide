@@ -340,7 +340,7 @@ fn unconfigured_workspace_diagnostics_skip_unopened_indexed_files() {
             ..Default::default()
         }),
         workspace: Some(WorkspaceClientCapabilities {
-            diagnostic: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
+            diagnostics: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
                 refresh_support: Some(true),
             }),
             ..Default::default()
@@ -1081,7 +1081,7 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
             ..Default::default()
         }),
         workspace: Some(WorkspaceClientCapabilities {
-            diagnostic: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
+            diagnostics: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
                 refresh_support: Some(true),
             }),
             ..Default::default()
@@ -1183,7 +1183,7 @@ fn deleted_workspace_file_requests_diagnostic_refresh() {
             ..Default::default()
         }),
         workspace: Some(WorkspaceClientCapabilities {
-            diagnostic: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
+            diagnostics: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
                 refresh_support: Some(true),
             }),
             ..Default::default()
@@ -1308,7 +1308,7 @@ fn watched_dependency_change_refreshes_workspace_diagnostics() {
             ..Default::default()
         }),
         workspace: Some(WorkspaceClientCapabilities {
-            diagnostic: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
+            diagnostics: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
                 refresh_support: Some(true),
             }),
             ..Default::default()

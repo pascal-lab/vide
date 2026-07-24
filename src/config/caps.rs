@@ -159,7 +159,7 @@ impl Config {
         check_support! {
             self.client_caps
             .workspace.as_ref()?
-            .diagnostic.as_ref()?
+            .diagnostics.as_ref()?
             .refresh_support?
         }
     }
