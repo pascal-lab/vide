@@ -153,11 +153,11 @@ impl SemanticsImpl<'_> {
         self.with_ctx(|ctx| ctx.subroutine_to_def(InFile::new(file_id, subroutine_src)))
     }
 
-    pub fn expr_to_def(&self, in_cont: InContainer<ExprId>) -> Option<Resolution<DefId>> {
+    pub fn expr_to_def(&self, in_cont: InContainer<ExprId>) -> Resolution<DefId> {
         self.with_ctx(|ctx| ctx.expr_to_def(in_cont))
     }
 
-    pub fn name_to_def(&self, in_cont: InContainer<Ident>) -> Option<Resolution<DefId>> {
+    pub fn name_to_def(&self, in_cont: InContainer<Ident>) -> Resolution<DefId> {
         self.with_ctx(|ctx| ctx.name_to_def(in_cont, NameContext::Value))
     }
 }

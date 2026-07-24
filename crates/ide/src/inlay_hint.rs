@@ -17,7 +17,7 @@ use hir::{
     },
     preproc::{MacroCallResolution, macro_call_resolutions_in_range},
     source_map::{IsNamedSrc, IsSrc},
-    symbol::{DefKind, NameContext, NameScope},
+    symbol::{DefKind, NameContext, NameScope, Resolution},
 };
 use syntax::{ast, match_ast_kind};
 use utils::{
@@ -490,12 +490,8 @@ fn non_ansi_port_id_for_conn<'a>(
             Some((port_id, name, dir))
         }
         PortConn::Named(Some(name), _) => {
-            let defs = scope.lookup(NameContext::Value, name);
-            let port_id = defs
-                .iter()
-                .find(|def_id| def_id.is_non_ansi_port(db))
-                .and_then(|def_id| def_id.primary_origin(db).as_non_ansi_port(db))?
-                .value;
+            let def = scope.lookup(NameContext::Value, name).unique()?;
+            let port_id = def.primary_origin(db).as_non_ansi_port(db)?.value;
             let port_name = module.get(port_id).label.as_ref()?;
             let dir = non_ansi_port_dir_by_port_id(db, module, scope, port_id)?;
             Some((port_id, port_name, dir))
@@ -542,15 +538,20 @@ fn ansi_port_decl_id_for_conn(
             Some((port_decl_id, decl_id))
         }
         PortConn::Named(Some(name), _) => {
-            let defs = scope.lookup(NameContext::Value, name);
-            let decl_id = defs
-                .iter()
-                .filter(|def_id| def_id.kind(db) == DefKind::Port)
-                .filter_map(|def_id| def_id.primary_origin(db).as_decl(db))
-                .map(|decl_id| decl_id.value)
-                .find(|decl_id| {
-                    matches!(module.get(*decl_id).parent, DeclaratorParent::PortDeclId(_))
-                })?;
+            let decl_id = Resolution::from_candidates(
+                scope
+                    .lookup(NameContext::Value, name)
+                    .into_candidates()
+                    .into_iter()
+                    .filter(|def_id| def_id.kind(db) == DefKind::Port)
+                    .filter_map(|def_id| {
+                        let decl_id = def_id.primary_origin(db).as_decl(db)?;
+                        matches!(module.get(decl_id.value).parent, DeclaratorParent::PortDeclId(_))
+                            .then_some(decl_id)
+                    }),
+            )
+            .unique()?
+            .value;
             let DeclaratorParent::PortDeclId(port_decl_id) = module.get(decl_id).parent else {
                 return None;
             };

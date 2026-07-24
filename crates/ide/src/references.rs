@@ -137,7 +137,7 @@ fn references_for_token(
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
     handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
-        let def = match DefinitionClass::resolve(sema, hir_file_id, token)?.unique()? {
+        let def = match DefinitionClass::resolve(sema, hir_file_id, token).unique()? {
             DefinitionClass::Definition(def) => def,
             DefinitionClass::PortConnShorthand { local, .. } => local,
         };

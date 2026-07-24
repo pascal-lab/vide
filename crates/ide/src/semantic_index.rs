@@ -262,9 +262,7 @@ impl SemanticIndexBuilder {
         let Some(range) = token.text_range() else {
             return;
         };
-        let Some(class) = DefinitionClass::resolve(sema, file_id, token)
-            .and_then(|resolution| resolution.unique())
-        else {
+        let Some(class) = DefinitionClass::resolve(sema, file_id, token).unique() else {
             return;
         };
 

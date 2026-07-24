@@ -703,6 +703,7 @@ fn additional_origins(db: &dyn HirDb, primary_origin: DefOrigin) -> SmallVec<[De
         .iter()
         .filter(|(_, decl)| decl.name.as_ref() == Some(port_name))
         .map(|(decl_id, _)| DefOrigin::new(db, InContainer::new(port_id.module_id.into(), decl_id)))
+        .filter(|origin| non_ansi_port_for_origin(db, *origin) == Some(port_id))
         .collect()
 }
 
@@ -743,7 +744,7 @@ impl DefId {
         primary_origin
     }
 
-    pub fn def_origins(self, db: &dyn HirDb) -> SmallVec<[DefOrigin; 2]> {
+    pub fn declaration_origins(self, db: &dyn HirDb) -> SmallVec<[DefOrigin; 2]> {
         let primary_origin = self.primary_origin(db);
         if primary_origin.as_non_ansi_port(db).is_some() {
             return additional_origins(db, primary_origin)
@@ -777,6 +778,20 @@ impl DefId {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum NonAnsiPortOriginRole {
+    PortDeclaration,
+    DataDeclaration,
+}
+
+fn non_ansi_port_origin_role(db: &dyn HirDb, origin: DefOrigin) -> Option<NonAnsiPortOriginRole> {
+    match origin.kind(db) {
+        DefKind::Port => Some(NonAnsiPortOriginRole::PortDeclaration),
+        DefKind::Variable | DefKind::Net => Some(NonAnsiPortOriginRole::DataDeclaration),
+        _ => None,
+    }
+}
+
 fn non_ansi_port_for_origin(
     db: &dyn HirDb,
     origin: DefOrigin,
@@ -784,15 +799,30 @@ fn non_ansi_port_for_origin(
     match origin.loc(db) {
         DefOriginLoc::NonAnsiPort(port_id) => Some(port_id),
         DefOriginLoc::Decl(InContainer { value, cont_id: ScopeId::Module(module_id) }) => {
+            let role = non_ansi_port_origin_role(db, origin)?;
             let module = db.module(module_id);
             let name = module.get(value).name.as_ref()?;
+            let matching_role_count = module
+                .decls
+                .iter()
+                .filter(|(_, decl)| decl.name.as_ref() == Some(name))
+                .map(|(decl_id, _)| DefOrigin::new(db, InContainer::new(module_id.into(), decl_id)))
+                .filter(|candidate| non_ansi_port_origin_role(db, *candidate) == Some(role))
+                .take(2)
+                .count();
+            if matching_role_count != 1 {
+                return None;
+            }
+
             let crate::hir_def::module::port::Ports::NonAnsi { ports, .. } = &module.ports else {
                 return None;
             };
-            ports
-                .iter()
-                .find(|(_, port)| port.label.as_ref() == Some(name))
-                .map(|(port_id, _)| InModule::new(module_id, port_id))
+            let mut matches = ports.iter().filter(|(_, port)| port.label.as_ref() == Some(name));
+            let (port_id, _) = matches.next()?;
+            if matches.next().is_some() {
+                return None;
+            }
+            Some(InModule::new(module_id, port_id))
         }
         _ => None,
     }

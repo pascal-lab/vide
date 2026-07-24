@@ -520,9 +520,8 @@ fn collect_named_port_connections(
         else {
             continue;
         };
-        if let Some(res) = resolve_named_port_connection(db, module_id.file_id.file_id(), named) {
-            collect_resolved_path(sema, res, range, collector);
-        }
+        let res = resolve_named_port_connection(db, module_id.file_id.file_id(), named);
+        collect_resolved_path(sema, res, range, collector);
     }
 }
 
@@ -553,9 +552,8 @@ fn collect_named_param_assignments(
         else {
             continue;
         };
-        if let Some(res) = resolve_named_param_assignment(db, module_id.file_id.file_id(), named) {
-            collect_resolved_path(sema, res, range, collector);
-        }
+        let res = resolve_named_param_assignment(db, module_id.file_id.file_id(), named);
+        collect_resolved_path(sema, res, range, collector);
     }
 }
 
@@ -565,8 +563,7 @@ fn collect_ident_like(
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) -> Option<()> {
-    let res =
-        sema.resolve_name(in_cont.cont_id, &in_cont.value, NameContext::Value).into_option()?;
+    let res = sema.resolve_name(in_cont.cont_id, &in_cont.value, NameContext::Value);
     collect_resolved_path(sema, res, range, collector)
 }
 
@@ -580,7 +577,7 @@ fn collect_type_ident_like(
     let Expr::Ident(name) = expr else {
         return None;
     };
-    let res = sema.resolve_name(cont_id, name, NameContext::Type).into_option()?;
+    let res = sema.resolve_name(cont_id, name, NameContext::Type);
     collect_resolved_path(sema, res, range, collector)
 }
 
@@ -597,7 +594,7 @@ fn collect_field_like(
     if !collector.range.intersect(range).is_some() {
         return None;
     }
-    let res = sema.expr_to_def(InContainer::new(cont_id, expr_id))?;
+    let res = sema.expr_to_def(InContainer::new(cont_id, expr_id));
     collect_resolved_path(sema, res, range, collector)
 }
 

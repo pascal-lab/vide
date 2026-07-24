@@ -65,27 +65,16 @@ fn render_source_declaration_target(
 
     let origins = tokens
         .into_iter()
-        .filter_map(|token| {
-            let resolution = DefinitionClass::resolve(sema, hir_file_id, token)?;
-            Some(
-                resolution
-                    .into_candidates()
-                    .into_iter()
-                    .map(|class| match class {
-                        DefinitionClass::Definition(definition) => {
-                            definition.declaration_origin(db)
-                        }
-                        DefinitionClass::PortConnShorthand { port, .. } => {
-                            port.declaration_origin(db)
-                        }
-                    })
-                    .collect_vec(),
+        .flat_map(|token| {
+            DefinitionClass::resolve(sema, hir_file_id, token).into_candidates().into_iter().map(
+                |class| match class {
+                    DefinitionClass::Definition(definition) => definition.declaration_origin(db),
+                    DefinitionClass::PortConnShorthand { port, .. } => port.declaration_origin(db),
+                },
             )
         })
-        .flatten()
         .collect_vec();
 
     let navs = origins.into_iter().unique().filter_map(|def| def.to_nav(db)).collect_vec();
-
-    Some(RangeInfo::new(range, navs))
+    (!navs.is_empty()).then_some(RangeInfo::new(range, navs))
 }

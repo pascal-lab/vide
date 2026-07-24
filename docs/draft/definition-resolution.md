@@ -77,6 +77,8 @@ Two unrelated declarations with the same name instead produce two definitions:
 Ambiguous([DefId(first), DefId(second)])
 ```
 
+Name alone is not enough to merge origins. Same-name parameters, duplicate header labels, and duplicate declaration roles remain separate definitions.
+
 ## Usage rules
 
 1. Never use `first()` to silently choose an ambiguous candidate.
@@ -98,5 +100,6 @@ Ambiguous([DefId(first), DefId(second)])
 - Selecting `primary_origin` must not depend on salsa intern IDs or collection ordering.
 - Adding or removing an additional origin does not change the `DefId`.
 - `NameScope::lookup()` and path resolution return `Resolution<DefId>`.
+- Resolution-producing interfaces return `Resolution<T>` directly; `Unresolved` is never encoded as `None`.
 - Source-level `as_*` projections belong to `DefOrigin`, not `DefId`.
 

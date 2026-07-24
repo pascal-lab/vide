@@ -245,7 +245,7 @@ fn resolve_rename_target(
 
     for token in tokens {
         let token_selected = match DefinitionClass::resolve(sema, hir_file_id, token)
-            .and_then(|resolution| resolution.unique())
+            .unique()
             .ok_or(RenameError::NoDefFound)?
         {
             DefinitionClass::Definition(def) => {
@@ -422,7 +422,7 @@ fn check_same_name_conn(
     let name_range = name_token.text_range_in(conn.syntax())?;
     let token_range = token.text_range()?;
     let port_token = SyntaxTokenWithParent { parent: conn.syntax(), tok: name_token };
-    let port_resolution = DefinitionClass::resolve(sema, file_id, port_token)?.unique()?;
+    let port_resolution = DefinitionClass::resolve(sema, file_id, port_token).unique()?;
 
     let close_paren = match (conn.open_paren(), conn.close_paren()) {
         (None, None) => {
@@ -469,7 +469,7 @@ fn check_same_name_conn(
     let collapse_end = close_paren.text_range_in(conn.syntax())?.end();
     Some(SameNameConnection {
         port,
-        local: sema.nameres_ident(file_id, actual_token, NameContext::Value)?.unique()?,
+        local: sema.nameres_ident(file_id, actual_token, NameContext::Value).unique()?,
         collapse_range: TextRange::new(name_range.start(), collapse_end),
     })
 }

@@ -74,7 +74,6 @@ pub enum TyInferDiagnostic {
 pub struct TyMember {
     pub name: Ident,
     pub ty: Ty,
-    pub origin: Option<Resolution<DefId>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -507,7 +506,7 @@ fn struct_members(db: &dyn HirDb, struct_id: InContainer<StructId>) -> Vec<TyMem
                 .ty
                 .map(|ty| normalize_data_ty(db, ty.cont_id, ty.value).ty)
                 .unwrap_or(Ty::Unknown);
-            Some(TyMember { name, ty, origin: None })
+            Some(TyMember { name, ty })
         })
         .collect()
 }
@@ -612,10 +611,10 @@ fn module_members(db: &dyn HirDb, module_id: ModuleId) -> Vec<TyMember> {
 
     let mut members: Vec<_> = scope
         .iter_listing()
-        .filter_map(|(name, defs)| {
-            let origin = Resolution::from_candidates(defs).into_option()?;
-            let ty = type_of_path_resolution_impl(db, origin.clone()).ty;
-            Some(TyMember { name: name.clone(), ty, origin: Some(origin) })
+        .map(|(name, defs)| {
+            let resolution = Resolution::from_candidates(defs);
+            let ty = type_of_path_resolution_impl(db, resolution).ty;
+            TyMember { name: name.clone(), ty }
         })
         .collect();
     sort_members(&mut members);
@@ -647,10 +646,10 @@ fn block_members(db: &dyn HirDb, block_id: crate::hir_def::block::BlockId) -> Ve
 fn scope_members(db: &dyn HirDb, scope: &NameScope) -> Vec<TyMember> {
     let mut members: Vec<_> = scope
         .iter_listing()
-        .filter_map(|(name, defs)| {
-            let origin = Resolution::from_candidates(defs).into_option()?;
-            let ty = type_of_path_resolution_impl(db, origin.clone()).ty;
-            Some(TyMember { name: name.clone(), ty, origin: Some(origin) })
+        .map(|(name, defs)| {
+            let resolution = Resolution::from_candidates(defs);
+            let ty = type_of_path_resolution_impl(db, resolution).ty;
+            TyMember { name: name.clone(), ty }
         })
         .collect();
     sort_members(&mut members);

@@ -34,8 +34,10 @@ impl SemanticsImpl<'_> {
         file_id: HirFileId,
         SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
         name_ctx: NameContext,
-    ) -> Option<Resolution<DefId>> {
-        let ident = lower_ident_opt(Some(tok))?;
+    ) -> Resolution<DefId> {
+        let Some(ident) = lower_ident_opt(Some(tok)) else {
+            return Resolution::Unresolved;
+        };
         self.with_ctx(|source_ctx| {
             let container = source_ctx.find_container(InFile::new(file_id, parent));
             source_ctx.name_to_def(InContainer::new(container, ident), name_ctx)
@@ -131,7 +133,7 @@ fn resolve_top_level_module_root(
     )
 }
 
-fn resolve_child_name(
+pub(super) fn resolve_child_name(
     db: &dyn HirDb,
     parent: &Resolution<DefId>,
     ident: &Ident,
@@ -148,7 +150,11 @@ fn resolve_child_name(
             }
         }
     }
-    Resolution::from_candidates(defs)
+    let children = Resolution::from_candidates(defs);
+    match (parent, children) {
+        (Resolution::Ambiguous(_), Resolution::Unique(_)) => Resolution::Unresolved,
+        (_, children) => children,
+    }
 }
 
 pub fn descend_scope(db: &dyn HirDb, def_id: DefId) -> Option<ScopeId> {
@@ -244,13 +250,12 @@ fn collect_imports(
             _ => continue,
         }
 
-        let Some(package_id) = db.unit_scope().package_ids(db, &import.package).unique() else {
-            continue;
-        };
-        let package_scope = db.package_export_scope(package_id);
-        for def_id in package_scope.lookup(ctx, ident).into_candidates() {
-            if !defs.contains(&def_id) {
-                defs.push(def_id);
+        for package_id in db.unit_scope().package_ids(db, &import.package).into_candidates() {
+            let package_scope = db.package_export_scope(package_id);
+            for def_id in package_scope.lookup(ctx, ident).into_candidates() {
+                if !defs.contains(&def_id) {
+                    defs.push(def_id);
+                }
             }
         }
     }
@@ -413,6 +418,73 @@ endmodule
             resolved_kind(&db, top.into(), &["g", "gen_sig"], NameContext::Value),
             DefKind::Net
         );
+    }
+
+    #[test]
+    fn resolve_path_does_not_collapse_ambiguous_parent() {
+        let db = db_with_root_text(
+            r#"
+module left;
+  wire only_left;
+  wire shared;
+endmodule
+
+module right;
+  wire shared;
+endmodule
+
+module top;
+  left u();
+  right u();
+endmodule
+"#,
+        );
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+
+        assert!(
+            resolve_path(&db, top.into(), &path(&["u", "only_left"]), NameContext::Value)
+                .is_unresolved()
+        );
+        let Resolution::Ambiguous(shared) =
+            resolve_path(&db, top.into(), &path(&["u", "shared"]), NameContext::Value)
+        else {
+            panic!("members from ambiguous parents should remain ambiguous");
+        };
+        assert_eq!(shared.len(), 2);
+    }
+
+    #[test]
+    fn wildcard_import_preserves_ambiguous_packages() {
+        let db = db_with_root_text(
+            r#"
+package p;
+  int value;
+endpackage
+
+package p;
+  int value;
+endpackage
+
+module top;
+  import p::*;
+endmodule
+"#,
+        );
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+        let Resolution::Ambiguous(values) =
+            resolve_name(&db, top.into(), &ident("value"), NameContext::Value)
+        else {
+            panic!("imports from ambiguous packages should remain ambiguous");
+        };
+        assert_eq!(values.len(), 2);
     }
 
     #[test]

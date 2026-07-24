@@ -28,7 +28,7 @@ use crate::{
         typedef::{Typedef, TypedefId},
     },
     source_map::ToAstNode,
-    symbol::{DefOriginLoc, Import, NameScope},
+    symbol::{DefOriginLoc, Import, NameContext, NameScope},
 };
 
 // SystemVerilog has separate namespaces. This scope stores current supported
@@ -489,17 +489,14 @@ impl NameScope {
         module: &Module,
         name: &SmolStr,
     ) -> Option<PortDeclId> {
-        let defs = self.values.get(name)?;
-        defs.iter()
-            .flat_map(|def_id| def_id.origins(db))
-            .filter_map(|origin| origin.as_decl(db))
-            .find_map(|decl_id| {
-                let decl = module.get(decl_id.value);
-                match decl.parent {
-                    DeclaratorParent::PortDeclId(port_decl_id) => Some(port_decl_id),
-                    _ => None,
-                }
-            })
+        let def = self.lookup(NameContext::Value, name).unique()?;
+        def.origins(db).into_iter().filter_map(|origin| origin.as_decl(db)).find_map(|decl_id| {
+            let decl = module.get(decl_id.value);
+            match decl.parent {
+                DeclaratorParent::PortDeclId(port_decl_id) => Some(port_decl_id),
+                _ => None,
+            }
+        })
     }
 
     fn insert_package_import(&mut self, import: &PackageImport) {
@@ -712,7 +709,7 @@ mod tests {
         def_id::DefId,
         hir_def::Ident,
         semantics::pathres::resolve_name,
-        symbol::{DefKind, DefOriginLoc, NameContext},
+        symbol::{DefKind, DefOriginLoc, NameContext, Resolution},
     };
 
     const TOP: FileId = FileId::from_raw(0);
@@ -970,6 +967,84 @@ endmodule
             .expect("port should still resolve uniquely");
         assert_eq!(after.origins(&db).len(), 3);
         assert_eq!(before, after);
+    }
+
+    #[test]
+    fn non_ansi_port_does_not_absorb_unrelated_parameter() {
+        let db = db_with_root_text(
+            r#"
+module m(a);
+  input a;
+  parameter a = 1;
+endmodule
+"#,
+        );
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let Resolution::Ambiguous(candidates) =
+            db.module_scope(module_id).lookup(NameContext::Value, &ident("a"))
+        else {
+            panic!("the port and parameter should remain separate definitions");
+        };
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().any(|def| def.kind(&db) == DefKind::Port));
+        assert!(candidates.iter().any(|def| def.kind(&db) == DefKind::Param));
+
+        let port = candidates.iter().find(|def| def.kind(&db) == DefKind::Port).unwrap();
+        assert!(port.origins(&db).iter().all(|origin| origin.kind(&db) != DefKind::Param));
+    }
+
+    #[test]
+    fn duplicate_non_ansi_labels_do_not_claim_the_same_declaration() {
+        let db = db_with_root_text(
+            r#"
+module m(a, a);
+  input a;
+endmodule
+"#,
+        );
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let Resolution::Ambiguous(candidates) =
+            db.module_scope(module_id).lookup(NameContext::Value, &ident("a"))
+        else {
+            panic!("duplicate labels should remain ambiguous");
+        };
+        assert_eq!(candidates.len(), 3);
+        assert!(candidates.iter().all(|def| def.origins(&db).len() == 1));
+    }
+
+    #[test]
+    fn duplicate_non_ansi_data_declarations_remain_ambiguous() {
+        let db = db_with_root_text(
+            r#"
+module m(a);
+  input a;
+  reg a;
+  reg a;
+endmodule
+"#,
+        );
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let Resolution::Ambiguous(candidates) =
+            db.module_scope(module_id).lookup(NameContext::Value, &ident("a"))
+        else {
+            panic!("duplicate data declarations should remain ambiguous");
+        };
+        assert_eq!(candidates.len(), 3);
+        let port = candidates.iter().find(|def| def.kind(&db) == DefKind::Port).unwrap();
+        assert_eq!(port.origins(&db).len(), 2);
+        assert_eq!(candidates.iter().filter(|def| def.kind(&db) == DefKind::Variable).count(), 2);
     }
 
     #[test]
