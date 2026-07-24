@@ -4,7 +4,7 @@ use hir::{
         ArenaOwnerId, InContainer, InFile, InModule, InSubroutine, ScopeId, ScopeParent,
         SubroutineScope,
     },
-    db::HirDb,
+    db::HirDefDb,
     def_id::DefId,
     display::HirDisplay,
     hir_def::{

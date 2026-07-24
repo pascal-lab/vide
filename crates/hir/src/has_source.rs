@@ -3,7 +3,7 @@ use utils::get::Get;
 use crate::{
     base_db::intern::Lookup,
     container::InFile,
-    db::HirDb,
+    db::HirDefDb as HirDb,
     hir_def::{
         block::{BlockId, BlockSrc},
         module::{ModuleId, ModuleSrc},

@@ -13,7 +13,7 @@ use hir::{
         },
         source_root::{SourceRoot, SourceRootId},
     },
-    db::PreprocDb,
+    db::{HirDefDb, PreprocDb},
     preproc::{IncludeTarget, include_directive_at},
     semantics::Semantics,
 };

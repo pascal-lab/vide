@@ -7,7 +7,7 @@ use utils::{
 
 use crate::{
     base_db::intern::Lookup,
-    db::{HirDb, InternDb},
+    db::{HirDefDb as HirDb, InternDb},
     file::HirFileId,
     hir_def::{
         aggregate::{StructDef, StructId, StructSrc},

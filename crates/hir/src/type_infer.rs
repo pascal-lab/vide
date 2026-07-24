@@ -4,7 +4,7 @@ use utils::get::GetRef;
 
 use crate::{
     container::{ArenaOwnerId, InContainer, InSubroutine},
-    db::HirDb,
+    db::TyDb as HirDb,
     def_id::DefId,
     hir_def::{
         Ident,
@@ -21,7 +21,7 @@ use crate::{
         subroutine::SubroutinePortId,
         typedef::TypedefId,
     },
-    semantics::pathres::{instance_target_def_id, resolve_name},
+    pathres::{instance_target_def_id, resolve_name},
     symbol::{DefKind, DefOriginLoc, NameContext, NameScope, Resolution},
 };
 
@@ -885,7 +885,7 @@ mod tests {
             },
             source_root::{SourceRoot, SourceRootId},
         },
-        db::{HirDbStorage, InternDbStorage, PreprocDbStorage},
+        db::{HirDefDb, HirDefDbStorage, InternDbStorage, PreprocDbStorage, TyDbStorage},
         display::HirDisplay,
         hir_def::module::ModuleId,
         symbol::{DefOriginLoc, NameContext},
@@ -900,7 +900,8 @@ mod tests {
         SourceRootDbStorage,
         PreprocDbStorage,
         InternDbStorage,
-        HirDbStorage
+        HirDefDbStorage,
+        TyDbStorage
     )]
     #[derive(Default)]
     struct TestDb {
@@ -982,12 +983,7 @@ mod tests {
 
     fn path_ty(db: &TestDb, module_id: ModuleId, segments: &[&str]) -> Ty {
         let path = segments.iter().map(|segment| ident(segment)).collect::<Vec<_>>();
-        let res = crate::semantics::pathres::resolve_path(
-            db,
-            module_id.into(),
-            &path,
-            NameContext::Value,
-        );
+        let res = crate::pathres::resolve_path(db, module_id.into(), &path, NameContext::Value);
         assert!(!res.is_unresolved(), "path {segments:?} should resolve");
         db.type_of_path_resolution(res).ty.clone()
     }

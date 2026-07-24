@@ -1,7 +1,7 @@
 use hir::{
     base_db::intern::Lookup,
     container::{InContainer, InFile, InModule, InSubroutine, SubroutineScope},
-    db::HirDb,
+    db::{HirDb, HirDefDb},
     file::HirFileId,
     hir_def::{
         block::{BlockId, BlockLoc},

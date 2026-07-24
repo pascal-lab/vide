@@ -1,6 +1,6 @@
 use hir::{
     container::InContainer,
-    db::HirDb,
+    db::{HirDb, HirDefDb},
     hir_def::{
         Ident,
         declaration::Declaration,

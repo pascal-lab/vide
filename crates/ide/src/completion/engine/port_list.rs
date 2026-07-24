@@ -1,5 +1,5 @@
 use hir::{
-    db::HirDb,
+    db::HirDefDb,
     hir_def::module::{ModuleId, ModuleSrc},
     semantics::Semantics,
     symbol::DefKind,

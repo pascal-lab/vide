@@ -4,7 +4,7 @@ use hir::{
         source_root::SourceRootId,
     },
     container::InFile,
-    db::{HirDb, PreprocDb},
+    db::{HirDb, HirDefDb, PreprocDb},
     def_id::DefId,
     file::HirFileId,
     hir_def::{Ident, module::ModuleId},

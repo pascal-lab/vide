@@ -31,7 +31,7 @@ use super::{
 use crate::{
     base_db::intern::Lookup,
     container::{ArenaOwnerId, InFile},
-    db::HirDb,
+    db::HirDefDb as HirDb,
     region_tree::RegionTree,
     source_map::{AstKind, IsNamedSrc, IsSrc, NamedAstId, SourceMap, ToAstNode},
 };

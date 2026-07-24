@@ -5,7 +5,7 @@ use hir::{
         source_db::{SourceDb, SourceRootDb},
         source_root::{SourceRootDiagnosticScope, SourceRootRole},
     },
-    db::{HirDb, PreprocDb},
+    db::{HirDefDb, PreprocDb},
     hir_def::module::ModuleId,
     source_map::IsSrc,
 };

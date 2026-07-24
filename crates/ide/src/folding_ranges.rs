@@ -1,6 +1,6 @@
 use hir::{
     base_db::source_db::SourceDb,
-    db::{HirDb, PreprocDb},
+    db::{HirDefDb, PreprocDb},
     file::HirFileId,
     hir_def::{
         block::{BlockId, BlockSrc},

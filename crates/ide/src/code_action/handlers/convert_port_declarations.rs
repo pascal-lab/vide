@@ -3,7 +3,7 @@ use std::ops::Range;
 use hir::{
     base_db::source_db::SourceDb,
     container::{InContainer, InModule},
-    db::HirDb,
+    db::HirDefDb,
     display::HirDisplay,
     hir_def::{
         Ident,

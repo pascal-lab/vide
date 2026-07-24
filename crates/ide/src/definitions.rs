@@ -1,5 +1,5 @@
 use hir::{
-    db::HirDb,
+    db::HirDefDb,
     def_id::DefId,
     file::HirFileId,
     hir_def::lower_ident_opt,

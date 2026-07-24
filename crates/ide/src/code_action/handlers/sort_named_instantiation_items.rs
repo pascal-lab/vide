@@ -3,7 +3,7 @@ use std::ops::Range;
 use hir::{
     base_db::source_db::SourceDb,
     container::InModule,
-    db::HirDb,
+    db::HirDefDb,
     hir_def::module::instantiation::{ParamAssign, PortConn},
     source_map::IsSrc,
 };

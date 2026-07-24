@@ -7,7 +7,7 @@ use crate::{
     container::{
         InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine, SubroutineScope,
     },
-    db::{HirDb, InternDb},
+    db::{HirDefDb as HirDb, InternDb},
     def_id::DefId,
     hir_def::{
         Ident,

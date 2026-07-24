@@ -2,7 +2,7 @@ use bitflags::bitflags;
 use collector::SemaTokenCollectorTree;
 use hir::{
     container::{ArenaOwnerId, InContainer},
-    db::{HirDb, PreprocDb},
+    db::{HirDefDb, PreprocDb},
     def_id::DefId,
     file::HirFileId,
     hir_def::{
