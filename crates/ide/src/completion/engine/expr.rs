@@ -175,7 +175,9 @@ fn collect_def_names(
 ) {
     let defs = defs.into_iter().collect::<Vec<_>>();
 
-    if let Some(subroutine_id) = defs.iter().find_map(|def_id| def_id.as_subroutine(db)) {
+    if let Some(subroutine_id) =
+        defs.iter().find_map(|def_id| def_id.primary_origin(db).as_subroutine(db))
+    {
         names.entry(ident.to_string()).or_insert(NameKind::SubroutineCall {
             return_ty: subroutine_return_ty(db, subroutine_id),
         });

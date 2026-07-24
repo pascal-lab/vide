@@ -121,7 +121,7 @@ impl ModuleIndex {
                 for module_id in defs
                     .iter()
                     .filter(|def_id| def_id.kind(db).is_instantiable_def())
-                    .filter_map(|def_id| def_id.as_module(db))
+                    .filter_map(|def_id| def_id.primary_origin(db).as_module(db))
                 {
                     let Some(module) = SemanticModuleDefinition::new(db, module_id) else {
                         continue;

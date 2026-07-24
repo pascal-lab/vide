@@ -44,7 +44,7 @@ pub(super) fn expected_param_ty(
         if def_id.kind(db) != DefKind::Param {
             continue;
         }
-        let Some(decl_id) = def_id.as_decl(db) else {
+        let Some(decl_id) = def_id.primary_origin(db).as_decl(db) else {
             continue;
         };
         if decl_id.cont_id != ScopeId::Module(target_module_id) {

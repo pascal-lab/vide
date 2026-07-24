@@ -234,7 +234,7 @@ fn package_member_resolution(
         if primary_ctx == NameContext::Type { NameContext::Value } else { NameContext::Type };
     let mut members = SmallVec::<[DefId; 2]>::new();
     for package in packages.into_candidates() {
-        let Some(package_id) = package.as_module(sema.db) else {
+        let Some(package_id) = package.primary_origin(sema.db).as_module(sema.db) else {
             continue;
         };
         members.extend(

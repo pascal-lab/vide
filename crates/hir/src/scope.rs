@@ -846,7 +846,7 @@ endmodule
         let subroutine_id = module_scope
             .lookup(NameContext::Value, &ident("f"))
             .iter()
-            .find_map(|def_id| def_id.as_subroutine(&db))
+            .find_map(|def_id| def_id.primary_origin(&db).as_subroutine(&db))
             .expect("subroutine should be visible from module scope");
         let subroutine_scope = db.subroutine_scope(subroutine_id);
         assert!(
@@ -859,7 +859,7 @@ endmodule
         let block_id = subroutine_scope
             .lookup(NameContext::Value, &ident("b"))
             .iter()
-            .find_map(|def_id| def_id.as_block(&db))
+            .find_map(|def_id| def_id.primary_origin(&db).as_block(&db))
             .expect("named block should be visible from subroutine scope");
         assert!(
             db.block_scope(block_id)
@@ -871,7 +871,7 @@ endmodule
         let generate_block_id = module_scope
             .lookup(NameContext::Value, &ident("g"))
             .iter()
-            .find_map(|def_id| def_id.as_generate_block(&db))
+            .find_map(|def_id| def_id.primary_origin(&db).as_generate_block(&db))
             .expect("generate block should be visible from module scope");
         assert!(
             db.generate_block_scope(generate_block_id)
@@ -951,7 +951,10 @@ endmodule
         let defs = db.module_scope(module_id).lookup(NameContext::Value, &ident("cb"));
         assert!(defs.iter().any(|def_id| {
             def_id.kind(&db) == DefKind::ClockingBlock
-                && def_id.as_clocking_block(&db).is_some_and(|id| id.value == clocking_block_id)
+                && def_id
+                    .primary_origin(&db)
+                    .as_clocking_block(&db)
+                    .is_some_and(|id| id.value == clocking_block_id)
         }));
     }
 
@@ -974,7 +977,7 @@ endmodule
         let checker_id = checker_defs
             .iter()
             .copied()
-            .find_map(|def_id| def_id.as_checker(&db))
+            .find_map(|def_id| def_id.primary_origin(&db).as_checker(&db))
             .expect("checker definition should have a concrete id");
         let checker_scope = db.checker_scope(checker_id);
         assert!(
@@ -1045,7 +1048,10 @@ endmodule
         let covergroup_defs = module_scope.lookup(NameContext::Type, &ident("cg"));
         assert!(covergroup_defs.iter().any(|def_id| {
             def_id.kind(&db) == DefKind::Covergroup
-                && def_id.as_covergroup(&db).is_some_and(|id| id.value == covergroup_id)
+                && def_id
+                    .primary_origin(&db)
+                    .as_covergroup(&db)
+                    .is_some_and(|id| id.value == covergroup_id)
         }));
 
         let coverpoint_defs = module_scope.lookup(NameContext::Value, &ident("cp"));

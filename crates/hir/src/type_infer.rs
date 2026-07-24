@@ -152,8 +152,9 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
     if def_id.is_non_ansi_port(db) {
         return type_of_non_ansi_port(db, def_id);
     }
+    let origin = def_id.primary_origin(db);
     match def_id.kind(db) {
-        DefKind::Module | DefKind::Package | DefKind::Program => def_id
+        DefKind::Module | DefKind::Package | DefKind::Program => origin
             .as_module(db)
             .map(|module_id| TyResult::new(Ty::Module(module_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
@@ -166,19 +167,19 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
         | DefKind::Net
         | DefKind::Param
         | DefKind::Genvar
-        | DefKind::Specparam => def_id
+        | DefKind::Specparam => origin
             .as_decl(db)
             .map(|decl| type_of_decl_impl(db, decl))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::Typedef => def_id
+        DefKind::Typedef => origin
             .as_typedef(db)
             .map(|typedef| type_of_typedef_impl(db, typedef))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::SubroutinePort => def_id
+        DefKind::SubroutinePort => origin
             .as_subroutine_port(db)
             .map(|port| type_of_subroutine_port_impl(db, port))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::Instance => def_id
+        DefKind::Instance => origin
             .as_instance(db)
             .and_then(|instance| instance_target_def_id(db, instance.module_id, instance.value))
             .map(|target| match target.kind(db) {
@@ -186,6 +187,7 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
                     TyResult::new(Ty::VirtualInterface { def: target, modport: None })
                 }
                 DefKind::Module | DefKind::Program => target
+                    .primary_origin(db)
                     .as_module(db)
                     .map(|module_id| TyResult::new(Ty::Module(module_id)))
                     .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
@@ -194,7 +196,7 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
                 _ => TyResult::new(Ty::Unknown),
             })
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::Modport => def_id
+        DefKind::Modport => origin
             .as_modport(db)
             .map(|modport| {
                 TyResult::new(Ty::VirtualInterface {
@@ -203,11 +205,11 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
                 })
             })
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::GenerateBlock => def_id
+        DefKind::GenerateBlock => origin
             .as_generate_block(db)
             .map(|generate_block_id| TyResult::new(Ty::GenerateBlock(generate_block_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
-        DefKind::Block => def_id
+        DefKind::Block => origin
             .as_block(db)
             .map(|block_id| TyResult::new(Ty::Block(block_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
@@ -277,9 +279,11 @@ pub fn members_of_ty(db: &dyn HirDb, ty: &Ty) -> Vec<TyMember> {
         Ty::Module(module_id) => module_members(db, *module_id),
         Ty::Checker(def_id) => checker_members(db, *def_id),
         Ty::Covergroup(def_id) => covergroup_members(db, *def_id),
-        Ty::VirtualInterface { def, .. } => {
-            def.as_module(db).map(|module_id| module_members(db, module_id)).unwrap_or_default()
-        }
+        Ty::VirtualInterface { def, .. } => def
+            .primary_origin(db)
+            .as_module(db)
+            .map(|module_id| module_members(db, module_id))
+            .unwrap_or_default(),
         Ty::GenerateBlock(generate_block_id) => generate_block_members(db, *generate_block_id),
         Ty::Block(block_id) => block_members(db, *block_id),
         Ty::Unknown
@@ -452,7 +456,7 @@ fn type_of_named_data_ty(
     let Some(def_id) = resolution.unique() else {
         return TyResult::new(Ty::Unknown);
     };
-    if let Some(typedef) = def_id.as_typedef(db) {
+    if let Some(typedef) = def_id.primary_origin(db).as_typedef(db) {
         return type_of_typedef_inner(db, typedef, seen);
     }
     type_of_def_id(db, def_id)
@@ -619,14 +623,14 @@ fn module_members(db: &dyn HirDb, module_id: ModuleId) -> Vec<TyMember> {
 }
 
 fn checker_members(db: &dyn HirDb, def_id: DefId) -> Vec<TyMember> {
-    let Some(checker_id) = def_id.as_checker(db) else {
+    let Some(checker_id) = def_id.primary_origin(db).as_checker(db) else {
         return Vec::new();
     };
     scope_members(db, &db.checker_scope(checker_id))
 }
 
 fn covergroup_members(db: &dyn HirDb, def_id: DefId) -> Vec<TyMember> {
-    let Some(covergroup_id) = def_id.as_covergroup(db) else {
+    let Some(covergroup_id) = def_id.primary_origin(db).as_covergroup(db) else {
         return Vec::new();
     };
     scope_members(db, &db.covergroup_scope(covergroup_id))
@@ -968,7 +972,7 @@ mod tests {
         let res = resolve_name(db, module_id.into(), &ident(name), NameContext::Value);
         let decl = res
             .iter()
-            .find_map(|def_id| def_id.as_decl(db))
+            .find_map(|def_id| def_id.primary_origin(db).as_decl(db))
             .expect("resolved value should include a declaration");
         db.type_of_decl(decl).ty.clone()
     }
@@ -989,7 +993,7 @@ mod tests {
         let res = resolve_name(db, module_id.into(), &ident(name), NameContext::Type);
         let typedef = res
             .iter()
-            .find_map(|def_id| def_id.as_typedef(db))
+            .find_map(|def_id| def_id.primary_origin(db).as_typedef(db))
             .expect("resolved type should include a typedef");
         db.type_of_typedef(typedef).ty.clone()
     }
