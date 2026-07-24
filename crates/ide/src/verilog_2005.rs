@@ -3788,7 +3788,10 @@ endmodule
                         stmt_tree_has(db, stmts, *clause, matches_kind)
                     }
                 }),
-                StmtKind::Empty
+                StmtKind::Missing
+                | StmtKind::Invalid
+                | StmtKind::Unsupported(_)
+                | StmtKind::Empty
                 | StmtKind::Expr(_)
                 | StmtKind::Jump(_)
                 | StmtKind::EventTrigger(_)

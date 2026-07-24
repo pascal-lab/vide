@@ -444,7 +444,12 @@ impl HirDisplay for UnaryOp {
 impl HirDisplay for InContainer<&Expr> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         match self.value {
-            Expr::Missing => f.write_str(""),
+            Expr::Missing => f.write_str("<missing>"),
+            Expr::Invalid => f.write_str("<invalid>"),
+            Expr::Unsupported(kind) => {
+                write!(f.f, "<unsupported {kind:?}>")?;
+                Ok(())
+            }
             Expr::Binary { op, lhs, rhs } => {
                 self.with_value(*lhs).hir_fmt(f)?;
                 f.write_str(" ")?;
@@ -572,15 +577,22 @@ impl HirDisplay for InContainer<&Expr> {
                 if let Some(slice) = slice {
                     self.with_value(*slice).hir_fmt(f)?;
                 }
+                f.write_str("{")?;
                 let mut first = true;
-                for expr in concats.iter() {
+                for stream in concats.iter() {
                     if !first {
                         f.write_str(", ")?;
                     }
-                    self.with_value(*expr).hir_fmt(f)?;
+                    self.with_value(stream.expr).hir_fmt(f)?;
+                    if let Some(with_range) = &stream.with_range {
+                        f.write_str(" with ")?;
+                        if let Some(selector) = with_range.selector {
+                            self.with_value(selector).hir_fmt(f)?;
+                        }
+                    }
                     first = false;
                 }
-                f.write_str("}")
+                f.write_str("}}")
             }
             Expr::Unary { op, expr } => {
                 op.hir_fmt(f)?;
