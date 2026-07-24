@@ -11,7 +11,7 @@ use utils::text_edit::TextRange;
 
 use super::{LowerModuleCtx, port::PortDirection};
 use crate::{
-    hir_def::{Ident, alloc_idx_and_src, lower_ident_opt},
+    hir_def::{Ident, alloc_with_source, lower_ident_opt},
     source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, root_token_in},
 };
 
@@ -83,25 +83,23 @@ impl<'a> FromSourceAst<'a, ast::ClockingDeclaration<'a>> for ClockingBlockSrc {
     }
 }
 
-pub(crate) trait LowerClocking {
-    fn lower_clocking_declaration(
-        &mut self,
-        clocking: ast::ClockingDeclaration<'_>,
-    ) -> ClockingBlockId;
-}
-
-impl LowerClocking for LowerModuleCtx<'_> {
-    fn lower_clocking_declaration(
+impl LowerModuleCtx<'_> {
+    pub(crate) fn lower_clocking_declaration(
         &mut self,
         clocking: ast::ClockingDeclaration<'_>,
     ) -> ClockingBlockId {
         let name = lower_ident_opt(clocking.block_name());
         let signals = lower_clocking_signals(clocking);
-        alloc_idx_and_src! {
-            self.file_id;
-            ClockingBlockDef { name, signals } => self.module.clocking_blocks,
-            clocking => self.module_source_map.clocking_block_srcs,
-        }
+        let file_id = self.file_id;
+        let (clocking_blocks, sources) =
+            (&mut self.store.data.clocking_blocks, &mut self.store.sources.clocking_block_srcs);
+        alloc_with_source(
+            file_id,
+            clocking_blocks,
+            sources,
+            ClockingBlockDef { name, signals },
+            clocking,
+        )
     }
 }
 

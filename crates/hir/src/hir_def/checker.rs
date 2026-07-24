@@ -10,10 +10,10 @@ use syntax::{
 use utils::text_edit::TextRange;
 
 use super::{
-    alloc_idx_and_src,
-    declaration::{DeclarationId, LowerDeclaration},
-    file::LowerFileCtx,
-    module::{LowerModuleCtx, port::PortDirection},
+    alloc_with_source,
+    declaration::DeclarationId,
+    lower::{CheckerStore, LoweringCtx},
+    module::port::PortDirection,
 };
 use crate::{
     hir_def::{Ident, lower_ident_opt},
@@ -95,47 +95,20 @@ pub fn lower_checker_decl(checker: ast::CheckerDeclaration<'_>) -> CheckerDef {
     }
 }
 
-pub(crate) trait LowerChecker {
-    fn lower_checker_decl(&mut self, checker_decl: ast::CheckerDeclaration<'_>) -> CheckerId;
-}
-
-impl LowerChecker for LowerModuleCtx<'_> {
-    fn lower_checker_decl(&mut self, checker_decl: ast::CheckerDeclaration<'_>) -> CheckerId {
+impl<Store: CheckerStore> LoweringCtx<'_, Store> {
+    pub(crate) fn lower_checker_decl(
+        &mut self,
+        checker_decl: ast::CheckerDeclaration<'_>,
+    ) -> CheckerId {
         let mut checker = lower_checker_decl(checker_decl);
         lower_checker_declarations(&mut checker, checker_decl, |member| match member {
-            CheckerDeclarationMember::Data(data_decl) => {
-                self.declaration_ctx().lower_data_decl(data_decl)
-            }
-            CheckerDeclarationMember::Net(net_decl) => {
-                self.declaration_ctx().lower_net_decl(net_decl)
-            }
+            CheckerDeclarationMember::Data(data_decl) => self.lower_data_decl(data_decl),
+            CheckerDeclarationMember::Net(net_decl) => self.lower_net_decl(net_decl),
         });
 
-        alloc_idx_and_src! {
-            self.file_id;
-            checker => self.module.checkers,
-            checker_decl => self.module_source_map.checker_srcs,
-        }
-    }
-}
-
-impl LowerChecker for LowerFileCtx<'_> {
-    fn lower_checker_decl(&mut self, checker_decl: ast::CheckerDeclaration<'_>) -> CheckerId {
-        let mut checker = lower_checker_decl(checker_decl);
-        lower_checker_declarations(&mut checker, checker_decl, |member| match member {
-            CheckerDeclarationMember::Data(data_decl) => {
-                self.declaration_ctx().lower_data_decl(data_decl)
-            }
-            CheckerDeclarationMember::Net(net_decl) => {
-                self.declaration_ctx().lower_net_decl(net_decl)
-            }
-        });
-
-        alloc_idx_and_src! {
-            self.file_id;
-            checker => self.file.checkers,
-            checker_decl => self.file_source_map.checker_srcs,
-        }
+        let file_id = self.file_id;
+        let (checkers, sources) = self.store.checkers();
+        alloc_with_source(file_id, checkers, sources, checker, checker_decl)
     }
 }
 

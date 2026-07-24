@@ -192,12 +192,12 @@ impl DefOrigin {
             DefOriginLoc::NonAnsiPort(_) => DefKind::NonAnsiPort,
             DefOriginLoc::Decl(InContainer { value, cont_id }) => {
                 let container = cont_id.to_container(db);
-                let decl = container.get(value);
+                let decl = container.declarator(value);
                 match decl.parent {
                     DeclaratorParent::PortDeclId(_) => DefKind::Port,
                     DeclaratorParent::StmtId(_) => DefKind::Variable,
                     DeclaratorParent::DeclarationId(declaration_id) => {
-                        match container.get(declaration_id) {
+                        match container.declaration(declaration_id) {
                             Declaration::DataDecl(_) => DefKind::Variable,
                             Declaration::NetDecl(_) => DefKind::Net,
                             Declaration::ParamDecl(_) => DefKind::Param,
@@ -238,7 +238,8 @@ impl DefOrigin {
             DefOriginLoc::Block(block_id) => {
                 let BlockLoc { cont_id, src: InFile { value, file_id: _ } } = block_id.lookup(db);
                 let cont = cont_id.to_container(db);
-                value.hir(&cont, &cont_id.to_container_src_map(db))?.name.clone()
+                let source_map = cont_id.to_container_src_map(db);
+                cont.block_info(source_map.block_from_source(value)?).name.clone()
             }
             DefOriginLoc::GenerateBlock(generate_block_id) => {
                 db.generate_block(generate_block_id).name.clone()
@@ -251,10 +252,10 @@ impl DefOrigin {
                 module_id.to_container(db).get(value).label.clone()
             }
             DefOriginLoc::Decl(InContainer { value, cont_id }) => {
-                cont_id.to_container(db).get(value).name.clone()
+                cont_id.to_container(db).declarator(value).name.clone()
             }
             DefOriginLoc::Typedef(InContainer { value, cont_id }) => {
-                cont_id.to_container(db).get(value).name.clone()
+                cont_id.to_container(db).typedef(value).name.clone()
             }
             DefOriginLoc::Instance(InModule { value, module_id }) => {
                 module_id.to_container(db).get(value).name.clone()
@@ -294,7 +295,7 @@ impl DefOrigin {
             }
             DefOriginLoc::Cross(cross) => cross_of(db, cross).and_then(|(cross, _)| cross.name),
             DefOriginLoc::Stmt(InContainer { value, cont_id }) => {
-                cont_id.to_container(db).get(value).label.clone()
+                cont_id.to_container(db).stmt(value).label.clone()
             }
         }
     }
@@ -354,11 +355,13 @@ impl DefOrigin {
                 Some(InFile::new(module_id.file_id, range))
             }
             DefOriginLoc::Decl(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range =
+                    cont_id.to_container_src_map(db).source_of_declarator(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db), range))
             }
             DefOriginLoc::Typedef(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range =
+                    cont_id.to_container_src_map(db).source_of_typedef(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db), range))
             }
             DefOriginLoc::Instance(InModule { value, module_id }) => {
@@ -484,7 +487,7 @@ impl DefOrigin {
                 }
             }
             DefOriginLoc::Stmt(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = cont_id.to_container_src_map(db).source_of_stmt(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db), range))
             }
         }
@@ -542,11 +545,11 @@ impl DefOrigin {
                 InFile::new(module_id.file_id, range)
             }
             DefOriginLoc::Decl(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.range();
+                let range = cont_id.to_container_src_map(db).source_of_declarator(value)?.range();
                 InFile::new(cont_id.file_id(db), range)
             }
             DefOriginLoc::Typedef(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.range();
+                let range = cont_id.to_container_src_map(db).source_of_typedef(value)?.range();
                 InFile::new(cont_id.file_id(db), range)
             }
             DefOriginLoc::Instance(InModule { value, module_id }) => {
@@ -665,7 +668,7 @@ impl DefOrigin {
                 }
             }
             DefOriginLoc::Stmt(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.range();
+                let range = cont_id.to_container_src_map(db).source_of_stmt(value)?.range();
                 InFile::new(cont_id.file_id(db), range)
             }
         })
@@ -833,7 +836,7 @@ fn is_port_decl_origin(db: &dyn HirDb, origin: DefOrigin) -> bool {
         return false;
     };
     matches!(
-        decl_id.cont_id.to_container(db).get(decl_id.value).parent,
+        decl_id.cont_id.to_container(db).declarator(decl_id.value).parent,
         DeclaratorParent::PortDeclId(_)
     )
 }

@@ -149,7 +149,7 @@ where
 
 /// Conversion from a root-buffer AST node into a source-map key.
 ///
-/// `alloc_idx_and_src!` depends on this trait instead of plain `From<ast::...>`
+/// `alloc_with_source` depends on this trait instead of plain `From<ast::...>`
 /// so adding a new source-map entry point requires an explicit implementation
 /// that is checked by `cargo check`. Keep ordinary `From<ast::...>` impls for
 /// lookup paths that already operate on AST nodes under the cursor in the root

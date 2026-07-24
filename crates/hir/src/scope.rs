@@ -333,9 +333,9 @@ impl NameScope {
 
         let container = checker_id.cont_id.to_container(db);
         for declaration_id in &checker.declarations {
-            let declaration = container.get(*declaration_id);
+            let declaration = container.declaration(*declaration_id);
             for decl_id in declaration.decls() {
-                let decl = container.get(decl_id);
+                let decl = container.declarator(decl_id);
                 scope.insert_value_opt(
                     &decl.name,
                     def_id(db, InContainer::new(checker_id.cont_id, decl_id)),

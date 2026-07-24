@@ -1,7 +1,6 @@
-use proc_macro_utils::impl_container;
 use smol_str::SmolStr;
 use triomphe::Arc;
-use utils::define_enum_deriving_from;
+use utils::{define_enum_deriving_from, get::Get};
 
 use crate::{
     base_db::intern::Lookup,
@@ -307,11 +306,15 @@ impl ScopeId {
 
     pub fn to_container(self, db: &dyn HirDb) -> Container {
         match self {
-            ScopeId::File(file_id) => file_id.to_container(db).into(),
-            ScopeId::Module(module_id) => module_id.to_container(db).into(),
-            ScopeId::GenerateBlock(generate_block_id) => generate_block_id.to_container(db).into(),
-            ScopeId::Block(block_id) => block_id.to_container(db).into(),
-            ScopeId::Subroutine(subroutine) => db.subroutine(subroutine.as_in_container()).into(),
+            ScopeId::File(file_id) => Container::HirFile(file_id.to_container(db)),
+            ScopeId::Module(module_id) => Container::Module(module_id.to_container(db)),
+            ScopeId::GenerateBlock(generate_block_id) => {
+                Container::GenerateBlock(generate_block_id.to_container(db))
+            }
+            ScopeId::Block(block_id) => Container::Block(block_id.to_container(db)),
+            ScopeId::Subroutine(subroutine) => {
+                Container::Subroutine(db.subroutine(subroutine.as_in_container()))
+            }
             ScopeId::ClockingBlock(_) => {
                 panic!("clocking block scopes do not expose a generic HIR container")
             }
@@ -326,15 +329,17 @@ impl ScopeId {
 
     pub fn to_container_src_map(self, db: &dyn HirDb) -> ContainerSrcMap {
         match self {
-            ScopeId::File(file_id) => file_id.to_container_src_map(db).into(),
-            ScopeId::Module(module_id) => module_id.to_container_src_map(db).into(),
+            ScopeId::File(file_id) => ContainerSrcMap::File(file_id.to_container_src_map(db)),
+            ScopeId::Module(module_id) => {
+                ContainerSrcMap::Module(module_id.to_container_src_map(db))
+            }
             ScopeId::GenerateBlock(generate_block_id) => {
-                generate_block_id.to_container_src_map(db).into()
+                ContainerSrcMap::GenerateBlock(generate_block_id.to_container_src_map(db))
             }
-            ScopeId::Block(block_id) => block_id.to_container_src_map(db).into(),
-            ScopeId::Subroutine(subroutine) => {
-                db.subroutine_with_source_map(subroutine.as_in_container()).1.into()
-            }
+            ScopeId::Block(block_id) => ContainerSrcMap::Block(block_id.to_container_src_map(db)),
+            ScopeId::Subroutine(subroutine) => ContainerSrcMap::Subroutine(
+                db.subroutine_with_source_map(subroutine.as_in_container()).1,
+            ),
             ScopeId::ClockingBlock(_) => {
                 panic!("clocking block scopes do not expose a generic source map")
             }
@@ -404,28 +409,25 @@ impl GenerateBlockId {
     }
 }
 
-impl_container! {
-    #[derive(Debug, PartialEq, Eq, Clone)]
-    pub enum {
-        HirFile | FileSourceMap,
-        Module | ModuleSourceMap,
-        GenerateBlock | GenerateBlockSourceMap,
-        Block | BlockSourceMap,
-        Subroutine | SubroutineSourceMap,
-    } => {
-        Declaration[DeclarationId | DeclarationSrc],
-        Typedef[TypedefId | TypedefSrc],
-        StructDef[StructId | StructSrc],
-        Expr[ExprId | ExprSrc],
-        EventExpr[EventExprId | EventExprSrc],
-        Declarator[DeclId | DeclaratorSrc],
-        Stmt[StmtId | StmtSrc],
-        BlockInfo[LocalBlockId | BlockSrc],
-    }
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Container {
+    HirFile(Arc<HirFile>),
+    Module(Arc<Module>),
+    GenerateBlock(Arc<GenerateBlock>),
+    Block(Arc<Block>),
+    Subroutine(Arc<Subroutine>),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum ContainerSrcMap {
+    File(Arc<FileSourceMap>),
+    Module(Arc<ModuleSourceMap>),
+    GenerateBlock(Arc<GenerateBlockSourceMap>),
+    Block(Arc<BlockSourceMap>),
+    Subroutine(Arc<SubroutineSourceMap>),
 }
 
 impl Container {
-    #[inline]
     pub fn name(&self) -> Option<&SmolStr> {
         match self {
             Container::HirFile(_) => None,
@@ -435,32 +437,257 @@ impl Container {
             Container::Subroutine(subroutine) => subroutine.name.as_ref(),
         }
     }
-}
 
-impl AsRef<Container> for Container {
-    fn as_ref(&self) -> &Container {
-        self
-    }
-}
-
-impl ContainerSrcMap {
-    #[inline]
-    pub fn region_tree(&self) -> Option<&RegionTree> {
+    pub fn declaration(&self, id: DeclarationId) -> &Declaration {
         match self {
-            ContainerSrcMap::FileSourceMap(file) => Some(&file.region_tree),
-            ContainerSrcMap::ModuleSourceMap(module) => Some(&module.region_tree),
-            ContainerSrcMap::GenerateBlockSourceMap(generate_block) => {
-                Some(&generate_block.region_tree)
-            }
-            ContainerSrcMap::BlockSourceMap(block) => Some(&block.region_tree),
-            ContainerSrcMap::SubroutineSourceMap(subroutine) => Some(&subroutine.region_tree),
+            Container::HirFile(container) => &container.declarations[id],
+            Container::Module(container) => &container.declarations[id],
+            Container::GenerateBlock(container) => &container.declarations[id],
+            Container::Block(container) => &container.declarations[id],
+            Container::Subroutine(container) => &container.declarations[id],
+        }
+    }
+
+    pub fn typedef(&self, id: TypedefId) -> &Typedef {
+        match self {
+            Container::HirFile(container) => &container.typedefs[id],
+            Container::Module(container) => &container.typedefs[id],
+            Container::GenerateBlock(container) => &container.typedefs[id],
+            Container::Block(container) => &container.typedefs[id],
+            Container::Subroutine(container) => &container.typedefs[id],
+        }
+    }
+
+    pub fn struct_def(&self, id: StructId) -> &StructDef {
+        match self {
+            Container::HirFile(container) => &container.structs[id],
+            Container::Module(container) => &container.structs[id],
+            Container::GenerateBlock(container) => &container.structs[id],
+            Container::Block(container) => &container.structs[id],
+            Container::Subroutine(container) => &container.structs[id],
+        }
+    }
+
+    pub fn expr(&self, id: ExprId) -> &Expr {
+        match self {
+            Container::HirFile(container) => &container.exprs[id],
+            Container::Module(container) => &container.exprs[id],
+            Container::GenerateBlock(container) => &container.exprs[id],
+            Container::Block(container) => &container.exprs[id],
+            Container::Subroutine(container) => &container.exprs[id],
+        }
+    }
+
+    pub fn event_expr(&self, id: EventExprId) -> &EventExpr {
+        match self {
+            Container::HirFile(container) => &container.event_exprs[id],
+            Container::Module(container) => &container.event_exprs[id],
+            Container::GenerateBlock(container) => &container.event_exprs[id],
+            Container::Block(container) => &container.event_exprs[id],
+            Container::Subroutine(container) => &container.event_exprs[id],
+        }
+    }
+
+    pub fn declarator(&self, id: DeclId) -> &Declarator {
+        match self {
+            Container::HirFile(container) => &container.decls[id],
+            Container::Module(container) => &container.decls[id],
+            Container::GenerateBlock(container) => &container.decls[id],
+            Container::Block(container) => &container.decls[id],
+            Container::Subroutine(container) => &container.decls[id],
+        }
+    }
+
+    pub fn stmt(&self, id: StmtId) -> &Stmt {
+        match self {
+            Container::HirFile(container) => &container.stmts[id],
+            Container::Module(container) => &container.stmts[id],
+            Container::GenerateBlock(container) => &container.stmts[id],
+            Container::Block(container) => &container.stmts[id],
+            Container::Subroutine(container) => &container.stmts[id],
+        }
+    }
+
+    pub fn block_info(&self, id: LocalBlockId) -> &BlockInfo {
+        match self {
+            Container::HirFile(container) => utils::get::GetRef::get(&container.stmts, id),
+            Container::Module(container) => utils::get::GetRef::get(&container.stmts, id),
+            Container::GenerateBlock(container) => utils::get::GetRef::get(&container.stmts, id),
+            Container::Block(container) => utils::get::GetRef::get(&container.stmts, id),
+            Container::Subroutine(container) => utils::get::GetRef::get(&container.stmts, id),
         }
     }
 }
 
-impl AsRef<ContainerSrcMap> for ContainerSrcMap {
-    fn as_ref(&self) -> &ContainerSrcMap {
-        self
+impl ContainerSrcMap {
+    pub fn region_tree(&self) -> &RegionTree {
+        match self {
+            ContainerSrcMap::File(container) => &container.region_tree,
+            ContainerSrcMap::Module(container) => &container.region_tree,
+            ContainerSrcMap::GenerateBlock(container) => &container.region_tree,
+            ContainerSrcMap::Block(container) => &container.region_tree,
+            ContainerSrcMap::Subroutine(container) => &container.region_tree,
+        }
+    }
+
+    pub fn declaration_from_source(&self, src: DeclarationSrc) -> Option<DeclarationId> {
+        match self {
+            ContainerSrcMap::File(container) => container.declaration_srcs.get(src),
+            ContainerSrcMap::Module(container) => container.declaration_srcs.get(src),
+            ContainerSrcMap::GenerateBlock(container) => container.declaration_srcs.get(src),
+            ContainerSrcMap::Block(container) => container.declaration_srcs.get(src),
+            ContainerSrcMap::Subroutine(container) => container.declaration_srcs.get(src),
+        }
+    }
+
+    pub fn source_of_declaration(&self, id: DeclarationId) -> Option<DeclarationSrc> {
+        match self {
+            ContainerSrcMap::File(container) => container.declaration_srcs.get(id),
+            ContainerSrcMap::Module(container) => container.declaration_srcs.get(id),
+            ContainerSrcMap::GenerateBlock(container) => container.declaration_srcs.get(id),
+            ContainerSrcMap::Block(container) => container.declaration_srcs.get(id),
+            ContainerSrcMap::Subroutine(container) => container.declaration_srcs.get(id),
+        }
+    }
+
+    pub fn typedef_from_source(&self, src: TypedefSrc) -> Option<TypedefId> {
+        match self {
+            ContainerSrcMap::File(container) => container.typedef_srcs.get(src),
+            ContainerSrcMap::Module(container) => container.typedef_srcs.get(src),
+            ContainerSrcMap::GenerateBlock(container) => container.typedef_srcs.get(src),
+            ContainerSrcMap::Block(container) => container.typedef_srcs.get(src),
+            ContainerSrcMap::Subroutine(container) => container.typedef_srcs.get(src),
+        }
+    }
+
+    pub fn source_of_typedef(&self, id: TypedefId) -> Option<TypedefSrc> {
+        match self {
+            ContainerSrcMap::File(container) => container.typedef_srcs.get(id),
+            ContainerSrcMap::Module(container) => container.typedef_srcs.get(id),
+            ContainerSrcMap::GenerateBlock(container) => container.typedef_srcs.get(id),
+            ContainerSrcMap::Block(container) => container.typedef_srcs.get(id),
+            ContainerSrcMap::Subroutine(container) => container.typedef_srcs.get(id),
+        }
+    }
+
+    pub fn struct_from_source(&self, src: StructSrc) -> Option<StructId> {
+        match self {
+            ContainerSrcMap::File(container) => container.struct_srcs.get(src),
+            ContainerSrcMap::Module(container) => container.struct_srcs.get(src),
+            ContainerSrcMap::GenerateBlock(container) => container.struct_srcs.get(src),
+            ContainerSrcMap::Block(container) => container.struct_srcs.get(src),
+            ContainerSrcMap::Subroutine(container) => container.struct_srcs.get(src),
+        }
+    }
+
+    pub fn source_of_struct(&self, id: StructId) -> Option<StructSrc> {
+        match self {
+            ContainerSrcMap::File(container) => container.struct_srcs.get(id),
+            ContainerSrcMap::Module(container) => container.struct_srcs.get(id),
+            ContainerSrcMap::GenerateBlock(container) => container.struct_srcs.get(id),
+            ContainerSrcMap::Block(container) => container.struct_srcs.get(id),
+            ContainerSrcMap::Subroutine(container) => container.struct_srcs.get(id),
+        }
+    }
+
+    pub fn expr_from_source(&self, src: ExprSrc) -> Option<ExprId> {
+        match self {
+            ContainerSrcMap::File(container) => container.expr_srcs.get(src),
+            ContainerSrcMap::Module(container) => container.expr_srcs.get(src),
+            ContainerSrcMap::GenerateBlock(container) => container.expr_srcs.get(src),
+            ContainerSrcMap::Block(container) => container.expr_srcs.get(src),
+            ContainerSrcMap::Subroutine(container) => container.expr_srcs.get(src),
+        }
+    }
+
+    pub fn source_of_expr(&self, id: ExprId) -> Option<ExprSrc> {
+        match self {
+            ContainerSrcMap::File(container) => container.expr_srcs.get(id),
+            ContainerSrcMap::Module(container) => container.expr_srcs.get(id),
+            ContainerSrcMap::GenerateBlock(container) => container.expr_srcs.get(id),
+            ContainerSrcMap::Block(container) => container.expr_srcs.get(id),
+            ContainerSrcMap::Subroutine(container) => container.expr_srcs.get(id),
+        }
+    }
+
+    pub fn event_expr_from_source(&self, src: EventExprSrc) -> Option<EventExprId> {
+        match self {
+            ContainerSrcMap::File(container) => container.event_expr_srcs.get(src),
+            ContainerSrcMap::Module(container) => container.event_expr_srcs.get(src),
+            ContainerSrcMap::GenerateBlock(container) => container.event_expr_srcs.get(src),
+            ContainerSrcMap::Block(container) => container.event_expr_srcs.get(src),
+            ContainerSrcMap::Subroutine(container) => container.event_expr_srcs.get(src),
+        }
+    }
+
+    pub fn source_of_event_expr(&self, id: EventExprId) -> Option<EventExprSrc> {
+        match self {
+            ContainerSrcMap::File(container) => container.event_expr_srcs.get(id),
+            ContainerSrcMap::Module(container) => container.event_expr_srcs.get(id),
+            ContainerSrcMap::GenerateBlock(container) => container.event_expr_srcs.get(id),
+            ContainerSrcMap::Block(container) => container.event_expr_srcs.get(id),
+            ContainerSrcMap::Subroutine(container) => container.event_expr_srcs.get(id),
+        }
+    }
+
+    pub fn declarator_from_source(&self, src: DeclaratorSrc) -> Option<DeclId> {
+        match self {
+            ContainerSrcMap::File(container) => container.decl_srcs.get(src),
+            ContainerSrcMap::Module(container) => container.decl_srcs.get(src),
+            ContainerSrcMap::GenerateBlock(container) => container.decl_srcs.get(src),
+            ContainerSrcMap::Block(container) => container.decl_srcs.get(src),
+            ContainerSrcMap::Subroutine(container) => container.decl_srcs.get(src),
+        }
+    }
+
+    pub fn source_of_declarator(&self, id: DeclId) -> Option<DeclaratorSrc> {
+        match self {
+            ContainerSrcMap::File(container) => container.decl_srcs.get(id),
+            ContainerSrcMap::Module(container) => container.decl_srcs.get(id),
+            ContainerSrcMap::GenerateBlock(container) => container.decl_srcs.get(id),
+            ContainerSrcMap::Block(container) => container.decl_srcs.get(id),
+            ContainerSrcMap::Subroutine(container) => container.decl_srcs.get(id),
+        }
+    }
+
+    pub fn stmt_from_source(&self, src: StmtSrc) -> Option<StmtId> {
+        match self {
+            ContainerSrcMap::File(container) => container.stmt_srcs.get(src),
+            ContainerSrcMap::Module(container) => container.stmt_srcs.get(src),
+            ContainerSrcMap::GenerateBlock(container) => container.stmt_srcs.get(src),
+            ContainerSrcMap::Block(container) => container.stmt_srcs.get(src),
+            ContainerSrcMap::Subroutine(container) => container.stmt_srcs.get(src),
+        }
+    }
+
+    pub fn source_of_stmt(&self, id: StmtId) -> Option<StmtSrc> {
+        match self {
+            ContainerSrcMap::File(container) => container.stmt_srcs.get(id),
+            ContainerSrcMap::Module(container) => container.stmt_srcs.get(id),
+            ContainerSrcMap::GenerateBlock(container) => container.stmt_srcs.get(id),
+            ContainerSrcMap::Block(container) => container.stmt_srcs.get(id),
+            ContainerSrcMap::Subroutine(container) => container.stmt_srcs.get(id),
+        }
+    }
+
+    pub fn block_from_source(&self, src: BlockSrc) -> Option<LocalBlockId> {
+        match self {
+            ContainerSrcMap::File(container) => container.stmt_srcs.get(src),
+            ContainerSrcMap::Module(container) => container.stmt_srcs.get(src),
+            ContainerSrcMap::GenerateBlock(container) => container.stmt_srcs.get(src),
+            ContainerSrcMap::Block(container) => container.stmt_srcs.get(src),
+            ContainerSrcMap::Subroutine(container) => container.stmt_srcs.get(src),
+        }
+    }
+
+    pub fn source_of_block(&self, id: LocalBlockId) -> Option<BlockSrc> {
+        match self {
+            ContainerSrcMap::File(container) => container.stmt_srcs.get(id),
+            ContainerSrcMap::Module(container) => container.stmt_srcs.get(id),
+            ContainerSrcMap::GenerateBlock(container) => container.stmt_srcs.get(id),
+            ContainerSrcMap::Block(container) => container.stmt_srcs.get(id),
+            ContainerSrcMap::Subroutine(container) => container.stmt_srcs.get(id),
+        }
     }
 }
 

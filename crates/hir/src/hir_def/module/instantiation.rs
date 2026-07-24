@@ -1,22 +1,21 @@
-use la_arena::{Arena, Idx};
+use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::{SyntaxToken, ast};
 
 use crate::{
-    db::InternDb,
-    file::HirFileId,
     hir_def::{
-        HirData, Ident, alloc_idx_and_src,
-        expr::{Expr, ExprId, ExprSrc, LowerExpr, data_ty::Dimension, impl_lower_expr},
+        Ident, alloc_with_source,
+        expr::{ExprId, data_ty::Dimension},
+        lower::{LoweringCtx, ModuleItemStore},
         lower_ident_opt,
     },
     source_map::{
-        AstId, AstKind, FromSourceAst, IsSrc, NamedAstId, SourceAst, SourceMap, ToAstNode,
+        AstId, AstKind, FromSourceAst, IsSrc, NamedAstId, SourceAst, ToAstNode,
         exact_ast_node_from_ptr,
     },
 };
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct Instantiation {
     pub module_name: Option<Ident>,
     pub param_assigns: SmallVec<[ParamAssignId; 1]>,
@@ -169,116 +168,58 @@ impl AstKind for PortConnectionAst {
 
 pub type PortConnSrc = NamedAstId<PortConnectionAst>;
 
-pub(crate) struct LowerInstantiationCtx<'a> {
-    pub(crate) db: &'a dyn InternDb,
-    pub(crate) file_id: HirFileId,
-
-    pub(crate) instantiations: &'a mut Arena<Instantiation>,
-    pub(crate) instantiation_srcs: &'a mut SourceMap<InstantiationSrc, Instantiation>,
-
-    pub(crate) inst_param_assigns: &'a mut Arena<ParamAssign>,
-    pub(crate) inst_param_assign_srcs: &'a mut SourceMap<ParamAssignSrc, ParamAssign>,
-
-    pub(crate) instances: &'a mut Arena<Instance>,
-    pub(crate) instance_srcs: &'a mut SourceMap<InstanceSrc, Instance>,
-
-    pub(crate) inst_port_conns: &'a mut Arena<PortConn>,
-    pub(crate) inst_port_conn_srcs: &'a mut SourceMap<PortConnSrc, PortConn>,
-
-    pub(crate) exprs: &'a mut Arena<Expr>,
-    pub(crate) expr_srcs: &'a mut SourceMap<ExprSrc, Expr>,
-}
-
-pub(crate) trait LowerInstantiation: LowerExpr {
-    fn instantiation_ctx(&mut self) -> LowerInstantiationCtx<'_>;
-}
-
-pub(in crate::hir_def) macro impl_lower_instantiation($ctx:ty, $data:ident, $src_map:ident) {
-    impl $crate::hir_def::module::instantiation::LowerInstantiation for $ctx {
-        fn instantiation_ctx(
-            &mut self,
-        ) -> $crate::hir_def::module::instantiation::LowerInstantiationCtx<'_> {
-            $crate::hir_def::module::instantiation::LowerInstantiationCtx {
-                db: self.db,
-                file_id: self.file_id,
-                instantiations: &mut self.$data.instantiations,
-                instantiation_srcs: &mut self.$src_map.instantiation_srcs,
-                inst_param_assigns: &mut self.$data.inst_param_assigns,
-                inst_param_assign_srcs: &mut self.$src_map.inst_param_assign_srcs,
-                instances: &mut self.$data.instances,
-                instance_srcs: &mut self.$src_map.instance_srcs,
-                inst_port_conns: &mut self.$data.inst_port_conns,
-                inst_port_conn_srcs: &mut self.$src_map.inst_port_conn_srcs,
-                exprs: &mut self.$data.exprs,
-                expr_srcs: &mut self.$src_map.expr_srcs,
-            }
-        }
+impl<Store: ModuleItemStore> LoweringCtx<'_, Store> {
+    fn reserve_instantiation<'ast, Ast>(&mut self, ast: Ast) -> InstantiationId
+    where
+        Ast: syntax::ast::AstNode<'ast>,
+        InstantiationSrc: FromSourceAst<'ast, Ast>,
+    {
+        let file_id = self.file_id;
+        let (instantiations, sources) = self.instantiations();
+        alloc_with_source(file_id, instantiations, sources, Instantiation::default(), ast)
     }
-}
 
-impl_lower_expr!(LowerInstantiationCtx<'_>);
+    fn finish_instantiation(&mut self, id: InstantiationId, instantiation: Instantiation) {
+        self.instantiations().0[id] = instantiation;
+    }
 
-impl LowerInstantiationCtx<'_> {
     pub(crate) fn lower_instantiation(
         &mut self,
         instance: ast::HierarchyInstantiation,
     ) -> InstantiationId {
+        let parent = self.reserve_instantiation(instance);
         let module_name = lower_ident_opt(instance.type_());
         let param_assigns = self.lower_param_assign(instance.parameters());
-
-        let next_instantiation_id = self.instantiations.nxt_idx();
-        let instances = instance
-            .instances()
-            .children()
-            .map(|inst| self.lower_instance(inst, next_instantiation_id))
-            .collect();
-        alloc_idx_and_src! {
-            self.file_id;
-            Instantiation { module_name, param_assigns, instances } => self.instantiations,
-            instance => self.instantiation_srcs,
-        }
+        let instances =
+            instance.instances().children().map(|inst| self.lower_instance(inst, parent)).collect();
+        self.finish_instantiation(parent, Instantiation { module_name, param_assigns, instances });
+        parent
     }
 
     pub(crate) fn lower_primitive_instantiation(
         &mut self,
         inst: ast::PrimitiveInstantiation,
     ) -> InstantiationId {
+        let parent = self.reserve_instantiation(inst);
         let module_name = lower_ident_opt(inst.type_());
         let param_assigns = SmallVec::new();
-
-        let next_instantiation_id = self.instantiations.nxt_idx();
-        let instances = inst
-            .instances()
-            .children()
-            .map(|hier| self.lower_instance(hier, next_instantiation_id))
-            .collect();
-
-        alloc_idx_and_src! {
-            self.file_id;
-            Instantiation { module_name, param_assigns, instances } => self.instantiations,
-            inst => self.instantiation_srcs,
-        }
+        let instances =
+            inst.instances().children().map(|hier| self.lower_instance(hier, parent)).collect();
+        self.finish_instantiation(parent, Instantiation { module_name, param_assigns, instances });
+        parent
     }
 
     pub(crate) fn lower_checker_instantiation(
         &mut self,
         inst: ast::CheckerInstantiation,
     ) -> InstantiationId {
+        let parent = self.reserve_instantiation(inst);
         let module_name = lower_name(inst.type_());
         let param_assigns = self.lower_param_assign(inst.parameters());
-
-        let next_instantiation_id = self.instantiations.nxt_idx();
-        let instances = inst
-            .instances()
-            .children()
-            .map(|hier| self.lower_instance(hier, next_instantiation_id))
-            .collect();
-
-        alloc_idx_and_src! {
-            self.file_id;
-            Instantiation { module_name, param_assigns, instances } => self.instantiations,
-            inst => self.instantiation_srcs,
-        }
+        let instances =
+            inst.instances().children().map(|hier| self.lower_instance(hier, parent)).collect();
+        self.finish_instantiation(parent, Instantiation { module_name, param_assigns, instances });
+        parent
     }
 
     fn lower_param_assign(
@@ -295,20 +236,18 @@ impl LowerInstantiationCtx<'_> {
                 use ast::ParamAssignment::*;
                 let hir_assign = match assign {
                     OrderedParamAssignment(assign) => {
-                        ParamAssign::Ordered(self.expr_ctx().lower_expr(assign.expr()))
+                        ParamAssign::Ordered(self.lower_expr(assign.expr()))
                     }
                     NamedParamAssignment(assign) => {
                         let name = lower_ident_opt(assign.name());
-                        let expr = assign.expr().map(|expr| self.expr_ctx().lower_expr(expr));
+                        let expr = assign.expr().map(|expr| self.lower_expr(expr));
                         ParamAssign::Named(name, expr)
                     }
                 };
 
-                alloc_idx_and_src! {
-                self.file_id;
-                        hir_assign => self.inst_param_assigns,
-                        assign => self.inst_param_assign_srcs,
-                    }
+                let file_id = self.file_id;
+                let (assignments, sources) = self.parameter_assignments();
+                alloc_with_source(file_id, assignments, sources, hir_assign, assign)
             })
             .collect()
     }
@@ -326,22 +265,19 @@ impl LowerInstantiationCtx<'_> {
                 let hir_conn = match conn {
                     EmptyPortConnection(_) => PortConn::Empty,
                     OrderedPortConnection(conn) => {
-                        let expr = self.expr_ctx().lower_property_expr(conn.expr());
+                        let expr = self.lower_property_expr(conn.expr());
                         PortConn::Ordered(expr)
                     }
                     NamedPortConnection(conn) => {
                         let name = lower_ident_opt(conn.name());
-                        let expr =
-                            conn.expr().map(|expr| self.expr_ctx().lower_property_expr(expr));
+                        let expr = conn.expr().map(|expr| self.lower_property_expr(expr));
                         PortConn::Named(name, expr)
                     }
                     WildcardPortConnection(_) => PortConn::Wildcard,
                 };
-                alloc_idx_and_src! {
-                self.file_id;
-                        hir_conn => self.inst_port_conns,
-                        conn => self.inst_port_conn_srcs,
-                    }
+                let file_id = self.file_id;
+                let (connections, sources) = self.port_connections();
+                alloc_with_source(file_id, connections, sources, hir_conn, conn)
             })
             .collect();
 
@@ -349,20 +285,16 @@ impl LowerInstantiationCtx<'_> {
             .decl()
             .map(|decl| {
                 let name = lower_ident_opt(decl.name());
-                let dimensions = decl
-                    .dimensions()
-                    .children()
-                    .map(|dim| self.expr_ctx().lower_dimension(dim))
-                    .collect();
+                let dimensions =
+                    decl.dimensions().children().map(|dim| self.lower_dimension(dim)).collect();
                 (name, dimensions)
             })
             .unwrap_or_default();
 
-        alloc_idx_and_src! {
-            self.file_id;
-            Instance { name, dimensions, connections, parent } => self.instances,
-            instance => self.instance_srcs,
-        }
+        let data = Instance { name, dimensions, connections, parent };
+        let file_id = self.file_id;
+        let (instances, sources) = self.instances();
+        alloc_with_source(file_id, instances, sources, data, instance)
     }
 }
 

@@ -6,6 +6,7 @@ pub mod declaration;
 pub mod expr;
 pub mod file;
 pub mod literal;
+mod lower;
 pub mod macro_file;
 pub mod module;
 pub mod proc;
@@ -14,7 +15,45 @@ pub mod subroutine;
 pub mod ty;
 pub mod typedef;
 
-use la_arena::{Arena, Idx, RawIdx};
+pub(crate) macro impl_arena_getters(
+    $container:ty;
+    $($id:ty => $field:ident => $output:ty),* $(,)?
+) {
+    $(
+        impl utils::get::GetRef<$id> for $container {
+            type Output = $output;
+
+            fn get(&self, id: $id) -> &Self::Output {
+                utils::get::GetRef::get(&self.$field, id)
+            }
+        }
+    )*
+}
+
+pub(crate) macro impl_source_map_getters(
+    $container:ty;
+    $($src:ty => $id:ty => $field:ident),* $(,)?
+) {
+    $(
+        impl utils::get::Get<$src> for $container {
+            type Output = Option<$id>;
+
+            fn get(&self, src: $src) -> Self::Output {
+                utils::get::Get::get(&self.$field, src)
+            }
+        }
+
+        impl utils::get::Get<$id> for $container {
+            type Output = Option<$src>;
+
+            fn get(&self, id: $id) -> Self::Output {
+                utils::get::Get::get(&self.$field, id)
+            }
+        }
+    )*
+}
+
+use la_arena::{Arena, Idx};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{SyntaxToken, TokenKind, ast};
 
@@ -63,24 +102,48 @@ pub(crate) fn lower_package_imports(
         .collect()
 }
 
-macro alloc_idx_and_src($file_id:expr; $hir:expr => $arena:expr, $ast:expr => $src_map:expr $(,)?) {{
-    let idx = $arena.alloc($hir.into());
-    // HIR lowering can consume include-expanded AST nodes, but source maps only
-    // store locations that can be navigated in the parsed root file.
-    if let Some(ast) = $crate::source_map::SourceAst::new($file_id, $ast) {
-        let src = $crate::source_map::FromSourceAst::from_source_ast(ast);
-        $src_map.insert(src, idx);
+pub(crate) fn alloc_with_optional_source_entry<Src, Input, Hir>(
+    data: &mut Arena<Hir>,
+    sources: &mut crate::source_map::SourceMap<Src, Hir>,
+    value: Input,
+    source: Option<Src>,
+) -> Idx<Hir>
+where
+    Input: Into<Hir>,
+    Src: crate::source_map::IsSrc,
+{
+    let idx = data.alloc(value.into());
+    if let Some(source) = source {
+        sources.insert(source, idx);
     }
     idx
-}}
-
-trait HirData<T> {
-    fn nxt_idx(&self) -> Idx<T>;
 }
 
-impl<T> HirData<T> for Arena<T> {
-    #[inline]
-    fn nxt_idx(&self) -> Idx<T> {
-        Idx::from_raw(RawIdx::from(self.len() as u32))
-    }
+pub(crate) fn alloc_with_source_entry<Src, Input, Hir>(
+    data: &mut Arena<Hir>,
+    sources: &mut crate::source_map::SourceMap<Src, Hir>,
+    value: Input,
+    source: Src,
+) -> Idx<Hir>
+where
+    Input: Into<Hir>,
+    Src: crate::source_map::IsSrc,
+{
+    alloc_with_optional_source_entry(data, sources, value, Some(source))
+}
+
+pub(crate) fn alloc_with_source<'ast, Ast, Input, Hir, Src>(
+    file_id: crate::file::HirFileId,
+    data: &mut Arena<Hir>,
+    sources: &mut crate::source_map::SourceMap<Src, Hir>,
+    value: Input,
+    ast: Ast,
+) -> Idx<Hir>
+where
+    Ast: syntax::ast::AstNode<'ast>,
+    Input: Into<Hir>,
+    Src: crate::source_map::FromSourceAst<'ast, Ast> + crate::source_map::IsSrc,
+{
+    let source = crate::source_map::SourceAst::new(file_id, ast).map(Src::from_source_ast);
+    alloc_with_optional_source_entry(data, sources, value, source)
 }
