@@ -1,5 +1,6 @@
 use hir::{
-    db::{HirDb, InternDb},
+    db::HirDb,
+    def_id::DefId,
     file::HirFileId,
     hir_def::{
         file::{FileSourceMap, HirFile},
@@ -7,7 +8,6 @@ use hir::{
     },
     semantics::Semantics,
     source_map::IsSrc,
-    symbol::DefId,
 };
 use syntax::{
     ast::{self, AstNode},
@@ -88,9 +88,6 @@ pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLens
             let module_id = ModuleId::new(hir_file_id, local_module_id);
 
             let def = DefId::new(sema.db, module_id);
-            let def = hir::def_id::ModuleDef::from_def_ids([def])
-                .expect("module definition should have an origin");
-            let def = sema.db.intern_module_def(def);
 
             let ref_config =
                 ReferencesConfig::new(ScopeVisibility::Public, Some(SearchScope::all(sema.db)));

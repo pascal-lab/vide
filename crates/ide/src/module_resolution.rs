@@ -7,6 +7,7 @@ use hir::{
     },
     container::ScopeId,
     db::HirDb,
+    def_id::DefId,
     hir_def::{
         Ident,
         declaration::Declaration,
@@ -14,8 +15,7 @@ use hir::{
         lower_ident_opt,
         module::{ModuleId, instantiation::Instantiation},
     },
-    semantics::pathres::PathResolution,
-    symbol::{DefKind, NameContext},
+    symbol::{NameContext, Resolution},
 };
 use syntax::{
     SyntaxAncestors,
@@ -46,6 +46,19 @@ impl ModuleResolution {
             ModuleResolution::Unique(module_id) => Some(*module_id),
             ModuleResolution::BestEffortProximity { selected, .. } => Some(*selected),
             ModuleResolution::Ambiguous { .. } | ModuleResolution::Unresolved => None,
+        }
+    }
+
+    fn into_resolution(self) -> Resolution<ModuleId> {
+        match self {
+            ModuleResolution::Unique(module_id)
+            | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
+                Resolution::Unique(module_id)
+            }
+            ModuleResolution::Ambiguous { candidates, .. } => {
+                Resolution::from_candidates(candidates)
+            }
+            ModuleResolution::Unresolved => Resolution::Unresolved,
         }
     }
 }
@@ -82,10 +95,15 @@ pub(crate) fn resolve_named_port_connection(
     db: &RootDb,
     from_file: FileId,
     conn: ast::NamedPortConnection,
-) -> Option<PathResolution> {
-    let name = lower_ident_opt(conn.name())?;
-    let instantiation =
-        SyntaxAncestors::start_from(conn.syntax()).find_map(ast::HierarchyInstantiation::cast)?;
+) -> Resolution<DefId> {
+    let Some(name) = lower_ident_opt(conn.name()) else {
+        return Resolution::Unresolved;
+    };
+    let Some(instantiation) =
+        SyntaxAncestors::start_from(conn.syntax()).find_map(ast::HierarchyInstantiation::cast)
+    else {
+        return Resolution::Unresolved;
+    };
     resolve_named_port_in_instantiation(db, from_file, instantiation, &name)
 }
 
@@ -93,10 +111,15 @@ pub(crate) fn resolve_named_param_assignment(
     db: &RootDb,
     from_file: FileId,
     assign: ast::NamedParamAssignment,
-) -> Option<PathResolution> {
-    let name = lower_ident_opt(assign.name())?;
-    let instantiation =
-        SyntaxAncestors::start_from(assign.syntax()).find_map(ast::HierarchyInstantiation::cast)?;
+) -> Resolution<DefId> {
+    let Some(name) = lower_ident_opt(assign.name()) else {
+        return Resolution::Unresolved;
+    };
+    let Some(instantiation) =
+        SyntaxAncestors::start_from(assign.syntax()).find_map(ast::HierarchyInstantiation::cast)
+    else {
+        return Resolution::Unresolved;
+    };
     resolve_named_param_in_instantiation(db, from_file, instantiation, &name)
 }
 
@@ -105,9 +128,10 @@ fn resolve_named_port_in_instantiation(
     from_file: FileId,
     instantiation: ast::HierarchyInstantiation,
     port_name: &Ident,
-) -> Option<PathResolution> {
-    let target_module_id = resolve_instantiation_target(db, from_file, instantiation).unique()?;
-    resolve_named_port_in_module(db, target_module_id, port_name)
+) -> Resolution<DefId> {
+    resolve_instantiation_target(db, from_file, instantiation)
+        .into_resolution()
+        .and_then(|module_id| resolve_named_port_in_module(db, module_id, port_name))
 }
 
 fn resolve_named_param_in_instantiation(
@@ -115,50 +139,50 @@ fn resolve_named_param_in_instantiation(
     from_file: FileId,
     instantiation: ast::HierarchyInstantiation,
     param_name: &Ident,
-) -> Option<PathResolution> {
-    let target_module_id = resolve_instantiation_target(db, from_file, instantiation).unique()?;
-    resolve_named_param_in_module(db, target_module_id, param_name)
+) -> Resolution<DefId> {
+    resolve_instantiation_target(db, from_file, instantiation)
+        .into_resolution()
+        .and_then(|module_id| resolve_named_param_in_module(db, module_id, param_name))
 }
 
 fn resolve_named_port_in_module(
     db: &RootDb,
     module_id: ModuleId,
     port_name: &Ident,
-) -> Option<PathResolution> {
-    let defs = db.module_scope(module_id).lookup(NameContext::Value, port_name)?;
-    if defs.iter().any(|def_id| def_id.kind(db) == DefKind::NonAnsiPort) {
-        PathResolution::from_def_ids(defs)
-    } else {
-        PathResolution::from_def_ids(
-            defs.into_iter().filter(|def_id| def_id.kind(db) == DefKind::Port),
-        )
-    }
+) -> Resolution<DefId> {
+    Resolution::from_candidates(
+        db.module_scope(module_id)
+            .lookup(NameContext::Value, port_name)
+            .into_candidates()
+            .into_iter()
+            .filter(|def_id| def_id.is_port(db)),
+    )
 }
 
-fn resolve_named_param_in_module(
+pub(crate) fn resolve_named_param_in_module(
     db: &RootDb,
     module_id: ModuleId,
     param_name: &Ident,
-) -> Option<PathResolution> {
-    let defs = db.module_scope(module_id).lookup(NameContext::Value, param_name)?;
+) -> Resolution<DefId> {
+    let defs = db.module_scope(module_id).lookup(NameContext::Value, param_name);
     let module = db.module(module_id);
 
-    for def_id in defs {
-        let Some(decl_id) = def_id.as_decl(db) else {
-            continue;
+    Resolution::from_candidates(defs.into_candidates().into_iter().filter(|def_id| {
+        let Some(decl_id) = def_id.primary_origin(db).as_decl(db) else {
+            return false;
         };
         if decl_id.cont_id != ScopeId::Module(module_id) {
-            continue;
+            return false;
         }
-        if let DeclaratorParent::DeclarationId(declaration_id) = module.get(decl_id.value).parent
-            && let Declaration::ParamDecl(param_decl) = module.get(declaration_id)
-            && param_decl.kind.is_overridable()
-        {
-            return Some(PathResolution::from_def_id(def_id));
-        }
-    }
-
-    None
+        let DeclaratorParent::DeclarationId(declaration_id) = module.get(decl_id.value).parent
+        else {
+            return false;
+        };
+        let Declaration::ParamDecl(param_decl) = module.get(declaration_id) else {
+            return false;
+        };
+        param_decl.kind.is_overridable()
+    }))
 }
 
 fn resolve_module_name_with_policy(
@@ -330,8 +354,7 @@ mod tests {
 
     use hir::{
         base_db::{change::Change, source_root::SourceRoot},
-        semantics::pathres::PathResolution,
-        symbol::DefLoc,
+        symbol::{DefKind, DefOriginLoc, Resolution},
     };
     use smol_str::SmolStr;
     use syntax::{SyntaxNodeExt, ast};
@@ -491,15 +514,13 @@ mod tests {
                 let port_conn = root
                     .find_node_at_offset::<ast::NamedPortConnection>(offset)
                     .expect("named port connection should parse at /*caret*/");
-                match resolve_named_port_connection(&db, fixture.focus, port_conn) {
-                    Some(res) if resolution_module_id(&db, &res, DefKind::Port).is_some() => {
-                        let module_id = resolution_module_id(&db, &res, DefKind::Port).unwrap();
-                        format!(
-                            "AnsiPort module={}",
-                            file_path(&fixture.files, module_id.file_id.file_id())
-                        )
-                    }
-                    other => format!("{other:?}"),
+                let res = resolve_named_port_connection(&db, fixture.focus, port_conn);
+                match resolution_module_id(&db, &res, DefKind::Port) {
+                    Some(module_id) => format!(
+                        "AnsiPort module={}",
+                        file_path(&fixture.files, module_id.file_id.file_id())
+                    ),
+                    None => format!("{res:?}"),
                 }
             }
             Query::NamedParam => {
@@ -509,34 +530,35 @@ mod tests {
                 let param_assign = root
                     .find_node_at_offset::<ast::NamedParamAssignment>(offset)
                     .expect("named parameter assignment should parse at /*caret*/");
-                match resolve_named_param_assignment(&db, fixture.focus, param_assign) {
-                    Some(res) if resolution_module_id(&db, &res, DefKind::Param).is_some() => {
-                        let module_id = resolution_module_id(&db, &res, DefKind::Param).unwrap();
-                        format!(
-                            "ParamDecl module={}",
-                            file_path(&fixture.files, module_id.file_id.file_id())
-                        )
-                    }
-                    other => format!("{other:?}"),
+                let res = resolve_named_param_assignment(&db, fixture.focus, param_assign);
+                match resolution_module_id(&db, &res, DefKind::Param) {
+                    Some(module_id) => format!(
+                        "ParamDecl module={}",
+                        file_path(&fixture.files, module_id.file_id.file_id())
+                    ),
+                    None => format!("{res:?}"),
                 }
             }
         }
     }
 
-    fn resolution_module_id(db: &RootDb, res: &PathResolution, kind: DefKind) -> Option<ModuleId> {
-        res.def_ids().iter().find_map(|def_id| {
-            if def_id.kind(db) != kind {
-                return None;
-            }
-            match def_id.loc(db) {
-                DefLoc::Decl(decl_id) => match decl_id.cont_id {
-                    ScopeId::Module(module_id) => Some(module_id),
-                    _ => None,
-                },
-                DefLoc::NonAnsiPort(nonansi_port_id) => Some(nonansi_port_id.module_id),
+    fn resolution_module_id(
+        db: &RootDb,
+        res: &Resolution<DefId>,
+        kind: DefKind,
+    ) -> Option<ModuleId> {
+        let def_id = res.unique()?;
+        if def_id.kind(db) != kind {
+            return None;
+        }
+        match def_id.primary_origin(db).loc(db) {
+            DefOriginLoc::Decl(decl_id) => match decl_id.cont_id {
+                ScopeId::Module(module_id) => Some(module_id),
                 _ => None,
-            }
-        })
+            },
+            DefOriginLoc::NonAnsiPort(nonansi_port_id) => Some(nonansi_port_id.module_id),
+            _ => None,
+        }
     }
 
     fn format_module_resolution(files: &[(String, String)], result: ModuleResolution) -> String {
