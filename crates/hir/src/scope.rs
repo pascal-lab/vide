@@ -686,6 +686,7 @@ mod tests {
 
     use rustc_hash::FxHashSet;
     use smol_str::SmolStr;
+    use syntax::ast::{self, AstNode};
     use triomphe::Arc;
     use utils::{
         get::{Get, GetRef},
@@ -708,8 +709,12 @@ mod tests {
         db::{HirDb, HirDbStorage, InternDbStorage},
         def_id::DefId,
         display::HirDisplay,
-        hir_def::Ident,
+        hir_def::{
+            Ident,
+            module::port::{NonAnsiPortSrc, PortSrcs, Ports},
+        },
         semantics::pathres::resolve_name,
+        source_map::IsNamedSrc,
         symbol::{DefKind, DefOriginLoc, NameContext, Resolution},
     };
 
@@ -920,6 +925,76 @@ endmodule
         for origin in origins {
             assert_eq!(DefId::new(&db, origin.loc(&db)), port);
         }
+    }
+
+    #[test]
+    fn explicit_non_ansi_port_source_preserves_name_range() {
+        let db = db_with_root_text(
+            r#"
+module m(.out(foo));
+  output foo;
+endmodule
+"#,
+        );
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let (module, source_map) = db.module_with_source_map(module_id);
+        let Ports::NonAnsi { ports, .. } = &module.ports else {
+            panic!("module should have non-ANSI ports");
+        };
+        let (port_id, _) = ports.iter().next().expect("port should lower");
+        let source = source_map.get(port_id).expect("port should retain its source");
+
+        assert!(source.name_range().is_some(), "explicit port name range should be preserved");
+    }
+
+    #[test]
+    fn implicit_non_ansi_port_source_supports_natural_reverse_lookup() {
+        let db = db_with_root_text(
+            r#"
+module m(foo);
+  output foo;
+endmodule
+"#,
+        );
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let (module, source_map) = db.module_with_source_map(module_id);
+        let Ports::NonAnsi { ports, .. } = &module.ports else {
+            panic!("module should have non-ANSI ports");
+        };
+        let (port_id, _) = ports.iter().next().expect("port should lower");
+
+        let tree = db.parse(TOP.into());
+        let root = tree.root().expect("source should parse");
+        let unit = ast::CompilationUnit::cast(root).expect("root should be a compilation unit");
+        let ast::Member::ModuleDeclaration(module_ast) =
+            unit.members().children().next().expect("module should parse")
+        else {
+            panic!("first member should be a module");
+        };
+        let ast::PortList::NonAnsiPortList(port_list) =
+            module_ast.header().ports().expect("module should have a port list")
+        else {
+            panic!("module should have a non-ANSI port list");
+        };
+        let port_ast = port_list.ports().children().next().expect("port should parse");
+        let natural_source = NonAnsiPortSrc::from_ast(TOP.into(), port_ast);
+        let PortSrcs::NonAnsi { ports: port_sources, .. } = &source_map.port_srcs else {
+            panic!("source map should contain non-ANSI ports");
+        };
+
+        assert_eq!(
+            port_sources.src_to_hir(natural_source),
+            Some(port_id),
+            "natural AST source key should resolve to the port"
+        );
     }
 
     #[test]

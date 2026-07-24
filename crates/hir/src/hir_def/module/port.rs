@@ -593,11 +593,19 @@ impl LowerModuleCtx<'_> {
             };
 
             self.region_tree.handle_node(port.syntax());
-            let source = SourceAst::new(self.file_id, port).map(|source| {
-                let source = NonAnsiPortSrc::from_source_ast(source);
-                NonAnsiPortSrc::new(source.file_id, source.node, src_name)
-            });
-            alloc_with_optional_source_entry(&mut ports, &mut port_srcs, hir_port, source);
+            let source = SourceAst::new(self.file_id, port).map(NonAnsiPortSrc::from_source_ast);
+            let port_id =
+                alloc_with_optional_source_entry(&mut ports, &mut port_srcs, hir_port, source);
+
+            // Implicit ports are named by their inner PortReference. Keep the
+            // natural AST key for source-to-HIR lookup, then add the named key
+            // as the preferred HIR-to-source entry used by navigation.
+            if let (Some(source), Some(name)) = (source, src_name) {
+                let named_source = NonAnsiPortSrc::new(source.file_id, source.node, Some(name));
+                if named_source != source {
+                    port_srcs.insert(named_source, port_id);
+                }
+            }
         }
 
         self.region_tree.stage(port_list.close_paren(), port_list.syntax());
