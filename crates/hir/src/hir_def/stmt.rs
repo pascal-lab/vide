@@ -38,6 +38,9 @@ pub type StmtId = Idx<Stmt>;
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub enum StmtKind {
     #[default]
+    Missing,
+    Invalid,
+    Unsupported(SyntaxKind),
     Empty,
 
     Expr(ExprId),
@@ -241,17 +244,7 @@ impl LowerStmtCtx<'_> {
 
             EmptyStatement(_) => StmtKind::Empty,
 
-            // SystemVerilog-only statement forms are intentionally skipped by the Verilog model.
-            ConcurrentAssertionStatement(_)
-            | CheckerInstanceStatement(_)
-            | DisableForkStatement(_)
-            | ForeachLoopStatement(_)
-            | ImmediateAssertionStatement(_)
-            | RandCaseStatement(_)
-            | RandSequenceStatement(_)
-            | VoidCastedCallStatement(_)
-            | WaitForkStatement(_)
-            | WaitOrderStatement(_) => StmtKind::Empty,
+            unsupported => StmtKind::Unsupported(unsupported.syntax().kind()),
         };
 
         Stmt { label, kind }
@@ -366,7 +359,7 @@ impl LowerStmtCtx<'_> {
         match stmt.repeat_or_while().map(|tok| tok.kind()) {
             Some(TokenKind::REPEAT_KEYWORD) => StmtKind::Repeat(expr, body),
             Some(TokenKind::WHILE_KEYWORD) | None => StmtKind::While(expr, body),
-            _ => StmtKind::Empty,
+            _ => StmtKind::Invalid,
         }
     }
 
@@ -389,7 +382,7 @@ impl LowerStmtCtx<'_> {
             TokenKind::CONTINUE_KEYWORD => Some(JumpKind::Continue),
             _ => None,
         }) else {
-            return StmtKind::Empty;
+            return StmtKind::Invalid;
         };
         StmtKind::Jump(kind)
     }
@@ -475,7 +468,7 @@ impl LowerStmtCtx<'_> {
     }
 
     fn alloc_missing(&mut self) -> StmtId {
-        self.stmts.alloc(Stmt { label: None, kind: StmtKind::Empty })
+        self.stmts.alloc(Stmt { label: None, kind: StmtKind::Missing })
     }
 }
 

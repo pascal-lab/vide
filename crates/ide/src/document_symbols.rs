@@ -459,7 +459,10 @@ fn build_stmt<Arn, SrcMap>(
             build_stmt(db, collector, *stmt, arena, src_map);
         }
 
-        StmtKind::Empty
+        StmtKind::Missing
+        | StmtKind::Invalid
+        | StmtKind::Unsupported(_)
+        | StmtKind::Empty
         | StmtKind::Expr(_)
         | StmtKind::Jump(_)
         | StmtKind::EventTrigger(_)

@@ -1,4 +1,7 @@
-use clocking::{ClockingBlockDef, ClockingBlockId, ClockingBlockSrc, LowerClocking};
+use clocking::{
+    ClockingBlockDef, ClockingBlockId, ClockingBlockSrc, DefaultClockingRef, DefaultClockingRefSrc,
+    LowerClocking,
+};
 use continuous_assgin::{
     ContAssign, ContAssignId, ContAssignSrc, LowerContAssign, impl_lower_cont_assign,
 };
@@ -101,6 +104,7 @@ define_container! {
         structs: [StructDef],
         subroutines: [Subroutine],
         modports: [ModportDef],
+        default_clocking: Option<DefaultClockingRef>,
         clocking_blocks: [ClockingBlockDef],
         checkers: [CheckerDef],
         covergroups: [CovergroupDef],
@@ -147,6 +151,7 @@ define_container! {
         struct_srcs: [StructDef | StructSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
         modport_srcs: [ModportDef | ModportSrc],
+        default_clocking_src: Option<DefaultClockingRefSrc>,
         clocking_block_srcs: [ClockingBlockDef | ClockingBlockSrc],
         checker_srcs: [CheckerDef | CheckerSrc],
         covergroup_srcs: [CovergroupDef | CovergroupSrc],
@@ -629,7 +634,10 @@ impl LowerModuleCtx<'_> {
                 | gen_item @ LoopGenerate(_) => self.lower_direct_generate_region(gen_item).into(),
 
                 // Timing and clocking
-                TimeUnitsDeclaration(_) | DefaultClockingReference(_) | ClockingItem(_) => {
+                TimeUnitsDeclaration(_) | ClockingItem(_) => continue,
+                DefaultClockingReference(reference) => {
+                    self.lower_default_clocking_reference(reference);
+                    self.region_tree.handle_node(member.syntax());
                     continue;
                 }
                 ClockingDeclaration(clocking) => self.lower_clocking_declaration(clocking).into(),
