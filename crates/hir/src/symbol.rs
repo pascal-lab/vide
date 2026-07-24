@@ -4,7 +4,9 @@ use utils::impl_from;
 
 use crate::{
     base_db::salsa,
-    container::{InContainer, InFile, InModule, InSubroutine},
+    container::{
+        InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine, SubroutineScope,
+    },
     db::{HirDb, InternDb},
     def_id::DefId,
     hir_def::{
@@ -23,7 +25,7 @@ use crate::{
             port::NonAnsiPortId,
         },
         stmt::StmtId,
-        subroutine::{LocalSubroutineId, SubroutinePortId},
+        subroutine::SubroutinePortId,
         typedef::TypedefId,
     },
 };
@@ -41,7 +43,7 @@ pub enum DefOriginLoc {
     Udp(InFile<UdpDeclId>),
     Block(BlockId),
     GenerateBlock(GenerateBlockId),
-    Subroutine(InContainer<LocalSubroutineId>),
+    Subroutine(SubroutineScope),
     SubroutinePort(InSubroutine<SubroutinePortId>),
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
@@ -49,12 +51,12 @@ pub enum DefOriginLoc {
     Instance(InModule<InstanceId>),
     Modport(InModule<ModportId>),
     ClockingBlock(InModule<ClockingBlockId>),
-    ClockingSignal(InContainer<ClockingSignalId>),
-    Checker(InContainer<CheckerId>),
-    CheckerPort(InContainer<CheckerPortId>),
-    Covergroup(InContainer<CovergroupId>),
-    Coverpoint(InContainer<CoverpointId>),
-    Cross(InContainer<CrossId>),
+    ClockingSignal(InScope<ClockingSignalId>),
+    Checker(InFileOrModule<CheckerId>),
+    CheckerPort(InScope<CheckerPortId>),
+    Covergroup(InFileOrModule<CovergroupId>),
+    Coverpoint(InScope<CoverpointId>),
+    Cross(InScope<CrossId>),
     Stmt(InContainer<StmtId>),
 }
 
@@ -65,7 +67,7 @@ impl_from! { DefOriginLoc =>
     Udp(InFile<UdpDeclId>),
     Block(BlockId),
     GenerateBlock(GenerateBlockId),
-    Subroutine(InContainer<LocalSubroutineId>),
+    Subroutine(SubroutineScope),
     SubroutinePort(InSubroutine<SubroutinePortId>),
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
@@ -73,12 +75,12 @@ impl_from! { DefOriginLoc =>
     Instance(InModule<InstanceId>),
     Modport(InModule<ModportId>),
     ClockingBlock(InModule<ClockingBlockId>),
-    ClockingSignal(InContainer<ClockingSignalId>),
-    Checker(InContainer<CheckerId>),
-    CheckerPort(InContainer<CheckerPortId>),
-    Covergroup(InContainer<CovergroupId>),
-    Coverpoint(InContainer<CoverpointId>),
-    Cross(InContainer<CrossId>),
+    ClockingSignal(InScope<ClockingSignalId>),
+    Checker(InFileOrModule<CheckerId>),
+    CheckerPort(InScope<CheckerPortId>),
+    Covergroup(InFileOrModule<CovergroupId>),
+    Coverpoint(InScope<CoverpointId>),
+    Cross(InScope<CrossId>),
     Stmt(InContainer<StmtId>),
 }
 
@@ -106,7 +108,7 @@ impl DefOrigin {
 
     impl_origin_cast!(as_generate_block, GenerateBlock, GenerateBlockId);
 
-    impl_origin_cast!(as_subroutine, Subroutine, InContainer<LocalSubroutineId>);
+    impl_origin_cast!(as_subroutine, Subroutine, SubroutineScope);
 
     impl_origin_cast!(as_subroutine_port, SubroutinePort, InSubroutine<SubroutinePortId>);
 
@@ -122,13 +124,13 @@ impl DefOrigin {
 
     impl_origin_cast!(as_clocking_block, ClockingBlock, InModule<ClockingBlockId>);
 
-    impl_origin_cast!(as_clocking_signal, ClockingSignal, InContainer<ClockingSignalId>);
+    impl_origin_cast!(as_clocking_signal, ClockingSignal, InScope<ClockingSignalId>);
 
-    impl_origin_cast!(as_checker, Checker, InContainer<CheckerId>);
+    impl_origin_cast!(as_checker, Checker, InFileOrModule<CheckerId>);
 
-    impl_origin_cast!(as_checker_port, CheckerPort, InContainer<CheckerPortId>);
+    impl_origin_cast!(as_checker_port, CheckerPort, InScope<CheckerPortId>);
 
-    impl_origin_cast!(as_covergroup, Covergroup, InContainer<CovergroupId>);
+    impl_origin_cast!(as_covergroup, Covergroup, InFileOrModule<CovergroupId>);
 
     impl_origin_cast!(as_stmt, Stmt, InContainer<StmtId>);
 
@@ -241,7 +243,6 @@ pub enum ScopeKind {
     Module,
     Interface,
     Program,
-    Class,
     GenerateBlock,
     Block,
     Subroutine,

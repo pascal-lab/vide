@@ -39,7 +39,7 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{InContainer, ScopeId},
+    container::{ArenaOwnerId, SubroutineParent, SubroutineScope},
     db::HirDb,
     file::HirFileId,
     hir_def::lower_ident_opt,
@@ -233,7 +233,7 @@ pub(crate) type LowerFileCtx<'a> = LoweringCtx<'a, FileStore<'a>>;
 
 impl LowerFileCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ScopeId::File(self.file_id);
+        let container_id = ArenaOwnerId::File(self.file_id);
         let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
         alloc_with_source(
@@ -259,7 +259,7 @@ impl LowerFileCtx<'_> {
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            ScopeId::File(self.file_id),
+            ArenaOwnerId::File(self.file_id),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.lower_data_ty(ty),
         );
@@ -283,7 +283,8 @@ impl LowerFileCtx<'_> {
             func,
         );
 
-        let subroutine_id = InContainer::new(self.file_id.into(), local_subroutine_id);
+        let subroutine_id =
+            SubroutineScope::new(SubroutineParent::File(self.file_id), local_subroutine_id);
 
         if func.end().is_some() {
             let subroutine = &mut self.store.data.subroutines[local_subroutine_id];

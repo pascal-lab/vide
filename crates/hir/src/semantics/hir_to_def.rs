@@ -3,7 +3,7 @@ use utils::get::GetRef;
 
 use super::Source2DefCtx;
 use crate::{
-    container::{InContainer, ScopeId},
+    container::{ArenaOwnerId, InContainer},
     def_id::DefId,
     hir_def::{
         Ident,
@@ -50,28 +50,25 @@ impl Source2DefCtx<'_, '_> {
         };
 
         match cont_id {
-            ScopeId::File(file_id) => {
+            ArenaOwnerId::File(file_id) => {
                 let file = db.hir_file(file_id);
                 resolve(file.get(expr_id))
             }
-            ScopeId::Module(in_file) => {
+            ArenaOwnerId::Module(in_file) => {
                 let module = db.module(in_file);
                 resolve(module.get(expr_id))
             }
-            ScopeId::Block(block_id) => {
+            ArenaOwnerId::Block(block_id) => {
                 let block = db.block(block_id);
                 resolve(block.get(expr_id))
             }
-            ScopeId::GenerateBlock(generate_block_id) => {
+            ArenaOwnerId::GenerateBlock(generate_block_id) => {
                 let generate_block = db.generate_block(generate_block_id);
                 resolve(generate_block.get(expr_id))
             }
-            ScopeId::Subroutine(subroutine_id) => {
-                let subroutine = db.subroutine(subroutine_id.as_in_container());
+            ArenaOwnerId::Subroutine(subroutine_id) => {
+                let subroutine = db.subroutine(subroutine_id);
                 resolve(subroutine.get(expr_id))
-            }
-            ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => {
-                Resolution::Unresolved
             }
         }
     }
@@ -81,24 +78,24 @@ impl Source2DefCtx<'_, '_> {
         InContainer { cont_id, value: ident }: InContainer<Ident>,
         name_ctx: NameContext,
     ) -> Resolution<DefId> {
-        let res = resolve_name(self.db, cont_id, &ident, name_ctx);
+        let res = resolve_name(self.db, cont_id.into(), &ident, name_ctx);
         self.hir_cache.name_map.insert(InContainer::new(cont_id, ident), res.clone());
         res
     }
 
     fn resolve_expr_path(
         &self,
-        cont_id: ScopeId,
+        cont_id: ArenaOwnerId,
         expr_id: ExprId,
         ctx: NameContext,
     ) -> Resolution<DefId> {
         let Some(path) = self.expr_path(cont_id, expr_id) else {
             return Resolution::Unresolved;
         };
-        resolve_path(self.db, cont_id, &path, ctx)
+        resolve_path(self.db, cont_id.into(), &path, ctx)
     }
 
-    fn expr_path(&self, cont_id: ScopeId, expr_id: ExprId) -> Option<Vec<Ident>> {
+    fn expr_path(&self, cont_id: ArenaOwnerId, expr_id: ExprId) -> Option<Vec<Ident>> {
         match self.expr_in_container(cont_id, expr_id)? {
             Expr::Ident(ident) => Some(vec![ident]),
             Expr::Field { receiver, field } => {
@@ -111,18 +108,17 @@ impl Source2DefCtx<'_, '_> {
         }
     }
 
-    fn expr_in_container(&self, cont_id: ScopeId, expr_id: ExprId) -> Option<Expr> {
+    fn expr_in_container(&self, cont_id: ArenaOwnerId, expr_id: ExprId) -> Option<Expr> {
         match cont_id {
-            ScopeId::File(file_id) => Some(self.db.hir_file(file_id).get(expr_id).clone()),
-            ScopeId::Module(module_id) => Some(self.db.module(module_id).get(expr_id).clone()),
-            ScopeId::Block(block_id) => Some(self.db.block(block_id).get(expr_id).clone()),
-            ScopeId::GenerateBlock(generate_block_id) => {
+            ArenaOwnerId::File(file_id) => Some(self.db.hir_file(file_id).get(expr_id).clone()),
+            ArenaOwnerId::Module(module_id) => Some(self.db.module(module_id).get(expr_id).clone()),
+            ArenaOwnerId::Block(block_id) => Some(self.db.block(block_id).get(expr_id).clone()),
+            ArenaOwnerId::GenerateBlock(generate_block_id) => {
                 Some(self.db.generate_block(generate_block_id).get(expr_id).clone())
             }
-            ScopeId::Subroutine(subroutine_id) => {
-                Some(self.db.subroutine(subroutine_id.as_in_container()).get(expr_id).clone())
+            ArenaOwnerId::Subroutine(subroutine_id) => {
+                Some(self.db.subroutine(subroutine_id).get(expr_id).clone())
             }
-            ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
         }
     }
 }

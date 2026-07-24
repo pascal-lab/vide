@@ -133,7 +133,7 @@ fn handle_literal(
 
     let expr = ast::Expression::cast(parent)?;
     let InContainer { value: expr_id, cont_id } = sema.resolve_expr(file_id, expr)?;
-    let container = cont_id.to_container(sema.db);
+    let container = cont_id.data(sema.db);
     let Expr::Literal(literal) = container.expr(expr_id) else {
         return None;
     };

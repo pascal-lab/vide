@@ -30,7 +30,7 @@ use super::{
 };
 use crate::{
     base_db::intern::Lookup,
-    container::{InFile, ScopeId},
+    container::{ArenaOwnerId, InFile},
     db::HirDb,
     region_tree::RegionTree,
     source_map::{AstKind, IsNamedSrc, IsSrc, NamedAstId, SourceMap, ToAstNode},
@@ -244,7 +244,7 @@ pub struct BlockId(pub salsa::InternId);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct BlockLoc {
-    pub cont_id: ScopeId,
+    pub cont_id: ArenaOwnerId,
     pub src: InFile<BlockSrc>,
 }
 
@@ -252,7 +252,7 @@ pub(crate) type LowerBlockCtx<'a> = LoweringCtx<'a, BlockStore<'a>>;
 
 impl LowerBlockCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ScopeId::Block(self.block_id());
+        let container_id = ArenaOwnerId::Block(self.block_id());
         let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
         alloc_with_source(
@@ -279,7 +279,7 @@ impl LowerBlockCtx<'_> {
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            ScopeId::Block(self.block_id()),
+            ArenaOwnerId::Block(self.block_id()),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.lower_data_ty(ty),
         );

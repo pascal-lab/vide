@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 use collector::SemaTokenCollectorTree;
 use hir::{
-    container::{InContainer, ScopeId},
+    container::{ArenaOwnerId, InContainer},
     db::HirDb,
     def_id::DefId,
     file::HirFileId,
@@ -569,13 +569,13 @@ fn collect_ident_like(
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) -> Option<()> {
-    let res = sema.resolve_name(in_cont.cont_id, &in_cont.value, NameContext::Value);
+    let res = sema.resolve_name(in_cont.cont_id.into(), &in_cont.value, NameContext::Value);
     collect_resolved_path(sema, res, range, collector)
 }
 
 fn collect_type_ident_like(
     sema: &Semantics<'_, RootDb>,
-    cont_id: ScopeId,
+    cont_id: ArenaOwnerId,
     expr: &Expr,
     range: TextRange,
     collector: &mut SemaTokenCollector,
@@ -583,13 +583,13 @@ fn collect_type_ident_like(
     let Expr::Ident(name) = expr else {
         return None;
     };
-    let res = sema.resolve_name(cont_id, name, NameContext::Type);
+    let res = sema.resolve_name(cont_id.into(), name, NameContext::Type);
     collect_resolved_path(sema, res, range, collector)
 }
 
 fn collect_field_like(
     sema: &Semantics<'_, RootDb>,
-    cont_id: ScopeId,
+    cont_id: ArenaOwnerId,
     expr_id: ExprId,
     src: ExprSrc,
     tree: &SyntaxTree,
@@ -664,7 +664,7 @@ fn collect_resolved_path(
     match def_id.kind(db) {
         DefKind::Port => {
             let decl_id = def_id.primary_origin(db).as_decl(db)?;
-            let ScopeId::Module(module_id) = decl_id.cont_id else {
+            let ArenaOwnerId::Module(module_id) = decl_id.cont_id else {
                 return None;
             };
             let module = db.module(module_id);
