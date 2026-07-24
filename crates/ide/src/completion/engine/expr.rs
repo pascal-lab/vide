@@ -1,15 +1,11 @@
 use std::collections::BTreeMap;
 
 use hir::{
-    container::{InContainer, ScopeId, ScopeParent},
+    container::{InContainer, ScopeId, ScopeParent, SubroutineScope},
     db::HirDb,
     def_id::DefId,
     file::HirFileId,
-    hir_def::{
-        lower_ident_opt,
-        module::ModuleId,
-        subroutine::{LocalSubroutineId, SubroutineKind},
-    },
+    hir_def::{lower_ident_opt, module::ModuleId, subroutine::SubroutineKind},
     semantics::Semantics,
     symbol::{DefKind, Resolution},
     type_infer::{Ty, normalize_data_ty, type_class},
@@ -103,7 +99,7 @@ fn container_id_at_offset(
 ) -> Option<ScopeId> {
     let elem = root.covering_element(utils::line_index::TextRange::empty(offset));
     let node = elem.as_node().or_else(|| elem.parent())?;
-    sema.container_for_node(file_id, node)
+    sema.container_for_node(file_id, node).map(Into::into)
 }
 
 fn collect_container_names(
@@ -121,13 +117,13 @@ fn collect_container_names(
             }
         }
         ScopeId::Checker(checker_id) => {
-            let scope = db.checker_scope(checker_id.as_in_container());
+            let scope = db.checker_scope(checker_id);
             for (ident, defs) in scope.iter_listing() {
                 collect_def_names(db, ident, defs, names);
             }
         }
         ScopeId::Covergroup(covergroup_id) => {
-            let scope = db.covergroup_scope(covergroup_id.as_in_container());
+            let scope = db.covergroup_scope(covergroup_id);
             for (ident, defs) in scope.iter_listing() {
                 collect_def_names(db, ident, defs, names);
             }
@@ -145,7 +141,7 @@ fn collect_container_names(
             }
         }
         ScopeId::Subroutine(subroutine_id) => {
-            let scope = db.subroutine_scope(subroutine_id.as_in_container());
+            let scope = db.subroutine_scope(subroutine_id);
             for (ident, defs) in scope.iter_listing() {
                 collect_def_names(db, ident, defs, names);
             }
@@ -206,7 +202,7 @@ fn collect_def_names(
     }
 }
 
-fn subroutine_return_ty(db: &RootDb, subroutine_id: InContainer<LocalSubroutineId>) -> Ty {
+fn subroutine_return_ty(db: &RootDb, subroutine_id: SubroutineScope) -> Ty {
     match db.subroutine(subroutine_id).kind {
         SubroutineKind::Function { return_ty: Some(return_ty) } => {
             normalize_data_ty(db, subroutine_id.into(), return_ty).ty

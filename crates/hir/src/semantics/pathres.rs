@@ -5,7 +5,7 @@ use utils::get::GetRef;
 
 use super::SemanticsImpl;
 use crate::{
-    container::{InContainer, InFile, ScopeId, ScopeParent},
+    container::{ArenaOwnerId, InContainer, InFile, ScopeId, ScopeParent},
     db::HirDb,
     def_id::DefId,
     file::HirFileId,
@@ -44,7 +44,7 @@ impl SemanticsImpl<'_> {
         })
     }
 
-    pub(in crate::semantics) fn find_container(&self, node: InFile<SyntaxNode>) -> ScopeId {
+    pub(in crate::semantics) fn find_container(&self, node: InFile<SyntaxNode>) -> ArenaOwnerId {
         self.with_ctx(|ctx| ctx.find_container(node))
     }
 
@@ -154,13 +154,8 @@ pub fn descend_scope(db: &dyn HirDb, def_id: DefId) -> Option<ScopeId> {
             origin.as_module(db).map(Into::into)
         }
         DefKind::ClockingBlock => origin.as_clocking_block(db).map(Into::into),
-        DefKind::Checker => {
-            origin.as_checker(db).and_then(|checker| checker.try_into().ok()).map(ScopeId::Checker)
-        }
-        DefKind::Covergroup => origin
-            .as_covergroup(db)
-            .and_then(|covergroup| covergroup.try_into().ok())
-            .map(ScopeId::Covergroup),
+        DefKind::Checker => origin.as_checker(db).map(ScopeId::Checker),
+        DefKind::Covergroup => origin.as_covergroup(db).map(ScopeId::Covergroup),
         DefKind::Instance => {
             let instance = origin.as_instance(db)?;
             let target = instance_target_def_id(db, instance.module_id, instance.value)?;
@@ -190,11 +185,11 @@ pub(crate) fn name_scope(db: &dyn HirDb, scope_id: ScopeId) -> Arc<NameScope> {
         ScopeId::File(file_id) => db.file_scope(file_id),
         ScopeId::Module(module_id) => db.module_scope(module_id),
         ScopeId::ClockingBlock(clocking_block_id) => db.clocking_block_scope(clocking_block_id),
-        ScopeId::Checker(checker_id) => db.checker_scope(checker_id.as_in_container()),
-        ScopeId::Covergroup(covergroup_id) => db.covergroup_scope(covergroup_id.as_in_container()),
+        ScopeId::Checker(checker_id) => db.checker_scope(checker_id),
+        ScopeId::Covergroup(covergroup_id) => db.covergroup_scope(covergroup_id),
         ScopeId::GenerateBlock(generate_block_id) => db.generate_block_scope(generate_block_id),
         ScopeId::Block(block_id) => db.block_scope(block_id),
-        ScopeId::Subroutine(subroutine_id) => db.subroutine_scope(subroutine_id.as_in_container()),
+        ScopeId::Subroutine(subroutine_id) => db.subroutine_scope(subroutine_id),
     }
 }
 

@@ -9,7 +9,7 @@ use utils::get::{Get, GetRef};
 
 use super::hir_to_def::Hir2DefCache;
 use crate::{
-    container::{InContainer, InFile, ScopeId},
+    container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
     db::HirDb,
     file::HirFileId,
     hir_def::{
@@ -25,7 +25,7 @@ use crate::{
 
 #[derive(Default, Debug)]
 pub(super) struct Source2DefCache {
-    container_map: FxHashMap<InFile<SyntaxNodePtr>, ScopeId>,
+    container_map: FxHashMap<InFile<SyntaxNodePtr>, ArenaOwnerId>,
 }
 
 pub(super) struct Source2DefCtx<'db, 'cache> {
@@ -55,7 +55,7 @@ impl Source2DefCtx<'_, '_> {
     pub(super) fn subroutine_to_def(
         &mut self,
         InFile { file_id, value: subroutine_src }: InFile<SubroutineSrc>,
-    ) -> Option<InContainer<LocalSubroutineId>> {
+    ) -> Option<SubroutineScope> {
         let tree = self.db.parse(file_id);
         let node = subroutine_src.to_node(&tree)?;
         self.subroutine_to_def_inner(file_id, node, subroutine_src)
@@ -72,42 +72,39 @@ impl Source2DefCtx<'_, '_> {
         let container = self.find_container(InFile::new(file_id, node));
 
         let block_id = match container {
-            ScopeId::File(file_id) => {
+            ArenaOwnerId::File(file_id) => {
                 let (file, file_src_map) = self.db.hir_file_with_source_map(file_id);
                 let local_block_id = find_local_block_id(&file_src_map.stmt_srcs, block_src)?;
                 file.get(local_block_id).block_id
             }
-            ScopeId::Module(module_id) => {
+            ArenaOwnerId::Module(module_id) => {
                 let (module, module_src_map) = self.db.module_with_source_map(module_id);
                 let local_block_id = find_local_block_id(&module_src_map.stmt_srcs, block_src)?;
                 module.get(local_block_id).block_id
             }
-            ScopeId::Block(block_id) => {
+            ArenaOwnerId::Block(block_id) => {
                 let (block, block_src_map) = self.db.block_with_source_map(block_id);
                 let local_block_id = *block_src_map.block_srcs.get(&block_src)?;
                 block.get(local_block_id).block_id
             }
-            ScopeId::GenerateBlock(generate_block_id) => {
+            ArenaOwnerId::GenerateBlock(generate_block_id) => {
                 let (generate_block, generate_block_src_map) =
                     self.db.generate_block_with_source_map(generate_block_id);
                 let local_block_id = generate_block_src_map.get(block_src)?;
                 generate_block.get(local_block_id).block_id
             }
-            ScopeId::Subroutine(subroutine_id) => {
+            ArenaOwnerId::Subroutine(subroutine_id) => {
                 let (subroutine, subroutine_src_map) =
-                    self.db.subroutine_with_source_map(subroutine_id.as_in_container());
+                    self.db.subroutine_with_source_map(subroutine_id);
                 let local_block_id = *subroutine_src_map.block_srcs.get(&block_src)?;
                 subroutine.stmts.get(local_block_id).block_id
-            }
-            ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => {
-                return None;
             }
         };
 
         Some(block_id)
     }
 
-    fn container_to_def(&mut self, file_id: HirFileId, node: SyntaxNode) -> Option<ScopeId> {
+    fn container_to_def(&mut self, file_id: HirFileId, node: SyntaxNode) -> Option<ArenaOwnerId> {
         let cont_id = match_ast! { node,
            ast::ModuleDeclaration[module] => {
                let src = ModuleSrc::from_ast(file_id, module);
@@ -152,7 +149,7 @@ impl Source2DefCtx<'_, '_> {
         file_id: HirFileId,
         node: ast::FunctionDeclaration,
         src: SubroutineSrc,
-    ) -> Option<InContainer<LocalSubroutineId>> {
+    ) -> Option<SubroutineScope> {
         let parent = ast::Member::cast(node.syntax())
             .and_then(|member| self.single_member_generate_block_to_def(file_id, member))
             .or_else(|| {
@@ -161,33 +158,36 @@ impl Source2DefCtx<'_, '_> {
                     .find_map(|node| self.container_to_def(file_id, node))
             })
             .unwrap_or(file_id.into());
+        let parent = match parent {
+            ArenaOwnerId::File(file_id) => SubroutineParent::File(file_id),
+            ArenaOwnerId::Module(module_id) => SubroutineParent::Module(module_id),
+            ArenaOwnerId::GenerateBlock(generate_block_id) => {
+                SubroutineParent::GenerateBlock(generate_block_id)
+            }
+            ArenaOwnerId::Block(_) | ArenaOwnerId::Subroutine(_) => return None,
+        };
         let local_id = self.local_subroutine_id(parent, src)?;
-        Some(InContainer::new(parent, local_id))
+        Some(SubroutineScope::new(parent, local_id))
     }
 
     fn local_subroutine_id(
         &self,
-        cont_id: ScopeId,
+        cont_id: SubroutineParent,
         src: SubroutineSrc,
     ) -> Option<LocalSubroutineId> {
         match cont_id {
-            ScopeId::File(file_id) => {
+            SubroutineParent::File(file_id) => {
                 let (_, source_map) = self.db.hir_file_with_source_map(file_id);
                 source_map.get(src)
             }
-            ScopeId::Module(module_id) => {
+            SubroutineParent::Module(module_id) => {
                 let (_, source_map) = self.db.module_with_source_map(module_id);
                 source_map.get(src)
             }
-            ScopeId::GenerateBlock(generate_block_id) => {
+            SubroutineParent::GenerateBlock(generate_block_id) => {
                 let (_, source_map) = self.db.generate_block_with_source_map(generate_block_id);
                 source_map.get(src)
             }
-            ScopeId::Block(_)
-            | ScopeId::Subroutine(_)
-            | ScopeId::ClockingBlock(_)
-            | ScopeId::Checker(_)
-            | ScopeId::Covergroup(_) => None,
         }
     }
 
@@ -195,7 +195,7 @@ impl Source2DefCtx<'_, '_> {
         &mut self,
         file_id: HirFileId,
         member: ast::Member,
-    ) -> Option<ScopeId> {
+    ) -> Option<ArenaOwnerId> {
         if matches!(member, ast::Member::GenerateBlock(_) | ast::Member::LoopGenerate(_)) {
             return None;
         }
@@ -243,7 +243,7 @@ impl Source2DefCtx<'_, '_> {
     pub(super) fn find_container(
         &mut self,
         InFile { value: node, file_id }: InFile<SyntaxNode>,
-    ) -> ScopeId {
+    ) -> ArenaOwnerId {
         let in_file = InFile::new(file_id, SyntaxNodePtr::from_node(node));
 
         if let Some(container_id) = self.source_cache.container_map.get(&in_file) {
