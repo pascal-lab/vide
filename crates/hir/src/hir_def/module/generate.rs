@@ -1,5 +1,4 @@
 use la_arena::{Arena, Idx};
-use proc_macro_utils::define_container;
 use smallvec::SmallVec;
 use syntax::{
     SyntaxToken, TokenKind,
@@ -12,44 +11,37 @@ use utils::define_enum_deriving_from;
 
 use super::{
     LowerModuleCtx,
-    continuous_assgin::{
-        ContAssign, ContAssignId, ContAssignSrc, LowerContAssign, impl_lower_cont_assign,
-    },
-    defparam::{DefParam, DefParamId, DefParamSrc, LowerDefParam, impl_lower_defparam},
+    continuous_assgin::{ContAssign, ContAssignId, ContAssignSrc},
+    defparam::{DefParam, DefParamId, DefParamSrc},
     instantiation::{
-        Instance, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc,
-        LowerInstantiation, ParamAssign, ParamAssignSrc, PortConn, PortConnSrc,
-        impl_lower_instantiation,
+        Instance, InstanceId, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc,
+        ParamAssign, ParamAssignId, ParamAssignSrc, PortConn, PortConnId, PortConnSrc,
     },
 };
 use crate::{
     base_db::intern::Lookup,
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
-    db::{HirDb, InternDb},
-    file::HirFileId,
+    db::HirDb,
     hir_def::{
         Ident,
         aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
-        alloc_idx_and_src,
-        declaration::{
-            Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, impl_lower_declaration,
-        },
+        alloc_with_optional_source_entry, alloc_with_source,
+        declaration::{Declaration, DeclarationId, DeclarationSrc},
         expr::{
-            Expr, ExprId, ExprSrc, LowerExpr,
-            declarator::{Declarator, DeclaratorSrc, impl_lower_decl},
-            impl_lower_expr,
-            timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
+            Expr, ExprId, ExprSrc,
+            declarator::{DeclId, Declarator, DeclaratorSrc},
+            timing_control::{EventExpr, EventExprId, EventExprSrc},
         },
+        lower::{GenerateBlockStore, LoweringCtx, SubroutineStore},
         lower_ident_opt,
-        proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
-        stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
+        proc::{Proc, ProcId, ProcSrc},
+        stmt::{Stmt, StmtId, StmtSrc},
         subroutine::{
-            LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineSrc, lower_subroutine,
-            lower_subroutine_body,
+            LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine, lower_subroutine_body,
         },
         typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
     },
-    region_tree::{RegionTree, RegionTreeBuilder},
+    region_tree::RegionTree,
     source_map::{
         FromSourceAst, IsNamedSrc, IsSrc, SourceAst, SourceMap, ToAstNode, root_token_in,
     },
@@ -287,68 +279,129 @@ fn generate_block_name(block: ast::GenerateBlock<'_>) -> Option<SyntaxToken<'_>>
         .or_else(|| block.begin_name().and_then(|name| name.name()))
 }
 
-define_container! {
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct GenerateBlock {
-        name: Option<Ident>,
-        kind: GenerateBlockKind,
+#[derive(Default, Debug, PartialEq, Eq)]
+pub struct GenerateBlock {
+    pub name: Option<Ident>,
+    pub kind: GenerateBlockKind,
+    pub items: Vec<GenerateBlockItem>,
+    pub region_tree: RegionTree,
+    pub cont_assigns: Arena<ContAssign>,
+    pub defparams: Arena<DefParam>,
+    pub declarations: Arena<Declaration>,
+    pub typedefs: Arena<Typedef>,
+    pub structs: Arena<StructDef>,
+    pub subroutines: Arena<Subroutine>,
+    pub instantiations: Arena<Instantiation>,
+    pub inst_param_assigns: Arena<ParamAssign>,
+    pub instances: Arena<Instance>,
+    pub inst_port_conns: Arena<PortConn>,
+    pub procs: Arena<Proc>,
+    pub exprs: Arena<Expr>,
+    pub event_exprs: Arena<EventExpr>,
+    pub decls: Arena<Declarator>,
+    pub stmts: Arena<Stmt>,
+}
 
-        items: Vec<GenerateBlockItem>,
-        region_tree: RegionTree,
-
-        cont_assigns: [ContAssign],
-        defparams: [DefParam],
-        declarations: [Declaration],
-        typedefs: [Typedef],
-        structs: [StructDef],
-        subroutines: [Subroutine],
-
-        instantiations: [Instantiation],
-        inst_param_assigns: [ParamAssign],
-        instances: [Instance],
-        inst_port_conns: [PortConn],
-
-        procs: [Proc],
-
-        exprs: [Expr],
-        event_exprs: [EventExpr],
-        decls: [Declarator],
-        stmts: [Stmt] => {
-            [StmtId | Stmt],
-            [crate::hir_def::block::LocalBlockId | crate::hir_def::block::BlockInfo],
-        },
+impl GenerateBlock {
+    pub fn shrink_to_fit(&mut self) {
+        self.cont_assigns.shrink_to_fit();
+        self.defparams.shrink_to_fit();
+        self.declarations.shrink_to_fit();
+        self.typedefs.shrink_to_fit();
+        self.structs.shrink_to_fit();
+        self.subroutines.shrink_to_fit();
+        self.instantiations.shrink_to_fit();
+        self.inst_param_assigns.shrink_to_fit();
+        self.instances.shrink_to_fit();
+        self.inst_port_conns.shrink_to_fit();
+        self.procs.shrink_to_fit();
+        self.exprs.shrink_to_fit();
+        self.event_exprs.shrink_to_fit();
+        self.decls.shrink_to_fit();
+        self.stmts.shrink_to_fit();
     }
 }
 
-define_container! {
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct GenerateBlockSourceMap {
-        items: Vec<GenerateBlockItem>,
-        region_tree: RegionTree,
+#[derive(Default, Debug, PartialEq, Eq)]
+pub struct GenerateBlockSourceMap {
+    pub items: Vec<GenerateBlockItem>,
+    pub region_tree: RegionTree,
+    pub assign_srcs: SourceMap<ContAssignSrc, ContAssign>,
+    pub defparam_srcs: SourceMap<DefParamSrc, DefParam>,
+    pub declaration_srcs: SourceMap<DeclarationSrc, Declaration>,
+    pub typedef_srcs: SourceMap<TypedefSrc, Typedef>,
+    pub struct_srcs: SourceMap<StructSrc, StructDef>,
+    pub subroutine_srcs: SourceMap<SubroutineSrc, Subroutine>,
+    pub instantiation_srcs: SourceMap<InstantiationSrc, Instantiation>,
+    pub inst_param_assign_srcs: SourceMap<ParamAssignSrc, ParamAssign>,
+    pub instance_srcs: SourceMap<InstanceSrc, Instance>,
+    pub inst_port_conn_srcs: SourceMap<PortConnSrc, PortConn>,
+    pub proc_srcs: SourceMap<ProcSrc, Proc>,
+    pub expr_srcs: SourceMap<ExprSrc, Expr>,
+    pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
+    pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
+    pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+}
 
-        assign_srcs: [ContAssign | ContAssignSrc],
-        defparam_srcs: [DefParam | DefParamSrc],
-        declaration_srcs: [Declaration | DeclarationSrc],
-        typedef_srcs: [Typedef | TypedefSrc],
-        struct_srcs: [StructDef | StructSrc],
-        subroutine_srcs: [Subroutine | SubroutineSrc],
-
-        instantiation_srcs: [Instantiation | InstantiationSrc],
-        inst_param_assign_srcs: [ParamAssign | ParamAssignSrc],
-        instance_srcs: [Instance | InstanceSrc],
-        inst_port_conn_srcs: [PortConn | PortConnSrc],
-
-        proc_srcs: [Proc | ProcSrc],
-
-        expr_srcs: [Expr | ExprSrc],
-        event_expr_srcs: [EventExpr | EventExprSrc],
-        decl_srcs: [Declarator | DeclaratorSrc],
-        stmt_srcs: [Stmt | StmtSrc] => {
-            [StmtId | StmtSrc],
-            [crate::hir_def::block::LocalBlockId | crate::hir_def::block::BlockSrc],
-        },
+impl GenerateBlockSourceMap {
+    pub fn shrink_to_fit(&mut self) {
+        self.assign_srcs.shrink_to_fit();
+        self.defparam_srcs.shrink_to_fit();
+        self.declaration_srcs.shrink_to_fit();
+        self.typedef_srcs.shrink_to_fit();
+        self.struct_srcs.shrink_to_fit();
+        self.subroutine_srcs.shrink_to_fit();
+        self.instantiation_srcs.shrink_to_fit();
+        self.inst_param_assign_srcs.shrink_to_fit();
+        self.instance_srcs.shrink_to_fit();
+        self.inst_port_conn_srcs.shrink_to_fit();
+        self.proc_srcs.shrink_to_fit();
+        self.expr_srcs.shrink_to_fit();
+        self.event_expr_srcs.shrink_to_fit();
+        self.decl_srcs.shrink_to_fit();
+        self.stmt_srcs.shrink_to_fit();
     }
 }
+
+crate::hir_def::impl_arena_getters!(
+    GenerateBlock;
+    ContAssignId => cont_assigns => ContAssign,
+    DefParamId => defparams => DefParam,
+    DeclarationId => declarations => Declaration,
+    TypedefId => typedefs => Typedef,
+    StructId => structs => StructDef,
+    LocalSubroutineId => subroutines => Subroutine,
+    InstantiationId => instantiations => Instantiation,
+    ParamAssignId => inst_param_assigns => ParamAssign,
+    InstanceId => instances => Instance,
+    PortConnId => inst_port_conns => PortConn,
+    ProcId => procs => Proc,
+    ExprId => exprs => Expr,
+    EventExprId => event_exprs => EventExpr,
+    DeclId => decls => Declarator,
+    StmtId => stmts => Stmt,
+    crate::hir_def::block::LocalBlockId => stmts => crate::hir_def::block::BlockInfo,
+);
+
+crate::hir_def::impl_source_map_getters!(
+    GenerateBlockSourceMap;
+    ContAssignSrc => ContAssignId => assign_srcs,
+    DefParamSrc => DefParamId => defparam_srcs,
+    DeclarationSrc => DeclarationId => declaration_srcs,
+    TypedefSrc => TypedefId => typedef_srcs,
+    StructSrc => StructId => struct_srcs,
+    SubroutineSrc => LocalSubroutineId => subroutine_srcs,
+    InstantiationSrc => InstantiationId => instantiation_srcs,
+    ParamAssignSrc => ParamAssignId => inst_param_assign_srcs,
+    InstanceSrc => InstanceId => instance_srcs,
+    PortConnSrc => PortConnId => inst_port_conn_srcs,
+    ProcSrc => ProcId => proc_srcs,
+    ExprSrc => ExprId => expr_srcs,
+    EventExprSrc => EventExprId => event_expr_srcs,
+    DeclaratorSrc => DeclId => decl_srcs,
+    StmtSrc => StmtId => stmt_srcs,
+    crate::hir_def::block::BlockSrc => crate::hir_def::block::LocalBlockId => stmt_srcs,
+);
 
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone)]
@@ -401,88 +454,43 @@ pub struct GenerateBlockLoc {
     pub src: InFile<GenerateBlockSrc>,
 }
 
-pub(crate) struct LowerGenerateBlockCtx<'a> {
-    pub(crate) db: &'a dyn InternDb,
-    pub(crate) file_id: HirFileId,
-    pub(crate) generate_block_id: GenerateBlockId,
-
-    pub(crate) generate_block: &'a mut GenerateBlock,
-    pub(crate) generate_block_source_map: &'a mut GenerateBlockSourceMap,
-
-    pub(crate) region_tree: RegionTreeBuilder,
-}
-
-impl_lower_expr!(LowerGenerateBlockCtx<'_>, generate_block, generate_block_source_map);
-impl_lower_decl!(LowerGenerateBlockCtx<'_>, generate_block, generate_block_source_map);
-impl_lower_event_expr!(LowerGenerateBlockCtx<'_>, generate_block, generate_block_source_map);
-impl_lower_stmt!(
-    LowerGenerateBlockCtx<'_>,
-    generate_block_id,
-    generate_block,
-    generate_block_source_map
-);
-impl_lower_declaration!(LowerGenerateBlockCtx<'_>, generate_block, generate_block_source_map);
-impl_lower_cont_assign!(LowerGenerateBlockCtx<'_>, generate_block, generate_block_source_map);
-impl_lower_defparam!(LowerGenerateBlockCtx<'_>, generate_block, generate_block_source_map);
-impl_lower_instantiation!(LowerGenerateBlockCtx<'_>, generate_block, generate_block_source_map);
-
-impl LowerProc for LowerGenerateBlockCtx<'_> {
-    fn proc_ctx(&mut self) -> LowerProcCtx<'_> {
-        LowerProcCtx {
-            db: self.db,
-            file_id: self.file_id,
-            cont_id: self.generate_block_id.into(),
-
-            procs: &mut self.generate_block.procs,
-            proc_srcs: &mut self.generate_block_source_map.proc_srcs,
-
-            stmts: &mut self.generate_block.stmts,
-            stmt_srcs: &mut self.generate_block_source_map.stmt_srcs,
-
-            exprs: &mut self.generate_block.exprs,
-            expr_srcs: &mut self.generate_block_source_map.expr_srcs,
-
-            event_exprs: &mut self.generate_block.event_exprs,
-            event_expr_srcs: &mut self.generate_block_source_map.event_expr_srcs,
-
-            decls: &mut self.generate_block.decls,
-            decl_srcs: &mut self.generate_block_source_map.decl_srcs,
-        }
-    }
-}
+pub(crate) type LowerGenerateBlockCtx<'a> = LoweringCtx<'a, GenerateBlockStore<'a>>;
 
 impl LowerGenerateBlockCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ArenaOwnerId::GenerateBlock(self.generate_block_id);
-        let struct_def =
-            lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
+        let container_id = ArenaOwnerId::GenerateBlock(self.generate_block_id());
+        let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
-        alloc_idx_and_src! {
-            self.file_id;
-            struct_def => self.generate_block.structs,
-            struct_ty => self.generate_block_source_map.struct_srcs,
-        }
+        alloc_with_source(
+            self.file_id,
+            &mut self.store.data.structs,
+            &mut self.store.sources.struct_srcs,
+            struct_def,
+            struct_ty,
+        )
     }
 
     fn lower_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
         let name = lower_ident_opt(typedef.name());
 
-        let typedef_id = alloc_idx_and_src! {
-            self.file_id;
-            Typedef { name, ty: None } => self.generate_block.typedefs,
-            typedef => self.generate_block_source_map.typedef_srcs,
-        };
+        let typedef_id = alloc_with_source(
+            self.file_id,
+            &mut self.store.data.typedefs,
+            &mut self.store.sources.typedef_srcs,
+            Typedef { name, ty: None },
+            typedef,
+        );
 
         let data_ty = typedef.type_();
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            ArenaOwnerId::GenerateBlock(self.generate_block_id),
+            ArenaOwnerId::GenerateBlock(self.generate_block_id()),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
-            |ctx, ty| ctx.expr_ctx().lower_data_ty(ty),
+            |ctx, ty| ctx.lower_data_ty(ty),
         );
 
-        self.generate_block.typedefs[typedef_id].ty = Some(lowered_ty);
+        self.store.data.typedefs[typedef_id].ty = Some(lowered_ty);
 
         typedef_id
     }
@@ -491,43 +499,45 @@ impl LowerGenerateBlockCtx<'_> {
         &mut self,
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
-        let subroutine = lower_subroutine(&func, |ty| self.expr_ctx().lower_data_ty(ty))?;
+        let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
-        let subroutine_id = alloc_idx_and_src! {
-            self.file_id;
-            subroutine => self.generate_block.subroutines,
-            func => self.generate_block_source_map.subroutine_srcs,
-        };
+        let subroutine_id = alloc_with_source(
+            self.file_id,
+            &mut self.store.data.subroutines,
+            &mut self.store.sources.subroutine_srcs,
+            subroutine,
+            func,
+        );
 
         let subroutine_def_id = SubroutineScope::new(
-            SubroutineParent::GenerateBlock(self.generate_block_id),
+            SubroutineParent::GenerateBlock(self.generate_block_id()),
             subroutine_id,
         );
 
         if func.end().is_some() {
-            let subroutine = &mut self.generate_block.subroutines[subroutine_id];
+            let subroutine = &mut self.store.data.subroutines[subroutine_id];
             let mut subroutine_source_map = std::mem::take(&mut subroutine.source_map);
-            let mut ctx = LowerSubroutineBodyCtx {
-                db: self.db,
-                file_id: self.file_id,
-                subroutine_id: subroutine_def_id,
-                subroutine,
-                subroutine_source_map: &mut subroutine_source_map,
-                region_tree: RegionTreeBuilder::new(),
-            };
+            let mut ctx = LoweringCtx::new(
+                self.db,
+                self.file_id,
+                subroutine_def_id.into(),
+                SubroutineStore { data: subroutine, sources: &mut subroutine_source_map },
+            );
             lower_subroutine_body(&mut ctx, func);
+            ctx.emit_diagnostics();
+            drop(ctx);
             subroutine.source_map = subroutine_source_map;
             subroutine.source_map.shrink_to_fit();
         }
 
-        self.generate_block.subroutines[subroutine_id].shrink_to_fit();
+        self.store.data.subroutines[subroutine_id].shrink_to_fit();
 
         Some(subroutine_id)
     }
 
     fn intern_generate_block(&self, src: GenerateBlockSrc) -> GenerateBlockId {
         self.db.intern_generate_block(GenerateBlockLoc {
-            cont_id: self.generate_block_id.into(),
+            cont_id: self.generate_block_id().into(),
             src: InFile::new(self.file_id, src),
         })
     }
@@ -555,7 +565,7 @@ impl LowerGenerateBlockCtx<'_> {
         &mut self,
         if_generate: ast::IfGenerate,
     ) -> SmallVec<[GenerateBlockItem; 4]> {
-        self.expr_ctx().lower_expr(if_generate.condition());
+        self.lower_expr(if_generate.condition());
 
         let mut items = self.generate_block_item_from_branch(if_generate.block());
         if let Some(else_clause) = if_generate.else_clause()
@@ -570,7 +580,7 @@ impl LowerGenerateBlockCtx<'_> {
         &mut self,
         case_generate: ast::CaseGenerate,
     ) -> SmallVec<[GenerateBlockItem; 4]> {
-        self.expr_ctx().lower_expr(case_generate.condition());
+        self.lower_expr(case_generate.condition());
 
         let mut items = SmallVec::new();
         for item in case_generate.items().children() {
@@ -578,7 +588,7 @@ impl LowerGenerateBlockCtx<'_> {
             match item {
                 StandardCaseItem(item) => {
                     for expr in item.expressions().children() {
-                        self.expr_ctx().lower_expr(expr);
+                        self.lower_expr(expr);
                     }
                     if let Some(member) = ast::Member::cast(item.clause().syntax()) {
                         items.extend(self.generate_block_item_from_branch(member));
@@ -591,7 +601,7 @@ impl LowerGenerateBlockCtx<'_> {
                 }
                 PatternCaseItem(item) => {
                     if let Some(expr) = item.expr() {
-                        self.expr_ctx().lower_expr(expr);
+                        self.lower_expr(expr);
                     }
                 }
             }
@@ -602,45 +612,39 @@ impl LowerGenerateBlockCtx<'_> {
     fn lower_generate_member(&mut self, member: ast::Member) -> Option<GenerateBlockItem> {
         use ast::Member::*;
         let item = match member {
-            ContinuousAssign(assign) => {
-                self.cont_assign_ctx().lower_continuous_assign(assign).into()
-            }
-            DataDeclaration(data_decl) => self.declaration_ctx().lower_data_decl(data_decl).into(),
-            NetDeclaration(net_decl) => self.declaration_ctx().lower_net_decl(net_decl).into(),
+            ContinuousAssign(assign) => self.lower_continuous_assign(assign).into(),
+            DataDeclaration(data_decl) => self.lower_data_decl(data_decl).into(),
+            NetDeclaration(net_decl) => self.lower_net_decl(net_decl).into(),
             ParameterDeclarationStatement(param_decl) => {
-                self.declaration_ctx().lower_param_decl_base(param_decl.parameter()).into()
+                self.lower_param_decl_base(param_decl.parameter()).into()
             }
             TypedefDeclaration(typedef_decl) => self.lower_typedef(typedef_decl).into(),
-            GenvarDeclaration(genvar_decl) => {
-                self.declaration_ctx().lower_genvar_decl(genvar_decl).into()
-            }
-            HierarchyInstantiation(instantiation) => {
-                self.instantiation_ctx().lower_instantiation(instantiation).into()
-            }
+            GenvarDeclaration(genvar_decl) => self.lower_genvar_decl(genvar_decl).into(),
+            HierarchyInstantiation(instantiation) => self.lower_instantiation(instantiation).into(),
             PrimitiveInstantiation(instantiation) => {
-                self.instantiation_ctx().lower_primitive_instantiation(instantiation).into()
+                self.lower_primitive_instantiation(instantiation).into()
             }
             FunctionDeclaration(fn_decl) => self.lower_subroutine_decl(fn_decl)?.into(),
-            ProceduralBlock(proc) => self.proc_ctx().lower_proc(proc).into(),
+            ProceduralBlock(proc) => self.lower_proc(proc).into(),
             GenerateBlock(block) => {
                 self.intern_generate_block(GenerateBlockSrc::from_generate_block(block)).into()
             }
             LoopGenerate(loop_generate) => self.intern_generate_block(loop_generate.into()).into(),
             IfGenerate(if_generate) => {
                 for item in self.lower_if_generate_items(if_generate) {
-                    self.generate_block.items.push(item.clone());
-                    self.generate_block_source_map.items.push(item);
+                    self.store.data.items.push(item.clone());
+                    self.store.sources.items.push(item);
                 }
                 return None;
             }
             CaseGenerate(case_generate) => {
                 for item in self.lower_case_generate_items(case_generate) {
-                    self.generate_block.items.push(item.clone());
-                    self.generate_block_source_map.items.push(item);
+                    self.store.data.items.push(item.clone());
+                    self.store.sources.items.push(item);
                 }
                 return None;
             }
-            DefParam(defparam) => self.defparam_ctx().lower_defparam(defparam).into(),
+            DefParam(defparam) => self.lower_defparam(defparam).into(),
             EmptyMember(_) => return None,
             _ => return None,
         };
@@ -649,35 +653,35 @@ impl LowerGenerateBlockCtx<'_> {
     }
 
     fn lower_generate_block(&mut self, block: ast::GenerateBlock) {
-        self.generate_block.name =
+        self.store.data.name =
             generate_block_name(block).and_then(|name| lower_ident_opt(Some(name)));
-        self.generate_block.kind = GenerateBlockKind::Block;
+        self.store.data.kind = GenerateBlockKind::Block;
 
         for member in block.members().children() {
             let Some(item) = self.lower_generate_member(member) else {
                 continue;
             };
-            self.generate_block.items.push(item.clone());
-            self.generate_block_source_map.items.push(item);
+            self.store.data.items.push(item.clone());
+            self.store.sources.items.push(item);
             self.region_tree.handle_node(member.syntax());
         }
 
         self.region_tree.stage(block.end(), block.syntax());
-        self.generate_block.region_tree = self.region_tree.finish();
-        self.generate_block_source_map.region_tree = self.generate_block.region_tree.clone();
+        self.store.data.region_tree = self.region_tree.finish();
+        self.store.sources.region_tree = self.store.data.region_tree.clone();
     }
 
     fn lower_loop_generate(&mut self, loop_generate: ast::LoopGenerate) {
-        self.generate_block.name = loop_generate
+        self.store.data.name = loop_generate
             .block()
             .as_generate_block()
             .and_then(generate_block_name)
             .and_then(|name| lower_ident_opt(Some(name)));
 
-        let initial = self.expr_ctx().lower_expr(loop_generate.initial_expr());
-        let stop = self.expr_ctx().lower_expr(loop_generate.stop_expr());
-        let iteration = self.expr_ctx().lower_expr(loop_generate.iteration_expr());
-        self.generate_block.kind = GenerateBlockKind::Loop {
+        let initial = self.lower_expr(loop_generate.initial_expr());
+        let stop = self.lower_expr(loop_generate.stop_expr());
+        let iteration = self.lower_expr(loop_generate.iteration_expr());
+        self.store.data.kind = GenerateBlockKind::Loop {
             genvar: lower_ident_opt(loop_generate.identifier()),
             initial,
             stop,
@@ -689,32 +693,32 @@ impl LowerGenerateBlockCtx<'_> {
                 let Some(item) = self.lower_generate_member(member) else {
                     continue;
                 };
-                self.generate_block.items.push(item.clone());
-                self.generate_block_source_map.items.push(item);
+                self.store.data.items.push(item.clone());
+                self.store.sources.items.push(item);
                 self.region_tree.handle_node(member.syntax());
             }
             self.region_tree.stage(block.end(), block.syntax());
         }
 
-        self.generate_block.region_tree = self.region_tree.finish();
-        self.generate_block_source_map.region_tree = self.generate_block.region_tree.clone();
+        self.store.data.region_tree = self.region_tree.finish();
+        self.store.sources.region_tree = self.store.data.region_tree.clone();
     }
 
     fn lower_single_member(&mut self, member: ast::Member) {
         if let Some(item) = self.lower_generate_member(member) {
-            self.generate_block.items.push(item.clone());
-            self.generate_block_source_map.items.push(item);
+            self.store.data.items.push(item.clone());
+            self.store.sources.items.push(item);
         }
 
-        self.generate_block.region_tree = self.region_tree.finish();
-        self.generate_block_source_map.region_tree = self.generate_block.region_tree.clone();
+        self.store.data.region_tree = self.region_tree.finish();
+        self.store.sources.region_tree = self.store.data.region_tree.clone();
     }
 }
 
 impl LowerModuleCtx<'_> {
     pub(crate) fn intern_generate_block(&self, src: GenerateBlockSrc) -> GenerateBlockId {
         self.db.intern_generate_block(GenerateBlockLoc {
-            cont_id: self.module_id.into(),
+            cont_id: self.module_id().into(),
             src: InFile::new(self.file_id, src),
         })
     }
@@ -739,7 +743,7 @@ impl LowerModuleCtx<'_> {
         &mut self,
         if_generate: ast::IfGenerate,
     ) -> SmallVec<[GenerateItem; 4]> {
-        self.expr_ctx().lower_expr(if_generate.condition());
+        self.lower_expr(if_generate.condition());
 
         let mut items = self.generate_item_from_branch(if_generate.block());
         if let Some(else_clause) = if_generate.else_clause()
@@ -754,7 +758,7 @@ impl LowerModuleCtx<'_> {
         &mut self,
         case_generate: ast::CaseGenerate,
     ) -> SmallVec<[GenerateItem; 4]> {
-        self.expr_ctx().lower_expr(case_generate.condition());
+        self.lower_expr(case_generate.condition());
 
         let mut items = SmallVec::new();
         for item in case_generate.items().children() {
@@ -762,7 +766,7 @@ impl LowerModuleCtx<'_> {
             match item {
                 StandardCaseItem(item) => {
                     for expr in item.expressions().children() {
-                        self.expr_ctx().lower_expr(expr);
+                        self.lower_expr(expr);
                     }
                     if let Some(member) = ast::Member::cast(item.clause().syntax()) {
                         items.extend(self.generate_item_from_branch(member));
@@ -775,7 +779,7 @@ impl LowerModuleCtx<'_> {
                 }
                 PatternCaseItem(item) => {
                     if let Some(expr) = item.expr() {
-                        self.expr_ctx().lower_expr(expr);
+                        self.lower_expr(expr);
                     }
                 }
             }
@@ -791,33 +795,29 @@ impl LowerModuleCtx<'_> {
         use ast::Member::*;
         match item {
             ContinuousAssign(assign) => {
-                items.push(self.cont_assign_ctx().lower_continuous_assign(assign).into());
+                items.push(self.lower_continuous_assign(assign).into());
             }
             DataDeclaration(data_decl) => {
-                items.push(self.declaration_ctx().lower_data_decl(data_decl).into());
+                items.push(self.lower_data_decl(data_decl).into());
             }
             NetDeclaration(net_decl) => {
-                items.push(self.declaration_ctx().lower_net_decl(net_decl).into());
+                items.push(self.lower_net_decl(net_decl).into());
             }
             EmptyMember(_) => {}
             GenvarDeclaration(genvar_decl) => {
-                items.push(self.declaration_ctx().lower_genvar_decl(genvar_decl).into());
+                items.push(self.lower_genvar_decl(genvar_decl).into());
             }
             ParameterDeclarationStatement(param_decl) => {
-                items.push(
-                    self.declaration_ctx().lower_param_decl_base(param_decl.parameter()).into(),
-                );
+                items.push(self.lower_param_decl_base(param_decl.parameter()).into());
             }
             TypedefDeclaration(typedef_decl) => {
                 items.push(self.lower_typedef(typedef_decl).into());
             }
             HierarchyInstantiation(instantiation) => {
-                items.push(self.instantiation_ctx().lower_instantiation(instantiation).into());
+                items.push(self.lower_instantiation(instantiation).into());
             }
             PrimitiveInstantiation(instantiation) => {
-                items.push(
-                    self.instantiation_ctx().lower_primitive_instantiation(instantiation).into(),
-                );
+                items.push(self.lower_primitive_instantiation(instantiation).into());
             }
             FunctionDeclaration(fn_decl) => {
                 if let Some(sub_id) = self.lower_subroutine_decl(fn_decl) {
@@ -825,7 +825,7 @@ impl LowerModuleCtx<'_> {
                 }
             }
             ProceduralBlock(proc) => {
-                items.push(self.proc_ctx().lower_proc(proc).into());
+                items.push(self.lower_proc(proc).into());
             }
             GenerateBlock(block) => {
                 items.push(
@@ -842,7 +842,7 @@ impl LowerModuleCtx<'_> {
                 items.extend(self.lower_case_generate_items(case_generate));
             }
             DefParam(defparam) => {
-                items.push(self.defparam_ctx().lower_defparam(defparam).into());
+                items.push(self.lower_defparam(defparam).into());
             }
             _ => {}
         }
@@ -858,11 +858,13 @@ impl LowerModuleCtx<'_> {
             self.lower_generate_region_member(item, &mut items);
         }
 
-        alloc_idx_and_src! {
-            self.file_id;
-            GenerateRegion { items } => self.module.generate_regions,
-            region => self.module_source_map.generate_region_srcs,
-        }
+        alloc_with_source(
+            self.file_id,
+            &mut self.store.data.generate_regions,
+            &mut self.store.sources.generate_region_srcs,
+            GenerateRegion { items },
+            region,
+        )
     }
 
     pub(crate) fn lower_direct_generate_region(&mut self, item: ast::Member) -> GenerateRegionId {
@@ -870,11 +872,12 @@ impl LowerModuleCtx<'_> {
         let mut items = SmallVec::new();
         self.lower_generate_region_member(item, &mut items);
 
-        let idx = self.module.generate_regions.alloc(GenerateRegion { items });
-        if let Some(src) = src {
-            self.module_source_map.generate_region_srcs.insert(src, idx);
-        }
-        idx
+        alloc_with_optional_source_entry(
+            &mut self.store.data.generate_regions,
+            &mut self.store.sources.generate_region_srcs,
+            GenerateRegion { items },
+            src,
+        )
     }
 }
 
@@ -888,14 +891,12 @@ pub(crate) fn generate_block_with_source_map_query(
     let mut generate_block = GenerateBlock::default();
     let mut generate_block_source_map = GenerateBlockSourceMap::default();
 
-    let mut lower_ctx = LowerGenerateBlockCtx {
+    let mut lower_ctx = LoweringCtx::new(
         db,
         file_id,
-        generate_block_id,
-        generate_block: &mut generate_block,
-        generate_block_source_map: &mut generate_block_source_map,
-        region_tree: RegionTreeBuilder::new(),
-    };
+        generate_block_id.into(),
+        GenerateBlockStore { data: &mut generate_block, sources: &mut generate_block_source_map },
+    );
 
     match src {
         GenerateBlockSrc::GenerateBlock { .. } => {
@@ -914,6 +915,9 @@ pub(crate) fn generate_block_with_source_map_query(
             }
         }
     }
+
+    lower_ctx.emit_diagnostics();
+    drop(lower_ctx);
 
     generate_block.shrink_to_fit();
     generate_block_source_map.shrink_to_fit();

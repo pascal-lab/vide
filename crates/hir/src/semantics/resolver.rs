@@ -82,7 +82,7 @@ impl SemanticsImpl<'_> {
         let src_map = container_id.source_map(db);
 
         let expr_src = ExprSrc::from_ast(file_id, expr);
-        let expr_id = src_map.get(expr_src)?;
+        let expr_id = src_map.expr_from_source(expr_src)?;
         Some(InContainer::new(container_id, expr_id))
     }
 }

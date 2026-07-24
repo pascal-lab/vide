@@ -1,9 +1,8 @@
 use config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc};
-use la_arena::Arena;
+use la_arena::{Arena, Idx};
 use library::{
     LibraryDecl, LibraryDeclId, LibraryDeclSrc, LibraryInclude, LibraryIncludeId, LibraryIncludeSrc,
 };
-use proc_macro_utils::define_container;
 use smallvec::SmallVec;
 use syntax::{
     ast::{self, AstNode},
@@ -16,38 +15,35 @@ use utils::{define_enum_deriving_from, get::Get};
 use super::{
     PackageImport,
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
-    alloc_idx_and_src,
+    alloc_with_source,
     block::{BlockInfo, BlockSrc, LocalBlockId},
-    checker::{CheckerDef, CheckerId, CheckerSrc, LowerChecker},
+    checker::{CheckerDef, CheckerId, CheckerSrc},
     covergroup::{
-        CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointSrc, CrossDef,
-        CrossSrc, lower_covergroup_decl, lower_coverpoint, lower_cross,
+        CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointId, CoverpointSrc,
+        CrossDef, CrossId, CrossSrc, lower_covergroup_decl, lower_coverpoint, lower_cross,
     },
-    declaration::{
-        Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, impl_lower_declaration,
-    },
+    declaration::{Declaration, DeclarationId, DeclarationSrc},
     expr::{
-        Expr, ExprSrc, LowerExpr,
-        declarator::{Declarator, DeclaratorSrc, impl_lower_decl},
-        impl_lower_expr,
-        timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
+        Expr, ExprId, ExprSrc,
+        declarator::{DeclId, Declarator, DeclaratorSrc},
+        timing_control::{EventExpr, EventExprId, EventExprSrc},
     },
+    lower::{FileStore, LoweringCtx, SubroutineStore},
     lower_package_imports,
     module::{LocalModuleId, ModuleInfo, ModuleKind, ModuleSrc},
-    proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
-    stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
+    proc::{Proc, ProcId, ProcSrc},
+    stmt::{Stmt, StmtId, StmtSrc},
     subroutine::{
-        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineSrc, lower_subroutine,
-        lower_subroutine_body,
+        LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine, lower_subroutine_body,
     },
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
     container::{ArenaOwnerId, SubroutineParent, SubroutineScope},
-    db::{HirDb, InternDb},
+    db::HirDb,
     file::HirFileId,
     hir_def::lower_ident_opt,
-    region_tree::{RegionTree, RegionTreeBuilder},
+    region_tree::RegionTree,
     source_map::SourceMap,
 };
 
@@ -55,66 +51,146 @@ pub mod config;
 pub mod library;
 pub mod udp;
 
-define_container! {
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct HirFile {
-        modules: [ModuleInfo],
-        procs: [Proc],
+#[derive(Default, Debug, PartialEq, Eq)]
+pub struct HirFile {
+    pub modules: Arena<ModuleInfo>,
+    pub procs: Arena<Proc>,
+    pub typedefs: Arena<Typedef>,
+    pub structs: Arena<StructDef>,
+    pub config_decls: Arena<ConfigDecl>,
+    pub udp_decls: Arena<UdpDecl>,
+    pub library_decls: Arena<LibraryDecl>,
+    pub library_includes: Arena<LibraryInclude>,
+    pub checkers: Arena<CheckerDef>,
+    pub covergroups: Arena<CovergroupDef>,
+    pub coverpoints: Arena<CoverpointDef>,
+    pub crosses: Arena<CrossDef>,
+    pub subroutines: Arena<Subroutine>,
+    pub package_imports: Arena<PackageImport>,
+    pub declarations: Arena<Declaration>,
+    pub exprs: Arena<Expr>,
+    pub event_exprs: Arena<EventExpr>,
+    pub decls: Arena<Declarator>,
+    pub stmts: Arena<Stmt>,
+}
 
-        typedefs: [Typedef],
-        structs: [StructDef],
-        config_decls: [ConfigDecl],
-        udp_decls: [UdpDecl],
-        library_decls: [LibraryDecl],
-        library_includes: [LibraryInclude],
-        checkers: [CheckerDef],
-        covergroups: [CovergroupDef],
-        coverpoints: [CoverpointDef],
-        crosses: [CrossDef],
-        subroutines: [Subroutine],
-        package_imports: [PackageImport],
-
-        declarations: [Declaration],
-        exprs: [Expr],
-        event_exprs: [EventExpr],
-        decls: [Declarator],
-        stmts: [Stmt] => {
-            [StmtId | Stmt],
-            [LocalBlockId | BlockInfo],
-        },
+impl HirFile {
+    pub fn shrink_to_fit(&mut self) {
+        self.modules.shrink_to_fit();
+        self.procs.shrink_to_fit();
+        self.typedefs.shrink_to_fit();
+        self.structs.shrink_to_fit();
+        self.config_decls.shrink_to_fit();
+        self.udp_decls.shrink_to_fit();
+        self.library_decls.shrink_to_fit();
+        self.library_includes.shrink_to_fit();
+        self.checkers.shrink_to_fit();
+        self.covergroups.shrink_to_fit();
+        self.coverpoints.shrink_to_fit();
+        self.crosses.shrink_to_fit();
+        self.subroutines.shrink_to_fit();
+        self.package_imports.shrink_to_fit();
+        self.declarations.shrink_to_fit();
+        self.exprs.shrink_to_fit();
+        self.event_exprs.shrink_to_fit();
+        self.decls.shrink_to_fit();
+        self.stmts.shrink_to_fit();
     }
 }
 
-define_container! {
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct FileSourceMap {
-        items: SmallVec<[FileItem; 3]>,
-        region_tree: RegionTree,
+#[derive(Default, Debug, PartialEq, Eq)]
+pub struct FileSourceMap {
+    pub items: SmallVec<[FileItem; 3]>,
+    pub region_tree: RegionTree,
+    pub module_srcs: SourceMap<ModuleSrc, ModuleInfo>,
+    pub proc_srcs: SourceMap<ProcSrc, Proc>,
+    pub declaration_srcs: SourceMap<DeclarationSrc, Declaration>,
+    pub typedef_srcs: SourceMap<TypedefSrc, Typedef>,
+    pub struct_srcs: SourceMap<StructSrc, StructDef>,
+    pub config_decl_srcs: SourceMap<ConfigDeclSrc, ConfigDecl>,
+    pub udp_decl_srcs: SourceMap<UdpDeclSrc, UdpDecl>,
+    pub library_decl_srcs: SourceMap<LibraryDeclSrc, LibraryDecl>,
+    pub library_include_srcs: SourceMap<LibraryIncludeSrc, LibraryInclude>,
+    pub checker_srcs: SourceMap<CheckerSrc, CheckerDef>,
+    pub covergroup_srcs: SourceMap<CovergroupSrc, CovergroupDef>,
+    pub coverpoint_srcs: SourceMap<CoverpointSrc, CoverpointDef>,
+    pub cross_srcs: SourceMap<CrossSrc, CrossDef>,
+    pub subroutine_srcs: SourceMap<SubroutineSrc, Subroutine>,
+    pub expr_srcs: SourceMap<ExprSrc, Expr>,
+    pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
+    pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
+    pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+}
 
-        module_srcs: [ModuleInfo | ModuleSrc],
-        proc_srcs: [Proc | ProcSrc],
-
-        declaration_srcs: [Declaration | DeclarationSrc],
-        typedef_srcs: [Typedef | TypedefSrc],
-        struct_srcs: [StructDef | StructSrc],
-        config_decl_srcs: [ConfigDecl | ConfigDeclSrc],
-        udp_decl_srcs: [UdpDecl | UdpDeclSrc],
-        library_decl_srcs: [LibraryDecl | LibraryDeclSrc],
-        library_include_srcs: [LibraryInclude | LibraryIncludeSrc],
-        checker_srcs: [CheckerDef | CheckerSrc],
-        covergroup_srcs: [CovergroupDef | CovergroupSrc],
-        coverpoint_srcs: [CoverpointDef | CoverpointSrc],
-        cross_srcs: [CrossDef | CrossSrc],
-        subroutine_srcs: [Subroutine | SubroutineSrc],
-        expr_srcs: [Expr | ExprSrc],
-        event_expr_srcs: [EventExpr | EventExprSrc],
-        decl_srcs: [Declarator | DeclaratorSrc],
-        stmt_srcs: [Stmt | StmtSrc] => {
-            [StmtId | StmtSrc],
-            [LocalBlockId | BlockSrc],
-        }
+impl FileSourceMap {
+    pub fn shrink_to_fit(&mut self) {
+        self.module_srcs.shrink_to_fit();
+        self.proc_srcs.shrink_to_fit();
+        self.declaration_srcs.shrink_to_fit();
+        self.typedef_srcs.shrink_to_fit();
+        self.struct_srcs.shrink_to_fit();
+        self.config_decl_srcs.shrink_to_fit();
+        self.udp_decl_srcs.shrink_to_fit();
+        self.library_decl_srcs.shrink_to_fit();
+        self.library_include_srcs.shrink_to_fit();
+        self.checker_srcs.shrink_to_fit();
+        self.covergroup_srcs.shrink_to_fit();
+        self.coverpoint_srcs.shrink_to_fit();
+        self.cross_srcs.shrink_to_fit();
+        self.subroutine_srcs.shrink_to_fit();
+        self.expr_srcs.shrink_to_fit();
+        self.event_expr_srcs.shrink_to_fit();
+        self.decl_srcs.shrink_to_fit();
+        self.stmt_srcs.shrink_to_fit();
     }
 }
+
+crate::hir_def::impl_arena_getters!(
+    HirFile;
+    LocalModuleId => modules => ModuleInfo,
+    ProcId => procs => Proc,
+    TypedefId => typedefs => Typedef,
+    StructId => structs => StructDef,
+    ConfigDeclId => config_decls => ConfigDecl,
+    UdpDeclId => udp_decls => UdpDecl,
+    LibraryDeclId => library_decls => LibraryDecl,
+    LibraryIncludeId => library_includes => LibraryInclude,
+    CheckerId => checkers => CheckerDef,
+    CovergroupId => covergroups => CovergroupDef,
+    CoverpointId => coverpoints => CoverpointDef,
+    CrossId => crosses => CrossDef,
+    LocalSubroutineId => subroutines => Subroutine,
+    Idx<PackageImport> => package_imports => PackageImport,
+    DeclarationId => declarations => Declaration,
+    ExprId => exprs => Expr,
+    EventExprId => event_exprs => EventExpr,
+    DeclId => decls => Declarator,
+    StmtId => stmts => Stmt,
+    LocalBlockId => stmts => BlockInfo,
+);
+
+crate::hir_def::impl_source_map_getters!(
+    FileSourceMap;
+    ModuleSrc => LocalModuleId => module_srcs,
+    ProcSrc => ProcId => proc_srcs,
+    DeclarationSrc => DeclarationId => declaration_srcs,
+    TypedefSrc => TypedefId => typedef_srcs,
+    StructSrc => StructId => struct_srcs,
+    ConfigDeclSrc => ConfigDeclId => config_decl_srcs,
+    UdpDeclSrc => UdpDeclId => udp_decl_srcs,
+    LibraryDeclSrc => LibraryDeclId => library_decl_srcs,
+    LibraryIncludeSrc => LibraryIncludeId => library_include_srcs,
+    CheckerSrc => CheckerId => checker_srcs,
+    CovergroupSrc => CovergroupId => covergroup_srcs,
+    CoverpointSrc => CoverpointId => coverpoint_srcs,
+    CrossSrc => CrossId => cross_srcs,
+    SubroutineSrc => LocalSubroutineId => subroutine_srcs,
+    ExprSrc => ExprId => expr_srcs,
+    EventExprSrc => EventExprId => event_expr_srcs,
+    DeclaratorSrc => DeclId => decl_srcs,
+    StmtSrc => StmtId => stmt_srcs,
+    BlockSrc => LocalBlockId => stmt_srcs,
+);
 
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -153,66 +229,31 @@ impl FileSourceMap {
     }
 }
 
-pub(crate) struct LowerFileCtx<'a> {
-    pub(crate) db: &'a dyn InternDb,
-    pub(crate) file_id: HirFileId,
-
-    pub(crate) file: &'a mut HirFile,
-    pub(crate) file_source_map: &'a mut FileSourceMap,
-
-    pub(crate) region_tree: RegionTreeBuilder,
-}
-
-impl_lower_expr!(LowerFileCtx<'_>, file, file_source_map);
-impl_lower_decl!(LowerFileCtx<'_>, file, file_source_map);
-impl_lower_event_expr!(LowerFileCtx<'_>, file, file_source_map);
-impl_lower_stmt!(LowerFileCtx<'_>, file_id, file, file_source_map);
-impl_lower_declaration!(LowerFileCtx<'_>, file, file_source_map);
-
-impl LowerProc for LowerFileCtx<'_> {
-    fn proc_ctx(&mut self) -> LowerProcCtx<'_> {
-        LowerProcCtx {
-            db: self.db,
-            file_id: self.file_id,
-            cont_id: self.file_id.into(),
-            procs: &mut self.file.procs,
-            proc_srcs: &mut self.file_source_map.proc_srcs,
-
-            stmts: &mut self.file.stmts,
-            stmt_srcs: &mut self.file_source_map.stmt_srcs,
-
-            exprs: &mut self.file.exprs,
-            expr_srcs: &mut self.file_source_map.expr_srcs,
-
-            event_exprs: &mut self.file.event_exprs,
-            event_expr_srcs: &mut self.file_source_map.event_expr_srcs,
-
-            decls: &mut self.file.decls,
-            decl_srcs: &mut self.file_source_map.decl_srcs,
-        }
-    }
-}
+pub(crate) type LowerFileCtx<'a> = LoweringCtx<'a, FileStore<'a>>;
 
 impl LowerFileCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
         let container_id = ArenaOwnerId::File(self.file_id);
-        let struct_def =
-            lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
+        let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
-        alloc_idx_and_src! {
-            self.file_id;
-            struct_def => self.file.structs,
-            struct_ty => self.file_source_map.struct_srcs,
-        }
+        alloc_with_source(
+            self.file_id,
+            &mut self.store.data.structs,
+            &mut self.store.sources.struct_srcs,
+            struct_def,
+            struct_ty,
+        )
     }
 
     fn lower_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
         let name = lower_ident_opt(typedef.name());
-        let typedef_id = alloc_idx_and_src! {
-            self.file_id;
-            Typedef { name, ty: None } => self.file.typedefs,
-            typedef => self.file_source_map.typedef_srcs,
-        };
+        let typedef_id = alloc_with_source(
+            self.file_id,
+            &mut self.store.data.typedefs,
+            &mut self.store.sources.typedef_srcs,
+            Typedef { name, ty: None },
+            typedef,
+        );
 
         let data_ty = typedef.type_();
         let lowered_ty = lower_typedef_data_ty(
@@ -220,10 +261,10 @@ impl LowerFileCtx<'_> {
             data_ty,
             ArenaOwnerId::File(self.file_id),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
-            |ctx, ty| ctx.expr_ctx().lower_data_ty(ty),
+            |ctx, ty| ctx.lower_data_ty(ty),
         );
 
-        self.file.typedefs[typedef_id].ty = Some(lowered_ty);
+        self.store.data.typedefs[typedef_id].ty = Some(lowered_ty);
 
         typedef_id
     }
@@ -232,34 +273,36 @@ impl LowerFileCtx<'_> {
         &mut self,
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
-        let subroutine = lower_subroutine(&func, |ty| self.expr_ctx().lower_data_ty(ty))?;
+        let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
-        let local_subroutine_id = alloc_idx_and_src! {
-            self.file_id;
-            subroutine => self.file.subroutines,
-            func => self.file_source_map.subroutine_srcs,
-        };
+        let local_subroutine_id = alloc_with_source(
+            self.file_id,
+            &mut self.store.data.subroutines,
+            &mut self.store.sources.subroutine_srcs,
+            subroutine,
+            func,
+        );
 
         let subroutine_id =
             SubroutineScope::new(SubroutineParent::File(self.file_id), local_subroutine_id);
 
         if func.end().is_some() {
-            let subroutine = &mut self.file.subroutines[local_subroutine_id];
+            let subroutine = &mut self.store.data.subroutines[local_subroutine_id];
             let mut subroutine_source_map = std::mem::take(&mut subroutine.source_map);
-            let mut ctx = LowerSubroutineBodyCtx {
-                db: self.db,
-                file_id: self.file_id,
-                subroutine_id,
-                subroutine,
-                subroutine_source_map: &mut subroutine_source_map,
-                region_tree: RegionTreeBuilder::new(),
-            };
+            let mut ctx = LoweringCtx::new(
+                self.db,
+                self.file_id,
+                subroutine_id.into(),
+                SubroutineStore { data: subroutine, sources: &mut subroutine_source_map },
+            );
             lower_subroutine_body(&mut ctx, func);
+            ctx.emit_diagnostics();
+            drop(ctx);
             subroutine.source_map = subroutine_source_map;
             subroutine.source_map.shrink_to_fit();
         }
 
-        self.file.subroutines[local_subroutine_id].shrink_to_fit();
+        self.store.data.subroutines[local_subroutine_id].shrink_to_fit();
 
         Some(local_subroutine_id)
     }
@@ -267,42 +310,50 @@ impl LowerFileCtx<'_> {
     fn lower_config_decl(&mut self, config_decl: ast::ConfigDeclaration) -> ConfigDeclId {
         let name = lower_ident_opt(config_decl.name());
 
-        alloc_idx_and_src! {
-            self.file_id;
-            ConfigDecl { name } => self.file.config_decls,
-            config_decl => self.file_source_map.config_decl_srcs,
-        }
+        alloc_with_source(
+            self.file_id,
+            &mut self.store.data.config_decls,
+            &mut self.store.sources.config_decl_srcs,
+            ConfigDecl { name },
+            config_decl,
+        )
     }
 
     fn lower_udp_decl(&mut self, udp_decl: ast::UdpDeclaration) -> UdpDeclId {
         let name = lower_ident_opt(udp_decl.name());
 
-        alloc_idx_and_src! {
-            self.file_id;
-            UdpDecl { name } => self.file.udp_decls,
-            udp_decl => self.file_source_map.udp_decl_srcs,
-        }
+        alloc_with_source(
+            self.file_id,
+            &mut self.store.data.udp_decls,
+            &mut self.store.sources.udp_decl_srcs,
+            UdpDecl { name },
+            udp_decl,
+        )
     }
 
     fn lower_library_decl(&mut self, library_decl: ast::LibraryDeclaration) -> LibraryDeclId {
         let name = lower_ident_opt(library_decl.name());
 
-        alloc_idx_and_src! {
-            self.file_id;
-            LibraryDecl { name } => self.file.library_decls,
-            library_decl => self.file_source_map.library_decl_srcs,
-        }
+        alloc_with_source(
+            self.file_id,
+            &mut self.store.data.library_decls,
+            &mut self.store.sources.library_decl_srcs,
+            LibraryDecl { name },
+            library_decl,
+        )
     }
 
     fn lower_library_include(
         &mut self,
         library_include: ast::LibraryIncludeStatement,
     ) -> LibraryIncludeId {
-        alloc_idx_and_src! {
-            self.file_id;
-            LibraryInclude => self.file.library_includes,
-            library_include => self.file_source_map.library_include_srcs,
-        }
+        alloc_with_source(
+            self.file_id,
+            &mut self.store.data.library_includes,
+            &mut self.store.sources.library_include_srcs,
+            LibraryInclude,
+            library_include,
+        )
     }
 
     fn lower_covergroup_decl(
@@ -315,31 +366,37 @@ impl LowerFileCtx<'_> {
             match member {
                 ast::Member::Coverpoint(coverpoint_ast) => {
                     let coverpoint = lower_coverpoint(coverpoint_ast);
-                    let coverpoint_id = alloc_idx_and_src! {
-                        self.file_id;
-                        coverpoint => self.file.coverpoints,
-                        coverpoint_ast => self.file_source_map.coverpoint_srcs,
-                    };
+                    let coverpoint_id = alloc_with_source(
+                        self.file_id,
+                        &mut self.store.data.coverpoints,
+                        &mut self.store.sources.coverpoint_srcs,
+                        coverpoint,
+                        coverpoint_ast,
+                    );
                     covergroup.coverpoints.push(coverpoint_id);
                 }
                 ast::Member::CoverCross(cross_ast) => {
                     let cross = lower_cross(cross_ast);
-                    let cross_id = alloc_idx_and_src! {
-                        self.file_id;
-                        cross => self.file.crosses,
-                        cross_ast => self.file_source_map.cross_srcs,
-                    };
+                    let cross_id = alloc_with_source(
+                        self.file_id,
+                        &mut self.store.data.crosses,
+                        &mut self.store.sources.cross_srcs,
+                        cross,
+                        cross_ast,
+                    );
                     covergroup.crosses.push(cross_id);
                 }
                 _ => {}
             }
         }
 
-        alloc_idx_and_src! {
-            self.file_id;
-            covergroup => self.file.covergroups,
-            covergroup_decl => self.file_source_map.covergroup_srcs,
-        }
+        alloc_with_source(
+            self.file_id,
+            &mut self.store.data.covergroups,
+            &mut self.store.sources.covergroup_srcs,
+            covergroup,
+            covergroup_decl,
+        )
     }
 
     pub(crate) fn lower_file(&mut self, root: ast::CompilationUnit) {
@@ -350,18 +407,18 @@ impl LowerFileCtx<'_> {
                     let name = lower_ident_opt(decl.header().name());
                     let kind = ModuleKind::from_ast(decl);
 
-                    alloc_idx_and_src! {
-                    self.file_id;
-                                ModuleInfo { name, kind } => self.file.modules,
-                                decl => self.file_source_map.module_srcs,
-                            }
+                    alloc_with_source(
+                        self.file_id,
+                        &mut self.store.data.modules,
+                        &mut self.store.sources.module_srcs,
+                        ModuleInfo { name, kind },
+                        decl,
+                    )
                     .into()
                 }
-                ProceduralBlock(proc) => self.proc_ctx().lower_proc(proc).into(),
-                DataDeclaration(data_decl) => {
-                    self.declaration_ctx().lower_data_decl(data_decl).into()
-                }
-                NetDeclaration(net_decl) => self.declaration_ctx().lower_net_decl(net_decl).into(),
+                ProceduralBlock(proc) => self.lower_proc(proc).into(),
+                DataDeclaration(data_decl) => self.lower_data_decl(data_decl).into(),
+                NetDeclaration(net_decl) => self.lower_net_decl(net_decl).into(),
                 EmptyMember(_x) => continue,
                 TypedefDeclaration(typedef_decl) => self.lower_typedef(typedef_decl).into(),
                 FunctionDeclaration(fn_decl) => match self.lower_subroutine_decl(fn_decl) {
@@ -370,7 +427,7 @@ impl LowerFileCtx<'_> {
                 },
                 PackageImportDeclaration(import_decl) => {
                     for import in lower_package_imports(import_decl) {
-                        self.file.package_imports.alloc(import);
+                        self.store.data.package_imports.alloc(import);
                     }
                     continue;
                 }
@@ -382,12 +439,12 @@ impl LowerFileCtx<'_> {
                 }
                 _ => continue,
             };
-            self.file_source_map.items.push(idx);
+            self.store.sources.items.push(idx);
             self.region_tree.handle_node(member.syntax());
         }
 
         self.region_tree.stage(root.end_of_file(), root.syntax());
-        self.file_source_map.region_tree = self.region_tree.finish();
+        self.store.sources.region_tree = self.region_tree.finish();
     }
 
     pub(crate) fn lower_library_map(&mut self, root: ast::LibraryMap) {
@@ -401,12 +458,12 @@ impl LowerFileCtx<'_> {
                 EmptyMember(_) => continue,
                 _ => continue,
             };
-            self.file_source_map.items.push(idx);
+            self.store.sources.items.push(idx);
             self.region_tree.handle_node(member.syntax());
         }
 
         self.region_tree.stage(root.end_of_file(), root.syntax());
-        self.file_source_map.region_tree = self.region_tree.finish();
+        self.store.sources.region_tree = self.region_tree.finish();
     }
 }
 
@@ -418,13 +475,12 @@ pub(crate) fn hir_file_with_source_map_query(
     let mut source_map = FileSourceMap::default();
 
     let tree = db.parse(file_id);
-    let mut lower_ctx = LowerFileCtx {
+    let mut lower_ctx = LoweringCtx::new(
         db,
         file_id,
-        file: &mut hir_file,
-        file_source_map: &mut source_map,
-        region_tree: RegionTreeBuilder::new(),
-    };
+        file_id.into(),
+        FileStore { data: &mut hir_file, sources: &mut source_map },
+    );
     match tree.root() {
         Some(root) if ast::CompilationUnit::can_cast(root.kind()) => {
             if let Some(root) = ast::CompilationUnit::cast(root) {
@@ -438,6 +494,9 @@ pub(crate) fn hir_file_with_source_map_query(
         }
         _ => {}
     }
+
+    lower_ctx.emit_diagnostics();
+    drop(lower_ctx);
 
     hir_file.shrink_to_fit();
     source_map.shrink_to_fit();

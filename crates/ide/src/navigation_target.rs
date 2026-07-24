@@ -174,14 +174,14 @@ impl ToNav for InContainer<DeclId> {
         let InContainer { value: decl_id, cont_id } = *self;
 
         let file_id = cont_id.file_id(db);
-        let src = cont_id.source_map(db).get(decl_id)?;
+        let src = cont_id.source_map(db).source_of_declarator(decl_id)?;
 
         let cont = cont_id.data(db);
-        let decl = cont.get(decl_id);
+        let decl = cont.declarator(decl_id);
 
         let kind = match decl.parent {
             DeclaratorParent::PortDeclId(_) => SymbolKind::PortDecl,
-            DeclaratorParent::DeclarationId(idx) => match cont.get(idx) {
+            DeclaratorParent::DeclarationId(idx) => match cont.declaration(idx) {
                 Declaration::DataDecl(_) => SymbolKind::DataDecl,
                 Declaration::NetDecl(_) => SymbolKind::NetDecl,
                 Declaration::ParamDecl(_) => SymbolKind::ParamDecl,
@@ -205,10 +205,10 @@ impl ToNav for InContainer<TypedefId> {
         let InContainer { value: typedef_id, cont_id } = *self;
 
         let file_id = cont_id.file_id(db);
-        let src = cont_id.source_map(db).get(typedef_id)?;
+        let src = cont_id.source_map(db).source_of_typedef(typedef_id)?;
 
         let cont = cont_id.data(db);
-        let typedef = cont.get(typedef_id);
+        let typedef = cont.typedef(typedef_id);
         let cont_name = cont.name().cloned();
 
         let (file_id, focus_range, full_range) =
@@ -246,10 +246,10 @@ impl ToNav for InContainer<StmtId> {
         let InContainer { value: stmt_id, cont_id } = *self;
 
         let file_id = cont_id.file_id(db);
-        let src = cont_id.source_map(db).get(stmt_id)?;
+        let src = cont_id.source_map(db).source_of_stmt(stmt_id)?;
 
         let cont = cont_id.data(db);
-        let name = cont.get(stmt_id).label.clone();
+        let name = cont.stmt(stmt_id).label.clone();
         let cont_name = cont.name().cloned();
 
         let (file_id, focus_range, full_range) =
