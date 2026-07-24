@@ -13,7 +13,7 @@ use syntax::{
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
-use super::{MacroCallId, MacroCallLoc};
+use super::{ExpandError, ExpandErrorKind, ExpandResult, MacroCallId, MacroCallLoc};
 use crate::{base_db::source_db::PreprocSourceMap, db::HirDb};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,32 +106,46 @@ impl ExpansionSourceMap {
         trace: &Trace,
         source_map: &PreprocSourceMap,
         emitted_range: SourceEmittedTokenRange,
-    ) -> Result<Self, ExpansionSourceMapError> {
-        let Some(end) = emitted_range.start.raw().checked_add(emitted_range.len) else {
-            return Err(ExpansionSourceMapError::InvalidEmittedTokenRange {
-                start: emitted_range.start,
-                len: emitted_range.len,
-            });
+    ) -> ExpandResult<Self> {
+        let start = emitted_range.start.raw();
+        if start > trace.emitted_tokens.len() {
+            return source_map_error(
+                Self::empty(),
+                ExpansionSourceMapError::InvalidEmittedTokenRange {
+                    start: emitted_range.start,
+                    len: emitted_range.len,
+                },
+            );
+        }
+        let Some(end) = start.checked_add(emitted_range.len) else {
+            return source_map_error(
+                Self::empty(),
+                ExpansionSourceMapError::InvalidEmittedTokenRange {
+                    start: emitted_range.start,
+                    len: emitted_range.len,
+                },
+            );
         };
         let operation_sources = OperationSourceResolver::new(trace);
-        let origins = (emitted_range.start.raw()..end)
-            .map(|raw| {
-                let emitted_token = SourceEmittedTokenId::new(raw);
-                let token = trace
-                    .emitted_tokens
-                    .get(raw)
-                    .ok_or(ExpansionSourceMapError::MissingTraceToken { token: emitted_token })?;
-                Ok(origin_slot_from_token_origin(
-                    db,
-                    model_file,
-                    emitted_token,
-                    &token.origin,
-                    source_map,
-                    Some(&operation_sources),
-                ))
-            })
-            .collect::<Result<_, _>>()?;
-        Ok(Self { origins })
+        let mut origins = Vec::new();
+        for raw in start..end {
+            let emitted_token = SourceEmittedTokenId::new(raw);
+            let Some(token) = trace.emitted_tokens.get(raw) else {
+                return source_map_error(
+                    Self { origins },
+                    ExpansionSourceMapError::MissingTraceToken { token: emitted_token },
+                );
+            };
+            origins.push(origin_slot_from_token_origin(
+                db,
+                model_file,
+                emitted_token,
+                &token.origin,
+                source_map,
+                Some(&operation_sources),
+            ));
+        }
+        ExpandResult::ok(Self { origins })
     }
 
     #[cfg(test)]
@@ -158,6 +172,13 @@ impl ExpansionSourceMap {
                 .collect(),
         }
     }
+}
+
+fn source_map_error(
+    value: ExpansionSourceMap,
+    error: ExpansionSourceMapError,
+) -> ExpandResult<ExpansionSourceMap> {
+    ExpandResult::new(value, ExpandError::new(ExpandErrorKind::SourceMap(error)))
 }
 
 struct OperationSourceResolver<'a> {
