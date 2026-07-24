@@ -606,7 +606,7 @@ fn builtin_type_name_ty(db: &dyn HirDb, container: ArenaOwnerId, ident: &Ident) 
 }
 
 fn module_members(db: &dyn HirDb, module_id: ModuleId) -> Vec<TyMember> {
-    let file = db.hir_file(crate::file::HirFileId::File(module_id.file_id()));
+    let file = db.hir_file(module_id.file_id);
     let scope = if file.get(module_id.value).kind == ModuleKind::Package {
         db.package_export_scope(module_id)
     } else {

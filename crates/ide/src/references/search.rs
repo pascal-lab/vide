@@ -6,7 +6,10 @@ use hir::{
         source_root::SourceRootId,
     },
     container::{InFile, ScopeId},
+    db::HirDb,
     def_id::DefId,
+    file::HirFileId,
+    hir_def::macro_file::macro_file_call_site,
     semantics::Semantics,
     source_map::IsSrc,
     symbol::DefOrigin,
@@ -70,6 +73,17 @@ impl SearchScope {
         SearchScope(res)
     }
 
+    /// Like [`single_range`](Self::single_range) but resolves a HIR file
+    /// location to its user-facing source file and range first. Macro
+    /// expansions map to their call site; when a call site cannot be resolved
+    /// the search falls back to the whole workspace.
+    fn single_source_range(db: &RootDb, file_id: HirFileId, range: TextRange) -> Self {
+        match resolve_source_range(db, file_id, range) {
+            Some((file_id, range)) => Self::single_range(file_id, range),
+            None => Self::all(db),
+        }
+    }
+
     fn from_conts(db: &RootDb, cont: ScopeId) -> Self {
         match cont {
             ScopeId::File(_) => Self::all(db),
@@ -77,49 +91,53 @@ impl SearchScope {
                 if let Some(range) =
                     file_id.to_container_src_map(db).get(local_module_id).map(|src| src.range())
                 {
-                    Self::single_range(file_id.file_id(), range)
+                    Self::single_source_range(db, file_id, range)
                 } else {
                     Self::all(db)
                 }
             }
             ScopeId::Block(block_id) => {
                 let range = block_id.lookup(db).src.value.range();
-                Self::single_range(block_id.file_id(db), range)
+                Self::single_source_range(db, block_id.file_id(db), range)
             }
             ScopeId::GenerateBlock(generate_block_id) => {
                 let src = generate_block_id.lookup(db).src;
-                Self::single_range(src.file_id.file_id(), src.value.range())
+                Self::single_source_range(db, src.file_id, src.value.range())
             }
             ScopeId::Subroutine(subroutine_id) => {
                 let def_id = DefOrigin::new(db, subroutine_id);
-                if let Some(InFile { file_id, value: range }) = def_id.range(db) {
-                    Self::single_range(file_id.file_id(), range)
-                } else {
-                    Self::all(db)
+                match def_id.range(db) {
+                    Some(InFile { file_id, value: range }) => {
+                        Self::single_source_range(db, file_id, range)
+                    }
+                    None => Self::all(db),
                 }
             }
             ScopeId::ClockingBlock(clocking_block_id) => {
                 let def_id = DefOrigin::new(db, clocking_block_id);
-                if let Some(InFile { file_id, value: range }) = def_id.range(db) {
-                    Self::single_range(file_id.file_id(), range)
-                } else {
-                    Self::all(db)
+                match def_id.range(db) {
+                    Some(InFile { file_id, value: range }) => {
+                        Self::single_source_range(db, file_id, range)
+                    }
+                    None => Self::all(db),
                 }
             }
             ScopeId::Checker(checker_id) => {
                 let def_id = DefOrigin::new(db, checker_id);
-                if let Some(InFile { file_id, value: range }) = def_id.range(db) {
-                    Self::single_range(file_id.file_id(), range)
-                } else {
-                    Self::all(db)
+                match def_id.range(db) {
+                    Some(InFile { file_id, value: range }) => {
+                        Self::single_source_range(db, file_id, range)
+                    }
+                    None => Self::all(db),
                 }
             }
             ScopeId::Covergroup(covergroup_id) => {
                 let def_id = DefOrigin::new(db, covergroup_id);
-                if let Some(InFile { file_id, value: range }) = def_id.range(db) {
-                    Self::single_range(file_id.file_id(), range)
-                } else {
-                    Self::all(db)
+                match def_id.range(db) {
+                    Some(InFile { file_id, value: range }) => {
+                        Self::single_source_range(db, file_id, range)
+                    }
+                    None => Self::all(db),
                 }
             }
         }
@@ -235,5 +253,25 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         }
 
         res
+    }
+}
+
+/// Resolves a HIR file location to a user-facing source file and range.
+///
+/// For real files the location is returned as-is. For macro expansions the
+/// location is mapped to the macro invocation site, since the expanded text is
+/// not a file the user can open. Returns `None` when a macro expansion's call
+/// site cannot be resolved.
+pub(crate) fn resolve_source_range(
+    db: &dyn HirDb,
+    file_id: HirFileId,
+    range: TextRange,
+) -> Option<(FileId, TextRange)> {
+    match file_id {
+        HirFileId::File(file_id) => Some((file_id, range)),
+        HirFileId::Macro(macro_file) => {
+            let call_site = macro_file_call_site(db, macro_file)?;
+            Some((call_site.call_file_id, call_site.call_range))
+        }
     }
 }

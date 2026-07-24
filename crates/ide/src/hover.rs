@@ -172,7 +172,7 @@ fn handle_definition(
 ) -> Option<Markup> {
     let token_text = token_text(sema.db, file_id, &tp);
     let def = DefinitionClass::resolve(sema, file_id, tp);
-    let anchor_file_id = file_id.file_id();
+    let anchor_file_id = file_id.expect_file();
     let mut res = Markup::new();
 
     match def {
@@ -230,7 +230,7 @@ fn token_text(
     token: &SyntaxTokenWithParent<'_>,
 ) -> Option<String> {
     let range = token.text_range()?;
-    let source = db.file_text(file_id.file_id());
+    let source = db.file_text(file_id.expect_file());
     let start = usize::from(range.start());
     let end = usize::from(range.end());
     source.get(start..end).map(ToString::to_string)

@@ -18,7 +18,9 @@ use super::*;
 use crate::{
     base_db::{
         diagnostics_config::DiagnosticsConfig,
-        project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+        project::{
+            CompilationProfile, CompilationProfileId, Predefine, PreprocessConfig, ProjectConfig,
+        },
         salsa::{self, Durability},
         source_db::{
             FileLoader, PreprocSourceMap, SourceDb, SourceDbStorage, SourceFileKind,
@@ -26,6 +28,7 @@ use crate::{
         },
         source_root::{SourceRoot, SourceRootId},
     },
+    container::{InFile, ScopeId},
     db::{HirDb, HirDbStorage, InternDb, InternDbStorage},
     file::HirFileId,
 };
@@ -56,6 +59,10 @@ impl FileLoader for TestDb {
 }
 
 fn db_with_root_text(root_text: &str) -> TestDb {
+    db_with_root_text_and_predefines(root_text, Vec::new())
+}
+
+fn db_with_root_text_and_predefines(root_text: &str, predefines: Vec<Predefine>) -> TestDb {
     let top_path = abs_path("rtl/top.v");
     let mut file_set = FileSet::default();
     file_set.insert(TOP, VfsPath::from(top_path.clone()));
@@ -63,7 +70,7 @@ fn db_with_root_text(root_text: &str) -> TestDb {
     let mut files = FxHashSet::default();
     files.insert(TOP);
 
-    let preprocess = PreprocessConfig::default();
+    let preprocess = PreprocessConfig { predefines, include_dirs: Vec::new() };
     let project_config = ProjectConfig::new(
         vec![Some(PROFILE)],
         vec![CompilationProfile {
@@ -243,6 +250,49 @@ fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
     let module = modules.next().expect("macro expansion should contain a module");
     assert!(modules.next().is_none());
     assert_eq!(module.header().name().unwrap().value_text().to_string(), "from_macro");
+}
+
+#[test]
+fn macro_expanded_module_keeps_macro_hir_file_id() {
+    let root_text = "`define DECL module from_macro; endmodule\n`DECL\n";
+    let db = db_with_root_text(root_text);
+    let macro_file = macro_files_at_offset(&db, TOP, offset(root_text, "`DECL"))
+        .pop()
+        .expect("macro call should expand");
+    let hir_file_id = HirFileId::Macro(macro_file);
+
+    let (hir_file, _) = db.hir_file_with_source_map(hir_file_id);
+    let (local_module_id, _) =
+        hir_file.modules.iter().next().expect("macro expansion should lower a module");
+    let module_id = InFile::new(hir_file_id, local_module_id);
+
+    // Container accessors return the macro HIR file id instead of panicking.
+    assert_eq!(ScopeId::Module(module_id).file_id(&db), hir_file_id);
+    // The user-facing source file is the file containing the macro invocation.
+    assert_eq!(module_id.file_id.source_file_id(&db), Some(TOP));
+}
+
+#[test]
+fn macro_hir_source_file_id_does_not_require_mapped_definition() {
+    let root_text = "module top;\n`MAKE_CHILD\nendmodule\n";
+    let db = db_with_root_text_and_predefines(
+        root_text,
+        vec![Predefine::new("MAKE_CHILD=module generated; endmodule")],
+    );
+    let macro_file = macro_files_at_offset(&db, TOP, offset(root_text, "`MAKE_CHILD"))
+        .pop()
+        .expect("predefine macro call should expand");
+
+    let call_site =
+        macro_file_call_site(&db, macro_file).expect("macro call site should remain mapped");
+    assert_eq!(call_site.call_file_id, TOP);
+    assert_eq!(text_at_range(root_text, call_site.call_range), "`MAKE_CHILD");
+
+    assert!(
+        macro_file_expansion(&db, macro_file).is_none(),
+        "unbacked predefine definition should remain unavailable"
+    );
+    assert_eq!(HirFileId::Macro(macro_file).source_file_id(&db), Some(TOP));
 }
 
 #[test]

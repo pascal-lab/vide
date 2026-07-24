@@ -615,6 +615,78 @@ fn best_effort_single_file_rename_rejects_cross_file_symbol() {
 }
 
 #[test]
+fn workspace_rename_rejects_macro_generated_definition() {
+    let top_text = r#"
+`include "defs.vh"
+`DECL
+module top;
+  /*marker:module_ref*/generated u();
+endmodule
+"#;
+    let header_text = "`define DECL module generated; endmodule\n";
+    let fixture = setup_include_macro_project(top_text, header_text);
+    let position =
+        FilePosition { file_id: fixture.top_file_id, offset: fixture.top_markers["module_ref"] };
+    let analysis = fixture.host.make_analysis();
+    let config = RenameConfig::workspace(ScopeVisibility::Public);
+
+    let prepare_err = analysis
+        .prepare_rename(position, config.clone())
+        .unwrap()
+        .expect_err("prepare rename must reject macro-generated definitions");
+    assert!(matches!(prepare_err, RenameError::MacroDefinitionNotEditable));
+    let rename_err = analysis
+        .rename(position, config, "renamed")
+        .unwrap()
+        .expect_err("rename must reject macro-generated definitions");
+    assert!(matches!(rename_err, RenameError::MacroDefinitionNotEditable));
+}
+
+#[test]
+fn document_highlight_maps_macro_definition_to_call_site() {
+    let top_text = r#"
+`include "defs.vh"
+`DECL
+module top;
+  /*marker:module_ref*/generated u();
+endmodule
+"#;
+    let header_text = r#"
+// Keep the definition coordinates distinct from the call-site coordinates.
+`define DECL module generated; endmodule
+"#;
+    let (clean_top, _) = strip_markers(normalize_fixture_text(top_text));
+    let fixture = setup_include_macro_project(top_text, header_text);
+    let call_start = clean_top.find("`DECL").expect("macro call");
+    let call_range = TextRange::new(
+        TextSize::from(call_start as u32),
+        TextSize::from((call_start + "`DECL".len()) as u32),
+    );
+    let reference_start = clean_top.find("generated u").expect("module reference");
+    let reference_range = TextRange::new(
+        TextSize::from(reference_start as u32),
+        TextSize::from((reference_start + "generated".len()) as u32),
+    );
+
+    let highlights = fixture
+        .host
+        .make_analysis()
+        .document_highlight(
+            FilePosition {
+                file_id: fixture.top_file_id,
+                offset: fixture.top_markers["module_ref"],
+            },
+            DocumentHighlightConfig { scope_visibility: ScopeVisibility::Public },
+        )
+        .unwrap()
+        .expect("module highlights");
+    let mut ranges = highlights.into_iter().map(|highlight| highlight.range).collect::<Vec<_>>();
+    ranges.sort_unstable_by_key(|range| (range.start(), range.end()));
+
+    assert_eq!(ranges, vec![call_range, reference_range]);
+}
+
+#[test]
 fn expanded_rename_follows_same_name_shorthand_connection_chain() {
     let text = r#"
 module top(input a);
@@ -3716,7 +3788,10 @@ endmodule
                         stmt_tree_has(db, stmts, *clause, matches_kind)
                     }
                 }),
-                StmtKind::Empty
+                StmtKind::Missing
+                | StmtKind::Invalid
+                | StmtKind::Unsupported(_)
+                | StmtKind::Empty
                 | StmtKind::Expr(_)
                 | StmtKind::Jump(_)
                 | StmtKind::EventTrigger(_)

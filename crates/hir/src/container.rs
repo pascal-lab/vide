@@ -2,7 +2,6 @@ use proc_macro_utils::impl_container;
 use smol_str::SmolStr;
 use triomphe::Arc;
 use utils::{define_enum_deriving_from, get::GetRef};
-use vfs::FileId;
 
 use crate::{
     base_db::intern::Lookup,
@@ -101,10 +100,10 @@ impl<T> InFileOrModule<T> {
 }
 
 impl FileOrModule {
-    pub fn file_id(self) -> FileId {
+    pub fn file_id(self) -> HirFileId {
         match self {
-            FileOrModule::File(file_id) => file_id.file_id(),
-            FileOrModule::Module(module_id) => module_id.file_id(),
+            FileOrModule::File(file_id) => file_id,
+            FileOrModule::Module(module_id) => module_id.file_id,
         }
     }
 }
@@ -146,10 +145,14 @@ impl SubroutineScope {
         self.cont_id.into()
     }
 
-    pub fn file_id(self, db: &dyn InternDb) -> FileId {
+    pub fn as_in_container(self) -> InContainer<LocalSubroutineId> {
+        InContainer::new(self.cont_id.into(), self.value)
+    }
+
+    pub fn file_id(self, db: &dyn InternDb) -> HirFileId {
         match self.cont_id {
-            SubroutineParent::File(file_id) => file_id.file_id(),
-            SubroutineParent::Module(module_id) => module_id.file_id(),
+            SubroutineParent::File(file_id) => file_id,
+            SubroutineParent::Module(module_id) => module_id.file_id,
             SubroutineParent::GenerateBlock(generate_block_id) => generate_block_id.file_id(db),
         }
     }
@@ -325,14 +328,14 @@ impl ScopeId {
         }
     }
 
-    pub fn file_id(self, db: &dyn InternDb) -> FileId {
+    pub fn file_id(self, db: &dyn InternDb) -> HirFileId {
         match self {
-            ScopeId::File(file_id) => file_id.file_id(),
-            ScopeId::Module(module_id) => module_id.file_id(),
+            ScopeId::File(file_id) => file_id,
+            ScopeId::Module(module_id) => module_id.file_id,
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.file_id(db),
             ScopeId::Block(block_id) => block_id.file_id(db),
             ScopeId::Subroutine(subroutine) => subroutine.file_id(db),
-            ScopeId::ClockingBlock(clocking_block) => clocking_block.module_id.file_id(),
+            ScopeId::ClockingBlock(clocking_block) => clocking_block.module_id.file_id,
             ScopeId::Checker(checker) => checker.cont_id.file_id(),
             ScopeId::Covergroup(covergroup) => covergroup.cont_id.file_id(),
         }
@@ -351,7 +354,7 @@ impl ScopeId {
 /// }
 /// ```
 impl ArenaOwnerId {
-    pub fn file_id(self, db: &dyn InternDb) -> FileId {
+    pub fn file_id(self, db: &dyn InternDb) -> HirFileId {
         ScopeId::from(self).file_id(db)
     }
 
@@ -395,10 +398,6 @@ impl HirFileId {
 }
 
 impl ModuleId {
-    pub fn file_id(&self) -> FileId {
-        self.file_id.file_id()
-    }
-
     #[inline]
     pub fn to_container(&self, db: &dyn HirDb) -> Arc<Module> {
         db.module(*self)
@@ -411,8 +410,8 @@ impl ModuleId {
 }
 
 impl BlockId {
-    pub fn file_id(&self, db: &dyn InternDb) -> FileId {
-        self.lookup(db).src.file_id.file_id()
+    pub fn file_id(&self, db: &dyn InternDb) -> HirFileId {
+        self.lookup(db).src.file_id
     }
 
     #[inline]
@@ -427,8 +426,8 @@ impl BlockId {
 }
 
 impl GenerateBlockId {
-    pub fn file_id(&self, db: &dyn InternDb) -> FileId {
-        self.lookup(db).src.file_id.file_id()
+    pub fn file_id(&self, db: &dyn InternDb) -> HirFileId {
+        self.lookup(db).src.file_id
     }
 
     #[inline]
