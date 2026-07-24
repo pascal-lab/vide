@@ -31,7 +31,8 @@ use crate::{
     },
     definitions::DefinitionClass,
     module_resolution::resolve_hir_instantiation_target,
-    references::ReferenceCategory,
+    navigation_target::nav_location,
+    references::{ReferenceCategory, search::resolve_source_range},
     semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
 };
 
@@ -171,8 +172,16 @@ impl SemanticModuleDefinition {
         let name = origin.name(db)?;
         let InFile { file_id, value: name_range } = origin.name_range(db)?;
         let InFile { value: full_range, .. } = origin.range(db)?;
+        let (file_id, name_range, full_range) =
+            nav_location(db, file_id, Some(name_range), full_range)?;
 
-        Some(Self { module_id, file_id: file_id.file_id(), name, name_range, full_range })
+        Some(Self {
+            module_id,
+            file_id,
+            name,
+            name_range: name_range.unwrap_or(full_range),
+            full_range,
+        })
     }
 
     fn call_item(&self) -> ModuleCallItem {
@@ -268,11 +277,11 @@ impl SemanticIndexBuilder {
 
         match class {
             DefinitionClass::Definition(definition) => {
-                self.collect_definition_token(db, definition, file_id.file_id(), range, token)
+                self.collect_definition_token(db, definition, file_id.expect_file(), range, token)
             }
             DefinitionClass::PortConnShorthand { port, local } => {
-                self.collect_definition_token(db, port, file_id.file_id(), range, token);
-                self.collect_definition_token(db, local, file_id.file_id(), range, token);
+                self.collect_definition_token(db, port, file_id.expect_file(), range, token);
+                self.collect_definition_token(db, local, file_id.expect_file(), range, token);
             }
         }
     }
@@ -291,10 +300,10 @@ impl SemanticIndexBuilder {
         };
         let definition_ranges = origins
             .iter()
-            .filter_map(|origin| origin.name_range(db))
-            .map(|InFile { file_id, value }| SemanticDefinitionRange {
-                file_id: file_id.file_id(),
-                range: value,
+            .filter_map(|origin| {
+                let InFile { file_id, value } = origin.name_range(db)?;
+                let (file_id, range) = resolve_source_range(db, file_id, value)?;
+                Some(SemanticDefinitionRange { file_id, range })
             })
             .unique()
             .collect_vec();

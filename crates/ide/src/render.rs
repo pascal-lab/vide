@@ -37,6 +37,7 @@ use crate::{
     db::{line_index_db::LineIndexDb, root_db::RootDb},
     markup::{Markup, display_project_path, file_link_target, inline_code, markdown_link},
     module_resolution::resolve_module_name,
+    references::search::resolve_source_range,
 };
 
 pub(crate) fn render_literal(literal: &Literal) -> Option<Markup> {
@@ -183,7 +184,8 @@ fn render_def_origin_location(
     anchor_file_id: vfs::FileId,
 ) -> Option<String> {
     let InFile { value: range, file_id } = origin.range(db)?;
-    source_line_link(db, file_id.file_id(), range.start(), anchor_file_id)
+    let (file_id, range) = resolve_source_range(db, file_id, range)?;
+    source_line_link(db, file_id, range.start(), anchor_file_id)
 }
 
 pub(crate) fn source_file_link(
@@ -531,8 +533,8 @@ fn render_instance_signature(db: &RootDb, instance_id: InModule<InstanceId>) -> 
     let module_name = instantiation.module_name.as_ref()?;
 
     let mut signature = format!("instance {instance_name} of {module_name}");
-    if let Some(target_module_id) =
-        resolve_module_name(db, instance_id.module_id.file_id.file_id(), module_name).unique()
+    if let Some(from_file) = instance_id.module_id.file_id.source_file_id(db)
+        && let Some(target_module_id) = resolve_module_name(db, from_file, module_name).unique()
         && let Some(module_signature) = render_module_signature(db, target_module_id)
     {
         signature.push_str("\n\n");
@@ -697,8 +699,9 @@ fn render_label_signature(db: &RootDb, origin: &DefOrigin) -> Option<String> {
 fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefOrigin) -> Option<Markup> {
     let db = sema.db;
     let InFile { value: range, file_id } = origin.range(db)?;
+    let file_id = file_id.as_file()?;
 
-    let parsed_file = sema.parse_file(file_id.file_id());
+    let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
     let elem = root.elem_at_exact_range(range)?;
     let mut offset = elem.text_range()?.end();

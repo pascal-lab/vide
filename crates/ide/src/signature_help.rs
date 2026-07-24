@@ -139,7 +139,7 @@ fn sig_help_for_instance(
 
     let instantiation = ast::HierarchyInstantiation::cast(instance.syntax().parent()?)?;
     let target_module_id =
-        resolve_instantiation_target(db, file_id.file_id(), instantiation).unique()?;
+        resolve_instantiation_target(db, file_id.expect_file(), instantiation).unique()?;
     let target_module = db.module(target_module_id);
     let target_module_name =
         target_module.name.as_ref().map(|name| name.to_string()).unwrap_or("<module>".to_string());
@@ -262,7 +262,7 @@ fn sig_help_for_instantiation(
     };
 
     let target_module_id =
-        resolve_instantiation_target(db, file_id.file_id(), instantiation).unique()?;
+        resolve_instantiation_target(db, file_id.expect_file(), instantiation).unique()?;
     let target_module = db.module(target_module_id);
     let target_module_name =
         target_module.name.as_ref().map(|name| name.to_string()).unwrap_or("<module>".to_string());

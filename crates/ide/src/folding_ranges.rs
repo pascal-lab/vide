@@ -156,7 +156,7 @@ fn collect_comments(
     };
     let mut cursor = root.walk();
 
-    let text = db.file_text(file_id.file_id());
+    let text = db.file_text(file_id.expect_file());
     let visited_ranges = collect_line_comments(&text, &mut cursor, line_index, folds);
     collect_block_comments(&text, &mut cursor, line_index, visited_ranges, folds);
 }

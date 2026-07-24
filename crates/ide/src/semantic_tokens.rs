@@ -159,7 +159,7 @@ pub(crate) fn semantic_tokens(
 
     let mut collector = SemaTokenCollector::new(config, range);
     collect_file(&sema, file_id, &mut collector);
-    collect_preproc_macro_references(db, file_id.file_id(), range, &mut collector);
+    collect_preproc_macro_references(db, file_id.expect_file(), range, &mut collector);
 
     collector.finish()
 }
@@ -405,7 +405,7 @@ fn collect_block(
     let db = sema.db;
     let (block, block_src_map) = db.block_with_source_map(block_id);
     let (block, block_src_map) = (block.as_ref(), block_src_map.as_ref());
-    let tree = db.parse(HirFileId::File(block_id.file_id(db)));
+    let tree = db.parse(block_id.file_id(db));
 
     let collect_ident_like =
         |name: &SmolStr, range: TextRange, collector: &mut SemaTokenCollector| {
@@ -520,7 +520,10 @@ fn collect_named_port_connections(
         else {
             continue;
         };
-        let res = resolve_named_port_connection(db, module_id.file_id.file_id(), named);
+        let res = module_id
+            .file_id
+            .source_file_id(db)
+            .map_or(Resolution::Unresolved, |f| resolve_named_port_connection(db, f, named));
         collect_resolved_path(sema, res, range, collector);
     }
 }
@@ -552,7 +555,10 @@ fn collect_named_param_assignments(
         else {
             continue;
         };
-        let res = resolve_named_param_assignment(db, module_id.file_id.file_id(), named);
+        let res = module_id
+            .file_id
+            .source_file_id(db)
+            .map_or(Resolution::Unresolved, |f| resolve_named_param_assignment(db, f, named));
         collect_resolved_path(sema, res, range, collector);
     }
 }

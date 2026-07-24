@@ -399,6 +399,7 @@ pub(crate) fn rename_error(i18n: I18n, err: RenameError) -> LspError {
         RenameError::NoDefFound => keys::RENAME_NO_DEF_FOUND,
         RenameError::OverlappingEdits => keys::RENAME_OVERLAPPING_EDITS,
         RenameError::ProjectScopeRequired => keys::RENAME_PROJECT_SCOPE_REQUIRED,
+        RenameError::MacroDefinitionNotEditable => keys::RENAME_MACRO_DEFINITION_NOT_EDITABLE,
     };
     LspError::new(lsp_server::ErrorCode::InvalidParams as i32, i18n.text(key).to_owned())
 }
@@ -595,7 +596,7 @@ pub(crate) fn inlay_hint(
             })
         }),
         location: target_location.and_then(|InFile { value, file_id }| {
-            let file_range = FileRange { file_id: file_id.file_id(), range: value };
+            let file_range = FileRange { file_id: file_id.expect_file(), range: value };
             self::location(snap, file_range).ok()
         }),
         command: None,
