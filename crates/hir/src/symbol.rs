@@ -323,6 +323,18 @@ impl<T: Copy> Resolution<T> {
             Resolution::Ambiguous(_) | Resolution::Unresolved => None,
         }
     }
+
+    /// Resolves children without allowing child existence to disambiguate an
+    /// ambiguous parent.
+    pub fn and_then<U: Eq>(&self, mut resolve: impl FnMut(T) -> Resolution<U>) -> Resolution<U> {
+        let children = Resolution::from_candidates(
+            self.iter().copied().flat_map(|candidate| resolve(candidate).into_candidates()),
+        );
+        match (self, children) {
+            (Resolution::Ambiguous(_), Resolution::Unique(_)) => Resolution::Unresolved,
+            (_, children) => children,
+        }
+    }
 }
 
 impl<T> From<T> for Resolution<T> {

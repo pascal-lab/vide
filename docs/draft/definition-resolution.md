@@ -101,5 +101,8 @@ Name alone is not enough to merge origins. Same-name parameters, duplicate heade
 - Adding or removing an additional origin does not change the `DefId`.
 - `NameScope::lookup()` and path resolution return `Resolution<DefId>`.
 - Resolution-producing interfaces return `Resolution<T>` directly; `Unresolved` is never encoded as `None`.
+- Descending through a parent resolution uses `Resolution::and_then()`; a child
+  that exists under only one ambiguous parent yields `Unresolved`, never
+  `Unique`.
 - Source-level `as_*` projections belong to `DefOrigin`, not `DefId`.
 

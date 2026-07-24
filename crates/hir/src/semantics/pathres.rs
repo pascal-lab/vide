@@ -139,22 +139,12 @@ pub(super) fn resolve_child_name(
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    let mut defs = SmallVec::<[DefId; 3]>::new();
-    for def_id in parent.candidates() {
-        let Some(scope_id) = descend_scope(db, *def_id) else {
-            continue;
+    parent.and_then(|def_id| {
+        let Some(scope_id) = descend_scope(db, def_id) else {
+            return Resolution::Unresolved;
         };
-        for child_def_id in name_scope(db, scope_id).lookup(ctx, ident).into_candidates() {
-            if !defs.contains(&child_def_id) {
-                defs.push(child_def_id);
-            }
-        }
-    }
-    let children = Resolution::from_candidates(defs);
-    match (parent, children) {
-        (Resolution::Ambiguous(_), Resolution::Unique(_)) => Resolution::Unresolved,
-        (_, children) => children,
-    }
+        name_scope(db, scope_id).lookup(ctx, ident)
+    })
 }
 
 pub fn descend_scope(db: &dyn HirDb, def_id: DefId) -> Option<ScopeId> {
@@ -250,12 +240,13 @@ fn collect_imports(
             _ => continue,
         }
 
-        for package_id in db.unit_scope().package_ids(db, &import.package).into_candidates() {
-            let package_scope = db.package_export_scope(package_id);
-            for def_id in package_scope.lookup(ctx, ident).into_candidates() {
-                if !defs.contains(&def_id) {
-                    defs.push(def_id);
-                }
+        let imported = db
+            .unit_scope()
+            .package_ids(db, &import.package)
+            .and_then(|package_id| db.package_export_scope(package_id).lookup(ctx, ident));
+        for def_id in imported.into_candidates() {
+            if !defs.contains(&def_id) {
+                defs.push(def_id);
             }
         }
     }
@@ -485,6 +476,34 @@ endmodule
             panic!("imports from ambiguous packages should remain ambiguous");
         };
         assert_eq!(values.len(), 2);
+    }
+
+    #[test]
+    fn wildcard_import_does_not_resolve_through_one_ambiguous_package() {
+        let db = db_with_root_text(
+            r#"
+package p;
+  int only_left;
+endpackage
+
+package p;
+endpackage
+
+module top;
+  import p::*;
+endmodule
+"#,
+        );
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+
+        assert!(
+            resolve_name(&db, top.into(), &ident("only_left"), NameContext::Value).is_unresolved(),
+            "a child member must not disambiguate its parent package"
+        );
     }
 
     #[test]
