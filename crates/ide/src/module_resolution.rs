@@ -260,7 +260,10 @@ fn resolve_by_proximity(
     let mut best_modules = Vec::new();
 
     for module_id in candidates.iter().copied() {
-        let score = ProximityScore::new(db, from_file, module_id.file_id.file_id());
+        let Some(score_file) = module_id.file_id.source_file_id(db) else {
+            continue;
+        };
+        let score = ProximityScore::new(db, from_file, score_file);
         match best_score {
             None => {
                 best_score = Some(score);
@@ -278,7 +281,9 @@ fn resolve_by_proximity(
         }
     }
 
-    candidates.sort_by_key(|module_id| module_id.file_id.file_id().index());
+    candidates.sort_by_key(|module_id| {
+        module_id.file_id.source_file_id(db).map_or(u32::MAX, FileId::index)
+    });
 
     match best_modules.as_slice() {
         [] => ModuleResolution::Unresolved,
@@ -518,7 +523,7 @@ mod tests {
                 match resolution_module_id(&db, &res, DefKind::Port) {
                     Some(module_id) => format!(
                         "AnsiPort module={}",
-                        file_path(&fixture.files, module_id.file_id.file_id())
+                        file_path(&fixture.files, module_id.file_id.as_file().unwrap())
                     ),
                     None => format!("{res:?}"),
                 }
@@ -534,7 +539,7 @@ mod tests {
                 match resolution_module_id(&db, &res, DefKind::Param) {
                     Some(module_id) => format!(
                         "ParamDecl module={}",
-                        file_path(&fixture.files, module_id.file_id.file_id())
+                        file_path(&fixture.files, module_id.file_id.as_file().unwrap())
                     ),
                     None => format!("{res:?}"),
                 }
@@ -564,11 +569,14 @@ mod tests {
     fn format_module_resolution(files: &[(String, String)], result: ModuleResolution) -> String {
         match result {
             ModuleResolution::Unique(module_id) => {
-                format!("Unique selected={}", file_path(files, module_id.file_id.file_id()))
+                format!(
+                    "Unique selected={}",
+                    file_path(files, module_id.file_id.as_file().unwrap())
+                )
             }
             ModuleResolution::BestEffortProximity { selected, candidates } => format!(
                 "BestEffortProximity selected={} candidates={:?}",
-                file_path(files, selected.file_id.file_id()),
+                file_path(files, selected.file_id.as_file().unwrap()),
                 candidate_paths(files, candidates)
             ),
             ModuleResolution::Ambiguous { candidates, kind } => {
@@ -584,7 +592,7 @@ mod tests {
     fn candidate_paths(files: &[(String, String)], candidates: Vec<ModuleId>) -> Vec<String> {
         candidates
             .into_iter()
-            .map(|module_id| file_path(files, module_id.file_id.file_id()))
+            .map(|module_id| file_path(files, module_id.file_id.as_file().unwrap()))
             .collect()
     }
 
