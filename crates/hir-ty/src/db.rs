@@ -1,9 +1,9 @@
+pub use ::hir_def::db::*;
 use triomphe::Arc;
 
 use crate::{
     base_db::salsa,
     container::{InContainer, InSubroutine},
-    db::HirDefDb,
     def_id::DefId,
     hir_def::{
         expr::{ExprId, declarator::DeclId},
