@@ -222,6 +222,7 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
         | DefKind::Coverpoint
         | DefKind::Cross
         | DefKind::Stmt => TyResult::new(Ty::Unknown),
+        _ => TyResult::new(Ty::Unknown),
     }
 }
 fn type_of_non_ansi_port(db: &dyn HirDb, def_id: DefId) -> TyResult {
@@ -1151,5 +1152,28 @@ endmodule
         let program_res = Resolution::Unique(DefId::new(&db, program));
         assert_eq!(db.type_of_path_resolution(program_res).ty.display_source(&db).unwrap(), "p");
         assert_eq!(path_ty(&db, top, &["u_p"]).display_source(&db).unwrap(), "p");
+    }
+
+    #[test]
+    fn streaming_with_range_display_preserves_with_keyword() {
+        let db = db_with_root_text(
+            r#"
+module m(input logic [3:0] a);
+  logic [3:0] x = {<<{a with [3:0]}};
+endmodule
+"#,
+        );
+        let module_id = module_id(&db, "m");
+        let module = db.module(module_id);
+        let (stream_id, _) = module
+            .exprs
+            .iter()
+            .find(|(_, expr)| matches!(expr, crate::hir_def::expr::Expr::Stream { .. }))
+            .expect("streaming concatenation should lower");
+
+        assert_eq!(
+            InContainer::new(module_id.into(), stream_id).display_source(&db).unwrap(),
+            "{<<{a with [3:0]}}"
+        );
     }
 }

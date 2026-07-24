@@ -676,13 +676,9 @@ mod tests {
             },
             source_root::{SourceRoot, SourceRootId},
         },
-        container::{FileOrModule, InContainer, InFile, InFileOrModule, ScopeId, SubroutineParent},
-        db::{
-            HirDefDb as HirDb, HirDefDbStorage, InternDbStorage, PreprocDb, PreprocDbStorage,
-            TyDbStorage,
-        },
+        container::{FileOrModule, InFile, InFileOrModule, ScopeId, SubroutineParent},
+        db::{HirDefDb as HirDb, HirDefDbStorage, InternDbStorage, PreprocDb, PreprocDbStorage},
         def_id::DefId,
-        display::HirDisplay,
         file::HirFileId,
         hir_def::{
             Ident,
@@ -702,8 +698,7 @@ mod tests {
         SourceRootDbStorage,
         PreprocDbStorage,
         InternDbStorage,
-        HirDefDbStorage,
-        TyDbStorage
+        HirDefDbStorage
     )]
     #[derive(Default)]
     struct TestDb {
@@ -1249,34 +1244,6 @@ endmodule
             stream[0].with_range.as_ref().and_then(|range| range.selector),
             Some(crate::hir_def::expr::Selector::Range(_, _))
         ));
-    }
-
-    #[test]
-    fn streaming_with_range_display_preserves_with_keyword() {
-        let db = db_with_root_text(
-            r#"
-module m(input logic [3:0] a);
-  logic [3:0] x = {<<{a with [3:0]}};
-endmodule
-"#,
-        );
-
-        let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
-            .unique()
-            .expect("module should resolve uniquely");
-        let module = db.module(module_id);
-        let (stream_id, _) = module
-            .exprs
-            .iter()
-            .find(|(_, expr)| matches!(expr, crate::hir_def::expr::Expr::Stream { .. }))
-            .expect("streaming concatenation should lower");
-
-        assert_eq!(
-            InContainer::new(module_id.into(), stream_id).display_source(&db).unwrap(),
-            "{<<{a with [3:0]}}"
-        );
     }
 
     #[test]

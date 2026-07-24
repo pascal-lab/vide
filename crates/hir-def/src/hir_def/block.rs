@@ -181,7 +181,7 @@ impl Get<BlockSrc> for SourceMap<StmtSrc, Stmt> {
     }
 }
 
-pub(crate) fn find_local_block_id(
+pub fn find_local_block_id(
     stmt_srcs: &SourceMap<StmtSrc, Stmt>,
     block_src: BlockSrc,
 ) -> Option<LocalBlockId> {
