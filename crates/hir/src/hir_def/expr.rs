@@ -158,6 +158,16 @@ pub enum StreamOp {
     // <<
     Left,
 }
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct StreamRange {
+    pub selector: Option<Selector>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct StreamExpr {
+    pub expr: ExprId,
+    pub with_range: Option<StreamRange>,
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Assign {
@@ -170,6 +180,8 @@ pub struct Assign {
 pub enum Expr {
     #[default]
     Missing,
+    Invalid,
+    Unsupported(SyntaxKind),
 
     Binary {
         op: BinaryOp,
@@ -224,7 +236,7 @@ pub enum Expr {
     Stream {
         op: StreamOp,
         slice: Option<ExprId>,
-        concats: Box<[ExprId]>,
+        concats: Box<[StreamExpr]>,
     },
     Unary {
         op: UnaryOp,
@@ -279,18 +291,13 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
     }
 
     pub(crate) fn lower_expr(&mut self, expr: ast::Expression) -> ExprId {
-        if let Some(hir_expr) = self.lower_expr_inner(expr) {
-            let file_id = self.file_id;
-            let (expressions, sources) = self.expressions();
-            alloc_with_source(file_id, expressions, sources, hir_expr, expr)
-        } else {
-            self.report_unsupported(
-                expr.syntax().kind(),
-                expr.syntax().text_range(),
-                "unsupported expression",
-            );
-            self.alloc_missing_expr()
+        let hir_expr = self.lower_expr_inner(expr).unwrap_or(Expr::Invalid);
+        if let Expr::Unsupported(kind) = &hir_expr {
+            self.report_unsupported(*kind, expr.syntax().text_range(), "unsupported expression");
         }
+        let file_id = self.file_id;
+        let (expressions, sources) = self.expressions();
+        alloc_with_source(file_id, expressions, sources, hir_expr, expr)
     }
 
     fn lower_expr_inner(&mut self, expr: ast::Expression) -> Option<Expr> {
@@ -308,7 +315,8 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
             CastExpression(expr) => self.lower_cast_expr(expr),
             SignedCastExpression(expr) => self.lower_cast_signed_expr(expr),
             PostfixUnaryExpression(expr) => self.lower_postfix_unary_expr(expr),
-            _ => None,
+            BadExpression(_) => Some(Expr::Invalid),
+            unsupported => Some(Expr::Unsupported(unsupported.syntax().kind())),
         }
     }
 
@@ -325,7 +333,7 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
             StreamingConcatenationExpression(expr) => self.lower_stream_concat_expr(expr),
             ConcatenationExpression(expr) => self.lower_concat_expr(expr),
             ParenthesizedExpression(expr) => self.lower_expr_inner(expr.expression()),
-            _ => None,
+            unsupported => Some(Expr::Unsupported(unsupported.syntax().kind())),
         }
     }
 
@@ -347,9 +355,19 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
         };
         let slice = expr.slice_size().map(|size| self.lower_expr(size));
 
-        // TODO: handle with-range
-        let concats =
-            expr.expressions().children().map(|expr| self.lower_expr(expr.expression())).collect();
+        let concats = expr
+            .expressions()
+            .children()
+            .map(|stream| StreamExpr {
+                expr: self.lower_expr(stream.expression()),
+                with_range: stream.with_range().map(|with_range| StreamRange {
+                    selector: with_range
+                        .range()
+                        .selector()
+                        .map(|selector| self.lower_selector(selector)),
+                }),
+            })
+            .collect();
         Some(Expr::Stream { op, slice, concats })
     }
 

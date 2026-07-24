@@ -6,7 +6,7 @@ pub mod declaration;
 pub mod expr;
 pub mod file;
 pub mod literal;
-mod lower;
+pub(crate) mod lower;
 pub mod macro_file;
 pub mod module;
 pub mod proc;

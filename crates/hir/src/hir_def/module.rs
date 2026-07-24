@@ -1,4 +1,6 @@
-use clocking::{ClockingBlockDef, ClockingBlockId, ClockingBlockSrc};
+use clocking::{
+    ClockingBlockDef, ClockingBlockId, ClockingBlockSrc, DefaultClockingRef, DefaultClockingRefSrc,
+};
 use continuous_assgin::{ContAssign, ContAssignId, ContAssignSrc};
 use defparam::{DefParam, DefParamId, DefParamSrc};
 use generate::{GenerateRegion, GenerateRegionId, GenerateRegionSrc};
@@ -86,6 +88,7 @@ pub struct Module {
     pub structs: Arena<StructDef>,
     pub subroutines: Arena<Subroutine>,
     pub modports: Arena<ModportDef>,
+    pub default_clocking: Option<DefaultClockingRef>,
     pub clocking_blocks: Arena<ClockingBlockDef>,
     pub checkers: Arena<CheckerDef>,
     pub covergroups: Arena<CovergroupDef>,
@@ -149,6 +152,7 @@ pub struct ModuleSourceMap {
     pub struct_srcs: SourceMap<StructSrc, StructDef>,
     pub subroutine_srcs: SourceMap<SubroutineSrc, Subroutine>,
     pub modport_srcs: SourceMap<ModportSrc, ModportDef>,
+    pub default_clocking_src: Option<DefaultClockingRefSrc>,
     pub clocking_block_srcs: SourceMap<ClockingBlockSrc, ClockingBlockDef>,
     pub checker_srcs: SourceMap<CheckerSrc, CheckerDef>,
     pub covergroup_srcs: SourceMap<CovergroupSrc, CovergroupDef>,
@@ -680,7 +684,10 @@ impl LowerModuleCtx<'_> {
                 | gen_item @ LoopGenerate(_) => self.lower_direct_generate_region(gen_item).into(),
 
                 // Timing and clocking
-                TimeUnitsDeclaration(_) | DefaultClockingReference(_) | ClockingItem(_) => {
+                TimeUnitsDeclaration(_) | ClockingItem(_) => continue,
+                DefaultClockingReference(reference) => {
+                    self.lower_default_clocking_reference(reference);
+                    self.region_tree.handle_node(member.syntax());
                     continue;
                 }
                 ClockingDeclaration(clocking) => self.lower_clocking_declaration(clocking).into(),
