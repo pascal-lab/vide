@@ -63,7 +63,7 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{InContainer, InFile, ScopeId},
+    container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
     db::{HirDb, InternDb},
     file::HirFileId,
     region_tree::{RegionTree, RegionTreeBuilder},
@@ -415,7 +415,7 @@ impl LowerProc for LowerModuleCtx<'_> {
 
 impl LowerModuleCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ScopeId::Module(self.module_id);
+        let container_id = ArenaOwnerId::Module(self.module_id);
         let struct_def =
             lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
 
@@ -439,7 +439,7 @@ impl LowerModuleCtx<'_> {
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            ScopeId::Module(self.module_id),
+            ArenaOwnerId::Module(self.module_id),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.expr_ctx().lower_data_ty(ty),
         );
@@ -461,7 +461,8 @@ impl LowerModuleCtx<'_> {
             func => self.module_source_map.subroutine_srcs,
         };
 
-        let subroutine_def_id = InContainer::new(self.module_id.into(), subroutine_id);
+        let subroutine_def_id =
+            SubroutineScope::new(SubroutineParent::Module(self.module_id), subroutine_id);
 
         if func.end().is_some() {
             let subroutine = &mut self.module.subroutines[subroutine_id];
