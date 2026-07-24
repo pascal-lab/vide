@@ -45,6 +45,12 @@ struct OriginSource {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExpansionSourceMapError {
+    InvalidEmittedTokenRange { start: SourceEmittedTokenId, len: usize },
+    MissingTraceToken { token: SourceEmittedTokenId },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpansionSourceHit {
     pub emitted_token: SourceEmittedTokenId,
     pub expanded_token_index: usize,
@@ -100,27 +106,32 @@ impl ExpansionSourceMap {
         trace: &Trace,
         source_map: &PreprocSourceMap,
         emitted_range: SourceEmittedTokenRange,
-    ) -> Self {
+    ) -> Result<Self, ExpansionSourceMapError> {
         let Some(end) = emitted_range.start.raw().checked_add(emitted_range.len) else {
-            return Self::empty();
+            return Err(ExpansionSourceMapError::InvalidEmittedTokenRange {
+                start: emitted_range.start,
+                len: emitted_range.len,
+            });
         };
         let operation_sources = OperationSourceResolver::new(trace);
         let origins = (emitted_range.start.raw()..end)
             .map(|raw| {
                 let emitted_token = SourceEmittedTokenId::new(raw);
-                trace.emitted_tokens.get(raw).and_then(|token| {
-                    origin_slot_from_token_origin(
-                        db,
-                        model_file,
-                        emitted_token,
-                        &token.origin,
-                        source_map,
-                        Some(&operation_sources),
-                    )
-                })
+                let token = trace
+                    .emitted_tokens
+                    .get(raw)
+                    .ok_or(ExpansionSourceMapError::MissingTraceToken { token: emitted_token })?;
+                Ok(origin_slot_from_token_origin(
+                    db,
+                    model_file,
+                    emitted_token,
+                    &token.origin,
+                    source_map,
+                    Some(&operation_sources),
+                ))
             })
-            .collect();
-        Self { origins }
+            .collect::<Result<_, _>>()?;
+        Ok(Self { origins })
     }
 
     #[cfg(test)]
