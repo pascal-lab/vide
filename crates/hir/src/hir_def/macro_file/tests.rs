@@ -21,8 +21,8 @@ use crate::{
         project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
         salsa::{self, Durability},
         source_db::{
-            FileLoader, PreprocSourceMap, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
-            SourceRootDbStorage,
+            FileLoader, PreprocSourceMap, SourceDb, SourceDbStorage, SourceFileKind,
+            SourcePreprocQueryError, SourceRootDb, SourceRootDbStorage,
         },
         source_root::{SourceRoot, SourceRootId},
     },
@@ -232,9 +232,9 @@ fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
     let macro_file = db.intern_macro_file(MacroFileLoc { call: macro_call });
     let expansion = db.macro_expansion(macro_file);
 
-    assert!(expansion.text.contains("module"));
-    assert!(expansion.text.contains("from_macro"));
-    assert!(matches!(expansion.source_map.map_up(0), Some(Origin::MacroBody { .. })));
+    assert!(expansion.value.text.contains("module"));
+    assert!(expansion.value.text.contains("from_macro"));
+    assert!(matches!(expansion.value.source_map.map_up(0), Some(Origin::MacroBody { .. })));
     let parse = db.parse(HirFileId::Macro(macro_file));
     let root = parse.root().expect("macro expansion should parse to a syntax root");
     let unit =
@@ -257,5 +257,208 @@ fn macro_files_at_offset_returns_available_expansions() {
     let macro_call_loc = db.lookup_intern_macro_call(macro_file_loc.call);
     assert_eq!(macro_call_loc.model_file, TOP);
     let expansion = db.macro_expansion(macro_files[0]);
-    assert!(expansion.text.contains("from_macro"));
+    assert!(expansion.value.text.contains("from_macro"));
+}
+
+#[test]
+fn macro_expansion_reports_missing_trace_call() {
+    let db = db_with_root_text("`define EMPTY\n`EMPTY\n");
+    let trace_call = TraceMacroCallId(u32::MAX);
+    let macro_call = db.intern_macro_call(MacroCallLoc { model_file: TOP, trace_call });
+    let macro_file = db.intern_macro_file(MacroFileLoc { call: macro_call });
+
+    let expansion = db.macro_expansion(macro_file);
+
+    assert_eq!(expansion.value.text, "");
+    assert_eq!(
+        expansion.err.as_ref().map(ExpandError::kind),
+        Some(&ExpandErrorKind::MissingTraceCall { trace_call })
+    );
+}
+
+#[test]
+fn macro_expansion_reports_preproc_model_failure() {
+    let mut db = db_with_root_text("`define EMPTY\n`EMPTY\n");
+    db.set_file_kind_with_durability(TOP, SourceFileKind::LibraryMap, Durability::LOW);
+    let trace_call = TraceMacroCallId(0);
+    let macro_call = db.intern_macro_call(MacroCallLoc { model_file: TOP, trace_call });
+    let macro_file = db.intern_macro_file(MacroFileLoc { call: macro_call });
+
+    let expansion = db.macro_expansion(macro_file);
+
+    assert_eq!(expansion.value.text, "");
+    assert_eq!(
+        expansion.err.as_ref().map(ExpandError::kind),
+        Some(&ExpandErrorKind::SourcePreprocModel(SourcePreprocQueryError::UnsupportedFileKind(
+            SourceFileKind::LibraryMap
+        )))
+    );
+}
+
+#[test]
+fn expansion_text_reports_missing_emitted_token() {
+    let db = db_with_root_text("`define ONE 1\n`ONE\n");
+    let mapped = db.source_preproc_model(TOP);
+    let mapped = mapped.as_ref().as_ref().expect("preproc model should be available");
+    let missing = SourceEmittedTokenId::new(mapped.model.emitted_tokens().len());
+
+    let expansion =
+        expansion_text_for_range(&mapped.model, SourceEmittedTokenRange { start: missing, len: 1 });
+
+    assert_eq!(expansion.value, "");
+    assert_eq!(
+        expansion.err.as_ref().map(ExpandError::kind),
+        Some(&ExpandErrorKind::MissingEmittedToken { token: missing })
+    );
+}
+
+#[test]
+fn expansion_source_map_reports_missing_trace_token() {
+    let db = db_with_root_text("`define ONE 1\n`ONE\n");
+    let mapped = db.source_preproc_model(TOP);
+    let mapped = mapped.as_ref().as_ref().expect("preproc model should be available");
+    let parsed = db.parsed_compilation_unit(TOP);
+    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+    let missing = SourceEmittedTokenId::new(trace.emitted_tokens.len());
+
+    let expansion = ExpansionSourceMap::from_trace_range(
+        &db,
+        TOP,
+        trace,
+        &mapped.source_map,
+        SourceEmittedTokenRange { start: missing, len: 1 },
+    );
+
+    assert!(expansion.value.is_empty());
+    assert_eq!(
+        expansion.err.as_ref().map(ExpandError::kind),
+        Some(&ExpandErrorKind::SourceMap(ExpansionSourceMapError::MissingTraceToken {
+            token: missing,
+        }))
+    );
+}
+
+#[test]
+fn expansion_text_validates_zero_length_range_start() {
+    let db = db_with_root_text("`define EMPTY\n`EMPTY\n");
+    let mapped = db.source_preproc_model(TOP);
+    let mapped = mapped.as_ref().as_ref().expect("preproc model should be available");
+    let table_len = mapped.model.emitted_tokens().len();
+    let valid_start = SourceEmittedTokenId::new(table_len);
+
+    let valid = expansion_text_for_range(
+        &mapped.model,
+        SourceEmittedTokenRange { start: valid_start, len: 0 },
+    );
+
+    assert_eq!(valid, ExpandResult::ok(String::new()));
+
+    let invalid_start = SourceEmittedTokenId::new(table_len + 1);
+    let invalid = expansion_text_for_range(
+        &mapped.model,
+        SourceEmittedTokenRange { start: invalid_start, len: 0 },
+    );
+
+    assert_eq!(invalid.value, "");
+    assert_eq!(
+        invalid.err.as_ref().map(ExpandError::kind),
+        Some(&ExpandErrorKind::InvalidEmittedTokenRange { start: invalid_start, len: 0 })
+    );
+}
+
+#[test]
+fn expansion_source_map_validates_zero_length_range_start() {
+    let db = db_with_root_text("`define EMPTY\n`EMPTY\n");
+    let mapped = db.source_preproc_model(TOP);
+    let mapped = mapped.as_ref().as_ref().expect("preproc model should be available");
+    let parsed = db.parsed_compilation_unit(TOP);
+    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+    let table_len = trace.emitted_tokens.len();
+    let valid_start = SourceEmittedTokenId::new(table_len);
+
+    let valid = ExpansionSourceMap::from_trace_range(
+        &db,
+        TOP,
+        trace,
+        &mapped.source_map,
+        SourceEmittedTokenRange { start: valid_start, len: 0 },
+    );
+
+    assert_eq!(valid, ExpandResult::ok(ExpansionSourceMap::empty()));
+
+    let invalid_start = SourceEmittedTokenId::new(table_len + 1);
+    let invalid = ExpansionSourceMap::from_trace_range(
+        &db,
+        TOP,
+        trace,
+        &mapped.source_map,
+        SourceEmittedTokenRange { start: invalid_start, len: 0 },
+    );
+
+    assert_eq!(invalid.value, ExpansionSourceMap::empty());
+    assert_eq!(
+        invalid.err.as_ref().map(ExpandError::kind),
+        Some(&ExpandErrorKind::SourceMap(ExpansionSourceMapError::InvalidEmittedTokenRange {
+            start: invalid_start,
+            len: 0,
+        }))
+    );
+}
+
+#[test]
+fn expansion_source_map_preserves_valid_prefix_before_missing_trace_token() {
+    let db = db_with_root_text("`define ONE 1\n`ONE\n");
+    let mapped = db.source_preproc_model(TOP);
+    let mapped = mapped.as_ref().as_ref().expect("preproc model should be available");
+    let parsed = db.parsed_compilation_unit(TOP);
+    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+    let table_len = trace.emitted_tokens.len();
+    assert!(table_len > 0, "fixture should emit at least one token");
+    let missing = SourceEmittedTokenId::new(table_len);
+
+    let expansion = ExpansionSourceMap::from_trace_range(
+        &db,
+        TOP,
+        trace,
+        &mapped.source_map,
+        SourceEmittedTokenRange { start: SourceEmittedTokenId::new(0), len: table_len + 1 },
+    );
+
+    assert!(!expansion.value.is_empty());
+    assert_eq!(
+        expansion.err.as_ref().map(ExpandError::kind),
+        Some(&ExpandErrorKind::SourceMap(ExpansionSourceMapError::MissingTraceToken {
+            token: missing,
+        }))
+    );
+}
+
+#[test]
+fn expansion_info_preserves_source_map_when_text_extraction_fails() {
+    let db = db_with_root_text("`define ONE 1\n`ONE\n");
+    let mapped = db.source_preproc_model(TOP);
+    let mapped = mapped.as_ref().as_ref().expect("preproc model should be available");
+    let parsed = db.parsed_compilation_unit(TOP);
+    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+    assert!(!trace.emitted_tokens.is_empty(), "fixture should emit at least one token");
+    let source_map = ExpansionSourceMap::from_trace_range(
+        &db,
+        TOP,
+        trace,
+        &mapped.source_map,
+        SourceEmittedTokenRange { start: SourceEmittedTokenId::new(0), len: 1 },
+    );
+    let missing = SourceEmittedTokenId::new(mapped.model.emitted_tokens().len());
+    let text = ExpandResult::new(
+        String::new(),
+        ExpandError::new(ExpandErrorKind::MissingEmittedToken { token: missing }),
+    );
+
+    let expansion = expansion_info_from_parts(text, source_map);
+
+    assert!(!expansion.value.source_map.is_empty());
+    assert_eq!(
+        expansion.err.as_ref().map(ExpandError::kind),
+        Some(&ExpandErrorKind::MissingEmittedToken { token: missing })
+    );
 }

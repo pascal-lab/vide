@@ -63,7 +63,7 @@ pub(super) fn expanded_macro_hover(
                 return None;
             }
             let expansion = db.macro_expansion(macro_file);
-            Some(ExpandedMacro { metadata, text: expansion.text.clone() })
+            Some(ExpandedMacro { metadata, text: expansion.value.text.clone() })
         })
         .collect::<Vec<_>>();
     if expansions.is_empty() {

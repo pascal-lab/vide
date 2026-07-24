@@ -44,7 +44,7 @@ endmodule
     let obj = macro_file_expansion(&db, obj_file).expect("object-like macro expansion expected");
     assert_eq!(obj.call_file_id, TOP);
     assert_eq!(text_at_range(root_text, obj.call_range), "`OBJ");
-    assert_eq!(db.macro_expansion(obj_file).text.trim(), "8");
+    assert_eq!(db.macro_expansion(obj_file).value.text.trim(), "8");
 
     let wrap_file = single_macro_file_at(&db, TOP, offset(root_text, "`WRAP"));
     let wrap = macro_file_expansion(&db, wrap_file).expect("outer macro expansion expected");
@@ -54,7 +54,7 @@ endmodule
         &wrap.definition,
         MacroExpansionDefinition::Source(definition) if definition.name.as_str() == "WRAP"
     ));
-    assert_eq!(db.macro_expansion(wrap_file).text.trim(), "3");
+    assert_eq!(db.macro_expansion(wrap_file).value.text.trim(), "3");
 }
 
 #[test]
@@ -143,6 +143,8 @@ endmodule
         let macro_file = single_macro_file_at(&db, TOP, offset(root_text, name));
         let expansion = macro_file_expansion(&db, macro_file).expect("macro expansion expected");
         assert_eq!(text_at_range(root_text, expansion.call_range), call_text);
-        assert_eq!(db.macro_expansion(macro_file).text, "");
+        let result = db.macro_expansion(macro_file);
+        assert_eq!(result.value.text, "");
+        assert_eq!(result.err, None);
     }
 }
