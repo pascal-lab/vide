@@ -584,8 +584,11 @@ impl HirDisplay for InContainer<&Expr> {
                         f.write_str(", ")?;
                     }
                     self.with_value(stream.expr).hir_fmt(f)?;
-                    if let Some(range) = stream.range {
-                        self.with_value(range).hir_fmt(f)?;
+                    if let Some(with_range) = &stream.with_range {
+                        f.write_str(" with ")?;
+                        if let Some(selector) = with_range.selector {
+                            self.with_value(selector).hir_fmt(f)?;
+                        }
                     }
                     first = false;
                 }

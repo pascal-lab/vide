@@ -157,9 +157,14 @@ pub enum StreamOp {
     Left,
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct StreamRange {
+    pub selector: Option<Selector>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct StreamExpr {
     pub expr: ExprId,
-    pub range: Option<Selector>,
+    pub with_range: Option<StreamRange>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -378,10 +383,12 @@ impl LowerExprCtx<'_> {
             .children()
             .map(|stream| StreamExpr {
                 expr: self.lower_expr(stream.expression()),
-                range: stream
-                    .with_range()
-                    .and_then(|with_range| with_range.range().selector())
-                    .map(|selector| self.lower_selector(selector)),
+                with_range: stream.with_range().map(|with_range| StreamRange {
+                    selector: with_range
+                        .range()
+                        .selector()
+                        .map(|selector| self.lower_selector(selector)),
+                }),
             })
             .collect();
         Some(Expr::Stream { op, slice, concats })

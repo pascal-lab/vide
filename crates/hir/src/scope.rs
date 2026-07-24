@@ -707,6 +707,7 @@ mod tests {
         container::{InContainer, ScopeId},
         db::{HirDb, HirDbStorage, InternDbStorage},
         def_id::DefId,
+        display::HirDisplay,
         hir_def::Ident,
         semantics::pathres::resolve_name,
         symbol::{DefKind, DefOriginLoc, NameContext, Resolution},
@@ -1155,7 +1156,75 @@ endmodule
             .expect("streaming concatenation should lower");
 
         assert_eq!(stream.len(), 1);
-        assert!(matches!(stream[0].range, Some(crate::hir_def::expr::Selector::Range(_, _))));
+        assert!(matches!(
+            stream[0].with_range.as_ref().and_then(|range| range.selector),
+            Some(crate::hir_def::expr::Selector::Range(_, _))
+        ));
+    }
+
+    #[test]
+    fn streaming_with_range_display_preserves_with_keyword() {
+        let db = db_with_root_text(
+            r#"
+module m(input logic [3:0] a);
+  logic [3:0] x = {<<{a with [3:0]}};
+endmodule
+"#,
+        );
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let module = db.module(module_id);
+        let (stream_id, _) = module
+            .exprs
+            .iter()
+            .find(|(_, expr)| matches!(expr, crate::hir_def::expr::Expr::Stream { .. }))
+            .expect("streaming concatenation should lower");
+
+        assert_eq!(
+            InContainer::new(module_id.into(), stream_id).display_source(&db).unwrap(),
+            "{<<{a with [3:0]}}"
+        );
+    }
+
+    #[test]
+    fn invalid_streaming_with_range_is_preserved() {
+        let db = db_with_root_text(
+            r#"
+module m(input logic [3:0] a);
+  logic [3:0] x = {<<{a, a with [], a with [3:0]}};
+endmodule
+"#,
+        );
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let module = db.module(module_id);
+        let stream = module
+            .exprs
+            .iter()
+            .find_map(|(_, expr)| match expr {
+                crate::hir_def::expr::Expr::Stream { concats, .. } => Some(concats),
+                _ => None,
+            })
+            .expect("streaming concatenation should lower");
+
+        assert_eq!(stream.len(), 3);
+        assert!(stream[0].with_range.is_none(), "an omitted with range must remain absent");
+        assert!(
+            stream[1].with_range.as_ref().is_some_and(|range| range.selector.is_none()),
+            "the present but invalid with range must retain a missing selector"
+        );
+        assert!(matches!(
+            stream[2].with_range.as_ref().and_then(|range| range.selector),
+            Some(crate::hir_def::expr::Selector::Range(_, _))
+        ));
     }
 
     #[test]
