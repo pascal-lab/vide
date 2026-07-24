@@ -82,146 +82,62 @@ impl_from! { DefOriginLoc =>
     Stmt(InContainer<StmtId>),
 }
 
+macro_rules! impl_origin_cast {
+    ($method:ident, $variant:ident, $ty:ty) => {
+        pub fn $method(self, db: &dyn InternDb) -> Option<$ty> {
+            match self.loc(db) {
+                DefOriginLoc::$variant(id) => Some(id),
+                _ => None,
+            }
+        }
+    };
+}
+
 impl DefOrigin {
+    impl_origin_cast!(as_module, Module, ModuleId);
+
+    impl_origin_cast!(as_config, Config, InFile<ConfigDeclId>);
+
+    impl_origin_cast!(as_library, Library, InFile<LibraryDeclId>);
+
+    impl_origin_cast!(as_udp, Udp, InFile<UdpDeclId>);
+
+    impl_origin_cast!(as_block, Block, BlockId);
+
+    impl_origin_cast!(as_generate_block, GenerateBlock, GenerateBlockId);
+
+    impl_origin_cast!(as_subroutine, Subroutine, InContainer<LocalSubroutineId>);
+
+    impl_origin_cast!(as_subroutine_port, SubroutinePort, InSubroutine<SubroutinePortId>);
+
+    impl_origin_cast!(as_non_ansi_port, NonAnsiPort, InModule<NonAnsiPortId>);
+
+    impl_origin_cast!(as_decl, Decl, InContainer<DeclId>);
+
+    impl_origin_cast!(as_typedef, Typedef, InContainer<TypedefId>);
+
+    impl_origin_cast!(as_instance, Instance, InModule<InstanceId>);
+
+    impl_origin_cast!(as_modport, Modport, InModule<ModportId>);
+
+    impl_origin_cast!(as_clocking_block, ClockingBlock, InModule<ClockingBlockId>);
+
+    impl_origin_cast!(as_clocking_signal, ClockingSignal, InContainer<ClockingSignalId>);
+
+    impl_origin_cast!(as_checker, Checker, InContainer<CheckerId>);
+
+    impl_origin_cast!(as_checker_port, CheckerPort, InContainer<CheckerPortId>);
+
+    impl_origin_cast!(as_covergroup, Covergroup, InContainer<CovergroupId>);
+
+    impl_origin_cast!(as_stmt, Stmt, InContainer<StmtId>);
+
     pub fn new(db: &dyn InternDb, loc: impl Into<DefOriginLoc>) -> Self {
         db.intern_def_origin(loc.into())
     }
 
     pub fn loc(self, db: &dyn InternDb) -> DefOriginLoc {
         db.lookup_intern_def_origin(self)
-    }
-
-    pub fn as_module(self, db: &dyn InternDb) -> Option<ModuleId> {
-        match self.loc(db) {
-            DefOriginLoc::Module(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_config(self, db: &dyn InternDb) -> Option<InFile<ConfigDeclId>> {
-        match self.loc(db) {
-            DefOriginLoc::Config(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_library(self, db: &dyn InternDb) -> Option<InFile<LibraryDeclId>> {
-        match self.loc(db) {
-            DefOriginLoc::Library(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_udp(self, db: &dyn InternDb) -> Option<InFile<UdpDeclId>> {
-        match self.loc(db) {
-            DefOriginLoc::Udp(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_block(self, db: &dyn InternDb) -> Option<BlockId> {
-        match self.loc(db) {
-            DefOriginLoc::Block(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_generate_block(self, db: &dyn InternDb) -> Option<GenerateBlockId> {
-        match self.loc(db) {
-            DefOriginLoc::GenerateBlock(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_subroutine(self, db: &dyn InternDb) -> Option<InContainer<LocalSubroutineId>> {
-        match self.loc(db) {
-            DefOriginLoc::Subroutine(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_subroutine_port(self, db: &dyn InternDb) -> Option<InSubroutine<SubroutinePortId>> {
-        match self.loc(db) {
-            DefOriginLoc::SubroutinePort(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_non_ansi_port(self, db: &dyn InternDb) -> Option<InModule<NonAnsiPortId>> {
-        match self.loc(db) {
-            DefOriginLoc::NonAnsiPort(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_decl(self, db: &dyn InternDb) -> Option<InContainer<DeclId>> {
-        match self.loc(db) {
-            DefOriginLoc::Decl(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_typedef(self, db: &dyn InternDb) -> Option<InContainer<TypedefId>> {
-        match self.loc(db) {
-            DefOriginLoc::Typedef(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_instance(self, db: &dyn InternDb) -> Option<InModule<InstanceId>> {
-        match self.loc(db) {
-            DefOriginLoc::Instance(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_modport(self, db: &dyn InternDb) -> Option<InModule<ModportId>> {
-        match self.loc(db) {
-            DefOriginLoc::Modport(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_clocking_block(self, db: &dyn InternDb) -> Option<InModule<ClockingBlockId>> {
-        match self.loc(db) {
-            DefOriginLoc::ClockingBlock(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_clocking_signal(self, db: &dyn InternDb) -> Option<InContainer<ClockingSignalId>> {
-        match self.loc(db) {
-            DefOriginLoc::ClockingSignal(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_checker(self, db: &dyn InternDb) -> Option<InContainer<CheckerId>> {
-        match self.loc(db) {
-            DefOriginLoc::Checker(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_checker_port(self, db: &dyn InternDb) -> Option<InContainer<CheckerPortId>> {
-        match self.loc(db) {
-            DefOriginLoc::CheckerPort(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_covergroup(self, db: &dyn InternDb) -> Option<InContainer<CovergroupId>> {
-        match self.loc(db) {
-            DefOriginLoc::Covergroup(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn as_stmt(self, db: &dyn InternDb) -> Option<InContainer<StmtId>> {
-        match self.loc(db) {
-            DefOriginLoc::Stmt(id) => Some(id),
-            _ => None,
-        }
     }
 }
 
@@ -518,7 +434,7 @@ impl NameScope {
             .into_iter()
             .flat_map(|defs| defs.iter())
             .filter(|def_id| def_id.kind(db).is_instantiable_def())
-            .filter_map(|def_id| def_id.as_module(db))
+            .filter_map(|def_id| def_id.primary_origin(db).as_module(db))
             .collect::<SmallVec<[_; 2]>>();
         Resolution::from_candidates(entries)
     }
@@ -534,7 +450,7 @@ impl NameScope {
             .into_iter()
             .flat_map(|defs| defs.iter())
             .filter(|def_id| def_id.kind(db) == DefKind::Package)
-            .filter_map(|def_id| def_id.as_module(db))
+            .filter_map(|def_id| def_id.primary_origin(db).as_module(db))
             .collect::<SmallVec<[_; 2]>>();
         Resolution::from_candidates(entries)
     }
@@ -543,7 +459,8 @@ impl NameScope {
         self.types.iter().filter_map(move |(ident, defs)| {
             defs.iter()
                 .any(|def_id| {
-                    def_id.kind(db).is_instantiable_def() && def_id.as_module(db).is_some()
+                    def_id.kind(db).is_instantiable_def()
+                        && def_id.primary_origin(db).as_module(db).is_some()
                 })
                 .then_some(ident)
         })

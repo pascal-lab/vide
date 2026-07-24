@@ -660,7 +660,7 @@ fn collect_resolved_path(
 
     match def_id.kind(db) {
         DefKind::Port => {
-            let decl_id = def_id.as_decl(db)?;
+            let decl_id = def_id.primary_origin(db).as_decl(db)?;
             let ScopeId::Module(module_id) = decl_id.cont_id else {
                 return None;
             };

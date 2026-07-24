@@ -546,7 +546,7 @@ fn ansi_port_decl_id_for_conn(
             let decl_id = defs
                 .iter()
                 .filter(|def_id| def_id.kind(db) == DefKind::Port)
-                .filter_map(|def_id| def_id.as_decl(db))
+                .filter_map(|def_id| def_id.primary_origin(db).as_decl(db))
                 .map(|decl_id| decl_id.value)
                 .find(|decl_id| {
                     matches!(module.get(*decl_id).parent, DeclaratorParent::PortDeclId(_))

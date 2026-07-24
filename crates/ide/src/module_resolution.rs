@@ -144,7 +144,7 @@ fn resolve_named_param_in_module(
     let module = db.module(module_id);
 
     for def_id in defs.into_candidates() {
-        let Some(decl_id) = def_id.as_decl(db) else {
+        let Some(decl_id) = def_id.primary_origin(db).as_decl(db) else {
             continue;
         };
         if decl_id.cont_id != ScopeId::Module(module_id) {

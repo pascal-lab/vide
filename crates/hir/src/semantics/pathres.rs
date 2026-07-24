@@ -152,25 +152,26 @@ fn resolve_child_name(
 }
 
 pub fn descend_scope(db: &dyn HirDb, def_id: DefId) -> Option<ScopeId> {
+    let origin = def_id.primary_origin(db);
     match def_id.kind(db) {
         DefKind::Module | DefKind::Interface | DefKind::Program => {
-            def_id.as_module(db).map(Into::into)
+            origin.as_module(db).map(Into::into)
         }
-        DefKind::ClockingBlock => def_id.as_clocking_block(db).map(Into::into),
+        DefKind::ClockingBlock => origin.as_clocking_block(db).map(Into::into),
         DefKind::Checker => {
-            def_id.as_checker(db).and_then(|checker| checker.try_into().ok()).map(ScopeId::Checker)
+            origin.as_checker(db).and_then(|checker| checker.try_into().ok()).map(ScopeId::Checker)
         }
-        DefKind::Covergroup => def_id
+        DefKind::Covergroup => origin
             .as_covergroup(db)
             .and_then(|covergroup| covergroup.try_into().ok())
             .map(ScopeId::Covergroup),
         DefKind::Instance => {
-            let instance = def_id.as_instance(db)?;
+            let instance = origin.as_instance(db)?;
             let target = instance_target_def_id(db, instance.module_id, instance.value)?;
             descend_scope(db, target)
         }
-        DefKind::Block => def_id.as_block(db).map(Into::into),
-        DefKind::GenerateBlock => def_id.as_generate_block(db).map(Into::into),
+        DefKind::Block => origin.as_block(db).map(Into::into),
+        DefKind::GenerateBlock => origin.as_generate_block(db).map(Into::into),
         _ => None,
     }
 }
