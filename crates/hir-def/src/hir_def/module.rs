@@ -55,7 +55,7 @@ use super::{
 };
 use crate::{
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
-    db::HirDefDb as HirDb,
+    db::HirDefDb,
     file::HirFileId,
     region_tree::RegionTree,
     source_map::{
@@ -794,7 +794,7 @@ impl LowerModuleCtx<'_> {
 }
 
 pub(crate) fn module_with_source_map_query(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     module_id @ InFile { value: local_module_id, file_id }: ModuleId,
 ) -> (Arc<Module>, Arc<ModuleSourceMap>) {
     let (file, file_source_map) = db.hir_file_with_source_map(file_id);

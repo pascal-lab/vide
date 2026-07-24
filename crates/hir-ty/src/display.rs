@@ -6,7 +6,7 @@ use triomphe::Arc;
 use crate::{
     base_db::intern::Lookup,
     container::{InContainer, InModule},
-    db::TyDb as HirDb,
+    db::TyDb,
     def_id::DefId,
     hir_def::{
         aggregate::StructKind,
@@ -26,7 +26,7 @@ use crate::{
 };
 
 pub struct HirFormatter<'a> {
-    pub db: &'a dyn HirDb,
+    pub db: &'a dyn TyDb,
     f: &'a mut dyn HirWrite,
     simplified_ty: bool,
 }
@@ -60,13 +60,13 @@ impl From<fmt::Error> for HirDisplayError {
 pub trait HirDisplay {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError>;
 
-    fn display_source(&self, db: &dyn HirDb) -> Result<String, HirDisplayError> {
+    fn display_source(&self, db: &dyn TyDb) -> Result<String, HirDisplayError> {
         let mut res = String::new();
         self.hir_fmt(&mut HirFormatter { db, f: &mut res, simplified_ty: false })?;
         Ok(res)
     }
 
-    fn display_signature(&self, db: &dyn HirDb) -> Result<String, HirDisplayError> {
+    fn display_signature(&self, db: &dyn TyDb) -> Result<String, HirDisplayError> {
         let mut res = String::new();
         self.hir_fmt(&mut HirFormatter { db, f: &mut res, simplified_ty: true })?;
         Ok(res)

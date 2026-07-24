@@ -7,7 +7,7 @@ use utils::{
 
 use crate::{
     base_db::intern::Lookup,
-    db::{HirDefDb as HirDb, InternDb},
+    db::{HirDefDb, InternDb},
     file::HirFileId,
     hir_def::{
         aggregate::{StructDef, StructId, StructSrc},
@@ -270,7 +270,7 @@ impl From<ArenaOwnerId> for ScopeId {
 }
 
 impl ScopeId {
-    pub fn kind(self, db: &dyn HirDb) -> ScopeKind {
+    pub fn kind(self, db: &dyn HirDefDb) -> ScopeKind {
         match self {
             ScopeId::File(_) => ScopeKind::File,
             ScopeId::Module(module_id) => {
@@ -290,7 +290,7 @@ impl ScopeId {
         }
     }
 
-    pub fn name(self, db: &dyn HirDb) -> Option<SmolStr> {
+    pub fn name(self, db: &dyn HirDefDb) -> Option<SmolStr> {
         match self {
             ScopeId::File(_) => None,
             ScopeId::Module(module_id) => db.module(module_id).name.clone(),
@@ -349,9 +349,9 @@ impl ScopeId {
 /// Name-resolution-only scopes cannot access arena data:
 ///
 /// ```compile_fail
-/// use hir::{container::ScopeId, db::HirDb};
+/// use hir_def::{container::ScopeId, db::HirDefDb};
 ///
-/// fn data_for_any_scope(scope: ScopeId, db: &dyn HirDb) {
+/// fn data_for_any_scope(scope: ScopeId, db: &dyn HirDefDb) {
 ///     let _ = scope.data(db);
 /// }
 /// ```
@@ -360,7 +360,7 @@ impl ArenaOwnerId {
         ScopeId::from(self).file_id(db)
     }
 
-    pub fn data(self, db: &dyn HirDb) -> Container {
+    pub fn data(self, db: &dyn HirDefDb) -> Container {
         match self {
             ArenaOwnerId::File(file_id) => Container::HirFile(db.hir_file(file_id)),
             ArenaOwnerId::Module(module_id) => Container::Module(module_id.to_container(db)),
@@ -374,7 +374,7 @@ impl ArenaOwnerId {
         }
     }
 
-    pub fn source_map(self, db: &dyn HirDb) -> ContainerSrcMap {
+    pub fn source_map(self, db: &dyn HirDefDb) -> ContainerSrcMap {
         match self {
             ArenaOwnerId::File(file_id) => {
                 ContainerSrcMap::File(db.hir_file_with_source_map(file_id).1)
@@ -397,12 +397,12 @@ impl ArenaOwnerId {
 
 impl ModuleId {
     #[inline]
-    pub fn to_container(&self, db: &dyn HirDb) -> Arc<Module> {
+    pub fn to_container(&self, db: &dyn HirDefDb) -> Arc<Module> {
         db.module(*self)
     }
 
     #[inline]
-    pub fn to_container_src_map(&self, db: &dyn HirDb) -> Arc<ModuleSourceMap> {
+    pub fn to_container_src_map(&self, db: &dyn HirDefDb) -> Arc<ModuleSourceMap> {
         db.module_with_source_map(*self).1
     }
 }
@@ -413,12 +413,12 @@ impl BlockId {
     }
 
     #[inline]
-    pub fn to_container(&self, db: &dyn HirDb) -> Arc<Block> {
+    pub fn to_container(&self, db: &dyn HirDefDb) -> Arc<Block> {
         db.block(*self)
     }
 
     #[inline]
-    pub fn to_container_src_map(&self, db: &dyn HirDb) -> Arc<BlockSourceMap> {
+    pub fn to_container_src_map(&self, db: &dyn HirDefDb) -> Arc<BlockSourceMap> {
         db.block_with_source_map(*self).1
     }
 }
@@ -429,12 +429,12 @@ impl GenerateBlockId {
     }
 
     #[inline]
-    pub fn to_container(&self, db: &dyn HirDb) -> Arc<GenerateBlock> {
+    pub fn to_container(&self, db: &dyn HirDefDb) -> Arc<GenerateBlock> {
         db.generate_block(*self)
     }
 
     #[inline]
-    pub fn to_container_src_map(&self, db: &dyn HirDb) -> Arc<GenerateBlockSourceMap> {
+    pub fn to_container_src_map(&self, db: &dyn HirDefDb) -> Arc<GenerateBlockSourceMap> {
         db.generate_block_with_source_map(*self).1
     }
 }

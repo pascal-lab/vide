@@ -40,7 +40,7 @@ use super::{
 };
 use crate::{
     container::{ArenaOwnerId, SubroutineParent, SubroutineScope},
-    db::HirDefDb as HirDb,
+    db::HirDefDb,
     file::HirFileId,
     hir_def::lower_ident_opt,
     region_tree::RegionTree,
@@ -468,7 +468,7 @@ impl LowerFileCtx<'_> {
 }
 
 pub(crate) fn hir_file_with_source_map_query(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     file_id: HirFileId,
 ) -> (Arc<HirFile>, Arc<FileSourceMap>) {
     let mut hir_file = HirFile::default();

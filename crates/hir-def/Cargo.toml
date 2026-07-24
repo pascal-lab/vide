@@ -5,7 +5,6 @@ edition.workspace = true
 
 [dependencies]
 base-db.workspace = true
-hashbrown = { version = "0.12.3", features = ["inline-more"], default-features = false }
 itertools.workspace = true
 la-arena.workspace = true
 preproc-expand.workspace = true
@@ -14,9 +13,7 @@ salsa.workspace = true
 smallvec.workspace = true
 smol_str.workspace = true
 syntax.workspace = true
-toml.workspace = true
 tracing.workspace = true
 triomphe.workspace = true
 utils.workspace = true
 vfs.workspace = true
-workspace-model.workspace = true

@@ -4,7 +4,7 @@ use utils::get::GetRef;
 
 use crate::{
     container::{ArenaOwnerId, InContainer, InSubroutine},
-    db::TyDb as HirDb,
+    db::TyDb,
     def_id::DefId,
     hir_def::{
         Ident,
@@ -83,12 +83,12 @@ pub enum TyClass {
     String,
 }
 
-pub fn normalize_data_ty(db: &dyn HirDb, container: ArenaOwnerId, data_ty: DataTy) -> TyResult {
+pub fn normalize_data_ty(db: &dyn TyDb, container: ArenaOwnerId, data_ty: DataTy) -> TyResult {
     normalize_data_ty_with_owner(db, container, data_ty, None)
 }
 
 fn normalize_data_ty_with_owner(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     container: ArenaOwnerId,
     data_ty: DataTy,
     owner: Option<DefId>,
@@ -97,39 +97,39 @@ fn normalize_data_ty_with_owner(
 }
 
 pub(crate) fn type_of_typedef_query(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     typedef: InContainer<TypedefId>,
 ) -> Arc<TyResult> {
     Arc::new(type_of_typedef_impl(db, typedef))
 }
 
-pub(crate) fn type_of_decl_query(db: &dyn HirDb, decl: InContainer<DeclId>) -> Arc<TyResult> {
+pub(crate) fn type_of_decl_query(db: &dyn TyDb, decl: InContainer<DeclId>) -> Arc<TyResult> {
     Arc::new(type_of_decl_impl(db, decl))
 }
 
 pub(crate) fn type_of_path_resolution_query(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     res: Resolution<DefId>,
 ) -> Arc<TyResult> {
     Arc::new(type_of_path_resolution_impl(db, res))
 }
 
-pub(crate) fn type_of_expr_query(db: &dyn HirDb, expr: InContainer<ExprId>) -> Arc<TyResult> {
+pub(crate) fn type_of_expr_query(db: &dyn TyDb, expr: InContainer<ExprId>) -> Arc<TyResult> {
     Arc::new(type_of_expr_impl(db, expr))
 }
 
 pub(crate) fn type_of_subroutine_port_query(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     port: InSubroutine<SubroutinePortId>,
 ) -> Arc<TyResult> {
     Arc::new(type_of_subroutine_port_impl(db, port))
 }
 
-fn type_of_typedef_impl(db: &dyn HirDb, typedef: InContainer<TypedefId>) -> TyResult {
+fn type_of_typedef_impl(db: &dyn TyDb, typedef: InContainer<TypedefId>) -> TyResult {
     type_of_typedef_inner(db, typedef, &mut FxHashSet::default())
 }
 
-fn type_of_decl_impl(db: &dyn HirDb, decl: InContainer<DeclId>) -> TyResult {
+fn type_of_decl_impl(db: &dyn TyDb, decl: InContainer<DeclId>) -> TyResult {
     let Some(data_ty) = data_ty_of_decl(db, decl) else {
         return TyResult::new(Ty::Unknown);
     };
@@ -141,13 +141,13 @@ fn type_of_decl_impl(db: &dyn HirDb, decl: InContainer<DeclId>) -> TyResult {
     result
 }
 
-fn type_of_path_resolution_impl(db: &dyn HirDb, res: Resolution<DefId>) -> TyResult {
+fn type_of_path_resolution_impl(db: &dyn TyDb, res: Resolution<DefId>) -> TyResult {
     res.unique()
         .map(|def_id| type_of_def_id(db, def_id))
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
 }
 
-fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
+fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
     if def_id.is_non_ansi_port(db) {
         return type_of_non_ansi_port(db, def_id);
     }
@@ -225,7 +225,7 @@ fn type_of_def_id(db: &dyn HirDb, def_id: DefId) -> TyResult {
         _ => TyResult::new(Ty::Unknown),
     }
 }
-fn type_of_non_ansi_port(db: &dyn HirDb, def_id: DefId) -> TyResult {
+fn type_of_non_ansi_port(db: &dyn TyDb, def_id: DefId) -> TyResult {
     let mut port_ty = None;
     for origin in def_id.origins(db) {
         let Some(decl) = origin.as_decl(db) else {
@@ -243,7 +243,7 @@ fn type_of_non_ansi_port(db: &dyn HirDb, def_id: DefId) -> TyResult {
     port_ty.unwrap_or_else(|| TyResult::new(Ty::Unknown))
 }
 
-fn type_of_expr_impl(db: &dyn HirDb, expr: InContainer<ExprId>) -> TyResult {
+fn type_of_expr_impl(db: &dyn TyDb, expr: InContainer<ExprId>) -> TyResult {
     let Some(hir_expr) = expr_of(db, expr) else {
         return TyResult::new(Ty::Unknown);
     };
@@ -271,7 +271,7 @@ fn type_of_expr_impl(db: &dyn HirDb, expr: InContainer<ExprId>) -> TyResult {
     }
 }
 
-pub fn members_of_ty(db: &dyn HirDb, ty: &Ty) -> Vec<TyMember> {
+pub fn members_of_ty(db: &dyn TyDb, ty: &Ty) -> Vec<TyMember> {
     match ty {
         Ty::Alias { target, .. } => members_of_ty(db, target),
         Ty::Struct(struct_id) => struct_members(db, *struct_id),
@@ -299,7 +299,7 @@ pub fn members_of_ty(db: &dyn HirDb, ty: &Ty) -> Vec<TyMember> {
     }
 }
 
-pub fn select_member(db: &dyn HirDb, base: &Ty, name: &Ident) -> TyResult {
+pub fn select_member(db: &dyn TyDb, base: &Ty, name: &Ident) -> TyResult {
     members_of_ty(db, base)
         .into_iter()
         .find(|member| &member.name == name)
@@ -307,7 +307,7 @@ pub fn select_member(db: &dyn HirDb, base: &Ty, name: &Ident) -> TyResult {
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
 }
 
-pub fn type_class(db: &dyn HirDb, ty: &Ty) -> Option<TyClass> {
+pub fn type_class(db: &dyn TyDb, ty: &Ty) -> Option<TyClass> {
     match ty {
         Ty::Alias { target, .. } => type_class(db, target),
         Ty::Builtin(BuiltinTy::Data { id, .. }) => match db.lookup_intern_ty(*id) {
@@ -336,7 +336,7 @@ pub fn type_class(db: &dyn HirDb, ty: &Ty) -> Option<TyClass> {
     }
 }
 
-pub fn is_compatible_ty(db: &dyn HirDb, expected: &Ty, candidate: &Ty) -> bool {
+pub fn is_compatible_ty(db: &dyn TyDb, expected: &Ty, candidate: &Ty) -> bool {
     let (Some(expected_class), Some(candidate_class)) =
         (type_class(db, expected), type_class(db, candidate))
     else {
@@ -356,7 +356,7 @@ pub fn is_compatible_ty(db: &dyn HirDb, expected: &Ty, candidate: &Ty) -> bool {
     }
 }
 
-pub fn packed_bit_width(db: &dyn HirDb, ty: &Ty) -> Option<u64> {
+pub fn packed_bit_width(db: &dyn TyDb, ty: &Ty) -> Option<u64> {
     match ty {
         Ty::Alias { target, .. } => packed_bit_width(db, target),
         Ty::Builtin(BuiltinTy::Data { id, container }) => match db.lookup_intern_ty(*id) {
@@ -412,7 +412,7 @@ pub fn packed_bit_width(db: &dyn HirDb, ty: &Ty) -> Option<u64> {
 }
 
 fn normalize_data_ty_inner(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     container: ArenaOwnerId,
     data_ty: DataTy,
     owner: Option<DefId>,
@@ -440,7 +440,7 @@ fn normalize_data_ty_inner(
 }
 
 fn type_of_named_data_ty(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     container: ArenaOwnerId,
     named: NamedDataTy,
     seen: &mut FxHashSet<InContainer<TypedefId>>,
@@ -463,7 +463,7 @@ fn type_of_named_data_ty(
 }
 
 fn type_of_typedef_inner(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     typedef: InContainer<TypedefId>,
     seen: &mut FxHashSet<InContainer<TypedefId>>,
 ) -> TyResult {
@@ -494,7 +494,7 @@ fn type_of_typedef_inner(
     TyResult { ty, diagnostics: std::mem::take(&mut target.diagnostics) }
 }
 
-fn struct_members(db: &dyn HirDb, struct_id: InContainer<StructId>) -> Vec<TyMember> {
+fn struct_members(db: &dyn TyDb, struct_id: InContainer<StructId>) -> Vec<TyMember> {
     let Some(def) = struct_of(db, struct_id) else {
         return Vec::new();
     };
@@ -512,14 +512,14 @@ fn struct_members(db: &dyn HirDb, struct_id: InContainer<StructId>) -> Vec<TyMem
         .collect()
 }
 
-fn union_members(db: &dyn HirDb, def_id: DefId) -> Vec<TyMember> {
+fn union_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
     aggregate_struct_id_from_def(db, def_id)
         .filter(|struct_id| struct_kind(db, *struct_id) == Some(StructKind::Union))
         .map(|struct_id| struct_members(db, struct_id))
         .unwrap_or_default()
 }
 
-fn aggregate_struct_id_from_def(db: &dyn HirDb, def_id: DefId) -> Option<InContainer<StructId>> {
+fn aggregate_struct_id_from_def(db: &dyn TyDb, def_id: DefId) -> Option<InContainer<StructId>> {
     match def_id.primary_origin(db).loc(db) {
         DefOriginLoc::Typedef(typedef) => match typedef_of(db, typedef)?.ty? {
             DataTy::Struct(struct_id) => Some(struct_id),
@@ -533,12 +533,12 @@ fn aggregate_struct_id_from_def(db: &dyn HirDb, def_id: DefId) -> Option<InConta
     }
 }
 
-fn struct_kind(db: &dyn HirDb, struct_id: InContainer<StructId>) -> Option<StructKind> {
+fn struct_kind(db: &dyn TyDb, struct_id: InContainer<StructId>) -> Option<StructKind> {
     struct_of(db, struct_id).map(|def| def.kind)
 }
 
 fn apply_unpacked_dimensions(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     container: ArenaOwnerId,
     mut ty: Ty,
     dimensions: &[Option<Dimension>],
@@ -563,25 +563,21 @@ fn apply_unpacked_dimensions(
     ty
 }
 
-fn type_of_dimension_key(db: &dyn HirDb, container: ArenaOwnerId, expr_id: ExprId) -> Ty {
+fn type_of_dimension_key(db: &dyn TyDb, container: ArenaOwnerId, expr_id: ExprId) -> Ty {
     if let Some(ty) = builtin_dimension_key_ty(db, container, expr_id) {
         return ty;
     }
     type_of_expr_impl(db, InContainer::new(container, expr_id)).ty
 }
 
-fn builtin_dimension_key_ty(
-    db: &dyn HirDb,
-    container: ArenaOwnerId,
-    expr_id: ExprId,
-) -> Option<Ty> {
+fn builtin_dimension_key_ty(db: &dyn TyDb, container: ArenaOwnerId, expr_id: ExprId) -> Option<Ty> {
     if let Some(Expr::Ident(ident)) = expr_of(db, InContainer::new(container, expr_id)) {
         return builtin_type_name_ty(db, container, &ident);
     }
     None
 }
 
-fn builtin_type_name_ty(db: &dyn HirDb, container: ArenaOwnerId, ident: &Ident) -> Option<Ty> {
+fn builtin_type_name_ty(db: &dyn TyDb, container: ArenaOwnerId, ident: &Ident) -> Option<Ty> {
     let ty = match ident.as_str() {
         "string" => BuiltinDataTy::String,
         "byte" => BuiltinDataTy::Int { kind: IntKind::Byte, signing: true },
@@ -606,7 +602,7 @@ fn builtin_type_name_ty(db: &dyn HirDb, container: ArenaOwnerId, ident: &Ident) 
     Some(Ty::Builtin(BuiltinTy::Data { id: db.intern_ty(ty), container }))
 }
 
-fn module_members(db: &dyn HirDb, module_id: ModuleId) -> Vec<TyMember> {
+fn module_members(db: &dyn TyDb, module_id: ModuleId) -> Vec<TyMember> {
     let file = db.hir_file(module_id.file_id);
     let scope = if file.get(module_id.value).kind == ModuleKind::Package {
         db.package_export_scope(module_id)
@@ -626,29 +622,29 @@ fn module_members(db: &dyn HirDb, module_id: ModuleId) -> Vec<TyMember> {
     members
 }
 
-fn checker_members(db: &dyn HirDb, def_id: DefId) -> Vec<TyMember> {
+fn checker_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
     let Some(checker_id) = def_id.primary_origin(db).as_checker(db) else {
         return Vec::new();
     };
     scope_members(db, &db.checker_scope(checker_id))
 }
 
-fn covergroup_members(db: &dyn HirDb, def_id: DefId) -> Vec<TyMember> {
+fn covergroup_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
     let Some(covergroup_id) = def_id.primary_origin(db).as_covergroup(db) else {
         return Vec::new();
     };
     scope_members(db, &db.covergroup_scope(covergroup_id))
 }
 
-fn generate_block_members(db: &dyn HirDb, generate_block_id: GenerateBlockId) -> Vec<TyMember> {
+fn generate_block_members(db: &dyn TyDb, generate_block_id: GenerateBlockId) -> Vec<TyMember> {
     scope_members(db, &db.generate_block_scope(generate_block_id))
 }
 
-fn block_members(db: &dyn HirDb, block_id: crate::hir_def::block::BlockId) -> Vec<TyMember> {
+fn block_members(db: &dyn TyDb, block_id: crate::hir_def::block::BlockId) -> Vec<TyMember> {
     scope_members(db, &db.block_scope(block_id))
 }
 
-fn scope_members(db: &dyn HirDb, scope: &NameScope) -> Vec<TyMember> {
+fn scope_members(db: &dyn TyDb, scope: &NameScope) -> Vec<TyMember> {
     let mut members: Vec<_> = scope
         .iter_listing()
         .map(|(name, defs)| {
@@ -666,7 +662,7 @@ fn sort_members(members: &mut Vec<TyMember>) {
     members.dedup_by(|left, right| left.name == right.name);
 }
 
-fn data_ty_of_decl(db: &dyn HirDb, decl: InContainer<DeclId>) -> Option<DataTy> {
+fn data_ty_of_decl(db: &dyn TyDb, decl: InContainer<DeclId>) -> Option<DataTy> {
     let declarator = decl_of(db, decl)?;
     match declarator.parent {
         DeclaratorParent::DeclarationId(declaration_id) => {
@@ -679,7 +675,7 @@ fn data_ty_of_decl(db: &dyn HirDb, decl: InContainer<DeclId>) -> Option<DataTy> 
     }
 }
 
-fn port_decl_ty(db: &dyn HirDb, cont_id: ArenaOwnerId, port_decl_id: PortDeclId) -> Option<DataTy> {
+fn port_decl_ty(db: &dyn TyDb, cont_id: ArenaOwnerId, port_decl_id: PortDeclId) -> Option<DataTy> {
     let ArenaOwnerId::Module(module_id) = cont_id else {
         return None;
     };
@@ -688,7 +684,7 @@ fn port_decl_ty(db: &dyn HirDb, cont_id: ArenaOwnerId, port_decl_id: PortDeclId)
 }
 
 fn for_init_decl_ty(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     cont_id: ArenaOwnerId,
     stmt_id: crate::hir_def::stmt::StmtId,
     decl_id: DeclId,
@@ -700,7 +696,7 @@ fn for_init_decl_ty(
     inits.iter().find_map(|(ty, decl)| (*decl == decl_id).then_some(*ty).flatten())
 }
 
-fn type_of_subroutine_port_impl(db: &dyn HirDb, port: InSubroutine<SubroutinePortId>) -> TyResult {
+fn type_of_subroutine_port_impl(db: &dyn TyDb, port: InSubroutine<SubroutinePortId>) -> TyResult {
     let subroutine = db.subroutine(port.subroutine);
     let port_id = port;
     let Some(port) = subroutine.ports.get(port_id.value.0 as usize) else {
@@ -729,7 +725,7 @@ fn int_kind_width(kind: IntKind) -> usize {
     }
 }
 
-fn eval_const_i128(db: &dyn HirDb, container: ArenaOwnerId, expr_id: ExprId) -> Option<i128> {
+fn eval_const_i128(db: &dyn TyDb, container: ArenaOwnerId, expr_id: ExprId) -> Option<i128> {
     match expr_of(db, InContainer::new(container, expr_id))? {
         Expr::Literal(Literal::Int(int)) => int.get_single_word().map(|v| v as i128),
         Expr::Unary { op, expr } => {
@@ -765,7 +761,7 @@ fn eval_const_i128(db: &dyn HirDb, container: ArenaOwnerId, expr_id: ExprId) -> 
     }
 }
 
-fn expr_of(db: &dyn HirDb, expr: InContainer<ExprId>) -> Option<Expr> {
+fn expr_of(db: &dyn TyDb, expr: InContainer<ExprId>) -> Option<Expr> {
     match expr.cont_id {
         ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(expr.value).clone()),
         ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(expr.value).clone()),
@@ -780,7 +776,7 @@ fn expr_of(db: &dyn HirDb, expr: InContainer<ExprId>) -> Option<Expr> {
 }
 
 fn decl_of(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     decl: InContainer<DeclId>,
 ) -> Option<crate::hir_def::expr::declarator::Declarator> {
     match decl.cont_id {
@@ -797,7 +793,7 @@ fn decl_of(
 }
 
 fn declaration_of(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     decl: InContainer<crate::hir_def::declaration::DeclarationId>,
 ) -> Option<Declaration> {
     match decl.cont_id {
@@ -814,7 +810,7 @@ fn declaration_of(
 }
 
 fn typedef_of(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     typedef: InContainer<TypedefId>,
 ) -> Option<crate::hir_def::typedef::Typedef> {
     match typedef.cont_id {
@@ -831,7 +827,7 @@ fn typedef_of(
 }
 
 fn struct_of(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     struct_id: InContainer<StructId>,
 ) -> Option<crate::hir_def::aggregate::StructDef> {
     match struct_id.cont_id {
@@ -848,7 +844,7 @@ fn struct_of(
 }
 
 fn stmt_of(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     stmt: InContainer<crate::hir_def::stmt::StmtId>,
 ) -> Option<crate::hir_def::stmt::Stmt> {
     match stmt.cont_id {

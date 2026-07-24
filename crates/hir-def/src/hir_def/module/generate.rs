@@ -21,7 +21,7 @@ use super::{
 use crate::{
     base_db::intern::Lookup,
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
-    db::HirDefDb as HirDb,
+    db::HirDefDb,
     hir_def::{
         Ident,
         aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
@@ -882,7 +882,7 @@ impl LowerModuleCtx<'_> {
 }
 
 pub(crate) fn generate_block_with_source_map_query(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     generate_block_id: GenerateBlockId,
 ) -> (Arc<GenerateBlock>, Arc<GenerateBlockSourceMap>) {
     let GenerateBlockLoc { src: InFile { file_id, value: src }, .. } = generate_block_id.lookup(db);

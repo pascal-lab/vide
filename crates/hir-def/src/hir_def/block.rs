@@ -31,7 +31,7 @@ use super::{
 use crate::{
     base_db::intern::Lookup,
     container::{ArenaOwnerId, InFile},
-    db::HirDefDb as HirDb,
+    db::HirDefDb,
     region_tree::RegionTree,
     source_map::{AstKind, IsNamedSrc, IsSrc, NamedAstId, SourceMap, ToAstNode},
 };
@@ -327,7 +327,7 @@ impl LowerBlockCtx<'_> {
 }
 
 pub(crate) fn block_with_source_map_query(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     block_id: BlockId,
 ) -> (Arc<Block>, Arc<BlockSourceMap>) {
     let InFile { file_id, value: block_src } = block_id.lookup(db).src;
