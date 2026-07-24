@@ -2,6 +2,8 @@ use hir::{
     base_db::source_db::SourceDb,
     container::InFile,
     def_id::DefId,
+    file::HirFileId,
+    hir_def::macro_file::{macro_file_call_site, macro_files_at_offset},
     semantics::Semantics,
     symbol::{DefOrigin, NameContext},
 };
@@ -89,6 +91,8 @@ pub enum RenameError {
     OverlappingEdits,
     #[error("Project configuration required for this rename")]
     ProjectScopeRequired,
+    #[error("Cannot rename a macro-generated definition")]
+    MacroDefinitionNotEditable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,7 +273,15 @@ fn resolve_rename_target(
     }
 
     let selected_def = selected_def.ok_or(RenameError::NoDefFound)?;
-    Ok(ResolvedRenameTarget { range, selected_def, targets: targets.into_vec() })
+    let targets = targets.into_vec();
+    if targets
+        .iter()
+        .flat_map(|def| def.origins(sema.db))
+        .any(|origin| origin_is_macro_generated(sema.db, origin))
+    {
+        return Err(RenameError::MacroDefinitionNotEditable);
+    }
+    Ok(ResolvedRenameTarget { range, selected_def, targets })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -471,6 +483,22 @@ fn check_same_name_conn(
         port,
         local: sema.nameres_ident(file_id, actual_token, NameContext::Value).unique()?,
         collapse_range: TextRange::new(name_range.start(), collapse_end),
+    })
+}
+
+fn origin_is_macro_generated(db: &RootDb, origin: DefOrigin) -> bool {
+    if matches!(origin.container_id(db).file_id(db), HirFileId::Macro(_)) {
+        return true;
+    }
+    let Some(InFile { file_id: HirFileId::File(file_id), value: range }) = origin.name_range(db)
+    else {
+        return false;
+    };
+
+    macro_files_at_offset(db, file_id, range.start()).into_iter().any(|macro_file| {
+        macro_file_call_site(db, macro_file).is_some_and(|call_site| {
+            call_site.call_file_id == file_id && call_site.call_range == range
+        })
     })
 }
 

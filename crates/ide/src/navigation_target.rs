@@ -308,8 +308,8 @@ pub(crate) fn nav_location(
     match file_id {
         HirFileId::File(file_id) => Some((file_id, name_range, full_range)),
         HirFileId::Macro(macro_file) => {
-            let expansion = hir::hir_def::macro_file::macro_file_expansion(db, macro_file)?;
-            Some((expansion.call_file_id, Some(expansion.call_range), expansion.call_range))
+            let call_site = hir::hir_def::macro_file::macro_file_call_site(db, macro_file)?;
+            Some((call_site.call_file_id, Some(call_site.call_range), call_site.call_range))
         }
     }
 }

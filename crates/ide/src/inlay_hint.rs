@@ -339,9 +339,7 @@ fn process_instantiation(
     instantiation: &Instantiation,
     collector: &mut InlayHintCollector,
 ) -> Option<()> {
-    let Some(from_file) = module_id.file_id.source_file_id(db) else {
-        return None;
-    };
+    let from_file = module_id.file_id.source_file_id(db)?;
     let target_module_id =
         resolve_module_name(db, from_file, instantiation.module_name.as_ref()?).unique()?;
 

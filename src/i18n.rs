@@ -162,6 +162,8 @@ pub(crate) mod keys {
     pub(crate) const RENAME_NO_DEF_FOUND: &str = "rename.no_def_found";
     pub(crate) const RENAME_OVERLAPPING_EDITS: &str = "rename.overlapping_edits";
     pub(crate) const RENAME_PROJECT_SCOPE_REQUIRED: &str = "rename.project_scope_required";
+    pub(crate) const RENAME_MACRO_DEFINITION_NOT_EDITABLE: &str =
+        "rename.macro_definition_not_editable";
 
     pub(crate) const CODE_ACTION_RESOLVE_NO_DATA: &str = "code_action_resolve.no_data";
     pub(crate) const CODE_ACTION_RESOLVE_STALE: &str = "code_action_resolve.stale";

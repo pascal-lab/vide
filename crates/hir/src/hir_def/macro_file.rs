@@ -99,6 +99,12 @@ pub enum ExpandErrorKind {
 /// `call_file_id` and `call_range` are already mapped to the user-facing file
 /// and range. `definition` is `Builtin` for intrinsics and otherwise the
 /// resolved [`MacroDefinition`] reused from the preproc query layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MacroFileCallSite {
+    pub call_file_id: FileId,
+    pub call_range: TextRange,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroFileExpansion {
     pub call_file_id: FileId,
@@ -149,7 +155,20 @@ pub fn macro_files_at_offset(
     macro_files
 }
 
+pub fn macro_file_call_site(db: &dyn HirDb, macro_file: MacroFileId) -> Option<MacroFileCallSite> {
+    let loc = db.lookup_intern_macro_file(macro_file);
+    let call_loc = db.lookup_intern_macro_call(loc.call);
+    let mapped = db.source_preproc_model(call_loc.model_file);
+    let mapped = mapped.as_ref().as_ref().ok()?;
+    let call = source_call_for_trace_call(&mapped.model, call_loc.trace_call)?;
+    Some(MacroFileCallSite {
+        call_file_id: mapped.source_map.file_id(call.call_range.source).ok()?,
+        call_range: mapped.source_map.map_range(call.call_range).ok()?,
+    })
+}
+
 pub fn macro_file_expansion(db: &dyn HirDb, macro_file: MacroFileId) -> Option<MacroFileExpansion> {
+    let call_site = macro_file_call_site(db, macro_file)?;
     let loc = db.lookup_intern_macro_file(macro_file);
     let call_loc = db.lookup_intern_macro_call(loc.call);
     let mapped = db.source_preproc_model(call_loc.model_file);
@@ -157,8 +176,8 @@ pub fn macro_file_expansion(db: &dyn HirDb, macro_file: MacroFileId) -> Option<M
     let call = source_call_for_trace_call(&mapped.model, call_loc.trace_call)?;
     let expansion = source_expansion_for_call(&mapped.model, call.id).ok()?;
     Some(MacroFileExpansion {
-        call_file_id: mapped.source_map.file_id(call.call_range.source).ok()?,
-        call_range: mapped.source_map.map_range(call.call_range).ok()?,
+        call_file_id: call_site.call_file_id,
+        call_range: call_site.call_range,
         definition: macro_expansion_definition(mapped, expansion)?,
     })
 }
