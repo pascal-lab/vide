@@ -1,6 +1,6 @@
 use hir::{
     base_db::intern::Lookup,
-    container::{InContainer, InFile, InModule, InSubroutine, ScopeId},
+    container::{InContainer, InFile, InModule, InSubroutine, SubroutineScope},
     db::HirDb,
     hir_def::{
         block::{BlockId, BlockLoc},
@@ -14,7 +14,7 @@ use hir::{
             port::NonAnsiPortId,
         },
         stmt::StmtId,
-        subroutine::{LocalSubroutineId, SubroutinePortId},
+        subroutine::SubroutinePortId,
         typedef::TypedefId,
     },
     source_map::{IsNamedSrc, IsSrc},
@@ -59,10 +59,7 @@ impl ToNav for DefOrigin {
         let focus_range = self.name_range(db).map(|range| range.value);
         let name = self.name(db);
         let kind = self.kind(db).symbol_kind().into();
-        let container_name = match self.container_id(db) {
-            ScopeId::File(_) => None,
-            cont_id => cont_id.to_container(db).name().cloned(),
-        };
+        let container_name = self.container_id(db).name(db);
 
         Some(build(file_id.file_id(), focus_range, full_range, name, kind, container_name))
     }
@@ -134,7 +131,7 @@ impl ToNav for BlockId {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let BlockLoc { cont_id, src: InFile { value: src, file_id } } = self.lookup(db);
         let name = self.to_container(db).name.clone();
-        let cont_name = cont_id.to_container(db).name().cloned();
+        let cont_name = cont_id.data(db).name().cloned();
 
         let file_id = file_id.file_id();
         Some(build(file_id, src.name_range(), src.range(), name, SymbolKind::Block, cont_name))
@@ -145,7 +142,7 @@ impl ToNav for GenerateBlockId {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let GenerateBlockLoc { cont_id, src: InFile { value: src, file_id } } = self.lookup(db);
         let name = self.to_container(db).name.clone();
-        let cont_name = cont_id.to_container(db).name().cloned();
+        let cont_name = cont_id.data(db).name().cloned();
 
         Some(build(
             file_id.file_id(),
@@ -158,7 +155,7 @@ impl ToNav for GenerateBlockId {
     }
 }
 
-impl ToNav for InContainer<LocalSubroutineId> {
+impl ToNav for SubroutineScope {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         DefOrigin::new(db, *self).to_nav(db)
     }
@@ -198,9 +195,9 @@ impl ToNav for InContainer<DeclId> {
         let InContainer { value: decl_id, cont_id } = *self;
 
         let file_id = cont_id.file_id(db);
-        let src = cont_id.to_container_src_map(db).get(decl_id)?;
+        let src = cont_id.source_map(db).get(decl_id)?;
 
-        let cont = cont_id.to_container(db);
+        let cont = cont_id.data(db);
         let decl = cont.get(decl_id);
 
         let kind = match decl.parent {
@@ -227,9 +224,9 @@ impl ToNav for InContainer<TypedefId> {
         let InContainer { value: typedef_id, cont_id } = *self;
 
         let file_id = cont_id.file_id(db);
-        let src = cont_id.to_container_src_map(db).get(typedef_id)?;
+        let src = cont_id.source_map(db).get(typedef_id)?;
 
-        let cont = cont_id.to_container(db);
+        let cont = cont_id.data(db);
         let typedef = cont.get(typedef_id);
         let cont_name = cont.name().cloned();
 
@@ -264,9 +261,9 @@ impl ToNav for InContainer<StmtId> {
         let InContainer { value: stmt_id, cont_id } = *self;
 
         let file_id = cont_id.file_id(db);
-        let src = cont_id.to_container_src_map(db).get(stmt_id)?;
+        let src = cont_id.source_map(db).get(stmt_id)?;
 
-        let cont = cont_id.to_container(db);
+        let cont = cont_id.data(db);
         let name = cont.get(stmt_id).label.clone();
         let cont_name = cont.name().cloned();
 

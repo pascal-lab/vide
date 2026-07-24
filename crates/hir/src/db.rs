@@ -3,7 +3,7 @@ use triomphe::Arc;
 
 use crate::{
     base_db::{salsa, source_db::SourceRootDb},
-    container::{InContainer, InModule, InSubroutine},
+    container::{InContainer, InFileOrModule, InModule, InSubroutine, SubroutineScope},
     def_id::{DefId, Definition},
     file::HirFileId,
     hir_def::{
@@ -26,7 +26,7 @@ use crate::{
                 self, GenerateBlock, GenerateBlockId, GenerateBlockLoc, GenerateBlockSourceMap,
             },
         },
-        subroutine::{self, LocalSubroutineId, Subroutine, SubroutinePortId, SubroutineSourceMap},
+        subroutine::{self, Subroutine, SubroutinePortId, SubroutineSourceMap},
         typedef::TypedefId,
     },
     impl_intern_key, impl_intern_lookup,
@@ -102,10 +102,10 @@ pub trait HirDb: InternDb {
     #[salsa::invoke(subroutine::subroutine_with_source_map_query)]
     fn subroutine_with_source_map(
         &self,
-        subroutine: InContainer<LocalSubroutineId>,
+        subroutine: SubroutineScope,
     ) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>);
 
-    fn subroutine(&self, subroutine_id: InContainer<LocalSubroutineId>) -> Arc<Subroutine>;
+    fn subroutine(&self, subroutine_id: SubroutineScope) -> Arc<Subroutine>;
 
     #[salsa::invoke(generate::generate_block_with_source_map_query)]
     fn generate_block_with_source_map(
@@ -128,10 +128,10 @@ pub trait HirDb: InternDb {
     fn clocking_block_scope(&self, clocking_block_id: InModule<ClockingBlockId>) -> Arc<NameScope>;
 
     #[salsa::invoke(NameScope::checker_scope_query)]
-    fn checker_scope(&self, checker_id: InContainer<CheckerId>) -> Arc<NameScope>;
+    fn checker_scope(&self, checker_id: InFileOrModule<CheckerId>) -> Arc<NameScope>;
 
     #[salsa::invoke(NameScope::covergroup_scope_query)]
-    fn covergroup_scope(&self, covergroup_id: InContainer<CovergroupId>) -> Arc<NameScope>;
+    fn covergroup_scope(&self, covergroup_id: InFileOrModule<CovergroupId>) -> Arc<NameScope>;
 
     #[salsa::invoke(NameScope::generate_block_scope_query)]
     fn generate_block_scope(&self, generate_block_id: GenerateBlockId) -> Arc<NameScope>;
@@ -140,7 +140,7 @@ pub trait HirDb: InternDb {
     fn block_scope(&self, block_id: BlockId) -> Arc<NameScope>;
 
     #[salsa::invoke(NameScope::subroutine_scope_query)]
-    fn subroutine_scope(&self, subroutine_id: InContainer<LocalSubroutineId>) -> Arc<NameScope>;
+    fn subroutine_scope(&self, subroutine_id: SubroutineScope) -> Arc<NameScope>;
 
     #[salsa::invoke(NameScope::package_export_signature_query)]
     fn package_export_signature(&self, package_id: PackageId) -> Arc<NameScope>;
@@ -183,7 +183,7 @@ fn block(db: &dyn HirDb, block_id: BlockId) -> Arc<Block> {
     db.block_with_source_map(block_id).0
 }
 
-fn subroutine(db: &dyn HirDb, subroutine_id: InContainer<LocalSubroutineId>) -> Arc<Subroutine> {
+fn subroutine(db: &dyn HirDb, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
     db.subroutine_with_source_map(subroutine_id).0
 }
 

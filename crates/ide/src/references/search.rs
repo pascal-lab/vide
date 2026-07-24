@@ -91,7 +91,7 @@ impl SearchScope {
                 Self::single_range(src.file_id.file_id(), src.value.range())
             }
             ScopeId::Subroutine(subroutine_id) => {
-                let def_id = DefOrigin::new(db, subroutine_id.as_in_container());
+                let def_id = DefOrigin::new(db, subroutine_id);
                 if let Some(InFile { file_id, value: range }) = def_id.range(db) {
                     Self::single_range(file_id.file_id(), range)
                 } else {
@@ -107,7 +107,7 @@ impl SearchScope {
                 }
             }
             ScopeId::Checker(checker_id) => {
-                let def_id = DefOrigin::new(db, checker_id.as_in_container());
+                let def_id = DefOrigin::new(db, checker_id);
                 if let Some(InFile { file_id, value: range }) = def_id.range(db) {
                     Self::single_range(file_id.file_id(), range)
                 } else {
@@ -115,7 +115,7 @@ impl SearchScope {
                 }
             }
             ScopeId::Covergroup(covergroup_id) => {
-                let def_id = DefOrigin::new(db, covergroup_id.as_in_container());
+                let def_id = DefOrigin::new(db, covergroup_id);
                 if let Some(InFile { file_id, value: range }) = def_id.range(db) {
                     Self::single_range(file_id.file_id(), range)
                 } else {

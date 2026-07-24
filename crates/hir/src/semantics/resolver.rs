@@ -3,7 +3,7 @@ use utils::get::Get;
 
 use super::SemanticsImpl;
 use crate::{
-    container::{InContainer, InFile, InModule, ScopeId},
+    container::{ArenaOwnerId, InContainer, InFile, InModule},
     file::HirFileId,
     hir_def::{
         expr::{ExprId, ExprSrc},
@@ -22,7 +22,7 @@ impl SemanticsImpl<'_> {
         instance: ast::HierarchicalInstance,
     ) -> Option<InModule<InstanceId>> {
         let db = self.db;
-        let ScopeId::Module(module_id) =
+        let ArenaOwnerId::Module(module_id) =
             self.find_container(InFile::new(file_id, instance.syntax()))
         else {
             return None;
@@ -40,7 +40,7 @@ impl SemanticsImpl<'_> {
         instantiation: ast::HierarchyInstantiation,
     ) -> Option<InModule<InstantiationId>> {
         let db = self.db;
-        let ScopeId::Module(module_id) =
+        let ArenaOwnerId::Module(module_id) =
             self.find_container(InFile::new(file_id, instantiation.syntax()))
         else {
             return None;
@@ -60,7 +60,8 @@ impl SemanticsImpl<'_> {
         conn: ast::PortConnection,
     ) -> Option<InModule<PortConnId>> {
         let db = self.db;
-        let ScopeId::Module(module_id) = self.find_container(InFile::new(file_id, conn.syntax()))
+        let ArenaOwnerId::Module(module_id) =
+            self.find_container(InFile::new(file_id, conn.syntax()))
         else {
             return None;
         };
@@ -78,7 +79,7 @@ impl SemanticsImpl<'_> {
     ) -> Option<InContainer<ExprId>> {
         let db = self.db;
         let container_id = self.find_container(InFile::new(file_id, expr.syntax()));
-        let src_map = container_id.to_container_src_map(db);
+        let src_map = container_id.source_map(db);
 
         let expr_src = ExprSrc::from_ast(file_id, expr);
         let expr_id = src_map.get(expr_src)?;
