@@ -11,22 +11,23 @@ use utils::text_edit::TextRange;
 
 use super::{LowerModuleCtx, port::PortDirection};
 use crate::{
-    hir_def::{Ident, alloc_with_source, lower_ident_opt},
+    hir_def::{Ident, alloc_with_source, expr::timing_control::EventExprId, lower_ident_opt},
     source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, root_token_in},
 };
 
-// slang AST survey:
-// - `ClockingDeclaration` is a module/interface/program/package member with
-//   `block_name`, `event`, `items`, and `end_block_name`.
-// - A `ClockingItem` owns `ClockingDirection` plus a separated list of
-//   `AttributeSpec`; slang exposes each clocking signal name through
-//   `AttributeSpec::name()`.
-// - `DefaultClockingReference` and clocking-event semantics are intentionally
-//   not lowered in this batch.
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum ClockingBlockKind {
+    #[default]
+    Regular,
+    Default,
+    Global,
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ClockingBlockDef {
     pub name: Option<Ident>,
+    pub kind: ClockingBlockKind,
+    pub event: EventExprId,
     pub signals: SmallVec<[ClockingSignal; 4]>,
 }
 
@@ -41,6 +42,51 @@ pub struct ClockingSignal {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ClockingSignalId(pub u32);
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct DefaultClockingRef {
+    pub name: Option<Ident>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct DefaultClockingRefSrc {
+    pub node: SyntaxNodePtr,
+    pub name: Option<SyntaxTokenPtr>,
+}
+
+impl IsSrc for DefaultClockingRefSrc {
+    #[inline]
+    fn kind(&self) -> SyntaxKind {
+        self.node.kind()
+    }
+
+    #[inline]
+    fn range(&self) -> TextRange {
+        self.node.range()
+    }
+}
+
+impl IsNamedSrc for DefaultClockingRefSrc {
+    #[inline]
+    fn name_kind(&self) -> Option<TokenKind> {
+        self.name.map(|name| name.kind())
+    }
+
+    #[inline]
+    fn name_range(&self) -> Option<TextRange> {
+        self.name.map(|name| name.range())
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::DefaultClockingReference<'a>> for DefaultClockingRefSrc {
+    fn from_source_ast(reference: SourceAst<ast::DefaultClockingReference<'a>>) -> Self {
+        let reference = reference.into_inner();
+        let syntax = reference.syntax();
+        let name = reference
+            .name()
+            .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token));
+        Self { node: AstNodeExt::to_ptr(&reference), name }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct ClockingBlockSrc {
@@ -89,6 +135,12 @@ impl LowerModuleCtx<'_> {
         clocking: ast::ClockingDeclaration<'_>,
     ) -> ClockingBlockId {
         let name = lower_ident_opt(clocking.block_name());
+        let kind = match clocking.global_or_default().map(|token| token.kind()) {
+            Some(TokenKind::DEFAULT_KEYWORD) => ClockingBlockKind::Default,
+            Some(TokenKind::GLOBAL_KEYWORD) => ClockingBlockKind::Global,
+            _ => ClockingBlockKind::Regular,
+        };
+        let event = self.lower_event_expr(clocking.event());
         let signals = lower_clocking_signals(clocking);
         let file_id = self.file_id;
         let (clocking_blocks, sources) =
@@ -97,9 +149,20 @@ impl LowerModuleCtx<'_> {
             file_id,
             clocking_blocks,
             sources,
-            ClockingBlockDef { name, signals },
+            ClockingBlockDef { name, kind, event, signals },
             clocking,
         )
+    }
+
+    pub(crate) fn lower_default_clocking_reference(
+        &mut self,
+        reference: ast::DefaultClockingReference<'_>,
+    ) {
+        let source =
+            SourceAst::new(self.file_id, reference).map(DefaultClockingRefSrc::from_source_ast);
+        self.store.data.default_clocking =
+            Some(DefaultClockingRef { name: lower_ident_opt(reference.name()) });
+        self.store.sources.default_clocking_src = source;
     }
 }
 
