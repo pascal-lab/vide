@@ -5,12 +5,12 @@ use hir::{
     },
     container::InFile,
     db::HirDb,
-    def_id::ModuleDefId,
+    def_id::DefId,
     file::HirFileId,
     hir_def::{Ident, module::ModuleId},
     semantics::Semantics,
     source_map::IsSrc,
-    symbol::DefId,
+    symbol::DefOrigin,
 };
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
@@ -87,14 +87,14 @@ pub struct ModuleIndex {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SemanticIndex {
-    references_by_definition: FxHashMap<ModuleDefId, SemanticReferenceGroup>,
+    references_by_definition: FxHashMap<DefId, SemanticReferenceGroup>,
     incoming_module_edges: FxHashMap<ModuleId, Box<[ModuleCallEdge]>>,
     outgoing_module_edges: FxHashMap<ModuleId, Box<[ModuleCallEdge]>>,
 }
 
 #[derive(Debug, Default)]
 struct SemanticIndexBuilder {
-    references_by_definition: FxHashMap<ModuleDefId, SemanticReferenceGroupBuilder>,
+    references_by_definition: FxHashMap<DefId, SemanticReferenceGroupBuilder>,
     incoming_module_edges: FxHashMap<ModuleId, Vec<ModuleCallEdge>>,
     outgoing_module_edges: FxHashMap<ModuleId, Vec<ModuleCallEdge>>,
 }
@@ -167,7 +167,7 @@ impl ModuleIndex {
 
 impl SemanticModuleDefinition {
     fn new(db: &dyn HirDb, module_id: ModuleId) -> Option<Self> {
-        let origin = DefId::new(db, module_id);
+        let origin = DefOrigin::new(db, module_id);
         let name = origin.name(db)?;
         let InFile { file_id, value: name_range } = origin.name_range(db)?;
         let InFile { value: full_range, .. } = origin.range(db)?;
@@ -201,7 +201,7 @@ impl SemanticIndex {
 
     pub(crate) fn references_for_definition(
         &self,
-        definition: ModuleDefId,
+        definition: DefId,
     ) -> Option<&SemanticReferenceGroup> {
         self.references_by_definition.get(&definition)
     }
@@ -262,7 +262,9 @@ impl SemanticIndexBuilder {
         let Some(range) = token.text_range() else {
             return;
         };
-        let Some(class) = DefinitionClass::resolve(sema, file_id, token) else {
+        let Some(class) = DefinitionClass::resolve(sema, file_id, token)
+            .and_then(|resolution| resolution.unique())
+        else {
             return;
         };
 
@@ -274,14 +276,13 @@ impl SemanticIndexBuilder {
                 self.collect_definition_token(db, port, file_id.file_id(), range, token);
                 self.collect_definition_token(db, local, file_id.file_id(), range, token);
             }
-            DefinitionClass::Ambiguous(_) => {}
         }
     }
 
     fn collect_definition_token(
         &mut self,
         db: &RootDb,
-        definition: ModuleDefId,
+        definition: DefId,
         file_id: FileId,
         range: TextRange,
         token: SyntaxTokenWithParent<'_>,

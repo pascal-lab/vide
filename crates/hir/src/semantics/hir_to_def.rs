@@ -1,28 +1,29 @@
 use rustc_hash::FxHashMap;
 use utils::get::GetRef;
 
-use super::{Source2DefCtx, pathres::PathResolution};
+use super::Source2DefCtx;
 use crate::{
     container::{InContainer, ScopeId},
+    def_id::DefId,
     hir_def::{
         Ident,
         expr::{Expr, ExprId},
     },
     semantics::pathres::{descend_scope, name_scope, resolve_name, resolve_path},
-    symbol::NameContext,
+    symbol::{NameContext, Resolution},
 };
 
 #[derive(Default, Debug)]
 pub(super) struct Hir2DefCache {
-    expr_map: FxHashMap<InContainer<ExprId>, PathResolution>,
-    name_map: FxHashMap<InContainer<Ident>, PathResolution>,
+    expr_map: FxHashMap<InContainer<ExprId>, Resolution<DefId>>,
+    name_map: FxHashMap<InContainer<Ident>, Resolution<DefId>>,
 }
 
 impl Source2DefCtx<'_, '_> {
     pub(super) fn expr_to_def(
         &mut self,
         InContainer { cont_id, value: expr_id }: InContainer<ExprId>,
-    ) -> Option<PathResolution> {
+    ) -> Option<Resolution<DefId>> {
         let db = self.db;
 
         let mut resolve = |expr: &Expr| match expr {
@@ -84,29 +85,31 @@ impl Source2DefCtx<'_, '_> {
         &mut self,
         InContainer { cont_id, value: ident }: InContainer<Ident>,
         name_ctx: NameContext,
-    ) -> Option<PathResolution> {
-        let res = resolve_name(self.db, cont_id, &ident, name_ctx)?;
+    ) -> Option<Resolution<DefId>> {
+        let res = resolve_name(self.db, cont_id, &ident, name_ctx).into_option()?;
         self.hir_cache.name_map.insert(InContainer::new(cont_id, ident), res.clone());
         Some(res)
     }
 
     fn resolve_member_from_resolution(
         &mut self,
-        res: PathResolution,
+        res: Resolution<DefId>,
         field: &Ident,
-    ) -> Option<PathResolution> {
-        for def_id in res.def_ids() {
+    ) -> Option<Resolution<DefId>> {
+        let mut defs = smallvec::SmallVec::<[DefId; 3]>::new();
+        for def_id in res.candidates() {
             let Some(scope_id) = descend_scope(self.db, *def_id) else {
                 continue;
             };
-            if let Some(res) = name_scope(self.db, scope_id)
-                .lookup(NameContext::Value, field)
-                .and_then(PathResolution::from_def_ids)
+            for child in
+                name_scope(self.db, scope_id).lookup(NameContext::Value, field).into_candidates()
             {
-                return Some(res);
+                if !defs.contains(&child) {
+                    defs.push(child);
+                }
             }
         }
-        None
+        Resolution::from_candidates(defs).into_option()
     }
 
     fn resolve_expr_path(
@@ -114,9 +117,9 @@ impl Source2DefCtx<'_, '_> {
         cont_id: ScopeId,
         expr_id: ExprId,
         ctx: NameContext,
-    ) -> Option<PathResolution> {
+    ) -> Option<Resolution<DefId>> {
         let path = self.expr_path(cont_id, expr_id)?;
-        resolve_path(self.db, cont_id, &path, ctx)
+        resolve_path(self.db, cont_id, &path, ctx).into_option()
     }
 
     fn expr_path(&self, cont_id: ScopeId, expr_id: ExprId) -> Option<Vec<Ident>> {

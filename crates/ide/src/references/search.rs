@@ -6,10 +6,10 @@ use hir::{
         source_root::SourceRootId,
     },
     container::{InFile, ScopeId},
-    def_id::ModuleDefId,
+    def_id::DefId,
     semantics::Semantics,
     source_map::IsSrc,
-    symbol::DefId,
+    symbol::DefOrigin,
 };
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
@@ -37,15 +37,13 @@ impl SearchScope {
 
     pub(crate) fn new(
         db: &RootDb,
-        def: &ModuleDefId,
+        def: &DefId,
         ReferencesConfig { scope_visibility, search_scope }: ReferencesConfig,
     ) -> Self {
         match scope_visibility {
             ScopeVisibility::Public => search_scope.unwrap_or_else(|| Self::all(db)),
             ScopeVisibility::Private => {
-                let Some(container_id) = def.container_id(db) else {
-                    return search_scope.unwrap_or_default();
-                };
+                let container_id = def.container_id(db);
                 let container_id = match container_id {
                     ScopeId::Module(InFile { file_id, .. }) if def.is_port(db) => file_id.into(),
                     cont => cont,
@@ -93,7 +91,7 @@ impl SearchScope {
                 Self::single_range(src.file_id.file_id(), src.value.range())
             }
             ScopeId::Subroutine(subroutine_id) => {
-                let def_id = DefId::new(db, subroutine_id.as_in_container());
+                let def_id = DefOrigin::new(db, subroutine_id.as_in_container());
                 if let Some(InFile { file_id, value: range }) = def_id.range(db) {
                     Self::single_range(file_id.file_id(), range)
                 } else {
@@ -101,7 +99,7 @@ impl SearchScope {
                 }
             }
             ScopeId::ClockingBlock(clocking_block_id) => {
-                let def_id = DefId::new(db, clocking_block_id);
+                let def_id = DefOrigin::new(db, clocking_block_id);
                 if let Some(InFile { file_id, value: range }) = def_id.range(db) {
                     Self::single_range(file_id.file_id(), range)
                 } else {
@@ -109,7 +107,7 @@ impl SearchScope {
                 }
             }
             ScopeId::Checker(checker_id) => {
-                let def_id = DefId::new(db, checker_id.as_in_container());
+                let def_id = DefOrigin::new(db, checker_id.as_in_container());
                 if let Some(InFile { file_id, value: range }) = def_id.range(db) {
                     Self::single_range(file_id.file_id(), range)
                 } else {
@@ -117,7 +115,7 @@ impl SearchScope {
                 }
             }
             ScopeId::Covergroup(covergroup_id) => {
-                let def_id = DefId::new(db, covergroup_id.as_in_container());
+                let def_id = DefOrigin::new(db, covergroup_id.as_in_container());
                 if let Some(InFile { file_id, value: range }) = def_id.range(db) {
                     Self::single_range(file_id.file_id(), range)
                 } else {
@@ -174,7 +172,7 @@ impl SearchScope {
 
 pub(crate) struct ReferencesCtx<'a, 'b> {
     sema: &'a Semantics<'a, RootDb>,
-    def: &'b ModuleDefId,
+    def: &'b DefId,
     scope: SearchScope,
 }
 
@@ -208,7 +206,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
 
     pub(crate) fn new(
         sema: &'a Semantics<'a, RootDb>,
-        def: &'b ModuleDefId,
+        def: &'b DefId,
         cfg: ReferencesConfig,
     ) -> Self {
         let scope = SearchScope::new(sema.db, def, cfg);

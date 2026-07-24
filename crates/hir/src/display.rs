@@ -8,6 +8,7 @@ use crate::{
     base_db::intern::Lookup,
     container::{InContainer, InModule},
     db::HirDb,
+    def_id::DefId,
     hir_def::{
         aggregate::StructKind,
         expr::{
@@ -21,7 +22,7 @@ use crate::{
         ty::{NetKind, NetType},
         typedef::TypedefId,
     },
-    symbol::DefLoc,
+    symbol::DefOriginLoc,
     type_infer::{BuiltinTy, Ty},
 };
 
@@ -164,10 +165,10 @@ impl HirDisplay for Ty {
 fn hir_fmt_def_backed_type(
     f: &mut HirFormatter<'_>,
     keyword: &str,
-    def: crate::symbol::DefId,
+    def: DefId,
 ) -> Result<(), HirDisplayError> {
     f.write_str(keyword)?;
-    if let DefLoc::Typedef(typedef) = def.loc(f.db) {
+    if let DefOriginLoc::Typedef(typedef) = def.primary_origin(f.db).loc(f.db) {
         let container = typedef.cont_id.to_container(f.db);
         if let Some(name) = &container.get(typedef.value).name {
             f.write_str(" ")?;
@@ -180,7 +181,7 @@ fn hir_fmt_def_backed_type(
 fn hir_fmt_named_def_type(
     f: &mut HirFormatter<'_>,
     keyword: &str,
-    def: crate::symbol::DefId,
+    def: DefId,
 ) -> Result<(), HirDisplayError> {
     f.write_str(keyword)?;
     if let Some(name) = def.name(f.db) {
@@ -195,10 +196,10 @@ fn ty_expr_container(db: &dyn crate::db::HirDb, ty: &Ty) -> Option<crate::contai
         Ty::Builtin(BuiltinTy::Data { container, .. }) => Some(*container),
         Ty::Struct(struct_ref) => Some(struct_ref.cont_id),
         Ty::Alias { typedef, .. } => Some(typedef.cont_id),
-        Ty::Enum(def) | Ty::Union(def) => match def.loc(db) {
-            DefLoc::Decl(decl) => Some(decl.cont_id),
-            DefLoc::Typedef(typedef) => Some(typedef.cont_id),
-            DefLoc::SubroutinePort(port) => Some(port.subroutine.into()),
+        Ty::Enum(def) | Ty::Union(def) => match def.primary_origin(db).loc(db) {
+            DefOriginLoc::Decl(decl) => Some(decl.cont_id),
+            DefOriginLoc::Typedef(typedef) => Some(typedef.cont_id),
+            DefOriginLoc::SubroutinePort(port) => Some(port.subroutine.into()),
             _ => None,
         },
         Ty::Queue { elem, .. } | Ty::Assoc { elem, .. } | Ty::Dynamic(elem) => {

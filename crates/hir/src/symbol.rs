@@ -6,6 +6,7 @@ use crate::{
     base_db::salsa,
     container::{InContainer, InFile, InModule, InSubroutine},
     db::{HirDb, InternDb},
+    def_id::DefId,
     hir_def::{
         Ident,
         block::BlockId,
@@ -29,11 +30,11 @@ use crate::{
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
-pub struct DefId(pub salsa::InternId);
+pub struct DefOrigin(pub salsa::InternId);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
-pub enum DefLoc {
+pub enum DefOriginLoc {
     Module(ModuleId),
     Config(InFile<ConfigDeclId>),
     Library(InFile<LibraryDeclId>),
@@ -57,7 +58,7 @@ pub enum DefLoc {
     Stmt(InContainer<StmtId>),
 }
 
-impl_from! { DefLoc =>
+impl_from! { DefOriginLoc =>
     Module(ModuleId),
     Config(InFile<ConfigDeclId>),
     Library(InFile<LibraryDeclId>),
@@ -81,144 +82,144 @@ impl_from! { DefLoc =>
     Stmt(InContainer<StmtId>),
 }
 
-impl DefId {
-    pub fn new(db: &dyn InternDb, loc: impl Into<DefLoc>) -> Self {
-        db.intern_def(loc.into())
+impl DefOrigin {
+    pub fn new(db: &dyn InternDb, loc: impl Into<DefOriginLoc>) -> Self {
+        db.intern_def_origin(loc.into())
     }
 
-    pub fn loc(self, db: &dyn InternDb) -> DefLoc {
-        db.lookup_intern_def(self)
+    pub fn loc(self, db: &dyn InternDb) -> DefOriginLoc {
+        db.lookup_intern_def_origin(self)
     }
 
     pub fn as_module(self, db: &dyn InternDb) -> Option<ModuleId> {
         match self.loc(db) {
-            DefLoc::Module(id) => Some(id),
+            DefOriginLoc::Module(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_config(self, db: &dyn InternDb) -> Option<InFile<ConfigDeclId>> {
         match self.loc(db) {
-            DefLoc::Config(id) => Some(id),
+            DefOriginLoc::Config(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_library(self, db: &dyn InternDb) -> Option<InFile<LibraryDeclId>> {
         match self.loc(db) {
-            DefLoc::Library(id) => Some(id),
+            DefOriginLoc::Library(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_udp(self, db: &dyn InternDb) -> Option<InFile<UdpDeclId>> {
         match self.loc(db) {
-            DefLoc::Udp(id) => Some(id),
+            DefOriginLoc::Udp(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_block(self, db: &dyn InternDb) -> Option<BlockId> {
         match self.loc(db) {
-            DefLoc::Block(id) => Some(id),
+            DefOriginLoc::Block(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_generate_block(self, db: &dyn InternDb) -> Option<GenerateBlockId> {
         match self.loc(db) {
-            DefLoc::GenerateBlock(id) => Some(id),
+            DefOriginLoc::GenerateBlock(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_subroutine(self, db: &dyn InternDb) -> Option<InContainer<LocalSubroutineId>> {
         match self.loc(db) {
-            DefLoc::Subroutine(id) => Some(id),
+            DefOriginLoc::Subroutine(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_subroutine_port(self, db: &dyn InternDb) -> Option<InSubroutine<SubroutinePortId>> {
         match self.loc(db) {
-            DefLoc::SubroutinePort(id) => Some(id),
+            DefOriginLoc::SubroutinePort(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_non_ansi_port(self, db: &dyn InternDb) -> Option<InModule<NonAnsiPortId>> {
         match self.loc(db) {
-            DefLoc::NonAnsiPort(id) => Some(id),
+            DefOriginLoc::NonAnsiPort(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_decl(self, db: &dyn InternDb) -> Option<InContainer<DeclId>> {
         match self.loc(db) {
-            DefLoc::Decl(id) => Some(id),
+            DefOriginLoc::Decl(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_typedef(self, db: &dyn InternDb) -> Option<InContainer<TypedefId>> {
         match self.loc(db) {
-            DefLoc::Typedef(id) => Some(id),
+            DefOriginLoc::Typedef(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_instance(self, db: &dyn InternDb) -> Option<InModule<InstanceId>> {
         match self.loc(db) {
-            DefLoc::Instance(id) => Some(id),
+            DefOriginLoc::Instance(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_modport(self, db: &dyn InternDb) -> Option<InModule<ModportId>> {
         match self.loc(db) {
-            DefLoc::Modport(id) => Some(id),
+            DefOriginLoc::Modport(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_clocking_block(self, db: &dyn InternDb) -> Option<InModule<ClockingBlockId>> {
         match self.loc(db) {
-            DefLoc::ClockingBlock(id) => Some(id),
+            DefOriginLoc::ClockingBlock(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_clocking_signal(self, db: &dyn InternDb) -> Option<InContainer<ClockingSignalId>> {
         match self.loc(db) {
-            DefLoc::ClockingSignal(id) => Some(id),
+            DefOriginLoc::ClockingSignal(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_checker(self, db: &dyn InternDb) -> Option<InContainer<CheckerId>> {
         match self.loc(db) {
-            DefLoc::Checker(id) => Some(id),
+            DefOriginLoc::Checker(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_checker_port(self, db: &dyn InternDb) -> Option<InContainer<CheckerPortId>> {
         match self.loc(db) {
-            DefLoc::CheckerPort(id) => Some(id),
+            DefOriginLoc::CheckerPort(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_covergroup(self, db: &dyn InternDb) -> Option<InContainer<CovergroupId>> {
         match self.loc(db) {
-            DefLoc::Covergroup(id) => Some(id),
+            DefOriginLoc::Covergroup(id) => Some(id),
             _ => None,
         }
     }
 
     pub fn as_stmt(self, db: &dyn InternDb) -> Option<InContainer<StmtId>> {
         match self.loc(db) {
-            DefLoc::Stmt(id) => Some(id),
+            DefOriginLoc::Stmt(id) => Some(id),
             _ => None,
         }
     }
@@ -354,18 +355,89 @@ pub enum NameContext {
     Listing,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum NameResolution<T> {
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum Resolution<T> {
+    Unresolved,
     Unique(T),
     Ambiguous(SmallVec<[T; 2]>),
-    Unresolved,
 }
 
-impl<T> NameResolution<T> {
-    pub fn unique(self) -> Option<T> {
+impl<T> Resolution<T> {
+    pub fn candidates(&self) -> &[T] {
         match self {
-            NameResolution::Unique(value) => Some(value),
-            NameResolution::Ambiguous(_) | NameResolution::Unresolved => None,
+            Resolution::Unresolved => &[],
+            Resolution::Unique(value) => std::slice::from_ref(value),
+            Resolution::Ambiguous(candidates) => candidates,
+        }
+    }
+
+    pub fn into_candidates(self) -> SmallVec<[T; 2]> {
+        match self {
+            Resolution::Unresolved => SmallVec::new(),
+            Resolution::Unique(value) => {
+                let mut candidates = SmallVec::new();
+                candidates.push(value);
+                candidates
+            }
+            Resolution::Ambiguous(candidates) => candidates,
+        }
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+        self.candidates().iter()
+    }
+
+    pub fn is_unresolved(&self) -> bool {
+        matches!(self, Resolution::Unresolved)
+    }
+
+    pub fn or_else(self, fallback: impl FnOnce() -> Self) -> Self {
+        if self.is_unresolved() { fallback() } else { self }
+    }
+
+    pub fn into_option(self) -> Option<Self> {
+        if self.is_unresolved() { None } else { Some(self) }
+    }
+
+    pub fn map<U>(self, mut map: impl FnMut(T) -> U) -> Resolution<U> {
+        match self {
+            Resolution::Unresolved => Resolution::Unresolved,
+            Resolution::Unique(value) => Resolution::Unique(map(value)),
+            Resolution::Ambiguous(candidates) => {
+                Resolution::Ambiguous(candidates.into_iter().map(map).collect())
+            }
+        }
+    }
+}
+
+impl<T: Copy> Resolution<T> {
+    pub fn unique(&self) -> Option<T> {
+        match self {
+            Resolution::Unique(value) => Some(*value),
+            Resolution::Ambiguous(_) | Resolution::Unresolved => None,
+        }
+    }
+}
+
+impl<T> From<T> for Resolution<T> {
+    fn from(value: T) -> Self {
+        Resolution::Unique(value)
+    }
+}
+
+impl<T: Eq> Resolution<T> {
+    pub fn from_candidates(candidates: impl IntoIterator<Item = T>) -> Self {
+        let mut unique = SmallVec::<[T; 2]>::new();
+        for candidate in candidates {
+            if !unique.contains(&candidate) {
+                unique.push(candidate);
+            }
+        }
+
+        match unique.len() {
+            0 => Resolution::Unresolved,
+            1 => Resolution::Unique(unique.pop().expect("candidate length was checked")),
+            _ => Resolution::Ambiguous(unique),
         }
     }
 }
@@ -395,15 +467,18 @@ impl NameScope {
         Self::insert(&mut self.assertions, ident, def_id);
     }
 
-    pub fn lookup(&self, ctx: NameContext, ident: &Ident) -> Option<SmallVec<[DefId; 1]>> {
-        match ctx {
-            NameContext::Type => self.types.get(ident).map(|defs| SmallVec::from_slice(defs)),
-            NameContext::Value => self.values.get(ident).map(|defs| SmallVec::from_slice(defs)),
-            NameContext::Listing => self.lookup_listing(ident),
-        }
+    pub fn lookup(&self, ctx: NameContext, ident: &Ident) -> Resolution<DefId> {
+        let candidates = match ctx {
+            NameContext::Type => self.types.get(ident).map(SmallVec::as_slice).unwrap_or_default(),
+            NameContext::Value => {
+                self.values.get(ident).map(SmallVec::as_slice).unwrap_or_default()
+            }
+            NameContext::Listing => return Resolution::from_candidates(self.lookup_listing(ident)),
+        };
+        Resolution::from_candidates(candidates.iter().copied())
     }
 
-    pub fn lookup_listing(&self, ident: &Ident) -> Option<SmallVec<[DefId; 1]>> {
+    pub fn lookup_listing(&self, ident: &Ident) -> SmallVec<[DefId; 1]> {
         let mut defs = SmallVec::new();
         if let Some(type_defs) = self.types.get(ident) {
             defs.extend_from_slice(type_defs);
@@ -411,8 +486,7 @@ impl NameScope {
         if let Some(value_defs) = self.values.get(ident) {
             defs.extend_from_slice(value_defs);
         }
-
-        (!defs.is_empty()).then_some(defs)
+        defs
     }
 
     pub fn iter_listing(&self) -> impl Iterator<Item = (&Ident, SmallVec<[DefId; 1]>)> + '_ {
@@ -437,7 +511,7 @@ impl NameScope {
         &self,
         db: &dyn HirDb,
         ident: &Ident,
-    ) -> NameResolution<crate::hir_def::module::ModuleId> {
+    ) -> Resolution<crate::hir_def::module::ModuleId> {
         let entries = self
             .types
             .get(ident)
@@ -446,19 +520,14 @@ impl NameScope {
             .filter(|def_id| def_id.kind(db).is_instantiable_def())
             .filter_map(|def_id| def_id.as_module(db))
             .collect::<SmallVec<[_; 2]>>();
-
-        match entries.as_slice() {
-            [module_id] => NameResolution::Unique(*module_id),
-            [] => NameResolution::Unresolved,
-            _ => NameResolution::Ambiguous(entries),
-        }
+        Resolution::from_candidates(entries)
     }
 
     pub fn package_ids(
         &self,
         db: &dyn HirDb,
         ident: &Ident,
-    ) -> NameResolution<crate::hir_def::module::PackageId> {
+    ) -> Resolution<crate::hir_def::module::PackageId> {
         let entries = self
             .types
             .get(ident)
@@ -467,12 +536,7 @@ impl NameScope {
             .filter(|def_id| def_id.kind(db) == DefKind::Package)
             .filter_map(|def_id| def_id.as_module(db))
             .collect::<SmallVec<[_; 2]>>();
-
-        match entries.as_slice() {
-            [package_id] => NameResolution::Unique(*package_id),
-            [] => NameResolution::Unresolved,
-            _ => NameResolution::Ambiguous(entries),
-        }
+        Resolution::from_candidates(entries)
     }
 
     pub fn module_names<'a>(&'a self, db: &'a dyn HirDb) -> impl Iterator<Item = &'a Ident> + 'a {
@@ -485,12 +549,11 @@ impl NameScope {
         })
     }
 
-    pub fn typedef_names<'a>(
-        &'a self,
-        db: &'a dyn InternDb,
-    ) -> impl Iterator<Item = &'a Ident> + 'a {
+    pub fn typedef_names<'a>(&'a self, db: &'a dyn HirDb) -> impl Iterator<Item = &'a Ident> + 'a {
         self.types.iter().filter_map(move |(ident, defs)| {
-            defs.iter().any(|def_id| matches!(def_id.loc(db), DefLoc::Typedef(_))).then_some(ident)
+            defs.iter()
+                .any(|def_id| matches!(def_id.primary_origin(db).loc(db), DefOriginLoc::Typedef(_)))
+                .then_some(ident)
         })
     }
 

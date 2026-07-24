@@ -7,8 +7,7 @@ use hir::{
         expr::declarator::DeclaratorParent,
         module::{ModuleId, port::Ports},
     },
-    semantics::pathres::PathResolution,
-    symbol::{DefKind, NameContext},
+    symbol::{DefKind, NameContext, Resolution},
     type_infer::{Ty, TyClass, packed_bit_width, type_class},
 };
 use utils::get::GetRef;
@@ -21,14 +20,14 @@ pub(super) fn expected_port_ty(
     port_name: &Ident,
 ) -> Option<Ty> {
     let scope = db.module_scope(target_module_id);
-    let defs = scope.lookup(NameContext::Value, port_name)?;
-    let res = if defs.iter().any(|def_id| def_id.kind(db) == DefKind::NonAnsiPort) {
-        PathResolution::from_def_ids(defs)?
-    } else {
-        PathResolution::from_def_ids(
-            defs.into_iter().filter(|def_id| def_id.kind(db) == DefKind::Port),
-        )?
-    };
+    let res = Resolution::from_candidates(
+        scope
+            .lookup(NameContext::Value, port_name)
+            .into_candidates()
+            .into_iter()
+            .filter(|def_id| def_id.is_port(db)),
+    )
+    .into_option()?;
     Some(db.type_of_path_resolution(res).ty.clone())
 }
 
@@ -39,9 +38,9 @@ pub(super) fn expected_param_ty(
 ) -> Option<Ty> {
     let target_module = db.module(target_module_id);
     let scope = db.module_scope(target_module_id);
-    let defs = scope.lookup(NameContext::Value, param_name)?;
+    let defs = scope.lookup(NameContext::Value, param_name);
 
-    for def_id in defs {
+    for def_id in defs.into_candidates() {
         if def_id.kind(db) != DefKind::Param {
             continue;
         }

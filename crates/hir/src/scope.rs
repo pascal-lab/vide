@@ -7,6 +7,7 @@ use utils::get::{Get, GetRef};
 use crate::{
     container::{InContainer, InFile, InFileOrModule, InModule, InSubroutine, ScopeId},
     db::HirDb,
+    def_id::DefId,
     file::HirFileId,
     hir_def::{
         PackageImport,
@@ -27,7 +28,7 @@ use crate::{
         typedef::{Typedef, TypedefId},
     },
     source_map::ToAstNode,
-    symbol::{DefId, DefLoc, Import, NameScope},
+    symbol::{DefOriginLoc, Import, NameScope},
 };
 
 // SystemVerilog has separate namespaces. This scope stores current supported
@@ -37,7 +38,7 @@ use crate::{
 // - assertions: reserved for sequence/property/checker work
 // Hierarchical lookup remains a separate resolver path.
 
-fn def_id(db: &dyn HirDb, loc: impl Into<DefLoc>) -> DefId {
+fn def_id(db: &dyn HirDb, loc: impl Into<DefOriginLoc>) -> DefId {
     DefId::new(db, loc)
 }
 
@@ -489,13 +490,16 @@ impl NameScope {
         name: &SmolStr,
     ) -> Option<PortDeclId> {
         let defs = self.values.get(name)?;
-        defs.iter().filter_map(|def_id| def_id.as_decl(db)).find_map(|decl_id| {
-            let decl = module.get(decl_id.value);
-            match decl.parent {
-                DeclaratorParent::PortDeclId(port_decl_id) => Some(port_decl_id),
-                _ => None,
-            }
-        })
+        defs.iter()
+            .flat_map(|def_id| def_id.origins(db))
+            .filter_map(|origin| origin.as_decl(db))
+            .find_map(|decl_id| {
+                let decl = module.get(decl_id.value);
+                match decl.parent {
+                    DeclaratorParent::PortDeclId(port_decl_id) => Some(port_decl_id),
+                    _ => None,
+                }
+            })
     }
 
     fn insert_package_import(&mut self, import: &PackageImport) {
@@ -705,9 +709,10 @@ mod tests {
         },
         container::{InContainer, ScopeId},
         db::{HirDb, HirDbStorage, InternDbStorage},
+        def_id::DefId,
         hir_def::Ident,
         semantics::pathres::resolve_name,
-        symbol::{DefKind, DefLoc, NameContext},
+        symbol::{DefKind, DefOriginLoc, NameContext},
     };
 
     const TOP: FileId = FileId::from_raw(0);
@@ -808,23 +813,16 @@ endmodule
         assert!(
             unit_scope
                 .lookup(NameContext::Value, &ident("file_sig"))
-                .expect("file decl should be visible")
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::Net)
         );
-        let shared_defs = unit_scope
-            .lookup(NameContext::Listing, &ident("shared"))
-            .expect("listing lookup should preserve same-name type and value definitions");
+        let shared_defs = unit_scope.lookup(NameContext::Listing, &ident("shared"));
         assert!(shared_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Typedef));
         assert!(shared_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Net));
-        let shared_type_defs = unit_scope
-            .lookup(NameContext::Type, &ident("shared"))
-            .expect("type lookup should see the typedef side of a collision");
+        let shared_type_defs = unit_scope.lookup(NameContext::Type, &ident("shared"));
         assert!(shared_type_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Typedef));
         assert!(!shared_type_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Net));
-        let shared_value_defs = unit_scope
-            .lookup(NameContext::Value, &ident("shared"))
-            .expect("value lookup should see the net side of a collision");
+        let shared_value_defs = unit_scope.lookup(NameContext::Value, &ident("shared"));
         assert!(shared_value_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Net));
         assert!(!shared_value_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Typedef));
 
@@ -834,46 +832,50 @@ endmodule
             .expect("module should resolve uniquely");
 
         let module_scope = db.module_scope(module_id);
-        let port_defs = module_scope
+        let port_def = module_scope
             .lookup(NameContext::Value, &ident("a"))
-            .expect("non-ANSI port name should resolve");
-        assert!(port_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::NonAnsiPort));
-        assert!(port_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Port));
-        assert!(port_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Variable));
+            .unique()
+            .expect("non-ANSI port name should resolve uniquely");
+        assert_eq!(port_def.kind(&db), DefKind::Port);
+        assert!(
+            port_def.origins(&db).iter().any(|origin| origin.kind(&db) == DefKind::NonAnsiPort)
+        );
+        assert!(port_def.origins(&db).iter().any(|origin| origin.kind(&db) == DefKind::Port));
+        assert!(port_def.origins(&db).iter().any(|origin| origin.kind(&db) == DefKind::Variable));
 
         let subroutine_id = module_scope
             .lookup(NameContext::Value, &ident("f"))
-            .and_then(|defs| defs.iter().find_map(|def_id| def_id.as_subroutine(&db)))
+            .iter()
+            .find_map(|def_id| def_id.as_subroutine(&db))
             .expect("subroutine should be visible from module scope");
         let subroutine_scope = db.subroutine_scope(subroutine_id);
         assert!(
             subroutine_scope
                 .lookup(NameContext::Value, &ident("p"))
-                .expect("subroutine port should be visible")
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::SubroutinePort)
         );
 
         let block_id = subroutine_scope
             .lookup(NameContext::Value, &ident("b"))
-            .and_then(|defs| defs.iter().find_map(|def_id| def_id.as_block(&db)))
+            .iter()
+            .find_map(|def_id| def_id.as_block(&db))
             .expect("named block should be visible from subroutine scope");
         assert!(
             db.block_scope(block_id)
                 .lookup(NameContext::Value, &ident("x"))
-                .expect("block local should be visible")
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::Variable)
         );
 
         let generate_block_id = module_scope
             .lookup(NameContext::Value, &ident("g"))
-            .and_then(|defs| defs.iter().find_map(|def_id| def_id.as_generate_block(&db)))
+            .iter()
+            .find_map(|def_id| def_id.as_generate_block(&db))
             .expect("generate block should be visible from module scope");
         assert!(
             db.generate_block_scope(generate_block_id)
                 .lookup(NameContext::Value, &ident("y"))
-                .expect("generate local should be visible")
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::Net)
         );
@@ -881,6 +883,45 @@ endmodule
         // Adding an interface lowering should create a DefKind::Interface
         // producer and insert the resulting DefId into NameScope; IDE
         // feature matches already have default no-op arms.
+    }
+
+    #[test]
+    fn lookup_distinguishes_ambiguous_definitions_from_multiple_origins() {
+        let db = db_with_root_text(
+            r#"
+wire duplicate;
+wire duplicate;
+
+module m(a);
+  output a;
+  reg [7:0] a;
+endmodule
+"#,
+        );
+
+        let duplicate = db.unit_scope().lookup(NameContext::Value, &ident("duplicate"));
+        let crate::symbol::Resolution::Ambiguous(candidates) = duplicate else {
+            panic!("same-name declarations should remain ambiguous");
+        };
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().all(|def| def.origins(&db).len() == 1));
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let port = db
+            .module_scope(module_id)
+            .lookup(NameContext::Value, &ident("a"))
+            .unique()
+            .expect("one logical non-ANSI port should resolve uniquely");
+        let origins = port.origins(&db);
+        assert_eq!(origins.len(), 3);
+        assert_eq!(port.declaration_origin(&db).kind(&db), DefKind::Port);
+        for origin in origins {
+            assert_eq!(DefId::new(&db, origin.loc(&db)), port);
+        }
     }
 
     #[test]
@@ -907,10 +948,7 @@ endmodule
         assert_eq!(clocking_block.signals.len(), 1);
         assert_eq!(clocking_block.signals[0].name.as_str(), "a");
 
-        let defs = db
-            .module_scope(module_id)
-            .lookup(NameContext::Value, &ident("cb"))
-            .expect("module scope should expose the clocking block");
+        let defs = db.module_scope(module_id).lookup(NameContext::Value, &ident("cb"));
         assert!(defs.iter().any(|def_id| {
             def_id.kind(&db) == DefKind::ClockingBlock
                 && def_id.as_clocking_block(&db).is_some_and(|id| id.value == clocking_block_id)
@@ -931,10 +969,7 @@ endmodule
 "#,
         );
 
-        let checker_defs = db
-            .unit_scope()
-            .lookup(NameContext::Type, &ident("c"))
-            .expect("checker should be visible as a type");
+        let checker_defs = db.unit_scope().lookup(NameContext::Type, &ident("c"));
         assert!(checker_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Checker));
         let checker_id = checker_defs
             .iter()
@@ -945,14 +980,12 @@ endmodule
         assert!(
             checker_scope
                 .lookup(NameContext::Value, &ident("clk"))
-                .expect("checker scope should expose checker ports")
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::CheckerPort)
         );
         assert!(
             checker_scope
                 .lookup(NameContext::Value, &ident("sig"))
-                .expect("checker scope should expose checker declarations")
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::Variable)
         );
@@ -1009,43 +1042,33 @@ endmodule
         assert_eq!(module.get(cross_id).name.as_deref(), Some("cx"));
 
         let module_scope = db.module_scope(module_id);
-        let covergroup_defs = module_scope
-            .lookup(NameContext::Type, &ident("cg"))
-            .expect("module scope should expose covergroup type");
+        let covergroup_defs = module_scope.lookup(NameContext::Type, &ident("cg"));
         assert!(covergroup_defs.iter().any(|def_id| {
             def_id.kind(&db) == DefKind::Covergroup
                 && def_id.as_covergroup(&db).is_some_and(|id| id.value == covergroup_id)
         }));
 
-        let coverpoint_defs = module_scope
-            .lookup(NameContext::Value, &ident("cp"))
-            .expect("module scope should expose coverpoint label");
+        let coverpoint_defs = module_scope.lookup(NameContext::Value, &ident("cp"));
         assert!(coverpoint_defs.iter().any(|def_id| {
-            matches!(def_id.loc(&db), DefLoc::Coverpoint(id) if id.value == coverpoint_id)
+            matches!(def_id.primary_origin(&db).loc(&db), DefOriginLoc::Coverpoint(id) if id.value == coverpoint_id)
         }));
 
-        let cross_defs = module_scope
-            .lookup(NameContext::Value, &ident("cx"))
-            .expect("module scope should expose cross label");
+        let cross_defs = module_scope.lookup(NameContext::Value, &ident("cx"));
         assert!(
             cross_defs
                 .iter()
-                .any(|def_id| matches!(def_id.loc(&db), DefLoc::Cross(id) if id.value == cross_id))
+                .any(|def_id| matches!(def_id.primary_origin(&db).loc(&db), DefOriginLoc::Cross(id) if id.value == cross_id))
         );
 
         let covergroup_scope =
             db.covergroup_scope(InContainer::new(module_id.into(), covergroup_id));
-        let scoped_coverpoint_defs = covergroup_scope
-            .lookup(NameContext::Value, &ident("cp"))
-            .expect("covergroup scope should expose coverpoint label");
+        let scoped_coverpoint_defs = covergroup_scope.lookup(NameContext::Value, &ident("cp"));
         assert!(scoped_coverpoint_defs.iter().any(|def_id| {
-            matches!(def_id.loc(&db), DefLoc::Coverpoint(id) if matches!(id.cont_id, ScopeId::Covergroup(_)) && id.value == coverpoint_id)
+            matches!(def_id.primary_origin(&db).loc(&db), DefOriginLoc::Coverpoint(id) if matches!(id.cont_id, ScopeId::Covergroup(_)) && id.value == coverpoint_id)
         }));
-        let scoped_cross_defs = covergroup_scope
-            .lookup(NameContext::Value, &ident("cx"))
-            .expect("covergroup scope should expose cross label");
+        let scoped_cross_defs = covergroup_scope.lookup(NameContext::Value, &ident("cx"));
         assert!(scoped_cross_defs.iter().any(|def_id| {
-            matches!(def_id.loc(&db), DefLoc::Cross(id) if matches!(id.cont_id, ScopeId::Covergroup(_)) && id.value == cross_id)
+            matches!(def_id.primary_origin(&db).loc(&db), DefOriginLoc::Cross(id) if matches!(id.cont_id, ScopeId::Covergroup(_)) && id.value == cross_id)
         }));
 
         let instantiation = module
@@ -1094,21 +1117,18 @@ endmodule
         assert!(
             package_exports
                 .lookup(NameContext::Type, &ident("imported_t"))
-                .expect("package export scope should expose package typedef")
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::Typedef)
         );
         assert!(
             package_exports
                 .lookup(NameContext::Value, &ident("imported_v"))
-                .expect("package export scope should expose package value")
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::Variable)
         );
         assert!(
             package_exports
                 .lookup(NameContext::Value, &ident("imported_f"))
-                .expect("package export scope should expose package subroutines")
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::Subroutine)
         );
@@ -1131,9 +1151,8 @@ endmodule
             ScopeId::Module(wildcard_importer),
             &ident("imported_t"),
             NameContext::Type,
-        )
-        .expect("wildcard import should expose package typedef");
-        assert!(imported_t.def_ids().iter().any(|def_id| def_id.kind(&db) == DefKind::Typedef));
+        );
+        assert!(imported_t.iter().any(|def_id| def_id.kind(&db) == DefKind::Typedef));
         assert!(
             resolve_name(
                 &db,
@@ -1141,7 +1160,7 @@ endmodule
                 &ident("imported_t"),
                 NameContext::Value,
             )
-            .is_none(),
+            .is_unresolved(),
             "value lookup should not fall back to the type bucket"
         );
 
@@ -1150,10 +1169,9 @@ endmodule
             ScopeId::Module(wildcard_importer),
             &ident("shadowed_v"),
             NameContext::Value,
-        )
-        .expect("local declaration should win before wildcard imports");
-        assert!(shadowed_v.def_ids().iter().any(|def_id| def_id.kind(&db) == DefKind::Net));
-        assert!(!shadowed_v.def_ids().iter().any(|def_id| def_id.kind(&db) == DefKind::Variable));
+        );
+        assert!(shadowed_v.iter().any(|def_id| def_id.kind(&db) == DefKind::Net));
+        assert!(!shadowed_v.iter().any(|def_id| def_id.kind(&db) == DefKind::Variable));
 
         let named_importer = db
             .unit_scope()
@@ -1171,9 +1189,8 @@ endmodule
             ScopeId::Module(named_importer),
             &ident("imported_v"),
             NameContext::Value,
-        )
-        .expect("named import should expose the selected package value");
-        assert!(imported_v.def_ids().iter().any(|def_id| def_id.kind(&db) == DefKind::Variable));
+        );
+        assert!(imported_v.iter().any(|def_id| def_id.kind(&db) == DefKind::Variable));
         assert!(
             resolve_name(
                 &db,
@@ -1181,7 +1198,7 @@ endmodule
                 &ident("imported_t"),
                 NameContext::Type,
             )
-            .is_none(),
+            .is_unresolved(),
             "named import should not expose unrelated package symbols"
         );
     }
@@ -1213,10 +1230,11 @@ endmodule
             .expect("package should resolve uniquely");
         let package_f =
             resolve_name(&db, ScopeId::Module(package_id), &ident("f"), NameContext::Value)
-                .and_then(|res| res.primary_def_id())
+                .unique()
                 .expect("package scope should resolve package subroutine");
 
-        let DefLoc::Subroutine(package_subroutine) = package_f.loc(&db) else {
+        let DefOriginLoc::Subroutine(package_subroutine) = package_f.primary_origin(&db).loc(&db)
+        else {
             panic!("package f should resolve to a subroutine");
         };
         assert_eq!(package_subroutine.cont_id, ScopeId::Module(package_id));
@@ -1228,7 +1246,7 @@ endmodule
             .expect("named importer should resolve uniquely");
         let named_import_f =
             resolve_name(&db, ScopeId::Module(named_importer), &ident("f"), NameContext::Value)
-                .and_then(|res| res.primary_def_id())
+                .unique()
                 .expect("named import should resolve package subroutine");
 
         let wildcard_importer = db
@@ -1238,13 +1256,19 @@ endmodule
             .expect("wildcard importer should resolve uniquely");
         let wildcard_import_f =
             resolve_name(&db, ScopeId::Module(wildcard_importer), &ident("f"), NameContext::Value)
-                .and_then(|res| res.primary_def_id())
+                .unique()
                 .expect("wildcard import should resolve package subroutine");
 
         assert_eq!(package_f, named_import_f);
-        assert_eq!(package_f.loc(&db), named_import_f.loc(&db));
+        assert_eq!(
+            package_f.primary_origin(&db).loc(&db),
+            named_import_f.primary_origin(&db).loc(&db)
+        );
         assert_eq!(package_f, wildcard_import_f);
-        assert_eq!(package_f.loc(&db), wildcard_import_f.loc(&db));
+        assert_eq!(
+            package_f.primary_origin(&db).loc(&db),
+            wildcard_import_f.primary_origin(&db).loc(&db)
+        );
     }
 
     #[test]
@@ -1272,7 +1296,6 @@ endpackage
         assert!(
             exports
                 .lookup(NameContext::Value, &ident("exported_f"))
-                .expect("signature should include package subroutine declarations")
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::Subroutine)
         );

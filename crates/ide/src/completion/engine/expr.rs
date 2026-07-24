@@ -3,14 +3,15 @@ use std::collections::BTreeMap;
 use hir::{
     container::{InContainer, ScopeId, ScopeParent},
     db::HirDb,
+    def_id::DefId,
     file::HirFileId,
     hir_def::{
         lower_ident_opt,
         module::ModuleId,
         subroutine::{LocalSubroutineId, SubroutineKind},
     },
-    semantics::{Semantics, pathres::PathResolution},
-    symbol::{DefId, DefKind},
+    semantics::Semantics,
+    symbol::{DefKind, Resolution},
     type_infer::{Ty, normalize_data_ty, type_class},
 };
 use syntax::{
@@ -191,10 +192,9 @@ fn collect_def_names(
                 | DefKind::Genvar
                 | DefKind::Specparam
                 | DefKind::SubroutinePort
-                | DefKind::NonAnsiPort
         )
-    }) && let Some(res) = PathResolution::from_def_ids(defs.iter().copied())
-    {
+    }) {
+        let res = Resolution::from_candidates(defs.iter().copied());
         let ty = db.type_of_path_resolution(res).ty.clone();
         names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
     }
