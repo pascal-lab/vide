@@ -1,18 +1,20 @@
-use la_arena::{Arena, Idx, IdxRange};
+use la_arena::{Idx, IdxRange, RawIdx};
 use smallvec::SmallVec;
 use syntax::{TokenKind, ast};
 use utils::define_enum_deriving_from;
 
-use super::{Expr, ExprId, ExprSrc, LowerExpr, data_ty::Dimension, impl_lower_expr};
+use super::{ExprId, data_ty::Dimension};
 use crate::{
-    db::InternDb,
-    file::HirFileId,
     hir_def::{
-        HirData, Ident, alloc_idx_and_src, declaration::DeclarationId, lower_ident_opt,
-        module::port::PortDeclId, stmt::StmtId,
+        Ident, alloc_with_source,
+        declaration::DeclarationId,
+        lower::{LoweringCtx, LoweringStore},
+        lower_ident_opt,
+        module::port::PortDeclId,
+        stmt::StmtId,
     },
     source_map::{
-        AstKind, FromSourceAst, IsNamedSrc, IsSrc, NamedAstId, SourceAst, SourceMap, ToAstNode,
+        AstKind, FromSourceAst, IsNamedSrc, IsSrc, NamedAstId, SourceAst, ToAstNode,
         wrapped_ast_node_from_ptr,
     },
 };
@@ -36,6 +38,11 @@ define_enum_deriving_from! {
 }
 
 pub type DeclId = Idx<Declarator>;
+
+pub(crate) fn empty_decls_range() -> DeclsRange {
+    let start = Idx::from_raw(RawIdx::from(0));
+    DeclsRange::new(start..start)
+}
 pub type DeclsRange = IdxRange<Declarator>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -143,51 +150,13 @@ impl<'a> FromSourceAst<'a, ast::SpecparamDeclarator<'a>> for DeclaratorSrc {
     }
 }
 
-pub(crate) struct LowerDeclCtx<'a> {
-    pub(crate) db: &'a dyn InternDb,
-    pub(crate) file_id: HirFileId,
-    pub(crate) decls: &'a mut Arena<Declarator>,
-    pub(crate) decl_srcs: &'a mut SourceMap<DeclaratorSrc, Declarator>,
-
-    pub(crate) exprs: &'a mut Arena<Expr>,
-    pub(crate) expr_srcs: &'a mut SourceMap<ExprSrc, Expr>,
-}
-
-pub(crate) trait LowerDecl: LowerExpr {
-    fn decl_ctx(&mut self) -> LowerDeclCtx<'_>;
-}
-
-pub(in crate::hir_def) macro impl_lower_decl {
-    ($ctx:ty $(,$data:ident, $src_map:ident)?) => {
-        impl $crate::hir_def::expr::declarator::LowerDecl for $ctx {
-            fn decl_ctx(&mut self) -> $crate::hir_def::expr::declarator::LowerDeclCtx<'_> {
-                $crate::hir_def::expr::declarator::LowerDeclCtx {
-                    db: self.db,
-                    file_id: self.file_id,
-                    decls: &mut self.$($data.)?decls,
-                    decl_srcs: &mut self.$($src_map.)?decl_srcs,
-                    exprs: &mut self.$($data.)?exprs,
-                    expr_srcs: &mut self.$($src_map.)?expr_srcs,
-                }
-            }
-        }
-    },
-}
-
-impl_lower_expr!(LowerDeclCtx<'_>);
-
-impl LowerDeclCtx<'_> {
+impl<Store: LoweringStore> LoweringCtx<'_, Store> {
     pub(crate) fn lower_declarators<'a>(
         &mut self,
         declarators: ast::SeparatedList<'a, ast::Declarator<'a>>,
         parent: DeclaratorParent,
     ) -> DeclsRange {
-        let start = self.decls.nxt_idx();
-        declarators.children().for_each(|decl| {
-            self.lower_declarator(decl, parent);
-        });
-        let end = self.decls.nxt_idx();
-        DeclsRange::new(start..end)
+        decls_range(declarators.children().map(|decl| self.lower_declarator(decl, parent)))
     }
 
     pub(crate) fn lower_declarator(
@@ -196,24 +165,14 @@ impl LowerDeclCtx<'_> {
         parent: DeclaratorParent,
     ) -> DeclId {
         let name = lower_ident_opt(declarator.name());
-        let dimensions = declarator
-            .dimensions()
-            .children()
-            .map(|dim| self.expr_ctx().lower_dimension(dim))
-            .collect();
-        let initializer =
-            declarator.initializer().map(|init| self.expr_ctx().lower_expr(init.expr()));
-        alloc_idx_and_src! {
-            self.file_id;
-            Declarator {
-                name,
-                dimensions,
-                initializer,
-                secondary_initializer: None,
-                parent
-            } => self.decls,
-            declarator => self.decl_srcs,
-        }
+        let dimensions =
+            declarator.dimensions().children().map(|dim| self.lower_dimension(dim)).collect();
+        let initializer = declarator.initializer().map(|init| self.lower_expr(init.expr()));
+        let data =
+            Declarator { name, dimensions, initializer, secondary_initializer: None, parent };
+        let file_id = self.file_id;
+        let (declarators, sources) = self.declarators();
+        alloc_with_source(file_id, declarators, sources, data, declarator)
     }
 
     pub(crate) fn lower_identifier_names<'a>(
@@ -221,12 +180,7 @@ impl LowerDeclCtx<'_> {
         identifiers: ast::SeparatedList<'a, ast::IdentifierName<'a>>,
         parent: DeclaratorParent,
     ) -> DeclsRange {
-        let start = self.decls.nxt_idx();
-        identifiers.children().for_each(|ident| {
-            self.lower_identifier_name(ident, parent);
-        });
-        let end = self.decls.nxt_idx();
-        DeclsRange::new(start..end)
+        decls_range(identifiers.children().map(|ident| self.lower_identifier_name(ident, parent)))
     }
 
     fn lower_identifier_name(
@@ -235,17 +189,16 @@ impl LowerDeclCtx<'_> {
         parent: DeclaratorParent,
     ) -> DeclId {
         let name = lower_ident_opt(ident.identifier());
-        alloc_idx_and_src! {
-            self.file_id;
-            Declarator {
-                name,
-                dimensions: SmallVec::new(),
-                initializer: None,
-                secondary_initializer: None,
-                parent
-            } => self.decls,
-            ident => self.decl_srcs,
-        }
+        let data = Declarator {
+            name,
+            dimensions: SmallVec::new(),
+            initializer: None,
+            secondary_initializer: None,
+            parent,
+        };
+        let file_id = self.file_id;
+        let (declarators, sources) = self.declarators();
+        alloc_with_source(file_id, declarators, sources, data, ident)
     }
 
     pub(crate) fn lower_specparam_declarators<'a>(
@@ -253,12 +206,9 @@ impl LowerDeclCtx<'_> {
         declarators: ast::SeparatedList<'a, ast::SpecparamDeclarator<'a>>,
         parent: DeclaratorParent,
     ) -> DeclsRange {
-        let start = self.decls.nxt_idx();
-        declarators.children().for_each(|decl| {
-            self.lower_specparam_declarator(decl, parent);
-        });
-        let end = self.decls.nxt_idx();
-        DeclsRange::new(start..end)
+        decls_range(
+            declarators.children().map(|decl| self.lower_specparam_declarator(decl, parent)),
+        )
     }
 
     fn lower_specparam_declarator(
@@ -267,19 +217,25 @@ impl LowerDeclCtx<'_> {
         parent: DeclaratorParent,
     ) -> DeclId {
         let name = lower_ident_opt(declarator.name());
-        let initializer = Some(self.expr_ctx().lower_expr(declarator.value_1()));
-        let secondary_initializer =
-            declarator.value_2().map(|expr| self.expr_ctx().lower_expr(expr));
-        alloc_idx_and_src! {
-            self.file_id;
-            Declarator {
-                name,
-                dimensions: SmallVec::new(),
-                initializer,
-                secondary_initializer,
-                parent
-            } => self.decls,
-            declarator => self.decl_srcs,
-        }
+        let initializer = Some(self.lower_expr(declarator.value_1()));
+        let secondary_initializer = declarator.value_2().map(|expr| self.lower_expr(expr));
+        let data = Declarator {
+            name,
+            dimensions: SmallVec::new(),
+            initializer,
+            secondary_initializer,
+            parent,
+        };
+        let file_id = self.file_id;
+        let (declarators, sources) = self.declarators();
+        alloc_with_source(file_id, declarators, sources, data, declarator)
     }
+}
+
+fn decls_range(mut ids: impl Iterator<Item = DeclId>) -> DeclsRange {
+    let Some(first) = ids.next() else {
+        return empty_decls_range();
+    };
+    let last = ids.last().unwrap_or(first);
+    DeclsRange::new_inclusive(first..=last)
 }

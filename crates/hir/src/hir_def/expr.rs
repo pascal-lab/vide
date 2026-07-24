@@ -1,19 +1,21 @@
 use data_ty::DataTy;
 use itertools::Itertools;
-use la_arena::{Arena, Idx};
+use la_arena::Idx;
 use syntax::{
     SyntaxKind, TokenKind,
     ast::{self, AstNode},
+    has_text_range::HasTextRange,
 };
 
 use super::literal::{Literal, lower_literal};
 use crate::{
-    db::InternDb,
-    file::HirFileId,
     hir_def::{
-        Ident, alloc_idx_and_src, literal::lower_integer_vector, lower_ident, lower_ident_opt,
+        Ident, alloc_with_source, alloc_with_source_entry,
+        literal::lower_integer_vector,
+        lower::{LoweringCtx, LoweringStore},
+        lower_ident, lower_ident_opt,
     },
-    source_map::{AstId, AstKind, SourceMap},
+    source_map::{AstId, AstKind},
 };
 
 pub mod data_ty;
@@ -271,46 +273,23 @@ pub enum Selector {
     Descending(ExprId, ExprId),
 }
 
-pub(crate) trait LowerExpr {
-    fn expr_ctx(&mut self) -> LowerExprCtx<'_>;
-}
-
-pub(in crate::hir_def) macro impl_lower_expr {
-    ($ctx:ty $(,$data:ident, $src_map:ident)?) => {
-        impl $crate::hir_def::expr::LowerExpr for $ctx {
-            fn expr_ctx(&mut self) -> $crate::hir_def::expr::LowerExprCtx<'_> {
-                $crate::hir_def::expr::LowerExprCtx {
-                    db: self.db,
-                    file_id: self.file_id,
-                    exprs: &mut self.$($data.)?exprs,
-                    expr_srcs: &mut self.$($src_map.)?expr_srcs,
-                }
-            }
-        }
-    },
-}
-
-pub(crate) struct LowerExprCtx<'a> {
-    pub(crate) db: &'a dyn InternDb,
-    pub(crate) file_id: HirFileId,
-    pub(crate) exprs: &'a mut Arena<Expr>,
-    pub(crate) expr_srcs: &'a mut SourceMap<ExprSrc, Expr>,
-}
-
-impl LowerExprCtx<'_> {
+impl<Store: LoweringStore> LoweringCtx<'_, Store> {
     pub(crate) fn lower_expr_opt(&mut self, expr: Option<ast::Expression>) -> ExprId {
-        if let Some(expr) = expr { self.lower_expr(expr) } else { self.alloc_missing() }
+        if let Some(expr) = expr { self.lower_expr(expr) } else { self.alloc_missing_expr() }
     }
 
     pub(crate) fn lower_expr(&mut self, expr: ast::Expression) -> ExprId {
         if let Some(hir_expr) = self.lower_expr_inner(expr) {
-            alloc_idx_and_src! {
-            self.file_id;
-                hir_expr => self.exprs,
-                expr => self.expr_srcs,
-            }
+            let file_id = self.file_id;
+            let (expressions, sources) = self.expressions();
+            alloc_with_source(file_id, expressions, sources, hir_expr, expr)
         } else {
-            self.alloc_missing()
+            self.report_unsupported(
+                expr.syntax().kind(),
+                expr.syntax().text_range(),
+                "unsupported expression",
+            );
+            self.alloc_missing_expr()
         }
     }
 
@@ -376,7 +355,7 @@ impl LowerExprCtx<'_> {
 
     fn lower_name(&mut self, name: ast::Name) -> Option<Expr> {
         fn lower_ident_select(
-            ctx: &mut LowerExprCtx,
+            ctx: &mut LoweringCtx<'_, impl LoweringStore>,
             ident_select: ast::IdentifierSelectName,
         ) -> Option<Expr> {
             let mut expr =
@@ -398,8 +377,8 @@ impl LowerExprCtx<'_> {
             loop {
                 match selectors.next() {
                     select @ Some(_) => {
-                        let receiver = ctx.exprs.alloc(expr);
-                        ctx.expr_srcs.insert(src, receiver);
+                        let (expressions, sources) = ctx.expressions();
+                        let receiver = alloc_with_source_entry(expressions, sources, expr, src);
                         expr = Expr::ElementSelect { receiver, select };
                     }
                     None => return Some(expr),
@@ -419,7 +398,7 @@ impl LowerExprCtx<'_> {
             ast::Name::ScopedName(scoped) => {
                 let receiver = ast::Expression::cast(scoped.left().syntax())
                     .map(|left| self.lower_expr(left))
-                    .unwrap_or_else(|| self.alloc_missing());
+                    .unwrap_or_else(|| self.alloc_missing_expr());
 
                 match scoped.right() {
                     IdentifierName(ident) => {
@@ -565,7 +544,7 @@ impl LowerExprCtx<'_> {
 
         let expr = ast::Expression::cast(expr.right().syntax())
             .map(|right| self.lower_expr(right))
-            .unwrap_or_else(|| self.alloc_missing());
+            .unwrap_or_else(|| self.alloc_missing_expr());
         Some(Expr::Cast { ty, expr })
     }
 
@@ -578,7 +557,7 @@ impl LowerExprCtx<'_> {
 
         let expr = ast::Expression::cast(expr.inner().syntax())
             .map(|inner| self.lower_expr(inner))
-            .unwrap_or_else(|| self.alloc_missing());
+            .unwrap_or_else(|| self.alloc_missing_expr());
         Some(Expr::SignedCast { signed, expr })
     }
 
@@ -603,7 +582,7 @@ impl LowerExprCtx<'_> {
                 let name = lower_ident_opt(arg.name());
                 let expr = match arg.expr() {
                     Some(expr) => self.lower_property_expr(expr),
-                    None => self.alloc_missing(),
+                    None => self.alloc_missing_expr(),
                 };
                 Arg::Named { name, expr }
             }
@@ -637,14 +616,14 @@ impl LowerExprCtx<'_> {
         }
     }
 
-    fn alloc_missing(&mut self) -> ExprId {
-        self.exprs.alloc(Expr::Missing)
+    fn alloc_missing_expr(&mut self) -> ExprId {
+        self.expressions().0.alloc(Expr::Missing)
     }
 }
 
-impl LowerExprCtx<'_> {
+impl<Store: LoweringStore> LoweringCtx<'_, Store> {
     pub(crate) fn lower_property_expr(&mut self, expr: ast::PropertyExpr) -> ExprId {
-        self.lower_property_expr_inner(expr).unwrap_or_else(|| self.alloc_missing())
+        self.lower_property_expr_inner(expr).unwrap_or_else(|| self.alloc_missing_expr())
     }
 
     pub(crate) fn lower_property_expr_inner(&mut self, expr: ast::PropertyExpr) -> Option<ExprId> {

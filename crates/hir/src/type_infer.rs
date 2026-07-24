@@ -1001,14 +1001,20 @@ mod tests {
         let DefOriginLoc::Decl(decl) = def.primary_origin(db).loc(db) else {
             panic!("expected {name} owner to be a declaration");
         };
-        assert_eq!(decl.cont_id.to_container(db).get(decl.value).name.as_deref(), Some(name));
+        assert_eq!(
+            decl.cont_id.to_container(db).declarator(decl.value).name.as_deref(),
+            Some(name)
+        );
     }
 
     fn assert_owner_is_typedef(db: &TestDb, def: DefId, name: &str) {
         let DefOriginLoc::Typedef(typedef) = def.primary_origin(db).loc(db) else {
             panic!("expected {name} owner to be a typedef");
         };
-        assert_eq!(typedef.cont_id.to_container(db).get(typedef.value).name.as_deref(), Some(name));
+        assert_eq!(
+            typedef.cont_id.to_container(db).typedef(typedef.value).name.as_deref(),
+            Some(name)
+        );
     }
 
     #[test]

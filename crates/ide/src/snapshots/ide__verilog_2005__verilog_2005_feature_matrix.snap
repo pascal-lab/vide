@@ -42,13 +42,13 @@ folding_ranges: 10
   Comment 0..50
   PortList 70..163
   Module 165..619
+  Stmt 192..609
   Block 224..609
+  Stmt 244..601
   Block 256..296
   Block 302..601
   Stmt 320..377
   Stmt 391..526
-  Stmt 244..601
-  Stmt 192..609
 
 ## data_types/nets_regs_memories_ports.v
 parse_diagnostics: []
@@ -81,8 +81,8 @@ folding_ranges: 8
   Comment 0..120
   PortList 140..205
   Module 207..404
-  Block 327..394
   Stmt 312..394
+  Block 327..394
   Module 406..492
   PortList 520..570
   Module 572..618
@@ -223,8 +223,8 @@ folding_ranges: 5
   Comment 0..80
   PortList 105..150
   Module 152..446
-  Block 399..436
   Stmt 396..436
+  Block 399..436
 
 ## udp/udp_declaration_and_instance.v
 parse_diagnostics: []

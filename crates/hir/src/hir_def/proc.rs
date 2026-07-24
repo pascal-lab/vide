@@ -1,25 +1,12 @@
-use la_arena::{Arena, Idx};
+use la_arena::Idx;
 use syntax::ast;
 
 use super::{
-    expr::{declarator::impl_lower_decl, impl_lower_expr, timing_control::impl_lower_event_expr},
-    stmt::impl_lower_stmt,
+    alloc_with_source,
+    lower::{LoweringCtx, ProcStore},
+    stmt::StmtId,
 };
-use crate::{
-    container::ScopeId,
-    db::InternDb,
-    file::HirFileId,
-    hir_def::{
-        alloc_idx_and_src,
-        expr::{
-            Expr, ExprSrc,
-            declarator::{Declarator, DeclaratorSrc},
-            timing_control::{EventExpr, EventExprSrc},
-        },
-        stmt::{LowerStmt, Stmt, StmtId, StmtSrc},
-    },
-    source_map::{AstId, AstKind, SourceMap},
-};
+use crate::source_map::{AstId, AstKind};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum AlwaysKeyword {
@@ -55,37 +42,7 @@ impl AstKind for ProceduralBlockAst {
 
 pub type ProcSrc = AstId<ProceduralBlockAst>;
 
-pub(crate) trait LowerProc: LowerStmt {
-    fn proc_ctx(&mut self) -> LowerProcCtx<'_>;
-}
-
-pub(crate) struct LowerProcCtx<'a> {
-    pub(crate) db: &'a dyn InternDb,
-    pub(crate) file_id: HirFileId,
-    pub(crate) cont_id: ScopeId,
-
-    pub(crate) procs: &'a mut Arena<Proc>,
-    pub(crate) proc_srcs: &'a mut SourceMap<ProcSrc, Proc>,
-
-    pub(crate) stmts: &'a mut Arena<Stmt>,
-    pub(crate) stmt_srcs: &'a mut SourceMap<StmtSrc, Stmt>,
-
-    pub(crate) event_exprs: &'a mut Arena<EventExpr>,
-    pub(crate) event_expr_srcs: &'a mut SourceMap<EventExprSrc, EventExpr>,
-
-    pub(crate) exprs: &'a mut Arena<Expr>,
-    pub(crate) expr_srcs: &'a mut SourceMap<ExprSrc, Expr>,
-
-    pub(crate) decls: &'a mut Arena<Declarator>,
-    pub(crate) decl_srcs: &'a mut SourceMap<DeclaratorSrc, Declarator>,
-}
-
-impl_lower_expr!(LowerProcCtx<'_>);
-impl_lower_decl!(LowerProcCtx<'_>);
-impl_lower_event_expr!(LowerProcCtx<'_>);
-impl_lower_stmt!(LowerProcCtx<'_>, cont_id);
-
-impl LowerProcCtx<'_> {
+impl<Store: ProcStore> LoweringCtx<'_, Store> {
     pub(crate) fn lower_proc(&mut self, proc: ast::ProceduralBlock) -> ProcId {
         use ast::ProceduralBlock::*;
         let proc_ty = match proc {
@@ -97,12 +54,10 @@ impl LowerProcCtx<'_> {
             FinalBlock(_) => ProcType::Final,
         };
 
-        let stmt = self.stmt_ctx().lower_stmt(proc.statement());
+        let stmt = self.lower_stmt(proc.statement());
 
-        alloc_idx_and_src! {
-            self.file_id;
-            Proc { proc_ty, stmt } => self.procs,
-            proc => self.proc_srcs,
-        }
+        let file_id = self.file_id;
+        let (procs, sources) = self.procs();
+        alloc_with_source(file_id, procs, sources, Proc { proc_ty, stmt }, proc)
     }
 }

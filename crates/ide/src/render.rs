@@ -323,11 +323,11 @@ fn render_definition_title(db: &RootDb, origin: &DefOrigin) -> Option<String> {
 
 fn render_decl_title_kind(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<&'static str> {
     let container = decl_id.cont_id.to_container(db);
-    let decl = container.get(decl_id.value);
+    let decl = container.declarator(decl_id.value);
 
     Some(match decl.parent {
         DeclaratorParent::PortDeclId(_) => "Port",
-        DeclaratorParent::DeclarationId(parent) => match container.get(parent) {
+        DeclaratorParent::DeclarationId(parent) => match container.declaration(parent) {
             Declaration::ParamDecl(param_decl) => match param_decl.kind.keyword() {
                 "parameter" => "Parameter",
                 "localparam" => "Localparam",
@@ -570,7 +570,7 @@ fn render_clocking_block_signature(
 
 fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<String> {
     let container = decl_id.cont_id.to_container(db);
-    let decl = container.get(decl_id.value);
+    let decl = container.declarator(decl_id.value);
     decl.name.as_ref()?;
 
     match decl.parent {
@@ -587,7 +587,7 @@ fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<St
             Some(format!("{header} {decl}"))
         }
         DeclaratorParent::DeclarationId(parent) => {
-            let declaration = container.get(parent);
+            let declaration = container.declaration(parent);
             let prefix = render_declaration_prefix(db, decl_id.cont_id, declaration)?;
             let decl =
                 InContainer::new(decl_id.cont_id, decl_id.value).display_signature(db).ok()?;
@@ -650,7 +650,7 @@ fn render_declaration_prefix(
 
 fn render_initializer(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<String> {
     let container = decl_id.cont_id.to_container(db);
-    let decl = container.get(decl_id.value);
+    let decl = container.declarator(decl_id.value);
     let init = decl
         .initializer
         .map(|expr| InContainer::new(decl_id.cont_id, expr).display_source(db).ok())??;
@@ -746,9 +746,8 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<Str
     for cont_id in ScopeParent::start_from(db, cont_id) {
         let src_map = cont_id.to_container_src_map(db);
 
-        if let Some(region_tree) = src_map.region_tree()
-            && let Some(node) = region_tree.find(range.start())
-        {
+        let region_tree = src_map.region_tree();
+        if let Some(node) = region_tree.find(range.start()) {
             for region in RegionParent::start_from(region_tree, node) {
                 containers.push(format!("({})", region.name()));
             }

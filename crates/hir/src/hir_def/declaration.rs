@@ -1,30 +1,22 @@
-use la_arena::{Arena, Idx};
+use la_arena::Idx;
 use syntax::{TokenKind, ast, ptr::SyntaxNodePtr};
 use utils::define_enum_deriving_from;
 
 use super::expr::{
-    declarator::{DeclsRange, impl_lower_decl},
-    impl_lower_expr,
-    timing_control::impl_lower_event_expr,
+    data_ty::{BuiltinDataTy, DataTy, IntKind},
+    declarator::{DeclsRange, empty_decls_range},
+    timing_control::DelayControl,
 };
 use crate::{
-    db::InternDb,
-    file::HirFileId,
     hir_def::{
-        HirData, alloc_idx_and_src,
-        expr::{
-            Expr, ExprSrc, LowerExpr,
-            data_ty::{BuiltinDataTy, DataTy, IntKind},
-            declarator::{Declarator, DeclaratorSrc, LowerDecl},
-            timing_control::{DelayControl, EventExpr, EventExprSrc, LowerEventExpr},
-        },
+        alloc_with_source,
+        lower::{LoweringCtx, LoweringStore},
         ty::{
             DriveStrength, NetKind, Strength, lower_drive_strength, lower_net_kind, lower_strength,
         },
     },
     source_map::{
-        AstId, AstKind, FromSourceAst, IsSrc, SourceAst, SourceMap, ToAstNode,
-        exact_ast_node_from_ptr,
+        AstId, AstKind, FromSourceAst, IsSrc, SourceAst, ToAstNode, exact_ast_node_from_ptr,
     },
 };
 
@@ -323,50 +315,31 @@ pub struct SpecparamDecl {
     pub decls: DeclsRange,
 }
 
-pub(crate) struct LowerDeclarationCtx<'a> {
-    pub(crate) db: &'a dyn InternDb,
-    pub(crate) file_id: HirFileId,
-    pub(crate) declarations: &'a mut Arena<Declaration>,
-    pub(crate) declaration_srcs: &'a mut SourceMap<DeclarationSrc, Declaration>,
+impl<Store: LoweringStore> LoweringCtx<'_, Store> {
+    pub(crate) fn alloc_declaration<'ast, Ast>(
+        &mut self,
+        declaration: impl Into<Declaration>,
+        ast: Ast,
+    ) -> DeclarationId
+    where
+        Ast: syntax::ast::AstNode<'ast>,
+        DeclarationSrc: FromSourceAst<'ast, Ast>,
+    {
+        let file_id = self.file_id;
+        let (declarations, sources) = self.declarations();
+        alloc_with_source(file_id, declarations, sources, declaration, ast)
+    }
 
-    pub(crate) decls: &'a mut Arena<Declarator>,
-    pub(crate) decl_srcs: &'a mut SourceMap<DeclaratorSrc, Declarator>,
-
-    pub(crate) event_exprs: &'a mut Arena<EventExpr>,
-    pub(crate) event_expr_srcs: &'a mut SourceMap<EventExprSrc, EventExpr>,
-
-    pub(crate) exprs: &'a mut Arena<Expr>,
-    pub(crate) expr_srcs: &'a mut SourceMap<ExprSrc, Expr>,
-}
-
-pub(crate) trait LowerDeclaration: LowerDecl + LowerEventExpr {
-    fn declaration_ctx(&mut self) -> LowerDeclarationCtx<'_>;
-}
-
-pub(in crate::hir_def) macro impl_lower_declaration($ctx:ty, $data:ident, $src_map:ident) {
-    impl $crate::hir_def::declaration::LowerDeclaration for $ctx {
-        fn declaration_ctx(&mut self) -> $crate::hir_def::declaration::LowerDeclarationCtx<'_> {
-            $crate::hir_def::declaration::LowerDeclarationCtx {
-                db: self.db,
-                file_id: self.file_id,
-                declarations: &mut self.$data.declarations,
-                declaration_srcs: &mut self.$src_map.declaration_srcs,
-                decls: &mut self.$data.decls,
-                decl_srcs: &mut self.$src_map.decl_srcs,
-                event_exprs: &mut self.$data.event_exprs,
-                event_expr_srcs: &mut self.$src_map.event_expr_srcs,
-                exprs: &mut self.$data.exprs,
-                expr_srcs: &mut self.$src_map.expr_srcs,
-            }
+    pub(crate) fn finish_declaration_decls(&mut self, id: DeclarationId, decls: DeclsRange) {
+        match &mut self.declarations().0[id] {
+            Declaration::DataDecl(declaration) => declaration.decls = decls,
+            Declaration::NetDecl(declaration) => declaration.decls = decls,
+            Declaration::ParamDecl(declaration) => declaration.decls = decls,
+            Declaration::GenvarDecl(declaration) => declaration.decls = decls,
+            Declaration::SpecparamDecl(declaration) => declaration.decls = decls,
         }
     }
-}
 
-impl_lower_expr!(LowerDeclarationCtx<'_>);
-impl_lower_decl!(LowerDeclarationCtx<'_>);
-impl_lower_event_expr!(LowerDeclarationCtx<'_>);
-
-impl LowerDeclarationCtx<'_> {
     pub(crate) fn lower_data_decl(&mut self, data_decl: ast::DataDeclaration) -> DeclarationId {
         let mut const_kw = false;
         let mut var_kw = false;
@@ -377,31 +350,27 @@ impl LowerDeclarationCtx<'_> {
             _ => {}
         });
 
-        let ty = self.expr_ctx().lower_data_ty(data_decl.type_());
+        let ty = self.lower_data_ty(data_decl.type_());
 
-        let parent = self.declarations.nxt_idx().into();
-        let decls = self.decl_ctx().lower_declarators(data_decl.declarators(), parent);
-
-        alloc_idx_and_src! {
-            self.file_id;
-            DataDecl { ty, const_kw, var_kw, decls } => self.declarations,
-            data_decl => self.declaration_srcs,
-        }
+        let parent = self.alloc_declaration(
+            DataDecl { ty, const_kw, var_kw, decls: empty_decls_range() },
+            data_decl,
+        );
+        let decls = self.lower_declarators(data_decl.declarators(), parent.into());
+        self.finish_declaration_decls(parent, decls);
+        parent
     }
 
     pub(crate) fn lower_net_decl(&mut self, net_decl: ast::NetDeclaration) -> DeclarationId {
         let net_kind = lower_net_kind(net_decl.net_type());
-        let ty = self.expr_ctx().lower_data_ty(net_decl.type_());
+        let ty = self.lower_data_ty(net_decl.type_());
         let delay = net_decl.delay().and_then(|delay| {
             use crate::hir_def::expr::timing_control::TimingControl::*;
-            match self.event_expr_ctx().lower_timing_control(delay) {
+            match self.lower_timing_control(delay) {
                 DelayControl(delay) => Some(delay),
                 _ => None,
             }
         });
-
-        let parent = self.declarations.nxt_idx().into();
-        let decls = self.decl_ctx().lower_declarators(net_decl.declarators(), parent);
 
         let strength = net_decl.strength().and_then(|strength| {
             use ast::NetStrength::*;
@@ -416,11 +385,13 @@ impl LowerDeclarationCtx<'_> {
             }
         });
 
-        alloc_idx_and_src! {
-            self.file_id;
-            NetDecl { ty, net_kind, delay, strength, decls } => self.declarations,
-            net_decl => self.declaration_srcs,
-        }
+        let parent = self.alloc_declaration(
+            NetDecl { ty, net_kind, delay, strength, decls: empty_decls_range() },
+            net_decl,
+        );
+        let decls = self.lower_declarators(net_decl.declarators(), parent.into());
+        self.finish_declaration_decls(parent, decls);
+        parent
     }
 
     pub(crate) fn lower_port_decl_as_data_decl(
@@ -429,19 +400,18 @@ impl LowerDeclarationCtx<'_> {
     ) -> Option<DeclarationId> {
         use ast::PortHeader::*;
         let ty = match port_decl.header() {
-            VariablePortHeader(header) => self.expr_ctx().lower_data_ty(header.data_type()),
-            NetPortHeader(header) => self.expr_ctx().lower_data_ty(header.data_type()),
+            VariablePortHeader(header) => self.lower_data_ty(header.data_type()),
+            NetPortHeader(header) => self.lower_data_ty(header.data_type()),
             InterfacePortHeader(_) => return None,
         };
 
-        let parent = self.declarations.nxt_idx().into();
-        let decls = self.decl_ctx().lower_declarators(port_decl.declarators(), parent);
-
-        Some(alloc_idx_and_src! {
-            self.file_id;
-            DataDecl { ty, const_kw: false, var_kw: false, decls } => self.declarations,
-            port_decl => self.declaration_srcs,
-        })
+        let parent = self.alloc_declaration(
+            DataDecl { ty, const_kw: false, var_kw: false, decls: empty_decls_range() },
+            port_decl,
+        );
+        let decls = self.lower_declarators(port_decl.declarators(), parent.into());
+        self.finish_declaration_decls(parent, decls);
+        Some(parent)
     }
 
     pub(crate) fn lower_param_decl_base(
@@ -481,17 +451,12 @@ impl LowerDeclarationCtx<'_> {
             inherited_kind,
             force_local,
         );
-        let start = self.decls.nxt_idx();
+        let decls = empty_decls_range();
         let ty = DataTy::Builtin(
             self.db.intern_ty(crate::hir_def::expr::data_ty::BuiltinDataTy::default()),
         );
-        let decls = DeclsRange::new(start..self.decls.nxt_idx());
 
-        alloc_idx_and_src! {
-            self.file_id;
-            ParamDecl { ty, kind, is_port, decls } => self.declarations,
-            type_param_decl => self.declaration_srcs,
-        }
+        self.alloc_declaration(ParamDecl { ty, kind, is_port, decls }, type_param_decl)
     }
 
     fn lower_param_decl(
@@ -506,16 +471,15 @@ impl LowerDeclarationCtx<'_> {
             inherited_kind,
             force_local,
         );
-        let ty = self.expr_ctx().lower_data_ty(param_decl.type_());
+        let ty = self.lower_data_ty(param_decl.type_());
 
-        let parent = self.declarations.nxt_idx().into();
-        let decls = self.decl_ctx().lower_declarators(param_decl.declarators(), parent);
-
-        alloc_idx_and_src! {
-            self.file_id;
-            ParamDecl { ty, kind, is_port, decls } => self.declarations,
-            param_decl => self.declaration_srcs,
-        }
+        let parent = self.alloc_declaration(
+            ParamDecl { ty, kind, is_port, decls: empty_decls_range() },
+            param_decl,
+        );
+        let decls = self.lower_declarators(param_decl.declarators(), parent.into());
+        self.finish_declaration_decls(parent, decls);
+        parent
     }
 
     pub(crate) fn lower_genvar_decl(
@@ -525,30 +489,23 @@ impl LowerDeclarationCtx<'_> {
         let ty = DataTy::Builtin(
             self.db.intern_ty(BuiltinDataTy::Int { kind: IntKind::Integer, signing: true }),
         );
-        let parent = self.declarations.nxt_idx().into();
-        let decls = self.decl_ctx().lower_identifier_names(genvar_decl.identifiers(), parent);
-
-        alloc_idx_and_src! {
-            self.file_id;
-            GenvarDecl { ty, decls } => self.declarations,
-            genvar_decl => self.declaration_srcs,
-        }
+        let parent =
+            self.alloc_declaration(GenvarDecl { ty, decls: empty_decls_range() }, genvar_decl);
+        let decls = self.lower_identifier_names(genvar_decl.identifiers(), parent.into());
+        self.finish_declaration_decls(parent, decls);
+        parent
     }
 
     pub(crate) fn lower_specparam_decl(
         &mut self,
         specparam_decl: ast::SpecparamDeclaration,
     ) -> DeclarationId {
-        let ty = self.expr_ctx().lower_implicit_data_ty(specparam_decl.type_());
-        let parent = self.declarations.nxt_idx().into();
-        let decls =
-            self.decl_ctx().lower_specparam_declarators(specparam_decl.declarators(), parent);
-
-        alloc_idx_and_src! {
-            self.file_id;
-            SpecparamDecl { ty, decls } => self.declarations,
-            specparam_decl => self.declaration_srcs,
-        }
+        let ty = self.lower_implicit_data_ty(specparam_decl.type_());
+        let parent = self
+            .alloc_declaration(SpecparamDecl { ty, decls: empty_decls_range() }, specparam_decl);
+        let decls = self.lower_specparam_declarators(specparam_decl.declarators(), parent.into());
+        self.finish_declaration_decls(parent, decls);
+        parent
     }
 }
 

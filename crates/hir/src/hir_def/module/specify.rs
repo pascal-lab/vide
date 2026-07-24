@@ -6,10 +6,7 @@ use utils::define_enum_deriving_from;
 use super::LowerModuleCtx;
 use crate::{
     hir_def::{
-        Ident, alloc_idx_and_src,
-        declaration::{DeclarationId, LowerDeclaration},
-        expr::{ExprId, LowerExpr},
-        lower_ident_opt,
+        Ident, alloc_with_source, declaration::DeclarationId, expr::ExprId, lower_ident_opt,
     },
     source_map::{
         AstId, AstKind, FromSourceAst, IsNamedSrc, IsSrc, SourceAst, ToAstNode,
@@ -218,7 +215,7 @@ impl LowerModuleCtx<'_> {
                 match item {
                     EmptyMember(_) => None,
                     SpecparamDeclaration(specparam_decl) => {
-                        Some(self.declaration_ctx().lower_specparam_decl(specparam_decl).into())
+                        Some(self.lower_specparam_decl(specparam_decl).into())
                     }
                     PathDeclaration(path) => Some(self.lower_specify_path_item(path).into()),
                     ConditionalPathDeclaration(path) => {
@@ -236,35 +233,44 @@ impl LowerModuleCtx<'_> {
             })
             .collect();
 
-        alloc_idx_and_src! {
-            self.file_id;
-            SpecifyBlock { items } => self.module.specify_blocks,
-            block => self.module_source_map.specify_block_srcs,
-        }
+        let file_id = self.file_id;
+        alloc_with_source(
+            file_id,
+            &mut self.store.data.specify_blocks,
+            &mut self.store.sources.specify_block_srcs,
+            SpecifyBlock { items },
+            block,
+        )
     }
 
     pub(crate) fn lower_specify_path_item(&mut self, path: ast::PathDeclaration) -> SpecifyItemId {
         let item = SpecifyItem::Path(self.lower_specify_path(path));
-        alloc_idx_and_src! {
-            self.file_id;
-            item => self.module.specify_items,
-            path => self.module_source_map.specify_item_srcs,
-        }
+        let file_id = self.file_id;
+        alloc_with_source(
+            file_id,
+            &mut self.store.data.specify_items,
+            &mut self.store.sources.specify_item_srcs,
+            item,
+            path,
+        )
     }
 
     pub(crate) fn lower_conditional_specify_path_item(
         &mut self,
         path: ast::ConditionalPathDeclaration,
     ) -> SpecifyItemId {
-        let predicate = self.expr_ctx().lower_expr(path.predicate());
+        let predicate = self.lower_expr(path.predicate());
         let path_data = self.lower_specify_path(path.path());
         let item = SpecifyItem::ConditionalPath { predicate, path: path_data };
 
-        alloc_idx_and_src! {
-            self.file_id;
-            item => self.module.specify_items,
-            path => self.module_source_map.specify_item_srcs,
-        }
+        let file_id = self.file_id;
+        alloc_with_source(
+            file_id,
+            &mut self.store.data.specify_items,
+            &mut self.store.sources.specify_item_srcs,
+            item,
+            path,
+        )
     }
 
     pub(crate) fn lower_ifnone_specify_path_item(
@@ -273,11 +279,14 @@ impl LowerModuleCtx<'_> {
     ) -> SpecifyItemId {
         let item = SpecifyItem::IfNonePath(self.lower_specify_path(path.path()));
 
-        alloc_idx_and_src! {
-            self.file_id;
-            item => self.module.specify_items,
-            path => self.module_source_map.specify_item_srcs,
-        }
+        let file_id = self.file_id;
+        alloc_with_source(
+            file_id,
+            &mut self.store.data.specify_items,
+            &mut self.store.sources.specify_item_srcs,
+            item,
+            path,
+        )
     }
 
     pub(crate) fn lower_pulse_style_item(
@@ -287,11 +296,14 @@ impl LowerModuleCtx<'_> {
         let controls = pulse.inputs().children().map(|name| self.lower_name_expr(name)).collect();
         let item = SpecifyItem::PulseStyle { controls };
 
-        alloc_idx_and_src! {
-            self.file_id;
-            item => self.module.specify_items,
-            pulse => self.module_source_map.specify_item_srcs,
-        }
+        let file_id = self.file_id;
+        alloc_with_source(
+            file_id,
+            &mut self.store.data.specify_items,
+            &mut self.store.sources.specify_item_srcs,
+            item,
+            pulse,
+        )
     }
 
     pub(crate) fn lower_system_timing_check_item(
@@ -302,11 +314,14 @@ impl LowerModuleCtx<'_> {
         let args = timing.args().children().map(|arg| self.lower_timing_check_arg(arg)).collect();
         let item = SpecifyItem::TimingCheck { name, args };
 
-        alloc_idx_and_src! {
-            self.file_id;
-            item => self.module.specify_items,
-            timing => self.module_source_map.specify_item_srcs,
-        }
+        let file_id = self.file_id;
+        alloc_with_source(
+            file_id,
+            &mut self.store.data.specify_items,
+            &mut self.store.sources.specify_item_srcs,
+            item,
+            timing,
+        )
     }
 
     fn lower_specify_path(&mut self, path: ast::PathDeclaration) -> SpecifyPath {
@@ -321,11 +336,10 @@ impl LowerModuleCtx<'_> {
             ast::PathSuffix::EdgeSensitivePathSuffix(suffix) => {
                 let outputs =
                     suffix.outputs().children().map(|name| self.lower_name_expr(name)).collect();
-                (outputs, Some(self.expr_ctx().lower_expr(suffix.expr())))
+                (outputs, Some(self.lower_expr(suffix.expr())))
             }
         };
-        let delays =
-            path.delays().children().map(|expr| self.expr_ctx().lower_expr(expr)).collect();
+        let delays = path.delays().children().map(|expr| self.lower_expr(expr)).collect();
 
         SpecifyPath { inputs, outputs, edge_expr, delays }
     }
@@ -335,19 +349,17 @@ impl LowerModuleCtx<'_> {
         match arg {
             EmptyTimingCheckArg(_) => TimingCheckArg::Empty,
             TimingCheckEventArg(arg) => {
-                let terminal = self.expr_ctx().lower_expr(arg.terminal());
-                let condition = arg.condition().map(|cond| self.expr_ctx().lower_expr(cond.expr()));
+                let terminal = self.lower_expr(arg.terminal());
+                let condition = arg.condition().map(|cond| self.lower_expr(cond.expr()));
                 TimingCheckArg::Event { terminal, condition }
             }
-            ExpressionTimingCheckArg(arg) => {
-                TimingCheckArg::Expr(self.expr_ctx().lower_expr(arg.expr()))
-            }
+            ExpressionTimingCheckArg(arg) => TimingCheckArg::Expr(self.lower_expr(arg.expr())),
         }
     }
 
     fn lower_name_expr(&mut self, name: ast::Name) -> ExprId {
         ast::Expression::cast(name.syntax())
-            .map(|expr| self.expr_ctx().lower_expr(expr))
-            .unwrap_or_else(|| self.expr_ctx().lower_expr_opt(None))
+            .map(|expr| self.lower_expr(expr))
+            .unwrap_or_else(|| self.lower_expr_opt(None))
     }
 }
