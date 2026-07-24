@@ -65,19 +65,22 @@ fn render_source_declaration_target(
 
     let origins = tokens
         .into_iter()
-        .filter_map(|token| match DefinitionClass::resolve(sema, hir_file_id, token)? {
-            DefinitionClass::Definition(definition) => {
-                Some(definition.declaration_origin(db).into_iter().collect_vec())
-            }
-            DefinitionClass::PortConnShorthand { port, .. } => {
-                Some(port.declaration_origin(db).into_iter().collect_vec())
-            }
-            DefinitionClass::Ambiguous(definitions) => Some(
-                definitions
+        .filter_map(|token| {
+            let resolution = DefinitionClass::resolve(sema, hir_file_id, token)?;
+            Some(
+                resolution
+                    .into_candidates()
                     .into_iter()
-                    .filter_map(|definition| definition.declaration_origin(db))
+                    .map(|class| match class {
+                        DefinitionClass::Definition(definition) => {
+                            definition.declaration_origin(db)
+                        }
+                        DefinitionClass::PortConnShorthand { port, .. } => {
+                            port.declaration_origin(db)
+                        }
+                    })
                     .collect_vec(),
-            ),
+            )
         })
         .flatten()
         .collect_vec();

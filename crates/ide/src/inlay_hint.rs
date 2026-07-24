@@ -490,11 +490,11 @@ fn non_ansi_port_id_for_conn<'a>(
             Some((port_id, name, dir))
         }
         PortConn::Named(Some(name), _) => {
-            let defs = scope.lookup(NameContext::Value, name)?;
+            let defs = scope.lookup(NameContext::Value, name);
             let port_id = defs
                 .iter()
-                .find(|def_id| def_id.kind(db) == DefKind::NonAnsiPort)
-                .and_then(|def_id| def_id.as_non_ansi_port(db))?
+                .find(|def_id| def_id.is_non_ansi_port(db))
+                .and_then(|def_id| def_id.primary_origin(db).as_non_ansi_port(db))?
                 .value;
             let port_name = module.get(port_id).label.as_ref()?;
             let dir = non_ansi_port_dir_by_port_id(db, module, scope, port_id)?;
@@ -542,7 +542,7 @@ fn ansi_port_decl_id_for_conn(
             Some((port_decl_id, decl_id))
         }
         PortConn::Named(Some(name), _) => {
-            let defs = scope.lookup(NameContext::Value, name)?;
+            let defs = scope.lookup(NameContext::Value, name);
             let decl_id = defs
                 .iter()
                 .filter(|def_id| def_id.kind(db) == DefKind::Port)

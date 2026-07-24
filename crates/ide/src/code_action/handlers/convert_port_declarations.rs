@@ -15,7 +15,7 @@ use hir::{
         },
     },
     source_map::IsSrc,
-    symbol::{DefKind, NameContext, NameScope},
+    symbol::{NameContext, NameScope},
 };
 use itertools::Itertools;
 use syntax::{
@@ -220,21 +220,20 @@ fn non_ansi_port_replacement(
     name: &Ident,
     text: &str,
 ) -> Option<NonAnsiPortReplacement> {
-    let defs = module_scope.lookup(NameContext::Value, name)?;
-    if !defs.iter().any(|def_id| def_id.kind(ctx.sema().db) == DefKind::NonAnsiPort) {
-        return None;
-    }
+    let defs = module_scope.lookup(NameContext::Value, name);
+    let def = defs.iter().find(|def_id| def_id.is_non_ansi_port(ctx.sema().db))?;
+    let origins = def.origins(ctx.sema().db);
 
-    let port_decl = defs
+    let port_decl = origins
         .iter()
-        .filter_map(|def_id| def_id.as_decl(ctx.sema().db))
+        .filter_map(|origin| origin.as_decl(ctx.sema().db))
         .find(|decl_id| {
             matches!(module.get(decl_id.value).parent, DeclaratorParent::PortDeclId(_))
         })?
         .value;
-    let data_decl = defs
+    let data_decl = origins
         .iter()
-        .filter_map(|def_id| def_id.as_decl(ctx.sema().db))
+        .filter_map(|origin| origin.as_decl(ctx.sema().db))
         .find(|decl_id| {
             matches!(module.get(decl_id.value).parent, DeclaratorParent::DeclarationId(_))
         })

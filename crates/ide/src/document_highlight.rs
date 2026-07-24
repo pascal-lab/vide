@@ -1,4 +1,4 @@
-use hir::{container::InFile, def_id::ModuleDefId, file::HirFileId, semantics::Semantics};
+use hir::{container::InFile, def_id::DefId, file::HirFileId, semantics::Semantics};
 use syntax::{SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
 use utils::line_index::TextRange;
 use vfs::FileId;
@@ -77,10 +77,9 @@ fn highlight_for_token(
     config: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
     handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
-        let def = match DefinitionClass::resolve(sema, hir_file_id, token)? {
+        let def = match DefinitionClass::resolve(sema, hir_file_id, token)?.unique()? {
             DefinitionClass::Definition(def) => def,
             DefinitionClass::PortConnShorthand { local, .. } => local,
-            DefinitionClass::Ambiguous(_) => return None,
         };
         highlight_refs(sema, file_id, def, config)
     })
@@ -89,7 +88,7 @@ fn highlight_for_token(
 fn highlight_refs<'a>(
     sema: &'a Semantics<'a, RootDb>,
     file_id: FileId,
-    def: ModuleDefId,
+    def: DefId,
     DocumentHighlightConfig { scope_visibility }: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
     let defs = def.origins(sema.db).into_iter().filter_map(|def| {

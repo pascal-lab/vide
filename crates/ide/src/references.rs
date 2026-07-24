@@ -1,4 +1,4 @@
-use hir::{def_id::ModuleDefId, file::HirFileId, semantics::Semantics};
+use hir::{def_id::DefId, file::HirFileId, semantics::Semantics};
 use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
@@ -49,7 +49,7 @@ impl ReferencesConfig {
         Self { scope_visibility, search_scope }
     }
 
-    pub(crate) fn search_scope(&self, db: &RootDb, def: &ModuleDefId) -> SearchScope {
+    pub(crate) fn search_scope(&self, db: &RootDb, def: &DefId) -> SearchScope {
         SearchScope::new(db, def, self.clone())
     }
 }
@@ -137,10 +137,9 @@ fn references_for_token(
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
     handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
-        let def = match DefinitionClass::resolve(sema, hir_file_id, token)? {
+        let def = match DefinitionClass::resolve(sema, hir_file_id, token)?.unique()? {
             DefinitionClass::Definition(def) => def,
             DefinitionClass::PortConnShorthand { local, .. } => local,
-            DefinitionClass::Ambiguous(_) => return None,
         };
         Some(vec![search_refs(sema, def, config)])
     })
@@ -178,7 +177,7 @@ pub(crate) fn handle_ctrl_flow_kw(
 
 fn search_refs<'a>(
     sema: &'a Semantics<'a, RootDb>,
-    def: ModuleDefId,
+    def: DefId,
     config: ReferencesConfig,
 ) -> References {
     let refs = ReferencesCtx::new(sema, &def, config)

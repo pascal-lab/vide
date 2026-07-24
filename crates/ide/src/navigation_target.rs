@@ -18,7 +18,7 @@ use hir::{
         typedef::TypedefId,
     },
     source_map::{IsNamedSrc, IsSrc},
-    symbol::DefId,
+    symbol::DefOrigin,
 };
 use smol_str::SmolStr;
 use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange};
@@ -53,7 +53,7 @@ pub(crate) trait ToNav {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget>;
 }
 
-impl ToNav for DefId {
+impl ToNav for DefOrigin {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { file_id, value: full_range } = self.range(db)?;
         let focus_range = self.name_range(db).map(|range| range.value);
@@ -160,13 +160,13 @@ impl ToNav for GenerateBlockId {
 
 impl ToNav for InContainer<LocalSubroutineId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        DefId::new(db, *self).to_nav(db)
+        DefOrigin::new(db, *self).to_nav(db)
     }
 }
 
 impl ToNav for InSubroutine<SubroutinePortId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        DefId::new(db, *self).to_nav(db)
+        DefOrigin::new(db, *self).to_nav(db)
     }
 }
 

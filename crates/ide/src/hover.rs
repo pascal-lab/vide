@@ -176,33 +176,49 @@ fn handle_definition(
     let mut res = Markup::new();
 
     match def {
-        DefinitionClass::Definition(def) => {
+        hir::symbol::Resolution::Unique(DefinitionClass::Definition(def)) => {
             res.merge(render::render_definition(sema, def, anchor_file_id));
         }
-        DefinitionClass::PortConnShorthand { port, local } => {
+        hir::symbol::Resolution::Unique(DefinitionClass::PortConnShorthand { port, local }) => {
             res.title("Port connection shorthand");
             res.section("Port");
             res.merge(render::render_definition(sema, port, anchor_file_id));
             res.section("Local");
             res.merge(render::render_definition(sema, local, anchor_file_id));
         }
-        DefinitionClass::Ambiguous(definitions) => {
+        hir::symbol::Resolution::Ambiguous(definitions) => {
             let token_text = token_text.unwrap_or_else(|| "reference".to_string());
             let candidate_count = definitions.len();
-            res.title(&format!("Module reference {}", inline_code(&token_text)));
+            let title = if definitions.iter().all(|definition| {
+                matches!(
+                    definition,
+                    DefinitionClass::Definition(def) if def.kind(sema.db).is_instantiable_def()
+                )
+            }) {
+                "Module reference"
+            } else {
+                "Reference"
+            };
+            res.title(&format!("{title} {}", inline_code(&token_text)));
             res.push_with_code_fence(&token_text);
-            res.metadata_line(&format!(
-                "ambiguous reference, {candidate_count} candidate{}",
-                if candidate_count == 1 { "" } else { "s" }
-            ));
+            res.metadata_line(&format!("ambiguous reference, {candidate_count} candidates"));
             res.section("Candidates");
             for (idx, definition) in definitions.into_iter().enumerate() {
                 if idx > 0 && !res.as_str().ends_with('\n') {
                     res.print("\n");
                 }
-                res.merge(render::render_definition_location(sema, definition, anchor_file_id));
+                match definition {
+                    DefinitionClass::Definition(definition) => res.merge(
+                        render::render_definition_location(sema, definition, anchor_file_id),
+                    ),
+                    DefinitionClass::PortConnShorthand { port, local } => {
+                        res.merge(render::render_definition_location(sema, port, anchor_file_id));
+                        res.merge(render::render_definition_location(sema, local, anchor_file_id));
+                    }
+                }
             }
         }
+        hir::symbol::Resolution::Unresolved => return None,
     }
 
     Some(res)
