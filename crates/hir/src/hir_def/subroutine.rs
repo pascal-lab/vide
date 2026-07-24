@@ -26,7 +26,7 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{InContainer, ScopeId},
+    container::{ArenaOwnerId, SubroutineParent, SubroutineScope},
     db::HirDb,
     region_tree::RegionTree,
     source_map::{AstKind, NamedAstId, SourceMap},
@@ -234,7 +234,7 @@ fn map_direction(kind: Option<TokenKind>) -> SubroutinePortDir {
 pub(crate) type LowerSubroutineBodyCtx<'a> = LoweringCtx<'a, SubroutineStore<'a>>;
 
 impl LowerSubroutineBodyCtx<'_> {
-    fn container_id(&self) -> ScopeId {
+    fn container_id(&self) -> ArenaOwnerId {
         self.owner
     }
 
@@ -351,33 +351,19 @@ pub(crate) fn lower_subroutine_body(
 
 pub(crate) fn subroutine_with_source_map_query(
     db: &dyn HirDb,
-    subroutine_id: InContainer<LocalSubroutineId>,
+    subroutine_id: SubroutineScope,
 ) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>) {
-    match subroutine_id.cont_id {
-        ScopeId::File(file_id) => {
-            let file = db.hir_file(file_id);
-            let subroutine = file.subroutines[subroutine_id.value].clone();
-            let source_map = subroutine.source_map.clone();
-            (Arc::new(subroutine), Arc::new(source_map))
+    let subroutine = match subroutine_id.cont_id {
+        SubroutineParent::File(file_id) => {
+            db.hir_file(file_id).subroutines[subroutine_id.value].clone()
         }
-        ScopeId::Module(module_id) => {
-            let module = db.module(module_id);
-            let subroutine = module.subroutines[subroutine_id.value].clone();
-            let source_map = subroutine.source_map.clone();
-            (Arc::new(subroutine), Arc::new(source_map))
+        SubroutineParent::Module(module_id) => {
+            db.module(module_id).subroutines[subroutine_id.value].clone()
         }
-        ScopeId::GenerateBlock(generate_block_id) => {
-            let generate_block = db.generate_block(generate_block_id);
-            let subroutine = generate_block.subroutines[subroutine_id.value].clone();
-            let source_map = subroutine.source_map.clone();
-            (Arc::new(subroutine), Arc::new(source_map))
+        SubroutineParent::GenerateBlock(generate_block_id) => {
+            db.generate_block(generate_block_id).subroutines[subroutine_id.value].clone()
         }
-        ScopeId::Block(_)
-        | ScopeId::Subroutine(_)
-        | ScopeId::ClockingBlock(_)
-        | ScopeId::Checker(_)
-        | ScopeId::Covergroup(_) => {
-            unreachable!("subroutines are lowered only in file, module, or generate-block scopes")
-        }
-    }
+    };
+    let source_map = subroutine.source_map.clone();
+    (Arc::new(subroutine), Arc::new(source_map))
 }

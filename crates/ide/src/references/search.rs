@@ -105,7 +105,7 @@ impl SearchScope {
                 Self::single_source_range(db, src.file_id, src.value.range())
             }
             ScopeId::Subroutine(subroutine_id) => {
-                let def_id = DefOrigin::new(db, subroutine_id.as_in_container());
+                let def_id = DefOrigin::new(db, subroutine_id);
                 match def_id.range(db) {
                     Some(InFile { file_id, value: range }) => {
                         Self::single_source_range(db, file_id, range)
@@ -123,7 +123,7 @@ impl SearchScope {
                 }
             }
             ScopeId::Checker(checker_id) => {
-                let def_id = DefOrigin::new(db, checker_id.as_in_container());
+                let def_id = DefOrigin::new(db, checker_id);
                 match def_id.range(db) {
                     Some(InFile { file_id, value: range }) => {
                         Self::single_source_range(db, file_id, range)
@@ -132,7 +132,7 @@ impl SearchScope {
                 }
             }
             ScopeId::Covergroup(covergroup_id) => {
-                let def_id = DefOrigin::new(db, covergroup_id.as_in_container());
+                let def_id = DefOrigin::new(db, covergroup_id);
                 match def_id.range(db) {
                     Some(InFile { file_id, value: range }) => {
                         Self::single_source_range(db, file_id, range)

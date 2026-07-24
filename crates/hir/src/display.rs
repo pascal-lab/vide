@@ -115,7 +115,7 @@ impl HirDisplay for Ty {
             Ty::Event => f.write_str("event"),
             Ty::Chandle => f.write_str("chandle"),
             Ty::Alias { typedef, target } => {
-                let container = typedef.cont_id.to_container(f.db);
+                let container = typedef.cont_id.data(f.db);
                 if let Some(name) = &container.typedef(typedef.value).name {
                     f.write_str(name)
                 } else {
@@ -168,7 +168,7 @@ fn hir_fmt_def_backed_type(
 ) -> Result<(), HirDisplayError> {
     f.write_str(keyword)?;
     if let DefOriginLoc::Typedef(typedef) = def.primary_origin(f.db).loc(f.db) {
-        let container = typedef.cont_id.to_container(f.db);
+        let container = typedef.cont_id.data(f.db);
         if let Some(name) = &container.typedef(typedef.value).name {
             f.write_str(" ")?;
             f.write_str(name)?;
@@ -190,7 +190,7 @@ fn hir_fmt_named_def_type(
     Ok(())
 }
 
-fn ty_expr_container(db: &dyn crate::db::HirDb, ty: &Ty) -> Option<crate::container::ScopeId> {
+fn ty_expr_container(db: &dyn crate::db::HirDb, ty: &Ty) -> Option<crate::container::ArenaOwnerId> {
     match ty {
         Ty::Builtin(BuiltinTy::Data { container, .. }) => Some(*container),
         Ty::Struct(struct_ref) => Some(struct_ref.cont_id),
@@ -302,7 +302,7 @@ impl HirDisplay for InContainer<DataTy> {
             },
             DataTy::Enum => f.write_str("enum"),
             DataTy::Struct(struct_ref) => {
-                let cont = struct_ref.cont_id.to_container(f.db);
+                let cont = struct_ref.cont_id.data(f.db);
                 let def = cont.struct_def(struct_ref.value);
                 let keyword = match def.kind {
                     StructKind::Struct => "struct",
@@ -368,7 +368,7 @@ impl HirDisplay for InModule<PortHeader> {
 impl HirDisplay for InContainer<ExprId> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         let InContainer { cont_id, value: expr_id } = self;
-        let container = cont_id.to_container(f.db);
+        let container = cont_id.data(f.db);
         let expr = container.expr(*expr_id);
         self.with_value(expr).hir_fmt(f)
     }
@@ -674,7 +674,7 @@ impl HirDisplay for InContainer<Dimension> {
 impl HirDisplay for InContainer<DeclId> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         let InContainer { cont_id, value: decl_id } = self;
-        let container = cont_id.to_container(f.db);
+        let container = cont_id.data(f.db);
         let decl = container.declarator(*decl_id);
 
         if let Some(name) = &decl.name {
@@ -692,7 +692,7 @@ impl HirDisplay for InContainer<DeclId> {
 impl HirDisplay for InContainer<TypedefId> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         let InContainer { cont_id, value: typedef_id } = self;
-        let container = cont_id.to_container(f.db);
+        let container = cont_id.data(f.db);
         let typedef = container.typedef(*typedef_id);
 
         f.write_str("typedef ")?;

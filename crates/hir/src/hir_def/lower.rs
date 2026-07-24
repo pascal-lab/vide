@@ -28,7 +28,7 @@ use super::{
     ty::NetKind,
 };
 use crate::{
-    container::ScopeId, db::InternDb, file::HirFileId, region_tree::RegionTreeBuilder,
+    container::ArenaOwnerId, db::InternDb, file::HirFileId, region_tree::RegionTreeBuilder,
     source_map::SourceMap,
 };
 
@@ -351,7 +351,7 @@ pub(crate) struct LoweringDiagnostic {
 pub(crate) struct LoweringCtx<'a, Store> {
     pub(crate) db: &'a dyn InternDb,
     pub(crate) file_id: HirFileId,
-    pub(crate) owner: ScopeId,
+    pub(crate) owner: ArenaOwnerId,
     pub(crate) store: Store,
     pub(crate) diagnostics: Vec<LoweringDiagnostic>,
     pub(crate) region_tree: RegionTreeBuilder,
@@ -362,7 +362,7 @@ impl<'a, Store> LoweringCtx<'a, Store> {
     pub(crate) fn new(
         db: &'a dyn InternDb,
         file_id: HirFileId,
-        owner: ScopeId,
+        owner: ArenaOwnerId,
         store: Store,
     ) -> Self {
         Self {
@@ -377,22 +377,22 @@ impl<'a, Store> LoweringCtx<'a, Store> {
     }
 
     pub(crate) fn module_id(&self) -> ModuleId {
-        let ScopeId::Module(module_id) = self.owner else {
-            unreachable!("module-only lowering called for {:?}", self.owner.kind());
+        let ArenaOwnerId::Module(module_id) = self.owner else {
+            unreachable!("module-only lowering called for {:?}", self.owner);
         };
         module_id
     }
 
     pub(crate) fn generate_block_id(&self) -> GenerateBlockId {
-        let ScopeId::GenerateBlock(generate_block_id) = self.owner else {
-            unreachable!("generate-block-only lowering called for {:?}", self.owner.kind());
+        let ArenaOwnerId::GenerateBlock(generate_block_id) = self.owner else {
+            unreachable!("generate-block-only lowering called for {:?}", self.owner);
         };
         generate_block_id
     }
 
     pub(crate) fn block_id(&self) -> BlockId {
-        let ScopeId::Block(block_id) = self.owner else {
-            unreachable!("block-only lowering called for {:?}", self.owner.kind());
+        let ArenaOwnerId::Block(block_id) = self.owner else {
+            unreachable!("block-only lowering called for {:?}", self.owner);
         };
         block_id
     }
