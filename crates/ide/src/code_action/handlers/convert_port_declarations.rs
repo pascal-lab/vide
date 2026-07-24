@@ -220,8 +220,7 @@ fn non_ansi_port_replacement(
     name: &Ident,
     text: &str,
 ) -> Option<NonAnsiPortReplacement> {
-    let defs = module_scope.lookup(NameContext::Value, name);
-    let def = defs.iter().find(|def_id| def_id.is_non_ansi_port(ctx.sema().db))?;
+    let def = module_scope.lookup(NameContext::Value, name).unique()?;
     let origins = def.origins(ctx.sema().db);
 
     let port_decl = origins

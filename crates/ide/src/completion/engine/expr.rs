@@ -175,12 +175,16 @@ fn collect_def_names(
 ) {
     let defs = defs.into_iter().collect::<Vec<_>>();
 
-    if let Some(subroutine_id) =
-        defs.iter().find_map(|def_id| def_id.primary_origin(db).as_subroutine(db))
-    {
-        names.entry(ident.to_string()).or_insert(NameKind::SubroutineCall {
-            return_ty: subroutine_return_ty(db, subroutine_id),
-        });
+    let subroutines = Resolution::from_candidates(
+        defs.iter().filter_map(|def_id| def_id.primary_origin(db).as_subroutine(db)),
+    );
+    let return_ty = match subroutines {
+        Resolution::Unresolved => None,
+        Resolution::Unique(subroutine_id) => Some(subroutine_return_ty(db, subroutine_id)),
+        Resolution::Ambiguous(_) => Some(Ty::Unknown),
+    };
+    if let Some(return_ty) = return_ty {
+        names.entry(ident.to_string()).or_insert(NameKind::SubroutineCall { return_ty });
         return;
     }
 
@@ -264,7 +268,7 @@ fn expected_type_for_assignment_rhs(
         return None;
     }
 
-    let res = sema.expr_to_def(sema.resolve_expr(file_id, assignment.left())?)?;
+    let res = sema.expr_to_def(sema.resolve_expr(file_id, assignment.left())?);
     Some(db.type_of_path_resolution(res).ty.clone())
 }
 
@@ -285,7 +289,7 @@ fn expected_type_for_declarator_initializer(
 
     let ident = lower_ident_opt(declarator.name())?;
     let container_id = sema.container_for_node(file_id, declarator.syntax())?;
-    let res = sema.name_to_def(InContainer::new(container_id, ident))?;
+    let res = sema.name_to_def(InContainer::new(container_id, ident));
     Some(db.type_of_path_resolution(res).ty.clone())
 }
 

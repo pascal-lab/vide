@@ -140,7 +140,7 @@ pub(crate) fn render_definition(
     def: DefId,
     anchor_file_id: vfs::FileId,
 ) -> Markup {
-    def.def_origins(sema.db).into_iter().fold(Markup::new(), |mut res, origin| {
+    def.declaration_origins(sema.db).into_iter().fold(Markup::new(), |mut res, origin| {
         let origin = render_def_origin(sema, &origin, anchor_file_id);
 
         if !res.is_empty() && !origin.is_empty() {
@@ -159,7 +159,7 @@ pub(crate) fn render_definition_location(
 ) -> Markup {
     let db = sema.db;
     let mut locations = def
-        .def_origins(db)
+        .declaration_origins(db)
         .into_iter()
         .filter_map(|origin| render_def_origin_location(db, &origin, anchor_file_id))
         .collect_vec();

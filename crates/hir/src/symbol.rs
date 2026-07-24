@@ -311,18 +311,8 @@ impl<T> Resolution<T> {
         if self.is_unresolved() { fallback() } else { self }
     }
 
-    pub fn into_option(self) -> Option<Self> {
-        if self.is_unresolved() { None } else { Some(self) }
-    }
-
-    pub fn map<U>(self, mut map: impl FnMut(T) -> U) -> Resolution<U> {
-        match self {
-            Resolution::Unresolved => Resolution::Unresolved,
-            Resolution::Unique(value) => Resolution::Unique(map(value)),
-            Resolution::Ambiguous(candidates) => {
-                Resolution::Ambiguous(candidates.into_iter().map(map).collect())
-            }
-        }
+    pub fn map<U: Eq>(self, map: impl FnMut(T) -> U) -> Resolution<U> {
+        Resolution::from_candidates(self.into_candidates().into_iter().map(map))
     }
 }
 
@@ -506,4 +496,15 @@ pub enum SymbolKind {
     Library,
     Region,
     Unknown,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Resolution;
+
+    #[test]
+    fn resolution_map_deduplicates_candidates() {
+        let resolution = Resolution::from_candidates([1, 2]).map(|_| 0);
+        assert_eq!(resolution, Resolution::Unique(0));
+    }
 }

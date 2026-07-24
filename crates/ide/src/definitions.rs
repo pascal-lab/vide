@@ -36,59 +36,54 @@ impl DefinitionClass {
         sema: &Semantics<'_, RootDb>,
         file_id: HirFileId,
         tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
-    ) -> Option<DefinitionResolution> {
+    ) -> DefinitionResolution {
         if !tok.kind().name_like() {
-            return None;
+            return Resolution::Unresolved;
         }
 
         if let Some(resolution) = resolve_member_or_scoped_name(sema, file_id, tp) {
-            return Some(resolution);
+            return resolution;
         }
 
         if let Some(resolution) = resolve_declaration_name(sema, file_id, tp) {
-            return Some(resolution);
+            return resolution;
         }
 
         if let Some(resolution) = resolve_instantiation_type_name(sema, file_id, tp) {
-            return Some(resolution);
+            return resolution;
         }
 
         if let Some(resolution) = resolve_package_import_item(sema, file_id, tp) {
-            return Some(resolution);
+            return resolution;
         }
 
         if let Some(resolution) = resolve_package_scoped_name(sema, file_id, tp) {
-            return Some(resolution);
+            return resolution;
         }
 
         if token_is_in_non_dot_scoped_name(parent) {
-            return None;
+            return Resolution::Unresolved;
         }
 
-        let resolution = match_ast! { parent,
+        match_ast! { parent,
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
-                resolve_named_param_assignment(sema.db, file_id.file_id(), it)?
+                resolve_named_param_assignment(sema.db, file_id.file_id(), it)
                     .map(DefinitionClass::Definition)
             },
             ast::NamedPortConnection[it] if it.name() == Some(tok) => {
-                let port = resolve_named_port_connection(sema.db, file_id.file_id(), it)
-                    .unwrap_or(Resolution::Unresolved);
+                let port = resolve_named_port_connection(sema.db, file_id.file_id(), it);
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
-                    let local = sema
-                        .nameres_ident(file_id, tp, NameContext::Value)
-                        .unwrap_or(Resolution::Unresolved);
+                    let local = sema.nameres_ident(file_id, tp, NameContext::Value);
                     combine_port_shorthand(port, local)
                 } else {
                     port.map(DefinitionClass::Definition)
                 }
             },
             _ => sema
-                .nameres_ident(file_id, tp, name_context_for_token(parent))?
+                .nameres_ident(file_id, tp, name_context_for_token(parent))
                 .map(DefinitionClass::Definition),
-        };
-
-        resolution.into_option()
+        }
     }
 
     pub(crate) fn origins(self, db: &RootDb) -> SmallVec<[DefOrigin; 6]> {
@@ -127,10 +122,12 @@ fn resolve_declaration_name(
     if let Some(module) = SyntaxAncestors::start_from(parent).find_map(ast::ModuleDeclaration::cast)
         && module.name() == Some(tok)
     {
-        let module_id = sema.module_to_def(file_id, module)?;
-        return Some(Resolution::Unique(DefinitionClass::Definition(DefId::new(
-            sema.db, module_id,
-        ))));
+        let resolution = sema
+            .module_to_def(file_id, module)
+            .map(|module_id| DefinitionClass::Definition(DefId::new(sema.db, module_id)))
+            .map(Resolution::Unique)
+            .unwrap_or(Resolution::Unresolved);
+        return Some(resolution);
     }
 
     None
@@ -145,10 +142,11 @@ fn resolve_member_or_scoped_name(
         SyntaxAncestors::start_from(parent).find_map(ast::MemberAccessExpression::cast)
         && access.name() == Some(tok)
     {
-        let expr = ast::Expression::cast(access.syntax())?;
-        return Some(
-            sema.expr_to_def(sema.resolve_expr(file_id, expr)?)?.map(DefinitionClass::Definition),
-        );
+        let resolution = ast::Expression::cast(access.syntax())
+            .and_then(|expr| sema.resolve_expr(file_id, expr))
+            .map(|expr_id| sema.expr_to_def(expr_id))
+            .unwrap_or(Resolution::Unresolved);
+        return Some(resolution.map(DefinitionClass::Definition));
     }
 
     let scoped = SyntaxAncestors::start_from(parent).find_map(ast::ScopedName::cast)?;
@@ -160,8 +158,11 @@ fn resolve_member_or_scoped_name(
         return None;
     }
 
-    let expr = ast::Expression::cast(scoped.syntax())?;
-    Some(sema.expr_to_def(sema.resolve_expr(file_id, expr)?)?.map(DefinitionClass::Definition))
+    let resolution = ast::Expression::cast(scoped.syntax())
+        .and_then(|expr| sema.resolve_expr(file_id, expr))
+        .map(|expr_id| sema.expr_to_def(expr_id))
+        .unwrap_or(Resolution::Unresolved);
+    Some(resolution.map(DefinitionClass::Definition))
 }
 
 fn resolve_package_scoped_name(
@@ -175,9 +176,9 @@ fn resolve_package_scoped_name(
     }
 
     let left = scoped_left_token(scoped)?;
-    let packages = package_defs(sema, file_id, left)?;
+    let packages = package_defs(sema, file_id, left);
     if left.tok == tok {
-        return packages.map(DefinitionClass::Definition).into_option();
+        return Some(packages.map(DefinitionClass::Definition));
     }
 
     let right_tok = scoped_right_token(scoped)?;
@@ -187,7 +188,7 @@ fn resolve_package_scoped_name(
 
     let ident = lower_ident_opt(Some(tok))?;
     let primary_ctx = name_context_for_token(parent);
-    package_member_resolution(sema, packages, &ident, primary_ctx).into_option()
+    Some(package_member_resolution(sema, packages, &ident, primary_ctx))
 }
 
 fn resolve_package_import_item(
@@ -197,31 +198,29 @@ fn resolve_package_import_item(
 ) -> Option<DefinitionResolution> {
     let item = SyntaxAncestors::start_from(parent).find_map(ast::PackageImportItem::cast)?;
     let package_token = SyntaxTokenWithParent { parent: item.syntax(), tok: item.package()? };
-    let packages = package_defs(sema, file_id, package_token)?;
+    let packages = package_defs(sema, file_id, package_token);
     if item.package() == Some(tok) {
-        return packages.map(DefinitionClass::Definition).into_option();
+        return Some(packages.map(DefinitionClass::Definition));
     }
 
     if item.item() != Some(tok) {
         return None;
     }
     let ident = lower_ident_opt(Some(tok))?;
-    package_member_resolution(sema, packages, &ident, NameContext::Type).into_option()
+    Some(package_member_resolution(sema, packages, &ident, NameContext::Type))
 }
 
 fn package_defs(
     sema: &Semantics<'_, RootDb>,
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
-) -> Option<Resolution<DefId>> {
-    let resolution = sema.nameres_ident(file_id, token, NameContext::Type)?;
+) -> Resolution<DefId> {
     Resolution::from_candidates(
-        resolution
+        sema.nameres_ident(file_id, token, NameContext::Type)
             .into_candidates()
             .into_iter()
             .filter(|def| def.kind(sema.db) == DefKind::Package),
     )
-    .into_option()
 }
 
 fn package_member_resolution(
@@ -254,6 +253,24 @@ fn resolve_instantiation_type_name(
     tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<DefinitionResolution> {
     if let Some(instantiation) =
+        SyntaxAncestors::start_from(parent).find_map(ast::PrimitiveInstantiation::cast)
+        && instantiation.type_() == Some(tok)
+    {
+        return Some(
+            sema.nameres_ident(file_id, tp, NameContext::Value).map(DefinitionClass::Definition),
+        );
+    }
+
+    if let Some(instantiation) =
+        SyntaxAncestors::start_from(parent).find_map(ast::CheckerInstantiation::cast)
+        && rightmost_name_token(instantiation.type_()) == Some(tok)
+    {
+        return Some(
+            sema.nameres_ident(file_id, tp, NameContext::Type).map(DefinitionClass::Definition),
+        );
+    }
+
+    if let Some(instantiation) =
         SyntaxAncestors::start_from(parent).find_map(ast::HierarchyInstantiation::cast)
         && instantiation.type_() == Some(tok)
     {
@@ -267,30 +284,17 @@ fn resolve_instantiation_type_name(
                     candidates.into_iter().map(|module_id| DefId::new(sema.db, module_id)),
                 ),
                 ModuleResolution::Unresolved => {
-                    sema.nameres_ident(file_id, tp, NameContext::Type)?
+                    sema.nameres_ident(file_id, tp, NameContext::Type).or_else(|| {
+                        Resolution::from_candidates(
+                            sema.nameres_ident(file_id, tp, NameContext::Value)
+                                .into_candidates()
+                                .into_iter()
+                                .filter(|def| def.kind(sema.db) == DefKind::Udp),
+                        )
+                    })
                 }
             };
-        return resolution.map(DefinitionClass::Definition).into_option();
-    }
-
-    if let Some(instantiation) =
-        SyntaxAncestors::start_from(parent).find_map(ast::PrimitiveInstantiation::cast)
-        && instantiation.type_() == Some(tok)
-    {
-        return sema
-            .nameres_ident(file_id, tp, NameContext::Value)?
-            .map(DefinitionClass::Definition)
-            .into_option();
-    }
-
-    if let Some(instantiation) =
-        SyntaxAncestors::start_from(parent).find_map(ast::CheckerInstantiation::cast)
-        && rightmost_name_token(instantiation.type_()) == Some(tok)
-    {
-        return sema
-            .nameres_ident(file_id, tp, NameContext::Type)?
-            .map(DefinitionClass::Definition)
-            .into_option();
+        return Some(resolution.map(DefinitionClass::Definition));
     }
 
     None
@@ -424,7 +428,7 @@ mod tests {
             }
             .unwrap();
             let DefinitionClass::Definition(def) =
-                DefinitionClass::resolve(&sema, file_id.into(), token).unwrap().unique().unwrap()
+                DefinitionClass::resolve(&sema, file_id.into(), token).unique().unwrap()
             else {
                 panic!("expected plain definition for {name}");
             };
@@ -483,7 +487,7 @@ endmodule
             .unwrap();
 
         let DefinitionClass::Definition(def) =
-            DefinitionClass::resolve(&sema, file_id.into(), token).unwrap().unique().unwrap()
+            DefinitionClass::resolve(&sema, file_id.into(), token).unique().unwrap()
         else {
             panic!("expected plain definition for hierarchical leaf");
         };
@@ -493,6 +497,106 @@ endmodule
             origins.iter().any(|origin| origin.kind(db) == DefKind::Net),
             "hierarchical leaf should resolve to child net, got {origins:?}"
         );
+    }
+
+    #[test]
+    fn unresolved_member_does_not_fall_back_to_lexical_name() {
+        let text = r#"
+module child;
+endmodule
+
+module top;
+  child c();
+  wire missing;
+  wire sink = c.mi/*caret*/ssing;
+endmodule
+"#;
+        let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
+        let text = text.replace("/*caret*/", "");
+        let (host, file_id) = host_with_file(&text);
+        let sema = Semantics::<RootDb>::new(host.raw_db());
+        let parsed = sema.parse_file(file_id);
+        let token = parsed
+            .compilation_unit()
+            .unwrap()
+            .syntax()
+            .token_at_offset(offset)
+            .pick_bext_token(crate::goto_definition::token_precedence)
+            .unwrap();
+
+        assert_eq!(DefinitionClass::resolve(&sema, file_id.into(), token), Resolution::Unresolved);
+    }
+
+    #[test]
+    fn named_parameter_resolution_preserves_ambiguity() {
+        let text = r#"
+module target #(parameter A = 1, parameter A = 2);
+endmodule
+
+module top;
+  target #(.A/*caret*/(3)) u();
+endmodule
+"#;
+        let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
+        let text = text.replace("/*caret*/", "");
+        let (host, file_id) = host_with_file(&text);
+        let db = host.raw_db();
+        let sema = Semantics::<RootDb>::new(db);
+        let parsed = sema.parse_file(file_id);
+        let token = parsed
+            .compilation_unit()
+            .unwrap()
+            .syntax()
+            .token_at_offset(offset)
+            .pick_bext_token(crate::goto_definition::token_precedence)
+            .unwrap();
+
+        let Resolution::Ambiguous(candidates) =
+            DefinitionClass::resolve(&sema, file_id.into(), token)
+        else {
+            panic!("duplicate named parameters should remain ambiguous");
+        };
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().all(
+            |candidate| matches!(candidate, DefinitionClass::Definition(def) if def.kind(db) == DefKind::Param)
+        ));
+    }
+
+    #[test]
+    fn udp_instantiation_type_resolves_in_value_namespace() {
+        let text = r#"
+primitive udp_and(out, in);
+  output out;
+  input in;
+  table
+    0 : 0;
+  endtable
+endprimitive
+
+module top;
+  wire sig;
+  udp_/*caret*/and u(sig, sig);
+endmodule
+"#;
+        let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
+        let text = text.replace("/*caret*/", "");
+        let (host, file_id) = host_with_file(&text);
+        let db = host.raw_db();
+        let sema = Semantics::<RootDb>::new(db);
+        let parsed = sema.parse_file(file_id);
+        let token = parsed
+            .compilation_unit()
+            .unwrap()
+            .syntax()
+            .token_at_offset(offset)
+            .pick_bext_token(crate::goto_definition::token_precedence)
+            .unwrap();
+
+        let resolution = DefinitionClass::resolve(&sema, file_id.into(), token);
+        let Some(DefinitionClass::Definition(def)) = resolution.unique() else {
+            panic!("UDP type should resolve uniquely, got {resolution:?}");
+        };
+        assert_eq!(def.kind(db), DefKind::Udp);
     }
 
     #[test]
@@ -517,7 +621,7 @@ endmodule
             .pick_bext_token(crate::goto_definition::token_precedence)
             .unwrap();
 
-        let resolution = DefinitionClass::resolve(&sema, file_id.into(), token).unwrap();
+        let resolution = DefinitionClass::resolve(&sema, file_id.into(), token);
         let Resolution::Ambiguous(candidates) = resolution else {
             panic!("duplicate declarations should produce an ambiguous definition resolution");
         };

@@ -90,14 +90,14 @@ fn nav_targets_for_token(
     token: SyntaxTokenWithParent,
 ) -> Option<Vec<NavTarget>> {
     handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
-        DefinitionClass::resolve(sema, hir_file_id, token)?
+        let navs = DefinitionClass::resolve(sema, hir_file_id, token)
             .into_candidates()
             .into_iter()
             .flat_map(|class| class.origins(db))
             .unique()
             .filter_map(|def| def.to_nav(db))
-            .collect_vec()
-            .into()
+            .collect_vec();
+        (!navs.is_empty()).then_some(navs)
     })
 }
 

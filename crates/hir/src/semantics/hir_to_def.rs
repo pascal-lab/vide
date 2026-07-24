@@ -9,7 +9,7 @@ use crate::{
         Ident,
         expr::{Expr, ExprId},
     },
-    semantics::pathres::{descend_scope, name_scope, resolve_name, resolve_path},
+    semantics::pathres::{resolve_child_name, resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
 };
 
@@ -23,37 +23,30 @@ impl Source2DefCtx<'_, '_> {
     pub(super) fn expr_to_def(
         &mut self,
         InContainer { cont_id, value: expr_id }: InContainer<ExprId>,
-    ) -> Option<Resolution<DefId>> {
+    ) -> Resolution<DefId> {
         let db = self.db;
 
-        let mut resolve = |expr: &Expr| match expr {
-            Expr::Field { receiver, field } => {
-                let field = field.as_ref()?;
-                if let Some(res) = self.resolve_expr_path(cont_id, expr_id, NameContext::Value) {
-                    self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res.clone());
-                    return Some(res);
+        let mut resolve = |expr: &Expr| {
+            let res = match expr {
+                Expr::Field { receiver, field } => {
+                    let Some(field) = field.as_ref() else {
+                        return Resolution::Unresolved;
+                    };
+                    self.resolve_expr_path(cont_id, expr_id, NameContext::Value).or_else(|| {
+                        let receiver_res = self.expr_to_def(InContainer::new(cont_id, *receiver));
+                        resolve_child_name(self.db, &receiver_res, field, NameContext::Value)
+                    })
                 }
-                let receiver_res = self.expr_to_def(InContainer::new(cont_id, *receiver))?;
-                let res = self.resolve_member_from_resolution(receiver_res, field)?;
-                self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res.clone());
-                Some(res)
-            }
-            Expr::ElementSelect { receiver, .. } => {
-                if let Some(res) = self.resolve_expr_path(cont_id, expr_id, NameContext::Value) {
-                    self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res.clone());
-                    return Some(res);
+                Expr::ElementSelect { receiver, .. } => self
+                    .resolve_expr_path(cont_id, expr_id, NameContext::Value)
+                    .or_else(|| self.expr_to_def(InContainer::new(cont_id, *receiver))),
+                Expr::Ident(ident) => {
+                    self.name_to_def(InContainer::new(cont_id, ident.clone()), NameContext::Value)
                 }
-                let res = self.expr_to_def(InContainer::new(cont_id, *receiver))?;
-                self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res.clone());
-                Some(res)
-            }
-            Expr::Ident(ident) => {
-                let res =
-                    self.name_to_def(InContainer::new(cont_id, ident.clone()), NameContext::Value)?;
-                self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res.clone());
-                Some(res)
-            }
-            _ => None,
+                _ => Resolution::Unresolved,
+            };
+            self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res.clone());
+            res
         };
 
         match cont_id {
@@ -77,7 +70,9 @@ impl Source2DefCtx<'_, '_> {
                 let subroutine = db.subroutine(subroutine_id.as_in_container());
                 resolve(subroutine.get(expr_id))
             }
-            ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
+            ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => {
+                Resolution::Unresolved
+            }
         }
     }
 
@@ -85,31 +80,10 @@ impl Source2DefCtx<'_, '_> {
         &mut self,
         InContainer { cont_id, value: ident }: InContainer<Ident>,
         name_ctx: NameContext,
-    ) -> Option<Resolution<DefId>> {
-        let res = resolve_name(self.db, cont_id, &ident, name_ctx).into_option()?;
+    ) -> Resolution<DefId> {
+        let res = resolve_name(self.db, cont_id, &ident, name_ctx);
         self.hir_cache.name_map.insert(InContainer::new(cont_id, ident), res.clone());
-        Some(res)
-    }
-
-    fn resolve_member_from_resolution(
-        &mut self,
-        res: Resolution<DefId>,
-        field: &Ident,
-    ) -> Option<Resolution<DefId>> {
-        let mut defs = smallvec::SmallVec::<[DefId; 3]>::new();
-        for def_id in res.candidates() {
-            let Some(scope_id) = descend_scope(self.db, *def_id) else {
-                continue;
-            };
-            for child in
-                name_scope(self.db, scope_id).lookup(NameContext::Value, field).into_candidates()
-            {
-                if !defs.contains(&child) {
-                    defs.push(child);
-                }
-            }
-        }
-        Resolution::from_candidates(defs).into_option()
+        res
     }
 
     fn resolve_expr_path(
@@ -117,9 +91,11 @@ impl Source2DefCtx<'_, '_> {
         cont_id: ScopeId,
         expr_id: ExprId,
         ctx: NameContext,
-    ) -> Option<Resolution<DefId>> {
-        let path = self.expr_path(cont_id, expr_id)?;
-        resolve_path(self.db, cont_id, &path, ctx).into_option()
+    ) -> Resolution<DefId> {
+        let Some(path) = self.expr_path(cont_id, expr_id) else {
+            return Resolution::Unresolved;
+        };
+        resolve_path(self.db, cont_id, &path, ctx)
     }
 
     fn expr_path(&self, cont_id: ScopeId, expr_id: ExprId) -> Option<Vec<Ident>> {
