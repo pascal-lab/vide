@@ -4,7 +4,7 @@ use utils::get::GetRef;
 
 use crate::{
     container::{ScopeId, ScopeParent},
-    db::HirDefDb as HirDb,
+    db::HirDefDb,
     def_id::DefId,
     hir_def::{
         Ident,
@@ -26,7 +26,7 @@ use crate::{
 // outside this resolver until those constructs are lowered.
 
 pub fn resolve_name(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     cont_id: ScopeId,
     ident: &Ident,
     ctx: NameContext,
@@ -53,7 +53,7 @@ pub fn resolve_name(
 }
 
 pub fn resolve_path(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     cont_id: ScopeId,
     path: &[Ident],
     ctx: NameContext,
@@ -76,7 +76,7 @@ pub fn resolve_path(
 }
 
 fn resolve_top_level_module_root(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     cont_id: ScopeId,
     ident: &Ident,
     ctx: NameContext,
@@ -101,7 +101,7 @@ fn resolve_top_level_module_root(
 }
 
 pub fn resolve_child_name(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     parent: &Resolution<DefId>,
     ident: &Ident,
     ctx: NameContext,
@@ -114,7 +114,7 @@ pub fn resolve_child_name(
     })
 }
 
-pub fn descend_scope(db: &dyn HirDb, def_id: DefId) -> Option<ScopeId> {
+pub fn descend_scope(db: &dyn HirDefDb, def_id: DefId) -> Option<ScopeId> {
     let origin = def_id.primary_origin(db);
     match def_id.kind(db) {
         DefKind::Module | DefKind::Interface | DefKind::Program => {
@@ -135,7 +135,7 @@ pub fn descend_scope(db: &dyn HirDb, def_id: DefId) -> Option<ScopeId> {
 }
 
 pub fn instance_target_def_id(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     module_id: ModuleId,
     instance_id: InstanceId,
 ) -> Option<DefId> {
@@ -147,7 +147,7 @@ pub fn instance_target_def_id(
     target.kind(db).is_instantiable_def().then_some(target)
 }
 
-pub(crate) fn name_scope(db: &dyn HirDb, scope_id: ScopeId) -> Arc<NameScope> {
+pub(crate) fn name_scope(db: &dyn HirDefDb, scope_id: ScopeId) -> Arc<NameScope> {
     match scope_id {
         ScopeId::File(file_id) => db.file_scope(file_id),
         ScopeId::Module(module_id) => db.module_scope(module_id),
@@ -161,7 +161,7 @@ pub(crate) fn name_scope(db: &dyn HirDb, scope_id: ScopeId) -> Arc<NameScope> {
 }
 
 fn resolve_imported_name(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     scopes: &[ScopeId],
     ident: &Ident,
     ctx: NameContext,
@@ -188,7 +188,7 @@ fn resolve_imported_name(
 }
 
 fn collect_imports(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     scope: &NameScope,
     ident: &Ident,
     ctx: NameContext,

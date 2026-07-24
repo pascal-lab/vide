@@ -7,7 +7,7 @@ use crate::{
     container::{
         InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine, SubroutineScope,
     },
-    db::{HirDefDb as HirDb, InternDb},
+    db::{HirDefDb, InternDb},
     def_id::DefId,
     hir_def::{
         Ident,
@@ -428,7 +428,7 @@ impl NameScope {
 
     pub fn module_ids(
         &self,
-        db: &dyn HirDb,
+        db: &dyn HirDefDb,
         ident: &Ident,
     ) -> Resolution<crate::hir_def::module::ModuleId> {
         let entries = self
@@ -444,7 +444,7 @@ impl NameScope {
 
     pub fn package_ids(
         &self,
-        db: &dyn HirDb,
+        db: &dyn HirDefDb,
         ident: &Ident,
     ) -> Resolution<crate::hir_def::module::PackageId> {
         let entries = self
@@ -458,7 +458,10 @@ impl NameScope {
         Resolution::from_candidates(entries)
     }
 
-    pub fn module_names<'a>(&'a self, db: &'a dyn HirDb) -> impl Iterator<Item = &'a Ident> + 'a {
+    pub fn module_names<'a>(
+        &'a self,
+        db: &'a dyn HirDefDb,
+    ) -> impl Iterator<Item = &'a Ident> + 'a {
         self.types.iter().filter_map(move |(ident, defs)| {
             defs.iter()
                 .any(|def_id| {
@@ -469,7 +472,10 @@ impl NameScope {
         })
     }
 
-    pub fn typedef_names<'a>(&'a self, db: &'a dyn HirDb) -> impl Iterator<Item = &'a Ident> + 'a {
+    pub fn typedef_names<'a>(
+        &'a self,
+        db: &'a dyn HirDefDb,
+    ) -> impl Iterator<Item = &'a Ident> + 'a {
         self.types.iter().filter_map(move |(ident, defs)| {
             defs.iter()
                 .any(|def_id| matches!(def_id.primary_origin(db).loc(db), DefOriginLoc::Typedef(_)))

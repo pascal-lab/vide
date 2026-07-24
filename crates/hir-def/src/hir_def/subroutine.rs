@@ -27,7 +27,7 @@ use super::{
 };
 use crate::{
     container::{ArenaOwnerId, SubroutineParent, SubroutineScope},
-    db::HirDefDb as HirDb,
+    db::HirDefDb,
     region_tree::RegionTree,
     source_map::{AstKind, NamedAstId, SourceMap},
 };
@@ -350,7 +350,7 @@ pub(crate) fn lower_subroutine_body(
 }
 
 pub(crate) fn subroutine_with_source_map_query(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     subroutine_id: SubroutineScope,
 ) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>) {
     let subroutine = match subroutine_id.cont_id {

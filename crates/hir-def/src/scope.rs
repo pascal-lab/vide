@@ -9,7 +9,7 @@ use crate::{
         ArenaOwnerId, FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope,
         InSubroutine, ScopeId, SubroutineParent, SubroutineScope,
     },
-    db::HirDefDb as HirDb,
+    db::HirDefDb,
     def_id::DefId,
     file::HirFileId,
     hir_def::{
@@ -41,7 +41,7 @@ use crate::{
 // - assertions: reserved for sequence/property/checker work
 // Hierarchical lookup remains a separate resolver path.
 
-fn def_id(db: &dyn HirDb, loc: impl Into<DefOriginLoc>) -> DefId {
+fn def_id(db: &dyn HirDefDb, loc: impl Into<DefOriginLoc>) -> DefId {
     DefId::new(db, loc)
 }
 
@@ -51,7 +51,7 @@ fn def_id(db: &dyn HirDb, loc: impl Into<DefOriginLoc>) -> DefId {
 /// here as the single source of truth.
 fn insert_decls_and_typedefs(
     scope: &mut NameScope,
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     cont_id: ArenaOwnerId,
     decls: &Arena<Declarator>,
     typedefs: &Arena<Typedef>,
@@ -68,7 +68,12 @@ fn insert_decls_and_typedefs(
 /// scope owns. Kept separate from `insert_decls_and_typedefs` so callers can
 /// place module/generate specific members between the two while preserving
 /// insertion order.
-fn insert_stmts(scope: &mut NameScope, db: &dyn HirDb, cont_id: ArenaOwnerId, stmts: &Arena<Stmt>) {
+fn insert_stmts(
+    scope: &mut NameScope,
+    db: &dyn HirDefDb,
+    cont_id: ArenaOwnerId,
+    stmts: &Arena<Stmt>,
+) {
     for (stmt_id, stmt) in stmts.iter() {
         scope.insert_value_opt(&stmt.label, def_id(db, InContainer::new(cont_id, stmt_id)));
         if let StmtKind::Block(BlockInfo { name, block_id }) = &stmt.kind {
@@ -78,7 +83,7 @@ fn insert_stmts(scope: &mut NameScope, db: &dyn HirDb, cont_id: ArenaOwnerId, st
 }
 
 impl NameScope {
-    pub fn unit_scope_query(db: &dyn HirDb) -> Arc<NameScope> {
+    pub fn unit_scope_query(db: &dyn HirDefDb) -> Arc<NameScope> {
         let mut scope = NameScope::default();
 
         for file_id in db.files().iter() {
@@ -90,11 +95,14 @@ impl NameScope {
         Arc::new(scope)
     }
 
-    pub fn package_export_scope_query(db: &dyn HirDb, package_id: PackageId) -> Arc<NameScope> {
+    pub fn package_export_scope_query(db: &dyn HirDefDb, package_id: PackageId) -> Arc<NameScope> {
         db.package_export_signature(package_id)
     }
 
-    pub fn package_export_signature_query(db: &dyn HirDb, package_id: PackageId) -> Arc<NameScope> {
+    pub fn package_export_signature_query(
+        db: &dyn HirDefDb,
+        package_id: PackageId,
+    ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
         let file_id = package_id.file_id;
         let (file, file_source_map) = db.hir_file_with_source_map(file_id);
@@ -123,7 +131,7 @@ impl NameScope {
         Arc::new(scope)
     }
 
-    pub(super) fn file_scope_query(db: &dyn HirDb, file_id: HirFileId) -> Arc<NameScope> {
+    pub(super) fn file_scope_query(db: &dyn HirDefDb, file_id: HirFileId) -> Arc<NameScope> {
         let mut scope = NameScope::default();
         let hir_file = db.hir_file(file_id);
 
@@ -196,7 +204,7 @@ impl NameScope {
     }
 
     pub fn module_scope_query(
-        db: &dyn HirDb,
+        db: &dyn HirDefDb,
         module_id: crate::hir_def::module::ModuleId,
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
@@ -293,7 +301,7 @@ impl NameScope {
     }
 
     pub fn clocking_block_scope_query(
-        db: &dyn HirDb,
+        db: &dyn HirDefDb,
         clocking_block_id: InModule<ClockingBlockId>,
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
@@ -310,7 +318,7 @@ impl NameScope {
     }
 
     pub fn checker_scope_query(
-        db: &dyn HirDb,
+        db: &dyn HirDefDb,
         checker_id: InFileOrModule<CheckerId>,
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
@@ -338,7 +346,7 @@ impl NameScope {
     }
 
     pub fn covergroup_scope_query(
-        db: &dyn HirDb,
+        db: &dyn HirDefDb,
         covergroup_id: InFileOrModule<CovergroupId>,
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
@@ -388,7 +396,7 @@ impl NameScope {
     }
 
     pub fn generate_block_scope_query(
-        db: &dyn HirDb,
+        db: &dyn HirDefDb,
         generate_block_id: GenerateBlockId,
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
@@ -427,7 +435,7 @@ impl NameScope {
     }
 
     pub fn block_scope_query(
-        db: &dyn HirDb,
+        db: &dyn HirDefDb,
         block_id: crate::hir_def::block::BlockId,
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
@@ -440,7 +448,7 @@ impl NameScope {
     }
 
     pub fn subroutine_scope_query(
-        db: &dyn HirDb,
+        db: &dyn HirDefDb,
         subroutine_id: SubroutineScope,
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
@@ -468,7 +476,7 @@ impl NameScope {
 
     pub fn non_ansi_port_decl_id_by_name(
         &self,
-        db: &dyn HirDb,
+        db: &dyn HirDefDb,
         module: &Module,
         name: &SmolStr,
     ) -> Option<PortDeclId> {
@@ -505,14 +513,14 @@ impl NameScope {
     }
 }
 
-fn checker_def(db: &dyn HirDb, checker_id: InFileOrModule<CheckerId>) -> CheckerDef {
+fn checker_def(db: &dyn HirDefDb, checker_id: InFileOrModule<CheckerId>) -> CheckerDef {
     match checker_id.cont_id {
         FileOrModule::File(file_id) => db.hir_file(file_id).get(checker_id.value).clone(),
         FileOrModule::Module(module_id) => db.module(module_id).get(checker_id.value).clone(),
     }
 }
 
-fn covergroup_def(db: &dyn HirDb, covergroup_id: InFileOrModule<CovergroupId>) -> CovergroupDef {
+fn covergroup_def(db: &dyn HirDefDb, covergroup_id: InFileOrModule<CovergroupId>) -> CovergroupDef {
     match covergroup_id.cont_id {
         FileOrModule::File(file_id) => db.hir_file(file_id).get(covergroup_id.value).clone(),
         FileOrModule::Module(module_id) => db.module(module_id).get(covergroup_id.value).clone(),
@@ -520,7 +528,7 @@ fn covergroup_def(db: &dyn HirDb, covergroup_id: InFileOrModule<CovergroupId>) -
 }
 
 struct PackageExportSignatureBuilder<'a> {
-    db: &'a dyn HirDb,
+    db: &'a dyn HirDefDb,
     package_id: PackageId,
     scope: &'a mut NameScope,
     next_declaration: u32,
@@ -677,7 +685,7 @@ mod tests {
             source_root::{SourceRoot, SourceRootId},
         },
         container::{FileOrModule, InFile, InFileOrModule, ScopeId, SubroutineParent},
-        db::{HirDefDb as HirDb, HirDefDbStorage, InternDbStorage, PreprocDb, PreprocDbStorage},
+        db::{HirDefDb, HirDefDbStorage, InternDbStorage, PreprocDb, PreprocDbStorage},
         def_id::DefId,
         file::HirFileId,
         hir_def::{

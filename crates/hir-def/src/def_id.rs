@@ -15,7 +15,7 @@ use crate::{
         ArenaOwnerId, FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope,
         InSubroutine, ScopeId, SubroutineParent, SubroutineScope,
     },
-    db::HirDefDb as HirDb,
+    db::HirDefDb,
     file::HirFileId,
     hir_def::{
         block::BlockLoc,
@@ -30,7 +30,7 @@ use crate::{
     symbol::{DefKind, DefOrigin, DefOriginLoc},
 };
 
-fn subroutine_src(db: &dyn HirDb, subroutine: SubroutineScope) -> Option<InFile<SubroutineSrc>> {
+fn subroutine_src(db: &dyn HirDefDb, subroutine: SubroutineScope) -> Option<InFile<SubroutineSrc>> {
     match subroutine.cont_id {
         SubroutineParent::File(file_id) => {
             let (_, source_map) = db.hir_file_with_source_map(file_id);
@@ -49,7 +49,7 @@ fn subroutine_src(db: &dyn HirDb, subroutine: SubroutineScope) -> Option<InFile<
 }
 
 fn clocking_signal_of(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     signal: InScope<crate::hir_def::module::clocking::ClockingSignalId>,
 ) -> Option<(InModule<ClockingSignal>, HirFileId)> {
     let ScopeId::ClockingBlock(clocking_block) = signal.scope_id else {
@@ -62,7 +62,7 @@ fn clocking_signal_of(
 }
 
 fn checker_of(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     checker: InFileOrModule<crate::hir_def::checker::CheckerId>,
 ) -> Option<(CheckerDef, HirFileId)> {
     match checker.cont_id {
@@ -76,7 +76,7 @@ fn checker_of(
 }
 
 fn checker_port_of(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     port: InScope<CheckerPortId>,
 ) -> Option<(CheckerPort, HirFileId)> {
     let ScopeId::Checker(checker) = port.scope_id else {
@@ -101,7 +101,7 @@ fn file_or_module_storage(scope_id: ScopeId) -> Option<FileOrModule> {
 }
 
 fn coverpoint_of(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     coverpoint: InScope<CoverpointId>,
 ) -> Option<(CoverpointDef, HirFileId)> {
     let cont_id = file_or_module_storage(coverpoint.scope_id)?;
@@ -116,7 +116,7 @@ fn coverpoint_of(
     }
 }
 
-fn cross_of(db: &dyn HirDb, cross: InScope<CrossId>) -> Option<(CrossDef, HirFileId)> {
+fn cross_of(db: &dyn HirDefDb, cross: InScope<CrossId>) -> Option<(CrossDef, HirFileId)> {
     let cont_id = file_or_module_storage(cross.scope_id)?;
 
     match cont_id {
@@ -131,7 +131,7 @@ fn cross_of(db: &dyn HirDb, cross: InScope<CrossId>) -> Option<(CrossDef, HirFil
 
 impl DefOrigin {
     #[inline]
-    pub fn container_id(self, db: &dyn HirDb) -> ScopeId {
+    pub fn container_id(self, db: &dyn HirDefDb) -> ScopeId {
         match self.loc(db) {
             DefOriginLoc::Module(InFile { file_id, .. }) => file_id.into(),
             DefOriginLoc::Config(InFile { file_id, .. }) => file_id.into(),
@@ -161,7 +161,7 @@ impl DefOrigin {
         }
     }
 
-    pub fn kind(self, db: &dyn HirDb) -> DefKind {
+    pub fn kind(self, db: &dyn HirDefDb) -> DefKind {
         match self.loc(db) {
             DefOriginLoc::Module(module_id) => {
                 let file = db.hir_file(module_id.file_id);
@@ -211,7 +211,7 @@ impl DefOrigin {
         }
     }
 
-    pub fn name(self, db: &dyn HirDb) -> Option<SmolStr> {
+    pub fn name(self, db: &dyn HirDefDb) -> Option<SmolStr> {
         match self.loc(db) {
             DefOriginLoc::Module(InFile { value, file_id }) => {
                 db.hir_file(file_id).get(value).name.clone()
@@ -282,7 +282,7 @@ impl DefOrigin {
         }
     }
 
-    pub fn name_range(self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
+    pub fn name_range(self, db: &dyn HirDefDb) -> Option<InFile<TextRange>> {
         match self.loc(db) {
             DefOriginLoc::Module(InFile { value, file_id }) => {
                 let range = db.hir_file_with_source_map(file_id).1.get(value)?.name_range()?;
@@ -431,7 +431,7 @@ impl DefOrigin {
         }
     }
 
-    pub fn range(self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
+    pub fn range(self, db: &dyn HirDefDb) -> Option<InFile<TextRange>> {
         Some(match self.loc(db) {
             DefOriginLoc::Module(InFile { value, file_id }) => {
                 let range = db.hir_file_with_source_map(file_id).1.get(value)?.range();
@@ -581,7 +581,7 @@ impl Definition {
         Self { primary_origin }
     }
 
-    fn origins(self, db: &dyn HirDb) -> SmallVec<[DefOrigin; 3]> {
+    fn origins(self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 3]> {
         let mut origins = SmallVec::new();
         origins.push(self.primary_origin);
         origins.extend(additional_origins(db, self.primary_origin));
@@ -589,7 +589,7 @@ impl Definition {
     }
 }
 
-fn additional_origins(db: &dyn HirDb, primary_origin: DefOrigin) -> SmallVec<[DefOrigin; 2]> {
+fn additional_origins(db: &dyn HirDefDb, primary_origin: DefOrigin) -> SmallVec<[DefOrigin; 2]> {
     let Some(port_id) = primary_origin.as_non_ansi_port(db) else {
         return SmallVec::new();
     };
@@ -611,7 +611,7 @@ fn additional_origins(db: &dyn HirDb, primary_origin: DefOrigin) -> SmallVec<[De
 pub struct DefId(pub salsa::InternId);
 
 impl DefId {
-    pub fn new(db: &dyn HirDb, loc: impl Into<DefOriginLoc>) -> Self {
+    pub fn new(db: &dyn HirDefDb, loc: impl Into<DefOriginLoc>) -> Self {
         let origin = DefOrigin::new(db, loc);
         let primary_origin = non_ansi_port_for_origin(db, origin)
             .map(|port_id| DefOrigin::new(db, port_id))
@@ -620,15 +620,15 @@ impl DefId {
         db.intern_def(definition)
     }
 
-    pub fn origins(self, db: &dyn HirDb) -> SmallVec<[DefOrigin; 3]> {
+    pub fn origins(self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 3]> {
         db.lookup_intern_def(self).origins(db)
     }
 
-    pub fn primary_origin(self, db: &dyn HirDb) -> DefOrigin {
+    pub fn primary_origin(self, db: &dyn HirDefDb) -> DefOrigin {
         db.lookup_intern_def(self).primary_origin
     }
 
-    pub fn declaration_origin(self, db: &dyn HirDb) -> DefOrigin {
+    pub fn declaration_origin(self, db: &dyn HirDefDb) -> DefOrigin {
         let primary_origin = self.primary_origin(db);
         if primary_origin.as_non_ansi_port(db).is_some() {
             let additional_origins = additional_origins(db, primary_origin);
@@ -643,7 +643,7 @@ impl DefId {
         primary_origin
     }
 
-    pub fn declaration_origins(self, db: &dyn HirDb) -> SmallVec<[DefOrigin; 2]> {
+    pub fn declaration_origins(self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 2]> {
         let primary_origin = self.primary_origin(db);
         if primary_origin.as_non_ansi_port(db).is_some() {
             return additional_origins(db, primary_origin)
@@ -655,24 +655,24 @@ impl DefId {
         SmallVec::from_slice(&[primary_origin])
     }
 
-    pub fn is_non_ansi_port(self, db: &dyn HirDb) -> bool {
+    pub fn is_non_ansi_port(self, db: &dyn HirDefDb) -> bool {
         self.primary_origin(db).as_non_ansi_port(db).is_some()
     }
 
-    pub fn is_port(self, db: &dyn HirDb) -> bool {
+    pub fn is_port(self, db: &dyn HirDefDb) -> bool {
         self.is_non_ansi_port(db)
             || self.origins(db).iter().any(|origin| is_port_decl_origin(db, *origin))
     }
 
-    pub fn container_id(self, db: &dyn HirDb) -> ScopeId {
+    pub fn container_id(self, db: &dyn HirDefDb) -> ScopeId {
         self.primary_origin(db).container_id(db)
     }
 
-    pub fn kind(self, db: &dyn HirDb) -> DefKind {
+    pub fn kind(self, db: &dyn HirDefDb) -> DefKind {
         if self.is_non_ansi_port(db) { DefKind::Port } else { self.primary_origin(db).kind(db) }
     }
 
-    pub fn name(self, db: &dyn HirDb) -> Option<SmolStr> {
+    pub fn name(self, db: &dyn HirDefDb) -> Option<SmolStr> {
         self.primary_origin(db).name(db)
     }
 }
@@ -683,7 +683,10 @@ enum NonAnsiPortOriginRole {
     DataDeclaration,
 }
 
-fn non_ansi_port_origin_role(db: &dyn HirDb, origin: DefOrigin) -> Option<NonAnsiPortOriginRole> {
+fn non_ansi_port_origin_role(
+    db: &dyn HirDefDb,
+    origin: DefOrigin,
+) -> Option<NonAnsiPortOriginRole> {
     match origin.kind(db) {
         DefKind::Port => Some(NonAnsiPortOriginRole::PortDeclaration),
         DefKind::Variable | DefKind::Net => Some(NonAnsiPortOriginRole::DataDeclaration),
@@ -692,7 +695,7 @@ fn non_ansi_port_origin_role(db: &dyn HirDb, origin: DefOrigin) -> Option<NonAns
 }
 
 fn non_ansi_port_for_origin(
-    db: &dyn HirDb,
+    db: &dyn HirDefDb,
     origin: DefOrigin,
 ) -> Option<InModule<crate::hir_def::module::port::NonAnsiPortId>> {
     match origin.loc(db) {
@@ -727,7 +730,7 @@ fn non_ansi_port_for_origin(
     }
 }
 
-fn is_port_decl_origin(db: &dyn HirDb, origin: DefOrigin) -> bool {
+fn is_port_decl_origin(db: &dyn HirDefDb, origin: DefOrigin) -> bool {
     let DefOriginLoc::Decl(decl_id) = origin.loc(db) else {
         return false;
     };
