@@ -93,7 +93,7 @@ impl NameScope {
 
     pub fn package_export_signature_query(db: &dyn HirDb, package_id: PackageId) -> Arc<NameScope> {
         let mut scope = NameScope::default();
-        let file_id = HirFileId::File(package_id.file_id());
+        let file_id = package_id.file_id;
         let (file, file_source_map) = db.hir_file_with_source_map(file_id);
         if file.get(package_id.value).kind != ModuleKind::Package {
             return Arc::new(scope);

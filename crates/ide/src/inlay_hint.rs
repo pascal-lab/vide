@@ -27,7 +27,10 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::{db::root_db::RootDb, markup::Markup, module_resolution::resolve_module_name};
+use crate::{
+    db::root_db::RootDb, markup::Markup, module_resolution::resolve_module_name,
+    references::search::resolve_source_range,
+};
 
 #[derive(Debug)]
 pub struct InlayHintConfig {
@@ -228,7 +231,7 @@ pub(crate) fn inlay_hint(
     let mut collector = InlayHintCollector::new(range, config);
 
     if collector.config.macro_argument {
-        collect_macro_argument_hints(db, file_id.file_id(), range, &mut collector);
+        collect_macro_argument_hints(db, file_id.expect_file(), range, &mut collector);
     }
 
     for &item in src_map.items.iter() {
@@ -248,7 +251,14 @@ pub(crate) fn inlay_hint(
         }
     }
 
-    collector.into_hints()
+    let mut hints = collector.into_hints();
+    for hint in &mut hints {
+        if let Some(loc) = hint.target_location {
+            hint.target_location = resolve_source_range(db, loc.file_id, loc.value)
+                .map(|(file_id, range)| InFile::new(HirFileId::File(file_id), range));
+        }
+    }
+    hints
 }
 
 fn collect_macro_argument_hints(
@@ -329,9 +339,11 @@ fn process_instantiation(
     instantiation: &Instantiation,
     collector: &mut InlayHintCollector,
 ) -> Option<()> {
+    let Some(from_file) = module_id.file_id.source_file_id(db) else {
+        return None;
+    };
     let target_module_id =
-        resolve_module_name(db, module_id.file_id.file_id(), instantiation.module_name.as_ref()?)
-            .unique()?;
+        resolve_module_name(db, from_file, instantiation.module_name.as_ref()?).unique()?;
 
     let target_file = target_module_id.file_id;
     let (target_module, target_src_map) = db.module_with_source_map(target_module_id);

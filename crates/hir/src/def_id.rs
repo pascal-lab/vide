@@ -56,14 +56,14 @@ fn subroutine_src(
 fn clocking_signal_of(
     db: &dyn HirDb,
     signal: InContainer<crate::hir_def::module::clocking::ClockingSignalId>,
-) -> Option<(InModule<ClockingSignal>, vfs::FileId)> {
+) -> Option<(InModule<ClockingSignal>, HirFileId)> {
     let ScopeId::ClockingBlock(clocking_block) = signal.cont_id else {
         return None;
     };
     let module = db.module(clocking_block.module_id);
     let clocking = module.get(clocking_block.value);
     let signal = clocking.signals.get(signal.value.0 as usize)?.clone();
-    Some((InModule::new(clocking_block.module_id, signal), clocking_block.module_id.file_id()))
+    Some((InModule::new(clocking_block.module_id, signal), clocking_block.module_id.file_id))
 }
 
 fn checker_of(
@@ -355,11 +355,11 @@ impl DefOrigin {
             }
             DefOriginLoc::Decl(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
-                Some(InFile::new(cont_id.file_id(db).into(), range))
+                Some(InFile::new(cont_id.file_id(db), range))
             }
             DefOriginLoc::Typedef(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
-                Some(InFile::new(cont_id.file_id(db).into(), range))
+                Some(InFile::new(cont_id.file_id(db), range))
             }
             DefOriginLoc::Instance(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
@@ -375,7 +375,7 @@ impl DefOrigin {
             }
             DefOriginLoc::ClockingSignal(signal) => {
                 let (signal, file_id) = clocking_signal_of(db, signal)?;
-                Some(InFile::new(file_id.into(), signal.value.name_range?))
+                Some(InFile::new(file_id, signal.value.name_range?))
             }
             DefOriginLoc::Checker(InContainer { value, cont_id }) => match cont_id {
                 ScopeId::File(file_id) => {
@@ -485,7 +485,7 @@ impl DefOrigin {
             }
             DefOriginLoc::Stmt(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
-                Some(InFile::new(cont_id.file_id(db).into(), range))
+                Some(InFile::new(cont_id.file_id(db), range))
             }
         }
     }
@@ -543,11 +543,11 @@ impl DefOrigin {
             }
             DefOriginLoc::Decl(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.range();
-                InFile::new(cont_id.file_id(db).into(), range)
+                InFile::new(cont_id.file_id(db), range)
             }
             DefOriginLoc::Typedef(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.range();
-                InFile::new(cont_id.file_id(db).into(), range)
+                InFile::new(cont_id.file_id(db), range)
             }
             DefOriginLoc::Instance(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value)?.range();
@@ -563,7 +563,7 @@ impl DefOrigin {
             }
             DefOriginLoc::ClockingSignal(signal) => {
                 let (signal, file_id) = clocking_signal_of(db, signal)?;
-                InFile::new(file_id.into(), signal.value.name_range?)
+                InFile::new(file_id, signal.value.name_range?)
             }
             DefOriginLoc::Checker(InContainer { value, cont_id }) => match cont_id {
                 ScopeId::File(file_id) => {
@@ -666,7 +666,7 @@ impl DefOrigin {
             }
             DefOriginLoc::Stmt(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.range();
-                InFile::new(cont_id.file_id(db).into(), range)
+                InFile::new(cont_id.file_id(db), range)
             }
         })
     }

@@ -67,11 +67,11 @@ impl DefinitionClass {
 
         match_ast! { parent,
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
-                resolve_named_param_assignment(sema.db, file_id.file_id(), it)
+                resolve_named_param_assignment(sema.db, file_id.expect_file(), it)
                     .map(DefinitionClass::Definition)
             },
             ast::NamedPortConnection[it] if it.name() == Some(tok) => {
-                let port = resolve_named_port_connection(sema.db, file_id.file_id(), it);
+                let port = resolve_named_port_connection(sema.db, file_id.expect_file(), it);
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
                     let local = sema.nameres_ident(file_id, tp, NameContext::Value);
@@ -270,7 +270,7 @@ fn resolve_instantiation_type_name(
         && instantiation.type_() == Some(tok)
     {
         let resolution =
-            match resolve_instantiation_target(sema.db, file_id.file_id(), instantiation) {
+            match resolve_instantiation_target(sema.db, file_id.expect_file(), instantiation) {
                 ModuleResolution::Unique(module_id)
                 | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
                     Resolution::Unique(DefId::new(sema.db, module_id))
@@ -444,7 +444,8 @@ mod tests {
 
             writeln!(&mut report, "{name}:").unwrap();
             writeln!(&mut report, "  resolution: {resolution}").unwrap();
-            writeln!(&mut report, "  same_file: {}", range.file_id.file_id() == file_id).unwrap();
+            writeln!(&mut report, "  same_file: {}", range.file_id.as_file() == Some(file_id))
+                .unwrap();
             writeln!(&mut report, "  name_range: {:?}", range.value).unwrap();
             writeln!(&mut report, "  name_text: {:?}", &text[range_start..range_end]).unwrap();
             writeln!(&mut report, "  starts_before_caret: {}", range.value.start() < offset)
