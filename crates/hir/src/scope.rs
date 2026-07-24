@@ -925,6 +925,54 @@ endmodule
     }
 
     #[test]
+    fn non_ansi_port_def_id_is_stable_when_origins_change() {
+        let mut db = db_with_root_text(
+            r#"
+module m(a);
+  output a;
+endmodule
+"#,
+        );
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let before = db
+            .module_scope(module_id)
+            .lookup(NameContext::Value, &ident("a"))
+            .unique()
+            .expect("port should resolve uniquely");
+        assert_eq!(before.origins(&db).len(), 2);
+
+        db.set_file_text_with_durability(
+            TOP,
+            Arc::from(
+                r#"
+module m(a);
+  output a;
+  reg [7:0] a;
+endmodule
+"#,
+            ),
+            Durability::LOW,
+        );
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should still resolve uniquely");
+        let after = db
+            .module_scope(module_id)
+            .lookup(NameContext::Value, &ident("a"))
+            .unique()
+            .expect("port should still resolve uniquely");
+        assert_eq!(after.origins(&db).len(), 3);
+        assert_eq!(before, after);
+    }
+
+    #[test]
     fn module_scope_exposes_clocking_blocks() {
         let db = db_with_root_text(
             r#"
