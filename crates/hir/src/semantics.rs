@@ -11,7 +11,7 @@ use utils::text_edit::TextSize;
 use vfs::FileId;
 
 use crate::{
-    container::{InContainer, InFile, ScopeId},
+    container::{ArenaOwnerId, InContainer, InFile, SubroutineScope},
     db::HirDb,
     def_id::DefId,
     file::HirFileId,
@@ -20,7 +20,7 @@ use crate::{
         block::{BlockId, BlockSrc},
         expr::ExprId,
         module::{ModuleId, ModuleSrc},
-        subroutine::{LocalSubroutineId, SubroutineSrc},
+        subroutine::SubroutineSrc,
     },
     symbol::{NameContext, Resolution},
 };
@@ -115,7 +115,7 @@ impl<'db> SemanticsImpl<'db> {
         ParsedFile { file_id, tree: self.db.parse(file_id) }
     }
 
-    pub fn container_for_node(&self, file_id: HirFileId, node: SyntaxNode) -> Option<ScopeId> {
+    pub fn container_for_node(&self, file_id: HirFileId, node: SyntaxNode) -> Option<ArenaOwnerId> {
         self.with_ctx(|ctx| Some(ctx.find_container(InFile::new(file_id, node))))
     }
 
@@ -148,7 +148,7 @@ impl SemanticsImpl<'_> {
         &self,
         file_id: HirFileId,
         subroutine: ast::FunctionDeclaration,
-    ) -> Option<InContainer<LocalSubroutineId>> {
+    ) -> Option<SubroutineScope> {
         let subroutine_src = SubroutineSrc::from_ast(file_id, subroutine);
         self.with_ctx(|ctx| ctx.subroutine_to_def(InFile::new(file_id, subroutine_src)))
     }

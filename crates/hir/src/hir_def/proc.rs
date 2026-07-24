@@ -6,7 +6,7 @@ use super::{
     stmt::impl_lower_stmt,
 };
 use crate::{
-    container::ScopeId,
+    container::ArenaOwnerId,
     db::InternDb,
     file::HirFileId,
     hir_def::{
@@ -62,7 +62,7 @@ pub(crate) trait LowerProc: LowerStmt {
 pub(crate) struct LowerProcCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
     pub(crate) file_id: HirFileId,
-    pub(crate) cont_id: ScopeId,
+    pub(crate) cont_id: ArenaOwnerId,
 
     pub(crate) procs: &'a mut Arena<Proc>,
     pub(crate) proc_srcs: &'a mut SourceMap<ProcSrc, Proc>,

@@ -1,6 +1,9 @@
 use hir::{
     base_db::source_db::{SourceDb, SourceRootDb},
-    container::{InContainer, InFile, InModule, InSubroutine, ScopeId, ScopeParent},
+    container::{
+        ArenaOwnerId, InContainer, InFile, InModule, InSubroutine, ScopeId, ScopeParent,
+        SubroutineScope,
+    },
     db::HirDb,
     def_id::DefId,
     display::HirDisplay,
@@ -18,7 +21,7 @@ use hir::{
             instantiation::InstanceId,
             port::{NonAnsiPortId, Ports},
         },
-        subroutine::{LocalSubroutineId, SubroutineKind, SubroutinePortId},
+        subroutine::{SubroutineKind, SubroutinePortId},
     },
     region_tree::RegionParent,
     semantics::Semantics,
@@ -320,7 +323,7 @@ fn render_definition_title(db: &RootDb, origin: &DefOrigin) -> Option<String> {
 }
 
 fn render_decl_title_kind(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<&'static str> {
-    let container = decl_id.cont_id.to_container(db);
+    let container = decl_id.cont_id.data(db);
     let decl = container.get(decl_id.value);
 
     Some(match decl.parent {
@@ -421,7 +424,7 @@ fn render_subroutine_port_signature(
     let port = subroutine.ports.get(port_id.value.0 as usize)?;
     let name = port.name.as_ref()?;
     let container = port_id.subroutine.cont_id;
-    let ty = port.ty.and_then(|ty| render_data_ty(db, container, ty));
+    let ty = port.ty.and_then(|ty| render_data_ty(db, container.into(), ty));
     let dir = port.direction.display_source(db).ok()?;
 
     match (dir.is_empty(), ty) {
@@ -432,17 +435,16 @@ fn render_subroutine_port_signature(
     }
 }
 
-fn render_subroutine_signature(
-    db: &RootDb,
-    subroutine_id: InContainer<LocalSubroutineId>,
-) -> Option<String> {
+fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineScope) -> Option<String> {
     let subroutine = db.subroutine(subroutine_id);
     let name = subroutine.name.as_ref()?;
     let container = subroutine_id.cont_id;
     let mut signature = match subroutine.kind {
         SubroutineKind::Task => format!("task {name}"),
         SubroutineKind::Function { return_ty } => {
-            if let Some(return_ty) = return_ty.and_then(|ty| render_data_ty(db, container, ty)) {
+            if let Some(return_ty) =
+                return_ty.and_then(|ty| render_data_ty(db, container.into(), ty))
+            {
                 format!("function {return_ty} {name}")
             } else {
                 format!("function {name}")
@@ -567,13 +569,13 @@ fn render_clocking_block_signature(
 }
 
 fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<String> {
-    let container = decl_id.cont_id.to_container(db);
+    let container = decl_id.cont_id.data(db);
     let decl = container.get(decl_id.value);
     decl.name.as_ref()?;
 
     match decl.parent {
         DeclaratorParent::PortDeclId(port_decl_id) => {
-            let ScopeId::Module(module_id) = decl_id.cont_id else {
+            let ArenaOwnerId::Module(module_id) = decl_id.cont_id else {
                 return None;
             };
             let module = db.module(module_id);
@@ -603,7 +605,7 @@ fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<St
 
 fn render_declaration_prefix(
     db: &RootDb,
-    cont_id: ScopeId,
+    cont_id: ArenaOwnerId,
     declaration: &Declaration,
 ) -> Option<String> {
     let ty = render_data_ty(db, cont_id, declaration.ty()).unwrap_or_default();
@@ -647,7 +649,7 @@ fn render_declaration_prefix(
 }
 
 fn render_initializer(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<String> {
-    let container = decl_id.cont_id.to_container(db);
+    let container = decl_id.cont_id.data(db);
     let decl = container.get(decl_id.value);
     let init = decl
         .initializer
@@ -663,7 +665,7 @@ fn render_initializer(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<Strin
     Some(rendered)
 }
 
-fn render_data_ty(db: &RootDb, container: ScopeId, ty: DataTy) -> Option<String> {
+fn render_data_ty(db: &RootDb, container: ArenaOwnerId, ty: DataTy) -> Option<String> {
     InContainer::new(container, ty).display_source(db).ok()
 }
 
@@ -741,22 +743,19 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<Str
     let mut containers = Vec::new();
 
     for cont_id in ScopeParent::start_from(db, cont_id) {
-        let src_map = cont_id.to_container_src_map(db);
-
-        if let Some(region_tree) = src_map.region_tree()
-            && let Some(node) = region_tree.find(range.start())
-        {
-            for region in RegionParent::start_from(region_tree, node) {
-                containers.push(format!("({})", region.name()));
+        if let Some(owner_id) = cont_id.arena_owner() {
+            let src_map = owner_id.source_map(db);
+            if let Some(region_tree) = src_map.region_tree()
+                && let Some(node) = region_tree.find(range.start())
+            {
+                for region in RegionParent::start_from(region_tree, node) {
+                    containers.push(format!("({})", region.name()));
+                }
             }
         }
 
         if !matches!(cont_id, ScopeId::File(_)) {
-            if let Some(name) = cont_id.to_container(db).name() {
-                containers.push(name.to_string());
-            } else {
-                containers.push(DEFAULT_NAME.to_string());
-            }
+            containers.push(cont_id.name(db).unwrap_or_else(|| DEFAULT_NAME.into()).to_string());
         }
     }
 

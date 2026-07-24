@@ -1,7 +1,7 @@
 use proc_macro_utils::impl_container;
 use smol_str::SmolStr;
 use triomphe::Arc;
-use utils::define_enum_deriving_from;
+use utils::{define_enum_deriving_from, get::GetRef};
 use vfs::FileId;
 
 use crate::{
@@ -21,7 +21,7 @@ use crate::{
         },
         file::{FileSourceMap, HirFile},
         module::{
-            Module, ModuleId, ModuleSourceMap,
+            Module, ModuleId, ModuleKind, ModuleSourceMap,
             clocking::ClockingBlockId,
             generate::{GenerateBlock, GenerateBlockId, GenerateBlockSourceMap},
         },
@@ -47,6 +47,37 @@ define_enum_deriving_from! {
     }
 }
 
+define_enum_deriving_from! {
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+    pub enum ArenaOwnerId {
+        File(HirFileId),
+        Module(ModuleId),
+        GenerateBlock(GenerateBlockId),
+        Block(BlockId),
+        Subroutine(SubroutineScope),
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+pub struct InScope<T> {
+    pub value: T,
+    pub scope_id: ScopeId,
+}
+
+impl<T> InScope<T> {
+    pub fn new(scope_id: ScopeId, value: T) -> Self {
+        Self { value, scope_id }
+    }
+
+    pub fn with_value<U>(self, value: U) -> InScope<U> {
+        InScope::new(self.scope_id, value)
+    }
+
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> InScope<U> {
+        InScope::new(self.scope_id, f(self.value))
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct InFileOrModule<T> {
     pub value: T,
@@ -67,10 +98,6 @@ impl<T> InFileOrModule<T> {
     pub fn parent_scope(&self) -> ScopeId {
         self.cont_id.into()
     }
-
-    pub fn as_in_container(self) -> InContainer<T> {
-        InContainer::new(self.cont_id.into(), self.value)
-    }
 }
 
 impl FileOrModule {
@@ -82,7 +109,7 @@ impl FileOrModule {
     }
 }
 
-impl From<FileOrModule> for ScopeId {
+impl From<FileOrModule> for ArenaOwnerId {
     fn from(cont_id: FileOrModule) -> Self {
         match cont_id {
             FileOrModule::File(file_id) => file_id.into(),
@@ -91,34 +118,9 @@ impl From<FileOrModule> for ScopeId {
     }
 }
 
-impl TryFrom<ScopeId> for FileOrModule {
-    type Error = ();
-
-    fn try_from(cont_id: ScopeId) -> Result<Self, Self::Error> {
-        match cont_id {
-            ScopeId::File(file_id) => Ok(Self::File(file_id)),
-            ScopeId::Module(module_id) => Ok(Self::Module(module_id)),
-            ScopeId::GenerateBlock(_)
-            | ScopeId::Block(_)
-            | ScopeId::Subroutine(_)
-            | ScopeId::ClockingBlock(_)
-            | ScopeId::Checker(_)
-            | ScopeId::Covergroup(_) => Err(()),
-        }
-    }
-}
-
-impl<T> TryFrom<InContainer<T>> for InFileOrModule<T> {
-    type Error = ();
-
-    fn try_from(item: InContainer<T>) -> Result<Self, Self::Error> {
-        Ok(Self::new(FileOrModule::try_from(item.cont_id)?, item.value))
-    }
-}
-
-impl<T> From<InFileOrModule<T>> for InContainer<T> {
-    fn from(item: InFileOrModule<T>) -> Self {
-        item.as_in_container()
+impl From<FileOrModule> for ScopeId {
+    fn from(cont_id: FileOrModule) -> Self {
+        ArenaOwnerId::from(cont_id).into()
     }
 }
 
@@ -144,10 +146,6 @@ impl SubroutineScope {
         self.cont_id.into()
     }
 
-    pub fn as_in_container(self) -> InContainer<LocalSubroutineId> {
-        InContainer::new(self.parent_scope(), self.value)
-    }
-
     pub fn file_id(self, db: &dyn InternDb) -> FileId {
         match self.cont_id {
             SubroutineParent::File(file_id) => file_id.file_id(),
@@ -157,7 +155,7 @@ impl SubroutineScope {
     }
 }
 
-impl From<SubroutineParent> for ScopeId {
+impl From<SubroutineParent> for ArenaOwnerId {
     fn from(cont_id: SubroutineParent) -> Self {
         match cont_id {
             SubroutineParent::File(file_id) => file_id.into(),
@@ -167,45 +165,20 @@ impl From<SubroutineParent> for ScopeId {
     }
 }
 
-impl TryFrom<ScopeId> for SubroutineParent {
-    type Error = ();
-
-    fn try_from(cont_id: ScopeId) -> Result<Self, Self::Error> {
-        match cont_id {
-            ScopeId::File(file_id) => Ok(Self::File(file_id)),
-            ScopeId::Module(module_id) => Ok(Self::Module(module_id)),
-            ScopeId::GenerateBlock(generate_block_id) => Ok(Self::GenerateBlock(generate_block_id)),
-            ScopeId::Block(_)
-            | ScopeId::Subroutine(_)
-            | ScopeId::ClockingBlock(_)
-            | ScopeId::Checker(_)
-            | ScopeId::Covergroup(_) => Err(()),
-        }
-    }
-}
-
-impl From<InContainer<LocalSubroutineId>> for SubroutineScope {
-    fn from(subroutine: InContainer<LocalSubroutineId>) -> Self {
-        let parent = SubroutineParent::try_from(subroutine.cont_id)
-            .expect("subroutines are lowered only in file, module, or generate-block scopes");
-        Self::new(parent, subroutine.value)
-    }
-}
-
-impl From<InContainer<LocalSubroutineId>> for ScopeId {
-    fn from(subroutine: InContainer<LocalSubroutineId>) -> Self {
-        ScopeId::Subroutine(subroutine.into())
+impl From<SubroutineParent> for ScopeId {
+    fn from(cont_id: SubroutineParent) -> Self {
+        ArenaOwnerId::from(cont_id).into()
     }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct InContainer<T> {
     pub value: T,
-    pub cont_id: ScopeId,
+    pub cont_id: ArenaOwnerId,
 }
 
 impl<T> InContainer<T> {
-    pub fn new(cont_id: ScopeId, value: T) -> InContainer<T> {
+    pub fn new(cont_id: ArenaOwnerId, value: T) -> InContainer<T> {
         InContainer { value, cont_id }
     }
 
@@ -221,11 +194,11 @@ impl<T> InContainer<T> {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct InSubroutine<T> {
     pub value: T,
-    pub subroutine: InContainer<LocalSubroutineId>,
+    pub subroutine: SubroutineScope,
 }
 
 impl<T> InSubroutine<T> {
-    pub fn new(subroutine: InContainer<LocalSubroutineId>, value: T) -> Self {
+    pub fn new(subroutine: SubroutineScope, value: T) -> Self {
         Self { value, subroutine }
     }
 
@@ -279,17 +252,76 @@ define_container_id! {
     InBlock[block_id: BlockId],
 }
 
+impl From<ArenaOwnerId> for ScopeId {
+    fn from(owner_id: ArenaOwnerId) -> Self {
+        match owner_id {
+            ArenaOwnerId::File(file_id) => file_id.into(),
+            ArenaOwnerId::Module(module_id) => module_id.into(),
+            ArenaOwnerId::GenerateBlock(generate_block_id) => generate_block_id.into(),
+            ArenaOwnerId::Block(block_id) => block_id.into(),
+            ArenaOwnerId::Subroutine(subroutine) => subroutine.into(),
+        }
+    }
+}
+
 impl ScopeId {
-    pub fn kind(self) -> ScopeKind {
+    pub fn kind(self, db: &dyn HirDb) -> ScopeKind {
         match self {
             ScopeId::File(_) => ScopeKind::File,
-            ScopeId::Module(_) => ScopeKind::Module,
+            ScopeId::Module(module_id) => {
+                match db.hir_file(module_id.file_id).get(module_id.value).kind {
+                    ModuleKind::Module => ScopeKind::Module,
+                    ModuleKind::Interface => ScopeKind::Interface,
+                    ModuleKind::Program => ScopeKind::Program,
+                    ModuleKind::Package => ScopeKind::Package,
+                }
+            }
             ScopeId::GenerateBlock(_) => ScopeKind::GenerateBlock,
             ScopeId::Block(_) => ScopeKind::Block,
             ScopeId::Subroutine(_) => ScopeKind::Subroutine,
             ScopeId::ClockingBlock(_) => ScopeKind::ClockingBlock,
             ScopeId::Checker(_) => ScopeKind::Checker,
             ScopeId::Covergroup(_) => ScopeKind::Covergroup,
+        }
+    }
+
+    pub fn name(self, db: &dyn HirDb) -> Option<SmolStr> {
+        match self {
+            ScopeId::File(_) => None,
+            ScopeId::Module(module_id) => db.module(module_id).name.clone(),
+            ScopeId::GenerateBlock(generate_block_id) => {
+                db.generate_block(generate_block_id).name.clone()
+            }
+            ScopeId::Block(block_id) => db.block(block_id).name.clone(),
+            ScopeId::Subroutine(subroutine) => db.subroutine(subroutine).name.clone(),
+            ScopeId::ClockingBlock(clocking_block) => {
+                db.module(clocking_block.module_id).get(clocking_block.value).name.clone()
+            }
+            ScopeId::Checker(checker) => match checker.cont_id {
+                FileOrModule::File(file_id) => db.hir_file(file_id).get(checker.value).name.clone(),
+                FileOrModule::Module(module_id) => {
+                    db.module(module_id).get(checker.value).name.clone()
+                }
+            },
+            ScopeId::Covergroup(covergroup) => match covergroup.cont_id {
+                FileOrModule::File(file_id) => {
+                    db.hir_file(file_id).get(covergroup.value).name.clone()
+                }
+                FileOrModule::Module(module_id) => {
+                    db.module(module_id).get(covergroup.value).name.clone()
+                }
+            },
+        }
+    }
+
+    pub fn arena_owner(self) -> Option<ArenaOwnerId> {
+        match self {
+            ScopeId::File(file_id) => Some(file_id.into()),
+            ScopeId::Module(module_id) => Some(module_id.into()),
+            ScopeId::GenerateBlock(generate_block_id) => Some(generate_block_id.into()),
+            ScopeId::Block(block_id) => Some(block_id.into()),
+            ScopeId::Subroutine(subroutine) => Some(subroutine.into()),
+            ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
         }
     }
 
@@ -305,45 +337,46 @@ impl ScopeId {
             ScopeId::Covergroup(covergroup) => covergroup.cont_id.file_id(),
         }
     }
+}
 
-    pub fn to_container(self, db: &dyn HirDb) -> Container {
+/// Access to generic HIR arenas.
+///
+/// Name-resolution-only scopes cannot access arena data:
+///
+/// ```compile_fail
+/// use hir::{container::ScopeId, db::HirDb};
+///
+/// fn data_for_any_scope(scope: ScopeId, db: &dyn HirDb) {
+///     let _ = scope.data(db);
+/// }
+/// ```
+impl ArenaOwnerId {
+    pub fn file_id(self, db: &dyn InternDb) -> FileId {
+        ScopeId::from(self).file_id(db)
+    }
+
+    pub fn data(self, db: &dyn HirDb) -> Container {
         match self {
-            ScopeId::File(file_id) => file_id.to_container(db).into(),
-            ScopeId::Module(module_id) => module_id.to_container(db).into(),
-            ScopeId::GenerateBlock(generate_block_id) => generate_block_id.to_container(db).into(),
-            ScopeId::Block(block_id) => block_id.to_container(db).into(),
-            ScopeId::Subroutine(subroutine) => db.subroutine(subroutine.as_in_container()).into(),
-            ScopeId::ClockingBlock(_) => {
-                panic!("clocking block scopes do not expose a generic HIR container")
+            ArenaOwnerId::File(file_id) => file_id.to_container(db).into(),
+            ArenaOwnerId::Module(module_id) => module_id.to_container(db).into(),
+            ArenaOwnerId::GenerateBlock(generate_block_id) => {
+                generate_block_id.to_container(db).into()
             }
-            ScopeId::Checker(_) => {
-                panic!("checker scopes do not expose a generic HIR container")
-            }
-            ScopeId::Covergroup(_) => {
-                panic!("covergroup scopes do not expose a generic HIR container")
-            }
+            ArenaOwnerId::Block(block_id) => block_id.to_container(db).into(),
+            ArenaOwnerId::Subroutine(subroutine) => db.subroutine(subroutine).into(),
         }
     }
 
-    pub fn to_container_src_map(self, db: &dyn HirDb) -> ContainerSrcMap {
+    pub fn source_map(self, db: &dyn HirDb) -> ContainerSrcMap {
         match self {
-            ScopeId::File(file_id) => file_id.to_container_src_map(db).into(),
-            ScopeId::Module(module_id) => module_id.to_container_src_map(db).into(),
-            ScopeId::GenerateBlock(generate_block_id) => {
+            ArenaOwnerId::File(file_id) => file_id.to_container_src_map(db).into(),
+            ArenaOwnerId::Module(module_id) => module_id.to_container_src_map(db).into(),
+            ArenaOwnerId::GenerateBlock(generate_block_id) => {
                 generate_block_id.to_container_src_map(db).into()
             }
-            ScopeId::Block(block_id) => block_id.to_container_src_map(db).into(),
-            ScopeId::Subroutine(subroutine) => {
-                db.subroutine_with_source_map(subroutine.as_in_container()).1.into()
-            }
-            ScopeId::ClockingBlock(_) => {
-                panic!("clocking block scopes do not expose a generic source map")
-            }
-            ScopeId::Checker(_) => {
-                panic!("checker scopes do not expose a generic source map")
-            }
-            ScopeId::Covergroup(_) => {
-                panic!("covergroup scopes do not expose a generic source map")
+            ArenaOwnerId::Block(block_id) => block_id.to_container_src_map(db).into(),
+            ArenaOwnerId::Subroutine(subroutine) => {
+                db.subroutine_with_source_map(subroutine).1.into()
             }
         }
     }
@@ -490,9 +523,9 @@ impl Iterator for ScopeParent<'_> {
             ScopeId::File(_) => None,
             ScopeId::Module(module_id) => Some(module_id.file_id.into()),
             ScopeId::GenerateBlock(generate_block_id) => {
-                Some(generate_block_id.lookup(self.db).cont_id)
+                Some(generate_block_id.lookup(self.db).cont_id.into())
             }
-            ScopeId::Block(block_id) => Some(block_id.lookup(self.db).cont_id),
+            ScopeId::Block(block_id) => Some(block_id.lookup(self.db).cont_id.into()),
             ScopeId::Subroutine(subroutine) => Some(subroutine.parent_scope()),
             ScopeId::ClockingBlock(clocking_block) => Some(clocking_block.module_id.into()),
             ScopeId::Checker(checker) => Some(checker.parent_scope()),

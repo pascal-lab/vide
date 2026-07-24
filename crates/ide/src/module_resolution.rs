@@ -5,7 +5,7 @@ use hir::{
         source_db::{SourceDb, SourceRootDb},
         source_root::SourceRootRole,
     },
-    container::ScopeId,
+    container::ArenaOwnerId,
     db::HirDb,
     def_id::DefId,
     hir_def::{
@@ -171,7 +171,7 @@ pub(crate) fn resolve_named_param_in_module(
         let Some(decl_id) = def_id.primary_origin(db).as_decl(db) else {
             return false;
         };
-        if decl_id.cont_id != ScopeId::Module(module_id) {
+        if decl_id.cont_id != ArenaOwnerId::Module(module_id) {
             return false;
         }
         let DeclaratorParent::DeclarationId(declaration_id) = module.get(decl_id.value).parent
@@ -553,7 +553,7 @@ mod tests {
         }
         match def_id.primary_origin(db).loc(db) {
             DefOriginLoc::Decl(decl_id) => match decl_id.cont_id {
-                ScopeId::Module(module_id) => Some(module_id),
+                ArenaOwnerId::Module(module_id) => Some(module_id),
                 _ => None,
             },
             DefOriginLoc::NonAnsiPort(nonansi_port_id) => Some(nonansi_port_id.module_id),
