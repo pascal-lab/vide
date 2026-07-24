@@ -598,7 +598,7 @@ impl LowerModuleCtx<'_> {
 
             let mut decls = self.store.data.decls.iter().map(|(id, _)| id);
             if let Some(first) = decls.next() {
-                let last = decls.last().unwrap_or(first);
+                let last = decls.next_back().unwrap_or(first);
                 self.store.data.param_ports = Some(IdxRange::new_inclusive(first..=last));
             }
 

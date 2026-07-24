@@ -168,7 +168,7 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
 
     fn lower_stmt_kind(&mut self, stmt: ast::Statement, stmt_id: StmtId) -> StmtKind {
         use ast::Statement::*;
-        let kind = match stmt {
+        match stmt {
             ExpressionStatement(stmt) => self.lower_expr_stmt(stmt),
             TimingControlStatement(stmt) => self.lower_timing_ctrl_stmt(stmt),
             ProceduralAssignStatement(stmt) => self.lower_assign_stmt(stmt),
@@ -193,8 +193,7 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
             EmptyStatement(_) => StmtKind::Empty,
 
             unsupported => StmtKind::Unsupported(unsupported.syntax().kind()),
-        };
-        kind
+        }
     }
 
     fn lower_expr_stmt(&mut self, stmt: ast::ExpressionStatement) -> StmtKind {
