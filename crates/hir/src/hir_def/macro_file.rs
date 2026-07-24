@@ -202,35 +202,30 @@ fn macro_expansion(db: &dyn HirDb, macro_file: MacroFileId) -> ExpandResult<Expa
         }
     };
     let emitted_range = expansion.emitted_token_range;
-    let ExpandResult { value: text, err } = expansion_text_for_range(&mapped.model, emitted_range);
-    if let Some(err) = err {
-        return expansion_info(text, ExpansionSourceMap::empty(), Some(err));
-    }
+    let text = expansion_text_for_range(&mapped.model, emitted_range);
     let parsed = db.parsed_compilation_unit(call_loc.model_file);
-    let Some(trace) = parsed.preprocessor_trace.as_ref() else {
-        return expansion_error(
-            text,
+    let source_map = match parsed.preprocessor_trace.as_ref() {
+        Some(trace) => ExpansionSourceMap::from_trace_range(
+            db,
+            call_loc.model_file,
+            trace,
+            &mapped.source_map,
+            emitted_range,
+        ),
+        None => ExpandResult::new(
             ExpansionSourceMap::empty(),
-            ExpandErrorKind::TraceUnavailable,
-        );
+            ExpandError::new(ExpandErrorKind::TraceUnavailable),
+        ),
     };
-    let source_map = match ExpansionSourceMap::from_trace_range(
-        db,
-        call_loc.model_file,
-        trace,
-        &mapped.source_map,
-        emitted_range,
-    ) {
-        Ok(source_map) => source_map,
-        Err(err) => {
-            return expansion_error(
-                text,
-                ExpansionSourceMap::empty(),
-                ExpandErrorKind::SourceMap(err),
-            );
-        }
-    };
-    expansion_info(text, source_map, None)
+    expansion_info_from_parts(text, source_map)
+}
+
+fn expansion_info_from_parts(
+    text: ExpandResult<String>,
+    source_map: ExpandResult<ExpansionSourceMap>,
+) -> ExpandResult<ExpansionInfo> {
+    let err = text.err.or(source_map.err);
+    expansion_info(text.value, source_map.value, err)
 }
 
 fn expansion_error(
@@ -304,7 +299,17 @@ fn expansion_text_for_range(
     emitted_range: SourceEmittedTokenRange,
 ) -> ExpandResult<String> {
     let mut text = String::new();
-    let Some(end) = emitted_range.start.raw().checked_add(emitted_range.len) else {
+    let start = emitted_range.start.raw();
+    if start > model.emitted_tokens().len() {
+        return ExpandResult::new(
+            text,
+            ExpandError::new(ExpandErrorKind::InvalidEmittedTokenRange {
+                start: emitted_range.start,
+                len: emitted_range.len,
+            }),
+        );
+    }
+    let Some(end) = start.checked_add(emitted_range.len) else {
         return ExpandResult::new(
             text,
             ExpandError::new(ExpandErrorKind::InvalidEmittedTokenRange {
@@ -313,7 +318,7 @@ fn expansion_text_for_range(
             }),
         );
     };
-    for raw in emitted_range.start.raw()..end {
+    for raw in start..end {
         let token = SourceEmittedTokenId::new(raw);
         let Some(token_data) = model.emitted_tokens().get(token) else {
             return ExpandResult::new(
