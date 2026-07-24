@@ -688,7 +688,7 @@ mod tests {
     use smol_str::SmolStr;
     use triomphe::Arc;
     use utils::{
-        get::GetRef,
+        get::{Get, GetRef},
         paths::{AbsPathBuf, Utf8PathBuf},
     };
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
@@ -1048,13 +1048,93 @@ endmodule
     }
 
     #[test]
-    fn module_scope_exposes_clocking_blocks() {
+    fn valid_unlowered_expression_is_not_parser_missing() {
         let db = db_with_root_text(
             r#"
-module m(input clk, input a);
-  clocking cb @(posedge clk);
-    input #1ps a;
-  endclocking
+module m;
+  int x = '{default: 0};
+endmodule
+"#,
+        );
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let (module, source_map) = db.module_with_source_map(module_id);
+        let (expr_id, expr) =
+            module.exprs.iter().next().expect("initializer expression should lower");
+
+        assert_eq!(
+            expr,
+            &crate::hir_def::expr::Expr::Unsupported(
+                syntax::SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION
+            ),
+            "valid but unsupported syntax must carry an explicit diagnostic kind"
+        );
+        assert!(
+            source_map.get(expr_id).is_some(),
+            "valid but unsupported syntax must retain its source"
+        );
+    }
+
+    #[test]
+    fn parser_missing_and_empty_statements_are_distinct() {
+        let db = db_with_root_text(
+            r#"
+module m;
+  initial ;
+endmodule
+"#,
+        );
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let (module, source_map) = db.module_with_source_map(module_id);
+        let (empty_id, _) = module
+            .stmts
+            .iter()
+            .find(|(_, stmt)| matches!(stmt.kind, crate::hir_def::stmt::StmtKind::Empty))
+            .expect("empty statement should lower");
+        assert!(source_map.get(empty_id).is_some());
+
+        let mut stmts = Default::default();
+        let mut stmt_srcs = Default::default();
+        let mut event_exprs = Default::default();
+        let mut event_expr_srcs = Default::default();
+        let mut exprs = Default::default();
+        let mut expr_srcs = Default::default();
+        let mut decls = Default::default();
+        let mut decl_srcs = Default::default();
+        let missing_id = crate::hir_def::stmt::LowerStmtCtx {
+            db: &db,
+            file_id: TOP.into(),
+            cont_id: ScopeId::File(TOP.into()),
+            stmts: &mut stmts,
+            stmt_srcs: &mut stmt_srcs,
+            event_exprs: &mut event_exprs,
+            event_expr_srcs: &mut event_expr_srcs,
+            exprs: &mut exprs,
+            expr_srcs: &mut expr_srcs,
+            decls: &mut decls,
+            decl_srcs: &mut decl_srcs,
+        }
+        .lower_stmt_opt(None);
+
+        assert!(matches!(stmts[missing_id].kind, crate::hir_def::stmt::StmtKind::Missing));
+        assert!(stmt_srcs.get(missing_id).is_none());
+    }
+
+    #[test]
+    fn streaming_with_range_is_preserved() {
+        let db = db_with_root_text(
+            r#"
+module m(input logic [3:0] a);
+  logic [3:0] x = {<<{a with [3:0]}};
 endmodule
 "#,
         );
@@ -1065,9 +1145,54 @@ endmodule
             .unique()
             .expect("module should resolve uniquely");
         let module = db.module(module_id);
+        let stream = module
+            .exprs
+            .iter()
+            .find_map(|(_, expr)| match expr {
+                crate::hir_def::expr::Expr::Stream { concats, .. } => Some(concats),
+                _ => None,
+            })
+            .expect("streaming concatenation should lower");
+
+        assert_eq!(stream.len(), 1);
+        assert!(matches!(stream[0].range, Some(crate::hir_def::expr::Selector::Range(_, _))));
+    }
+
+    #[test]
+    fn module_scope_exposes_clocking_blocks() {
+        let db = db_with_root_text(
+            r#"
+module m(input clk, input a);
+  clocking cb @(posedge clk);
+    input #1ps a;
+  endclocking
+  default clocking cb;
+endmodule
+"#,
+        );
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let (module, source_map) = db.module_with_source_map(module_id);
         let (clocking_block_id, clocking_block) =
             module.clocking_blocks.iter().next().expect("clocking block should lower");
         assert_eq!(clocking_block.name.as_deref(), Some("cb"));
+        assert!(matches!(
+            module.event_exprs[clocking_block.event],
+            crate::hir_def::expr::timing_control::EventExpr::Atom {
+                sensitivity: Some(crate::hir_def::expr::timing_control::Sensitivity::Posedge),
+                ..
+            }
+        ));
+        assert!(source_map.get(clocking_block.event).is_some());
+        assert_eq!(
+            module.default_clocking.as_ref().and_then(|reference| reference.name.as_deref()),
+            Some("cb")
+        );
+        assert!(source_map.default_clocking_src.is_some());
         assert_eq!(clocking_block.signals.len(), 1);
         assert_eq!(clocking_block.signals[0].name.as_str(), "a");
 
