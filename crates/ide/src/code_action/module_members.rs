@@ -5,6 +5,7 @@ use hir::{
         module::{Module, ModuleId, port::Ports},
     },
     semantics::Semantics,
+    symbol::Resolution,
 };
 use smol_str::SmolStr;
 use utils::get::GetRef;
@@ -71,9 +72,11 @@ pub(crate) fn missing_member_entry_text(
     unresolved_ordered_value: &str,
 ) -> String {
     match (sema.name_to_def(InContainer::new(module_id.into(), name.clone())), is_ordered) {
-        (None, true) => format!("/* {name} */ {unresolved_ordered_value}"),
-        (None, false) => format!(".{name}()"),
-        (Some(_), true) => name.to_string(),
-        (Some(_), false) => format!(".{name}"),
+        (Resolution::Unresolved, true) => {
+            format!("/* {name} */ {unresolved_ordered_value}")
+        }
+        (Resolution::Unresolved, false) => format!(".{name}()"),
+        (_, true) => name.to_string(),
+        (_, false) => format!(".{name}"),
     }
 }

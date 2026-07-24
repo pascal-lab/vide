@@ -2,7 +2,7 @@ use hir::{
     base_db::source_db::{SourceDb, SourceRootDb},
     container::{InContainer, InFile, InModule, InSubroutine, ScopeId, ScopeParent},
     db::HirDb,
-    def_id::ModuleDefId,
+    def_id::DefId,
     display::HirDisplay,
     hir_def::{
         DEFAULT_NAME,
@@ -22,7 +22,7 @@ use hir::{
     },
     region_tree::RegionParent,
     semantics::Semantics,
-    symbol::{DefId, DefLoc},
+    symbol::{DefOrigin, DefOriginLoc},
 };
 use itertools::Itertools;
 use syntax::{
@@ -137,10 +137,10 @@ fn render_svint_as_ieee754(svint: &SVInt) -> Option<String> {
 
 pub(crate) fn render_definition(
     sema: &Semantics<RootDb>,
-    def: ModuleDefId,
+    def: DefId,
     anchor_file_id: vfs::FileId,
 ) -> Markup {
-    def.def_origins(sema.db).into_iter().fold(Markup::new(), |mut res, origin| {
+    def.declaration_origins(sema.db).into_iter().fold(Markup::new(), |mut res, origin| {
         let origin = render_def_origin(sema, &origin, anchor_file_id);
 
         if !res.is_empty() && !origin.is_empty() {
@@ -154,12 +154,12 @@ pub(crate) fn render_definition(
 
 pub(crate) fn render_definition_location(
     sema: &Semantics<RootDb>,
-    def: ModuleDefId,
+    def: DefId,
     anchor_file_id: vfs::FileId,
 ) -> Markup {
     let db = sema.db;
     let mut locations = def
-        .def_origins(db)
+        .declaration_origins(db)
         .into_iter()
         .filter_map(|origin| render_def_origin_location(db, &origin, anchor_file_id))
         .collect_vec();
@@ -179,7 +179,7 @@ pub(crate) fn render_definition_location(
 
 fn render_def_origin_location(
     db: &RootDb,
-    origin: &DefId,
+    origin: &DefOrigin,
     anchor_file_id: vfs::FileId,
 ) -> Option<String> {
     let InFile { value: range, file_id } = origin.range(db)?;
@@ -257,7 +257,7 @@ fn has_normal_path_component(path: &utils::paths::AbsPath) -> bool {
 
 fn render_def_origin(
     sema: &Semantics<RootDb>,
-    origin: &DefId,
+    origin: &DefOrigin,
     anchor_file_id: vfs::FileId,
 ) -> Markup {
     let mut res = Markup::new();
@@ -282,36 +282,37 @@ fn render_def_origin(
     res
 }
 
-fn render_definition_title(db: &RootDb, origin: &DefId) -> Option<String> {
+fn render_definition_title(db: &RootDb, origin: &DefOrigin) -> Option<String> {
     let name = origin.name(db)?;
     let kind = match origin.loc(db) {
-        DefLoc::Module(module_id) => match db.hir_file(module_id.file_id).get(module_id.value).kind
-        {
-            ModuleKind::Module => "Module",
-            ModuleKind::Interface => "Interface",
-            ModuleKind::Program => "Program",
-            ModuleKind::Package => "Package",
-        },
-        DefLoc::Config(_) => "Config",
-        DefLoc::Library(_) => "Library",
-        DefLoc::Udp(_) => "Primitive",
-        DefLoc::Block(_) => "Block",
-        DefLoc::GenerateBlock(_) => "Generate block",
-        DefLoc::Subroutine(subroutine_id) => match db.subroutine(subroutine_id).kind {
+        DefOriginLoc::Module(module_id) => {
+            match db.hir_file(module_id.file_id).get(module_id.value).kind {
+                ModuleKind::Module => "Module",
+                ModuleKind::Interface => "Interface",
+                ModuleKind::Program => "Program",
+                ModuleKind::Package => "Package",
+            }
+        }
+        DefOriginLoc::Config(_) => "Config",
+        DefOriginLoc::Library(_) => "Library",
+        DefOriginLoc::Udp(_) => "Primitive",
+        DefOriginLoc::Block(_) => "Block",
+        DefOriginLoc::GenerateBlock(_) => "Generate block",
+        DefOriginLoc::Subroutine(subroutine_id) => match db.subroutine(subroutine_id).kind {
             SubroutineKind::Task => "Task",
             SubroutineKind::Function { .. } => "Function",
         },
-        DefLoc::SubroutinePort(_) | DefLoc::NonAnsiPort(_) => "Port",
-        DefLoc::Decl(decl_id) => render_decl_title_kind(db, decl_id)?,
-        DefLoc::Typedef(_) => "Typedef",
-        DefLoc::Instance(_) => "Instance",
-        DefLoc::Modport(_) => "Modport",
-        DefLoc::ClockingBlock(_) => "Clocking block",
-        DefLoc::Checker(_) => "Checker",
-        DefLoc::Covergroup(_) => "Covergroup",
-        DefLoc::Coverpoint(_) => "Coverpoint",
-        DefLoc::Cross(_) => "Cross",
-        DefLoc::Stmt(_) => "Statement",
+        DefOriginLoc::SubroutinePort(_) | DefOriginLoc::NonAnsiPort(_) => "Port",
+        DefOriginLoc::Decl(decl_id) => render_decl_title_kind(db, decl_id)?,
+        DefOriginLoc::Typedef(_) => "Typedef",
+        DefOriginLoc::Instance(_) => "Instance",
+        DefOriginLoc::Modport(_) => "Modport",
+        DefOriginLoc::ClockingBlock(_) => "Clocking block",
+        DefOriginLoc::Checker(_) => "Checker",
+        DefOriginLoc::Covergroup(_) => "Covergroup",
+        DefOriginLoc::Coverpoint(_) => "Coverpoint",
+        DefOriginLoc::Cross(_) => "Cross",
+        DefOriginLoc::Stmt(_) => "Statement",
         _ => return None,
     };
 
@@ -338,17 +339,17 @@ fn render_decl_title_kind(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<&
     })
 }
 
-fn render_signature(sema: &Semantics<RootDb>, origin: &DefId) -> Option<String> {
+fn render_signature(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<String> {
     let db = sema.db;
     match origin.loc(db) {
-        DefLoc::Module(module_id) => render_module_signature(db, module_id),
-        DefLoc::Subroutine(subroutine_id) => render_subroutine_signature(db, subroutine_id),
-        DefLoc::SubroutinePort(port_id) => render_subroutine_port_signature(db, port_id),
-        DefLoc::NonAnsiPort(port_id) => render_non_ansi_port_signature(db, port_id),
-        DefLoc::Decl(decl_id) => render_decl_signature(db, decl_id),
-        DefLoc::Typedef(typedef) => typedef.display_signature(db).ok(),
-        DefLoc::Instance(instance_id) => render_instance_signature(db, instance_id),
-        DefLoc::ClockingBlock(clocking_block_id) => {
+        DefOriginLoc::Module(module_id) => render_module_signature(db, module_id),
+        DefOriginLoc::Subroutine(subroutine_id) => render_subroutine_signature(db, subroutine_id),
+        DefOriginLoc::SubroutinePort(port_id) => render_subroutine_port_signature(db, port_id),
+        DefOriginLoc::NonAnsiPort(port_id) => render_non_ansi_port_signature(db, port_id),
+        DefOriginLoc::Decl(decl_id) => render_decl_signature(db, decl_id),
+        DefOriginLoc::Typedef(typedef) => typedef.display_signature(db).ok(),
+        DefOriginLoc::Instance(instance_id) => render_instance_signature(db, instance_id),
+        DefOriginLoc::ClockingBlock(clocking_block_id) => {
             render_clocking_block_signature(db, clocking_block_id)
         }
         _ => render_label_signature(db, origin),
@@ -666,34 +667,34 @@ fn render_data_ty(db: &RootDb, container: ScopeId, ty: DataTy) -> Option<String>
     InContainer::new(container, ty).display_source(db).ok()
 }
 
-fn render_label_signature(db: &RootDb, origin: &DefId) -> Option<String> {
+fn render_label_signature(db: &RootDb, origin: &DefOrigin) -> Option<String> {
     let name = origin.name(db)?;
     let kind = match origin.loc(db) {
-        DefLoc::Config(_) => "config",
-        DefLoc::Library(_) => "library",
-        DefLoc::Udp(_) => "primitive",
-        DefLoc::Block(_) => "block",
-        DefLoc::GenerateBlock(_) => "generate",
-        DefLoc::Instance(_) => "instance",
-        DefLoc::Modport(_) => "modport",
-        DefLoc::ClockingBlock(_) => "clocking",
-        DefLoc::Checker(_) => "checker",
-        DefLoc::Covergroup(_) => "covergroup",
-        DefLoc::Coverpoint(_) => "coverpoint",
-        DefLoc::Cross(_) => "cross",
-        DefLoc::Stmt(_) => "statement",
-        DefLoc::Typedef(_) => "typedef",
-        DefLoc::Module(_)
-        | DefLoc::Subroutine(_)
-        | DefLoc::SubroutinePort(_)
-        | DefLoc::NonAnsiPort(_)
-        | DefLoc::Decl(_) => return None,
+        DefOriginLoc::Config(_) => "config",
+        DefOriginLoc::Library(_) => "library",
+        DefOriginLoc::Udp(_) => "primitive",
+        DefOriginLoc::Block(_) => "block",
+        DefOriginLoc::GenerateBlock(_) => "generate",
+        DefOriginLoc::Instance(_) => "instance",
+        DefOriginLoc::Modport(_) => "modport",
+        DefOriginLoc::ClockingBlock(_) => "clocking",
+        DefOriginLoc::Checker(_) => "checker",
+        DefOriginLoc::Covergroup(_) => "covergroup",
+        DefOriginLoc::Coverpoint(_) => "coverpoint",
+        DefOriginLoc::Cross(_) => "cross",
+        DefOriginLoc::Stmt(_) => "statement",
+        DefOriginLoc::Typedef(_) => "typedef",
+        DefOriginLoc::Module(_)
+        | DefOriginLoc::Subroutine(_)
+        | DefOriginLoc::SubroutinePort(_)
+        | DefOriginLoc::NonAnsiPort(_)
+        | DefOriginLoc::Decl(_) => return None,
         _ => return None,
     };
     Some(format!("{kind} {name}"))
 }
 
-fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefId) -> Option<Markup> {
+fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefOrigin) -> Option<Markup> {
     let db = sema.db;
     let InFile { value: range, file_id } = origin.range(db)?;
 
@@ -731,7 +732,7 @@ fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefId) -> Option<
     }
 }
 
-fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefId) -> Option<String> {
+fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<String> {
     // elaboration?
     let db = sema.db;
     let InFile { value: range, .. } = origin.range(db)?;
@@ -767,7 +768,7 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefId) -> Option<String>
 
 fn render_definition_metadata(
     sema: &Semantics<RootDb>,
-    origin: &DefId,
+    origin: &DefOrigin,
     anchor_file_id: vfs::FileId,
 ) -> Option<String> {
     let mut parts = Vec::new();

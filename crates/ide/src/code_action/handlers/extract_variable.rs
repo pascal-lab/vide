@@ -179,9 +179,8 @@ fn expected_type_for_assignment_rhs(
     expr: ast::Expression<'_>,
 ) -> Option<Ty> {
     let assignment = assignment_expression_containing_rhs(expr)?;
-    let res = ctx
-        .sema()
-        .expr_to_def(ctx.sema().resolve_expr(ctx.file_id().into(), assignment.left())?)?;
+    let res =
+        ctx.sema().expr_to_def(ctx.sema().resolve_expr(ctx.file_id().into(), assignment.left())?);
     Some(ctx.sema().db.type_of_path_resolution(res).ty.clone())
 }
 

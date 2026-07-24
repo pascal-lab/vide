@@ -15,7 +15,7 @@ use hir::{
     },
     semantics::Semantics,
     source_map::{IsNamedSrc, IsSrc},
-    symbol::{DefId, NameContext},
+    symbol::{DefOrigin, NameContext},
 };
 use regex::{Regex, RegexBuilder};
 use smallvec::SmallVec;
@@ -61,8 +61,9 @@ pub(super) fn collect_port(
                         check_range!(collector, name_range);
 
                         let name = module.get(ref_id).ident.as_ref()?;
-                        let defs = module_scope.lookup(NameContext::Value, name)?;
-                        let (_, dir, ty) = resolve_non_ansi_port(db, module, &defs)?;
+                        let def = module_scope.lookup(NameContext::Value, name).unique()?;
+                        let origins = def.origins(db);
+                        let (_, dir, ty) = resolve_non_ansi_port(db, module, &origins)?;
                         add_port_token(db, name, dir, ty, name_range, collector);
                     };
                 }
@@ -80,8 +81,9 @@ pub(super) fn collect_port(
                             check_range!(collector, name_range);
 
                             let name = decl.name.as_ref()?;
-                            let defs = module_scope.lookup(NameContext::Value, name)?;
-                            let (_, dir, ty) = resolve_non_ansi_port(db, module, &defs)?;
+                            let def = module_scope.lookup(NameContext::Value, name).unique()?;
+                            let origins = def.origins(db);
+                            let (_, dir, ty) = resolve_non_ansi_port(db, module, &origins)?;
                             add_port_token(db, name, dir, ty, name_range, collector);
                         };
                     }
@@ -115,7 +117,7 @@ pub(super) fn collect_port(
 pub(super) fn resolve_non_ansi_port<'a>(
     db: &RootDb,
     module: &'a Module,
-    defs: &[DefId],
+    defs: &[DefOrigin],
 ) -> Option<(&'a hir::hir_def::Ident, Option<PortDirection>, DataTy)> {
     let port_decl_id =
         defs.iter().filter_map(|def_id| def_id.as_decl(db)).map(|decl_id| decl_id.value).find(

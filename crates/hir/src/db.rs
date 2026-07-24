@@ -4,7 +4,7 @@ use triomphe::Arc;
 use crate::{
     base_db::{salsa, source_db::SourceRootDb},
     container::{InContainer, InModule, InSubroutine},
-    def_id::{ModuleDef, ModuleDefId},
+    def_id::{DefId, Definition},
     file::HirFileId,
     hir_def::{
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
@@ -28,8 +28,7 @@ use crate::{
         typedef::TypedefId,
     },
     impl_intern_key, impl_intern_lookup,
-    semantics::pathres::PathResolution,
-    symbol::{DefId, DefLoc, NameScope},
+    symbol::{DefOrigin, DefOriginLoc, NameScope, Resolution},
     type_infer::TyResult,
 };
 
@@ -56,10 +55,10 @@ pub trait InternDb: SourceRootDb {
     fn intern_macro_file(&self, macro_file: MacroFileLoc) -> MacroFileId;
 
     #[salsa::interned]
-    fn intern_module_def(&self, module_def: ModuleDef) -> ModuleDefId;
+    fn intern_def_origin(&self, origin: DefOriginLoc) -> DefOrigin;
 
     #[salsa::interned]
-    fn intern_def(&self, def: DefLoc) -> DefId;
+    fn intern_def(&self, definition: Definition) -> DefId;
 }
 
 impl_intern!(BuiltinDataTyId, BuiltinDataTy, intern_ty, lookup_intern_ty);
@@ -72,8 +71,8 @@ impl_intern!(
 );
 impl_intern!(MacroCallId, MacroCallLoc, intern_macro_call, lookup_intern_macro_call);
 impl_intern!(MacroFileId, MacroFileLoc, intern_macro_file, lookup_intern_macro_file);
-impl_intern!(ModuleDefId, ModuleDef, intern_module_def, lookup_intern_module_def);
-impl_intern!(DefId, DefLoc, intern_def, lookup_intern_def);
+impl_intern!(DefOrigin, DefOriginLoc, intern_def_origin, lookup_intern_def_origin);
+impl_intern!(DefId, Definition, intern_def, lookup_intern_def);
 
 #[salsa::query_group(HirDbStorage)]
 pub trait HirDb: InternDb {
@@ -157,7 +156,7 @@ pub trait HirDb: InternDb {
     fn type_of_expr(&self, expr: InContainer<ExprId>) -> Arc<TyResult>;
 
     #[salsa::invoke(crate::type_infer::type_of_path_resolution_query)]
-    fn type_of_path_resolution(&self, res: PathResolution) -> Arc<TyResult>;
+    fn type_of_path_resolution(&self, res: Resolution<DefId>) -> Arc<TyResult>;
 
     #[salsa::invoke(crate::type_infer::type_of_subroutine_port_query)]
     fn type_of_subroutine_port(&self, port: InSubroutine<SubroutinePortId>) -> Arc<TyResult>;

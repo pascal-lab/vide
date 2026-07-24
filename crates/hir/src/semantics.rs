@@ -2,7 +2,6 @@ use std::{cell::RefCell, ops};
 
 use hir_to_def::Hir2DefCache;
 use itertools::{Either, Itertools};
-use pathres::PathResolution;
 use source_to_def::{Source2DefCache, Source2DefCtx};
 use syntax::{
     SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTree,
@@ -14,6 +13,7 @@ use vfs::FileId;
 use crate::{
     container::{InContainer, InFile, ScopeId},
     db::HirDb,
+    def_id::DefId,
     file::HirFileId,
     hir_def::{
         Ident,
@@ -22,7 +22,7 @@ use crate::{
         module::{ModuleId, ModuleSrc},
         subroutine::{LocalSubroutineId, SubroutineSrc},
     },
-    symbol::NameContext,
+    symbol::{NameContext, Resolution},
 };
 
 mod hir_to_def;
@@ -153,11 +153,11 @@ impl SemanticsImpl<'_> {
         self.with_ctx(|ctx| ctx.subroutine_to_def(InFile::new(file_id, subroutine_src)))
     }
 
-    pub fn expr_to_def(&self, in_cont: InContainer<ExprId>) -> Option<PathResolution> {
+    pub fn expr_to_def(&self, in_cont: InContainer<ExprId>) -> Resolution<DefId> {
         self.with_ctx(|ctx| ctx.expr_to_def(in_cont))
     }
 
-    pub fn name_to_def(&self, in_cont: InContainer<Ident>) -> Option<PathResolution> {
+    pub fn name_to_def(&self, in_cont: InContainer<Ident>) -> Resolution<DefId> {
         self.with_ctx(|ctx| ctx.name_to_def(in_cont, NameContext::Value))
     }
 }

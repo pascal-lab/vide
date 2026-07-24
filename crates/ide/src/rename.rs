@@ -1,9 +1,9 @@
 use hir::{
     base_db::source_db::SourceDb,
     container::InFile,
-    def_id::ModuleDefId,
+    def_id::DefId,
     semantics::Semantics,
-    symbol::{DefId, NameContext},
+    symbol::{DefOrigin, NameContext},
 };
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
@@ -58,7 +58,7 @@ impl RenameConfig {
     fn references_config(
         &self,
         db: &RootDb,
-        def: &ModuleDefId,
+        def: &DefId,
         file_id: FileId,
     ) -> RenameResult<ReferencesConfig> {
         let mut config = ReferencesConfig::new(self.scope_visibility.clone(), None);
@@ -144,7 +144,7 @@ pub(crate) fn expanded_rename(
     let sema = Semantics::new(db);
     let resolved = resolve_rename_target(&sema, position)?;
     let targets = recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?;
-    let mut rename_targets = UniqVec::<(), DefId>::default();
+    let mut rename_targets = UniqVec::<(), DefOrigin>::default();
     for target in &targets {
         rename_targets.push(target.def.origins(db), ());
     }
@@ -179,7 +179,7 @@ pub(crate) fn rename_conflict_info(
 ) -> RenameResult<RenameCollisionInfo> {
     let sema = Semantics::new(db);
     let resolved = resolve_rename_target(&sema, position)?;
-    let targets: Vec<ModuleDefId> = if recursive {
+    let targets: Vec<DefId> = if recursive {
         recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?
             .into_iter()
             .map(|target| target.def)
@@ -189,14 +189,14 @@ pub(crate) fn rename_conflict_info(
     };
 
     let new_name = SmolStr::new(new_name);
-    let mut target_index = UniqVec::<(), DefId>::default();
+    let mut target_index = UniqVec::<(), DefOrigin>::default();
     for target in &targets {
         target_index.push(target.origins(db), ());
     }
-    let mut conflicts = UniqVec::<ModuleDefId, DefId>::default();
-    for collision in targets.iter().flat_map(|target| target.origins(db)).filter_map(|origin| {
+    let mut conflicts = UniqVec::<DefId, DefOrigin>::default();
+    for collision in targets.iter().flat_map(|target| target.origins(db)).flat_map(|origin| {
         sema.resolve_name(origin.container_id(db), &new_name, origin.kind(db).name_context())
-            .and_then(|res| res.to_def_id(db))
+            .into_candidates()
     }) {
         if collision.origins(db).iter().any(|origin| target_index.contains(origin)) {
             continue;
@@ -209,14 +209,14 @@ pub(crate) fn rename_conflict_info(
 
 struct ResolvedRenameTarget {
     range: TextRange,
-    selected_def: ModuleDefId,
-    targets: Vec<ModuleDefId>,
+    selected_def: DefId,
+    targets: Vec<DefId>,
 }
 
 type ReferenceSearchResult = IntMap<FileId, Vec<ReferenceToken>>;
 
 struct RecursiveRenameTarget {
-    def: ModuleDefId,
+    def: DefId,
     refs: ReferenceSearchResult,
     same_name_refs: Vec<SameNameConnectionRef>,
 }
@@ -241,10 +241,11 @@ fn resolve_rename_target(
     };
     let (range, tokens) = target.into_parts();
     let mut selected_def = None;
-    let mut targets = UniqVec::<ModuleDefId, DefId>::default();
+    let mut targets = UniqVec::<DefId, DefOrigin>::default();
 
     for token in tokens {
         let token_selected = match DefinitionClass::resolve(sema, hir_file_id, token)
+            .unique()
             .ok_or(RenameError::NoDefFound)?
         {
             DefinitionClass::Definition(def) => {
@@ -256,7 +257,6 @@ fn resolve_rename_target(
                 targets.push(port.origins(sema.db), port);
                 local
             }
-            DefinitionClass::Ambiguous(_) => return Err(RenameError::NoDefFound),
         };
 
         match &selected_def {
@@ -274,8 +274,8 @@ fn resolve_rename_target(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SameNameConnection {
-    port: ModuleDefId,
-    local: ModuleDefId,
+    port: DefId,
+    local: DefId,
     collapse_range: TextRange,
 }
 
@@ -291,9 +291,9 @@ fn rename_definition(
     sema: &Semantics<'_, RootDb>,
     request_file_id: FileId,
     config: &RenameConfig,
-    def: &ModuleDefId,
+    def: &DefId,
     new_name: &str,
-    rename_targets: Option<&UniqVec<(), DefId>>,
+    rename_targets: Option<&UniqVec<(), DefOrigin>>,
 ) -> RenameResult<SourceChange> {
     let refs = references_for_definition(db, sema, request_file_id, config, def)?;
     rename_definition_with_refs(db, sema, def, new_name, rename_targets, &refs, &[])
@@ -304,7 +304,7 @@ fn references_for_definition(
     sema: &Semantics<'_, RootDb>,
     request_file_id: FileId,
     config: &RenameConfig,
-    def: &ModuleDefId,
+    def: &DefId,
 ) -> RenameResult<ReferenceSearchResult> {
     let refs_config = config.references_config(db, def, request_file_id)?;
     Ok(ReferencesCtx::new(sema, def, refs_config).search())
@@ -313,9 +313,9 @@ fn references_for_definition(
 fn rename_definition_with_refs(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
-    def: &ModuleDefId,
+    def: &DefId,
     new_name: &str,
-    rename_targets: Option<&UniqVec<(), DefId>>,
+    rename_targets: Option<&UniqVec<(), DefOrigin>>,
     refs: &ReferenceSearchResult,
     same_name_refs: &[SameNameConnectionRef],
 ) -> RenameResult<SourceChange> {
@@ -365,9 +365,9 @@ fn recursive_rename_targets(
     sema: &Semantics<'_, RootDb>,
     file_id: FileId,
     config: &RenameConfig,
-    initial_targets: Vec<ModuleDefId>,
+    initial_targets: Vec<DefId>,
 ) -> RenameResult<Vec<RecursiveRenameTarget>> {
-    let mut targets = UniqVec::<ModuleDefId, DefId>::default();
+    let mut targets = UniqVec::<DefId, DefOrigin>::default();
     for target in initial_targets {
         targets.push(target.origins(db), target);
     }
@@ -422,7 +422,7 @@ fn check_same_name_conn(
     let name_range = name_token.text_range_in(conn.syntax())?;
     let token_range = token.text_range()?;
     let port_token = SyntaxTokenWithParent { parent: conn.syntax(), tok: name_token };
-    let port_resolution = DefinitionClass::resolve(sema, file_id, port_token)?;
+    let port_resolution = DefinitionClass::resolve(sema, file_id, port_token).unique()?;
 
     let close_paren = match (conn.open_paren(), conn.close_paren()) {
         (None, None) => {
@@ -444,7 +444,6 @@ fn check_same_name_conn(
     let port = match port_resolution {
         DefinitionClass::Definition(def) => def,
         DefinitionClass::PortConnShorthand { port, .. } => port,
-        DefinitionClass::Ambiguous(_) => return None,
     };
     let port_name = name_token.value_text().to_string();
     let expr = conn.expr()?.as_simple_property_expr()?.expr().as_simple_sequence_expr()?.expr();
@@ -470,12 +469,12 @@ fn check_same_name_conn(
     let collapse_end = close_paren.text_range_in(conn.syntax())?.end();
     Some(SameNameConnection {
         port,
-        local: sema.nameres_ident(file_id, actual_token, NameContext::Value)?.to_def_id(sema.db)?,
+        local: sema.nameres_ident(file_id, actual_token, NameContext::Value).unique()?,
         collapse_range: TextRange::new(name_range.start(), collapse_end),
     })
 }
 
-fn origins_are_editable(db: &RootDb, def: &ModuleDefId, file_id: FileId) -> bool {
+fn origins_are_editable(db: &RootDb, def: &DefId, file_id: FileId) -> bool {
     def.origins(db).into_iter().all(|origin| {
         matches!(
             origin.name_range(db),
@@ -489,10 +488,10 @@ fn edits_from_refs(
     sema: &Semantics<'_, RootDb>,
     file_id: FileId,
     toks: &[ReferenceToken],
-    def: &ModuleDefId,
+    def: &DefId,
     old_name: &str,
     new_name: &str,
-    rename_targets: Option<&UniqVec<(), DefId>>,
+    rename_targets: Option<&UniqVec<(), DefOrigin>>,
     same_name_refs: &[SameNameConnectionRef],
 ) -> (FileId, TextEdit) {
     let mut text_edit = TextEdit::builder();
@@ -544,9 +543,7 @@ fn edits_from_refs(
                     (None, None) => {
                         if let Some(port_conn) = ast::PortConnection::cast(it.syntax()) {
                             if let Some(ref_container) = sema.resolve_port_connection(hir_file_id, port_conn)
-                                && def
-                                    .container_id(sema.db)
-                                    .is_some_and(|id| id == ref_container.module_id.into())
+                                && def.container_id(sema.db) == ref_container.module_id.into()
                             {
                                 // .old => .old(new)
                                 text_edit.replace(range, format!("{old_name}({new_name})"));

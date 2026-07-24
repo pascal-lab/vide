@@ -7,13 +7,13 @@ use super::SemanticsImpl;
 use crate::{
     container::{InContainer, InFile, ScopeId, ScopeParent},
     db::HirDb,
-    def_id::{ModuleDef, ModuleDefId},
+    def_id::DefId,
     file::HirFileId,
     hir_def::{
         Ident, lower_ident_opt,
         module::{ModuleId, instantiation::InstanceId},
     },
-    symbol::{DefId, DefKind, NameContext, NameScope},
+    symbol::{DefKind, NameContext, NameScope, Resolution},
 };
 
 // SystemVerilog name AST note for path resolution:
@@ -34,8 +34,10 @@ impl SemanticsImpl<'_> {
         file_id: HirFileId,
         SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
         name_ctx: NameContext,
-    ) -> Option<PathResolution> {
-        let ident = lower_ident_opt(Some(tok))?;
+    ) -> Resolution<DefId> {
+        let Some(ident) = lower_ident_opt(Some(tok)) else {
+            return Resolution::Unresolved;
+        };
         self.with_ctx(|source_ctx| {
             let container = source_ctx.find_container(InFile::new(file_id, parent));
             source_ctx.name_to_def(InContainer::new(container, ident), name_ctx)
@@ -51,7 +53,7 @@ impl SemanticsImpl<'_> {
         cont_id: ScopeId,
         ident: &Ident,
         ctx: NameContext,
-    ) -> Option<PathResolution> {
+    ) -> Resolution<DefId> {
         resolve_name(self.db, cont_id, ident, ctx)
     }
 }
@@ -61,13 +63,13 @@ pub fn resolve_name(
     cont_id: ScopeId,
     ident: &Ident,
     ctx: NameContext,
-) -> Option<PathResolution> {
+) -> Resolution<DefId> {
     let scopes = ScopeParent::start_from(db, cont_id).collect::<SmallVec<[_; 4]>>();
 
     for id in &scopes {
-        let scope = name_scope(db, *id);
-        if let Some(res) = scope.lookup(ctx, ident).and_then(PathResolution::from_def_ids) {
-            return Some(res);
+        let resolution = name_scope(db, *id).lookup(ctx, ident);
+        if !resolution.is_unresolved() {
+            return resolution;
         }
     }
 
@@ -75,11 +77,12 @@ pub fn resolve_name(
     // declarations: visible declarations in the lexical chain win, then
     // package imports are considered, and `$unit` remains an explicit outer
     // scope. `NameContext` chooses the namespace bucket at every phase.
-    if let Some(res) = resolve_imported_name(db, &scopes, ident, ctx) {
-        return Some(res);
+    let imported = resolve_imported_name(db, &scopes, ident, ctx);
+    if !imported.is_unresolved() {
+        return imported;
     }
 
-    db.unit_scope().lookup(ctx, ident).and_then(PathResolution::from_def_ids)
+    db.unit_scope().lookup(ctx, ident)
 }
 
 pub fn resolve_path(
@@ -87,17 +90,22 @@ pub fn resolve_path(
     cont_id: ScopeId,
     path: &[Ident],
     ctx: NameContext,
-) -> Option<PathResolution> {
-    let (first, rest) = path.split_first()?;
+) -> Resolution<DefId> {
+    let Some((first, rest)) = path.split_first() else {
+        return Resolution::Unresolved;
+    };
     let mut current = resolve_name(db, cont_id, first, ctx)
-        .or_else(|| resolve_top_level_module_root(db, cont_id, first, ctx, !rest.is_empty()))?;
+        .or_else(|| resolve_top_level_module_root(db, cont_id, first, ctx, !rest.is_empty()));
 
     for (idx, segment) in rest.iter().enumerate() {
         let segment_ctx = if idx + 1 == rest.len() { ctx } else { NameContext::Value };
-        current = resolve_child_name(db, &current, segment, segment_ctx)?;
+        current = resolve_child_name(db, &current, segment, segment_ctx);
+        if current.is_unresolved() {
+            break;
+        }
     }
 
-    Some(current)
+    current
 }
 
 fn resolve_top_level_module_root(
@@ -106,9 +114,9 @@ fn resolve_top_level_module_root(
     ident: &Ident,
     ctx: NameContext,
     has_child_segment: bool,
-) -> Option<PathResolution> {
+) -> Resolution<DefId> {
     if !has_child_segment || ctx != NameContext::Value {
-        return None;
+        return Resolution::Unresolved;
     }
 
     // IEEE 1800 hierarchical names can start at a top-level module instance.
@@ -116,55 +124,50 @@ fn resolve_top_level_module_root(
     // elaborated top-instance DefId yet, so a multi-segment value path may use
     // a module definition as an explicit hierarchy root. This is not a single
     // segment value fallback: `top` alone remains a type-space module name.
-    let type_res = resolve_name(db, cont_id, ident, NameContext::Type)?;
-    let module_defs =
-        type_res.def_ids().iter().copied().filter(|def_id| def_id.kind(db).is_instantiable_def());
-    PathResolution::from_def_ids(module_defs)
+    Resolution::from_candidates(
+        resolve_name(db, cont_id, ident, NameContext::Type)
+            .candidates()
+            .iter()
+            .copied()
+            .filter(|def_id| def_id.kind(db).is_instantiable_def()),
+    )
 }
 
-fn resolve_child_name(
+pub(super) fn resolve_child_name(
     db: &dyn HirDb,
-    parent: &PathResolution,
+    parent: &Resolution<DefId>,
     ident: &Ident,
     ctx: NameContext,
-) -> Option<PathResolution> {
-    let mut defs = SmallVec::<[DefId; 3]>::new();
-    for def_id in parent.def_ids() {
-        let Some(scope_id) = descend_scope(db, *def_id) else {
-            continue;
+) -> Resolution<DefId> {
+    parent.and_then(|def_id| {
+        let Some(scope_id) = descend_scope(db, def_id) else {
+            return Resolution::Unresolved;
         };
-        let Some(child_defs) = name_scope(db, scope_id).lookup(ctx, ident) else {
-            continue;
-        };
-        for child_def_id in child_defs {
-            if !defs.contains(&child_def_id) {
-                defs.push(child_def_id);
-            }
-        }
-    }
-    PathResolution::from_def_ids(defs)
+        name_scope(db, scope_id).lookup(ctx, ident)
+    })
 }
 
 pub fn descend_scope(db: &dyn HirDb, def_id: DefId) -> Option<ScopeId> {
+    let origin = def_id.primary_origin(db);
     match def_id.kind(db) {
         DefKind::Module | DefKind::Interface | DefKind::Program => {
-            def_id.as_module(db).map(Into::into)
+            origin.as_module(db).map(Into::into)
         }
-        DefKind::ClockingBlock => def_id.as_clocking_block(db).map(Into::into),
+        DefKind::ClockingBlock => origin.as_clocking_block(db).map(Into::into),
         DefKind::Checker => {
-            def_id.as_checker(db).and_then(|checker| checker.try_into().ok()).map(ScopeId::Checker)
+            origin.as_checker(db).and_then(|checker| checker.try_into().ok()).map(ScopeId::Checker)
         }
-        DefKind::Covergroup => def_id
+        DefKind::Covergroup => origin
             .as_covergroup(db)
             .and_then(|covergroup| covergroup.try_into().ok())
             .map(ScopeId::Covergroup),
         DefKind::Instance => {
-            let instance = def_id.as_instance(db)?;
+            let instance = origin.as_instance(db)?;
             let target = instance_target_def_id(db, instance.module_id, instance.value)?;
             descend_scope(db, target)
         }
-        DefKind::Block => def_id.as_block(db).map(Into::into),
-        DefKind::GenerateBlock => def_id.as_generate_block(db).map(Into::into),
+        DefKind::Block => origin.as_block(db).map(Into::into),
+        DefKind::GenerateBlock => origin.as_generate_block(db).map(Into::into),
         _ => None,
     }
 }
@@ -178,11 +181,8 @@ pub(crate) fn instance_target_def_id(
     let instance = module.get(instance_id);
     let instantiation = module.get(instance.parent);
     let module_name = instantiation.module_name.as_ref()?;
-    resolve_name(db, module_id.into(), module_name, NameContext::Type)?
-        .def_ids()
-        .iter()
-        .copied()
-        .find(|def_id| def_id.kind(db).is_instantiable_def())
+    let target = resolve_name(db, module_id.into(), module_name, NameContext::Type).unique()?;
+    target.kind(db).is_instantiable_def().then_some(target)
 }
 
 pub(crate) fn name_scope(db: &dyn HirDb, scope_id: ScopeId) -> Arc<NameScope> {
@@ -203,14 +203,14 @@ fn resolve_imported_name(
     scopes: &[ScopeId],
     ident: &Ident,
     ctx: NameContext,
-) -> Option<PathResolution> {
+) -> Resolution<DefId> {
     let mut defs = SmallVec::<[DefId; 3]>::new();
 
     for scope_id in scopes {
         let scope = name_scope(db, *scope_id);
         collect_imports(db, &scope, ident, ctx, true, &mut defs);
         if !defs.is_empty() {
-            return PathResolution::from_def_ids(defs);
+            return Resolution::from_candidates(defs);
         }
     }
 
@@ -218,11 +218,11 @@ fn resolve_imported_name(
         let scope = name_scope(db, *scope_id);
         collect_imports(db, &scope, ident, ctx, false, &mut defs);
         if !defs.is_empty() {
-            return PathResolution::from_def_ids(defs);
+            return Resolution::from_candidates(defs);
         }
     }
 
-    None
+    Resolution::Unresolved
 }
 
 fn collect_imports(
@@ -240,57 +240,15 @@ fn collect_imports(
             _ => continue,
         }
 
-        let Some(package_id) = db.unit_scope().package_ids(db, &import.package).unique() else {
-            continue;
-        };
-        let package_scope = db.package_export_scope(package_id);
-        if let Some(imported) = package_scope.lookup(ctx, ident) {
-            for def_id in imported {
-                if !defs.contains(&def_id) {
-                    defs.push(def_id);
-                }
+        let imported = db
+            .unit_scope()
+            .package_ids(db, &import.package)
+            .and_then(|package_id| db.package_export_scope(package_id).lookup(ctx, ident));
+        for def_id in imported.into_candidates() {
+            if !defs.contains(&def_id) {
+                defs.push(def_id);
             }
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct PathResolution {
-    def_ids: SmallVec<[DefId; 3]>,
-}
-
-impl PathResolution {
-    pub fn from_def_id(def_id: DefId) -> Self {
-        Self { def_ids: SmallVec::from_slice(&[def_id]) }
-    }
-
-    pub fn from_def_ids(def_ids: impl IntoIterator<Item = DefId>) -> Option<Self> {
-        let mut resolved = SmallVec::<[DefId; 3]>::new();
-        for def_id in def_ids {
-            if !resolved.contains(&def_id) {
-                resolved.push(def_id);
-            }
-        }
-        (!resolved.is_empty()).then_some(Self { def_ids: resolved })
-    }
-
-    pub fn def_ids(&self) -> &[DefId] {
-        &self.def_ids
-    }
-
-    pub fn primary_def_id(&self) -> Option<DefId> {
-        self.def_ids.first().copied()
-    }
-
-    pub fn to_def_id(&self, db: &dyn HirDb) -> Option<ModuleDefId> {
-        let module_def = ModuleDef::from_def_ids(self.def_ids.iter().copied())?;
-        Some(db.intern_module_def(module_def))
-    }
-}
-
-impl From<DefId> for PathResolution {
-    fn from(def_id: DefId) -> Self {
-        Self::from_def_id(def_id)
     }
 }
 
@@ -402,7 +360,7 @@ mod tests {
     ) -> DefKind {
         let path = path(segments);
         resolve_path(db, scope_id, &path, ctx)
-            .and_then(|res| res.primary_def_id())
+            .unique()
             .map(|def_id| def_id.kind(db))
             .unwrap_or_else(|| panic!("path {segments:?} should resolve"))
     }
@@ -454,6 +412,101 @@ endmodule
     }
 
     #[test]
+    fn resolve_path_does_not_collapse_ambiguous_parent() {
+        let db = db_with_root_text(
+            r#"
+module left;
+  wire only_left;
+  wire shared;
+endmodule
+
+module right;
+  wire shared;
+endmodule
+
+module top;
+  left u();
+  right u();
+endmodule
+"#,
+        );
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+
+        assert!(
+            resolve_path(&db, top.into(), &path(&["u", "only_left"]), NameContext::Value)
+                .is_unresolved()
+        );
+        let Resolution::Ambiguous(shared) =
+            resolve_path(&db, top.into(), &path(&["u", "shared"]), NameContext::Value)
+        else {
+            panic!("members from ambiguous parents should remain ambiguous");
+        };
+        assert_eq!(shared.len(), 2);
+    }
+
+    #[test]
+    fn wildcard_import_preserves_ambiguous_packages() {
+        let db = db_with_root_text(
+            r#"
+package p;
+  int value;
+endpackage
+
+package p;
+  int value;
+endpackage
+
+module top;
+  import p::*;
+endmodule
+"#,
+        );
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+        let Resolution::Ambiguous(values) =
+            resolve_name(&db, top.into(), &ident("value"), NameContext::Value)
+        else {
+            panic!("imports from ambiguous packages should remain ambiguous");
+        };
+        assert_eq!(values.len(), 2);
+    }
+
+    #[test]
+    fn wildcard_import_does_not_resolve_through_one_ambiguous_package() {
+        let db = db_with_root_text(
+            r#"
+package p;
+  int only_left;
+endpackage
+
+package p;
+endpackage
+
+module top;
+  import p::*;
+endmodule
+"#,
+        );
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+
+        assert!(
+            resolve_name(&db, top.into(), &ident("only_left"), NameContext::Value).is_unresolved(),
+            "a child member must not disambiguate its parent package"
+        );
+    }
+
+    #[test]
     fn resolve_path_treats_top_level_module_as_hierarchical_root() {
         let db = db_with_root_text(
             r#"
@@ -499,10 +552,9 @@ endmodule
             .unique()
             .expect("top module should resolve uniquely");
 
-        let res = resolve_path(&db, top.into(), &path(&["u_if", "host"]), NameContext::Value)
-            .expect("interface instance modport should resolve");
+        let res = resolve_path(&db, top.into(), &path(&["u_if", "host"]), NameContext::Value);
 
-        let def = res.primary_def_id().expect("modport should produce a definition");
+        let def = res.unique().expect("modport should produce a unique definition");
         assert_eq!(def.name(&db).as_deref(), Some("host"));
         assert_eq!(def.kind(&db), DefKind::Modport);
         assert_eq!(

@@ -3,6 +3,7 @@ use collector::SemaTokenCollectorTree;
 use hir::{
     container::{InContainer, ScopeId},
     db::HirDb,
+    def_id::DefId,
     file::HirFileId,
     hir_def::{
         Ident,
@@ -19,9 +20,9 @@ use hir::{
         stmt::StmtKind,
     },
     preproc::macro_references_in_range,
-    semantics::{Semantics, pathres::PathResolution},
+    semantics::Semantics,
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
-    symbol::{DefKind, DefLoc, NameContext},
+    symbol::{DefKind, NameContext, Resolution},
 };
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
@@ -519,9 +520,8 @@ fn collect_named_port_connections(
         else {
             continue;
         };
-        if let Some(res) = resolve_named_port_connection(db, module_id.file_id.file_id(), named) {
-            collect_resolved_path(sema, res, range, collector);
-        }
+        let res = resolve_named_port_connection(db, module_id.file_id.file_id(), named);
+        collect_resolved_path(sema, res, range, collector);
     }
 }
 
@@ -552,9 +552,8 @@ fn collect_named_param_assignments(
         else {
             continue;
         };
-        if let Some(res) = resolve_named_param_assignment(db, module_id.file_id.file_id(), named) {
-            collect_resolved_path(sema, res, range, collector);
-        }
+        let res = resolve_named_param_assignment(db, module_id.file_id.file_id(), named);
+        collect_resolved_path(sema, res, range, collector);
     }
 }
 
@@ -564,7 +563,7 @@ fn collect_ident_like(
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) -> Option<()> {
-    let res = sema.resolve_name(in_cont.cont_id, &in_cont.value, NameContext::Value)?;
+    let res = sema.resolve_name(in_cont.cont_id, &in_cont.value, NameContext::Value);
     collect_resolved_path(sema, res, range, collector)
 }
 
@@ -578,7 +577,7 @@ fn collect_type_ident_like(
     let Expr::Ident(name) = expr else {
         return None;
     };
-    let res = sema.resolve_name(cont_id, name, NameContext::Type)?;
+    let res = sema.resolve_name(cont_id, name, NameContext::Type);
     collect_resolved_path(sema, res, range, collector)
 }
 
@@ -595,7 +594,7 @@ fn collect_field_like(
     if !collector.range.intersect(range).is_some() {
         return None;
     }
-    let res = sema.expr_to_def(InContainer::new(cont_id, expr_id))?;
+    let res = sema.expr_to_def(InContainer::new(cont_id, expr_id));
     collect_resolved_path(sema, res, range, collector)
 }
 
@@ -640,64 +639,54 @@ fn named_data_ty_expr_id(ty: DataTy) -> Option<ExprId> {
 
 fn collect_resolved_path(
     sema: &Semantics<'_, RootDb>,
-    res: PathResolution,
+    res: Resolution<DefId>,
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) -> Option<()> {
     let db = sema.db;
+    let def_id = res.unique()?;
 
-    if res.def_ids().iter().any(|def_id| def_id.kind(db) == DefKind::NonAnsiPort) {
-        let module_id = res.def_ids().iter().find_map(|def_id| match def_id.loc(db) {
-            DefLoc::NonAnsiPort(port_id) => Some(port_id.module_id),
-            DefLoc::Decl(decl_id) => match decl_id.cont_id {
-                ScopeId::Module(module_id) => Some(module_id),
-                _ => None,
-            },
-            _ => None,
-        })?;
-        let module = db.module(module_id);
-        let (name, dir, ty) = port::resolve_non_ansi_port(db, module.as_ref(), res.def_ids())?;
+    if def_id.is_non_ansi_port(db) {
+        let port_id = def_id.primary_origin(db).as_non_ansi_port(db)?;
+        let module = db.module(port_id.module_id);
+        let origins = def_id.origins(db);
+        let (name, dir, ty) = port::resolve_non_ansi_port(db, module.as_ref(), &origins)?;
         port::add_port_token(db, name, dir, ty, range, collector);
         return Some(());
     }
 
-    for def_id in res.def_ids() {
-        match def_id.kind(db) {
-            DefKind::Port => {
-                let decl_id = def_id.as_decl(db)?;
-                let ScopeId::Module(module_id) = decl_id.cont_id else {
-                    return None;
-                };
-                let module = db.module(module_id);
-                let name = module.get(decl_id.value).name.as_ref()?;
+    match def_id.kind(db) {
+        DefKind::Port => {
+            let decl_id = def_id.primary_origin(db).as_decl(db)?;
+            let ScopeId::Module(module_id) = decl_id.cont_id else {
+                return None;
+            };
+            let module = db.module(module_id);
+            let name = module.get(decl_id.value).name.as_ref()?;
 
-                let DeclaratorParent::PortDeclId(port_declaration_id) =
-                    module.get(decl_id.value).parent
-                else {
-                    return None;
-                };
-                let port_decl = module.get(port_declaration_id);
-                let header = &port_decl.header;
-                let (dir, ty) = (Some(header.dir()), header.ty());
-                port::add_port_token(db, name, dir, ty, range, collector);
-            }
-            DefKind::Instance => {
-                let sema_token = SemaToken {
-                    range,
-                    tag: SemaTokenTag::Instance,
-                    mods: SemaTokenModifier::empty(),
-                };
-                collector.tokens.add(sema_token);
-            }
-            DefKind::Typedef => {
-                collector.tokens.add(SemaToken {
-                    range,
-                    tag: SemaTokenTag::Type,
-                    mods: SemaTokenModifier::REF,
-                });
-            }
-            _ => {}
+            let DeclaratorParent::PortDeclId(port_declaration_id) =
+                module.get(decl_id.value).parent
+            else {
+                return None;
+            };
+            let port_decl = module.get(port_declaration_id);
+            let header = &port_decl.header;
+            let (dir, ty) = (Some(header.dir()), header.ty());
+            port::add_port_token(db, name, dir, ty, range, collector);
         }
+        DefKind::Instance => {
+            let sema_token =
+                SemaToken { range, tag: SemaTokenTag::Instance, mods: SemaTokenModifier::empty() };
+            collector.tokens.add(sema_token);
+        }
+        DefKind::Typedef => {
+            collector.tokens.add(SemaToken {
+                range,
+                tag: SemaTokenTag::Type,
+                mods: SemaTokenModifier::REF,
+            });
+        }
+        _ => {}
     }
 
     Some(())
