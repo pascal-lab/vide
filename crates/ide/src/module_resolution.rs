@@ -359,6 +359,7 @@ mod tests {
 
     use hir::{
         base_db::{change::Change, source_root::SourceRoot},
+        db::PreprocDb,
         symbol::{DefKind, DefOriginLoc, Resolution},
     };
     use smol_str::SmolStr;

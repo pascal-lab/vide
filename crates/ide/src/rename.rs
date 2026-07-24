@@ -3,7 +3,7 @@ use hir::{
     container::InFile,
     def_id::DefId,
     file::HirFileId,
-    hir_def::macro_file::{macro_file_call_site, macro_files_at_offset},
+    macro_file::{macro_file_call_site, macro_files_at_offset},
     semantics::Semantics,
     symbol::{DefOrigin, NameContext},
 };

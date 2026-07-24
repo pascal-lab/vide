@@ -885,7 +885,7 @@ mod tests {
             },
             source_root::{SourceRoot, SourceRootId},
         },
-        db::{HirDbStorage, InternDbStorage},
+        db::{HirDbStorage, InternDbStorage, PreprocDbStorage},
         display::HirDisplay,
         hir_def::module::ModuleId,
         symbol::{DefOriginLoc, NameContext},
@@ -895,7 +895,13 @@ mod tests {
     const ROOT: SourceRootId = SourceRootId(0);
     const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
-    #[salsa::database(SourceDbStorage, SourceRootDbStorage, InternDbStorage, HirDbStorage)]
+    #[salsa::database(
+        SourceDbStorage,
+        SourceRootDbStorage,
+        PreprocDbStorage,
+        InternDbStorage,
+        HirDbStorage
+    )]
     #[derive(Default)]
     struct TestDb {
         storage: salsa::Storage<Self>,

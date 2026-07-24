@@ -11,9 +11,9 @@ use hir::{
             CompilationProfile, CompilationProfileId, Predefine, PredefineSource, PreprocessConfig,
             ProjectConfig,
         },
-        source_db::SourceRootDb,
         source_root::{SourceRoot, SourceRootId},
     },
+    db::PreprocDb,
     preproc::{IncludeTarget, include_directive_at},
     semantics::Semantics,
 };

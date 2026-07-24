@@ -9,7 +9,7 @@ use hir::{
     db::HirDb,
     def_id::DefId,
     file::HirFileId,
-    hir_def::macro_file::macro_file_call_site,
+    macro_file::macro_file_call_site,
     semantics::Semantics,
     source_map::IsSrc,
     symbol::DefOrigin,
@@ -88,8 +88,11 @@ impl SearchScope {
         match cont {
             ScopeId::File(_) => Self::all(db),
             ScopeId::Module(InFile { value: local_module_id, file_id }) => {
-                if let Some(range) =
-                    file_id.to_container_src_map(db).get(local_module_id).map(|src| src.range())
+                if let Some(range) = db
+                    .hir_file_with_source_map(file_id)
+                    .1
+                    .get(local_module_id)
+                    .map(|src| src.range())
                 {
                     Self::single_source_range(db, file_id, range)
                 } else {

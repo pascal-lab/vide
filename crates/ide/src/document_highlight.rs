@@ -117,7 +117,7 @@ mod tests {
     use hir::{
         base_db::{change::Change, source_root::SourceRoot},
         db::HirDb,
-        hir_def::macro_file::macro_files_at_offset,
+        macro_file::macro_files_at_offset,
     };
     use insta::assert_debug_snapshot;
     use utils::text_edit::TextSize;

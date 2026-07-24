@@ -71,7 +71,7 @@ impl ToNav for DefOrigin {
 impl ToNav for ModuleId {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { value: local_module_id, file_id } = *self;
-        let src = file_id.to_container_src_map(db).get(local_module_id)?;
+        let src = db.hir_file_with_source_map(file_id).1.get(local_module_id)?;
         let name = self.to_container(db).name.clone();
 
         let (file_id, focus_range, full_range) =
@@ -83,8 +83,8 @@ impl ToNav for ModuleId {
 impl ToNav for InFile<ConfigDeclId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { value: config_id, file_id } = *self;
-        let src = file_id.to_container_src_map(db).get(config_id)?;
-        let name = file_id.to_container(db).get(config_id).name.clone();
+        let src = db.hir_file_with_source_map(file_id).1.get(config_id)?;
+        let name = db.hir_file(file_id).get(config_id).name.clone();
 
         let (file_id, focus_range, full_range) =
             nav_location(db, file_id, src.name_range(), src.range())?;
@@ -95,8 +95,8 @@ impl ToNav for InFile<ConfigDeclId> {
 impl ToNav for InFile<LibraryDeclId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { value: library_id, file_id } = *self;
-        let src = file_id.to_container_src_map(db).get(library_id)?;
-        let name = file_id.to_container(db).get(library_id).name.clone();
+        let src = db.hir_file_with_source_map(file_id).1.get(library_id)?;
+        let name = db.hir_file(file_id).get(library_id).name.clone();
 
         let (file_id, focus_range, full_range) =
             nav_location(db, file_id, src.name_range(), src.range())?;
@@ -107,8 +107,8 @@ impl ToNav for InFile<LibraryDeclId> {
 impl ToNav for InFile<UdpDeclId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { value: udp_id, file_id } = *self;
-        let src = file_id.to_container_src_map(db).get(udp_id)?;
-        let name = file_id.to_container(db).get(udp_id).name.clone();
+        let src = db.hir_file_with_source_map(file_id).1.get(udp_id)?;
+        let name = db.hir_file(file_id).get(udp_id).name.clone();
 
         let (file_id, focus_range, full_range) =
             nav_location(db, file_id, src.name_range(), src.range())?;
@@ -305,7 +305,7 @@ pub(crate) fn nav_location(
     match file_id {
         HirFileId::File(file_id) => Some((file_id, name_range, full_range)),
         HirFileId::Macro(macro_file) => {
-            let call_site = hir::hir_def::macro_file::macro_file_call_site(db, macro_file)?;
+            let call_site = hir::macro_file::macro_file_call_site(db, macro_file)?;
             Some((call_site.call_file_id, Some(call_site.call_range), call_site.call_range))
         }
     }

@@ -4,7 +4,6 @@ version = "0.0.0"
 edition.workspace = true
 
 [dependencies]
-preproc.workspace = true
 rustc-hash.workspace = true
 salsa.workspace = true
 smol_str.workspace = true

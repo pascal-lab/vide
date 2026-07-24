@@ -214,16 +214,16 @@ impl DefOrigin {
     pub fn name(self, db: &dyn HirDb) -> Option<SmolStr> {
         match self.loc(db) {
             DefOriginLoc::Module(InFile { value, file_id }) => {
-                file_id.to_container(db).get(value).name.clone()
+                db.hir_file(file_id).get(value).name.clone()
             }
             DefOriginLoc::Config(InFile { value, file_id }) => {
-                file_id.to_container(db).get(value).name.clone()
+                db.hir_file(file_id).get(value).name.clone()
             }
             DefOriginLoc::Library(InFile { value, file_id }) => {
-                file_id.to_container(db).get(value).name.clone()
+                db.hir_file(file_id).get(value).name.clone()
             }
             DefOriginLoc::Udp(InFile { value, file_id }) => {
-                file_id.to_container(db).get(value).name.clone()
+                db.hir_file(file_id).get(value).name.clone()
             }
             DefOriginLoc::Block(block_id) => {
                 let BlockLoc { cont_id, src: InFile { value, file_id: _ } } = block_id.lookup(db);
@@ -260,14 +260,14 @@ impl DefOrigin {
                 clocking_signal_of(db, signal).map(|(signal, _)| signal.value.name)
             }
             DefOriginLoc::Checker(InFileOrModule { value, cont_id }) => match cont_id {
-                FileOrModule::File(file_id) => file_id.to_container(db).get(value).name.clone(),
+                FileOrModule::File(file_id) => db.hir_file(file_id).get(value).name.clone(),
                 FileOrModule::Module(module_id) => {
                     module_id.to_container(db).get(value).name.clone()
                 }
             },
             DefOriginLoc::CheckerPort(port) => checker_port_of(db, port).map(|(port, _)| port.name),
             DefOriginLoc::Covergroup(InFileOrModule { value, cont_id }) => match cont_id {
-                FileOrModule::File(file_id) => file_id.to_container(db).get(value).name.clone(),
+                FileOrModule::File(file_id) => db.hir_file(file_id).get(value).name.clone(),
                 FileOrModule::Module(module_id) => {
                     module_id.to_container(db).get(value).name.clone()
                 }
@@ -285,19 +285,19 @@ impl DefOrigin {
     pub fn name_range(self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
         match self.loc(db) {
             DefOriginLoc::Module(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = db.hir_file_with_source_map(file_id).1.get(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefOriginLoc::Config(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = db.hir_file_with_source_map(file_id).1.get(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefOriginLoc::Library(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = db.hir_file_with_source_map(file_id).1.get(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefOriginLoc::Udp(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = db.hir_file_with_source_map(file_id).1.get(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefOriginLoc::Block(block_id) => {
@@ -362,7 +362,7 @@ impl DefOrigin {
             }
             DefOriginLoc::Checker(InFileOrModule { value, cont_id }) => match cont_id {
                 FileOrModule::File(file_id) => {
-                    let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
+                    let range = db.hir_file_with_source_map(file_id).1.get(value)?.name_range()?;
                     Some(InFile::new(file_id, range))
                 }
                 FileOrModule::Module(module_id) => {
@@ -376,7 +376,7 @@ impl DefOrigin {
             }
             DefOriginLoc::Covergroup(InFileOrModule { value, cont_id }) => match cont_id {
                 FileOrModule::File(file_id) => {
-                    let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
+                    let range = db.hir_file_with_source_map(file_id).1.get(value)?.name_range()?;
                     Some(InFile::new(file_id, range))
                 }
                 FileOrModule::Module(module_id) => {
@@ -388,8 +388,9 @@ impl DefOrigin {
                 let (_, file_id) = coverpoint_of(db, coverpoint)?;
                 match file_or_module_storage(coverpoint.scope_id)? {
                     FileOrModule::File(storage_file) => {
-                        let range = storage_file
-                            .to_container_src_map(db)
+                        let range = db
+                            .hir_file_with_source_map(storage_file)
+                            .1
                             .get(coverpoint.value)?
                             .name_range()?;
                         Some(InFile::new(file_id, range))
@@ -407,8 +408,11 @@ impl DefOrigin {
                 let (_, file_id) = cross_of(db, cross)?;
                 match file_or_module_storage(cross.scope_id)? {
                     FileOrModule::File(storage_file) => {
-                        let range =
-                            storage_file.to_container_src_map(db).get(cross.value)?.name_range()?;
+                        let range = db
+                            .hir_file_with_source_map(storage_file)
+                            .1
+                            .get(cross.value)?
+                            .name_range()?;
                         Some(InFile::new(file_id, range))
                     }
                     FileOrModule::Module(storage_module) => {
@@ -430,19 +434,19 @@ impl DefOrigin {
     pub fn range(self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
         Some(match self.loc(db) {
             DefOriginLoc::Module(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.range();
+                let range = db.hir_file_with_source_map(file_id).1.get(value)?.range();
                 InFile::new(file_id, range)
             }
             DefOriginLoc::Config(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.range();
+                let range = db.hir_file_with_source_map(file_id).1.get(value)?.range();
                 InFile::new(file_id, range)
             }
             DefOriginLoc::Library(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.range();
+                let range = db.hir_file_with_source_map(file_id).1.get(value)?.range();
                 InFile::new(file_id, range)
             }
             DefOriginLoc::Udp(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.range();
+                let range = db.hir_file_with_source_map(file_id).1.get(value)?.range();
                 InFile::new(file_id, range)
             }
             DefOriginLoc::Block(block_id) => {
@@ -504,7 +508,7 @@ impl DefOrigin {
             }
             DefOriginLoc::Checker(InFileOrModule { value, cont_id }) => match cont_id {
                 FileOrModule::File(file_id) => {
-                    let range = file_id.to_container_src_map(db).get(value)?.range();
+                    let range = db.hir_file_with_source_map(file_id).1.get(value)?.range();
                     InFile::new(file_id, range)
                 }
                 FileOrModule::Module(module_id) => {
@@ -518,7 +522,7 @@ impl DefOrigin {
             }
             DefOriginLoc::Covergroup(InFileOrModule { value, cont_id }) => match cont_id {
                 FileOrModule::File(file_id) => {
-                    let range = file_id.to_container_src_map(db).get(value)?.range();
+                    let range = db.hir_file_with_source_map(file_id).1.get(value)?.range();
                     InFile::new(file_id, range)
                 }
                 FileOrModule::Module(module_id) => {
@@ -530,8 +534,11 @@ impl DefOrigin {
                 let (_, file_id) = coverpoint_of(db, coverpoint)?;
                 match file_or_module_storage(coverpoint.scope_id)? {
                     FileOrModule::File(storage_file) => {
-                        let range =
-                            storage_file.to_container_src_map(db).get(coverpoint.value)?.range();
+                        let range = db
+                            .hir_file_with_source_map(storage_file)
+                            .1
+                            .get(coverpoint.value)?
+                            .range();
                         InFile::new(file_id, range)
                     }
                     FileOrModule::Module(storage_module) => {
@@ -545,7 +552,8 @@ impl DefOrigin {
                 let (_, file_id) = cross_of(db, cross)?;
                 match file_or_module_storage(cross.scope_id)? {
                     FileOrModule::File(storage_file) => {
-                        let range = storage_file.to_container_src_map(db).get(cross.value)?.range();
+                        let range =
+                            db.hir_file_with_source_map(storage_file).1.get(cross.value)?.range();
                         InFile::new(file_id, range)
                     }
                     FileOrModule::Module(storage_module) => {

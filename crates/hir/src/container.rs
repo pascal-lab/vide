@@ -362,7 +362,7 @@ impl ArenaOwnerId {
 
     pub fn data(self, db: &dyn HirDb) -> Container {
         match self {
-            ArenaOwnerId::File(file_id) => Container::HirFile(file_id.to_container(db)),
+            ArenaOwnerId::File(file_id) => Container::HirFile(db.hir_file(file_id)),
             ArenaOwnerId::Module(module_id) => Container::Module(module_id.to_container(db)),
             ArenaOwnerId::GenerateBlock(generate_block_id) => {
                 Container::GenerateBlock(generate_block_id.to_container(db))
@@ -376,7 +376,9 @@ impl ArenaOwnerId {
 
     pub fn source_map(self, db: &dyn HirDb) -> ContainerSrcMap {
         match self {
-            ArenaOwnerId::File(file_id) => ContainerSrcMap::File(file_id.to_container_src_map(db)),
+            ArenaOwnerId::File(file_id) => {
+                ContainerSrcMap::File(db.hir_file_with_source_map(file_id).1)
+            }
             ArenaOwnerId::Module(module_id) => {
                 ContainerSrcMap::Module(module_id.to_container_src_map(db))
             }
@@ -390,18 +392,6 @@ impl ArenaOwnerId {
                 ContainerSrcMap::Subroutine(db.subroutine_with_source_map(subroutine).1)
             }
         }
-    }
-}
-
-impl HirFileId {
-    #[inline]
-    pub fn to_container(&self, db: &dyn HirDb) -> Arc<HirFile> {
-        db.hir_file(*self)
-    }
-
-    #[inline]
-    pub fn to_container_src_map(&self, db: &dyn HirDb) -> Arc<FileSourceMap> {
-        db.hir_file_with_source_map(*self).1
     }
 }
 

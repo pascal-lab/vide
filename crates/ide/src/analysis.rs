@@ -1,13 +1,16 @@
 use std::ops::Range;
 
-use hir::base_db::{
-    Cancelled,
-    analysis_snapshot::AnalysisSnapshotId,
+use hir::{
+    base_db::{
+        Cancelled,
+        analysis_snapshot::AnalysisSnapshotId,
+        project::CompilationProfileId,
+        salsa,
+        source_db::{SourceDb, SourceRootDb},
+        source_root::{SourceRootId, SourceRootRole},
+    },
     compilation_plan::CompilationPlan,
-    project::CompilationProfileId,
-    salsa,
-    source_db::{SourceDb, SourceRootDb},
-    source_root::{SourceRootId, SourceRootRole},
+    db::PreprocDb,
 };
 use triomphe::Arc;
 use utils::{
