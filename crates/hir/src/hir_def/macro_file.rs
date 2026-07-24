@@ -1,6 +1,6 @@
 use ::preproc::source::{
     SourceEmittedTokenRange, SourceMacroCall, SourceMacroCallId, SourceMacroExpansion,
-    SourceMacroExpansionDefinition, SourcePreprocModel,
+    SourceMacroExpansionDefinition, SourcePreprocModel, SourcePreprocUnavailable,
 };
 use smol_str::SmolStr;
 use syntax::{SyntaxTree, preproc::MacroCallId as TraceMacroCallId};
@@ -9,7 +9,10 @@ use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use crate::{
-    base_db::{salsa, source_db::MappedSourcePreprocModel},
+    base_db::{
+        salsa,
+        source_db::{MappedSourcePreprocModel, SourcePreprocQueryError},
+    },
     db::HirDb,
     preproc::{MacroDefinition, map_macro_definition},
 };
@@ -19,7 +22,7 @@ mod source_map;
 mod tests;
 
 pub use ::preproc::source::SourceEmittedTokenId;
-pub use source_map::{ExpansionSourceHit, ExpansionSourceMap, Origin};
+pub use source_map::{ExpansionSourceHit, ExpansionSourceMap, ExpansionSourceMapError, Origin};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct MacroCallId(pub salsa::InternId);
@@ -43,6 +46,52 @@ pub struct ExpansionInfo {
     pub text: String,
     pub parse: SyntaxTree,
     pub source_map: ExpansionSourceMap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpandResult<T> {
+    pub value: T,
+    pub err: Option<ExpandError>,
+}
+
+impl<T> ExpandResult<T> {
+    pub fn ok(value: T) -> Self {
+        Self { value, err: None }
+    }
+
+    pub fn new(value: T, err: ExpandError) -> Self {
+        Self { value, err: Some(err) }
+    }
+
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> ExpandResult<U> {
+        ExpandResult { value: f(self.value), err: self.err }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpandError {
+    kind: ExpandErrorKind,
+}
+
+impl ExpandError {
+    pub fn new(kind: ExpandErrorKind) -> Self {
+        Self { kind }
+    }
+
+    pub fn kind(&self) -> &ExpandErrorKind {
+        &self.kind
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExpandErrorKind {
+    SourcePreprocModel(SourcePreprocQueryError),
+    MissingTraceCall { trace_call: TraceMacroCallId },
+    ExpansionUnavailable(SourcePreprocUnavailable),
+    InvalidEmittedTokenRange { start: SourceEmittedTokenId, len: usize },
+    MissingEmittedToken { token: SourceEmittedTokenId },
+    TraceUnavailable,
+    SourceMap(ExpansionSourceMapError),
 }
 
 /// Information about one macro expansion at the call site, exposed to the IDE.
@@ -106,7 +155,7 @@ pub fn macro_file_expansion(db: &dyn HirDb, macro_file: MacroFileId) -> Option<M
     let mapped = db.source_preproc_model(call_loc.model_file);
     let mapped = mapped.as_ref().as_ref().ok()?;
     let call = source_call_for_trace_call(&mapped.model, call_loc.trace_call)?;
-    let expansion = source_expansion_for_call(&mapped.model, call.id)?;
+    let expansion = source_expansion_for_call(&mapped.model, call.id).ok()?;
     Some(MacroFileExpansion {
         call_file_id: mapped.source_map.file_id(call.call_range.source).ok()?,
         call_range: mapped.source_map.map_range(call.call_range).ok()?,
@@ -114,37 +163,91 @@ pub fn macro_file_expansion(db: &dyn HirDb, macro_file: MacroFileId) -> Option<M
     })
 }
 
-pub(crate) fn macro_expansion_query(db: &dyn HirDb, macro_file: MacroFileId) -> Arc<ExpansionInfo> {
+pub(crate) fn macro_expansion_query(
+    db: &dyn HirDb,
+    macro_file: MacroFileId,
+) -> Arc<ExpandResult<ExpansionInfo>> {
+    Arc::new(macro_expansion(db, macro_file))
+}
+
+fn macro_expansion(db: &dyn HirDb, macro_file: MacroFileId) -> ExpandResult<ExpansionInfo> {
     let loc = db.lookup_intern_macro_file(macro_file);
     let call_loc = db.lookup_intern_macro_call(loc.call);
     let mapped = db.source_preproc_model(call_loc.model_file);
-    let expansion = mapped.as_ref().as_ref().ok().and_then(|mapped| {
-        source_call_for_trace_call(&mapped.model, call_loc.trace_call)
-            .and_then(|call| emitted_range_for_call(&mapped.model, call.id))
-            .map(|range| (mapped, range))
-    });
-    let (text, source_map) = expansion
-        .map(|(mapped, emitted_range)| {
-            let text = expansion_text_for_range(&mapped.model, emitted_range).unwrap_or_default();
-            let source_map = db
-                .parsed_compilation_unit(call_loc.model_file)
-                .preprocessor_trace
-                .as_ref()
-                .map(|trace| {
-                    ExpansionSourceMap::from_trace_range(
-                        db,
-                        call_loc.model_file,
-                        trace,
-                        &mapped.source_map,
-                        emitted_range,
-                    )
-                })
-                .unwrap_or_else(ExpansionSourceMap::empty);
-            (text, source_map)
-        })
-        .unwrap_or_else(|| (String::new(), ExpansionSourceMap::empty()));
+    let mapped = match mapped.as_ref() {
+        Ok(mapped) => mapped,
+        Err(err) => {
+            return expansion_error(
+                String::new(),
+                ExpansionSourceMap::empty(),
+                ExpandErrorKind::SourcePreprocModel(err.clone()),
+            );
+        }
+    };
+    let Some(call) = source_call_for_trace_call(&mapped.model, call_loc.trace_call) else {
+        return expansion_error(
+            String::new(),
+            ExpansionSourceMap::empty(),
+            ExpandErrorKind::MissingTraceCall { trace_call: call_loc.trace_call },
+        );
+    };
+    let expansion = match source_expansion_for_call(&mapped.model, call.id) {
+        Ok(expansion) => expansion,
+        Err(err) => {
+            return expansion_error(
+                String::new(),
+                ExpansionSourceMap::empty(),
+                ExpandErrorKind::ExpansionUnavailable(err),
+            );
+        }
+    };
+    let emitted_range = expansion.emitted_token_range;
+    let ExpandResult { value: text, err } = expansion_text_for_range(&mapped.model, emitted_range);
+    if let Some(err) = err {
+        return expansion_info(text, ExpansionSourceMap::empty(), Some(err));
+    }
+    let parsed = db.parsed_compilation_unit(call_loc.model_file);
+    let Some(trace) = parsed.preprocessor_trace.as_ref() else {
+        return expansion_error(
+            text,
+            ExpansionSourceMap::empty(),
+            ExpandErrorKind::TraceUnavailable,
+        );
+    };
+    let source_map = match ExpansionSourceMap::from_trace_range(
+        db,
+        call_loc.model_file,
+        trace,
+        &mapped.source_map,
+        emitted_range,
+    ) {
+        Ok(source_map) => source_map,
+        Err(err) => {
+            return expansion_error(
+                text,
+                ExpansionSourceMap::empty(),
+                ExpandErrorKind::SourceMap(err),
+            );
+        }
+    };
+    expansion_info(text, source_map, None)
+}
+
+fn expansion_error(
+    text: String,
+    source_map: ExpansionSourceMap,
+    kind: ExpandErrorKind,
+) -> ExpandResult<ExpansionInfo> {
+    expansion_info(text, source_map, Some(ExpandError::new(kind)))
+}
+
+fn expansion_info(
+    text: String,
+    source_map: ExpansionSourceMap,
+    err: Option<ExpandError>,
+) -> ExpandResult<ExpansionInfo> {
     let parse = SyntaxTree::from_text(&text, "macro-expansion", "");
-    Arc::new(ExpansionInfo { text, parse, source_map })
+    ExpandResult { value: ExpansionInfo { text, parse, source_map }, err }
 }
 
 fn macro_call_for_source_call(
@@ -175,7 +278,7 @@ fn emitted_range_for_call(
     model: &SourcePreprocModel,
     call: SourceMacroCallId,
 ) -> Option<SourceEmittedTokenRange> {
-    source_expansion_for_call(model, call).map(|expansion| expansion.emitted_token_range)
+    source_expansion_for_call(model, call).ok().map(|expansion| expansion.emitted_token_range)
 }
 
 fn source_call_for_trace_call(
@@ -188,23 +291,37 @@ fn source_call_for_trace_call(
 fn source_expansion_for_call(
     model: &SourcePreprocModel,
     call: SourceMacroCallId,
-) -> Option<&SourceMacroExpansion> {
-    let expansion = match model.immediate_macro_expansion(call) {
-        Ok(expansion) => model.macro_expansions().get(expansion)?,
-        Err(_) => return None,
-    };
-    Some(expansion)
+) -> Result<&SourceMacroExpansion, SourcePreprocUnavailable> {
+    let expansion = model.immediate_macro_expansion(call)?;
+    model
+        .macro_expansions()
+        .get(expansion)
+        .ok_or(SourcePreprocUnavailable::MissingMacroExpansion { call })
 }
 
 fn expansion_text_for_range(
     model: &SourcePreprocModel,
     emitted_range: SourceEmittedTokenRange,
-) -> Option<String> {
+) -> ExpandResult<String> {
     let mut text = String::new();
-    let end = emitted_range.start.raw().checked_add(emitted_range.len)?;
+    let Some(end) = emitted_range.start.raw().checked_add(emitted_range.len) else {
+        return ExpandResult::new(
+            text,
+            ExpandError::new(ExpandErrorKind::InvalidEmittedTokenRange {
+                start: emitted_range.start,
+                len: emitted_range.len,
+            }),
+        );
+    };
     for raw in emitted_range.start.raw()..end {
-        let token = model.emitted_tokens().get(SourceEmittedTokenId::new(raw))?;
-        text.push_str(token.display.as_str());
+        let token = SourceEmittedTokenId::new(raw);
+        let Some(token_data) = model.emitted_tokens().get(token) else {
+            return ExpandResult::new(
+                text,
+                ExpandError::new(ExpandErrorKind::MissingEmittedToken { token }),
+            );
+        };
+        text.push_str(token_data.display.as_str());
     }
-    Some(text)
+    ExpandResult::ok(text)
 }

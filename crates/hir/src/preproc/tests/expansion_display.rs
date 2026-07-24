@@ -19,7 +19,7 @@ endmodule
     ));
 
     let expansion = db.macro_expansion(macro_file);
-    assert_eq!(expansion.text, "\nlogic generated;");
+    assert_eq!(expansion.value.text, "\nlogic generated;");
 }
 
 #[test]
@@ -38,11 +38,11 @@ endmodule
     let expansion = db.macro_expansion(macro_file);
 
     assert!(
-        expansion.text.contains("\n  always_ff")
-            && expansion.text.contains("\n    q <= 1;")
-            && expansion.text.contains("\n  end"),
+        expansion.value.text.contains("\n  always_ff")
+            && expansion.value.text.contains("\n    q <= 1;")
+            && expansion.value.text.contains("\n  end"),
         "expansion text should preserve emitted token trivia: {:?}",
-        expansion.text
+        expansion.value.text
     );
 }
 
@@ -103,9 +103,9 @@ endmodule
 
     let macro_file = single_macro_file_at(&db, TOP, offset(root_text, "`ONE"));
     let expansion = db.macro_expansion(macro_file);
-    assert!(expansion.text.contains("12"));
-    assert!(expansion.text.contains("'d"));
-    assert!(expansion.text.contains("1"));
+    assert!(expansion.value.text.contains("12"));
+    assert!(expansion.value.text.contains("'d"));
+    assert!(expansion.value.text.contains("1"));
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn preproc_escaped_identifier_expansion_text_is_available() {
 
     let macro_file = single_macro_file_at(&db, TOP, offset(root_text, "`ESCAPED"));
     let expansion = db.macro_expansion(macro_file);
-    assert!(expansion.text.contains("\\escaped.name"));
+    assert!(expansion.value.text.contains("\\escaped.name"));
 }
 
 fn expansion_definition_name(definition: &MacroExpansionDefinition) -> &str {

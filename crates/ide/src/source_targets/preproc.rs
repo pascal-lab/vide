@@ -72,7 +72,7 @@ fn preproc_hits_at_offset(
     let mut hits = Vec::new();
     for (expansion_index, macro_file) in macro_files.iter().enumerate() {
         let expansion = db.macro_expansion(*macro_file);
-        for source_hit in expansion.source_map.source_hits(file_id, offset) {
+        for source_hit in expansion.value.source_map.source_hits(file_id, offset) {
             let Some(hit) = preproc_hit_for_source_hit(db, expansion_index, source_hit) else {
                 continue;
             };
