@@ -1,13 +1,14 @@
-use la_arena::{Arena, Idx};
+use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::{TokenKind, ast};
 
-use super::{Expr, ExprId, ExprSrc, LowerExpr, impl_lower_expr};
+use super::ExprId;
 use crate::{
-    db::InternDb,
-    file::HirFileId,
-    hir_def::alloc_idx_and_src,
-    source_map::{AstId, AstKind, SourceMap},
+    hir_def::{
+        alloc_with_source,
+        lower::{LoweringCtx, LoweringStore},
+    },
+    source_map::{AstId, AstKind},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -61,47 +62,12 @@ pub enum Sensitivity {
     Edge,
 }
 
-pub(crate) struct LowerEventExprCtx<'a> {
-    pub(crate) db: &'a dyn InternDb,
-    pub(crate) file_id: HirFileId,
-    pub(crate) event_exprs: &'a mut Arena<EventExpr>,
-    pub(crate) event_expr_srcs: &'a mut SourceMap<EventExprSrc, EventExpr>,
-
-    pub(crate) exprs: &'a mut Arena<Expr>,
-    pub(crate) expr_srcs: &'a mut SourceMap<ExprSrc, Expr>,
-}
-
-pub(crate) trait LowerEventExpr: LowerExpr {
-    fn event_expr_ctx(&mut self) -> LowerEventExprCtx<'_>;
-}
-
-pub(in crate::hir_def) macro impl_lower_event_expr {
-    ($ctx:ty $(,$data:ident, $src_map:ident)?) => {
-        impl $crate::hir_def::expr::timing_control::LowerEventExpr for $ctx {
-            fn event_expr_ctx(&mut self) -> $crate::hir_def::expr::timing_control::LowerEventExprCtx<'_> {
-                $crate::hir_def::expr::timing_control::LowerEventExprCtx {
-                    db: self.db,
-                    file_id: self.file_id,
-                    event_exprs: &mut self.$($data.)?event_exprs,
-                    event_expr_srcs: &mut self.$($src_map.)?event_expr_srcs,
-                    exprs: &mut self.$($data.)?exprs,
-                    expr_srcs: &mut self.$($src_map.)?expr_srcs,
-                }
-            }
-        }
-    }
-}
-
-impl_lower_expr!(LowerEventExprCtx<'_>);
-
-impl LowerEventExprCtx<'_> {
+impl<Store: LoweringStore> LoweringCtx<'_, Store> {
     pub(crate) fn lower_event_expr(&mut self, event_expr: ast::EventExpression) -> EventExprId {
         let hir_event_expr = self.lower_event_expr_inner(event_expr);
-        alloc_idx_and_src! {
-            self.file_id;
-            hir_event_expr => self.event_exprs,
-            event_expr => self.event_expr_srcs,
-        }
+        let file_id = self.file_id;
+        let (event_expressions, sources) = self.event_expressions();
+        alloc_with_source(file_id, event_expressions, sources, hir_event_expr, event_expr)
     }
 
     fn lower_event_expr_inner(&mut self, event_expr: ast::EventExpression) -> EventExpr {
@@ -132,13 +98,13 @@ impl LowerEventExprCtx<'_> {
             TokenKind::EDGE_KEYWORD => Some(Sensitivity::Edge),
             _ => None,
         });
-        let expr = self.expr_ctx().lower_expr(event_expr.expr());
-        let iff = event_expr.iff_clause().map(|iff| self.expr_ctx().lower_expr(iff.expr()));
+        let expr = self.lower_expr(event_expr.expr());
+        let iff = event_expr.iff_clause().map(|iff| self.lower_expr(iff.expr()));
         EventExpr::Atom { sensitivity, expr, iff }
     }
 }
 
-impl LowerEventExprCtx<'_> {
+impl<Store: LoweringStore> LoweringCtx<'_, Store> {
     pub(crate) fn lower_timing_control(&mut self, control: ast::TimingControl) -> TimingControl {
         match control {
             ast::TimingControl::OneStepDelay(_) => {
@@ -166,7 +132,7 @@ impl LowerEventExprCtx<'_> {
     }
 
     fn lower_delay(&mut self, delay: ast::Delay) -> DelayControl {
-        let val = self.expr_ctx().lower_expr(delay.delay_value());
+        let val = self.lower_expr(delay.delay_value());
 
         match delay {
             ast::Delay::CycleDelay(_) | ast::Delay::DelayControl(_) => DelayControl::Value(val),
@@ -175,14 +141,14 @@ impl LowerEventExprCtx<'_> {
 
     fn lower_delay3(&mut self, delay: ast::Delay3) -> DelayControl {
         let mut delays = SmallVec::new();
-        delays.push(self.expr_ctx().lower_expr(delay.delay_1()));
+        delays.push(self.lower_expr(delay.delay_1()));
 
         if let Some(delay_2) = delay.delay_2() {
-            delays.push(self.expr_ctx().lower_expr(delay_2));
+            delays.push(self.lower_expr(delay_2));
         }
 
         if let Some(delay_3) = delay.delay_3() {
-            delays.push(self.expr_ctx().lower_expr(delay_3));
+            delays.push(self.lower_expr(delay_3));
         }
 
         DelayControl::Delay3(delays)
@@ -196,14 +162,14 @@ impl LowerEventExprCtx<'_> {
     }
 
     fn lower_event_control(&mut self, event_control: ast::EventControl) -> EventControl {
-        EventControl::Event(self.expr_ctx().lower_expr(event_control.event_name()))
+        EventControl::Event(self.lower_expr(event_control.event_name()))
     }
 
     fn lower_repeated_event_control(
         &mut self,
         event_control: ast::RepeatedEventControl,
     ) -> TimingControl {
-        let expr = self.expr_ctx().lower_expr(event_control.expr());
+        let expr = self.lower_expr(event_control.expr());
         let event_control = event_control.event_control().and_then(|control| {
             match self.lower_timing_control(control) {
                 TimingControl::EventControl(event_control) => Some(event_control),

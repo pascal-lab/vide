@@ -11,11 +11,7 @@ use utils::text_edit::TextRange;
 
 use super::{LowerModuleCtx, port::PortDirection};
 use crate::{
-    hir_def::{
-        Ident, alloc_idx_and_src,
-        expr::timing_control::{EventExprId, LowerEventExpr},
-        lower_ident_opt,
-    },
+    hir_def::{Ident, alloc_with_source, expr::timing_control::EventExprId, lower_ident_opt},
     source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, root_token_in},
 };
 
@@ -133,16 +129,8 @@ impl<'a> FromSourceAst<'a, ast::ClockingDeclaration<'a>> for ClockingBlockSrc {
     }
 }
 
-pub(crate) trait LowerClocking {
-    fn lower_clocking_declaration(
-        &mut self,
-        clocking: ast::ClockingDeclaration<'_>,
-    ) -> ClockingBlockId;
-    fn lower_default_clocking_reference(&mut self, reference: ast::DefaultClockingReference<'_>);
-}
-
-impl LowerClocking for LowerModuleCtx<'_> {
-    fn lower_clocking_declaration(
+impl LowerModuleCtx<'_> {
+    pub(crate) fn lower_clocking_declaration(
         &mut self,
         clocking: ast::ClockingDeclaration<'_>,
     ) -> ClockingBlockId {
@@ -152,20 +140,29 @@ impl LowerClocking for LowerModuleCtx<'_> {
             Some(TokenKind::GLOBAL_KEYWORD) => ClockingBlockKind::Global,
             _ => ClockingBlockKind::Regular,
         };
-        let event = self.event_expr_ctx().lower_event_expr(clocking.event());
+        let event = self.lower_event_expr(clocking.event());
         let signals = lower_clocking_signals(clocking);
-        alloc_idx_and_src! {
-            self.file_id;
-            ClockingBlockDef { name, kind, event, signals } => self.module.clocking_blocks,
-            clocking => self.module_source_map.clocking_block_srcs,
-        }
+        let file_id = self.file_id;
+        let (clocking_blocks, sources) =
+            (&mut self.store.data.clocking_blocks, &mut self.store.sources.clocking_block_srcs);
+        alloc_with_source(
+            file_id,
+            clocking_blocks,
+            sources,
+            ClockingBlockDef { name, kind, event, signals },
+            clocking,
+        )
     }
 
-    fn lower_default_clocking_reference(&mut self, reference: ast::DefaultClockingReference<'_>) {
-        self.module.default_clocking =
-            Some(DefaultClockingRef { name: lower_ident_opt(reference.name()) });
-        self.module_source_map.default_clocking_src =
+    pub(crate) fn lower_default_clocking_reference(
+        &mut self,
+        reference: ast::DefaultClockingReference<'_>,
+    ) {
+        let source =
             SourceAst::new(self.file_id, reference).map(DefaultClockingRefSrc::from_source_ast);
+        self.store.data.default_clocking =
+            Some(DefaultClockingRef { name: lower_ident_opt(reference.name()) });
+        self.store.sources.default_clocking_src = source;
     }
 }
 

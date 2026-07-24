@@ -5,10 +5,14 @@ use syntax::{
     ast::{self, AstNode},
 };
 
-use super::{Expr, ExprId, LowerExprCtx, Selector};
+use super::{Expr, ExprId, Selector};
 use crate::{
     container::InContainer,
-    hir_def::{aggregate::StructId, lower_ident},
+    hir_def::{
+        aggregate::StructId,
+        lower::{LoweringCtx, LoweringStore},
+        lower_ident,
+    },
 };
 
 // slang exposes enum types directly as `DataType::EnumType`, while struct and
@@ -91,7 +95,7 @@ pub enum NamedDataTy {
     Field(ExprId),
 }
 
-impl LowerExprCtx<'_> {
+impl<Store: LoweringStore> LoweringCtx<'_, Store> {
     pub(crate) fn lower_data_ty(&mut self, ty: ast::DataType) -> DataTy {
         use ast::DataType::*;
         match ty {
@@ -123,7 +127,7 @@ impl LowerExprCtx<'_> {
     fn lower_named_ty(&mut self, ty: ast::NamedType) -> NamedDataTy {
         let expr_id = ast::Expression::cast(ty.name().syntax())
             .map(|expr| self.lower_expr(expr))
-            .unwrap_or_else(|| self.alloc_missing());
+            .unwrap_or_else(|| self.alloc_missing_expr());
 
         use ast::Name::*;
         match ty.name() {
@@ -199,7 +203,7 @@ impl LowerExprCtx<'_> {
             if let Some(key) = Self::associative_dimension_key_token(expr) {
                 let expr_id = lower_ident(Some(key))
                     .map(Expr::Ident)
-                    .map(|expr| self.exprs.alloc(expr))
+                    .map(|expr| self.expressions().0.alloc(expr))
                     .unwrap_or_else(|| self.lower_expr(expr));
                 return Some(Dimension::Assoc(expr_id));
             }

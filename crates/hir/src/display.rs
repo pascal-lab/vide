@@ -2,7 +2,6 @@ use std::fmt::{self, Debug};
 
 use syntax::TimeUnit;
 use triomphe::Arc;
-use utils::get::GetRef;
 
 use crate::{
     base_db::intern::Lookup,
@@ -117,7 +116,7 @@ impl HirDisplay for Ty {
             Ty::Chandle => f.write_str("chandle"),
             Ty::Alias { typedef, target } => {
                 let container = typedef.cont_id.data(f.db);
-                if let Some(name) = &container.get(typedef.value).name {
+                if let Some(name) = &container.typedef(typedef.value).name {
                     f.write_str(name)
                 } else {
                     target.hir_fmt(f)
@@ -170,7 +169,7 @@ fn hir_fmt_def_backed_type(
     f.write_str(keyword)?;
     if let DefOriginLoc::Typedef(typedef) = def.primary_origin(f.db).loc(f.db) {
         let container = typedef.cont_id.data(f.db);
-        if let Some(name) = &container.get(typedef.value).name {
+        if let Some(name) = &container.typedef(typedef.value).name {
             f.write_str(" ")?;
             f.write_str(name)?;
         }
@@ -304,7 +303,7 @@ impl HirDisplay for InContainer<DataTy> {
             DataTy::Enum => f.write_str("enum"),
             DataTy::Struct(struct_ref) => {
                 let cont = struct_ref.cont_id.data(f.db);
-                let def = cont.get(struct_ref.value);
+                let def = cont.struct_def(struct_ref.value);
                 let keyword = match def.kind {
                     StructKind::Struct => "struct",
                     StructKind::Union => "union",
@@ -370,7 +369,7 @@ impl HirDisplay for InContainer<ExprId> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         let InContainer { cont_id, value: expr_id } = self;
         let container = cont_id.data(f.db);
-        let expr = container.get(*expr_id);
+        let expr = container.expr(*expr_id);
         self.with_value(expr).hir_fmt(f)
     }
 }
@@ -676,7 +675,7 @@ impl HirDisplay for InContainer<DeclId> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         let InContainer { cont_id, value: decl_id } = self;
         let container = cont_id.data(f.db);
-        let decl = container.get(*decl_id);
+        let decl = container.declarator(*decl_id);
 
         if let Some(name) = &decl.name {
             f.write_str(name)?;
@@ -694,7 +693,7 @@ impl HirDisplay for InContainer<TypedefId> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         let InContainer { cont_id, value: typedef_id } = self;
         let container = cont_id.data(f.db);
-        let typedef = container.get(*typedef_id);
+        let typedef = container.typedef(*typedef_id);
 
         f.write_str("typedef ")?;
         if let Some(ty) = typedef.ty {

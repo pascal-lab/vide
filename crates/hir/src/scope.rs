@@ -327,9 +327,9 @@ impl NameScope {
         let owner_id = ArenaOwnerId::from(checker_id.cont_id);
         let container = owner_id.data(db);
         for declaration_id in &checker.declarations {
-            let declaration = container.get(*declaration_id);
+            let declaration = container.declaration(*declaration_id);
             for decl_id in declaration.decls() {
-                let decl = container.get(decl_id);
+                let decl = container.declarator(decl_id);
                 scope.insert_value_opt(&decl.name, def_id(db, InContainer::new(owner_id, decl_id)));
             }
         }
@@ -657,6 +657,7 @@ mod tests {
 
     use rustc_hash::FxHashSet;
     use smol_str::SmolStr;
+    use syntax::ast::{self, AstNode};
     use triomphe::Arc;
     use utils::{
         get::{Get, GetRef},
@@ -680,8 +681,12 @@ mod tests {
         def_id::DefId,
         display::HirDisplay,
         file::HirFileId,
-        hir_def::Ident,
+        hir_def::{
+            Ident,
+            module::port::{NonAnsiPortSrc, PortSrcs, Ports},
+        },
         semantics::pathres::resolve_name,
+        source_map::IsNamedSrc,
         symbol::{DefKind, DefOriginLoc, NameContext, Resolution, ScopeKind},
     };
 
@@ -933,6 +938,76 @@ endmodule
     }
 
     #[test]
+    fn explicit_non_ansi_port_source_preserves_name_range() {
+        let db = db_with_root_text(
+            r#"
+module m(.out(foo));
+  output foo;
+endmodule
+"#,
+        );
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let (module, source_map) = db.module_with_source_map(module_id);
+        let Ports::NonAnsi { ports, .. } = &module.ports else {
+            panic!("module should have non-ANSI ports");
+        };
+        let (port_id, _) = ports.iter().next().expect("port should lower");
+        let source = source_map.get(port_id).expect("port should retain its source");
+
+        assert!(source.name_range().is_some(), "explicit port name range should be preserved");
+    }
+
+    #[test]
+    fn implicit_non_ansi_port_source_supports_natural_reverse_lookup() {
+        let db = db_with_root_text(
+            r#"
+module m(foo);
+  output foo;
+endmodule
+"#,
+        );
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let (module, source_map) = db.module_with_source_map(module_id);
+        let Ports::NonAnsi { ports, .. } = &module.ports else {
+            panic!("module should have non-ANSI ports");
+        };
+        let (port_id, _) = ports.iter().next().expect("port should lower");
+
+        let tree = db.parse(TOP.into());
+        let root = tree.root().expect("source should parse");
+        let unit = ast::CompilationUnit::cast(root).expect("root should be a compilation unit");
+        let ast::Member::ModuleDeclaration(module_ast) =
+            unit.members().children().next().expect("module should parse")
+        else {
+            panic!("first member should be a module");
+        };
+        let ast::PortList::NonAnsiPortList(port_list) =
+            module_ast.header().ports().expect("module should have a port list")
+        else {
+            panic!("module should have a non-ANSI port list");
+        };
+        let port_ast = port_list.ports().children().next().expect("port should parse");
+        let natural_source = NonAnsiPortSrc::from_ast(TOP.into(), port_ast);
+        let PortSrcs::NonAnsi { ports: port_sources, .. } = &source_map.port_srcs else {
+            panic!("source map should contain non-ANSI ports");
+        };
+
+        assert_eq!(
+            port_sources.src_to_hir(natural_source),
+            Some(port_id),
+            "natural AST source key should resolve to the port"
+        );
+    }
+
+    #[test]
     fn non_ansi_port_def_id_is_stable_when_origins_change() {
         let mut db = db_with_root_text(
             r#"
@@ -1113,31 +1188,25 @@ endmodule
             .expect("empty statement should lower");
         assert!(source_map.get(empty_id).is_some());
 
-        let mut stmts = Default::default();
-        let mut stmt_srcs = Default::default();
-        let mut event_exprs = Default::default();
-        let mut event_expr_srcs = Default::default();
-        let mut exprs = Default::default();
-        let mut expr_srcs = Default::default();
-        let mut decls = Default::default();
-        let mut decl_srcs = Default::default();
-        let missing_id = crate::hir_def::stmt::LowerStmtCtx {
-            db: &db,
-            file_id: TOP.into(),
-            cont_id: HirFileId::File(TOP).into(),
-            stmts: &mut stmts,
-            stmt_srcs: &mut stmt_srcs,
-            event_exprs: &mut event_exprs,
-            event_expr_srcs: &mut event_expr_srcs,
-            exprs: &mut exprs,
-            expr_srcs: &mut expr_srcs,
-            decls: &mut decls,
-            decl_srcs: &mut decl_srcs,
-        }
-        .lower_stmt_opt(None);
+        let mut missing_file = crate::hir_def::file::HirFile::default();
+        let mut missing_file_source_map = crate::hir_def::file::FileSourceMap::default();
+        let mut ctx = crate::hir_def::lower::LoweringCtx::new(
+            &db,
+            TOP.into(),
+            crate::container::ArenaOwnerId::File(HirFileId::File(TOP)),
+            crate::hir_def::lower::FileStore {
+                data: &mut missing_file,
+                sources: &mut missing_file_source_map,
+            },
+        );
+        let missing_id = ctx.lower_stmt_opt(None);
+        drop(ctx);
 
-        assert!(matches!(stmts[missing_id].kind, crate::hir_def::stmt::StmtKind::Missing));
-        assert!(stmt_srcs.get(missing_id).is_none());
+        assert!(matches!(
+            missing_file.stmts[missing_id].kind,
+            crate::hir_def::stmt::StmtKind::Missing
+        ));
+        assert!(missing_file_source_map.stmt_srcs.get(missing_id).is_none());
     }
 
     #[test]

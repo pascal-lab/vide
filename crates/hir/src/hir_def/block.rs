@@ -1,5 +1,4 @@
 use la_arena::Arena;
-use proc_macro_utils::define_container;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use syntax::{
@@ -17,67 +16,100 @@ use utils::{
 use super::{
     Ident,
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
-    alloc_idx_and_src,
-    declaration::{
-        Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, impl_lower_declaration,
-    },
+    alloc_with_source,
+    declaration::{Declaration, DeclarationId, DeclarationSrc},
     expr::{
-        Expr, ExprSrc, LowerExpr,
-        declarator::{Declarator, DeclaratorSrc, impl_lower_decl},
-        impl_lower_expr,
-        timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
+        Expr, ExprId, ExprSrc,
+        declarator::{DeclId, Declarator, DeclaratorSrc},
+        timing_control::{EventExpr, EventExprId, EventExprSrc},
     },
+    lower::{BlockStore, LoweringCtx},
     lower_ident_opt,
-    stmt::{LowerStmt, Stmt, StmtId, StmtKind, StmtSrc, impl_lower_stmt},
+    stmt::{Stmt, StmtId, StmtKind, StmtSrc},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
     base_db::intern::Lookup,
     container::{ArenaOwnerId, InFile},
-    db::{HirDb, InternDb},
-    file::HirFileId,
-    region_tree::{RegionTree, RegionTreeBuilder},
+    db::HirDb,
+    region_tree::RegionTree,
     source_map::{AstKind, IsNamedSrc, IsSrc, NamedAstId, SourceMap, ToAstNode},
 };
 
-define_container! {
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct Block {
-        name: Option<Ident>,
-        kind: BlockKind,
+#[derive(Default, Debug, PartialEq, Eq)]
+pub struct Block {
+    pub name: Option<Ident>,
+    pub kind: BlockKind,
+    pub declarations: Arena<Declaration>,
+    pub typedefs: Arena<Typedef>,
+    pub structs: Arena<StructDef>,
+    pub exprs: Arena<Expr>,
+    pub event_exprs: Arena<EventExpr>,
+    pub decls: Arena<Declarator>,
+    pub stmts: Arena<Stmt>,
+}
 
-        declarations: [Declaration],
-        typedefs: [Typedef],
-        structs: [StructDef],
-        exprs: [Expr],
-        event_exprs: [EventExpr],
-        decls: [Declarator],
-        stmts: [Stmt] => {
-            [StmtId | Stmt],
-            [LocalBlockId | BlockInfo],
-        }
+impl Block {
+    pub fn shrink_to_fit(&mut self) {
+        self.declarations.shrink_to_fit();
+        self.typedefs.shrink_to_fit();
+        self.structs.shrink_to_fit();
+        self.exprs.shrink_to_fit();
+        self.event_exprs.shrink_to_fit();
+        self.decls.shrink_to_fit();
+        self.stmts.shrink_to_fit();
     }
 }
 
-define_container! {
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct BlockSourceMap {
-        items: SmallVec<[BlockItem; 2]>,
-        region_tree: RegionTree,
+#[derive(Default, Debug, PartialEq, Eq)]
+pub struct BlockSourceMap {
+    pub items: SmallVec<[BlockItem; 2]>,
+    pub region_tree: RegionTree,
+    pub declaration_srcs: SourceMap<DeclarationSrc, Declaration>,
+    pub typedef_srcs: SourceMap<TypedefSrc, Typedef>,
+    pub struct_srcs: SourceMap<StructSrc, StructDef>,
+    pub expr_srcs: SourceMap<ExprSrc, Expr>,
+    pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
+    pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
+    pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+    pub block_srcs: FxHashMap<BlockSrc, LocalBlockId>,
+}
 
-        declaration_srcs: [Declaration | DeclarationSrc],
-        typedef_srcs: [Typedef | TypedefSrc],
-        struct_srcs: [StructDef | StructSrc],
-        expr_srcs: [Expr | ExprSrc],
-        event_expr_srcs: [EventExpr | EventExprSrc],
-        decl_srcs: [Declarator | DeclaratorSrc],
-        stmt_srcs: [Stmt | StmtSrc] => {
-            [StmtId | StmtSrc],
-            [LocalBlockId | BlockSrc],
-        },
-        block_srcs: FxHashMap<BlockSrc, LocalBlockId>,
+impl BlockSourceMap {
+    pub fn shrink_to_fit(&mut self) {
+        self.declaration_srcs.shrink_to_fit();
+        self.typedef_srcs.shrink_to_fit();
+        self.struct_srcs.shrink_to_fit();
+        self.expr_srcs.shrink_to_fit();
+        self.event_expr_srcs.shrink_to_fit();
+        self.decl_srcs.shrink_to_fit();
+        self.stmt_srcs.shrink_to_fit();
     }
 }
+
+crate::hir_def::impl_arena_getters!(
+    Block;
+    DeclarationId => declarations => Declaration,
+    TypedefId => typedefs => Typedef,
+    StructId => structs => StructDef,
+    ExprId => exprs => Expr,
+    EventExprId => event_exprs => EventExpr,
+    DeclId => decls => Declarator,
+    StmtId => stmts => Stmt,
+    LocalBlockId => stmts => BlockInfo,
+);
+
+crate::hir_def::impl_source_map_getters!(
+    BlockSourceMap;
+    DeclarationSrc => DeclarationId => declaration_srcs,
+    TypedefSrc => TypedefId => typedef_srcs,
+    StructSrc => StructId => struct_srcs,
+    ExprSrc => ExprId => expr_srcs,
+    EventExprSrc => EventExprId => event_expr_srcs,
+    DeclaratorSrc => DeclId => decl_srcs,
+    StmtSrc => StmtId => stmt_srcs,
+    BlockSrc => LocalBlockId => stmt_srcs,
+);
 
 impl BlockSourceMap {
     pub fn item_to_ptr(&self, item: &BlockItem) -> Option<SyntaxNodePtr> {
@@ -216,63 +248,51 @@ pub struct BlockLoc {
     pub src: InFile<BlockSrc>,
 }
 
-pub(crate) struct LowerBlockCtx<'a> {
-    pub(crate) db: &'a dyn InternDb,
-    pub(crate) file_id: HirFileId,
-    pub(crate) block_id: BlockId,
-
-    pub(crate) block: &'a mut Block,
-    pub(crate) block_source_map: &'a mut BlockSourceMap,
-
-    pub(crate) region_tree: RegionTreeBuilder,
-}
-
-impl_lower_expr!(LowerBlockCtx<'_>, block, block_source_map);
-impl_lower_decl!(LowerBlockCtx<'_>, block, block_source_map);
-impl_lower_event_expr!(LowerBlockCtx<'_>, block, block_source_map);
-impl_lower_stmt!(LowerBlockCtx<'_>, block_id, block, block_source_map);
-impl_lower_declaration!(LowerBlockCtx<'_>, block, block_source_map);
+pub(crate) type LowerBlockCtx<'a> = LoweringCtx<'a, BlockStore<'a>>;
 
 impl LowerBlockCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ArenaOwnerId::Block(self.block_id);
-        let struct_def =
-            lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
+        let container_id = ArenaOwnerId::Block(self.block_id());
+        let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
-        alloc_idx_and_src! {
-            self.file_id;
-            struct_def => self.block.structs,
-            struct_ty => self.block_source_map.struct_srcs,
-        }
+        alloc_with_source(
+            self.file_id,
+            &mut self.store.data.structs,
+            &mut self.store.sources.struct_srcs,
+            struct_def,
+            struct_ty,
+        )
     }
 
     fn lower_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
         let name = lower_ident_opt(typedef.name());
 
-        let typedef_id = alloc_idx_and_src! {
-            self.file_id;
-            Typedef { name, ty: None } => self.block.typedefs,
-            typedef => self.block_source_map.typedef_srcs,
-        };
+        let typedef_id = alloc_with_source(
+            self.file_id,
+            &mut self.store.data.typedefs,
+            &mut self.store.sources.typedef_srcs,
+            Typedef { name, ty: None },
+            typedef,
+        );
 
         let data_ty = typedef.type_();
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            ArenaOwnerId::Block(self.block_id),
+            ArenaOwnerId::Block(self.block_id()),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
-            |ctx, ty| ctx.expr_ctx().lower_data_ty(ty),
+            |ctx, ty| ctx.lower_data_ty(ty),
         );
 
-        self.block.typedefs[typedef_id].ty = Some(lowered_ty);
+        self.store.data.typedefs[typedef_id].ty = Some(lowered_ty);
 
         typedef_id
     }
 
     pub(crate) fn lower_block(&mut self, block: ast::BlockStatement) {
         // TODO: label? end_block_name?
-        self.block.name = block.block_name().and_then(|name| lower_ident_opt(name.name()));
-        self.block.kind = match block.end().map(|end| end.kind()) {
+        self.store.data.name = block.block_name().and_then(|name| lower_ident_opt(name.name()));
+        self.store.data.kind = match block.end().map(|end| end.kind()) {
             Some(TokenKind::JOIN_KEYWORD) => BlockKind::Parallel(ParBlockKind::Join),
             Some(TokenKind::JOIN_ANY_KEYWORD) => BlockKind::Parallel(ParBlockKind::JoinAny),
             Some(TokenKind::JOIN_NONE_KEYWORD) => BlockKind::Parallel(ParBlockKind::JoinNone),
@@ -282,27 +302,27 @@ impl LowerBlockCtx<'_> {
         for node in block.items().children() {
             let idx = match_ast! { node.syntax(),
                 ast::Statement[it] => {
-                    let stmt_id = self.stmt_ctx().lower_stmt(it);
+                    let stmt_id = self.lower_stmt(it);
                     if let Some(block_stmt) = it.as_block_statement() {
                         let block_src = BlockSrc::from_ast(self.file_id, block_stmt);
                         let local_block_id = LocalBlockId(stmt_id);
-                        self.block_source_map.block_srcs.insert(block_src, local_block_id);
+                        self.store.sources.block_srcs.insert(block_src, local_block_id);
                     }
                     stmt_id.into()
                 },
-                ast::DataDeclaration[it] => self.declaration_ctx().lower_data_decl(it).into(),
+                ast::DataDeclaration[it] => self.lower_data_decl(it).into(),
                 ast::ParameterDeclarationStatement[it] => {
-                    self.declaration_ctx().lower_param_decl_base(it.parameter()).into()
+                    self.lower_param_decl_base(it.parameter()).into()
                 },
                 ast::TypedefDeclaration[it] => self.lower_typedef(it).into(),
                 _ => continue,
             };
-            self.block_source_map.items.push(idx);
+            self.store.sources.items.push(idx);
             self.region_tree.handle_node(node.syntax());
         }
 
         self.region_tree.stage(block.end(), block.syntax());
-        self.block_source_map.region_tree = self.region_tree.finish();
+        self.store.sources.region_tree = self.region_tree.finish();
     }
 }
 
@@ -319,15 +339,14 @@ pub(crate) fn block_with_source_map_query(
         return (Arc::new(block), Arc::new(block_source_map));
     };
 
-    let mut lower_ctx = LowerBlockCtx {
+    let mut lower_ctx = LoweringCtx::new(
         db,
         file_id,
-        block_id,
-        block: &mut block,
-        block_source_map: &mut block_source_map,
-        region_tree: RegionTreeBuilder::new(),
-    };
+        block_id.into(),
+        BlockStore { data: &mut block, sources: &mut block_source_map },
+    );
     lower_ctx.lower_block(ast_block);
+    lower_ctx.emit_diagnostics();
 
     block.shrink_to_fit();
     block_source_map.shrink_to_fit();

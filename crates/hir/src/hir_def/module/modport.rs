@@ -10,7 +10,7 @@ use utils::text_edit::TextRange;
 
 use super::{LowerModuleCtx, port::PortDirection};
 use crate::{
-    hir_def::{Ident, alloc_idx_and_src, lower_ident_opt},
+    hir_def::{Ident, alloc_with_source, lower_ident_opt},
     source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, root_token_in},
 };
 
@@ -69,15 +69,8 @@ impl<'a> FromSourceAst<'a, ast::ModportItem<'a>> for ModportSrc {
     }
 }
 
-pub(crate) trait LowerModport {
-    fn lower_modport_declaration(
-        &mut self,
-        modport: ast::ModportDeclaration<'_>,
-    ) -> SmallVec<[ModportId; 1]>;
-}
-
-impl LowerModport for LowerModuleCtx<'_> {
-    fn lower_modport_declaration(
+impl LowerModuleCtx<'_> {
+    pub(crate) fn lower_modport_declaration(
         &mut self,
         modport: ast::ModportDeclaration<'_>,
     ) -> SmallVec<[ModportId; 1]> {
@@ -85,11 +78,11 @@ impl LowerModport for LowerModuleCtx<'_> {
         for item in modport.items().children() {
             let name = lower_ident_opt(item.name());
             let ports = lower_modport_ports(item);
-            let modport_id = alloc_idx_and_src! {
-                self.file_id;
-                ModportDef { name, ports } => self.module.modports,
-                item => self.module_source_map.modport_srcs,
-            };
+            let file_id = self.file_id;
+            let (modports, sources) =
+                (&mut self.store.data.modports, &mut self.store.sources.modport_srcs);
+            let modport_id =
+                alloc_with_source(file_id, modports, sources, ModportDef { name, ports }, item);
             lowered.push(modport_id);
         }
         lowered
