@@ -5,7 +5,7 @@ use hir::{
         source_db::{SourceDb, SourceRootDb},
         source_root::{SourceRootDiagnosticScope, SourceRootRole},
     },
-    db::HirDb,
+    db::{HirDb, PreprocDb},
     hir_def::module::ModuleId,
     source_map::IsSrc,
 };
@@ -408,14 +408,17 @@ fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
 
 #[cfg(test)]
 mod tests {
-    use hir::base_db::{
-        change::Change,
+    use hir::{
+        base_db::{
+            change::Change,
+            diagnostics_config::DiagnosticsConfig,
+            project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+            salsa::Durability,
+            source_db::SourceDb,
+            source_root::{SourceRoot, SourceRootId, SourceRootRole},
+        },
         compilation_plan::compilation_source_buffers_for_plan,
-        diagnostics_config::DiagnosticsConfig,
-        project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
-        salsa::Durability,
-        source_db::{SourceDb, SourceRootDb},
-        source_root::{SourceRoot, SourceRootId, SourceRootRole},
+        db::PreprocDb,
     };
     use triomphe::Arc;
     use utils::{

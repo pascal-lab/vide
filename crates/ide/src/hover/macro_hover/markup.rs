@@ -1,6 +1,6 @@
 use hir::{
     base_db::source_db::SourceDb,
-    hir_def::macro_file::MacroExpansionDefinition,
+    macro_file::MacroExpansionDefinition,
     preproc::{MacroDefinition, MacroParamDefinition},
 };
 use vfs::FileId;

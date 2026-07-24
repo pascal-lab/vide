@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use hir::base_db::compilation_plan::CompilationPlan;
+use hir::compilation_plan::CompilationPlan;
 use ide::FileRange;
 use lsp_types::{
     Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, NumberOrString, notification,

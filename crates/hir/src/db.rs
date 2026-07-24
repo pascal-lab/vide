@@ -1,4 +1,6 @@
-use syntax::SyntaxTree;
+pub use preproc_expand::db::{
+    ParseSrcForCompilationQuery, ParsedProfileQuery, PreprocDb, PreprocDbStorage,
+};
 use triomphe::Arc;
 
 use crate::{
@@ -16,9 +18,6 @@ use crate::{
             declarator::DeclId,
         },
         file::{self, FileSourceMap, HirFile},
-        macro_file::{
-            self, ExpandResult, ExpansionInfo, MacroCallId, MacroCallLoc, MacroFileId, MacroFileLoc,
-        },
         module::{
             self, Module, ModuleId, ModuleSourceMap, PackageId,
             clocking::ClockingBlockId,
@@ -30,7 +29,6 @@ use crate::{
         typedef::TypedefId,
     },
     impl_intern_key, impl_intern_lookup,
-    preproc::PreprocDb,
     symbol::{DefOrigin, DefOriginLoc, NameScope, Resolution},
     type_infer::TyResult,
 };
@@ -52,12 +50,6 @@ pub trait InternDb: PreprocDb {
     fn intern_generate_block(&self, generate_block: GenerateBlockLoc) -> GenerateBlockId;
 
     #[salsa::interned]
-    fn intern_macro_call(&self, macro_call: MacroCallLoc) -> MacroCallId;
-
-    #[salsa::interned]
-    fn intern_macro_file(&self, macro_file: MacroFileLoc) -> MacroFileId;
-
-    #[salsa::interned]
     fn intern_def_origin(&self, origin: DefOriginLoc) -> DefOrigin;
 
     #[salsa::interned]
@@ -72,19 +64,11 @@ impl_intern!(
     intern_generate_block,
     lookup_intern_generate_block
 );
-impl_intern!(MacroCallId, MacroCallLoc, intern_macro_call, lookup_intern_macro_call);
-impl_intern!(MacroFileId, MacroFileLoc, intern_macro_file, lookup_intern_macro_file);
 impl_intern!(DefOrigin, DefOriginLoc, intern_def_origin, lookup_intern_def_origin);
 impl_intern!(DefId, Definition, intern_def, lookup_intern_def);
 
 #[salsa::query_group(HirDbStorage)]
 pub trait HirDb: InternDb {
-    #[salsa::transparent]
-    fn parse(&self, file_id: HirFileId) -> SyntaxTree;
-
-    #[salsa::invoke(macro_file::macro_expansion_query)]
-    fn macro_expansion(&self, macro_file: MacroFileId) -> Arc<ExpandResult<ExpansionInfo>>;
-
     #[salsa::invoke(file::hir_file_with_source_map_query)]
     fn hir_file_with_source_map(&self, file_id: HirFileId) -> (Arc<HirFile>, Arc<FileSourceMap>);
 
@@ -163,13 +147,6 @@ pub trait HirDb: InternDb {
 
     #[salsa::invoke(crate::type_infer::type_of_subroutine_port_query)]
     fn type_of_subroutine_port(&self, port: InSubroutine<SubroutinePortId>) -> Arc<TyResult>;
-}
-
-fn parse(db: &dyn HirDb, file_id: HirFileId) -> SyntaxTree {
-    match file_id {
-        HirFileId::File(file_id) => db.parse_src_for_compilation(file_id),
-        HirFileId::Macro(macro_file) => db.macro_expansion(macro_file).value.parse.clone(),
-    }
 }
 
 fn hir_file(db: &dyn HirDb, file_id: HirFileId) -> Arc<HirFile> {

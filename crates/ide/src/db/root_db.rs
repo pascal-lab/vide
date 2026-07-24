@@ -5,15 +5,13 @@ use hir::{
         diagnostics_config::DiagnosticsConfig,
         project::ProjectConfig,
         salsa::{self, Durability},
-        source_db::{
-            FileLoader, ParseSrcForCompilationQuery, ParsedProfileQuery, SourceDb, SourceDbStorage,
-            SourceRootDb, SourceRootDbStorage,
-        },
+        source_db::{FileLoader, SourceDb, SourceDbStorage, SourceRootDb, SourceRootDbStorage},
     },
     db::{
         BlockQuery, BlockScopeQuery, BlockWithSourceMapQuery, FileScopeQuery, HirDbStorage,
         HirFileQuery, HirFileWithSourceMapQuery, InternDbStorage, ModuleQuery, ModuleScopeQuery,
-        ModuleWithSourceMapQuery,
+        ModuleWithSourceMapQuery, ParseSrcForCompilationQuery, ParsedProfileQuery,
+        PreprocDbStorage,
     },
 };
 use triomphe::Arc;
@@ -26,6 +24,7 @@ use crate::db::{
 #[salsa::database(
     SourceDbStorage,
     SourceRootDbStorage,
+    PreprocDbStorage,
     HirDbStorage,
     InternDbStorage,
     LineIndexDbStorage,

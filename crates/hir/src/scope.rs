@@ -677,7 +677,7 @@ mod tests {
             source_root::{SourceRoot, SourceRootId},
         },
         container::{FileOrModule, InContainer, InFile, InFileOrModule, ScopeId, SubroutineParent},
-        db::{HirDb, HirDbStorage, InternDbStorage},
+        db::{HirDb, HirDbStorage, InternDbStorage, PreprocDb, PreprocDbStorage},
         def_id::DefId,
         display::HirDisplay,
         file::HirFileId,
@@ -694,7 +694,13 @@ mod tests {
     const ROOT: SourceRootId = SourceRootId(0);
     const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
-    #[salsa::database(SourceDbStorage, SourceRootDbStorage, InternDbStorage, HirDbStorage)]
+    #[salsa::database(
+        SourceDbStorage,
+        SourceRootDbStorage,
+        PreprocDbStorage,
+        InternDbStorage,
+        HirDbStorage
+    )]
     #[derive(Default)]
     struct TestDb {
         storage: salsa::Storage<Self>,
