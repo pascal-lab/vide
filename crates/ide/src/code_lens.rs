@@ -66,7 +66,7 @@ fn process_instantiations(
         let Some(range) = src_map.get(local_module_id).map(|src| src.range()) else {
             continue;
         };
-        let pos = FilePosition { file_id: file_id.file_id(), offset: range.start() };
+        let pos = FilePosition { file_id: file_id.expect_file(), offset: range.start() };
 
         res.push(CodeLens { range, kind: CodeLensKind::ModuleInstance { pos, data: None } });
     }

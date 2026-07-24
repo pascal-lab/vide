@@ -2,6 +2,7 @@ use hir::{
     base_db::intern::Lookup,
     container::{InContainer, InFile, InModule, InSubroutine, ScopeId},
     db::HirDb,
+    file::HirFileId,
     hir_def::{
         block::{BlockId, BlockLoc},
         declaration::Declaration,
@@ -64,7 +65,9 @@ impl ToNav for DefOrigin {
             cont_id => cont_id.to_container(db).name().cloned(),
         };
 
-        Some(build(file_id.file_id(), focus_range, full_range, name, kind, container_name))
+        let (file_id, focus_range, full_range) =
+            nav_location(db, file_id, focus_range, full_range)?;
+        Some(build(file_id, focus_range, full_range, name, kind, container_name))
     }
 }
 
@@ -74,8 +77,9 @@ impl ToNav for ModuleId {
         let src = file_id.to_container_src_map(db).get(local_module_id)?;
         let name = self.to_container(db).name.clone();
 
-        let file_id = file_id.file_id();
-        Some(build(file_id, src.name_range(), src.range(), name, SymbolKind::Module, None))
+        let (file_id, focus_range, full_range) =
+            nav_location(db, file_id, src.name_range(), src.range())?;
+        Some(build(file_id, focus_range, full_range, name, SymbolKind::Module, None))
     }
 }
 
@@ -85,14 +89,9 @@ impl ToNav for InFile<ConfigDeclId> {
         let src = file_id.to_container_src_map(db).get(config_id)?;
         let name = file_id.to_container(db).get(config_id).name.clone();
 
-        Some(build(
-            file_id.file_id(),
-            src.name_range(),
-            src.range(),
-            name,
-            SymbolKind::Config,
-            None,
-        ))
+        let (file_id, focus_range, full_range) =
+            nav_location(db, file_id, src.name_range(), src.range())?;
+        Some(build(file_id, focus_range, full_range, name, SymbolKind::Config, None))
     }
 }
 
@@ -102,14 +101,9 @@ impl ToNav for InFile<LibraryDeclId> {
         let src = file_id.to_container_src_map(db).get(library_id)?;
         let name = file_id.to_container(db).get(library_id).name.clone();
 
-        Some(build(
-            file_id.file_id(),
-            src.name_range(),
-            src.range(),
-            name,
-            SymbolKind::Library,
-            None,
-        ))
+        let (file_id, focus_range, full_range) =
+            nav_location(db, file_id, src.name_range(), src.range())?;
+        Some(build(file_id, focus_range, full_range, name, SymbolKind::Library, None))
     }
 }
 
@@ -119,14 +113,9 @@ impl ToNav for InFile<UdpDeclId> {
         let src = file_id.to_container_src_map(db).get(udp_id)?;
         let name = file_id.to_container(db).get(udp_id).name.clone();
 
-        Some(build(
-            file_id.file_id(),
-            src.name_range(),
-            src.range(),
-            name,
-            SymbolKind::Primitive,
-            None,
-        ))
+        let (file_id, focus_range, full_range) =
+            nav_location(db, file_id, src.name_range(), src.range())?;
+        Some(build(file_id, focus_range, full_range, name, SymbolKind::Primitive, None))
     }
 }
 
@@ -136,8 +125,9 @@ impl ToNav for BlockId {
         let name = self.to_container(db).name.clone();
         let cont_name = cont_id.to_container(db).name().cloned();
 
-        let file_id = file_id.file_id();
-        Some(build(file_id, src.name_range(), src.range(), name, SymbolKind::Block, cont_name))
+        let (file_id, focus_range, full_range) =
+            nav_location(db, file_id, src.name_range(), src.range())?;
+        Some(build(file_id, focus_range, full_range, name, SymbolKind::Block, cont_name))
     }
 }
 
@@ -147,14 +137,9 @@ impl ToNav for GenerateBlockId {
         let name = self.to_container(db).name.clone();
         let cont_name = cont_id.to_container(db).name().cloned();
 
-        Some(build(
-            file_id.file_id(),
-            src.name_range(),
-            src.range(),
-            name,
-            SymbolKind::Generate,
-            cont_name,
-        ))
+        let (file_id, focus_range, full_range) =
+            nav_location(db, file_id, src.name_range(), src.range())?;
+        Some(build(file_id, focus_range, full_range, name, SymbolKind::Generate, cont_name))
     }
 }
 
@@ -181,15 +166,9 @@ impl ToNav for InModule<NonAnsiPortId> {
         let name = module.get(port_id).label.clone();
         let cont_name = module.name.clone();
 
-        let file_id = file_id.file_id();
-        Some(build(
-            file_id,
-            src.name_range(),
-            src.range(),
-            name,
-            SymbolKind::NonAnsiPortLabel,
-            cont_name,
-        ))
+        let (file_id, focus_range, full_range) =
+            nav_location(db, file_id, src.name_range(), src.range())?;
+        Some(build(file_id, focus_range, full_range, name, SymbolKind::NonAnsiPortLabel, cont_name))
     }
 }
 
@@ -218,7 +197,9 @@ impl ToNav for InContainer<DeclId> {
         let name = decl.name.clone();
         let cont_name = cont.name().cloned();
 
-        Some(build(file_id, src.name_range(), src.range(), name, kind, cont_name))
+        let (file_id, focus_range, full_range) =
+            nav_location(db, file_id, src.name_range(), src.range())?;
+        Some(build(file_id, focus_range, full_range, name, kind, cont_name))
     }
 }
 
@@ -233,10 +214,12 @@ impl ToNav for InContainer<TypedefId> {
         let typedef = cont.get(typedef_id);
         let cont_name = cont.name().cloned();
 
+        let (file_id, focus_range, full_range) =
+            nav_location(db, file_id, src.name_range(), src.range())?;
         Some(build(
             file_id,
-            src.name_range(),
-            src.range(),
+            focus_range,
+            full_range,
             typedef.name.clone(),
             SymbolKind::Typedef,
             cont_name,
@@ -248,14 +231,16 @@ impl ToNav for InModule<InstanceId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InModule { value: instance_id, module_id } = *self;
 
-        let file_id = module_id.file_id();
+        let file_id = module_id.file_id;
         let src = module_id.to_container_src_map(db).get(instance_id)?;
 
         let module = module_id.to_container(db);
         let name = module.get(instance_id).name.clone();
         let cont_name = module.name.clone();
 
-        Some(build(file_id, src.name_range(), src.range(), name, SymbolKind::Instance, cont_name))
+        let (file_id, focus_range, full_range) =
+            nav_location(db, file_id, src.name_range(), src.range())?;
+        Some(build(file_id, focus_range, full_range, name, SymbolKind::Instance, cont_name))
     }
 }
 
@@ -270,18 +255,22 @@ impl ToNav for InContainer<StmtId> {
         let name = cont.get(stmt_id).label.clone();
         let cont_name = cont.name().cloned();
 
-        Some(build(file_id, src.name_range(), src.range(), name, SymbolKind::Stmt, cont_name))
+        let (file_id, focus_range, full_range) =
+            nav_location(db, file_id, src.name_range(), src.range())?;
+        Some(build(file_id, focus_range, full_range, name, SymbolKind::Stmt, cont_name))
     }
 }
 
 impl ToNav for InFile<SyntaxTokenWithParent<'_>> {
-    fn to_nav(&self, _db: &RootDb) -> Option<NavTarget> {
+    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { value: token, file_id } = *self;
         let full_range = token.parent.text_range()?;
+        let (file_id, focus_range, full_range) =
+            nav_location(db, file_id, token.text_range(), full_range)?;
         Some(NavTarget {
-            file_id: file_id.file_id(),
+            file_id,
             full_range,
-            focus_range: token.text_range(),
+            focus_range,
             name: None,
             kind: None,
             container_name: None,
@@ -301,4 +290,26 @@ fn build(
 ) -> NavTarget {
     let kind = Some(kind);
     NavTarget { file_id, full_range, focus_range, name, kind, container_name, description: None }
+}
+
+/// Resolves a HIR file location to a user-facing source file and range.
+///
+/// For real files the location is returned as-is. For macro expansions the
+/// location is mapped to the macro invocation site, since the expanded text is
+/// not a file the user can open: both the file and the range point at the
+/// macro call. Returns `None` when a macro expansion's call site cannot be
+/// resolved.
+pub(crate) fn nav_location(
+    db: &dyn HirDb,
+    file_id: HirFileId,
+    name_range: Option<TextRange>,
+    full_range: TextRange,
+) -> Option<(FileId, Option<TextRange>, TextRange)> {
+    match file_id {
+        HirFileId::File(file_id) => Some((file_id, name_range, full_range)),
+        HirFileId::Macro(macro_file) => {
+            let call_site = hir::hir_def::macro_file::macro_file_call_site(db, macro_file)?;
+            Some((call_site.call_file_id, Some(call_site.call_range), call_site.call_range))
+        }
+    }
 }
