@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use hir::{
     container::{InContainer, ScopeId, ScopeParent, SubroutineScope},
-    db::HirDb,
+    db::{HirDb, HirDefDb},
     def_id::DefId,
     file::HirFileId,
     hir_def::{lower_ident_opt, module::ModuleId, subroutine::SubroutineKind},

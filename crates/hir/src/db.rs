@@ -3,20 +3,17 @@ pub use preproc_expand::db::{
 };
 use triomphe::Arc;
 
+pub use crate::ty_db::{TyDb, TyDb as HirDb, TyDbStorage};
 use crate::{
     base_db::salsa,
-    container::{InContainer, InFileOrModule, InModule, InSubroutine, SubroutineScope},
+    container::{InFileOrModule, InModule, SubroutineScope},
     def_id::{DefId, Definition},
     file::HirFileId,
     hir_def::{
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
         checker::CheckerId,
         covergroup::CovergroupId,
-        expr::{
-            ExprId,
-            data_ty::{BuiltinDataTy, BuiltinDataTyId},
-            declarator::DeclId,
-        },
+        expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
         file::{self, FileSourceMap, HirFile},
         module::{
             self, Module, ModuleId, ModuleSourceMap, PackageId,
@@ -25,12 +22,10 @@ use crate::{
                 self, GenerateBlock, GenerateBlockId, GenerateBlockLoc, GenerateBlockSourceMap,
             },
         },
-        subroutine::{self, Subroutine, SubroutinePortId, SubroutineSourceMap},
-        typedef::TypedefId,
+        subroutine::{self, Subroutine, SubroutineSourceMap},
     },
     impl_intern_key, impl_intern_lookup,
-    symbol::{DefOrigin, DefOriginLoc, NameScope, Resolution},
-    type_infer::TyResult,
+    symbol::{DefOrigin, DefOriginLoc, NameScope},
 };
 
 pub(crate) macro impl_intern($id:ident, $loc:ident, $intern:ident, $lookup:ident) {
@@ -67,8 +62,8 @@ impl_intern!(
 impl_intern!(DefOrigin, DefOriginLoc, intern_def_origin, lookup_intern_def_origin);
 impl_intern!(DefId, Definition, intern_def, lookup_intern_def);
 
-#[salsa::query_group(HirDbStorage)]
-pub trait HirDb: InternDb {
+#[salsa::query_group(HirDefDbStorage)]
+pub trait HirDefDb: InternDb {
     #[salsa::invoke(file::hir_file_with_source_map_query)]
     fn hir_file_with_source_map(&self, file_id: HirFileId) -> (Arc<HirFile>, Arc<FileSourceMap>);
 
@@ -132,39 +127,24 @@ pub trait HirDb: InternDb {
 
     #[salsa::invoke(NameScope::package_export_scope_query)]
     fn package_export_scope(&self, package_id: PackageId) -> Arc<NameScope>;
-
-    #[salsa::invoke(crate::type_infer::type_of_decl_query)]
-    fn type_of_decl(&self, decl: InContainer<DeclId>) -> Arc<TyResult>;
-
-    #[salsa::invoke(crate::type_infer::type_of_typedef_query)]
-    fn type_of_typedef(&self, typedef: InContainer<TypedefId>) -> Arc<TyResult>;
-
-    #[salsa::invoke(crate::type_infer::type_of_expr_query)]
-    fn type_of_expr(&self, expr: InContainer<ExprId>) -> Arc<TyResult>;
-
-    #[salsa::invoke(crate::type_infer::type_of_path_resolution_query)]
-    fn type_of_path_resolution(&self, res: Resolution<DefId>) -> Arc<TyResult>;
-
-    #[salsa::invoke(crate::type_infer::type_of_subroutine_port_query)]
-    fn type_of_subroutine_port(&self, port: InSubroutine<SubroutinePortId>) -> Arc<TyResult>;
 }
 
-fn hir_file(db: &dyn HirDb, file_id: HirFileId) -> Arc<HirFile> {
+fn hir_file(db: &dyn HirDefDb, file_id: HirFileId) -> Arc<HirFile> {
     db.hir_file_with_source_map(file_id).0
 }
 
-fn module(db: &dyn HirDb, module_id: ModuleId) -> Arc<Module> {
+fn module(db: &dyn HirDefDb, module_id: ModuleId) -> Arc<Module> {
     db.module_with_source_map(module_id).0
 }
 
-fn block(db: &dyn HirDb, block_id: BlockId) -> Arc<Block> {
+fn block(db: &dyn HirDefDb, block_id: BlockId) -> Arc<Block> {
     db.block_with_source_map(block_id).0
 }
 
-fn subroutine(db: &dyn HirDb, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
+fn subroutine(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
     db.subroutine_with_source_map(subroutine_id).0
 }
 
-fn generate_block(db: &dyn HirDb, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock> {
+fn generate_block(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock> {
     db.generate_block_with_source_map(generate_block_id).0
 }

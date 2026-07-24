@@ -23,7 +23,7 @@ use crate::{
         source_root::{SourceRoot, SourceRootId},
     },
     container::{InFile, ScopeId},
-    db::{HirDb, HirDbStorage, InternDbStorage, PreprocDbStorage},
+    db::{HirDefDb, HirDefDbStorage, InternDbStorage, PreprocDbStorage},
     file::HirFileId,
     hir_def::module::ModuleId,
     macro_file::macro_files_at_offset,
@@ -40,7 +40,7 @@ const PROFILE: CompilationProfileId = CompilationProfileId(0);
     SourceRootDbStorage,
     PreprocDbStorage,
     InternDbStorage,
-    HirDbStorage
+    HirDefDbStorage
 )]
 #[derive(Default)]
 struct TestDb {

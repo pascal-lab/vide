@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use hir::{
     base_db::intern::Lookup,
-    db::HirDb,
+    db::{HirDb, HirDefDb},
     hir_def::{
         expr::{
             data_ty::{BuiltinDataTy, DataTy},

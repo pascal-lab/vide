@@ -27,7 +27,7 @@ use super::{
 };
 use crate::{
     container::{ArenaOwnerId, SubroutineParent, SubroutineScope},
-    db::HirDb,
+    db::HirDefDb as HirDb,
     region_tree::RegionTree,
     source_map::{AstKind, NamedAstId, SourceMap},
 };

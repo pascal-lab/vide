@@ -1,5 +1,5 @@
 use hir::{
-    base_db::source_db::SourceDb, container::InModule, db::HirDb,
+    base_db::source_db::SourceDb, container::InModule, db::HirDefDb,
     hir_def::module::instantiation::ParamAssign, source_map::IsSrc,
 };
 use rustc_hash::FxHashSet;

@@ -15,7 +15,7 @@ use crate::{
         ArenaOwnerId, FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope,
         InSubroutine, ScopeId, SubroutineParent, SubroutineScope,
     },
-    db::HirDb,
+    db::HirDefDb as HirDb,
     file::HirFileId,
     hir_def::{
         block::BlockLoc,

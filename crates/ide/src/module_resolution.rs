@@ -6,7 +6,7 @@ use hir::{
         source_root::SourceRootRole,
     },
     container::ArenaOwnerId,
-    db::HirDb,
+    db::HirDefDb,
     def_id::DefId,
     hir_def::{
         Ident,

@@ -55,7 +55,7 @@ use super::{
 };
 use crate::{
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
-    db::HirDb,
+    db::HirDefDb as HirDb,
     file::HirFileId,
     region_tree::RegionTree,
     source_map::{

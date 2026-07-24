@@ -1,6 +1,6 @@
 use hir::{
     container::InFile,
-    db::HirDb,
+    db::HirDefDb,
     file::HirFileId,
     hir_def::{
         Ident,

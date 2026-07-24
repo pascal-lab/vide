@@ -8,10 +8,10 @@ use hir::{
         source_db::{FileLoader, SourceDb, SourceDbStorage, SourceRootDb, SourceRootDbStorage},
     },
     db::{
-        BlockQuery, BlockScopeQuery, BlockWithSourceMapQuery, FileScopeQuery, HirDbStorage,
+        BlockQuery, BlockScopeQuery, BlockWithSourceMapQuery, FileScopeQuery, HirDefDbStorage,
         HirFileQuery, HirFileWithSourceMapQuery, InternDbStorage, ModuleQuery, ModuleScopeQuery,
         ModuleWithSourceMapQuery, ParseSrcForCompilationQuery, ParsedProfileQuery,
-        PreprocDbStorage,
+        PreprocDbStorage, TyDbStorage,
     },
 };
 use triomphe::Arc;
@@ -25,8 +25,9 @@ use crate::db::{
     SourceDbStorage,
     SourceRootDbStorage,
     PreprocDbStorage,
-    HirDbStorage,
     InternDbStorage,
+    HirDefDbStorage,
+    TyDbStorage,
     LineIndexDbStorage,
     WorkspaceSymbolIndexDbStorage
 )]

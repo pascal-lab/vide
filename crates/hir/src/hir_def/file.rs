@@ -40,7 +40,7 @@ use super::{
 };
 use crate::{
     container::{ArenaOwnerId, SubroutineParent, SubroutineScope},
-    db::HirDb,
+    db::HirDefDb as HirDb,
     file::HirFileId,
     hir_def::lower_ident_opt,
     region_tree::RegionTree,

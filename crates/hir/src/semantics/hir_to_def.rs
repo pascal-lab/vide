@@ -9,7 +9,7 @@ use crate::{
         Ident,
         expr::{Expr, ExprId},
     },
-    semantics::pathres::{resolve_child_name, resolve_name, resolve_path},
+    pathres::{resolve_child_name, resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
 };
 

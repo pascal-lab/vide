@@ -1,0 +1,33 @@
+use triomphe::Arc;
+
+use crate::{
+    base_db::salsa,
+    container::{InContainer, InSubroutine},
+    db::HirDefDb,
+    def_id::DefId,
+    hir_def::{
+        expr::{ExprId, declarator::DeclId},
+        subroutine::SubroutinePortId,
+        typedef::TypedefId,
+    },
+    symbol::Resolution,
+    type_infer::{self, TyResult},
+};
+
+#[salsa::query_group(TyDbStorage)]
+pub trait TyDb: HirDefDb {
+    #[salsa::invoke(type_infer::type_of_decl_query)]
+    fn type_of_decl(&self, decl: InContainer<DeclId>) -> Arc<TyResult>;
+
+    #[salsa::invoke(type_infer::type_of_typedef_query)]
+    fn type_of_typedef(&self, typedef: InContainer<TypedefId>) -> Arc<TyResult>;
+
+    #[salsa::invoke(type_infer::type_of_expr_query)]
+    fn type_of_expr(&self, expr: InContainer<ExprId>) -> Arc<TyResult>;
+
+    #[salsa::invoke(type_infer::type_of_path_resolution_query)]
+    fn type_of_path_resolution(&self, res: Resolution<DefId>) -> Arc<TyResult>;
+
+    #[salsa::invoke(type_infer::type_of_subroutine_port_query)]
+    fn type_of_subroutine_port(&self, port: InSubroutine<SubroutinePortId>) -> Arc<TyResult>;
+}

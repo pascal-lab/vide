@@ -1,4 +1,4 @@
-use hir::{db::HirDb, file::HirFileId, hir_def::module::ModuleId, source_map::IsSrc};
+use hir::{db::HirDefDb, file::HirFileId, hir_def::module::ModuleId, source_map::IsSrc};
 use utils::{get::Get, text_edit::TextSize};
 
 use super::{candidate::CompletionCandidate, typed_filter::value_candidates_in_module};

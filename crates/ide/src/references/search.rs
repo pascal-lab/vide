@@ -6,7 +6,7 @@ use hir::{
         source_root::SourceRootId,
     },
     container::{InFile, ScopeId},
-    db::HirDb,
+    db::{HirDb, HirDefDb},
     def_id::DefId,
     file::HirFileId,
     macro_file::macro_file_call_site,

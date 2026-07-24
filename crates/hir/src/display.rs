@@ -6,7 +6,7 @@ use triomphe::Arc;
 use crate::{
     base_db::intern::Lookup,
     container::{InContainer, InModule},
-    db::HirDb,
+    db::TyDb as HirDb,
     def_id::DefId,
     hir_def::{
         aggregate::StructKind,
@@ -190,7 +190,7 @@ fn hir_fmt_named_def_type(
     Ok(())
 }
 
-fn ty_expr_container(db: &dyn crate::db::HirDb, ty: &Ty) -> Option<crate::container::ArenaOwnerId> {
+fn ty_expr_container(db: &dyn crate::db::TyDb, ty: &Ty) -> Option<crate::container::ArenaOwnerId> {
     match ty {
         Ty::Builtin(BuiltinTy::Data { container, .. }) => Some(*container),
         Ty::Struct(struct_ref) => Some(struct_ref.cont_id),

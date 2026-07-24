@@ -21,7 +21,7 @@ use super::{
 use crate::{
     base_db::intern::Lookup,
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
-    db::HirDb,
+    db::HirDefDb as HirDb,
     hir_def::{
         Ident,
         aggregate::{StructDef, StructId, StructSrc, lower_struct_def},

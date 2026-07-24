@@ -116,7 +116,7 @@ mod tests {
 
     use hir::{
         base_db::{change::Change, source_root::SourceRoot},
-        db::HirDb,
+        db::HirDefDb,
         macro_file::macro_files_at_offset,
     };
     use insta::assert_debug_snapshot;

@@ -9,7 +9,7 @@ use crate::{
         ArenaOwnerId, FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope,
         InSubroutine, ScopeId, SubroutineParent, SubroutineScope,
     },
-    db::HirDb,
+    db::HirDefDb as HirDb,
     def_id::DefId,
     file::HirFileId,
     hir_def::{
@@ -677,7 +677,10 @@ mod tests {
             source_root::{SourceRoot, SourceRootId},
         },
         container::{FileOrModule, InContainer, InFile, InFileOrModule, ScopeId, SubroutineParent},
-        db::{HirDb, HirDbStorage, InternDbStorage, PreprocDb, PreprocDbStorage},
+        db::{
+            HirDefDb as HirDb, HirDefDbStorage, InternDbStorage, PreprocDb, PreprocDbStorage,
+            TyDbStorage,
+        },
         def_id::DefId,
         display::HirDisplay,
         file::HirFileId,
@@ -685,7 +688,7 @@ mod tests {
             Ident,
             module::port::{NonAnsiPortSrc, PortSrcs, Ports},
         },
-        semantics::pathres::resolve_name,
+        pathres::resolve_name,
         source_map::IsNamedSrc,
         symbol::{DefKind, DefOriginLoc, NameContext, Resolution, ScopeKind},
     };
@@ -699,7 +702,8 @@ mod tests {
         SourceRootDbStorage,
         PreprocDbStorage,
         InternDbStorage,
-        HirDbStorage
+        HirDefDbStorage,
+        TyDbStorage
     )]
     #[derive(Default)]
     struct TestDb {
