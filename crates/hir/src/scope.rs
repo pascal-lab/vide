@@ -675,7 +675,7 @@ mod tests {
             },
             source_root::{SourceRoot, SourceRootId},
         },
-        container::{FileOrModule, InContainer, InFile, InFileOrModule, ScopeId, SubroutineParent},
+        container::{FileOrModule, InFile, InFileOrModule, ScopeId, SubroutineParent},
         db::{HirDb, HirDbStorage, InternDbStorage},
         def_id::DefId,
         file::HirFileId,

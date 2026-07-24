@@ -755,7 +755,7 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<Str
         }
 
         if !matches!(cont_id, ScopeId::File(_)) {
-            containers.push(cont_id.name(db).unwrap_or_else(|| DEFAULT_NAME.into()).to_string());
+            containers.push(cont_id.name(db).unwrap_or(DEFAULT_NAME).to_string());
         }
     }
 
