@@ -1,10 +1,8 @@
-pub use base_db::source_db::{
-    FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb, SourceRootDbStorage,
-};
 use base_db::{
     analysis_snapshot::CompilationContext,
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
     project::CompilationProfileId,
+    source_db::{SourceDb, SourceFileKind, SourceRootDb},
     source_root::SourceRootId,
 };
 use rustc_hash::FxHashMap;
@@ -16,15 +14,6 @@ use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
 use vfs::FileId;
 
-pub use crate::source_db::{
-    MappedSourcePreprocModel, PreprocManifestSource, PreprocSourceMap, PreprocSourceMapError,
-    PreprocSourceMapping, PreprocSpeculativeUniverseId, PreprocVirtualOrigin,
-    SourcePreprocContextIndex, SourcePreprocContextStatus, SourcePreprocQueryError,
-    SourcePreprocRelevantContexts, preproc_virtual_builtin_path, preproc_virtual_predefines_path,
-    preproc_virtual_speculative_path, workspace_preproc_model_file_ids,
-};
-#[cfg(test)]
-use crate::source_db::{materialized_predefine_text, source_preproc_file_ids};
 use crate::{
     compilation_plan::{self, CompilationPlan},
     file::HirFileId,
@@ -33,8 +22,9 @@ use crate::{
     },
     preproc::{MacroReferenceIndex, macro_reference_index_for_profile_query},
     source_db::{
-        source_preproc_context_index_for_profile, source_preproc_contexts_for_file,
-        source_preproc_model,
+        MappedSourcePreprocModel, SourcePreprocContextIndex, SourcePreprocQueryError,
+        SourcePreprocRelevantContexts, source_preproc_context_index_for_profile,
+        source_preproc_contexts_for_file, source_preproc_model,
     },
 };
 
@@ -688,6 +678,10 @@ mod tests {
             CompilationProfile, Predefine, PredefineSource, PreprocessConfig, ProjectConfig,
         },
         salsa::{self, Durability},
+        source_db::{
+            FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
+            SourceRootDbStorage,
+        },
         source_root::SourceRoot,
     };
     use rustc_hash::FxHashSet;
@@ -699,6 +693,12 @@ mod tests {
     use vfs::{AnchoredPath, FileSet, VfsPath};
 
     use super::*;
+    use crate::source_db::{
+        PreprocSourceMapError, PreprocSourceMapping, PreprocSpeculativeUniverseId,
+        PreprocVirtualOrigin, materialized_predefine_text, preproc_virtual_builtin_path,
+        preproc_virtual_predefines_path, preproc_virtual_speculative_path, source_preproc_file_ids,
+        workspace_preproc_model_file_ids,
+    };
 
     const TOP: FileId = FileId::from_raw(0);
     const MANIFEST: FileId = FileId::from_raw(1);

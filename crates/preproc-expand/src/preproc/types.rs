@@ -11,8 +11,8 @@ use utils::{
 use vfs::FileId;
 
 use crate::{
-    db::{PreprocSourceMapError, SourcePreprocQueryError},
     macro_file::Origin,
+    source_db::{PreprocSourceMapError, SourcePreprocQueryError},
 };
 
 mod common;

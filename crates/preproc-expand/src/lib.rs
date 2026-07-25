@@ -1,5 +1,3 @@
-pub use base_db;
-
 pub mod compilation_plan;
 pub mod db;
 pub mod file;

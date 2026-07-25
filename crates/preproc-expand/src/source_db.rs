@@ -3,7 +3,7 @@ use ::preproc::source::{
     SourcePosition, SourcePreprocError, SourcePreprocModel, SourcePreprocUnavailable, SourceRange,
     SourceTokenOrigin,
 };
-use base_db::project::CompilationProfileId;
+use base_db::{project::CompilationProfileId, source_db::SourceFileKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 use syntax::{SourceBufferOrigin, SyntaxTreeOptions, preproc::Trace};
@@ -15,7 +15,7 @@ use utils::{
 };
 use vfs::{FileId, VfsPath};
 
-use crate::db::{PreprocDb, SourceFileKind, path_file_ids, syntax_tree_options_for_file};
+use crate::db::{PreprocDb, path_file_ids, syntax_tree_options_for_file};
 
 mod context;
 mod queries;

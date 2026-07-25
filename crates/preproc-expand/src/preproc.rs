@@ -1,4 +1,7 @@
-use base_db::project::{CompilationProfileId, Predefine};
+use base_db::{
+    project::{CompilationProfileId, Predefine},
+    source_db::SourceFileKind,
+};
 use preproc::source::{
     MacroIncludeTarget, PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange,
     SourceIncludeChainEntry, SourceIncludeStatus, SourceMacroArgument, SourceMacroCall,
@@ -15,10 +18,12 @@ use utils::{
 use vfs::FileId;
 
 pub(crate) use self::reference_index::macro_reference_index_for_profile_query;
-use crate::db::{
-    MappedSourcePreprocModel, PreprocDb, PreprocSourceMapError, PreprocSourceMapping,
-    SourceFileKind, SourcePreprocContextStatus, SourcePreprocQueryError,
-    workspace_preproc_model_file_ids,
+use crate::{
+    db::PreprocDb,
+    source_db::{
+        MappedSourcePreprocModel, PreprocSourceMapError, PreprocSourceMapping,
+        SourcePreprocContextStatus, SourcePreprocQueryError, workspace_preproc_model_file_ids,
+    },
 };
 
 mod conditionals;

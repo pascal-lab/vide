@@ -14,7 +14,7 @@ use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use super::{ExpandError, ExpandErrorKind, ExpandResult, MacroCallId, MacroCallLoc};
-use crate::db::{PreprocDb, PreprocSourceMap};
+use crate::{db::PreprocDb, source_db::PreprocSourceMap};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
