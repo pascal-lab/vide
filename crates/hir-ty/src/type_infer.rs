@@ -58,7 +58,7 @@ pub struct TyResult {
 }
 
 impl TyResult {
-    fn new(ty: Ty) -> Self {
+    pub(crate) fn new(ty: Ty) -> Self {
         TyResult { ty, diagnostics: Vec::new() }
     }
 }
