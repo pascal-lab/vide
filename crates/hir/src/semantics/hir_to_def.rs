@@ -1,8 +1,4 @@
-use rustc_hash::FxHashMap;
-use utils::get::GetRef;
-
-use super::Source2DefCtx;
-use crate::{
+use hir_def::{
     container::{ArenaOwnerId, InContainer},
     def_id::DefId,
     hir_def::{
@@ -12,6 +8,10 @@ use crate::{
     pathres::{resolve_child_name, resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
 };
+use rustc_hash::FxHashMap;
+use utils::get::GetRef;
+
+use super::Source2DefCtx;
 
 #[derive(Default, Debug)]
 pub(super) struct Hir2DefCache {

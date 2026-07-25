@@ -1,20 +1,8 @@
 use std::{cell::RefCell, ops};
 
-use hir_to_def::Hir2DefCache;
-use itertools::{Either, Itertools};
-use source_to_def::{Source2DefCache, Source2DefCtx};
-use syntax::{
-    SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTree,
-    ast::{self, AstNode},
-};
-use utils::text_edit::TextSize;
-use vfs::FileId;
-
-use crate::{
+use hir_def::{
     container::{ArenaOwnerId, InContainer, InFile, SubroutineScope},
-    db::HirDb,
     def_id::DefId,
-    file::HirFileId,
     hir_def::{
         Ident,
         block::{BlockId, BlockSrc},
@@ -24,6 +12,17 @@ use crate::{
     },
     symbol::{NameContext, Resolution},
 };
+use hir_to_def::Hir2DefCache;
+use hir_ty::db::TyDb;
+use itertools::{Either, Itertools};
+use preproc_expand::file::HirFileId;
+use source_to_def::{Source2DefCache, Source2DefCtx};
+use syntax::{
+    SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTree,
+    ast::{self, AstNode},
+};
+use utils::text_edit::TextSize;
+use vfs::FileId;
 
 mod hir_to_def;
 pub mod pathres;
@@ -58,7 +57,7 @@ impl ParsedFile {
     }
 }
 
-impl<DB: HirDb> Semantics<'_, DB> {
+impl<DB: TyDb> Semantics<'_, DB> {
     pub fn new(db: &DB) -> Semantics<'_, DB> {
         let impl_ = SemanticsImpl::new(db);
         Semantics { db, impl_ }
@@ -73,7 +72,7 @@ impl<'db, DB> ops::Deref for Semantics<'db, DB> {
     }
 }
 
-impl<DB: HirDb> Semantics<'_, DB> {
+impl<DB: TyDb> Semantics<'_, DB> {
     pub fn find_node_at_offset<'a, N: AstNode<'a>>(
         &self,
         node: SyntaxNode<'a>,
@@ -94,7 +93,7 @@ impl<DB: HirDb> Semantics<'_, DB> {
 }
 
 pub struct SemanticsImpl<'db> {
-    pub db: &'db dyn HirDb,
+    pub db: &'db dyn TyDb,
 
     // s2d_cache
     source2def_cache: RefCell<Source2DefCache>,
@@ -102,7 +101,7 @@ pub struct SemanticsImpl<'db> {
 }
 
 impl<'db> SemanticsImpl<'db> {
-    fn new(db: &'db dyn HirDb) -> Self {
+    fn new(db: &'db dyn TyDb) -> Self {
         SemanticsImpl {
             db,
             source2def_cache: Default::default(),

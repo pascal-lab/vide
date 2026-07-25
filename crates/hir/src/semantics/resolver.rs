@@ -1,10 +1,5 @@
-use syntax::ast::{self, AstNode};
-use utils::get::Get;
-
-use super::SemanticsImpl;
-use crate::{
+use hir_def::{
     container::{ArenaOwnerId, InContainer, InFile, InModule},
-    file::HirFileId,
     hir_def::{
         expr::{ExprId, ExprSrc},
         module::instantiation::{
@@ -14,6 +9,11 @@ use crate::{
     },
     source_map::AstId,
 };
+use preproc_expand::file::HirFileId;
+use syntax::ast::{self, AstNode};
+use utils::get::Get;
+
+use super::SemanticsImpl;
 
 impl SemanticsImpl<'_> {
     pub fn resolve_instance(

@@ -1,5 +1,26 @@
 use std::fmt;
 
+use base_db::{
+    diagnostics_config::DiagnosticsConfig,
+    project::{
+        CompilationProfile, CompilationProfileId, Predefine, PreprocessConfig, ProjectConfig,
+    },
+    salsa::{self, Durability},
+    source_db::{
+        FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb, SourceRootDbStorage,
+    },
+    source_root::{SourceRoot, SourceRootId},
+};
+use hir_def::{
+    container::{InFile, ScopeId},
+    db::{HirDefDb, HirDefDbStorage, InternDbStorage},
+    hir_def::module::ModuleId,
+    source_map::IsSrc,
+};
+use preproc_expand::{
+    db::PreprocDbStorage, file::HirFileId, macro_file::macro_files_at_offset,
+    preproc::diagnostic_target_for_range,
+};
 use rustc_hash::FxHashSet;
 use triomphe::Arc;
 use utils::{
@@ -8,28 +29,6 @@ use utils::{
     paths::{AbsPathBuf, Utf8PathBuf},
 };
 use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
-
-use crate::{
-    base_db::{
-        diagnostics_config::DiagnosticsConfig,
-        project::{
-            CompilationProfile, CompilationProfileId, Predefine, PreprocessConfig, ProjectConfig,
-        },
-        salsa::{self, Durability},
-        source_db::{
-            FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
-            SourceRootDbStorage,
-        },
-        source_root::{SourceRoot, SourceRootId},
-    },
-    container::{InFile, ScopeId},
-    db::{HirDefDb, HirDefDbStorage, InternDbStorage, PreprocDbStorage},
-    file::HirFileId,
-    hir_def::module::ModuleId,
-    macro_file::macro_files_at_offset,
-    preproc::diagnostic_target_for_range,
-    source_map::IsSrc,
-};
 
 const TOP: FileId = FileId::from_raw(0);
 const ROOT: SourceRootId = SourceRootId(0);
@@ -124,7 +123,7 @@ endmodule
     let target =
         diagnostic_target_for_range(&db, TOP, declaration_src.range()).unwrap().target.unwrap();
 
-    assert!(matches!(target.origin, crate::macro_file::Origin::MacroBody { .. }));
+    assert!(matches!(target.origin, preproc_expand::macro_file::Origin::MacroBody { .. }));
 }
 
 #[test]
