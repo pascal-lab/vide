@@ -192,7 +192,30 @@ fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
                     .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
                 DefKind::Checker => TyResult::new(Ty::Checker(target)),
                 DefKind::Covergroup => TyResult::new(Ty::Covergroup(target)),
-                _ => TyResult::new(Ty::Unknown),
+                DefKind::Package
+                | DefKind::Udp
+                | DefKind::Config
+                | DefKind::Library
+                | DefKind::Block
+                | DefKind::GenerateBlock
+                | DefKind::Subroutine
+                | DefKind::SubroutinePort
+                | DefKind::NonAnsiPort
+                | DefKind::Typedef
+                | DefKind::Net
+                | DefKind::Variable
+                | DefKind::Param
+                | DefKind::Port
+                | DefKind::Genvar
+                | DefKind::Specparam
+                | DefKind::Instance
+                | DefKind::Modport
+                | DefKind::ClockingBlock
+                | DefKind::ClockingSignal
+                | DefKind::CheckerPort
+                | DefKind::Coverpoint
+                | DefKind::Cross
+                | DefKind::Stmt => TyResult::new(Ty::Unknown),
             })
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Modport => origin
@@ -222,7 +245,6 @@ fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
         | DefKind::Coverpoint
         | DefKind::Cross
         | DefKind::Stmt => TyResult::new(Ty::Unknown),
-        _ => TyResult::new(Ty::Unknown),
     }
 }
 fn type_of_non_ansi_port(db: &dyn TyDb, def_id: DefId) -> TyResult {
@@ -237,7 +259,34 @@ fn type_of_non_ansi_port(db: &dyn TyDb, def_id: DefId) -> TyResult {
             DefKind::Port => {
                 port_ty.get_or_insert(ty);
             }
-            _ => {}
+            DefKind::Variable
+            | DefKind::Net
+            | DefKind::Module
+            | DefKind::Interface
+            | DefKind::Package
+            | DefKind::Program
+            | DefKind::Udp
+            | DefKind::Config
+            | DefKind::Library
+            | DefKind::Block
+            | DefKind::GenerateBlock
+            | DefKind::Subroutine
+            | DefKind::SubroutinePort
+            | DefKind::NonAnsiPort
+            | DefKind::Typedef
+            | DefKind::Param
+            | DefKind::Genvar
+            | DefKind::Specparam
+            | DefKind::Instance
+            | DefKind::Modport
+            | DefKind::ClockingBlock
+            | DefKind::ClockingSignal
+            | DefKind::Checker
+            | DefKind::CheckerPort
+            | DefKind::Covergroup
+            | DefKind::Coverpoint
+            | DefKind::Cross
+            | DefKind::Stmt => {}
         }
     }
     port_ty.unwrap_or_else(|| TyResult::new(Ty::Unknown))
