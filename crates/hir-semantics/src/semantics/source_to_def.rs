@@ -17,7 +17,6 @@ use syntax::{
     match_ast,
     ptr::SyntaxNodePtr,
 };
-use utils::get::{Get, GetRef};
 
 use super::hir_to_def::Hir2DefCache;
 
@@ -37,8 +36,8 @@ impl Source2DefCtx<'_, '_> {
         &mut self,
         InFile { file_id, value: src }: InFile<ModuleSrc>,
     ) -> Option<ModuleId> {
-        let (_, file_source_map) = self.db.hir_file_with_source_map(file_id);
-        Some(ModuleId::new(file_id, file_source_map.get(src)?))
+        let file = self.db.hir_file_with_source_map(file_id);
+        Some(ModuleId::new(file_id, file.hir_id(src)?))
     }
 
     pub(super) fn block_to_def(
@@ -71,31 +70,30 @@ impl Source2DefCtx<'_, '_> {
 
         let block_id = match container {
             ArenaOwnerId::File(file_id) => {
-                let (file, file_src_map) = self.db.hir_file_with_source_map(file_id);
-                let local_block_id = find_local_block_id(&file_src_map.stmt_srcs, block_src)?;
+                let file = self.db.hir_file_with_source_map(file_id);
+                let local_block_id = find_local_block_id(&file.source_map().stmt_srcs, block_src)?;
                 file.get(local_block_id).block_id
             }
             ArenaOwnerId::Module(module_id) => {
-                let (module, module_src_map) = self.db.module_with_source_map(module_id);
-                let local_block_id = find_local_block_id(&module_src_map.stmt_srcs, block_src)?;
+                let module = self.db.module_with_source_map(module_id);
+                let local_block_id =
+                    find_local_block_id(&module.source_map().stmt_srcs, block_src)?;
                 module.get(local_block_id).block_id
             }
             ArenaOwnerId::Block(block_id) => {
-                let (block, block_src_map) = self.db.block_with_source_map(block_id);
-                let local_block_id = *block_src_map.block_srcs.get(&block_src)?;
+                let block = self.db.block_with_source_map(block_id);
+                let local_block_id = *block.source_map().block_srcs.get(&block_src)?;
                 block.get(local_block_id).block_id
             }
             ArenaOwnerId::GenerateBlock(generate_block_id) => {
-                let (generate_block, generate_block_src_map) =
-                    self.db.generate_block_with_source_map(generate_block_id);
-                let local_block_id = generate_block_src_map.get(block_src)?;
+                let generate_block = self.db.generate_block_with_source_map(generate_block_id);
+                let local_block_id = generate_block.hir_id(block_src)?;
                 generate_block.get(local_block_id).block_id
             }
             ArenaOwnerId::Subroutine(subroutine_id) => {
-                let (subroutine, subroutine_src_map) =
-                    self.db.subroutine_with_source_map(subroutine_id);
-                let local_block_id = *subroutine_src_map.block_srcs.get(&block_src)?;
-                subroutine.stmts.get(local_block_id).block_id
+                let subroutine = self.db.subroutine_with_source_map(subroutine_id);
+                let local_block_id = *subroutine.source_map().block_srcs.get(&block_src)?;
+                subroutine.get(local_block_id).block_id
             }
         };
 
@@ -175,16 +173,13 @@ impl Source2DefCtx<'_, '_> {
     ) -> Option<LocalSubroutineId> {
         match cont_id {
             SubroutineParent::File(file_id) => {
-                let (_, source_map) = self.db.hir_file_with_source_map(file_id);
-                source_map.get(src)
+                self.db.hir_file_with_source_map(file_id).hir_id(src)
             }
             SubroutineParent::Module(module_id) => {
-                let (_, source_map) = self.db.module_with_source_map(module_id);
-                source_map.get(src)
+                self.db.module_with_source_map(module_id).hir_id(src)
             }
             SubroutineParent::GenerateBlock(generate_block_id) => {
-                let (_, source_map) = self.db.generate_block_with_source_map(generate_block_id);
-                source_map.get(src)
+                self.db.generate_block_with_source_map(generate_block_id).hir_id(src)
             }
         }
     }

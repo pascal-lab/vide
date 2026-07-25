@@ -29,7 +29,7 @@ use crate::{
     container::{ArenaOwnerId, SubroutineParent, SubroutineScope},
     db::HirDefDb,
     region_tree::RegionTree,
-    source_map::{AstKind, NamedAstId, SourceMap},
+    source_map::{AstKind, Lowered, LoweredData, NamedAstId, SourceMap},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -91,6 +91,9 @@ pub struct SubroutineSourceMap {
     pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
     pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
     pub block_srcs: FxHashMap<BlockSrc, LocalBlockId>,
+}
+impl LoweredData for Subroutine {
+    type SourceMap = SubroutineSourceMap;
 }
 
 impl SubroutineSourceMap {
@@ -352,7 +355,7 @@ pub(crate) fn lower_subroutine_body(
 pub(crate) fn subroutine_with_source_map_query(
     db: &dyn HirDefDb,
     subroutine_id: SubroutineScope,
-) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>) {
+) -> Arc<Lowered<Subroutine>> {
     let subroutine = match subroutine_id.cont_id {
         SubroutineParent::File(file_id) => {
             db.hir_file(file_id).subroutines[subroutine_id.value].clone()
@@ -365,5 +368,5 @@ pub(crate) fn subroutine_with_source_map_query(
         }
     };
     let source_map = subroutine.source_map.clone();
-    (Arc::new(subroutine), Arc::new(source_map))
+    Arc::new(Lowered::new(subroutine, source_map))
 }
