@@ -27,7 +27,7 @@ use utils::{
 use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
 use crate::{
-    FilePosition, ScopeVisibility,
+    FilePosition, ScopeVisibility, SymbolKind,
     analysis_host::AnalysisHost,
     completion::{CompletionItem, CompletionItemKind, context::TriggerChar},
     db::root_db::RootDb,
@@ -3126,6 +3126,10 @@ endmodule
         nav.info.iter().any(|target| target.focus_range == Some(program_def_range)),
         "program instantiation should navigate to the program declaration: {nav:?}"
     );
+    assert!(
+        nav.info.iter().all(|target| target.kind == Some(SymbolKind::Module)),
+        "program navigation targets should retain module symbol metadata: {nav:?}"
+    );
 
     let hover = analysis
         .hover(
@@ -3169,6 +3173,17 @@ endmodule
     assert!(
         completion_items.iter().any(|item| item.label == "make"),
         "package completion should include make: {completion_items:?}"
+    );
+    let package_def_range = marked_range(&markers, "pkg_def", TextSize::of("pkg"));
+    let package_nav = analysis
+        .goto_definition(position(file_id, &markers, "pkg_import"))
+        .unwrap()
+        .expect("package definition expected");
+    assert!(
+        package_nav.info.iter().any(|target| {
+            target.focus_range == Some(package_def_range) && target.kind == Some(SymbolKind::Module)
+        }),
+        "package navigation target should retain module symbol metadata: {package_nav:?}"
     );
 
     let type_def_range = marked_range(&markers, "type_def", TextSize::of("exported_t"));
