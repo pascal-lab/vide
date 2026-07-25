@@ -1,18 +1,10 @@
-use base_db::intern::Lookup;
 use hir_def::{
-    block::{BlockId, BlockLoc},
+    block::BlockId,
     container::{InContainer, InFile, InModule, InSubroutine, SubroutineScope},
-    db::HirDefDb,
-    declaration::Declaration,
-    expr::declarator::{DeclId, DeclaratorParent},
+    expr::declarator::DeclId,
     file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
-    module::{
-        ModuleId,
-        generate::{GenerateBlockId, GenerateBlockLoc},
-        instantiation::InstanceId,
-        port::NonAnsiPortId,
-    },
-    source_map::{IsNamedSrc, IsSrc},
+    has_source::HasSource,
+    module::{ModuleId, generate::GenerateBlockId, instantiation::InstanceId, port::NonAnsiPortId},
     stmt::StmtId,
     subroutine::SubroutinePortId,
     symbol::DefOrigin,
@@ -22,10 +14,7 @@ use hir_ty::db::TyDb;
 use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
 use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange};
-use utils::{
-    get::{Get, GetRef},
-    line_index::TextRange,
-};
+use utils::line_index::TextRange;
 use vfs::FileId;
 
 use crate::{SymbolKind, db::root_db::RootDb};
@@ -55,8 +44,9 @@ pub(crate) trait ToNav {
 
 impl ToNav for DefOrigin {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let InFile { file_id, value: full_range } = self.range(db)?;
-        let focus_range = self.name_range(db).map(|range| range.value);
+        let InFile { file_id, value: source } = self.source(db)?;
+        let full_range = source.full_range();
+        let focus_range = source.focus_range();
         let name = self.name(db);
         let kind = self.kind(db).symbol_kind().into();
         let container_name = self.container_id(db).name(db);
@@ -67,195 +57,33 @@ impl ToNav for DefOrigin {
     }
 }
 
-impl ToNav for ModuleId {
-    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let InFile { value: local_module_id, file_id } = *self;
-        let src = db.hir_file_with_source_map(file_id).1.get(local_module_id)?;
-        let name = self.to_container(db).name.clone();
-
-        let (file_id, focus_range, full_range) =
-            nav_location(db, file_id, src.name_range(), src.range())?;
-        Some(build(file_id, focus_range, full_range, name, SymbolKind::Module, None))
-    }
+macro_rules! impl_to_nav_via_origin {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl ToNav for $ty {
+                fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
+                    DefOrigin::new(db, *self).to_nav(db)
+                }
+            }
+        )*
+    };
 }
 
-impl ToNav for InFile<ConfigDeclId> {
-    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let InFile { value: config_id, file_id } = *self;
-        let src = db.hir_file_with_source_map(file_id).1.get(config_id)?;
-        let name = db.hir_file(file_id).get(config_id).name.clone();
-
-        let (file_id, focus_range, full_range) =
-            nav_location(db, file_id, src.name_range(), src.range())?;
-        Some(build(file_id, focus_range, full_range, name, SymbolKind::Config, None))
-    }
-}
-
-impl ToNav for InFile<LibraryDeclId> {
-    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let InFile { value: library_id, file_id } = *self;
-        let src = db.hir_file_with_source_map(file_id).1.get(library_id)?;
-        let name = db.hir_file(file_id).get(library_id).name.clone();
-
-        let (file_id, focus_range, full_range) =
-            nav_location(db, file_id, src.name_range(), src.range())?;
-        Some(build(file_id, focus_range, full_range, name, SymbolKind::Library, None))
-    }
-}
-
-impl ToNav for InFile<UdpDeclId> {
-    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let InFile { value: udp_id, file_id } = *self;
-        let src = db.hir_file_with_source_map(file_id).1.get(udp_id)?;
-        let name = db.hir_file(file_id).get(udp_id).name.clone();
-
-        let (file_id, focus_range, full_range) =
-            nav_location(db, file_id, src.name_range(), src.range())?;
-        Some(build(file_id, focus_range, full_range, name, SymbolKind::Primitive, None))
-    }
-}
-
-impl ToNav for BlockId {
-    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let BlockLoc { cont_id, src: InFile { value: src, file_id } } = self.lookup(db);
-        let name = self.to_container(db).name.clone();
-        let cont_name = cont_id.data(db).name().cloned();
-
-        let (file_id, focus_range, full_range) =
-            nav_location(db, file_id, src.name_range(), src.range())?;
-        Some(build(file_id, focus_range, full_range, name, SymbolKind::Block, cont_name))
-    }
-}
-
-impl ToNav for GenerateBlockId {
-    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let GenerateBlockLoc { cont_id, src: InFile { value: src, file_id } } = self.lookup(db);
-        let name = self.to_container(db).name.clone();
-        let cont_name = cont_id.data(db).name().cloned();
-
-        let (file_id, focus_range, full_range) =
-            nav_location(db, file_id, src.name_range(), src.range())?;
-        Some(build(file_id, focus_range, full_range, name, SymbolKind::Generate, cont_name))
-    }
-}
-
-impl ToNav for SubroutineScope {
-    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        DefOrigin::new(db, *self).to_nav(db)
-    }
-}
-
-impl ToNav for InSubroutine<SubroutinePortId> {
-    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        DefOrigin::new(db, *self).to_nav(db)
-    }
-}
-
-impl ToNav for InModule<NonAnsiPortId> {
-    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let InModule { value: port_id, module_id } = *self;
-
-        let file_id = module_id.file_id;
-        let src = module_id.to_container_src_map(db).get(port_id)?;
-
-        let module = db.module(module_id);
-        let name = module.get(port_id).label.clone();
-        let cont_name = module.name.clone();
-
-        let (file_id, focus_range, full_range) =
-            nav_location(db, file_id, src.name_range(), src.range())?;
-        Some(build(file_id, focus_range, full_range, name, SymbolKind::NonAnsiPortLabel, cont_name))
-    }
-}
-
-impl ToNav for InContainer<DeclId> {
-    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let InContainer { value: decl_id, cont_id } = *self;
-
-        let file_id = cont_id.file_id(db);
-        let src = cont_id.source_map(db).source_of_declarator(decl_id)?;
-
-        let cont = cont_id.data(db);
-        let decl = cont.declarator(decl_id);
-
-        let kind = match decl.parent {
-            DeclaratorParent::PortDeclId(_) => SymbolKind::PortDecl,
-            DeclaratorParent::DeclarationId(idx) => match cont.declaration(idx) {
-                Declaration::DataDecl(_) => SymbolKind::DataDecl,
-                Declaration::NetDecl(_) => SymbolKind::NetDecl,
-                Declaration::ParamDecl(_) => SymbolKind::ParamDecl,
-                Declaration::GenvarDecl(_) => SymbolKind::Genvar,
-                Declaration::SpecparamDecl(_) => SymbolKind::Specparam,
-            },
-            DeclaratorParent::StmtId(_) => SymbolKind::DataDecl,
-        };
-
-        let name = decl.name.clone();
-        let cont_name = cont.name().cloned();
-
-        let (file_id, focus_range, full_range) =
-            nav_location(db, file_id, src.name_range(), src.range())?;
-        Some(build(file_id, focus_range, full_range, name, kind, cont_name))
-    }
-}
-
-impl ToNav for InContainer<TypedefId> {
-    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let InContainer { value: typedef_id, cont_id } = *self;
-
-        let file_id = cont_id.file_id(db);
-        let src = cont_id.source_map(db).source_of_typedef(typedef_id)?;
-
-        let cont = cont_id.data(db);
-        let typedef = cont.typedef(typedef_id);
-        let cont_name = cont.name().cloned();
-
-        let (file_id, focus_range, full_range) =
-            nav_location(db, file_id, src.name_range(), src.range())?;
-        Some(build(
-            file_id,
-            focus_range,
-            full_range,
-            typedef.name.clone(),
-            SymbolKind::Typedef,
-            cont_name,
-        ))
-    }
-}
-
-impl ToNav for InModule<InstanceId> {
-    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let InModule { value: instance_id, module_id } = *self;
-
-        let file_id = module_id.file_id;
-        let src = module_id.to_container_src_map(db).get(instance_id)?;
-
-        let module = module_id.to_container(db);
-        let name = module.get(instance_id).name.clone();
-        let cont_name = module.name.clone();
-
-        let (file_id, focus_range, full_range) =
-            nav_location(db, file_id, src.name_range(), src.range())?;
-        Some(build(file_id, focus_range, full_range, name, SymbolKind::Instance, cont_name))
-    }
-}
-
-impl ToNav for InContainer<StmtId> {
-    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let InContainer { value: stmt_id, cont_id } = *self;
-
-        let file_id = cont_id.file_id(db);
-        let src = cont_id.source_map(db).source_of_stmt(stmt_id)?;
-
-        let cont = cont_id.data(db);
-        let name = cont.stmt(stmt_id).label.clone();
-        let cont_name = cont.name().cloned();
-
-        let (file_id, focus_range, full_range) =
-            nav_location(db, file_id, src.name_range(), src.range())?;
-        Some(build(file_id, focus_range, full_range, name, SymbolKind::Stmt, cont_name))
-    }
-}
+impl_to_nav_via_origin!(
+    ModuleId,
+    InFile<ConfigDeclId>,
+    InFile<LibraryDeclId>,
+    InFile<UdpDeclId>,
+    BlockId,
+    GenerateBlockId,
+    SubroutineScope,
+    InSubroutine<SubroutinePortId>,
+    InModule<NonAnsiPortId>,
+    InContainer<DeclId>,
+    InContainer<TypedefId>,
+    InModule<InstanceId>,
+    InContainer<StmtId>,
+);
 
 impl ToNav for InFile<SyntaxTokenWithParent<'_>> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {

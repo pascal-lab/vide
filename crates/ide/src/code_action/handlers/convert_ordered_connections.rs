@@ -5,11 +5,9 @@ use hir_def::{
     container::InModule,
     db::HirDefDb,
     module::instantiation::{ParamAssign, PortConn},
-    source_map::IsSrc,
 };
 use itertools::Itertools;
 use syntax::ast;
-use utils::get::{Get, GetRef};
 
 use crate::{
     code_action::{
@@ -55,10 +53,10 @@ pub(super) fn convert_ordered_ports(
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
     let InModule { value: instance_id, module_id } =
         sema.resolve_instance(ctx.file_id().into(), ast_instance)?;
-    let (module, module_src_map) = db.module_with_source_map(module_id);
+    let module = db.module_with_source_map(module_id);
     let instantiation = module.get(module.get(instance_id).parent);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let port_names = port_names(&db.module(target_module_id));
+    let port_names = port_names(&db.module_with_source_map(target_module_id));
 
     let replacements = module
         .get(instance_id)
@@ -70,8 +68,8 @@ pub(super) fn convert_ordered_ports(
                 return None;
             };
             let name = port_names.get(idx)?;
-            let expr = module_src_map.get(*expr_id)?.range();
-            let range = module_src_map.get(*conn_id)?.range();
+            let expr = module.source_range(*expr_id)?;
+            let range = module.source_range(*conn_id)?;
             Some((range, format!(".{name}({})", text.get(Range::from(expr))?)))
         })
         .collect_vec();
@@ -111,10 +109,10 @@ pub(super) fn convert_ordered_params(
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;
     let InModule { value: instantiation_id, module_id } =
         sema.resolve_instantiation(ctx.file_id().into(), ast_instantiation)?;
-    let (module, module_src_map) = db.module_with_source_map(module_id);
+    let module = db.module_with_source_map(module_id);
     let instantiation = module.get(instantiation_id);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_module = db.module(target_module_id);
+    let target_module = db.module_with_source_map(target_module_id);
     let param_names = leading_overridable_parameter_names(&target_module);
 
     let replacements = instantiation
@@ -126,8 +124,8 @@ pub(super) fn convert_ordered_params(
                 return None;
             };
             let name = param_names.get(idx)?;
-            let expr = module_src_map.get(*expr_id)?.range();
-            let range = module_src_map.get(*assign_id)?.range();
+            let expr = module.source_range(*expr_id)?;
+            let range = module.source_range(*assign_id)?;
             Some((range, format!(".{name}({})", text.get(Range::from(expr))?)))
         })
         .collect_vec();

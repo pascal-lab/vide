@@ -7,7 +7,7 @@ use hir_def::{
     db::HirDefDb,
     def_id::DefId,
     expr::{
-        Expr, ExprId, ExprSrc,
+        Expr, ExprId,
         data_ty::{DataTy, NamedDataTy},
         declarator::DeclaratorParent,
     },
@@ -15,7 +15,7 @@ use hir_def::{
         ModuleId,
         instantiation::{ParamAssign, PortConn},
     },
-    source_map::{IsNamedSrc, IsSrc, ToAstNode},
+    source_map::AstLookup,
     stmt::StmtKind,
     symbol::{DefKind, NameContext, Resolution},
 };
@@ -24,14 +24,10 @@ use preproc_expand::{db::PreprocDb, file::HirFileId, preproc::macro_references_i
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use syntax::{
-    SyntaxTree,
     ast::{self, AstNode},
     has_text_range::{HasTextRange, HasTextRangeIn},
 };
-use utils::{
-    get::{Get, GetRef},
-    text_edit::TextRange,
-};
+use utils::text_edit::TextRange;
 use vfs::FileId;
 
 use crate::{
@@ -188,11 +184,12 @@ fn collect_file(
     file_id: HirFileId,
     collector: &mut SemaTokenCollector,
 ) {
-    let (hir_file, file_src_map) = sema.db.hir_file_with_source_map(file_id);
+    let lowered = sema.db.hir_file_with_source_map(file_id);
+    let hir_file = lowered.data_ref();
     let tree = sema.db.parse(file_id);
 
     for (local_module_id, _) in hir_file.modules.iter() {
-        let Some(range) = file_src_map.get(local_module_id).map(|src| src.range()) else {
+        let Some(range) = lowered.source_range(local_module_id) else {
             continue;
         };
         check_range!(collector, range);
@@ -209,11 +206,11 @@ fn collect_file(
     for (_, declaration) in hir_file.declarations.iter() {
         if let Some(expr_id) = named_data_ty_expr_id(declaration.ty()) {
             type_expr_ids.insert(expr_id);
-            let Some(range) = file_src_map.get(expr_id).map(|src| src.range()) else {
+            let Some(range) = lowered.source_range(expr_id) else {
                 continue;
             };
             check_range!(collector, range);
-            collect_type_ident_like(sema, file_id.into(), hir_file.get(expr_id), range, collector);
+            collect_type_ident_like(sema, file_id.into(), lowered.get(expr_id), range, collector);
         }
     }
     for (_, typedef) in hir_file.typedefs.iter() {
@@ -222,11 +219,11 @@ fn collect_file(
         };
         if let Some(expr_id) = named_data_ty_expr_id(ty) {
             type_expr_ids.insert(expr_id);
-            let Some(range) = file_src_map.get(expr_id).map(|src| src.range()) else {
+            let Some(range) = lowered.source_range(expr_id) else {
                 continue;
             };
             check_range!(collector, range);
-            collect_type_ident_like(sema, file_id.into(), hir_file.get(expr_id), range, collector);
+            collect_type_ident_like(sema, file_id.into(), lowered.get(expr_id), range, collector);
         }
     }
 
@@ -237,12 +234,12 @@ fn collect_file(
         match expr {
             Expr::Field { .. } => {
                 let _: Option<()> = try {
-                    let src = file_src_map.get(expr_id)?;
-                    collect_field_like(sema, file_id.into(), expr_id, src, &tree, collector)?;
+                    let expr = lowered.ast(expr_id, &tree)?;
+                    collect_field_like(sema, file_id.into(), expr_id, expr, collector)?;
                 };
             }
             Expr::Ident(name) => {
-                let Some(range) = file_src_map.get(expr_id).map(|src| src.range()) else {
+                let Some(range) = lowered.source_range(expr_id) else {
                     continue;
                 };
                 check_range!(collector, range);
@@ -255,7 +252,7 @@ fn collect_file(
     for (decl_id, decl) in hir_file.decls.iter() {
         let _: Option<()> = try {
             let name = decl.name.as_ref()?;
-            let range = file_src_map.get(decl_id)?.name_range()?;
+            let range = lowered.source_name_range(decl_id)?;
             check_range!(collector, range);
             collect_ident_like(name, range, collector);
         };
@@ -264,7 +261,7 @@ fn collect_file(
     for (typedef_id, typedef) in hir_file.typedefs.iter() {
         let _: Option<()> = try {
             let _name = typedef.name.as_ref()?;
-            let range = file_src_map.get(typedef_id)?.name_range()?;
+            let range = lowered.source_name_range(typedef_id)?;
             check_range!(collector, range);
             collector.tokens.add(SemaToken {
                 range,
@@ -276,7 +273,7 @@ fn collect_file(
 
     for (stmt_id, stmt) in hir_file.stmts.iter() {
         if let StmtKind::Block(BlockInfo { block_id, .. }) = stmt.kind {
-            let Some(range) = file_src_map.get(stmt_id).map(|src| src.range()) else {
+            let Some(range) = lowered.source_range(stmt_id) else {
                 continue;
             };
             check_range!(collector, range);
@@ -291,8 +288,8 @@ fn collect_module(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let (module, module_src_map) = db.module_with_source_map(module_id);
-    let (module, module_src_map) = (module.as_ref(), module_src_map.as_ref());
+    let lowered = db.module_with_source_map(module_id);
+    let module = lowered.data_ref();
     let tree = db.parse(module_id.file_id);
     port::collect_port(sema, module_id, collector);
 
@@ -306,11 +303,11 @@ fn collect_module(
     for (_, declaration) in module.declarations.iter() {
         if let Some(expr_id) = named_data_ty_expr_id(declaration.ty()) {
             type_expr_ids.insert(expr_id);
-            let Some(range) = module_src_map.get(expr_id).map(|src| src.range()) else {
+            let Some(range) = lowered.source_range(expr_id) else {
                 continue;
             };
             check_range!(collector, range);
-            collect_type_ident_like(sema, module_id.into(), module.get(expr_id), range, collector);
+            collect_type_ident_like(sema, module_id.into(), lowered.get(expr_id), range, collector);
         }
     }
     for (_, typedef) in module.typedefs.iter() {
@@ -319,16 +316,16 @@ fn collect_module(
         };
         if let Some(expr_id) = named_data_ty_expr_id(ty) {
             type_expr_ids.insert(expr_id);
-            let Some(range) = module_src_map.get(expr_id).map(|src| src.range()) else {
+            let Some(range) = lowered.source_range(expr_id) else {
                 continue;
             };
             check_range!(collector, range);
-            collect_type_ident_like(sema, module_id.into(), module.get(expr_id), range, collector);
+            collect_type_ident_like(sema, module_id.into(), lowered.get(expr_id), range, collector);
         }
     }
 
     for (instance_id, _) in module.instances.iter() {
-        if let Some(range) = module_src_map.get(instance_id).and_then(|src| src.name_range()) {
+        if let Some(range) = lowered.source_name_range(instance_id) {
             check_range!(collector, range);
             let sema_token =
                 SemaToken { range, tag: SemaTokenTag::Instance, mods: SemaTokenModifier::empty() };
@@ -346,12 +343,12 @@ fn collect_module(
         match expr {
             Expr::Field { .. } => {
                 let _: Option<()> = try {
-                    let src = module_src_map.get(expr_id)?;
-                    collect_field_like(sema, module_id.into(), expr_id, src, &tree, collector)?;
+                    let expr = lowered.ast(expr_id, &tree)?;
+                    collect_field_like(sema, module_id.into(), expr_id, expr, collector)?;
                 };
             }
             Expr::Ident(name) => {
-                let Some(range) = module_src_map.get(expr_id).map(|src| src.range()) else {
+                let Some(range) = lowered.source_range(expr_id) else {
                     continue;
                 };
                 check_range!(collector, range);
@@ -364,7 +361,7 @@ fn collect_module(
     for (decl_id, decl) in module.decls.iter() {
         let _: Option<()> = try {
             let name = decl.name.as_ref()?;
-            let range = module_src_map.get(decl_id)?.name_range()?;
+            let range = lowered.source_name_range(decl_id)?;
             check_range!(collector, range);
             collect_ident_like(name, range, collector);
         };
@@ -373,7 +370,7 @@ fn collect_module(
     for (typedef_id, typedef) in module.typedefs.iter() {
         let _: Option<()> = try {
             let _name = typedef.name.as_ref()?;
-            let range = module_src_map.get(typedef_id)?.name_range()?;
+            let range = lowered.source_name_range(typedef_id)?;
             check_range!(collector, range);
             collector.tokens.add(SemaToken {
                 range,
@@ -385,7 +382,7 @@ fn collect_module(
 
     for (stmt_id, stmt) in module.stmts.iter() {
         if let StmtKind::Block(BlockInfo { block_id, .. }) = stmt.kind {
-            let Some(range) = module_src_map.get(stmt_id).map(|src| src.range()) else {
+            let Some(range) = lowered.source_range(stmt_id) else {
                 continue;
             };
             check_range!(collector, range);
@@ -400,8 +397,8 @@ fn collect_block(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let (block, block_src_map) = db.block_with_source_map(block_id);
-    let (block, block_src_map) = (block.as_ref(), block_src_map.as_ref());
+    let lowered = db.block_with_source_map(block_id);
+    let block = lowered.data_ref();
     let tree = db.parse(block_id.file_id(db));
 
     let collect_ident_like =
@@ -414,11 +411,11 @@ fn collect_block(
     for (_, declaration) in block.declarations.iter() {
         if let Some(expr_id) = named_data_ty_expr_id(declaration.ty()) {
             type_expr_ids.insert(expr_id);
-            let Some(range) = block_src_map.get(expr_id).map(|src| src.range()) else {
+            let Some(range) = lowered.source_range(expr_id) else {
                 continue;
             };
             check_range!(collector, range);
-            collect_type_ident_like(sema, block_id.into(), block.get(expr_id), range, collector);
+            collect_type_ident_like(sema, block_id.into(), lowered.get(expr_id), range, collector);
         }
     }
     for (_, typedef) in block.typedefs.iter() {
@@ -427,11 +424,11 @@ fn collect_block(
         };
         if let Some(expr_id) = named_data_ty_expr_id(ty) {
             type_expr_ids.insert(expr_id);
-            let Some(range) = block_src_map.get(expr_id).map(|src| src.range()) else {
+            let Some(range) = lowered.source_range(expr_id) else {
                 continue;
             };
             check_range!(collector, range);
-            collect_type_ident_like(sema, block_id.into(), block.get(expr_id), range, collector);
+            collect_type_ident_like(sema, block_id.into(), lowered.get(expr_id), range, collector);
         }
     }
 
@@ -442,12 +439,12 @@ fn collect_block(
         match expr {
             Expr::Field { .. } => {
                 let _: Option<()> = try {
-                    let src = block_src_map.get(expr_id)?;
-                    collect_field_like(sema, block_id.into(), expr_id, src, &tree, collector)?;
+                    let expr = lowered.ast(expr_id, &tree)?;
+                    collect_field_like(sema, block_id.into(), expr_id, expr, collector)?;
                 };
             }
             Expr::Ident(name) => {
-                let Some(range) = block_src_map.get(expr_id).map(|src| src.range()) else {
+                let Some(range) = lowered.source_range(expr_id) else {
                     continue;
                 };
                 check_range!(collector, range);
@@ -460,7 +457,7 @@ fn collect_block(
     for (decl_id, decl) in block.decls.iter() {
         let _: Option<()> = try {
             let name = decl.name.as_ref()?;
-            let range = block_src_map.get(decl_id)?.name_range()?;
+            let range = lowered.source_name_range(decl_id)?;
             check_range!(collector, range);
             collect_ident_like(name, range, collector);
         };
@@ -469,7 +466,7 @@ fn collect_block(
     for (typedef_id, typedef) in block.typedefs.iter() {
         let _: Option<()> = try {
             let _name = typedef.name.as_ref()?;
-            let range = block_src_map.get(typedef_id)?.name_range()?;
+            let range = lowered.source_name_range(typedef_id)?;
             check_range!(collector, range);
             collector.tokens.add(SemaToken {
                 range,
@@ -481,7 +478,7 @@ fn collect_block(
 
     for (stmt_id, stmt) in block.stmts.iter() {
         if let StmtKind::Block(BlockInfo { block_id, .. }) = stmt.kind {
-            let Some(range) = block_src_map.get(stmt_id).map(|src| src.range()) else {
+            let Some(range) = lowered.source_range(stmt_id) else {
                 continue;
             };
             check_range!(collector, range);
@@ -496,24 +493,21 @@ fn collect_named_port_connections(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let (module, module_src_map) = db.module_with_source_map(module_id);
-    let (module, module_src_map) = (module.as_ref(), module_src_map.as_ref());
+    let lowered = db.module_with_source_map(module_id);
+    let module = lowered.data_ref();
     let tree = db.parse(module_id.file_id);
 
     for (conn_id, conn) in module.inst_port_conns.iter() {
         let PortConn::Named(Some(_), _) = conn else {
             continue;
         };
-        let Some(src) = module_src_map.get(conn_id) else {
-            continue;
-        };
-        let Some(range) = src.name_range() else {
+        let Some(range) = lowered.source_name_range(conn_id) else {
             continue;
         };
         check_range!(collector, range);
 
         let Some(named) =
-            src.to_node(&tree).and_then(ast::PortConnection::as_named_port_connection)
+            lowered.ast(conn_id, &tree).and_then(ast::PortConnection::as_named_port_connection)
         else {
             continue;
         };
@@ -531,24 +525,21 @@ fn collect_named_param_assignments(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let (module, module_src_map) = db.module_with_source_map(module_id);
-    let (module, module_src_map) = (module.as_ref(), module_src_map.as_ref());
+    let lowered = db.module_with_source_map(module_id);
+    let module = lowered.data_ref();
     let tree = db.parse(module_id.file_id);
 
     for (assign_id, assign) in module.inst_param_assigns.iter() {
         let ParamAssign::Named(Some(_), _) = assign else {
             continue;
         };
-        let Some(src) = module_src_map.get(assign_id) else {
-            continue;
-        };
-        let Some(range) = src.name_range() else {
+        let Some(range) = lowered.source_name_range(assign_id) else {
             continue;
         };
         check_range!(collector, range);
 
         let Some(named) =
-            src.to_node(&tree).and_then(ast::ParamAssignment::as_named_param_assignment)
+            lowered.ast(assign_id, &tree).and_then(ast::ParamAssignment::as_named_param_assignment)
         else {
             continue;
         };
@@ -588,11 +579,9 @@ fn collect_field_like(
     sema: &Semantics<'_, RootDb>,
     cont_id: ArenaOwnerId,
     expr_id: ExprId,
-    src: ExprSrc,
-    tree: &SyntaxTree,
+    expr: ast::Expression<'_>,
     collector: &mut SemaTokenCollector,
 ) -> Option<()> {
-    let expr = src.to_node(tree)?;
     let range = field_name_range(expr)?;
     if !collector.range.intersect(range).is_some() {
         return None;
@@ -651,9 +640,9 @@ fn collect_resolved_path(
 
     if def_id.is_non_ansi_port(db) {
         let port_id = def_id.primary_origin(db).as_non_ansi_port(db)?;
-        let module = db.module(port_id.module_id);
+        let module = db.module_with_source_map(port_id.module_id);
         let origins = def_id.origins(db);
-        let (name, dir, ty) = port::resolve_non_ansi_port(db, module.as_ref(), &origins)?;
+        let (name, dir, ty) = port::resolve_non_ansi_port(db, &module, &origins)?;
         port::add_port_token(db, name, dir, ty, range, collector);
         return Some(());
     }
@@ -664,7 +653,7 @@ fn collect_resolved_path(
             let ArenaOwnerId::Module(module_id) = decl_id.cont_id else {
                 return None;
             };
-            let module = db.module(module_id);
+            let module = db.module_with_source_map(module_id);
             let name = module.get(decl_id.value).name.as_ref()?;
 
             let DeclaratorParent::PortDeclId(port_declaration_id) =

@@ -5,7 +5,6 @@ use hir_def::{
     container::InModule,
     db::HirDefDb,
     module::instantiation::{ParamAssign, PortConn},
-    source_map::IsSrc,
 };
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
@@ -13,10 +12,7 @@ use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRangeIn,
 };
-use utils::{
-    get::{Get, GetRef},
-    text_edit::TextRange,
-};
+use utils::text_edit::TextRange;
 
 use crate::{
     code_action::{
@@ -58,10 +54,11 @@ pub(super) fn sort_named_parameter_assignments(
     let db = sema.db;
     let InModule { value: instantiation_id, module_id } =
         sema.resolve_instantiation(ctx.file_id().into(), ast_instantiation)?;
-    let (module, module_src_map) = db.module_with_source_map(module_id);
+    let module = db.module_with_source_map(module_id);
     let instantiation = module.get(instantiation_id);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let parameter_order = all_overridable_parameter_names(&db.module(target_module_id));
+    let parameter_order =
+        all_overridable_parameter_names(&db.module_with_source_map(target_module_id));
     let parameter_order_map: FxHashMap<_, _> =
         parameter_order.iter().enumerate().map(|(index, name)| (name.as_ref(), index)).collect();
 
@@ -72,7 +69,7 @@ pub(super) fn sort_named_parameter_assignments(
             return None;
         };
         let order = *parameter_order_map.get(name.as_str())?;
-        let range = module_src_map.get(*assign_id)?.range();
+        let range = module.source_range(*assign_id)?;
         items.push((order, text.get(Range::from(range))?, range));
     }
 
@@ -118,11 +115,11 @@ pub(super) fn sort_named_port_connections(
     let db = sema.db;
     let InModule { value: instance_id, module_id } =
         sema.resolve_instance(ctx.file_id().into(), ast_instance)?;
-    let (module, module_src_map) = db.module_with_source_map(module_id);
+    let module = db.module_with_source_map(module_id);
     let instance = module.get(instance_id);
     let instantiation = module.get(instance.parent);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let port_order = port_names(&db.module(target_module_id));
+    let port_order = port_names(&db.module_with_source_map(target_module_id));
     let port_order_map: FxHashMap<_, _> =
         port_order.iter().enumerate().map(|(index, name)| (name.as_ref(), index)).collect();
 
@@ -133,7 +130,7 @@ pub(super) fn sort_named_port_connections(
             return None;
         };
         let order = *port_order_map.get(name.as_str())?;
-        let range = module_src_map.get(*conn_id)?.range();
+        let range = module.source_range(*conn_id)?;
         items.push((order, text.get(Range::from(range))?, range));
     }
 

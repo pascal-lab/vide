@@ -188,9 +188,8 @@ impl DefKind {
 
     pub fn symbol_kind(self) -> SymbolKind {
         match self {
-            DefKind::Module => SymbolKind::Module,
+            DefKind::Module | DefKind::Package | DefKind::Program => SymbolKind::Module,
             DefKind::Interface => SymbolKind::Interface,
-            DefKind::Package | DefKind::Program => SymbolKind::Unknown,
             DefKind::Udp => SymbolKind::Primitive,
             DefKind::Config => SymbolKind::Config,
             DefKind::Library => SymbolKind::Library,
