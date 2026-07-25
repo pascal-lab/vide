@@ -1,17 +1,5 @@
-use rustc_hash::FxHashMap;
-use syntax::{
-    SyntaxAncestors, SyntaxNode,
-    ast::{self, AstNode},
-    match_ast,
-    ptr::SyntaxNodePtr,
-};
-use utils::get::{Get, GetRef};
-
-use super::hir_to_def::Hir2DefCache;
-use crate::{
+use hir_def::{
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
-    db::HirDb,
-    file::HirFileId,
     hir_def::{
         block::{BlockId, BlockSrc, find_local_block_id},
         module::{
@@ -22,6 +10,18 @@ use crate::{
     },
     source_map::ToAstNode,
 };
+use hir_ty::db::TyDb;
+use preproc_expand::file::HirFileId;
+use rustc_hash::FxHashMap;
+use syntax::{
+    SyntaxAncestors, SyntaxNode,
+    ast::{self, AstNode},
+    match_ast,
+    ptr::SyntaxNodePtr,
+};
+use utils::get::{Get, GetRef};
+
+use super::hir_to_def::Hir2DefCache;
 
 #[derive(Default, Debug)]
 pub(super) struct Source2DefCache {
@@ -29,7 +29,7 @@ pub(super) struct Source2DefCache {
 }
 
 pub(super) struct Source2DefCtx<'db, 'cache> {
-    pub(super) db: &'db dyn HirDb,
+    pub(super) db: &'db dyn TyDb,
     pub(super) source_cache: &'cache mut Source2DefCache,
     pub(super) hir_cache: &'cache mut Hir2DefCache,
 }

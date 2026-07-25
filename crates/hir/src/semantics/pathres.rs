@@ -1,13 +1,13 @@
-use syntax::{SyntaxNode, SyntaxTokenWithParent};
-
-use super::SemanticsImpl;
-use crate::{
+use hir_def::{
     container::{ArenaOwnerId, InContainer, InFile, ScopeId},
     def_id::DefId,
-    file::HirFileId,
     hir_def::{Ident, lower_ident_opt},
     symbol::{NameContext, Resolution},
 };
+use preproc_expand::file::HirFileId;
+use syntax::{SyntaxNode, SyntaxTokenWithParent};
+
+use super::SemanticsImpl;
 
 impl SemanticsImpl<'_> {
     pub fn nameres_ident(
@@ -35,6 +35,6 @@ impl SemanticsImpl<'_> {
         ident: &Ident,
         ctx: NameContext,
     ) -> Resolution<DefId> {
-        crate::pathres::resolve_name(self.db, cont_id, ident, ctx)
+        hir_def::pathres::resolve_name(self.db, cont_id, ident, ctx)
     }
 }
