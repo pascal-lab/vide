@@ -1,17 +1,15 @@
-use hir::{
-    base_db::source_db::SourceDb,
-    db::HirDb,
-    file::HirFileId,
-    hir_def::{
-        block::{BlockId, BlockSrc},
-        module::{ModuleId, ModuleSrc},
-        stmt::{Stmt, StmtKind, StmtSrc},
-    },
+use base_db::source_db::SourceDb;
+use hir_def::{
+    block::{BlockId, BlockSrc},
+    db::HirDefDb,
+    module::{ModuleId, ModuleSrc},
     region_tree::RegionTree,
     source_map::{IsNamedSrc, IsSrc, SourceMap},
+    stmt::{Stmt, StmtKind, StmtSrc},
 };
 use la_arena::Arena;
 use memchr::memmem::Finder;
+use preproc_expand::{db::PreprocDb, file::HirFileId};
 use rustc_hash::FxHashSet;
 use syntax::{
     SyntaxCursor, SyntaxCursorExt, SyntaxTrivia,

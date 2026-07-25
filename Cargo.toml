@@ -17,8 +17,10 @@ members = [".", "crates/*", "xtask"]
 edition = "2024"
 
 [dependencies]
-hir.workspace = true
+base-db.workspace = true
+hir-def.workspace = true
 ide.workspace = true
+preproc-expand.workspace = true
 project-model.workspace = true
 syntax.workspace = true
 utils.workspace = true
@@ -51,9 +53,13 @@ triomphe.workspace = true
 
 
 [workspace.dependencies]
-hir = { path = "./crates/hir/", version = "0.0.0" }
+base-db = { path = "./crates/base-db/", version = "0.0.0" }
+hir-def = { path = "./crates/hir-def/", version = "0.0.0" }
+hir-semantics = { path = "./crates/hir-semantics/", version = "0.0.0" }
+hir-ty = { path = "./crates/hir-ty/", version = "0.0.0" }
 ide = { path = "./crates/ide/", version = "0.0.0" }
 preproc = { path = "./crates/preproc/", version = "0.0.0" }
+preproc-expand = { path = "./crates/preproc-expand/", version = "0.0.0" }
 project-model = { path = "./crates/project-model/", version = "0.0.0" }
 syntax = { path = "./crates/syntax/", version = "0.0.0" }
 utils = { path = "./crates/utils", version = "0.0.0" }

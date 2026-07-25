@@ -1,8 +1,8 @@
-use hir::preproc::{
+use itertools::Itertools;
+use preproc_expand::preproc::{
     MacroDefinition, MacroParamDefinition, MacroReferenceIndexStatus, macro_param_references,
     macro_references,
 };
-use itertools::Itertools;
 use vfs::FileId;
 
 use super::{
@@ -155,7 +155,7 @@ fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
 
 #[cfg(test)]
 mod tests {
-    use hir::preproc::MacroReferenceIndexStatus;
+    use preproc_expand::preproc::MacroReferenceIndexStatus;
 
     use super::*;
 

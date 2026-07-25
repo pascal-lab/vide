@@ -1,11 +1,11 @@
-use hir::{
-    db::HirDb,
+use hir_def::{
+    db::HirDefDb,
     def_id::DefId,
-    file::HirFileId,
-    hir_def::lower_ident_opt,
-    semantics::Semantics,
+    lower_ident_opt,
     symbol::{DefKind, DefOrigin, NameContext, Resolution},
 };
+use hir_semantics::semantics::Semantics;
+use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
 use syntax::{
     SyntaxAncestors, SyntaxToken, SyntaxTokenWithParent,
@@ -226,7 +226,7 @@ fn package_defs(
 fn package_member_resolution(
     sema: &Semantics<'_, RootDb>,
     packages: Resolution<DefId>,
-    ident: &hir::hir_def::Ident,
+    ident: &hir_def::Ident,
     primary_ctx: NameContext,
 ) -> DefinitionResolution {
     let fallback_ctx =
@@ -356,10 +356,8 @@ fn token_is_in_non_dot_scoped_name(parent: syntax::SyntaxNode<'_>) -> bool {
 mod tests {
     use std::fmt::Write;
 
-    use hir::{
-        base_db::{change::Change, source_root::SourceRoot},
-        symbol::DefKind,
-    };
+    use base_db::{change::Change, source_root::SourceRoot};
+    use hir_def::symbol::DefKind;
     use syntax::SyntaxNodeExt;
     use utils::text_edit::TextSize;
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};

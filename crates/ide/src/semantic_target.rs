@@ -1,4 +1,4 @@
-use hir::preproc::{
+use preproc_expand::preproc::{
     IncludeDirective, MacroDefinition, MacroParamDefinition, MacroParamReferenceDefinitions,
     MacroReferenceDefinitions, include_directives_at, macro_definition_at,
     macro_param_definition_at, macro_param_reference_definitions_at,
@@ -334,10 +334,8 @@ fn source_capabilities() -> TargetCapability {
 
 #[cfg(test)]
 mod tests {
-    use hir::{
-        base_db::{change::Change, source_root::SourceRoot},
-        semantics::Semantics,
-    };
+    use base_db::{change::Change, source_root::SourceRoot};
+    use hir_semantics::semantics::Semantics;
     use syntax::token::TokenKindExt;
     use utils::line_index::{TextRange, TextSize};
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};

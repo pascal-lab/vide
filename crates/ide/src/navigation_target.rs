@@ -1,26 +1,25 @@
-use hir::{
-    base_db::intern::Lookup,
+use base_db::intern::Lookup;
+use hir_def::{
+    block::{BlockId, BlockLoc},
     container::{InContainer, InFile, InModule, InSubroutine, SubroutineScope},
-    db::HirDb,
-    file::HirFileId,
-    hir_def::{
-        block::{BlockId, BlockLoc},
-        declaration::Declaration,
-        expr::declarator::{DeclId, DeclaratorParent},
-        file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
-        module::{
-            ModuleId,
-            generate::{GenerateBlockId, GenerateBlockLoc},
-            instantiation::InstanceId,
-            port::NonAnsiPortId,
-        },
-        stmt::StmtId,
-        subroutine::SubroutinePortId,
-        typedef::TypedefId,
+    db::HirDefDb,
+    declaration::Declaration,
+    expr::declarator::{DeclId, DeclaratorParent},
+    file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
+    module::{
+        ModuleId,
+        generate::{GenerateBlockId, GenerateBlockLoc},
+        instantiation::InstanceId,
+        port::NonAnsiPortId,
     },
     source_map::{IsNamedSrc, IsSrc},
+    stmt::StmtId,
+    subroutine::SubroutinePortId,
     symbol::DefOrigin,
+    typedef::TypedefId,
 };
+use hir_ty::db::TyDb;
+use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
 use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange};
 use utils::{
@@ -71,7 +70,7 @@ impl ToNav for DefOrigin {
 impl ToNav for ModuleId {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { value: local_module_id, file_id } = *self;
-        let src = file_id.to_container_src_map(db).get(local_module_id)?;
+        let src = db.hir_file_with_source_map(file_id).1.get(local_module_id)?;
         let name = self.to_container(db).name.clone();
 
         let (file_id, focus_range, full_range) =
@@ -83,8 +82,8 @@ impl ToNav for ModuleId {
 impl ToNav for InFile<ConfigDeclId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { value: config_id, file_id } = *self;
-        let src = file_id.to_container_src_map(db).get(config_id)?;
-        let name = file_id.to_container(db).get(config_id).name.clone();
+        let src = db.hir_file_with_source_map(file_id).1.get(config_id)?;
+        let name = db.hir_file(file_id).get(config_id).name.clone();
 
         let (file_id, focus_range, full_range) =
             nav_location(db, file_id, src.name_range(), src.range())?;
@@ -95,8 +94,8 @@ impl ToNav for InFile<ConfigDeclId> {
 impl ToNav for InFile<LibraryDeclId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { value: library_id, file_id } = *self;
-        let src = file_id.to_container_src_map(db).get(library_id)?;
-        let name = file_id.to_container(db).get(library_id).name.clone();
+        let src = db.hir_file_with_source_map(file_id).1.get(library_id)?;
+        let name = db.hir_file(file_id).get(library_id).name.clone();
 
         let (file_id, focus_range, full_range) =
             nav_location(db, file_id, src.name_range(), src.range())?;
@@ -107,8 +106,8 @@ impl ToNav for InFile<LibraryDeclId> {
 impl ToNav for InFile<UdpDeclId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { value: udp_id, file_id } = *self;
-        let src = file_id.to_container_src_map(db).get(udp_id)?;
-        let name = file_id.to_container(db).get(udp_id).name.clone();
+        let src = db.hir_file_with_source_map(file_id).1.get(udp_id)?;
+        let name = db.hir_file(file_id).get(udp_id).name.clone();
 
         let (file_id, focus_range, full_range) =
             nav_location(db, file_id, src.name_range(), src.range())?;
@@ -297,7 +296,7 @@ fn build(
 /// macro call. Returns `None` when a macro expansion's call site cannot be
 /// resolved.
 pub(crate) fn nav_location(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     file_id: HirFileId,
     name_range: Option<TextRange>,
     full_range: TextRange,
@@ -305,7 +304,7 @@ pub(crate) fn nav_location(
     match file_id {
         HirFileId::File(file_id) => Some((file_id, name_range, full_range)),
         HirFileId::Macro(macro_file) => {
-            let call_site = hir::hir_def::macro_file::macro_file_call_site(db, macro_file)?;
+            let call_site = preproc_expand::macro_file::macro_file_call_site(db, macro_file)?;
             Some((call_site.call_file_id, Some(call_site.call_range), call_site.call_range))
         }
     }

@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc as StdArc};
 
-use hir::base_db::source_root::{SourceRootDiagnosticScope, SourceRootRole};
+use base_db::source_root::{SourceRootDiagnosticScope, SourceRootRole};
 use ide::{Cancellable, analysis::AnalysisSnapshot};
 use lsp_types::Url;
 use nohash_hasher::IntMap;
@@ -91,9 +91,7 @@ impl std::fmt::Debug for GlobalStateSnapshot {
 impl std::panic::UnwindSafe for GlobalStateSnapshot {}
 
 impl GlobalStateSnapshot {
-    pub(crate) fn analysis_snapshot_id(
-        &self,
-    ) -> hir::base_db::analysis_snapshot::AnalysisSnapshotId {
+    pub(crate) fn analysis_snapshot_id(&self) -> base_db::analysis_snapshot::AnalysisSnapshotId {
         self.analysis.snapshot_id()
     }
 
@@ -420,7 +418,7 @@ impl GlobalStateSnapshot {
 
     pub(crate) fn compilation_profile_ids(
         &self,
-    ) -> Cancellable<Vec<hir::base_db::project::CompilationProfileId>> {
+    ) -> Cancellable<Vec<base_db::project::CompilationProfileId>> {
         self.analysis.compilation_profile_ids()
     }
 

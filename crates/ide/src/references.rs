@@ -1,6 +1,8 @@
-use hir::{def_id::DefId, file::HirFileId, semantics::Semantics};
+use hir_def::def_id::DefId;
+use hir_semantics::semantics::Semantics;
 use itertools::Itertools;
 use nohash_hasher::IntMap;
+use preproc_expand::file::HirFileId;
 use search::{ReferencesCtx, SearchScope};
 use syntax::{
     SyntaxTokenWithParent, TokenKind,

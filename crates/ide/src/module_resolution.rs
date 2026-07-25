@@ -1,20 +1,18 @@
 use std::cmp::Ordering;
 
-use hir::{
-    base_db::{
-        source_db::{SourceDb, SourceRootDb},
-        source_root::SourceRootRole,
-    },
+use base_db::{
+    source_db::{SourceDb, SourceRootDb},
+    source_root::SourceRootRole,
+};
+use hir_def::{
+    Ident,
     container::ArenaOwnerId,
-    db::HirDb,
+    db::HirDefDb,
+    declaration::Declaration,
     def_id::DefId,
-    hir_def::{
-        Ident,
-        declaration::Declaration,
-        expr::declarator::DeclaratorParent,
-        lower_ident_opt,
-        module::{ModuleId, instantiation::Instantiation},
-    },
+    expr::declarator::DeclaratorParent,
+    lower_ident_opt,
+    module::{ModuleId, instantiation::Instantiation},
     symbol::{NameContext, Resolution},
 };
 use syntax::{
@@ -357,10 +355,9 @@ fn dir_ancestors(path: VfsPath) -> Vec<VfsPath> {
 mod tests {
     use std::path::Path;
 
-    use hir::{
-        base_db::{change::Change, source_root::SourceRoot},
-        symbol::{DefKind, DefOriginLoc, Resolution},
-    };
+    use base_db::{change::Change, source_root::SourceRoot};
+    use hir_def::symbol::{DefKind, DefOriginLoc, Resolution};
+    use preproc_expand::db::PreprocDb;
     use smol_str::SmolStr;
     use syntax::{SyntaxNodeExt, ast};
     use utils::text_edit::TextSize;

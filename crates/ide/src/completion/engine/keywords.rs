@@ -1,4 +1,4 @@
-use hir::db::HirDb;
+use hir_def::db::HirDefDb;
 
 use super::candidate::CompletionCandidate;
 use crate::{

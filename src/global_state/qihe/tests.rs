@@ -1,12 +1,12 @@
 use std::{ffi::OsStr, fs, io::Cursor, path::PathBuf, process::Command};
 
 use crossbeam_channel::unbounded;
-use hir::base_db::compilation_plan::CompilationPlan;
 use lsp_types::{
     Diagnostic, DiagnosticClientCapabilities, DiagnosticSeverity,
     DiagnosticWorkspaceClientCapabilities, NumberOrString, Position, Range,
     TextDocumentClientCapabilities, TraceValue, WorkspaceClientCapabilities, request::Request,
 };
+use preproc_expand::compilation_plan::CompilationPlan;
 use project_model::project_manifest::ProjectManifestFileName;
 use utils::{cancellation::CancellationToken, paths::AbsPathBuf, test_support::TestDir};
 use vfs::FileId;

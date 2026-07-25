@@ -1,4 +1,4 @@
-use hir::base_db::{
+use base_db::{
     analysis_snapshot::AnalysisSnapshotId,
     change::Change,
     diagnostics_config::DiagnosticsConfig,

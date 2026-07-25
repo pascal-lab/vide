@@ -1,14 +1,11 @@
-use hir::{
-    base_db::{
-        diagnostics_config::DiagnosticSource as SlangDiagnosticSource,
-        project::CompilationProfileId,
-        source_db::{SourceDb, SourceRootDb},
-        source_root::{SourceRootDiagnosticScope, SourceRootRole},
-    },
-    db::HirDb,
-    hir_def::module::ModuleId,
-    source_map::IsSrc,
+use base_db::{
+    diagnostics_config::DiagnosticSource as SlangDiagnosticSource,
+    project::CompilationProfileId,
+    source_db::{SourceDb, SourceRootDb},
+    source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
+use hir_def::{db::HirDefDb, module::ModuleId, source_map::IsSrc};
+use preproc_expand::db::PreprocDb;
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::{
     get::Get,
@@ -299,7 +296,7 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
             };
             let mut diag_file_id = file_id;
             let mut range = src.range();
-            match hir::preproc::diagnostic_target_for_range(db, file_id, range) {
+            match preproc_expand::preproc::diagnostic_target_for_range(db, file_id, range) {
                 Ok(result) => {
                     if let Some(target) = result.target {
                         diag_file_id = target.file_id;
@@ -343,7 +340,7 @@ fn inactive_preprocessor_branch_diagnostics(db: &RootDb, file_id: FileId) -> Vec
         return Vec::new();
     }
 
-    hir::preproc::inactive_branches(db, file_id)
+    preproc_expand::preproc::inactive_branches(db, file_id)
         .unwrap_or_default()
         .iter()
         .map(|branch| {
@@ -408,15 +405,15 @@ fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
 
 #[cfg(test)]
 mod tests {
-    use hir::base_db::{
+    use base_db::{
         change::Change,
-        compilation_plan::compilation_source_buffers_for_plan,
         diagnostics_config::DiagnosticsConfig,
         project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
         salsa::Durability,
-        source_db::{SourceDb, SourceRootDb},
+        source_db::SourceDb,
         source_root::{SourceRoot, SourceRootId, SourceRootRole},
     };
+    use preproc_expand::{compilation_plan::compilation_source_buffers_for_plan, db::PreprocDb};
     use triomphe::Arc;
     use utils::{
         line_index::{TextRange, TextSize},

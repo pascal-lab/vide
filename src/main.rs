@@ -13,10 +13,13 @@ use vide::{Opt, run_server};
 #[cfg(feature = "profile-trace")]
 const DEFAULT_PROFILE_TRACE_FILTER: &str = concat!(
     "vide=trace,",
-    "hir::base_db=trace,",
-    "hir=trace,",
+    "base_db=trace,",
+    "hir_semantics=trace,",
+    "hir_def=trace,",
+    "hir_ty=trace,",
     "ide=trace,",
     "project_model=trace,",
+    "preproc_expand=trace,",
     "slang=trace,",
     "utils=trace,",
     "vfs=trace,",

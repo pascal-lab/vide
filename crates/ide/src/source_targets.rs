@@ -1,4 +1,6 @@
-use hir::hir_def::macro_file::{MacroFileId, Origin, SourceEmittedTokenId, macro_files_at_offset};
+use preproc_expand::macro_file::{
+    MacroFileId, Origin, SourceEmittedTokenId, macro_files_at_offset,
+};
 use rustc_hash::FxHashMap;
 use syntax::{
     SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, has_text_range::HasTextRange,

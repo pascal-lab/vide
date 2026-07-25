@@ -1,29 +1,26 @@
 use bitflags::bitflags;
 use collector::SemaTokenCollectorTree;
-use hir::{
+use hir_def::{
+    Ident,
+    block::{BlockId, BlockInfo},
     container::{ArenaOwnerId, InContainer},
-    db::HirDb,
+    db::HirDefDb,
     def_id::DefId,
-    file::HirFileId,
-    hir_def::{
-        Ident,
-        block::{BlockId, BlockInfo},
-        expr::{
-            Expr, ExprId, ExprSrc,
-            data_ty::{DataTy, NamedDataTy},
-            declarator::DeclaratorParent,
-        },
-        module::{
-            ModuleId,
-            instantiation::{ParamAssign, PortConn},
-        },
-        stmt::StmtKind,
+    expr::{
+        Expr, ExprId, ExprSrc,
+        data_ty::{DataTy, NamedDataTy},
+        declarator::DeclaratorParent,
     },
-    preproc::macro_references_in_range,
-    semantics::Semantics,
+    module::{
+        ModuleId,
+        instantiation::{ParamAssign, PortConn},
+    },
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
+    stmt::StmtKind,
     symbol::{DefKind, NameContext, Resolution},
 };
+use hir_semantics::semantics::Semantics;
+use preproc_expand::{db::PreprocDb, file::HirFileId, preproc::macro_references_in_range};
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use syntax::{
@@ -702,7 +699,7 @@ fn collect_resolved_path(
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use hir::base_db::{change::Change, source_root::SourceRoot};
+    use base_db::{change::Change, source_root::SourceRoot};
     use insta::assert_debug_snapshot;
     use utils::text_edit::TextRange;
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};

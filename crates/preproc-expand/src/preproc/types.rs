@@ -1,0 +1,24 @@
+use std::collections::BTreeMap;
+
+use preproc::source::{
+    SourceIncludeDirectiveId, SourceMacroDefinitionId, SourcePreprocError, SourcePreprocUnavailable,
+};
+use smol_str::SmolStr;
+use utils::{
+    line_index::{TextRange, TextSize},
+    uniq_vec::UniqVec,
+};
+use vfs::FileId;
+
+use crate::{
+    macro_file::Origin,
+    source_db::{PreprocSourceMapError, SourcePreprocQueryError},
+};
+
+mod common;
+mod diagnostics;
+mod includes;
+mod macro_model;
+mod reference_index;
+
+pub use self::{common::*, diagnostics::*, includes::*, macro_model::*, reference_index::*};

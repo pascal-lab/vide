@@ -1,22 +1,20 @@
 use std::ops::Range;
 
-use hir::{
-    base_db::source_db::SourceDb,
+use base_db::source_db::SourceDb;
+use hir_def::{
+    Ident,
     container::{InContainer, InModule},
-    db::HirDb,
-    display::HirDisplay,
-    hir_def::{
-        Ident,
-        declaration::DeclarationSrc,
-        expr::declarator::{DeclId, DeclaratorParent},
-        module::{
-            Module, ModuleId, ModuleSourceMap,
-            port::{PortDecl, PortDeclSrc, Ports},
-        },
+    db::HirDefDb,
+    declaration::DeclarationSrc,
+    expr::declarator::{DeclId, DeclaratorParent},
+    module::{
+        Module, ModuleId, ModuleSourceMap,
+        port::{PortDecl, PortDeclSrc, Ports},
     },
     source_map::IsSrc,
     symbol::{NameContext, NameScope},
 };
+use hir_ty::display::HirDisplay;
 use itertools::Itertools;
 use syntax::{
     ast::{self, AstNode},

@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use hir::base_db::project::CompilationProfileId;
+use base_db::project::CompilationProfileId;
 use rustc_hash::FxHashSet;
 use utils::{
     cancellation::{CancellationError, CancellationToken},
@@ -445,7 +445,7 @@ fn panic_message(panic: &(dyn std::any::Any + Send)) -> Option<&str> {
 mod tests {
     use std::time::Duration;
 
-    use hir::base_db::change::Change;
+    use base_db::change::Change;
     use lsp_server::Connection;
     use lsp_types::{ClientCapabilities, TraceValue};
     use utils::test_support::TestDir;
