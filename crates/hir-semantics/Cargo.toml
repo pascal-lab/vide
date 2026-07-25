@@ -1,6 +1,7 @@
 [package]
-name = "hir"
+name = "hir-semantics"
 version = "0.0.0"
+description = "Syntax-to-HIR semantic adapter"
 edition.workspace = true
 
 [dependencies]

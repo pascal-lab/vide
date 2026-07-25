@@ -1,9 +1,9 @@
-use hir::semantics::Semantics;
 use hir_def::{
     db::HirDefDb,
     hir_def::module::{ModuleId, ModuleSrc},
     symbol::DefKind,
 };
+use hir_semantics::semantics::Semantics;
 use syntax::ast;
 use utils::get::Get;
 

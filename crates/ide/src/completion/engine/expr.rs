@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use hir::semantics::Semantics;
 use hir_def::{
     container::{InContainer, ScopeId, ScopeParent, SubroutineScope},
     db::HirDefDb,
@@ -8,6 +7,7 @@ use hir_def::{
     hir_def::{lower_ident_opt, module::ModuleId, subroutine::SubroutineKind},
     symbol::{DefKind, Resolution},
 };
+use hir_semantics::semantics::Semantics;
 use hir_ty::{
     db::TyDb,
     type_infer::{Ty, normalize_data_ty, type_class},

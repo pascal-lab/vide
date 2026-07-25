@@ -1,4 +1,3 @@
-use hir::semantics::Semantics;
 use hir_def::{
     db::HirDefDb,
     def_id::DefId,
@@ -8,6 +7,7 @@ use hir_def::{
     },
     source_map::IsSrc,
 };
+use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
 use syntax::{
     ast::{self, AstNode},

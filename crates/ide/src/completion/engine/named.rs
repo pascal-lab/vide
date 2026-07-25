@@ -1,5 +1,5 @@
-use hir::semantics::Semantics;
 use hir_def::hir_def::lower_ident_opt;
+use hir_semantics::semantics::Semantics;
 use rustc_hash::FxHashSet;
 use syntax::ast::{self, AstNode};
 

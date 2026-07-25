@@ -1,4 +1,3 @@
-use hir::semantics::Semantics;
 use hir_def::{
     db::HirDefDb,
     hir_def::{
@@ -6,6 +5,7 @@ use hir_def::{
         module::{ModuleId, ModuleSrc},
     },
 };
+use hir_semantics::semantics::Semantics;
 use rustc_hash::FxHashSet;
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,

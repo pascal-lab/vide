@@ -1,6 +1,5 @@
 use bitflags::bitflags;
 use collector::SemaTokenCollectorTree;
-use hir::semantics::Semantics;
 use hir_def::{
     container::{ArenaOwnerId, InContainer},
     db::HirDefDb,
@@ -22,6 +21,7 @@ use hir_def::{
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
     symbol::{DefKind, NameContext, Resolution},
 };
+use hir_semantics::semantics::Semantics;
 use preproc_expand::{db::PreprocDb, file::HirFileId, preproc::macro_references_in_range};
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;

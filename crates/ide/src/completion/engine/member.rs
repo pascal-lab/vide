@@ -1,5 +1,5 @@
-use hir::semantics::Semantics;
 use hir_def::symbol::NameContext;
+use hir_semantics::semantics::Semantics;
 use hir_ty::{
     db::TyDb,
     type_infer::{TyMember, members_of_ty},

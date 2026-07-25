@@ -1,6 +1,6 @@
 use base_db::source_db::SourceDb;
-use hir::semantics::Semantics;
 use hir_def::{container::InContainer, hir_def::expr::Expr};
+use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxTokenWithParent, TokenKind,

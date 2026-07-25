@@ -4,7 +4,6 @@ use base_db::{
     source_db::{SourceDb, SourceRootDb},
     source_root::SourceRootId,
 };
-use hir::semantics::Semantics;
 use hir_def::{
     container::{InFile, ScopeId},
     db::HirDefDb,
@@ -12,6 +11,7 @@ use hir_def::{
     source_map::IsSrc,
     symbol::DefOrigin,
 };
+use hir_semantics::semantics::Semantics;
 use hir_ty::db::TyDb;
 use nohash_hasher::IntMap;
 use preproc_expand::{file::HirFileId, macro_file::macro_file_call_site};
