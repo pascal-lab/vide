@@ -10,6 +10,7 @@ use hir_def::{
 use crate::{
     db::TyDb,
     ty::{BuiltinTy, Ty, TyClass},
+    type_system::Compatibility,
 };
 
 pub(crate) fn type_class(db: &dyn TyDb, ty: &Ty) -> Option<TyClass> {
@@ -39,6 +40,30 @@ pub(crate) fn type_class(db: &dyn TyDb, ty: &Ty) -> Option<TyClass> {
         | Ty::GenerateBlock(_)
         | Ty::Block(_) => None,
     }
+}
+
+pub(crate) fn compatibility(db: &dyn TyDb, expected: &Ty, candidate: &Ty) -> Compatibility {
+    let (Some(expected_class), Some(candidate_class)) =
+        (type_class(db, expected), type_class(db, candidate))
+    else {
+        return Compatibility::Unknown;
+    };
+    if expected_class != candidate_class {
+        return Compatibility::Incompatible;
+    }
+    if expected_class != TyClass::Integral {
+        return Compatibility::Compatible;
+    }
+
+    match (packed_bit_width(db, expected), packed_bit_width(db, candidate)) {
+        (Some(expected), Some(candidate)) if expected == candidate => Compatibility::Compatible,
+        (Some(_), Some(_)) => Compatibility::Incompatible,
+        _ => Compatibility::Unknown,
+    }
+}
+
+pub(crate) fn is_typed_value(db: &dyn TyDb, ty: &Ty) -> bool {
+    type_class(db, ty).is_some()
 }
 
 pub(crate) fn packed_bit_width(db: &dyn TyDb, ty: &Ty) -> Option<u64> {
