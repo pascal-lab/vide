@@ -1,18 +1,16 @@
-use hir::{
+use hir_def::{
     container::{InContainer, InModule},
-    db::HirDb,
-    display::HirDisplay,
-    file::HirFileId,
-    hir_def::{
-        declaration::Declaration,
-        module::{
-            instantiation::{ParamAssign, PortConn},
-            port::Ports,
-        },
+    db::HirDefDb,
+    declaration::Declaration,
+    module::{
+        instantiation::{ParamAssign, PortConn},
+        port::Ports,
     },
-    semantics::Semantics,
 };
+use hir_semantics::semantics::Semantics;
+use hir_ty::display::HirDisplay;
 use itertools::Either;
+use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,
     ast::{self, AstNode},

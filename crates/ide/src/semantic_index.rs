@@ -1,18 +1,15 @@
-use hir::{
-    base_db::{
-        source_db::{SourceDb, SourceRootDb},
-        source_root::SourceRootId,
-    },
-    container::InFile,
-    db::HirDb,
-    def_id::DefId,
-    file::HirFileId,
-    hir_def::{Ident, module::ModuleId},
-    semantics::Semantics,
-    source_map::IsSrc,
+use base_db::{
+    source_db::{SourceDb, SourceRootDb},
+    source_root::SourceRootId,
+};
+use hir_def::{
+    Ident, container::InFile, db::HirDefDb, def_id::DefId, module::ModuleId, source_map::IsSrc,
     symbol::DefOrigin,
 };
+use hir_semantics::semantics::Semantics;
+use hir_ty::db::TyDb;
 use itertools::Itertools;
+use preproc_expand::{db::PreprocDb, file::HirFileId};
 use rustc_hash::FxHashMap;
 use syntax::{
     SyntaxElement, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, WalkEvent,
@@ -167,7 +164,7 @@ impl ModuleIndex {
 }
 
 impl SemanticModuleDefinition {
-    fn new(db: &dyn HirDb, module_id: ModuleId) -> Option<Self> {
+    fn new(db: &dyn TyDb, module_id: ModuleId) -> Option<Self> {
         let origin = DefOrigin::new(db, module_id);
         let name = origin.name(db)?;
         let InFile { file_id, value: name_range } = origin.name_range(db)?;
@@ -452,7 +449,7 @@ fn module_id_at_range(db: &RootDb, file_id: FileId, name_range: TextRange) -> Op
 fn instantiation_name_range(
     db: &RootDb,
     file_id: FileId,
-    src: hir::hir_def::module::instantiation::InstantiationSrc,
+    src: hir_def::module::instantiation::InstantiationSrc,
 ) -> Option<TextRange> {
     let tree = db.parse_src_for_compilation(file_id);
     let root = tree.root()?;

@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{Context, Error};
-use hir::container::InFile;
+use hir_def::container::InFile;
 use ide::{
     FilePosition, FileRange, SymbolKind,
     code_action::{CodeAction, CodeActionKind},

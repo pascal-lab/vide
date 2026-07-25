@@ -1,10 +1,8 @@
 use std::{cmp::Ordering, collections::BinaryHeap};
 
+use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
 use fst::{IntoStreamer, Streamer};
-use hir::{
-    base_db::{source_db::SourceRootDb, source_root::SourceRootId},
-    db::HirDb,
-};
+use hir_ty::db::TyDb;
 use triomphe::Arc;
 use utils::line_index::TextRange;
 use vfs::FileId;
@@ -212,7 +210,7 @@ impl SymbolIndex {
     }
 }
 
-pub(crate) fn file_symbols(db: &dyn HirDb, file_id: FileId) -> Arc<[WorkspaceSymbol]> {
+pub(crate) fn file_symbols(db: &dyn TyDb, file_id: FileId) -> Arc<[WorkspaceSymbol]> {
     let mut symbols = Vec::new();
     for symbol in document_symbols::document_symbols(db, file_id) {
         collect_symbol(file_id, symbol, &mut symbols);

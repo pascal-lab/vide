@@ -1,32 +1,30 @@
-use hir::{
-    base_db::source_db::{SourceDb, SourceRootDb},
+use base_db::source_db::{SourceDb, SourceRootDb};
+use hir_def::{
+    DEFAULT_NAME,
     container::{
         ArenaOwnerId, InContainer, InFile, InModule, InSubroutine, ScopeId, ScopeParent,
         SubroutineScope,
     },
-    db::HirDb,
+    db::HirDefDb,
+    declaration::Declaration,
     def_id::DefId,
-    display::HirDisplay,
-    hir_def::{
-        DEFAULT_NAME,
-        declaration::Declaration,
-        expr::{
-            data_ty::DataTy,
-            declarator::{DeclId, DeclaratorParent},
-        },
-        literal::Literal,
-        module::{
-            ModuleId, ModuleKind,
-            clocking::ClockingBlockId,
-            instantiation::InstanceId,
-            port::{NonAnsiPortId, Ports},
-        },
-        subroutine::{SubroutineKind, SubroutinePortId},
+    expr::{
+        data_ty::DataTy,
+        declarator::{DeclId, DeclaratorParent},
+    },
+    literal::Literal,
+    module::{
+        ModuleId, ModuleKind,
+        clocking::ClockingBlockId,
+        instantiation::InstanceId,
+        port::{NonAnsiPortId, Ports},
     },
     region_tree::RegionParent,
-    semantics::Semantics,
+    subroutine::{SubroutineKind, SubroutinePortId},
     symbol::{DefOrigin, DefOriginLoc},
 };
+use hir_semantics::semantics::Semantics;
+use hir_ty::display::HirDisplay;
 use itertools::Itertools;
 use syntax::{
     SVInt, SyntaxCursorExt, SyntaxNodeExt,

@@ -1,20 +1,20 @@
-use hir::{
-    base_db::{
-        intern::Lookup,
-        salsa::Database,
-        source_db::{SourceDb, SourceRootDb},
-        source_root::SourceRootId,
-    },
+use base_db::{
+    intern::Lookup,
+    salsa::Database,
+    source_db::{SourceDb, SourceRootDb},
+    source_root::SourceRootId,
+};
+use hir_def::{
     container::{InFile, ScopeId},
-    db::HirDb,
+    db::HirDefDb,
     def_id::DefId,
-    file::HirFileId,
-    hir_def::macro_file::macro_file_call_site,
-    semantics::Semantics,
     source_map::IsSrc,
     symbol::DefOrigin,
 };
+use hir_semantics::semantics::Semantics;
+use hir_ty::db::TyDb;
 use nohash_hasher::IntMap;
+use preproc_expand::{file::HirFileId, macro_file::macro_file_call_site};
 use rustc_hash::FxHashMap;
 use syntax::{SyntaxTokenWithParent, ptr::SyntaxTokenPtr};
 use utils::{get::Get, line_index::TextRange};
@@ -88,8 +88,11 @@ impl SearchScope {
         match cont {
             ScopeId::File(_) => Self::all(db),
             ScopeId::Module(InFile { value: local_module_id, file_id }) => {
-                if let Some(range) =
-                    file_id.to_container_src_map(db).get(local_module_id).map(|src| src.range())
+                if let Some(range) = db
+                    .hir_file_with_source_map(file_id)
+                    .1
+                    .get(local_module_id)
+                    .map(|src| src.range())
                 {
                     Self::single_source_range(db, file_id, range)
                 } else {
@@ -263,7 +266,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
 /// not a file the user can open. Returns `None` when a macro expansion's call
 /// site cannot be resolved.
 pub(crate) fn resolve_source_range(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     file_id: HirFileId,
     range: TextRange,
 ) -> Option<(FileId, TextRange)> {

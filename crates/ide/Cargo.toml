@@ -7,19 +7,26 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+base-db.workspace = true
 bitflags.workspace = true
 dissimilar = "1.0.9"
 fst = "0.4.7"
-hir.workspace = true
+# Compiler layers are explicit dependencies; `hir-semantics` is a
+# syntax-to-HIR adapter, not a high-level facade over them.
+hir-def.workspace = true
+hir-semantics.workspace = true
+hir-ty.workspace = true
 itertools.workspace = true
 la-arena.workspace = true
 memchr.workspace = true
 nohash-hasher.workspace = true
+preproc-expand.workspace = true
 regex.workspace = true
 rustc-hash.workspace = true
+salsa.workspace = true
 serde.workspace = true
-smol_str.workspace = true
 smallvec.workspace = true
+smol_str.workspace = true
 syntax.workspace = true
 thiserror.workspace = true
 toml = "0.9.8"

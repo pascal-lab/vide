@@ -1,4 +1,4 @@
-use hir::preproc::{IncludeDirective, IncludeTarget};
+use preproc_expand::preproc::{IncludeDirective, IncludeTarget};
 
 use crate::{
     RangeInfo,

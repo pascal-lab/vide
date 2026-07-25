@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use hir::base_db::{change::Change, source_root::SourceRoot};
+use base_db::{change::Change, source_root::SourceRoot};
 use utils::text_edit::TextSize;
 use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 

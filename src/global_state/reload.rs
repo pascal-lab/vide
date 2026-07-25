@@ -1,6 +1,6 @@
 use std::panic::{self, AssertUnwindSafe};
 
-use hir::base_db::change::Change;
+use base_db::change::Change;
 use itertools::Itertools;
 use project_model::{ProjectModel, Workspace, get_workspace_folder, project_manifest};
 use triomphe::Arc;

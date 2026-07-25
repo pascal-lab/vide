@@ -1,10 +1,10 @@
 use std::ops::Range;
 
-use hir::{
-    base_db::source_db::SourceDb,
+use base_db::source_db::SourceDb;
+use hir_def::{
     container::InModule,
-    db::HirDb,
-    hir_def::module::instantiation::{ParamAssign, PortConn},
+    db::HirDefDb,
+    module::instantiation::{ParamAssign, PortConn},
     source_map::IsSrc,
 };
 use itertools::Itertools;

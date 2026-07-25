@@ -1,47 +1,45 @@
 use std::iter::Peekable;
 
-use hir::{
-    base_db::intern::Lookup,
+use base_db::intern::Lookup;
+use hir_def::{
+    DEFAULT_NAME,
+    aggregate::{StructDef, StructId, StructKind, StructSrc},
+    block::{BlockId, BlockInfo, BlockItem, BlockSrc, LocalBlockId},
+    checker::{CheckerDef, CheckerId, CheckerSrc},
     container::InFile,
-    db::HirDb,
-    file::HirFileId,
-    hir_def::{
-        DEFAULT_NAME,
-        aggregate::{StructDef, StructId, StructKind, StructSrc},
-        block::{BlockId, BlockInfo, BlockItem, BlockSrc, LocalBlockId},
-        checker::{CheckerDef, CheckerId, CheckerSrc},
-        covergroup::{
-            CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointId, CoverpointSrc,
-            CrossDef, CrossId, CrossSrc,
-        },
-        declaration::{Declaration, DeclarationId, DeclarationSrc},
-        expr::declarator::{DeclId, Declarator, DeclaratorSrc, DeclsRange},
-        file::{
-            FileItem,
-            config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc},
-            library::{LibraryDecl, LibraryDeclId, LibraryDeclSrc},
-            udp::{UdpDecl, UdpDeclId, UdpDeclSrc},
-        },
-        module::{
-            ModuleId, ModuleItem, ModuleSrc,
-            clocking::{ClockingBlockDef, ClockingBlockId, ClockingBlockSrc},
-            generate::{
-                GenerateBlockId, GenerateBlockItem, GenerateBlockLoc, GenerateItem, GenerateRegion,
-                GenerateRegionId, GenerateRegionSrc,
-            },
-            instantiation::{Instance, InstanceId, InstanceSrc, Instantiation, InstantiationId},
-            port::Ports,
-            specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem, SpecifyBlockSrc},
-        },
-        proc::{Proc, ProcId},
-        stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind, StmtSrc},
-        subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc},
-        typedef::{Typedef, TypedefId, TypedefSrc},
+    covergroup::{
+        CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointId, CoverpointSrc,
+        CrossDef, CrossId, CrossSrc,
     },
+    declaration::{Declaration, DeclarationId, DeclarationSrc},
+    expr::declarator::{DeclId, Declarator, DeclaratorSrc, DeclsRange},
+    file::{
+        FileItem,
+        config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc},
+        library::{LibraryDecl, LibraryDeclId, LibraryDeclSrc},
+        udp::{UdpDecl, UdpDeclId, UdpDeclSrc},
+    },
+    module::{
+        ModuleId, ModuleItem, ModuleSrc,
+        clocking::{ClockingBlockDef, ClockingBlockId, ClockingBlockSrc},
+        generate::{
+            GenerateBlockId, GenerateBlockItem, GenerateBlockLoc, GenerateItem, GenerateRegion,
+            GenerateRegionId, GenerateRegionSrc,
+        },
+        instantiation::{Instance, InstanceId, InstanceSrc, Instantiation, InstantiationId},
+        port::Ports,
+        specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem, SpecifyBlockSrc},
+    },
+    proc::{Proc, ProcId},
     region_tree::{RegionNode, RegionTreeIterator},
     source_map::{IsNamedSrc, IsSrc},
+    stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind, StmtSrc},
+    subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc},
+    typedef::{Typedef, TypedefId, TypedefSrc},
 };
+use hir_ty::db::TyDb;
 use la_arena::Idx;
+use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
 use syntax::WalkEvent;
 use utils::{
@@ -195,7 +193,7 @@ impl AddRegionSymbol for Peekable<RegionTreeIterator<'_>> {
 }
 
 // TODO: add ty info in detail
-pub(crate) fn document_symbols(db: &dyn HirDb, file_id: FileId) -> Vec<DocumentSymbol> {
+pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSymbol> {
     let file_id = HirFileId::File(file_id);
     let (file, src_map) = db.hir_file_with_source_map(file_id);
     let (file, src_map) = (file.as_ref(), src_map.as_ref());
@@ -254,7 +252,7 @@ pub(crate) fn document_symbols(db: &dyn HirDb, file_id: FileId) -> Vec<DocumentS
 }
 
 fn collect_module_items(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     module_id: ModuleId,
     module_src: ModuleSrc,
     collector: &mut SymbolCollecter,
@@ -363,7 +361,7 @@ fn collect_module_items(
 }
 
 fn collect_block_items(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     collector: &mut SymbolCollecter,
     block_id: BlockId,
     block_src: BlockSrc,
@@ -398,7 +396,7 @@ fn collect_block_items(
 }
 
 fn build_stmt<Arn, SrcMap>(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     collector: &mut SymbolCollecter,
     stmt_id: Idx<Stmt>,
     arena: &Arn,
@@ -500,7 +498,7 @@ fn build_declaration<Arn, SrcMap>(
 
 #[inline]
 fn build_generate_region<Arn, SrcMap>(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     collector: &mut SymbolCollecter,
     generate_region_id: GenerateRegionId,
     arena: &Arn,
@@ -570,7 +568,7 @@ fn build_generate_region<Arn, SrcMap>(
 }
 
 fn build_generate_block(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     collector: &mut SymbolCollecter,
     generate_block_id: GenerateBlockId,
 ) {
@@ -830,7 +828,7 @@ fn build_typedef<Arn, SrcMap>(
         return;
     };
     let kind = match hir.ty {
-        Some(hir::hir_def::expr::data_ty::DataTy::Struct(_)) => SymbolKind::Struct,
+        Some(hir_def::expr::data_ty::DataTy::Struct(_)) => SymbolKind::Struct,
         _ => SymbolKind::Typedef,
     };
     collector.push_symbol_with_kind(&hir.name, src, kind);

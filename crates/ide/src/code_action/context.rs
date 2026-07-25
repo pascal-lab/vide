@@ -1,4 +1,4 @@
-use hir::semantics::{ParsedFile, Semantics};
+use hir_semantics::semantics::{ParsedFile, Semantics};
 use syntax::{
     SyntaxNode,
     ast::{AstNode, CompilationUnit},

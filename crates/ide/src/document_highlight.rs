@@ -1,4 +1,6 @@
-use hir::{container::InFile, def_id::DefId, file::HirFileId, semantics::Semantics};
+use hir_def::{container::InFile, def_id::DefId};
+use hir_semantics::semantics::Semantics;
+use preproc_expand::file::HirFileId;
 use syntax::{SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
 use utils::line_index::TextRange;
 use vfs::FileId;
@@ -114,12 +116,10 @@ fn highlight_refs<'a>(
 mod tests {
     use std::path::PathBuf;
 
-    use hir::{
-        base_db::{change::Change, source_root::SourceRoot},
-        db::HirDb,
-        hir_def::macro_file::macro_files_at_offset,
-    };
+    use base_db::{change::Change, source_root::SourceRoot};
+    use hir_def::db::HirDefDb;
     use insta::assert_debug_snapshot;
+    use preproc_expand::macro_file::macro_files_at_offset;
     use utils::text_edit::TextSize;
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 

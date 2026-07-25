@@ -1,11 +1,10 @@
-use hir::{
-    db::HirDb,
-    hir_def::{
-        Ident, lower_ident_opt,
-        module::{ModuleId, ModuleSrc},
-    },
-    semantics::Semantics,
+use hir_def::{
+    Ident,
+    db::HirDefDb,
+    lower_ident_opt,
+    module::{ModuleId, ModuleSrc},
 };
+use hir_semantics::semantics::Semantics;
 use rustc_hash::FxHashSet;
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,

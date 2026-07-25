@@ -1,7 +1,7 @@
-use hir::{
-    base_db::source_db::SourceDb,
-    db::HirDb,
-    hir_def::macro_file::{ExpansionSourceHit, MacroFileId, Origin, SourceEmittedTokenId},
+use base_db::source_db::SourceDb;
+use preproc_expand::{
+    db::PreprocDb,
+    macro_file::{ExpansionSourceHit, MacroFileId, Origin, SourceEmittedTokenId},
 };
 use syntax::{SyntaxElement, SyntaxNode, SyntaxTokenWithParent, TokenKind, WalkEvent};
 use utils::line_index::{TextRange, TextSize, covering_range};
@@ -94,7 +94,7 @@ fn preproc_hits_at_offset(
 }
 
 fn preproc_hit_for_source_hit(
-    db: &dyn HirDb,
+    db: &dyn PreprocDb,
     expansion: usize,
     source_hit: ExpansionSourceHit,
 ) -> Option<PreprocTokenHit> {
@@ -109,7 +109,7 @@ fn preproc_hit_for_source_hit(
     })
 }
 
-fn origin_call(db: &dyn HirDb, origin: &Origin) -> Option<usize> {
+fn origin_call(db: &dyn PreprocDb, origin: &Origin) -> Option<usize> {
     let call = match origin {
         Origin::File { .. } => return None,
         Origin::MacroBody { call, .. }

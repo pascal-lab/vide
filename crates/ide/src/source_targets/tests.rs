@@ -1,4 +1,4 @@
-use hir::{db::InternDb, hir_def::macro_file::SourceEmittedTokenId};
+use preproc_expand::{db::PreprocDb, macro_file::SourceEmittedTokenId};
 use syntax::{
     SyntaxElement, SyntaxNode, SyntaxTree, SyntaxTreeOptions, WalkEvent, preproc::TokenOrigin,
     token::TokenKindExt,
@@ -307,7 +307,7 @@ fn macro_arg_origin_from_token_origin(
         panic!("macro argument origin expected");
     };
     Origin::MacroArg {
-        call: db.intern_macro_call(hir::hir_def::macro_file::MacroCallLoc {
+        call: db.intern_macro_call(preproc_expand::macro_file::MacroCallLoc {
             model_file,
             trace_call: *call_id,
         }),

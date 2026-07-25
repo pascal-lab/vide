@@ -1,21 +1,18 @@
 use std::{fmt, mem::ManuallyDrop};
 
-use hir::{
-    base_db::{
-        diagnostics_config::DiagnosticsConfig,
-        project::ProjectConfig,
-        salsa::{self, Durability},
-        source_db::{
-            FileLoader, ParseSrcForCompilationQuery, ParsedProfileQuery, SourceDb, SourceDbStorage,
-            SourceRootDb, SourceRootDbStorage,
-        },
-    },
-    db::{
-        BlockQuery, BlockScopeQuery, BlockWithSourceMapQuery, FileScopeQuery, HirDbStorage,
-        HirFileQuery, HirFileWithSourceMapQuery, InternDbStorage, ModuleQuery, ModuleScopeQuery,
-        ModuleWithSourceMapQuery,
-    },
+use base_db::{
+    diagnostics_config::DiagnosticsConfig,
+    project::ProjectConfig,
+    salsa::{self, Durability},
+    source_db::{FileLoader, SourceDb, SourceDbStorage, SourceRootDb, SourceRootDbStorage},
 };
+use hir_def::db::{
+    BlockQuery, BlockScopeQuery, BlockWithSourceMapQuery, FileScopeQuery, HirDefDbStorage,
+    HirFileQuery, HirFileWithSourceMapQuery, InternDbStorage, ModuleQuery, ModuleScopeQuery,
+    ModuleWithSourceMapQuery,
+};
+use hir_ty::db::TyDbStorage;
+use preproc_expand::db::{ParseSrcForCompilationQuery, ParsedProfileQuery, PreprocDbStorage};
 use triomphe::Arc;
 use vfs::{AnchoredPath, FileId};
 
@@ -26,8 +23,10 @@ use crate::db::{
 #[salsa::database(
     SourceDbStorage,
     SourceRootDbStorage,
-    HirDbStorage,
+    PreprocDbStorage,
     InternDbStorage,
+    HirDefDbStorage,
+    TyDbStorage,
     LineIndexDbStorage,
     WorkspaceSymbolIndexDbStorage
 )]

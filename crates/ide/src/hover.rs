@@ -1,7 +1,7 @@
-use hir::{
-    base_db::source_db::SourceDb, container::InContainer, file::HirFileId, hir_def::expr::Expr,
-    semantics::Semantics,
-};
+use base_db::source_db::SourceDb;
+use hir_def::{container::InContainer, expr::Expr};
+use hir_semantics::semantics::Semantics;
+use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxTokenWithParent, TokenKind,
     ast::{self, AstNode},
@@ -175,17 +175,17 @@ fn handle_definition(
     let mut res = Markup::new();
 
     match def {
-        hir::symbol::Resolution::Unique(DefinitionClass::Definition(def)) => {
+        hir_def::symbol::Resolution::Unique(DefinitionClass::Definition(def)) => {
             res.merge(render::render_definition(sema, def, anchor_file_id));
         }
-        hir::symbol::Resolution::Unique(DefinitionClass::PortConnShorthand { port, local }) => {
+        hir_def::symbol::Resolution::Unique(DefinitionClass::PortConnShorthand { port, local }) => {
             res.title("Port connection shorthand");
             res.section("Port");
             res.merge(render::render_definition(sema, port, anchor_file_id));
             res.section("Local");
             res.merge(render::render_definition(sema, local, anchor_file_id));
         }
-        hir::symbol::Resolution::Ambiguous(definitions) => {
+        hir_def::symbol::Resolution::Ambiguous(definitions) => {
             let token_text = token_text.unwrap_or_else(|| "reference".to_string());
             let candidate_count = definitions.len();
             let title = if definitions.iter().all(|definition| {
@@ -217,7 +217,7 @@ fn handle_definition(
                 }
             }
         }
-        hir::symbol::Resolution::Unresolved => return None,
+        hir_def::symbol::Resolution::Unresolved => return None,
     }
 
     Some(res)

@@ -1,0 +1,18 @@
+[package]
+name = "hir-semantics"
+version = "0.0.0"
+description = "Syntax-to-HIR semantic adapter"
+edition.workspace = true
+
+[dependencies]
+hir-def.workspace = true
+itertools.workspace = true
+preproc-expand.workspace = true
+rustc-hash.workspace = true
+syntax.workspace = true
+utils.workspace = true
+vfs.workspace = true
+
+[dev-dependencies]
+base-db.workspace = true
+triomphe.workspace = true

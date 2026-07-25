@@ -19,11 +19,11 @@ mod workspace_state;
 
 use std::{sync::Arc as StdArc, time::Instant};
 
-use crossbeam_channel::{Receiver, Sender, unbounded};
-use hir::base_db::{
+use base_db::{
     project::{CompilationProfileId, ProjectConfig, SharedProjectConfig},
     source_root::SourceRootConfig,
 };
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use ide::analysis_host::AnalysisHost;
 use lsp_server::{Message, ReqQueue, Request};
 use lsp_types::{NumberOrString, TraceValue, Url};
