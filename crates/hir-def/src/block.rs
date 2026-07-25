@@ -33,7 +33,9 @@ use crate::{
     container::{ArenaOwnerId, InFile},
     db::HirDefDb,
     region_tree::RegionTree,
-    source_map::{AstKind, IsNamedSrc, IsSrc, NamedAstId, SourceMap, ToAstNode},
+    source_map::{
+        AstKind, IsNamedSrc, IsSrc, Lowered, LoweredData, NamedAstId, SourceMap, ToAstNode,
+    },
 };
 
 #[derive(Default, Debug, PartialEq, Eq)]
@@ -73,6 +75,9 @@ pub struct BlockSourceMap {
     pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
     pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
     pub block_srcs: FxHashMap<BlockSrc, LocalBlockId>,
+}
+impl LoweredData for Block {
+    type SourceMap = BlockSourceMap;
 }
 
 impl BlockSourceMap {
@@ -329,14 +334,14 @@ impl LowerBlockCtx<'_> {
 pub(crate) fn block_with_source_map_query(
     db: &dyn HirDefDb,
     block_id: BlockId,
-) -> (Arc<Block>, Arc<BlockSourceMap>) {
+) -> Arc<Lowered<Block>> {
     let InFile { file_id, value: block_src } = block_id.lookup(db).src;
     let tree = db.parse(file_id);
 
     let mut block = Block::default();
     let mut block_source_map = BlockSourceMap::default();
     let Some(ast_block) = block_src.to_node(&tree) else {
-        return (Arc::new(block), Arc::new(block_source_map));
+        return Arc::new(Lowered::new(block, block_source_map));
     };
 
     let mut lower_ctx = LoweringCtx::new(
@@ -350,5 +355,5 @@ pub(crate) fn block_with_source_map_query(
 
     block.shrink_to_fit();
     block_source_map.shrink_to_fit();
-    (Arc::new(block), Arc::new(block_source_map))
+    Arc::new(Lowered::new(block, block_source_map))
 }

@@ -1,13 +1,10 @@
 use base_db::source_db::SourceDb;
-use hir_def::{
-    container::InModule, db::HirDefDb, module::instantiation::PortConn, source_map::IsSrc,
-};
+use hir_def::{container::InModule, db::HirDefDb, module::instantiation::PortConn};
 use rustc_hash::FxHashSet;
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRangeIn,
 };
-use utils::get::{Get, GetRef};
 
 use crate::{
     code_action::{
@@ -48,7 +45,7 @@ pub(super) fn add_missing_connections(
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
     let InModule { value: instance_id, module_id } =
         sema.resolve_instance(file_id, ast_instance)?;
-    let (module, module_src_map) = db.module_with_source_map(module_id);
+    let module = db.module_with_source_map(module_id);
     let instance = module.get(instance_id);
     let open_paren = ast_instance.open_paren()?.text_range_in(ast_instance.syntax())?;
     let close_paren = ast_instance.close_paren()?.text_range_in(ast_instance.syntax())?;
@@ -95,7 +92,7 @@ pub(super) fn add_missing_connections(
 
         let text = sema.db.file_text(ctx.file_id());
         let item_ranges = instance.connections.iter().filter_map(|conn_id| {
-            let range = module_src_map.get(*conn_id)?.range();
+            let range = module.source_range(*conn_id)?;
             (!range.is_empty()).then_some(range)
         });
         apply_missing_list_edit(builder, &text, open_paren, close_paren, item_ranges, entries);

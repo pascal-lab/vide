@@ -195,8 +195,9 @@ impl AddRegionSymbol for Peekable<RegionTreeIterator<'_>> {
 // TODO: add ty info in detail
 pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSymbol> {
     let file_id = HirFileId::File(file_id);
-    let (file, src_map) = db.hir_file_with_source_map(file_id);
-    let (file, src_map) = (file.as_ref(), src_map.as_ref());
+    let lowered = db.hir_file_with_source_map(file_id);
+    let file = lowered.data_ref();
+    let src_map = lowered.source_map();
     let mut regions = src_map.region_tree.walk().peekable();
 
     let mut collector = SymbolCollecter::new(
@@ -257,8 +258,9 @@ fn collect_module_items(
     module_src: ModuleSrc,
     collector: &mut SymbolCollecter,
 ) {
-    let (module, src_map) = db.module_with_source_map(module_id);
-    let (module, src_map) = (module.as_ref(), src_map.as_ref());
+    let lowered = db.module_with_source_map(module_id);
+    let module = lowered.data_ref();
+    let src_map = lowered.source_map();
     let mut regions = src_map.region_tree.walk().peekable();
 
     collector.push_symbol_with_children(
@@ -366,8 +368,9 @@ fn collect_block_items(
     block_id: BlockId,
     block_src: BlockSrc,
 ) {
-    let (block, src_map) = db.block_with_source_map(block_id);
-    let (block, src_map) = (block.as_ref(), src_map.as_ref());
+    let lowered = db.block_with_source_map(block_id);
+    let block = lowered.data_ref();
+    let src_map = lowered.source_map();
     let mut regions = src_map.region_tree.walk().peekable();
 
     collector.push_symbol_with_children(
@@ -574,8 +577,9 @@ fn build_generate_block(
 ) {
     let GenerateBlockLoc { src: InFile { value: generate_block_src, .. }, .. } =
         generate_block_id.lookup(db);
-    let (generate_block, src_map) = db.generate_block_with_source_map(generate_block_id);
-    let (generate_block, src_map) = (generate_block.as_ref(), src_map.as_ref());
+    let lowered = db.generate_block_with_source_map(generate_block_id);
+    let generate_block = lowered.data_ref();
+    let src_map = lowered.source_map();
     let name = generate_block.name.clone();
 
     collector.push_symbol_with_kind(&name, generate_block_src, SymbolKind::Generate);

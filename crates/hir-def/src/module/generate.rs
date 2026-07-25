@@ -36,7 +36,8 @@ use crate::{
     proc::{Proc, ProcId, ProcSrc},
     region_tree::RegionTree,
     source_map::{
-        FromSourceAst, IsNamedSrc, IsSrc, SourceAst, SourceMap, ToAstNode, root_token_in,
+        FromSourceAst, IsNamedSrc, IsSrc, Lowered, LoweredData, SourceAst, SourceMap, ToAstNode,
+        root_token_in,
     },
     stmt::{Stmt, StmtId, StmtSrc},
     subroutine::{
@@ -339,6 +340,9 @@ pub struct GenerateBlockSourceMap {
     pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
     pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
     pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+}
+impl LoweredData for GenerateBlock {
+    type SourceMap = GenerateBlockSourceMap;
 }
 
 impl GenerateBlockSourceMap {
@@ -882,7 +886,7 @@ impl LowerModuleCtx<'_> {
 pub(crate) fn generate_block_with_source_map_query(
     db: &dyn HirDefDb,
     generate_block_id: GenerateBlockId,
-) -> (Arc<GenerateBlock>, Arc<GenerateBlockSourceMap>) {
+) -> Arc<Lowered<GenerateBlock>> {
     let GenerateBlockLoc { src: InFile { file_id, value: src }, .. } = generate_block_id.lookup(db);
     let tree = db.parse(file_id);
 
@@ -919,5 +923,5 @@ pub(crate) fn generate_block_with_source_map_query(
 
     generate_block.shrink_to_fit();
     generate_block_source_map.shrink_to_fit();
-    (Arc::new(generate_block), Arc::new(generate_block_source_map))
+    Arc::new(Lowered::new(generate_block, generate_block_source_map))
 }

@@ -9,7 +9,6 @@ use hir_def::{
 };
 use preproc_expand::file::HirFileId;
 use syntax::ast::{self, AstNode};
-use utils::get::Get;
 
 use super::SemanticsImpl;
 
@@ -27,8 +26,8 @@ impl SemanticsImpl<'_> {
         };
 
         let src = InstanceSrc::from_ast(file_id, instance);
-        let (_, module_src_map) = db.module_with_source_map(module_id);
-        let instance_id = module_src_map.get(src)?;
+        let module = db.module_with_source_map(module_id);
+        let instance_id = module.hir_id(src)?;
         Some(InModule::new(module_id, instance_id))
     }
 
@@ -47,8 +46,8 @@ impl SemanticsImpl<'_> {
         let src = InstantiationSrc::HierarchyInstantiation(
             AstId::<HierarchyInstantiationAst>::from_ast(file_id, instantiation),
         );
-        let (_, module_src_map) = db.module_with_source_map(module_id);
-        let instantiation_id = module_src_map.get(src)?;
+        let module = db.module_with_source_map(module_id);
+        let instantiation_id = module.hir_id(src)?;
         Some(InModule::new(module_id, instantiation_id))
     }
 
@@ -65,8 +64,8 @@ impl SemanticsImpl<'_> {
         };
 
         let src = PortConnSrc::from_ast(file_id, conn);
-        let (_, module_src_map) = db.module_with_source_map(module_id);
-        let conn_id = module_src_map.get(src)?;
+        let module = db.module_with_source_map(module_id);
+        let conn_id = module.hir_id(src)?;
         Some(InModule::new(module_id, conn_id))
     }
 

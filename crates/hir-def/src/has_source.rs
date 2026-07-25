@@ -1,5 +1,4 @@
 use base_db::intern::Lookup;
-use utils::get::Get;
 
 use crate::{
     block::{BlockId, BlockSrc},
@@ -20,8 +19,8 @@ impl HasSource for ModuleId {
 
     fn source(&self, db: &dyn HirDefDb) -> Option<InFile<ModuleSrc>> {
         let InFile { file_id, value } = *self;
-        let (_, file_source_map) = db.hir_file_with_source_map(file_id);
-        Some(self.with_value(file_source_map.get(value)?))
+        let lowered = db.hir_file_with_source_map(file_id);
+        Some(self.with_value(lowered.source(value)?))
     }
 }
 

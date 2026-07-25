@@ -3,21 +3,20 @@ use preproc_expand::{db::PreprocDb, file::HirFileId};
 use triomphe::Arc;
 
 use crate::{
-    block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
+    block::{self, Block, BlockId, BlockLoc},
     checker::CheckerId,
     container::{InFileOrModule, InModule, SubroutineScope},
     covergroup::CovergroupId,
     def_id::{DefId, Definition},
     expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
-    file::{self, FileSourceMap, HirFile},
+    file::{self, HirFile},
     module::{
-        self, Module, ModuleId, ModuleSourceMap, PackageId,
+        self, Module, ModuleId, PackageId,
         clocking::ClockingBlockId,
-        generate::{
-            self, GenerateBlock, GenerateBlockId, GenerateBlockLoc, GenerateBlockSourceMap,
-        },
+        generate::{self, GenerateBlock, GenerateBlockId, GenerateBlockLoc},
     },
-    subroutine::{self, Subroutine, SubroutineSourceMap},
+    source_map::Lowered,
+    subroutine::{self, Subroutine},
     symbol::{DefOrigin, DefOriginLoc, NameScope},
 };
 
@@ -58,25 +57,22 @@ impl_intern!(DefId, Definition, intern_def, lookup_intern_def);
 #[salsa::query_group(HirDefDbStorage)]
 pub trait HirDefDb: InternDb {
     #[salsa::invoke(file::hir_file_with_source_map_query)]
-    fn hir_file_with_source_map(&self, file_id: HirFileId) -> (Arc<HirFile>, Arc<FileSourceMap>);
+    fn hir_file_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<HirFile>>;
 
     fn hir_file(&self, file_id: HirFileId) -> Arc<HirFile>;
 
     #[salsa::invoke(module::module_with_source_map_query)]
-    fn module_with_source_map(&self, module_id: ModuleId) -> (Arc<Module>, Arc<ModuleSourceMap>);
+    fn module_with_source_map(&self, module_id: ModuleId) -> Arc<Lowered<Module>>;
 
     fn module(&self, module_id: ModuleId) -> Arc<Module>;
 
     #[salsa::invoke(block::block_with_source_map_query)]
-    fn block_with_source_map(&self, block_id: BlockId) -> (Arc<Block>, Arc<BlockSourceMap>);
+    fn block_with_source_map(&self, block_id: BlockId) -> Arc<Lowered<Block>>;
 
     fn block(&self, block_id: BlockId) -> Arc<Block>;
 
     #[salsa::invoke(subroutine::subroutine_with_source_map_query)]
-    fn subroutine_with_source_map(
-        &self,
-        subroutine: SubroutineScope,
-    ) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>);
+    fn subroutine_with_source_map(&self, subroutine: SubroutineScope) -> Arc<Lowered<Subroutine>>;
 
     fn subroutine(&self, subroutine_id: SubroutineScope) -> Arc<Subroutine>;
 
@@ -84,7 +80,7 @@ pub trait HirDefDb: InternDb {
     fn generate_block_with_source_map(
         &self,
         generate_block_id: GenerateBlockId,
-    ) -> (Arc<GenerateBlock>, Arc<GenerateBlockSourceMap>);
+    ) -> Arc<Lowered<GenerateBlock>>;
 
     fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock>;
 
@@ -123,21 +119,21 @@ pub trait HirDefDb: InternDb {
 }
 
 fn hir_file(db: &dyn HirDefDb, file_id: HirFileId) -> Arc<HirFile> {
-    db.hir_file_with_source_map(file_id).0
+    db.hir_file_with_source_map(file_id).data()
 }
 
 fn module(db: &dyn HirDefDb, module_id: ModuleId) -> Arc<Module> {
-    db.module_with_source_map(module_id).0
+    db.module_with_source_map(module_id).data()
 }
 
 fn block(db: &dyn HirDefDb, block_id: BlockId) -> Arc<Block> {
-    db.block_with_source_map(block_id).0
+    db.block_with_source_map(block_id).data()
 }
 
 fn subroutine(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
-    db.subroutine_with_source_map(subroutine_id).0
+    db.subroutine_with_source_map(subroutine_id).data()
 }
 
 fn generate_block(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock> {
-    db.generate_block_with_source_map(generate_block_id).0
+    db.generate_block_with_source_map(generate_block_id).data()
 }

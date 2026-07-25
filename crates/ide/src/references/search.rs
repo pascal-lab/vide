@@ -17,7 +17,7 @@ use nohash_hasher::IntMap;
 use preproc_expand::{file::HirFileId, macro_file::macro_file_call_site};
 use rustc_hash::FxHashMap;
 use syntax::{SyntaxTokenWithParent, ptr::SyntaxTokenPtr};
-use utils::{get::Get, line_index::TextRange};
+use utils::line_index::TextRange;
 use vfs::FileId;
 
 use super::{ReferenceCategory, ReferencesConfig};
@@ -90,8 +90,7 @@ impl SearchScope {
             ScopeId::Module(InFile { value: local_module_id, file_id }) => {
                 if let Some(range) = db
                     .hir_file_with_source_map(file_id)
-                    .1
-                    .get(local_module_id)
+                    .source(local_module_id)
                     .map(|src| src.range())
                 {
                     Self::single_source_range(db, file_id, range)

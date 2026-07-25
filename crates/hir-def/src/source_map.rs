@@ -1,4 +1,4 @@
-use std::{fmt::Debug, hash::Hash, marker::PhantomData};
+use std::{fmt::Debug, hash::Hash, marker::PhantomData, ops::Deref};
 
 pub(crate) use la_arena::{ArenaMap, Idx};
 use preproc_expand::file::HirFileId;
@@ -9,24 +9,129 @@ use syntax::{
     has_text_range::HasTextRange,
     ptr::{SyntaxNodePtr, SyntaxTokenPtr},
 };
-pub(crate) use utils::get::Get;
-use utils::{get::GetRef, text_edit::TextRange};
+use triomphe::Arc;
+use utils::{
+    get::{Get, GetRef},
+    text_edit::TextRange,
+};
 
-pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
-    #[inline]
-    fn hir<'a, Hir, HirIdx, Arn, SrcMap>(
-        self,
-        arena: &'a impl AsRef<Arn>,
-        src_map: &'a impl AsRef<SrcMap>,
-    ) -> Option<&'a Hir>
-    where
-        Arn: GetRef<HirIdx, Output = Hir> + 'a,
-        SrcMap: Get<Self, Output = Option<HirIdx>> + 'a,
-    {
-        let idx = src_map.as_ref().get(self)?;
-        Some(arena.as_ref().get(idx))
+pub trait LoweredData {
+    type SourceMap;
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Lowered<T: LoweredData> {
+    data: Arc<T>,
+    source_map: Arc<T::SourceMap>,
+}
+
+impl<T: LoweredData> Lowered<T> {
+    pub fn new(data: T, source_map: T::SourceMap) -> Self {
+        Self { data: Arc::new(data), source_map: Arc::new(source_map) }
     }
 
+    pub fn data(&self) -> Arc<T> {
+        Arc::clone(&self.data)
+    }
+
+    pub fn data_ref(&self) -> &T {
+        &self.data
+    }
+
+    pub fn source_map(&self) -> &T::SourceMap {
+        &self.source_map
+    }
+
+    pub(crate) fn source_map_arc(&self) -> Arc<T::SourceMap> {
+        Arc::clone(&self.source_map)
+    }
+
+    pub fn source<Id>(&self, id: Id) -> <T::SourceMap as Get<Id>>::Output
+    where
+        T::SourceMap: Get<Id>,
+    {
+        self.source_map.get(id)
+    }
+
+    pub fn source_range<Id, Src>(&self, id: Id) -> Option<TextRange>
+    where
+        T::SourceMap: Get<Id, Output = Option<Src>>,
+        Src: IsSrc,
+    {
+        Some(self.source_map.get(id)?.range())
+    }
+
+    pub fn source_name_range<Id, Src>(&self, id: Id) -> Option<TextRange>
+    where
+        T::SourceMap: Get<Id, Output = Option<Src>>,
+        Src: IsNamedSrc,
+    {
+        self.source_map.get(id)?.name_range()
+    }
+
+    pub fn source_name_or_full_range<Id, Src>(&self, id: Id) -> Option<TextRange>
+    where
+        T::SourceMap: Get<Id, Output = Option<Src>>,
+        Src: IsNamedSrc,
+    {
+        Some(self.source_map.get(id)?.name_or_full_range())
+    }
+
+    pub fn source_info<Id, Src>(&self, id: Id) -> Option<SourceInfo>
+    where
+        T::SourceMap: Get<Id, Output = Option<Src>>,
+        Src: IsSrc,
+    {
+        Some(SourceInfo::new(self.source_map.get(id)?))
+    }
+
+    pub fn named_source_info<Id, Src>(&self, id: Id) -> Option<SourceInfo>
+    where
+        T::SourceMap: Get<Id, Output = Option<Src>>,
+        Src: IsNamedSrc,
+    {
+        Some(SourceInfo::named(self.source_map.get(id)?))
+    }
+
+    pub fn hir_id<Src, Id>(&self, src: Src) -> Option<Id>
+    where
+        T::SourceMap: Get<Src, Output = Option<Id>>,
+    {
+        self.source_map.get(src)
+    }
+
+    pub fn get<Id>(&self, id: Id) -> &<T as GetRef<Id>>::Output
+    where
+        T: GetRef<Id>,
+    {
+        self.data.get(id)
+    }
+
+    pub fn hir<Src, Id>(&self, src: Src) -> Option<&<T as GetRef<Id>>::Output>
+    where
+        T: GetRef<Id>,
+        T::SourceMap: Get<Src, Output = Option<Id>>,
+    {
+        let id = self.source_map.get(src)?;
+        Some(self.data.get(id))
+    }
+}
+
+impl<T: LoweredData> Deref for Lowered<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<T: LoweredData> AsRef<T> for Lowered<T> {
+    fn as_ref(&self) -> &T {
+        &self.data
+    }
+}
+
+pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
     fn kind(&self) -> SyntaxKind;
 
     /// Returns the full syntactic extent of the mapped AST node.
@@ -34,6 +139,38 @@ pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
     /// Use this for containment, folding, diagnostics, and operations that act
     /// on the whole construct rather than just its defining identifier.
     fn range(&self) -> TextRange;
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SourceInfo {
+    kind: SyntaxKind,
+    full_range: TextRange,
+    focus_range: Option<TextRange>,
+}
+
+impl SourceInfo {
+    pub fn new(src: impl IsSrc) -> Self {
+        Self { kind: src.kind(), full_range: src.range(), focus_range: None }
+    }
+
+    pub fn named(src: impl IsNamedSrc) -> Self {
+        Self { kind: src.kind(), full_range: src.range(), focus_range: src.name_range() }
+    }
+
+    pub fn kind(self) -> SyntaxKind {
+        self.kind
+    }
+
+    pub fn full_range(self) -> TextRange {
+        self.full_range
+    }
+
+    pub fn focus_range(self) -> Option<TextRange> {
+        self.focus_range
+    }
+
+    pub fn focus_or_full_range(self) -> TextRange {
+        self.focus_range.unwrap_or(self.full_range)
+    }
 }
 
 pub trait IsNamedSrc: IsSrc {
@@ -80,6 +217,18 @@ impl<Src: IsSrc, Hir> SourceMap<Src, Hir> {
     #[inline]
     pub fn hir_to_src(&self, idx: Idx<Hir>) -> Option<Src> {
         self.hir2src.get(idx).copied()
+    }
+
+    pub fn ranges(&self) -> impl Iterator<Item = TextRange> + '_ {
+        self.hir2src.iter().map(|(_, src)| src.range())
+    }
+}
+
+impl<Src: IsNamedSrc, Hir> SourceMap<Src, Hir> {
+    pub fn named_ranges(
+        &self,
+    ) -> impl Iterator<Item = (Idx<Hir>, TextRange, Option<TextRange>)> + '_ {
+        self.hir2src.iter().map(|(id, src)| (id, src.range(), src.name_range()))
     }
 }
 

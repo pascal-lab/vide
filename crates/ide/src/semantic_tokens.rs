@@ -188,7 +188,9 @@ fn collect_file(
     file_id: HirFileId,
     collector: &mut SemaTokenCollector,
 ) {
-    let (hir_file, file_src_map) = sema.db.hir_file_with_source_map(file_id);
+    let lowered = sema.db.hir_file_with_source_map(file_id);
+    let hir_file = lowered.data_ref();
+    let file_src_map = lowered.source_map();
     let tree = sema.db.parse(file_id);
 
     for (local_module_id, _) in hir_file.modules.iter() {
@@ -291,8 +293,9 @@ fn collect_module(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let (module, module_src_map) = db.module_with_source_map(module_id);
-    let (module, module_src_map) = (module.as_ref(), module_src_map.as_ref());
+    let lowered = db.module_with_source_map(module_id);
+    let module = lowered.data_ref();
+    let module_src_map = lowered.source_map();
     let tree = db.parse(module_id.file_id);
     port::collect_port(sema, module_id, collector);
 
@@ -400,8 +403,9 @@ fn collect_block(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let (block, block_src_map) = db.block_with_source_map(block_id);
-    let (block, block_src_map) = (block.as_ref(), block_src_map.as_ref());
+    let lowered = db.block_with_source_map(block_id);
+    let block = lowered.data_ref();
+    let block_src_map = lowered.source_map();
     let tree = db.parse(block_id.file_id(db));
 
     let collect_ident_like =
@@ -496,8 +500,9 @@ fn collect_named_port_connections(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let (module, module_src_map) = db.module_with_source_map(module_id);
-    let (module, module_src_map) = (module.as_ref(), module_src_map.as_ref());
+    let lowered = db.module_with_source_map(module_id);
+    let module = lowered.data_ref();
+    let module_src_map = lowered.source_map();
     let tree = db.parse(module_id.file_id);
 
     for (conn_id, conn) in module.inst_port_conns.iter() {
@@ -531,8 +536,9 @@ fn collect_named_param_assignments(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let (module, module_src_map) = db.module_with_source_map(module_id);
-    let (module, module_src_map) = (module.as_ref(), module_src_map.as_ref());
+    let lowered = db.module_with_source_map(module_id);
+    let module = lowered.data_ref();
+    let module_src_map = lowered.source_map();
     let tree = db.parse(module_id.file_id);
 
     for (assign_id, assign) in module.inst_param_assigns.iter() {
@@ -651,9 +657,9 @@ fn collect_resolved_path(
 
     if def_id.is_non_ansi_port(db) {
         let port_id = def_id.primary_origin(db).as_non_ansi_port(db)?;
-        let module = db.module(port_id.module_id);
+        let module = db.module_with_source_map(port_id.module_id);
         let origins = def_id.origins(db);
-        let (name, dir, ty) = port::resolve_non_ansi_port(db, module.as_ref(), &origins)?;
+        let (name, dir, ty) = port::resolve_non_ansi_port(db, &module, &origins)?;
         port::add_port_token(db, name, dir, ty, range, collector);
         return Some(());
     }

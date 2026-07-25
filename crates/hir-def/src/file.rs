@@ -44,7 +44,7 @@ use crate::{
     db::HirDefDb,
     lower_ident_opt,
     region_tree::RegionTree,
-    source_map::SourceMap,
+    source_map::{Lowered, LoweredData, SourceMap},
 };
 
 pub mod config;
@@ -120,6 +120,9 @@ pub struct FileSourceMap {
     pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
     pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
     pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+}
+impl LoweredData for HirFile {
+    type SourceMap = FileSourceMap;
 }
 
 impl FileSourceMap {
@@ -470,7 +473,7 @@ impl LowerFileCtx<'_> {
 pub(crate) fn hir_file_with_source_map_query(
     db: &dyn HirDefDb,
     file_id: HirFileId,
-) -> (Arc<HirFile>, Arc<FileSourceMap>) {
+) -> Arc<Lowered<HirFile>> {
     let mut hir_file = HirFile::default();
     let mut source_map = FileSourceMap::default();
 
@@ -501,5 +504,5 @@ pub(crate) fn hir_file_with_source_map_query(
     hir_file.shrink_to_fit();
     source_map.shrink_to_fit();
 
-    (Arc::new(hir_file), Arc::new(source_map))
+    Arc::new(Lowered::new(hir_file, source_map))
 }

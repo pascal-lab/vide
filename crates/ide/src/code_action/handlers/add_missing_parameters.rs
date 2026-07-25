@@ -1,13 +1,10 @@
 use base_db::source_db::SourceDb;
-use hir_def::{
-    container::InModule, db::HirDefDb, module::instantiation::ParamAssign, source_map::IsSrc,
-};
+use hir_def::{container::InModule, db::HirDefDb, module::instantiation::ParamAssign};
 use rustc_hash::FxHashSet;
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRangeIn,
 };
-use utils::get::{Get, GetRef};
 
 use crate::{
     code_action::{
@@ -48,7 +45,7 @@ pub(super) fn add_missing_parameters(
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;
     let InModule { value: instantiation_id, module_id } =
         sema.resolve_instantiation(file_id, ast_instantiation)?;
-    let (module, module_src_map) = db.module_with_source_map(module_id);
+    let module = db.module_with_source_map(module_id);
     let instantiation = module.get(instantiation_id);
 
     let params_node = ast_instantiation.parameters()?;
@@ -99,7 +96,7 @@ pub(super) fn add_missing_parameters(
 
         let text = sema.db.file_text(ctx.file_id());
         let item_ranges = instantiation.param_assigns.iter().filter_map(|assign_id| {
-            let range = module_src_map.get(*assign_id)?.range();
+            let range = module.source_range(*assign_id)?;
             (!range.is_empty()).then_some(range)
         });
         apply_missing_list_edit(builder, &text, open_paren, close_paren, item_ranges, entries);

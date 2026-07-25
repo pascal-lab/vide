@@ -3809,10 +3809,10 @@ endmodule
 
         let db = host.raw_db();
         let hir_file_id = HirFileId::File(file_id);
-        let (hir_file, _) = db.hir_file_with_source_map(hir_file_id);
+        let hir_file = db.hir_file_with_source_map(hir_file_id);
         let (local_module_id, _) =
             hir_file.modules.iter().next().expect("fixture should lower one module");
-        let (module, _) = db.module_with_source_map(ModuleId::new(hir_file_id, local_module_id));
+        let module = db.module_with_source_map(ModuleId::new(hir_file_id, local_module_id));
         assert!(
             stmt_arena_has(db, &module.stmts, |kind| matches!(kind, StmtKind::Repeat(_, _))),
             "repeat statements should lower distinctly from while statements"

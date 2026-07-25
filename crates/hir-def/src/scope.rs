@@ -3,7 +3,7 @@ use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
 use syntax::ast;
 use triomphe::Arc;
-use utils::get::{Get, GetRef};
+use utils::get::GetRef;
 
 use crate::{
     PackageImport,
@@ -103,15 +103,13 @@ impl NameScope {
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
         let file_id = package_id.file_id;
-        let (file, file_source_map) = db.hir_file_with_source_map(file_id);
+        let file = db.hir_file_with_source_map(file_id);
         if file.get(package_id.value).kind != ModuleKind::Package {
             return Arc::new(scope);
         }
 
         let tree = db.parse(file_id);
-        let Some(package) =
-            file_source_map.get(package_id.value).and_then(|src| src.to_node(&tree))
-        else {
+        let Some(package) = file.source(package_id.value).and_then(|src| src.to_node(&tree)) else {
             return Arc::new(scope);
         };
 
@@ -206,7 +204,8 @@ impl NameScope {
         module_id: crate::module::ModuleId,
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
-        let (module, module_src_map) = db.module_with_source_map(module_id);
+        let module = db.module_with_source_map(module_id);
+        let module_src_map = module.source_map();
 
         if let Ports::NonAnsi { ports, .. } = &module.ports {
             for (port_id, port) in ports.iter() {
@@ -398,7 +397,7 @@ impl NameScope {
         generate_block_id: GenerateBlockId,
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
-        let (generate_block, _) = db.generate_block_with_source_map(generate_block_id);
+        let generate_block = db.generate_block_with_source_map(generate_block_id);
 
         scope.insert_value_opt(&generate_block.name, def_id(db, generate_block_id));
 
@@ -958,12 +957,12 @@ endmodule
             .module_ids(&db, &ident("m"))
             .unique()
             .expect("module should resolve uniquely");
-        let (module, source_map) = db.module_with_source_map(module_id);
+        let module = db.module_with_source_map(module_id);
         let Ports::NonAnsi { ports, .. } = &module.ports else {
             panic!("module should have non-ANSI ports");
         };
         let (port_id, _) = ports.iter().next().expect("port should lower");
-        let source = source_map.get(port_id).expect("port should retain its source");
+        let source = module.source(port_id).expect("port should retain its source");
 
         assert!(source.name_range().is_some(), "explicit port name range should be preserved");
     }
@@ -982,7 +981,8 @@ endmodule
             .module_ids(&db, &ident("m"))
             .unique()
             .expect("module should resolve uniquely");
-        let (module, source_map) = db.module_with_source_map(module_id);
+        let module = db.module_with_source_map(module_id);
+        let source_map = module.source_map();
         let Ports::NonAnsi { ports, .. } = &module.ports else {
             panic!("module should have non-ANSI ports");
         };
@@ -1155,7 +1155,7 @@ endmodule
             .module_ids(&db, &ident("m"))
             .unique()
             .expect("module should resolve uniquely");
-        let (module, source_map) = db.module_with_source_map(module_id);
+        let module = db.module_with_source_map(module_id);
         let (expr_id, expr) =
             module.exprs.iter().next().expect("initializer expression should lower");
 
@@ -1165,7 +1165,7 @@ endmodule
             "valid but unsupported syntax must carry an explicit diagnostic kind"
         );
         assert!(
-            source_map.get(expr_id).is_some(),
+            module.source(expr_id).is_some(),
             "valid but unsupported syntax must retain its source"
         );
     }
@@ -1185,13 +1185,13 @@ endmodule
             .module_ids(&db, &ident("m"))
             .unique()
             .expect("module should resolve uniquely");
-        let (module, source_map) = db.module_with_source_map(module_id);
+        let module = db.module_with_source_map(module_id);
         let (empty_id, _) = module
             .stmts
             .iter()
             .find(|(_, stmt)| matches!(stmt.kind, crate::stmt::StmtKind::Empty))
             .expect("empty statement should lower");
-        assert!(source_map.get(empty_id).is_some());
+        assert!(module.source(empty_id).is_some());
 
         let mut missing_file = crate::file::HirFile::default();
         let mut missing_file_source_map = crate::file::FileSourceMap::default();
@@ -1298,7 +1298,7 @@ endmodule
             .module_ids(&db, &ident("m"))
             .unique()
             .expect("module should resolve uniquely");
-        let (module, source_map) = db.module_with_source_map(module_id);
+        let module = db.module_with_source_map(module_id);
         let (clocking_block_id, clocking_block) =
             module.clocking_blocks.iter().next().expect("clocking block should lower");
         assert_eq!(clocking_block.name.as_deref(), Some("cb"));
@@ -1309,12 +1309,12 @@ endmodule
                 ..
             }
         ));
-        assert!(source_map.get(clocking_block.event).is_some());
+        assert!(module.source(clocking_block.event).is_some());
         assert_eq!(
             module.default_clocking.as_ref().and_then(|reference| reference.name.as_deref()),
             Some("cb")
         );
-        assert!(source_map.default_clocking_src.is_some());
+        assert!(module.source_map().default_clocking_src.is_some());
         assert_eq!(clocking_block.signals.len(), 1);
         assert_eq!(clocking_block.signals[0].name.as_str(), "a");
 
