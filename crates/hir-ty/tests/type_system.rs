@@ -15,7 +15,7 @@ use hir_def::{
     db::{HirDefDb, HirDefDbStorage, InternDbStorage},
     module::ModuleId,
     pathres::{resolve_name, resolve_path},
-    symbol::{DefOriginLoc, NameContext, Resolution},
+    symbol::{NameContext, Resolution},
 };
 use hir_ty::{Compatibility, Type, TypeSystem, db::TyDbStorage, display::HirDisplay};
 use preproc_expand::db::PreprocDbStorage;
