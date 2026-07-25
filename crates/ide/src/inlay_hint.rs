@@ -78,12 +78,12 @@ struct HintAnchor {
 impl HintAnchor {
     fn from_src(src: SourceInfo, position: Option<TextSize>) -> Option<Self> {
         let range = src.full_range();
-        let kind = match_ast_kind! { src.kind(),
+        let kind = match_ast_kind! { src.kind()?,
             ast::ParamAssignment => InlayKind::ParamAssign,
             ast::OrderedPortConnection | ast::EmptyPortConnection | ast::NamedPortConnection => InlayKind::Port,
             _ => return None,
         };
-        let (padding_left, padding_right) = match_ast_kind! { src.kind(),
+        let (padding_left, padding_right) = match_ast_kind! { src.kind()?,
             ast::ParamAssignment => (false, true),
             ast::OrderedPortConnection | ast::EmptyPortConnection => (false, true),
             ast::NamedPortConnection => (true, true),

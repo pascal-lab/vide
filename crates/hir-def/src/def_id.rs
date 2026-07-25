@@ -28,7 +28,10 @@ use crate::{
     symbol::{DefKind, DefOrigin, DefOriginLoc},
 };
 
-fn subroutine_src(db: &dyn HirDefDb, subroutine: SubroutineScope) -> Option<InFile<SubroutineSrc>> {
+pub(crate) fn subroutine_src(
+    db: &dyn HirDefDb,
+    subroutine: SubroutineScope,
+) -> Option<InFile<SubroutineSrc>> {
     match subroutine.cont_id {
         SubroutineParent::File(file_id) => {
             let lowered = db.hir_file_with_source_map(file_id);
