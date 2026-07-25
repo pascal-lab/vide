@@ -1,4 +1,4 @@
-use hir::base_db::{
+use base_db::{
     analysis_snapshot::AnalysisSnapshotId, project::CompilationProfileId, source_root::SourceRootId,
 };
 use lsp_types::Url;

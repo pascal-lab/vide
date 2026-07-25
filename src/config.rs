@@ -3,7 +3,7 @@ pub mod user_config;
 
 use std::fmt;
 
-use hir::base_db::diagnostics_config::DiagnosticsConfig;
+use base_db::diagnostics_config::DiagnosticsConfig;
 use itertools::Itertools;
 use lsp_types::ClientCapabilities;
 use project_model::project_manifest::ProjectManifest;

@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 
-use hir::base_db::{change::Change, project::CompilationProfileId};
+use base_db::{change::Change, project::CompilationProfileId};
 use itertools::Itertools;
 use lsp_types::request::WorkspaceDiagnosticRefresh;
 use nohash_hasher::IntMap;

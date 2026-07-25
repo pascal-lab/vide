@@ -11,13 +11,13 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use hir::compilation_plan::CompilationPlan;
 use ide::FileRange;
 use lsp_types::{
     Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, NumberOrString, notification,
     request,
 };
 use parking_lot::{Mutex, MutexGuard};
+use preproc_expand::compilation_plan::CompilationPlan;
 use project_model::project_manifest::{ProjectManifest, ProjectManifestFileName};
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
