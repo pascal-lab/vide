@@ -7,6 +7,7 @@ use hir_def::{
     symbol::Resolution,
     typedef::TypedefId,
 };
+use triomphe::Arc;
 
 use crate::{
     compatibility::{compatibility, is_typed_value},
@@ -28,11 +29,11 @@ pub enum TypeDiagnostic {
 /// The representation and salsa query result stay private so callers do not
 /// depend on inference internals.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Type(TyResult);
+pub struct Type(Arc<TyResult>);
 
 impl Type {
     pub fn unknown() -> Self {
-        Self(TyResult::new(Ty::Unknown))
+        Self(Arc::new(TyResult::new(Ty::Unknown)))
     }
 
     pub fn diagnostics(&self) -> &[TypeDiagnostic] {
@@ -46,7 +47,7 @@ impl Type {
 
 impl From<TyResult> for Type {
     fn from(result: TyResult) -> Self {
-        Self(result)
+        Self(Arc::new(result))
     }
 }
 
@@ -94,11 +95,11 @@ impl<'db> TypeSystem<'db> {
     }
 
     pub fn type_of_expr(&self, expr: InContainer<ExprId>) -> Type {
-        self.db.infer_expr(expr).as_ref().clone()
+        self.db.infer_expr(expr)
     }
 
     pub fn type_of_resolution(&self, resolution: Resolution<DefId>) -> Type {
-        self.db.infer_path_resolution(resolution).as_ref().clone()
+        self.db.infer_path_resolution(resolution)
     }
 
     pub fn type_of_def(&self, def: DefId) -> Type {
