@@ -56,7 +56,7 @@ pub(super) fn convert_ordered_ports(
     let module = db.module_with_source_map(module_id);
     let instantiation = module.get(module.get(instance_id).parent);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let port_names = port_names(&db.module(target_module_id));
+    let port_names = port_names(&db.module_with_source_map(target_module_id));
 
     let replacements = module
         .get(instance_id)
@@ -112,7 +112,7 @@ pub(super) fn convert_ordered_params(
     let module = db.module_with_source_map(module_id);
     let instantiation = module.get(instantiation_id);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_module = db.module(target_module_id);
+    let target_module = db.module_with_source_map(target_module_id);
     let param_names = leading_overridable_parameter_names(&target_module);
 
     let replacements = instantiation

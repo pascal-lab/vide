@@ -2,7 +2,7 @@ use base_db::intern::Lookup;
 
 use crate::{
     block::BlockId,
-    container::{InFile, SubroutineScope},
+    container::{InFile, ScopeId, SubroutineScope},
     db::HirDefDb,
     def_id::{DefId, subroutine_src},
     module::{ModuleId, generate::GenerateBlockId},
@@ -47,6 +47,20 @@ impl HasSource for SubroutineScope {
     fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
         let InFile { file_id, value } = subroutine_src(db, *self)?;
         Some(named_source(file_id, value))
+    }
+}
+impl HasSource for ScopeId {
+    fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
+        match *self {
+            ScopeId::File(_) => None,
+            ScopeId::Module(module_id) => module_id.source(db),
+            ScopeId::GenerateBlock(generate_block_id) => generate_block_id.source(db),
+            ScopeId::Block(block_id) => block_id.source(db),
+            ScopeId::Subroutine(subroutine) => subroutine.source(db),
+            ScopeId::ClockingBlock(clocking_block) => DefOrigin::new(db, clocking_block).source(db),
+            ScopeId::Checker(checker) => DefOrigin::new(db, checker).source(db),
+            ScopeId::Covergroup(covergroup) => DefOrigin::new(db, covergroup).source(db),
+        }
     }
 }
 

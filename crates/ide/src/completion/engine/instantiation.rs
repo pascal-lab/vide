@@ -9,7 +9,6 @@ use syntax::{
     SyntaxAncestors,
     ast::{self, AstNode},
 };
-use utils::get::GetRef;
 
 use crate::db::root_db::RootDb;
 
@@ -21,7 +20,7 @@ pub(super) fn ports_of_module_sorted(db: &RootDb, module_id: ModuleId) -> Vec<Id
 }
 
 pub(super) fn ports_of_module_in_order(db: &RootDb, module_id: ModuleId) -> Vec<Ident> {
-    let module = db.module(module_id);
+    let module = db.module_with_source_map(module_id);
     let mut names = Vec::new();
 
     match &module.ports {
@@ -57,7 +56,7 @@ pub(super) fn overridable_params_of_module_in_order(
     db: &RootDb,
     module_id: ModuleId,
 ) -> Vec<Ident> {
-    let module = db.module(module_id);
+    let module = db.module_with_source_map(module_id);
 
     let mut names = Vec::new();
 

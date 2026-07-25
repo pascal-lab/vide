@@ -52,7 +52,7 @@ pub(super) fn add_missing_connections(
 
     let instantiation = module.get(instance.parent);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_module = db.module(target_module_id);
+    let target_module = db.module_with_source_map(target_module_id);
 
     let is_ordered = instance
         .connections

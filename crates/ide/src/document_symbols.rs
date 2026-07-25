@@ -1,51 +1,43 @@
 use std::iter::Peekable;
 
-use base_db::intern::Lookup;
 use hir_def::{
     DEFAULT_NAME,
-    aggregate::{StructDef, StructId, StructKind, StructSrc},
-    block::{BlockId, BlockInfo, BlockItem, BlockSrc, LocalBlockId},
-    checker::{CheckerDef, CheckerId, CheckerSrc},
+    aggregate::{StructDef, StructId, StructKind},
+    block::{BlockId, BlockItem},
+    checker::{CheckerDef, CheckerId},
     container::InFile,
-    covergroup::{
-        CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointId, CoverpointSrc,
-        CrossDef, CrossId, CrossSrc,
-    },
-    declaration::{Declaration, DeclarationId, DeclarationSrc},
-    expr::declarator::{DeclId, Declarator, DeclaratorSrc, DeclsRange},
+    covergroup::{CovergroupDef, CovergroupId, CoverpointDef, CoverpointId, CrossDef, CrossId},
+    declaration::{Declaration, DeclarationId},
+    expr::declarator::{DeclId, Declarator, DeclsRange},
     file::{
         FileItem,
-        config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc},
-        library::{LibraryDecl, LibraryDeclId, LibraryDeclSrc},
-        udp::{UdpDecl, UdpDeclId, UdpDeclSrc},
+        config::{ConfigDecl, ConfigDeclId},
+        library::{LibraryDecl, LibraryDeclId},
+        udp::{UdpDecl, UdpDeclId},
     },
+    has_source::HasSource,
     module::{
-        ModuleId, ModuleItem, ModuleSrc,
-        clocking::{ClockingBlockDef, ClockingBlockId, ClockingBlockSrc},
+        ModuleId, ModuleItem,
+        clocking::{ClockingBlockDef, ClockingBlockId},
         generate::{
-            GenerateBlockId, GenerateBlockItem, GenerateBlockLoc, GenerateItem, GenerateRegion,
-            GenerateRegionId, GenerateRegionSrc,
+            GenerateBlockId, GenerateBlockItem, GenerateItem, GenerateRegion, GenerateRegionId,
         },
-        instantiation::{Instance, InstanceId, InstanceSrc, Instantiation, InstantiationId},
+        instantiation::{Instance, InstanceId, Instantiation, InstantiationId},
         port::Ports,
-        specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem, SpecifyBlockSrc},
+        specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem},
     },
     proc::{Proc, ProcId},
     region_tree::{RegionNode, RegionTreeIterator},
-    source_map::{IsNamedSrc, IsSrc},
-    stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind, StmtSrc},
-    subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc},
-    typedef::{Typedef, TypedefId, TypedefSrc},
+    source_map::{HirLookup, NamedSourceLookup, SourceInfo, SourceLookup},
+    stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind},
+    subroutine::{LocalSubroutineId, Subroutine},
+    typedef::{Typedef, TypedefId},
 };
 use hir_ty::db::TyDb;
-use la_arena::Idx;
 use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
 use syntax::WalkEvent;
-use utils::{
-    get::{Get, GetRef},
-    line_index::TextRange,
-};
+use utils::line_index::TextRange;
 use vfs::FileId;
 
 use crate::SymbolKind;
@@ -72,13 +64,15 @@ impl SymbolCollecter {
         Self { res: Vec::with_capacity(len), stack: Vec::with_capacity(len) }
     }
 
-    pub fn push_symbol(&mut self, name: &Option<SmolStr>, src: impl IsNamedSrc) {
+    pub fn push_symbol(&mut self, name: &Option<SmolStr>, src: SourceInfo) {
         let container_name = self.stack.last().map(|sym| sym.name.to_owned());
         let sym = DocumentSymbol {
             name: name.as_ref().unwrap_or(&DEFAULT_NAME).to_string(),
-            focus_range: src.name_or_full_range(),
-            full_range: src.range(),
-            kind: SymbolKind::from_syntax_kind(src.kind()),
+            focus_range: src.focus_or_full_range(),
+            full_range: src.full_range(),
+            kind: SymbolKind::from_syntax_kind(
+                src.kind().expect("mapped source should retain its syntax kind"),
+            ),
             detail: None,
             container_name,
             children: Vec::new(),
@@ -89,7 +83,7 @@ impl SymbolCollecter {
     pub fn push_symbol_with_kind(
         &mut self,
         name: &Option<SmolStr>,
-        src: impl IsNamedSrc,
+        src: SourceInfo,
         kind: SymbolKind,
     ) {
         self.push_symbol(name, src);
@@ -101,7 +95,7 @@ impl SymbolCollecter {
     pub fn push_symbol_with_children(
         &mut self,
         name: &Option<SmolStr>,
-        src: impl IsNamedSrc,
+        src: SourceInfo,
         len: usize,
     ) {
         self.push_symbol(name, src);
@@ -211,40 +205,38 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
 
         match item {
             FileItem::LocalModuleId(idx) => {
-                let module_id = ModuleId::new(file_id, idx);
-                if let Some(module_src) = src_map.get(idx) {
-                    collect_module_items(db, module_id, module_src, &mut collector);
-                }
+                collect_module_items(db, ModuleId::new(file_id, idx), &mut collector);
             }
             FileItem::ProcId(proc_id) => {
-                let proc = file.get(proc_id);
-                let stmt_id = proc.stmt;
-                build_stmt(db, &mut collector, stmt_id, file, src_map);
+                let stmt_id = lowered.get(proc_id).stmt;
+                build_stmt(db, &mut collector, stmt_id, lowered.as_ref());
             }
             FileItem::DeclarationId(declaration_id) => {
-                build_declaration(&mut collector, declaration_id, file, src_map);
+                build_declaration(&mut collector, declaration_id, lowered.as_ref());
             }
             FileItem::TypedefId(typedef_id) => {
-                build_typedef(&mut collector, typedef_id, file, src_map)
+                build_typedef(&mut collector, typedef_id, lowered.as_ref())
             }
             FileItem::SubroutineId(subroutine_id) => {
-                build_subroutine(&mut collector, subroutine_id, file, src_map)
+                build_subroutine(&mut collector, subroutine_id, lowered.as_ref())
             }
-            FileItem::StructId(struct_id) => build_struct(&mut collector, struct_id, file, src_map),
+            FileItem::StructId(struct_id) => {
+                build_struct(&mut collector, struct_id, lowered.as_ref())
+            }
             FileItem::ConfigDeclId(config_id) => {
-                build_config_decl(&mut collector, config_id, file, src_map)
+                build_config_decl(&mut collector, config_id, lowered.as_ref())
             }
             FileItem::LibraryDeclId(library_id) => {
-                build_library_decl(&mut collector, library_id, file, src_map)
+                build_library_decl(&mut collector, library_id, lowered.as_ref())
             }
             FileItem::LibraryIncludeId(_) => {}
             FileItem::CheckerId(checker_id) => {
-                build_checker(&mut collector, checker_id, file, src_map)
+                build_checker(&mut collector, checker_id, lowered.as_ref())
             }
             FileItem::CovergroupId(covergroup_id) => {
-                build_covergroup(&mut collector, covergroup_id, file, src_map)
+                build_covergroup(&mut collector, covergroup_id, lowered.as_ref())
             }
-            FileItem::UdpDeclId(udp_id) => build_udp_decl(&mut collector, udp_id, file, src_map),
+            FileItem::UdpDeclId(udp_id) => build_udp_decl(&mut collector, udp_id, lowered.as_ref()),
         }
     }
 
@@ -252,17 +244,15 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
     collector.finish()
 }
 
-fn collect_module_items(
-    db: &dyn TyDb,
-    module_id: ModuleId,
-    module_src: ModuleSrc,
-    collector: &mut SymbolCollecter,
-) {
+fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut SymbolCollecter) {
     let lowered = db.module_with_source_map(module_id);
     let module = lowered.data_ref();
     let src_map = lowered.source_map();
     let mut regions = src_map.region_tree.walk().peekable();
 
+    let Some(InFile { value: module_src, .. }) = module_id.source(db) else {
+        return;
+    };
     collector.push_symbol_with_children(
         &module.name,
         module_src,
@@ -271,18 +261,18 @@ fn collect_module_items(
 
     if let Some(params) = &module.param_ports {
         for decl_id in params.clone() {
-            if let Some(src) = src_map.get(decl_id) {
-                regions.add_region_symbol(src.range(), collector);
+            if let Some(src) = lowered.source_info(decl_id) {
+                regions.add_region_symbol(src.full_range(), collector);
             }
-            build_decl(collector, decl_id, SymbolKind::ParamDecl, module, src_map);
+            build_decl(collector, decl_id, SymbolKind::ParamDecl, lowered.as_ref());
         }
     }
 
     match &module.ports {
         Ports::NonAnsi { ports, .. } => {
             for (port_id, port) in ports.iter() {
-                if let Some(src) = src_map.get(port_id) {
-                    regions.add_region_symbol(src.range(), collector);
+                if let Some(src) = lowered.named_source_info(port_id) {
+                    regions.add_region_symbol(src.full_range(), collector);
                     collector.push_symbol(&port.label, src);
                     collector.pop();
                 }
@@ -290,10 +280,10 @@ fn collect_module_items(
         }
         Ports::Ansi(port_decls) => {
             for (port_id, port_decl) in port_decls.iter() {
-                if let Some(src) = src_map.get(port_id) {
-                    regions.add_region_symbol(src.range(), collector);
+                if let Some(src) = lowered.source_info(port_id) {
+                    regions.add_region_symbol(src.full_range(), collector);
                 }
-                build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, module, src_map);
+                build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, lowered.as_ref());
             }
         }
     }
@@ -304,75 +294,72 @@ fn collect_module_items(
         }
         match *item {
             ModuleItem::DeclarationId(declaration_id) => {
-                build_declaration(collector, declaration_id, module, src_map)
+                build_declaration(collector, declaration_id, lowered.as_ref())
             }
             ModuleItem::InstantiationId(instantiation_id) => {
-                for &instance_id in module.get(instantiation_id).instances.iter() {
-                    let hir = module.get(instance_id);
-                    if let Some(src) = src_map.get(instance_id) {
+                for &instance_id in lowered.get(instantiation_id).instances.iter() {
+                    let hir = lowered.get(instance_id);
+                    if let Some(src) = lowered.named_source_info(instance_id) {
                         collector.push_symbol(&hir.name, src);
                         collector.pop();
                     }
                 }
             }
             ModuleItem::ProcId(proc_id) => {
-                let proc = module.get(proc_id);
-                let stmt_id = proc.stmt;
-                build_stmt(db, collector, stmt_id, module, src_map);
+                let stmt_id = lowered.get(proc_id).stmt;
+                build_stmt(db, collector, stmt_id, lowered.as_ref());
             }
             ModuleItem::PortDeclId(port_decl) => {
-                let port_decl = module.get(port_decl);
-                build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, module, src_map)
+                let port_decl = lowered.get(port_decl);
+                build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, lowered.as_ref())
             }
             ModuleItem::ContAssignId(_) => {}
             ModuleItem::DefParamId(_) => {}
             ModuleItem::GenerateRegionId(generate_region_id) => {
-                build_generate_region(db, collector, generate_region_id, module, src_map)
+                build_generate_region(db, collector, generate_region_id, lowered.as_ref())
             }
             ModuleItem::SpecifyBlockId(specify_block_id) => {
-                build_specify_block(collector, specify_block_id, module, src_map)
+                build_specify_block(collector, specify_block_id, lowered.as_ref())
             }
             ModuleItem::SpecifyItemId(_) => {}
             ModuleItem::TypedefId(typedef_id) => {
-                build_typedef(collector, typedef_id, module, src_map)
+                build_typedef(collector, typedef_id, lowered.as_ref())
             }
             ModuleItem::SubroutineId(subroutine_id) => {
-                build_subroutine(collector, subroutine_id, module, src_map)
+                build_subroutine(collector, subroutine_id, lowered.as_ref())
             }
             ModuleItem::ModportId(modport_id) => {
-                let modport = module.get(modport_id);
-                if let Some(src) = src_map.get(modport_id) {
+                let modport = lowered.get(modport_id);
+                if let Some(src) = lowered.named_source_info(modport_id) {
                     collector.push_symbol(&modport.name, src);
                     collector.pop();
                 }
             }
             ModuleItem::ClockingBlockId(clocking_block_id) => {
-                build_clocking_block(collector, clocking_block_id, module, src_map);
+                build_clocking_block(collector, clocking_block_id, lowered.as_ref());
             }
             ModuleItem::CheckerId(checker_id) => {
-                build_checker(collector, checker_id, module, src_map);
+                build_checker(collector, checker_id, lowered.as_ref());
             }
             ModuleItem::CovergroupId(covergroup_id) => {
-                build_covergroup(collector, covergroup_id, module, src_map);
+                build_covergroup(collector, covergroup_id, lowered.as_ref());
             }
-            ModuleItem::StructId(struct_id) => build_struct(collector, struct_id, module, src_map),
+            ModuleItem::StructId(struct_id) => build_struct(collector, struct_id, lowered.as_ref()),
         }
     }
     collector.pop();
     regions.finish_all(collector);
 }
 
-fn collect_block_items(
-    db: &dyn TyDb,
-    collector: &mut SymbolCollecter,
-    block_id: BlockId,
-    block_src: BlockSrc,
-) {
+fn collect_block_items(db: &dyn TyDb, collector: &mut SymbolCollecter, block_id: BlockId) {
     let lowered = db.block_with_source_map(block_id);
     let block = lowered.data_ref();
     let src_map = lowered.source_map();
     let mut regions = src_map.region_tree.walk().peekable();
 
+    let Some(InFile { value: block_src, .. }) = block_id.source(db) else {
+        return;
+    };
     collector.push_symbol_with_children(
         &block.name,
         block_src,
@@ -385,47 +372,33 @@ fn collect_block_items(
         }
         match *item {
             BlockItem::DeclarationId(declaration_id) => {
-                build_declaration(collector, declaration_id, block, src_map)
+                build_declaration(collector, declaration_id, lowered.as_ref())
             }
-            BlockItem::StmtId(stmt_id) => build_stmt(db, collector, stmt_id, block, src_map),
+            BlockItem::StmtId(stmt_id) => build_stmt(db, collector, stmt_id, lowered.as_ref()),
             BlockItem::TypedefId(typedef_id) => {
-                build_typedef(collector, typedef_id, block, src_map)
+                build_typedef(collector, typedef_id, lowered.as_ref())
             }
-            BlockItem::StructId(struct_id) => build_struct(collector, struct_id, block, src_map),
+            BlockItem::StructId(struct_id) => build_struct(collector, struct_id, lowered.as_ref()),
         }
     }
     collector.pop();
     regions.finish_all(collector);
 }
-
-fn build_stmt<Arn, SrcMap>(
-    db: &dyn TyDb,
-    collector: &mut SymbolCollecter,
-    stmt_id: Idx<Stmt>,
-    arena: &Arn,
-    src_map: &SrcMap,
-) where
-    Arn: GetRef<StmtId, Output = Stmt>
-        + GetRef<DeclId, Output = Declarator>
-        + GetRef<LocalBlockId, Output = BlockInfo>,
-    SrcMap: Get<StmtId, Output = Option<StmtSrc>>
-        + Get<DeclId, Output = Option<DeclaratorSrc>>
-        + Get<LocalBlockId, Output = Option<BlockSrc>>,
+fn build_stmt<L>(db: &dyn TyDb, collector: &mut SymbolCollecter, stmt_id: StmtId, lowered: &L)
+where
+    L: HirLookup<StmtId, Hir = Stmt>
+        + HirLookup<DeclId, Hir = Declarator>
+        + NamedSourceLookup<StmtId>
+        + NamedSourceLookup<DeclId>,
 {
-    let stmt = arena.get(stmt_id);
+    let stmt = lowered.hir(stmt_id);
 
     if let StmtKind::Block(block_info) = &stmt.kind {
-        let block_id = block_info.block_id;
-        let Some(stmt_src) = src_map.get(stmt_id) else {
-            return;
-        };
-        if let Ok(block_src) = stmt_src.try_into() {
-            collect_block_items(db, collector, block_id, block_src);
-        }
+        collect_block_items(db, collector, block_info.block_id);
         return;
     }
 
-    let Some(stmt_src) = src_map.get(stmt_id) else {
+    let Some(stmt_src) = lowered.named_source_info(stmt_id) else {
         return;
     };
     collector.push_symbol(&stmt.label, stmt_src);
@@ -435,11 +408,11 @@ fn build_stmt<Arn, SrcMap>(
         | StmtKind::Forever(stmt_id)
         | StmtKind::DoWhile(stmt_id, _)
         | StmtKind::Repeat(_, stmt_id)
-        | StmtKind::While(_, stmt_id) => build_stmt(db, collector, *stmt_id, arena, src_map),
+        | StmtKind::While(_, stmt_id) => build_stmt(db, collector, *stmt_id, lowered),
         StmtKind::Cond { then_stmt, else_stmt, .. } => {
-            build_stmt(db, collector, *then_stmt, arena, src_map);
+            build_stmt(db, collector, *then_stmt, lowered);
             if let Some(else_stmt) = else_stmt {
-                build_stmt(db, collector, *else_stmt, arena, src_map);
+                build_stmt(db, collector, *else_stmt, lowered);
             }
         }
         StmtKind::Case { items, .. } => {
@@ -448,16 +421,16 @@ fn build_stmt<Arn, SrcMap>(
                     CaseItem::Case { clause, .. } => clause,
                     CaseItem::Default(stmt) => stmt,
                 };
-                build_stmt(db, collector, *stmt_id, arena, src_map);
+                build_stmt(db, collector, *stmt_id, lowered);
             }
         }
         StmtKind::For { inits, stmt, .. } => {
             if let ForInit::Init(inits) = inits {
                 for (_, decl_id) in inits {
-                    build_decl(collector, *decl_id, SymbolKind::DataDecl, arena, src_map);
+                    build_decl(collector, *decl_id, SymbolKind::DataDecl, lowered);
                 }
             }
-            build_stmt(db, collector, *stmt, arena, src_map);
+            build_stmt(db, collector, *stmt, lowered);
         }
 
         StmtKind::Missing
@@ -475,61 +448,55 @@ fn build_stmt<Arn, SrcMap>(
     collector.pop();
 }
 
-#[inline]
-fn build_declaration<Arn, SrcMap>(
-    collector: &mut SymbolCollecter,
-    declaration_id: DeclarationId,
-    arena: &Arn,
-    src_map: &SrcMap,
-) where
-    Arn: GetRef<DeclId, Output = Declarator> + GetRef<DeclarationId, Output = Declaration>,
-    SrcMap: Get<DeclId, Output = Option<DeclaratorSrc>>
-        + Get<DeclarationId, Output = Option<DeclarationSrc>>,
+fn build_declaration<L>(collector: &mut SymbolCollecter, declaration_id: DeclarationId, lowered: &L)
+where
+    L: HirLookup<DeclId, Hir = Declarator>
+        + HirLookup<DeclarationId, Hir = Declaration>
+        + NamedSourceLookup<DeclId>
+        + SourceLookup<DeclarationId>,
 {
-    let declaration = arena.get(declaration_id);
-    let Some(src) = src_map.get(declaration_id) else {
+    let declaration = lowered.hir(declaration_id);
+    let Some(src) = lowered.source_info(declaration_id) else {
         return;
     };
     build_decls(
         collector,
         &declaration.decls(),
-        SymbolKind::from_syntax_kind(src.kind()),
-        arena,
-        src_map,
+        SymbolKind::from_syntax_kind(
+            src.kind().expect("mapped source should retain its syntax kind"),
+        ),
+        lowered,
     );
 }
 
 #[inline]
-fn build_generate_region<Arn, SrcMap>(
+fn build_generate_region<L>(
     db: &dyn TyDb,
     collector: &mut SymbolCollecter,
     generate_region_id: GenerateRegionId,
-    arena: &Arn,
-    src_map: &SrcMap,
+    lowered: &L,
 ) where
-    Arn: GetRef<GenerateRegionId, Output = GenerateRegion>
-        + GetRef<DeclarationId, Output = Declaration>
-        + GetRef<DeclId, Output = Declarator>
-        + GetRef<InstanceId, Output = Instance>
-        + GetRef<InstantiationId, Output = Instantiation>
-        + GetRef<LocalBlockId, Output = BlockInfo>
-        + GetRef<LocalSubroutineId, Output = Subroutine>
-        + GetRef<ProcId, Output = Proc>
-        + GetRef<StmtId, Output = Stmt>
-        + GetRef<StructId, Output = StructDef>
-        + GetRef<TypedefId, Output = Typedef>,
-    SrcMap: Get<GenerateRegionId, Output = Option<GenerateRegionSrc>>
-        + Get<DeclarationId, Output = Option<DeclarationSrc>>
-        + Get<DeclId, Output = Option<DeclaratorSrc>>
-        + Get<InstanceId, Output = Option<InstanceSrc>>
-        + Get<LocalBlockId, Output = Option<BlockSrc>>
-        + Get<LocalSubroutineId, Output = Option<SubroutineSrc>>
-        + Get<StmtId, Output = Option<StmtSrc>>
-        + Get<StructId, Output = Option<StructSrc>>
-        + Get<TypedefId, Output = Option<TypedefSrc>>,
+    L: HirLookup<GenerateRegionId, Hir = GenerateRegion>
+        + HirLookup<DeclarationId, Hir = Declaration>
+        + HirLookup<DeclId, Hir = Declarator>
+        + HirLookup<InstanceId, Hir = Instance>
+        + HirLookup<InstantiationId, Hir = Instantiation>
+        + HirLookup<LocalSubroutineId, Hir = Subroutine>
+        + HirLookup<ProcId, Hir = Proc>
+        + HirLookup<StmtId, Hir = Stmt>
+        + HirLookup<StructId, Hir = StructDef>
+        + HirLookup<TypedefId, Hir = Typedef>
+        + NamedSourceLookup<GenerateRegionId>
+        + SourceLookup<DeclarationId>
+        + NamedSourceLookup<DeclId>
+        + NamedSourceLookup<InstanceId>
+        + NamedSourceLookup<LocalSubroutineId>
+        + NamedSourceLookup<StmtId>
+        + NamedSourceLookup<StructId>
+        + NamedSourceLookup<TypedefId>,
 {
-    let hir = arena.get(generate_region_id);
-    let Some(src) = src_map.get(generate_region_id) else {
+    let hir = lowered.hir(generate_region_id);
+    let Some(src) = lowered.named_source_info(generate_region_id) else {
         return;
     };
     let name = Some(SmolStr::new_static("generate"));
@@ -538,32 +505,32 @@ fn build_generate_region<Arn, SrcMap>(
         match *item {
             GenerateItem::ContAssignId(_) | GenerateItem::DefParamId(_) => {}
             GenerateItem::DeclarationId(declaration_id) => {
-                build_declaration(collector, declaration_id, arena, src_map);
+                build_declaration(collector, declaration_id, lowered);
             }
             GenerateItem::GenerateBlockId(generate_block_id) => {
                 build_generate_block(db, collector, generate_block_id);
             }
             GenerateItem::InstantiationId(instantiation_id) => {
-                for &instance_id in arena.get(instantiation_id).instances.iter() {
-                    let hir = arena.get(instance_id);
-                    if let Some(src) = src_map.get(instance_id) {
+                for &instance_id in lowered.hir(instantiation_id).instances.iter() {
+                    let hir = lowered.hir(instance_id);
+                    if let Some(src) = lowered.named_source_info(instance_id) {
                         collector.push_symbol(&hir.name, src);
                         collector.pop();
                     }
                 }
             }
             GenerateItem::ProcId(proc_id) => {
-                let proc = arena.get(proc_id);
-                build_stmt(db, collector, proc.stmt, arena, src_map);
+                let proc = lowered.hir(proc_id);
+                build_stmt(db, collector, proc.stmt, lowered);
             }
             GenerateItem::StructId(struct_id) => {
-                build_struct(collector, struct_id, arena, src_map);
+                build_struct(collector, struct_id, lowered);
             }
             GenerateItem::SubroutineId(subroutine_id) => {
-                build_subroutine(collector, subroutine_id, arena, src_map);
+                build_subroutine(collector, subroutine_id, lowered);
             }
             GenerateItem::TypedefId(typedef_id) => {
-                build_typedef(collector, typedef_id, arena, src_map);
+                build_typedef(collector, typedef_id, lowered);
             }
         }
     }
@@ -575,36 +542,36 @@ fn build_generate_block(
     collector: &mut SymbolCollecter,
     generate_block_id: GenerateBlockId,
 ) {
-    let GenerateBlockLoc { src: InFile { value: generate_block_src, .. }, .. } =
-        generate_block_id.lookup(db);
+    let Some(InFile { value: generate_block_src, .. }) = generate_block_id.source(db) else {
+        return;
+    };
     let lowered = db.generate_block_with_source_map(generate_block_id);
     let generate_block = lowered.data_ref();
-    let src_map = lowered.source_map();
     let name = generate_block.name.clone();
 
     collector.push_symbol_with_kind(&name, generate_block_src, SymbolKind::Generate);
     for item in &generate_block.items {
         match *item {
             GenerateBlockItem::DeclarationId(declaration_id) => {
-                build_declaration(collector, declaration_id, generate_block, src_map);
+                build_declaration(collector, declaration_id, lowered.as_ref());
             }
             GenerateBlockItem::GenerateBlockId(child_id) => {
                 build_generate_block(db, collector, child_id);
             }
             GenerateBlockItem::TypedefId(typedef_id) => {
-                build_typedef(collector, typedef_id, generate_block, src_map);
+                build_typedef(collector, typedef_id, lowered.as_ref());
             }
             GenerateBlockItem::SubroutineId(subroutine_id) => {
-                build_subroutine(collector, subroutine_id, generate_block, src_map);
+                build_subroutine(collector, subroutine_id, lowered.as_ref());
             }
             GenerateBlockItem::ProcId(proc_id) => {
-                let proc = generate_block.get(proc_id);
-                build_stmt(db, collector, proc.stmt, generate_block, src_map);
+                let proc = lowered.get(proc_id);
+                build_stmt(db, collector, proc.stmt, lowered.as_ref());
             }
             GenerateBlockItem::InstantiationId(instantiation_id) => {
-                for &instance_id in generate_block.get(instantiation_id).instances.iter() {
-                    let hir = generate_block.get(instance_id);
-                    if let Some(src) = src_map.get(instance_id) {
+                for &instance_id in lowered.get(instantiation_id).instances.iter() {
+                    let hir = lowered.get(instance_id);
+                    if let Some(src) = lowered.named_source_info(instance_id) {
                         collector.push_symbol(&hir.name, src);
                         collector.pop();
                     }
@@ -612,7 +579,7 @@ fn build_generate_block(
             }
             GenerateBlockItem::ContAssignId(_) | GenerateBlockItem::DefParamId(_) => {}
             GenerateBlockItem::StructId(struct_id) => {
-                build_struct(collector, struct_id, generate_block, src_map);
+                build_struct(collector, struct_id, lowered.as_ref());
             }
         }
     }
@@ -620,17 +587,12 @@ fn build_generate_block(
 }
 
 #[inline]
-fn build_checker<Arn, SrcMap>(
-    collector: &mut SymbolCollecter,
-    checker_id: CheckerId,
-    arena: &Arn,
-    src_map: &SrcMap,
-) where
-    Arn: GetRef<CheckerId, Output = CheckerDef>,
-    SrcMap: Get<CheckerId, Output = Option<CheckerSrc>>,
+fn build_checker<L>(collector: &mut SymbolCollecter, checker_id: CheckerId, lowered: &L)
+where
+    L: HirLookup<CheckerId, Hir = CheckerDef> + NamedSourceLookup<CheckerId>,
 {
-    let checker = arena.get(checker_id);
-    let Some(src) = src_map.get(checker_id) else {
+    let checker = lowered.hir(checker_id);
+    let Some(src) = lowered.named_source_info(checker_id) else {
         return;
     };
     collector.push_symbol(&checker.name, src);
@@ -638,17 +600,15 @@ fn build_checker<Arn, SrcMap>(
 }
 
 #[inline]
-fn build_clocking_block<Arn, SrcMap>(
+fn build_clocking_block<L>(
     collector: &mut SymbolCollecter,
     clocking_block_id: ClockingBlockId,
-    arena: &Arn,
-    src_map: &SrcMap,
+    lowered: &L,
 ) where
-    Arn: GetRef<ClockingBlockId, Output = ClockingBlockDef>,
-    SrcMap: Get<ClockingBlockId, Output = Option<ClockingBlockSrc>>,
+    L: HirLookup<ClockingBlockId, Hir = ClockingBlockDef> + NamedSourceLookup<ClockingBlockId>,
 {
-    let clocking_block = arena.get(clocking_block_id);
-    let Some(src) = src_map.get(clocking_block_id) else {
+    let clocking_block = lowered.hir(clocking_block_id);
+    let Some(src) = lowered.named_source_info(clocking_block_id) else {
         return;
     };
     collector.push_symbol(&clocking_block.name, src);
@@ -656,21 +616,17 @@ fn build_clocking_block<Arn, SrcMap>(
 }
 
 #[inline]
-fn build_covergroup<Arn, SrcMap>(
-    collector: &mut SymbolCollecter,
-    covergroup_id: CovergroupId,
-    arena: &Arn,
-    src_map: &SrcMap,
-) where
-    Arn: GetRef<CovergroupId, Output = CovergroupDef>
-        + GetRef<CoverpointId, Output = CoverpointDef>
-        + GetRef<CrossId, Output = CrossDef>,
-    SrcMap: Get<CovergroupId, Output = Option<CovergroupSrc>>
-        + Get<CoverpointId, Output = Option<CoverpointSrc>>
-        + Get<CrossId, Output = Option<CrossSrc>>,
+fn build_covergroup<L>(collector: &mut SymbolCollecter, covergroup_id: CovergroupId, lowered: &L)
+where
+    L: HirLookup<CovergroupId, Hir = CovergroupDef>
+        + HirLookup<CoverpointId, Hir = CoverpointDef>
+        + HirLookup<CrossId, Hir = CrossDef>
+        + NamedSourceLookup<CovergroupId>
+        + NamedSourceLookup<CoverpointId>
+        + NamedSourceLookup<CrossId>,
 {
-    let covergroup = arena.get(covergroup_id);
-    let Some(src) = src_map.get(covergroup_id) else {
+    let covergroup = lowered.hir(covergroup_id);
+    let Some(src) = lowered.named_source_info(covergroup_id) else {
         return;
     };
     collector.push_symbol_with_children(
@@ -679,26 +635,21 @@ fn build_covergroup<Arn, SrcMap>(
         covergroup.coverpoints.len() + covergroup.crosses.len(),
     );
     for &coverpoint_id in &covergroup.coverpoints {
-        build_coverpoint(collector, coverpoint_id, arena, src_map);
+        build_coverpoint(collector, coverpoint_id, lowered);
     }
     for &cross_id in &covergroup.crosses {
-        build_cross(collector, cross_id, arena, src_map);
+        build_cross(collector, cross_id, lowered);
     }
     collector.pop();
 }
 
 #[inline]
-fn build_coverpoint<Arn, SrcMap>(
-    collector: &mut SymbolCollecter,
-    coverpoint_id: CoverpointId,
-    arena: &Arn,
-    src_map: &SrcMap,
-) where
-    Arn: GetRef<CoverpointId, Output = CoverpointDef>,
-    SrcMap: Get<CoverpointId, Output = Option<CoverpointSrc>>,
+fn build_coverpoint<L>(collector: &mut SymbolCollecter, coverpoint_id: CoverpointId, lowered: &L)
+where
+    L: HirLookup<CoverpointId, Hir = CoverpointDef> + NamedSourceLookup<CoverpointId>,
 {
-    let coverpoint = arena.get(coverpoint_id);
-    let Some(src) = src_map.get(coverpoint_id) else {
+    let coverpoint = lowered.hir(coverpoint_id);
+    let Some(src) = lowered.named_source_info(coverpoint_id) else {
         return;
     };
     collector.push_symbol(&coverpoint.name, src);
@@ -706,17 +657,12 @@ fn build_coverpoint<Arn, SrcMap>(
 }
 
 #[inline]
-fn build_cross<Arn, SrcMap>(
-    collector: &mut SymbolCollecter,
-    cross_id: CrossId,
-    arena: &Arn,
-    src_map: &SrcMap,
-) where
-    Arn: GetRef<CrossId, Output = CrossDef>,
-    SrcMap: Get<CrossId, Output = Option<CrossSrc>>,
+fn build_cross<L>(collector: &mut SymbolCollecter, cross_id: CrossId, lowered: &L)
+where
+    L: HirLookup<CrossId, Hir = CrossDef> + NamedSourceLookup<CrossId>,
 {
-    let cross = arena.get(cross_id);
-    let Some(src) = src_map.get(cross_id) else {
+    let cross = lowered.hir(cross_id);
+    let Some(src) = lowered.named_source_info(cross_id) else {
         return;
     };
     collector.push_symbol(&cross.name, src);
@@ -724,17 +670,12 @@ fn build_cross<Arn, SrcMap>(
 }
 
 #[inline]
-fn build_struct<Arn, SrcMap>(
-    collector: &mut SymbolCollecter,
-    struct_id: Idx<StructDef>,
-    arena: &Arn,
-    src_map: &SrcMap,
-) where
-    Arn: GetRef<StructId, Output = StructDef>,
-    SrcMap: Get<StructId, Output = Option<StructSrc>>,
+fn build_struct<L>(collector: &mut SymbolCollecter, struct_id: StructId, lowered: &L)
+where
+    L: HirLookup<StructId, Hir = StructDef> + NamedSourceLookup<StructId>,
 {
-    let hir = arena.get(struct_id);
-    let Some(src) = src_map.get(struct_id) else {
+    let hir = lowered.hir(struct_id);
+    let Some(src) = lowered.named_source_info(struct_id) else {
         return;
     };
 
@@ -752,21 +693,20 @@ fn struct_kind_name(kind: StructKind) -> SmolStr {
 }
 
 #[inline]
-fn build_specify_block<Arn, SrcMap>(
+fn build_specify_block<L>(
     collector: &mut SymbolCollecter,
     specify_block_id: SpecifyBlockId,
-    arena: &Arn,
-    src_map: &SrcMap,
+    lowered: &L,
 ) where
-    Arn: GetRef<SpecifyBlockId, Output = SpecifyBlock>
-        + GetRef<DeclarationId, Output = Declaration>
-        + GetRef<DeclId, Output = Declarator>,
-    SrcMap: Get<SpecifyBlockId, Output = Option<SpecifyBlockSrc>>
-        + Get<DeclarationId, Output = Option<DeclarationSrc>>
-        + Get<DeclId, Output = Option<DeclaratorSrc>>,
+    L: HirLookup<SpecifyBlockId, Hir = SpecifyBlock>
+        + HirLookup<DeclarationId, Hir = Declaration>
+        + HirLookup<DeclId, Hir = Declarator>
+        + NamedSourceLookup<SpecifyBlockId>
+        + SourceLookup<DeclarationId>
+        + NamedSourceLookup<DeclId>,
 {
-    let hir = arena.get(specify_block_id);
-    let Some(src) = src_map.get(specify_block_id) else {
+    let hir = lowered.hir(specify_block_id);
+    let Some(src) = lowered.named_source_info(specify_block_id) else {
         return;
     };
     let name = Some(SmolStr::new_static("specify"));
@@ -774,7 +714,7 @@ fn build_specify_block<Arn, SrcMap>(
     for item in hir.items.iter() {
         match *item {
             SpecifyBlockItem::DeclarationId(declaration_id) => {
-                build_declaration(collector, declaration_id, arena, src_map);
+                build_declaration(collector, declaration_id, lowered);
             }
             SpecifyBlockItem::SpecifyItemId(_) => {}
         }
@@ -783,34 +723,26 @@ fn build_specify_block<Arn, SrcMap>(
 }
 
 #[inline]
-fn build_decls<Arn, SrcMap>(
+fn build_decls<L>(
     collector: &mut SymbolCollecter,
     decls: &DeclsRange,
     kind: SymbolKind,
-    arena: &Arn,
-    src_map: &SrcMap,
+    lowered: &L,
 ) where
-    Arn: GetRef<DeclId, Output = Declarator>,
-    SrcMap: Get<DeclId, Output = Option<DeclaratorSrc>>,
+    L: HirLookup<DeclId, Hir = Declarator> + NamedSourceLookup<DeclId>,
 {
     for decl in decls.clone() {
-        build_decl(collector, decl, kind, arena, src_map);
+        build_decl(collector, decl, kind, lowered);
     }
 }
 
 #[inline]
-fn build_decl<Arn, SrcMap>(
-    collector: &mut SymbolCollecter,
-    decl: Idx<Declarator>,
-    kind: SymbolKind,
-    arena: &Arn,
-    src_map: &SrcMap,
-) where
-    Arn: GetRef<DeclId, Output = Declarator>,
-    SrcMap: Get<DeclId, Output = Option<DeclaratorSrc>>,
+fn build_decl<L>(collector: &mut SymbolCollecter, decl: DeclId, kind: SymbolKind, lowered: &L)
+where
+    L: HirLookup<DeclId, Hir = Declarator> + NamedSourceLookup<DeclId>,
 {
-    let hir = arena.get(decl);
-    let Some(src) = src_map.get(decl) else {
+    let hir = lowered.hir(decl);
+    let Some(src) = lowered.named_source_info(decl) else {
         return;
     };
     collector.push_symbol_with_kind(&hir.name, src, kind);
@@ -818,17 +750,12 @@ fn build_decl<Arn, SrcMap>(
 }
 
 #[inline]
-fn build_typedef<Arn, SrcMap>(
-    collector: &mut SymbolCollecter,
-    typedef_id: Idx<Typedef>,
-    arena: &Arn,
-    src_map: &SrcMap,
-) where
-    Arn: GetRef<TypedefId, Output = Typedef>,
-    SrcMap: Get<TypedefId, Output = Option<TypedefSrc>>,
+fn build_typedef<L>(collector: &mut SymbolCollecter, typedef_id: TypedefId, lowered: &L)
+where
+    L: HirLookup<TypedefId, Hir = Typedef> + NamedSourceLookup<TypedefId>,
 {
-    let hir = arena.get(typedef_id);
-    let Some(src) = src_map.get(typedef_id) else {
+    let hir = lowered.hir(typedef_id);
+    let Some(src) = lowered.named_source_info(typedef_id) else {
         return;
     };
     let kind = match hir.ty {
@@ -840,17 +767,15 @@ fn build_typedef<Arn, SrcMap>(
 }
 
 #[inline]
-fn build_subroutine<Arn, SrcMap>(
+fn build_subroutine<L>(
     collector: &mut SymbolCollecter,
     subroutine_id: LocalSubroutineId,
-    arena: &Arn,
-    src_map: &SrcMap,
+    lowered: &L,
 ) where
-    Arn: GetRef<LocalSubroutineId, Output = Subroutine>,
-    SrcMap: Get<LocalSubroutineId, Output = Option<SubroutineSrc>>,
+    L: HirLookup<LocalSubroutineId, Hir = Subroutine> + NamedSourceLookup<LocalSubroutineId>,
 {
-    let hir = arena.get(subroutine_id);
-    let Some(src) = src_map.get(subroutine_id) else {
+    let hir = lowered.hir(subroutine_id);
+    let Some(src) = lowered.named_source_info(subroutine_id) else {
         return;
     };
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Fn);
@@ -858,17 +783,12 @@ fn build_subroutine<Arn, SrcMap>(
 }
 
 #[inline]
-fn build_config_decl<Arn, SrcMap>(
-    collector: &mut SymbolCollecter,
-    config_id: ConfigDeclId,
-    arena: &Arn,
-    src_map: &SrcMap,
-) where
-    Arn: GetRef<ConfigDeclId, Output = ConfigDecl>,
-    SrcMap: Get<ConfigDeclId, Output = Option<ConfigDeclSrc>>,
+fn build_config_decl<L>(collector: &mut SymbolCollecter, config_id: ConfigDeclId, lowered: &L)
+where
+    L: HirLookup<ConfigDeclId, Hir = ConfigDecl> + NamedSourceLookup<ConfigDeclId>,
 {
-    let hir = arena.get(config_id);
-    let Some(src) = src_map.get(config_id) else {
+    let hir = lowered.hir(config_id);
+    let Some(src) = lowered.named_source_info(config_id) else {
         return;
     };
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Config);
@@ -876,17 +796,12 @@ fn build_config_decl<Arn, SrcMap>(
 }
 
 #[inline]
-fn build_udp_decl<Arn, SrcMap>(
-    collector: &mut SymbolCollecter,
-    udp_id: UdpDeclId,
-    arena: &Arn,
-    src_map: &SrcMap,
-) where
-    Arn: GetRef<UdpDeclId, Output = UdpDecl>,
-    SrcMap: Get<UdpDeclId, Output = Option<UdpDeclSrc>>,
+fn build_udp_decl<L>(collector: &mut SymbolCollecter, udp_id: UdpDeclId, lowered: &L)
+where
+    L: HirLookup<UdpDeclId, Hir = UdpDecl> + NamedSourceLookup<UdpDeclId>,
 {
-    let hir = arena.get(udp_id);
-    let Some(src) = src_map.get(udp_id) else {
+    let hir = lowered.hir(udp_id);
+    let Some(src) = lowered.named_source_info(udp_id) else {
         return;
     };
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Primitive);
@@ -894,17 +809,12 @@ fn build_udp_decl<Arn, SrcMap>(
 }
 
 #[inline]
-fn build_library_decl<Arn, SrcMap>(
-    collector: &mut SymbolCollecter,
-    library_id: LibraryDeclId,
-    arena: &Arn,
-    src_map: &SrcMap,
-) where
-    Arn: GetRef<LibraryDeclId, Output = LibraryDecl>,
-    SrcMap: Get<LibraryDeclId, Output = Option<LibraryDeclSrc>>,
+fn build_library_decl<L>(collector: &mut SymbolCollecter, library_id: LibraryDeclId, lowered: &L)
+where
+    L: HirLookup<LibraryDeclId, Hir = LibraryDecl> + NamedSourceLookup<LibraryDeclId>,
 {
-    let hir = arena.get(library_id);
-    let Some(src) = src_map.get(library_id) else {
+    let hir = lowered.hir(library_id);
+    let Some(src) = lowered.named_source_info(library_id) else {
         return;
     };
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Library);
