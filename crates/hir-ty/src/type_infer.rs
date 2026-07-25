@@ -21,15 +21,15 @@ use rustc_hash::FxHashSet;
 use triomphe::Arc;
 use utils::get::GetRef;
 
-use crate::db::TyDb;
+use crate::{Type, TypeDiagnostic, db::TyDb};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BuiltinTy {
+pub(crate) enum BuiltinTy {
     Data { id: BuiltinDataTyId, container: ArenaOwnerId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Ty {
+pub(crate) enum Ty {
     Unknown,
     Error,
     Void,
@@ -52,9 +52,9 @@ pub enum Ty {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TyResult {
-    pub ty: Ty,
-    pub diagnostics: Vec<TyInferDiagnostic>,
+pub(crate) struct TyResult {
+    pub(crate) ty: Ty,
+    pub(crate) diagnostics: Vec<TypeDiagnostic>,
 }
 
 impl TyResult {
@@ -62,26 +62,24 @@ impl TyResult {
         TyResult { ty, diagnostics: Vec::new() }
     }
 }
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum TyInferDiagnostic {
-    TypedefCycle(InContainer<TypedefId>),
-}
-
 #[derive(Debug, Clone)]
-pub struct TyMember {
-    pub name: Ident,
-    pub ty: Ty,
+pub(crate) struct TyMember {
+    pub(crate) name: Ident,
+    pub(crate) ty: Ty,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TyClass {
+pub(crate) enum TyClass {
     Integral,
     Real,
     String,
 }
 
-pub fn normalize_data_ty(db: &dyn TyDb, container: ArenaOwnerId, data_ty: DataTy) -> TyResult {
+pub(crate) fn normalize_data_ty(
+    db: &dyn TyDb,
+    container: ArenaOwnerId,
+    data_ty: DataTy,
+) -> TyResult {
     normalize_data_ty_with_owner(db, container, data_ty, None)
 }
 
@@ -94,33 +92,27 @@ fn normalize_data_ty_with_owner(
     normalize_data_ty_inner(db, container, data_ty, owner, &mut FxHashSet::default())
 }
 
-pub(crate) fn type_of_typedef_query(
-    db: &dyn TyDb,
-    typedef: InContainer<TypedefId>,
-) -> Arc<TyResult> {
-    Arc::new(type_of_typedef_impl(db, typedef))
+pub(crate) fn type_of_typedef_query(db: &dyn TyDb, typedef: InContainer<TypedefId>) -> Arc<Type> {
+    Arc::new(type_of_typedef_impl(db, typedef).into())
 }
 
-pub(crate) fn type_of_decl_query(db: &dyn TyDb, decl: InContainer<DeclId>) -> Arc<TyResult> {
-    Arc::new(type_of_decl_impl(db, decl))
+pub(crate) fn type_of_decl_query(db: &dyn TyDb, decl: InContainer<DeclId>) -> Arc<Type> {
+    Arc::new(type_of_decl_impl(db, decl).into())
 }
 
-pub(crate) fn type_of_path_resolution_query(
-    db: &dyn TyDb,
-    res: Resolution<DefId>,
-) -> Arc<TyResult> {
-    Arc::new(type_of_path_resolution_impl(db, res))
+pub(crate) fn type_of_path_resolution_query(db: &dyn TyDb, res: Resolution<DefId>) -> Arc<Type> {
+    Arc::new(type_of_path_resolution_impl(db, res).into())
 }
 
-pub(crate) fn type_of_expr_query(db: &dyn TyDb, expr: InContainer<ExprId>) -> Arc<TyResult> {
-    Arc::new(type_of_expr_impl(db, expr))
+pub(crate) fn type_of_expr_query(db: &dyn TyDb, expr: InContainer<ExprId>) -> Arc<Type> {
+    Arc::new(type_of_expr_impl(db, expr).into())
 }
 
 pub(crate) fn type_of_subroutine_port_query(
     db: &dyn TyDb,
     port: InSubroutine<SubroutinePortId>,
-) -> Arc<TyResult> {
-    Arc::new(type_of_subroutine_port_impl(db, port))
+) -> Arc<Type> {
+    Arc::new(type_of_subroutine_port_impl(db, port).into())
 }
 
 fn type_of_typedef_impl(db: &dyn TyDb, typedef: InContainer<TypedefId>) -> TyResult {
@@ -318,7 +310,7 @@ fn type_of_expr_impl(db: &dyn TyDb, expr: InContainer<ExprId>) -> TyResult {
     }
 }
 
-pub fn members_of_ty(db: &dyn TyDb, ty: &Ty) -> Vec<TyMember> {
+pub(crate) fn members_of_ty(db: &dyn TyDb, ty: &Ty) -> Vec<TyMember> {
     match ty {
         Ty::Alias { target, .. } => members_of_ty(db, target),
         Ty::Struct(struct_id) => struct_members(db, *struct_id),
@@ -346,7 +338,7 @@ pub fn members_of_ty(db: &dyn TyDb, ty: &Ty) -> Vec<TyMember> {
     }
 }
 
-pub fn select_member(db: &dyn TyDb, base: &Ty, name: &Ident) -> TyResult {
+fn select_member(db: &dyn TyDb, base: &Ty, name: &Ident) -> TyResult {
     members_of_ty(db, base)
         .into_iter()
         .find(|member| &member.name == name)
@@ -354,7 +346,7 @@ pub fn select_member(db: &dyn TyDb, base: &Ty, name: &Ident) -> TyResult {
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
 }
 
-pub fn type_class(db: &dyn TyDb, ty: &Ty) -> Option<TyClass> {
+pub(crate) fn type_class(db: &dyn TyDb, ty: &Ty) -> Option<TyClass> {
     match ty {
         Ty::Alias { target, .. } => type_class(db, target),
         Ty::Builtin(BuiltinTy::Data { id, .. }) => match db.lookup_intern_ty(*id) {
@@ -383,27 +375,7 @@ pub fn type_class(db: &dyn TyDb, ty: &Ty) -> Option<TyClass> {
     }
 }
 
-pub fn is_compatible_ty(db: &dyn TyDb, expected: &Ty, candidate: &Ty) -> bool {
-    let (Some(expected_class), Some(candidate_class)) =
-        (type_class(db, expected), type_class(db, candidate))
-    else {
-        return true;
-    };
-    if expected_class != candidate_class {
-        return false;
-    }
-
-    if expected_class != TyClass::Integral {
-        return true;
-    }
-
-    match (packed_bit_width(db, expected), packed_bit_width(db, candidate)) {
-        (Some(expected), Some(candidate)) => expected == candidate,
-        _ => true,
-    }
-}
-
-pub fn packed_bit_width(db: &dyn TyDb, ty: &Ty) -> Option<u64> {
+pub(crate) fn packed_bit_width(db: &dyn TyDb, ty: &Ty) -> Option<u64> {
     match ty {
         Ty::Alias { target, .. } => packed_bit_width(db, target),
         Ty::Builtin(BuiltinTy::Data { id, container }) => match db.lookup_intern_ty(*id) {
@@ -517,7 +489,7 @@ fn type_of_typedef_inner(
     if !seen.insert(typedef) {
         return TyResult {
             ty: Ty::Error,
-            diagnostics: vec![TyInferDiagnostic::TypedefCycle(typedef)],
+            diagnostics: vec![TypeDiagnostic::TypedefCycle(typedef)],
         };
     }
 
@@ -928,7 +900,7 @@ mod tests {
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
     use super::*;
-    use crate::{db::TyDbStorage, display::HirDisplay};
+    use crate::{TypeSystem, db::TyDbStorage, display::HirDisplay};
 
     const TOP: FileId = FileId::from_raw(0);
     const ROOT: SourceRootId = SourceRootId(0);
@@ -1017,14 +989,14 @@ mod tests {
             .iter()
             .find_map(|def_id| def_id.primary_origin(db).as_decl(db))
             .expect("resolved value should include a declaration");
-        db.type_of_decl(decl).ty.clone()
+        TypeSystem::new(db).type_of_def(DefId::new(db, decl)).ty().clone()
     }
 
     fn path_ty(db: &TestDb, module_id: ModuleId, segments: &[&str]) -> Ty {
         let path = segments.iter().map(|segment| ident(segment)).collect::<Vec<_>>();
         let res = hir_def::pathres::resolve_path(db, module_id.into(), &path, NameContext::Value);
         assert!(!res.is_unresolved(), "path {segments:?} should resolve");
-        db.type_of_path_resolution(res).ty.clone()
+        TypeSystem::new(db).type_of_resolution(res).ty().clone()
     }
 
     fn typedef_ty(db: &TestDb, module_id: ModuleId, name: &str) -> Ty {
@@ -1033,7 +1005,7 @@ mod tests {
             .iter()
             .find_map(|def_id| def_id.primary_origin(db).as_typedef(db))
             .expect("resolved type should include a typedef");
-        db.type_of_typedef(typedef).ty.clone()
+        TypeSystem::new(db).type_of_def(DefId::new(db, typedef)).ty().clone()
     }
 
     fn assert_owner_is_decl(db: &TestDb, def: DefId, name: &str) {
@@ -1188,7 +1160,12 @@ endmodule
         let program = module_id(&db, "p");
 
         let program_res = Resolution::Unique(DefId::new(&db, program));
-        assert_eq!(db.type_of_path_resolution(program_res).ty.display_source(&db).unwrap(), "p");
+        assert_eq!(
+            TypeSystem::new(&db)
+                .display_source(&TypeSystem::new(&db).type_of_resolution(program_res))
+                .unwrap(),
+            "p"
+        );
         assert_eq!(path_ty(&db, top, &["u_p"]).display_source(&db).unwrap(), "p");
     }
 
