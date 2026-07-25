@@ -199,7 +199,7 @@ impl ModuleSourceMap {
     }
 }
 
-crate::hir_def::impl_arena_getters!(
+crate::impl_arena_getters!(
     Module;
     NonAnsiPortId => ports => NonAnsiPort,
     PortRefId => ports => PortRef,
@@ -232,7 +232,7 @@ crate::hir_def::impl_arena_getters!(
     LocalBlockId => stmts => BlockInfo,
 );
 
-crate::hir_def::impl_source_map_getters!(
+crate::impl_source_map_getters!(
     ModuleSourceMap;
     NonAnsiPortSrc => NonAnsiPortId => port_srcs,
     PortRefSrc => PortRefId => port_srcs,

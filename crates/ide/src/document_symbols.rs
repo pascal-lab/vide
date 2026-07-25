@@ -2,42 +2,40 @@ use std::iter::Peekable;
 
 use base_db::intern::Lookup;
 use hir_def::{
+    DEFAULT_NAME,
+    aggregate::{StructDef, StructId, StructKind, StructSrc},
+    block::{BlockId, BlockInfo, BlockItem, BlockSrc, LocalBlockId},
+    checker::{CheckerDef, CheckerId, CheckerSrc},
     container::InFile,
-    hir_def::{
-        DEFAULT_NAME,
-        aggregate::{StructDef, StructId, StructKind, StructSrc},
-        block::{BlockId, BlockInfo, BlockItem, BlockSrc, LocalBlockId},
-        checker::{CheckerDef, CheckerId, CheckerSrc},
-        covergroup::{
-            CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointId, CoverpointSrc,
-            CrossDef, CrossId, CrossSrc,
-        },
-        declaration::{Declaration, DeclarationId, DeclarationSrc},
-        expr::declarator::{DeclId, Declarator, DeclaratorSrc, DeclsRange},
-        file::{
-            FileItem,
-            config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc},
-            library::{LibraryDecl, LibraryDeclId, LibraryDeclSrc},
-            udp::{UdpDecl, UdpDeclId, UdpDeclSrc},
-        },
-        module::{
-            ModuleId, ModuleItem, ModuleSrc,
-            clocking::{ClockingBlockDef, ClockingBlockId, ClockingBlockSrc},
-            generate::{
-                GenerateBlockId, GenerateBlockItem, GenerateBlockLoc, GenerateItem, GenerateRegion,
-                GenerateRegionId, GenerateRegionSrc,
-            },
-            instantiation::{Instance, InstanceId, InstanceSrc, Instantiation, InstantiationId},
-            port::Ports,
-            specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem, SpecifyBlockSrc},
-        },
-        proc::{Proc, ProcId},
-        stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind, StmtSrc},
-        subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc},
-        typedef::{Typedef, TypedefId, TypedefSrc},
+    covergroup::{
+        CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointId, CoverpointSrc,
+        CrossDef, CrossId, CrossSrc,
     },
+    declaration::{Declaration, DeclarationId, DeclarationSrc},
+    expr::declarator::{DeclId, Declarator, DeclaratorSrc, DeclsRange},
+    file::{
+        FileItem,
+        config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc},
+        library::{LibraryDecl, LibraryDeclId, LibraryDeclSrc},
+        udp::{UdpDecl, UdpDeclId, UdpDeclSrc},
+    },
+    module::{
+        ModuleId, ModuleItem, ModuleSrc,
+        clocking::{ClockingBlockDef, ClockingBlockId, ClockingBlockSrc},
+        generate::{
+            GenerateBlockId, GenerateBlockItem, GenerateBlockLoc, GenerateItem, GenerateRegion,
+            GenerateRegionId, GenerateRegionSrc,
+        },
+        instantiation::{Instance, InstanceId, InstanceSrc, Instantiation, InstantiationId},
+        port::Ports,
+        specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem, SpecifyBlockSrc},
+    },
+    proc::{Proc, ProcId},
     region_tree::{RegionNode, RegionTreeIterator},
     source_map::{IsNamedSrc, IsSrc},
+    stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind, StmtSrc},
+    subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc},
+    typedef::{Typedef, TypedefId, TypedefSrc},
 };
 use hir_ty::db::TyDb;
 use la_arena::Idx;
@@ -830,7 +828,7 @@ fn build_typedef<Arn, SrcMap>(
         return;
     };
     let kind = match hir.ty {
-        Some(hir_def::hir_def::expr::data_ty::DataTy::Struct(_)) => SymbolKind::Struct,
+        Some(hir_def::expr::data_ty::DataTy::Struct(_)) => SymbolKind::Struct,
         _ => SymbolKind::Typedef,
     };
     collector.push_symbol_with_kind(&hir.name, src, kind);

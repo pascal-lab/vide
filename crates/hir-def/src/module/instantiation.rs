@@ -3,12 +3,10 @@ use smallvec::SmallVec;
 use syntax::{SyntaxToken, ast};
 
 use crate::{
-    hir_def::{
-        Ident, alloc_with_source,
-        expr::{ExprId, data_ty::Dimension},
-        lower::{LoweringCtx, ModuleItemStore},
-        lower_ident_opt,
-    },
+    Ident, alloc_with_source,
+    expr::{ExprId, data_ty::Dimension},
+    lower::{LoweringCtx, ModuleItemStore},
+    lower_ident_opt,
     source_map::{
         AstId, AstKind, FromSourceAst, IsSrc, NamedAstId, SourceAst, ToAstNode,
         exact_ast_node_from_ptr,

@@ -8,21 +8,19 @@ use syntax::{
 use utils::get::{Get, GetRef};
 
 use crate::{
-    hir_def::{
-        Ident, alloc_with_optional_source_entry, alloc_with_source,
-        expr::{
-            Selector,
-            data_ty::{BuiltinDataTy, DataTy},
-            declarator::{DeclsRange, empty_decls_range},
-        },
-        lower_ident_opt,
-        module::LowerModuleCtx,
-        ty::{NetType, lower_net_kind},
+    Ident, alloc_with_optional_source_entry, alloc_with_source,
+    expr::{
+        Selector,
+        data_ty::{BuiltinDataTy, DataTy},
+        declarator::{DeclsRange, empty_decls_range},
     },
+    lower_ident_opt,
+    module::LowerModuleCtx,
     source_map::{
         AstId, AstKind, FromSourceAst, IsSrc, NamedAstId, SourceAst, SourceMap, ToAstNode,
         exact_ast_node_from_ptr,
     },
+    ty::{NetType, lower_net_kind},
 };
 
 // structure:

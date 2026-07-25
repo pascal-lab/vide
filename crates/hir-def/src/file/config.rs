@@ -2,7 +2,7 @@ use la_arena::Idx;
 use syntax::ast;
 
 use crate::{
-    hir_def::Ident,
+    Ident,
     source_map::{AstKind, NamedAstId},
 };
 

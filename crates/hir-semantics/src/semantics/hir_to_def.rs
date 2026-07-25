@@ -1,10 +1,8 @@
 use hir_def::{
+    Ident,
     container::{ArenaOwnerId, InContainer},
     def_id::DefId,
-    hir_def::{
-        Ident,
-        expr::{Expr, ExprId},
-    },
+    expr::{Expr, ExprId},
     pathres::{resolve_child_name, resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
 };

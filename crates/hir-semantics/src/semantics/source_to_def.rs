@@ -1,15 +1,13 @@
 use hir_def::{
+    block::{BlockId, BlockSrc, find_local_block_id},
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
     db::HirDefDb,
-    hir_def::{
-        block::{BlockId, BlockSrc, find_local_block_id},
-        module::{
-            ModuleId, ModuleSrc,
-            generate::{GenerateBlockLoc, GenerateBlockSrc},
-        },
-        subroutine::{LocalSubroutineId, SubroutineSrc},
+    module::{
+        ModuleId, ModuleSrc,
+        generate::{GenerateBlockLoc, GenerateBlockSrc},
     },
     source_map::ToAstNode,
+    subroutine::{LocalSubroutineId, SubroutineSrc},
 };
 use preproc_expand::file::HirFileId;
 use rustc_hash::FxHashMap;

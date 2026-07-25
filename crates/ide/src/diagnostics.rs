@@ -4,7 +4,7 @@ use base_db::{
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
-use hir_def::{db::HirDefDb, hir_def::module::ModuleId, source_map::IsSrc};
+use hir_def::{db::HirDefDb, module::ModuleId, source_map::IsSrc};
 use preproc_expand::db::PreprocDb;
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::{

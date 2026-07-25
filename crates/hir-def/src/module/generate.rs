@@ -20,31 +20,29 @@ use super::{
     },
 };
 use crate::{
+    Ident,
+    aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
+    alloc_with_optional_source_entry, alloc_with_source,
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
     db::HirDefDb,
-    hir_def::{
-        Ident,
-        aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
-        alloc_with_optional_source_entry, alloc_with_source,
-        declaration::{Declaration, DeclarationId, DeclarationSrc},
-        expr::{
-            Expr, ExprId, ExprSrc,
-            declarator::{DeclId, Declarator, DeclaratorSrc},
-            timing_control::{EventExpr, EventExprId, EventExprSrc},
-        },
-        lower::{GenerateBlockStore, LoweringCtx, SubroutineStore},
-        lower_ident_opt,
-        proc::{Proc, ProcId, ProcSrc},
-        stmt::{Stmt, StmtId, StmtSrc},
-        subroutine::{
-            LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine, lower_subroutine_body,
-        },
-        typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
+    declaration::{Declaration, DeclarationId, DeclarationSrc},
+    expr::{
+        Expr, ExprId, ExprSrc,
+        declarator::{DeclId, Declarator, DeclaratorSrc},
+        timing_control::{EventExpr, EventExprId, EventExprSrc},
     },
+    lower::{GenerateBlockStore, LoweringCtx, SubroutineStore},
+    lower_ident_opt,
+    proc::{Proc, ProcId, ProcSrc},
     region_tree::RegionTree,
     source_map::{
         FromSourceAst, IsNamedSrc, IsSrc, SourceAst, SourceMap, ToAstNode, root_token_in,
     },
+    stmt::{Stmt, StmtId, StmtSrc},
+    subroutine::{
+        LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine, lower_subroutine_body,
+    },
+    typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -363,7 +361,7 @@ impl GenerateBlockSourceMap {
     }
 }
 
-crate::hir_def::impl_arena_getters!(
+crate::impl_arena_getters!(
     GenerateBlock;
     ContAssignId => cont_assigns => ContAssign,
     DefParamId => defparams => DefParam,
@@ -380,10 +378,10 @@ crate::hir_def::impl_arena_getters!(
     EventExprId => event_exprs => EventExpr,
     DeclId => decls => Declarator,
     StmtId => stmts => Stmt,
-    crate::hir_def::block::LocalBlockId => stmts => crate::hir_def::block::BlockInfo,
+    crate::block::LocalBlockId => stmts => crate::block::BlockInfo,
 );
 
-crate::hir_def::impl_source_map_getters!(
+crate::impl_source_map_getters!(
     GenerateBlockSourceMap;
     ContAssignSrc => ContAssignId => assign_srcs,
     DefParamSrc => DefParamId => defparam_srcs,
@@ -400,7 +398,7 @@ crate::hir_def::impl_source_map_getters!(
     EventExprSrc => EventExprId => event_expr_srcs,
     DeclaratorSrc => DeclId => decl_srcs,
     StmtSrc => StmtId => stmt_srcs,
-    crate::hir_def::block::BlockSrc => crate::hir_def::block::LocalBlockId => stmt_srcs,
+    crate::block::BlockSrc => crate::block::LocalBlockId => stmt_srcs,
 );
 
 define_enum_deriving_from! {

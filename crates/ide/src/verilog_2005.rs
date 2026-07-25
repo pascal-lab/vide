@@ -3746,7 +3746,7 @@ endmodule
     let analysis = host.make_analysis();
 
     {
-        use hir_def::hir_def::{
+        use hir_def::{
             module::ModuleId,
             stmt::{CaseItem, Stmt, StmtId, StmtKind},
         };

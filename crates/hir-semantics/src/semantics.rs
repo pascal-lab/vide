@@ -1,16 +1,14 @@
 use std::{cell::RefCell, ops};
 
 use hir_def::{
+    Ident,
+    block::{BlockId, BlockSrc},
     container::{ArenaOwnerId, InContainer, InFile, SubroutineScope},
     db::HirDefDb,
     def_id::DefId,
-    hir_def::{
-        Ident,
-        block::{BlockId, BlockSrc},
-        expr::ExprId,
-        module::{ModuleId, ModuleSrc},
-        subroutine::SubroutineSrc,
-    },
+    expr::ExprId,
+    module::{ModuleId, ModuleSrc},
+    subroutine::SubroutineSrc,
     symbol::{NameContext, Resolution},
 };
 use hir_to_def::Hir2DefCache;

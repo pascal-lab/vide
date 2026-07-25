@@ -16,7 +16,7 @@ use super::{
     module::port::PortDirection,
 };
 use crate::{
-    hir_def::{Ident, lower_ident_opt},
+    Ident, lower_ident_opt,
     source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, root_token_in},
 };
 

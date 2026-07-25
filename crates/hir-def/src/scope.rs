@@ -6,32 +6,30 @@ use triomphe::Arc;
 use utils::get::{Get, GetRef};
 
 use crate::{
+    PackageImport,
+    block::BlockInfo,
+    checker::{CheckerDef, CheckerId, CheckerPortId},
     container::{
         ArenaOwnerId, FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope,
         InSubroutine, ScopeId, SubroutineParent, SubroutineScope,
     },
+    covergroup::{CovergroupDef, CovergroupId},
     db::HirDefDb,
+    declaration::DeclarationId,
     def_id::DefId,
-    hir_def::{
-        PackageImport,
-        block::BlockInfo,
-        checker::{CheckerDef, CheckerId, CheckerPortId},
-        covergroup::{CovergroupDef, CovergroupId},
-        declaration::DeclarationId,
-        expr::declarator::{DeclId, Declarator, DeclaratorParent},
-        lower_ident_opt,
-        module::{
-            Module, ModuleKind, PackageId,
-            clocking::{ClockingBlockId, ClockingSignalId},
-            generate::GenerateBlockId,
-            port::{PortDeclId, Ports},
-        },
-        stmt::{Stmt, StmtKind},
-        subroutine::{LocalSubroutineId, SubroutinePortId},
-        typedef::{Typedef, TypedefId},
+    expr::declarator::{DeclId, Declarator, DeclaratorParent},
+    lower_ident_opt,
+    module::{
+        Module, ModuleKind, PackageId,
+        clocking::{ClockingBlockId, ClockingSignalId},
+        generate::GenerateBlockId,
+        port::{PortDeclId, Ports},
     },
     source_map::ToAstNode,
+    stmt::{Stmt, StmtKind},
+    subroutine::{LocalSubroutineId, SubroutinePortId},
     symbol::{DefOriginLoc, Import, NameContext, NameScope},
+    typedef::{Typedef, TypedefId},
 };
 
 // SystemVerilog has separate namespaces. This scope stores current supported
@@ -205,7 +203,7 @@ impl NameScope {
 
     pub fn module_scope_query(
         db: &dyn HirDefDb,
-        module_id: crate::hir_def::module::ModuleId,
+        module_id: crate::module::ModuleId,
     ) -> Arc<NameScope> {
         let mut scope = NameScope::default();
         let (module, module_src_map) = db.module_with_source_map(module_id);
@@ -281,10 +279,10 @@ impl NameScope {
         }
 
         for item in &module_src_map.items {
-            if let crate::hir_def::module::ModuleItem::GenerateRegionId(generate_region_id) = item {
+            if let crate::module::ModuleItem::GenerateRegionId(generate_region_id) = item {
                 let generate_region = module.get(*generate_region_id);
                 for item in &generate_region.items {
-                    if let crate::hir_def::module::generate::GenerateItem::GenerateBlockId(
+                    if let crate::module::generate::GenerateItem::GenerateBlockId(
                         generate_block_id,
                     ) = *item
                     {
@@ -421,9 +419,7 @@ impl NameScope {
         );
 
         for item in &generate_block.items {
-            if let crate::hir_def::module::generate::GenerateBlockItem::GenerateBlockId(child_id) =
-                *item
-            {
+            if let crate::module::generate::GenerateBlockItem::GenerateBlockId(child_id) = *item {
                 let child = db.generate_block(child_id);
                 scope.insert_value_opt(&child.name, def_id(db, child_id));
             }
@@ -434,10 +430,7 @@ impl NameScope {
         Arc::new(scope)
     }
 
-    pub fn block_scope_query(
-        db: &dyn HirDefDb,
-        block_id: crate::hir_def::block::BlockId,
-    ) -> Arc<NameScope> {
+    pub fn block_scope_query(db: &dyn HirDefDb, block_id: crate::block::BlockId) -> Arc<NameScope> {
         let mut scope = NameScope::default();
         let block = db.block(block_id);
 
@@ -592,7 +585,7 @@ impl PackageExportSignatureBuilder<'_> {
         }
     }
 
-    fn record_decl_name(&mut self, name: Option<crate::hir_def::Ident>) {
+    fn record_decl_name(&mut self, name: Option<crate::Ident>) {
         let decl_id = self.next_decl_id();
         self.scope.insert_value_opt(
             &name,
@@ -646,7 +639,7 @@ impl PackageExportSignatureBuilder<'_> {
     }
 }
 
-fn lower_name(name: ast::Name<'_>) -> Option<crate::hir_def::Ident> {
+fn lower_name(name: ast::Name<'_>) -> Option<crate::Ident> {
     if let Some(id) = name.as_identifier_name().and_then(|name| name.identifier()) {
         return lower_ident_opt(Some(id));
     }
@@ -688,13 +681,11 @@ mod tests {
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
     use crate::{
+        Ident,
         container::{FileOrModule, InFile, InFileOrModule, ScopeId, SubroutineParent},
         db::{HirDefDb, HirDefDbStorage, InternDbStorage},
         def_id::DefId,
-        hir_def::{
-            Ident,
-            module::port::{NonAnsiPortSrc, PortSrcs, Ports},
-        },
+        module::port::{NonAnsiPortSrc, PortSrcs, Ports},
         pathres::resolve_name,
         source_map::IsNamedSrc,
         symbol::{DefKind, DefOriginLoc, NameContext, Resolution, ScopeKind},
@@ -1170,9 +1161,7 @@ endmodule
 
         assert_eq!(
             expr,
-            &crate::hir_def::expr::Expr::Unsupported(
-                syntax::SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION
-            ),
+            &crate::expr::Expr::Unsupported(syntax::SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION),
             "valid but unsupported syntax must carry an explicit diagnostic kind"
         );
         assert!(
@@ -1200,17 +1189,17 @@ endmodule
         let (empty_id, _) = module
             .stmts
             .iter()
-            .find(|(_, stmt)| matches!(stmt.kind, crate::hir_def::stmt::StmtKind::Empty))
+            .find(|(_, stmt)| matches!(stmt.kind, crate::stmt::StmtKind::Empty))
             .expect("empty statement should lower");
         assert!(source_map.get(empty_id).is_some());
 
-        let mut missing_file = crate::hir_def::file::HirFile::default();
-        let mut missing_file_source_map = crate::hir_def::file::FileSourceMap::default();
-        let mut ctx = crate::hir_def::lower::LoweringCtx::new(
+        let mut missing_file = crate::file::HirFile::default();
+        let mut missing_file_source_map = crate::file::FileSourceMap::default();
+        let mut ctx = crate::lower::LoweringCtx::new(
             &db,
             TOP.into(),
             crate::container::ArenaOwnerId::File(HirFileId::File(TOP)),
-            crate::hir_def::lower::FileStore {
+            crate::lower::FileStore {
                 data: &mut missing_file,
                 sources: &mut missing_file_source_map,
             },
@@ -1218,10 +1207,7 @@ endmodule
         let missing_id = ctx.lower_stmt_opt(None);
         drop(ctx);
 
-        assert!(matches!(
-            missing_file.stmts[missing_id].kind,
-            crate::hir_def::stmt::StmtKind::Missing
-        ));
+        assert!(matches!(missing_file.stmts[missing_id].kind, crate::stmt::StmtKind::Missing));
         assert!(missing_file_source_map.stmt_srcs.get(missing_id).is_none());
     }
 
@@ -1245,7 +1231,7 @@ endmodule
             .exprs
             .iter()
             .find_map(|(_, expr)| match expr {
-                crate::hir_def::expr::Expr::Stream { concats, .. } => Some(concats),
+                crate::expr::Expr::Stream { concats, .. } => Some(concats),
                 _ => None,
             })
             .expect("streaming concatenation should lower");
@@ -1253,7 +1239,7 @@ endmodule
         assert_eq!(stream.len(), 1);
         assert!(matches!(
             stream[0].with_range.as_ref().and_then(|range| range.selector),
-            Some(crate::hir_def::expr::Selector::Range(_, _))
+            Some(crate::expr::Selector::Range(_, _))
         ));
     }
 
@@ -1277,7 +1263,7 @@ endmodule
             .exprs
             .iter()
             .find_map(|(_, expr)| match expr {
-                crate::hir_def::expr::Expr::Stream { concats, .. } => Some(concats),
+                crate::expr::Expr::Stream { concats, .. } => Some(concats),
                 _ => None,
             })
             .expect("streaming concatenation should lower");
@@ -1290,7 +1276,7 @@ endmodule
         );
         assert!(matches!(
             stream[2].with_range.as_ref().and_then(|range| range.selector),
-            Some(crate::hir_def::expr::Selector::Range(_, _))
+            Some(crate::expr::Selector::Range(_, _))
         ));
     }
 
@@ -1318,8 +1304,8 @@ endmodule
         assert_eq!(clocking_block.name.as_deref(), Some("cb"));
         assert!(matches!(
             module.event_exprs[clocking_block.event],
-            crate::hir_def::expr::timing_control::EventExpr::Atom {
-                sensitivity: Some(crate::hir_def::expr::timing_control::Sensitivity::Posedge),
+            crate::expr::timing_control::EventExpr::Atom {
+                sensitivity: Some(crate::expr::timing_control::Sensitivity::Posedge),
                 ..
             }
         ));

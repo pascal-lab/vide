@@ -1,9 +1,8 @@
 use hir_def::{
+    Ident,
     db::HirDefDb,
-    hir_def::{
-        Ident, lower_ident_opt,
-        module::{ModuleId, ModuleSrc},
-    },
+    lower_ident_opt,
+    module::{ModuleId, ModuleSrc},
 };
 use hir_semantics::semantics::Semantics;
 use rustc_hash::FxHashSet;

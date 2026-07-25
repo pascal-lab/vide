@@ -1,18 +1,16 @@
 use hir_def::{
+    Ident,
     container::InFile,
     db::HirDefDb,
-    hir_def::{
-        Ident,
-        expr::{
-            Expr,
-            declarator::{DeclId, DeclaratorParent},
-        },
-        file::FileItem,
-        module::{
-            Module, ModuleId, ModuleSourceMap, ModuleSrc,
-            instantiation::{Instantiation, ParamAssign, PortConn, PortConnId},
-            port::{NonAnsiPortId, PortDeclId, PortDirection, Ports},
-        },
+    expr::{
+        Expr,
+        declarator::{DeclId, DeclaratorParent},
+    },
+    file::FileItem,
+    module::{
+        Module, ModuleId, ModuleSourceMap, ModuleSrc,
+        instantiation::{Instantiation, ParamAssign, PortConn, PortConnId},
+        port::{NonAnsiPortId, PortDeclId, PortDirection, Ports},
     },
     source_map::{IsNamedSrc, IsSrc},
     symbol::{DefKind, NameContext, NameScope, Resolution},

@@ -3,16 +3,14 @@ use smallvec::SmallVec;
 use syntax::ast;
 
 use crate::{
-    hir_def::{
-        alloc_with_source,
-        expr::{
-            Assign,
-            timing_control::{DelayControl, TimingControl},
-        },
-        lower::{LoweringCtx, ModuleItemStore},
-        ty::{DriveStrength, lower_drive_strength},
+    alloc_with_source,
+    expr::{
+        Assign,
+        timing_control::{DelayControl, TimingControl},
     },
+    lower::{LoweringCtx, ModuleItemStore},
     source_map::{AstId, AstKind},
+    ty::{DriveStrength, lower_drive_strength},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]

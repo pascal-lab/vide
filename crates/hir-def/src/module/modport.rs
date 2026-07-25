@@ -10,7 +10,7 @@ use utils::text_edit::TextRange;
 
 use super::{LowerModuleCtx, port::PortDirection};
 use crate::{
-    hir_def::{Ident, alloc_with_source, lower_ident_opt},
+    Ident, alloc_with_source, lower_ident_opt,
     source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, root_token_in},
 };
 

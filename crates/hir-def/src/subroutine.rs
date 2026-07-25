@@ -105,7 +105,7 @@ impl SubroutineSourceMap {
     }
 }
 
-crate::hir_def::impl_arena_getters!(
+crate::impl_arena_getters!(
     Subroutine;
     DeclarationId => declarations => Declaration,
     TypedefId => typedefs => Typedef,
@@ -117,7 +117,7 @@ crate::hir_def::impl_arena_getters!(
     LocalBlockId => stmts => BlockInfo,
 );
 
-crate::hir_def::impl_source_map_getters!(
+crate::impl_source_map_getters!(
     SubroutineSourceMap;
     DeclarationSrc => DeclarationId => declaration_srcs,
     TypedefSrc => TypedefId => typedef_srcs,

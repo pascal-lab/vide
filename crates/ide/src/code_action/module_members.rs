@@ -1,9 +1,7 @@
 use hir_def::{
     container::InContainer,
-    hir_def::{
-        declaration::Declaration,
-        module::{Module, ModuleId, port::Ports},
-    },
+    declaration::Declaration,
+    module::{Module, ModuleId, port::Ports},
     symbol::Resolution,
 };
 use hir_semantics::semantics::Semantics;

@@ -1,23 +1,21 @@
 use hir_def::{
+    Ident,
+    aggregate::{StructId, StructKind},
     container::{ArenaOwnerId, InContainer, InSubroutine},
+    declaration::Declaration,
     def_id::DefId,
-    hir_def::{
-        Ident,
-        aggregate::{StructId, StructKind},
-        declaration::Declaration,
-        expr::{
-            BinaryOp, Expr, ExprId, UnaryOp,
-            data_ty::{BuiltinDataTy, BuiltinDataTyId, DataTy, Dimension, IntKind, NamedDataTy},
-            declarator::{DeclId, DeclaratorParent},
-        },
-        literal::Literal,
-        module::{ModuleId, ModuleKind, generate::GenerateBlockId, port::PortDeclId},
-        stmt::{ForInit, StmtKind},
-        subroutine::SubroutinePortId,
-        typedef::TypedefId,
+    expr::{
+        BinaryOp, Expr, ExprId, UnaryOp,
+        data_ty::{BuiltinDataTy, BuiltinDataTyId, DataTy, Dimension, IntKind, NamedDataTy},
+        declarator::{DeclId, DeclaratorParent},
     },
+    literal::Literal,
+    module::{ModuleId, ModuleKind, generate::GenerateBlockId, port::PortDeclId},
     pathres::{instance_target_def_id, resolve_name},
+    stmt::{ForInit, StmtKind},
+    subroutine::SubroutinePortId,
     symbol::{DefKind, DefOriginLoc, NameContext, NameScope, Resolution},
+    typedef::TypedefId,
 };
 use rustc_hash::FxHashSet;
 use triomphe::Arc;
@@ -50,7 +48,7 @@ pub enum Ty {
     Covergroup(DefId),
     VirtualInterface { def: DefId, modport: Option<DefId> },
     GenerateBlock(GenerateBlockId),
-    Block(hir_def::hir_def::block::BlockId),
+    Block(hir_def::block::BlockId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -636,13 +634,13 @@ fn builtin_type_name_ty(db: &dyn TyDb, container: ArenaOwnerId, ident: &Ident) -
         "integer" => BuiltinDataTy::Int { kind: IntKind::Integer, signing: true },
         "time" => BuiltinDataTy::Int { kind: IntKind::Time, signing: false },
         "bit" => BuiltinDataTy::Vector {
-            kind: hir_def::hir_def::expr::data_ty::VecKind::Bit,
+            kind: hir_def::expr::data_ty::VecKind::Bit,
             signing: false,
             dimensions: Default::default(),
         },
         "logic" => BuiltinDataTy::default(),
         "reg" => BuiltinDataTy::Vector {
-            kind: hir_def::hir_def::expr::data_ty::VecKind::Reg,
+            kind: hir_def::expr::data_ty::VecKind::Reg,
             signing: false,
             dimensions: Default::default(),
         },
@@ -689,7 +687,7 @@ fn generate_block_members(db: &dyn TyDb, generate_block_id: GenerateBlockId) -> 
     scope_members(db, &db.generate_block_scope(generate_block_id))
 }
 
-fn block_members(db: &dyn TyDb, block_id: hir_def::hir_def::block::BlockId) -> Vec<TyMember> {
+fn block_members(db: &dyn TyDb, block_id: hir_def::block::BlockId) -> Vec<TyMember> {
     scope_members(db, &db.block_scope(block_id))
 }
 
@@ -735,7 +733,7 @@ fn port_decl_ty(db: &dyn TyDb, cont_id: ArenaOwnerId, port_decl_id: PortDeclId) 
 fn for_init_decl_ty(
     db: &dyn TyDb,
     cont_id: ArenaOwnerId,
-    stmt_id: hir_def::hir_def::stmt::StmtId,
+    stmt_id: hir_def::stmt::StmtId,
     decl_id: DeclId,
 ) -> Option<DataTy> {
     let stmt = stmt_of(db, InContainer::new(cont_id, stmt_id))?;
@@ -827,7 +825,7 @@ fn expr_of(db: &dyn TyDb, expr: InContainer<ExprId>) -> Option<Expr> {
 fn decl_of(
     db: &dyn TyDb,
     decl: InContainer<DeclId>,
-) -> Option<hir_def::hir_def::expr::declarator::Declarator> {
+) -> Option<hir_def::expr::declarator::Declarator> {
     match decl.cont_id {
         ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(decl.value).clone()),
         ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(decl.value).clone()),
@@ -843,7 +841,7 @@ fn decl_of(
 
 fn declaration_of(
     db: &dyn TyDb,
-    decl: InContainer<hir_def::hir_def::declaration::DeclarationId>,
+    decl: InContainer<hir_def::declaration::DeclarationId>,
 ) -> Option<Declaration> {
     match decl.cont_id {
         ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(decl.value).clone()),
@@ -858,10 +856,7 @@ fn declaration_of(
     }
 }
 
-fn typedef_of(
-    db: &dyn TyDb,
-    typedef: InContainer<TypedefId>,
-) -> Option<hir_def::hir_def::typedef::Typedef> {
+fn typedef_of(db: &dyn TyDb, typedef: InContainer<TypedefId>) -> Option<hir_def::typedef::Typedef> {
     match typedef.cont_id {
         ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(typedef.value).clone()),
         ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(typedef.value).clone()),
@@ -878,7 +873,7 @@ fn typedef_of(
 fn struct_of(
     db: &dyn TyDb,
     struct_id: InContainer<StructId>,
-) -> Option<hir_def::hir_def::aggregate::StructDef> {
+) -> Option<hir_def::aggregate::StructDef> {
     match struct_id.cont_id {
         ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(struct_id.value).clone()),
         ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(struct_id.value).clone()),
@@ -892,10 +887,7 @@ fn struct_of(
     }
 }
 
-fn stmt_of(
-    db: &dyn TyDb,
-    stmt: InContainer<hir_def::hir_def::stmt::StmtId>,
-) -> Option<hir_def::hir_def::stmt::Stmt> {
+fn stmt_of(db: &dyn TyDb, stmt: InContainer<hir_def::stmt::StmtId>) -> Option<hir_def::stmt::Stmt> {
     match stmt.cont_id {
         ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(stmt.value).clone()),
         ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(stmt.value).clone()),
@@ -925,7 +917,7 @@ mod tests {
     };
     use hir_def::{
         db::{HirDefDb, HirDefDbStorage, InternDbStorage},
-        hir_def::module::ModuleId,
+        module::ModuleId,
         symbol::{DefOriginLoc, NameContext},
     };
     use preproc_expand::db::PreprocDbStorage;
@@ -1214,7 +1206,7 @@ endmodule
         let (stream_id, _) = module
             .exprs
             .iter()
-            .find(|(_, expr)| matches!(expr, hir_def::hir_def::expr::Expr::Stream { .. }))
+            .find(|(_, expr)| matches!(expr, hir_def::expr::Expr::Stream { .. }))
             .expect("streaming concatenation should lower");
 
         assert_eq!(

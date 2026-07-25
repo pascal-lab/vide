@@ -8,16 +8,12 @@ use super::expr::{
     timing_control::DelayControl,
 };
 use crate::{
-    hir_def::{
-        alloc_with_source,
-        lower::{LoweringCtx, LoweringStore},
-        ty::{
-            DriveStrength, NetKind, Strength, lower_drive_strength, lower_net_kind, lower_strength,
-        },
-    },
+    alloc_with_source,
+    lower::{LoweringCtx, LoweringStore},
     source_map::{
         AstId, AstKind, FromSourceAst, IsSrc, SourceAst, ToAstNode, exact_ast_node_from_ptr,
     },
+    ty::{DriveStrength, NetKind, Strength, lower_drive_strength, lower_net_kind, lower_strength},
 };
 
 define_enum_deriving_from! {
@@ -365,7 +361,7 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
         let net_kind = lower_net_kind(net_decl.net_type());
         let ty = self.lower_data_ty(net_decl.type_());
         let delay = net_decl.delay().and_then(|delay| {
-            use crate::hir_def::expr::timing_control::TimingControl::*;
+            use crate::expr::timing_control::TimingControl::*;
             match self.lower_timing_control(delay) {
                 DelayControl(delay) => Some(delay),
                 _ => None,
@@ -452,9 +448,7 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
             force_local,
         );
         let decls = empty_decls_range();
-        let ty = DataTy::Builtin(
-            self.db.intern_ty(crate::hir_def::expr::data_ty::BuiltinDataTy::default()),
-        );
+        let ty = DataTy::Builtin(self.db.intern_ty(crate::expr::data_ty::BuiltinDataTy::default()));
 
         self.alloc_declaration(ParamDecl { ty, kind, is_port, decls }, type_param_decl)
     }

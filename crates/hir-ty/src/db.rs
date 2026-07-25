@@ -2,12 +2,10 @@ use hir_def::{
     container::{InContainer, InSubroutine},
     db::HirDefDb,
     def_id::DefId,
-    hir_def::{
-        expr::{ExprId, declarator::DeclId},
-        subroutine::SubroutinePortId,
-        typedef::TypedefId,
-    },
+    expr::{ExprId, declarator::DeclId},
+    subroutine::SubroutinePortId,
     symbol::Resolution,
+    typedef::TypedefId,
 };
 use triomphe::Arc;
 

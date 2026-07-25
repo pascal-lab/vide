@@ -1,4 +1,4 @@
-use hir_def::{db::HirDefDb, hir_def::module::ModuleId, source_map::IsSrc};
+use hir_def::{db::HirDefDb, module::ModuleId, source_map::IsSrc};
 use preproc_expand::file::HirFileId;
 use utils::{get::Get, text_edit::TextSize};
 

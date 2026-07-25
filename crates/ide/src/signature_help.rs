@@ -1,12 +1,10 @@
 use hir_def::{
     container::{InContainer, InModule},
     db::HirDefDb,
-    hir_def::{
-        declaration::Declaration,
-        module::{
-            instantiation::{ParamAssign, PortConn},
-            port::Ports,
-        },
+    declaration::Declaration,
+    module::{
+        instantiation::{ParamAssign, PortConn},
+        port::Ports,
     },
 };
 use hir_semantics::semantics::Semantics;

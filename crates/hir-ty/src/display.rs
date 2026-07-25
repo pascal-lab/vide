@@ -2,22 +2,20 @@ use std::fmt::{self, Debug};
 
 use base_db::intern::Lookup;
 use hir_def::{
+    aggregate::StructKind,
     container::{InContainer, InModule},
     def_id::DefId,
-    hir_def::{
-        aggregate::StructKind,
-        expr::{
-            Arg, AssignOp, BinaryOp, Expr, ExprId, IncDecOp, Selector, StreamOp, UnaryOp,
-            data_ty::{BuiltinDataTy, DataTy, Dimension, IntKind, NamedDataTy, Real, VecKind},
-            declarator::DeclId,
-        },
-        literal::Literal,
-        module::port::{PortDirection, PortHeader},
-        subroutine::SubroutinePortDir,
-        ty::{NetKind, NetType},
-        typedef::TypedefId,
+    expr::{
+        Arg, AssignOp, BinaryOp, Expr, ExprId, IncDecOp, Selector, StreamOp, UnaryOp,
+        data_ty::{BuiltinDataTy, DataTy, Dimension, IntKind, NamedDataTy, Real, VecKind},
+        declarator::DeclId,
     },
+    literal::Literal,
+    module::port::{PortDirection, PortHeader},
+    subroutine::SubroutinePortDir,
     symbol::DefOriginLoc,
+    ty::{NetKind, NetType},
+    typedef::TypedefId,
 };
 use syntax::TimeUnit;
 use triomphe::Arc;

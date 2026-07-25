@@ -5,16 +5,14 @@ use base_db::{
     source_root::SourceRootRole,
 };
 use hir_def::{
+    Ident,
     container::ArenaOwnerId,
     db::HirDefDb,
+    declaration::Declaration,
     def_id::DefId,
-    hir_def::{
-        Ident,
-        declaration::Declaration,
-        expr::declarator::DeclaratorParent,
-        lower_ident_opt,
-        module::{ModuleId, instantiation::Instantiation},
-    },
+    expr::declarator::DeclaratorParent,
+    lower_ident_opt,
+    module::{ModuleId, instantiation::Instantiation},
     symbol::{NameContext, Resolution},
 };
 use syntax::{

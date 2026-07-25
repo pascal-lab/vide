@@ -1,5 +1,5 @@
 use base_db::source_db::SourceDb;
-use hir_def::{container::InContainer, hir_def::expr::Expr};
+use hir_def::{container::InContainer, expr::Expr};
 use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
 use syntax::{

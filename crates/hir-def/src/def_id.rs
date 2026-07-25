@@ -12,21 +12,19 @@ use utils::{
 };
 
 use crate::{
+    block::BlockLoc,
+    checker::{CheckerDef, CheckerPort, CheckerPortId},
     container::{
         ArenaOwnerId, FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope,
         InSubroutine, ScopeId, SubroutineParent, SubroutineScope,
     },
+    covergroup::{CoverpointDef, CoverpointId, CrossDef, CrossId},
     db::HirDefDb,
-    hir_def::{
-        block::BlockLoc,
-        checker::{CheckerDef, CheckerPort, CheckerPortId},
-        covergroup::{CoverpointDef, CoverpointId, CrossDef, CrossId},
-        declaration::Declaration,
-        expr::declarator::DeclaratorParent,
-        module::{ModuleKind, clocking::ClockingSignal, generate::GenerateBlockLoc},
-        subroutine::SubroutineSrc,
-    },
+    declaration::Declaration,
+    expr::declarator::DeclaratorParent,
+    module::{ModuleKind, clocking::ClockingSignal, generate::GenerateBlockLoc},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
+    subroutine::SubroutineSrc,
     symbol::{DefKind, DefOrigin, DefOriginLoc},
 };
 
@@ -50,7 +48,7 @@ fn subroutine_src(db: &dyn HirDefDb, subroutine: SubroutineScope) -> Option<InFi
 
 fn clocking_signal_of(
     db: &dyn HirDefDb,
-    signal: InScope<crate::hir_def::module::clocking::ClockingSignalId>,
+    signal: InScope<crate::module::clocking::ClockingSignalId>,
 ) -> Option<(InModule<ClockingSignal>, HirFileId)> {
     let ScopeId::ClockingBlock(clocking_block) = signal.scope_id else {
         return None;
@@ -63,7 +61,7 @@ fn clocking_signal_of(
 
 fn checker_of(
     db: &dyn HirDefDb,
-    checker: InFileOrModule<crate::hir_def::checker::CheckerId>,
+    checker: InFileOrModule<crate::checker::CheckerId>,
 ) -> Option<(CheckerDef, HirFileId)> {
     match checker.cont_id {
         FileOrModule::File(file_id) => {
@@ -697,7 +695,7 @@ fn non_ansi_port_origin_role(
 fn non_ansi_port_for_origin(
     db: &dyn HirDefDb,
     origin: DefOrigin,
-) -> Option<InModule<crate::hir_def::module::port::NonAnsiPortId>> {
+) -> Option<InModule<crate::module::port::NonAnsiPortId>> {
     match origin.loc(db) {
         DefOriginLoc::NonAnsiPort(port_id) => Some(port_id),
         DefOriginLoc::Decl(InContainer { value, cont_id: ArenaOwnerId::Module(module_id) }) => {
@@ -716,7 +714,7 @@ fn non_ansi_port_for_origin(
                 return None;
             }
 
-            let crate::hir_def::module::port::Ports::NonAnsi { ports, .. } = &module.ports else {
+            let crate::module::port::Ports::NonAnsi { ports, .. } = &module.ports else {
                 return None;
             };
             let mut matches = ports.iter().filter(|(_, port)| port.label.as_ref() == Some(name));

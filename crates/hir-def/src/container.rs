@@ -8,30 +8,28 @@ use utils::{
 };
 
 use crate::{
+    aggregate::{StructDef, StructId, StructSrc},
+    block::{Block, BlockId, BlockInfo, BlockSourceMap, BlockSrc, LocalBlockId},
+    checker::CheckerId,
+    covergroup::CovergroupId,
     db::{HirDefDb, InternDb},
-    hir_def::{
-        aggregate::{StructDef, StructId, StructSrc},
-        block::{Block, BlockId, BlockInfo, BlockSourceMap, BlockSrc, LocalBlockId},
-        checker::CheckerId,
-        covergroup::CovergroupId,
-        declaration::{Declaration, DeclarationId, DeclarationSrc},
-        expr::{
-            Expr, ExprId, ExprSrc,
-            declarator::{DeclId, Declarator, DeclaratorSrc},
-            timing_control::{EventExpr, EventExprId, EventExprSrc},
-        },
-        file::{FileSourceMap, HirFile},
-        module::{
-            Module, ModuleId, ModuleKind, ModuleSourceMap,
-            clocking::ClockingBlockId,
-            generate::{GenerateBlock, GenerateBlockId, GenerateBlockSourceMap},
-        },
-        stmt::{Stmt, StmtId, StmtSrc},
-        subroutine::{LocalSubroutineId, Subroutine, SubroutineSourceMap},
-        typedef::{Typedef, TypedefId, TypedefSrc},
+    declaration::{Declaration, DeclarationId, DeclarationSrc},
+    expr::{
+        Expr, ExprId, ExprSrc,
+        declarator::{DeclId, Declarator, DeclaratorSrc},
+        timing_control::{EventExpr, EventExprId, EventExprSrc},
+    },
+    file::{FileSourceMap, HirFile},
+    module::{
+        Module, ModuleId, ModuleKind, ModuleSourceMap,
+        clocking::ClockingBlockId,
+        generate::{GenerateBlock, GenerateBlockId, GenerateBlockSourceMap},
     },
     region_tree::RegionTree,
+    stmt::{Stmt, StmtId, StmtSrc},
+    subroutine::{LocalSubroutineId, Subroutine, SubroutineSourceMap},
     symbol::ScopeKind,
+    typedef::{Typedef, TypedefId, TypedefSrc},
 };
 
 define_enum_deriving_from! {

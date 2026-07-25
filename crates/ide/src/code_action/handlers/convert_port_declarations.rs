@@ -2,16 +2,14 @@ use std::ops::Range;
 
 use base_db::source_db::SourceDb;
 use hir_def::{
+    Ident,
     container::{InContainer, InModule},
     db::HirDefDb,
-    hir_def::{
-        Ident,
-        declaration::DeclarationSrc,
-        expr::declarator::{DeclId, DeclaratorParent},
-        module::{
-            Module, ModuleId, ModuleSourceMap,
-            port::{PortDecl, PortDeclSrc, Ports},
-        },
+    declaration::DeclarationSrc,
+    expr::declarator::{DeclId, DeclaratorParent},
+    module::{
+        Module, ModuleId, ModuleSourceMap,
+        port::{PortDecl, PortDeclSrc, Ports},
     },
     source_map::IsSrc,
     symbol::{NameContext, NameScope},

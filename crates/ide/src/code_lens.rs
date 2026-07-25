@@ -1,10 +1,8 @@
 use hir_def::{
     db::HirDefDb,
     def_id::DefId,
-    hir_def::{
-        file::{FileSourceMap, HirFile},
-        module::ModuleId,
-    },
+    file::{FileSourceMap, HirFile},
+    module::ModuleId,
     source_map::IsSrc,
 };
 use hir_semantics::semantics::Semantics;

@@ -4,7 +4,7 @@ use base_db::source_db::SourceDb;
 use hir_def::{
     container::InModule,
     db::HirDefDb,
-    hir_def::module::instantiation::{ParamAssign, PortConn},
+    module::instantiation::{ParamAssign, PortConn},
     source_map::IsSrc,
 };
 use itertools::Itertools;

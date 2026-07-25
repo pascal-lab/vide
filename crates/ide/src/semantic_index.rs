@@ -3,11 +3,7 @@ use base_db::{
     source_root::SourceRootId,
 };
 use hir_def::{
-    container::InFile,
-    db::HirDefDb,
-    def_id::DefId,
-    hir_def::{Ident, module::ModuleId},
-    source_map::IsSrc,
+    Ident, container::InFile, db::HirDefDb, def_id::DefId, module::ModuleId, source_map::IsSrc,
     symbol::DefOrigin,
 };
 use hir_semantics::semantics::Semantics;
@@ -453,7 +449,7 @@ fn module_id_at_range(db: &RootDb, file_id: FileId, name_range: TextRange) -> Op
 fn instantiation_name_range(
     db: &RootDb,
     file_id: FileId,
-    src: hir_def::hir_def::module::instantiation::InstantiationSrc,
+    src: hir_def::module::instantiation::InstantiationSrc,
 ) -> Option<TextRange> {
     let tree = db.parse_src_for_compilation(file_id);
     let root = tree.root()?;
