@@ -12,7 +12,10 @@ bitflags.workspace = true
 dissimilar = "1.0.9"
 fst = "0.4.7"
 # Compiler layers are explicit dependencies; `hir-semantics` is a
-# syntax-to-HIR adapter, not a high-level facade over them.
+# syntax-to-HIR adapter, not a high-level facade over them. IDE consumes
+# the `hir` facade for high-level entry points and falls back to the
+# layer crates only where the facade is not yet built out.
+hir.workspace = true
 hir-def.workspace = true
 hir-semantics.workspace = true
 hir-ty.workspace = true

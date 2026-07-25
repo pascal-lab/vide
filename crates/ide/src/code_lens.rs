@@ -1,4 +1,4 @@
-use hir_def::{db::HirDefDb, def_id::DefId, file::HirFile, module::ModuleId, source_map::Lowered};
+use hir_def::{db::HirDefDb, def_id::DefId, module::ModuleId};
 use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -31,35 +31,28 @@ pub enum CodeLensKind {
 }
 
 pub(crate) fn code_lens(db: &RootDb, config: CodeLensConfig, file_id: FileId) -> Vec<CodeLens> {
-    let file_id = HirFileId::File(file_id);
-    let hir_file = db.hir_file_with_source_map(file_id);
+    let sema = hir::Semantics::new(db);
+    let file = hir::File::from(file_id);
 
     let mut res = Vec::new();
 
     if config.instantiations {
-        process_instantiations(&hir_file, file_id, &mut res);
+        for (source, module) in sema.module_declarations(file) {
+            if module.name(db).is_none() {
+                continue;
+            }
+            let pos = FilePosition {
+                file_id: source.file().expect_file(),
+                offset: source.range().start(),
+            };
+            res.push(CodeLens {
+                range: source.range(),
+                kind: CodeLensKind::ModuleInstance { pos, data: None },
+            });
+        }
     }
 
     res
-}
-
-fn process_instantiations(
-    hir_file: &Lowered<HirFile>,
-    file_id: HirFileId,
-    res: &mut Vec<CodeLens>,
-) {
-    for (local_module_id, module_info) in hir_file.modules.iter() {
-        if module_info.name.is_none() {
-            continue;
-        };
-
-        let Some(range) = hir_file.source_range(local_module_id) else {
-            continue;
-        };
-        let pos = FilePosition { file_id: file_id.expect_file(), offset: range.start() };
-
-        res.push(CodeLens { range, kind: CodeLensKind::ModuleInstance { pos, data: None } });
-    }
 }
 
 pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLensKind {
