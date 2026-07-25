@@ -1,8 +1,7 @@
-use hir::{
-    base_db::intern::Lookup,
+use base_db::intern::Lookup;
+use hir_def::{
     container::{InContainer, InFile, InModule, InSubroutine, SubroutineScope},
-    db::{HirDb, HirDefDb},
-    file::HirFileId,
+    db::HirDefDb,
     hir_def::{
         block::{BlockId, BlockLoc},
         declaration::Declaration,
@@ -21,6 +20,8 @@ use hir::{
     source_map::{IsNamedSrc, IsSrc},
     symbol::DefOrigin,
 };
+use hir_ty::db::TyDb;
+use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
 use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange};
 use utils::{
@@ -297,7 +298,7 @@ fn build(
 /// macro call. Returns `None` when a macro expansion's call site cannot be
 /// resolved.
 pub(crate) fn nav_location(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     file_id: HirFileId,
     name_range: Option<TextRange>,
     full_range: TextRange,
@@ -305,7 +306,7 @@ pub(crate) fn nav_location(
     match file_id {
         HirFileId::File(file_id) => Some((file_id, name_range, full_range)),
         HirFileId::Macro(macro_file) => {
-            let call_site = hir::macro_file::macro_file_call_site(db, macro_file)?;
+            let call_site = preproc_expand::macro_file::macro_file_call_site(db, macro_file)?;
             Some((call_site.call_file_id, Some(call_site.call_range), call_site.call_range))
         }
     }

@@ -101,7 +101,7 @@ fn token_precedence(kind: TokenKind) -> usize {
 mod tests {
     use std::fmt::Write;
 
-    use hir::base_db::{change::Change, source_root::SourceRoot};
+    use base_db::{change::Change, source_root::SourceRoot};
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
     use super::selection_ranges;

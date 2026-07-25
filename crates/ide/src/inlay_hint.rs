@@ -1,7 +1,6 @@
-use hir::{
+use hir_def::{
     container::InFile,
     db::HirDefDb,
-    file::HirFileId,
     hir_def::{
         Ident,
         expr::{
@@ -15,9 +14,12 @@ use hir::{
             port::{NonAnsiPortId, PortDeclId, PortDirection, Ports},
         },
     },
-    preproc::{MacroCallResolution, macro_call_resolutions_in_range},
     source_map::{IsNamedSrc, IsSrc},
     symbol::{DefKind, NameContext, NameScope, Resolution},
+};
+use preproc_expand::{
+    file::HirFileId,
+    preproc::{MacroCallResolution, macro_call_resolutions_in_range},
 };
 use syntax::{ast, match_ast_kind};
 use utils::{
@@ -589,7 +591,7 @@ fn should_skip(expr: &Expr, name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use hir::base_db::{change::Change, source_root::SourceRoot};
+    use base_db::{change::Change, source_root::SourceRoot};
     use utils::text_edit::{TextRange, TextSize};
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 

@@ -1,4 +1,4 @@
-use hir::base_db::source_db::SourceDb;
+use base_db::source_db::SourceDb;
 use utils::text_edit::TextSize;
 
 use crate::code_action::{

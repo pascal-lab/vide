@@ -1,15 +1,18 @@
 use std::collections::BTreeMap;
 
-use hir::{
+use hir::semantics::Semantics;
+use hir_def::{
     container::{InContainer, ScopeId, ScopeParent, SubroutineScope},
-    db::{HirDb, HirDefDb},
+    db::HirDefDb,
     def_id::DefId,
-    file::HirFileId,
     hir_def::{lower_ident_opt, module::ModuleId, subroutine::SubroutineKind},
-    semantics::Semantics,
     symbol::{DefKind, Resolution},
+};
+use hir_ty::{
+    db::TyDb,
     type_infer::{Ty, normalize_data_ty, type_class},
 };
+use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxNodeExt,
     ast::{self, AstNode},
@@ -165,7 +168,7 @@ fn collect_module_names(db: &RootDb, module_id: ModuleId, names: &mut BTreeMap<S
 
 fn collect_def_names(
     db: &RootDb,
-    ident: &hir::hir_def::Ident,
+    ident: &hir_def::hir_def::Ident,
     defs: impl IntoIterator<Item = DefId>,
     names: &mut BTreeMap<String, NameKind>,
 ) {

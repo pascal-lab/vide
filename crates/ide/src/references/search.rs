@@ -1,20 +1,20 @@
-use hir::{
-    base_db::{
-        intern::Lookup,
-        salsa::Database,
-        source_db::{SourceDb, SourceRootDb},
-        source_root::SourceRootId,
-    },
+use base_db::{
+    intern::Lookup,
+    salsa::Database,
+    source_db::{SourceDb, SourceRootDb},
+    source_root::SourceRootId,
+};
+use hir::semantics::Semantics;
+use hir_def::{
     container::{InFile, ScopeId},
-    db::{HirDb, HirDefDb},
+    db::HirDefDb,
     def_id::DefId,
-    file::HirFileId,
-    macro_file::macro_file_call_site,
-    semantics::Semantics,
     source_map::IsSrc,
     symbol::DefOrigin,
 };
+use hir_ty::db::TyDb;
 use nohash_hasher::IntMap;
+use preproc_expand::{file::HirFileId, macro_file::macro_file_call_site};
 use rustc_hash::FxHashMap;
 use syntax::{SyntaxTokenWithParent, ptr::SyntaxTokenPtr};
 use utils::{get::Get, line_index::TextRange};
@@ -266,7 +266,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
 /// not a file the user can open. Returns `None` when a macro expansion's call
 /// site cannot be resolved.
 pub(crate) fn resolve_source_range(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     file_id: HirFileId,
     range: TextRange,
 ) -> Option<(FileId, TextRange)> {

@@ -1,4 +1,4 @@
-use hir::{
+use preproc_expand::{
     db::PreprocDb,
     macro_file::{MacroFileExpansion, macro_file_expansion, macro_files_at_offset},
     preproc::{MacroReferenceDefinitions, macro_reference_definitions_at},

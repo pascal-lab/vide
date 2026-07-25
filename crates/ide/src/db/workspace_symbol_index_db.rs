@@ -1,7 +1,5 @@
-use hir::{
-    base_db::{salsa, source_db::SourceRootDb, source_root::SourceRootId},
-    db::HirDb,
-};
+use base_db::{salsa, source_db::SourceRootDb, source_root::SourceRootId};
+use hir_ty::db::TyDb;
 use triomphe::Arc;
 use vfs::FileId;
 
@@ -12,7 +10,7 @@ use crate::{
 };
 
 #[salsa::query_group(WorkspaceSymbolIndexDbStorage)]
-pub trait WorkspaceSymbolIndexDb: SourceRootDb + HirDb {
+pub trait WorkspaceSymbolIndexDb: SourceRootDb + TyDb {
     fn file_workspace_symbols(&self, file_id: FileId) -> Arc<[WorkspaceSymbol]>;
     fn source_root_symbol_index(&self, source_root_id: SourceRootId) -> Arc<SymbolIndex>;
     fn source_root_module_index(&self, source_root_id: SourceRootId) -> Arc<ModuleIndex>;

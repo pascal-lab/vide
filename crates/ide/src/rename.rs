@@ -1,13 +1,15 @@
-use hir::{
-    base_db::source_db::SourceDb,
+use base_db::source_db::SourceDb;
+use hir::semantics::Semantics;
+use hir_def::{
     container::InFile,
     def_id::DefId,
-    file::HirFileId,
-    macro_file::{macro_file_call_site, macro_files_at_offset},
-    semantics::Semantics,
     symbol::{DefOrigin, NameContext},
 };
 use nohash_hasher::IntMap;
+use preproc_expand::{
+    file::HirFileId,
+    macro_file::{macro_file_call_site, macro_files_at_offset},
+};
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use syntax::{
@@ -425,7 +427,7 @@ fn same_name_refs_collect(
 
 fn check_same_name_conn(
     sema: &Semantics<'_, RootDb>,
-    file_id: hir::file::HirFileId,
+    file_id: preproc_expand::file::HirFileId,
     token: SyntaxTokenWithParent<'_>,
 ) -> Option<SameNameConnection> {
     let conn =

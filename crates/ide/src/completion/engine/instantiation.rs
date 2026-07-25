@@ -1,4 +1,4 @@
-use hir::{
+use hir_def::{
     db::HirDefDb,
     hir_def::{
         Ident,

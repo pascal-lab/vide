@@ -1,14 +1,14 @@
-use hir::{
+use hir::semantics::Semantics;
+use hir_def::{
     db::HirDefDb,
     def_id::DefId,
-    file::HirFileId,
     hir_def::{
         file::{FileSourceMap, HirFile},
         module::ModuleId,
     },
-    semantics::Semantics,
     source_map::IsSrc,
 };
+use preproc_expand::file::HirFileId;
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRangeIn,

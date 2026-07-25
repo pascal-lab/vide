@@ -1,11 +1,11 @@
-use hir::{
-    base_db::source_db::SourceDb,
-    container::InFile,
+use base_db::source_db::SourceDb;
+use hir::semantics::Semantics;
+use hir_def::container::InFile;
+use itertools::Itertools;
+use preproc_expand::{
     file::HirFileId,
     preproc::{IncludeDirective, IncludeTarget, MacroDefinition, MacroParamDefinition},
-    semantics::Semantics,
 };
-use itertools::Itertools;
 use syntax::{
     SyntaxTokenWithParent, TokenKind,
     token::{TokenKindExt, pair_token},

@@ -1,4 +1,5 @@
-use hir::{db::HirDefDb, file::HirFileId, hir_def::module::ModuleId, source_map::IsSrc};
+use hir_def::{db::HirDefDb, hir_def::module::ModuleId, source_map::IsSrc};
+use preproc_expand::file::HirFileId;
 use utils::{get::Get, text_edit::TextSize};
 
 use super::{candidate::CompletionCandidate, typed_filter::value_candidates_in_module};

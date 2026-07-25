@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use hir::preproc::visible_macro_names_at;
+use preproc_expand::preproc::visible_macro_names_at;
 
 use super::candidate::CompletionCandidate;
 use crate::{
