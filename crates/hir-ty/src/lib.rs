@@ -9,6 +9,7 @@ mod compatibility;
 pub mod db;
 pub mod display;
 mod infer;
+mod members;
 mod ty;
 mod type_system;
 

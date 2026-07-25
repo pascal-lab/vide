@@ -12,7 +12,8 @@ use crate::{
     compatibility::{packed_bit_width, type_class},
     db::TyDb,
     display::{HirDisplay, HirDisplayError},
-    infer::{members_of_ty, normalize_data_ty},
+    infer::normalize_data_ty,
+    members::members_of_ty,
     ty::{Ty, TyClass, TyResult},
 };
 
