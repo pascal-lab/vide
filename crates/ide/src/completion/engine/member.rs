@@ -1,9 +1,6 @@
 use hir_def::symbol::NameContext;
 use hir_semantics::semantics::Semantics;
-use hir_ty::{
-    db::TyDb,
-    type_infer::{TyMember, members_of_ty},
-};
+use hir_ty::{Member, TypeSystem};
 use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,
@@ -41,7 +38,7 @@ pub(super) fn complete_member_access(
 
     members
         .into_iter()
-        .map(|member| member.name)
+        .map(Member::into_name)
         .filter(|name| name.as_str().starts_with(prefix))
         .map(|name| {
             let label = name.to_string();
@@ -79,15 +76,14 @@ fn members_for_incomplete_scoped_access(
     file_id: HirFileId,
     root: SyntaxNode<'_>,
     offset: utils::text_edit::TextSize,
-) -> Option<Vec<TyMember>> {
+) -> Option<Vec<Member>> {
     let separator = root.token_before_offset(offset)?;
     if separator.kind() != syntax::Token![::] {
         return None;
     }
     let left = root.token_before_offset(separator.text_range()?.start())?;
     let res = sema.nameres_ident(file_id, left, NameContext::Type);
-    let ty = db.type_of_path_resolution(res);
-    let members = members_of_ty(db, &ty.ty);
+    let members = TypeSystem::new(db).members(&TypeSystem::new(db).type_of_resolution(res));
     (!members.is_empty()).then_some(members)
 }
 
@@ -97,7 +93,7 @@ fn members_for_incomplete_access(
     file_id: HirFileId,
     root: SyntaxNode<'_>,
     offset: utils::text_edit::TextSize,
-) -> Option<Vec<TyMember>> {
+) -> Option<Vec<Member>> {
     let dot = root.token_before_offset(offset)?;
     if dot.kind() != syntax::Token![.] {
         return None;
@@ -125,14 +121,12 @@ fn members_for_expr(
     sema: &Semantics<'_, RootDb>,
     file_id: HirFileId,
     expr: ast::Expression<'_>,
-) -> Option<Vec<TyMember>> {
+) -> Option<Vec<Member>> {
     let expr_id = sema.resolve_expr(file_id, expr)?;
-    let ty = db.type_of_expr(expr_id);
-    let mut members = members_of_ty(db, &ty.ty);
+    let types = TypeSystem::new(db);
+    let mut members = types.members(&types.type_of_expr(expr_id));
     if members.is_empty() {
-        let res = sema.expr_to_def(expr_id);
-        let ty = db.type_of_path_resolution(res);
-        members = members_of_ty(db, &ty.ty);
+        members = types.members(&types.type_of_resolution(sema.expr_to_def(expr_id)));
     }
     (!members.is_empty()).then_some(members)
 }
@@ -142,11 +136,11 @@ fn members_for_scoped_name(
     sema: &Semantics<'_, RootDb>,
     file_id: HirFileId,
     scoped: ast::ScopedName<'_>,
-) -> Option<Vec<TyMember>> {
+) -> Option<Vec<Member>> {
     if let Some(left) = scoped_left_token(scoped) {
         let res = sema.nameres_ident(file_id, left, NameContext::Type);
-        let ty = db.type_of_path_resolution(res);
-        let members = members_of_ty(db, &ty.ty);
+        let types = TypeSystem::new(db);
+        let members = types.members(&types.type_of_resolution(res));
         return (!members.is_empty()).then_some(members);
     }
 
