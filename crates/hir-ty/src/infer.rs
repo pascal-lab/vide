@@ -6,7 +6,7 @@ use hir_def::{
     def_id::DefId,
     expr::{
         BinaryOp, Expr, ExprId, UnaryOp,
-        data_ty::{BuiltinDataTy, BuiltinDataTyId, DataTy, Dimension, IntKind, NamedDataTy},
+        data_ty::{BuiltinDataTy, DataTy, Dimension, IntKind, NamedDataTy},
         declarator::{DeclId, DeclaratorParent},
     },
     literal::Literal,
@@ -21,59 +21,11 @@ use rustc_hash::FxHashSet;
 use triomphe::Arc;
 use utils::get::GetRef;
 
-use crate::{Type, TypeDiagnostic, db::TyDb};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum BuiltinTy {
-    Data { id: BuiltinDataTyId, container: ArenaOwnerId },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Ty {
-    Unknown,
-    Error,
-    Void,
-    Builtin(BuiltinTy),
-    Struct(InContainer<StructId>),
-    Enum(DefId),
-    Union(DefId),
-    Queue { elem: Box<Ty>, size: Option<ExprId> },
-    Assoc { key: Box<Ty>, elem: Box<Ty> },
-    Dynamic(Box<Ty>),
-    Event,
-    Chandle,
-    Alias { typedef: InContainer<TypedefId>, target: Box<Ty> },
-    Module(ModuleId),
-    Checker(DefId),
-    Covergroup(DefId),
-    VirtualInterface { def: DefId, modport: Option<DefId> },
-    GenerateBlock(GenerateBlockId),
-    Block(hir_def::block::BlockId),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TyResult {
-    pub(crate) ty: Ty,
-    pub(crate) diagnostics: Vec<TypeDiagnostic>,
-}
-
-impl TyResult {
-    pub(crate) fn new(ty: Ty) -> Self {
-        TyResult { ty, diagnostics: Vec::new() }
-    }
-}
-#[derive(Debug, Clone)]
-pub(crate) struct TyMember {
-    pub(crate) name: Ident,
-    pub(crate) ty: Ty,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TyClass {
-    Integral,
-    Real,
-    String,
-}
+use crate::{
+    Type, TypeDiagnostic,
+    db::TyDb,
+    ty::{BuiltinTy, Ty, TyClass, TyMember, TyResult},
+};
 
 pub(crate) fn normalize_data_ty(
     db: &dyn TyDb,
