@@ -22,7 +22,7 @@ use triomphe::Arc;
 
 use crate::{
     db::TyDb,
-    infer::{BuiltinTy, Ty},
+    ty::{BuiltinTy, Ty},
 };
 
 pub struct HirFormatter<'a> {

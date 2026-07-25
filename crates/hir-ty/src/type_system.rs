@@ -11,7 +11,8 @@ use hir_def::{
 use crate::{
     db::TyDb,
     display::{HirDisplay, HirDisplayError},
-    infer::{Ty, TyClass, TyResult, members_of_ty, normalize_data_ty, packed_bit_width, type_class},
+    infer::{members_of_ty, normalize_data_ty, packed_bit_width, type_class},
+    ty::{Ty, TyClass, TyResult},
 };
 
 /// A diagnostic produced while determining a semantic type.
