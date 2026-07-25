@@ -17,8 +17,11 @@ members = [".", "crates/*", "xtask"]
 edition = "2024"
 
 [dependencies]
+base-db.workspace = true
 hir.workspace = true
+hir-def.workspace = true
 ide.workspace = true
+preproc-expand.workspace = true
 project-model.workspace = true
 syntax.workspace = true
 utils.workspace = true
