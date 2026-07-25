@@ -9,9 +9,10 @@ use hir_def::{
 };
 
 use crate::{
+    compatibility::{packed_bit_width, type_class},
     db::TyDb,
     display::{HirDisplay, HirDisplayError},
-    infer::{members_of_ty, normalize_data_ty, packed_bit_width, type_class},
+    infer::{members_of_ty, normalize_data_ty},
     ty::{Ty, TyClass, TyResult},
 };
 
