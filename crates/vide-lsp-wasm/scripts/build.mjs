@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { run } from "../../website/playground/scripts/script-utils.mjs";
 
 const crateRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceRoot = resolve(crateRoot, "..", "..");
@@ -71,6 +71,21 @@ function assertFile(path, label) {
     throw new Error(`${label} not found at ${path}`);
   }
 }
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    stdio: "inherit",
+    shell: process.platform === "win32",
+    ...options,
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
+  }
+}
+
 function findEmscriptenRoot() {
   if (process.env.EMSDK) {
     const root = resolve(process.env.EMSDK, "upstream", "emscripten");
