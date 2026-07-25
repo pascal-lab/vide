@@ -9,12 +9,12 @@ use hir_def::{
 };
 
 use crate::{
-    compatibility::{packed_bit_width, type_class},
+    compatibility::{compatibility, is_typed_value},
     db::TyDb,
     display::{HirDisplay, HirDisplayError},
     infer::normalize_data_ty,
     members::members_of_ty,
-    ty::{Ty, TyClass, TyResult},
+    ty::{Ty, TyResult},
 };
 
 /// A diagnostic produced while determining a semantic type.
@@ -122,28 +122,11 @@ impl<'db> TypeSystem<'db> {
     }
 
     pub fn compatibility(&self, expected: &Type, candidate: &Type) -> Compatibility {
-        let (Some(expected_class), Some(candidate_class)) =
-            (type_class(self.db, expected.ty()), type_class(self.db, candidate.ty()))
-        else {
-            return Compatibility::Unknown;
-        };
-        if expected_class != candidate_class {
-            return Compatibility::Incompatible;
-        }
-        if expected_class != TyClass::Integral {
-            return Compatibility::Compatible;
-        }
-
-        match (packed_bit_width(self.db, expected.ty()), packed_bit_width(self.db, candidate.ty()))
-        {
-            (Some(expected), Some(candidate)) if expected == candidate => Compatibility::Compatible,
-            (Some(_), Some(_)) => Compatibility::Incompatible,
-            _ => Compatibility::Unknown,
-        }
+        compatibility(self.db, expected.ty(), candidate.ty())
     }
 
     pub fn is_typed_value(&self, ty: &Type) -> bool {
-        type_class(self.db, ty.ty()).is_some()
+        is_typed_value(self.db, ty.ty())
     }
 
     pub fn display_source(&self, ty: &Type) -> Result<String, HirDisplayError> {
