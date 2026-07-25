@@ -14,6 +14,7 @@ use port::{
     NonAnsiPort, NonAnsiPortId, NonAnsiPortSrc, PortDecl, PortDeclId, PortDeclSrc, PortRef,
     PortRefId, PortRefSrc, PortSrcs, Ports,
 };
+use preproc_expand::file::HirFileId;
 use specify::{
     SpecifyBlock, SpecifyBlockId, SpecifyBlockSrc, SpecifyItem, SpecifyItemId, SpecifyItemSrc,
 };
@@ -56,7 +57,6 @@ use super::{
 use crate::{
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
     db::HirDefDb,
-    file::HirFileId,
     region_tree::RegionTree,
     source_map::{
         FromSourceAst, IsNamedSrc, IsSrc, SourceAst, SourceMap, ToAstNode, ast_node_from_ptr,

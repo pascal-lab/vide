@@ -132,7 +132,7 @@ where
 }
 
 pub(crate) fn alloc_with_source<'ast, Ast, Input, Hir, Src>(
-    file_id: crate::file::HirFileId,
+    file_id: preproc_expand::file::HirFileId,
     data: &mut Arena<Hir>,
     sources: &mut crate::source_map::SourceMap<Src, Hir>,
     value: Input,

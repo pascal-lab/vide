@@ -3,6 +3,7 @@ use la_arena::{Arena, Idx};
 use library::{
     LibraryDecl, LibraryDeclId, LibraryDeclSrc, LibraryInclude, LibraryIncludeId, LibraryIncludeSrc,
 };
+use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
 use syntax::{
     ast::{self, AstNode},
@@ -41,7 +42,6 @@ use super::{
 use crate::{
     container::{ArenaOwnerId, SubroutineParent, SubroutineScope},
     db::HirDefDb,
-    file::HirFileId,
     hir_def::lower_ident_opt,
     region_tree::RegionTree,
     source_map::SourceMap,

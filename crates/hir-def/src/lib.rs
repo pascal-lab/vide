@@ -1,8 +1,5 @@
 #![feature(decl_macro)]
 
-pub use base_db::{self, impl_intern_key, impl_intern_lookup};
-pub use preproc_expand::{self, file, macro_file, preproc};
-
 pub mod container;
 pub mod db;
 pub mod def_id;

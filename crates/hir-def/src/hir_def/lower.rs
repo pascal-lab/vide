@@ -1,4 +1,5 @@
 use la_arena::Arena;
+use preproc_expand::file::HirFileId;
 use syntax::SyntaxKind;
 use utils::text_edit::TextRange;
 
@@ -28,8 +29,7 @@ use super::{
     ty::NetKind,
 };
 use crate::{
-    container::ArenaOwnerId, db::InternDb, file::HirFileId, region_tree::RegionTreeBuilder,
-    source_map::SourceMap,
+    container::ArenaOwnerId, db::InternDb, region_tree::RegionTreeBuilder, source_map::SourceMap,
 };
 
 /// Mutable data/source pair for a file lowering pass.
