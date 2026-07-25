@@ -11,7 +11,6 @@ use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
-use utils::get::Get;
 
 use super::{
     candidate::CompletionCandidate,
@@ -88,9 +87,9 @@ fn complete_parameter_port_list_with_typedefs(
     else {
         return Vec::new();
     };
-    let (_, file_src_map) = db.hir_file_with_source_map(file_id);
+    let file = db.hir_file_with_source_map(file_id);
     let module_src = ModuleSrc::from_ast(file_id, module);
-    let Some(module_id) = file_src_map.get(module_src).map(|id| ModuleId::new(file_id, id)) else {
+    let Some(module_id) = file.hir_id(module_src).map(|id| ModuleId::new(file_id, id)) else {
         return Vec::new();
     };
 

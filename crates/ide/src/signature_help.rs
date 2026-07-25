@@ -20,10 +20,7 @@ use syntax::{
 // Last week, I found an issue with the original strategy and have successfully implemented
 // most of the intrinsic in LSV. and find some optimization opportunities. This week's goal is
 // to pass lit tests in IV and migrate some optimizations.
-use utils::{
-    get::{Get, GetRef},
-    text_edit::{TextRange, TextSize},
-};
+use utils::text_edit::{TextRange, TextSize};
 
 use crate::{
     FilePosition, db::root_db::RootDb, markup::Markup,
@@ -117,11 +114,11 @@ fn sig_help_for_instance(
         else {
             break 'blk None;
         };
-        let (module, module_src_map) = db.module_with_source_map(module_id);
+        let module = db.module_with_source_map(module_id);
         let instance = module.get(instance_id);
 
         let Some((idx, conn_id)) = instance.connections.iter().enumerate().find(|(_, conn_id)| {
-            module_src_map.get(**conn_id).is_some_and(|src| src.node.range().end() >= offset)
+            module.source_range(**conn_id).is_some_and(|range| range.end() >= offset)
         }) else {
             break 'blk None;
         };
@@ -138,7 +135,7 @@ fn sig_help_for_instance(
     let instantiation = ast::HierarchyInstantiation::cast(instance.syntax().parent()?)?;
     let target_module_id =
         resolve_instantiation_target(db, file_id.expect_file(), instantiation).unique()?;
-    let target_module = db.module(target_module_id);
+    let target_module = db.module_with_source_map(target_module_id);
     let target_module_name =
         target_module.name.as_ref().map(|name| name.to_string()).unwrap_or("<module>".to_string());
 
@@ -239,12 +236,12 @@ fn sig_help_for_instantiation(
         else {
             break 'blk None;
         };
-        let (module, module_src_map) = db.module_with_source_map(module_id);
+        let module = db.module_with_source_map(module_id);
         let instantiation = module.get(instantiation_id);
 
         let Some((idx, conn_id)) =
             instantiation.param_assigns.iter().enumerate().find(|(_, conn_id)| {
-                module_src_map.get(**conn_id).is_some_and(|src| src.node.range().end() >= offset)
+                module.source_range(**conn_id).is_some_and(|range| range.end() >= offset)
             })
         else {
             break 'blk None;
@@ -261,7 +258,7 @@ fn sig_help_for_instantiation(
 
     let target_module_id =
         resolve_instantiation_target(db, file_id.expect_file(), instantiation).unique()?;
-    let target_module = db.module(target_module_id);
+    let target_module = db.module_with_source_map(target_module_id);
     let target_module_name =
         target_module.name.as_ref().map(|name| name.to_string()).unwrap_or("<module>".to_string());
 

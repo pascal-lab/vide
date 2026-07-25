@@ -3,8 +3,7 @@ use base_db::{
     source_root::SourceRootId,
 };
 use hir_def::{
-    Ident, container::InFile, db::HirDefDb, def_id::DefId, module::ModuleId, source_map::IsSrc,
-    symbol::DefOrigin,
+    Ident, container::InFile, db::HirDefDb, def_id::DefId, module::ModuleId, symbol::DefOrigin,
 };
 use hir_semantics::semantics::Semantics;
 use hir_ty::db::TyDb;
@@ -15,7 +14,7 @@ use syntax::{
     SyntaxElement, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, WalkEvent,
     has_text_range::HasTextRange, ptr::SyntaxTokenPtr, token::TokenKindExt,
 };
-use utils::{get::Get, line_index::TextRange};
+use utils::line_index::TextRange;
 use vfs::FileId;
 
 use crate::{
@@ -335,7 +334,7 @@ impl SemanticIndexBuilder {
 
     fn collect_module_edges(&mut self, db: &RootDb, module_index: &ModuleIndex) {
         for caller in module_index.all_module_definitions() {
-            let (module, source_map) = db.module_with_source_map(caller.module_id);
+            let module = db.module_with_source_map(caller.module_id);
             for (instantiation_id, instantiation) in module.instantiations.iter() {
                 let Some(callee_module_id) =
                     resolve_hir_instantiation_target(db, caller.file_id, instantiation)
@@ -345,10 +344,10 @@ impl SemanticIndexBuilder {
                 let Some(callee) = SemanticModuleDefinition::new(db, callee_module_id) else {
                     continue;
                 };
-                let Some(src) = source_map.get(instantiation_id) else {
-                    continue;
-                };
-                let Some(call_range) = instantiation_name_range(db, caller.file_id, src) else {
+                let Some(call_range) = module
+                    .source_range(instantiation_id)
+                    .and_then(|range| instantiation_name_range(db, caller.file_id, range))
+                else {
                     continue;
                 };
 
@@ -449,11 +448,10 @@ fn module_id_at_range(db: &RootDb, file_id: FileId, name_range: TextRange) -> Op
 fn instantiation_name_range(
     db: &RootDb,
     file_id: FileId,
-    src: hir_def::module::instantiation::InstantiationSrc,
+    instantiation_range: TextRange,
 ) -> Option<TextRange> {
     let tree = db.parse_src_for_compilation(file_id);
     let root = tree.root()?;
-    let instantiation_range = src.range();
     let mut offset = instantiation_range.start();
 
     while offset < instantiation_range.end() {

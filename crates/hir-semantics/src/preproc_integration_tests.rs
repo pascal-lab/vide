@@ -15,7 +15,6 @@ use hir_def::{
     container::{InFile, ScopeId},
     db::{HirDefDb, HirDefDbStorage, InternDbStorage},
     module::ModuleId,
-    source_map::IsSrc,
 };
 use preproc_expand::{
     db::PreprocDbStorage, file::HirFileId, macro_file::macro_files_at_offset,
@@ -24,7 +23,6 @@ use preproc_expand::{
 use rustc_hash::FxHashSet;
 use triomphe::Arc;
 use utils::{
-    get::Get,
     line_index::TextSize,
     paths::{AbsPathBuf, Utf8PathBuf},
 };
@@ -112,18 +110,17 @@ module top;
 endmodule
 "#;
     let db = db_with_root_text(root_text);
-    let (hir_file, _) = db.hir_file_with_source_map(TOP.into());
+    let hir_file = db.hir_file_with_source_map(TOP.into());
     let (local_module_id, _) = hir_file.modules.iter().next().unwrap();
     let module_id: ModuleId = InFile::new(TOP.into(), local_module_id);
-    let (module, module_src_map) = db.module_with_source_map(module_id);
+    let module = db.module_with_source_map(module_id);
     let (declaration_id, _) =
         module.declarations.iter().next().expect("generated declaration should lower to HIR");
-    let declaration_src = module_src_map
-        .get(declaration_id)
+    let declaration_range = module
+        .source_range(declaration_id)
         .expect("generated declaration should keep a source-map range");
 
-    let target =
-        diagnostic_target_for_range(&db, TOP, declaration_src.range()).unwrap().target.unwrap();
+    let target = diagnostic_target_for_range(&db, TOP, declaration_range).unwrap().target.unwrap();
 
     assert!(matches!(target.origin, preproc_expand::macro_file::Origin::MacroBody { .. }));
 }
@@ -136,20 +133,20 @@ endmodule
 "#;
     let db =
         db_with_root_text_and_predefines(root_text, vec![Predefine::new("MAKE_CHILD=child u();")]);
-    let (hir_file, _) = db.hir_file_with_source_map(TOP.into());
+    let hir_file = db.hir_file_with_source_map(TOP.into());
     let (local_module_id, _) = hir_file.modules.iter().next().unwrap();
     let module_id: ModuleId = InFile::new(TOP.into(), local_module_id);
-    let (module, module_src_map) = db.module_with_source_map(module_id);
+    let module = db.module_with_source_map(module_id);
     let (instantiation_id, _) = module
         .instantiations
         .iter()
         .next()
         .expect("predefine expansion should lower to a module instantiation");
-    let instantiation_src = module_src_map
-        .get(instantiation_id)
+    let instantiation_range = module
+        .source_range(instantiation_id)
         .expect("generated instantiation should keep a source-map range");
 
-    let target = diagnostic_target_for_range(&db, TOP, instantiation_src.range()).unwrap();
+    let target = diagnostic_target_for_range(&db, TOP, instantiation_range).unwrap();
 
     assert!(target.covered);
     assert!(target.target.is_none(), "unbacked predefine diagnostic target should fail closed");
@@ -164,7 +161,7 @@ fn macro_expanded_module_keeps_macro_hir_file_id() {
         .expect("macro call should expand");
     let hir_file_id = HirFileId::Macro(macro_file);
 
-    let (hir_file, _) = db.hir_file_with_source_map(hir_file_id);
+    let hir_file = db.hir_file_with_source_map(hir_file_id);
     let (local_module_id, _) =
         hir_file.modules.iter().next().expect("macro expansion should lower a module");
     let module_id = InFile::new(hir_file_id, local_module_id);

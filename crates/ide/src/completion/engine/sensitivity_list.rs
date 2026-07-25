@@ -1,6 +1,6 @@
-use hir_def::{db::HirDefDb, module::ModuleId, source_map::IsSrc};
+use hir_def::{db::HirDefDb, module::ModuleId};
 use preproc_expand::file::HirFileId;
-use utils::{get::Get, text_edit::TextSize};
+use utils::text_edit::TextSize;
 
 use super::{candidate::CompletionCandidate, typed_filter::value_candidates_in_module};
 use crate::{
@@ -30,11 +30,11 @@ pub(super) fn complete_sensitivity_list(
 
 fn module_id_at_offset(db: &RootDb, position: FilePosition) -> Option<ModuleId> {
     let file_id = HirFileId::File(position.file_id);
-    let (hir_file, file_src_map) = db.hir_file_with_source_map(file_id);
+    let hir_file = db.hir_file_with_source_map(file_id);
     let mut best: Option<(TextSize, ModuleId)> = None;
 
     for (local_module_id, _) in hir_file.modules.iter() {
-        let Some(range) = file_src_map.get(local_module_id).map(|src| src.range()) else {
+        let Some(range) = hir_file.source_range(local_module_id) else {
             continue;
         };
         if !range.contains(position.offset) && range.end() != position.offset {

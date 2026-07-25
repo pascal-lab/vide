@@ -28,20 +28,23 @@ use crate::{
     symbol::{DefKind, DefOrigin, DefOriginLoc},
 };
 
-fn subroutine_src(db: &dyn HirDefDb, subroutine: SubroutineScope) -> Option<InFile<SubroutineSrc>> {
+pub(crate) fn subroutine_src(
+    db: &dyn HirDefDb,
+    subroutine: SubroutineScope,
+) -> Option<InFile<SubroutineSrc>> {
     match subroutine.cont_id {
         SubroutineParent::File(file_id) => {
-            let (_, source_map) = db.hir_file_with_source_map(file_id);
-            Some(InFile::new(file_id, source_map.get(subroutine.value)?))
+            let lowered = db.hir_file_with_source_map(file_id);
+            Some(InFile::new(file_id, lowered.source(subroutine.value)?))
         }
         SubroutineParent::Module(module_id) => {
-            let (_, source_map) = db.module_with_source_map(module_id);
-            Some(InFile::new(module_id.file_id, source_map.get(subroutine.value)?))
+            let lowered = db.module_with_source_map(module_id);
+            Some(InFile::new(module_id.file_id, lowered.source(subroutine.value)?))
         }
         SubroutineParent::GenerateBlock(generate_block_id) => {
-            let (_, source_map) = db.generate_block_with_source_map(generate_block_id);
+            let lowered = db.generate_block_with_source_map(generate_block_id);
             let file_id = generate_block_id.lookup(db).src.file_id;
-            Some(InFile::new(file_id, source_map.get(subroutine.value)?))
+            Some(InFile::new(file_id, lowered.source(subroutine.value)?))
         }
     }
 }
@@ -283,19 +286,19 @@ impl DefOrigin {
     pub fn name_range(self, db: &dyn HirDefDb) -> Option<InFile<TextRange>> {
         match self.loc(db) {
             DefOriginLoc::Module(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).1.get(value)?.name_range()?;
+                let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefOriginLoc::Config(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).1.get(value)?.name_range()?;
+                let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefOriginLoc::Library(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).1.get(value)?.name_range()?;
+                let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefOriginLoc::Udp(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).1.get(value)?.name_range()?;
+                let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefOriginLoc::Block(block_id) => {
@@ -360,7 +363,7 @@ impl DefOrigin {
             }
             DefOriginLoc::Checker(InFileOrModule { value, cont_id }) => match cont_id {
                 FileOrModule::File(file_id) => {
-                    let range = db.hir_file_with_source_map(file_id).1.get(value)?.name_range()?;
+                    let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
                     Some(InFile::new(file_id, range))
                 }
                 FileOrModule::Module(module_id) => {
@@ -374,7 +377,7 @@ impl DefOrigin {
             }
             DefOriginLoc::Covergroup(InFileOrModule { value, cont_id }) => match cont_id {
                 FileOrModule::File(file_id) => {
-                    let range = db.hir_file_with_source_map(file_id).1.get(value)?.name_range()?;
+                    let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
                     Some(InFile::new(file_id, range))
                 }
                 FileOrModule::Module(module_id) => {
@@ -388,8 +391,7 @@ impl DefOrigin {
                     FileOrModule::File(storage_file) => {
                         let range = db
                             .hir_file_with_source_map(storage_file)
-                            .1
-                            .get(coverpoint.value)?
+                            .source(coverpoint.value)?
                             .name_range()?;
                         Some(InFile::new(file_id, range))
                     }
@@ -408,8 +410,7 @@ impl DefOrigin {
                     FileOrModule::File(storage_file) => {
                         let range = db
                             .hir_file_with_source_map(storage_file)
-                            .1
-                            .get(cross.value)?
+                            .source(cross.value)?
                             .name_range()?;
                         Some(InFile::new(file_id, range))
                     }
@@ -432,19 +433,19 @@ impl DefOrigin {
     pub fn range(self, db: &dyn HirDefDb) -> Option<InFile<TextRange>> {
         Some(match self.loc(db) {
             DefOriginLoc::Module(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).1.get(value)?.range();
+                let range = db.hir_file_with_source_map(file_id).source(value)?.range();
                 InFile::new(file_id, range)
             }
             DefOriginLoc::Config(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).1.get(value)?.range();
+                let range = db.hir_file_with_source_map(file_id).source(value)?.range();
                 InFile::new(file_id, range)
             }
             DefOriginLoc::Library(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).1.get(value)?.range();
+                let range = db.hir_file_with_source_map(file_id).source(value)?.range();
                 InFile::new(file_id, range)
             }
             DefOriginLoc::Udp(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).1.get(value)?.range();
+                let range = db.hir_file_with_source_map(file_id).source(value)?.range();
                 InFile::new(file_id, range)
             }
             DefOriginLoc::Block(block_id) => {
@@ -506,7 +507,7 @@ impl DefOrigin {
             }
             DefOriginLoc::Checker(InFileOrModule { value, cont_id }) => match cont_id {
                 FileOrModule::File(file_id) => {
-                    let range = db.hir_file_with_source_map(file_id).1.get(value)?.range();
+                    let range = db.hir_file_with_source_map(file_id).source(value)?.range();
                     InFile::new(file_id, range)
                 }
                 FileOrModule::Module(module_id) => {
@@ -520,7 +521,7 @@ impl DefOrigin {
             }
             DefOriginLoc::Covergroup(InFileOrModule { value, cont_id }) => match cont_id {
                 FileOrModule::File(file_id) => {
-                    let range = db.hir_file_with_source_map(file_id).1.get(value)?.range();
+                    let range = db.hir_file_with_source_map(file_id).source(value)?.range();
                     InFile::new(file_id, range)
                 }
                 FileOrModule::Module(module_id) => {
@@ -534,8 +535,7 @@ impl DefOrigin {
                     FileOrModule::File(storage_file) => {
                         let range = db
                             .hir_file_with_source_map(storage_file)
-                            .1
-                            .get(coverpoint.value)?
+                            .source(coverpoint.value)?
                             .range();
                         InFile::new(file_id, range)
                     }
@@ -551,7 +551,7 @@ impl DefOrigin {
                 match file_or_module_storage(cross.scope_id)? {
                     FileOrModule::File(storage_file) => {
                         let range =
-                            db.hir_file_with_source_map(storage_file).1.get(cross.value)?.range();
+                            db.hir_file_with_source_map(storage_file).source(cross.value)?.range();
                         InFile::new(file_id, range)
                     }
                     FileOrModule::Module(storage_module) => {

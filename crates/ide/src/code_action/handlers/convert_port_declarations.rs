@@ -8,10 +8,10 @@ use hir_def::{
     declaration::DeclarationSrc,
     expr::declarator::{DeclId, DeclaratorParent},
     module::{
-        Module, ModuleId, ModuleSourceMap,
+        Module, ModuleId,
         port::{PortDecl, PortDeclSrc, Ports},
     },
-    source_map::IsSrc,
+    source_map::Lowered,
     symbol::{NameContext, NameScope},
 };
 use hir_ty::display::HirDisplay;
@@ -20,10 +20,7 @@ use syntax::{
     ast::{self, AstNode},
     has_text_range::{HasTextRange, HasTextRangeIn},
 };
-use utils::{
-    get::{Get, GetRef},
-    text_edit::TextRange,
-};
+use utils::text_edit::TextRange;
 
 use crate::code_action::{
     CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, line_indent,
@@ -71,7 +68,7 @@ fn convert_ansi_ports_to_non_ansi(
     let port_list = ast_module.header().ports()?.as_ansi_port_list()?;
 
     let module_id = ctx.sema().module_to_def(ctx.file_id().into(), ast_module)?;
-    let (module, module_src_map) = ctx.sema().db.module_with_source_map(module_id);
+    let module = ctx.sema().db.module_with_source_map(module_id);
     let Ports::Ansi(port_decls) = &module.ports else {
         return None;
     };
@@ -79,14 +76,14 @@ fn convert_ansi_ports_to_non_ansi(
     let mut port_names = Vec::with_capacity(port_decls.len());
     let mut port_items = Vec::with_capacity(port_decls.len());
     for (port_id, port_decl) in port_decls.iter() {
-        let src = module_src_map.port_srcs.get(port_id)?;
+        let src = module.source(port_id)?;
         let PortDeclSrc::ImplicitAnsiPort(_) = src else {
             return None;
         };
 
         let name = port_decl_declared_name(&module, port_decl)?;
         port_names.push(name);
-        port_items.push((port_decl, src));
+        port_items.push((port_decl, module.source_range(port_id)?));
     }
 
     if port_names.is_empty() {
@@ -103,8 +100,8 @@ fn convert_ansi_ports_to_non_ansi(
     let text = ctx.sema().db.file_text(ctx.file_id());
     let generated_members = port_items
         .iter()
-        .map(|(port_decl, src)| {
-            render_ansi_port_declaration(ctx, module_id, port_decl, *src, &text)
+        .map(|(port_decl, range)| {
+            render_ansi_port_declaration(ctx, module_id, port_decl, *range, &text)
         })
         .collect::<Option<Vec<_>>>()?;
     let port_list_replacement = render_port_list(&text, open_paren, close_paren, &port_names)?;
@@ -126,7 +123,7 @@ fn convert_non_ansi_ports_to_ansi(
     let port_list = ast_module.header().ports()?.as_non_ansi_port_list()?;
 
     let module_id = ctx.sema().module_to_def(ctx.file_id().into(), ast_module)?;
-    let (module, module_src_map) = ctx.sema().db.module_with_source_map(module_id);
+    let module = ctx.sema().db.module_with_source_map(module_id);
     let Ports::NonAnsi { ports, refs, .. } = &module.ports else {
         return None;
     };
@@ -165,9 +162,7 @@ fn convert_non_ansi_ports_to_ansi(
     let module_scope = ctx.sema().db.module_scope(module_id);
     let port_replacements = port_names
         .iter()
-        .map(|name| {
-            non_ansi_port_replacement(ctx, &module, &module_src_map, &module_scope, name, &text)
-        })
+        .map(|name| non_ansi_port_replacement(ctx, &module, &module_scope, name, &text))
         .collect::<Option<Vec<_>>>()?;
     let ansi_items = port_replacements
         .iter()
@@ -191,9 +186,8 @@ fn port_list_trigger_range(open: TextRange, close: TextRange) -> Option<TextRang
     (open.end() <= close.start()).then(|| TextRange::new(open.end(), close.start()))
 }
 
-fn port_decl_declared_name(module: &Module, port_decl: &PortDecl) -> Option<String> {
-    let decl_id = single_port_decl_id(port_decl)?;
-    Some(module.get(decl_id).name.as_ref()?.to_string())
+fn port_decl_declared_name(module: &Lowered<Module>, port_decl: &PortDecl) -> Option<String> {
+    Some(module.get(single_port_decl_id(port_decl)?).name.as_ref()?.to_string())
 }
 
 fn single_port_decl_id(port_decl: &PortDecl) -> Option<DeclId> {
@@ -212,8 +206,7 @@ struct NonAnsiPortReplacement {
 
 fn non_ansi_port_replacement(
     ctx: &CodeActionCtx,
-    module: &Module,
-    module_src_map: &ModuleSourceMap,
+    module: &Lowered<Module>,
     module_scope: &NameScope,
     name: &Ident,
     text: &str,
@@ -244,14 +237,13 @@ fn non_ansi_port_replacement(
         return None;
     }
 
-    let port_src = module_src_map.port_srcs.get(port_decl_id)?;
-    let PortDeclSrc::PortDeclaration(_) = port_src else {
+    let PortDeclSrc::PortDeclaration(_) = module.source(port_decl_id)? else {
         return None;
     };
-    let port_range = port_src.range();
+    let port_range = module.source_range(port_decl_id)?;
 
     if let Some(data_decl) = data_decl {
-        let data_range = data_decl_range_for_name(module, module_src_map, data_decl, name)?;
+        let data_range = data_decl_range_for_name(module, data_decl, name)?;
         let direction = port_decl.header.dir().display_source(ctx.sema().db).ok()?;
         let data_decl = declaration_text_without_semicolon(text, data_range)?;
         return Some(NonAnsiPortReplacement {
@@ -267,8 +259,7 @@ fn non_ansi_port_replacement(
 }
 
 fn data_decl_range_for_name(
-    module: &Module,
-    module_src_map: &ModuleSourceMap,
+    module: &Lowered<Module>,
     decl_id: DeclId,
     name: &Ident,
 ) -> Option<TextRange> {
@@ -287,9 +278,10 @@ fn data_decl_range_for_name(
         return None;
     }
 
-    let src = module_src_map.declaration_srcs.get(declaration_id)?;
-    match src {
-        DeclarationSrc::DataDeclaration(_) | DeclarationSrc::NetDeclaration(_) => Some(src.range()),
+    match module.source(declaration_id)? {
+        DeclarationSrc::DataDeclaration(_) | DeclarationSrc::NetDeclaration(_) => {
+            module.source_range(declaration_id)
+        }
         _ => None,
     }
 }
@@ -298,10 +290,10 @@ fn render_ansi_port_declaration(
     ctx: &CodeActionCtx,
     module_id: ModuleId,
     port_decl: &PortDecl,
-    src: PortDeclSrc,
+    range: TextRange,
     text: &str,
 ) -> Option<String> {
-    let source = text.get(Range::from(src.range()))?;
+    let source = text.get(Range::from(range))?;
     if source
         .split_ascii_whitespace()
         .next()

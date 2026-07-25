@@ -32,7 +32,6 @@ use syntax::{
     token::SyntaxTokenWithParentExt,
     trivia::{TriviaExt, TriviaKindExt},
 };
-use utils::get::GetRef;
 
 use crate::{
     db::{line_index_db::LineIndexDb, root_db::RootDb},
@@ -289,7 +288,7 @@ fn render_definition_title(db: &RootDb, origin: &DefOrigin) -> Option<String> {
     let name = origin.name(db)?;
     let kind = match origin.loc(db) {
         DefOriginLoc::Module(module_id) => {
-            match db.hir_file(module_id.file_id).get(module_id.value).kind {
+            match db.hir_file_with_source_map(module_id.file_id).get(module_id.value).kind {
                 ModuleKind::Module => "Module",
                 ModuleKind::Interface => "Interface",
                 ModuleKind::Program => "Program",
@@ -360,9 +359,9 @@ fn render_signature(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<Stri
 }
 
 fn render_module_signature(db: &RootDb, module_id: ModuleId) -> Option<String> {
-    let module = db.module(module_id);
+    let module = db.module_with_source_map(module_id);
     let name = module.name.as_ref()?;
-    let keyword = match db.hir_file(module_id.file_id).get(module_id.value).kind {
+    let keyword = match db.hir_file_with_source_map(module_id.file_id).get(module_id.value).kind {
         ModuleKind::Module => "module",
         ModuleKind::Interface => "interface",
         ModuleKind::Program => "program",
@@ -389,7 +388,7 @@ fn render_module_signature(db: &RootDb, module_id: ModuleId) -> Option<String> {
 }
 
 fn render_module_param_ports(db: &RootDb, module_id: ModuleId) -> Vec<String> {
-    let module = db.module(module_id);
+    let module = db.module_with_source_map(module_id);
     let mut params = Vec::new();
     let mut idx = 0;
     while let Some(decl_id) = module.param_port_id_by_idx(idx) {
@@ -474,7 +473,7 @@ fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineScope) -> O
 }
 
 fn render_module_port_list(db: &RootDb, module_id: ModuleId) -> Vec<String> {
-    let module = db.module(module_id);
+    let module = db.module_with_source_map(module_id);
     match &module.ports {
         Ports::NonAnsi { ports, .. } => ports
             .values()
@@ -519,14 +518,14 @@ fn render_indented_list(items: &[String]) -> String {
 }
 
 fn render_non_ansi_port_signature(db: &RootDb, port_id: InModule<NonAnsiPortId>) -> Option<String> {
-    let module = db.module(port_id.module_id);
+    let module = db.module_with_source_map(port_id.module_id);
     let port = module.get(port_id.value);
     let label = port.label.as_ref()?;
     Some(format!("port {label}"))
 }
 
 fn render_instance_signature(db: &RootDb, instance_id: InModule<InstanceId>) -> Option<String> {
-    let parent_module = db.module(instance_id.module_id);
+    let parent_module = db.module_with_source_map(instance_id.module_id);
     let instance = parent_module.get(instance_id.value);
     let instance_name = instance.name.as_ref()?;
     let instantiation = parent_module.get(instance.parent);
@@ -548,7 +547,7 @@ fn render_clocking_block_signature(
     db: &RootDb,
     clocking_block_id: InModule<ClockingBlockId>,
 ) -> Option<String> {
-    let module = db.module(clocking_block_id.module_id);
+    let module = db.module_with_source_map(clocking_block_id.module_id);
     let clocking_block = module.get(clocking_block_id.value);
     let name = clocking_block.name.as_ref()?;
     let mut signature = format!("clocking {name}");
@@ -578,7 +577,7 @@ fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<St
             let ArenaOwnerId::Module(module_id) = decl_id.cont_id else {
                 return None;
             };
-            let module = db.module(module_id);
+            let module = db.module_with_source_map(module_id);
             let header = InModule::new(module_id, module.get(port_decl_id).header)
                 .display_source(db)
                 .ok()?;

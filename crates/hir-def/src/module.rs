@@ -59,8 +59,8 @@ use crate::{
     db::HirDefDb,
     region_tree::RegionTree,
     source_map::{
-        FromSourceAst, IsNamedSrc, IsSrc, SourceAst, SourceMap, ToAstNode, ast_node_from_ptr,
-        root_token_in,
+        FromSourceAst, IsNamedSrc, IsSrc, Lowered, LoweredData, SourceAst, SourceMap, ToAstNode,
+        ast_node_from_ptr, root_token_in,
     },
 };
 
@@ -167,6 +167,9 @@ pub struct ModuleSourceMap {
     pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
     pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
     pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+}
+impl LoweredData for Module {
+    type SourceMap = ModuleSourceMap;
 }
 
 impl ModuleSourceMap {
@@ -796,17 +799,17 @@ impl LowerModuleCtx<'_> {
 pub(crate) fn module_with_source_map_query(
     db: &dyn HirDefDb,
     module_id @ InFile { value: local_module_id, file_id }: ModuleId,
-) -> (Arc<Module>, Arc<ModuleSourceMap>) {
-    let (file, file_source_map) = db.hir_file_with_source_map(file_id);
+) -> Arc<Lowered<Module>> {
+    let lowered_file = db.hir_file_with_source_map(file_id);
     let tree = db.parse(file_id);
 
-    let module_info = file.get(local_module_id);
+    let module_info = lowered_file.get(local_module_id);
     let mut module = Module { name: module_info.name.clone(), ..Default::default() };
     let mut module_source_map = ModuleSourceMap::default();
 
-    let Some(ast_module) = file_source_map.get(local_module_id).and_then(|src| src.to_node(&tree))
+    let Some(ast_module) = lowered_file.source(local_module_id).and_then(|src| src.to_node(&tree))
     else {
-        return (Arc::new(module), Arc::new(module_source_map));
+        return Arc::new(Lowered::new(module, module_source_map));
     };
 
     let mut lower_ctx = LoweringCtx::new(
@@ -820,5 +823,5 @@ pub(crate) fn module_with_source_map_query(
 
     module.shrink_to_fit();
     module_source_map.shrink_to_fit();
-    (Arc::new(module), Arc::new(module_source_map))
+    Arc::new(Lowered::new(module, module_source_map))
 }

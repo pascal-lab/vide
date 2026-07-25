@@ -1,17 +1,11 @@
-use hir_def::{
-    db::HirDefDb,
-    def_id::DefId,
-    file::{FileSourceMap, HirFile},
-    module::ModuleId,
-    source_map::IsSrc,
-};
+use hir_def::{db::HirDefDb, def_id::DefId, file::HirFile, module::ModuleId, source_map::Lowered};
 use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRangeIn,
 };
-use utils::{get::Get, text_edit::TextRange};
+use utils::text_edit::TextRange;
 use vfs::FileId;
 
 use crate::{
@@ -38,21 +32,19 @@ pub enum CodeLensKind {
 
 pub(crate) fn code_lens(db: &RootDb, config: CodeLensConfig, file_id: FileId) -> Vec<CodeLens> {
     let file_id = HirFileId::File(file_id);
-    let (hir_file, src_map) = db.hir_file_with_source_map(file_id);
-    let (hir_file, src_map) = (hir_file.as_ref(), src_map.as_ref());
+    let hir_file = db.hir_file_with_source_map(file_id);
 
     let mut res = Vec::new();
 
     if config.instantiations {
-        process_instantiations(hir_file, src_map, file_id, &mut res);
+        process_instantiations(&hir_file, file_id, &mut res);
     }
 
     res
 }
 
 fn process_instantiations(
-    hir_file: &HirFile,
-    src_map: &FileSourceMap,
+    hir_file: &Lowered<HirFile>,
     file_id: HirFileId,
     res: &mut Vec<CodeLens>,
 ) {
@@ -61,7 +53,7 @@ fn process_instantiations(
             continue;
         };
 
-        let Some(range) = src_map.get(local_module_id).map(|src| src.range()) else {
+        let Some(range) = hir_file.source_range(local_module_id) else {
             continue;
         };
         let pos = FilePosition { file_id: file_id.expect_file(), offset: range.start() };
@@ -76,10 +68,10 @@ pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLens
     match kind {
         CodeLensKind::ModuleInstance { pos: FilePosition { file_id, offset }, ref mut data } => {
             let hir_file_id = HirFileId::File(file_id);
-            let (_, src_map) = sema.db.hir_file_with_source_map(hir_file_id);
-            let Some((local_module_id, _)) =
-                src_map.module_srcs.iter().find(|(_, src)| src.range().start() == offset)
-            else {
+            let hir_file = sema.db.hir_file_with_source_map(hir_file_id);
+            let Some((local_module_id, _)) = hir_file.modules.iter().find(|(id, _)| {
+                hir_file.source_range(*id).is_some_and(|range| range.start() == offset)
+            }) else {
                 *data = Some(Vec::new());
                 return kind;
             };

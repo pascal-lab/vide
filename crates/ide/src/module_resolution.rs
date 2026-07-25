@@ -19,7 +19,6 @@ use syntax::{
     SyntaxAncestors,
     ast::{self, AstNode},
 };
-use utils::get::GetRef;
 use vfs::{FileId, VfsPath};
 
 use crate::db::{root_db::RootDb, workspace_symbol_index_db::source_root_module_index_for_root};
@@ -163,7 +162,7 @@ pub(crate) fn resolve_named_param_in_module(
     param_name: &Ident,
 ) -> Resolution<DefId> {
     let defs = db.module_scope(module_id).lookup(NameContext::Value, param_name);
-    let module = db.module(module_id);
+    let module = db.module_with_source_map(module_id);
 
     Resolution::from_candidates(defs.into_candidates().into_iter().filter(|def_id| {
         let Some(decl_id) = def_id.primary_origin(db).as_decl(db) else {

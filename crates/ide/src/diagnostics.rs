@@ -4,13 +4,10 @@ use base_db::{
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
-use hir_def::{db::HirDefDb, module::ModuleId, source_map::IsSrc};
+use hir_def::{db::HirDefDb, module::ModuleId};
 use preproc_expand::db::PreprocDb;
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
-use utils::{
-    get::Get,
-    text_edit::{TextRange, TextSize},
-};
+use utils::text_edit::{TextRange, TextSize};
 use vfs::FileId;
 
 use crate::{
@@ -286,16 +283,15 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
 
     for (local_module_id, _) in hir_file.modules.iter() {
         let module_id = ModuleId::new(hir_file_id, local_module_id);
-        let (module, src_map) = db.module_with_source_map(module_id);
+        let module = db.module_with_source_map(module_id);
         for (instantiation_id, instantiation) in module.instantiations.iter() {
             let Some(module_name) = instantiation.module_name.as_ref() else {
                 continue;
             };
-            let Some(src) = src_map.get(instantiation_id) else {
+            let mut diag_file_id = file_id;
+            let Some(mut range) = module.source_range(instantiation_id) else {
                 continue;
             };
-            let mut diag_file_id = file_id;
-            let mut range = src.range();
             match preproc_expand::preproc::diagnostic_target_for_range(db, file_id, range) {
                 Ok(result) => {
                     if let Some(target) = result.target {
