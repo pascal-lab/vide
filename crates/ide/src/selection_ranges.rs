@@ -1,4 +1,4 @@
-use hir_semantics::semantics::Semantics;
+use hir::Semantics;
 use itertools::Itertools;
 use syntax::{
     SyntaxCursorExt, SyntaxNodeExt, TokenKind,

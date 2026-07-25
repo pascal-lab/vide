@@ -7,9 +7,11 @@
 
 use hir_def::{container::InFile, db::HirDefDb, def_id::DefId};
 use hir_semantics::semantics::Semantics as InnerSemantics;
+use syntax::ast::AstNode;
 use utils::text_edit::TextSize;
+use vfs::FileId;
 
-use crate::{File, Module, Source};
+use crate::{File, Module, ParsedFile, Source};
 
 /// The high-level HIR entry point for IDE features.
 ///
@@ -29,6 +31,23 @@ impl<'db, DB: HirDefDb> Semantics<'db, DB> {
     /// crate use it for source-to-def resolution; IDE code cannot.
     pub(crate) fn inner(&self) -> &InnerSemantics<'db, DB> {
         &self.inner
+    }
+
+    /// Parses a real source file into a [`ParsedFile`]. Replaces direct
+    /// `hir_semantics::Semantics::parse_file` calls; no implementation type leaks.
+    pub fn parse_file(&self, file_id: FileId) -> ParsedFile {
+        ParsedFile::new(self.inner.parse_file(file_id))
+    }
+
+    /// Finds the smallest AST node of type `N` covering `offset` within
+    /// `node`. Pure syntax traversal; the facade forwards to the underlying
+    /// adapter so IDE code does not name `hir_semantics::Semantics`.
+    pub fn find_node_at_offset<'a, N: AstNode<'a>>(
+        &self,
+        node: syntax::SyntaxNode<'a>,
+        offset: TextSize,
+    ) -> Option<N> {
+        self.inner.find_node_at_offset(node, offset)
     }
 
     /// Returns every module declaration in `file`, paired with its source
