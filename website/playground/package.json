@@ -11,7 +11,7 @@
     "build": "astro check && astro build",
     "build:embed": "vite build --config vite.embed.config.ts",
     "preview": "astro preview --host 127.0.0.1 --port 4177",
-    "build:wasm": "node scripts/build-vide-wasm.mjs",
+    "build:wasm": "node ../../crates/vide-lsp-wasm/scripts/build.mjs && node scripts/copy-wasm-assets.mjs",
     "copy:docs-assets": "node scripts/copy-docs-assets.mjs",
     "copy:docs-wasm": "node scripts/copy-docs-wasm-assets.mjs"
   },
