@@ -1,0 +1,17 @@
+[package]
+name = "hir"
+version = "0.0.0"
+edition.workspace = true
+description = "High-level HIR facade for IDE consumers"
+
+[dependencies]
+base-db.workspace = true
+hir-def.workspace = true
+hir-semantics.workspace = true
+hir-ty.workspace = true
+preproc-expand.workspace = true
+la-arena.workspace = true
+smol_str.workspace = true
+syntax.workspace = true
+utils.workspace = true
+vfs.workspace = true
