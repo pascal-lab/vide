@@ -30,6 +30,8 @@ use utils::{
 };
 use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
+use crate::semantics::Semantics;
+
 const TOP: FileId = FileId::from_raw(0);
 const ROOT: SourceRootId = SourceRootId(0);
 const PROFILE: CompilationProfileId = CompilationProfileId(0);
@@ -169,4 +171,12 @@ fn macro_expanded_module_keeps_macro_hir_file_id() {
 
     assert_eq!(ScopeId::Module(module_id).file_id(&db), hir_file_id);
     assert_eq!(module_id.file_id.source_file_id(&db), Some(TOP));
+}
+
+#[test]
+fn semantics_accepts_hir_def_only_database() {
+    let db = db_with_root_text("module top; endmodule\n");
+    let parsed = Semantics::new(&db).parse_file(TOP);
+
+    assert!(parsed.compilation_unit().is_some());
 }
