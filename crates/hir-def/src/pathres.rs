@@ -218,6 +218,17 @@ fn collect_imports(
 mod tests {
     use std::fmt;
 
+    use base_db::{
+        diagnostics_config::DiagnosticsConfig,
+        project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+        salsa::{self, Durability},
+        source_db::{
+            FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
+            SourceRootDbStorage,
+        },
+        source_root::{SourceRoot, SourceRootId},
+    };
+    use preproc_expand::{db::PreprocDbStorage, file::HirFileId};
     use rustc_hash::FxHashSet;
     use smol_str::SmolStr;
     use triomphe::Arc;
@@ -226,19 +237,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        base_db::{
-            diagnostics_config::DiagnosticsConfig,
-            project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
-            salsa::{self, Durability},
-            source_db::{
-                FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
-                SourceRootDbStorage,
-            },
-            source_root::{SourceRoot, SourceRootId},
-        },
         container::ScopeId,
-        db::{HirDefDb, HirDefDbStorage, InternDbStorage, PreprocDbStorage},
-        file::HirFileId,
+        db::{HirDefDb, HirDefDbStorage, InternDbStorage},
         hir_def::Ident,
         symbol::{DefKind, NameContext},
     };

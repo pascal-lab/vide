@@ -1,10 +1,5 @@
-use rustc_hash::FxHashSet;
-use triomphe::Arc;
-use utils::get::GetRef;
-
-use crate::{
+use hir_def::{
     container::{ArenaOwnerId, InContainer, InSubroutine},
-    db::TyDb,
     def_id::DefId,
     hir_def::{
         Ident,
@@ -24,6 +19,11 @@ use crate::{
     pathres::{instance_target_def_id, resolve_name},
     symbol::{DefKind, DefOriginLoc, NameContext, NameScope, Resolution},
 };
+use rustc_hash::FxHashSet;
+use triomphe::Arc;
+use utils::get::GetRef;
+
+use crate::db::TyDb;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinTy {
@@ -50,7 +50,7 @@ pub enum Ty {
     Covergroup(DefId),
     VirtualInterface { def: DefId, modport: Option<DefId> },
     GenerateBlock(GenerateBlockId),
-    Block(crate::hir_def::block::BlockId),
+    Block(hir_def::hir_def::block::BlockId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -587,13 +587,13 @@ fn builtin_type_name_ty(db: &dyn TyDb, container: ArenaOwnerId, ident: &Ident) -
         "integer" => BuiltinDataTy::Int { kind: IntKind::Integer, signing: true },
         "time" => BuiltinDataTy::Int { kind: IntKind::Time, signing: false },
         "bit" => BuiltinDataTy::Vector {
-            kind: crate::hir_def::expr::data_ty::VecKind::Bit,
+            kind: hir_def::hir_def::expr::data_ty::VecKind::Bit,
             signing: false,
             dimensions: Default::default(),
         },
         "logic" => BuiltinDataTy::default(),
         "reg" => BuiltinDataTy::Vector {
-            kind: crate::hir_def::expr::data_ty::VecKind::Reg,
+            kind: hir_def::hir_def::expr::data_ty::VecKind::Reg,
             signing: false,
             dimensions: Default::default(),
         },
@@ -640,7 +640,7 @@ fn generate_block_members(db: &dyn TyDb, generate_block_id: GenerateBlockId) -> 
     scope_members(db, &db.generate_block_scope(generate_block_id))
 }
 
-fn block_members(db: &dyn TyDb, block_id: crate::hir_def::block::BlockId) -> Vec<TyMember> {
+fn block_members(db: &dyn TyDb, block_id: hir_def::hir_def::block::BlockId) -> Vec<TyMember> {
     scope_members(db, &db.block_scope(block_id))
 }
 
@@ -686,7 +686,7 @@ fn port_decl_ty(db: &dyn TyDb, cont_id: ArenaOwnerId, port_decl_id: PortDeclId) 
 fn for_init_decl_ty(
     db: &dyn TyDb,
     cont_id: ArenaOwnerId,
-    stmt_id: crate::hir_def::stmt::StmtId,
+    stmt_id: hir_def::hir_def::stmt::StmtId,
     decl_id: DeclId,
 ) -> Option<DataTy> {
     let stmt = stmt_of(db, InContainer::new(cont_id, stmt_id))?;
@@ -778,7 +778,7 @@ fn expr_of(db: &dyn TyDb, expr: InContainer<ExprId>) -> Option<Expr> {
 fn decl_of(
     db: &dyn TyDb,
     decl: InContainer<DeclId>,
-) -> Option<crate::hir_def::expr::declarator::Declarator> {
+) -> Option<hir_def::hir_def::expr::declarator::Declarator> {
     match decl.cont_id {
         ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(decl.value).clone()),
         ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(decl.value).clone()),
@@ -794,7 +794,7 @@ fn decl_of(
 
 fn declaration_of(
     db: &dyn TyDb,
-    decl: InContainer<crate::hir_def::declaration::DeclarationId>,
+    decl: InContainer<hir_def::hir_def::declaration::DeclarationId>,
 ) -> Option<Declaration> {
     match decl.cont_id {
         ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(decl.value).clone()),
@@ -812,7 +812,7 @@ fn declaration_of(
 fn typedef_of(
     db: &dyn TyDb,
     typedef: InContainer<TypedefId>,
-) -> Option<crate::hir_def::typedef::Typedef> {
+) -> Option<hir_def::hir_def::typedef::Typedef> {
     match typedef.cont_id {
         ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(typedef.value).clone()),
         ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(typedef.value).clone()),
@@ -829,7 +829,7 @@ fn typedef_of(
 fn struct_of(
     db: &dyn TyDb,
     struct_id: InContainer<StructId>,
-) -> Option<crate::hir_def::aggregate::StructDef> {
+) -> Option<hir_def::hir_def::aggregate::StructDef> {
     match struct_id.cont_id {
         ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(struct_id.value).clone()),
         ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(struct_id.value).clone()),
@@ -845,8 +845,8 @@ fn struct_of(
 
 fn stmt_of(
     db: &dyn TyDb,
-    stmt: InContainer<crate::hir_def::stmt::StmtId>,
-) -> Option<crate::hir_def::stmt::Stmt> {
+    stmt: InContainer<hir_def::hir_def::stmt::StmtId>,
+) -> Option<hir_def::hir_def::stmt::Stmt> {
     match stmt.cont_id {
         ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(stmt.value).clone()),
         ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(stmt.value).clone()),
@@ -864,6 +864,22 @@ fn stmt_of(
 mod tests {
     use std::fmt;
 
+    use base_db::{
+        diagnostics_config::DiagnosticsConfig,
+        project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+        salsa::{self, Durability},
+        source_db::{
+            FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
+            SourceRootDbStorage,
+        },
+        source_root::{SourceRoot, SourceRootId},
+    };
+    use hir_def::{
+        db::{HirDefDb, HirDefDbStorage, InternDbStorage},
+        hir_def::module::ModuleId,
+        symbol::{DefOriginLoc, NameContext},
+    };
+    use preproc_expand::db::PreprocDbStorage;
     use rustc_hash::FxHashSet;
     use smol_str::SmolStr;
     use triomphe::Arc;
@@ -871,22 +887,7 @@ mod tests {
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
     use super::*;
-    use crate::{
-        base_db::{
-            diagnostics_config::DiagnosticsConfig,
-            project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
-            salsa::{self, Durability},
-            source_db::{
-                FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
-                SourceRootDbStorage,
-            },
-            source_root::{SourceRoot, SourceRootId},
-        },
-        db::{HirDefDb, HirDefDbStorage, InternDbStorage, PreprocDbStorage, TyDbStorage},
-        display::HirDisplay,
-        hir_def::module::ModuleId,
-        symbol::{DefOriginLoc, NameContext},
-    };
+    use crate::{db::TyDbStorage, display::HirDisplay};
 
     const TOP: FileId = FileId::from_raw(0);
     const ROOT: SourceRootId = SourceRootId(0);
@@ -980,7 +981,7 @@ mod tests {
 
     fn path_ty(db: &TestDb, module_id: ModuleId, segments: &[&str]) -> Ty {
         let path = segments.iter().map(|segment| ident(segment)).collect::<Vec<_>>();
-        let res = crate::pathres::resolve_path(db, module_id.into(), &path, NameContext::Value);
+        let res = hir_def::pathres::resolve_path(db, module_id.into(), &path, NameContext::Value);
         assert!(!res.is_unresolved(), "path {segments:?} should resolve");
         db.type_of_path_resolution(res).ty.clone()
     }
@@ -1164,7 +1165,7 @@ endmodule
         let (stream_id, _) = module
             .exprs
             .iter()
-            .find(|(_, expr)| matches!(expr, crate::hir_def::expr::Expr::Stream { .. }))
+            .find(|(_, expr)| matches!(expr, hir_def::hir_def::expr::Expr::Stream { .. }))
             .expect("streaming concatenation should lower");
 
         assert_eq!(

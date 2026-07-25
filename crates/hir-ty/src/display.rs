@@ -1,12 +1,8 @@
 use std::fmt::{self, Debug};
 
-use syntax::TimeUnit;
-use triomphe::Arc;
-
-use crate::{
-    base_db::intern::Lookup,
+use base_db::intern::Lookup;
+use hir_def::{
     container::{InContainer, InModule},
-    db::TyDb,
     def_id::DefId,
     hir_def::{
         aggregate::StructKind,
@@ -22,6 +18,12 @@ use crate::{
         typedef::TypedefId,
     },
     symbol::DefOriginLoc,
+};
+use syntax::TimeUnit;
+use triomphe::Arc;
+
+use crate::{
+    db::TyDb,
     type_infer::{BuiltinTy, Ty},
 };
 
@@ -190,7 +192,10 @@ fn hir_fmt_named_def_type(
     Ok(())
 }
 
-fn ty_expr_container(db: &dyn crate::db::TyDb, ty: &Ty) -> Option<crate::container::ArenaOwnerId> {
+fn ty_expr_container(
+    db: &dyn crate::db::TyDb,
+    ty: &Ty,
+) -> Option<hir_def::container::ArenaOwnerId> {
     match ty {
         Ty::Builtin(BuiltinTy::Data { container, .. }) => Some(*container),
         Ty::Struct(struct_ref) => Some(struct_ref.cont_id),

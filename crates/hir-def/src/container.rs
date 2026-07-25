@@ -1,3 +1,5 @@
+use base_db::intern::Lookup;
+use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
 use triomphe::Arc;
 use utils::{
@@ -6,9 +8,7 @@ use utils::{
 };
 
 use crate::{
-    base_db::intern::Lookup,
     db::{HirDefDb, InternDb},
-    file::HirFileId,
     hir_def::{
         aggregate::{StructDef, StructId, StructSrc},
         block::{Block, BlockId, BlockInfo, BlockSourceMap, BlockSrc, LocalBlockId},

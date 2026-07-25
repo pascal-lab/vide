@@ -1,3 +1,5 @@
+use base_db::{intern::Lookup, salsa};
+use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
 use syntax::{
@@ -10,13 +12,11 @@ use utils::{
 };
 
 use crate::{
-    base_db::{intern::Lookup, salsa},
     container::{
         ArenaOwnerId, FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope,
         InSubroutine, ScopeId, SubroutineParent, SubroutineScope,
     },
     db::HirDefDb,
-    file::HirFileId,
     hir_def::{
         block::BlockLoc,
         checker::{CheckerDef, CheckerPort, CheckerPortId},

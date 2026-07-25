@@ -4,6 +4,7 @@ version = "0.0.0"
 edition.workspace = true
 
 [dependencies]
+base-db.workspace = true
 hir-def.workspace = true
 rustc-hash.workspace = true
 salsa.workspace = true
@@ -12,3 +13,6 @@ syntax.workspace = true
 triomphe.workspace = true
 utils.workspace = true
 vfs.workspace = true
+
+[dev-dependencies]
+preproc-expand.workspace = true

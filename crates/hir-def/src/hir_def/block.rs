@@ -1,3 +1,4 @@
+use base_db::intern::Lookup;
 use la_arena::Arena;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -29,7 +30,6 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    base_db::intern::Lookup,
     container::{ArenaOwnerId, InFile},
     db::HirDefDb,
     region_tree::RegionTree,

@@ -1,4 +1,5 @@
 use la_arena::{Arena, Idx, RawIdx};
+use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
 use syntax::ast;
 use triomphe::Arc;
@@ -11,7 +12,6 @@ use crate::{
     },
     db::HirDefDb,
     def_id::DefId,
-    file::HirFileId,
     hir_def::{
         PackageImport,
         block::BlockInfo,
@@ -663,6 +663,20 @@ fn lower_name(name: ast::Name<'_>) -> Option<crate::hir_def::Ident> {
 mod tests {
     use std::fmt;
 
+    use base_db::{
+        diagnostics_config::DiagnosticsConfig,
+        project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+        salsa::{self, Durability},
+        source_db::{
+            FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
+            SourceRootDbStorage,
+        },
+        source_root::{SourceRoot, SourceRootId},
+    };
+    use preproc_expand::{
+        db::{PreprocDb, PreprocDbStorage},
+        file::HirFileId,
+    };
     use rustc_hash::FxHashSet;
     use smol_str::SmolStr;
     use syntax::ast::{self, AstNode};
@@ -674,20 +688,9 @@ mod tests {
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
     use crate::{
-        base_db::{
-            diagnostics_config::DiagnosticsConfig,
-            project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
-            salsa::{self, Durability},
-            source_db::{
-                FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
-                SourceRootDbStorage,
-            },
-            source_root::{SourceRoot, SourceRootId},
-        },
         container::{FileOrModule, InFile, InFileOrModule, ScopeId, SubroutineParent},
-        db::{HirDefDb, HirDefDbStorage, InternDbStorage, PreprocDb, PreprocDbStorage},
+        db::{HirDefDb, HirDefDbStorage, InternDbStorage},
         def_id::DefId,
-        file::HirFileId,
         hir_def::{
             Ident,
             module::port::{NonAnsiPortSrc, PortSrcs, Ports},

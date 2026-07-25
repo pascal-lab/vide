@@ -1,9 +1,9 @@
+use base_db::salsa;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use utils::impl_from;
 
 use crate::{
-    base_db::salsa,
     container::{
         InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine, SubroutineScope,
     },

@@ -1,3 +1,4 @@
+use base_db::intern::Lookup;
 use la_arena::{Arena, Idx};
 use smallvec::SmallVec;
 use syntax::{
@@ -19,7 +20,6 @@ use super::{
     },
 };
 use crate::{
-    base_db::intern::Lookup,
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
     db::HirDefDb,
     hir_def::{

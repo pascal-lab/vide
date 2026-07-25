@@ -1,6 +1,7 @@
 use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
 pub(crate) use la_arena::{ArenaMap, Idx};
+use preproc_expand::file::HirFileId;
 use rustc_hash::FxHashMap;
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, TokenKind,
@@ -10,8 +11,6 @@ use syntax::{
 };
 pub(crate) use utils::get::Get;
 use utils::{get::GetRef, text_edit::TextRange};
-
-use crate::file::HirFileId;
 
 pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
     #[inline]
