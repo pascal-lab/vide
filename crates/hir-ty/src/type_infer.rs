@@ -92,27 +92,12 @@ fn normalize_data_ty_with_owner(
     normalize_data_ty_inner(db, container, data_ty, owner, &mut FxHashSet::default())
 }
 
-pub(crate) fn type_of_typedef_query(db: &dyn TyDb, typedef: InContainer<TypedefId>) -> Arc<Type> {
-    Arc::new(type_of_typedef_impl(db, typedef).into())
-}
-
-pub(crate) fn type_of_decl_query(db: &dyn TyDb, decl: InContainer<DeclId>) -> Arc<Type> {
-    Arc::new(type_of_decl_impl(db, decl).into())
-}
-
 pub(crate) fn type_of_path_resolution_query(db: &dyn TyDb, res: Resolution<DefId>) -> Arc<Type> {
     Arc::new(type_of_path_resolution_impl(db, res).into())
 }
 
 pub(crate) fn type_of_expr_query(db: &dyn TyDb, expr: InContainer<ExprId>) -> Arc<Type> {
     Arc::new(type_of_expr_impl(db, expr).into())
-}
-
-pub(crate) fn type_of_subroutine_port_query(
-    db: &dyn TyDb,
-    port: InSubroutine<SubroutinePortId>,
-) -> Arc<Type> {
-    Arc::new(type_of_subroutine_port_impl(db, port).into())
 }
 
 fn type_of_typedef_impl(db: &dyn TyDb, typedef: InContainer<TypedefId>) -> TyResult {
