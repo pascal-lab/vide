@@ -9,11 +9,11 @@ use hir_def::{
         data_ty::{BuiltinDataTy, DataTy, Dimension, IntKind, NamedDataTy},
         declarator::{DeclId, DeclaratorParent},
     },
-    module::{ModuleId, ModuleKind, generate::GenerateBlockId, port::PortDeclId},
+    module::port::PortDeclId,
     pathres::{instance_target_def_id, resolve_name},
     stmt::{ForInit, StmtKind},
     subroutine::SubroutinePortId,
-    symbol::{DefKind, DefOriginLoc, NameContext, NameScope, Resolution},
+    symbol::{DefKind, NameContext, Resolution},
     typedef::TypedefId,
 };
 use rustc_hash::FxHashSet;
@@ -23,7 +23,8 @@ use utils::get::GetRef;
 use crate::{
     Type, TypeDiagnostic,
     db::TyDb,
-    ty::{BuiltinTy, Ty, TyMember, TyResult},
+    members::select_member,
+    ty::{BuiltinTy, Ty, TyResult},
 };
 
 pub(crate) fn normalize_data_ty(
@@ -67,7 +68,7 @@ fn type_of_decl_impl(db: &dyn TyDb, decl: InContainer<DeclId>) -> TyResult {
     result
 }
 
-fn type_of_path_resolution_impl(db: &dyn TyDb, res: Resolution<DefId>) -> TyResult {
+pub(crate) fn type_of_path_resolution_impl(db: &dyn TyDb, res: Resolution<DefId>) -> TyResult {
     res.unique()
         .map(|def_id| type_of_def_id(db, def_id))
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
@@ -246,42 +247,6 @@ fn type_of_expr_impl(db: &dyn TyDb, expr: InContainer<ExprId>) -> TyResult {
     }
 }
 
-pub(crate) fn members_of_ty(db: &dyn TyDb, ty: &Ty) -> Vec<TyMember> {
-    match ty {
-        Ty::Alias { target, .. } => members_of_ty(db, target),
-        Ty::Struct(struct_id) => struct_members(db, *struct_id),
-        Ty::Union(def_id) => union_members(db, *def_id),
-        Ty::Module(module_id) => module_members(db, *module_id),
-        Ty::Checker(def_id) => checker_members(db, *def_id),
-        Ty::Covergroup(def_id) => covergroup_members(db, *def_id),
-        Ty::VirtualInterface { def, .. } => def
-            .primary_origin(db)
-            .as_module(db)
-            .map(|module_id| module_members(db, module_id))
-            .unwrap_or_default(),
-        Ty::GenerateBlock(generate_block_id) => generate_block_members(db, *generate_block_id),
-        Ty::Block(block_id) => block_members(db, *block_id),
-        Ty::Unknown
-        | Ty::Error
-        | Ty::Void
-        | Ty::Builtin(_)
-        | Ty::Enum(_)
-        | Ty::Queue { .. }
-        | Ty::Assoc { .. }
-        | Ty::Dynamic(_)
-        | Ty::Event
-        | Ty::Chandle => Vec::new(),
-    }
-}
-
-fn select_member(db: &dyn TyDb, base: &Ty, name: &Ident) -> TyResult {
-    members_of_ty(db, base)
-        .into_iter()
-        .find(|member| &member.name == name)
-        .map(|member| TyResult::new(member.ty))
-        .unwrap_or_else(|| TyResult::new(Ty::Unknown))
-}
-
 fn normalize_data_ty_inner(
     db: &dyn TyDb,
     container: ArenaOwnerId,
@@ -365,45 +330,6 @@ fn type_of_typedef_inner(
     TyResult { ty, diagnostics: std::mem::take(&mut target.diagnostics) }
 }
 
-fn struct_members(db: &dyn TyDb, struct_id: InContainer<StructId>) -> Vec<TyMember> {
-    let Some(def) = struct_of(db, struct_id) else {
-        return Vec::new();
-    };
-
-    def.members
-        .iter()
-        .filter_map(|member| {
-            let name = member.name.clone()?;
-            let ty = member
-                .ty
-                .map(|ty| normalize_data_ty(db, ty.cont_id, ty.value).ty)
-                .unwrap_or(Ty::Unknown);
-            Some(TyMember { name, ty })
-        })
-        .collect()
-}
-
-fn union_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
-    aggregate_struct_id_from_def(db, def_id)
-        .filter(|struct_id| struct_kind(db, *struct_id) == Some(StructKind::Union))
-        .map(|struct_id| struct_members(db, struct_id))
-        .unwrap_or_default()
-}
-
-fn aggregate_struct_id_from_def(db: &dyn TyDb, def_id: DefId) -> Option<InContainer<StructId>> {
-    match def_id.primary_origin(db).loc(db) {
-        DefOriginLoc::Typedef(typedef) => match typedef_of(db, typedef)?.ty? {
-            DataTy::Struct(struct_id) => Some(struct_id),
-            _ => None,
-        },
-        DefOriginLoc::Decl(decl) => match data_ty_of_decl(db, decl)? {
-            DataTy::Struct(struct_id) => Some(struct_id),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
 fn struct_kind(db: &dyn TyDb, struct_id: InContainer<StructId>) -> Option<StructKind> {
     struct_of(db, struct_id).map(|def| def.kind)
 }
@@ -473,67 +399,7 @@ fn builtin_type_name_ty(db: &dyn TyDb, container: ArenaOwnerId, ident: &Ident) -
     Some(Ty::Builtin(BuiltinTy::Data { id: db.intern_ty(ty), container }))
 }
 
-fn module_members(db: &dyn TyDb, module_id: ModuleId) -> Vec<TyMember> {
-    let file = db.hir_file(module_id.file_id);
-    let scope = if file.get(module_id.value).kind == ModuleKind::Package {
-        db.package_export_scope(module_id)
-    } else {
-        db.module_scope(module_id)
-    };
-
-    let mut members: Vec<_> = scope
-        .iter_listing()
-        .map(|(name, defs)| {
-            let resolution = Resolution::from_candidates(defs);
-            let ty = type_of_path_resolution_impl(db, resolution).ty;
-            TyMember { name: name.clone(), ty }
-        })
-        .collect();
-    sort_members(&mut members);
-    members
-}
-
-fn checker_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
-    let Some(checker_id) = def_id.primary_origin(db).as_checker(db) else {
-        return Vec::new();
-    };
-    scope_members(db, &db.checker_scope(checker_id))
-}
-
-fn covergroup_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
-    let Some(covergroup_id) = def_id.primary_origin(db).as_covergroup(db) else {
-        return Vec::new();
-    };
-    scope_members(db, &db.covergroup_scope(covergroup_id))
-}
-
-fn generate_block_members(db: &dyn TyDb, generate_block_id: GenerateBlockId) -> Vec<TyMember> {
-    scope_members(db, &db.generate_block_scope(generate_block_id))
-}
-
-fn block_members(db: &dyn TyDb, block_id: hir_def::block::BlockId) -> Vec<TyMember> {
-    scope_members(db, &db.block_scope(block_id))
-}
-
-fn scope_members(db: &dyn TyDb, scope: &NameScope) -> Vec<TyMember> {
-    let mut members: Vec<_> = scope
-        .iter_listing()
-        .map(|(name, defs)| {
-            let resolution = Resolution::from_candidates(defs);
-            let ty = type_of_path_resolution_impl(db, resolution).ty;
-            TyMember { name: name.clone(), ty }
-        })
-        .collect();
-    sort_members(&mut members);
-    members
-}
-
-fn sort_members(members: &mut Vec<TyMember>) {
-    members.sort_by(|left, right| left.name.cmp(&right.name));
-    members.dedup_by(|left, right| left.name == right.name);
-}
-
-fn data_ty_of_decl(db: &dyn TyDb, decl: InContainer<DeclId>) -> Option<DataTy> {
+pub(crate) fn data_ty_of_decl(db: &dyn TyDb, decl: InContainer<DeclId>) -> Option<DataTy> {
     let declarator = decl_of(db, decl)?;
     match declarator.parent {
         DeclaratorParent::DeclarationId(declaration_id) => {
