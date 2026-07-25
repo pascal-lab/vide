@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use hir::base_db::source_db::SourceDb;
+use base_db::source_db::SourceDb;
 use itertools::Itertools;
 use syntax::{
     ast::{self, AstNode},

@@ -1,4 +1,4 @@
-use hir::base_db::{
+use base_db::{
     change::Change,
     salsa::{Database, Durability},
     source_root::SourceRootId,

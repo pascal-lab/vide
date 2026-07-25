@@ -1,10 +1,10 @@
-use hir::{
+use hir::semantics::Semantics;
+use hir_def::{
     container::InContainer,
     hir_def::{
         declaration::Declaration,
         module::{Module, ModuleId, port::Ports},
     },
-    semantics::Semantics,
     symbol::Resolution,
 };
 use smol_str::SmolStr;

@@ -1,12 +1,12 @@
-use hir::{
-    base_db::source_db::{SourceDb, SourceRootDb},
+use base_db::source_db::{SourceDb, SourceRootDb};
+use hir::semantics::Semantics;
+use hir_def::{
     container::{
         ArenaOwnerId, InContainer, InFile, InModule, InSubroutine, ScopeId, ScopeParent,
         SubroutineScope,
     },
     db::HirDefDb,
     def_id::DefId,
-    display::HirDisplay,
     hir_def::{
         DEFAULT_NAME,
         declaration::Declaration,
@@ -24,9 +24,9 @@ use hir::{
         subroutine::{SubroutineKind, SubroutinePortId},
     },
     region_tree::RegionParent,
-    semantics::Semantics,
     symbol::{DefOrigin, DefOriginLoc},
 };
+use hir_ty::display::HirDisplay;
 use itertools::Itertools;
 use syntax::{
     SVInt, SyntaxCursorExt, SyntaxNodeExt,

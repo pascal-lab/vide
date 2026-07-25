@@ -1,10 +1,10 @@
-use hir::{
-    db::HirDb,
-    file::HirFileId,
-    semantics::Semantics,
-    symbol::NameContext,
+use hir::semantics::Semantics;
+use hir_def::symbol::NameContext;
+use hir_ty::{
+    db::TyDb,
     type_infer::{TyMember, members_of_ty},
 };
+use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,
     ast::{self, AstNode},

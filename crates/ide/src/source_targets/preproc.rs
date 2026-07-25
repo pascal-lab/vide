@@ -1,5 +1,5 @@
-use hir::{
-    base_db::source_db::SourceDb,
+use base_db::source_db::SourceDb;
+use preproc_expand::{
     db::PreprocDb,
     macro_file::{ExpansionSourceHit, MacroFileId, Origin, SourceEmittedTokenId},
 };

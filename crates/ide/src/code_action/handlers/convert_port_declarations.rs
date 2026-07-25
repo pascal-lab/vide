@@ -1,10 +1,9 @@
 use std::ops::Range;
 
-use hir::{
-    base_db::source_db::SourceDb,
+use base_db::source_db::SourceDb;
+use hir_def::{
     container::{InContainer, InModule},
     db::HirDefDb,
-    display::HirDisplay,
     hir_def::{
         Ident,
         declaration::DeclarationSrc,
@@ -17,6 +16,7 @@ use hir::{
     source_map::IsSrc,
     symbol::{NameContext, NameScope},
 };
+use hir_ty::display::HirDisplay;
 use itertools::Itertools;
 use syntax::{
     ast::{self, AstNode},

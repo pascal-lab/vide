@@ -1,8 +1,9 @@
 use std::sync::LazyLock;
 
-use hir::{
-    base_db::intern::Lookup,
-    db::{HirDb, HirDefDb},
+use base_db::intern::Lookup;
+use hir::semantics::Semantics;
+use hir_def::{
+    db::HirDefDb,
     hir_def::{
         expr::{
             data_ty::{BuiltinDataTy, DataTy},
@@ -13,10 +14,10 @@ use hir::{
             port::{NonAnsiPort, PortDirection, Ports},
         },
     },
-    semantics::Semantics,
     source_map::{IsNamedSrc, IsSrc},
     symbol::{DefOrigin, NameContext},
 };
+use hir_ty::db::TyDb;
 use regex::{Regex, RegexBuilder};
 use smallvec::SmallVec;
 use utils::{
@@ -118,7 +119,7 @@ pub(super) fn resolve_non_ansi_port<'a>(
     db: &RootDb,
     module: &'a Module,
     defs: &[DefOrigin],
-) -> Option<(&'a hir::hir_def::Ident, Option<PortDirection>, DataTy)> {
+) -> Option<(&'a hir_def::hir_def::Ident, Option<PortDirection>, DataTy)> {
     let port_decl_id =
         defs.iter().filter_map(|def_id| def_id.as_decl(db)).map(|decl_id| decl_id.value).find(
             |decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::PortDeclId(_)),
@@ -153,7 +154,7 @@ pub(super) fn resolve_non_ansi_port<'a>(
 }
 
 pub(super) fn add_port_token(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     name: &str,
     dir: Option<PortDirection>,
     ty: DataTy,
@@ -181,7 +182,7 @@ pub(super) fn add_port_token(
 }
 
 fn port_tag(
-    db: &dyn HirDb,
+    db: &dyn TyDb,
     ty: DataTy,
     name: &str,
     collector: &mut SemaTokenCollector,

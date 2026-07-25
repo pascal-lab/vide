@@ -4,20 +4,21 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use hir::{
-    base_db::{
-        change::Change,
-        project::{
-            CompilationProfile, CompilationProfileId, Predefine, PredefineSource, PreprocessConfig,
-            ProjectConfig,
-        },
-        source_root::{SourceRoot, SourceRootId},
+use base_db::{
+    change::Change,
+    project::{
+        CompilationProfile, CompilationProfileId, Predefine, PredefineSource, PreprocessConfig,
+        ProjectConfig,
     },
-    db::{HirDefDb, PreprocDb},
-    preproc::{IncludeTarget, include_directive_at},
-    semantics::Semantics,
+    source_root::{SourceRoot, SourceRootId},
 };
+use hir::semantics::Semantics;
+use hir_def::db::HirDefDb;
 use insta::assert_snapshot;
+use preproc_expand::{
+    db::PreprocDb,
+    preproc::{IncludeTarget, include_directive_at},
+};
 use triomphe::Arc;
 use utils::{
     test_support::TestDir,
@@ -2224,7 +2225,7 @@ endmodule
     assert!(
         nav.info.iter().any(|target| target.file_id == fixture.header_file_id
             && target.name.as_deref() == Some("HEADER_WIDTH")),
-        "updated header macro should resolve through hir::preproc: {nav:?}"
+        "updated header macro should resolve through preproc-expand: {nav:?}"
     );
 
     let completion_items = analysis
@@ -3745,18 +3746,16 @@ endmodule
     let analysis = host.make_analysis();
 
     {
-        use hir::{
-            db::HirDb,
-            file::HirFileId,
-            hir_def::{
-                module::ModuleId,
-                stmt::{CaseItem, Stmt, StmtId, StmtKind},
-            },
+        use hir_def::hir_def::{
+            module::ModuleId,
+            stmt::{CaseItem, Stmt, StmtId, StmtKind},
         };
+        use hir_ty::db::TyDb;
         use la_arena::Arena;
+        use preproc_expand::file::HirFileId;
 
         fn stmt_tree_has(
-            db: &dyn HirDb,
+            db: &dyn TyDb,
             stmts: &Arena<Stmt>,
             stmt_id: StmtId,
             matches_kind: impl Copy + Fn(&StmtKind) -> bool,
@@ -3801,7 +3800,7 @@ endmodule
         }
 
         fn stmt_arena_has(
-            db: &dyn HirDb,
+            db: &dyn TyDb,
             stmts: &Arena<Stmt>,
             matches_kind: impl Copy + Fn(&StmtKind) -> bool,
         ) -> bool {

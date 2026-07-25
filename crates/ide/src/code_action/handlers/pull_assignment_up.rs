@@ -1,6 +1,6 @@
 use std::{borrow::Cow, ops::Range};
 
-use hir::base_db::source_db::SourceDb;
+use base_db::source_db::SourceDb;
 use syntax::{
     TokenKind,
     ast::{self, AstNode},

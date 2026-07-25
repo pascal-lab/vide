@@ -1,5 +1,5 @@
-use hir::{
-    base_db::source_db::SourceDb,
+use base_db::source_db::SourceDb;
+use preproc_expand::{
     macro_file::MacroExpansionDefinition,
     preproc::{MacroDefinition, MacroParamDefinition},
 };

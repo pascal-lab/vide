@@ -1,12 +1,15 @@
-use hir::{
+use hir_def::{
     container::InContainer,
-    db::{HirDb, HirDefDb},
+    db::HirDefDb,
     hir_def::{
         Ident,
         declaration::Declaration,
         module::{ModuleId, port::Ports},
     },
     symbol::{NameContext, Resolution},
+};
+use hir_ty::{
+    db::TyDb,
     type_infer::{Ty, TyClass, packed_bit_width, type_class},
 };
 use utils::get::GetRef;

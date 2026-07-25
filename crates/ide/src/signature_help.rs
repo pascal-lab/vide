@@ -1,8 +1,7 @@
-use hir::{
+use hir::semantics::Semantics;
+use hir_def::{
     container::{InContainer, InModule},
     db::HirDefDb,
-    display::HirDisplay,
-    file::HirFileId,
     hir_def::{
         declaration::Declaration,
         module::{
@@ -10,9 +9,10 @@ use hir::{
             port::Ports,
         },
     },
-    semantics::Semantics,
 };
+use hir_ty::display::HirDisplay;
 use itertools::Either;
+use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,
     ast::{self, AstNode},

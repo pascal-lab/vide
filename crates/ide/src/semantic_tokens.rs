@@ -1,10 +1,10 @@
 use bitflags::bitflags;
 use collector::SemaTokenCollectorTree;
-use hir::{
+use hir::semantics::Semantics;
+use hir_def::{
     container::{ArenaOwnerId, InContainer},
-    db::{HirDefDb, PreprocDb},
+    db::HirDefDb,
     def_id::DefId,
-    file::HirFileId,
     hir_def::{
         Ident,
         block::{BlockId, BlockInfo},
@@ -19,11 +19,10 @@ use hir::{
         },
         stmt::StmtKind,
     },
-    preproc::macro_references_in_range,
-    semantics::Semantics,
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
     symbol::{DefKind, NameContext, Resolution},
 };
+use preproc_expand::{db::PreprocDb, file::HirFileId, preproc::macro_references_in_range};
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use syntax::{
@@ -702,7 +701,7 @@ fn collect_resolved_path(
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use hir::base_db::{change::Change, source_root::SourceRoot};
+    use base_db::{change::Change, source_root::SourceRoot};
     use insta::assert_debug_snapshot;
     use utils::text_edit::TextRange;
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};

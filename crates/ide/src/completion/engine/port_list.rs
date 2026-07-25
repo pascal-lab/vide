@@ -1,7 +1,7 @@
-use hir::{
+use hir::semantics::Semantics;
+use hir_def::{
     db::HirDefDb,
     hir_def::module::{ModuleId, ModuleSrc},
-    semantics::Semantics,
     symbol::DefKind,
 };
 use syntax::ast;

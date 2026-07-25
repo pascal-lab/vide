@@ -1,7 +1,6 @@
-use hir::{
-    base_db::source_db::SourceDb,
-    db::{HirDefDb, PreprocDb},
-    file::HirFileId,
+use base_db::source_db::SourceDb;
+use hir_def::{
+    db::HirDefDb,
     hir_def::{
         block::{BlockId, BlockSrc},
         module::{ModuleId, ModuleSrc},
@@ -12,6 +11,7 @@ use hir::{
 };
 use la_arena::Arena;
 use memchr::memmem::Finder;
+use preproc_expand::{db::PreprocDb, file::HirFileId};
 use rustc_hash::FxHashSet;
 use syntax::{
     SyntaxCursor, SyntaxCursorExt, SyntaxTrivia,

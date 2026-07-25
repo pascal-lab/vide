@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use hir::base_db::{
+use base_db::{
     change::Change,
     project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
     source_root::{SourceRoot, SourceRootId},
