@@ -16,7 +16,6 @@ use hir_def::{
     typedef::TypedefId,
 };
 use rustc_hash::FxHashSet;
-use triomphe::Arc;
 use utils::get::GetRef;
 
 use crate::{
@@ -43,12 +42,12 @@ fn normalize_data_ty_with_owner(
     normalize_data_ty_inner(db, container, data_ty, owner, &mut FxHashSet::default())
 }
 
-pub(crate) fn type_of_path_resolution_query(db: &dyn TyDb, res: Resolution<DefId>) -> Arc<Type> {
-    Arc::new(type_of_path_resolution_impl(db, res).into())
+pub(crate) fn type_of_path_resolution_query(db: &dyn TyDb, res: Resolution<DefId>) -> Type {
+    type_of_path_resolution_impl(db, res).into()
 }
 
-pub(crate) fn type_of_expr_query(db: &dyn TyDb, expr: InContainer<ExprId>) -> Arc<Type> {
-    Arc::new(type_of_expr_impl(db, expr).into())
+pub(crate) fn type_of_expr_query(db: &dyn TyDb, expr: InContainer<ExprId>) -> Type {
+    type_of_expr_impl(db, expr).into()
 }
 
 fn type_of_typedef_impl(db: &dyn TyDb, typedef: InContainer<TypedefId>) -> TyResult {
