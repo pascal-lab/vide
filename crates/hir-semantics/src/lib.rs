@@ -1,11 +1,13 @@
 //! Syntax-to-HIR semantic adapter.
 //!
-//! This crate maps syntax nodes and source ranges to the ECS-style identifiers
-//! owned by `hir-def`, `hir-ty`, and `preproc-expand`. It is intentionally not
-//! a stable, high-level HIR facade: IDE features currently consume those
-//! implementation layers directly. A future facade would require
+//! This crate maps syntax nodes and source ranges to the definition and
+//! container identifiers owned by `hir-def`, using source-file and expansion
+//! identifiers from `preproc-expand`. It intentionally does not depend on
+//! `hir-ty`; type-aware IDE features compose this adapter with the type layer.
+//!
+//! This is not a stable, high-level HIR facade. A future facade would require
 //! self-contained definition, scope, resolution, and type interfaces rather
-//! than re-exporting their identifiers.
+//! than re-exporting implementation identifiers.
 //!
 //! Compiler implementation layers must not depend back on this adapter.
 

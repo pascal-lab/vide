@@ -1,5 +1,6 @@
 use hir_def::{
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
+    db::HirDefDb,
     hir_def::{
         block::{BlockId, BlockSrc, find_local_block_id},
         module::{
@@ -10,7 +11,6 @@ use hir_def::{
     },
     source_map::ToAstNode,
 };
-use hir_ty::db::TyDb;
 use preproc_expand::file::HirFileId;
 use rustc_hash::FxHashMap;
 use syntax::{
@@ -29,7 +29,7 @@ pub(super) struct Source2DefCache {
 }
 
 pub(super) struct Source2DefCtx<'db, 'cache> {
-    pub(super) db: &'db dyn TyDb,
+    pub(super) db: &'db dyn HirDefDb,
     pub(super) source_cache: &'cache mut Source2DefCache,
     pub(super) hir_cache: &'cache mut Hir2DefCache,
 }
