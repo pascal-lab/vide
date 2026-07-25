@@ -1,5 +1,7 @@
 # DefId and Name Resolution
 
+> This document is still a work in progress draft.
+
 Name resolution must distinguish two cases:
 
 - one definition appears at multiple source locations;
