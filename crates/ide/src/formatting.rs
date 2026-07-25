@@ -8,7 +8,7 @@ use std::{
 use anyhow::Context as _;
 use base_db::source_db::SourceDb;
 use dissimilar::Chunk;
-use hir::semantics::Semantics;
+use hir_semantics::semantics::Semantics;
 use itertools::Itertools;
 use syntax::{
     SyntaxCursor, SyntaxCursorExt, SyntaxKind, SyntaxTrivia, Trivia, has_text_range::HasTextRange,

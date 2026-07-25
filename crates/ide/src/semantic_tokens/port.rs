@@ -1,7 +1,6 @@
 use std::sync::LazyLock;
 
 use base_db::intern::Lookup;
-use hir::semantics::Semantics;
 use hir_def::{
     db::HirDefDb,
     hir_def::{
@@ -17,6 +16,7 @@ use hir_def::{
     source_map::{IsNamedSrc, IsSrc},
     symbol::{DefOrigin, NameContext},
 };
+use hir_semantics::semantics::Semantics;
 use hir_ty::db::TyDb;
 use regex::{Regex, RegexBuilder};
 use smallvec::SmallVec;

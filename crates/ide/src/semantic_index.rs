@@ -2,7 +2,6 @@ use base_db::{
     source_db::{SourceDb, SourceRootDb},
     source_root::SourceRootId,
 };
-use hir::semantics::Semantics;
 use hir_def::{
     container::InFile,
     db::HirDefDb,
@@ -11,6 +10,7 @@ use hir_def::{
     source_map::IsSrc,
     symbol::DefOrigin,
 };
+use hir_semantics::semantics::Semantics;
 use hir_ty::db::TyDb;
 use itertools::Itertools;
 use preproc_expand::{db::PreprocDb, file::HirFileId};

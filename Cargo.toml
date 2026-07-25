@@ -18,7 +18,6 @@ edition = "2024"
 
 [dependencies]
 base-db.workspace = true
-hir.workspace = true
 hir-def.workspace = true
 ide.workspace = true
 preproc-expand.workspace = true
@@ -56,8 +55,8 @@ triomphe.workspace = true
 [workspace.dependencies]
 base-db = { path = "./crates/base-db/", version = "0.0.0" }
 hir-def = { path = "./crates/hir-def/", version = "0.0.0" }
+hir-semantics = { path = "./crates/hir-semantics/", version = "0.0.0" }
 hir-ty = { path = "./crates/hir-ty/", version = "0.0.0" }
-hir = { path = "./crates/hir/", version = "0.0.0" }
 ide = { path = "./crates/ide/", version = "0.0.0" }
 preproc = { path = "./crates/preproc/", version = "0.0.0" }
 preproc-expand = { path = "./crates/preproc-expand/", version = "0.0.0" }

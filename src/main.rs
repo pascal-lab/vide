@@ -14,7 +14,7 @@ use vide::{Opt, run_server};
 const DEFAULT_PROFILE_TRACE_FILTER: &str = concat!(
     "vide=trace,",
     "base_db=trace,",
-    "hir=trace,",
+    "hir_semantics=trace,",
     "hir_def=trace,",
     "hir_ty=trace,",
     "ide=trace,",

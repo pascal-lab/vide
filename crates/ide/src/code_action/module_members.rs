@@ -1,4 +1,3 @@
-use hir::semantics::Semantics;
 use hir_def::{
     container::InContainer,
     hir_def::{
@@ -7,6 +6,7 @@ use hir_def::{
     },
     symbol::Resolution,
 };
+use hir_semantics::semantics::Semantics;
 use smol_str::SmolStr;
 use utils::get::GetRef;
 

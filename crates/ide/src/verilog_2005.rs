@@ -12,8 +12,8 @@ use base_db::{
     },
     source_root::{SourceRoot, SourceRootId},
 };
-use hir::semantics::Semantics;
 use hir_def::db::HirDefDb;
+use hir_semantics::semantics::Semantics;
 use insta::assert_snapshot;
 use preproc_expand::{
     db::PreprocDb,

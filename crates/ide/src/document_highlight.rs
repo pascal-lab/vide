@@ -1,5 +1,5 @@
-use hir::semantics::Semantics;
 use hir_def::{container::InFile, def_id::DefId};
+use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
 use syntax::{SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
 use utils::line_index::TextRange;

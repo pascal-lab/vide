@@ -335,7 +335,7 @@ fn source_capabilities() -> TargetCapability {
 #[cfg(test)]
 mod tests {
     use base_db::{change::Change, source_root::SourceRoot};
-    use hir::semantics::Semantics;
+    use hir_semantics::semantics::Semantics;
     use syntax::token::TokenKindExt;
     use utils::line_index::{TextRange, TextSize};
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};

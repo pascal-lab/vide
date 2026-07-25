@@ -1,4 +1,4 @@
-use hir::semantics::Semantics;
+use hir_semantics::semantics::Semantics;
 use itertools::Itertools;
 use preproc_expand::file::HirFileId;
 use utils::line_index::covering_range;

@@ -1,10 +1,10 @@
-use hir::semantics::Semantics;
 use hir_def::{
     db::HirDefDb,
     def_id::DefId,
     hir_def::lower_ident_opt,
     symbol::{DefKind, DefOrigin, NameContext, Resolution},
 };
+use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
 use syntax::{

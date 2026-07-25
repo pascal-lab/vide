@@ -1,6 +1,6 @@
 use base_db::source_db::SourceDb;
-use hir::semantics::Semantics;
 use hir_def::container::InFile;
+use hir_semantics::semantics::Semantics;
 use itertools::Itertools;
 use preproc_expand::{
     file::HirFileId,

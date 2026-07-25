@@ -1,4 +1,3 @@
-use hir::semantics::Semantics;
 use hir_def::{
     container::{InContainer, InModule},
     db::HirDefDb,
@@ -10,6 +9,7 @@ use hir_def::{
         },
     },
 };
+use hir_semantics::semantics::Semantics;
 use hir_ty::display::HirDisplay;
 use itertools::Either;
 use preproc_expand::file::HirFileId;

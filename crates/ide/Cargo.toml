@@ -11,8 +11,10 @@ base-db.workspace = true
 bitflags.workspace = true
 dissimilar = "1.0.9"
 fst = "0.4.7"
-hir.workspace = true
+# Compiler layers are explicit dependencies; `hir-semantics` is a
+# syntax-to-HIR adapter, not a high-level facade over them.
 hir-def.workspace = true
+hir-semantics.workspace = true
 hir-ty.workspace = true
 itertools.workspace = true
 la-arena.workspace = true

@@ -1,5 +1,4 @@
 use base_db::source_db::{SourceDb, SourceRootDb};
-use hir::semantics::Semantics;
 use hir_def::{
     container::{
         ArenaOwnerId, InContainer, InFile, InModule, InSubroutine, ScopeId, ScopeParent,
@@ -26,6 +25,7 @@ use hir_def::{
     region_tree::RegionParent,
     symbol::{DefOrigin, DefOriginLoc},
 };
+use hir_semantics::semantics::Semantics;
 use hir_ty::display::HirDisplay;
 use itertools::Itertools;
 use syntax::{

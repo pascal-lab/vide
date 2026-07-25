@@ -1,10 +1,10 @@
 use base_db::source_db::SourceDb;
-use hir::semantics::Semantics;
 use hir_def::{
     container::InFile,
     def_id::DefId,
     symbol::{DefOrigin, NameContext},
 };
+use hir_semantics::semantics::Semantics;
 use nohash_hasher::IntMap;
 use preproc_expand::{
     file::HirFileId,
