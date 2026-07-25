@@ -142,21 +142,25 @@ pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceInfo {
-    kind: SyntaxKind,
+    kind: Option<SyntaxKind>,
     full_range: TextRange,
     focus_range: Option<TextRange>,
 }
 
 impl SourceInfo {
     pub fn new(src: impl IsSrc) -> Self {
-        Self { kind: src.kind(), full_range: src.range(), focus_range: None }
+        Self { kind: Some(src.kind()), full_range: src.range(), focus_range: None }
     }
 
     pub fn named(src: impl IsNamedSrc) -> Self {
-        Self { kind: src.kind(), full_range: src.range(), focus_range: src.name_range() }
+        Self { kind: Some(src.kind()), full_range: src.range(), focus_range: src.name_range() }
     }
 
-    pub fn kind(self) -> SyntaxKind {
+    pub fn from_ranges(full_range: TextRange, focus_range: Option<TextRange>) -> Self {
+        Self { kind: None, full_range, focus_range }
+    }
+
+    pub fn kind(self) -> Option<SyntaxKind> {
         self.kind
     }
 

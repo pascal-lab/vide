@@ -684,6 +684,7 @@ mod tests {
         container::{FileOrModule, InFile, InFileOrModule, ScopeId, SubroutineParent},
         db::{HirDefDb, HirDefDbStorage, InternDbStorage},
         def_id::DefId,
+        has_source::HasSource,
         module::port::{NonAnsiPortSrc, PortSrcs, Ports},
         pathres::resolve_name,
         source_map::IsNamedSrc,
@@ -849,6 +850,10 @@ endmodule
             .module_ids(&db, &ident("m"))
             .unique()
             .expect("module should resolve uniquely");
+        assert_eq!(
+            module_id.source(&db).expect("module should retain its source").file_id,
+            HirFileId::File(TOP)
+        );
 
         let module_scope = db.module_scope(module_id);
         let port_def = module_scope
@@ -856,6 +861,14 @@ endmodule
             .unique()
             .expect("non-ANSI port name should resolve uniquely");
         assert_eq!(port_def.kind(&db), DefKind::Port);
+        assert!(
+            port_def
+                .source(&db)
+                .expect("definition should retain its source")
+                .value
+                .focus_range()
+                .is_some()
+        );
         assert!(
             port_def.origins(&db).iter().any(|origin| origin.kind(&db) == DefKind::NonAnsiPort)
         );
@@ -867,6 +880,14 @@ endmodule
             .iter()
             .find_map(|def_id| def_id.primary_origin(&db).as_subroutine(&db))
             .expect("subroutine should be visible from module scope");
+        assert!(
+            subroutine_id
+                .source(&db)
+                .expect("subroutine should retain its source")
+                .value
+                .focus_range()
+                .is_some()
+        );
         let subroutine_scope = db.subroutine_scope(subroutine_id);
         assert!(
             subroutine_scope
@@ -881,6 +902,14 @@ endmodule
             .find_map(|def_id| def_id.primary_origin(&db).as_block(&db))
             .expect("named block should be visible from subroutine scope");
         assert!(
+            block_id
+                .source(&db)
+                .expect("block should retain its source")
+                .value
+                .focus_range()
+                .is_some()
+        );
+        assert!(
             db.block_scope(block_id)
                 .lookup(NameContext::Value, &ident("x"))
                 .iter()
@@ -892,6 +921,14 @@ endmodule
             .iter()
             .find_map(|def_id| def_id.primary_origin(&db).as_generate_block(&db))
             .expect("generate block should be visible from module scope");
+        assert!(
+            generate_block_id
+                .source(&db)
+                .expect("generate block should retain its source")
+                .value
+                .focus_range()
+                .is_some()
+        );
         assert!(
             db.generate_block_scope(generate_block_id)
                 .lookup(NameContext::Value, &ident("y"))
