@@ -1,9 +1,9 @@
 use hir_def::{
     Ident,
-    container::{InContainer, InSubroutine, SubroutineScope},
+    container::{InContainer, SubroutineScope},
     def_id::DefId,
-    expr::{ExprId, declarator::DeclId},
-    subroutine::{SubroutineKind, SubroutinePortId},
+    expr::ExprId,
+    subroutine::SubroutineKind,
     symbol::Resolution,
     typedef::TypedefId,
 };
@@ -19,6 +19,7 @@ use crate::{
 pub enum TypeDiagnostic {
     TypedefCycle(InContainer<TypedefId>),
 }
+
 /// Semantic type information returned by the type system.
 ///
 /// The representation and salsa query result stay private so callers do not
@@ -89,14 +90,6 @@ impl<'db> TypeSystem<'db> {
         Self { db }
     }
 
-    pub fn type_of_decl(&self, decl: InContainer<DeclId>) -> Type {
-        self.db.infer_decl(decl).as_ref().clone()
-    }
-
-    pub fn type_of_typedef(&self, typedef: InContainer<TypedefId>) -> Type {
-        self.db.infer_typedef(typedef).as_ref().clone()
-    }
-
     pub fn type_of_expr(&self, expr: InContainer<ExprId>) -> Type {
         self.db.infer_expr(expr).as_ref().clone()
     }
@@ -107,10 +100,6 @@ impl<'db> TypeSystem<'db> {
 
     pub fn type_of_def(&self, def: DefId) -> Type {
         self.type_of_resolution(Resolution::Unique(def))
-    }
-
-    pub fn type_of_subroutine_port(&self, port: InSubroutine<SubroutinePortId>) -> Type {
-        self.db.infer_subroutine_port(port).as_ref().clone()
     }
 
     pub fn type_of_subroutine_return(&self, subroutine: SubroutineScope) -> Type {
