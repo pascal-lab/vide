@@ -1,11 +1,9 @@
 use hir_def::{
+    Ident,
     container::InContainer,
     db::HirDefDb,
-    hir_def::{
-        Ident,
-        declaration::Declaration,
-        module::{ModuleId, port::Ports},
-    },
+    declaration::Declaration,
+    module::{ModuleId, port::Ports},
     symbol::{NameContext, Resolution},
 };
 use hir_ty::{

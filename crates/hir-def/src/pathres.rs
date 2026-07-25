@@ -3,13 +3,11 @@ use triomphe::Arc;
 use utils::get::GetRef;
 
 use crate::{
+    Ident,
     container::{ScopeId, ScopeParent},
     db::HirDefDb,
     def_id::DefId,
-    hir_def::{
-        Ident,
-        module::{ModuleId, instantiation::InstanceId},
-    },
+    module::{ModuleId, instantiation::InstanceId},
     symbol::{DefKind, NameContext, NameScope, Resolution},
 };
 
@@ -237,9 +235,9 @@ mod tests {
 
     use super::*;
     use crate::{
+        Ident,
         container::ScopeId,
         db::{HirDefDb, HirDefDbStorage, InternDbStorage},
-        hir_def::Ident,
         symbol::{DefKind, NameContext},
     };
 

@@ -42,7 +42,7 @@ use super::{
 use crate::{
     container::{ArenaOwnerId, SubroutineParent, SubroutineScope},
     db::HirDefDb,
-    hir_def::lower_ident_opt,
+    lower_ident_opt,
     region_tree::RegionTree,
     source_map::SourceMap,
 };
@@ -145,7 +145,7 @@ impl FileSourceMap {
     }
 }
 
-crate::hir_def::impl_arena_getters!(
+crate::impl_arena_getters!(
     HirFile;
     LocalModuleId => modules => ModuleInfo,
     ProcId => procs => Proc,
@@ -169,7 +169,7 @@ crate::hir_def::impl_arena_getters!(
     LocalBlockId => stmts => BlockInfo,
 );
 
-crate::hir_def::impl_source_map_getters!(
+crate::impl_source_map_getters!(
     FileSourceMap;
     ModuleSrc => LocalModuleId => module_srcs,
     ProcSrc => ProcId => proc_srcs,

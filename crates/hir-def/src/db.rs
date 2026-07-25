@@ -3,23 +3,21 @@ use preproc_expand::{db::PreprocDb, file::HirFileId};
 use triomphe::Arc;
 
 use crate::{
+    block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
+    checker::CheckerId,
     container::{InFileOrModule, InModule, SubroutineScope},
+    covergroup::CovergroupId,
     def_id::{DefId, Definition},
-    hir_def::{
-        block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
-        checker::CheckerId,
-        covergroup::CovergroupId,
-        expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
-        file::{self, FileSourceMap, HirFile},
-        module::{
-            self, Module, ModuleId, ModuleSourceMap, PackageId,
-            clocking::ClockingBlockId,
-            generate::{
-                self, GenerateBlock, GenerateBlockId, GenerateBlockLoc, GenerateBlockSourceMap,
-            },
+    expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
+    file::{self, FileSourceMap, HirFile},
+    module::{
+        self, Module, ModuleId, ModuleSourceMap, PackageId,
+        clocking::ClockingBlockId,
+        generate::{
+            self, GenerateBlock, GenerateBlockId, GenerateBlockLoc, GenerateBlockSourceMap,
         },
-        subroutine::{self, Subroutine, SubroutineSourceMap},
     },
+    subroutine::{self, Subroutine, SubroutineSourceMap},
     symbol::{DefOrigin, DefOriginLoc, NameScope},
 };
 

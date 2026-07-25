@@ -9,12 +9,10 @@ use syntax::{
 
 use super::literal::{Literal, lower_literal};
 use crate::{
-    hir_def::{
-        Ident, alloc_with_source, alloc_with_source_entry,
-        literal::lower_integer_vector,
-        lower::{LoweringCtx, LoweringStore},
-        lower_ident, lower_ident_opt,
-    },
+    Ident, alloc_with_source, alloc_with_source_entry,
+    literal::lower_integer_vector,
+    lower::{LoweringCtx, LoweringStore},
+    lower_ident, lower_ident_opt,
     source_map::{AstId, AstKind},
 };
 

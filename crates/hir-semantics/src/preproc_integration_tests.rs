@@ -14,7 +14,7 @@ use base_db::{
 use hir_def::{
     container::{InFile, ScopeId},
     db::{HirDefDb, HirDefDbStorage, InternDbStorage},
-    hir_def::module::ModuleId,
+    module::ModuleId,
     source_map::IsSrc,
 };
 use preproc_expand::{

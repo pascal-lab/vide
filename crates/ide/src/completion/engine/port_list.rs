@@ -1,6 +1,6 @@
 use hir_def::{
     db::HirDefDb,
-    hir_def::module::{ModuleId, ModuleSrc},
+    module::{ModuleId, ModuleSrc},
     symbol::DefKind,
 };
 use hir_semantics::semantics::Semantics;

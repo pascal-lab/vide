@@ -5,18 +5,16 @@ use utils::define_enum_deriving_from;
 
 use super::{ExprId, data_ty::Dimension};
 use crate::{
-    hir_def::{
-        Ident, alloc_with_source,
-        declaration::DeclarationId,
-        lower::{LoweringCtx, LoweringStore},
-        lower_ident_opt,
-        module::port::PortDeclId,
-        stmt::StmtId,
-    },
+    Ident, alloc_with_source,
+    declaration::DeclarationId,
+    lower::{LoweringCtx, LoweringStore},
+    lower_ident_opt,
+    module::port::PortDeclId,
     source_map::{
         AstKind, FromSourceAst, IsNamedSrc, IsSrc, NamedAstId, SourceAst, ToAstNode,
         wrapped_ast_node_from_ptr,
     },
+    stmt::StmtId,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]

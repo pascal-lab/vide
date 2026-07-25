@@ -1,6 +1,6 @@
 use base_db::source_db::SourceDb;
 use hir_def::{
-    container::InModule, db::HirDefDb, hir_def::module::instantiation::PortConn, source_map::IsSrc,
+    container::InModule, db::HirDefDb, module::instantiation::PortConn, source_map::IsSrc,
 };
 use rustc_hash::FxHashSet;
 use syntax::{

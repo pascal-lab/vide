@@ -1,7 +1,8 @@
 use hir_def::{
+    Ident,
     container::{ArenaOwnerId, InContainer, InFile, ScopeId},
     def_id::DefId,
-    hir_def::{Ident, lower_ident_opt},
+    lower_ident_opt,
     symbol::{NameContext, Resolution},
 };
 use preproc_expand::file::HirFileId;

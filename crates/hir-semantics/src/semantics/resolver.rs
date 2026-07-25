@@ -1,11 +1,9 @@
 use hir_def::{
     container::{ArenaOwnerId, InContainer, InFile, InModule},
-    hir_def::{
-        expr::{ExprId, ExprSrc},
-        module::instantiation::{
-            HierarchyInstantiationAst, InstanceId, InstanceSrc, InstantiationId, InstantiationSrc,
-            PortConnId, PortConnSrc,
-        },
+    expr::{ExprId, ExprSrc},
+    module::instantiation::{
+        HierarchyInstantiationAst, InstanceId, InstanceSrc, InstantiationId, InstantiationSrc,
+        PortConnId, PortConnSrc,
     },
     source_map::AstId,
 };

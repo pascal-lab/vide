@@ -4,10 +4,8 @@ use syntax::{TokenKind, ast};
 
 use super::ExprId;
 use crate::{
-    hir_def::{
-        alloc_with_source,
-        lower::{LoweringCtx, LoweringStore},
-    },
+    alloc_with_source,
+    lower::{LoweringCtx, LoweringStore},
     source_map::{AstId, AstKind},
 };
 

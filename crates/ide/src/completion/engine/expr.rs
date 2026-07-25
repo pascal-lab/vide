@@ -4,7 +4,9 @@ use hir_def::{
     container::{InContainer, ScopeId, ScopeParent, SubroutineScope},
     db::HirDefDb,
     def_id::DefId,
-    hir_def::{lower_ident_opt, module::ModuleId, subroutine::SubroutineKind},
+    lower_ident_opt,
+    module::ModuleId,
+    subroutine::SubroutineKind,
     symbol::{DefKind, Resolution},
 };
 use hir_semantics::semantics::Semantics;
@@ -168,7 +170,7 @@ fn collect_module_names(db: &RootDb, module_id: ModuleId, names: &mut BTreeMap<S
 
 fn collect_def_names(
     db: &RootDb,
-    ident: &hir_def::hir_def::Ident,
+    ident: &hir_def::Ident,
     defs: impl IntoIterator<Item = DefId>,
     names: &mut BTreeMap<String, NameKind>,
 ) {

@@ -2,12 +2,10 @@ use base_db::intern::Lookup;
 use utils::get::Get;
 
 use crate::{
+    block::{BlockId, BlockSrc},
     container::InFile,
     db::HirDefDb,
-    hir_def::{
-        block::{BlockId, BlockSrc},
-        module::{ModuleId, ModuleSrc},
-    },
+    module::{ModuleId, ModuleSrc},
     source_map::IsSrc,
 };
 

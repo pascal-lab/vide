@@ -1,24 +1,22 @@
 use bitflags::bitflags;
 use collector::SemaTokenCollectorTree;
 use hir_def::{
+    Ident,
+    block::{BlockId, BlockInfo},
     container::{ArenaOwnerId, InContainer},
     db::HirDefDb,
     def_id::DefId,
-    hir_def::{
-        Ident,
-        block::{BlockId, BlockInfo},
-        expr::{
-            Expr, ExprId, ExprSrc,
-            data_ty::{DataTy, NamedDataTy},
-            declarator::DeclaratorParent,
-        },
-        module::{
-            ModuleId,
-            instantiation::{ParamAssign, PortConn},
-        },
-        stmt::StmtKind,
+    expr::{
+        Expr, ExprId, ExprSrc,
+        data_ty::{DataTy, NamedDataTy},
+        declarator::DeclaratorParent,
+    },
+    module::{
+        ModuleId,
+        instantiation::{ParamAssign, PortConn},
     },
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
+    stmt::StmtKind,
     symbol::{DefKind, NameContext, Resolution},
 };
 use hir_semantics::semantics::Semantics;

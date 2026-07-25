@@ -3,11 +3,9 @@ use smallvec::SmallVec;
 use syntax::ast::{self, AstNode};
 
 use crate::{
-    hir_def::{
-        alloc_with_source,
-        expr::ExprId,
-        lower::{LoweringCtx, ModuleItemStore},
-    },
+    alloc_with_source,
+    expr::ExprId,
+    lower::{LoweringCtx, ModuleItemStore},
     source_map::{AstId, AstKind},
 };
 

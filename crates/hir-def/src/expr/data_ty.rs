@@ -7,12 +7,10 @@ use syntax::{
 
 use super::{Expr, ExprId, Selector};
 use crate::{
+    aggregate::StructId,
     container::InContainer,
-    hir_def::{
-        aggregate::StructId,
-        lower::{LoweringCtx, LoweringStore},
-        lower_ident,
-    },
+    lower::{LoweringCtx, LoweringStore},
+    lower_ident,
 };
 
 // slang exposes enum types directly as `DataType::EnumType`, while struct and

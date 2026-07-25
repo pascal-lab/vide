@@ -1,24 +1,22 @@
 use base_db::intern::Lookup;
 use hir_def::{
+    block::{BlockId, BlockLoc},
     container::{InContainer, InFile, InModule, InSubroutine, SubroutineScope},
     db::HirDefDb,
-    hir_def::{
-        block::{BlockId, BlockLoc},
-        declaration::Declaration,
-        expr::declarator::{DeclId, DeclaratorParent},
-        file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
-        module::{
-            ModuleId,
-            generate::{GenerateBlockId, GenerateBlockLoc},
-            instantiation::InstanceId,
-            port::NonAnsiPortId,
-        },
-        stmt::StmtId,
-        subroutine::SubroutinePortId,
-        typedef::TypedefId,
+    declaration::Declaration,
+    expr::declarator::{DeclId, DeclaratorParent},
+    file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
+    module::{
+        ModuleId,
+        generate::{GenerateBlockId, GenerateBlockLoc},
+        instantiation::InstanceId,
+        port::NonAnsiPortId,
     },
     source_map::{IsNamedSrc, IsSrc},
+    stmt::StmtId,
+    subroutine::SubroutinePortId,
     symbol::DefOrigin,
+    typedef::TypedefId,
 };
 use hir_ty::db::TyDb;
 use preproc_expand::file::HirFileId;

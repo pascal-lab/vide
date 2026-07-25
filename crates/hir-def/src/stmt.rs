@@ -13,8 +13,9 @@ use super::{
     lower_ident_opt,
 };
 use crate::{
+    alloc_with_source,
     container::InFile,
-    hir_def::{alloc_with_source, lower_named_label_opt},
+    lower_named_label_opt,
     source_map::{AstKind, NamedAstId},
 };
 

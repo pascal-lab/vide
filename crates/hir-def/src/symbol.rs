@@ -4,30 +4,28 @@ use smallvec::SmallVec;
 use utils::impl_from;
 
 use crate::{
+    Ident,
+    block::BlockId,
+    checker::{CheckerId, CheckerPortId},
     container::{
         InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine, SubroutineScope,
     },
+    covergroup::{CovergroupId, CoverpointId, CrossId},
     db::{HirDefDb, InternDb},
     def_id::DefId,
-    hir_def::{
-        Ident,
-        block::BlockId,
-        checker::{CheckerId, CheckerPortId},
-        covergroup::{CovergroupId, CoverpointId, CrossId},
-        expr::declarator::DeclId,
-        file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
-        module::{
-            ModuleId,
-            clocking::{ClockingBlockId, ClockingSignalId},
-            generate::GenerateBlockId,
-            instantiation::InstanceId,
-            modport::ModportId,
-            port::NonAnsiPortId,
-        },
-        stmt::StmtId,
-        subroutine::SubroutinePortId,
-        typedef::TypedefId,
+    expr::declarator::DeclId,
+    file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
+    module::{
+        ModuleId,
+        clocking::{ClockingBlockId, ClockingSignalId},
+        generate::GenerateBlockId,
+        instantiation::InstanceId,
+        modport::ModportId,
+        port::NonAnsiPortId,
     },
+    stmt::StmtId,
+    subroutine::SubroutinePortId,
+    typedef::TypedefId,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -429,7 +427,7 @@ impl NameScope {
         &self,
         db: &dyn HirDefDb,
         ident: &Ident,
-    ) -> Resolution<crate::hir_def::module::ModuleId> {
+    ) -> Resolution<crate::module::ModuleId> {
         let entries = self
             .types
             .get(ident)
@@ -445,7 +443,7 @@ impl NameScope {
         &self,
         db: &dyn HirDefDb,
         ident: &Ident,
-    ) -> Resolution<crate::hir_def::module::PackageId> {
+    ) -> Resolution<crate::module::PackageId> {
         let entries = self
             .types
             .get(ident)

@@ -5,9 +5,10 @@ use utils::define_enum_deriving_from;
 
 use super::LowerModuleCtx;
 use crate::{
-    hir_def::{
-        Ident, alloc_with_source, declaration::DeclarationId, expr::ExprId, lower_ident_opt,
-    },
+    Ident, alloc_with_source,
+    declaration::DeclarationId,
+    expr::ExprId,
+    lower_ident_opt,
     source_map::{
         AstId, AstKind, FromSourceAst, IsNamedSrc, IsSrc, SourceAst, ToAstNode,
         exact_ast_node_from_ptr,

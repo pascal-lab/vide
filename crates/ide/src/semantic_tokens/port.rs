@@ -3,15 +3,13 @@ use std::sync::LazyLock;
 use base_db::intern::Lookup;
 use hir_def::{
     db::HirDefDb,
-    hir_def::{
-        expr::{
-            data_ty::{BuiltinDataTy, DataTy},
-            declarator::DeclaratorParent,
-        },
-        module::{
-            Module, ModuleId,
-            port::{NonAnsiPort, PortDirection, Ports},
-        },
+    expr::{
+        data_ty::{BuiltinDataTy, DataTy},
+        declarator::DeclaratorParent,
+    },
+    module::{
+        Module, ModuleId,
+        port::{NonAnsiPort, PortDirection, Ports},
     },
     source_map::{IsNamedSrc, IsSrc},
     symbol::{DefOrigin, NameContext},
@@ -119,7 +117,7 @@ pub(super) fn resolve_non_ansi_port<'a>(
     db: &RootDb,
     module: &'a Module,
     defs: &[DefOrigin],
-) -> Option<(&'a hir_def::hir_def::Ident, Option<PortDirection>, DataTy)> {
+) -> Option<(&'a hir_def::Ident, Option<PortDirection>, DataTy)> {
     let port_decl_id =
         defs.iter().filter_map(|def_id| def_id.as_decl(db)).map(|decl_id| decl_id.value).find(
             |decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::PortDeclId(_)),

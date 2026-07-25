@@ -1,7 +1,7 @@
 use hir_def::{
     db::HirDefDb,
     def_id::DefId,
-    hir_def::lower_ident_opt,
+    lower_ident_opt,
     symbol::{DefKind, DefOrigin, NameContext, Resolution},
 };
 use hir_semantics::semantics::Semantics;
@@ -226,7 +226,7 @@ fn package_defs(
 fn package_member_resolution(
     sema: &Semantics<'_, RootDb>,
     packages: Resolution<DefId>,
-    ident: &hir_def::hir_def::Ident,
+    ident: &hir_def::Ident,
     primary_ctx: NameContext,
 ) -> DefinitionResolution {
     let fallback_ctx =

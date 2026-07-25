@@ -1,11 +1,9 @@
 use hir_def::{
+    Ident,
     db::HirDefDb,
-    hir_def::{
-        Ident,
-        declaration::Declaration,
-        expr::declarator::DeclaratorParent,
-        module::{ModuleId, port::Ports},
-    },
+    declaration::Declaration,
+    expr::declarator::DeclaratorParent,
+    module::{ModuleId, port::Ports},
 };
 use syntax::{
     SyntaxAncestors,
