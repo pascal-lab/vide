@@ -6,14 +6,10 @@ use hir_def::{
     def_id::DefId,
     lower_ident_opt,
     module::ModuleId,
-    subroutine::SubroutineKind,
     symbol::{DefKind, Resolution},
 };
 use hir_semantics::semantics::Semantics;
-use hir_ty::{
-    db::TyDb,
-    type_infer::{Ty, normalize_data_ty, type_class},
-};
+use hir_ty::{Type, TypeSystem};
 use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxNodeExt,
@@ -27,8 +23,8 @@ use crate::{FilePosition, completion::context::CompletionContext, db::root_db::R
 
 #[derive(Clone, Debug)]
 enum NameKind {
-    Value { ty: Ty },
-    SubroutineCall { return_ty: Ty },
+    Value { ty: Type },
+    SubroutineCall { return_ty: Type },
 }
 
 pub(super) fn complete_expression(
@@ -182,7 +178,7 @@ fn collect_def_names(
     let return_ty = match subroutines {
         Resolution::Unresolved => None,
         Resolution::Unique(subroutine_id) => Some(subroutine_return_ty(db, subroutine_id)),
-        Resolution::Ambiguous(_) => Some(Ty::Unknown),
+        Resolution::Ambiguous(_) => Some(Type::unknown()),
     };
     if let Some(return_ty) = return_ty {
         names.entry(ident.to_string()).or_insert(NameKind::SubroutineCall { return_ty });
@@ -202,18 +198,13 @@ fn collect_def_names(
         )
     }) {
         let res = Resolution::from_candidates(defs.iter().copied());
-        let ty = db.type_of_path_resolution(res).ty.clone();
+        let ty = TypeSystem::new(db).type_of_resolution(res);
         names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
     }
 }
 
-fn subroutine_return_ty(db: &RootDb, subroutine_id: SubroutineScope) -> Ty {
-    match db.subroutine(subroutine_id).kind {
-        SubroutineKind::Function { return_ty: Some(return_ty) } => {
-            normalize_data_ty(db, subroutine_id.into(), return_ty).ty
-        }
-        SubroutineKind::Function { return_ty: None } | SubroutineKind::Task => Ty::Unknown,
-    }
+fn subroutine_return_ty(db: &RootDb, subroutine_id: SubroutineScope) -> Type {
+    TypeSystem::new(db).type_of_subroutine_return(subroutine_id)
 }
 
 fn module_id_for_container(db: &RootDb, container_id: ScopeId) -> Option<ModuleId> {
@@ -225,7 +216,7 @@ fn module_id_for_container(db: &RootDb, container_id: ScopeId) -> Option<ModuleI
 
 fn expression_candidate_matches_expected_type(
     db: &RootDb,
-    expected_ty: Option<&Ty>,
+    expected_ty: Option<&Type>,
     kind: &NameKind,
 ) -> bool {
     let Some(expected_ty) = expected_ty else {
@@ -245,10 +236,10 @@ fn expected_type_at_offset(
     root: SyntaxNode<'_>,
     offset: TextSize,
     _current_module_id: ModuleId,
-) -> Option<Ty> {
+) -> Option<Type> {
     expected_type_for_assignment_rhs(db, sema, file_id, root, offset)
         .or_else(|| expected_type_for_declarator_initializer(db, sema, file_id, root, offset))
-        .filter(|ty| type_class(db, ty).is_some())
+        .filter(|ty| TypeSystem::new(db).is_typed_value(ty))
 }
 
 fn expected_type_for_assignment_rhs(
@@ -257,7 +248,7 @@ fn expected_type_for_assignment_rhs(
     file_id: HirFileId,
     root: SyntaxNode<'_>,
     offset: TextSize,
-) -> Option<Ty> {
+) -> Option<Type> {
     let assignment = root.find_node_at_offset::<ast::BinaryExpression<'_>>(offset)?;
     if !is_assignment_expression(assignment.syntax().kind()) {
         return None;
@@ -270,7 +261,7 @@ fn expected_type_for_assignment_rhs(
     }
 
     let res = sema.expr_to_def(sema.resolve_expr(file_id, assignment.left())?);
-    Some(db.type_of_path_resolution(res).ty.clone())
+    Some(TypeSystem::new(db).type_of_resolution(res))
 }
 
 fn expected_type_for_declarator_initializer(
@@ -279,7 +270,7 @@ fn expected_type_for_declarator_initializer(
     file_id: HirFileId,
     root: SyntaxNode<'_>,
     offset: TextSize,
-) -> Option<Ty> {
+) -> Option<Type> {
     let declarator = root.find_node_at_offset::<ast::Declarator<'_>>(offset)?;
     let initializer = declarator.initializer()?;
     if !initializer.expr().syntax().text_range().is_some_and(|range| {
@@ -291,7 +282,7 @@ fn expected_type_for_declarator_initializer(
     let ident = lower_ident_opt(declarator.name())?;
     let container_id = sema.container_for_node(file_id, declarator.syntax())?;
     let res = sema.name_to_def(InContainer::new(container_id, ident));
-    Some(db.type_of_path_resolution(res).ty.clone())
+    Some(TypeSystem::new(db).type_of_resolution(res))
 }
 
 fn is_assignment_expression(kind: SyntaxKind) -> bool {
