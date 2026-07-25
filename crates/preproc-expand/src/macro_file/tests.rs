@@ -27,8 +27,9 @@ use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
 use super::*;
 use crate::{
-    db::{PreprocDb, PreprocDbStorage, PreprocSourceMap, SourcePreprocQueryError},
+    db::{PreprocDb, PreprocDbStorage},
     file::HirFileId,
+    source_db::{PreprocSourceMap, SourcePreprocQueryError},
 };
 
 const TOP: FileId = FileId::from_raw(0);

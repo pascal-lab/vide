@@ -10,8 +10,9 @@ use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use crate::{
-    db::{MappedSourcePreprocModel, PreprocDb, SourcePreprocQueryError},
+    db::PreprocDb,
     preproc::{MacroDefinition, map_macro_definition},
+    source_db::{MappedSourcePreprocModel, SourcePreprocQueryError},
 };
 
 mod source_map;
