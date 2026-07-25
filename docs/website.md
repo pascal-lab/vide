@@ -1,4 +1,8 @@
-## Website Development
+# Website
+
+This is the development document for website module(`website/`).
+
+## Development
 If you want to run the website locally, you can do so by following steps.
 1. **Install emscripten**. If you have emscripten installed, you can skip this step.
 
