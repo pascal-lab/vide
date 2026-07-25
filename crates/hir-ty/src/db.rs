@@ -7,9 +7,9 @@ use crate::Type;
 
 #[salsa::query_group(TyDbStorage)]
 pub trait TyDb: HirDefDb {
-    #[salsa::invoke(crate::type_infer::type_of_expr_query)]
+    #[salsa::invoke(crate::infer::type_of_expr_query)]
     fn infer_expr(&self, expr: InContainer<ExprId>) -> Arc<Type>;
 
-    #[salsa::invoke(crate::type_infer::type_of_path_resolution_query)]
+    #[salsa::invoke(crate::infer::type_of_path_resolution_query)]
     fn infer_path_resolution(&self, res: Resolution<DefId>) -> Arc<Type>;
 }

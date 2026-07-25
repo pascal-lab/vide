@@ -11,7 +11,7 @@ use hir_def::{
 use crate::{
     db::TyDb,
     display::{HirDisplay, HirDisplayError},
-    type_infer::{Ty, TyResult, members_of_ty, normalize_data_ty, packed_bit_width, type_class},
+    infer::{Ty, TyClass, TyResult, members_of_ty, normalize_data_ty, packed_bit_width, type_class},
 };
 
 /// A diagnostic produced while determining a semantic type.
@@ -127,7 +127,7 @@ impl<'db> TypeSystem<'db> {
         if expected_class != candidate_class {
             return Compatibility::Incompatible;
         }
-        if expected_class != crate::type_infer::TyClass::Integral {
+        if expected_class != TyClass::Integral {
             return Compatibility::Compatible;
         }
 
