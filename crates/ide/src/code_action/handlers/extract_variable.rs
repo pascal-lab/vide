@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use base_db::source_db::SourceDb;
-use hir_ty::{db::TyDb, display::HirDisplay, type_infer::Ty};
+use hir_ty::{Type, TypeSystem};
 use syntax::{
     SyntaxAncestors, SyntaxKind, TokenKind, WalkEvent,
     ast::{self, AstNode},
@@ -169,8 +169,8 @@ fn trim_range(text: &str, range: TextRange) -> Option<TextRange> {
 }
 
 fn extracted_variable_type(ctx: &CodeActionCtx<'_>, expr: ast::Expression<'_>) -> Option<String> {
-    let ty =
-        ctx.sema().db.type_of_expr(ctx.sema().resolve_expr(ctx.file_id().into(), expr)?).ty.clone();
+    let types = TypeSystem::new(ctx.sema().db);
+    let ty = types.type_of_expr(ctx.sema().resolve_expr(ctx.file_id().into(), expr)?);
     render_ty(ctx, &ty)
         .or_else(|| expected_type_for_assignment_rhs(ctx, expr).and_then(|ty| render_ty(ctx, &ty)))
 }
@@ -178,23 +178,17 @@ fn extracted_variable_type(ctx: &CodeActionCtx<'_>, expr: ast::Expression<'_>) -
 fn expected_type_for_assignment_rhs(
     ctx: &CodeActionCtx<'_>,
     expr: ast::Expression<'_>,
-) -> Option<Ty> {
+) -> Option<Type> {
     let assignment = assignment_expression_containing_rhs(expr)?;
     let res =
         ctx.sema().expr_to_def(ctx.sema().resolve_expr(ctx.file_id().into(), assignment.left())?);
-    Some(ctx.sema().db.type_of_path_resolution(res).ty.clone())
+    Some(TypeSystem::new(ctx.sema().db).type_of_resolution(res))
 }
 
-fn render_ty(ctx: &CodeActionCtx<'_>, ty: &Ty) -> Option<String> {
-    match ty {
-        Ty::Unknown
-        | Ty::Error
-        | Ty::Void
-        | Ty::Module(_)
-        | Ty::GenerateBlock(_)
-        | Ty::Block(_) => None,
-        _ => ty.display_source(ctx.sema().db).ok(),
-    }
+fn render_ty(ctx: &CodeActionCtx<'_>, ty: &Type) -> Option<String> {
+    TypeSystem::new(ctx.sema().db)
+        .display_declaration(ty)
+        .expect("formatting a type into a String should not fail")
 }
 
 fn fresh_variable_name(text: &str, base: &str) -> String {
