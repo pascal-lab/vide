@@ -2,7 +2,6 @@ use hir_def::{
     Ident,
     aggregate::{StructId, StructKind},
     container::{ArenaOwnerId, InContainer, InSubroutine},
-    declaration::Declaration,
     def_id::DefId,
     expr::{
         Expr, ExprId,
@@ -62,9 +61,13 @@ fn type_of_decl_impl(db: &dyn TyDb, decl: InContainer<DeclId>) -> TyResult {
     };
     let owner = DefId::new(db, decl);
     let mut result = normalize_data_ty_with_owner(db, decl.cont_id, data_ty, Some(owner));
-    if let Some(declarator) = decl_of(db, decl) {
-        result.ty = apply_unpacked_dimensions(db, decl.cont_id, result.ty, &declarator.dimensions);
-    }
+    let data = decl.cont_id.data(db);
+    result.ty = apply_unpacked_dimensions(
+        db,
+        decl.cont_id,
+        result.ty,
+        &data.declarator(decl.value).dimensions,
+    );
     result
 }
 
@@ -220,29 +223,26 @@ fn type_of_non_ansi_port(db: &dyn TyDb, def_id: DefId) -> TyResult {
 }
 
 fn type_of_expr_impl(db: &dyn TyDb, expr: InContainer<ExprId>) -> TyResult {
-    let Some(hir_expr) = expr_of(db, expr) else {
-        return TyResult::new(Ty::Unknown);
-    };
-
-    match hir_expr {
+    let data = expr.cont_id.data(db);
+    match data.expr(expr.value) {
         Expr::Ident(ident) => type_of_path_resolution_impl(
             db,
-            resolve_name(db, expr.cont_id.into(), &ident, NameContext::Value),
+            resolve_name(db, expr.cont_id.into(), ident, NameContext::Value),
         ),
         Expr::Field { receiver, field } => {
             let Some(field) = field else {
                 return TyResult::new(Ty::Unknown);
             };
-            let base = type_of_expr_impl(db, expr.with_value(receiver));
+            let base = type_of_expr_impl(db, expr.with_value(*receiver));
             if matches!(base.ty, Ty::Unknown | Ty::Error) {
                 return base;
             }
-            let mut selected = select_member(db, &base.ty, &field);
+            let mut selected = select_member(db, &base.ty, field);
             selected.diagnostics.extend(base.diagnostics);
             selected
         }
-        Expr::ElementSelect { receiver, .. } => type_of_expr_impl(db, expr.with_value(receiver)),
-        Expr::Cast { ty, .. } => normalize_data_ty(db, expr.cont_id, ty),
+        Expr::ElementSelect { receiver, .. } => type_of_expr_impl(db, expr.with_value(*receiver)),
+        Expr::Cast { ty, .. } => normalize_data_ty(db, expr.cont_id, *ty),
         _ => TyResult::new(Ty::Unknown),
     }
 }
@@ -284,11 +284,12 @@ fn type_of_named_data_ty(
     let expr_id = match named {
         NamedDataTy::Ident(expr_id) | NamedDataTy::Field(expr_id) => expr_id,
     };
-    let Some(Expr::Ident(ident)) = expr_of(db, InContainer::new(container, expr_id)) else {
+    let data = container.data(db);
+    let Expr::Ident(ident) = data.expr(expr_id) else {
         return TyResult::new(Ty::Unknown);
     };
 
-    let resolution = resolve_name(db, container.into(), &ident, NameContext::Type);
+    let resolution = resolve_name(db, container.into(), ident, NameContext::Type);
     let Some(def_id) = resolution.unique() else {
         return TyResult::new(Ty::Unknown);
     };
@@ -310,11 +311,8 @@ fn type_of_typedef_inner(
         };
     }
 
-    let Some(def) = typedef_of(db, typedef) else {
-        seen.remove(&typedef);
-        return TyResult::new(Ty::Unknown);
-    };
-    let Some(data_ty) = def.ty else {
+    let data = typedef.cont_id.data(db);
+    let Some(data_ty) = data.typedef(typedef.value).ty else {
         seen.remove(&typedef);
         return TyResult::new(Ty::Unknown);
     };
@@ -331,7 +329,7 @@ fn type_of_typedef_inner(
 }
 
 fn struct_kind(db: &dyn TyDb, struct_id: InContainer<StructId>) -> Option<StructKind> {
-    struct_of(db, struct_id).map(|def| def.kind)
+    Some(struct_id.cont_id.data(db).struct_def(struct_id.value).kind)
 }
 
 fn apply_unpacked_dimensions(
@@ -368,8 +366,9 @@ fn type_of_dimension_key(db: &dyn TyDb, container: ArenaOwnerId, expr_id: ExprId
 }
 
 fn builtin_dimension_key_ty(db: &dyn TyDb, container: ArenaOwnerId, expr_id: ExprId) -> Option<Ty> {
-    if let Some(Expr::Ident(ident)) = expr_of(db, InContainer::new(container, expr_id)) {
-        return builtin_type_name_ty(db, container, &ident);
+    let data = container.data(db);
+    if let Expr::Ident(ident) = data.expr(expr_id) {
+        return builtin_type_name_ty(db, container, ident);
     }
     None
 }
@@ -400,14 +399,19 @@ fn builtin_type_name_ty(db: &dyn TyDb, container: ArenaOwnerId, ident: &Ident) -
 }
 
 pub(crate) fn data_ty_of_decl(db: &dyn TyDb, decl: InContainer<DeclId>) -> Option<DataTy> {
-    let declarator = decl_of(db, decl)?;
-    match declarator.parent {
+    let data = decl.cont_id.data(db);
+    match data.declarator(decl.value).parent {
         DeclaratorParent::DeclarationId(declaration_id) => {
-            Some(declaration_of(db, decl.with_value(declaration_id))?.ty())
+            Some(data.declaration(declaration_id).ty())
         }
         DeclaratorParent::PortDeclId(port_decl_id) => port_decl_ty(db, decl.cont_id, port_decl_id),
         DeclaratorParent::StmtId(stmt_id) => {
-            for_init_decl_ty(db, decl.cont_id, stmt_id, decl.value)
+            let StmtKind::For { inits: ForInit::Init(inits), .. } = &data.stmt(stmt_id).kind else {
+                return None;
+            };
+            inits
+                .iter()
+                .find_map(|(ty, candidate)| (*candidate == decl.value).then_some(*ty).flatten())
         }
     }
 }
@@ -418,19 +422,6 @@ fn port_decl_ty(db: &dyn TyDb, cont_id: ArenaOwnerId, port_decl_id: PortDeclId) 
     };
     let module = db.module(module_id);
     Some(module.ports.get(port_decl_id).header.ty())
-}
-
-fn for_init_decl_ty(
-    db: &dyn TyDb,
-    cont_id: ArenaOwnerId,
-    stmt_id: hir_def::stmt::StmtId,
-    decl_id: DeclId,
-) -> Option<DataTy> {
-    let stmt = stmt_of(db, InContainer::new(cont_id, stmt_id))?;
-    let StmtKind::For { inits: ForInit::Init(inits), .. } = &stmt.kind else {
-        return None;
-    };
-    inits.iter().find_map(|(ty, decl)| (*decl == decl_id).then_some(*ty).flatten())
 }
 
 fn type_of_subroutine_port_impl(db: &dyn TyDb, port: InSubroutine<SubroutinePortId>) -> TyResult {
@@ -449,97 +440,4 @@ fn type_of_subroutine_port_impl(db: &dyn TyDb, port: InSubroutine<SubroutinePort
             )
         })
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
-}
-
-fn expr_of(db: &dyn TyDb, expr: InContainer<ExprId>) -> Option<Expr> {
-    match expr.cont_id {
-        ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(expr.value).clone()),
-        ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(expr.value).clone()),
-        ArenaOwnerId::GenerateBlock(generate_block_id) => {
-            Some(db.generate_block(generate_block_id).get(expr.value).clone())
-        }
-        ArenaOwnerId::Block(block_id) => Some(db.block(block_id).get(expr.value).clone()),
-        ArenaOwnerId::Subroutine(subroutine_id) => {
-            Some(db.subroutine(subroutine_id).get(expr.value).clone())
-        }
-    }
-}
-
-fn decl_of(
-    db: &dyn TyDb,
-    decl: InContainer<DeclId>,
-) -> Option<hir_def::expr::declarator::Declarator> {
-    match decl.cont_id {
-        ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(decl.value).clone()),
-        ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(decl.value).clone()),
-        ArenaOwnerId::GenerateBlock(generate_block_id) => {
-            Some(db.generate_block(generate_block_id).get(decl.value).clone())
-        }
-        ArenaOwnerId::Block(block_id) => Some(db.block(block_id).get(decl.value).clone()),
-        ArenaOwnerId::Subroutine(subroutine_id) => {
-            Some(db.subroutine(subroutine_id).get(decl.value).clone())
-        }
-    }
-}
-
-fn declaration_of(
-    db: &dyn TyDb,
-    decl: InContainer<hir_def::declaration::DeclarationId>,
-) -> Option<Declaration> {
-    match decl.cont_id {
-        ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(decl.value).clone()),
-        ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(decl.value).clone()),
-        ArenaOwnerId::GenerateBlock(generate_block_id) => {
-            Some(db.generate_block(generate_block_id).get(decl.value).clone())
-        }
-        ArenaOwnerId::Block(block_id) => Some(db.block(block_id).get(decl.value).clone()),
-        ArenaOwnerId::Subroutine(subroutine_id) => {
-            Some(db.subroutine(subroutine_id).get(decl.value).clone())
-        }
-    }
-}
-
-fn typedef_of(db: &dyn TyDb, typedef: InContainer<TypedefId>) -> Option<hir_def::typedef::Typedef> {
-    match typedef.cont_id {
-        ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(typedef.value).clone()),
-        ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(typedef.value).clone()),
-        ArenaOwnerId::GenerateBlock(generate_block_id) => {
-            Some(db.generate_block(generate_block_id).get(typedef.value).clone())
-        }
-        ArenaOwnerId::Block(block_id) => Some(db.block(block_id).get(typedef.value).clone()),
-        ArenaOwnerId::Subroutine(subroutine_id) => {
-            Some(db.subroutine(subroutine_id).get(typedef.value).clone())
-        }
-    }
-}
-
-fn struct_of(
-    db: &dyn TyDb,
-    struct_id: InContainer<StructId>,
-) -> Option<hir_def::aggregate::StructDef> {
-    match struct_id.cont_id {
-        ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(struct_id.value).clone()),
-        ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(struct_id.value).clone()),
-        ArenaOwnerId::GenerateBlock(generate_block_id) => {
-            Some(db.generate_block(generate_block_id).get(struct_id.value).clone())
-        }
-        ArenaOwnerId::Block(block_id) => Some(db.block(block_id).get(struct_id.value).clone()),
-        ArenaOwnerId::Subroutine(subroutine_id) => {
-            Some(db.subroutine(subroutine_id).get(struct_id.value).clone())
-        }
-    }
-}
-
-fn stmt_of(db: &dyn TyDb, stmt: InContainer<hir_def::stmt::StmtId>) -> Option<hir_def::stmt::Stmt> {
-    match stmt.cont_id {
-        ArenaOwnerId::File(file_id) => Some(db.hir_file(file_id).get(stmt.value).clone()),
-        ArenaOwnerId::Module(module_id) => Some(db.module(module_id).get(stmt.value).clone()),
-        ArenaOwnerId::GenerateBlock(generate_block_id) => {
-            Some(db.generate_block(generate_block_id).get(stmt.value).clone())
-        }
-        ArenaOwnerId::Block(block_id) => Some(db.block(block_id).get(stmt.value).clone()),
-        ArenaOwnerId::Subroutine(subroutine_id) => {
-            Some(db.subroutine(subroutine_id).get(stmt.value).clone())
-        }
-    }
 }
