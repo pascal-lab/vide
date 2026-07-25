@@ -4,7 +4,6 @@ version = "0.0.0"
 edition.workspace = true
 
 [dependencies]
-base-db.workspace = true
 hir-def.workspace = true
 hir-ty.workspace = true
 itertools.workspace = true
@@ -15,4 +14,5 @@ utils.workspace = true
 vfs.workspace = true
 
 [dev-dependencies]
+base-db.workspace = true
 triomphe.workspace = true
