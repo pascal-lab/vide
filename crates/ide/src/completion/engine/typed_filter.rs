@@ -10,7 +10,6 @@ use hir_ty::{
     db::TyDb,
     type_infer::{Ty, TyClass, packed_bit_width, type_class},
 };
-use utils::get::GetRef;
 
 use crate::db::root_db::RootDb;
 
@@ -47,7 +46,7 @@ pub(super) fn expected_param_ty(
 }
 
 pub(super) fn value_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Vec<(String, Ty)> {
-    let module = db.module(module_id);
+    let module = db.module_with_source_map(module_id);
     let mut candidates: Vec<(String, Ty)> = Vec::new();
 
     for (_, decl) in module.declarations.iter() {
@@ -99,7 +98,7 @@ pub(super) fn value_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Ve
 }
 
 pub(super) fn const_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Vec<(String, Ty)> {
-    let module = db.module(module_id);
+    let module = db.module_with_source_map(module_id);
     let mut candidates: Vec<(String, Ty)> = Vec::new();
 
     for (_, decl) in module.declarations.iter() {

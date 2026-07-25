@@ -2,15 +2,15 @@ use hir_def::{
     container::InContainer,
     declaration::Declaration,
     module::{Module, ModuleId, port::Ports},
+    source_map::Lowered,
     symbol::Resolution,
 };
 use hir_semantics::semantics::Semantics;
 use smol_str::SmolStr;
-use utils::get::GetRef;
 
 use crate::db::root_db::RootDb;
 
-pub(crate) fn port_names(module: &Module) -> Vec<SmolStr> {
+pub(crate) fn port_names(module: &Lowered<Module>) -> Vec<SmolStr> {
     match &module.ports {
         Ports::NonAnsi { ports, .. } => {
             ports.values().filter_map(|port| port.label.clone()).collect()
@@ -23,7 +23,10 @@ pub(crate) fn port_names(module: &Module) -> Vec<SmolStr> {
     }
 }
 
-pub(crate) fn remaining_ordered_port_names(module: &Module, connected: usize) -> Vec<SmolStr> {
+pub(crate) fn remaining_ordered_port_names(
+    module: &Lowered<Module>,
+    connected: usize,
+) -> Vec<SmolStr> {
     match &module.ports {
         Ports::NonAnsi { ports, .. } => {
             ports.values().skip(connected).filter_map(|port| port.label.clone()).collect()
@@ -37,7 +40,7 @@ pub(crate) fn remaining_ordered_port_names(module: &Module, connected: usize) ->
     }
 }
 
-pub(crate) fn leading_overridable_parameter_names(module: &Module) -> Vec<SmolStr> {
+pub(crate) fn leading_overridable_parameter_names(module: &Lowered<Module>) -> Vec<SmolStr> {
     module
         .declarations
         .values()
@@ -50,7 +53,7 @@ pub(crate) fn leading_overridable_parameter_names(module: &Module) -> Vec<SmolSt
         .collect()
 }
 
-pub(crate) fn all_overridable_parameter_names(module: &Module) -> Vec<SmolStr> {
+pub(crate) fn all_overridable_parameter_names(module: &Lowered<Module>) -> Vec<SmolStr> {
     module
         .declarations
         .values()

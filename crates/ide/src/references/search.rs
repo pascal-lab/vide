@@ -1,15 +1,12 @@
 use base_db::{
-    intern::Lookup,
     salsa::Database,
     source_db::{SourceDb, SourceRootDb},
     source_root::SourceRootId,
 };
 use hir_def::{
     container::{InFile, ScopeId},
-    db::HirDefDb,
     def_id::DefId,
-    source_map::IsSrc,
-    symbol::DefOrigin,
+    has_source::HasSource,
 };
 use hir_semantics::semantics::Semantics;
 use hir_ty::db::TyDb;
@@ -85,64 +82,14 @@ impl SearchScope {
     }
 
     fn from_conts(db: &RootDb, cont: ScopeId) -> Self {
-        match cont {
-            ScopeId::File(_) => Self::all(db),
-            ScopeId::Module(InFile { value: local_module_id, file_id }) => {
-                if let Some(range) = db
-                    .hir_file_with_source_map(file_id)
-                    .source(local_module_id)
-                    .map(|src| src.range())
-                {
-                    Self::single_source_range(db, file_id, range)
-                } else {
-                    Self::all(db)
-                }
-            }
-            ScopeId::Block(block_id) => {
-                let range = block_id.lookup(db).src.value.range();
-                Self::single_source_range(db, block_id.file_id(db), range)
-            }
-            ScopeId::GenerateBlock(generate_block_id) => {
-                let src = generate_block_id.lookup(db).src;
-                Self::single_source_range(db, src.file_id, src.value.range())
-            }
-            ScopeId::Subroutine(subroutine_id) => {
-                let def_id = DefOrigin::new(db, subroutine_id);
-                match def_id.range(db) {
-                    Some(InFile { file_id, value: range }) => {
-                        Self::single_source_range(db, file_id, range)
-                    }
-                    None => Self::all(db),
-                }
-            }
-            ScopeId::ClockingBlock(clocking_block_id) => {
-                let def_id = DefOrigin::new(db, clocking_block_id);
-                match def_id.range(db) {
-                    Some(InFile { file_id, value: range }) => {
-                        Self::single_source_range(db, file_id, range)
-                    }
-                    None => Self::all(db),
-                }
-            }
-            ScopeId::Checker(checker_id) => {
-                let def_id = DefOrigin::new(db, checker_id);
-                match def_id.range(db) {
-                    Some(InFile { file_id, value: range }) => {
-                        Self::single_source_range(db, file_id, range)
-                    }
-                    None => Self::all(db),
-                }
-            }
-            ScopeId::Covergroup(covergroup_id) => {
-                let def_id = DefOrigin::new(db, covergroup_id);
-                match def_id.range(db) {
-                    Some(InFile { file_id, value: range }) => {
-                        Self::single_source_range(db, file_id, range)
-                    }
-                    None => Self::all(db),
-                }
-            }
+        if matches!(cont, ScopeId::File(_)) {
+            return Self::all(db);
         }
+
+        let Some(InFile { file_id, value: source }) = cont.source(db) else {
+            return Self::all(db);
+        };
+        Self::single_source_range(db, file_id, source.full_range())
     }
 
     fn intersect(mut self, mut other: SearchScope) -> SearchScope {

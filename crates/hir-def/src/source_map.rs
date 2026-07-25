@@ -176,6 +176,101 @@ impl SourceInfo {
         self.focus_range.unwrap_or(self.full_range)
     }
 }
+pub trait HirLookup<Id> {
+    type Hir;
+
+    fn hir(&self, id: Id) -> &Self::Hir;
+}
+
+impl<T, Id> HirLookup<Id> for Lowered<T>
+where
+    T: LoweredData + GetRef<Id>,
+{
+    type Hir = <T as GetRef<Id>>::Output;
+
+    fn hir(&self, id: Id) -> &Self::Hir {
+        self.data.get(id)
+    }
+}
+
+trait IntoSourceInfo {
+    fn into_source_info(self) -> Option<SourceInfo>;
+}
+
+impl<Src: IsSrc> IntoSourceInfo for Option<Src> {
+    fn into_source_info(self) -> Option<SourceInfo> {
+        Some(SourceInfo::new(self?))
+    }
+}
+
+trait IntoNamedSourceInfo {
+    fn into_named_source_info(self) -> Option<SourceInfo>;
+}
+
+impl<Src: IsNamedSrc> IntoNamedSourceInfo for Option<Src> {
+    fn into_named_source_info(self) -> Option<SourceInfo> {
+        Some(SourceInfo::named(self?))
+    }
+}
+
+pub trait SourceLookup<Id> {
+    fn source_info(&self, id: Id) -> Option<SourceInfo>;
+}
+
+impl<T, Id> SourceLookup<Id> for Lowered<T>
+where
+    T: LoweredData,
+    T::SourceMap: Get<Id>,
+    <T::SourceMap as Get<Id>>::Output: IntoSourceInfo,
+{
+    fn source_info(&self, id: Id) -> Option<SourceInfo> {
+        self.source_map.get(id).into_source_info()
+    }
+}
+
+pub trait NamedSourceLookup<Id> {
+    fn named_source_info(&self, id: Id) -> Option<SourceInfo>;
+}
+
+impl<T, Id> NamedSourceLookup<Id> for Lowered<T>
+where
+    T: LoweredData,
+    T::SourceMap: Get<Id>,
+    <T::SourceMap as Get<Id>>::Output: IntoNamedSourceInfo,
+{
+    fn named_source_info(&self, id: Id) -> Option<SourceInfo> {
+        self.source_map.get(id).into_named_source_info()
+    }
+}
+trait IntoAst<'a, Node: AstNode<'a>> {
+    fn into_ast(self, tree: &'a syntax::SyntaxTree) -> Option<Node>;
+}
+
+impl<'a, Src, Node> IntoAst<'a, Node> for Option<Src>
+where
+    Src: ToAstNode<'a, Node>,
+    Node: AstNode<'a>,
+{
+    fn into_ast(self, tree: &'a syntax::SyntaxTree) -> Option<Node> {
+        self?.to_node(tree)
+    }
+}
+
+pub trait AstLookup<'a, Id, Node: AstNode<'a>> {
+    fn ast(&self, id: Id, tree: &'a syntax::SyntaxTree) -> Option<Node>;
+}
+
+impl<'a, T, Id, Node> AstLookup<'a, Id, Node> for Lowered<T>
+where
+    T: LoweredData,
+    T::SourceMap: Get<Id>,
+    <T::SourceMap as Get<Id>>::Output: IntoAst<'a, Node>,
+    Node: AstNode<'a>,
+{
+    fn ast(&self, id: Id, tree: &'a syntax::SyntaxTree) -> Option<Node> {
+        self.source_map.get(id).into_ast(tree)
+    }
+}
 
 pub trait IsNamedSrc: IsSrc {
     fn name_kind(&self) -> Option<TokenKind>;
