@@ -11,12 +11,14 @@ use hir_def::{
 use crate::{
     db::TyDb,
     display::{HirDisplay, HirDisplayError},
-    type_infer::{
-        Ty, TyInferDiagnostic, TyResult, members_of_ty, normalize_data_ty, packed_bit_width,
-        type_class,
-    },
+    type_infer::{Ty, TyResult, members_of_ty, normalize_data_ty, packed_bit_width, type_class},
 };
 
+/// A diagnostic produced while determining a semantic type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypeDiagnostic {
+    TypedefCycle(InContainer<TypedefId>),
+}
 /// Semantic type information returned by the type system.
 ///
 /// The representation and salsa query result stay private so callers do not
@@ -29,7 +31,7 @@ impl Type {
         Self(TyResult::new(Ty::Unknown))
     }
 
-    pub fn diagnostics(&self) -> &[TyInferDiagnostic] {
+    pub fn diagnostics(&self) -> &[TypeDiagnostic] {
         &self.0.diagnostics
     }
 
@@ -88,19 +90,19 @@ impl<'db> TypeSystem<'db> {
     }
 
     pub fn type_of_decl(&self, decl: InContainer<DeclId>) -> Type {
-        self.db.type_of_decl(decl).as_ref().clone().into()
+        self.db.infer_decl(decl).as_ref().clone()
     }
 
     pub fn type_of_typedef(&self, typedef: InContainer<TypedefId>) -> Type {
-        self.db.type_of_typedef(typedef).as_ref().clone().into()
+        self.db.infer_typedef(typedef).as_ref().clone()
     }
 
     pub fn type_of_expr(&self, expr: InContainer<ExprId>) -> Type {
-        self.db.type_of_expr(expr).as_ref().clone().into()
+        self.db.infer_expr(expr).as_ref().clone()
     }
 
     pub fn type_of_resolution(&self, resolution: Resolution<DefId>) -> Type {
-        self.db.type_of_path_resolution(resolution).as_ref().clone().into()
+        self.db.infer_path_resolution(resolution).as_ref().clone()
     }
 
     pub fn type_of_def(&self, def: DefId) -> Type {
@@ -108,7 +110,7 @@ impl<'db> TypeSystem<'db> {
     }
 
     pub fn type_of_subroutine_port(&self, port: InSubroutine<SubroutinePortId>) -> Type {
-        self.db.type_of_subroutine_port(port).as_ref().clone().into()
+        self.db.infer_subroutine_port(port).as_ref().clone()
     }
 
     pub fn type_of_subroutine_return(&self, subroutine: SubroutineScope) -> Type {
