@@ -8,6 +8,7 @@
 pub mod db;
 pub mod display;
 mod infer;
+mod ty;
 mod type_system;
 
 pub use type_system::{Compatibility, Member, Type, TypeDiagnostic, TypeSystem};
