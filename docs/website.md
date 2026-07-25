@@ -1,9 +1,9 @@
 # Website
 
-This is the development document for website module(`website/`).
+This is the development document for the website module (`website/`).
 
 ## Development
-If you want to run the website locally, you can do so by following steps.
+If you want to run the website locally, you can do so by following the steps below.
 1. **Install emscripten**. If you have emscripten installed, you can skip this step.
 
     The playground needs [emscripten](https://emscripten.org/index.html) to build the wasm module. You can follow the [official guide](https://emscripten.org/docs/getting_started/downloads.html) to install it.
