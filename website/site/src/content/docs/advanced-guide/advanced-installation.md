@@ -38,7 +38,7 @@ description: 从源码构建 Vide、打包本地 VSIX，或安装预发布 VS Co
 - Emscripten SDK 5.0.2
 - `ninja`
 - Rust `wasm32-unknown-emscripten` target
-  - `website/playground/scripts/build-vide-wasm.mjs` 会自动执行 `rustup target add wasm32-unknown-emscripten`
+  - `crates/vide-lsp-wasm/scripts/build.mjs` 会自动执行 `rustup target add wasm32-unknown-emscripten`
 
 ### 构建 Vide 语言服务器
 
