@@ -1,10 +1,24 @@
 pub mod ast;
 mod ffi;
+mod cursor;
+mod element;
+mod iter;
+mod range;
 mod syntax_kind;
 mod syntax_node;
+mod tree;
+mod trivia;
+mod walk;
 
+pub use cursor::*;
+pub use element::*;
+pub use iter::*;
+pub use range::*;
 pub use syntax_kind::*;
 pub use syntax_node::*;
+pub use tree::*;
+pub use trivia::*;
+pub use walk::*;
 
 #[cfg(test)]
 mod tests {
@@ -34,7 +48,7 @@ endmodule
         let root = tree.root().expect("expected syntax root");
         let module = ast::ModuleDeclaration::cast(root).expect("expected module declaration");
 
-        let header = module.header().expect("expected module header");
+        let header = module.header();
         assert_eq!(
             header.module_keyword().unwrap().kind(),
             crate::token::TokenKind::MODULE_KEYWORD
@@ -56,7 +70,7 @@ endmodule
         let module = ast::ModuleDeclaration::cast(tree.root().expect("expected root"))
             .expect("expected module declaration");
 
-        let header = module.header().expect("expected module header");
+        let header = module.header();
         assert!(header.parameters().is_none());
         let ports = header.ports().expect("expected port list");
         let ansi = ports.as_ansi_port_list().expect("expected ansi port list");
@@ -64,21 +78,21 @@ endmodule
 
         let first = ports.next().expect("expected first port");
         let first = first.as_implicit_ansi_port().expect("expected implicit ansi port");
-        let first_header = first.header().unwrap().as_net_port_header().unwrap();
+        let first_header = first.header().as_net_port_header().unwrap();
         assert_eq!(
             first_header.direction().unwrap().kind(),
             crate::token::TokenKind::INPUT_KEYWORD
         );
-        assert_eq!(first.declarator().unwrap().name().unwrap().value_text(), "a");
+        assert_eq!(first.declarator().name().unwrap().value_text(), "a");
 
         let second = ports.next().expect("expected second port");
         let second = second.as_implicit_ansi_port().expect("expected implicit ansi port");
-        let second_header = second.header().unwrap().as_net_port_header().unwrap();
+        let second_header = second.header().as_net_port_header().unwrap();
         assert_eq!(
             second_header.direction().unwrap().kind(),
             crate::token::TokenKind::OUTPUT_KEYWORD
         );
-        assert_eq!(second.declarator().unwrap().name().unwrap().value_text(), "b");
+        assert_eq!(second.declarator().name().unwrap().value_text(), "b");
         assert!(ports.next().is_none());
 
         let mut members = module.members().children();

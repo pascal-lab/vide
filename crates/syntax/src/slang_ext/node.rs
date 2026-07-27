@@ -1,9 +1,12 @@
 use std::iter;
 
 use either::Either;
-use slang::{
-    ChildrenIter, SyntaxAncestors, SyntaxElement, SyntaxNode, SyntaxTokenWithParent, SyntaxTrivia,
-    Trivia, TriviaKind, ast::AstNode,
+use slang_sys::{
+    syntax::{
+        ChildrenIter, SyntaxAncestors, SyntaxElement, SyntaxNode, SyntaxTokenWithParent,
+        SyntaxTrivia, ast::AstNode,
+    },
+    token::TriviaKind,
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -171,7 +174,7 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
                 }
 
                 // For directive trivia, check nested trivia in the directive's first token.
-                if trivia.kind() == Trivia!["`"]
+                if trivia.kind() == TriviaKind::DIRECTIVE
                     && let Some(node) = trivia.syntax()
                 {
                     if node
@@ -185,7 +188,8 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
                     let Some(first_tok) = node.first_token() else {
                         continue;
                     };
-                    for (nested_range, nested_trivia) in first_tok.trivias_with_range_in_root(root)
+                    for (nested_range, nested_trivia) in
+                        first_tok.tok.trivias_with_range_in_root(root)
                     {
                         if nested_range.contains(offset) {
                             return Some(nested_trivia.kind());
@@ -338,7 +342,7 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
     #[inline]
     fn trivias_with_range(&self) -> impl ChildrenIter<(TextRange, SyntaxTrivia<'a>)> + use<'a> {
         if let Some(tok) = self.first_token() {
-            Either::Right(tok.trivias_with_range_in_root(self.find_root()))
+            Either::Right(tok.trivias_with_range())
         } else {
             Either::Left(iter::empty())
         }

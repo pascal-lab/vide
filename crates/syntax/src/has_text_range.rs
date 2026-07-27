@@ -1,4 +1,4 @@
-use slang::{
+use slang_sys::syntax::{
     SourceRange, SyntaxElement, SyntaxNode, SyntaxToken,
     SyntaxTokenWithParent as LocatedSyntaxToken,
 };
@@ -40,7 +40,7 @@ pub trait HasTextRange {
 ///
 /// This is intended for the boundary where generated AST APIs still return a
 /// raw [`SyntaxToken`]. Prefer [`HasTextRange`] on
-/// [`slang::SyntaxTokenWithParent`] in IDE/HIR logic.
+/// [`slang_sys::SyntaxTokenWithParent`] in IDE/HIR logic.
 pub trait HasTextRangeIn<'a> {
     fn text_range_in(&self, context: SyntaxNode<'a>) -> Option<TextRange>;
 }

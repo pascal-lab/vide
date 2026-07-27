@@ -1,4 +1,4 @@
-use slang::ast::AstNode;
+use slang_sys::syntax::ast::AstNode;
 
 use crate::ptr::SyntaxNodePtr;
 

@@ -1,6 +1,9 @@
-use slang::{
-    SyntaxElement, SyntaxElementKind, SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent,
-    SyntaxTree, TokenKind,
+use slang_sys::{
+    syntax::{
+        SyntaxElement, SyntaxElementKind, SyntaxKind, SyntaxNode, SyntaxToken,
+        SyntaxTokenWithParent, SyntaxTree,
+    },
+    token::TokenKind,
 };
 use utils::line_index::TextRange;
 
@@ -86,10 +89,8 @@ impl SyntaxElementPtr {
 
     pub fn to_elem<'a>(&self, tree: &'a SyntaxTree) -> Option<SyntaxElement<'a>> {
         match self {
-            SyntaxElementPtr::Node(node) => node.to_node(tree).map(SyntaxElement::from_node),
-            SyntaxElementPtr::Token { tok, .. } => {
-                Some(SyntaxElement::from_token(tok.to_token(tree)?))
-            }
+            SyntaxElementPtr::Node(node) => node.to_node(tree).map(SyntaxElement::from),
+            SyntaxElementPtr::Token { tok, .. } => Some(SyntaxElement::from(tok.to_token(tree)?)),
         }
     }
 
@@ -103,7 +104,10 @@ impl SyntaxElementPtr {
 
 #[cfg(test)]
 mod tests {
-    use slang::ast::{self, AstNode};
+    use slang_sys::syntax::{
+        SyntaxTree, SyntaxTreeOptions,
+        ast::{self, AstNode},
+    };
 
     use crate::has_text_range::HasTextRange;
 
@@ -114,11 +118,11 @@ mod tests {
         std::fs::write(include_rel, "typedef logic cwd_include_t;\n").expect("include fixture");
 
         let text = format!("`include \"{include_rel}\"\nmodule top;\nendmodule\n");
-        let tree = slang::SyntaxTree::from_text_with_options(
+        let tree = SyntaxTree::from_text_with_options(
             &text,
             "",
             "",
-            &slang::SyntaxTreeOptions::without_include_expansion(),
+            &SyntaxTreeOptions::without_include_expansion(),
         );
         let root = tree.root().expect("root syntax node");
         let unit = ast::CompilationUnit::cast(root).expect("compilation unit");

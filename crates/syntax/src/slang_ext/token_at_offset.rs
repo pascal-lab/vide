@@ -1,4 +1,4 @@
-use slang::{SyntaxTokenWithParent, TokenKind};
+use slang_sys::{syntax::SyntaxTokenWithParent, token::TokenKind};
 
 #[derive(Clone, Debug)]
 pub enum TokenAtOffset<'a> {
