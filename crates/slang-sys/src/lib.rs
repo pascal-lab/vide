@@ -1,31 +1,10 @@
 pub mod diagnostic;
-pub mod ffi;
 pub mod syntax;
 pub mod token;
 
-pub fn parse_root_kind(text: &str) -> syntax::SyntaxKind {
-    syntax::SyntaxKind::from_raw(ffi::parse_root_kind(text))
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::{diagnostic, syntax};
-    #[test]
-    fn rust_calls_upstream_slang_parser() {
-        let test_verilog_code = r#"
-module demo(
-    input wire a,
-    output wire b
-);
-begin
-    assign b = a;
-end
-endmodule
-        "#;
-        let root_kind = crate::parse_root_kind(test_verilog_code);
-
-        assert_eq!(root_kind, syntax::SyntaxKind::MODULE_DECLARATION);
-    }
+    use super::*;
 
     #[test]
     fn generated_diagnostic_metadata_matches_slang_definitions() {

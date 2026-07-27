@@ -10,6 +10,12 @@ const SCRIPTS_DIR: &str = "./scripts";
 /// Build directory from cargo target directory.
 /// This will influence clangd's include path.
 const BUILD_DIR: &str = "slang-sys";
+/// FFI files from src directory.
+const FFI_FILES: &[&str] = &["syntax/ffi.rs"];
+/// CPP wrapper headers from src directory.
+const WRAPPER_HEADERS: &[&str] = &["syntax/wrapper.h"];
+/// CPP wrapper files from src directory.
+const WRAPPER_FILES: &[&str] = &["syntax/wrapper.cpp"];
 
 fn main() {
     // Prepare environment
@@ -22,7 +28,7 @@ fn main() {
     // Build
     generate_rust_defs(&slang_dir, &out_dir, &scripts_dir);
     let install_dir = build_slang(&slang_dir, debug);
-    build_cxx_bridge(&slang_dir, &install_dir);
+    build_cxx_bridge(&slang_dir, &install_dir, &source_dir);
 
     // Setup cargo configuration
     setup_linking(&install_dir, debug);
@@ -108,6 +114,12 @@ fn generate_rust_defs(slang_dir: &Path, out_dir: &Path, scripts_dir: &Path) {
                 "--diagnostics-header".into(),
                 slang_dir.join("include/slang/diagnostics/Diagnostics.h"),
             ],
+        ),
+        (
+            scripts_dir.join("generate_ast.py"),
+            slang_scripts_dir.join("syntax.txt"),
+            out_dir.join("ast.rs"),
+            Vec::<PathBuf>::new(),
         ),
     ];
 
@@ -203,7 +215,7 @@ fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
     config.build()
 }
 
-fn build_cxx_bridge(slang_dir: &Path, install_dir: &Path) {
+fn build_cxx_bridge(slang_dir: &Path, install_dir: &Path, source_dir: &Path) {
     // Setup clangd include directory for cxx crate
     let cxx_header = PathBuf::from(
         env::var_os("DEP_CXXBRIDGE1_HEADER")
@@ -218,15 +230,21 @@ fn build_cxx_bridge(slang_dir: &Path, install_dir: &Path) {
     fs::copy(cxx_header, clangd_include_dir.join("cxx.h"))
         .expect("failed to copy cxx.h for clangd");
     // Build cxx bridge
-    let mut build = cxx_build::bridge("src/ffi.rs");
+    let ffi_files = FFI_FILES.iter().map(|f| PathBuf::from(source_dir).join(f));
+    let wrapper_files = WRAPPER_FILES.iter().map(|f| PathBuf::from(source_dir).join(f));
+    let wrapper_header_dirs = WRAPPER_HEADERS
+        .iter()
+        .map(|f| PathBuf::from(source_dir).join(f).parent().unwrap().to_path_buf());
+    let mut build = cxx_build::bridges(ffi_files);
     build
-        .file("src/wrapper.cpp")
-        .include("src")
+        .files(wrapper_files)
+        .includes(wrapper_header_dirs)
         .include(cxx_include_dir)
         .include(install_dir.join("include"))
         .include(slang_dir.join("external"))
         .define("SLANG_BOOST_SINGLE_HEADER", None)
         .define("SLANG_STATIC_DEFINE", None);
+
     if env_detection::target_is_msvc() {
         build.flag_if_supported("/std:c++20");
     } else {
@@ -250,14 +268,27 @@ fn setup_linking(install_dir: &Path, debug: bool) {
 }
 
 fn setup_rerun_triggers(slang_dir: &Path, source_dir: &Path, scripts_dir: &Path) {
-    let watch = [
+    let mut watch = vec![
         env_detection::cargo_manifest_dir().join("build.rs").to_string_lossy().to_string(),
         slang_dir.to_string_lossy().to_string(),
         source_dir.join("ffi.rs").to_string_lossy().to_string(),
-        source_dir.join("wrapper.cpp").to_string_lossy().to_string(),
-        source_dir.join("wrapper.h").to_string_lossy().to_string(),
         scripts_dir.to_string_lossy().to_string(),
     ];
+    let ffi_files = FFI_FILES
+        .iter()
+        .map(|f| PathBuf::from(source_dir).join(f).to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    let wrapper_files = WRAPPER_FILES
+        .iter()
+        .map(|f| PathBuf::from(source_dir).join(f).to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    let wrapper_headers = WRAPPER_HEADERS
+        .iter()
+        .map(|f| PathBuf::from(source_dir).join(f).to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    watch.extend(ffi_files);
+    watch.extend(wrapper_files);
+    watch.extend(wrapper_headers);
 
     for path in watch {
         println!("cargo:rerun-if-changed={}", path);
