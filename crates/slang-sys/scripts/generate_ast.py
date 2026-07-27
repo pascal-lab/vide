@@ -229,7 +229,7 @@ def render_member(info: TypeInfo, index: int, member: Member) -> str:
     index_decl = "let mut index = 0;" if prefix else "let index = 0;"
     if member.kind == "token":
         return f"""    #[inline]
-    pub fn {name}(self) -> Option<SyntaxToken<'a>> {{
+    pub fn {name}(&self) -> Option<SyntaxToken<'a>> {{
         {index_decl}
 {prefix_text}
         self.syntax().child_token(index)
@@ -237,7 +237,7 @@ def render_member(info: TypeInfo, index: int, member: Member) -> str:
 """
     if member.kind == "tokenlist":
         return f"""    #[inline]
-    pub fn {name}(self) -> TokenList<'a> {{
+    pub fn {name}(&self) -> TokenList<'a> {{
         {index_decl}
 {prefix_text}
         TokenList::new(self.syntax(), index, self.syntax().list_child_size({list_ordinal}).unwrap_or(0))
@@ -246,7 +246,7 @@ def render_member(info: TypeInfo, index: int, member: Member) -> str:
     if member.kind == "list":
         ty = rust_type_name(member.ty)
         return f"""    #[inline]
-    pub fn {name}(self) -> SyntaxList<'a, {ty}<'a>> {{
+    pub fn {name}(&self) -> SyntaxList<'a, {ty}<'a>> {{
         {index_decl}
 {prefix_text}
         SyntaxList::new(self.syntax(), index, self.syntax().list_child_size({list_ordinal}).unwrap_or(0))
@@ -255,7 +255,7 @@ def render_member(info: TypeInfo, index: int, member: Member) -> str:
     if member.kind == "separated_list":
         ty = rust_type_name(member.ty)
         return f"""    #[inline]
-    pub fn {name}(self) -> SeparatedList<'a, {ty}<'a>> {{
+    pub fn {name}(&self) -> SeparatedList<'a, {ty}<'a>> {{
         {index_decl}
 {prefix_text}
         SeparatedList::new(self.syntax(), index, self.syntax().list_child_size({list_ordinal}).unwrap_or(0))
@@ -264,15 +264,15 @@ def render_member(info: TypeInfo, index: int, member: Member) -> str:
     ty = rust_type_name(member.ty)
     if member.kind == "node":
         return f"""    #[inline]
-    pub fn {name}(self) -> Option<{ty}<'a>> {{
+    pub fn {name}(&self) -> {ty}<'a> {{
         {index_decl}
 {prefix_text}
-        self.syntax().child_node(index).and_then({ty}::cast)
+        self.syntax().child_node(index).and_then({ty}::cast).unwrap()
     }}
 """
     if member.kind == "optional_node":
         return f"""    #[inline]
-    pub fn {name}(self) -> Option<{ty}<'a>> {{
+    pub fn {name}(&self) -> Option<{ty}<'a>> {{
         {index_decl}
 {prefix_text}
         self.syntax().child_node(index).and_then({ty}::cast)

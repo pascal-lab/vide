@@ -1,8 +1,10 @@
 use either::Either;
-use slang::{
-    ChildrenIter, LiteralBase, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, SyntaxTrivia, Token,
-    TokenKind,
-    ast::{self, AstNode},
+use slang_sys::{
+    syntax::{
+        ChildrenIter, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, SyntaxTrivia,
+        ast::{self, AstNode},
+    },
+    token::{LiteralBase, TokenKind},
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -17,20 +19,23 @@ pub trait TokenKindExt {
 impl TokenKindExt for TokenKind {
     #[inline]
     fn is_pair_token(&self) -> bool {
-        macro_rules! P {
-        ($($tok:ident)|* $(|)?) => {
-            $(*self == Token![$tok] ||)* false
-        };
-    }
-        P! {
-            begin | end
-            | module | endmodule
-            | case | endcase
-            | function | endfunction
-            | generate | endgenerate
-            | interface | endinterface
-            | task | endtask
-        }
+        matches!(
+            *self,
+            TokenKind::BEGIN_KEYWORD
+                | TokenKind::END_KEYWORD
+                | TokenKind::MODULE_KEYWORD
+                | TokenKind::END_MODULE_KEYWORD
+                | TokenKind::CASE_KEYWORD
+                | TokenKind::END_CASE_KEYWORD
+                | TokenKind::FUNCTION_KEYWORD
+                | TokenKind::END_FUNCTION_KEYWORD
+                | TokenKind::GENERATE_KEYWORD
+                | TokenKind::END_GENERATE_KEYWORD
+                | TokenKind::INTERFACE_KEYWORD
+                | TokenKind::END_INTERFACE_KEYWORD
+                | TokenKind::TASK_KEYWORD
+                | TokenKind::END_TASK_KEYWORD
+        )
     }
 
     #[inline]
@@ -130,16 +135,16 @@ pub fn pair_token(
     let kind = tok.kind();
 
     macro_rules! P {
-        ($beg:ident | $end:ident, $($rest:tt)*) => {
-            if kind == Token![$beg] {
+        ($beg:expr, $end:expr, $($rest:tt)*) => {
+            if kind == $beg {
                 Either::Right(SyntaxTokenWithParent {
                     parent,
-                    tok: support::child_token(parent, Token![$end])?,
+                    tok: support::child_token(parent, $end)?,
                 })
-            } else if kind == Token![$end] {
+            } else if kind == $end {
                 Either::Left(SyntaxTokenWithParent {
                     parent,
-                    tok: support::child_token(parent, Token![$beg])?,
+                    tok: support::child_token(parent, $beg)?,
                 })
             } else {
                 P! { $($rest)* }
@@ -149,12 +154,12 @@ pub fn pair_token(
     }
 
     let res = match kind {
-        Token![module] => {
+        TokenKind::MODULE_KEYWORD => {
             // move from header to declaration
             let decl = ast::ModuleDeclaration::cast(parent.parent()?)?;
             Either::Right(SyntaxTokenWithParent { parent: decl.syntax(), tok: decl.endmodule()? })
         }
-        Token![endmodule] => {
+        TokenKind::END_MODULE_KEYWORD => {
             // move from declaration to header
             let decl = ast::ModuleDeclaration::cast(parent)?;
             let header = decl.header();
@@ -165,12 +170,12 @@ pub fn pair_token(
         }
         _ => {
             P! {
-                begin | end,
-                case | endcase,
-                function | endfunction,
-                generate | endgenerate,
-                interface | endinterface,
-                task | endtask,
+                TokenKind::BEGIN_KEYWORD, TokenKind::END_KEYWORD,
+                TokenKind::CASE_KEYWORD, TokenKind::END_CASE_KEYWORD,
+                TokenKind::FUNCTION_KEYWORD, TokenKind::END_FUNCTION_KEYWORD,
+                TokenKind::GENERATE_KEYWORD, TokenKind::END_GENERATE_KEYWORD,
+                TokenKind::INTERFACE_KEYWORD, TokenKind::END_INTERFACE_KEYWORD,
+                TokenKind::TASK_KEYWORD, TokenKind::END_TASK_KEYWORD,
             }
         }
     };

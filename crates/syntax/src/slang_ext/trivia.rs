@@ -1,6 +1,6 @@
 use core::str;
 
-use slang::{SyntaxTrivia, Trivia, TriviaKind};
+use slang_sys::{syntax::SyntaxTrivia, token::TriviaKind};
 use smol_str::{SmolStr, ToSmolStr};
 
 pub trait TriviaKindExt {
@@ -13,23 +13,23 @@ pub trait TriviaKindExt {
 
 impl TriviaKindExt for TriviaKind {
     fn is_whitespace(&self) -> bool {
-        matches!(*self, Trivia![ws])
+        matches!(*self, TriviaKind::WHITESPACE)
     }
 
     fn is_eol(&self) -> bool {
-        matches!(*self, Trivia![eol])
+        matches!(*self, TriviaKind::END_OF_LINE)
     }
 
     fn is_comment(&self) -> bool {
-        matches!(*self, Trivia![bc] | Trivia![lc])
+        matches!(*self, TriviaKind::BLOCK_COMMENT | TriviaKind::LINE_COMMENT)
     }
 
     fn is_lc(&self) -> bool {
-        matches!(*self, Trivia![lc])
+        matches!(*self, TriviaKind::LINE_COMMENT)
     }
 
     fn is_bc(&self) -> bool {
-        matches!(*self, Trivia![bc])
+        matches!(*self, TriviaKind::BLOCK_COMMENT)
     }
 }
 
@@ -45,7 +45,7 @@ const REGION_END: &str = "endregion";
 impl TriviaExt for SyntaxTrivia<'_> {
     #[inline]
     fn is_region_begin(&self) -> Option<Option<SmolStr>> {
-        if !matches!(self.kind(), Trivia![lc]) {
+        if !matches!(self.kind(), TriviaKind::LINE_COMMENT) {
             return None;
         }
 
@@ -68,7 +68,7 @@ impl TriviaExt for SyntaxTrivia<'_> {
 
     #[inline]
     fn is_region_end(&self) -> bool {
-        if !matches!(self.kind(), Trivia![lc]) {
+        if !matches!(self.kind(), TriviaKind::LINE_COMMENT) {
             return false;
         }
 
@@ -87,8 +87,8 @@ impl TriviaExt for SyntaxTrivia<'_> {
         let s = unsafe { str::from_utf8_unchecked(s) };
 
         match self.kind() {
-            Trivia![lc] => Some(s.strip_prefix("//")?.trim()),
-            Trivia![bc] => Some(s.strip_prefix("/*")?.strip_suffix("*/")?.trim()),
+            TriviaKind::LINE_COMMENT => Some(s.strip_prefix("//")?.trim()),
+            TriviaKind::BLOCK_COMMENT => Some(s.strip_prefix("/*")?.strip_suffix("*/")?.trim()),
             _ => None,
         }
     }

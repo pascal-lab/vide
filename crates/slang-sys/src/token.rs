@@ -6,3 +6,11 @@ mod slang_trivia_kind {
 }
 pub use slang_token_kind::*;
 pub use slang_trivia_kind::*;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum LiteralBase {
+    Bin,
+    Oct,
+    Dec,
+    Hex,
+}

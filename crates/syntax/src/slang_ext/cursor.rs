@@ -1,4 +1,4 @@
-use slang::SyntaxCursor;
+use slang_sys::syntax::SyntaxCursor;
 use utils::line_index::TextSize;
 
 pub trait SyntaxCursorExt {

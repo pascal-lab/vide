@@ -1,4 +1,4 @@
-use slang::{
+use slang_sys::syntax::{
     SyntaxToken,
     ast::{
         AstNode, BlockStatement, ConfigDeclaration, Declarator, FunctionDeclaration, GenerateBlock,
@@ -118,7 +118,7 @@ impl<'a> HasName<'a> for Statement<'a> {
 
 impl<'a> HasName<'a> for FunctionDeclaration<'a> {
     fn name(&self) -> Option<SyntaxToken<'a>> {
-        fn rightmost_name_token(name: slang::ast::Name<'_>) -> Option<SyntaxToken<'_>> {
+        fn rightmost_name_token(name: slang_sys::syntax::ast::Name<'_>) -> Option<SyntaxToken<'_>> {
             if let Some(name) = name.as_identifier_name() {
                 return name.identifier();
             }

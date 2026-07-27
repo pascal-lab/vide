@@ -1,60 +1,62 @@
-//! This file defines the untyped syntax tree nodes.
-use std::{marker::PhantomData, ptr::NonNull};
+//! Untyped syntax tree node and token views.
+use std::{hash, marker::PhantomData, ptr::NonNull};
 
-use cxx::SharedPtr;
-
-use super::{ffi, syntax_kind::SyntaxKind};
+use super::{
+    cursor::SyntaxCursor,
+    element::SyntaxElement,
+    ffi,
+    iter::{SyntaxChildren, SyntaxIdxChildren},
+    range::SourceRange,
+    syntax_kind::SyntaxKind,
+    tree::SyntaxTree,
+    trivia::{SyntaxTrivia, SyntaxTriviaLoc},
+    walk::{SyntaxElemPreorder, SyntaxNodePreorder},
+};
 use crate::token::TokenKind;
 
-#[derive(Clone)]
-pub struct SyntaxTree {
-    raw: SharedPtr<ffi::SyntaxTree>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum SyntaxElement<'a> {
-    Node(SyntaxNode<'a>),
-    Token(SyntaxToken<'a>),
-}
-
-/// Like rust-alanyzer's `SyntaxNode` this is a untyped ast node.
-/// You need to downcast it into `ASTNode` to get typed accessors.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// An untyped Slang syntax node.
+/// Downcast this into an `ast::AstNode` to use generated typed accessors.
+#[derive(Clone, Copy, Debug)]
 pub struct SyntaxNode<'a> {
-    raw: NonNull<ffi::SyntaxNode>,
-    _marker: PhantomData<&'a SyntaxTree>,
+    pub(crate) raw: NonNull<ffi::SyntaxNode>,
+    pub(crate) _marker: PhantomData<&'a SyntaxTree>,
+}
+
+#[derive(Clone, Copy, Debug)]
+/// An untyped Slang syntax token.
+pub struct SyntaxToken<'a> {
+    pub(crate) raw: NonNull<ffi::SyntaxToken>,
+    pub(crate) _marker: PhantomData<&'a SyntaxTree>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SyntaxToken<'a> {
-    raw: NonNull<ffi::SyntaxToken>,
-    _marker: PhantomData<&'a SyntaxTree>,
-}
-
-#[derive(Clone, Debug)]
-pub struct SyntaxChildrens<'a> {
-    parent: SyntaxNode<'a>,
-    index: usize,
-    len: usize,
-}
-
-impl SyntaxTree {
-    pub fn from_text(text: &str, name: &str, path: &str) -> Self {
-        Self { raw: ffi::parse_syntax_tree(text, name, path) }
-    }
-
-    pub fn root(&self) -> Option<SyntaxNode<'_>> {
-        SyntaxNode::from_raw(ffi::syntax_tree_root(self.raw.as_ref()?))
-    }
+/// A syntax token paired with its parent node.
+/// Slang token values do not carry a parent pointer, so traversal code keeps
+/// the parent next to the token when it needs context-sensitive operations.
+pub struct SyntaxTokenWithParent<'a> {
+    pub parent: SyntaxNode<'a>,
+    pub tok: SyntaxToken<'a>,
 }
 
 impl<'a> SyntaxNode<'a> {
-    fn from_raw(raw: *const ffi::SyntaxNode) -> Option<SyntaxNode<'a>> {
+    pub(crate) fn from_raw(raw: *const ffi::SyntaxNode) -> Option<SyntaxNode<'a>> {
         NonNull::new(raw.cast_mut()).map(|raw| SyntaxNode { raw, _marker: PhantomData })
     }
 
     pub fn kind(self) -> SyntaxKind {
         SyntaxKind::from_raw(unsafe { ffi::syntax_node_kind(self.raw.as_ptr()) })
+    }
+
+    pub fn range(self) -> Option<SourceRange> {
+        unimplemented!("SyntaxNode::range is not wired to slang source ranges yet")
+    }
+
+    pub fn range_with_context(self, _context: SyntaxNode<'a>) -> Option<SourceRange> {
+        self.range()
+    }
+
+    pub fn parent(self) -> Option<SyntaxNode<'a>> {
+        unimplemented!("SyntaxNode::parent is not wired to slang parent lookup yet")
     }
 
     pub fn child_count(self) -> usize {
@@ -76,19 +78,66 @@ impl<'a> SyntaxNode<'a> {
 
     pub fn child_token(self, index: usize) -> Option<SyntaxToken<'a>> {
         SyntaxToken::from_raw(unsafe { ffi::syntax_node_child_token(self.raw.as_ptr(), index) })
+            .filter(|tok| tok.kind() != TokenKind::UNKNOWN)
     }
 
     pub fn child(self, index: usize) -> Option<SyntaxElement<'a>> {
         if index >= self.child_count() {
             return None;
         }
-        self.child_node(index)
-            .map(SyntaxElement::Node)
-            .or_else(|| self.child_token(index).map(SyntaxElement::Token))
+        self.child_node(index).map(SyntaxElement::Node).or_else(|| {
+            self.child_token(index)
+                .map(|tok| SyntaxElement::Token(SyntaxTokenWithParent { parent: self, tok }))
+        })
     }
 
-    pub fn children(self) -> SyntaxChildrens<'a> {
-        SyntaxChildrens { parent: self, index: 0, len: self.child_count() }
+    pub fn children_with_idx(self) -> SyntaxIdxChildren<'a> {
+        SyntaxIdxChildren { parent: self, start_idx: 0, end_idx: self.child_count() }
+    }
+
+    pub fn children(self) -> SyntaxChildren<'a> {
+        SyntaxChildren(self.children_with_idx())
+    }
+
+    pub fn walk(self) -> SyntaxCursor<'a> {
+        SyntaxCursor::new(self)
+    }
+
+    pub fn first_token(self) -> Option<SyntaxTokenWithParent<'a>> {
+        let mut cursor = self.walk();
+        while cursor.to_tok_with_parent().is_none() {
+            if cursor.goto_first_child() {
+                continue;
+            }
+            while !cursor.goto_next_sibling() {
+                if !cursor.goto_parent() {
+                    return None;
+                }
+            }
+        }
+        cursor.to_tok_with_parent()
+    }
+
+    pub fn node_preorder(self) -> SyntaxNodePreorder<'a> {
+        SyntaxNodePreorder::new(self)
+    }
+
+    pub fn elem_preorder(self) -> SyntaxElemPreorder<'a> {
+        SyntaxElemPreorder::new(self)
+    }
+}
+
+impl PartialEq for SyntaxNode<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw == other.raw
+    }
+}
+
+impl Eq for SyntaxNode<'_> {}
+
+impl hash::Hash for SyntaxNode<'_> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.raw.hash(state);
     }
 }
 
@@ -101,38 +150,55 @@ impl<'a> SyntaxToken<'a> {
         TokenKind::from_raw(unsafe { ffi::syntax_token_kind(self.raw.as_ptr()) })
     }
 
+    pub fn range(self) -> Option<SourceRange> {
+        unimplemented!("SyntaxToken::range is not wired to slang source ranges yet")
+    }
+
+    pub fn range_with_context(self, _context: SyntaxNode<'a>) -> Option<SourceRange> {
+        self.range()
+    }
+
     pub fn value_text(self) -> String {
         unsafe { ffi::syntax_token_value_text(self.raw.as_ptr()) }
     }
-}
 
-impl<'a> SyntaxElement<'a> {
-    pub fn as_node(self) -> Option<SyntaxNode<'a>> {
-        match self {
-            Self::Node(node) => Some(node),
-            Self::Token(_) => None,
-        }
+    pub fn trivias(self) -> std::iter::Empty<SyntaxTrivia<'a>> {
+        unimplemented!("SyntaxToken::trivias is not wired to slang trivia yet")
     }
 
-    pub fn as_token(self) -> Option<SyntaxToken<'a>> {
-        match self {
-            Self::Node(_) => None,
-            Self::Token(token) => Some(token),
-        }
+    pub fn trivias_with_loc(self) -> std::iter::Empty<(SyntaxTriviaLoc, SyntaxTrivia<'a>)> {
+        unimplemented!("SyntaxToken::trivias_with_loc is not wired to slang trivia yet")
     }
 }
 
-impl<'a> Iterator for SyntaxChildrens<'a> {
-    type Item = SyntaxElement<'a>;
+impl PartialEq for SyntaxToken<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw == other.raw
+    }
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
-        while self.index < self.len {
-            let index = self.index;
-            self.index += 1;
-            if let Some(child) = self.parent.child(index) {
-                return Some(child);
-            }
-        }
-        None
+impl Eq for SyntaxToken<'_> {}
+
+impl hash::Hash for SyntaxToken<'_> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.raw.hash(state);
+    }
+}
+
+impl<'a> SyntaxTokenWithParent<'a> {
+    pub fn kind(self) -> TokenKind {
+        self.tok.kind()
+    }
+
+    pub fn range(self) -> Option<SourceRange> {
+        self.tok.range_with_context(self.parent)
+    }
+
+    pub fn trivias(self) -> std::iter::Empty<SyntaxTrivia<'a>> {
+        self.tok.trivias()
+    }
+
+    pub fn trivias_with_loc(self) -> std::iter::Empty<(SyntaxTriviaLoc, SyntaxTrivia<'a>)> {
+        self.tok.trivias_with_loc()
     }
 }

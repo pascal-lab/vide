@@ -53,7 +53,7 @@ const SyntaxNode *syntax_node_child_node(const SyntaxNode *node, std::size_t ind
 
 const SyntaxToken *syntax_node_child_token(const SyntaxNode *node, std::size_t index)
 {
-    // TODO: const_cast is a hack because slang upstream API doesn't have a const version of getChildListInfo
+    // TODO: const_cast is a hack because slang upstream API doesn't have a const version of childTokenPtr
     //       Maybe we could add a const overload to the upstream.
     return const_cast<SyntaxNode *>(node)->childTokenPtr(index);
 }
