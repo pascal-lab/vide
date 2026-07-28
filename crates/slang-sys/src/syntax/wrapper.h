@@ -5,7 +5,6 @@
 
 #include "cxx.h"
 
-#include "slang/diagnostics/DiagnosticEngine.h"
 #include "slang/parsing/Preprocessor.h"
 #include "slang/parsing/Token.h"
 #include "slang/syntax/SyntaxListInfo.h"
@@ -13,6 +12,8 @@
 #include "slang/syntax/SyntaxTree.h"
 #include "slang/text/SourceManager.h"
 #include "slang/util/Bag.h"
+
+#include "../wrapper.h"
 
 namespace slang_sys::syntax {
 
@@ -45,11 +46,6 @@ namespace slang_sys::syntax {
 
     namespace tree {
         std::shared_ptr<SyntaxTree> parse_syntax_tree(
-            rust::Str text,
-            rust::Str name,
-            rust::Str path
-        );
-        std::shared_ptr<SyntaxTree> parse_syntax_tree_with_options(
             rust::Str text,
             rust::Str name,
             rust::Str path,

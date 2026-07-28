@@ -8,7 +8,7 @@ use slang_sys::{
 };
 use utils::line_index::{TextRange, TextSize};
 
-use crate::{SyntaxNodeExt, support};
+use crate::slang_ext::{SyntaxNodeExt, support};
 
 pub trait TokenKindExt {
     fn is_pair_token(&self) -> bool;

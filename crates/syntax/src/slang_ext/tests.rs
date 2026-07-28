@@ -1,6 +1,9 @@
 use utils::line_index::TextSize;
 
-use crate::{SyntaxNodeExt, SyntaxTree, SyntaxTreeOptions, TokenAtOffset, TokenKind};
+use crate::{
+    SyntaxTree, SyntaxTreeOptions, TokenKind,
+    slang_ext::{SyntaxNodeExt, TokenAtOffset},
+};
 
 #[test]
 fn token_at_offset_inside_macro_invocation_does_not_descend_forever() {
@@ -14,7 +17,7 @@ endmodule
         predefines: vec![String::from("CA_WIDTH=8")],
         ..SyntaxTreeOptions::default()
     };
-    let tree = SyntaxTree::from_text_with_options(
+    let tree = SyntaxTree::from_text(
         text,
         "sample/rtl/code_action_targets.v",
         "sample/rtl/code_action_targets.v",

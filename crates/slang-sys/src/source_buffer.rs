@@ -1,24 +1,28 @@
 /// A source location inside a Slang source buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SourceLocation {
-    pub(crate) buffer_id: u32,
-    pub(crate) offset: usize,
+    buffer_id: u32,
+    offset: usize,
 }
 
 /// A half-open source range inside one or two Slang source buffers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SourceRange {
-    pub(crate) start: SourceLocation,
-    pub(crate) end: SourceLocation,
+    start: SourceLocation,
+    end: SourceLocation,
 }
 
 impl SourceLocation {
-    pub fn buffer_id(self) -> Option<u32> {
-        Some(self.buffer_id)
+    pub(crate) fn from_parts(buffer_id: u32, offset: usize) -> Self {
+        Self { buffer_id, offset }
     }
 
-    pub fn offset(self) -> Option<usize> {
-        Some(self.offset)
+    pub fn buffer_id(self) -> u32 {
+        self.buffer_id
+    }
+
+    pub fn offset(self) -> usize {
+        self.offset
     }
 }
 
@@ -33,6 +37,10 @@ impl SourceRange {
             start: SourceLocation { buffer_id: start_buffer_id, offset: start_offset },
             end: SourceLocation { buffer_id: end_buffer_id, offset: end_offset },
         }
+    }
+
+    pub(crate) fn from_locations(start: SourceLocation, end: SourceLocation) -> Self {
+        Self { start, end }
     }
 
     pub fn start(self) -> usize {

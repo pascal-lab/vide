@@ -11,11 +11,11 @@ const SCRIPTS_DIR: &str = "./scripts";
 /// This will influence clangd's include path.
 const BUILD_DIR: &str = "slang-sys";
 /// FFI files from src directory.
-const FFI_FILES: &[&str] = &["syntax/ffi.rs"];
+const FFI_FILES: &[&str] = &["diagnostic/ffi.rs", "syntax/ffi.rs"];
 /// CPP wrapper headers from src directory.
-const WRAPPER_HEADERS: &[&str] = &["syntax/wrapper.h"];
+const WRAPPER_HEADERS: &[&str] = &["wrapper.h", "diagnostic/wrapper.h", "syntax/wrapper.h"];
 /// CPP wrapper files from src directory.
-const WRAPPER_FILES: &[&str] = &["syntax/wrapper.cpp"];
+const WRAPPER_FILES: &[&str] = &["diagnostic/wrapper.cpp", "syntax/wrapper.cpp"];
 
 fn main() {
     // Prepare environment
@@ -28,7 +28,7 @@ fn main() {
     // Build
     generate_rust_defs(&slang_dir, &out_dir, &scripts_dir);
     let install_dir = build_slang(&slang_dir, debug);
-    build_cxx_bridge(&slang_dir, &install_dir, &source_dir, debug);
+    build_cxx_bridge(&slang_dir, &install_dir, &source_dir, &out_dir, debug);
 
     // Setup cargo configuration
     setup_linking(&install_dir, debug);
@@ -214,7 +214,13 @@ fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
     config.build()
 }
 
-fn build_cxx_bridge(slang_dir: &Path, install_dir: &Path, source_dir: &Path, debug: bool) {
+fn build_cxx_bridge(
+    slang_dir: &Path,
+    install_dir: &Path,
+    source_dir: &Path,
+    out_dir: &Path,
+    debug: bool,
+) {
     // Setup clangd include directory for cxx crate
     let cxx_header = PathBuf::from(
         env::var_os("DEP_CXXBRIDGE1_HEADER")
@@ -253,6 +259,25 @@ fn build_cxx_bridge(slang_dir: &Path, install_dir: &Path, source_dir: &Path, deb
         build.define("SLANG_DEBUG", None);
     }
     build.compile("slang_sys_bridge");
+    copy_cxxbridge_headers_for_clangd(&out_dir.join("cxxbridge/include"), &clangd_include_dir);
+}
+
+fn copy_cxxbridge_headers_for_clangd(from: &Path, to: &Path) {
+    if !from.is_dir() {
+        return;
+    }
+
+    for entry in fs::read_dir(from).expect("failed to read cxxbridge include directory") {
+        let entry = entry.expect("failed to read cxxbridge include entry");
+        let source = entry.path();
+        let destination = to.join(entry.file_name());
+        if source.is_dir() {
+            fs::create_dir_all(&destination).expect("failed to create clangd include directory");
+            copy_cxxbridge_headers_for_clangd(&source, &destination);
+        } else {
+            fs::copy(&source, &destination).expect("failed to copy cxxbridge header for clangd");
+        }
+    }
 }
 
 fn setup_linking(install_dir: &Path, debug: bool) {

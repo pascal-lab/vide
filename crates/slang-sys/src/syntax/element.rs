@@ -1,9 +1,8 @@
 use super::{
-    range::SourceRange,
     syntax_kind::SyntaxKind,
     syntax_node::{SyntaxNode, SyntaxTokenWithParent},
 };
-use crate::token::TokenKind;
+use crate::{source_buffer::SourceRange, token::TokenKind};
 
 /// The kind of an untyped syntax element, either a node kind or a token kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

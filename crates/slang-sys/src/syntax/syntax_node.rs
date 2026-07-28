@@ -6,13 +6,12 @@ use super::{
     element::SyntaxElement,
     ffi,
     iter::{ChildrenIter, SyntaxChildren, SyntaxIdxChildren},
-    range::SourceRange,
     syntax_kind::SyntaxKind,
     tree::SyntaxTree,
     trivia::{SyntaxTrivia, SyntaxTriviaIter, SyntaxTriviaLoc},
     walk::{SyntaxElemPreorder, SyntaxNodePreorder},
 };
-use crate::token::TokenKind;
+use crate::{source_buffer::SourceRange, token::TokenKind};
 
 /// An untyped Slang syntax node.
 /// Downcast this into an `ast::AstNode` to use generated typed accessors.
@@ -279,8 +278,8 @@ impl<'a> SyntaxToken<'a> {
                 let len = trivia.get_raw_text().len();
 
                 let loc = if let Some(location) = trivia.explicit_location() {
-                    let start = location.offset;
-                    SyntaxTriviaLoc { buffer_id: location.buffer_id, start, end: start + len }
+                    let start = location.offset();
+                    SyntaxTriviaLoc { buffer_id: location.buffer_id(), start, end: start + len }
                 } else {
                     let end = cursor_offset;
                     let start = end.saturating_sub(len);
