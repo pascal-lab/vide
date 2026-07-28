@@ -1,7 +1,7 @@
 pub mod ast;
-mod ffi;
 mod cursor;
 mod element;
+mod ffi;
 mod iter;
 mod range;
 mod syntax_kind;

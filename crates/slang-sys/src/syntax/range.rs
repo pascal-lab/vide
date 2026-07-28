@@ -23,6 +23,18 @@ impl SourceLocation {
 }
 
 impl SourceRange {
+    pub(crate) fn from_parts(
+        start_buffer_id: u32,
+        start_offset: usize,
+        end_buffer_id: u32,
+        end_offset: usize,
+    ) -> Self {
+        Self {
+            start: SourceLocation { buffer_id: start_buffer_id, offset: start_offset },
+            end: SourceLocation { buffer_id: end_buffer_id, offset: end_offset },
+        }
+    }
+
     pub fn start(self) -> usize {
         self.start.offset
     }
