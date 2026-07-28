@@ -35,9 +35,12 @@ git submodule update --init
 
 3. For better developer experience, we recommend you to install `clangd`. If you have installed it, it should read `.clangd` and `.clang-format` files correctly and automatically provide right IDE features in the `.cpp/.h` files inside this crate and `third_party/slang` codebase after you build the slang-sys crates.
 
-### Editing slang-sys
+### Edit slang-sys
 If you want to edit slang-sys, for example, add new FFI functions, here are some tips for you:
 
 1. Conventionally, we put FFI definitions and C++ wrapper files inside the corresponding module directory, for example, `diagnostic/ffi.rs`, `diagnostic/wrapper.h`, `diagnostic/wrapper.cpp` are all related to diagnostic module. It will be better to follow this convention since it will improve the readability for FFI code.
 
 2. If you add more FFI file / C++ wrapper file / C++ header file, you need to add them into the `FFI_FILES` / `WRAPPER_HEADERS` / `WRAPPER_SOURCES` in the [build.rs](../crates/slang-sys/build.rs) file, otherwise they will not be compiled and linked correctly.
+
+### Update slang version
+Theoretically, you can just update the submodule version, everything should work. **Don't forget to update the crate version of slang-sys, it should be aligned with the slang version.**
