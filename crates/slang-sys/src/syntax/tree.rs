@@ -11,7 +11,6 @@ pub struct SyntaxTree {
 }
 
 /// Parser options for creating a syntax tree.
-/// TODO: Implement this struct.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SyntaxTreeOptions {
     pub predefines: Vec<String>,
@@ -55,11 +54,22 @@ impl SyntaxTree {
         path: &str,
         options: &SyntaxTreeOptions,
     ) -> Self {
-        let _ = options;
-        Self::from_text(text, name, path)
+        Self {
+            raw: ffi::parse_syntax_tree_with_options(
+                text,
+                name,
+                path,
+                options.predefines.clone(),
+                options.include_paths.clone(),
+                options.include_buffers.iter().map(|buffer| buffer.path.clone()).collect(),
+                options.include_buffers.iter().map(|buffer| buffer.text.clone()).collect(),
+                options.expand_includes,
+            ),
+        }
     }
 
     pub fn root(&self) -> Option<SyntaxNode<'_>> {
-        SyntaxNode::from_raw(ffi::syntax_tree_root(self.raw.as_ref()?))
+        let raw = ffi::syntax_tree_root(self.raw.as_ref()?);
+        Some(SyntaxNode::from_nullable_raw(raw).expect("slang returned null syntax tree root"))
     }
 }

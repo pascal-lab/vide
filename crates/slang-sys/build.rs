@@ -28,7 +28,7 @@ fn main() {
     // Build
     generate_rust_defs(&slang_dir, &out_dir, &scripts_dir);
     let install_dir = build_slang(&slang_dir, debug);
-    build_cxx_bridge(&slang_dir, &install_dir, &source_dir);
+    build_cxx_bridge(&slang_dir, &install_dir, &source_dir, debug);
 
     // Setup cargo configuration
     setup_linking(&install_dir, debug);
@@ -171,7 +171,6 @@ fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
         // linking issue first. The default build option of slang will generate mimalloc object file
         // rather thant the static library :(.
         .define("SLANG_USE_MIMALLOC", "OFF")
-        // .define("SLANG_RUST_CXXBRIDGE_DIR", cxxbridge_dir.to_string_lossy().as_ref())
         .define("CMAKE_INSTALL_LIBDIR", "lib");
 
     if emscripten {
@@ -215,7 +214,7 @@ fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
     config.build()
 }
 
-fn build_cxx_bridge(slang_dir: &Path, install_dir: &Path, source_dir: &Path) {
+fn build_cxx_bridge(slang_dir: &Path, install_dir: &Path, source_dir: &Path, debug: bool) {
     // Setup clangd include directory for cxx crate
     let cxx_header = PathBuf::from(
         env::var_os("DEP_CXXBRIDGE1_HEADER")
@@ -250,6 +249,9 @@ fn build_cxx_bridge(slang_dir: &Path, install_dir: &Path, source_dir: &Path) {
     } else {
         build.flag_if_supported("-std=c++20");
     }
+    if debug {
+        build.define("SLANG_DEBUG", None);
+    }
     build.compile("slang_sys_bridge");
 }
 
@@ -271,21 +273,16 @@ fn setup_rerun_triggers(slang_dir: &Path, source_dir: &Path, scripts_dir: &Path)
     let mut watch = vec![
         env_detection::cargo_manifest_dir().join("build.rs").to_string_lossy().to_string(),
         slang_dir.to_string_lossy().to_string(),
-        source_dir.join("ffi.rs").to_string_lossy().to_string(),
         scripts_dir.to_string_lossy().to_string(),
     ];
-    let ffi_files = FFI_FILES
-        .iter()
-        .map(|f| PathBuf::from(source_dir).join(f).to_string_lossy().to_string())
-        .collect::<Vec<_>>();
+    let ffi_files =
+        FFI_FILES.iter().map(|f| PathBuf::from(source_dir).join(f).to_string_lossy().to_string());
     let wrapper_files = WRAPPER_FILES
         .iter()
-        .map(|f| PathBuf::from(source_dir).join(f).to_string_lossy().to_string())
-        .collect::<Vec<_>>();
+        .map(|f| PathBuf::from(source_dir).join(f).to_string_lossy().to_string());
     let wrapper_headers = WRAPPER_HEADERS
         .iter()
-        .map(|f| PathBuf::from(source_dir).join(f).to_string_lossy().to_string())
-        .collect::<Vec<_>>();
+        .map(|f| PathBuf::from(source_dir).join(f).to_string_lossy().to_string());
     watch.extend(ffi_files);
     watch.extend(wrapper_files);
     watch.extend(wrapper_headers);
