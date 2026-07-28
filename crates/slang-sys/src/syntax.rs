@@ -132,4 +132,122 @@ endmodule
         assert!(!diagnostic.message.is_empty(), "expected formatted diagnostic message");
         assert!(diagnostic.location.is_some(), "expected diagnostic location");
     }
+
+    #[test]
+    fn syntax_tree_root_range_and_first_token_are_byte_stable() {
+        let source = "module demo; endmodule";
+        let tree =
+            SyntaxTree::from_text(source, "range_demo", "range_demo.sv", &Default::default());
+
+        let root = tree.root().expect("expected syntax root");
+        let range = root.range().expect("expected root range");
+        assert_eq!(range.start(), 0);
+        assert_eq!(range.end(), source.len());
+        assert_eq!(range.start_buffer_id(), range.end_buffer_id());
+
+        let first = root.first_token().expect("expected first token");
+        assert_eq!(first.kind(), crate::token::TokenKind::MODULE_KEYWORD);
+        assert_eq!(first.tok.value_text(), "module");
+        assert_eq!(first.range().expect("expected token range").start(), 0);
+    }
+
+    #[test]
+    fn syntax_trivia_and_preorder_walk_expose_the_expected_shape() {
+        let source = "// lead comment\nmodule demo; endmodule";
+        let tree =
+            SyntaxTree::from_text(source, "trivia_demo", "trivia_demo.sv", &Default::default());
+
+        let root = tree.root().expect("expected syntax root");
+        let first = root.first_token().expect("expected first token");
+        let trivias: Vec<_> = first.trivias().collect();
+        assert!(
+            trivias.iter().any(|trivia| trivia.kind() == crate::token::TriviaKind::LINE_COMMENT)
+        );
+
+        let (loc, trivia) = first.trivias_with_loc().next().expect("expected trivia location");
+        assert_eq!(loc.buffer_id, root.range().expect("expected root range").start_buffer_id());
+        assert_eq!(loc.start, 0);
+        assert!(!trivia.get_raw_text().is_empty());
+
+        let events: Vec<_> = root.node_preorder().collect();
+        assert!(matches!(events.first(), Some(WalkEvent::Enter(node)) if *node == root));
+        assert!(
+            events.iter().any(|event| { matches!(event, WalkEvent::Enter(node) if *node != root) })
+        );
+    }
+
+    #[test]
+    fn syntax_node_children_and_elements_report_parent_kind_and_range() {
+        let source = "module demo; assign x = y; endmodule";
+        let tree =
+            SyntaxTree::from_text(source, "element_demo", "element_demo.sv", &Default::default());
+
+        let root = tree.root().expect("expected syntax root");
+        assert_eq!(root.kind(), SyntaxKind::MODULE_DECLARATION);
+        assert!(root.parent().is_none());
+        assert!(root.child_count() > 0);
+
+        let first_child = root.children().next().expect("expected child element");
+        assert_eq!(first_child.parent(), Some(root));
+        assert!(first_child.range().expect("expected child range").is_single_buffer());
+        assert!(matches!(
+            first_child.kind(),
+            SyntaxElementKind::Node(_) | SyntaxElementKind::Token(_)
+        ));
+
+        let first_token = root.first_token().expect("expected first token");
+        let token_element = SyntaxElement::Token(first_token);
+        assert!(token_element.as_node().is_none());
+        assert_eq!(
+            token_element.as_token().expect("expected token element").kind(),
+            first_token.kind()
+        );
+        assert_eq!(token_element.parent(), Some(first_token.parent));
+    }
+
+    #[test]
+    fn syntax_cursor_moves_between_root_and_children() {
+        let source = "module demo; assign x = y; endmodule";
+        let tree =
+            SyntaxTree::from_text(source, "cursor_demo", "cursor_demo.sv", &Default::default());
+
+        let root = tree.root().expect("expected syntax root");
+        let mut cursor = root.walk();
+        assert!(cursor.is_root());
+        assert_eq!(cursor.to_node(), Some(root));
+
+        assert!(cursor.goto_first_child());
+        assert!(!cursor.is_root());
+        assert_eq!(cursor.to_elem().parent(), Some(root));
+
+        assert!(cursor.goto_parent());
+        assert!(cursor.is_root());
+        assert_eq!(cursor.to_node(), Some(root));
+
+        assert!(cursor.goto_last_child());
+        assert_eq!(cursor.to_elem().parent(), Some(root));
+        cursor.reset_to_root();
+        assert!(cursor.is_root());
+    }
+
+    #[test]
+    fn syntax_element_preorder_visits_nodes_and_tokens() {
+        let source = "module demo; endmodule";
+        let tree = SyntaxTree::from_text(source, "walk_demo", "walk_demo.sv", &Default::default());
+
+        let root = tree.root().expect("expected syntax root");
+        let events: Vec<_> = root.elem_preorder().collect();
+
+        assert!(matches!(
+            events.first(),
+            Some(WalkEvent::Enter(SyntaxElement::Node(node))) if *node == root
+        ));
+        assert!(events.iter().any(|event| match event {
+            WalkEvent::Enter(SyntaxElement::Token(token)) => {
+                token.kind() == crate::token::TokenKind::MODULE_KEYWORD
+            }
+            _ => false,
+        }));
+        assert!(events.iter().any(|event| matches!(event, WalkEvent::Leave(_))));
+    }
 }
