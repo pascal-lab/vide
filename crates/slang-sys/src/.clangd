@@ -3,6 +3,11 @@ CompileFlags:
   Add:
     - -std=c++20
     - -I.
+    - -I..
+    - -I../../../third_party/slang/include
+    - -I../../../third_party/slang/external
+    - -I../../../target/slang-sys/debug/include
+    - -I../../../target/slang-sys/cxx/include
     - -I../../../../third_party/slang/include
     - -I../../../../third_party/slang/external
     - -I../../../../target/slang-sys/debug/include

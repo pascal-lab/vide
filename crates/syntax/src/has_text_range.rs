@@ -1,6 +1,6 @@
-use slang_sys::syntax::{
-    SourceRange, SyntaxElement, SyntaxNode, SyntaxToken,
-    SyntaxTokenWithParent as LocatedSyntaxToken,
+use slang_sys::{
+    source_buffer::SourceRange,
+    syntax::{SyntaxElement, SyntaxNode, SyntaxToken, SyntaxTokenWithParent as LocatedSyntaxToken},
 };
 use utils::line_index::TextRange;
 

@@ -2,11 +2,10 @@ use std::{marker::PhantomData, ptr::NonNull};
 
 use super::{
     ffi,
-    range::SourceLocation,
     syntax_node::{SyntaxNode, SyntaxToken},
     tree::SyntaxTree,
 };
-use crate::token::TriviaKind;
+use crate::{source_buffer::SourceLocation, token::TriviaKind};
 
 /// Trivia attached to a syntax token, such as whitespace, comments, or
 /// directives.
@@ -42,9 +41,11 @@ impl SyntaxTrivia<'_> {
 
     pub(crate) fn explicit_location(&self) -> Option<SourceLocation> {
         let valid = unsafe { ffi::syntax_trivia_explicit_location_valid(self.raw.as_ptr()) };
-        valid.then(|| SourceLocation {
-            buffer_id: unsafe { ffi::syntax_trivia_explicit_location_buffer_id(self.raw.as_ptr()) },
-            offset: unsafe { ffi::syntax_trivia_explicit_location_offset(self.raw.as_ptr()) },
+        valid.then(|| {
+            SourceLocation::from_parts(
+                unsafe { ffi::syntax_trivia_explicit_location_buffer_id(self.raw.as_ptr()) },
+                unsafe { ffi::syntax_trivia_explicit_location_offset(self.raw.as_ptr()) },
+            )
         })
     }
 

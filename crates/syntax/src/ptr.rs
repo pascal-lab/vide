@@ -7,7 +7,7 @@ use slang_sys::{
 };
 use utils::line_index::TextRange;
 
-use crate::{SyntaxNodeExt, has_text_range::HasTextRange};
+use crate::{has_text_range::HasTextRange, slang_ext::SyntaxNodeExt};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SyntaxNodePtr {
@@ -118,12 +118,8 @@ mod tests {
         std::fs::write(include_rel, "typedef logic cwd_include_t;\n").expect("include fixture");
 
         let text = format!("`include \"{include_rel}\"\nmodule top;\nendmodule\n");
-        let tree = SyntaxTree::from_text_with_options(
-            &text,
-            "",
-            "",
-            &SyntaxTreeOptions::without_include_expansion(),
-        );
+        let tree =
+            SyntaxTree::from_text(&text, "", "", &SyntaxTreeOptions::without_include_expansion());
         let root = tree.root().expect("root syntax node");
         let unit = ast::CompilationUnit::cast(root).expect("compilation unit");
         let mut saw_root_module = false;

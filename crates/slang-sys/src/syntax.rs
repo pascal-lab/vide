@@ -1,9 +1,8 @@
 pub mod ast;
 mod cursor;
 mod element;
-mod ffi;
+pub(crate) mod ffi;
 mod iter;
-mod range;
 mod syntax_kind;
 mod syntax_node;
 mod tree;
@@ -13,7 +12,6 @@ mod walk;
 pub use cursor::*;
 pub use element::*;
 pub use iter::*;
-pub use range::*;
 pub use syntax_kind::*;
 pub use syntax_node::*;
 pub use tree::*;
@@ -36,15 +34,24 @@ begin
 end
 endmodule
         "#;
-        let tree = SyntaxTree::from_text(test_verilog_code, "parser_demo", "parser_demo.sv");
+        let tree = SyntaxTree::from_text(
+            test_verilog_code,
+            "parser_demo",
+            "parser_demo.sv",
+            &Default::default(),
+        );
         let root = tree.root().expect("expected syntax root");
         assert_eq!(root.kind(), SyntaxKind::MODULE_DECLARATION);
     }
 
     #[test]
     fn syntax_tree_and_generated_accessors_work() {
-        let tree =
-            SyntaxTree::from_text("module demo; endmodule", "accessor_demo", "accessor_demo.sv");
+        let tree = SyntaxTree::from_text(
+            "module demo; endmodule",
+            "accessor_demo",
+            "accessor_demo.sv",
+            &Default::default(),
+        );
         let root = tree.root().expect("expected syntax root");
         let module = ast::ModuleDeclaration::cast(root).expect("expected module declaration");
 
@@ -66,7 +73,8 @@ module demo(input wire a, output wire b);
     assign b = a;
 endmodule
 "#;
-        let tree = SyntaxTree::from_text(source, "aligned_demo", "aligned_demo.sv");
+        let tree =
+            SyntaxTree::from_text(source, "aligned_demo", "aligned_demo.sv", &Default::default());
         let module = ast::ModuleDeclaration::cast(tree.root().expect("expected root"))
             .expect("expected module declaration");
 
@@ -105,5 +113,23 @@ endmodule
         assert_eq!(assign.assignments().children().count(), 1);
         assert_eq!(assign.semi().unwrap().kind(), crate::token::TokenKind::SEMICOLON);
         assert!(members.next().is_none());
+    }
+
+    #[test]
+    fn syntax_tree_diagnostics_are_owned_rust_values() {
+        let tree = SyntaxTree::from_text(
+            "module A( input a; endmodule",
+            "diagnostic_demo",
+            "",
+            &Default::default(),
+        );
+        let diagnostics = tree.diagnostics(&[]);
+
+        assert!(!diagnostics.is_empty(), "expected parse diagnostics");
+
+        let diagnostic = &diagnostics[0];
+        assert_eq!(diagnostic.severity, crate::diagnostic::DiagnosticSeverity::Error);
+        assert!(!diagnostic.message.is_empty(), "expected formatted diagnostic message");
+        assert!(diagnostic.location.is_some(), "expected diagnostic location");
     }
 }

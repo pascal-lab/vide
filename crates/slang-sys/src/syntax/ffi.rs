@@ -9,7 +9,7 @@ pub(crate) use slang_ffi::*;
 #[cxx::bridge(namespace = "slang_sys::syntax")]
 mod slang_ffi {
     unsafe extern "C++" {
-        include!("wrapper.h");
+        include!("syntax/wrapper.h");
 
         type SyntaxTree;
         type SyntaxNode;
@@ -19,10 +19,9 @@ mod slang_ffi {
 
     #[namespace = "slang_sys::syntax::tree"]
     unsafe extern "C++" {
-        include!("wrapper.h");
+        include!("syntax/wrapper.h");
 
-        fn parse_syntax_tree(text: &str, name: &str, path: &str) -> SharedPtr<SyntaxTree>;
-        fn parse_syntax_tree_with_options(
+        fn parse_syntax_tree(
             text: &str,
             name: &str,
             path: &str,
@@ -37,7 +36,7 @@ mod slang_ffi {
 
     #[namespace = "slang_sys::syntax::node"]
     unsafe extern "C++" {
-        include!("wrapper.h");
+        include!("syntax/wrapper.h");
 
         unsafe fn syntax_node_kind(node: *const SyntaxNode) -> u16;
         unsafe fn syntax_node_range_valid(node: *const SyntaxNode) -> bool;
@@ -81,7 +80,7 @@ mod slang_ffi {
 
     #[namespace = "slang_sys::syntax::token"]
     unsafe extern "C++" {
-        include!("wrapper.h");
+        include!("syntax/wrapper.h");
 
         unsafe fn syntax_token_kind(token: *const SyntaxToken) -> u16;
         unsafe fn syntax_token_range_valid(token: *const SyntaxToken) -> bool;
@@ -119,7 +118,7 @@ mod slang_ffi {
 
     #[namespace = "slang_sys::syntax::trivia"]
     unsafe extern "C++" {
-        include!("wrapper.h");
+        include!("syntax/wrapper.h");
 
         unsafe fn syntax_trivia_kind(trivia: *const SyntaxTrivia) -> u8;
         unsafe fn syntax_trivia_raw_text(trivia: *const SyntaxTrivia) -> String;
