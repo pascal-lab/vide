@@ -93,6 +93,7 @@ fn find_diagnostic_groups(code: DiagCode) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::syntax::SyntaxTree;
 
     #[test]
     fn raw_diagnostic_groups_are_derived_from_generated_metadata() {
@@ -116,5 +117,28 @@ mod tests {
         });
 
         assert!(diagnostic.groups.contains(&"default".to_owned()));
+    }
+
+    #[test]
+    fn syntax_tree_diagnostics_map_location_metadata() {
+        let tree = SyntaxTree::from_text(
+            r#"module demo; string s = "\q"; endmodule"#,
+            "warning_demo",
+            "warning_demo.sv",
+            &Default::default(),
+        );
+
+        let diagnostics = tree.diagnostics(&[]);
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diag| {
+                DiagCode::from_raw(diag.subsystem, diag.code) == DiagCode::UNKNOWN_ESCAPE_CODE
+            })
+            .expect("expected unknown escape code diagnostic");
+
+        assert_eq!(diagnostic.file_name.as_deref(), Some("warning_demo.sv"));
+        assert!(diagnostic.buffer_id.is_some(), "expected diagnostic buffer id");
+        assert!(diagnostic.location.is_some(), "expected diagnostic location");
+        assert!(!diagnostic.message.is_empty(), "expected formatted diagnostic message");
     }
 }
