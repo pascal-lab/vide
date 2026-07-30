@@ -537,7 +537,7 @@ mod tests {
         process_task(
             &mut state,
             Task::Protocol(ProtocolTask::Response {
-                response: Response::new_ok(accepted_request_id.clone(), &()),
+                response: Response::new_ok(accepted_request_id.clone(), ()),
                 accepted_effects: vec![AcceptedResponseEffect::CommitSemanticTokens {
                     uri: uri.clone(),
                     tokens: accepted_tokens,
@@ -564,7 +564,7 @@ mod tests {
         process_task(
             &mut state,
             Task::Protocol(ProtocolTask::Response {
-                response: Response::new_ok(cancelled_request_id, &()),
+                response: Response::new_ok(cancelled_request_id, ()),
                 accepted_effects: vec![AcceptedResponseEffect::CommitSemanticTokens {
                     uri: uri.clone(),
                     tokens: cancelled_tokens,

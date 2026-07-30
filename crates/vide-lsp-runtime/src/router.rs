@@ -65,6 +65,15 @@ pub struct Router<S> {
     notifications: HashMap<&'static str, NotificationHandler<S>>,
 }
 
+impl<S> Default for Router<S>
+where
+    S: RuntimeState,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<S> Router<S>
 where
     S: RuntimeState,

@@ -179,7 +179,7 @@ mod tests {
         let Message::Request(request) = peer.receiver.recv().unwrap() else {
             panic!("expected outgoing request");
         };
-        client.complete_outgoing(&mut state, Response::new_ok(request.id, &()));
+        client.complete_outgoing(&mut state, Response::new_ok(request.id, ()));
 
         assert!(state.callback_called);
     }
