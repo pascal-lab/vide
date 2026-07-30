@@ -121,12 +121,12 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: website/package-lock.json
-      # TODO: Remove this `npm install` workaround once npm reliably restores platform optional
-      # dependencies from package-lock.json. see <https://github.com/npm/cli/issues/4828>.
+      # package-lock.json can be platform-pruned by npm; repair current-runner
+      # native optional packages from the lockfile declarations before building.
       - name: Install dependencies
         run: |
           npm ci
-          npm install --no-save
+          node ../.github/scripts/install-native-optionals.mjs
         working-directory: website
 
       - name: Build Vide LSP WASM

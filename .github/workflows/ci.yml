@@ -114,7 +114,13 @@ jobs:
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Test
-        run: cargo test --workspace
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            cargo test --workspace -- --test-threads=1
+          else
+            cargo test --workspace
+          fi
 
   vscode-extension:
     name: VS Code Checks
@@ -195,6 +201,40 @@ jobs:
       - name: Install web smoke dependencies
         working-directory: editors/vscode/test-web
         run: npm ci
+      - name: Read VS Code Web version
+        id: vscode-web-version
+        working-directory: editors/vscode/test-web
+        shell: bash
+        run: |
+          vscode_commit="$(node -p "require('./package.json').config.vscodeWebCommit")"
+          if [[ ! "${vscode_commit}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::test-web/package.json config.vscodeWebCommit must be a 40-character lowercase Git commit"
+            exit 1
+          fi
+          echo "commit=${vscode_commit}" >> "${GITHUB_OUTPUT}"
+          echo "folder=vscode-web-stable-${vscode_commit}" >> "${GITHUB_OUTPUT}"
+      - name: Restore VS Code Web cache
+        uses: actions/cache@v4
+        with:
+          path: editors/vscode/test-web/.vscode-test-web
+          key: ${{ steps.vscode-web-version.outputs.folder }}
+      - name: Download VS Code Web
+        working-directory: editors/vscode/test-web
+        env:
+          VSCODE_WEB_COMMIT: ${{ steps.vscode-web-version.outputs.commit }}
+          VSCODE_WEB_FOLDER: ${{ steps.vscode-web-version.outputs.folder }}
+        run: |
+          vscode_dir=".vscode-test-web/${VSCODE_WEB_FOLDER}"
+          if [ ! -f "${vscode_dir}/version" ]; then
+            archive="${RUNNER_TEMP}/vscode-web.tar.gz"
+            curl --fail --location --retry 10 --retry-all-errors \
+              --output "${archive}" \
+              "https://vscode.download.prss.microsoft.com/dbazure/download/stable/${VSCODE_WEB_COMMIT}/vscode-web.tar.gz"
+            rm -rf "${vscode_dir}"
+            mkdir -p "${vscode_dir}"
+            tar -xzf "${archive}" --strip-components=1 -C "${vscode_dir}"
+            printf '%s' "${VSCODE_WEB_FOLDER}" > "${vscode_dir}/version"
+          fi
       - name: Build Vide LSP WASM
         if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
         working-directory: ${{ github.workspace }}

@@ -139,7 +139,14 @@ impl GlobalState {
         }
 
         let semantic_profile_ids = self.semantic_compiler_profiles_for_invalidation(&invalidation);
+        let semantic_compilation_scheduled = !semantic_profile_ids.is_empty();
         self.schedule_semantic_compiler(semantic_profile_ids);
+        if self.config_state.config.cli_pull_diagnostics_support()
+            && semantic_compilation_scheduled
+            && matches!(&invalidation, DiagnosticInvalidation::FileChanges(_))
+        {
+            return;
+        }
 
         if self.config_state.config.cli_pull_diagnostics_support()
             && self.config_state.config.cli_workspace_diagnostic_refresh_support()
