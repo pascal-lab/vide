@@ -57,6 +57,7 @@ use crate::{
 type TempDir = TestDir;
 
 const LSP_TEST_TIMEOUT: Duration = Duration::from_secs(30);
+
 const DEFAULT_TEST_CONFIG: &str = "sources = [\"**\"]\ninclude_dirs = [\".\"]\n";
 const SYNTAX_ONLY_TEST_CONFIG: &str = "\
 # Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
@@ -88,6 +89,7 @@ fn recv_lsp_message_until(
 fn handle_test_server_request(client: &Connection, request: Request, context: &str) {
     if request.method == lsp_types::request::WorkDoneProgressCreate::METHOD
         || request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD
+        || request.method == lsp_types::request::RegisterCapability::METHOD
     {
         client
             .sender
@@ -106,6 +108,12 @@ fn spawn_default_test_server(
     thread::spawn(move || main_loop::main_loop(config, server, lsp_types::TraceValue::Off))
 }
 
+fn enable_test_watched_files_capability(client_caps: &mut ClientCapabilities) {
+    let workspace = client_caps.workspace.get_or_insert_with(Default::default);
+    let watched_files = workspace.did_change_watched_files.get_or_insert_with(Default::default);
+    watched_files.dynamic_registration = Some(true);
+}
+
 fn test_server_config(
     root_path: AbsPathBuf,
     client_caps: ClientCapabilities,
@@ -116,10 +124,11 @@ fn test_server_config(
 
 fn test_server_config_with_i18n(
     root_path: AbsPathBuf,
-    client_caps: ClientCapabilities,
+    mut client_caps: ClientCapabilities,
     user_config: UserConfig,
     i18n: I18n,
 ) -> config::Config {
+    enable_test_watched_files_capability(&mut client_caps);
     let opt = Opt {
         process_name: "vide-test".to_string(),
         log: "error".to_string(),
@@ -277,14 +286,7 @@ fn shutdown_test_server(
                 if notification.method == lsp_types::notification::PublishDiagnostics::METHOD => {}
             Message::Notification(notification)
                 if notification.method == ProjectStatusNotification::METHOD => {}
-            Message::Request(request)
-                if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
-            {
-                client
-                    .sender
-                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
-                    .unwrap();
-            }
+            Message::Request(request) => handle_test_server_request(client, request, "shutdown"),
             other => panic!("unexpected message while shutting down test server: {other:?}"),
         }
     }
