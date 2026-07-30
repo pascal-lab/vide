@@ -5,7 +5,8 @@ use super::DiagnosticPublishFreshness;
 use crate::{
     config::Config,
     global_state::{
-        GlobalState, snapshot::DiagnosticPublishTarget, workspace_state::WorkspaceVfsReadiness,
+        GlobalState, LspClient, snapshot::DiagnosticPublishTarget,
+        workspace_state::WorkspaceVfsReadiness,
     },
 };
 
@@ -112,7 +113,7 @@ pub(in crate::global_state) struct DiagnosticsPublisher<'a> {
     config: &'a Config,
     workspace_vfs: &'a mut WorkspaceVfsReadiness,
     published_diagnostics: &'a mut FxHashMap<DiagnosticPublishKey, Vec<lsp_types::Diagnostic>>,
-    sender: &'a crossbeam_channel::Sender<lsp_server::Message>,
+    client: &'a LspClient,
     current_freshness: DiagnosticPublishFreshness,
 }
 
@@ -121,10 +122,10 @@ impl<'a> DiagnosticsPublisher<'a> {
         config: &'a Config,
         workspace_vfs: &'a mut WorkspaceVfsReadiness,
         published_diagnostics: &'a mut FxHashMap<DiagnosticPublishKey, Vec<lsp_types::Diagnostic>>,
-        sender: &'a crossbeam_channel::Sender<lsp_server::Message>,
+        client: &'a LspClient,
         current_freshness: DiagnosticPublishFreshness,
     ) -> Self {
-        Self { config, workspace_vfs, published_diagnostics, sender, current_freshness }
+        Self { config, workspace_vfs, published_diagnostics, client, current_freshness }
     }
 
     pub(in crate::global_state) fn publish(&mut self, batch: PublishDiagnosticsBatch) {
@@ -166,7 +167,7 @@ impl<'a> DiagnosticsPublisher<'a> {
             .collect::<Vec<_>>();
         for key in stale_targets {
             self.published_diagnostics.remove(&key);
-            self.send_notification::<lsp_types::notification::PublishDiagnostics>(
+            self.client.notify::<lsp_types::notification::PublishDiagnostics>(
                 lsp_types::PublishDiagnosticsParams {
                     uri: key.uri,
                     diagnostics: Vec::new(),
@@ -195,7 +196,7 @@ impl<'a> DiagnosticsPublisher<'a> {
                 self.published_diagnostics.insert(cache_key, diag.diagnostics.clone());
             }
 
-            self.send_notification::<lsp_types::notification::PublishDiagnostics>(
+            self.client.notify::<lsp_types::notification::PublishDiagnostics>(
                 lsp_types::PublishDiagnosticsParams {
                     uri: diag.uri,
                     diagnostics: diag.diagnostics,
@@ -212,13 +213,6 @@ impl<'a> DiagnosticsPublisher<'a> {
             "publish diagnostics complete"
         );
     }
-
-    fn send_notification<N: lsp_types::notification::Notification>(&self, params: N::Params) {
-        let notif = lsp_server::Notification::new(N::METHOD.to_string(), params);
-        if self.sender.send(notif.into()).is_err() {
-            tracing::debug!("LSP message dropped because client connection is closed");
-        }
-    }
 }
 
 impl GlobalState {
@@ -231,7 +225,7 @@ impl GlobalState {
             &self.config_state.config,
             &mut self.workspace.workspace_vfs,
             &mut self.diagnostics.published_diagnostics,
-            &self.client.sender,
+            &self.client,
             current_freshness,
         )
         .publish(batch);

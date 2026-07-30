@@ -1,9 +1,7 @@
-use lsp_server::Response;
 use project_model::project_manifest;
 
 use super::GlobalState;
 pub use super::event_loop::main_loop;
-use crate::global_state::DEFAULT_REQ_HANDLER;
 
 impl GlobalState {
     pub(in crate::global_state) fn register_did_save_cap(&mut self) {
@@ -38,18 +36,9 @@ impl GlobalState {
                 }
             },
         };
-        self.send_request::<lsp_types::request::RegisterCapability>(
+        self.client.request_ignore::<lsp_types::request::RegisterCapability>(
             lsp_types::RegistrationParams { registrations: vec![registration] },
-            DEFAULT_REQ_HANDLER,
         );
-    }
-
-    pub(in crate::global_state) fn handle_response(&mut self, res: Response) {
-        let Some(handler) = self.client.req_queue.outgoing.complete(res.id.clone()) else {
-            tracing::error!("received response for unknown request: {:?}", res);
-            return;
-        };
-        handler(self, res)
     }
 }
 
@@ -57,7 +46,7 @@ impl GlobalState {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use lsp_server::{Connection, Message, Request};
+    use lsp_server::{Connection, Message, Request, Response};
     use lsp_types::{
         ClientCapabilities, Diagnostic, DiagnosticSeverity, Position, ProgressParams,
         ProgressParamsValue, PublishDiagnosticsParams, Range, WindowClientCapabilities,
@@ -70,6 +59,7 @@ mod tests {
     use triomphe::Arc;
     use utils::{paths::AbsPathBuf, test_support::TestDir};
     use vfs::{FileId, VfsPath, loader as vfs_loader};
+    use vide_lsp_runtime::ProtocolTask;
 
     use super::*;
     use crate::{
@@ -83,9 +73,10 @@ mod tests {
                 },
             },
             event_loop::Event,
+            protocol,
             reload::FetchWorkspaceProgress,
             response_effect::AcceptedResponseEffect,
-            task::{ResponseTask, Task},
+            task::Task,
         },
         i18n::I18n,
         lsp_ext::to_proto,
@@ -116,6 +107,20 @@ mod tests {
 
     fn test_state(root_path: AbsPathBuf) -> GlobalState {
         test_state_with_caps(root_path, ClientCapabilities::default()).0
+    }
+
+    fn dispatch_request(state: &mut GlobalState, request: Request) {
+        let router = protocol::router();
+        state.client.register_incoming(Instant::now(), &request);
+        state.dispatch_request(&router, request);
+    }
+
+    fn handle_event(state: &mut GlobalState, event: Event) {
+        state.handle_event(&protocol::router(), event).unwrap();
+    }
+
+    fn process_task(state: &mut GlobalState, task: Task) {
+        state.process_task(&protocol::router(), task);
     }
 
     fn workspace_model(root_path: AbsPathBuf) -> Vec<project_model::Workspace> {
@@ -409,8 +414,7 @@ mod tests {
             },
         );
 
-        state.register_request(Instant::now(), &req);
-        state.handle_request(req);
+        dispatch_request(&mut state, req);
 
         let response = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         let Message::Response(response) = response else {
@@ -426,14 +430,15 @@ mod tests {
         assert!(report.items.is_empty());
         assert!(state.tasks.task_pool.receiver.try_recv().is_err());
 
-        state
-            .handle_event(Event::Vfs(vfs_loader::Message::Progress {
+        handle_event(
+            &mut state,
+            Event::Vfs(vfs_loader::Message::Progress {
                 n_total: 1,
                 n_done: vfs_loader::LoadingProgress::Finished,
                 dir: None,
                 config_version,
-            }))
-            .unwrap();
+            }),
+        );
 
         let refresh = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         let Message::Request(refresh) = refresh else {
@@ -463,8 +468,7 @@ mod tests {
             },
         );
 
-        state.register_request(Instant::now(), &req);
-        state.handle_request(req);
+        dispatch_request(&mut state, req);
 
         let response = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         let Message::Response(response) = response else {
@@ -502,8 +506,7 @@ mod tests {
             },
         );
 
-        state.register_request(Instant::now(), &req);
-        state.handle_request(req);
+        dispatch_request(&mut state, req);
 
         let response = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         let Message::Response(response) = response else {
@@ -527,17 +530,20 @@ mod tests {
         let accepted_request_id = lsp_server::RequestId::from(1);
         let accepted_request =
             Request::new(accepted_request_id.clone(), "test/request".to_owned(), ());
-        state.register_request(Instant::now(), &accepted_request);
+        state.client.register_incoming(Instant::now(), &accepted_request);
         let accepted_tokens =
             lsp_types::SemanticTokens { result_id: Some("accepted".to_owned()), data: Vec::new() };
 
-        state.process_task(Task::Response(
-            ResponseTask::new(Response::new_ok(accepted_request_id.clone(), ()))
-                .with_accepted_effects(vec![AcceptedResponseEffect::CommitSemanticTokens {
+        process_task(
+            &mut state,
+            Task::Protocol(ProtocolTask::Response {
+                response: Response::new_ok(accepted_request_id.clone(), ()),
+                accepted_effects: vec![AcceptedResponseEffect::CommitSemanticTokens {
                     uri: uri.clone(),
                     tokens: accepted_tokens,
-                }]),
-        ));
+                }],
+            }),
+        );
 
         let result_id = state
             .analysis
@@ -550,19 +556,21 @@ mod tests {
         let cancelled_request_id = lsp_server::RequestId::from(2);
         let cancelled_request =
             Request::new(cancelled_request_id.clone(), "test/request".to_owned(), ());
-        state.register_request(Instant::now(), &cancelled_request);
-        state.cancel(cancelled_request_id.clone());
+        state.client.register_incoming(Instant::now(), &cancelled_request);
+        state.client.cancel(cancelled_request_id.clone());
         let cancelled_tokens =
             lsp_types::SemanticTokens { result_id: Some("cancelled".to_owned()), data: Vec::new() };
 
-        state.process_task(Task::Response(
-            ResponseTask::new(Response::new_ok(cancelled_request_id, ())).with_accepted_effects(
-                vec![AcceptedResponseEffect::CommitSemanticTokens {
+        process_task(
+            &mut state,
+            Task::Protocol(ProtocolTask::Response {
+                response: Response::new_ok(cancelled_request_id, ()),
+                accepted_effects: vec![AcceptedResponseEffect::CommitSemanticTokens {
                     uri: uri.clone(),
                     tokens: cancelled_tokens,
                 }],
-            ),
-        ));
+            }),
+        );
 
         let result_id = state
             .analysis
@@ -734,11 +742,14 @@ mod tests {
         state.workspace.workspace_vfs.start_workspace_fetch(first.generation);
         state.request_workspace_reload("second reload");
 
-        state.process_task(Task::FetchWorkspace(FetchWorkspaceProgress::End {
-            generation: first.generation,
-            workspaces: workspace_model(stale_root),
-            errors: Vec::new(),
-        }));
+        process_task(
+            &mut state,
+            Task::FetchWorkspace(FetchWorkspaceProgress::End {
+                generation: first.generation,
+                workspaces: workspace_model(stale_root),
+                errors: Vec::new(),
+            }),
+        );
 
         assert!(Arc::ptr_eq(&state.workspace.workspaces, &existing_workspaces));
         assert_eq!(state.workspace.workspace_vfs.current_vfs_config_version(), 0);
@@ -767,18 +778,24 @@ mod tests {
         state.request_workspace_reload("first reload");
         let first = state.workspace.fetch_workspaces_task.should_start().unwrap();
         state.workspace.workspace_vfs.start_workspace_fetch(first.generation);
-        state.process_task(Task::FetchWorkspace(FetchWorkspaceProgress::Begin {
-            generation: first.generation,
-            cause: first.cause.clone(),
-        }));
+        process_task(
+            &mut state,
+            Task::FetchWorkspace(FetchWorkspaceProgress::Begin {
+                generation: first.generation,
+                cause: first.cause.clone(),
+            }),
+        );
         assert!(matches!(recv_work_done_progress(&client), WorkDoneProgress::Begin(_)));
 
         state.request_workspace_reload("second reload");
-        state.process_task(Task::FetchWorkspace(FetchWorkspaceProgress::End {
-            generation: first.generation,
-            workspaces: workspace_model(stale_root),
-            errors: Vec::new(),
-        }));
+        process_task(
+            &mut state,
+            Task::FetchWorkspace(FetchWorkspaceProgress::End {
+                generation: first.generation,
+                workspaces: workspace_model(stale_root),
+                errors: Vec::new(),
+            }),
+        );
 
         assert!(matches!(recv_work_done_progress(&client), WorkDoneProgress::End(_)));
         assert_eq!(state.workspace.workspace_vfs.current_vfs_config_version(), 0);

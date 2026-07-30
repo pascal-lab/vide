@@ -13,7 +13,10 @@ use utils::{
 use crate::{
     DEFAULT_PROCESS_NAME, Opt,
     config::Config,
-    global_state::GlobalState,
+    global_state::{
+        GlobalState,
+        protocol::{self, LspRouter},
+    },
     i18n::{I18n, Locale},
 };
 
@@ -26,6 +29,7 @@ pub struct BrowserServer {
 
 struct BrowserSession {
     state: GlobalState,
+    router: LspRouter,
     outgoing: Receiver<Message>,
 }
 
@@ -61,7 +65,7 @@ impl BrowserServer {
 
         active
             .state
-            .handle_lsp_message_for_browser(message)
+            .handle_lsp_message_for_browser(&active.router, message)
             .map_err(|error| format!("{error:#}"))?;
         emitted.extend(active.drain_outgoing());
         serialize_messages(&emitted)
@@ -70,7 +74,10 @@ impl BrowserServer {
     pub fn poll_json(&mut self) -> Result<String, String> {
         let mut emitted = Vec::new();
         if let Some(active) = self.session.as_mut() {
-            active.state.drain_browser_queued_events().map_err(|error| format!("{error:#}"))?;
+            active
+                .state
+                .drain_browser_queued_events(&active.router)
+                .map_err(|error| format!("{error:#}"))?;
             emitted.extend(active.drain_outgoing());
         }
         serialize_messages(&emitted)
@@ -131,6 +138,7 @@ fn initialize(request: &Request) -> Result<InitializeOutput, String> {
 
     let (sender, outgoing) = crossbeam_channel::unbounded();
     let mut state = GlobalState::new(sender, config, trace.unwrap_or(TraceValue::Off));
+    let router = protocol::router();
     state.request_workspace_reload("Start");
     state.start_requested_workspace_fetch();
     let mut messages = vec![Response::new_ok(request.id.clone(), &initialize_result).into()];
@@ -143,7 +151,7 @@ fn initialize(request: &Request) -> Result<InitializeOutput, String> {
         messages.push(notification.into());
     }
 
-    Ok(InitializeOutput { session: BrowserSession { state, outgoing }, messages })
+    Ok(InitializeOutput { session: BrowserSession { state, router, outgoing }, messages })
 }
 
 fn browser_server_caps(config: &Config) -> lsp_types::ServerCapabilities {
@@ -187,10 +195,11 @@ fn abs_path_from_url(url: &Url) -> Option<AbsPathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use lsp_server::Message;
     use lsp_types::ClientCapabilities;
     use utils::test_support::TestDir;
 
-    use super::{Config, I18n, Opt, browser_server_caps};
+    use super::{BrowserServer, Config, I18n, Opt, browser_server_caps};
     use crate::{DEFAULT_PROCESS_NAME, config::user_config::UserConfig};
 
     #[test]
@@ -214,5 +223,37 @@ mod tests {
 
         assert!(config.server_caps().execute_command_provider.is_some());
         assert!(browser_server_caps(&config).execute_command_provider.is_none());
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn browser_session_uses_shared_runtime_for_shutdown() {
+        let mut server = BrowserServer::new();
+        let initialize = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "capabilities": {},
+                "rootUri": "file:///workspace"
+            }
+        });
+        let initialized = server.handle_message_json(&initialize.to_string()).unwrap();
+        let initialized: Vec<Message> = serde_json::from_str(&initialized).unwrap();
+        assert!(initialized.iter().any(|message| {
+            matches!(message, Message::Response(response) if response.id == 1.into() && response.error.is_none())
+        }));
+
+        let shutdown = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "shutdown",
+            "params": null
+        });
+        let shutdown = server.handle_message_json(&shutdown.to_string()).unwrap();
+        let shutdown: Vec<Message> = serde_json::from_str(&shutdown).unwrap();
+        assert!(shutdown.iter().any(|message| {
+            matches!(message, Message::Response(response) if response.id == 2.into() && response.error.is_none())
+        }));
     }
 }

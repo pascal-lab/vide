@@ -63,9 +63,6 @@ pub(crate) mod keys {
     pub(crate) const QIHE_PARSE_DIAGNOSTICS_FAILED: &str = "qihe.parse_diagnostics_failed";
     pub(crate) const QIHE_READ_DIAGNOSTICS_DIR_FAILED: &str = "qihe.read_diagnostics_dir_failed";
 
-    pub(crate) const SERVER_SHUTDOWN_ALREADY_REQUESTED: &str = "server.shutdown_already_requested";
-    pub(crate) const SERVER_UNKNOWN_REQUEST: &str = "server.unknown_request";
-
     pub(crate) const EXECUTE_COMMAND_MISSING_ARGUMENTS: &str = "execute_command.missing_arguments";
     pub(crate) const EXECUTE_COMMAND_UNKNOWN: &str = "execute_command.unknown";
 

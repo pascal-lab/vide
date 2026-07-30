@@ -17,10 +17,6 @@ read_diagnostics_failed = "failed to read qihe diagnostics at {path}"
 parse_diagnostics_failed = "failed to parse qihe diagnostics at {path}"
 read_diagnostics_dir_failed = "failed to read qihe diagnostics dir {path}"
 
-[server]
-shutdown_already_requested = "Shutdown already requested."
-unknown_request = "unknown request"
-
 [execute_command]
 missing_arguments = "missing executeCommand arguments"
 unknown = "unknown executeCommand: {command}"

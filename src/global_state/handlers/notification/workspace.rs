@@ -15,7 +15,7 @@ pub(crate) fn handle_did_change_configuration(
     // this notification's parameters should be ignored and the actual config queried separately.
     _params: DidChangeConfigurationParams,
 ) -> anyhow::Result<()> {
-    state.send_request::<lsp_types::request::WorkspaceConfiguration>(
+    state.client.request::<lsp_types::request::WorkspaceConfiguration>(
         lsp_types::ConfigurationParams {
             items: vec![lsp_types::ConfigurationItem {
                 scope_uri: None,

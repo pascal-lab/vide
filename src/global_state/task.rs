@@ -1,13 +1,8 @@
-use std::{
-    collections::HashMap,
-    panic::{self, AssertUnwindSafe},
-};
+use std::panic::{self, AssertUnwindSafe};
 
 use crossbeam_channel::Sender;
-use utils::{
-    cancellation::CancellationToken,
-    thread::{Pool, ThreadIntent},
-};
+use utils::thread::{Pool, ThreadIntent};
+use vide_lsp_runtime::ProtocolTask;
 
 use super::{
     diagnostics::publisher::PublishDiagnosticsBatch,
@@ -19,8 +14,7 @@ use super::{
 
 #[derive(Debug)]
 pub(crate) enum Task {
-    Response(ResponseTask),
-    Retry(lsp_server::Request),
+    Protocol(ProtocolTask<AcceptedResponseEffect>),
     FetchWorkspace(FetchWorkspaceProgress),
     Diagnostics(PublishDiagnosticsBatch),
     Qihe(QiheTask),
@@ -28,14 +22,10 @@ pub(crate) enum Task {
 }
 
 impl Task {
-    pub(crate) fn response(response: lsp_server::Response) -> Self {
-        Task::Response(ResponseTask::new(response))
-    }
-
     pub(in crate::global_state) fn kind(&self) -> &'static str {
         match self {
-            Task::Response(_) => "task.response",
-            Task::Retry(_) => "task.retry",
+            Task::Protocol(ProtocolTask::Response { .. }) => "task.response",
+            Task::Protocol(ProtocolTask::Retry(_)) => "task.retry",
             Task::FetchWorkspace(FetchWorkspaceProgress::Begin { .. }) => {
                 "task.fetch_workspace.begin"
             }
@@ -48,8 +38,15 @@ impl Task {
 
     pub(in crate::global_state) fn summary(&self) -> String {
         match self {
-            Task::Response(response) => response.summary(),
-            Task::Retry(req) => format!("task retry method={} id={:?}", req.method, req.id),
+            Task::Protocol(ProtocolTask::Response { response, accepted_effects }) => format!(
+                "task response id={:?} error={} accepted_effects={}",
+                response.id,
+                response.error.is_some(),
+                accepted_effects.len()
+            ),
+            Task::Protocol(ProtocolTask::Retry(request)) => {
+                format!("task retry method={} id={:?}", request.method, request.id)
+            }
             Task::FetchWorkspace(FetchWorkspaceProgress::Begin { cause, .. }) => {
                 format!("task fetch workspace begin cause={cause}")
             }
@@ -73,85 +70,14 @@ impl Task {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct ResponseTask {
-    pub(super) response: lsp_server::Response,
-    pub(super) accepted_effects: Vec<AcceptedResponseEffect>,
-}
-
-impl ResponseTask {
-    pub(crate) fn new(response: lsp_server::Response) -> Self {
-        Self { response, accepted_effects: Vec::new() }
-    }
-
-    pub(crate) fn with_accepted_effects(
-        mut self,
-        accepted_effects: Vec<AcceptedResponseEffect>,
-    ) -> Self {
-        self.accepted_effects = accepted_effects;
-        self
-    }
-
-    pub(super) fn summary(&self) -> String {
-        format!(
-            "task response id={:?} error={} accepted_effects={}",
-            self.response.id,
-            self.response.error.is_some(),
-            self.accepted_effects.len()
-        )
-    }
-}
-
 pub(crate) struct TaskPool<T> {
     pub(crate) sender: Sender<T>,
     pub(crate) pool: Pool,
-    lifecycle_cancel: CancellationToken,
-    request_cancel_tokens: HashMap<lsp_server::RequestId, CancellationToken>,
 }
 
 impl<T> TaskPool<T> {
     pub(crate) fn new_with_threads_num(sender: Sender<T>, threads_num: usize) -> TaskPool<T> {
-        TaskPool {
-            sender,
-            pool: Pool::new(threads_num),
-            lifecycle_cancel: CancellationToken::new(),
-            request_cancel_tokens: HashMap::new(),
-        }
-    }
-
-    pub(crate) fn task_token(&self) -> CancellationToken {
-        self.lifecycle_cancel.child_token()
-    }
-
-    pub(crate) fn register_request(
-        &mut self,
-        request_id: lsp_server::RequestId,
-    ) -> CancellationToken {
-        let token = self.task_token();
-        self.request_cancel_tokens.insert(request_id, token.clone());
-        token
-    }
-
-    pub(crate) fn request_token(
-        &self,
-        request_id: &lsp_server::RequestId,
-    ) -> Option<CancellationToken> {
-        self.request_cancel_tokens.get(request_id).cloned()
-    }
-
-    pub(crate) fn complete_request(&mut self, request_id: &lsp_server::RequestId) {
-        self.request_cancel_tokens.remove(request_id);
-    }
-
-    pub(crate) fn cancel_request(&mut self, request_id: &lsp_server::RequestId) {
-        if let Some(token) = self.request_cancel_tokens.remove(request_id) {
-            token.cancel();
-        }
-    }
-
-    pub(crate) fn cancel_all(&mut self) {
-        self.lifecycle_cancel.cancel();
-        self.request_cancel_tokens.clear();
+        TaskPool { sender, pool: Pool::new(threads_num) }
     }
 
     pub(crate) fn spawn_and_send<F>(&mut self, intent: ThreadIntent, task: F)
@@ -195,35 +121,6 @@ fn log_task_panic(panic: Box<dyn std::any::Any + Send>) {
         .or_else(|| panic.downcast_ref::<&str>().copied())
         .unwrap_or("unknown panic payload");
     tracing::error!(message, "background task panicked");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::TaskPool;
-
-    #[test]
-    fn task_pool_request_cancel_signals_registered_token() {
-        let (sender, _receiver) = crossbeam_channel::unbounded::<()>();
-        let mut pool = TaskPool::new_with_threads_num(sender, 0);
-        let request_id = lsp_server::RequestId::from(7);
-        let token = pool.register_request(request_id.clone());
-
-        pool.cancel_request(&request_id);
-
-        assert!(token.is_cancelled());
-        assert!(pool.request_token(&request_id).is_none());
-    }
-
-    #[test]
-    fn task_pool_lifecycle_cancel_signals_child_tokens() {
-        let (sender, _receiver) = crossbeam_channel::unbounded::<()>();
-        let mut pool = TaskPool::new_with_threads_num(sender, 0);
-        let token = pool.task_token();
-
-        pool.cancel_all();
-
-        assert!(token.is_cancelled());
-    }
 }
 
 #[derive(Debug)]
