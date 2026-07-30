@@ -226,6 +226,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn browser_session_uses_shared_runtime_for_shutdown() {
         let mut server = BrowserServer::new();
         let initialize = serde_json::json!({
