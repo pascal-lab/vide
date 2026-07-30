@@ -383,14 +383,14 @@ fn request_document_diagnostics_with_previous_result_id(
                 "document-diagnostic-{request_id}-readiness-{attempt}"
             ))
         };
-        let result = request_document_diagnostics_once(
+        let (result_id, diagnostics) = request_document_diagnostics_once(
             client,
             uri.clone(),
             current_request_id,
             previous_result_id.clone(),
         );
-        if result.0.is_some() {
-            return result;
+        if result_id.is_some() {
+            return (result_id, diagnostics);
         }
         attempt += 1;
         wait_for_workspace_diagnostic_refresh_or_tick(
