@@ -127,7 +127,8 @@ jobs:
         run: |
           npm ci
           npm install --no-save
-          npm --prefix playground install --no-save --include=optional
+          rolldown_version="$(node -p 'require("./playground/node_modules/rolldown/package.json").version')"
+          npm --prefix playground install --no-save "@rolldown/binding-linux-x64-gnu@${rolldown_version}"
         working-directory: website
 
       - name: Build Vide LSP WASM
