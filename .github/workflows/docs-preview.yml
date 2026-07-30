@@ -127,6 +127,7 @@ jobs:
         run: |
           npm ci
           npm install --no-save
+          npm --prefix playground install --no-save --include=optional
         working-directory: website
 
       - name: Build Vide LSP WASM
