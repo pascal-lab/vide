@@ -114,13 +114,7 @@ jobs:
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Test
-        shell: bash
-        run: |
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            cargo test --workspace -- --test-threads=1
-          else
-            cargo test --workspace
-          fi
+        run: cargo test --workspace
 
   vscode-extension:
     name: VS Code Checks

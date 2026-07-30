@@ -145,7 +145,7 @@ fn pull_capable_client_does_not_receive_duplicate_publish_diagnostics() {
                 let _ = serde_json::from_value::<ProgressParams>(notification.params).unwrap();
             }
             Message::Request(request) => {
-                panic!("unexpected server request during diagnostics test: {request:?}");
+                handle_test_server_request(&client, request, "diagnostics test")
             }
             _ => {}
         }
@@ -216,7 +216,7 @@ fn legacy_client_receives_publish_diagnostics() {
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
             Message::Request(request) => {
-                panic!("unexpected server request during diagnostics test: {request:?}");
+                handle_test_server_request(&client, request, "diagnostics test")
             }
             _ => {}
         }
@@ -293,7 +293,7 @@ endmodule
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
             Message::Request(request) => {
-                panic!("unexpected server request during diagnostics test: {request:?}");
+                handle_test_server_request(&client, request, "diagnostics test")
             }
             _ => {}
         }
@@ -1256,20 +1256,12 @@ fn deleted_workspace_file_requests_diagnostic_refresh() {
             Message::Request(request)
                 if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
             {
-                client
-                    .sender
-                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
-                    .unwrap();
+                handle_test_server_request(&client, request, "workspace diagnostic refresh");
                 saw_refresh = true;
                 break;
             }
-            Message::Request(request)
-                if request.method == lsp_types::request::WorkDoneProgressCreate::METHOD =>
-            {
-                client
-                    .sender
-                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
-                    .unwrap();
+            Message::Request(request) => {
+                handle_test_server_request(&client, request, "workspace diagnostic refresh")
             }
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
@@ -1379,20 +1371,12 @@ fn watched_dependency_change_refreshes_workspace_diagnostics() {
             Message::Request(request)
                 if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
             {
-                client
-                    .sender
-                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
-                    .unwrap();
+                handle_test_server_request(&client, request, "workspace diagnostic refresh");
                 saw_refresh = true;
                 break;
             }
-            Message::Request(request)
-                if request.method == lsp_types::request::WorkDoneProgressCreate::METHOD =>
-            {
-                client
-                    .sender
-                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
-                    .unwrap();
+            Message::Request(request) => {
+                handle_test_server_request(&client, request, "workspace diagnostic refresh")
             }
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
@@ -1401,22 +1385,30 @@ fn watched_dependency_change_refreshes_workspace_diagnostics() {
     }
     assert!(saw_refresh, "changing a watched dependency should refresh pulled diagnostics");
 
-    let second_report = request_workspace_diagnostic_report(&client, 2, Vec::new());
+    let second_report = request_workspace_diagnostic_report_until(
+        &client,
+        2,
+        |report| {
+            report.items.iter().any(|item| {
+                let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item else {
+                    return false;
+                };
+                full.uri == top_uri && full.full_document_diagnostic_report.items.is_empty()
+            })
+        },
+        "refreshed watched dependency workspace diagnostics",
+    );
+    let mut saw_cleared_top = false;
     for item in second_report.items {
         if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item
             && full.uri == top_uri
         {
-            assert!(
-                full.full_document_diagnostic_report.items.is_empty(),
-                "top.sv diagnostics should refresh after watched dependency edit: {:?}",
-                full.full_document_diagnostic_report.items
-            );
-            shutdown_test_server(&client, server_thread);
-            return;
+            saw_cleared_top = full.full_document_diagnostic_report.items.is_empty();
         }
     }
+    assert!(saw_cleared_top, "top.sv diagnostics should refresh after watched dependency edit");
 
-    panic!("workspace diagnostics should include top.sv after watched dependency edit");
+    shutdown_test_server(&client, server_thread);
 }
 
 #[test]
