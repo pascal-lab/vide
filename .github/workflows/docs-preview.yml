@@ -128,6 +128,8 @@ jobs:
           npm ci
           npm install --no-save
           rolldown_version="$(node -p 'require("./playground/node_modules/rolldown/package.json").version')"
+          rollup_version="$(node -p 'require("./node_modules/rollup/package.json").version')"
+          npm install --no-save "@rollup/rollup-linux-x64-gnu@${rollup_version}"
           npm --prefix playground install --no-save "@rolldown/binding-linux-x64-gnu@${rolldown_version}"
         working-directory: website
 
