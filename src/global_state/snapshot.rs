@@ -108,7 +108,7 @@ impl GlobalStateSnapshot {
     }
 
     pub(crate) fn on_response_accepted(&self, effect: AcceptedResponseEffect) {
-        self.accepted_response_effects.push(effect);
+        self.accepted_response_effects.lock().push(effect);
     }
 
     pub(crate) fn accepted_response_effects(&self) -> AcceptedResponseEffects {

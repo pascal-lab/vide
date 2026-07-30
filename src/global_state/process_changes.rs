@@ -10,7 +10,7 @@ use utils::{lines::LineEnding, thread::ThreadIntent};
 use vfs::{ChangedFile, FileId, Vfs, VfsPath};
 
 use super::{
-    DEFAULT_REQ_HANDLER, GlobalState,
+    GlobalState,
     diagnostics::publisher::{PublishDiagnosticsBatch, PublishDiagnosticsTask},
     task::Task,
 };
@@ -155,7 +155,7 @@ impl GlobalState {
                 DiagnosticInvalidation::WorkspaceChanged => true,
             }
         {
-            self.send_request::<WorkspaceDiagnosticRefresh>((), DEFAULT_REQ_HANDLER);
+            self.client.request_ignore::<WorkspaceDiagnosticRefresh>(());
             return;
         }
 
@@ -351,7 +351,7 @@ impl GlobalState {
 
         if self.config_state.config.cli_pull_diagnostics_support() {
             if self.config_state.config.cli_workspace_diagnostic_refresh_support() {
-                self.send_request::<WorkspaceDiagnosticRefresh>((), DEFAULT_REQ_HANDLER);
+                self.client.request_ignore::<WorkspaceDiagnosticRefresh>(());
             }
             return;
         }

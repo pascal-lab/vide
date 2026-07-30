@@ -1,23 +1,8 @@
 use lsp_types::{SemanticTokens, Url};
-use parking_lot::Mutex;
-use triomphe::Arc;
 
 use super::GlobalState;
 
-#[derive(Debug, Clone, Default)]
-pub(crate) struct AcceptedResponseEffects {
-    effects: Arc<Mutex<Vec<AcceptedResponseEffect>>>,
-}
-
-impl AcceptedResponseEffects {
-    pub(crate) fn push(&self, effect: AcceptedResponseEffect) {
-        self.effects.lock().push(effect);
-    }
-
-    pub(crate) fn take(&self) -> Vec<AcceptedResponseEffect> {
-        std::mem::take(&mut *self.effects.lock())
-    }
-}
+pub(crate) type AcceptedResponseEffects = vide_lsp_runtime::AcceptedEffects<AcceptedResponseEffect>;
 
 #[derive(Debug)]
 pub(crate) enum AcceptedResponseEffect {

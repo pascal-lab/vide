@@ -13,8 +13,8 @@ use utils::{
 use vfs::FileId;
 
 use super::{
-    AnalysisState, ClientState, ConfigState, DEFAULT_REQ_HANDLER, DiagnosticsState, GlobalState,
-    TaskState, WorkspaceState,
+    AnalysisState, ConfigState, DiagnosticsState, GlobalState, LspClient, TaskState,
+    WorkspaceState,
     diagnostics::{
         DiagnosticPublishFreshness, DiagnosticSource,
         publisher::{DiagnosticsPublisher, PublishDiagnosticsBatch, PublishDiagnosticsTask},
@@ -215,7 +215,7 @@ pub(crate) trait SemanticCompilerCtx {
 }
 
 pub(super) struct SemanticCompilerGlobalCtx<'a> {
-    client: &'a mut ClientState,
+    client: &'a LspClient,
     config_state: &'a mut ConfigState,
     analysis: &'a mut AnalysisState,
     diagnostics: &'a mut DiagnosticsState,
@@ -225,21 +225,6 @@ pub(super) struct SemanticCompilerGlobalCtx<'a> {
 }
 
 impl SemanticCompilerGlobalCtx<'_> {
-    fn send(&self, message: lsp_server::Message) {
-        if self.client.sender.send(message).is_err() {
-            tracing::debug!("LSP message dropped because client connection is closed");
-        }
-    }
-
-    fn send_request<R: lsp_types::request::Request>(&mut self, params: R::Params) {
-        let request = self.client.req_queue.outgoing.register(
-            R::METHOD.to_string(),
-            params,
-            DEFAULT_REQ_HANDLER,
-        );
-        self.send(request.into());
-    }
-
     fn refresh_pull_diagnostics(&mut self, changed_files: FxHashSet<FileId>) {
         if changed_files.is_empty() {
             return;
@@ -255,7 +240,7 @@ impl SemanticCompilerGlobalCtx<'_> {
         }
 
         if self.config_state.config.cli_workspace_diagnostic_refresh_support() {
-            self.send_request::<lsp_types::request::WorkspaceDiagnosticRefresh>(());
+            self.client.request_ignore::<lsp_types::request::WorkspaceDiagnosticRefresh>(());
         }
     }
 }
@@ -286,7 +271,7 @@ impl SemanticCompilerCtx for SemanticCompilerGlobalCtx<'_> {
     }
 
     fn task_cancel_token(&self) -> CancellationToken {
-        self.tasks.task_pool.handle.task_token()
+        self.client.task_token()
     }
 
     fn refresh_semantic_diagnostics(&mut self, changed_files: FxHashSet<FileId>) {
@@ -303,7 +288,7 @@ impl SemanticCompilerCtx for SemanticCompilerGlobalCtx<'_> {
             &self.config_state.config,
             &mut self.workspace.workspace_vfs,
             &mut self.diagnostics.published_diagnostics,
-            &self.client.sender,
+            self.client,
             current_freshness,
         )
         .publish(batch);
@@ -316,6 +301,7 @@ pub(super) fn with_global_ctx<T>(
 ) -> T {
     let GlobalState {
         client,
+        lsp_trace: _,
         config_state,
         analysis,
         diagnostics,

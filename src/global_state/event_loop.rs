@@ -6,15 +6,17 @@ use lsp_server::{Connection, Message, Notification};
 use lsp_types::{TraceValue, notification::Notification as _};
 use triomphe::Arc;
 use vfs::{VfsPath, loader as vfs_loader};
+use vide_lsp_runtime::ProtocolTask;
 
 use super::{
     GlobalState, WorkspaceFetchCompletion,
     process_changes::DiagnosticInvalidation,
+    protocol::{self, LspRouter},
     reload::{self, FetchWorkspaceProgress},
     respond::Progress,
-    task::{ResponseTask, Task},
+    task::Task,
 };
-use crate::{config::Config, global_state::DEFAULT_REQ_HANDLER, i18n::keys};
+use crate::{config::Config, i18n::keys};
 
 #[derive(Debug)]
 pub(in crate::global_state) enum Event {
@@ -83,11 +85,16 @@ pub fn main_loop(
         SetThreadPriority(thread, thread_priority_above_normal);
     }
 
-    GlobalState::new(connection.sender, config, initial_trace).run(connection.receiver)
+    let router = protocol::router();
+    GlobalState::new(connection.sender, config, initial_trace).run(connection.receiver, &router)
 }
 
 impl GlobalState {
-    pub(crate) fn run(&mut self, client_receiver: Receiver<Message>) -> anyhow::Result<()> {
+    pub(crate) fn run(
+        &mut self,
+        client_receiver: Receiver<Message>,
+        router: &LspRouter,
+    ) -> anyhow::Result<()> {
         // TODO: check for status
 
         if self.config_state.config.cli_did_save_dyn_reg() {
@@ -101,10 +108,10 @@ impl GlobalState {
             if let Event::Lsp(Message::Notification(Notification { method, .. })) = &event
                 && method == lsp_types::notification::Exit::METHOD
             {
-                self.cancel_all_tasks();
+                self.client.cancel_all();
                 return Ok(());
             }
-            self.handle_event(event)?;
+            self.handle_event(router, event)?;
         }
         anyhow::bail!(
             "{} exited without proper shutdown sequence",
@@ -112,22 +119,26 @@ impl GlobalState {
         );
     }
 
-    pub(crate) fn handle_lsp_message_for_browser(&mut self, msg: Message) -> anyhow::Result<()> {
-        self.handle_event(Event::Lsp(msg))?;
-        self.drain_browser_queued_events()
+    pub(crate) fn handle_lsp_message_for_browser(
+        &mut self,
+        router: &LspRouter,
+        msg: Message,
+    ) -> anyhow::Result<()> {
+        self.handle_event(router, Event::Lsp(msg))?;
+        self.drain_browser_queued_events(router)
     }
 
-    pub(crate) fn drain_browser_queued_events(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn drain_browser_queued_events(&mut self, router: &LspRouter) -> anyhow::Result<()> {
         while let Ok(task) = self.tasks.task_pool.receiver.try_recv() {
-            self.handle_event(Event::Task(task))?;
+            self.handle_event(router, Event::Task(task))?;
         }
 
         while let Ok(msg) = self.workspace.vfs_loader.receiver.try_recv() {
-            self.handle_event(Event::Vfs(msg))?;
+            self.handle_event(router, Event::Vfs(msg))?;
         }
 
         while let Ok(task) = self.tasks.task_pool.receiver.try_recv() {
-            self.handle_event(Event::Task(task))?;
+            self.handle_event(router, Event::Task(task))?;
         }
         Ok(())
     }
@@ -140,7 +151,11 @@ impl GlobalState {
         }
     }
 
-    pub(in crate::global_state) fn handle_event(&mut self, event: Event) -> anyhow::Result<()> {
+    pub(in crate::global_state) fn handle_event(
+        &mut self,
+        router: &LspRouter,
+        event: Event,
+    ) -> anyhow::Result<()> {
         let loop_start = Instant::now();
         let event_kind = event.kind();
         let event_summary = event.summary();
@@ -167,14 +182,19 @@ impl GlobalState {
 
         match event {
             Event::Lsp(msg) => match msg {
-                Message::Request(req) => {
-                    self.register_request(loop_start, &req);
-                    self.handle_request(req);
+                Message::Request(request) => {
+                    self.client.register_incoming(loop_start, &request);
+                    self.dispatch_request(router, request);
                 }
-                Message::Notification(notif) => self.handle_notification(notif),
-                Message::Response(res) => self.handle_response(res),
+                Message::Notification(notification) => {
+                    self.dispatch_notification(router, notification)
+                }
+                Message::Response(response) => {
+                    let client = self.client.clone();
+                    client.complete_outgoing(self, response);
+                }
             },
-            Event::Task(task) => self.handle_task(task),
+            Event::Task(task) => self.handle_task(router, task),
             Event::Vfs(msg) => self.handle_vfs_msg(msg),
         }
 
@@ -189,14 +209,11 @@ impl GlobalState {
             let client_refresh = !was_workspace_ready || state_changed;
 
             if client_refresh && self.config_state.config.cli_code_lens_refresh_support() {
-                self.send_request::<lsp_types::request::CodeLensRefresh>((), DEFAULT_REQ_HANDLER);
+                self.client.request_ignore::<lsp_types::request::CodeLensRefresh>(());
             }
 
             if client_refresh && self.config_state.config.cli_inlay_hint_refresh_support() {
-                self.send_request::<lsp_types::request::InlayHintRefreshRequest>(
-                    (),
-                    DEFAULT_REQ_HANDLER,
-                );
+                self.client.request_ignore::<lsp_types::request::InlayHintRefreshRequest>(());
             }
         }
 
@@ -223,18 +240,18 @@ impl GlobalState {
         Ok(())
     }
 
-    fn handle_task(&mut self, task: Task) {
-        self.process_task(task);
+    fn handle_task(&mut self, router: &LspRouter, task: Task) {
+        self.process_task(router, task);
 
         // Coalesce task events in one turn
         while let Ok(task) = self.tasks.task_pool.receiver.try_recv() {
-            self.process_task(task);
+            self.process_task(router, task);
         }
 
         // TODO: PrimaryCache?
     }
 
-    pub(in crate::global_state) fn process_task(&mut self, task: Task) {
+    pub(in crate::global_state) fn process_task(&mut self, router: &LspRouter, task: Task) {
         let task_kind = task.kind();
         let task_summary = task.summary();
         let _span = tracing::info_span!(
@@ -245,10 +262,16 @@ impl GlobalState {
         .entered();
 
         match task {
-            Task::Response(response) => self.respond_task(response),
-            Task::Retry(req) => {
-                if !self.is_completed(&req) {
-                    self.handle_request(req);
+            Task::Protocol(ProtocolTask::Response { response, accepted_effects }) => {
+                if self.client.respond(response) {
+                    for effect in accepted_effects {
+                        effect.apply(self);
+                    }
+                }
+            }
+            Task::Protocol(ProtocolTask::Retry(request)) => {
+                if !self.client.is_completed(&request) {
+                    self.dispatch_request(router, request);
                 }
             }
             Task::FetchWorkspace(process) => {
@@ -322,14 +345,6 @@ impl GlobalState {
             Task::Diagnostics(diags) => self.publish_diagnostics_tasks(diags),
             Task::Qihe(task) => self.handle_qihe_task(task),
             Task::SemanticCompiler(task) => self.handle_semantic_compiler_task(task),
-        }
-    }
-
-    fn respond_task(&mut self, task: ResponseTask) {
-        if self.respond(task.response) {
-            for effect in task.accepted_effects {
-                effect.apply(self);
-            }
         }
     }
 

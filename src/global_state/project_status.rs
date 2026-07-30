@@ -58,7 +58,7 @@ impl GlobalState {
             }
         }
 
-        self.send_notification::<ProjectStatusNotification>(ProjectStatusParams {
+        self.client.notify::<ProjectStatusNotification>(ProjectStatusParams {
             state,
             manifest_uris,
             unconfigured_root_uris,
