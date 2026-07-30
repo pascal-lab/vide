@@ -9,7 +9,10 @@ const rootArg = args.find((arg) => arg !== '--dry-run');
 const root = rootArg ?? process.cwd();
 const lockPath = join(root, 'package-lock.json');
 const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
-const packages = lock.packages ?? {};
+const packages = lock?.packages;
+if (packages === null || typeof packages !== 'object' || Array.isArray(packages)) {
+  throw new Error(`Unsupported package lock at ${lockPath}: expected a "packages" object`);
+}
 const libc = detectLibc();
 const specs = new Map();
 
@@ -47,7 +50,13 @@ if (dryRun) {
 }
 
 const result = spawnSync('npm', installArgs, { cwd: root, stdio: 'inherit' });
-process.exit(result.status ?? 1);
+if (result.error) {
+  throw result.error;
+}
+if (result.status === null) {
+  throw new Error(`npm install terminated without an exit status (signal: ${result.signal ?? 'none'})`);
+}
+process.exit(result.status);
 
 function dependencyPackageKey(ownerKey, dependencyName) {
   if (!ownerKey || !ownerKey.includes('/node_modules/')) {

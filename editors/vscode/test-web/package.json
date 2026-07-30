@@ -2,6 +2,9 @@
   "name": "vide-vscode-web-smoke",
   "version": "0.0.0",
   "private": true,
+  "config": {
+    "vscodeWebCommit": "e4c7e7b1d6d060162f4aa7f8225271b67ce1df75"
+  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run typecheck && tsx runTests.ts"
