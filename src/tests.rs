@@ -352,12 +352,15 @@ fn request_document_diagnostics_until(
     mut predicate: impl FnMut(Option<&str>, &[lsp_types::Diagnostic]) -> bool,
     context: &str,
 ) -> (Option<String>, Vec<lsp_types::Diagnostic>) {
-    for attempt in 0..50 {
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    let mut attempt = 0;
+    while Instant::now() < deadline {
         let (result_id, diagnostics) =
             request_document_diagnostics(client, uri.clone(), first_request_id + attempt);
         if predicate(result_id.as_deref(), &diagnostics) {
             return (result_id, diagnostics);
         }
+        attempt += 1;
         wait_for_workspace_diagnostic_refresh_or_tick(client, context);
     }
 
@@ -370,7 +373,9 @@ fn request_document_diagnostics_with_previous_result_id(
     request_id: i32,
     previous_result_id: Option<String>,
 ) -> (Option<String>, Vec<lsp_types::Diagnostic>) {
-    for attempt in 0..50 {
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    let mut attempt = 0;
+    while Instant::now() < deadline {
         let current_request_id = if attempt == 0 {
             lsp_server::RequestId::from(request_id)
         } else {
@@ -384,13 +389,10 @@ fn request_document_diagnostics_with_previous_result_id(
             current_request_id,
             previous_result_id.clone(),
         );
-        // A diagnostically enabled document gets a result id once the workspace
-        // is ready, even when its diagnostic list is legitimately empty.  The
-        // cold-start fallback deliberately has no result id.  Do not use the
-        // item count as a readiness signal: an empty list is valid data.
         if result.0.is_some() {
             return result;
         }
+        attempt += 1;
         wait_for_workspace_diagnostic_refresh_or_tick(
             client,
             "document diagnostics workspace readiness",
@@ -807,12 +809,15 @@ fn request_workspace_diagnostic_report_until(
     mut predicate: impl FnMut(&lsp_types::WorkspaceDiagnosticReport) -> bool,
     context: &str,
 ) -> lsp_types::WorkspaceDiagnosticReport {
-    for attempt in 0..50 {
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    let mut attempt = 0;
+    while Instant::now() < deadline {
         let report =
             request_workspace_diagnostic_report(client, first_request_id + attempt, Vec::new());
         if predicate(&report) {
             return report;
         }
+        attempt += 1;
         wait_for_workspace_diagnostic_refresh_or_tick(client, context);
     }
 

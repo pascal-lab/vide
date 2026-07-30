@@ -114,7 +114,13 @@ jobs:
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Test
-        run: cargo test --workspace
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            cargo test --workspace -- --test-threads=1
+          else
+            cargo test --workspace
+          fi
 
   vscode-extension:
     name: VS Code Checks
@@ -195,6 +201,25 @@ jobs:
       - name: Install web smoke dependencies
         working-directory: editors/vscode/test-web
         run: npm ci
+      - name: Restore VS Code Web cache
+        uses: actions/cache@v4
+        with:
+          path: editors/vscode/test-web/.vscode-test-web
+          key: vscode-web-stable-e4c7e7b1d6d060162f4aa7f8225271b67ce1df75
+      - name: Download VS Code Web
+        working-directory: editors/vscode/test-web
+        run: |
+          vscode_dir=".vscode-test-web/vscode-web-stable-e4c7e7b1d6d060162f4aa7f8225271b67ce1df75"
+          if [ ! -f "${vscode_dir}/version" ]; then
+            archive="${RUNNER_TEMP}/vscode-web.tar.gz"
+            curl --fail --location --retry 10 --retry-all-errors \
+              --output "${archive}" \
+              "https://vscode.download.prss.microsoft.com/dbazure/download/stable/e4c7e7b1d6d060162f4aa7f8225271b67ce1df75/vscode-web.tar.gz"
+            rm -rf "${vscode_dir}"
+            mkdir -p "${vscode_dir}"
+            tar -xzf "${archive}" --strip-components=1 -C "${vscode_dir}"
+            printf '%s' 'vscode-web-stable-e4c7e7b1d6d060162f4aa7f8225271b67ce1df75' > "${vscode_dir}/version"
+          fi
       - name: Build Vide LSP WASM
         if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
         working-directory: ${{ github.workspace }}
