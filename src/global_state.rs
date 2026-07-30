@@ -1,12 +1,11 @@
 mod diagnostics;
-mod dispatch;
-mod dispatcher;
 pub(crate) mod event_loop;
 mod handlers;
 pub mod main_loop;
 mod mem_docs;
 pub(crate) mod process_changes;
 mod project_status;
+pub(crate) mod protocol;
 mod qihe;
 pub mod reload;
 pub mod respond;
@@ -14,10 +13,9 @@ mod response_effect;
 mod semantic_compiler;
 pub(crate) mod snapshot;
 pub(crate) mod task;
-mod trace;
 mod workspace_state;
 
-use std::{sync::Arc as StdArc, time::Instant};
+use std::sync::Arc as StdArc;
 
 use base_db::{
     project::{CompilationProfileId, ProjectConfig, SharedProjectConfig},
@@ -25,7 +23,6 @@ use base_db::{
 };
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use ide::analysis_host::AnalysisHost;
-use lsp_server::{Message, ReqQueue, Request};
 use lsp_types::{NumberOrString, TraceValue, Url};
 use nohash_hasher::IntMap;
 use parking_lot::{Mutex, RwLock};
@@ -48,7 +45,6 @@ use self::{
     mem_docs::MemDocs,
     snapshot::GlobalStateSnapshot,
     task::{QiheTask, SemanticCompilerTask, Task, TaskPool},
-    trace::LspTrace,
     workspace_state::WorkspaceVfsReadiness,
 };
 use crate::{
@@ -60,12 +56,11 @@ pub(crate) struct Handle<H, C> {
     pub(crate) handle: H,
     pub(crate) receiver: C,
 }
-
-pub(crate) type ReqHandler = fn(&mut GlobalState, lsp_server::Response);
-pub(crate) const DEFAULT_REQ_HANDLER: ReqHandler = |_, _| {};
+pub(crate) type LspClient = vide_lsp_runtime::Client<GlobalState>;
 
 pub(crate) struct GlobalState {
-    pub(crate) client: ClientState,
+    pub(crate) client: LspClient,
+    pub(crate) lsp_trace: TraceValue,
     pub(crate) config_state: ConfigState,
     pub(crate) analysis: AnalysisState,
     pub(crate) diagnostics: DiagnosticsState,
@@ -74,13 +69,6 @@ pub(crate) struct GlobalState {
     pub(crate) semantic_compiler: semantic_compiler::SemanticCompiler,
     pub(crate) external_sources: Vec<StdArc<dyn DiagnosticSource>>,
     pub(crate) tasks: TaskState,
-}
-
-pub(crate) struct ClientState {
-    pub(crate) sender: Sender<Message>,
-    pub(crate) lsp_trace: LspTrace,
-    pub(crate) req_queue: ReqQueue<(String, Instant), ReqHandler>,
-    pub(crate) shutdown_requested: bool,
 }
 
 pub(crate) struct TaskState {
@@ -219,12 +207,8 @@ impl GlobalState {
         let external_sources = vec![qihe_source];
 
         GlobalState {
-            client: ClientState {
-                sender,
-                lsp_trace: LspTrace::new(initial_trace),
-                req_queue: ReqQueue::default(),
-                shutdown_requested: false,
-            },
+            client: LspClient::new(sender),
+            lsp_trace: initial_trace,
             config_state: ConfigState {
                 config: Arc::new(config),
                 config_errors: None,
@@ -259,7 +243,7 @@ impl GlobalState {
     }
 
     pub(crate) fn make_snapshot(&self) -> GlobalStateSnapshot {
-        self.make_snapshot_with_cancel(self.tasks.task_pool.handle.task_token())
+        self.make_snapshot_with_cancel(self.client.task_token())
     }
 
     pub(crate) fn make_snapshot_with_cancel(
@@ -324,28 +308,4 @@ pub(crate) struct QiheDiagnosticState {
     pub(crate) freshness: DiagnosticCommitFreshness,
     pub(crate) generation: u64,
     pub(crate) diagnostics: Vec<lsp_types::Diagnostic>,
-}
-
-// handle request
-impl GlobalState {
-    pub(crate) fn register_request(&mut self, req_received: Instant, req: &Request) {
-        self.client.req_queue.incoming.register(req.id.clone(), (req.method.clone(), req_received));
-        self.tasks.task_pool.handle.register_request(req.id.clone());
-    }
-
-    pub(crate) fn is_completed(&self, req: &Request) -> bool {
-        self.client.req_queue.incoming.is_completed(&req.id)
-    }
-
-    pub(crate) fn cancel(&mut self, req_id: lsp_server::RequestId) {
-        self.tasks.task_pool.handle.cancel_request(&req_id);
-        if let Some(response) = self.client.req_queue.incoming.cancel(req_id) {
-            self.tasks.task_pool.handle.complete_request(&response.id);
-            self.send(response.into());
-        }
-    }
-
-    pub(crate) fn cancel_all_tasks(&mut self) {
-        self.tasks.task_pool.handle.cancel_all();
-    }
 }

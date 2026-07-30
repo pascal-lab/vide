@@ -8,7 +8,7 @@ pub(crate) fn handle_cancel(
         lsp_types::NumberOrString::Number(id) => id.into(),
         lsp_types::NumberOrString::String(id) => id.into(),
     };
-    state.cancel(id);
+    state.client.cancel(id);
     Ok(())
 }
 
@@ -24,7 +24,7 @@ pub(crate) fn handle_set_trace(
     state: &mut GlobalState,
     params: lsp_types::SetTraceParams,
 ) -> anyhow::Result<()> {
-    state.set_lsp_trace(params.value);
+    state.lsp_trace = params.value;
     Ok(())
 }
 
@@ -71,7 +71,7 @@ mod tests {
 
         handle_set_trace(&mut state, SetTraceParams { value: TraceValue::Verbose }).unwrap();
 
-        assert_eq!(state.client.lsp_trace.level(), TraceValue::Verbose);
+        assert_eq!(state.lsp_trace, TraceValue::Verbose);
         assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());
     }
 }

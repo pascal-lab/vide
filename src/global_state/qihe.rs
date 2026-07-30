@@ -34,8 +34,8 @@ use utils::{
 use vfs::FileId;
 
 use super::{
-    AnalysisState, ClientState, ConfigState, DEFAULT_REQ_HANDLER, DiagnosticsState, GlobalState,
-    QiheDiagnosticState, TaskState, WorkspaceState,
+    AnalysisState, ConfigState, DiagnosticsState, GlobalState, LspClient, QiheDiagnosticState,
+    TaskState, WorkspaceState,
     diagnostics::{
         DiagnosticCommitFreshness, DiagnosticExternalRevision, DiagnosticOwner,
         DiagnosticPublishFreshness, DiagnosticSource,
@@ -430,7 +430,7 @@ pub(crate) enum QiheI18nKey {
 }
 
 pub(super) struct QiheGlobalCtx<'a> {
-    client: &'a mut ClientState,
+    client: &'a LspClient,
     config_state: &'a mut ConfigState,
     analysis: &'a mut AnalysisState,
     diagnostics: &'a mut DiagnosticsState,
@@ -442,26 +442,6 @@ pub(super) struct QiheGlobalCtx<'a> {
 impl QiheGlobalCtx<'_> {
     fn diagnostic_publish_freshness(&self) -> DiagnosticPublishFreshness {
         super::diagnostic_publish_freshness(self.analysis, self.diagnostics, self.workspace)
-    }
-
-    fn send(&self, message: lsp_server::Message) {
-        if self.client.sender.send(message).is_err() {
-            tracing::debug!("LSP message dropped because client connection is closed");
-        }
-    }
-
-    fn send_notification<N: notification::Notification>(&self, params: N::Params) {
-        let notif = lsp_server::Notification::new(N::METHOD.to_string(), params);
-        self.send(notif.into());
-    }
-
-    fn send_request<R: request::Request>(&mut self, params: R::Params) {
-        let request = self.client.req_queue.outgoing.register(
-            R::METHOD.to_string(),
-            params,
-            DEFAULT_REQ_HANDLER,
-        );
-        self.send(request.into());
     }
 
     fn refresh_pull_diagnostics(&mut self, changed_files: FxHashSet<FileId>) {
@@ -479,7 +459,7 @@ impl QiheGlobalCtx<'_> {
         }
 
         if self.config_state.config.cli_workspace_diagnostic_refresh_support() {
-            self.send_request::<request::WorkspaceDiagnosticRefresh>(());
+            self.client.request_ignore::<request::WorkspaceDiagnosticRefresh>(());
         }
     }
 }
@@ -520,11 +500,11 @@ impl QiheCtx for QiheGlobalCtx<'_> {
     }
 
     fn task_cancel_token(&self) -> CancellationToken {
-        self.tasks.task_pool.handle.task_token()
+        self.client.task_token()
     }
 
     fn send_qihe_status(&mut self, token: &str, state: &str, message: Option<String>) {
-        self.send_notification::<QiheStatusNotification>(QiheStatusParams {
+        self.client.notify::<QiheStatusNotification>(QiheStatusParams {
             token: token.to_owned(),
             state: state.to_owned(),
             message,
@@ -532,7 +512,7 @@ impl QiheCtx for QiheGlobalCtx<'_> {
     }
 
     fn log_qihe(&mut self, token: String, message: String) {
-        self.send_notification::<QiheLogNotification>(QiheLogParams { token, message });
+        self.client.notify::<QiheLogNotification>(QiheLogParams { token, message });
     }
 
     fn report_qihe_progress(
@@ -556,7 +536,7 @@ impl QiheCtx for QiheGlobalCtx<'_> {
         let title = self.i18n_text(QiheI18nKey::ProgressTitle).to_owned();
         let work_done_progress = match state {
             Progress::Begin => {
-                self.send_request::<request::WorkDoneProgressCreate>(
+                self.client.request_ignore::<request::WorkDoneProgressCreate>(
                     lsp_types::WorkDoneProgressCreateParams { token: token.clone() },
                 );
 
@@ -579,7 +559,7 @@ impl QiheCtx for QiheGlobalCtx<'_> {
             }),
         };
 
-        self.send_notification::<notification::Progress>(lsp_types::ProgressParams {
+        self.client.notify::<notification::Progress>(lsp_types::ProgressParams {
             token,
             value: lsp_types::ProgressParamsValue::WorkDone(work_done_progress),
         });
@@ -633,7 +613,7 @@ impl QiheCtx for QiheGlobalCtx<'_> {
             &self.config_state.config,
             &mut self.workspace.workspace_vfs,
             &mut self.diagnostics.published_diagnostics,
-            &self.client.sender,
+            self.client,
             current_freshness,
         )
         .publish(PublishDiagnosticsBatch::for_touched_files(
@@ -667,6 +647,7 @@ pub(super) fn with_global_ctx<T>(
 ) -> T {
     let GlobalState {
         client,
+        lsp_trace: _,
         config_state,
         analysis,
         diagnostics,

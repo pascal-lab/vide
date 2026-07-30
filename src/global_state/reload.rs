@@ -13,7 +13,7 @@ use super::task::Task;
 use crate::{
     config::{Config, FilesWatcher},
     global_state::{
-        DEFAULT_REQ_HANDLER, GlobalState, WorkspaceFetchCause, WorkspaceGeneration,
+        GlobalState, WorkspaceFetchCause, WorkspaceGeneration,
         process_changes::DiagnosticInvalidation, respond::Progress,
     },
     i18n::keys,
@@ -287,9 +287,8 @@ impl GlobalState {
                     register_options: Some(register_options),
                 };
 
-                self.send_request::<lsp_types::request::RegisterCapability>(
+                self.client.request_ignore::<lsp_types::request::RegisterCapability>(
                     lsp_types::RegistrationParams { registrations: vec![registration] },
-                    DEFAULT_REQ_HANDLER,
                 );
                 self.workspace.registered_client_file_watcher_globs = Some(globs);
             }
@@ -304,14 +303,13 @@ impl GlobalState {
             return;
         }
 
-        self.send_request::<lsp_types::request::UnregisterCapability>(
+        self.client.request_ignore::<lsp_types::request::UnregisterCapability>(
             lsp_types::UnregistrationParams {
                 unregisterations: vec![lsp_types::Unregistration {
                     id: CLIENT_FILE_WATCHER_REGISTRATION_ID.to_string(),
                     method: CLIENT_FILE_WATCHER_METHOD.to_string(),
                 }],
             },
-            DEFAULT_REQ_HANDLER,
         );
     }
 }

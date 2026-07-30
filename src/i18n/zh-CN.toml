@@ -17,10 +17,6 @@ read_diagnostics_failed = "无法读取 Qihe 诊断文件 {path}"
 parse_diagnostics_failed = "无法解析 Qihe 诊断文件 {path}"
 read_diagnostics_dir_failed = "无法读取 Qihe 诊断目录 {path}"
 
-[server]
-shutdown_already_requested = "已请求关闭。"
-unknown_request = "未知请求"
-
 [execute_command]
 missing_arguments = "缺少 executeCommand 参数"
 unknown = "未知 executeCommand：{command}"

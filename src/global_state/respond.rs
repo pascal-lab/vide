@@ -1,7 +1,6 @@
-use lsp_types::{notification, request};
+use lsp_types::request;
 
-use super::DEFAULT_REQ_HANDLER;
-use crate::global_state::{GlobalState, ReqHandler};
+use super::GlobalState;
 
 // Send and Respond stuff
 #[derive(Debug, Eq, PartialEq)]
@@ -19,44 +18,6 @@ impl Progress {
 }
 
 impl GlobalState {
-    pub(crate) fn send(&self, message: lsp_server::Message) {
-        if self.client.sender.send(message).is_err() {
-            tracing::debug!("LSP message dropped because client connection is closed");
-        }
-    }
-
-    pub(crate) fn send_notification<N: notification::Notification>(&self, params: N::Params) {
-        let notif = lsp_server::Notification::new(N::METHOD.to_string(), params);
-        self.send(notif.into());
-    }
-
-    pub(crate) fn send_request<R: request::Request>(
-        &mut self,
-        params: R::Params,
-        handler: ReqHandler,
-    ) {
-        let request =
-            self.client.req_queue.outgoing.register(R::METHOD.to_string(), params, handler);
-        self.send(request.into());
-    }
-
-    pub(crate) fn respond(&mut self, response: lsp_server::Response) -> bool {
-        if let Some((method, start)) = self.client.req_queue.incoming.complete(&response.id) {
-            self.tasks.task_pool.handle.complete_request(&response.id);
-            if let Some(err) = &response.error
-                && err.message.starts_with("server panicked")
-            {
-                tracing::error!("{:?}", err);
-            }
-
-            let duration = start.elapsed();
-            tracing::debug!("handled {} {}) in {:0.2?}", method, response.id, duration);
-            self.send(response.into());
-            return true;
-        }
-        false
-    }
-
     pub(crate) fn report_progress(
         &mut self,
         title: &str,
@@ -83,9 +44,8 @@ impl GlobalState {
 
         let work_done_progress = match state {
             Progress::Begin => {
-                self.send_request::<request::WorkDoneProgressCreate>(
+                self.client.request_ignore::<request::WorkDoneProgressCreate>(
                     lsp_types::WorkDoneProgressCreateParams { token: token.clone() },
-                    DEFAULT_REQ_HANDLER,
                 );
 
                 lsp_types::WorkDoneProgress::Begin(lsp_types::WorkDoneProgressBegin {
@@ -107,7 +67,7 @@ impl GlobalState {
             }
         };
 
-        self.send_notification::<lsp_types::notification::Progress>(lsp_types::ProgressParams {
+        self.client.notify::<lsp_types::notification::Progress>(lsp_types::ProgressParams {
             token,
             value: lsp_types::ProgressParamsValue::WorkDone(work_done_progress),
         });

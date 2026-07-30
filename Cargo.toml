@@ -36,6 +36,7 @@ itertools.workspace = true
 la-arena.workspace = true
 lsp-server.workspace = true
 lsp-types.workspace = true
+vide-lsp-runtime.workspace = true
 nohash-hasher.workspace = true
 num_cpus.workspace = true
 parking_lot = "0.12.1"
@@ -84,6 +85,7 @@ itertools = "0.14.0"
 la-arena = "0.3.1"
 lsp-server = "0.7.6"
 lsp-types = "0.95.0"
+vide-lsp-runtime = { path = "./crates/vide-lsp-runtime/", version = "0.0.0" }
 memchr = "2.7.1"
 nohash-hasher = "0.2.0"
 num_cpus = "1.16.0"
