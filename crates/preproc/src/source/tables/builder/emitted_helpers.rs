@@ -20,8 +20,7 @@ impl SourcePreprocModelBuilder {
             .get(request.definition)
             .expect("definition id should point at inserted definition")
             .event_id;
-        let resolution = self
-            .resolve_definition(request.definition, SourceMacroResolutionReason::VisibleDefinition);
+        let resolution = self.resolve_definition(request.definition);
         let reference = self.push_reference(
             event_id,
             SourceMacroReferenceSite::ExpansionToken { emitted_token: request.token_id },
@@ -33,7 +32,6 @@ impl SourcePreprocModelBuilder {
         Ok(self.push_call(
             reference,
             request.call_range,
-            resolution,
             Some(request.trace_call),
             Some(request.trace_expansion),
             request.parent_trace_expansion,
@@ -47,7 +45,10 @@ impl SourcePreprocModelBuilder {
         let Some(call) = self.model.macro_calls.get(call) else {
             return Err(());
         };
-        match &call.callee {
+        let Some(reference) = self.model.macro_references.get(call.reference) else {
+            return Err(());
+        };
+        match &reference.resolution {
             SourceMacroResolution::Resolved { definition, .. } => Ok(*definition),
             SourceMacroResolution::Undefined | SourceMacroResolution::Unavailable(_) => Err(()),
         }

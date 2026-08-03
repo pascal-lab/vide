@@ -77,7 +77,6 @@ impl SourcePreprocModelBuilder {
         let call = self.push_call(
             reference,
             directive_range,
-            resolution,
             usage.trace_call,
             trace_expansion,
             parent_trace_expansion,
@@ -109,10 +108,7 @@ impl SourcePreprocModelBuilder {
                             conditional_index: directive.index,
                             token_index,
                         },
-                        self.resolve_definition(
-                            definition,
-                            SourceMacroResolutionReason::VisibleDefinition,
-                        ),
+                        self.resolve_definition(definition),
                     )
                 } else if let Some(definition) =
                     self.include_guard_definition_after_ifndef(directive.index, name.as_str())
@@ -122,10 +118,7 @@ impl SourcePreprocModelBuilder {
                             conditional_index: directive.index,
                             token_index,
                         },
-                        self.resolve_definition(
-                            definition,
-                            SourceMacroResolutionReason::IncludeGuardIfNDef,
-                        ),
+                        self.resolve_definition(definition),
                     )
                 } else {
                     (
@@ -166,7 +159,6 @@ impl SourcePreprocModelBuilder {
         &mut self,
         reference: SourceMacroReferenceId,
         call_range: SourceRange,
-        callee: SourceMacroResolution,
         trace_call: Option<MacroCallId>,
         trace_expansion: Option<MacroExpansionId>,
         parent_trace_expansion: Option<MacroExpansionId>,
@@ -179,7 +171,6 @@ impl SourcePreprocModelBuilder {
             parent_trace_expansion,
             reference,
             call_range,
-            callee,
             arguments: Vec::new(),
             expansion: Err(SourcePreprocUnavailable::MissingMacroExpansion { call: id }),
         });

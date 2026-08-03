@@ -16,10 +16,6 @@ impl SourceIncludeGraph {
     pub fn directives(&self) -> &[SourceIncludeDirective] {
         &self.directives
     }
-
-    pub fn edges(&self) -> &[SourceIncludeEdge] {
-        &self.edges
-    }
 }
 
 impl SourceMacroStateTimeline {

@@ -70,7 +70,10 @@ impl SourcePreprocModelBuilder {
     pub(in crate::source::tables::builder) fn record_macro_body_references_for_calls(&mut self) {
         let calls = self.model.macro_calls.iter().cloned().collect::<Vec<_>>();
         for call in calls {
-            let SourceMacroResolution::Resolved { definition, .. } = call.callee else {
+            let Some(reference) = self.model.macro_references.get(call.reference).cloned() else {
+                continue;
+            };
+            let SourceMacroResolution::Resolved { definition, .. } = reference.resolution else {
                 continue;
             };
             let Some(definition) = self.model.macro_definitions.get(definition).cloned() else {

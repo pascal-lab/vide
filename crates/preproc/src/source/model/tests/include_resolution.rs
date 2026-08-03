@@ -19,10 +19,9 @@ wire active;
 
     assert_eq!(reference.name.as_str(), "HEADER_FLAG");
     assert_eq!(reference.name_range.source, root_source);
-    let SourceMacroResolution::Resolved { definition, reason, .. } = reference.resolution else {
+    let SourceMacroResolution::Resolved { definition, .. } = reference.resolution else {
         panic!("conditional token reference should resolve to visible definition");
     };
-    assert_eq!(reason, SourceMacroResolutionReason::VisibleDefinition);
     assert_eq!(model.macro_definitions().get(definition).unwrap().name_range.source, header_source);
 }
 
@@ -64,10 +63,7 @@ wire active;
     assert_eq!(reference.name_range.source, header_source);
     assert!(matches!(
         reference.resolution,
-        SourceMacroResolution::Resolved {
-            reason: SourceMacroResolutionReason::IncludeGuardIfNDef,
-            ..
-        }
+        SourceMacroResolution::Resolved { .. }
     ));
 }
 

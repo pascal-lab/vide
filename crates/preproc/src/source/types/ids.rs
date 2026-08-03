@@ -17,7 +17,7 @@ pub enum MacroEventKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MacroIncludeTarget {
-    Literal { path: SmolStr, raw: SmolStr },
+    Literal { path: SmolStr },
     Token { raw: SmolStr },
 }
 

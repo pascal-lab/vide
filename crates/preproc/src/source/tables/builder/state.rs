@@ -101,7 +101,6 @@ impl SourcePreprocModelBuilder {
             resolved_sources_by_event.insert(edge.include_event_id, edge.included_source);
         }
 
-        self.model.include_graph.edges = self.model.include_edges.clone();
         for include in &self.model.includes {
             let id = SourceIncludeDirectiveId::new(self.model.include_graph.directives.len());
             let resolved_source = resolved_sources_by_event.get(&include.event_id).copied();

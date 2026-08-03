@@ -36,23 +36,15 @@ pub struct SourceMacroReference {
 pub enum SourceMacroResolution {
     Resolved {
         definition: SourceMacroDefinitionId,
-        reason: SourceMacroResolutionReason,
         include_chain: Vec<SourceIncludeChainEntry>,
     },
     Undefined,
     Unavailable(SourcePreprocUnavailable),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SourceMacroResolutionReason {
-    VisibleDefinition,
-    IncludeGuardIfNDef,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SourceIncludeGraph {
     pub(in crate::source::tables) directives: Vec<SourceIncludeDirective>,
-    pub(in crate::source::tables) edges: Vec<SourceIncludeEdge>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,10 +82,9 @@ pub struct SourceMacroState {
     pub definitions: BTreeMap<SmolStr, SourceMacroDefinitionId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceMacroStateCheckpoint {
     pub source_order: usize,
-    pub boundary: SourcePosition,
     pub state: SourceMacroStateId,
 }
 
@@ -116,7 +107,6 @@ pub struct SourceMacroCall {
     pub parent_trace_expansion: Option<MacroExpansionId>,
     pub reference: SourceMacroReferenceId,
     pub call_range: SourceRange,
-    pub callee: SourceMacroResolution,
     pub arguments: Vec<SourceMacroArgument>,
     pub expansion: Result<SourceMacroExpansionId, SourcePreprocUnavailable>,
 }

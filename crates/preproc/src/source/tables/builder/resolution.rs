@@ -8,7 +8,7 @@ impl SourcePreprocModelBuilder {
         let Some(definition) = self.current_state.get(name).copied() else {
             return SourceMacroResolution::Undefined;
         };
-        self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
+        self.resolve_definition(definition)
     }
 
     pub(in crate::source::tables::builder) fn resolve_usage_reference(
@@ -24,7 +24,7 @@ impl SourcePreprocModelBuilder {
                 SourcePreprocUnavailable::UnknownMacroUsageDefinition { definition: definition_id },
             );
         };
-        self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
+        self.resolve_definition(definition)
     }
 
     pub(in crate::source::tables::builder) fn resolve_visible_reference_at_position(
@@ -40,13 +40,12 @@ impl SourcePreprocModelBuilder {
         else {
             return SourceMacroResolution::Undefined;
         };
-        self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
+        self.resolve_definition(definition)
     }
 
     pub(in crate::source::tables::builder) fn resolve_definition(
         &mut self,
         definition: SourceMacroDefinitionId,
-        reason: SourceMacroResolutionReason,
     ) -> SourceMacroResolution {
         let definition_source = self
             .model
@@ -57,7 +56,7 @@ impl SourcePreprocModelBuilder {
             .source;
         match self.include_chain_for_source(definition_source) {
             Ok(include_chain) => {
-                SourceMacroResolution::Resolved { definition, reason, include_chain }
+                SourceMacroResolution::Resolved { definition, include_chain }
             }
             Err(source) => {
                 SourceMacroResolution::Unavailable(SourcePreprocUnavailable::DetachedSource {
@@ -96,7 +95,6 @@ impl SourcePreprocModelBuilder {
                         .find(|directive| directive.event_id == include_event_id)
                         .expect("included source should point at an include directive");
                     chain.push(SourceIncludeChainEntry {
-                        include_event_id,
                         include_range: directive.directive_range,
                         included_source: current,
                     });
@@ -161,7 +159,7 @@ impl SourcePreprocModelBuilder {
     pub(in crate::source::tables::builder) fn record_state_checkpoint(
         &mut self,
         source_order: usize,
-        boundary: SourcePosition,
+        _boundary: SourcePosition,
     ) {
         let id = SourceMacroStateId::new(self.model.state_timeline.states.len());
         self.model
@@ -170,7 +168,6 @@ impl SourcePreprocModelBuilder {
             .push(SourceMacroState { id, definitions: self.current_state.clone() });
         self.model.state_timeline.checkpoints.push(SourceMacroStateCheckpoint {
             source_order,
-            boundary,
             state: id,
         });
     }

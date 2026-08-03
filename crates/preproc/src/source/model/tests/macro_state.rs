@@ -208,12 +208,10 @@ logic [`HEADER_WIDTH-1:0] data;
     assert_eq!(usage.name_range.unwrap().source, root_source);
 
     let reference = reference_for_usage(&model, usage_index);
-    let SourceMacroResolution::Resolved { definition, include_chain, reason } =
-        &reference.resolution
+    let SourceMacroResolution::Resolved { definition, include_chain } = &reference.resolution
     else {
         panic!("usage reference should resolve to included definition");
     };
-    assert_eq!(*reason, SourceMacroResolutionReason::VisibleDefinition);
     let definition = model.macro_definitions().get(*definition).unwrap();
     assert_eq!(definition.name.as_str(), "HEADER_WIDTH");
     assert_eq!(definition.name_range.source, header_source);

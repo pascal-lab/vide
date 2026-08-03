@@ -28,12 +28,11 @@ logic [`HEADER_WIDTH-1:0] data;
         .expect("reference table should include resolved macro usage");
     assert_eq!(reference.name_range.source, root_source);
     assert_eq!(reference.directive_range.source, root_source);
-    let SourceMacroResolution::Resolved { definition: resolved_definition, reason, include_chain } =
+    let SourceMacroResolution::Resolved { definition: resolved_definition, include_chain } =
         &reference.resolution
     else {
         panic!("macro usage should resolve to included definition");
     };
-    assert_eq!(*reason, SourceMacroResolutionReason::VisibleDefinition);
     assert_eq!(include_chain.len(), 1);
     assert_eq!(
         model.macro_definitions().get(*resolved_definition).unwrap().name.as_str(),

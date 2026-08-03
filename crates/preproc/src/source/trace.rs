@@ -324,7 +324,7 @@ fn push_source_event_record(
 
 fn include_target_from_raw(raw: SmolStr) -> MacroIncludeTarget {
     if let Some(path) = strip_include_delimiters(&raw) {
-        MacroIncludeTarget::Literal { path: path.to_smolstr(), raw }
+        MacroIncludeTarget::Literal { path: path.to_smolstr() }
     } else {
         MacroIncludeTarget::Token { raw }
     }
