@@ -16,16 +16,6 @@ impl SourceIncludeGraph {
 }
 
 impl SourceMacroStateTimeline {
-    pub fn states(&self) -> &[SourceMacroState] {
-        &self.states
-    }
-
-    pub fn checkpoints(&self) -> &[SourceMacroStateCheckpoint] {
-        &self.checkpoints
-    }
-}
-
-impl SourceMacroStateTimeline {
     pub fn state_at_position(&self, position: SourcePosition) -> Option<&SourceMacroState> {
         let source_order = self.source_order_at_position(position);
         self.state_at_source_order(source_order)

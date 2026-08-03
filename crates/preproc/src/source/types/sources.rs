@@ -19,8 +19,3 @@ pub struct SourceIncludeEdge {
     pub included_source: super::PreprocSourceId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SourceIncludeChainEntry {
-    pub include_range: super::SourceRange,
-    pub included_source: super::PreprocSourceId,
-}
