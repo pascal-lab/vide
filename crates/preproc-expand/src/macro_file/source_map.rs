@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use ::preproc::source::{
-    PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange, SourceRange,
-};
+use ::preproc::source::{PreprocSourceId, SourceRange};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SourceBufferRange,
@@ -15,6 +13,7 @@ use vfs::FileId;
 
 use super::{ExpandError, ExpandErrorKind, ExpandResult, MacroCallId, MacroCallLoc};
 use crate::{db::PreprocDb, source_db::PreprocSourceMap};
+use super::{SourceEmittedTokenId, SourceEmittedTokenRange};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {

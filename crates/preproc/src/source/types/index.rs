@@ -1,8 +1,7 @@
 use super::*;
 use crate::source::tables::{
-    SourceEmittedTokenTable, SourceIncludeGraph, SourceMacroCallTable, SourceMacroDefinitionTable,
-    SourceMacroExpansionTable, SourceMacroReferenceTable, SourceMacroStateTimeline,
-    SourceTokenOriginTable,
+    SourceIncludeGraph, SourceMacroCallTable, SourceMacroDefinitionTable, SourceMacroReferenceTable,
+    SourceMacroStateTimeline,
 };
 
 /// The source preprocessing model for one parsed file.
@@ -16,7 +15,6 @@ pub struct SourcePreprocModel {
     pub(in crate::source) sources: Vec<PreprocSource>,
     pub(in crate::source) include_edges: Vec<SourceIncludeEdge>,
     pub(in crate::source) event_records: Vec<SourcePreprocEventRecord>,
-    pub(in crate::source) emitted_token_records: Vec<SourceEmittedTokenRecord>,
     pub(in crate::source) defines: Vec<SourceMacroDefine>,
     pub(in crate::source) undefs: Vec<SourceMacroUndef>,
     pub(in crate::source) includes: Vec<SourceMacroInclude>,
@@ -26,9 +24,6 @@ pub struct SourcePreprocModel {
     pub(in crate::source) macro_definitions: SourceMacroDefinitionTable,
     pub(in crate::source) macro_references: SourceMacroReferenceTable,
     pub(in crate::source) macro_calls: SourceMacroCallTable,
-    pub(in crate::source) macro_expansions: SourceMacroExpansionTable,
-    pub(in crate::source) emitted_tokens: SourceEmittedTokenTable,
-    pub(in crate::source) token_origins: SourceTokenOriginTable,
     pub(in crate::source) include_graph: SourceIncludeGraph,
     pub(in crate::source) state_timeline: SourceMacroStateTimeline,
 }

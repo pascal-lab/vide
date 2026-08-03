@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SourceBufferOrigin, SourceBufferRange, SyntaxKind, Trace,
-    preproc::{ActualArgument, EmittedToken, Event, MacroParam, Token},
+    preproc::{ActualArgument, Event, MacroParam, Token},
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -47,7 +47,6 @@ pub(super) fn collect_model(trace: Trace) -> Result<SourcePreprocModel, SourcePr
         sources,
         include_edges,
         event_records: Vec::new(),
-        emitted_token_records: Vec::new(),
         defines: Vec::new(),
         undefs: Vec::new(),
         includes: Vec::new(),
@@ -57,9 +56,6 @@ pub(super) fn collect_model(trace: Trace) -> Result<SourcePreprocModel, SourcePr
         macro_definitions: SourceMacroDefinitionTable::default(),
         macro_references: SourceMacroReferenceTable::default(),
         macro_calls: SourceMacroCallTable::default(),
-        macro_expansions: SourceMacroExpansionTable::default(),
-        emitted_tokens: SourceEmittedTokenTable::default(),
-        token_origins: SourceTokenOriginTable::default(),
         include_graph: SourceIncludeGraph::default(),
         state_timeline: SourceMacroStateTimeline::default(),
     };
@@ -67,8 +63,6 @@ pub(super) fn collect_model(trace: Trace) -> Result<SourcePreprocModel, SourcePr
     for (source_order, directive) in trace.events.into_iter().enumerate() {
         collect_trace_event(&mut model, source_order, directive)?;
     }
-    model.emitted_token_records =
-        trace.emitted_tokens.into_iter().map(emitted_token_from_trace).collect();
 
     Ok(model)
 }
@@ -219,16 +213,6 @@ fn macro_token_from_trace(token: Token) -> SourceMacroToken {
         raw: token.raw_text.to_smolstr(),
         value: token.value_text.to_smolstr(),
         range: trace_range(&token.range),
-    }
-}
-
-fn emitted_token_from_trace(token: EmittedToken) -> SourceEmittedTokenRecord {
-    SourceEmittedTokenRecord {
-        raw: token.raw_text.to_smolstr(),
-        value: token.value_text.to_smolstr(),
-        display: token.display_text.to_smolstr(),
-        kind: SourceTokenKind::Syntax(token.token_kind),
-        origin: token.origin,
     }
 }
 

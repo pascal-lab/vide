@@ -67,9 +67,6 @@ source_table_id!(SourceMacroReferenceId);
 source_table_id!(SourceIncludeDirectiveId);
 source_table_id!(SourceMacroStateId);
 source_table_id!(SourceMacroCallId);
-source_table_id!(SourceMacroExpansionId);
-source_table_id!(SourceEmittedTokenId);
-source_table_id!(SourceTokenOriginId);
 
 mod unavailable;
 pub use unavailable::*;

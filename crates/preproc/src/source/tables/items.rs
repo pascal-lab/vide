@@ -6,7 +6,6 @@ pub enum SourceMacroReferenceSite {
     ConditionalToken { conditional_index: usize, token_index: usize },
     IncludeGuardIfNDef { conditional_index: usize, token_index: usize },
     MacroBodyToken { call: SourceMacroCallId, token_index: usize },
-    ExpansionToken { emitted_token: SourceEmittedTokenId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,12 +102,9 @@ pub(in crate::source::tables) struct SourceMacroStateSourceScope {
 pub struct SourceMacroCall {
     pub id: SourceMacroCallId,
     pub trace_call: Option<MacroCallId>,
-    pub trace_expansion: Option<MacroExpansionId>,
-    pub parent_trace_expansion: Option<MacroExpansionId>,
     pub reference: SourceMacroReferenceId,
     pub call_range: SourceRange,
     pub arguments: Vec<SourceMacroArgument>,
-    pub expansion: Result<SourceMacroExpansionId, SourcePreprocUnavailable>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,88 +112,4 @@ pub struct SourceMacroArgument {
     pub argument_index: usize,
     pub argument_range: Option<SourceRange>,
     pub tokens: Vec<SourceMacroToken>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceMacroExpansion {
-    pub id: SourceMacroExpansionId,
-    pub trace_expansion: Option<MacroExpansionId>,
-    pub call: SourceMacroCallId,
-    pub definition: SourceMacroExpansionDefinition,
-    pub emitted_token_range: SourceEmittedTokenRange,
-    pub child_calls: Vec<SourceMacroCallId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SourceMacroExpansionDefinition {
-    Source(SourceMacroDefinitionId),
-    Builtin { name: SmolStr },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SourceEmittedTokenRange {
-    pub start: SourceEmittedTokenId,
-    pub len: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceEmittedToken {
-    pub id: SourceEmittedTokenId,
-    pub text: SmolStr,
-    pub display: SmolStr,
-    pub kind: SourceTokenKind,
-    pub emitted_range: SourceEmittedTokenRange,
-    pub origin: Option<SourceTokenOriginId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SourceTokenOrigin {
-    Source {
-        token_range: SourceRange,
-    },
-    MacroBody {
-        trace_call: MacroCallId,
-        trace_definition: MacroDefinitionId,
-        definition: SourceMacroDefinitionId,
-        body_token_range: SourceRange,
-        call: SourceMacroCallId,
-    },
-    MacroArgument {
-        trace_call: MacroCallId,
-        argument_token_index: u32,
-        call: SourceMacroCallId,
-        argument_index: usize,
-        body_token_range: SourceRange,
-        argument_token_range: SourceRange,
-    },
-    TokenPaste {
-        trace_call: MacroCallId,
-        argument_index: Option<u32>,
-        argument_token_index: Option<u32>,
-        call: SourceMacroCallId,
-    },
-    Stringify {
-        trace_call: MacroCallId,
-        argument_index: Option<u32>,
-        argument_token_index: Option<u32>,
-        call: SourceMacroCallId,
-    },
-    Predefine {
-        source: PreprocSourceId,
-    },
-    Builtin {
-        name: SmolStr,
-        trace_call: MacroCallId,
-        call: SourceMacroCallId,
-    },
-}
-
-pub(in crate::source::tables) struct EmittedTokenMacroCall {
-    pub(in crate::source::tables) token_id: SourceEmittedTokenId,
-    pub(in crate::source::tables) macro_name: SmolStr,
-    pub(in crate::source::tables) trace_call: MacroCallId,
-    pub(in crate::source::tables) definition: SourceMacroDefinitionId,
-    pub(in crate::source::tables) call_range: SourceRange,
-    pub(in crate::source::tables) trace_expansion: MacroExpansionId,
-    pub(in crate::source::tables) parent_trace_expansion: Option<MacroExpansionId>,
 }

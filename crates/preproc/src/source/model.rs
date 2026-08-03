@@ -21,18 +21,6 @@ impl SourcePreprocModel {
         &self.macro_calls
     }
 
-    pub fn macro_expansions(&self) -> &SourceMacroExpansionTable {
-        &self.macro_expansions
-    }
-
-    pub fn emitted_tokens(&self) -> &SourceEmittedTokenTable {
-        &self.emitted_tokens
-    }
-
-    pub fn token_origins(&self) -> &SourceTokenOriginTable {
-        &self.token_origins
-    }
-
     pub fn include_graph(&self) -> &SourceIncludeGraph {
         &self.include_graph
     }
@@ -46,26 +34,6 @@ impl SourcePreprocModel {
             .state_at_position(position)
             .map(|state| self.definitions_for_state(state))
             .unwrap_or_default()
-    }
-
-    pub fn immediate_macro_expansion(
-        &self,
-        call: SourceMacroCallId,
-    ) -> Result<SourceMacroExpansionId, SourcePreprocUnavailable> {
-        let Some(call_fact) = self.macro_calls.get(call) else {
-            return Err(SourcePreprocUnavailable::MissingMacroCall { call });
-        };
-        match &call_fact.expansion {
-            Ok(expansion) if self.macro_expansions.get(*expansion).is_some() => Ok(*expansion),
-            Ok(expansion) => Err(SourcePreprocUnavailable::MissingMacroExpansion {
-                call: self
-                    .macro_expansions
-                    .get(*expansion)
-                    .map(|expansion| expansion.call)
-                    .unwrap_or(call),
-            }),
-            Err(reason) => Err(reason.clone()),
-        }
     }
 
     fn definitions_for_state(&self, state: &SourceMacroState) -> Vec<&SourceMacroDefinition> {
