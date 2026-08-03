@@ -54,57 +54,41 @@ impl SourcePreprocModelBuilder {
             .expect("definition id should point at inserted definition")
             .directive_range
             .source;
-        match self.include_chain_for_source(definition_source) {
-            Ok(include_chain) => {
-                SourceMacroResolution::Resolved { definition, include_chain }
-            }
-            Err(source) => {
+        match self.source_is_reachable(definition_source) {
+            true => SourceMacroResolution::Resolved { definition },
+            false => {
                 SourceMacroResolution::Unavailable(SourcePreprocUnavailable::DetachedSource {
-                    source,
+                    source: definition_source,
                 })
             }
         }
     }
 
-    pub(in crate::source::tables::builder) fn include_chain_for_source(
-        &self,
-        source: PreprocSourceId,
-    ) -> Result<Vec<SourceIncludeChainEntry>, PreprocSourceId> {
-        let mut chain = Vec::new();
+    /// Whether `source` is reachable from the root through include edges.
+    fn source_is_reachable(&self, source: PreprocSourceId) -> bool {
         let mut current = source;
-
         loop {
-            let source = self
-                .model
-                .sources
-                .iter()
-                .find(|candidate| candidate.id == current)
-                .expect("source id should point at an indexed preprocessor source");
-
+            let Some(source) = self.model.sources.iter().find(|candidate| candidate.id == current)
+            else {
+                return false;
+            };
             match source.origin {
-                PreprocSourceOrigin::Root | PreprocSourceOrigin::Predefine => break,
-                PreprocSourceOrigin::Detached => {
-                    return Err(current);
-                }
+                PreprocSourceOrigin::Root | PreprocSourceOrigin::Predefine => return true,
+                PreprocSourceOrigin::Detached => return false,
                 PreprocSourceOrigin::Included { include_event_id } => {
                     let directive = self
                         .model
                         .include_graph
                         .directives()
                         .iter()
-                        .find(|directive| directive.event_id == include_event_id)
-                        .expect("included source should point at an include directive");
-                    chain.push(SourceIncludeChainEntry {
-                        include_range: directive.directive_range,
-                        included_source: current,
-                    });
+                        .find(|directive| directive.event_id == include_event_id);
+                    let Some(directive) = directive else {
+                        return false;
+                    };
                     current = directive.directive_range.source;
                 }
             }
         }
-
-        chain.reverse();
-        Ok(chain)
     }
 
     pub(in crate::source::tables::builder) fn include_guard_definition_after_ifndef(

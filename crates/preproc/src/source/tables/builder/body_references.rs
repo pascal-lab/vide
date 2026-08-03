@@ -1,7 +1,12 @@
+use std::collections::BTreeMap;
+
 use super::*;
 
 impl SourcePreprocModelBuilder {
     pub(in crate::source::tables::builder) fn record_macro_body_references_for_calls(&mut self) {
+        // Track emitted references per call site so repeated identical body
+        // tokens are not re-registered (the old linear scan was O(n^2)).
+        let mut emitted = BTreeMap::<SourceMacroCallId, Vec<(SmolStr, SourceRange)>>::new();
         let calls = self.model.macro_calls.iter().cloned().collect::<Vec<_>>();
         for call in calls {
             let Some(reference) = self.model.macro_references.get(call.reference).cloned() else {
@@ -25,12 +30,23 @@ impl SourcePreprocModelBuilder {
                     self.record_missing_reference_name_range(definition.event_id);
                     continue;
                 };
+                if emitted
+                    .entry(call.id)
+                    .or_default()
+                    .iter()
+                    .any(|(existing_name, existing_range)| {
+                        existing_name == &name && *existing_range == name_range
+                    })
+                {
+                    continue;
+                }
+                emitted
+                    .entry(call.id)
+                    .or_default()
+                    .push((name.clone(), name_range));
                 let resolution =
                     self.resolve_visible_reference_at_position(name.as_str(), call_position);
                 let site = SourceMacroReferenceSite::MacroBodyToken { call: call.id, token_index };
-                if self.macro_reference_exists(name.as_str(), name_range, &site, &resolution) {
-                    continue;
-                }
                 self.push_reference(
                     definition.event_id,
                     site,
@@ -41,21 +57,6 @@ impl SourcePreprocModelBuilder {
                 );
             }
         }
-    }
-
-    pub(in crate::source::tables::builder) fn macro_reference_exists(
-        &self,
-        name: &str,
-        name_range: SourceRange,
-        site: &SourceMacroReferenceSite,
-        resolution: &SourceMacroResolution,
-    ) -> bool {
-        self.model.macro_references.iter().any(|reference| {
-            reference.name.as_str() == name
-                && reference.name_range == name_range
-                && &reference.site == site
-                && &reference.resolution == resolution
-        })
     }
 }
 

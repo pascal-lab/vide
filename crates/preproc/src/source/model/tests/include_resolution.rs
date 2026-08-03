@@ -98,17 +98,11 @@ logic [`LEAF_WIDTH-1:0] data;
         .position(|usage| usage.name.as_deref() == Some("LEAF_WIDTH"))
         .expect("root macro usage should be traced");
     let reference = reference_for_usage(&model, usage_index);
-    let SourceMacroResolution::Resolved { definition, include_chain, .. } = &reference.resolution
-    else {
+    let SourceMacroResolution::Resolved { definition } = &reference.resolution else {
         panic!("usage reference should resolve to nested included definition");
     };
 
     assert_eq!(model.macro_definitions().get(*definition).unwrap().name_range.source, leaf_source);
-    assert_eq!(include_chain.len(), 2);
-    assert_eq!(include_chain[0].include_range.source, root_source);
-    assert_eq!(include_chain[0].included_source, header_source);
-    assert_eq!(include_chain[1].include_range.source, header_source);
-    assert_eq!(include_chain[1].included_source, leaf_source);
 }
 
 #[test]

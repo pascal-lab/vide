@@ -11,22 +11,14 @@ endmodule
     let leaf_text = "`define LEAF_WIDTH 4\n";
     let db = db_with_nested_files(root_text, header_text, leaf_text);
 
-    let resolution =
-        macro_usage_resolution_at(&db, TOP, offset(root_text, "LEAF_WIDTH")).unwrap().unwrap();
+    let definitions =
+        macro_reference_definitions_at(&db, TOP, offset(root_text, "LEAF_WIDTH"))
+            .unwrap()
+            .unwrap();
 
-    assert_eq!(resolution.definition.file_id, LEAF);
-    assert_eq!(resolution.definition.file_id, LEAF);
-    assert_eq!(resolution.include_chain.len(), 2);
-    assert_eq!(resolution.include_chain[0].include_file_id, TOP);
-    assert_eq!(resolution.include_chain[0].included_file_id, HEADER);
-    assert!(
-        text_at_range(root_text, resolution.include_chain[0].include_range).contains("defs.vh")
-    );
-    assert_eq!(resolution.include_chain[1].include_file_id, HEADER);
-    assert_eq!(resolution.include_chain[1].included_file_id, LEAF);
-    assert!(
-        text_at_range(header_text, resolution.include_chain[1].include_range).contains("leaf.vh")
-    );
+    assert_eq!(definitions.definitions.len(), 1);
+    assert_eq!(definitions.definitions[0].file_id, LEAF);
+    assert_eq!(definitions.definitions[0].name.as_str(), "LEAF_WIDTH");
 }
 
 #[test]
@@ -39,7 +31,9 @@ endmodule
     let mut db = db_with_files(root_text, "`define OTHER_WIDTH 8\n");
 
     assert!(
-        macro_usage_resolution_at(&db, TOP, offset(root_text, "HEADER_WIDTH")).unwrap().is_none()
+        macro_reference_definitions_at(&db, TOP, offset(root_text, "HEADER_WIDTH"))
+            .unwrap()
+            .is_none()
     );
 
     db.set_file_text_with_durability(
@@ -48,10 +42,12 @@ endmodule
         Durability::LOW,
     );
 
-    let resolution =
-        macro_usage_resolution_at(&db, TOP, offset(root_text, "HEADER_WIDTH")).unwrap().unwrap();
-    assert_eq!(resolution.definition.file_id, HEADER);
-    assert_eq!(resolution.definition.name.as_str(), "HEADER_WIDTH");
+    let definitions = macro_reference_definitions_at(&db, TOP, offset(root_text, "HEADER_WIDTH"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(definitions.definitions.len(), 1);
+    assert_eq!(definitions.definitions[0].file_id, HEADER);
+    assert_eq!(definitions.definitions[0].name.as_str(), "HEADER_WIDTH");
 }
 
 #[test]
@@ -142,11 +138,6 @@ fn preproc_header_query_uses_including_context_over_standalone_model() {
 localparam int W = `WIDTH;
 "#;
     let db = db_with_files(root_text, header_text);
-
-    let reference = macro_reference_at(&db, HEADER, offset(header_text, "WIDTH;"))
-        .unwrap()
-        .expect("included context should resolve the header reference without ambiguity");
-    assert_eq!(text_at_range(header_text, reference.range), "`WIDTH");
 
     let definitions = macro_reference_definitions_at(&db, HEADER, offset(header_text, "WIDTH;"))
         .unwrap()

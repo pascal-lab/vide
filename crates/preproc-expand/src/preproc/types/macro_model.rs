@@ -51,26 +51,6 @@ pub struct MacroParamReferences {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroUsage {
-    pub file_id: FileId,
-    pub range: TextRange,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroUsageResolution {
-    pub usage: MacroUsage,
-    pub definition: MacroDefinition,
-    pub include_chain: Vec<IncludeChainEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IncludeChainEntry {
-    pub include_file_id: FileId,
-    pub include_range: TextRange,
-    pub included_file_id: FileId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroReference {
     pub file_id: FileId,
     pub name: SmolStr,

@@ -35,7 +35,6 @@ pub struct SourceMacroReference {
 pub enum SourceMacroResolution {
     Resolved {
         definition: SourceMacroDefinitionId,
-        include_chain: Vec<SourceIncludeChainEntry>,
     },
     Undefined,
     Unavailable(SourcePreprocUnavailable),
