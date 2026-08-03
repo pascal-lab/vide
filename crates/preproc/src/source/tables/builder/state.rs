@@ -106,13 +106,6 @@ impl SourcePreprocModelBuilder {
             resolved_sources_by_event.insert(edge.include_event_id, edge.included_source);
         }
 
-        for source in &self.model.index.sources {
-            if source.origin == PreprocSourceOrigin::Detached {
-                self.include_edges_partial = true;
-                self.model.issues.push(SourcePreprocIssue::DetachedSource { source: source.id });
-            }
-        }
-
         self.model.include_graph.edges = self.model.index.include_edges.clone();
         for include in &self.model.index.includes {
             let id = SourceIncludeDirectiveId::new(self.model.include_graph.directives.len());

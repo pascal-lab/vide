@@ -84,14 +84,6 @@ impl SourcePreprocModel {
         &self.inactive_ranges
     }
 
-    pub fn events(&self) -> impl Iterator<Item = SourcePreprocEvent<'_>> + '_ {
-        self.index
-            .event_records
-            .iter()
-            .enumerate()
-            .filter_map(|(source_order, directive)| self.event_from_record(source_order, directive))
-    }
-
     pub fn visible_macros_at(&self, position: SourcePosition) -> Vec<&SourceMacroDefinition> {
         self.state_timeline
             .state_at_position(position)
@@ -117,39 +109,6 @@ impl SourcePreprocModel {
             }),
             Err(reason) => Err(reason.clone()),
         }
-    }
-
-    pub fn event_location(
-        &self,
-        anchor: SourcePreprocEventAnchor,
-    ) -> Option<SourcePreprocEventLocation> {
-        let (event_id, name, range, name_range) = match anchor {
-            SourcePreprocEventAnchor::Define(index) => {
-                let define = self.index.defines.get(index)?;
-                (define.event_id, define.name.clone(), define.range, define.name_range)
-            }
-            SourcePreprocEventAnchor::Undef(index) => {
-                let undef = self.index.undefs.get(index)?;
-                (undef.event_id, undef.name.clone(), undef.range, undef.name_range)
-            }
-            SourcePreprocEventAnchor::Usage(index) => {
-                let usage = self.index.usages.get(index)?;
-                (usage.event_id, usage.name.clone(), usage.range, usage.name_range)
-            }
-            SourcePreprocEventAnchor::Include(index) => {
-                let include = self.index.includes.get(index)?;
-                (include.event_id, None, include.range, include.target_range)
-            }
-            SourcePreprocEventAnchor::Conditional(index) => {
-                let conditional = self.index.conditionals.get(index)?;
-                (conditional.event_id, None, conditional.range, None)
-            }
-        };
-        Some(SourcePreprocEventLocation { event_id, anchor, name, range, name_range })
-    }
-
-    pub fn event_range(&self, anchor: SourcePreprocEventAnchor) -> Option<SourceRange> {
-        self.event_location(anchor).map(|location| location.range)
     }
 
     pub fn define(&self, index: usize) -> Option<&SourceMacroDefine> {
@@ -180,8 +139,6 @@ impl SourcePreprocModel {
             .collect()
     }
 }
-
-mod events;
 
 #[cfg(test)]
 mod tests;

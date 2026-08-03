@@ -4,7 +4,6 @@ pub use syntax::preproc::TokenOrigin;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceTokenKind {
-    Unknown,
     Syntax(TokenKind),
 }
 

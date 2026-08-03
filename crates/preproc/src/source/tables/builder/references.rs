@@ -185,8 +185,6 @@ impl SourcePreprocModelBuilder {
         });
         if let Some(trace_call) = trace_call {
             self.calls_by_trace_id.insert(trace_call, id);
-        } else {
-            self.macro_calls_partial = true;
         }
         if let Some(trace_expansion) = trace_expansion {
             self.calls_by_expansion_trace_id.insert(trace_expansion, id);

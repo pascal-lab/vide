@@ -20,7 +20,6 @@ impl SourcePreprocModelBuilder {
             return self.resolve_visible_reference(name);
         };
         let Some(definition) = self.definitions_by_trace_id.get(&definition_id).copied() else {
-            self.references_partial = true;
             return SourceMacroResolution::Unavailable(
                 SourcePreprocUnavailable::UnknownMacroUsageDefinition { definition: definition_id },
             );
@@ -61,8 +60,6 @@ impl SourcePreprocModelBuilder {
                 SourceMacroResolution::Resolved { definition, reason, include_chain }
             }
             Err(source) => {
-                self.references_partial = true;
-                self.model.issues.push(SourcePreprocIssue::DetachedSource { source });
                 SourceMacroResolution::Unavailable(SourcePreprocUnavailable::DetachedSource {
                     source,
                 })
@@ -152,18 +149,14 @@ impl SourcePreprocModelBuilder {
 
     pub(in crate::source::tables::builder) fn record_missing_reference_name(
         &mut self,
-        event_id: SourcePreprocEventId,
+        _event_id: SourcePreprocEventId,
     ) {
-        self.references_partial = true;
-        self.model.issues.push(SourcePreprocIssue::MissingReferenceName { event_id });
     }
 
     pub(in crate::source::tables::builder) fn record_missing_reference_name_range(
         &mut self,
-        event_id: SourcePreprocEventId,
+        _event_id: SourcePreprocEventId,
     ) {
-        self.references_partial = true;
-        self.model.issues.push(SourcePreprocIssue::MissingReferenceNameRange { event_id });
     }
 
     pub(in crate::source::tables::builder) fn record_state_checkpoint(

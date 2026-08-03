@@ -58,7 +58,6 @@ impl SourcePreprocModelBuilder {
         let mut children = BTreeMap::<SourceMacroCallId, Vec<SourceMacroCallId>>::new();
         for child in &call_ids {
             let Some(child_call) = self.model.macro_calls.get(*child) else {
-                self.expansions_partial = true;
                 continue;
             };
             let Some(parent_trace_expansion) = child_call.parent_trace_expansion else {
@@ -68,9 +67,7 @@ impl SourcePreprocModelBuilder {
                 Some(parent) if parent != *child => {
                     children.entry(parent).or_default().push(*child);
                 }
-                Some(_) | None => {
-                    self.expansions_partial = true;
-                }
+                Some(_) | None => {}
             }
         }
         for child_calls in children.values_mut() {
@@ -92,7 +89,6 @@ impl SourcePreprocModelBuilder {
             return tokens.clone();
         }
         if visiting.contains(&call) {
-            self.expansions_partial = true;
             return Vec::new();
         }
 
@@ -121,7 +117,6 @@ impl SourcePreprocModelBuilder {
         call: SourceMacroCallId,
         reason: SourcePreprocUnavailable,
     ) {
-        self.expansions_partial = true;
         if let Some(call) = self.model.macro_calls.get_mut(call) {
             call.expansion = Err(reason);
         }

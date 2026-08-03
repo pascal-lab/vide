@@ -2,7 +2,7 @@ use super::*;
 use crate::source::tables::{
     SourceEmittedTokenTable, SourceIncludeGraph, SourceMacroCallTable, SourceMacroDefinitionTable,
     SourceMacroExpansionTable, SourceMacroReferenceTable, SourceMacroStateTimeline,
-    SourcePreprocIssue, SourceTokenOriginTable,
+    SourceTokenOriginTable,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -32,5 +32,4 @@ pub struct SourcePreprocModel {
     pub(in crate::source) include_graph: SourceIncludeGraph,
     pub(in crate::source) inactive_ranges: Vec<SourceRange>,
     pub(in crate::source) state_timeline: SourceMacroStateTimeline,
-    pub(in crate::source) issues: Vec<SourcePreprocIssue>,
 }

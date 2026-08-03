@@ -93,7 +93,6 @@ impl SourcePreprocModelBuilder {
         };
         if let Some(existing) = call_fact.trace_expansion {
             if existing != trace_expansion {
-                self.expansions_partial = true;
                 return Err(());
             }
         } else {
@@ -103,7 +102,6 @@ impl SourcePreprocModelBuilder {
         if let Some(parent_trace_expansion) = parent_trace_expansion {
             match call_fact.parent_trace_expansion {
                 Some(existing) if existing != parent_trace_expansion => {
-                    self.expansions_partial = true;
                     return Err(());
                 }
                 Some(_) => {}

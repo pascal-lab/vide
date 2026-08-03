@@ -12,11 +12,6 @@ pub(in crate::source) struct SourcePreprocModelBuilder {
     calls_by_expansion_trace_id: BTreeMap<MacroExpansionId, SourceMacroCallId>,
     emitted_token_owners: BTreeMap<SourceEmittedTokenId, SourceMacroCallId>,
     current_state: BTreeMap<SmolStr, SourceMacroDefinitionId>,
-    definition_ranges_partial: bool,
-    include_edges_partial: bool,
-    references_partial: bool,
-    macro_calls_partial: bool,
-    expansions_partial: bool,
 }
 
 mod definitions;
@@ -44,7 +39,6 @@ impl SourcePreprocModelBuilder {
                 include_graph: SourceIncludeGraph::default(),
                 inactive_ranges: Vec::new(),
                 state_timeline: SourceMacroStateTimeline::default(),
-                issues: Vec::new(),
             },
             definition_ids_by_define_index: BTreeMap::new(),
             definitions_by_trace_id: BTreeMap::new(),
@@ -52,11 +46,6 @@ impl SourcePreprocModelBuilder {
             calls_by_expansion_trace_id: BTreeMap::new(),
             emitted_token_owners: BTreeMap::new(),
             current_state: BTreeMap::new(),
-            definition_ranges_partial: false,
-            include_edges_partial: false,
-            references_partial: false,
-            macro_calls_partial: false,
-            expansions_partial: false,
         }
     }
 
