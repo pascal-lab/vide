@@ -11,7 +11,7 @@ wire active;
     let (model, root_source, header_source) = source_model(root_text, header_text);
 
     let conditional_index = model
-        .conditionals()
+        .conditionals
         .iter()
         .position(|conditional| conditional.kind == MacroConditionalKind::IfDef)
         .expect("ifdef should be traced");
@@ -40,7 +40,7 @@ wire active;
     let (model, _root_source, header_source) = source_model(root_text, header_text);
 
     let conditional_index = model
-        .conditionals()
+        .conditionals
         .iter()
         .position(|conditional| {
             conditional.kind == MacroConditionalKind::IfNDef
@@ -97,7 +97,7 @@ logic [`LEAF_WIDTH-1:0] data;
     let leaf_source = source_by_path_suffix(&model, "include/leaf.vh");
 
     let usage_index = model
-        .usages()
+        .usages
         .iter()
         .position(|usage| usage.name.as_deref() == Some("LEAF_WIDTH"))
         .expect("root macro usage should be traced");

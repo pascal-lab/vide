@@ -26,20 +26,17 @@ mod state;
 mod token_origin;
 
 impl SourcePreprocModelBuilder {
-    pub(in crate::source) fn new(index: SourcePreprocIndex) -> Self {
+    pub(in crate::source) fn new(mut model: SourcePreprocModel) -> Self {
+        model.macro_definitions = SourceMacroDefinitionTable::default();
+        model.macro_references = SourceMacroReferenceTable::default();
+        model.macro_calls = SourceMacroCallTable::default();
+        model.macro_expansions = SourceMacroExpansionTable::default();
+        model.emitted_tokens = SourceEmittedTokenTable::default();
+        model.token_origins = SourceTokenOriginTable::default();
+        model.include_graph = SourceIncludeGraph::default();
+        model.state_timeline = SourceMacroStateTimeline::default();
         Self {
-            model: SourcePreprocModel {
-                index,
-                macro_definitions: SourceMacroDefinitionTable::default(),
-                macro_references: SourceMacroReferenceTable::default(),
-                macro_calls: SourceMacroCallTable::default(),
-                macro_expansions: SourceMacroExpansionTable::default(),
-                emitted_tokens: SourceEmittedTokenTable::default(),
-                token_origins: SourceTokenOriginTable::default(),
-                include_graph: SourceIncludeGraph::default(),
-                inactive_ranges: Vec::new(),
-                state_timeline: SourceMacroStateTimeline::default(),
-            },
+            model,
             definition_ids_by_define_index: BTreeMap::new(),
             definitions_by_trace_id: BTreeMap::new(),
             calls_by_trace_id: BTreeMap::new(),
@@ -58,7 +55,7 @@ impl SourcePreprocModelBuilder {
         self.build_definition_table();
         self.build_include_graph();
         self.record_position_boundaries();
-        self.record_state_checkpoint(0, SourcePosition::from_first_event(&self.model.index));
+        self.record_state_checkpoint(0, SourcePosition::from_first_event(&self.model));
         self.scan_references_and_state();
         self.build_emitted_token_tables();
         self.build_macro_expansion_graph();
@@ -67,18 +64,15 @@ impl SourcePreprocModelBuilder {
 }
 
 impl SourcePosition {
-    fn from_first_event(index: &SourcePreprocIndex) -> Self {
-        index
+    fn from_first_event(model: &SourcePreprocModel) -> Self {
+        model
             .event_records
             .first()
             .map(|record| SourcePosition {
                 source: record.range.source,
                 offset: record.range.range.start(),
             })
-            .unwrap_or(SourcePosition {
-                source: index.root_source.unwrap_or_else(|| PreprocSourceId::new(0)),
-                offset: 0.into(),
-            })
+            .unwrap_or(SourcePosition { source: model.root_source, offset: 0.into() })
     }
 }
 

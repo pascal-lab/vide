@@ -134,7 +134,7 @@ impl SourcePreprocModelBuilder {
         &self,
         source: PreprocSourceId,
     ) -> bool {
-        self.model.index.sources.iter().any(|candidate| {
+        self.model.sources.iter().any(|candidate| {
             candidate.id == source && candidate.origin == PreprocSourceOrigin::Predefine
         })
     }

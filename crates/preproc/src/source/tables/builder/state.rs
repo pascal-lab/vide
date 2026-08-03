@@ -2,9 +2,9 @@ use super::*;
 
 impl SourcePreprocModelBuilder {
     pub(in crate::source::tables::builder) fn record_position_boundaries(&mut self) {
-        self.model.state_timeline.final_source_order = self.model.index.event_records.len();
+        self.model.state_timeline.final_source_order = self.model.event_records.len();
         self.record_source_order_scopes();
-        for (source_order, directive) in self.model.index.event_records.iter().enumerate() {
+        for (source_order, directive) in self.model.event_records.iter().enumerate() {
             self.model
                 .state_timeline
                 .source_order_boundaries
@@ -24,7 +24,6 @@ impl SourcePreprocModelBuilder {
     pub(in crate::source::tables::builder) fn record_source_order_scopes(&mut self) {
         let event_orders_by_id = self
             .model
-            .index
             .event_records
             .iter()
             .enumerate()
@@ -32,11 +31,11 @@ impl SourcePreprocModelBuilder {
             .collect::<BTreeMap<_, _>>();
         let source_parents = self.source_parents_by_include();
 
-        for source in &self.model.index.sources {
+        for source in &self.model.sources {
             let end_order = match source.origin {
                 PreprocSourceOrigin::Root
                 | PreprocSourceOrigin::Predefine
-                | PreprocSourceOrigin::Detached => self.model.index.event_records.len(),
+                | PreprocSourceOrigin::Detached => self.model.event_records.len(),
                 PreprocSourceOrigin::Included { include_event_id } => {
                     let Some(include_order) = event_orders_by_id.get(&include_event_id).copied()
                     else {
@@ -57,14 +56,12 @@ impl SourcePreprocModelBuilder {
     ) -> BTreeMap<PreprocSourceId, PreprocSourceId> {
         let include_sources_by_event = self
             .model
-            .index
             .event_records
             .iter()
             .map(|directive| (directive.event_id, directive.range.source))
             .collect::<BTreeMap<_, _>>();
 
         self.model
-            .index
             .sources
             .iter()
             .filter_map(|source| match source.origin {
@@ -86,7 +83,6 @@ impl SourcePreprocModelBuilder {
         source_parents: &BTreeMap<PreprocSourceId, PreprocSourceId>,
     ) -> usize {
         self.model
-            .index
             .event_records
             .iter()
             .enumerate()
@@ -95,19 +91,18 @@ impl SourcePreprocModelBuilder {
                 (!source_is_descendant_or_same(directive.range.source, source, source_parents))
                     .then_some(source_order)
             })
-            .unwrap_or(self.model.index.event_records.len())
+            .unwrap_or(self.model.event_records.len())
     }
 
     pub(in crate::source::tables::builder) fn build_include_graph(&mut self) {
-        self.model.inactive_ranges = self.model.index.inactive_ranges.clone();
         let mut resolved_sources_by_event = BTreeMap::new();
 
-        for edge in &self.model.index.include_edges {
+        for edge in &self.model.include_edges {
             resolved_sources_by_event.insert(edge.include_event_id, edge.included_source);
         }
 
-        self.model.include_graph.edges = self.model.index.include_edges.clone();
-        for include in &self.model.index.includes {
+        self.model.include_graph.edges = self.model.include_edges.clone();
+        for include in &self.model.includes {
             let id = SourceIncludeDirectiveId::new(self.model.include_graph.directives.len());
             let resolved_source = resolved_sources_by_event.get(&include.event_id).copied();
             let status = match resolved_source {

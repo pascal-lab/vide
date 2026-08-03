@@ -25,7 +25,7 @@ endmodule
     else {
         panic!("configured predefine token should map to Predefine origin");
     };
-    assert!(model.sources().iter().any(|candidate| {
+    assert!(model.sources.iter().any(|candidate| {
         candidate.id == *source && candidate.origin == PreprocSourceOrigin::Predefine
     }));
 

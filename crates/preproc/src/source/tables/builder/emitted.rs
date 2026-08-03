@@ -2,8 +2,8 @@ use super::{emitted_origins::*, token_origin::*, *};
 
 impl SourcePreprocModelBuilder {
     pub(in crate::source::tables::builder) fn build_emitted_token_tables(&mut self) {
-        for index in 0..self.model.index.emitted_tokens.len() {
-            let token = self.model.index.emitted_tokens[index].clone();
+        for index in 0..self.model.emitted_token_records.len() {
+            let token = self.model.emitted_token_records[index].clone();
             let token_id = SourceEmittedTokenId::new(self.model.emitted_tokens.len());
             let origin = self.resolve_emitted_token_origin(token_id, &token);
             let origin_id = origin.map(|origin| {

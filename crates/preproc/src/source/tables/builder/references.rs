@@ -2,7 +2,7 @@ use super::*;
 
 impl SourcePreprocModelBuilder {
     pub(in crate::source::tables::builder) fn scan_references_and_state(&mut self) {
-        let event_records = self.model.index.event_records.clone();
+        let event_records = self.model.event_records.clone();
         for (source_order, directive) in event_records.iter().enumerate() {
             match directive.kind {
                 MacroEventKind::Define => self.apply_define(source_order, directive),
@@ -35,7 +35,7 @@ impl SourcePreprocModelBuilder {
         source_order: usize,
         directive: &SourcePreprocEventRecord,
     ) {
-        let Some(undef) = self.model.index.undefs.get(directive.index) else {
+        let Some(undef) = self.model.undefs.get(directive.index) else {
             return;
         };
         if let Some(name) = undef.name.as_ref() {
@@ -48,7 +48,7 @@ impl SourcePreprocModelBuilder {
         &mut self,
         directive: &SourcePreprocEventRecord,
     ) {
-        let Some(usage) = self.model.index.usages.get(directive.index).cloned() else {
+        let Some(usage) = self.model.usages.get(directive.index).cloned() else {
             return;
         };
         let Some(name) = usage.name.clone() else {
@@ -91,7 +91,7 @@ impl SourcePreprocModelBuilder {
         &mut self,
         directive: &SourcePreprocEventRecord,
     ) {
-        let Some(conditional) = self.model.index.conditionals.get(directive.index).cloned() else {
+        let Some(conditional) = self.model.conditionals.get(directive.index).cloned() else {
             return;
         };
         let event_id = conditional.event_id;

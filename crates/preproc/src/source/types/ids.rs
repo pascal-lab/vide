@@ -1,5 +1,5 @@
 use smol_str::SmolStr;
-pub use syntax::preproc::{MacroCallId, MacroDefinitionId, MacroExpansionId};
+pub use syntax::preproc::{EventId, MacroCallId, MacroDefinitionId, MacroExpansionId};
 use utils::line_index::{TextRange, TextSize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -64,5 +64,11 @@ impl SourcePreprocEventId {
 impl From<u32> for PreprocSourceId {
     fn from(value: u32) -> Self {
         Self::new(value)
+    }
+}
+
+impl From<EventId> for SourcePreprocEventId {
+    fn from(value: EventId) -> Self {
+        Self(value.0)
     }
 }

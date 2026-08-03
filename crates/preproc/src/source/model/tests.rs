@@ -47,7 +47,7 @@ fn source_model(
 
 fn source_by_path_suffix(model: &SourcePreprocModel, suffix: &str) -> PreprocSourceId {
     model
-        .sources()
+        .sources
         .iter()
         .find(|source| {
             matches!(source.origin, PreprocSourceOrigin::Included { .. })

@@ -1,23 +1,12 @@
 use syntax::preproc::Trace;
 
-use super::{tables::*, types::*};
+use super::{tables::*, trace::collect_model, types::*};
 
 impl SourcePreprocModel {
-    pub fn new(index: SourcePreprocIndex) -> Self {
-        SourcePreprocModelBuilder::new(index).build()
-    }
-
+    /// Build the model in a single pass from the slang preprocessor trace.
     pub fn from_trace(trace: Trace) -> Result<Self, SourcePreprocError> {
-        let index = SourcePreprocIndex::from_trace(trace)?;
-        Ok(Self::new(index))
-    }
-
-    pub fn index(&self) -> &SourcePreprocIndex {
-        &self.index
-    }
-
-    pub fn into_index(self) -> SourcePreprocIndex {
-        self.index
+        let model = collect_model(trace)?;
+        Ok(SourcePreprocModelBuilder::new(model).build())
     }
 
     pub fn macro_definitions(&self) -> &SourceMacroDefinitionTable {
@@ -46,38 +35,6 @@ impl SourcePreprocModel {
 
     pub fn include_graph(&self) -> &SourceIncludeGraph {
         &self.include_graph
-    }
-
-    pub fn state_timeline(&self) -> &SourceMacroStateTimeline {
-        &self.state_timeline
-    }
-
-    pub fn root_source(&self) -> Option<PreprocSourceId> {
-        self.index.root_source
-    }
-
-    pub fn sources(&self) -> &[PreprocSource] {
-        &self.index.sources
-    }
-
-    pub fn defines(&self) -> &[SourceMacroDefine] {
-        &self.index.defines
-    }
-
-    pub fn undefs(&self) -> &[SourceMacroUndef] {
-        &self.index.undefs
-    }
-
-    pub fn usages(&self) -> &[SourceMacroUsage] {
-        &self.index.usages
-    }
-
-    pub fn includes(&self) -> &[SourceMacroInclude] {
-        &self.index.includes
-    }
-
-    pub fn conditionals(&self) -> &[SourceMacroConditional] {
-        &self.index.conditionals
     }
 
     pub fn inactive_ranges(&self) -> &[SourceRange] {
@@ -109,26 +66,6 @@ impl SourcePreprocModel {
             }),
             Err(reason) => Err(reason.clone()),
         }
-    }
-
-    pub fn define(&self, index: usize) -> Option<&SourceMacroDefine> {
-        self.index.defines.get(index)
-    }
-
-    pub fn undef(&self, index: usize) -> Option<&SourceMacroUndef> {
-        self.index.undefs.get(index)
-    }
-
-    pub fn usage(&self, index: usize) -> Option<&SourceMacroUsage> {
-        self.index.usages.get(index)
-    }
-
-    pub fn include(&self, index: usize) -> Option<&SourceMacroInclude> {
-        self.index.includes.get(index)
-    }
-
-    pub fn conditional(&self, index: usize) -> Option<&SourceMacroConditional> {
-        self.index.conditionals.get(index)
     }
 
     fn definitions_for_state(&self, state: &SourceMacroState) -> Vec<&SourceMacroDefinition> {

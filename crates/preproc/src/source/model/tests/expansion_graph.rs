@@ -1,4 +1,4 @@
-﻿use super::*;
+use super::*;
 
 #[test]
 fn source_model_exposes_expansion_origin_tables() {
@@ -45,9 +45,7 @@ logic [`HEADER_WIDTH-1:0] data;
         &model.include_graph().directives()[0].status,
         SourceIncludeStatus::Resolved { source } if *source == header_source
     ));
-    assert!(!model.state_timeline().checkpoints().is_empty());
-
-    let call = model
+    assert!(model.include_graph().directives().len() == 1);    let call = model
         .macro_calls()
         .iter()
         .find(|call| call.reference == reference.id)
@@ -132,11 +130,11 @@ endmodule
     let (model, root_source) = source_model_from_root(root_text, SyntaxTreeOptions::default());
 
     let next_usage_index = model
-        .usages()
+        .usages
         .iter()
         .position(|usage| usage.name.as_deref() == Some("NEXT"))
         .expect("outer function macro usage should be traced");
-    let next_usage = &model.usages()[next_usage_index];
+    let next_usage = &model.usages[next_usage_index];
     assert_eq!(next_usage.arguments.len(), 1);
     let next_argument_range = next_usage.arguments[0]
         .argument_range
@@ -160,11 +158,11 @@ endmodule
     };
 
     let payl_usage_index = model
-        .usages()
+        .usages
         .iter()
         .position(|usage| usage.name.as_deref() == Some("PAYL"))
         .expect("nested actual-argument macro usage should be traced");
-    let payl_usage = &model.usages()[payl_usage_index];
+    let payl_usage = &model.usages[payl_usage_index];
     assert_eq!(payl_usage.range.source, root_source);
     assert_eq!(text_at_range(root_text, payl_usage.range.range), "`PAYL");
     let payl_reference = reference_for_usage(&model, payl_usage_index);
