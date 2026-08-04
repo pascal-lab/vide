@@ -6,7 +6,7 @@ use syntax::{
 };
 use utils::line_index::{TextRange, TextSize};
 
-use super::{super::SourceMacroReferenceSite, *};
+use super::*;
 
 const ROOT_PATH: &str = "sample/rtl/top.sv";
 const HEADER_PATH: &str = "sample/include/defs.vh";

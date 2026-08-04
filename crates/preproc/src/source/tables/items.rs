@@ -1,13 +1,5 @@
 use super::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SourceMacroReferenceSite {
-    Usage { usage_index: usize },
-    ConditionalToken { conditional_index: usize, token_index: usize },
-    IncludeGuardIfNDef { conditional_index: usize, token_index: usize },
-    MacroBodyToken { call: SourceMacroCallId, token_index: usize },
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroDefinition {
     pub id: SourceMacroDefinitionId,
@@ -24,7 +16,6 @@ pub struct SourceMacroDefinition {
 pub struct SourceMacroReference {
     pub id: SourceMacroReferenceId,
     pub event_id: SourcePreprocEventId,
-    pub site: SourceMacroReferenceSite,
     pub name: SmolStr,
     pub name_range: SourceRange,
     pub directive_range: SourceRange,

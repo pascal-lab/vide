@@ -10,8 +10,7 @@ mod types;
 pub use tables::{
     SourceIncludeDirective, SourceIncludeDirectiveId, SourceIncludeStatus, SourceMacroArgument,
     SourceMacroCall, SourceMacroCallId, SourceMacroDefinition, SourceMacroDefinitionId,
-    SourceMacroReference, SourceMacroReferenceId, SourceMacroReferenceSite, SourceMacroResolution,
-    SourcePreprocUnavailable,
+    SourceMacroReference, SourceMacroReferenceId, SourceMacroResolution, SourcePreprocUnavailable,
 };
 pub use types::{
     MacroIncludeTarget, PreprocSourceId, SourceMacroParam, SourcePosition, SourcePreprocError,

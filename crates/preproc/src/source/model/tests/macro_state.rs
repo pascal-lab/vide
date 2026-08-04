@@ -91,8 +91,10 @@ logic [`HEADER_WIDTH-1:0] data;
         .filter(|definition| definition.name == "HEADER_WIDTH")
         .collect::<Vec<_>>();
     assert_eq!(definitions.len(), 2);
-    let header_definition =
-        definitions.iter().find(|definition| definition.name_range.source == header_source).unwrap();
+    let header_definition = definitions
+        .iter()
+        .find(|definition| definition.name_range.source == header_source)
+        .unwrap();
     assert_eq!(header_definition.body_tokens[0].value.as_str(), "8");
     let root_definition =
         definitions.iter().find(|definition| definition.name_range.source == root_source).unwrap();
@@ -176,9 +178,7 @@ logic [`HEADER_WIDTH-1:0] data;
         .macro_references()
         .iter()
         .find(|reference| {
-            matches!(reference.site, SourceMacroReferenceSite::Usage { .. })
-                && reference.name == "HEADER_WIDTH"
-                && reference.directive_range.source == root_source
+            reference.name == "HEADER_WIDTH" && reference.directive_range.source == root_source
         })
         .expect("root macro usage should be traced");
     assert_eq!(reference.name_range.source, root_source);
