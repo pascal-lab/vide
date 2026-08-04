@@ -27,7 +27,7 @@ use crate::{
     diagnostics,
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},
-    folding_ranges::{self, Fold, FoldingConfig},
+    folding_ranges::{self, Fold},
     formatting::{self, FmtConfig},
     goto_declaration, goto_definition,
     hover::{self, HoverConfig},
@@ -286,12 +286,8 @@ impl Analysis {
         self.with_db(|db| selection_ranges::selection_ranges(db, position))
     }
 
-    pub fn folding_ranges(
-        &self,
-        file_id: FileId,
-        config: &FoldingConfig,
-    ) -> Cancellable<Vec<Fold>> {
-        self.with_db(|db| folding_ranges::folding_ranges(db, file_id, config))
+    pub fn folding_ranges(&self, file_id: FileId) -> Cancellable<Vec<Fold>> {
+        self.with_db(|db| folding_ranges::folding_ranges(db, file_id))
     }
 
     pub fn hover(

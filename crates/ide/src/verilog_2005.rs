@@ -33,7 +33,6 @@ use crate::{
     db::root_db::RootDb,
     document_highlight::DocumentHighlightConfig,
     document_symbols::DocumentSymbol,
-    folding_ranges::FoldingConfig,
     hover::{HoverConfig, HoverFormat},
     references::{ReferencesConfig, search::SearchScope},
     rename::{RenameConfig, RenameEditScope, RenameError},
@@ -409,7 +408,7 @@ fn verilog_2005_feature_matrix_lsp_requests_do_not_panic() {
         }
 
         let folds = analysis
-            .folding_ranges(file_id, &FoldingConfig { line_fold_only: false })
+            .folding_ranges(file_id)
             .unwrap_or_else(|_| panic!("folding ranges cancelled for {path:?}"));
         writeln!(&mut report, "folding_ranges: {}", folds.len()).unwrap();
         for fold in folds {

@@ -1,5 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 420
 expression: report
 ---
 ## assignments/continuous_and_procedural.v
@@ -77,15 +78,17 @@ document_symbols:
     in_wire NetDecl container=Some("explicit_ansi_port")
 semantic_token_classes:
   Port(Others) SemaTokenModifier(0x0): 10
-folding_ranges: 8
+folding_ranges: 10
   Comment 0..120
   PortList 140..205
   Module 207..404
+  Declaration 211..299
   Stmt 312..394
   Block 327..394
   Module 406..492
   PortList 520..570
   Module 572..618
+  Declaration 576..608
 
 ## expressions/operators_selects_concat.v
 parse_diagnostics: []
@@ -219,10 +222,14 @@ document_symbols:
     add1 Fn container=Some("tasks_functions")
 semantic_token_classes:
   Port(Others) SemaTokenModifier(0x0): 3
-folding_ranges: 5
+folding_ranges: 9
   Comment 0..80
   PortList 105..150
   Module 152..446
+  Subroutine 156..255
+  Block 203..243
+  Subroutine 261..383
+  Block 317..367
   Stmt 396..436
   Block 399..436
 

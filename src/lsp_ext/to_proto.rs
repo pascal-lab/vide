@@ -8,7 +8,7 @@ use ide::{
     code_lens::{CodeLens, CodeLensKind},
     diagnostics as ide_diagnostics,
     document_highlight::DocumentHighlight,
-    folding_ranges::{Fold, FoldingConfig},
+    folding_ranges::Fold,
     hover::HoverFormat,
     inlay_hint::{InlayHint, InlayKind},
     markup::Markup,
@@ -485,8 +485,8 @@ pub(crate) fn selection_ranges(
 pub(crate) fn folding_range(
     text: &str,
     line_info: &LineInfo,
-    FoldingConfig { line_fold_only }: &FoldingConfig,
-    Fold { range, kind, collapsed_text }: Fold,
+    line_fold_only: bool,
+    Fold { range, kind }: Fold,
 ) -> lsp_types::FoldingRange {
     use ide::folding_ranges::FoldKind;
     let kind = match kind {
@@ -498,7 +498,7 @@ pub(crate) fn folding_range(
 
     let lsp_types::Range { start, end } = self::range(line_info, range);
 
-    if *line_fold_only {
+    if line_fold_only {
         // Clients with `line_folding_only` will fold the whole end line even if
         // it contains text not in the folding range. So we should exclude the end
         // line if there is more text after the end character on the same line.
@@ -515,7 +515,7 @@ pub(crate) fn folding_range(
             end_line,
             end_character: None,
             kind,
-            collapsed_text,
+            collapsed_text: None,
         }
     } else {
         lsp_types::FoldingRange {
@@ -524,7 +524,7 @@ pub(crate) fn folding_range(
             end_line: end.line,
             end_character: Some(end.character),
             kind,
-            collapsed_text,
+            collapsed_text: None,
         }
     }
 }

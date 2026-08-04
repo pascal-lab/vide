@@ -1,6 +1,13 @@
 ---
 source: crates/ide/src/selection_ranges.rs
+assertion_line: 248
 expression: report
 ---
 empty file: [0..0]
-trivia-only line comment: [3..3, 0..8, 0..8]
+trivia-only line comment: [3..3, 0..8]
+line comment in module: [15..15, 12..27, 11..28, 11..37, 0..37, 0..38]
+directive line: [14..14, 12..18, 11..41, 11..50, 0..50, 0..51]
+inactive branch body: [28..28, 25..33, 11..41, 11..50, 0..50, 0..51]
+directive continuation: [17..17, 12..18, 11..41, 11..50, 0..50, 0..51]
+in begin block: [30..30, 26..31, 26..48, 14..48, 0..58, 0..59]
+at token boundary: [31..31, 30..31, 14..31, 0..41, 0..42]
