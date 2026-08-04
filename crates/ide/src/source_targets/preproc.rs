@@ -1,7 +1,7 @@
 use base_db::source_db::SourceDb;
 use preproc_expand::{
     db::PreprocDb,
-    macro_file::{ExpansionSourceHit, MacroFileId, Origin, SourceEmittedTokenId},
+    macro_file::{ExpansionSourceHit, MacroFileId, Origin, SourceEmittedTokenId, macro_files_at_offset},
 };
 use syntax::{SyntaxElement, SyntaxNode, SyntaxTokenWithParent, TokenKind, WalkEvent};
 use utils::line_index::{TextRange, TextSize, covering_range};
@@ -9,7 +9,7 @@ use vfs::FileId;
 
 use super::{
     PreprocTokenHit, SourceTarget, SourceTargetAlternatives, SourceTargetBlock,
-    SourceTargetProviderResult, SourceTargetRequestCache, SourceTargetResolution,
+    SourceTargetProviderResult, SourceTargetResolution,
     macro_gate::source_macro_invocation_may_cover_offset, normal_syntax_source_target_at_offset,
 };
 use crate::db::root_db::RootDb;
@@ -20,13 +20,12 @@ pub(super) fn preproc_source_target_at_offset<'tree>(
     root: SyntaxNode<'tree>,
     offset: TextSize,
     precedence: &impl Fn(TokenKind) -> usize,
-    cache: &mut SourceTargetRequestCache,
 ) -> SourceTargetProviderResult<'tree> {
     if !source_macro_invocation_may_cover_offset(db.file_text(file_id).as_ref(), offset) {
         return SourceTargetProviderResult::NotApplicable;
     }
 
-    let macro_files = cache.macro_files_at_offset(db, file_id, offset);
+    let macro_files = macro_files_at_offset(db, file_id, offset);
     if macro_files.is_empty() {
         return SourceTargetProviderResult::NotApplicable;
     }
