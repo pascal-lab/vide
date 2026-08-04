@@ -1,11 +1,33 @@
 use super::*;
+use crate::macro_file::SourceEmittedTokenId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourcePreprocQueryError {
     UnsupportedFileKind(SourceFileKind),
     TraceUnavailable,
     Model(SourcePreprocError),
-    UnmappedSource { buffer_id: u32, path: String },
+    /// A source range could not be mapped back to a user-facing file.
+    SourceUnavailable(SourcePreprocUnavailable),
+    /// No source mapping exists for the source id.
+    MissingSource {
+        source: PreprocSourceId,
+    },
+    /// The mapped range exceeds the mapped file's text length.
+    RangeOutOfBounds {
+        source: PreprocSourceId,
+        range: TextRange,
+        mapped_range: TextRange,
+        text_len: usize,
+    },
+    /// A virtual source (e.g. predefine display file) has no user-facing file.
+    DisplayOnlyVirtualSource {
+        path: VfsPath,
+        origin: PreprocVirtualOrigin,
+    },
+    /// A macro expansion emitted fewer tokens than its recorded range claims.
+    MissingEmittedToken {
+        token: SourceEmittedTokenId,
+    },
 }
 
 pub fn workspace_preproc_model_file_ids(
@@ -40,15 +62,10 @@ pub fn workspace_preproc_model_file_ids(
         if db.file_is_project_ignored(candidate) {
             continue;
         }
-        if !matches!(db.file_kind(candidate), SourceFileKind::IncludeHeader) {
+        if !plan.is_include_header_in_include_paths(db, candidate) {
             continue;
         }
-        let Some(path) = db.file_path(candidate) else {
-            continue;
-        };
-        if plan.include_dirs.iter().any(|include_dir| path.starts_with(include_dir)) {
-            file_ids.insert(candidate);
-        }
+        file_ids.insert(candidate);
     }
 
     let mut file_ids = file_ids.into_iter().collect::<Vec<_>>();

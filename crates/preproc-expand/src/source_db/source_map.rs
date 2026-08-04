@@ -1,18 +1,28 @@
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceEntry {
+    pub mapping: PreprocSourceMapping,
+    pub text_len: usize,
+    pub range_offset: usize,
+    pub manifest_source: Option<PreprocManifestSource>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PreprocSourceMap {
-    entries: FxHashMap<PreprocSourceId, PreprocSourceMapping>,
-    predefine_sources: FxHashMap<PreprocSourceId, PreprocManifestSource>,
-    text_lengths: FxHashMap<PreprocSourceId, usize>,
-    range_offsets: FxHashMap<PreprocSourceId, usize>,
+    entries: FxHashMap<PreprocSourceId, SourceEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreprocSourceMapping {
     RealFile(FileId),
-    VirtualFile { file_id: FileId, path: VfsPath, origin: PreprocVirtualOrigin },
-    VirtualDisplay { path: VfsPath, origin: PreprocVirtualOrigin },
+    /// `file_id: None` is a display-only virtual source (e.g. the predefine
+    /// buffer) that has no user-facing file.
+    VirtualFile {
+        file_id: Option<FileId>,
+        path: VfsPath,
+        origin: PreprocVirtualOrigin,
+    },
     Unmapped(SourcePreprocUnavailable),
 }
 
@@ -25,36 +35,7 @@ pub struct PreprocManifestSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreprocVirtualOrigin {
     Predefines { profile: Option<CompilationProfileId> },
-    Builtin { name: SmolStr },
     ExternalIncludeBuffer { source: PreprocSourceId },
-    Speculative { universe: PreprocSpeculativeUniverseId },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PreprocSpeculativeUniverseId(pub u32);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PreprocSourceMapError {
-    MissingSource {
-        source: PreprocSourceId,
-    },
-    UnmappedSource {
-        source: PreprocSourceId,
-        reason: SourcePreprocUnavailable,
-    },
-    RangeOutOfBounds {
-        source: PreprocSourceId,
-        range: TextRange,
-        mapped_range: TextRange,
-        text_len: usize,
-    },
-    MissingEmittedToken {
-        token: crate::macro_file::SourceEmittedTokenId,
-    },
-    DisplayOnlyVirtualSource {
-        path: VfsPath,
-        origin: PreprocVirtualOrigin,
-    },
 }
 
 mod mapping;
