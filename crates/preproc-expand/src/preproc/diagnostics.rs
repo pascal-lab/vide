@@ -8,21 +8,11 @@ pub fn diagnostic_target_for_range(
     let mut targets = UniqVec::<DiagnosticTarget, ()>::default();
     let mut covered = false;
     let mut ambiguous_targets = 0;
-    let mut first_error = None;
-    let contexts = source_preproc_single_query_contexts(db, file_id);
-
-    for model_file_id in contexts.model_file_ids.iter().copied() {
-        let mapped = db.source_preproc_model(model_file_id);
-        let mapped = match mapped_result(mapped.as_ref()) {
-            Ok(mapped) => mapped,
-            Err(error) => {
-                record_first_error(&mut first_error, error);
-                continue;
-            }
-        };
+    let mut query = ContextQuery::new(db, file_id);
+    query.for_each_model(db, |model_file_id, mapped| {
         let source_calls = source_macro_calls_intersecting_range(mapped, file_id, range);
         match source_calls.as_slice() {
-            [] => continue,
+            [] => {}
             [source_call] => {
                 covered = true;
                 if let Some(target) =
@@ -36,7 +26,8 @@ pub fn diagnostic_target_for_range(
                 ambiguous_targets += source_calls.len();
             }
         }
-    }
+        Ok(())
+    });
 
     if ambiguous_targets > 0 {
         return Ok(DiagnosticTargetResult::covered(None));
@@ -50,7 +41,7 @@ pub fn diagnostic_target_for_range(
     if covered {
         return Ok(DiagnosticTargetResult::covered(None));
     }
-    finish_empty_single_query(&contexts, first_error)?;
+    query.finish_empty(false)?;
 
     Ok(DiagnosticTargetResult::uncovered())
 }

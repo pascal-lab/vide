@@ -68,6 +68,51 @@ pub(in crate::preproc) fn record_first_error(
     }
 }
 
+/// Iterates the model files covering a query file, collecting per-model errors
+/// into a first-error slot. The caller's `f` may use `?` freely: the error is
+/// recorded and iteration continues with the next model, matching the
+/// per-context degradation semantics of preproc queries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::preproc) struct ContextQuery {
+    contexts: SourcePreprocQueryContexts,
+    first_error: Option<PreprocError>,
+}
+
+impl ContextQuery {
+    pub(in crate::preproc) fn new(db: &dyn PreprocDb, file_id: FileId) -> Self {
+        Self { contexts: source_preproc_single_query_contexts(db, file_id), first_error: None }
+    }
+
+    pub(in crate::preproc) fn for_each_model(
+        &mut self,
+        db: &dyn PreprocDb,
+        mut f: impl FnMut(FileId, &MappedSourcePreprocModel) -> PreprocResult<()>,
+    ) {
+        for model_file_id in self.contexts.model_file_ids.iter().copied() {
+            let mapped = db.source_preproc_model(model_file_id);
+            let mapped = match mapped_result(mapped.as_ref()) {
+                Ok(mapped) => mapped,
+                Err(error) => {
+                    record_first_error(&mut self.first_error, error);
+                    continue;
+                }
+            };
+            if let Err(error) = f(model_file_id, mapped) {
+                record_first_error(&mut self.first_error, error);
+            }
+        }
+    }
+
+    /// Applies the empty-result error policy: recorded errors surface only
+    /// when the query produced no results.
+    pub(in crate::preproc) fn finish_empty(self, has_result: bool) -> PreprocResult<()> {
+        if has_result {
+            return Ok(());
+        }
+        finish_empty_single_query(&self.contexts, self.first_error)
+    }
+}
+
 pub(in crate::preproc) trait PreprocSingleExt<T> {
     fn into_single_or_none<F>(self, ambiguous: F) -> PreprocResult<Option<T>>
     where

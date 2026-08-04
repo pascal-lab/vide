@@ -9,35 +9,17 @@ pub fn visible_macros_at(
     offset: TextSize,
 ) -> PreprocResult<Vec<MacroDefinition>> {
     let mut definitions = UniqVec::<MacroDefinition, MacroDefinitionKey>::default();
-    let mut first_error = None;
-    let contexts = source_preproc_single_query_contexts(db, file_id);
-    for model_file_id in contexts.model_file_ids.iter().copied() {
-        let mapped = db.source_preproc_model(model_file_id);
-        let mapped = match mapped_result(mapped.as_ref()) {
-            Ok(mapped) => mapped,
-            Err(error) => {
-                record_first_error(&mut first_error, error);
-                continue;
-            }
-        };
-
+    let mut query = ContextQuery::new(db, file_id);
+    query.for_each_model(db, |_model_file_id, mapped| {
         for position in mapped.source_map.source_positions_for_file_offset(file_id, offset) {
             for definition in mapped.model.visible_macros_at(position) {
-                match map_macro_definition(mapped, definition) {
-                    Ok(definition) => {
-                        definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
-                    }
-                    Err(error) => record_first_error(&mut first_error, error),
-                }
+                let definition = map_macro_definition(mapped, definition)?;
+                definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
             }
         }
-    }
-
-    if definitions.is_empty()
-        && let Err(error) = finish_empty_single_query(&contexts, first_error)
-    {
-        return Err(error);
-    }
+        Ok(())
+    });
+    query.finish_empty(!definitions.is_empty())?;
 
     Ok(definitions.into_vec())
 }
@@ -63,25 +45,22 @@ pub fn macro_definition_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroDefinition>> {
-    let mut first_error = None;
-    let contexts = source_preproc_single_query_contexts(db, file_id);
-    for model_file_id in contexts.model_file_ids.iter().copied() {
-        let mapped = db.source_preproc_model(model_file_id);
-        let mapped = match mapped_result(mapped.as_ref()) {
-            Ok(mapped) => mapped,
-            Err(error) => {
-                record_first_error(&mut first_error, error);
-                continue;
-            }
-        };
-
+    let mut first = None;
+    let mut query = ContextQuery::new(db, file_id);
+    query.for_each_model(db, |_model_file_id, mapped| {
         for definition in mapped.model.macro_definitions().iter() {
             let mapped_definition = map_macro_definition(mapped, definition)?;
             if mapped_definition.file_id == file_id && mapped_definition.name_range.contains(offset)
             {
-                return Ok(Some(mapped_definition));
+                first = Some(mapped_definition);
+                break;
             }
         }
+        Ok(())
+    });
+
+    if first.is_some() {
+        return Ok(first);
     }
 
     if let Some(definition) = configured_predefine_definitions_at(db, file_id, offset)?
@@ -93,7 +72,7 @@ pub fn macro_definition_at(
         return Ok(Some(definition));
     }
 
-    finish_empty_single_query(&contexts, first_error)?;
+    query.finish_empty(false)?;
 
     Ok(None)
 }
@@ -114,19 +93,8 @@ pub fn macro_param_definitions_at(
     offset: TextSize,
 ) -> PreprocResult<Vec<MacroParamDefinition>> {
     let mut definitions = UniqVec::<MacroParamDefinition, MacroParamDefinitionKey>::default();
-    let mut first_error = None;
-    let contexts = source_preproc_single_query_contexts(db, file_id);
-
-    for model_file_id in contexts.model_file_ids.iter().copied() {
-        let mapped = db.source_preproc_model(model_file_id);
-        let mapped = match mapped_result(mapped.as_ref()) {
-            Ok(mapped) => mapped,
-            Err(error) => {
-                record_first_error(&mut first_error, error);
-                continue;
-            }
-        };
-
+    let mut query = ContextQuery::new(db, file_id);
+    query.for_each_model(db, |_model_file_id, mapped| {
         for definition in mapped.model.macro_definitions().iter() {
             let Some(params) = &definition.params else {
                 continue;
@@ -145,13 +113,9 @@ pub fn macro_param_definitions_at(
                 }
             }
         }
-    }
-
-    if definitions.is_empty()
-        && let Err(error) = finish_empty_single_query(&contexts, first_error)
-    {
-        return Err(error);
-    }
+        Ok(())
+    });
+    query.finish_empty(!definitions.is_empty())?;
 
     Ok(definitions.into_vec())
 }
@@ -164,19 +128,8 @@ pub fn macro_param_reference_definitions_at(
     let mut definitions = UniqVec::<MacroParamDefinition, MacroParamDefinitionKey>::default();
     let mut references = UniqVec::<MacroParamReference, MacroParamReferenceKey>::default();
     let mut query_range = None;
-    let mut first_error = None;
-    let contexts = source_preproc_single_query_contexts(db, file_id);
-
-    for model_file_id in contexts.model_file_ids.iter().copied() {
-        let mapped = db.source_preproc_model(model_file_id);
-        let mapped = match mapped_result(mapped.as_ref()) {
-            Ok(mapped) => mapped,
-            Err(error) => {
-                record_first_error(&mut first_error, error);
-                continue;
-            }
-        };
-
+    let mut query = ContextQuery::new(db, file_id);
+    query.for_each_model(db, |_model_file_id, mapped| {
         for definition in mapped.model.macro_definitions().iter() {
             let Some(params) = &definition.params else {
                 continue;
@@ -185,15 +138,11 @@ pub fn macro_param_reference_definitions_at(
                 let Some(token_range) = token.range else {
                     continue;
                 };
-                let (_, range) =
-                    match source_mapping_range_at_offset(mapped, token_range, file_id, offset) {
-                        Ok(Some(hit)) => hit,
-                        Ok(None) => continue,
-                        Err(error) => {
-                            record_first_error(&mut first_error, error);
-                            continue;
-                        }
-                    };
+                let Some((_, range)) =
+                    source_mapping_range_at_offset(mapped, token_range, file_id, offset)?
+                else {
+                    continue;
+                };
 
                 for (param_index, param) in params.iter().enumerate() {
                     if param.name.as_ref() != Some(&token.value) {
@@ -218,10 +167,11 @@ pub fn macro_param_reference_definitions_at(
                 }
             }
         }
-    }
+        Ok(())
+    });
 
     let Some(range) = query_range else {
-        finish_empty_single_query(&contexts, first_error)?;
+        query.finish_empty(false)?;
         return Ok(None);
     };
 

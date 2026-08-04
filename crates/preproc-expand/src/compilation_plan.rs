@@ -41,6 +41,19 @@ pub enum IncludeScanIssueReason {
 }
 
 impl CompilationPlan {
+    /// Whether a file should be made available to slang as an include buffer:
+    /// include headers reachable through the configured include paths.
+    pub fn is_include_header_in_include_paths(
+        &self,
+        db: &dyn SourceRootDb,
+        file_id: FileId,
+    ) -> bool {
+        matches!(db.file_kind(file_id), SourceFileKind::IncludeHeader)
+            && db.file_path(file_id).is_some_and(|path| {
+                self.include_dirs.iter().any(|include_dir| path.starts_with(include_dir))
+            })
+    }
+
     pub fn for_source_root(db: &dyn SourceRootDb, source_root_id: SourceRootId) -> Self {
         let project_config = db.project_config();
         let profile_id = project_config.profile_for_root(source_root_id);
@@ -121,11 +134,7 @@ fn include_buffers_for_plan_with_roots(
             continue;
         }
 
-        let include_header_in_include_path =
-            matches!(db.file_kind(file_id), SourceFileKind::IncludeHeader)
-                && db.file_path(file_id).is_some_and(|path| {
-                    plan.include_dirs.iter().any(|include_dir| path.starts_with(include_dir))
-                });
+        let include_header_in_include_path = plan.is_include_header_in_include_paths(db, file_id);
         let semantic_root = root_files.contains(&file_id)
             && matches!(db.file_kind(file_id), SourceFileKind::SystemVerilog);
         if !semantic_root
