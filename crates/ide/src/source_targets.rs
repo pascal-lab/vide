@@ -1,7 +1,4 @@
-use preproc_expand::macro_file::{
-    MacroFileId, Origin, SourceEmittedTokenId, macro_files_at_offset,
-};
-use rustc_hash::FxHashMap;
+use preproc_expand::macro_file::{Origin, SourceEmittedTokenId};
 use syntax::{
     SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, has_text_range::HasTextRange,
 };
@@ -59,14 +56,7 @@ impl<'tree> SourceTarget<'tree> {
     }
 
     pub(crate) fn into_parts(self) -> (TextRange, Vec<SyntaxTokenWithParent<'tree>>) {
-        let Self { origin, range, tokens } = self;
-        match origin {
-            SourceTargetOrigin::NormalSyntax => (range, tokens),
-            SourceTargetOrigin::Preproc { hits } => {
-                let _hit_count = hits.len();
-                (range, tokens)
-            }
-        }
+        (self.range, self.tokens)
     }
 
     pub(crate) fn into_tokens(self) -> Vec<SyntaxTokenWithParent<'tree>> {
@@ -144,35 +134,6 @@ pub(crate) enum SourceTargetBlockReason {
     Ambiguous { hits: Vec<PreprocTokenHit> },
 }
 
-#[derive(Debug, Default)]
-pub(crate) struct SourceTargetRequestCache {
-    macro_files_by_offset: FxHashMap<(FileId, TextSize), Vec<MacroFileId>>,
-}
-
-impl SourceTargetRequestCache {
-    fn macro_files_at_offset(
-        &mut self,
-        db: &RootDb,
-        file_id: FileId,
-        offset: TextSize,
-    ) -> Vec<MacroFileId> {
-        self.macro_files_by_offset
-            .entry((file_id, offset))
-            .or_insert_with(|| macro_files_at_offset(db, file_id, offset))
-            .clone()
-    }
-
-    #[cfg(test)]
-    fn macro_files_at_offset_with(
-        &mut self,
-        file_id: FileId,
-        offset: TextSize,
-        compute: impl FnOnce() -> Vec<MacroFileId>,
-    ) -> Vec<MacroFileId> {
-        self.macro_files_by_offset.entry((file_id, offset)).or_insert_with(compute).clone()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PreprocTokenHit {
     pub expansion: usize,
@@ -193,22 +154,7 @@ pub(crate) fn source_target_at_offset<'tree, F>(
 where
     F: Fn(TokenKind) -> usize,
 {
-    let mut cache = SourceTargetRequestCache::default();
-    source_target_at_offset_with_cache(db, file_id, root, offset, precedence, &mut cache)
-}
-
-pub(crate) fn source_target_at_offset_with_cache<'tree, F>(
-    db: &RootDb,
-    file_id: FileId,
-    root: SyntaxNode<'tree>,
-    offset: TextSize,
-    precedence: F,
-    cache: &mut SourceTargetRequestCache,
-) -> Option<SourceTargetResolution<'tree>>
-where
-    F: Fn(TokenKind) -> usize,
-{
-    match preproc_source_target_at_offset(db, file_id, root, offset, &precedence, cache) {
+    match preproc_source_target_at_offset(db, file_id, root, offset, &precedence) {
         SourceTargetProviderResult::NotApplicable => {
             normal_syntax_source_target_at_offset(root, offset, &precedence).into_resolution()
         }

@@ -7,7 +7,6 @@ use utils::line_index::covering_range;
 
 use super::*;
 
-mod cache;
 mod macro_gate;
 
 #[test]
