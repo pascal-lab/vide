@@ -56,11 +56,9 @@ impl SourcePreprocModelBuilder {
             .source;
         match self.source_is_reachable(definition_source) {
             true => SourceMacroResolution::Resolved { definition },
-            false => {
-                SourceMacroResolution::Unavailable(SourcePreprocUnavailable::DetachedSource {
-                    source: definition_source,
-                })
-            }
+            false => SourceMacroResolution::Unavailable(SourcePreprocUnavailable::DetachedSource {
+                source: definition_source,
+            }),
         }
     }
 
@@ -150,9 +148,9 @@ impl SourcePreprocModelBuilder {
             .state_timeline
             .states
             .push(SourceMacroState { id, definitions: self.current_state.clone() });
-        self.model.state_timeline.checkpoints.push(SourceMacroStateCheckpoint {
-            source_order,
-            state: id,
-        });
+        self.model
+            .state_timeline
+            .checkpoints
+            .push(SourceMacroStateCheckpoint { source_order, state: id });
     }
 }

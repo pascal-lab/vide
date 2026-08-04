@@ -33,9 +33,7 @@ pub struct SourceMacroReference {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceMacroResolution {
-    Resolved {
-        definition: SourceMacroDefinitionId,
-    },
+    Resolved { definition: SourceMacroDefinitionId },
     Undefined,
     Unavailable(SourcePreprocUnavailable),
 }

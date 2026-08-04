@@ -375,18 +375,14 @@ fn expansion_text_validates_zero_length_range_start() {
     let table_len = trace.emitted_tokens.len();
     let valid_start = SourceEmittedTokenId::new(table_len);
 
-    let valid = expansion_text_for_range(
-        trace,
-        SourceEmittedTokenRange { start: valid_start, len: 0 },
-    );
+    let valid =
+        expansion_text_for_range(trace, SourceEmittedTokenRange { start: valid_start, len: 0 });
 
     assert_eq!(valid, ExpandResult::ok(String::new()));
 
     let invalid_start = SourceEmittedTokenId::new(table_len + 1);
-    let invalid = expansion_text_for_range(
-        trace,
-        SourceEmittedTokenRange { start: invalid_start, len: 0 },
-    );
+    let invalid =
+        expansion_text_for_range(trace, SourceEmittedTokenRange { start: invalid_start, len: 0 });
 
     assert_eq!(invalid.value, "");
     assert_eq!(

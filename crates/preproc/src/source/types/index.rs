@@ -1,7 +1,7 @@
 use super::*;
 use crate::source::tables::{
-    SourceIncludeGraph, SourceMacroCallTable, SourceMacroDefinitionTable, SourceMacroReferenceTable,
-    SourceMacroStateTimeline,
+    SourceIncludeGraph, SourceMacroCallTable, SourceMacroDefinitionTable,
+    SourceMacroReferenceTable, SourceMacroStateTimeline,
 };
 
 /// The source preprocessing model for one parsed file.

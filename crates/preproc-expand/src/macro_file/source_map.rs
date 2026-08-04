@@ -11,9 +11,11 @@ use syntax::{
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
-use super::{ExpandError, ExpandErrorKind, ExpandResult, MacroCallId, MacroCallLoc};
+use super::{
+    ExpandError, ExpandErrorKind, ExpandResult, MacroCallId, MacroCallLoc, SourceEmittedTokenId,
+    SourceEmittedTokenRange,
+};
 use crate::{db::PreprocDb, source_db::PreprocSourceMap};
-use super::{SourceEmittedTokenId, SourceEmittedTokenRange};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {

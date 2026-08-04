@@ -273,12 +273,9 @@ fn include_targets_for_source_roots(
             let MacroIncludeTarget::Literal { path, .. } = &include.target else {
                 continue;
             };
-            if let Some(included_file_id) = resolve_include_target(
-                path.as_str(),
-                &includer_path,
-                include_dirs,
-                &path_file_ids,
-            ) && included.insert(included_file_id)
+            if let Some(included_file_id) =
+                resolve_include_target(path.as_str(), &includer_path, include_dirs, &path_file_ids)
+                && included.insert(included_file_id)
             {
                 pending.push(included_file_id);
             }
@@ -292,7 +289,8 @@ fn literal_include_targets(
     db: &dyn SourceRootDb,
     file_id: FileId,
     predefines: &[String],
-) -> Result<Vec<SourceIncludeDirective>, IncludeScanIssue> {    if !matches!(
+) -> Result<Vec<SourceIncludeDirective>, IncludeScanIssue> {
+    if !matches!(
         db.file_kind(file_id),
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
     ) {

@@ -61,10 +61,7 @@ wire active;
         .expect("include guard token should be modeled as a resolved reference");
     assert_eq!(reference.name.as_str(), "HEADER_FLAG");
     assert_eq!(reference.name_range.source, header_source);
-    assert!(matches!(
-        reference.resolution,
-        SourceMacroResolution::Resolved { .. }
-    ));
+    assert!(matches!(reference.resolution, SourceMacroResolution::Resolved { .. }));
 }
 
 #[test]

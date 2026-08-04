@@ -12,9 +12,7 @@ endmodule
     let db = db_with_nested_files(root_text, header_text, leaf_text);
 
     let definitions =
-        macro_reference_definitions_at(&db, TOP, offset(root_text, "LEAF_WIDTH"))
-            .unwrap()
-            .unwrap();
+        macro_reference_definitions_at(&db, TOP, offset(root_text, "LEAF_WIDTH")).unwrap().unwrap();
 
     assert_eq!(definitions.definitions.len(), 1);
     assert_eq!(definitions.definitions[0].file_id, LEAF);

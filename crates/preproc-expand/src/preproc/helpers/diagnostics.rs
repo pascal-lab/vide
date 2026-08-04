@@ -64,12 +64,7 @@ fn diagnostic_target_for_token(
                 range,
             })
         }
-        TokenOrigin::MacroBody {
-            call_id,
-            definition_id,
-            body_token_range,
-            ..
-        } => {
+        TokenOrigin::MacroBody { call_id, definition_id, body_token_range, .. } => {
             if source_is_predefine(mapped, body_token_range.buffer_id) {
                 return Ok(TokenDiagnosticTarget::Skip);
             }
@@ -88,12 +83,7 @@ fn diagnostic_target_for_token(
                 range,
             })
         }
-        TokenOrigin::MacroArgument {
-            call_id,
-            argument_index,
-            argument_token_range,
-            ..
-        } => {
+        TokenOrigin::MacroArgument { call_id, argument_index, argument_token_range, .. } => {
             let (source, range) = match source_range_from_trace(argument_token_range) {
                 Some(range) => match map_source_mapping_range(mapped, range) {
                     Ok(mapped) => mapped,
@@ -101,7 +91,8 @@ fn diagnostic_target_for_token(
                 },
                 None => return Ok(TokenDiagnosticTarget::Blocked),
             };
-            let file_id = require_file_backed_source(&source)?;            TokenDiagnosticTarget::Target(DiagnosticTarget {
+            let file_id = require_file_backed_source(&source)?;
+            TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::MacroArg {
                     call: hir_macro_call(db, model_file, *call_id),
                     arg_index: usize::try_from(*argument_index).ok().unwrap_or_default(),
@@ -129,9 +120,7 @@ fn diagnostic_target_for_token(
     })
 }
 
-fn source_range_from_trace(
-    range: &syntax::SourceBufferRange,
-) -> Option<SourceRange> {
+fn source_range_from_trace(range: &syntax::SourceBufferRange) -> Option<SourceRange> {
     Some(SourceRange {
         source: PreprocSourceId::from(range.buffer_id),
         range: TextRange::new(

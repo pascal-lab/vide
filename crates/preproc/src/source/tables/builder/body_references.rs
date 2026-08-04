@@ -30,20 +30,14 @@ impl SourcePreprocModelBuilder {
                     self.record_missing_reference_name_range(definition.event_id);
                     continue;
                 };
-                if emitted
-                    .entry(call.id)
-                    .or_default()
-                    .iter()
-                    .any(|(existing_name, existing_range)| {
+                if emitted.entry(call.id).or_default().iter().any(
+                    |(existing_name, existing_range)| {
                         existing_name == &name && *existing_range == name_range
-                    })
-                {
+                    },
+                ) {
                     continue;
                 }
-                emitted
-                    .entry(call.id)
-                    .or_default()
-                    .push((name.clone(), name_range));
+                emitted.entry(call.id).or_default().push((name.clone(), name_range));
                 let resolution =
                     self.resolve_visible_reference_at_position(name.as_str(), call_position);
                 let site = SourceMacroReferenceSite::MacroBodyToken { call: call.id, token_index };

@@ -18,4 +18,3 @@ pub struct SourceIncludeEdge {
     pub include_event_id: super::SourcePreprocEventId,
     pub included_source: super::PreprocSourceId,
 }
-
