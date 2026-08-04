@@ -58,8 +58,6 @@ pub struct SourceMacroUsage {
     pub event_id: SourcePreprocEventId,
     pub trace_call: Option<MacroCallId>,
     pub trace_definition: Option<MacroDefinitionId>,
-    pub trace_expansion: Option<MacroExpansionId>,
-    pub parent_trace_expansion: Option<MacroExpansionId>,
     pub name: Option<SmolStr>,
     pub name_range: Option<SourceRange>,
     pub arguments: Vec<SourceMacroActualArgument>,

@@ -101,45 +101,6 @@ fn visible_macro_definition<'a>(
         .find(|definition| definition.name == name)
 }
 
-fn reference_for_usage(model: &SourcePreprocModel, usage_index: usize) -> &SourceMacroReference {
-    model
-        .macro_references()
-        .iter()
-        .find(|reference| {
-            matches!(
-                reference.site,
-                SourceMacroReferenceSite::Usage {
-                    usage_index: site_usage_index,
-                } if site_usage_index == usage_index
-            )
-        })
-        .expect("usage reference should be in resolved reference table")
-}
-
-fn reference_for_conditional_token(
-    model: &SourcePreprocModel,
-    conditional_index: usize,
-    token_index: usize,
-) -> &SourceMacroReference {
-    model
-        .macro_references()
-        .iter()
-        .find(|reference| {
-            matches!(
-                reference.site,
-                SourceMacroReferenceSite::ConditionalToken {
-                    conditional_index: site_conditional_index,
-                    token_index: site_token_index,
-                } | SourceMacroReferenceSite::IncludeGuardIfNDef {
-                    conditional_index: site_conditional_index,
-                    token_index: site_token_index,
-                } if site_conditional_index == conditional_index
-                    && site_token_index == token_index
-            )
-        })
-        .expect("conditional token reference should be in resolved reference table")
-}
-
 mod include_resolution;
 mod macro_state;
 mod nested_expansion;

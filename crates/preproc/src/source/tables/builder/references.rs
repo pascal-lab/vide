@@ -2,7 +2,7 @@ use super::*;
 
 impl SourcePreprocModelBuilder {
     pub(in crate::source::tables::builder) fn scan_references_and_state(&mut self) {
-        let event_records = self.model.event_records.clone();
+        let event_records = self.event_records.clone();
         for (source_order, directive) in event_records.iter().enumerate() {
             match directive.kind {
                 MacroEventKind::Define => self.apply_define(source_order, directive),
@@ -35,7 +35,7 @@ impl SourcePreprocModelBuilder {
         source_order: usize,
         directive: &SourcePreprocEventRecord,
     ) {
-        let Some(undef) = self.model.undefs.get(directive.index) else {
+        let Some(undef) = self.undefs.get(directive.index) else {
             return;
         };
         if let Some(name) = undef.name.as_ref() {
@@ -48,15 +48,13 @@ impl SourcePreprocModelBuilder {
         &mut self,
         directive: &SourcePreprocEventRecord,
     ) {
-        let Some(usage) = self.model.usages.get(directive.index).cloned() else {
+        let Some(usage) = self.usages.get(directive.index).cloned() else {
             return;
         };
         let Some(name) = usage.name.clone() else {
-            self.record_missing_reference_name(usage.event_id);
             return;
         };
         let Some(name_range) = usage.name_range else {
-            self.record_missing_reference_name_range(usage.event_id);
             return;
         };
         let event_id = usage.event_id;
@@ -82,7 +80,7 @@ impl SourcePreprocModelBuilder {
         &mut self,
         directive: &SourcePreprocEventRecord,
     ) {
-        let Some(conditional) = self.model.conditionals.get(directive.index).cloned() else {
+        let Some(conditional) = self.conditionals.get(directive.index).cloned() else {
             return;
         };
         let event_id = conditional.event_id;
@@ -90,7 +88,6 @@ impl SourcePreprocModelBuilder {
         for (token_index, token) in conditional.expr.iter().enumerate() {
             let name = token.value.clone();
             let Some(name_range) = token.range else {
-                self.record_missing_reference_name_range(event_id);
                 continue;
             };
             let (site, resolution) =

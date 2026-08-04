@@ -1,12 +1,11 @@
 use syntax::preproc::Trace;
 
-use super::{tables::*, trace::collect_model, types::*};
+use super::{tables::*, types::*};
 
 impl SourcePreprocModel {
     /// Build the model in a single pass from the slang preprocessor trace.
     pub fn from_trace(trace: Trace) -> Result<Self, SourcePreprocError> {
-        let model = collect_model(trace)?;
-        Ok(SourcePreprocModelBuilder::new(model).build())
+        Ok(SourcePreprocModelBuilder::collect(trace)?.build())
     }
 
     pub fn macro_definitions(&self) -> &SourceMacroDefinitionTable {

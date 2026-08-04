@@ -6,6 +6,15 @@ use super::*;
 
 pub(in crate::source) struct SourcePreprocModelBuilder {
     model: SourcePreprocModel,
+    /// Raw event projections collected from the trace. Consumed only while
+    /// deriving the resolved tables; they do not survive into the model.
+    event_records: Vec<SourcePreprocEventRecord>,
+    defines: Vec<SourceMacroDefine>,
+    undefs: Vec<SourceMacroUndef>,
+    includes: Vec<SourceMacroInclude>,
+    conditionals: Vec<SourceMacroConditional>,
+    usages: Vec<SourceMacroUsage>,
+    include_edges: Vec<SourceIncludeEdge>,
     definition_ids_by_define_index: BTreeMap<usize, SourceMacroDefinitionId>,
     definitions_by_trace_id: BTreeMap<MacroDefinitionId, SourceMacroDefinitionId>,
     calls_by_trace_id: BTreeMap<MacroCallId, SourceMacroCallId>,
@@ -17,23 +26,9 @@ mod definitions;
 mod references;
 mod resolution;
 mod state;
+mod trace;
 
 impl SourcePreprocModelBuilder {
-    pub(in crate::source) fn new(mut model: SourcePreprocModel) -> Self {
-        model.macro_definitions = SourceMacroDefinitionTable::default();
-        model.macro_references = SourceMacroReferenceTable::default();
-        model.macro_calls = SourceMacroCallTable::default();
-        model.include_graph = SourceIncludeGraph::default();
-        model.state_timeline = SourceMacroStateTimeline::default();
-        Self {
-            model,
-            definition_ids_by_define_index: BTreeMap::new(),
-            definitions_by_trace_id: BTreeMap::new(),
-            calls_by_trace_id: BTreeMap::new(),
-            current_state: BTreeMap::new(),
-        }
-    }
-
     pub(in crate::source) fn build(mut self) -> SourcePreprocModel {
         self.build_tables();
         self.model
@@ -43,22 +38,25 @@ impl SourcePreprocModelBuilder {
         self.build_definition_table();
         self.build_include_graph();
         self.record_position_boundaries();
-        self.record_state_checkpoint(0, SourcePosition::from_first_event(&self.model));
+        self.record_state_checkpoint(0, SourcePosition::from_first_event(&self));
         self.scan_references_and_state();
         self.record_macro_body_references_for_calls();
     }
 }
 
 impl SourcePosition {
-    fn from_first_event(model: &SourcePreprocModel) -> Self {
-        model
+    fn from_first_event(builder: &SourcePreprocModelBuilder) -> Self {
+        builder
             .event_records
             .first()
             .map(|record| SourcePosition {
                 source: record.range.source,
                 offset: record.range.range.start(),
             })
-            .unwrap_or(SourcePosition { source: model.root_source, offset: 0.into() })
+            .unwrap_or(SourcePosition {
+                source: builder.model.root_source,
+                offset: 0.into(),
+            })
     }
 }
 

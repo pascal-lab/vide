@@ -2,7 +2,7 @@ use super::*;
 
 impl SourcePreprocModelBuilder {
     pub(in crate::source::tables::builder) fn build_definition_table(&mut self) {
-        for (define_index, define) in self.model.defines.iter().enumerate() {
+        for (define_index, define) in self.defines.iter().enumerate() {
             let Some(name) = define.name.clone() else {
                 continue;
             };
