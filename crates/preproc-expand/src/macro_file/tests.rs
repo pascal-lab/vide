@@ -231,11 +231,10 @@ fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
         })
         .expect("macro call should be recorded");
 
-    let macro_call = db.intern_macro_call(MacroCallLoc {
+    let macro_file = db.intern_macro_file(MacroCallLoc {
         model_file: TOP,
         trace_call: call.trace_call.expect("macro call should carry slang trace identity"),
     });
-    let macro_file = db.intern_macro_file(MacroFileLoc { call: macro_call });
     let expansion = db.macro_expansion(macro_file);
 
     assert!(expansion.value.text.contains("module"));
@@ -282,8 +281,7 @@ fn macro_files_at_offset_returns_available_expansions() {
     let macro_files = macro_files_at_offset(&db, TOP, offset(root_text, "`DECL"));
 
     assert_eq!(macro_files.len(), 1);
-    let macro_file_loc = db.lookup_intern_macro_file(macro_files[0]);
-    let macro_call_loc = db.lookup_intern_macro_call(macro_file_loc.call);
+    let macro_call_loc = db.lookup_intern_macro_file(macro_files[0]);
     assert_eq!(macro_call_loc.model_file, TOP);
     let expansion = db.macro_expansion(macro_files[0]);
     assert!(expansion.value.text.contains("from_macro"));
@@ -293,8 +291,7 @@ fn macro_files_at_offset_returns_available_expansions() {
 fn macro_expansion_reports_missing_trace_call() {
     let db = db_with_root_text("`define EMPTY\n`EMPTY\n");
     let trace_call = TraceMacroCallId(u32::MAX);
-    let macro_call = db.intern_macro_call(MacroCallLoc { model_file: TOP, trace_call });
-    let macro_file = db.intern_macro_file(MacroFileLoc { call: macro_call });
+    let macro_file = db.intern_macro_file(MacroCallLoc { model_file: TOP, trace_call });
 
     let expansion = db.macro_expansion(macro_file);
 
@@ -310,8 +307,7 @@ fn macro_expansion_reports_preproc_model_failure() {
     let mut db = db_with_root_text("`define EMPTY\n`EMPTY\n");
     db.set_file_kind_with_durability(TOP, SourceFileKind::LibraryMap, Durability::LOW);
     let trace_call = TraceMacroCallId(0);
-    let macro_call = db.intern_macro_call(MacroCallLoc { model_file: TOP, trace_call });
-    let macro_file = db.intern_macro_file(MacroFileLoc { call: macro_call });
+    let macro_file = db.intern_macro_file(MacroCallLoc { model_file: TOP, trace_call });
 
     let expansion = db.macro_expansion(macro_file);
 

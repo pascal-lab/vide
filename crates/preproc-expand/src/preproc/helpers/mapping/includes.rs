@@ -11,5 +11,5 @@ pub(in crate::preproc) fn map_include_resolved_file(
 }
 
 pub(in crate::preproc) fn source_model_error(reason: SourcePreprocUnavailable) -> PreprocError {
-    PreprocError::SourceModel(reason)
+    PreprocError::SourceQuery(SourcePreprocQueryError::SourceUnavailable(reason))
 }

@@ -19,8 +19,8 @@ pub(crate) use self::reference_index::macro_reference_index_for_profile_query;
 use crate::{
     db::PreprocDb,
     source_db::{
-        MappedSourcePreprocModel, PreprocSourceMapError, PreprocSourceMapping,
-        SourcePreprocContextStatus, SourcePreprocQueryError, workspace_preproc_model_file_ids,
+        MappedSourcePreprocModel, PreprocSourceMapping, SourcePreprocContextStatus,
+        SourcePreprocQueryError, workspace_preproc_model_file_ids,
     },
 };
 
@@ -34,6 +34,13 @@ mod predefines;
 mod reference_index;
 mod reference_queries;
 mod types;
+
+/// The macro name of a predefine config string (`FOO=1` -> `FOO`).
+pub(crate) fn predefine_name(predefine: &str) -> Option<SmolStr> {
+    let name = predefine.split_once('=').map_or(predefine, |(name, _)| name);
+    let name = name.trim().strip_prefix('`').unwrap_or(name.trim());
+    if name.is_empty() { None } else { Some(SmolStr::new(name)) }
+}
 
 pub(crate) use self::helpers::mapping::definitions::map_macro_definition;
 use self::helpers::*;

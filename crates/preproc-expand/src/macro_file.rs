@@ -59,11 +59,6 @@ pub struct MacroCallLoc {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct MacroFileId(pub salsa::InternId);
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub struct MacroFileLoc {
-    pub call: MacroCallId,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpansionInfo {
     pub text: String,
@@ -173,8 +168,7 @@ pub fn macro_files_at_offset(
             if emitted_range_for_trace_call(trace, trace_call).is_none() {
                 continue;
             }
-            let macro_call = db.intern_macro_call(MacroCallLoc { model_file, trace_call });
-            let macro_file = db.intern_macro_file(MacroFileLoc { call: macro_call });
+            let macro_file = db.intern_macro_file(MacroCallLoc { model_file, trace_call });
             if !macro_files.contains(&macro_file) {
                 macro_files.push(macro_file);
             }
@@ -187,8 +181,7 @@ pub fn macro_file_call_site(
     db: &dyn PreprocDb,
     macro_file: MacroFileId,
 ) -> Option<MacroFileCallSite> {
-    let loc = db.lookup_intern_macro_file(macro_file);
-    let call_loc = db.lookup_intern_macro_call(loc.call);
+    let call_loc = db.lookup_intern_macro_file(macro_file);
     let mapped = db.source_preproc_model(call_loc.model_file);
     let mapped = mapped.as_ref().as_ref().ok()?;
     let call = source_call_for_trace_call(&mapped.model, call_loc.trace_call)?;
@@ -203,8 +196,7 @@ pub fn macro_file_expansion(
     macro_file: MacroFileId,
 ) -> Option<MacroFileExpansion> {
     let call_site = macro_file_call_site(db, macro_file)?;
-    let loc = db.lookup_intern_macro_file(macro_file);
-    let call_loc = db.lookup_intern_macro_call(loc.call);
+    let call_loc = db.lookup_intern_macro_file(macro_file);
     let mapped = db.source_preproc_model(call_loc.model_file);
     let mapped = mapped.as_ref().as_ref().ok()?;
     let call = source_call_for_trace_call(&mapped.model, call_loc.trace_call)?;
@@ -227,8 +219,7 @@ pub(crate) fn macro_expansion_query(
 }
 
 fn macro_expansion(db: &dyn PreprocDb, macro_file: MacroFileId) -> ExpandResult<ExpansionInfo> {
-    let loc = db.lookup_intern_macro_file(macro_file);
-    let call_loc = db.lookup_intern_macro_call(loc.call);
+    let call_loc = db.lookup_intern_macro_file(macro_file);
     let mapped = db.source_preproc_model(call_loc.model_file);
     let mapped = match mapped.as_ref() {
         Ok(mapped) => mapped,

@@ -68,12 +68,14 @@ impl ExpansionSourceMap {
         self.origins.is_empty()
     }
 
+    #[cfg(test)]
     pub fn map_up(&self, expanded_token_index: usize) -> Option<Origin> {
         self.origins
             .get(expanded_token_index)
             .and_then(|slot| slot.as_ref().map(|slot| slot.origin.clone()))
     }
 
+    #[cfg(test)]
     pub fn map_down(&self, origin: &Origin) -> Vec<usize> {
         self.origins
             .iter()

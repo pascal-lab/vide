@@ -103,8 +103,6 @@ impl InactiveBranchKey {
 pub struct MacroReferenceIndex {
     references_by_definition:
         BTreeMap<MacroDefinitionKey, UniqVec<MacroReference, MacroReferenceKey>>,
-    definitions_by_reference:
-        BTreeMap<MacroReferenceKey, UniqVec<MacroDefinition, MacroDefinitionKey>>,
     issues: Vec<MacroReferenceIndexIssue>,
 }
 
@@ -134,15 +132,6 @@ impl MacroReferenceIndex {
             .unwrap_or_default()
     }
 
-    pub fn definitions_for_reference(
-        &self,
-        reference: &MacroReference,
-    ) -> Option<&[MacroDefinition]> {
-        self.definitions_by_reference
-            .get(&MacroReferenceKey::from_reference(reference))
-            .map(UniqVec::as_slice)
-    }
-
     pub fn status(&self) -> MacroReferenceIndexStatus {
         if self.issues.is_empty() {
             MacroReferenceIndexStatus::Complete
@@ -158,11 +147,7 @@ impl MacroReferenceIndex {
     ) {
         let definition_key = MacroDefinitionKey::from_definition(&definition);
         let references = self.references_by_definition.entry(definition_key).or_default();
-        references.push([MacroReferenceKey::from_reference(&reference)], reference.clone());
-
-        let reference_key = MacroReferenceKey::from_reference(&reference);
-        let definitions = self.definitions_by_reference.entry(reference_key).or_default();
-        definitions.push([MacroDefinitionKey::from_definition(&definition)], definition);
+        references.push([MacroReferenceKey::from_reference(&reference)], reference);
     }
 
     pub(in crate::preproc) fn push_issue(&mut self, issue: MacroReferenceIndexIssue) {

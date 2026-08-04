@@ -19,12 +19,8 @@ pub enum RangeFilesKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreprocError {
-    /// Source preprocessor query failed (slang/preproc errors).
+    /// Source preprocessor query or source-range mapping failed.
     SourceQuery(SourcePreprocQueryError),
-    /// Mapping a preproc source range back to file/text-range failed.
-    SourceMap(PreprocSourceMapError),
-    /// The source-side preproc model marked the requested data unavailable.
-    SourceModel(SourcePreprocUnavailable),
     /// Multiple distinct preproc contexts produced conflicting answers and
     /// no single context can be selected.
     Ambiguous { kind: AmbiguousKind, count: usize },
