@@ -128,53 +128,60 @@ impl NameScope {
     }
 
     pub(super) fn file_scope_query(db: &dyn HirDefDb, file_id: HirFileId) -> Arc<NameScope> {
-        Arc::new(build_file_scope(db, file_id))
+        db.def_map(file_id).scope(db, ScopeId::File(file_id))
     }
 
     pub fn module_scope_query(
         db: &dyn HirDefDb,
         module_id: crate::module::ModuleId,
     ) -> Arc<NameScope> {
-        Arc::new(build_module_scope(db, module_id))
+        let scope_id: ScopeId = module_id.into();
+        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
     }
 
     pub fn clocking_block_scope_query(
         db: &dyn HirDefDb,
         clocking_block_id: InModule<ClockingBlockId>,
     ) -> Arc<NameScope> {
-        Arc::new(build_clocking_block_scope(db, clocking_block_id))
+        let scope_id: ScopeId = clocking_block_id.into();
+        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
     }
 
     pub fn checker_scope_query(
         db: &dyn HirDefDb,
         checker_id: InFileOrModule<CheckerId>,
     ) -> Arc<NameScope> {
-        Arc::new(build_checker_scope(db, checker_id))
+        let scope_id: ScopeId = checker_id.into();
+        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
     }
 
     pub fn covergroup_scope_query(
         db: &dyn HirDefDb,
         covergroup_id: InFileOrModule<CovergroupId>,
     ) -> Arc<NameScope> {
-        Arc::new(build_covergroup_scope(db, covergroup_id))
+        let scope_id: ScopeId = covergroup_id.into();
+        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
     }
 
     pub fn generate_block_scope_query(
         db: &dyn HirDefDb,
         generate_block_id: GenerateBlockId,
     ) -> Arc<NameScope> {
-        Arc::new(build_generate_block_scope(db, generate_block_id))
+        let scope_id: ScopeId = generate_block_id.into();
+        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
     }
 
     pub fn block_scope_query(db: &dyn HirDefDb, block_id: crate::block::BlockId) -> Arc<NameScope> {
-        Arc::new(build_block_scope(db, block_id))
+        let scope_id: ScopeId = block_id.into();
+        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
     }
 
     pub fn subroutine_scope_query(
         db: &dyn HirDefDb,
         subroutine_id: SubroutineScope,
     ) -> Arc<NameScope> {
-        Arc::new(build_subroutine_scope(db, subroutine_id))
+        let scope_id: ScopeId = subroutine_id.into();
+        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
     }
 
     pub fn non_ansi_port_decl_id_by_name(
@@ -216,7 +223,7 @@ impl NameScope {
     }
 }
 
-fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameScope {
+pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameScope {
     let mut scope = NameScope::default();
     let hir_file = db.hir_file(file_id);
 
@@ -288,7 +295,7 @@ fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameScope {
     scope
 }
 
-fn build_module_scope(db: &dyn HirDefDb, module_id: crate::module::ModuleId) -> NameScope {
+pub(crate) fn build_module_scope(db: &dyn HirDefDb, module_id: crate::module::ModuleId) -> NameScope {
     let mut scope = NameScope::default();
     let module = db.module_with_source_map(module_id);
     let module_src_map = module.source_map();
@@ -376,7 +383,7 @@ fn build_module_scope(db: &dyn HirDefDb, module_id: crate::module::ModuleId) -> 
     scope
 }
 
-fn build_clocking_block_scope(
+pub(crate) fn build_clocking_block_scope(
     db: &dyn HirDefDb,
     clocking_block_id: InModule<ClockingBlockId>,
 ) -> NameScope {
@@ -393,7 +400,7 @@ fn build_clocking_block_scope(
     scope
 }
 
-fn build_checker_scope(db: &dyn HirDefDb, checker_id: InFileOrModule<CheckerId>) -> NameScope {
+pub(crate) fn build_checker_scope(db: &dyn HirDefDb, checker_id: InFileOrModule<CheckerId>) -> NameScope {
     let mut scope = NameScope::default();
     let checker = checker_def(db, checker_id);
     let checker_scope = ScopeId::Checker(checker_id);
@@ -418,7 +425,7 @@ fn build_checker_scope(db: &dyn HirDefDb, checker_id: InFileOrModule<CheckerId>)
     scope
 }
 
-fn build_covergroup_scope(db: &dyn HirDefDb, covergroup_id: InFileOrModule<CovergroupId>) -> NameScope {
+pub(crate) fn build_covergroup_scope(db: &dyn HirDefDb, covergroup_id: InFileOrModule<CovergroupId>) -> NameScope {
     let mut scope = NameScope::default();
     let covergroup = covergroup_def(db, covergroup_id);
     let covergroup_scope = ScopeId::Covergroup(covergroup_id);
@@ -465,7 +472,7 @@ fn build_covergroup_scope(db: &dyn HirDefDb, covergroup_id: InFileOrModule<Cover
     scope
 }
 
-fn build_generate_block_scope(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> NameScope {
+pub(crate) fn build_generate_block_scope(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> NameScope {
     let mut scope = NameScope::default();
     let generate_block = db.generate_block_with_source_map(generate_block_id);
 
@@ -499,7 +506,7 @@ fn build_generate_block_scope(db: &dyn HirDefDb, generate_block_id: GenerateBloc
     scope
 }
 
-fn build_block_scope(db: &dyn HirDefDb, block_id: crate::block::BlockId) -> NameScope {
+pub(crate) fn build_block_scope(db: &dyn HirDefDb, block_id: crate::block::BlockId) -> NameScope {
     let mut scope = NameScope::default();
     let block = db.block(block_id);
 
@@ -509,7 +516,7 @@ fn build_block_scope(db: &dyn HirDefDb, block_id: crate::block::BlockId) -> Name
     scope
 }
 
-fn build_subroutine_scope(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> NameScope {
+pub(crate) fn build_subroutine_scope(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> NameScope {
     let mut scope = NameScope::default();
     let subroutine = db.subroutine(subroutine_id);
 

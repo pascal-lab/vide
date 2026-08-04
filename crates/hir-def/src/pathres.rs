@@ -1,5 +1,4 @@
 use smallvec::SmallVec;
-use triomphe::Arc;
 use utils::get::GetRef;
 
 use crate::{
@@ -8,6 +7,7 @@ use crate::{
     db::HirDefDb,
     def_id::DefId,
     module::{ModuleId, instantiation::InstanceId},
+    nameres,
     symbol::{DefKind, NameContext, NameScope, Resolution},
 };
 
@@ -29,10 +29,11 @@ pub fn resolve_name(
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
+    let def_map = db.def_map(cont_id.file_id(db));
     let scopes = ScopeParent::start_from(db, cont_id).collect::<SmallVec<[_; 4]>>();
 
     for id in &scopes {
-        let resolution = name_scope(db, *id).lookup(ctx, ident);
+        let resolution = def_map.scope(db, *id).lookup(ctx, ident);
         if !resolution.is_unresolved() {
             return resolution;
         }
@@ -42,7 +43,7 @@ pub fn resolve_name(
     // declarations: visible declarations in the lexical chain win, then
     // package imports are considered, and `$unit` remains an explicit outer
     // scope. `NameContext` chooses the namespace bucket at every phase.
-    let imported = resolve_imported_name(db, &scopes, ident, ctx);
+    let imported = resolve_imported_name(db, &def_map, &scopes, ident, ctx);
     if !imported.is_unresolved() {
         return imported;
     }
@@ -108,7 +109,8 @@ pub fn resolve_child_name(
         let Some(scope_id) = descend_scope(db, def_id) else {
             return Resolution::Unresolved;
         };
-        name_scope(db, scope_id).lookup(ctx, ident)
+        let def_map = db.def_map(scope_id.file_id(db));
+        def_map.scope(db, scope_id).lookup(ctx, ident)
     })
 }
 
@@ -145,21 +147,9 @@ pub fn instance_target_def_id(
     target.kind(db).is_instantiable_def().then_some(target)
 }
 
-pub(crate) fn name_scope(db: &dyn HirDefDb, scope_id: ScopeId) -> Arc<NameScope> {
-    match scope_id {
-        ScopeId::File(file_id) => db.file_scope(file_id),
-        ScopeId::Module(module_id) => db.module_scope(module_id),
-        ScopeId::ClockingBlock(clocking_block_id) => db.clocking_block_scope(clocking_block_id),
-        ScopeId::Checker(checker_id) => db.checker_scope(checker_id),
-        ScopeId::Covergroup(covergroup_id) => db.covergroup_scope(covergroup_id),
-        ScopeId::GenerateBlock(generate_block_id) => db.generate_block_scope(generate_block_id),
-        ScopeId::Block(block_id) => db.block_scope(block_id),
-        ScopeId::Subroutine(subroutine_id) => db.subroutine_scope(subroutine_id),
-    }
-}
-
 fn resolve_imported_name(
     db: &dyn HirDefDb,
+    def_map: &nameres::DefMap,
     scopes: &[ScopeId],
     ident: &Ident,
     ctx: NameContext,
@@ -167,7 +157,7 @@ fn resolve_imported_name(
     let mut defs = SmallVec::<[DefId; 3]>::new();
 
     for scope_id in scopes {
-        let scope = name_scope(db, *scope_id);
+        let scope = def_map.scope(db, *scope_id);
         collect_imports(db, &scope, ident, ctx, true, &mut defs);
         if !defs.is_empty() {
             return Resolution::from_candidates(defs);
@@ -175,7 +165,7 @@ fn resolve_imported_name(
     }
 
     for scope_id in scopes {
-        let scope = name_scope(db, *scope_id);
+        let scope = def_map.scope(db, *scope_id);
         collect_imports(db, &scope, ident, ctx, false, &mut defs);
         if !defs.is_empty() {
             return Resolution::from_candidates(defs);

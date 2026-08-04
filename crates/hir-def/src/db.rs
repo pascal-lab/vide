@@ -15,6 +15,7 @@ use crate::{
         clocking::ClockingBlockId,
         generate::{self, GenerateBlock, GenerateBlockId, GenerateBlockLoc},
     },
+    nameres::{self, DefMap},
     source_map::Lowered,
     subroutine::{self, Subroutine},
     symbol::{DefOrigin, DefOriginLoc, NameScope},
@@ -83,6 +84,9 @@ pub trait HirDefDb: InternDb {
     ) -> Arc<Lowered<GenerateBlock>>;
 
     fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock>;
+
+    #[salsa::invoke(nameres::def_map_query)]
+    fn def_map(&self, file_id: HirFileId) -> Arc<DefMap>;
 
     #[salsa::invoke(NameScope::unit_scope_query)]
     fn unit_scope(&self) -> Arc<NameScope>;

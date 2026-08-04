@@ -23,6 +23,7 @@ pub mod has_source;
 pub mod literal;
 pub(crate) mod lower;
 pub mod module;
+pub mod nameres;
 pub mod pathres;
 pub mod proc;
 pub mod region_tree;
