@@ -16,14 +16,6 @@ pub(in crate::preproc) fn require_file_backed_source(
     }
 }
 
-pub(in crate::preproc) fn map_source_range(
-    mapped: &MappedSourcePreprocModel,
-    source_range: SourceRange,
-) -> PreprocResult<(FileId, TextRange)> {
-    let (source, range) = map_source_mapping_range(mapped, source_range)?;
-    Ok((require_file_backed_source(&source)?, range))
-}
-
 pub(in crate::preproc) fn map_source_id(
     mapped: &MappedSourcePreprocModel,
     source: PreprocSourceId,

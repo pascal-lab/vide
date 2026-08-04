@@ -62,42 +62,11 @@ macro_rules! source_table {
     };
 }
 
-macro_rules! impl_source_ranges {
-    ($ty:ty,directive = $directive:ident) => {
-        impl HasDirectiveRange for $ty {
-            fn directive_range(&self) -> SourceRange {
-                self.$directive
-            }
-        }
-    };
-
-    ($ty:ty,directive = $directive:ident,name = $name:ident) => {
-        impl_source_ranges!($ty, directive = $directive);
-
-        impl HasNameRange for $ty {
-            fn name_range(&self) -> Option<SourceRange> {
-                Some(self.$name)
-            }
-        }
-    };
-}
-
 source_table_id!(SourceMacroDefinitionId);
 source_table_id!(SourceMacroReferenceId);
 source_table_id!(SourceIncludeDirectiveId);
 source_table_id!(SourceMacroStateId);
 source_table_id!(SourceMacroCallId);
-source_table_id!(SourceMacroExpansionId);
-source_table_id!(SourceEmittedTokenId);
-source_table_id!(SourceTokenOriginId);
-
-pub trait HasDirectiveRange {
-    fn directive_range(&self) -> SourceRange;
-}
-
-pub trait HasNameRange {
-    fn name_range(&self) -> Option<SourceRange>;
-}
 
 mod unavailable;
 pub use unavailable::*;
@@ -107,10 +76,6 @@ pub use items::*;
 
 mod storage;
 pub use storage::*;
-
-impl_source_ranges!(SourceMacroDefinition, directive = directive_range, name = name_range);
-impl_source_ranges!(SourceMacroReference, directive = directive_range, name = name_range);
-impl_source_ranges!(SourceIncludeDirective, directive = directive_range);
 
 mod builder;
 pub(in crate::source) use builder::SourcePreprocModelBuilder;

@@ -8,7 +8,7 @@ impl SourcePreprocModelBuilder {
         let Some(definition) = self.current_state.get(name).copied() else {
             return SourceMacroResolution::Undefined;
         };
-        self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
+        self.resolve_definition(definition)
     }
 
     pub(in crate::source::tables::builder) fn resolve_usage_reference(
@@ -20,12 +20,11 @@ impl SourcePreprocModelBuilder {
             return self.resolve_visible_reference(name);
         };
         let Some(definition) = self.definitions_by_trace_id.get(&definition_id).copied() else {
-            self.references_partial = true;
             return SourceMacroResolution::Unavailable(
                 SourcePreprocUnavailable::UnknownMacroUsageDefinition { definition: definition_id },
             );
         };
-        self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
+        self.resolve_definition(definition)
     }
 
     pub(in crate::source::tables::builder) fn resolve_visible_reference_at_position(
@@ -41,13 +40,12 @@ impl SourcePreprocModelBuilder {
         else {
             return SourceMacroResolution::Undefined;
         };
-        self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
+        self.resolve_definition(definition)
     }
 
     pub(in crate::source::tables::builder) fn resolve_definition(
         &mut self,
         definition: SourceMacroDefinitionId,
-        reason: SourceMacroResolutionReason,
     ) -> SourceMacroResolution {
         let definition_source = self
             .model
@@ -56,61 +54,39 @@ impl SourcePreprocModelBuilder {
             .expect("definition id should point at inserted definition")
             .directive_range
             .source;
-        match self.include_chain_for_source(definition_source) {
-            Ok(include_chain) => {
-                SourceMacroResolution::Resolved { definition, reason, include_chain }
-            }
-            Err(source) => {
-                self.references_partial = true;
-                self.model.issues.push(SourcePreprocIssue::DetachedSource { source });
-                SourceMacroResolution::Unavailable(SourcePreprocUnavailable::DetachedSource {
-                    source,
-                })
-            }
+        match self.source_is_reachable(definition_source) {
+            true => SourceMacroResolution::Resolved { definition },
+            false => SourceMacroResolution::Unavailable(SourcePreprocUnavailable::DetachedSource {
+                source: definition_source,
+            }),
         }
     }
 
-    pub(in crate::source::tables::builder) fn include_chain_for_source(
-        &self,
-        source: PreprocSourceId,
-    ) -> Result<Vec<SourceIncludeChainEntry>, PreprocSourceId> {
-        let mut chain = Vec::new();
+    /// Whether `source` is reachable from the root through include edges.
+    fn source_is_reachable(&self, source: PreprocSourceId) -> bool {
         let mut current = source;
-
         loop {
-            let source = self
-                .model
-                .index
-                .sources
-                .iter()
-                .find(|candidate| candidate.id == current)
-                .expect("source id should point at an indexed preprocessor source");
-
+            let Some(source) = self.model.sources.iter().find(|candidate| candidate.id == current)
+            else {
+                return false;
+            };
             match source.origin {
-                PreprocSourceOrigin::Root | PreprocSourceOrigin::Predefine => break,
-                PreprocSourceOrigin::Detached => {
-                    return Err(current);
-                }
+                PreprocSourceOrigin::Root | PreprocSourceOrigin::Predefine => return true,
+                PreprocSourceOrigin::Detached => return false,
                 PreprocSourceOrigin::Included { include_event_id } => {
                     let directive = self
                         .model
                         .include_graph
                         .directives()
                         .iter()
-                        .find(|directive| directive.event_id == include_event_id)
-                        .expect("included source should point at an include directive");
-                    chain.push(SourceIncludeChainEntry {
-                        include_event_id,
-                        include_range: directive.directive_range,
-                        included_source: current,
-                    });
+                        .find(|directive| directive.event_id == include_event_id);
+                    let Some(directive) = directive else {
+                        return false;
+                    };
                     current = directive.directive_range.source;
                 }
             }
         }
-
-        chain.reverse();
-        Ok(chain)
     }
 
     pub(in crate::source::tables::builder) fn include_guard_definition_after_ifndef(
@@ -118,24 +94,24 @@ impl SourcePreprocModelBuilder {
         conditional_index: usize,
         name: &str,
     ) -> Option<SourceMacroDefinitionId> {
-        let conditional = self.model.index.conditionals.get(conditional_index)?;
+        let conditional = self.model.conditionals.get(conditional_index)?;
         if conditional.kind != MacroConditionalKind::IfNDef {
             return None;
         }
 
         let source = conditional.range.source;
         let (conditional_order, _) =
-            self.model.index.event_records.iter().enumerate().find(|(_, directive)| {
+            self.model.event_records.iter().enumerate().find(|(_, directive)| {
                 directive.kind == MacroEventKind::Conditional
                     && directive.index == conditional_index
             })?;
-        for directive in self.model.index.event_records.iter().skip(conditional_order + 1) {
+        for directive in self.model.event_records.iter().skip(conditional_order + 1) {
             if directive.range.source != source {
                 continue;
             }
             match directive.kind {
                 MacroEventKind::Define => {
-                    let define = self.model.index.defines.get(directive.index)?;
+                    let define = self.model.defines.get(directive.index)?;
                     if define.name.as_deref() == Some(name) {
                         return self.definition_ids_by_define_index.get(&directive.index).copied();
                     }
@@ -152,34 +128,29 @@ impl SourcePreprocModelBuilder {
 
     pub(in crate::source::tables::builder) fn record_missing_reference_name(
         &mut self,
-        event_id: SourcePreprocEventId,
+        _event_id: SourcePreprocEventId,
     ) {
-        self.references_partial = true;
-        self.model.issues.push(SourcePreprocIssue::MissingReferenceName { event_id });
     }
 
     pub(in crate::source::tables::builder) fn record_missing_reference_name_range(
         &mut self,
-        event_id: SourcePreprocEventId,
+        _event_id: SourcePreprocEventId,
     ) {
-        self.references_partial = true;
-        self.model.issues.push(SourcePreprocIssue::MissingReferenceNameRange { event_id });
     }
 
     pub(in crate::source::tables::builder) fn record_state_checkpoint(
         &mut self,
         source_order: usize,
-        boundary: SourcePosition,
+        _boundary: SourcePosition,
     ) {
         let id = SourceMacroStateId::new(self.model.state_timeline.states.len());
         self.model
             .state_timeline
             .states
             .push(SourceMacroState { id, definitions: self.current_state.clone() });
-        self.model.state_timeline.checkpoints.push(SourceMacroStateCheckpoint {
-            source_order,
-            boundary,
-            state: id,
-        });
+        self.model
+            .state_timeline
+            .checkpoints
+            .push(SourceMacroStateCheckpoint { source_order, state: id });
     }
 }

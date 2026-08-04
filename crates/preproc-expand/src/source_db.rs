@@ -1,7 +1,6 @@
 use ::preproc::source::{
-    PreprocSourceId, SourceEmittedTokenId, SourceMacroCallId, SourceMacroReferenceId,
-    SourcePosition, SourcePreprocError, SourcePreprocModel, SourcePreprocUnavailable, SourceRange,
-    SourceTokenOrigin,
+    PreprocSourceId, SourceMacroCallId, SourceMacroReferenceId, SourcePosition, SourcePreprocError,
+    SourcePreprocModel, SourcePreprocUnavailable, SourceRange,
 };
 use base_db::{project::CompilationProfileId, source_db::SourceFileKind};
 use rustc_hash::{FxHashMap, FxHashSet};

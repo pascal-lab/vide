@@ -3,7 +3,9 @@ use base_db::{
     source_db::{SourceFileKind, SourceRootDb},
     source_root::SourceRootId,
 };
-use preproc::source::{MacroIncludeTarget, SourcePreprocError, SourcePreprocModel};
+use preproc::source::{
+    MacroIncludeTarget, SourceIncludeDirective, SourcePreprocError, SourcePreprocModel,
+};
 use rustc_hash::FxHashSet;
 use syntax::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
 use utils::{
@@ -272,7 +274,7 @@ fn include_targets_for_source_roots(
                 continue;
             };
             if let Some(included_file_id) =
-                resolve_include_target(path, &includer_path, include_dirs, &path_file_ids)
+                resolve_include_target(path.as_str(), &includer_path, include_dirs, &path_file_ids)
                 && included.insert(included_file_id)
             {
                 pending.push(included_file_id);
@@ -287,7 +289,7 @@ fn literal_include_targets(
     db: &dyn SourceRootDb,
     file_id: FileId,
     predefines: &[String],
-) -> Result<Vec<preproc::source::SourceMacroInclude>, IncludeScanIssue> {
+) -> Result<Vec<SourceIncludeDirective>, IncludeScanIssue> {
     if !matches!(
         db.file_kind(file_id),
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
@@ -312,7 +314,7 @@ fn literal_include_targets(
     };
     let model = SourcePreprocModel::from_trace(trace)
         .map_err(|err| IncludeScanIssue { file_id, reason: IncludeScanIssueReason::Model(err) })?;
-    Ok(model.includes().to_vec())
+    Ok(model.include_graph().directives().to_vec())
 }
 
 fn resolve_include_target(

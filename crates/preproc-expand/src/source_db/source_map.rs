@@ -49,7 +49,7 @@ pub enum PreprocSourceMapError {
         text_len: usize,
     },
     MissingEmittedToken {
-        token: SourceEmittedTokenId,
+        token: crate::macro_file::SourceEmittedTokenId,
     },
     DisplayOnlyVirtualSource {
         path: VfsPath,

@@ -2,9 +2,7 @@ use smol_str::SmolStr;
 use syntax::{
     SourceBufferId, SourceBufferOrigin, SourceBufferRange, SyntaxKind, SyntaxTree,
     SyntaxTreeBuffer, SyntaxTreeOptions, TokenKind,
-    preproc::{
-        Event, EventId, MacroCallId, MacroDefinitionId, MacroExpansionId, Token, TokenOrigin, Trace,
-    },
+    preproc::{Event, EventId, Token, Trace},
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -47,7 +45,7 @@ fn source_model(
 
 fn source_by_path_suffix(model: &SourcePreprocModel, suffix: &str) -> PreprocSourceId {
     model
-        .sources()
+        .sources
         .iter()
         .find(|source| {
             matches!(source.origin, PreprocSourceOrigin::Included { .. })
@@ -77,10 +75,6 @@ fn offset_after(text: &str, needle: &str) -> TextSize {
 
 fn text_at_range(text: &str, range: TextRange) -> &str {
     &text[usize::from(range.start())..usize::from(range.end())]
-}
-
-fn source_range(source: PreprocSourceId, start: u32, end: u32) -> SourceRange {
-    SourceRange { source, range: TextRange::new(TextSize::from(start), TextSize::from(end)) }
 }
 
 fn visible_macro_names(
@@ -146,12 +140,6 @@ fn reference_for_conditional_token(
         .expect("conditional token reference should be in resolved reference table")
 }
 
-mod definition_trace;
-mod expansion_graph;
 mod include_resolution;
 mod macro_state;
-mod missing_expansion;
-mod missing_trace;
 mod nested_expansion;
-mod predefine_intrinsic;
-mod trace;

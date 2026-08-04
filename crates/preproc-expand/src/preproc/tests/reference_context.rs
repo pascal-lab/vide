@@ -25,7 +25,6 @@ localparam int ENABLED = `HEADER_FLAG;
             .unwrap();
     assert_eq!(text_at_range(root_text, definitions.range), "`HEADER_FLAG");
     assert!(macro_reference_definitions_at(&db, TOP, definitions.range.end()).unwrap().is_none());
-    assert!(macro_usage_resolution_at(&db, TOP, definitions.range.end()).unwrap().is_none());
     assert!(definitions.definitions.iter().any(|indexed| {
         indexed.file_id == HEADER
             && indexed.name_range == definition.name_range
