@@ -34,13 +34,9 @@ pub use self::{
     queries::{SourcePreprocQueryError, workspace_preproc_model_file_ids},
     range_index::MappedSourcePreprocModel,
     source_map::{
-        PreprocManifestSource, PreprocSourceMap, PreprocSourceMapError, PreprocSourceMapping,
-        PreprocSpeculativeUniverseId, PreprocVirtualOrigin,
+        PreprocManifestSource, PreprocSourceMap, PreprocSourceMapping, PreprocVirtualOrigin,
     },
-    source_mapping::{
-        preproc_virtual_builtin_path, preproc_virtual_predefines_path,
-        preproc_virtual_speculative_path,
-    },
+    source_mapping::preproc_virtual_predefines_path,
 };
 pub(super) use self::{
     context::{source_preproc_context_index_for_profile, source_preproc_contexts_for_file},

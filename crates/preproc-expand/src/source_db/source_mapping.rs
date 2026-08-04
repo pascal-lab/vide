@@ -19,10 +19,7 @@ pub(crate) fn source_preproc_file_ids(
         .source_buffers
         .iter()
         .filter(|source| source.origin == SourceBufferOrigin::Predefine)
-        .map(|source| PredefineSourceBuffer {
-            source: PreprocSourceId::from(source.buffer_id),
-            text: source.text.as_deref(),
-        })
+        .map(|source| (PreprocSourceId::from(source.buffer_id), source.text.as_deref()))
         .collect::<Vec<_>>();
     let predefine_map =
         PredefineVirtualMapping::new(db, profile_id, &preprocess.predefines, predefine_sources);
@@ -75,10 +72,10 @@ pub(crate) fn source_preproc_file_ids(
                     };
                     source_map.insert_virtual_file_with_offset(
                         source_id,
-                        entry.file_id,
-                        entry.path.clone(),
+                        predefine_map.file_id,
+                        predefine_map.path.clone(),
                         PreprocVirtualOrigin::Predefines { profile: profile_id },
-                        entry.text_len,
+                        predefine_map.text_len,
                         entry.range_offset,
                     );
                     if let Some(manifest_source) = manifest_source {
@@ -103,30 +100,6 @@ pub fn preproc_virtual_predefines_path(profile_id: Option<CompilationProfileId>)
     VfsPath::new_virtual_path(format!(
         "/__vide/preproc/{}/predefines.sv",
         profile_path_segment(profile_id)
-    ))
-}
-
-pub fn preproc_virtual_builtin_path(
-    profile_id: Option<CompilationProfileId>,
-    name: &str,
-) -> VfsPath {
-    VfsPath::new_virtual_path(format!(
-        "/__vide/preproc/{}/builtin/{}.sv",
-        profile_path_segment(profile_id),
-        sanitize_path_segment(name)
-    ))
-}
-
-pub fn preproc_virtual_speculative_path(
-    profile_id: Option<CompilationProfileId>,
-    universe: PreprocSpeculativeUniverseId,
-    root: &str,
-) -> VfsPath {
-    VfsPath::new_virtual_path(format!(
-        "/__vide/preproc/{}/speculative/{}/{}.sv",
-        profile_path_segment(profile_id),
-        universe.0,
-        sanitize_path_segment(root)
     ))
 }
 
@@ -184,28 +157,23 @@ pub(crate) fn materialized_predefine_text(predefine: &str) -> String {
     format!("`define {definition}\n")
 }
 
+/// Maps slang predefine trace buffers back to configured predefines.
+///
+/// Slang reports predefine buffers as `(path, text)` with no identity link to
+/// the config, so buffers are matched by their materialized text against the
+/// configured predefines. All matched buffers share one virtual display file
+/// (`predefines.sv`) that concatenates the materialized definitions.
 struct PredefineVirtualMapping {
     entries: FxHashMap<PreprocSourceId, PredefineVirtualEntry>,
     unavailable: FxHashMap<PreprocSourceId, SourcePreprocUnavailable>,
+    /// Shared virtual display file for every matched predefine buffer.
+    file_id: Option<FileId>,
+    path: VfsPath,
+    text_len: usize,
 }
 
 struct PredefineVirtualEntry {
     source: PreprocSourceId,
-    file_id: Option<FileId>,
-    path: VfsPath,
-    text_len: usize,
-    range_offset: usize,
-    predefine: Predefine,
-}
-
-struct PredefineSourceBuffer<'a> {
-    source: PreprocSourceId,
-    text: Option<&'a str>,
-}
-
-struct PredefineConfigEntry {
-    text: String,
-    name: SmolStr,
     range_offset: usize,
     predefine: Predefine,
 }
@@ -215,7 +183,7 @@ impl PredefineVirtualMapping {
         db: &dyn PreprocDb,
         profile_id: Option<CompilationProfileId>,
         predefines: &[Predefine],
-        sources: Vec<PredefineSourceBuffer<'_>>,
+        sources: Vec<(PreprocSourceId, Option<&str>)>,
     ) -> Self {
         let texts = predefines
             .iter()
@@ -229,61 +197,51 @@ impl PredefineVirtualMapping {
         for (index, predefine) in predefines.iter().enumerate() {
             let text = &texts[index];
             if let Some(name) = materialized_predefine_name(text) {
-                configs.push(PredefineConfigEntry {
-                    text: text.clone(),
-                    name,
-                    range_offset,
-                    predefine: predefine.clone(),
-                });
+                configs.push((text.clone(), name, range_offset, predefine.clone()));
             }
             range_offset += text.len();
         }
 
+        // Later configs win over earlier ones with identical materialized
+        // text; `rev()` makes the final iteration order config order.
         let mut config_indexes_by_text = FxHashMap::<String, Vec<usize>>::default();
-        for (index, config) in configs.iter().enumerate().rev() {
-            config_indexes_by_text.entry(config.text.clone()).or_default().push(index);
+        for (index, (text, _, _, _)) in configs.iter().enumerate().rev() {
+            config_indexes_by_text.entry(text.clone()).or_default().push(index);
         }
 
         let mut entries = FxHashMap::default();
         let mut unavailable = FxHashMap::default();
-        for source in sources {
-            let Some(source_text) = source.text else {
+        for (source, source_text) in sources {
+            let Some(source_text) = source_text else {
                 unavailable.insert(
-                    source.source,
-                    SourcePreprocUnavailable::MissingPredefineSourceText { source: source.source },
+                    source,
+                    SourcePreprocUnavailable::MissingPredefineSourceText { source },
                 );
                 continue;
             };
             let Some(config_index) = config_indexes_by_text.get_mut(source_text).and_then(Vec::pop)
             else {
-                unavailable.insert(
-                    source.source,
-                    SourcePreprocUnavailable::UnverifiedPredefineSource { source: source.source },
-                );
+                unavailable
+                    .insert(source, SourcePreprocUnavailable::UnverifiedPredefineSource { source });
                 continue;
             };
-            let config = &configs[config_index];
-            if materialized_predefine_name(source_text).as_ref() != Some(&config.name) {
-                unavailable.insert(
-                    source.source,
-                    SourcePreprocUnavailable::UnverifiedPredefineSource { source: source.source },
-                );
+            let (_, name, entry_range_offset, predefine) = &configs[config_index];
+            if materialized_predefine_name(source_text).as_ref() != Some(name) {
+                unavailable
+                    .insert(source, SourcePreprocUnavailable::UnverifiedPredefineSource { source });
                 continue;
             }
             entries.insert(
-                source.source,
+                source,
                 PredefineVirtualEntry {
-                    source: source.source,
-                    file_id,
-                    path: path.clone(),
-                    text_len,
-                    range_offset: config.range_offset,
-                    predefine: config.predefine.clone(),
+                    source,
+                    range_offset: *entry_range_offset,
+                    predefine: predefine.clone(),
                 },
             );
         }
 
-        Self { entries, unavailable }
+        Self { entries, unavailable, file_id, path, text_len }
     }
 
     fn entry(&self, source: PreprocSourceId) -> Option<&PredefineVirtualEntry> {
@@ -340,8 +298,8 @@ fn manifest_predefine_source_matches(text: &str, range: TextRange, predefine: &P
         return false;
     };
     source_definition.as_str() == predefine.as_str()
-        && predefine_definition_name(source_definition.as_str())
-            == predefine_definition_name(predefine.as_str())
+        && crate::preproc::predefine_name(source_definition.as_str())
+            == crate::preproc::predefine_name(predefine.as_str())
 }
 
 fn decode_manifest_predefine_source(text: &str) -> Option<String> {
@@ -349,12 +307,6 @@ fn decode_manifest_predefine_source(text: &str) -> Option<String> {
     toml::from_str::<toml::Value>(&document)
         .ok()
         .and_then(|document| document.get("value").and_then(toml::Value::as_str).map(str::to_owned))
-}
-
-fn predefine_definition_name(predefine: &str) -> Option<SmolStr> {
-    let name = predefine.split_once('=').map_or(predefine, |(name, _)| name);
-    let name = name.trim().strip_prefix('`').unwrap_or(name.trim());
-    if name.is_empty() { None } else { Some(SmolStr::new(name)) }
 }
 
 fn materialized_preproc_virtual_file_id(db: &dyn PreprocDb, path: &VfsPath) -> Option<FileId> {
