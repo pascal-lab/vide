@@ -84,9 +84,7 @@ logic [`LEAF_WIDTH-1:0] data;
         ..SyntaxTreeOptions::default()
     };
     let trace = preprocessor_trace(root_text, "source", ROOT_PATH, &options);
-    let root_source = PreprocSourceId::from(trace.root_buffer_id);
     let model = SourcePreprocModel::from_trace(trace).unwrap();
-    let header_source = source_by_path_suffix(&model, "include/defs.vh");
     let leaf_source = source_by_path_suffix(&model, "include/leaf.vh");
 
     let usage_index = model
