@@ -128,342 +128,53 @@ impl NameScope {
     }
 
     pub(super) fn file_scope_query(db: &dyn HirDefDb, file_id: HirFileId) -> Arc<NameScope> {
-        let mut scope = NameScope::default();
-        let hir_file = db.hir_file(file_id);
-
-        for (module_id, module_info) in hir_file.modules.iter() {
-            scope.insert_type_opt(&module_info.name, def_id(db, InFile::new(file_id, module_id)));
-        }
-
-        for (_, import) in hir_file.package_imports.iter() {
-            scope.insert_package_import(import);
-        }
-
-        for (decl_id, decl) in hir_file.decls.iter() {
-            scope.insert_value_opt(
-                &decl.name,
-                def_id(db, InContainer::new(file_id.into(), decl_id)),
-            );
-        }
-
-        for (config_decl_id, config_decl) in hir_file.config_decls.iter() {
-            scope.insert_value_opt(
-                &config_decl.name,
-                def_id(db, InFile::new(file_id, config_decl_id)),
-            );
-        }
-
-        for (udp_decl_id, udp_decl) in hir_file.udp_decls.iter() {
-            scope.insert_value_opt(&udp_decl.name, def_id(db, InFile::new(file_id, udp_decl_id)));
-        }
-
-        for (library_decl_id, library_decl) in hir_file.library_decls.iter() {
-            scope.insert_value_opt(
-                &library_decl.name,
-                def_id(db, InFile::new(file_id, library_decl_id)),
-            );
-        }
-
-        for (checker_id, checker) in hir_file.checkers.iter() {
-            scope.insert_type_opt(
-                &checker.name,
-                def_id(db, InFileOrModule::new(FileOrModule::File(file_id), checker_id)),
-            );
-        }
-
-        for (covergroup_id, covergroup) in hir_file.covergroups.iter() {
-            scope.insert_type_opt(
-                &covergroup.name,
-                def_id(db, InFileOrModule::new(FileOrModule::File(file_id), covergroup_id)),
-            );
-        }
-
-        for (coverpoint_id, coverpoint) in hir_file.coverpoints.iter() {
-            scope.insert_value_opt(
-                &coverpoint.name,
-                def_id(db, InScope::new(file_id.into(), coverpoint_id)),
-            );
-        }
-
-        for (cross_id, cross) in hir_file.crosses.iter() {
-            scope.insert_value_opt(&cross.name, def_id(db, InScope::new(file_id.into(), cross_id)));
-        }
-
-        for (typedef_id, typedef) in hir_file.typedefs.iter() {
-            scope.insert_type_opt(
-                &typedef.name,
-                def_id(db, InContainer::new(file_id.into(), typedef_id)),
-            );
-        }
-
-        Arc::new(scope)
+        Arc::new(build_file_scope(db, file_id))
     }
 
     pub fn module_scope_query(
         db: &dyn HirDefDb,
         module_id: crate::module::ModuleId,
     ) -> Arc<NameScope> {
-        let mut scope = NameScope::default();
-        let module = db.module_with_source_map(module_id);
-        let module_src_map = module.source_map();
-
-        if let Ports::NonAnsi { ports, .. } = &module.ports {
-            for (port_id, port) in ports.iter() {
-                scope.insert_value_opt(&port.label, def_id(db, InModule::new(module_id, port_id)));
-            }
-        }
-
-        for (_, import) in module.package_imports.iter() {
-            scope.insert_package_import(import);
-        }
-
-        for (local_subroutine_id, subroutine) in module.subroutines.iter() {
-            let subroutine_id =
-                SubroutineScope::new(SubroutineParent::Module(module_id), local_subroutine_id);
-            scope.insert_value_opt(&subroutine.name, def_id(db, subroutine_id));
-        }
-
-        for (modport_id, modport) in module.modports.iter() {
-            scope.insert_value_opt(&modport.name, def_id(db, InModule::new(module_id, modport_id)));
-        }
-
-        for (clocking_block_id, clocking_block) in module.clocking_blocks.iter() {
-            scope.insert_value_opt(
-                &clocking_block.name,
-                def_id(db, InModule::new(module_id, clocking_block_id)),
-            );
-        }
-
-        for (checker_id, checker) in module.checkers.iter() {
-            scope.insert_type_opt(
-                &checker.name,
-                def_id(db, InFileOrModule::new(FileOrModule::Module(module_id), checker_id)),
-            );
-        }
-
-        for (covergroup_id, covergroup) in module.covergroups.iter() {
-            scope.insert_type_opt(
-                &covergroup.name,
-                def_id(db, InFileOrModule::new(FileOrModule::Module(module_id), covergroup_id)),
-            );
-        }
-
-        for (coverpoint_id, coverpoint) in module.coverpoints.iter() {
-            scope.insert_value_opt(
-                &coverpoint.name,
-                def_id(db, InScope::new(module_id.into(), coverpoint_id)),
-            );
-        }
-
-        for (cross_id, cross) in module.crosses.iter() {
-            scope.insert_value_opt(
-                &cross.name,
-                def_id(db, InScope::new(module_id.into(), cross_id)),
-            );
-        }
-
-        insert_decls_and_typedefs(
-            &mut scope,
-            db,
-            module_id.into(),
-            &module.decls,
-            &module.typedefs,
-        );
-
-        for (instance_id, instance) in module.instances.iter() {
-            scope.insert_value_opt(
-                &instance.name,
-                def_id(db, InModule::new(module_id, instance_id)),
-            );
-        }
-
-        for item in &module_src_map.items {
-            if let crate::module::ModuleItem::GenerateRegionId(generate_region_id) = item {
-                let generate_region = module.get(*generate_region_id);
-                for item in &generate_region.items {
-                    if let crate::module::generate::GenerateItem::GenerateBlockId(
-                        generate_block_id,
-                    ) = *item
-                    {
-                        let generate_block = db.generate_block(generate_block_id);
-                        scope.insert_value_opt(&generate_block.name, def_id(db, generate_block_id));
-                    }
-                }
-            }
-        }
-
-        insert_stmts(&mut scope, db, module_id.into(), &module.stmts);
-
-        Arc::new(scope)
+        Arc::new(build_module_scope(db, module_id))
     }
 
     pub fn clocking_block_scope_query(
         db: &dyn HirDefDb,
         clocking_block_id: InModule<ClockingBlockId>,
     ) -> Arc<NameScope> {
-        let mut scope = NameScope::default();
-        let module = db.module(clocking_block_id.module_id);
-        let clocking_block = module.get(clocking_block_id.value);
-        let clocking_scope = ScopeId::ClockingBlock(clocking_block_id);
-
-        for (idx, signal) in clocking_block.signals.iter().enumerate() {
-            let signal_id = ClockingSignalId(idx as u32);
-            scope.insert_value(&signal.name, def_id(db, InScope::new(clocking_scope, signal_id)));
-        }
-
-        Arc::new(scope)
+        Arc::new(build_clocking_block_scope(db, clocking_block_id))
     }
 
     pub fn checker_scope_query(
         db: &dyn HirDefDb,
         checker_id: InFileOrModule<CheckerId>,
     ) -> Arc<NameScope> {
-        let mut scope = NameScope::default();
-        let checker = checker_def(db, checker_id);
-        let checker_scope = ScopeId::Checker(checker_id);
-
-        for (idx, port) in checker.ports.iter().enumerate() {
-            scope.insert_value(
-                &port.name,
-                def_id(db, InScope::new(checker_scope, CheckerPortId(idx as u32))),
-            );
-        }
-
-        let owner_id = ArenaOwnerId::from(checker_id.cont_id);
-        let container = owner_id.data(db);
-        for declaration_id in &checker.declarations {
-            let declaration = container.declaration(*declaration_id);
-            for decl_id in declaration.decls() {
-                let decl = container.declarator(decl_id);
-                scope.insert_value_opt(&decl.name, def_id(db, InContainer::new(owner_id, decl_id)));
-            }
-        }
-
-        Arc::new(scope)
+        Arc::new(build_checker_scope(db, checker_id))
     }
 
     pub fn covergroup_scope_query(
         db: &dyn HirDefDb,
         covergroup_id: InFileOrModule<CovergroupId>,
     ) -> Arc<NameScope> {
-        let mut scope = NameScope::default();
-        let covergroup = covergroup_def(db, covergroup_id);
-        let covergroup_scope = ScopeId::Covergroup(covergroup_id);
-
-        match covergroup_id.cont_id {
-            FileOrModule::File(file_id) => {
-                let file = db.hir_file(file_id);
-                for coverpoint_id in &covergroup.coverpoints {
-                    let coverpoint = file.get(*coverpoint_id);
-                    scope.insert_value_opt(
-                        &coverpoint.name,
-                        def_id(db, InScope::new(covergroup_scope, *coverpoint_id)),
-                    );
-                }
-
-                for cross_id in &covergroup.crosses {
-                    let cross = file.get(*cross_id);
-                    scope.insert_value_opt(
-                        &cross.name,
-                        def_id(db, InScope::new(covergroup_scope, *cross_id)),
-                    );
-                }
-            }
-            FileOrModule::Module(module_id) => {
-                let module = db.module(module_id);
-                for coverpoint_id in &covergroup.coverpoints {
-                    let coverpoint = module.get(*coverpoint_id);
-                    scope.insert_value_opt(
-                        &coverpoint.name,
-                        def_id(db, InScope::new(covergroup_scope, *coverpoint_id)),
-                    );
-                }
-
-                for cross_id in &covergroup.crosses {
-                    let cross = module.get(*cross_id);
-                    scope.insert_value_opt(
-                        &cross.name,
-                        def_id(db, InScope::new(covergroup_scope, *cross_id)),
-                    );
-                }
-            }
-        }
-
-        Arc::new(scope)
+        Arc::new(build_covergroup_scope(db, covergroup_id))
     }
 
     pub fn generate_block_scope_query(
         db: &dyn HirDefDb,
         generate_block_id: GenerateBlockId,
     ) -> Arc<NameScope> {
-        let mut scope = NameScope::default();
-        let generate_block = db.generate_block_with_source_map(generate_block_id);
-
-        scope.insert_value_opt(&generate_block.name, def_id(db, generate_block_id));
-
-        for (local_subroutine_id, subroutine) in generate_block.subroutines.iter() {
-            let subroutine_id = SubroutineScope::new(
-                SubroutineParent::GenerateBlock(generate_block_id),
-                local_subroutine_id,
-            );
-            scope.insert_value_opt(&subroutine.name, def_id(db, subroutine_id));
-        }
-
-        insert_decls_and_typedefs(
-            &mut scope,
-            db,
-            generate_block_id.into(),
-            &generate_block.decls,
-            &generate_block.typedefs,
-        );
-
-        for item in &generate_block.items {
-            if let crate::module::generate::GenerateBlockItem::GenerateBlockId(child_id) = *item {
-                let child = db.generate_block(child_id);
-                scope.insert_value_opt(&child.name, def_id(db, child_id));
-            }
-        }
-
-        insert_stmts(&mut scope, db, generate_block_id.into(), &generate_block.stmts);
-
-        Arc::new(scope)
+        Arc::new(build_generate_block_scope(db, generate_block_id))
     }
 
     pub fn block_scope_query(db: &dyn HirDefDb, block_id: crate::block::BlockId) -> Arc<NameScope> {
-        let mut scope = NameScope::default();
-        let block = db.block(block_id);
-
-        insert_decls_and_typedefs(&mut scope, db, block_id.into(), &block.decls, &block.typedefs);
-        insert_stmts(&mut scope, db, block_id.into(), &block.stmts);
-
-        Arc::new(scope)
+        Arc::new(build_block_scope(db, block_id))
     }
 
     pub fn subroutine_scope_query(
         db: &dyn HirDefDb,
         subroutine_id: SubroutineScope,
     ) -> Arc<NameScope> {
-        let mut scope = NameScope::default();
-        let subroutine = db.subroutine(subroutine_id);
-
-        for (port_idx, port) in subroutine.ports.iter().enumerate() {
-            let port_id = SubroutinePortId(port_idx as u32);
-            scope.insert_value_opt(
-                &port.name,
-                def_id(db, InSubroutine::new(subroutine_id, port_id)),
-            );
-        }
-
-        insert_decls_and_typedefs(
-            &mut scope,
-            db,
-            subroutine_id.into(),
-            &subroutine.decls,
-            &subroutine.typedefs,
-        );
-        insert_stmts(&mut scope, db, subroutine_id.into(), &subroutine.stmts);
-
-        Arc::new(scope)
+        Arc::new(build_subroutine_scope(db, subroutine_id))
     }
 
     pub fn non_ansi_port_decl_id_by_name(
@@ -503,6 +214,323 @@ impl NameScope {
             }
         }
     }
+}
+
+fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameScope {
+    let mut scope = NameScope::default();
+    let hir_file = db.hir_file(file_id);
+
+    for (module_id, module_info) in hir_file.modules.iter() {
+        scope.insert_type_opt(&module_info.name, def_id(db, InFile::new(file_id, module_id)));
+    }
+
+    for (_, import) in hir_file.package_imports.iter() {
+        scope.insert_package_import(import);
+    }
+
+    for (decl_id, decl) in hir_file.decls.iter() {
+        scope.insert_value_opt(
+            &decl.name,
+            def_id(db, InContainer::new(file_id.into(), decl_id)),
+        );
+    }
+
+    for (config_decl_id, config_decl) in hir_file.config_decls.iter() {
+        scope.insert_value_opt(
+            &config_decl.name,
+            def_id(db, InFile::new(file_id, config_decl_id)),
+        );
+    }
+
+    for (udp_decl_id, udp_decl) in hir_file.udp_decls.iter() {
+        scope.insert_value_opt(&udp_decl.name, def_id(db, InFile::new(file_id, udp_decl_id)));
+    }
+
+    for (library_decl_id, library_decl) in hir_file.library_decls.iter() {
+        scope.insert_value_opt(
+            &library_decl.name,
+            def_id(db, InFile::new(file_id, library_decl_id)),
+        );
+    }
+
+    for (checker_id, checker) in hir_file.checkers.iter() {
+        scope.insert_type_opt(
+            &checker.name,
+            def_id(db, InFileOrModule::new(FileOrModule::File(file_id), checker_id)),
+        );
+    }
+
+    for (covergroup_id, covergroup) in hir_file.covergroups.iter() {
+        scope.insert_type_opt(
+            &covergroup.name,
+            def_id(db, InFileOrModule::new(FileOrModule::File(file_id), covergroup_id)),
+        );
+    }
+
+    for (coverpoint_id, coverpoint) in hir_file.coverpoints.iter() {
+        scope.insert_value_opt(
+            &coverpoint.name,
+            def_id(db, InScope::new(file_id.into(), coverpoint_id)),
+        );
+    }
+
+    for (cross_id, cross) in hir_file.crosses.iter() {
+        scope.insert_value_opt(&cross.name, def_id(db, InScope::new(file_id.into(), cross_id)));
+    }
+
+    for (typedef_id, typedef) in hir_file.typedefs.iter() {
+        scope.insert_type_opt(
+            &typedef.name,
+            def_id(db, InContainer::new(file_id.into(), typedef_id)),
+        );
+    }
+
+    scope
+}
+
+fn build_module_scope(db: &dyn HirDefDb, module_id: crate::module::ModuleId) -> NameScope {
+    let mut scope = NameScope::default();
+    let module = db.module_with_source_map(module_id);
+    let module_src_map = module.source_map();
+
+    if let Ports::NonAnsi { ports, .. } = &module.ports {
+        for (port_id, port) in ports.iter() {
+            scope.insert_value_opt(&port.label, def_id(db, InModule::new(module_id, port_id)));
+        }
+    }
+
+    for (_, import) in module.package_imports.iter() {
+        scope.insert_package_import(import);
+    }
+
+    for (local_subroutine_id, subroutine) in module.subroutines.iter() {
+        let subroutine_id =
+            SubroutineScope::new(SubroutineParent::Module(module_id), local_subroutine_id);
+        scope.insert_value_opt(&subroutine.name, def_id(db, subroutine_id));
+    }
+
+    for (modport_id, modport) in module.modports.iter() {
+        scope.insert_value_opt(&modport.name, def_id(db, InModule::new(module_id, modport_id)));
+    }
+
+    for (clocking_block_id, clocking_block) in module.clocking_blocks.iter() {
+        scope.insert_value_opt(
+            &clocking_block.name,
+            def_id(db, InModule::new(module_id, clocking_block_id)),
+        );
+    }
+
+    for (checker_id, checker) in module.checkers.iter() {
+        scope.insert_type_opt(
+            &checker.name,
+            def_id(db, InFileOrModule::new(FileOrModule::Module(module_id), checker_id)),
+        );
+    }
+
+    for (covergroup_id, covergroup) in module.covergroups.iter() {
+        scope.insert_type_opt(
+            &covergroup.name,
+            def_id(db, InFileOrModule::new(FileOrModule::Module(module_id), covergroup_id)),
+        );
+    }
+
+    for (coverpoint_id, coverpoint) in module.coverpoints.iter() {
+        scope.insert_value_opt(
+            &coverpoint.name,
+            def_id(db, InScope::new(module_id.into(), coverpoint_id)),
+        );
+    }
+
+    for (cross_id, cross) in module.crosses.iter() {
+        scope.insert_value_opt(
+            &cross.name,
+            def_id(db, InScope::new(module_id.into(), cross_id)),
+        );
+    }
+
+    insert_decls_and_typedefs(&mut scope, db, module_id.into(), &module.decls, &module.typedefs);
+
+    for (instance_id, instance) in module.instances.iter() {
+        scope.insert_value_opt(
+            &instance.name,
+            def_id(db, InModule::new(module_id, instance_id)),
+        );
+    }
+
+    for item in &module_src_map.items {
+        if let crate::module::ModuleItem::GenerateRegionId(generate_region_id) = item {
+            let generate_region = module.get(*generate_region_id);
+            for item in &generate_region.items {
+                if let crate::module::generate::GenerateItem::GenerateBlockId(generate_block_id) =
+                    *item
+                {
+                    let generate_block = db.generate_block(generate_block_id);
+                    scope.insert_value_opt(&generate_block.name, def_id(db, generate_block_id));
+                }
+            }
+        }
+    }
+
+    insert_stmts(&mut scope, db, module_id.into(), &module.stmts);
+
+    scope
+}
+
+fn build_clocking_block_scope(
+    db: &dyn HirDefDb,
+    clocking_block_id: InModule<ClockingBlockId>,
+) -> NameScope {
+    let mut scope = NameScope::default();
+    let module = db.module(clocking_block_id.module_id);
+    let clocking_block = module.get(clocking_block_id.value);
+    let clocking_scope = ScopeId::ClockingBlock(clocking_block_id);
+
+    for (idx, signal) in clocking_block.signals.iter().enumerate() {
+        let signal_id = ClockingSignalId(idx as u32);
+        scope.insert_value(&signal.name, def_id(db, InScope::new(clocking_scope, signal_id)));
+    }
+
+    scope
+}
+
+fn build_checker_scope(db: &dyn HirDefDb, checker_id: InFileOrModule<CheckerId>) -> NameScope {
+    let mut scope = NameScope::default();
+    let checker = checker_def(db, checker_id);
+    let checker_scope = ScopeId::Checker(checker_id);
+
+    for (idx, port) in checker.ports.iter().enumerate() {
+        scope.insert_value(
+            &port.name,
+            def_id(db, InScope::new(checker_scope, CheckerPortId(idx as u32))),
+        );
+    }
+
+    let owner_id = ArenaOwnerId::from(checker_id.cont_id);
+    let container = owner_id.data(db);
+    for declaration_id in &checker.declarations {
+        let declaration = container.declaration(*declaration_id);
+        for decl_id in declaration.decls() {
+            let decl = container.declarator(decl_id);
+            scope.insert_value_opt(&decl.name, def_id(db, InContainer::new(owner_id, decl_id)));
+        }
+    }
+
+    scope
+}
+
+fn build_covergroup_scope(db: &dyn HirDefDb, covergroup_id: InFileOrModule<CovergroupId>) -> NameScope {
+    let mut scope = NameScope::default();
+    let covergroup = covergroup_def(db, covergroup_id);
+    let covergroup_scope = ScopeId::Covergroup(covergroup_id);
+
+    match covergroup_id.cont_id {
+        FileOrModule::File(file_id) => {
+            let file = db.hir_file(file_id);
+            for coverpoint_id in &covergroup.coverpoints {
+                let coverpoint = file.get(*coverpoint_id);
+                scope.insert_value_opt(
+                    &coverpoint.name,
+                    def_id(db, InScope::new(covergroup_scope, *coverpoint_id)),
+                );
+            }
+
+            for cross_id in &covergroup.crosses {
+                let cross = file.get(*cross_id);
+                scope.insert_value_opt(
+                    &cross.name,
+                    def_id(db, InScope::new(covergroup_scope, *cross_id)),
+                );
+            }
+        }
+        FileOrModule::Module(module_id) => {
+            let module = db.module(module_id);
+            for coverpoint_id in &covergroup.coverpoints {
+                let coverpoint = module.get(*coverpoint_id);
+                scope.insert_value_opt(
+                    &coverpoint.name,
+                    def_id(db, InScope::new(covergroup_scope, *coverpoint_id)),
+                );
+            }
+
+            for cross_id in &covergroup.crosses {
+                let cross = module.get(*cross_id);
+                scope.insert_value_opt(
+                    &cross.name,
+                    def_id(db, InScope::new(covergroup_scope, *cross_id)),
+                );
+            }
+        }
+    }
+
+    scope
+}
+
+fn build_generate_block_scope(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> NameScope {
+    let mut scope = NameScope::default();
+    let generate_block = db.generate_block_with_source_map(generate_block_id);
+
+    scope.insert_value_opt(&generate_block.name, def_id(db, generate_block_id));
+
+    for (local_subroutine_id, subroutine) in generate_block.subroutines.iter() {
+        let subroutine_id = SubroutineScope::new(
+            SubroutineParent::GenerateBlock(generate_block_id),
+            local_subroutine_id,
+        );
+        scope.insert_value_opt(&subroutine.name, def_id(db, subroutine_id));
+    }
+
+    insert_decls_and_typedefs(
+        &mut scope,
+        db,
+        generate_block_id.into(),
+        &generate_block.decls,
+        &generate_block.typedefs,
+    );
+
+    for item in &generate_block.items {
+        if let crate::module::generate::GenerateBlockItem::GenerateBlockId(child_id) = *item {
+            let child = db.generate_block(child_id);
+            scope.insert_value_opt(&child.name, def_id(db, child_id));
+        }
+    }
+
+    insert_stmts(&mut scope, db, generate_block_id.into(), &generate_block.stmts);
+
+    scope
+}
+
+fn build_block_scope(db: &dyn HirDefDb, block_id: crate::block::BlockId) -> NameScope {
+    let mut scope = NameScope::default();
+    let block = db.block(block_id);
+
+    insert_decls_and_typedefs(&mut scope, db, block_id.into(), &block.decls, &block.typedefs);
+    insert_stmts(&mut scope, db, block_id.into(), &block.stmts);
+
+    scope
+}
+
+fn build_subroutine_scope(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> NameScope {
+    let mut scope = NameScope::default();
+    let subroutine = db.subroutine(subroutine_id);
+
+    for (port_idx, port) in subroutine.ports.iter().enumerate() {
+        let port_id = SubroutinePortId(port_idx as u32);
+        scope.insert_value_opt(
+            &port.name,
+            def_id(db, InSubroutine::new(subroutine_id, port_id)),
+        );
+    }
+
+    insert_decls_and_typedefs(
+        &mut scope,
+        db,
+        subroutine_id.into(),
+        &subroutine.decls,
+        &subroutine.typedefs,
+    );
+    insert_stmts(&mut scope, db, subroutine_id.into(), &subroutine.stmts);
+
+    scope
 }
 
 fn checker_def(db: &dyn HirDefDb, checker_id: InFileOrModule<CheckerId>) -> CheckerDef {
