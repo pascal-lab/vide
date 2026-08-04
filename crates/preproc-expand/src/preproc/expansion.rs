@@ -6,26 +6,15 @@ pub fn macro_call_resolutions_in_range(
     range: TextRange,
 ) -> PreprocResult<Vec<MacroCallResolution>> {
     let mut resolutions = UniqVec::<MacroCallResolution, ()>::default();
-    let mut first_error = None;
-    let contexts = source_preproc_single_query_contexts(db, file_id);
-
-    for model_file_id in contexts.model_file_ids.iter().copied() {
-        let mapped = db.source_preproc_model(model_file_id);
-        let mapped = match mapped_result(mapped.as_ref()) {
-            Ok(mapped) => mapped,
-            Err(error) => {
-                record_first_error(&mut first_error, error);
-                continue;
-            }
-        };
-
+    let mut query = ContextQuery::new(db, file_id);
+    query.for_each_model(db, |_model_file_id, mapped| {
         for source_call in source_macro_calls_intersecting_range(mapped, file_id, range) {
             let Some(reference) = mapped.model.macro_references().get(source_call.reference) else {
                 continue;
             };
             let SourceMacroResolution::Resolved { definition, .. } = &reference.resolution else {
                 if let SourceMacroResolution::Unavailable(reason) = &reference.resolution {
-                    record_first_error(&mut first_error, source_model_error(reason.clone()));
+                    return Err(source_model_error(reason.clone()));
                 }
                 continue;
             };
@@ -36,38 +25,18 @@ pub fn macro_call_resolutions_in_range(
                     .get(source_call.reference)
                     .map(|reference| reference.event_id.raw())
                     .unwrap_or_default();
-                record_first_error(
-                    &mut first_error,
-                    PreprocError::SourceQuery(SourcePreprocQueryError::Model(
-                        SourcePreprocError::MissingEvent { event_id },
-                    )),
-                );
-                continue;
+                return Err(PreprocError::SourceQuery(SourcePreprocQueryError::Model(
+                    SourcePreprocError::MissingEvent { event_id },
+                )));
             };
 
-            let call = match map_macro_call(mapped, source_call) {
-                Ok(call) => call,
-                Err(error) => {
-                    record_first_error(&mut first_error, error);
-                    continue;
-                }
-            };
-            let definition = match map_macro_definition(mapped, source_definition) {
-                Ok(definition) => definition,
-                Err(error) => {
-                    record_first_error(&mut first_error, error);
-                    continue;
-                }
-            };
+            let call = map_macro_call(mapped, source_call)?;
+            let definition = map_macro_definition(mapped, source_definition)?;
             resolutions.push_unique_eq(MacroCallResolution { call, definition });
         }
-    }
-
-    if resolutions.is_empty()
-        && let Err(error) = finish_empty_single_query(&contexts, first_error)
-    {
-        return Err(error);
-    }
+        Ok(())
+    });
+    query.finish_empty(!resolutions.is_empty())?;
 
     Ok(resolutions.into_vec())
 }

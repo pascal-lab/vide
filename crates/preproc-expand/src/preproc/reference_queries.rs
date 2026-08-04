@@ -6,38 +6,17 @@ pub fn macro_references_in_range(
     range: TextRange,
 ) -> PreprocResult<Vec<MacroReference>> {
     let mut references = UniqVec::<MacroReference, ()>::default();
-    let mut first_error = None;
-    let contexts = source_preproc_single_query_contexts(db, file_id);
-
-    for model_file_id in contexts.model_file_ids.iter().copied() {
-        let mapped = db.source_preproc_model(model_file_id);
-        let mapped = match mapped_result(mapped.as_ref()) {
-            Ok(mapped) => mapped,
-            Err(error) => {
-                record_first_error(&mut first_error, error);
-                continue;
-            }
-        };
-
+    let mut query = ContextQuery::new(db, file_id);
+    query.for_each_model(db, |_model_file_id, mapped| {
         for reference_id in mapped.macro_reference_ids_intersecting_range(file_id, range) {
             let Some(reference) = mapped.model.macro_references().get(reference_id) else {
                 continue;
             };
-
-            match map_macro_reference(mapped, reference) {
-                Ok(reference) => {
-                    references.push_unique_eq(reference);
-                }
-                Err(error) => record_first_error(&mut first_error, error),
-            }
+            references.push_unique_eq(map_macro_reference(mapped, reference)?);
         }
-    }
-
-    if references.is_empty()
-        && let Err(error) = finish_empty_single_query(&contexts, first_error)
-    {
-        return Err(error);
-    }
+        Ok(())
+    });
+    query.finish_empty(!references.is_empty())?;
 
     Ok(references.into_vec())
 }
@@ -50,65 +29,30 @@ pub fn macro_reference_definitions_at(
     let mut definitions = UniqVec::<MacroDefinition, MacroDefinitionKey>::default();
     let mut references = UniqVec::<MacroReference, ()>::default();
     let mut query_range = None;
-    let mut first_error = None;
-    let contexts = source_preproc_single_query_contexts(db, file_id);
-
-    for model_file_id in contexts.model_file_ids.iter().copied() {
-        let mapped = db.source_preproc_model(model_file_id);
-        let mapped = match mapped_result(mapped.as_ref()) {
-            Ok(mapped) => mapped,
-            Err(error) => {
-                record_first_error(&mut first_error, error);
-                continue;
-            }
-        };
-
+    let mut query = ContextQuery::new(db, file_id);
+    query.for_each_model(db, |model_file_id, mapped| {
         for reference_id in mapped.macro_reference_ids_at(file_id, offset) {
             let Some(reference) = mapped.model.macro_references().get(reference_id) else {
                 continue;
             };
-            let (_, range) =
-                match source_mapping_range_at_offset(mapped, reference.name_range, file_id, offset)
-                {
-                    Ok(Some(hit)) => hit,
-                    Ok(None) => continue,
-                    Err(error) => {
-                        record_first_error(&mut first_error, error);
-                        continue;
-                    }
-                };
+            let Some((_, range)) =
+                source_mapping_range_at_offset(mapped, reference.name_range, file_id, offset)?
+            else {
+                continue;
+            };
             query_range.get_or_insert(range);
 
-            let mapped_reference = match map_macro_reference(mapped, reference) {
-                Ok(reference) => reference,
-                Err(error) => {
-                    record_first_error(&mut first_error, error);
-                    continue;
-                }
-            };
+            let mapped_reference = map_macro_reference(mapped, reference)?;
             references.push_unique_eq(mapped_reference.clone());
 
             match &reference.resolution {
                 SourceMacroResolution::Resolved { definition, .. } => {
                     let Some(definition) = mapped.model.macro_definitions().get(*definition) else {
-                        record_first_error(
-                            &mut first_error,
-                            PreprocError::SourceQuery(SourcePreprocQueryError::Model(
-                                SourcePreprocError::MissingEvent {
-                                    event_id: reference.event_id.raw(),
-                                },
-                            )),
-                        );
-                        continue;
+                        return Err(PreprocError::SourceQuery(SourcePreprocQueryError::Model(
+                            SourcePreprocError::MissingEvent { event_id: reference.event_id.raw() },
+                        )));
                     };
-                    let definition = match map_macro_definition(mapped, definition) {
-                        Ok(definition) => definition,
-                        Err(error) => {
-                            record_first_error(&mut first_error, error);
-                            continue;
-                        }
-                    };
-
+                    let definition = map_macro_definition(mapped, definition)?;
                     definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
                 }
                 SourceMacroResolution::Undefined => {
@@ -123,10 +67,11 @@ pub fn macro_reference_definitions_at(
                 SourceMacroResolution::Unavailable(_) => {}
             }
         }
-    }
+        Ok(())
+    });
 
     let Some(range) = query_range else {
-        finish_empty_single_query(&contexts, first_error)?;
+        query.finish_empty(false)?;
         return Ok(None);
     };
 
