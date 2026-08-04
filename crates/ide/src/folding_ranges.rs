@@ -216,9 +216,16 @@ fn collect_item_groups(
     kind: FoldKind,
     line_index: &LineIndex,
 ) {
-    let mut group_start: Option<TextSize> = None;
-    let mut group_end: Option<TextSize> = None;
+    let mut group: Option<(TextSize, TextSize, usize)> = None; // (start, end, len)
     let mut prev_end_line: Option<u32> = None;
+
+    let flush = |folds: &mut Vec<Fold>, group: &mut Option<(TextSize, TextSize, usize)>| {
+        if let Some((start, end, len)) = group.take()
+            && len > 1
+        {
+            folds.collect_fold(TextRange::new(start, end), kind, line_index);
+        }
+    };
 
     for range in ranges {
         let Some(line_ranges) = line_index.line_ranges(range) else {
@@ -229,20 +236,15 @@ fn collect_item_groups(
 
         let adjacent = prev_end_line.is_some_and(|prev| start_line == prev + 1);
         if adjacent {
-            group_end = Some(range.end());
+            let (start, _, len) = group.unwrap();
+            group = Some((start, range.end(), len + 1));
         } else {
-            if let (Some(start), Some(end)) = (group_start, group_end) {
-                folds.collect_fold(TextRange::new(start, end), kind, line_index);
-            }
-            group_start = Some(range.start());
-            group_end = Some(range.end());
+            flush(folds, &mut group);
+            group = Some((range.start(), range.end(), 1));
         }
         prev_end_line = Some(end_line);
     }
-
-    if let (Some(start), Some(end)) = (group_start, group_end) {
-        folds.collect_fold(TextRange::new(start, end), kind, line_index);
-    }
+    flush(folds, &mut group);
 }
 
 pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
@@ -846,6 +848,23 @@ endmodule</fold>
     }
 
     #[test]
+    fn fold_argument_lists_and_concatenations() {
+        check_folds(
+            r#"<fold module>module m;
+  always_comb <fold block>begin
+    <fold stmt>x = foo<fold arglist>(a,
+      b,
+      c)</fold>;</fold>
+    <fold stmt>y = <fold concat>{a,
+      b,
+      c}</fold>;</fold>
+  end</fold>
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
     fn fold_pseudo_region() {
         check_folds(
             r#"<fold module>module m;
@@ -858,17 +877,13 @@ endmodule</fold>
     }
 
     #[test]
-    fn fold_argument_lists_and_concatenations() {
+    fn fold_single_item_group_does_not_fold_twice() {
+        // A lone multi-line declaration folds once: the item fold, not a
+        // single-element group on top of it.
         check_folds(
             r#"<fold module>module m;
-  always_comb <fold block>begin
-    <fold stmt>x = foo<fold arglist>(a,
-      b,
-      c)</fold>;</fold>
-    <fold stmt>y = <fold concat>{a,
-      b,
-      c}</fold>;</fold>
-  end</fold>
+<fold declaration>logic a,
+  b;</fold>
 endmodule</fold>
 "#,
         );
