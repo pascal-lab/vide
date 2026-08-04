@@ -138,6 +138,10 @@ impl RegionTreeBuilder {
     }
 
     pub(crate) fn stage<'a>(&mut self, end_tok: Option<SyntaxToken<'a>>, context: SyntaxNode<'a>) {
+        // Scan the end token's trivia first: an `endregion` marker attached to
+        // the closing token must close its region, otherwise every open region
+        // would be force-closed below and the marker would be lost.
+        self.handle_tok(end_tok, context);
         if let Some(end) =
             end_tok.as_ref().and_then(|tok| tok.text_range_in(context)).map(|r| r.end())
         {
@@ -148,7 +152,6 @@ impl RegionTreeBuilder {
                 self.stack.pop();
             }
         }
-        self.handle_tok(end_tok, context);
     }
 
     pub(crate) fn finish(&mut self) -> RegionTree {

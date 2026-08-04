@@ -1,4 +1,4 @@
-﻿use ide::{FilePosition, folding_ranges::FoldingConfig};
+﻿use ide::FilePosition;
 use itertools::Itertools;
 use utils::text_edit::TextRange;
 
@@ -92,15 +92,15 @@ pub(crate) fn handle_folding_ranges(
     params: lsp_types::FoldingRangeParams,
 ) -> anyhow::Result<Option<Vec<lsp_types::FoldingRange>>> {
     let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
-    let config = FoldingConfig { line_fold_only: snap.config.cli_line_folding_only() };
+    let line_fold_only = snap.config.cli_line_folding_only();
     let text = snap.file_text(file_id)?;
     let line_info = snap.line_info(file_id)?;
 
     let folds = snap
         .analysis
-        .folding_ranges(file_id, &config)?
+        .folding_ranges(file_id)?
         .into_iter()
-        .map(|fold| to_proto::folding_range(&text, &line_info, &config, fold))
+        .map(|fold| to_proto::folding_range(&text, &line_info, line_fold_only, fold))
         .collect();
 
     Ok(Some(folds))
