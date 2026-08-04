@@ -8,27 +8,10 @@ source_table!(
 );
 source_table!(SourceMacroReferenceTable, references, SourceMacroReferenceId, SourceMacroReference);
 source_table!(SourceMacroCallTable, calls, SourceMacroCallId, SourceMacroCall, mutable);
-source_table!(SourceMacroExpansionTable, expansions, SourceMacroExpansionId, SourceMacroExpansion);
-source_table!(SourceEmittedTokenTable, tokens, SourceEmittedTokenId, SourceEmittedToken);
-source_table!(SourceTokenOriginTable, origins, SourceTokenOriginId, SourceTokenOrigin);
 
 impl SourceIncludeGraph {
     pub fn directives(&self) -> &[SourceIncludeDirective] {
         &self.directives
-    }
-
-    pub fn edges(&self) -> &[SourceIncludeEdge] {
-        &self.edges
-    }
-}
-
-impl SourceMacroStateTimeline {
-    pub fn states(&self) -> &[SourceMacroState] {
-        &self.states
-    }
-
-    pub fn checkpoints(&self) -> &[SourceMacroStateCheckpoint] {
-        &self.checkpoints
     }
 }
 

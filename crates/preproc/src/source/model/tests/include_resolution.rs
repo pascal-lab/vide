@@ -11,7 +11,7 @@ wire active;
     let (model, root_source, header_source) = source_model(root_text, header_text);
 
     let conditional_index = model
-        .conditionals()
+        .conditionals
         .iter()
         .position(|conditional| conditional.kind == MacroConditionalKind::IfDef)
         .expect("ifdef should be traced");
@@ -19,10 +19,9 @@ wire active;
 
     assert_eq!(reference.name.as_str(), "HEADER_FLAG");
     assert_eq!(reference.name_range.source, root_source);
-    let SourceMacroResolution::Resolved { definition, reason, .. } = reference.resolution else {
+    let SourceMacroResolution::Resolved { definition, .. } = reference.resolution else {
         panic!("conditional token reference should resolve to visible definition");
     };
-    assert_eq!(reason, SourceMacroResolutionReason::VisibleDefinition);
     assert_eq!(model.macro_definitions().get(definition).unwrap().name_range.source, header_source);
 }
 
@@ -40,7 +39,7 @@ wire active;
     let (model, _root_source, header_source) = source_model(root_text, header_text);
 
     let conditional_index = model
-        .conditionals()
+        .conditionals
         .iter()
         .position(|conditional| {
             conditional.kind == MacroConditionalKind::IfNDef
@@ -62,13 +61,7 @@ wire active;
         .expect("include guard token should be modeled as a resolved reference");
     assert_eq!(reference.name.as_str(), "HEADER_FLAG");
     assert_eq!(reference.name_range.source, header_source);
-    assert!(matches!(
-        reference.resolution,
-        SourceMacroResolution::Resolved {
-            reason: SourceMacroResolutionReason::IncludeGuardIfNDef,
-            ..
-        }
-    ));
+    assert!(matches!(reference.resolution, SourceMacroResolution::Resolved { .. }));
 }
 
 #[test]
@@ -91,28 +84,20 @@ logic [`LEAF_WIDTH-1:0] data;
         ..SyntaxTreeOptions::default()
     };
     let trace = preprocessor_trace(root_text, "source", ROOT_PATH, &options);
-    let root_source = PreprocSourceId::from(trace.root_buffer_id);
     let model = SourcePreprocModel::from_trace(trace).unwrap();
-    let header_source = source_by_path_suffix(&model, "include/defs.vh");
     let leaf_source = source_by_path_suffix(&model, "include/leaf.vh");
 
     let usage_index = model
-        .usages()
+        .usages
         .iter()
         .position(|usage| usage.name.as_deref() == Some("LEAF_WIDTH"))
         .expect("root macro usage should be traced");
     let reference = reference_for_usage(&model, usage_index);
-    let SourceMacroResolution::Resolved { definition, include_chain, .. } = &reference.resolution
-    else {
+    let SourceMacroResolution::Resolved { definition } = &reference.resolution else {
         panic!("usage reference should resolve to nested included definition");
     };
 
     assert_eq!(model.macro_definitions().get(*definition).unwrap().name_range.source, leaf_source);
-    assert_eq!(include_chain.len(), 2);
-    assert_eq!(include_chain[0].include_range.source, root_source);
-    assert_eq!(include_chain[0].included_source, header_source);
-    assert_eq!(include_chain[1].include_range.source, header_source);
-    assert_eq!(include_chain[1].included_source, leaf_source);
 }
 
 #[test]

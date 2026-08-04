@@ -2,7 +2,7 @@ use super::*;
 
 impl SourcePreprocModelBuilder {
     pub(in crate::source::tables::builder) fn scan_references_and_state(&mut self) {
-        let event_records = self.model.index.event_records.clone();
+        let event_records = self.model.event_records.clone();
         for (source_order, directive) in event_records.iter().enumerate() {
             match directive.kind {
                 MacroEventKind::Define => self.apply_define(source_order, directive),
@@ -35,7 +35,7 @@ impl SourcePreprocModelBuilder {
         source_order: usize,
         directive: &SourcePreprocEventRecord,
     ) {
-        let Some(undef) = self.model.index.undefs.get(directive.index) else {
+        let Some(undef) = self.model.undefs.get(directive.index) else {
             return;
         };
         if let Some(name) = undef.name.as_ref() {
@@ -48,7 +48,7 @@ impl SourcePreprocModelBuilder {
         &mut self,
         directive: &SourcePreprocEventRecord,
     ) {
-        let Some(usage) = self.model.index.usages.get(directive.index).cloned() else {
+        let Some(usage) = self.model.usages.get(directive.index).cloned() else {
             return;
         };
         let Some(name) = usage.name.clone() else {
@@ -62,8 +62,6 @@ impl SourcePreprocModelBuilder {
         let event_id = usage.event_id;
         let directive_range = usage.range;
         let trace_definition = usage.trace_definition;
-        let trace_expansion = usage.trace_expansion;
-        let parent_trace_expansion = usage.parent_trace_expansion;
         let arguments = usage.arguments.clone();
         let resolution = self.resolve_usage_reference(name.as_str(), trace_definition);
         let reference = self.push_reference(
@@ -74,14 +72,7 @@ impl SourcePreprocModelBuilder {
             directive_range,
             resolution.clone(),
         );
-        let call = self.push_call(
-            reference,
-            directive_range,
-            resolution,
-            usage.trace_call,
-            trace_expansion,
-            parent_trace_expansion,
-        );
+        let call = self.push_call(reference, directive_range, usage.trace_call);
         for argument in arguments {
             self.record_macro_actual_argument(call, argument);
         }
@@ -91,7 +82,7 @@ impl SourcePreprocModelBuilder {
         &mut self,
         directive: &SourcePreprocEventRecord,
     ) {
-        let Some(conditional) = self.model.index.conditionals.get(directive.index).cloned() else {
+        let Some(conditional) = self.model.conditionals.get(directive.index).cloned() else {
             return;
         };
         let event_id = conditional.event_id;
@@ -109,10 +100,7 @@ impl SourcePreprocModelBuilder {
                             conditional_index: directive.index,
                             token_index,
                         },
-                        self.resolve_definition(
-                            definition,
-                            SourceMacroResolutionReason::VisibleDefinition,
-                        ),
+                        self.resolve_definition(definition),
                     )
                 } else if let Some(definition) =
                     self.include_guard_definition_after_ifndef(directive.index, name.as_str())
@@ -122,10 +110,7 @@ impl SourcePreprocModelBuilder {
                             conditional_index: directive.index,
                             token_index,
                         },
-                        self.resolve_definition(
-                            definition,
-                            SourceMacroResolutionReason::IncludeGuardIfNDef,
-                        ),
+                        self.resolve_definition(definition),
                     )
                 } else {
                     (
@@ -166,31 +151,82 @@ impl SourcePreprocModelBuilder {
         &mut self,
         reference: SourceMacroReferenceId,
         call_range: SourceRange,
-        callee: SourceMacroResolution,
         trace_call: Option<MacroCallId>,
-        trace_expansion: Option<MacroExpansionId>,
-        parent_trace_expansion: Option<MacroExpansionId>,
     ) -> SourceMacroCallId {
         let id = SourceMacroCallId::new(self.model.macro_calls.len());
         self.model.macro_calls.push(SourceMacroCall {
             id,
             trace_call,
-            trace_expansion,
-            parent_trace_expansion,
             reference,
             call_range,
-            callee,
             arguments: Vec::new(),
-            expansion: Err(SourcePreprocUnavailable::MissingMacroExpansion { call: id }),
         });
         if let Some(trace_call) = trace_call {
             self.calls_by_trace_id.insert(trace_call, id);
-        } else {
-            self.macro_calls_partial = true;
-        }
-        if let Some(trace_expansion) = trace_expansion {
-            self.calls_by_expansion_trace_id.insert(trace_expansion, id);
         }
         id
+    }
+
+    pub(in crate::source::tables::builder) fn record_macro_actual_argument(
+        &mut self,
+        call: SourceMacroCallId,
+        argument: SourceMacroActualArgument,
+    ) {
+        let Some(call) = self.model.macro_calls.get_mut(call) else {
+            return;
+        };
+        if let Some(existing) = call
+            .arguments
+            .iter_mut()
+            .find(|existing| existing.argument_index == argument.argument_index)
+        {
+            existing.argument_range =
+                existing.argument_range.merge_optional_same_source(argument.argument_range);
+            if existing.tokens.is_empty() {
+                existing.tokens = argument.tokens;
+            }
+            return;
+        }
+        call.arguments.push(SourceMacroArgument {
+            argument_index: argument.argument_index,
+            argument_range: argument.argument_range,
+            tokens: argument.tokens,
+        });
+        call.arguments.sort_by_key(|argument| argument.argument_index);
+    }
+}
+
+trait SourceRangeOptionExt {
+    fn merge_optional_same_source(self, next: Option<SourceRange>) -> Option<SourceRange>;
+}
+
+impl SourceRangeOptionExt for Option<SourceRange> {
+    fn merge_optional_same_source(self, next: Option<SourceRange>) -> Option<SourceRange> {
+        match next {
+            Some(next) => self.merge_same_source(next),
+            None => self,
+        }
+    }
+}
+
+trait SourceRangeExt {
+    fn merge_same_source(self, next: SourceRange) -> Option<SourceRange>;
+}
+
+impl SourceRangeExt for Option<SourceRange> {
+    fn merge_same_source(self, next: SourceRange) -> Option<SourceRange> {
+        let Some(existing) = self else {
+            return Some(next);
+        };
+        if existing.source != next.source {
+            return Some(existing);
+        }
+        Some(SourceRange {
+            source: existing.source,
+            range: utils::line_index::TextRange::new(
+                existing.range.start().min(next.range.start()),
+                existing.range.end().max(next.range.end()),
+            ),
+        })
     }
 }

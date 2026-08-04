@@ -3,11 +3,9 @@ use base_db::{
     source_db::SourceFileKind,
 };
 use preproc::source::{
-    MacroIncludeTarget, PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange,
-    SourceIncludeChainEntry, SourceIncludeStatus, SourceMacroArgument, SourceMacroCall,
-    SourceMacroCallId, SourceMacroDefinition, SourceMacroExpansion, SourceMacroParam,
-    SourceMacroReference, SourceMacroReferenceSite, SourceMacroResolution, SourcePreprocError,
-    SourcePreprocUnavailable, SourceRange, SourceTokenOrigin,
+    MacroIncludeTarget, PreprocSourceId, SourceIncludeStatus, SourceMacroArgument, SourceMacroCall,
+    SourceMacroDefinition, SourceMacroParam, SourceMacroReference, SourceMacroResolution,
+    SourcePreprocError, SourcePreprocUnavailable, SourceRange,
 };
 use smol_str::SmolStr;
 use triomphe::Arc;

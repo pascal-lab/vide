@@ -1,7 +1,16 @@
-use syntax::preproc::MacroCallId as TraceMacroCallId;
+use syntax::{
+    Trace,
+    preproc::{MacroCallId as TraceMacroCallId, TokenOrigin},
+};
 
 use super::*;
-use crate::macro_file::{MacroCallId, MacroCallLoc, Origin};
+use crate::{
+    macro_file::{
+        MacroCallId, MacroCallLoc, Origin, SourceEmittedTokenId, SourceEmittedTokenRange,
+        emitted_range_for_trace_call,
+    },
+    source_db::{PreprocSourceMapping, PreprocVirtualOrigin},
+};
 
 pub(in crate::preproc) fn diagnostic_target_for_call(
     db: &dyn PreprocDb,
@@ -9,23 +18,24 @@ pub(in crate::preproc) fn diagnostic_target_for_call(
     mapped: &MappedSourcePreprocModel,
     source_call: &SourceMacroCall,
 ) -> PreprocResult<Option<DiagnosticTarget>> {
-    match mapped.model.immediate_macro_expansion(source_call.id) {
-        Ok(expansion_id) => {
-            let Some(expansion) = mapped.model.macro_expansions().get(expansion_id) else {
-                return Ok(None);
-            };
-            diagnostic_target_for_source_expansion(db, model_file, mapped, expansion)
-        }
-        Err(_) => Ok(None),
-    }
-}
-
-pub(in crate::preproc) fn emitted_token_ids(
-    range: SourceEmittedTokenRange,
-) -> impl Iterator<Item = SourceEmittedTokenId> {
-    let start = range.start.raw();
-    let end = start.saturating_add(range.len);
-    (start..end).map(SourceEmittedTokenId::new)
+    let Some(trace_call) = source_call.trace_call else {
+        return Ok(None);
+    };
+    let parsed = db.parsed_compilation_unit(model_file);
+    let Some(trace) = parsed.preprocessor_trace.as_ref() else {
+        return Ok(None);
+    };
+    let Some(emitted_range) = emitted_range_for_trace_call(trace, trace_call) else {
+        return Ok(None);
+    };
+    diagnostic_target_for_source_expansion(
+        db,
+        model_file,
+        mapped,
+        source_call,
+        trace,
+        emitted_range,
+    )
 }
 
 enum TokenDiagnosticTarget {
@@ -38,11 +48,15 @@ fn diagnostic_target_for_token(
     db: &dyn PreprocDb,
     model_file: FileId,
     mapped: &MappedSourcePreprocModel,
-    origin: &SourceTokenOrigin,
+    source_call: &SourceMacroCall,
+    origin: &TokenOrigin,
 ) -> PreprocResult<TokenDiagnosticTarget> {
     Ok(match origin {
-        SourceTokenOrigin::Source { token_range } => {
-            let (source, range) = map_source_mapping_range(mapped, *token_range)?;
+        TokenOrigin::Source { token_range } => {
+            let (source, range) = match source_range_from_trace(token_range) {
+                Some(range) => map_source_mapping_range(mapped, range)?,
+                None => return Ok(TokenDiagnosticTarget::Skip),
+            };
             let file_id = require_file_backed_source(&source)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::File { file: file_id, range },
@@ -50,101 +64,100 @@ fn diagnostic_target_for_token(
                 range,
             })
         }
-        SourceTokenOrigin::MacroBody {
-            trace_call,
-            trace_definition,
-            body_token_range,
-            call,
-            ..
-        } => {
-            let _call = mapped_macro_call(mapped, *call)?;
-            let (source, range) = map_source_mapping_range(mapped, *body_token_range)?;
+        TokenOrigin::MacroBody { call_id, definition_id, body_token_range, .. } => {
+            if source_is_predefine(mapped, body_token_range.buffer_id) {
+                return Ok(TokenDiagnosticTarget::Skip);
+            }
+            let (source, range) = match source_range_from_trace(body_token_range) {
+                Some(range) => map_source_mapping_range(mapped, range)?,
+                None => return Ok(TokenDiagnosticTarget::Skip),
+            };
             let file_id = require_file_backed_source(&source)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::MacroBody {
-                    call: hir_macro_call(db, model_file, *trace_call),
-                    def: *trace_definition,
+                    call: hir_macro_call(db, model_file, *call_id),
+                    def: *definition_id,
                     body_range: range,
                 },
                 file_id,
                 range,
             })
         }
-        SourceTokenOrigin::MacroArgument {
-            trace_call,
-            call,
-            argument_index,
-            argument_token_range,
-            ..
-        } => {
-            let _call = mapped_macro_call(mapped, *call)?;
-            let Ok((source, range)) = map_source_mapping_range(mapped, *argument_token_range)
-            else {
-                return Ok(TokenDiagnosticTarget::Blocked);
+        TokenOrigin::MacroArgument { call_id, argument_index, argument_token_range, .. } => {
+            let (source, range) = match source_range_from_trace(argument_token_range) {
+                Some(range) => match map_source_mapping_range(mapped, range) {
+                    Ok(mapped) => mapped,
+                    Err(_) => return Ok(TokenDiagnosticTarget::Blocked),
+                },
+                None => return Ok(TokenDiagnosticTarget::Blocked),
             };
             let file_id = require_file_backed_source(&source)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::MacroArg {
-                    call: hir_macro_call(db, model_file, *trace_call),
-                    arg_index: *argument_index,
+                    call: hir_macro_call(db, model_file, *call_id),
+                    arg_index: usize::try_from(*argument_index).ok().unwrap_or_default(),
                     arg_range: range,
                 },
                 file_id,
                 range,
             })
         }
-        SourceTokenOrigin::TokenPaste { call, .. } => {
-            let _call = mapped_macro_call(mapped, *call)?;
-            TokenDiagnosticTarget::Blocked
-        }
-        SourceTokenOrigin::Stringify { call, .. } => {
-            let _call = mapped_macro_call(mapped, *call)?;
-            TokenDiagnosticTarget::Blocked
-        }
-        SourceTokenOrigin::Predefine { source } => {
-            let _source = map_source_mapping_id(mapped, *source)?;
-            TokenDiagnosticTarget::Skip
-        }
-        SourceTokenOrigin::Builtin { name, trace_call, call, .. } => {
-            let call = mapped_macro_call(mapped, *call)?;
+        TokenOrigin::TokenPaste { .. } => TokenDiagnosticTarget::Blocked,
+        TokenOrigin::Stringify { .. } => TokenDiagnosticTarget::Blocked,
+        TokenOrigin::Builtin { name, call_id, .. } if !name.is_empty() => {
+            let (source, range) = map_source_mapping_range(mapped, source_call.call_range)?;
+            let file_id = require_file_backed_source(&source)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::Builtin {
-                    call: hir_macro_call(db, model_file, *trace_call),
-                    name: name.clone(),
+                    call: hir_macro_call(db, model_file, *call_id),
+                    name: SmolStr::new(name),
                 },
-                file_id: call.file_id,
-                range: call.range,
+                file_id,
+                range,
             })
         }
+        TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => TokenDiagnosticTarget::Skip,
     })
 }
 
-pub(in crate::preproc) fn mapped_macro_call(
-    mapped: &MappedSourcePreprocModel,
-    call: SourceMacroCallId,
-) -> PreprocResult<MacroCall> {
-    let Some(call) = mapped.model.macro_calls().get(call) else {
-        return Err(source_model_error(SourcePreprocUnavailable::MissingMacroCall { call }));
-    };
-    map_macro_call(mapped, call)
+fn source_range_from_trace(range: &syntax::SourceBufferRange) -> Option<SourceRange> {
+    Some(SourceRange {
+        source: PreprocSourceId::from(range.buffer_id),
+        range: TextRange::new(
+            TextSize::from(u32::try_from(range.range.start).ok()?),
+            TextSize::from(u32::try_from(range.range.end).ok()?),
+        ),
+    })
+}
+
+fn source_is_predefine(mapped: &MappedSourcePreprocModel, buffer_id: u32) -> bool {
+    matches!(
+        mapped.source_map.get(PreprocSourceId::from(buffer_id)),
+        Some(PreprocSourceMapping::VirtualDisplay {
+            origin: PreprocVirtualOrigin::Predefines { .. },
+            ..
+        })
+    )
 }
 
 pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
     db: &dyn PreprocDb,
     model_file: FileId,
     mapped: &MappedSourcePreprocModel,
-    expansion: &SourceMacroExpansion,
+    source_call: &SourceMacroCall,
+    trace: &Trace,
+    emitted_range: SourceEmittedTokenRange,
 ) -> PreprocResult<Option<DiagnosticTarget>> {
-    for token_id in emitted_token_ids(expansion.emitted_token_range) {
-        let Some(token) = mapped.model.emitted_tokens().get(token_id) else {
+    let start = emitted_range.start.raw();
+    let end = start.saturating_add(emitted_range.len);
+    for raw in start..end {
+        let token_id = SourceEmittedTokenId::new(raw);
+        let Some(token) = trace.emitted_tokens.get(raw) else {
             return Err(PreprocError::SourceMap(PreprocSourceMapError::MissingEmittedToken {
                 token: token_id,
             }));
         };
-        let Some(origin) = token.origin.and_then(|id| mapped.model.token_origins().get(id)) else {
-            continue;
-        };
-        match diagnostic_target_for_token(db, model_file, mapped, origin)? {
+        match diagnostic_target_for_token(db, model_file, mapped, source_call, &token.origin)? {
             TokenDiagnosticTarget::Target(target) => return Ok(Some(target)),
             TokenDiagnosticTarget::Skip => {}
             TokenDiagnosticTarget::Blocked => {}

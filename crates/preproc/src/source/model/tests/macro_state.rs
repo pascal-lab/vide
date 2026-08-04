@@ -51,7 +51,7 @@ logic [`HEADER_WIDTH-1:0] data;
     )
     .unwrap();
     assert_eq!(after_include.id.raw(), 0);
-    assert_eq!(model.defines()[0].name_range.unwrap().source, header_source);
+    assert_eq!(model.defines[0].name_range.unwrap().source, header_source);
 
     assert!(
         visible_macro_definition(
@@ -62,8 +62,8 @@ logic [`HEADER_WIDTH-1:0] data;
         )
         .is_none()
     );
-    assert_eq!(model.undefs()[0].name.as_deref(), Some("HEADER_WIDTH"));
-    assert_eq!(model.undefs()[0].name_range.unwrap().source, root_source);
+    assert_eq!(model.undefs[0].name.as_deref(), Some("HEADER_WIDTH"));
+    assert_eq!(model.undefs[0].name_range.unwrap().source, root_source);
 }
 
 #[test]
@@ -75,8 +75,8 @@ logic [`HEADER_WIDTH-1:0] data;
     let header_text = "`define HEADER_WIDTH 8\n";
     let (model, root_source, header_source) = source_model(root_text, header_text);
 
-    assert_eq!(model.defines()[0].name_range.unwrap().source, header_source);
-    assert_eq!(model.defines()[1].name_range.unwrap().source, root_source);
+    assert_eq!(model.defines[0].name_range.unwrap().source, header_source);
+    assert_eq!(model.defines[1].name_range.unwrap().source, root_source);
 
     let after_override = visible_macro_definition(
         &model,
@@ -120,7 +120,7 @@ fn visible_macro_query_reads_timeline_without_event_records() {
     assert!(names_after_undef.is_empty(), "{names_after_undef:?}");
     assert_eq!(names_after_second_define, vec![SmolStr::new("B")]);
 
-    model.index.event_records.clear();
+    model.event_records.clear();
 
     assert_eq!(
         visible_macro_names(&model, root_source, offset_after(root_text, "`define A 1\n")),
@@ -199,26 +199,20 @@ logic [`HEADER_WIDTH-1:0] data;
     let (model, root_source, header_source) = source_model(root_text, header_text);
 
     let usage_index = model
-        .usages()
+        .usages
         .iter()
         .position(|usage| usage.name.as_deref() == Some("HEADER_WIDTH"))
         .expect("root macro usage should be traced");
-    let usage = &model.usages()[usage_index];
+    let usage = &model.usages[usage_index];
     assert_eq!(usage.range.source, root_source);
     assert_eq!(usage.name_range.unwrap().source, root_source);
 
     let reference = reference_for_usage(&model, usage_index);
-    let SourceMacroResolution::Resolved { definition, include_chain, reason } =
-        &reference.resolution
-    else {
+    let SourceMacroResolution::Resolved { definition } = &reference.resolution else {
         panic!("usage reference should resolve to included definition");
     };
-    assert_eq!(*reason, SourceMacroResolutionReason::VisibleDefinition);
     let definition = model.macro_definitions().get(*definition).unwrap();
     assert_eq!(definition.name.as_str(), "HEADER_WIDTH");
     assert_eq!(definition.name_range.source, header_source);
     assert_eq!(definition.body_tokens[0].value.as_str(), "8");
-    assert_eq!(include_chain.len(), 1);
-    assert_eq!(include_chain[0].include_range.source, root_source);
-    assert_eq!(include_chain[0].included_source, header_source);
 }

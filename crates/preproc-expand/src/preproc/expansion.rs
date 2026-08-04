@@ -20,8 +20,11 @@ pub fn macro_call_resolutions_in_range(
         };
 
         for source_call in source_macro_calls_intersecting_range(mapped, file_id, range) {
-            let SourceMacroResolution::Resolved { definition, .. } = &source_call.callee else {
-                if let SourceMacroResolution::Unavailable(reason) = &source_call.callee {
+            let Some(reference) = mapped.model.macro_references().get(source_call.reference) else {
+                continue;
+            };
+            let SourceMacroResolution::Resolved { definition, .. } = &reference.resolution else {
+                if let SourceMacroResolution::Unavailable(reason) = &reference.resolution {
                     record_first_error(&mut first_error, source_model_error(reason.clone()));
                 }
                 continue;

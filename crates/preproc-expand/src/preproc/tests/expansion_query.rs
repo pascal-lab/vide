@@ -11,12 +11,15 @@ endmodule
     let header_text = "`define HEADER_WIDTH 8\n";
     let db = db_with_files(root_text, header_text);
 
-    let resolution =
-        macro_usage_resolution_at(&db, TOP, offset(root_text, "HEADER_WIDTH")).unwrap().unwrap();
-    assert_eq!(resolution.usage.file_id, TOP);
-    assert_eq!(resolution.definition.file_id, HEADER);
-    assert_eq!(resolution.definition.name.as_str(), "HEADER_WIDTH");
-    assert_eq!(text_at_range(header_text, resolution.definition.name_range), "HEADER_WIDTH");
+    let definitions = macro_reference_definitions_at(&db, TOP, offset(root_text, "HEADER_WIDTH"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(definitions.references.len(), 1);
+    assert_eq!(definitions.references[0].file_id, TOP);
+    assert_eq!(definitions.definitions.len(), 1);
+    assert_eq!(definitions.definitions[0].file_id, HEADER);
+    assert_eq!(definitions.definitions[0].name.as_str(), "HEADER_WIDTH");
+    assert_eq!(text_at_range(header_text, definitions.definitions[0].name_range), "HEADER_WIDTH");
 
     let include = include_directive_at(&db, TOP, offset(root_text, "defs.vh")).unwrap().unwrap();
     assert_eq!(text_at_range(root_text, include.range), "\"defs.vh\"");

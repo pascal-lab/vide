@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use ::preproc::source::{
-    PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange, SourceRange,
-};
+use ::preproc::source::{PreprocSourceId, SourceRange};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SourceBufferRange,
@@ -13,7 +11,10 @@ use syntax::{
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
-use super::{ExpandError, ExpandErrorKind, ExpandResult, MacroCallId, MacroCallLoc};
+use super::{
+    ExpandError, ExpandErrorKind, ExpandResult, MacroCallId, MacroCallLoc, SourceEmittedTokenId,
+    SourceEmittedTokenRange,
+};
 use crate::{db::PreprocDb, source_db::PreprocSourceMap};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -9,54 +9,28 @@ pub(in crate::source) struct SourcePreprocModelBuilder {
     definition_ids_by_define_index: BTreeMap<usize, SourceMacroDefinitionId>,
     definitions_by_trace_id: BTreeMap<MacroDefinitionId, SourceMacroDefinitionId>,
     calls_by_trace_id: BTreeMap<MacroCallId, SourceMacroCallId>,
-    calls_by_expansion_trace_id: BTreeMap<MacroExpansionId, SourceMacroCallId>,
-    emitted_token_owners: BTreeMap<SourceEmittedTokenId, SourceMacroCallId>,
     current_state: BTreeMap<SmolStr, SourceMacroDefinitionId>,
-    definition_ranges_partial: bool,
-    include_edges_partial: bool,
-    references_partial: bool,
-    macro_calls_partial: bool,
-    expansions_partial: bool,
 }
 
+mod body_references;
 mod definitions;
-mod emitted;
-mod emitted_helpers;
-mod emitted_origins;
-mod expansion_helpers;
-mod expansions;
 mod references;
 mod resolution;
 mod state;
-mod token_origin;
 
 impl SourcePreprocModelBuilder {
-    pub(in crate::source) fn new(index: SourcePreprocIndex) -> Self {
+    pub(in crate::source) fn new(mut model: SourcePreprocModel) -> Self {
+        model.macro_definitions = SourceMacroDefinitionTable::default();
+        model.macro_references = SourceMacroReferenceTable::default();
+        model.macro_calls = SourceMacroCallTable::default();
+        model.include_graph = SourceIncludeGraph::default();
+        model.state_timeline = SourceMacroStateTimeline::default();
         Self {
-            model: SourcePreprocModel {
-                index,
-                macro_definitions: SourceMacroDefinitionTable::default(),
-                macro_references: SourceMacroReferenceTable::default(),
-                macro_calls: SourceMacroCallTable::default(),
-                macro_expansions: SourceMacroExpansionTable::default(),
-                emitted_tokens: SourceEmittedTokenTable::default(),
-                token_origins: SourceTokenOriginTable::default(),
-                include_graph: SourceIncludeGraph::default(),
-                inactive_ranges: Vec::new(),
-                state_timeline: SourceMacroStateTimeline::default(),
-                issues: Vec::new(),
-            },
+            model,
             definition_ids_by_define_index: BTreeMap::new(),
             definitions_by_trace_id: BTreeMap::new(),
             calls_by_trace_id: BTreeMap::new(),
-            calls_by_expansion_trace_id: BTreeMap::new(),
-            emitted_token_owners: BTreeMap::new(),
             current_state: BTreeMap::new(),
-            definition_ranges_partial: false,
-            include_edges_partial: false,
-            references_partial: false,
-            macro_calls_partial: false,
-            expansions_partial: false,
         }
     }
 
@@ -69,27 +43,22 @@ impl SourcePreprocModelBuilder {
         self.build_definition_table();
         self.build_include_graph();
         self.record_position_boundaries();
-        self.record_state_checkpoint(0, SourcePosition::from_first_event(&self.model.index));
+        self.record_state_checkpoint(0, SourcePosition::from_first_event(&self.model));
         self.scan_references_and_state();
-        self.build_emitted_token_tables();
-        self.build_macro_expansion_graph();
         self.record_macro_body_references_for_calls();
     }
 }
 
 impl SourcePosition {
-    fn from_first_event(index: &SourcePreprocIndex) -> Self {
-        index
+    fn from_first_event(model: &SourcePreprocModel) -> Self {
+        model
             .event_records
             .first()
             .map(|record| SourcePosition {
                 source: record.range.source,
                 offset: record.range.range.start(),
             })
-            .unwrap_or(SourcePosition {
-                source: index.root_source.unwrap_or_else(|| PreprocSourceId::new(0)),
-                offset: 0.into(),
-            })
+            .unwrap_or(SourcePosition { source: model.root_source, offset: 0.into() })
     }
 }
 
