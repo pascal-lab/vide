@@ -520,3 +520,367 @@ fn collect_stmt(
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use base_db::{change::Change, source_root::SourceRoot};
+    use utils::line_index::{TextRange, TextSize};
+    use vfs::{ChangedFile, FileId, FileSet, VfsPath};
+
+    use super::{Fold, FoldKind, folding_ranges};
+    use crate::db::root_db::RootDb;
+
+    fn db_with_file(text: &str) -> (RootDb, FileId) {
+        let file_id = FileId::from_raw(0);
+        let path = VfsPath::new_virtual_path("/test.sv".to_owned());
+
+        let mut file_set = FileSet::default();
+        file_set.insert(file_id, path);
+        let root = SourceRoot::new_local(file_set);
+
+        let mut change = Change::new();
+        change.set_roots(vec![root]);
+        change.add_changed_file(ChangedFile::create(file_id, text));
+
+        let mut db = RootDb::new(None);
+        change.apply(&mut db);
+        (db, file_id)
+    }
+
+    /// Extracts `<fold kind>...</fold>` tags from a fixture, returning the
+    /// cleaned text and the expected fold ranges (in cleaned-text offsets).
+    fn extract_fold_tags(text: &str) -> (String, Vec<(TextRange, FoldKind)>) {
+        let mut clean = String::new();
+        let mut expected = Vec::new();
+        let mut stack: Vec<(usize, FoldKind)> = Vec::new();
+        let mut rest = text;
+
+        loop {
+            let open = rest.find("<fold ");
+            let close = rest.find("</fold>");
+            match (open, close) {
+                (Some(start), Some(close)) if start < close => {
+                    let name_end = rest[start..].find('>').map(|i| start + i).unwrap();
+                    let kind = parse_fold_kind(&rest[start + 6..name_end]);
+                    clean.push_str(&rest[..start]);
+                    stack.push((clean.len(), kind));
+                    rest = &rest[name_end + 1..];
+                }
+                (Some(start), None) => {
+                    let name_end = rest[start..].find('>').map(|i| start + i).unwrap();
+                    let kind = parse_fold_kind(&rest[start + 6..name_end]);
+                    clean.push_str(&rest[..start]);
+                    stack.push((clean.len(), kind));
+                    rest = &rest[name_end + 1..];
+                }
+                (_, Some(rel)) => {
+                    clean.push_str(&rest[..rel]);
+                    let (range_start, kind) = stack.pop().expect("unbalanced </fold>");
+                    expected.push((
+                        TextRange::new(
+                            TextSize::from(range_start as u32),
+                            TextSize::from(clean.len() as u32),
+                        ),
+                        kind,
+                    ));
+                    rest = &rest[rel + 7..];
+                }
+                (None, None) => {
+                    clean.push_str(rest);
+                    break;
+                }
+            }
+        }
+        assert!(stack.is_empty(), "unbalanced <fold> tags");
+        (clean, expected)
+    }
+
+    fn parse_fold_kind(name: &str) -> FoldKind {
+        match name {
+            "comment" => FoldKind::Comment,
+            "imports" => FoldKind::Imports,
+            "region" => FoldKind::Region,
+            "module" => FoldKind::Module,
+            "config" => FoldKind::Config,
+            "library" => FoldKind::Library,
+            "portlist" => FoldKind::PortList,
+            "decl" => FoldKind::Decl,
+            "declaration" => FoldKind::Declaration,
+            "contassign" => FoldKind::ContAssign,
+            "defparam" => FoldKind::DefParam,
+            "generate" => FoldKind::Generate,
+            "specify" => FoldKind::Specify,
+            "instance" => FoldKind::Instance,
+            "stmt" => FoldKind::Stmt,
+            "block" => FoldKind::Block,
+            "subroutine" => FoldKind::Subroutine,
+            "arglist" => FoldKind::ArgList,
+            "concat" => FoldKind::Concat,
+            other => panic!("unknown fold kind {other:?}"),
+        }
+    }
+
+    fn check_folds(fixture: &str) {
+        let (text, mut expected) = extract_fold_tags(fixture);
+        let (db, file_id) = db_with_file(&text);
+        let mut folds = folding_ranges(&db, file_id);
+
+        // Equal-range folds (e.g. a pseudo region and its declaration group)
+        // may arrive in any order, so tie-break by kind.
+        let order =
+            |fold: &Fold| (fold.range.start(), fold.range.end(), format!("{:?}", fold.kind));
+        folds.sort_by_key(order);
+        expected.sort_by_key(|(range, kind)| (range.start(), range.end(), format!("{kind:?}")));
+
+        if folds.len() != expected.len() {
+            let mut report = String::new();
+            for fold in &folds {
+                report.push_str(&format!("  {:?} {:?}\n", fold.kind, fold.range));
+            }
+            panic!(
+                "fold count mismatch: got {} folds, expected {}\n{report}",
+                folds.len(),
+                expected.len()
+            );
+        }
+        for (fold, (range, kind)) in folds.iter().zip(expected) {
+            assert_eq!(fold.range, range, "range mismatch");
+            assert_eq!(fold.kind, kind, "kind mismatch for {range:?}");
+        }
+    }
+
+    #[test]
+    fn fold_comments() {
+        check_folds(
+            r#"<fold comment>// one
+// two</fold>
+
+// standalone
+
+<fold comment>/* block
+ * comment */</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_comments_do_not_cross_blank_lines() {
+        check_folds(
+            r#"// one
+
+<fold comment>// two
+// three</fold>
+
+// four
+module m; endmodule
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_regions() {
+        check_folds(
+            r#"<fold region>// region: file
+// body
+// endregion</fold>
+
+<fold module>module m;
+  <fold region>// region: inner
+  logic x;
+  // endregion</fold>
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_region_markers_are_not_comment_folds() {
+        check_folds(
+            r#"<fold region>// region: keep
+// marker lines are folded as a region, not as a comment run
+// endregion</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_module_with_port_list() {
+        check_folds(
+            r#"module m <fold portlist>(
+  input logic a,
+  output logic b
+)</fold>;
+<fold module><fold declaration>logic x;
+logic y;</fold>
+  always_comb <fold block>begin
+    x = a;
+  end</fold>
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_module_without_port_list_fold() {
+        check_folds(
+            r#"<fold module>module m(a, b);
+  logic x;
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_subroutines() {
+        check_folds(
+            r#"<fold module>module m;
+<fold subroutine>function logic f;
+  <fold block>begin
+    x = a;
+  end</fold>
+endfunction</fold>
+
+<fold subroutine>task t;
+  x = a;
+endtask</fold>
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_file_level_subroutine() {
+        check_folds(
+            r#"<fold subroutine>function logic file_f;
+  return a;
+endfunction</fold>
+
+module m; endmodule
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_instances() {
+        check_folds(
+            r#"<fold module>module m;
+<fold instance>u_mod u0 (
+  .a(a),
+  .b(b)
+);</fold>
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_multi_instance_folds_from_name_end() {
+        check_folds(
+            r#"<fold module>module m;
+u_mod u0<fold instance> (
+  .a(a)
+)</fold>,
+u1<fold instance> (
+  .b(b)
+)</fold>;
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_generate_block() {
+        check_folds(
+            r#"<fold module>module m;
+<fold generate>generate
+  if (COND) begin : genblk
+    <fold instance>u_mod u1 (
+      .a(a)
+    );</fold>
+  end
+endgenerate</fold>
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_import_groups() {
+        check_folds(
+            r#"<fold imports>import pkg_a::*;
+import pkg_b::*;</fold>
+
+<fold module>module m;
+  <fold imports>import pkg_c::*;
+  import pkg_d::*;</fold>
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_assign_groups() {
+        check_folds(
+            r#"<fold module>module m;
+<fold contassign>assign a = x;
+assign b = y;</fold>
+
+assign c = z;
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_declaration_group_breaks_on_other_items() {
+        check_folds(
+            r#"<fold module>module m;
+<fold declaration>logic a;
+logic b;</fold>
+assign x = y;
+<fold declaration>logic c;
+logic d;</fold>
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_pseudo_region() {
+        check_folds(
+            r#"<fold module>module m;
+// grouped declarations
+<fold region><fold declaration>logic a;
+logic b;</fold></fold>
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_argument_lists_and_concatenations() {
+        check_folds(
+            r#"<fold module>module m;
+  always_comb <fold block>begin
+    <fold stmt>x = foo<fold arglist>(a,
+      b,
+      c)</fold>;</fold>
+    <fold stmt>y = <fold concat>{a,
+      b,
+      c}</fold>;</fold>
+  end</fold>
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_config() {
+        check_folds(
+            r#"<fold config>config cfg;
+  design top;
+endconfig</fold>
+"#,
+        );
+    }
+}
