@@ -37,7 +37,10 @@ pub(crate) fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FileId) 
     (host, file_id)
 }
 
-pub(crate) fn setup_best_effort_with_path(text: &str, path: &str) -> (AnalysisHost, FileId, String) {
+pub(crate) fn setup_best_effort_with_path(
+    text: &str,
+    path: &str,
+) -> (AnalysisHost, FileId, String) {
     let text = normalize_fixture_text(text);
     let file_id = FileId::from_raw(0);
     let path = VfsPath::new_virtual_path(path.to_string());
@@ -55,7 +58,9 @@ pub(crate) fn setup_best_effort_with_path(text: &str, path: &str) -> (AnalysisHo
     (host, file_id, text)
 }
 
-pub(crate) fn setup_marked(text: &str) -> (AnalysisHost, FileId, String, HashMap<String, TextSize>) {
+pub(crate) fn setup_marked(
+    text: &str,
+) -> (AnalysisHost, FileId, String, HashMap<String, TextSize>) {
     setup_marked_with_path(text, "/feature.v")
 }
 
@@ -141,7 +146,11 @@ pub(crate) fn strip_markers(mut text: String) -> (String, HashMap<String, TextSi
     (text, markers)
 }
 
-pub(crate) fn position(file_id: FileId, markers: &HashMap<String, TextSize>, name: &str) -> FilePosition {
+pub(crate) fn position(
+    file_id: FileId,
+    markers: &HashMap<String, TextSize>,
+    name: &str,
+) -> FilePosition {
     FilePosition {
         file_id,
         offset: *markers.get(name).unwrap_or_else(|| panic!("missing marker {name:?}")),

@@ -23,9 +23,8 @@ use crate::{
     db::HirDefDb,
     module::{ModuleId, generate::GenerateItem},
     scope::{
-        build_block_scope, build_checker_scope, build_clocking_block_scope,
-        build_covergroup_scope, build_file_scope, build_generate_block_scope,
-        build_module_scope, build_subroutine_scope,
+        build_block_scope, build_checker_scope, build_clocking_block_scope, build_covergroup_scope,
+        build_file_scope, build_generate_block_scope, build_module_scope, build_subroutine_scope,
     },
     stmt::{Stmt, StmtKind},
     symbol::NameScope,
@@ -76,10 +75,7 @@ impl DefMap {
     /// The scope for `scope_id`, or a freshly built scope as a correctness
     /// net if enumeration missed it (a bug we fail soft on).
     pub(crate) fn scope(&self, db: &dyn HirDefDb, scope_id: ScopeId) -> Arc<NameScope> {
-        self.scopes
-            .get(&scope_id)
-            .cloned()
-            .unwrap_or_else(|| Arc::new(build_scope(db, scope_id)))
+        self.scopes.get(&scope_id).cloned().unwrap_or_else(|| Arc::new(build_scope(db, scope_id)))
     }
 }
 
@@ -103,10 +99,14 @@ fn build_scope(db: &dyn HirDefDb, scope_id: ScopeId) -> NameScope {
     match scope_id {
         ScopeId::File(file_id) => build_file_scope(db, file_id),
         ScopeId::Module(module_id) => build_module_scope(db, module_id),
-        ScopeId::ClockingBlock(clocking_block_id) => build_clocking_block_scope(db, clocking_block_id),
+        ScopeId::ClockingBlock(clocking_block_id) => {
+            build_clocking_block_scope(db, clocking_block_id)
+        }
         ScopeId::Checker(checker_id) => build_checker_scope(db, checker_id),
         ScopeId::Covergroup(covergroup_id) => build_covergroup_scope(db, covergroup_id),
-        ScopeId::GenerateBlock(generate_block_id) => build_generate_block_scope(db, generate_block_id),
+        ScopeId::GenerateBlock(generate_block_id) => {
+            build_generate_block_scope(db, generate_block_id)
+        }
         ScopeId::Block(block_id) => build_block_scope(db, block_id),
         ScopeId::Subroutine(subroutine_id) => build_subroutine_scope(db, subroutine_id),
     }
@@ -156,10 +156,7 @@ fn child_scope_ids(db: &dyn HirDefDb, scope_id: ScopeId) -> Vec<ScopeId> {
                 )));
             }
             for (clocking_block_id, _) in module.clocking_blocks.iter() {
-                children.push(ScopeId::ClockingBlock(InModule::new(
-                    module_id,
-                    clocking_block_id,
-                )));
+                children.push(ScopeId::ClockingBlock(InModule::new(module_id, clocking_block_id)));
             }
             for (region_id, region) in module.generate_regions.iter() {
                 for item in &region.items {
@@ -180,7 +177,8 @@ fn child_scope_ids(db: &dyn HirDefDb, scope_id: ScopeId) -> Vec<ScopeId> {
                 )));
             }
             for item in &generate_block.items {
-                if let crate::module::generate::GenerateBlockItem::GenerateBlockId(child_id) = *item {
+                if let crate::module::generate::GenerateBlockItem::GenerateBlockId(child_id) = *item
+                {
                     children.push(child_id.into());
                 }
             }
@@ -207,7 +205,7 @@ fn collect_block_ids(db: &dyn HirDefDb, stmts: &Arena<Stmt>, out: &mut Vec<Scope
         if let StmtKind::Block(BlockInfo { block_id, .. }) = &stmt.kind {
             let block_id = *block_id;
             out.push(block_id.into());
-            let block: &Block = &*db.block_with_source_map(block_id);
+            let block: &Block = &db.block_with_source_map(block_id);
             collect_block_ids(db, &block.stmts, out);
         }
     }

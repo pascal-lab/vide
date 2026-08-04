@@ -38,7 +38,7 @@ impl SourcePreprocModelBuilder {
         self.build_definition_table();
         self.build_include_graph();
         self.record_position_boundaries();
-        self.record_state_checkpoint(0, SourcePosition::from_first_event(&self));
+        self.record_state_checkpoint(0, SourcePosition::from_first_event(self));
         self.scan_references_and_state();
         self.record_macro_body_references_for_calls();
     }

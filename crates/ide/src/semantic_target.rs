@@ -446,11 +446,8 @@ mod tests {
     fn ambiguous_source_target_alternatives_project_as_candidates() {
         let range = TextRange::new(TextSize::from(1), TextSize::from(4));
         let target_range = TextRange::new(TextSize::from(2), TextSize::from(3));
-        let target = crate::source_targets::SourceTarget {
-            origin: crate::source_targets::SourceTargetOrigin::NormalSyntax,
-            range: target_range,
-            tokens: Vec::new(),
-        };
+        let target =
+            crate::source_targets::SourceTarget { range: target_range, tokens: Vec::new() };
         let alternatives = crate::source_targets::SourceTargetAlternatives {
             domain: crate::source_targets::SourceTargetDomain::Preproc,
             range,

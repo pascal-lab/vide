@@ -1,7 +1,9 @@
 use base_db::source_db::SourceDb;
 use preproc_expand::{
     db::PreprocDb,
-    macro_file::{ExpansionSourceHit, MacroFileId, Origin, SourceEmittedTokenId, macro_files_at_offset},
+    macro_file::{
+        ExpansionSourceHit, MacroFileId, Origin, SourceEmittedTokenId, macro_files_at_offset,
+    },
 };
 use syntax::{SyntaxElement, SyntaxNode, SyntaxTokenWithParent, TokenKind, WalkEvent};
 use utils::line_index::{TextRange, TextSize, covering_range};
@@ -38,7 +40,7 @@ pub(super) fn preproc_source_target_at_offset<'tree>(
                     SourceTargetBlock::preproc_unavailable(range),
                 );
             };
-            SourceTargetProviderResult::Resolved(SourceTarget::preproc(range, hits, tokens))
+            SourceTargetProviderResult::Resolved(SourceTarget::preproc(range, tokens))
         }
         PreprocHitLookup::Unavailable { range } => {
             SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(range))
@@ -153,7 +155,7 @@ pub(super) fn ambiguous_preproc_source_targets<'tree>(
             covering_range(&group.iter().map(|hit| hit.source_range).collect::<Vec<_>>())
                 .unwrap_or(range);
         let tokens = syntax_tokens_for_preproc_hit(root, offset, precedence, &group)?;
-        targets.push(SourceTarget::preproc(group_range, group, tokens));
+        targets.push(SourceTarget::preproc(group_range, tokens));
     }
 
     Some(SourceTargetAlternatives::preproc_ambiguous(range, hit_count, targets))

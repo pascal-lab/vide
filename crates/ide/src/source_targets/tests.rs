@@ -47,10 +47,6 @@ fn source_targets_source_token_range_mismatch_uses_original_syntax_hit() {
     };
 
     assert_eq!(selection.range, origin_range);
-    let SourceTargetOrigin::Preproc { hits } = &selection.origin else {
-        panic!("preproc provider should produce a preproc-origin selection");
-    };
-    assert_eq!(hits.len(), 1);
     assert_eq!(selection.tokens.len(), 1);
     assert_eq!(selection.tokens[0].text_range(), Some(parser_range));
     assert_ne!(selection.tokens[0].text_range(), Some(origin_range));
@@ -218,13 +214,12 @@ fn source_targets_normal_syntax_path_still_selects_non_preproc_offsets() {
         panic!("normal syntax token expected");
     };
 
-    assert!(matches!(selection.origin, SourceTargetOrigin::NormalSyntax));
     assert_eq!(selection.range, parser_range);
     assert_eq!(selection.tokens.len(), 1);
 }
 
 #[test]
-fn source_targets_same_origin_hits_are_available_without_dropping_emitted_tokens() {
+fn source_targets_same_origin_hits_resolve_without_ambiguity() {
     let (root, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
     let file_id = FileId::from_raw(0);
@@ -237,10 +232,7 @@ fn source_targets_same_origin_hits_are_available_without_dropping_emitted_tokens
         panic!("same-origin hits should remain available");
     };
 
-    let SourceTargetOrigin::Preproc { hits } = selection.origin else {
-        panic!("preproc provider should produce a preproc-origin selection");
-    };
-    assert_eq!(hits.len(), 2);
+    assert_eq!(selection.range, parser_range);
 }
 
 #[test]
@@ -354,7 +346,7 @@ fn preproc_provider_result_from_hits<'tree>(
     let Some(tokens) = syntax_tokens_for_preproc_hit(root, offset, precedence, &unique_hits) else {
         return SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(range));
     };
-    SourceTargetProviderResult::Resolved(SourceTarget::preproc(range, unique_hits, tokens))
+    SourceTargetProviderResult::Resolved(SourceTarget::preproc(range, tokens))
 }
 
 fn preproc_hit_for_raw_origin(

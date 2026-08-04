@@ -37,22 +37,17 @@ impl<'tree> SourceTargetResolution<'tree> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct SourceTarget<'tree> {
-    pub origin: SourceTargetOrigin,
     pub range: TextRange,
     pub tokens: Vec<SyntaxTokenWithParent<'tree>>,
 }
 
 impl<'tree> SourceTarget<'tree> {
     fn normal_syntax(range: TextRange, tokens: Vec<SyntaxTokenWithParent<'tree>>) -> Self {
-        Self { origin: SourceTargetOrigin::NormalSyntax, range, tokens }
+        Self { range, tokens }
     }
 
-    fn preproc(
-        range: TextRange,
-        hits: Vec<PreprocTokenHit>,
-        tokens: Vec<SyntaxTokenWithParent<'tree>>,
-    ) -> Self {
-        Self { origin: SourceTargetOrigin::Preproc { hits }, range, tokens }
+    fn preproc(range: TextRange, tokens: Vec<SyntaxTokenWithParent<'tree>>) -> Self {
+        Self { range, tokens }
     }
 
     pub(crate) fn into_parts(self) -> (TextRange, Vec<SyntaxTokenWithParent<'tree>>) {
@@ -62,12 +57,6 @@ impl<'tree> SourceTarget<'tree> {
     pub(crate) fn into_tokens(self) -> Vec<SyntaxTokenWithParent<'tree>> {
         self.into_parts().1
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SourceTargetOrigin {
-    NormalSyntax,
-    Preproc { hits: Vec<PreprocTokenHit> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

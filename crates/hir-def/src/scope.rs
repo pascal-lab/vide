@@ -236,17 +236,11 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameSco
     }
 
     for (decl_id, decl) in hir_file.decls.iter() {
-        scope.insert_value_opt(
-            &decl.name,
-            def_id(db, InContainer::new(file_id.into(), decl_id)),
-        );
+        scope.insert_value_opt(&decl.name, def_id(db, InContainer::new(file_id.into(), decl_id)));
     }
 
     for (config_decl_id, config_decl) in hir_file.config_decls.iter() {
-        scope.insert_value_opt(
-            &config_decl.name,
-            def_id(db, InFile::new(file_id, config_decl_id)),
-        );
+        scope.insert_value_opt(&config_decl.name, def_id(db, InFile::new(file_id, config_decl_id)));
     }
 
     for (udp_decl_id, udp_decl) in hir_file.udp_decls.iter() {
@@ -295,7 +289,10 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameSco
     scope
 }
 
-pub(crate) fn build_module_scope(db: &dyn HirDefDb, module_id: crate::module::ModuleId) -> NameScope {
+pub(crate) fn build_module_scope(
+    db: &dyn HirDefDb,
+    module_id: crate::module::ModuleId,
+) -> NameScope {
     let mut scope = NameScope::default();
     let module = db.module_with_source_map(module_id);
     let module_src_map = module.source_map();
@@ -349,19 +346,13 @@ pub(crate) fn build_module_scope(db: &dyn HirDefDb, module_id: crate::module::Mo
     }
 
     for (cross_id, cross) in module.crosses.iter() {
-        scope.insert_value_opt(
-            &cross.name,
-            def_id(db, InScope::new(module_id.into(), cross_id)),
-        );
+        scope.insert_value_opt(&cross.name, def_id(db, InScope::new(module_id.into(), cross_id)));
     }
 
     insert_decls_and_typedefs(&mut scope, db, module_id.into(), &module.decls, &module.typedefs);
 
     for (instance_id, instance) in module.instances.iter() {
-        scope.insert_value_opt(
-            &instance.name,
-            def_id(db, InModule::new(module_id, instance_id)),
-        );
+        scope.insert_value_opt(&instance.name, def_id(db, InModule::new(module_id, instance_id)));
     }
 
     for item in &module_src_map.items {
@@ -400,7 +391,10 @@ pub(crate) fn build_clocking_block_scope(
     scope
 }
 
-pub(crate) fn build_checker_scope(db: &dyn HirDefDb, checker_id: InFileOrModule<CheckerId>) -> NameScope {
+pub(crate) fn build_checker_scope(
+    db: &dyn HirDefDb,
+    checker_id: InFileOrModule<CheckerId>,
+) -> NameScope {
     let mut scope = NameScope::default();
     let checker = checker_def(db, checker_id);
     let checker_scope = ScopeId::Checker(checker_id);
@@ -425,7 +419,10 @@ pub(crate) fn build_checker_scope(db: &dyn HirDefDb, checker_id: InFileOrModule<
     scope
 }
 
-pub(crate) fn build_covergroup_scope(db: &dyn HirDefDb, covergroup_id: InFileOrModule<CovergroupId>) -> NameScope {
+pub(crate) fn build_covergroup_scope(
+    db: &dyn HirDefDb,
+    covergroup_id: InFileOrModule<CovergroupId>,
+) -> NameScope {
     let mut scope = NameScope::default();
     let covergroup = covergroup_def(db, covergroup_id);
     let covergroup_scope = ScopeId::Covergroup(covergroup_id);
@@ -472,7 +469,10 @@ pub(crate) fn build_covergroup_scope(db: &dyn HirDefDb, covergroup_id: InFileOrM
     scope
 }
 
-pub(crate) fn build_generate_block_scope(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> NameScope {
+pub(crate) fn build_generate_block_scope(
+    db: &dyn HirDefDb,
+    generate_block_id: GenerateBlockId,
+) -> NameScope {
     let mut scope = NameScope::default();
     let generate_block = db.generate_block_with_source_map(generate_block_id);
 
@@ -516,16 +516,16 @@ pub(crate) fn build_block_scope(db: &dyn HirDefDb, block_id: crate::block::Block
     scope
 }
 
-pub(crate) fn build_subroutine_scope(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> NameScope {
+pub(crate) fn build_subroutine_scope(
+    db: &dyn HirDefDb,
+    subroutine_id: SubroutineScope,
+) -> NameScope {
     let mut scope = NameScope::default();
     let subroutine = db.subroutine(subroutine_id);
 
     for (port_idx, port) in subroutine.ports.iter().enumerate() {
         let port_id = SubroutinePortId(port_idx as u32);
-        scope.insert_value_opt(
-            &port.name,
-            def_id(db, InSubroutine::new(subroutine_id, port_id)),
-        );
+        scope.insert_value_opt(&port.name, def_id(db, InSubroutine::new(subroutine_id, port_id)));
     }
 
     insert_decls_and_typedefs(
