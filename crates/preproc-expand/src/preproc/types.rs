@@ -10,10 +10,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::{
-    macro_file::Origin,
-    source_db::{PreprocSourceMapError, SourcePreprocQueryError},
-};
+use crate::{macro_file::Origin, source_db::SourcePreprocQueryError};
 
 mod common;
 mod diagnostics;

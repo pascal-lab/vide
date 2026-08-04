@@ -133,7 +133,7 @@ fn source_range_from_trace(range: &syntax::SourceBufferRange) -> Option<SourceRa
 fn source_is_predefine(mapped: &MappedSourcePreprocModel, buffer_id: u32) -> bool {
     matches!(
         mapped.source_map.get(PreprocSourceId::from(buffer_id)),
-        Some(PreprocSourceMapping::VirtualDisplay {
+        Some(PreprocSourceMapping::VirtualFile {
             origin: PreprocVirtualOrigin::Predefines { .. },
             ..
         })
@@ -153,7 +153,7 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
     for raw in start..end {
         let token_id = SourceEmittedTokenId::new(raw);
         let Some(token) = trace.emitted_tokens.get(raw) else {
-            return Err(PreprocError::SourceMap(PreprocSourceMapError::MissingEmittedToken {
+            return Err(PreprocError::SourceQuery(SourcePreprocQueryError::MissingEmittedToken {
                 token: token_id,
             }));
         };

@@ -17,9 +17,7 @@ use vfs::FileId;
 use crate::{
     compilation_plan::{self, CompilationPlan},
     file::HirFileId,
-    macro_file::{
-        self, ExpandResult, ExpansionInfo, MacroCallId, MacroCallLoc, MacroFileId, MacroFileLoc,
-    },
+    macro_file::{self, ExpandResult, ExpansionInfo, MacroCallId, MacroCallLoc, MacroFileId},
     preproc::{MacroReferenceIndex, macro_reference_index_for_profile_query},
     source_db::{
         MappedSourcePreprocModel, SourcePreprocContextIndex, SourcePreprocQueryError,
@@ -411,7 +409,7 @@ pub trait PreprocDb: SourceRootDb {
     fn intern_macro_call(&self, macro_call: MacroCallLoc) -> MacroCallId;
 
     #[salsa::interned]
-    fn intern_macro_file(&self, macro_file: MacroFileLoc) -> MacroFileId;
+    fn intern_macro_file(&self, macro_file: MacroCallLoc) -> MacroFileId;
 
     #[salsa::invoke(macro_file::macro_expansion_query)]
     fn macro_expansion(&self, macro_file: MacroFileId) -> Arc<ExpandResult<ExpansionInfo>>;
@@ -434,13 +432,6 @@ base_db::impl_intern_lookup!(
     MacroCallLoc,
     intern_macro_call,
     lookup_intern_macro_call
-);
-base_db::impl_intern_lookup!(
-    PreprocDb,
-    MacroFileId,
-    MacroFileLoc,
-    intern_macro_file,
-    lookup_intern_macro_file
 );
 
 fn parse(db: &dyn PreprocDb, file_id: HirFileId) -> SyntaxTree {
@@ -694,9 +685,8 @@ mod tests {
 
     use super::*;
     use crate::source_db::{
-        PreprocSourceMapError, PreprocSourceMapping, PreprocSpeculativeUniverseId,
-        PreprocVirtualOrigin, materialized_predefine_text, preproc_virtual_builtin_path,
-        preproc_virtual_predefines_path, preproc_virtual_speculative_path, source_preproc_file_ids,
+        PreprocSourceMapping, PreprocVirtualOrigin, SourcePreprocQueryError,
+        materialized_predefine_text, preproc_virtual_predefines_path, source_preproc_file_ids,
         workspace_preproc_model_file_ids,
     };
 
@@ -945,7 +935,7 @@ mod tests {
         );
         assert!(matches!(
             source_map.file_id(PreprocSourceId::from(2)),
-            Err(PreprocSourceMapError::UnmappedSource { .. })
+            Err(SourcePreprocQueryError::SourceUnavailable(..))
         ));
     }
 
@@ -1000,7 +990,8 @@ mod tests {
         let extra = PreprocSourceId::from(4);
         let expected_path = preproc_virtual_predefines_path(None);
 
-        let Some(PreprocSourceMapping::VirtualDisplay { path, origin }) = source_map.get(first)
+        let Some(PreprocSourceMapping::VirtualFile { file_id: None, path, origin }) =
+            source_map.get(first)
         else {
             panic!("first predefine should map to display-only virtual source");
         };
@@ -1009,7 +1000,8 @@ mod tests {
 
         assert_eq!(
             source_map.get(second),
-            Some(&PreprocSourceMapping::VirtualDisplay {
+            Some(&PreprocSourceMapping::VirtualFile {
+                file_id: None,
                 path: expected_path,
                 origin: PreprocVirtualOrigin::Predefines { profile: None },
             })
@@ -1022,7 +1014,7 @@ mod tests {
         );
         assert!(matches!(
             source_map.file_id(first),
-            Err(PreprocSourceMapError::DisplayOnlyVirtualSource { .. })
+            Err(SourcePreprocQueryError::DisplayOnlyVirtualSource { .. })
         ));
 
         let second_range = SourceRange {
@@ -1102,10 +1094,13 @@ mod tests {
         let first = PreprocSourceId::from(2);
         let second = PreprocSourceId::from(3);
 
-        assert!(matches!(source_map.get(first), Some(PreprocSourceMapping::VirtualDisplay { .. })));
+        assert!(matches!(
+            source_map.get(first),
+            Some(PreprocSourceMapping::VirtualFile { file_id: None, .. })
+        ));
         assert!(matches!(
             source_map.get(second),
-            Some(PreprocSourceMapping::VirtualDisplay { .. })
+            Some(PreprocSourceMapping::VirtualFile { file_id: None, .. })
         ));
         assert_eq!(source_map.predefine_manifest_source(first).unwrap().range, first_range);
         assert_eq!(source_map.predefine_manifest_source(second).unwrap().range, second_range);
@@ -1172,7 +1167,7 @@ mod tests {
                 source,
                 range: TextRange::new(TextSize::from(0), TextSize::from(1)),
             }),
-            Err(PreprocSourceMapError::UnmappedSource { .. })
+            Err(SourcePreprocQueryError::SourceUnavailable(..))
         ));
     }
 
@@ -1271,7 +1266,8 @@ mod tests {
         )
         .unwrap();
         let source = PreprocSourceId::from(4);
-        let Some(PreprocSourceMapping::VirtualDisplay { path, origin }) = source_map.get(source)
+        let Some(PreprocSourceMapping::VirtualFile { file_id: None, path, origin }) =
+            source_map.get(source)
         else {
             panic!("external include buffer should map to display-only virtual source");
         };
@@ -1288,7 +1284,7 @@ mod tests {
                 source,
                 range: TextRange::new(TextSize::from(0), TextSize::from(128)),
             }),
-            Err(PreprocSourceMapError::RangeOutOfBounds { .. })
+            Err(SourcePreprocQueryError::RangeOutOfBounds { .. })
         ));
     }
 
@@ -1297,20 +1293,6 @@ mod tests {
         assert_eq!(
             preproc_virtual_predefines_path(None),
             VfsPath::new_virtual_path("/__vide/preproc/default/predefines.sv".to_owned())
-        );
-        assert_eq!(
-            preproc_virtual_builtin_path(Some(CompilationProfileId(3)), "bad/name"),
-            VfsPath::new_virtual_path("/__vide/preproc/profile-3/builtin/bad_name.sv".to_owned())
-        );
-        assert_eq!(
-            preproc_virtual_speculative_path(
-                Some(CompilationProfileId(3)),
-                PreprocSpeculativeUniverseId(11),
-                "root/top",
-            ),
-            VfsPath::new_virtual_path(
-                "/__vide/preproc/profile-3/speculative/11/root_top.sv".to_owned()
-            )
         );
     }
 }
