@@ -94,24 +94,24 @@ impl SourcePreprocModelBuilder {
         conditional_index: usize,
         name: &str,
     ) -> Option<SourceMacroDefinitionId> {
-        let conditional = self.model.conditionals.get(conditional_index)?;
+        let conditional = self.conditionals.get(conditional_index)?;
         if conditional.kind != MacroConditionalKind::IfNDef {
             return None;
         }
 
         let source = conditional.range.source;
         let (conditional_order, _) =
-            self.model.event_records.iter().enumerate().find(|(_, directive)| {
+            self.event_records.iter().enumerate().find(|(_, directive)| {
                 directive.kind == MacroEventKind::Conditional
                     && directive.index == conditional_index
             })?;
-        for directive in self.model.event_records.iter().skip(conditional_order + 1) {
+        for directive in self.event_records.iter().skip(conditional_order + 1) {
             if directive.range.source != source {
                 continue;
             }
             match directive.kind {
                 MacroEventKind::Define => {
-                    let define = self.model.defines.get(directive.index)?;
+                    let define = self.defines.get(directive.index)?;
                     if define.name.as_deref() == Some(name) {
                         return self.definition_ids_by_define_index.get(&directive.index).copied();
                     }
@@ -124,18 +124,6 @@ impl SourcePreprocModelBuilder {
             }
         }
         None
-    }
-
-    pub(in crate::source::tables::builder) fn record_missing_reference_name(
-        &mut self,
-        _event_id: SourcePreprocEventId,
-    ) {
-    }
-
-    pub(in crate::source::tables::builder) fn record_missing_reference_name_range(
-        &mut self,
-        _event_id: SourcePreprocEventId,
-    ) {
     }
 
     pub(in crate::source::tables::builder) fn record_state_checkpoint(

@@ -27,7 +27,6 @@ impl SourcePreprocModelBuilder {
                     continue;
                 };
                 let Some(name_range) = token.range else {
-                    self.record_missing_reference_name_range(definition.event_id);
                     continue;
                 };
                 if emitted.entry(call.id).or_default().iter().any(

@@ -10,12 +10,20 @@ wire active;
     let header_text = "`define HEADER_FLAG\n";
     let (model, root_source, header_source) = source_model(root_text, header_text);
 
-    let conditional_index = model
-        .conditionals
+    let conditional = model
+        .macro_references()
         .iter()
-        .position(|conditional| conditional.kind == MacroConditionalKind::IfDef)
-        .expect("ifdef should be traced");
-    let reference = reference_for_conditional_token(&model, conditional_index, 0);
+        .find_map(|reference| {
+            let SourceMacroReferenceSite::ConditionalToken { conditional_index, token_index: 0 } =
+                reference.site
+            else {
+                return None;
+            };
+            (reference.name == "HEADER_FLAG" && reference.name_range.source == root_source)
+                .then_some((conditional_index, reference))
+        })
+        .expect("ifdef token should be traced");
+    let (_, reference) = conditional;
 
     assert_eq!(reference.name.as_str(), "HEADER_FLAG");
     assert_eq!(reference.name_range.source, root_source);
@@ -39,13 +47,18 @@ wire active;
     let (model, _root_source, header_source) = source_model(root_text, header_text);
 
     let conditional_index = model
-        .conditionals
+        .macro_references()
         .iter()
-        .position(|conditional| {
-            conditional.kind == MacroConditionalKind::IfNDef
-                && conditional.range.source == header_source
+        .find_map(|reference| {
+            let SourceMacroReferenceSite::IncludeGuardIfNDef { conditional_index, token_index: 0 } =
+                reference.site
+            else {
+                return None;
+            };
+            (reference.name == "HEADER_FLAG" && reference.name_range.source == header_source)
+                .then_some(conditional_index)
         })
-        .expect("ifndef guard should be traced");
+        .expect("ifndef guard token should be modeled as a resolved reference");
     let reference = model
         .macro_references()
         .iter()
@@ -58,7 +71,7 @@ wire active;
                 } if site_conditional_index == conditional_index
             )
         })
-        .expect("include guard token should be modeled as a resolved reference");
+        .expect("ifndef guard token should be modeled as a resolved reference");
     assert_eq!(reference.name.as_str(), "HEADER_FLAG");
     assert_eq!(reference.name_range.source, header_source);
     assert!(matches!(reference.resolution, SourceMacroResolution::Resolved { .. }));
@@ -84,15 +97,19 @@ logic [`LEAF_WIDTH-1:0] data;
         ..SyntaxTreeOptions::default()
     };
     let trace = preprocessor_trace(root_text, "source", ROOT_PATH, &options);
+    let root_source = PreprocSourceId::from(trace.root_buffer_id);
     let model = SourcePreprocModel::from_trace(trace).unwrap();
     let leaf_source = source_by_path_suffix(&model, "include/leaf.vh");
 
-    let usage_index = model
-        .usages
+    let reference = model
+        .macro_references()
         .iter()
-        .position(|usage| usage.name.as_deref() == Some("LEAF_WIDTH"))
+        .find(|reference| {
+            matches!(reference.site, SourceMacroReferenceSite::Usage { .. })
+                && reference.name == "LEAF_WIDTH"
+                && reference.directive_range.source == root_source
+        })
         .expect("root macro usage should be traced");
-    let reference = reference_for_usage(&model, usage_index);
     let SourceMacroResolution::Resolved { definition } = &reference.resolution else {
         panic!("usage reference should resolve to nested included definition");
     };
