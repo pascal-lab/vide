@@ -53,10 +53,7 @@ impl SourcePosition {
                 source: record.range.source,
                 offset: record.range.range.start(),
             })
-            .unwrap_or(SourcePosition {
-                source: builder.model.root_source,
-                offset: 0.into(),
-            })
+            .unwrap_or(SourcePosition { source: builder.model.root_source, offset: 0.into() })
     }
 }
 

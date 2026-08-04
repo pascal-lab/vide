@@ -15,23 +15,14 @@ endmodule
         .macro_references()
         .iter()
         .filter(|reference| {
+            // Macro body references have no usage call pointing back at them;
+            // every call site of WRAP records one reference per body token.
             reference.name.as_str() == "LEAF"
-                && matches!(reference.site, SourceMacroReferenceSite::MacroBodyToken { .. })
+                && !model.macro_calls().iter().any(|call| call.reference == reference.id)
         })
         .collect::<Vec<_>>();
 
     assert_eq!(references.len(), 2);
-    let first_site = references[0].site;
-    let second_site = references[1].site;
-    let (
-        SourceMacroReferenceSite::MacroBodyToken { call: first_call, token_index: first_token },
-        SourceMacroReferenceSite::MacroBodyToken { call: second_call, token_index: second_token },
-    ) = (first_site, second_site)
-    else {
-        unreachable!();
-    };
-    assert_ne!(first_call, second_call);
-    assert_eq!(first_token, second_token);
     assert_eq!(references[0].name_range, references[1].name_range);
     assert_eq!(references[0].resolution, references[1].resolution);
 }

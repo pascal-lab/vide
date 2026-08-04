@@ -64,7 +64,6 @@ impl SourcePreprocModelBuilder {
         let resolution = self.resolve_usage_reference(name.as_str(), trace_definition);
         let reference = self.push_reference(
             event_id,
-            SourceMacroReferenceSite::Usage { usage_index: directive.index },
             name.clone(),
             name_range,
             directive_range,
@@ -85,47 +84,28 @@ impl SourcePreprocModelBuilder {
         };
         let event_id = conditional.event_id;
         let directive_range = conditional.range;
-        for (token_index, token) in conditional.expr.iter().enumerate() {
+        for token in conditional.expr.iter() {
             let name = token.value.clone();
             let Some(name_range) = token.range else {
                 continue;
             };
-            let (site, resolution) =
+            let resolution =
                 if let Some(definition) = self.current_state.get(name.as_str()).copied() {
-                    (
-                        SourceMacroReferenceSite::ConditionalToken {
-                            conditional_index: directive.index,
-                            token_index,
-                        },
-                        self.resolve_definition(definition),
-                    )
+                    self.resolve_definition(definition)
                 } else if let Some(definition) =
                     self.include_guard_definition_after_ifndef(directive.index, name.as_str())
                 {
-                    (
-                        SourceMacroReferenceSite::IncludeGuardIfNDef {
-                            conditional_index: directive.index,
-                            token_index,
-                        },
-                        self.resolve_definition(definition),
-                    )
+                    self.resolve_definition(definition)
                 } else {
-                    (
-                        SourceMacroReferenceSite::ConditionalToken {
-                            conditional_index: directive.index,
-                            token_index,
-                        },
-                        SourceMacroResolution::Undefined,
-                    )
+                    SourceMacroResolution::Undefined
                 };
-            self.push_reference(event_id, site, name, name_range, directive_range, resolution);
+            self.push_reference(event_id, name, name_range, directive_range, resolution);
         }
     }
 
     pub(in crate::source::tables::builder) fn push_reference(
         &mut self,
         event_id: SourcePreprocEventId,
-        site: SourceMacroReferenceSite,
         name: SmolStr,
         name_range: SourceRange,
         directive_range: SourceRange,
@@ -135,7 +115,6 @@ impl SourcePreprocModelBuilder {
         self.model.macro_references.push(SourceMacroReference {
             id,
             event_id,
-            site,
             name,
             name_range,
             directive_range,

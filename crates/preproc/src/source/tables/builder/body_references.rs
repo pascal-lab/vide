@@ -22,7 +22,7 @@ impl SourcePreprocModelBuilder {
                 source: call.call_range.source,
                 offset: call.call_range.range.start(),
             };
-            for (token_index, token) in definition.body_tokens.iter().enumerate() {
+            for token in definition.body_tokens.iter() {
                 let Some(name) = token.macro_reference_name() else {
                     continue;
                 };
@@ -39,10 +39,8 @@ impl SourcePreprocModelBuilder {
                 emitted.entry(call.id).or_default().push((name.clone(), name_range));
                 let resolution =
                     self.resolve_visible_reference_at_position(name.as_str(), call_position);
-                let site = SourceMacroReferenceSite::MacroBodyToken { call: call.id, token_index };
                 self.push_reference(
                     definition.event_id,
-                    site,
                     name,
                     name_range,
                     definition.directive_range,
