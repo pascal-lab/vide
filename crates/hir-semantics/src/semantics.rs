@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops};
+use std::ops;
 
 use hir_def::{
     Ident,
@@ -11,10 +11,8 @@ use hir_def::{
     subroutine::SubroutineSrc,
     symbol::{NameContext, Resolution},
 };
-use hir_to_def::Hir2DefCache;
 use itertools::{Either, Itertools};
 use preproc_expand::file::HirFileId;
-use source_to_def::{Source2DefCache, Source2DefCtx};
 use syntax::{
     SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTree,
     ast::{self, AstNode},
@@ -92,19 +90,11 @@ impl<DB: HirDefDb> Semantics<'_, DB> {
 
 pub struct SemanticsImpl<'db> {
     pub db: &'db dyn HirDefDb,
-
-    // s2d_cache
-    source2def_cache: RefCell<Source2DefCache>,
-    hir2def_cache: RefCell<Hir2DefCache>,
 }
 
 impl<'db> SemanticsImpl<'db> {
     fn new(db: &'db dyn HirDefDb) -> Self {
-        SemanticsImpl {
-            db,
-            source2def_cache: Default::default(),
-            hir2def_cache: Default::default(),
-        }
+        SemanticsImpl { db }
     }
 
     pub fn parse_file(&self, file_id: FileId) -> ParsedFile {
@@ -113,16 +103,7 @@ impl<'db> SemanticsImpl<'db> {
     }
 
     pub fn container_for_node(&self, file_id: HirFileId, node: SyntaxNode) -> Option<ArenaOwnerId> {
-        self.with_ctx(|ctx| Some(ctx.find_container(InFile::new(file_id, node))))
-    }
-
-    fn with_ctx<F: FnOnce(&mut Source2DefCtx<'_, '_>) -> T, T>(&self, f: F) -> T {
-        let mut ctx = Source2DefCtx {
-            db: self.db,
-            source_cache: &mut self.source2def_cache.borrow_mut(),
-            hir_cache: &mut self.hir2def_cache.borrow_mut(),
-        };
-        f(&mut ctx)
+        Some(source_to_def::find_container(self.db, InFile::new(file_id, node)))
     }
 }
 
@@ -133,12 +114,12 @@ impl SemanticsImpl<'_> {
         module: ast::ModuleDeclaration,
     ) -> Option<ModuleId> {
         let module_src = ModuleSrc::from_ast(file_id, module);
-        self.with_ctx(|ctx| ctx.module_to_def(InFile::new(file_id, module_src)))
+        source_to_def::module_to_def(self.db, InFile::new(file_id, module_src))
     }
 
     pub fn block_to_def(&self, file_id: HirFileId, block: ast::BlockStatement) -> Option<BlockId> {
         let block_src = BlockSrc::from_ast(file_id, block);
-        self.with_ctx(|ctx| ctx.block_to_def(InFile::new(file_id, block_src)))
+        source_to_def::block_to_def(self.db, InFile::new(file_id, block_src))
     }
 
     pub fn subroutine_to_def(
@@ -147,14 +128,14 @@ impl SemanticsImpl<'_> {
         subroutine: ast::FunctionDeclaration,
     ) -> Option<SubroutineScope> {
         let subroutine_src = SubroutineSrc::from_ast(file_id, subroutine);
-        self.with_ctx(|ctx| ctx.subroutine_to_def(InFile::new(file_id, subroutine_src)))
+        source_to_def::subroutine_to_def(self.db, InFile::new(file_id, subroutine_src))
     }
 
     pub fn expr_to_def(&self, in_cont: InContainer<ExprId>) -> Resolution<DefId> {
-        self.with_ctx(|ctx| ctx.expr_to_def(in_cont))
+        hir_to_def::expr_to_def(self.db, in_cont)
     }
 
     pub fn name_to_def(&self, in_cont: InContainer<Ident>) -> Resolution<DefId> {
-        self.with_ctx(|ctx| ctx.name_to_def(in_cont, NameContext::Value))
+        hir_to_def::name_to_def(self.db, in_cont, NameContext::Value)
     }
 }

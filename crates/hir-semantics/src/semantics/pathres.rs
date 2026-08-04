@@ -8,7 +8,7 @@ use hir_def::{
 use preproc_expand::file::HirFileId;
 use syntax::{SyntaxNode, SyntaxTokenWithParent};
 
-use super::SemanticsImpl;
+use super::{SemanticsImpl, hir_to_def, source_to_def};
 
 impl SemanticsImpl<'_> {
     pub fn nameres_ident(
@@ -20,14 +20,12 @@ impl SemanticsImpl<'_> {
         let Some(ident) = lower_ident_opt(Some(tok)) else {
             return Resolution::Unresolved;
         };
-        self.with_ctx(|source_ctx| {
-            let container = source_ctx.find_container(InFile::new(file_id, parent));
-            source_ctx.name_to_def(InContainer::new(container, ident), name_ctx)
-        })
+        let container = source_to_def::find_container(self.db, InFile::new(file_id, parent));
+        hir_to_def::name_to_def(self.db, InContainer::new(container, ident), name_ctx)
     }
 
     pub(in crate::semantics) fn find_container(&self, node: InFile<SyntaxNode>) -> ArenaOwnerId {
-        self.with_ctx(|ctx| ctx.find_container(node))
+        source_to_def::find_container(self.db, node)
     }
 
     pub fn resolve_name(
