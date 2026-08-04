@@ -1,122 +1,82 @@
 use hir_def::{
     Ident,
     container::{ArenaOwnerId, InContainer},
+    db::HirDefDb,
     def_id::DefId,
     expr::{Expr, ExprId},
     pathres::{resolve_child_name, resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
 };
-use rustc_hash::FxHashMap;
-use utils::get::GetRef;
 
-use super::Source2DefCtx;
+pub(super) fn expr_to_def(
+    db: &dyn HirDefDb,
+    InContainer { cont_id, value: expr_id }: InContainer<ExprId>,
+) -> Resolution<DefId> {
+    let resolve = |expr: &Expr| {
+        let res = match expr {
+            Expr::Field { receiver, field } => {
+                let Some(field) = field.as_ref() else {
+                    return Resolution::Unresolved;
+                };
+                resolve_expr_path(db, cont_id, expr_id, NameContext::Value).or_else(|| {
+                    let receiver_res = expr_to_def(db, InContainer::new(cont_id, *receiver));
+                    resolve_child_name(db, &receiver_res, field, NameContext::Value)
+                })
+            }
+            Expr::ElementSelect { receiver, .. } => resolve_expr_path(db, cont_id, expr_id, NameContext::Value)
+                .or_else(|| expr_to_def(db, InContainer::new(cont_id, *receiver))),
+            Expr::Ident(ident) => {
+                name_to_def(db, InContainer::new(cont_id, ident.clone()), NameContext::Value)
+            }
+            _ => Resolution::Unresolved,
+        };
+        res
+    };
 
-#[derive(Default, Debug)]
-pub(super) struct Hir2DefCache {
-    expr_map: FxHashMap<InContainer<ExprId>, Resolution<DefId>>,
-    name_map: FxHashMap<InContainer<Ident>, Resolution<DefId>>,
+    let Some(expr) = expr_in_container(db, cont_id, expr_id) else {
+        return Resolution::Unresolved;
+    };
+    resolve(&expr)
 }
 
-impl Source2DefCtx<'_, '_> {
-    pub(super) fn expr_to_def(
-        &mut self,
-        InContainer { cont_id, value: expr_id }: InContainer<ExprId>,
-    ) -> Resolution<DefId> {
-        let db = self.db;
+pub(super) fn name_to_def(
+    db: &dyn HirDefDb,
+    InContainer { cont_id, value: ident }: InContainer<Ident>,
+    name_ctx: NameContext,
+) -> Resolution<DefId> {
+    resolve_name(db, cont_id.into(), &ident, name_ctx)
+}
 
-        let mut resolve = |expr: &Expr| {
-            let res = match expr {
-                Expr::Field { receiver, field } => {
-                    let Some(field) = field.as_ref() else {
-                        return Resolution::Unresolved;
-                    };
-                    self.resolve_expr_path(cont_id, expr_id, NameContext::Value).or_else(|| {
-                        let receiver_res = self.expr_to_def(InContainer::new(cont_id, *receiver));
-                        resolve_child_name(self.db, &receiver_res, field, NameContext::Value)
-                    })
-                }
-                Expr::ElementSelect { receiver, .. } => self
-                    .resolve_expr_path(cont_id, expr_id, NameContext::Value)
-                    .or_else(|| self.expr_to_def(InContainer::new(cont_id, *receiver))),
-                Expr::Ident(ident) => {
-                    self.name_to_def(InContainer::new(cont_id, ident.clone()), NameContext::Value)
-                }
-                _ => Resolution::Unresolved,
-            };
-            self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res.clone());
-            res
-        };
+fn resolve_expr_path(
+    db: &dyn HirDefDb,
+    cont_id: ArenaOwnerId,
+    expr_id: ExprId,
+    ctx: NameContext,
+) -> Resolution<DefId> {
+    let Some(path) = expr_path(db, cont_id, expr_id) else {
+        return Resolution::Unresolved;
+    };
+    resolve_path(db, cont_id.into(), &path, ctx)
+}
 
-        match cont_id {
-            ArenaOwnerId::File(file_id) => {
-                let file = db.hir_file(file_id);
-                resolve(file.get(expr_id))
-            }
-            ArenaOwnerId::Module(in_file) => {
-                let module = db.module(in_file);
-                resolve(module.get(expr_id))
-            }
-            ArenaOwnerId::Block(block_id) => {
-                let block = db.block(block_id);
-                resolve(block.get(expr_id))
-            }
-            ArenaOwnerId::GenerateBlock(generate_block_id) => {
-                let generate_block = db.generate_block(generate_block_id);
-                resolve(generate_block.get(expr_id))
-            }
-            ArenaOwnerId::Subroutine(subroutine_id) => {
-                let subroutine = db.subroutine(subroutine_id);
-                resolve(subroutine.get(expr_id))
-            }
+fn expr_path(db: &dyn HirDefDb, cont_id: ArenaOwnerId, expr_id: ExprId) -> Option<Vec<Ident>> {
+    match expr_in_container(db, cont_id, expr_id)? {
+        Expr::Ident(ident) => Some(vec![ident]),
+        Expr::Field { receiver, field } => {
+            let mut path = expr_path(db, cont_id, receiver)?;
+            path.push(field?);
+            Some(path)
         }
+        Expr::ElementSelect { receiver, .. } => expr_path(db, cont_id, receiver),
+        _ => None,
     }
+}
 
-    pub(super) fn name_to_def(
-        &mut self,
-        InContainer { cont_id, value: ident }: InContainer<Ident>,
-        name_ctx: NameContext,
-    ) -> Resolution<DefId> {
-        let res = resolve_name(self.db, cont_id.into(), &ident, name_ctx);
-        self.hir_cache.name_map.insert(InContainer::new(cont_id, ident), res.clone());
-        res
-    }
-
-    fn resolve_expr_path(
-        &self,
-        cont_id: ArenaOwnerId,
-        expr_id: ExprId,
-        ctx: NameContext,
-    ) -> Resolution<DefId> {
-        let Some(path) = self.expr_path(cont_id, expr_id) else {
-            return Resolution::Unresolved;
-        };
-        resolve_path(self.db, cont_id.into(), &path, ctx)
-    }
-
-    fn expr_path(&self, cont_id: ArenaOwnerId, expr_id: ExprId) -> Option<Vec<Ident>> {
-        match self.expr_in_container(cont_id, expr_id)? {
-            Expr::Ident(ident) => Some(vec![ident]),
-            Expr::Field { receiver, field } => {
-                let mut path = self.expr_path(cont_id, receiver)?;
-                path.push(field?);
-                Some(path)
-            }
-            Expr::ElementSelect { receiver, .. } => self.expr_path(cont_id, receiver),
-            _ => None,
-        }
-    }
-
-    fn expr_in_container(&self, cont_id: ArenaOwnerId, expr_id: ExprId) -> Option<Expr> {
-        match cont_id {
-            ArenaOwnerId::File(file_id) => Some(self.db.hir_file(file_id).get(expr_id).clone()),
-            ArenaOwnerId::Module(module_id) => Some(self.db.module(module_id).get(expr_id).clone()),
-            ArenaOwnerId::Block(block_id) => Some(self.db.block(block_id).get(expr_id).clone()),
-            ArenaOwnerId::GenerateBlock(generate_block_id) => {
-                Some(self.db.generate_block(generate_block_id).get(expr_id).clone())
-            }
-            ArenaOwnerId::Subroutine(subroutine_id) => {
-                Some(self.db.subroutine(subroutine_id).get(expr_id).clone())
-            }
-        }
-    }
+fn expr_in_container(
+    db: &dyn HirDefDb,
+    cont_id: ArenaOwnerId,
+    expr_id: ExprId,
+) -> Option<Expr> {
+    let container = cont_id.data(db);
+    Some(container.expr(expr_id).clone())
 }
