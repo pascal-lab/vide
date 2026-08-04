@@ -8,4 +8,4 @@ prefix: ""
 replacement: 12..13
 in_decl_name: false
 expectations:
-  NonAnsiPortName from Parser
+  NonAnsiPortName

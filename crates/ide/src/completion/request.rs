@@ -301,7 +301,7 @@ mod tests {
     use utils::line_index::{TextRange, TextSize};
 
     use super::*;
-    use crate::completion::context::{CompletionExpectation, ExpectationSource};
+    use crate::completion::context::CompletionExpectation;
 
     fn context(
         lex: LexContext,
@@ -313,9 +313,8 @@ mod tests {
             prefix: String::new(),
             trigger,
             lex,
-            expectations: syntax.map_or_else(SmallVec::new, |syntax| {
-                smallvec![CompletionExpectation { syntax, source: ExpectationSource::Parser }]
-            }),
+            expectations: syntax
+                .map_or_else(SmallVec::new, |syntax| smallvec![CompletionExpectation { syntax }]),
             in_decl_name: false,
         }
     }

@@ -8,4 +8,4 @@ prefix: ""
 replacement: 20..20
 in_decl_name: false
 expectations:
-  Keyword(CompilationUnitMember) from Parser
+  Keyword(CompilationUnitMember)

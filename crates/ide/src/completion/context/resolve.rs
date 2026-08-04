@@ -1,10 +1,7 @@
 use smallvec::SmallVec;
 use syntax::SyntaxKeywordContext;
 
-use super::{
-    CompletionExpectation, ExpectationSource, ExpectedSyntax, TriggerChar,
-    parser::ParserExpectations,
-};
+use super::{CompletionExpectation, ExpectedSyntax, TriggerChar, parser::ParserExpectations};
 use crate::completion::{request::PortListKind, syntax_keywords};
 
 pub(super) fn expectations(
@@ -25,13 +22,7 @@ pub(super) fn expectations(
     } else if let Some(expectation) = port_keyword(&parser, prefix, trigger) {
         push_unique(&mut expectations, expectation);
     } else if in_decl_name {
-        push_unique(
-            &mut expectations,
-            CompletionExpectation {
-                syntax: ExpectedSyntax::DeclName,
-                source: ExpectationSource::DeclarationName,
-            },
-        );
+        push_unique(&mut expectations, CompletionExpectation { syntax: ExpectedSyntax::DeclName });
     } else {
         for expectation in parser.into_items() {
             push_unique(&mut expectations, expectation);
@@ -53,10 +44,9 @@ fn dot_trigger_connection_name(
         return None;
     }
 
-    let source = ExpectationSource::Trigger(TriggerChar::Dot);
     parser.items().iter().find_map(|expectation| match expectation.syntax {
         ExpectedSyntax::PortConnection => {
-            Some(CompletionExpectation { syntax: ExpectedSyntax::PortConnectionName, source })
+            Some(CompletionExpectation { syntax: ExpectedSyntax::PortConnectionName })
         }
         _ => None,
     })
@@ -128,10 +118,7 @@ fn port_keyword(
         .or_else(|| {
             (parser.has_non_ansi_port()
                 && syntax_keywords::has_port_item_keyword_prefix(prefix, PortListKind::Ansi))
-            .then_some(CompletionExpectation {
-                syntax: ExpectedSyntax::AnsiPortItem,
-                source: ExpectationSource::Parser,
-            })
+            .then_some(CompletionExpectation { syntax: ExpectedSyntax::AnsiPortItem })
         })
 }
 

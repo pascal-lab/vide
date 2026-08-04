@@ -8,4 +8,4 @@ prefix: "module"
 replacement: 0..6
 in_decl_name: false
 expectations:
-  Keyword(CompilationUnitMember) from Parser
+  Keyword(CompilationUnitMember)

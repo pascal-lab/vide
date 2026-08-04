@@ -8,4 +8,4 @@ prefix: ""
 replacement: 18..18
 in_decl_name: false
 expectations:
-  EventControl { wrap_in_parens: true } from Token(At)
+  EventControl { wrap_in_parens: true }

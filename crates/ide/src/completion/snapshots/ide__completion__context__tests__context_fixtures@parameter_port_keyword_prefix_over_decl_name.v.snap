@@ -8,4 +8,4 @@ prefix: "para"
 replacement: 11..15
 in_decl_name: true
 expectations:
-  ParameterPortListItem from Ast(ParameterPortList)
+  ParameterPortListItem

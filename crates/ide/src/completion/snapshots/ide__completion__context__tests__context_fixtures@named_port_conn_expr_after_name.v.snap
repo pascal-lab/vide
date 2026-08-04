@@ -8,4 +8,4 @@ prefix: ""
 replacement: 49..49
 in_decl_name: false
 expectations:
-  PortConnectionExpr from Ast(NamedPortConnection)
+  PortConnectionExpr

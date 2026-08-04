@@ -8,4 +8,4 @@ prefix: "re"
 replacement: 26..28
 in_decl_name: false
 expectations:
-  Keyword(BlockItem) from Parser
+  Keyword(BlockItem)

@@ -8,4 +8,4 @@ prefix: "de"
 replacement: 33..35
 in_decl_name: false
 expectations:
-  Keyword(ConfigRule) from Parser
+  Keyword(ConfigRule)

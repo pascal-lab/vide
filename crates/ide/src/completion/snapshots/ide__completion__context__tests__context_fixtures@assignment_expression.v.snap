@@ -8,4 +8,4 @@ prefix: ""
 replacement: 28..28
 in_decl_name: false
 expectations:
-  Expression from Parser
+  Expression

@@ -8,4 +8,4 @@ prefix: ""
 replacement: 12..12
 in_decl_name: false
 expectations:
-  Keyword(ModuleMember) from Parser
+  Keyword(ModuleMember)

@@ -8,5 +8,5 @@ prefix: ""
 replacement: 26..26
 in_decl_name: false
 expectations:
-  Keyword(BlockItem) from Parser
-  Expression from Parser
+  Keyword(BlockItem)
+  Expression

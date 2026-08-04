@@ -8,4 +8,4 @@ prefix: ""
 replacement: 57..57
 in_decl_name: false
 expectations:
-  ParameterAssignmentName from Ast(NamedParamAssignment)
+  ParameterAssignmentName

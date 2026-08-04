@@ -8,4 +8,4 @@ prefix: "de"
 replacement: 1..7
 in_decl_name: false
 expectations:
-  DirectiveName from Token(Directive)
+  DirectiveName

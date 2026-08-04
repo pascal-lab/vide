@@ -2,7 +2,7 @@ use smallvec::{SmallVec, smallvec};
 use syntax::{ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxTree, TokenKind};
 use utils::line_index::TextSize;
 
-use super::{CompletionExpectation, ExpectationSource, ExpectedSyntax};
+use super::{CompletionExpectation, ExpectedSyntax};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ParserExpectations {
@@ -63,48 +63,41 @@ pub(super) fn expectations(items: Option<&[ParserExpectedSyntax]>) -> ParserExpe
 }
 
 fn map_item(item: &ParserExpectedSyntax) -> SmallVec<[CompletionExpectation; 3]> {
-    let source = ExpectationSource::Parser;
     match item.name.as_str() {
-        "ExpectedParameterPort" => smallvec![CompletionExpectation {
-            syntax: ExpectedSyntax::ParameterPortListItem,
-            source,
-        }],
+        "ExpectedParameterPort" => {
+            smallvec![CompletionExpectation { syntax: ExpectedSyntax::ParameterPortListItem }]
+        }
         "ExpectedNonAnsiPort" => {
-            smallvec![CompletionExpectation { syntax: ExpectedSyntax::NonAnsiPortName, source }]
+            smallvec![CompletionExpectation { syntax: ExpectedSyntax::NonAnsiPortName }]
         }
         "ExpectedAnsiPort" => {
-            smallvec![CompletionExpectation { syntax: ExpectedSyntax::AnsiPortItem, source }]
+            smallvec![CompletionExpectation { syntax: ExpectedSyntax::AnsiPortItem }]
         }
         "ExpectedFunctionPort" => {
-            smallvec![CompletionExpectation { syntax: ExpectedSyntax::FunctionPortItem, source }]
+            smallvec![CompletionExpectation { syntax: ExpectedSyntax::FunctionPortItem }]
         }
         "ExpectedPortConnection" => {
-            smallvec![CompletionExpectation { syntax: ExpectedSyntax::PortConnection, source }]
+            smallvec![CompletionExpectation { syntax: ExpectedSyntax::PortConnection }]
         }
         "ExpectedArgument" => {
-            smallvec![CompletionExpectation { syntax: ExpectedSyntax::ArgumentExpr, source }]
+            smallvec![CompletionExpectation { syntax: ExpectedSyntax::ArgumentExpr }]
         }
         "ExpectedExpression" => {
-            smallvec![CompletionExpectation { syntax: ExpectedSyntax::Expression, source }]
+            smallvec![CompletionExpectation { syntax: ExpectedSyntax::Expression }]
         }
         "ExpectedStatement" => {
             let mut expectations = SmallVec::new();
             if let Some(context) = item.keyword_context {
-                expectations.push(CompletionExpectation {
-                    syntax: ExpectedSyntax::Keyword(context),
-                    source,
-                });
+                expectations
+                    .push(CompletionExpectation { syntax: ExpectedSyntax::Keyword(context) });
             }
-            expectations.push(CompletionExpectation { syntax: ExpectedSyntax::Expression, source });
+            expectations.push(CompletionExpectation { syntax: ExpectedSyntax::Expression });
             expectations
         }
         _ => item
             .keyword_context
             .map(|context| {
-                smallvec![CompletionExpectation {
-                    syntax: ExpectedSyntax::Keyword(context),
-                    source,
-                }]
+                smallvec![CompletionExpectation { syntax: ExpectedSyntax::Keyword(context) }]
             })
             .unwrap_or_default(),
     }

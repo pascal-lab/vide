@@ -22,10 +22,7 @@ use crate::{
     Cancellable, FilePosition, RangeInfo,
     code_action::{self, CodeAction, CodeActionDiagnostics, CodeActionResolveStrategy},
     code_lens::{self, CodeLens, CodeLensConfig, CodeLensKind},
-    completion::{
-        CompletionItem,
-        context::{CompletionContext, TriggerChar},
-    },
+    completion::{CompletionItem, context::TriggerChar},
     db::{line_index_db::LineIndexDb, root_db::RootDb},
     diagnostics,
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
@@ -337,18 +334,6 @@ impl Analysis {
         config: SignatureHelpConfig,
     ) -> Cancellable<Option<SignatureHelp>> {
         self.with_db(|db| signature_help::signature_help(db, position, config))
-    }
-
-    pub fn completion_context(&self, position: FilePosition) -> Cancellable<CompletionContext> {
-        self.completion_context_with_trigger(position, None)
-    }
-
-    pub fn completion_context_with_trigger(
-        &self,
-        position: FilePosition,
-        trigger: Option<TriggerChar>,
-    ) -> Cancellable<CompletionContext> {
-        self.with_db(|db| crate::completion::context::completion_context(db, position, trigger))
     }
 
     pub fn completions_with_trigger(

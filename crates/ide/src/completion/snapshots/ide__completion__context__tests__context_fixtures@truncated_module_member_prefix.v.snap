@@ -8,4 +8,4 @@ prefix: "wi"
 replacement: 18..20
 in_decl_name: false
 expectations:
-  Keyword(ModuleMember) from Parser
+  Keyword(ModuleMember)

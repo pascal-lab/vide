@@ -69,18 +69,8 @@ pub enum ExpectedSyntax {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExpectationSource {
-    Parser,
-    DeclarationName,
-    Ast(syntax::SyntaxKind),
-    Token(syntax::TokenKind),
-    Trigger(TriggerChar),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompletionExpectation {
     pub syntax: ExpectedSyntax,
-    pub source: ExpectationSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,7 +175,6 @@ fn detect_completion_context_impl(
             lex,
             expectations: smallvec![CompletionExpectation {
                 syntax: ExpectedSyntax::IntegerLiteralBase,
-                source: ExpectationSource::Token(syntax::Token!["'"]),
             }],
             in_decl_name: false,
         };
@@ -212,7 +201,6 @@ fn detect_completion_context_impl(
             lex,
             expectations: smallvec![CompletionExpectation {
                 syntax: ExpectedSyntax::DirectiveName,
-                source: ExpectationSource::Token(syntax::TokenKind::DIRECTIVE),
             }],
             in_decl_name: false,
         };
@@ -240,7 +228,6 @@ fn detect_completion_context_impl(
             lex,
             expectations: smallvec![CompletionExpectation {
                 syntax: ExpectedSyntax::DirectiveName,
-                source: ExpectationSource::Trigger(TriggerChar::Backtick),
             }],
             in_decl_name: false,
         };
@@ -477,10 +464,7 @@ mod tests {
             out.push_str("\n  <none>");
         } else {
             for expectation in &c.expectations {
-                out.push_str(&format!(
-                    "\n  {:?} from {:?}",
-                    expectation.syntax, expectation.source
-                ));
+                out.push_str(&format!("\n  {:?}", expectation.syntax));
             }
         }
         out

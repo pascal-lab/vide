@@ -8,4 +8,4 @@ prefix: "s"
 replacement: 24..25
 in_decl_name: false
 expectations:
-  IntegerLiteralBase from Token(Apostrophe)
+  IntegerLiteralBase
