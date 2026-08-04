@@ -163,7 +163,7 @@ fn collect_syntax_folds(
 
     // The stack walk visits nodes in reverse sibling order; restore source order.
     import_ranges.sort_by_key(|range| range.start());
-    collect_item_groups(folds, import_ranges.into_iter(), FoldKind::Imports, line_index);
+    collect_item_groups(folds, import_ranges, FoldKind::Imports, line_index);
 }
 
 /// Folds runs of consecutive comments attached to a single token: either a

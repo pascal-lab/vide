@@ -60,8 +60,7 @@ fn block_to_def_inner(
         }
         ArenaOwnerId::Module(module_id) => {
             let module = db.module_with_source_map(module_id);
-            let local_block_id =
-                find_local_block_id(&module.source_map().stmt_srcs, block_src)?;
+            let local_block_id = find_local_block_id(&module.source_map().stmt_srcs, block_src)?;
             module.get(local_block_id).block_id
         }
         ArenaOwnerId::Block(block_id) => {
@@ -160,12 +159,8 @@ fn local_subroutine_id(
     src: SubroutineSrc,
 ) -> Option<LocalSubroutineId> {
     match cont_id {
-        SubroutineParent::File(file_id) => {
-            db.hir_file_with_source_map(file_id).hir_id(src)
-        }
-        SubroutineParent::Module(module_id) => {
-            db.module_with_source_map(module_id).hir_id(src)
-        }
+        SubroutineParent::File(file_id) => db.hir_file_with_source_map(file_id).hir_id(src),
+        SubroutineParent::Module(module_id) => db.module_with_source_map(module_id).hir_id(src),
         SubroutineParent::GenerateBlock(generate_block_id) => {
             db.generate_block_with_source_map(generate_block_id).hir_id(src)
         }
