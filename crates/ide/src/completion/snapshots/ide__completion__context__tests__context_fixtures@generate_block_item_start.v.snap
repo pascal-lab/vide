@@ -8,4 +8,4 @@ prefix: ""
 replacement: 22..22
 in_decl_name: false
 expectations:
-  Keyword(GenerateMember) from Parser
+  Keyword(GenerateMember)

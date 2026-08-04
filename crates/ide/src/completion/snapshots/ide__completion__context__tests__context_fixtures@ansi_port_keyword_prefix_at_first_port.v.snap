@@ -8,4 +8,4 @@ prefix: "in"
 replacement: 15..17
 in_decl_name: false
 expectations:
-  AnsiPortItem from Parser
+  AnsiPortItem

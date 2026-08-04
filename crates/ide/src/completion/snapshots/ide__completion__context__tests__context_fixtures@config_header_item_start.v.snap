@@ -8,4 +8,4 @@ prefix: "de"
 replacement: 14..16
 in_decl_name: false
 expectations:
-  Keyword(ConfigHeaderItem) from Parser
+  Keyword(ConfigHeaderItem)

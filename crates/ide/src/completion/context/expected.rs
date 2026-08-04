@@ -5,9 +5,7 @@ use syntax::{
     has_text_range::{HasTextRange, HasTextRangeIn},
 };
 
-use super::{
-    CompletionExpectation, ExpectationSource, ExpectedSyntax, caret::CaretSnapshot, util::in_parens,
-};
+use super::{CompletionExpectation, ExpectedSyntax, caret::CaretSnapshot, util::in_parens};
 use crate::completion::syntax_keywords;
 
 trait AstParens<'a>: AstNode<'a> {
@@ -43,16 +41,19 @@ pub(super) fn detect_local(caret: &CaretSnapshot<'_>) -> Option<CompletionExpect
         .or_else(|| else_clause_expectation(caret))
 }
 
-fn expectation(syntax: ExpectedSyntax, source: ExpectationSource) -> CompletionExpectation {
-    CompletionExpectation { syntax, source }
+fn expectation(syntax: ExpectedSyntax) -> CompletionExpectation {
+    CompletionExpectation { syntax }
 }
 
-fn node_expectation(syntax: ExpectedSyntax, node: syntax::SyntaxNode<'_>) -> CompletionExpectation {
-    expectation(syntax, ExpectationSource::Ast(node.kind()))
+fn node_expectation(
+    syntax: ExpectedSyntax,
+    _node: syntax::SyntaxNode<'_>,
+) -> CompletionExpectation {
+    expectation(syntax)
 }
 
-fn token_expectation(syntax: ExpectedSyntax, token: SyntaxToken<'_>) -> CompletionExpectation {
-    expectation(syntax, ExpectationSource::Token(token.kind()))
+fn token_expectation(syntax: ExpectedSyntax, _token: SyntaxToken<'_>) -> CompletionExpectation {
+    expectation(syntax)
 }
 
 fn node_at_offset_in_parens<'a, N>(caret: &CaretSnapshot<'a>) -> Option<N>

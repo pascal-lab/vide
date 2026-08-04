@@ -8,5 +8,5 @@ prefix: ""
 replacement: 20..20
 in_decl_name: false
 expectations:
-  ArgumentExpr from Parser
-  Keyword(ModuleMember) from Parser
+  ArgumentExpr
+  Keyword(ModuleMember)

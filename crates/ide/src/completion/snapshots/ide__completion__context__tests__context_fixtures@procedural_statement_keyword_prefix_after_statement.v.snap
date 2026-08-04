@@ -8,4 +8,4 @@ prefix: "re"
 replacement: 35..37
 in_decl_name: false
 expectations:
-  Keyword(Statement) from Parser
+  Keyword(Statement)

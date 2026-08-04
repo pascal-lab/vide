@@ -8,4 +8,4 @@ prefix: "lib"
 replacement: 0..3
 in_decl_name: false
 expectations:
-  Keyword(LibraryMapMember) from Parser
+  Keyword(LibraryMapMember)

@@ -8,4 +8,4 @@ prefix: ""
 replacement: 34..34
 in_decl_name: false
 expectations:
-  MemberName from Token(Dot)
+  MemberName

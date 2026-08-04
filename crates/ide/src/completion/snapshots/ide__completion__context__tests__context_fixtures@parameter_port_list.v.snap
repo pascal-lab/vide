@@ -8,4 +8,4 @@ prefix: ""
 replacement: 11..11
 in_decl_name: false
 expectations:
-  ParameterPortListItem from Parser
+  ParameterPortListItem

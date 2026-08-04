@@ -8,4 +8,4 @@ prefix: "wir"
 replacement: 15..18
 in_decl_name: true
 expectations:
-  AnsiPortItem from Ast(AnsiPortList)
+  AnsiPortItem

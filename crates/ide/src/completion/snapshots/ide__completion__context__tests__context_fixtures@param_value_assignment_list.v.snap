@@ -8,4 +8,4 @@ prefix: ""
 replacement: 56..56
 in_decl_name: false
 expectations:
-  ParamValueAssignment from Ast(ParameterValueAssignment)
+  ParamValueAssignment

@@ -8,4 +8,4 @@ prefix: "o"
 replacement: 18..19
 in_decl_name: true
 expectations:
-  AnsiPortItem from Ast(AnsiPortList)
+  AnsiPortItem

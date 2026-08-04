@@ -8,4 +8,4 @@ prefix: "b"
 replacement: 18..19
 in_decl_name: true
 expectations:
-  DeclName from DeclarationName
+  DeclName

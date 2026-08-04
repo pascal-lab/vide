@@ -8,5 +8,5 @@ prefix: ""
 replacement: 46..46
 in_decl_name: false
 expectations:
-  PortConnection from Parser
-  Keyword(ModuleMember) from Parser
+  PortConnection
+  Keyword(ModuleMember)
