@@ -10,7 +10,7 @@ use hir_def::{
         ModuleId,
         generate::{GenerateBlockLoc, GenerateBlockSrc},
     },
-    symbol::DefOrigin,
+    symbol::{DefOrigin, NameContext},
 };
 use hir_semantics::semantics::SemanticsImpl;
 use hir_ty::db::TyDb;
@@ -309,11 +309,20 @@ impl FileSemanticIndex {
 
         let sema = SemanticsImpl::new(db);
         let mut containers = ContainerCache::new();
+        let mut special_depth = 0usize;
         let mut groups: FxHashMap<DefId, FileReferenceGroup> = FxHashMap::default();
         for event in root.elem_preorder() {
             match event {
-                WalkEvent::Enter(SyntaxElement::Node(_)) => {}
-                WalkEvent::Leave(SyntaxElement::Node(_)) => {}
+                WalkEvent::Enter(SyntaxElement::Node(node)) => {
+                    if is_special_context_node(&node) {
+                        special_depth += 1;
+                    }
+                }
+                WalkEvent::Leave(SyntaxElement::Node(node)) => {
+                    if is_special_context_node(&node) {
+                        special_depth -= 1;
+                    }
+                }
                 WalkEvent::Enter(SyntaxElement::Token(token)) => {
                     if !token.kind().name_like() {
                         continue;
@@ -338,10 +347,18 @@ impl FileSemanticIndex {
                     };
 
                     let container = containers.container_for(&sema, hir_file_id, token.parent);
+                    let in_special_context = special_depth > 0;
                     for token in
                         target.into_tokens().into_iter().filter(|token| token.kind().name_like())
                     {
-                        collect_token(db, hir_file_id, token, container, &mut groups);
+                        collect_token(
+                            db,
+                            hir_file_id,
+                            token,
+                            container,
+                            in_special_context,
+                            &mut groups,
+                        );
                     }
                 }
                 WalkEvent::Leave(SyntaxElement::Token(_)) => {}
@@ -516,13 +533,25 @@ fn collect_token(
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
     container: ArenaOwnerId,
+    in_special_context: bool,
     groups: &mut FxHashMap<DefId, FileReferenceGroup>,
 ) {
     let Some(range) = token.text_range() else {
         return;
     };
-    let Some(class) = DefinitionClass::resolve_in(db, file_id, token, Some(container)).unique()
-    else {
+    let class = if in_special_context {
+        DefinitionClass::resolve_in(db, file_id, token, Some(container)).unique()
+    } else {
+        // Fast path: outside every syntax context the heuristic chain in
+        // `DefinitionClass::resolve` (member access, scoped names,
+        // instantiations, package imports, named connections) is provably
+        // empty, so resolve as a plain value identifier directly.
+        let sema = SemanticsImpl::new(db);
+        sema.nameres_ident_in(file_id, token, NameContext::Value, container)
+            .map(DefinitionClass::Definition)
+            .unique()
+    };
+    let Some(class) = class else {
         return;
     };
 
@@ -535,6 +564,25 @@ fn collect_token(
             collect_definition_token(db, local, file_id.expect_file(), range, token, groups);
         }
     }
+}
+
+/// Nodes whose subtrees may require the syntax-context heuristics of
+/// `DefinitionClass::resolve`. A token outside every such subtree resolves
+/// as a plain value identifier; the heuristic chain can only hit when the
+/// token sits in one of these (member access names, scoped names, module
+/// declaration names, instantiation type names, package imports, named
+/// parameter/port connections, named types).
+fn is_special_context_node(node: &SyntaxNode<'_>) -> bool {
+    ast::MemberAccessExpression::can_cast(node.kind())
+        || ast::ScopedName::can_cast(node.kind())
+        || ast::ModuleDeclaration::can_cast(node.kind())
+        || ast::PrimitiveInstantiation::can_cast(node.kind())
+        || ast::CheckerInstantiation::can_cast(node.kind())
+        || ast::HierarchyInstantiation::can_cast(node.kind())
+        || ast::PackageImportItem::can_cast(node.kind())
+        || ast::NamedParamAssignment::can_cast(node.kind())
+        || ast::NamedPortConnection::can_cast(node.kind())
+        || ast::NamedType::can_cast(node.kind())
 }
 
 fn collect_definition_token(
