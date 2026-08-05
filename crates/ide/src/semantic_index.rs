@@ -2,14 +2,28 @@ use base_db::{
     source_db::{SourceDb, SourceRootDb},
     source_root::SourceRootId,
 };
-use hir_def::{Ident, container::InFile, def_id::DefId, module::ModuleId, symbol::DefOrigin};
+use hir_def::{
+    Ident,
+    container::{ArenaOwnerId, InFile},
+    def_id::DefId,
+    module::{
+        ModuleId,
+        generate::{GenerateBlockLoc, GenerateBlockSrc},
+    },
+    symbol::DefOrigin,
+};
+use hir_semantics::semantics::SemanticsImpl;
 use hir_ty::db::TyDb;
 use itertools::Itertools;
 use preproc_expand::{db::PreprocDb, file::HirFileId};
 use rustc_hash::FxHashMap;
 use syntax::{
-    SyntaxElement, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, WalkEvent,
-    has_text_range::HasTextRange, ptr::SyntaxTokenPtr, token::TokenKindExt,
+    SyntaxAncestors, SyntaxElement, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
+    WalkEvent,
+    ast::{self, AstNode},
+    has_text_range::HasTextRange,
+    ptr::{SyntaxNodePtr, SyntaxTokenPtr},
+    token::TokenKindExt,
 };
 use triomphe::Arc;
 use utils::line_index::TextRange;
@@ -293,34 +307,44 @@ impl FileSemanticIndex {
         let has_backtick = db.file_text(file_id).contains('`');
         let emitted_index = has_backtick.then(|| emit_token_index(root));
 
+        let sema = SemanticsImpl::new(db);
+        let mut containers = ContainerCache::new();
         let mut groups: FxHashMap<DefId, FileReferenceGroup> = FxHashMap::default();
         for event in root.elem_preorder() {
-            let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
-                continue;
-            };
-            if !token.kind().name_like() {
-                continue;
-            }
-            let Some(range) = token.text_range() else {
-                continue;
-            };
-            // Source-only resolution: macro names, parameters and includes are
-            // indexed separately (macro reference index) and their targets are
-            // dropped by the FindReferences intent anyway, so skip the four
-            // preproc macro queries per token.
-            let Some(SourceTargetResolution::Resolved(target)) = source_target_at_offset(
-                db,
-                file_id,
-                root,
-                range.start(),
-                token_precedence,
-                emitted_index.as_ref(),
-            ) else {
-                continue;
-            };
+            match event {
+                WalkEvent::Enter(SyntaxElement::Node(_)) => {}
+                WalkEvent::Leave(SyntaxElement::Node(_)) => {}
+                WalkEvent::Enter(SyntaxElement::Token(token)) => {
+                    if !token.kind().name_like() {
+                        continue;
+                    }
+                    let Some(range) = token.text_range() else {
+                        continue;
+                    };
+                    // Source-only resolution: macro names, parameters and
+                    // includes are indexed separately (macro reference index)
+                    // and their targets are dropped by the FindReferences
+                    // intent anyway, so skip the four preproc macro queries per
+                    // token.
+                    let Some(SourceTargetResolution::Resolved(target)) = source_target_at_offset(
+                        db,
+                        file_id,
+                        root,
+                        range.start(),
+                        token_precedence,
+                        emitted_index.as_ref(),
+                    ) else {
+                        continue;
+                    };
 
-            for token in target.into_tokens().into_iter().filter(|token| token.kind().name_like()) {
-                collect_token(db, hir_file_id, token, &mut groups);
+                    let container = containers.container_for(&sema, hir_file_id, token.parent);
+                    for token in
+                        target.into_tokens().into_iter().filter(|token| token.kind().name_like())
+                    {
+                        collect_token(db, hir_file_id, token, container, &mut groups);
+                    }
+                }
+                WalkEvent::Leave(SyntaxElement::Token(_)) => {}
             }
         }
         Self { groups }
@@ -334,16 +358,171 @@ pub(crate) fn file_semantic_index_query(
     Arc::new(FileSemanticIndex::for_file(db, file_id))
 }
 
+/// Caches HIR container ids by syntax node while walking a tree.
+///
+/// `source_to_def::find_container` finds a token's container by walking up
+/// the ancestor chain and matching every node; doing that per token makes
+/// the index build pay the ancestor walk for every name-like token. This
+/// cache keeps the same walk shape (up to the nearest container node, then
+/// a lookup), but computes each container id once instead of once per token.
+///
+/// The node dispatch must stay in sync with
+/// `hir_semantics::semantics::source_to_def::container_to_def`: the
+/// module/block/subroutine arms use the public `Semantics` projections, and
+/// generate blocks / single-member generate branches intern through
+/// `intern_generate_block` with the nearest enclosing container as parent.
+struct ContainerCache {
+    by_node: FxHashMap<SyntaxNodePtr, ArenaOwnerId>,
+}
+
+impl ContainerCache {
+    fn new() -> Self {
+        Self { by_node: FxHashMap::default() }
+    }
+
+    /// The container of a token: the nearest container node on its ancestor
+    /// chain whose id computes successfully, mirroring
+    /// `find_map(container_to_def)`; nodes that fail to lower are skipped.
+    fn container_for(
+        &mut self,
+        sema: &SemanticsImpl<'_>,
+        file_id: HirFileId,
+        token_parent: SyntaxNode<'_>,
+    ) -> ArenaOwnerId {
+        for node in SyntaxAncestors::start_from(token_parent) {
+            if is_container_node(&node)
+                && let Some(id) = self.try_id_for(sema, file_id, node)
+            {
+                return id;
+            }
+        }
+        file_id.into()
+    }
+
+    /// The container of a node's subtree: like
+    /// [`container_for`](Self::container_for) but starting above `node`.
+    fn parent_of(
+        &mut self,
+        sema: &SemanticsImpl<'_>,
+        file_id: HirFileId,
+        node: SyntaxNode<'_>,
+    ) -> ArenaOwnerId {
+        for ancestor in SyntaxAncestors::start_from(node).skip(1) {
+            if is_container_node(&ancestor)
+                && let Some(id) = self.try_id_for(sema, file_id, ancestor)
+            {
+                return id;
+            }
+        }
+        file_id.into()
+    }
+
+    fn try_id_for(
+        &mut self,
+        sema: &SemanticsImpl<'_>,
+        file_id: HirFileId,
+        node: SyntaxNode<'_>,
+    ) -> Option<ArenaOwnerId> {
+        let ptr = SyntaxNodePtr::from_node(node);
+        if let Some(&id) = self.by_node.get(&ptr) {
+            return Some(id);
+        }
+        let id = container_id_for_node(sema, file_id, node, self)?;
+        self.by_node.insert(ptr, id);
+        Some(id)
+    }
+}
+
+/// Mirrors `source_to_def::container_to_def`'s node dispatch. Uses `cast`
+/// (not `can_cast`) on every arm: slang's `can_cast` accepts sub-kind
+/// relations (e.g. generate blocks pass `BlockStatement::can_cast`), which
+/// would desynchronize enter/leave bookkeeping.
+fn is_container_node(node: &SyntaxNode<'_>) -> bool {
+    ast::ModuleDeclaration::cast(*node).is_some()
+        || ast::BlockStatement::cast(*node).is_some()
+        || ast::FunctionDeclaration::cast(*node).is_some()
+        || ast::CompilationUnit::cast(*node).is_some()
+        || ast::GenerateBlock::cast(*node).is_some()
+        || (ast::Member::cast(*node).is_some() && is_generate_branch_member(*node))
+}
+
+fn container_id_for_node(
+    sema: &SemanticsImpl<'_>,
+    file_id: HirFileId,
+    node: SyntaxNode<'_>,
+    cache: &mut ContainerCache,
+) -> Option<ArenaOwnerId> {
+    if let Some(module) = ast::ModuleDeclaration::cast(node) {
+        return sema.module_to_def(file_id, module).map(Into::into);
+    }
+    if let Some(block) = ast::BlockStatement::cast(node) {
+        return sema.block_to_def(file_id, block).map(Into::into);
+    }
+    if let Some(func) = ast::FunctionDeclaration::cast(node) {
+        return sema.subroutine_to_def(file_id, func).map(Into::into);
+    }
+    if ast::CompilationUnit::cast(node).is_some() {
+        return Some(file_id.into());
+    }
+    if let Some(block) = ast::GenerateBlock::cast(node) {
+        let src = GenerateBlockSrc::from_generate_block(block);
+        let parent = cache.parent_of(sema, file_id, block.syntax());
+        return Some(intern_generate_container(sema, file_id, src, parent));
+    }
+    let member = ast::Member::cast(node)?;
+    if !is_generate_branch_member(node) {
+        return None;
+    }
+    let parent = cache.parent_of(sema, file_id, node);
+    Some(intern_generate_container(sema, file_id, GenerateBlockSrc::from(member), parent))
+}
+
+fn intern_generate_container(
+    sema: &SemanticsImpl<'_>,
+    file_id: HirFileId,
+    src: GenerateBlockSrc,
+    parent: ArenaOwnerId,
+) -> ArenaOwnerId {
+    sema.db
+        .intern_generate_block(GenerateBlockLoc { cont_id: parent, src: InFile::new(file_id, src) })
+        .into()
+}
+
+/// Mirrors `source_to_def::is_generate_branch_member`: a member is a
+/// single-member generate branch when it sits inside an if/case generate and
+/// no stronger container (module, block, generate region) separates it.
+fn is_generate_branch_member(member: SyntaxNode<'_>) -> bool {
+    for ancestor in SyntaxAncestors::start_from(member).skip(1) {
+        if ast::IfGenerate::can_cast(ancestor.kind())
+            || ast::CaseGenerate::can_cast(ancestor.kind())
+        {
+            return true;
+        }
+
+        if ast::GenerateBlock::can_cast(ancestor.kind())
+            || ast::GenerateRegion::can_cast(ancestor.kind())
+            || ast::ModuleDeclaration::can_cast(ancestor.kind())
+            || ast::BlockStatement::can_cast(ancestor.kind())
+        {
+            return false;
+        }
+    }
+
+    false
+}
+
 fn collect_token(
     db: &dyn WorkspaceSymbolIndexDb,
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
+    container: ArenaOwnerId,
     groups: &mut FxHashMap<DefId, FileReferenceGroup>,
 ) {
     let Some(range) = token.text_range() else {
         return;
     };
-    let Some(class) = DefinitionClass::resolve(db, file_id, token).unique() else {
+    let Some(class) = DefinitionClass::resolve_in(db, file_id, token, Some(container)).unique()
+    else {
         return;
     };
 
@@ -604,4 +783,79 @@ fn sort_and_dedup_edges(edges: &mut Vec<ModuleCallEdge>) {
 
 fn token_precedence(kind: TokenKind) -> usize {
     usize::from(kind.name_like())
+}
+
+#[cfg(test)]
+mod tests {
+    use hir_def::db::InternDb;
+    use hir_semantics::semantics::SemanticsImpl;
+    use syntax::SyntaxElement;
+
+    use super::*;
+    use crate::test_utils::setup_marked;
+
+    /// The container stack must agree with `find_container` for every
+    /// name-like token of a file exercising modules, blocks, subroutines,
+    /// explicit generate blocks, single-member generate branches and
+    /// instantiations. This is the safety net for the dispatch that mirrors
+    /// `source_to_def::container_to_def`.
+    #[test]
+    fn container_stack_matches_find_container_for_every_token() {
+        let text = r#"
+module top(input logic clk);
+  logic sig;
+  always_ff @(posedge clk) begin
+    if (sig) begin
+      logic inner;
+    end
+  end
+  generate
+    if (1) begin : gen_if
+      wire g;
+    end
+  endgenerate
+  function automatic logic f();
+    return sig;
+  endfunction
+  sub u_sub();
+endmodule
+"#;
+        let (host, file_id, _clean, _markers) = setup_marked(text);
+        let db = host.raw_db();
+        let hir_file_id = HirFileId::from(file_id);
+        let tree = db.parse(hir_file_id);
+        let root = tree.root().expect("test source should parse");
+        let sema = SemanticsImpl::new(db);
+        let mut containers = ContainerCache::new();
+        for event in root.elem_preorder() {
+            match event {
+                WalkEvent::Enter(SyntaxElement::Node(_)) => {}
+                WalkEvent::Leave(SyntaxElement::Node(_)) => {}
+                WalkEvent::Enter(SyntaxElement::Token(token)) => {
+                    if !token.kind().name_like() {
+                        continue;
+                    }
+                    let cached = containers.container_for(&sema, hir_file_id, token.parent);
+                    let expected = sema
+                        .container_for_node(hir_file_id, token.parent)
+                        .unwrap_or(hir_file_id.into());
+                    if cached != expected {
+                        if let (ArenaOwnerId::GenerateBlock(a), ArenaOwnerId::GenerateBlock(b)) =
+                            (cached, expected)
+                        {
+                            let loc_a = db.lookup_intern_generate_block(a);
+                            let loc_b = db.lookup_intern_generate_block(b);
+                            eprintln!("cached loc cont_id={:?} src={:?}", loc_a.cont_id, loc_a.src);
+                            eprintln!(
+                                "expected loc cont_id={:?} src={:?}",
+                                loc_b.cont_id, loc_b.src
+                            );
+                        }
+                    }
+                    assert_eq!(cached, expected, "container mismatch at {:?}", token.raw_text());
+                }
+                WalkEvent::Leave(SyntaxElement::Token(_)) => {}
+            }
+        }
+    }
 }
