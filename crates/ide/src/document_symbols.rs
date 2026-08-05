@@ -502,37 +502,7 @@ fn build_generate_region<L>(
     let name = Some(SmolStr::new_static("generate"));
     collector.push_symbol_with_kind(&name, src, SymbolKind::Generate);
     for item in hir.items.iter() {
-        match *item {
-            GenerateItem::ContAssignId(_) | GenerateItem::DefParamId(_) => {}
-            GenerateItem::DeclarationId(declaration_id) => {
-                build_declaration(collector, declaration_id, lowered);
-            }
-            GenerateItem::GenerateBlockId(generate_block_id) => {
-                build_generate_block(db, collector, generate_block_id);
-            }
-            GenerateItem::InstantiationId(instantiation_id) => {
-                for &instance_id in lowered.hir(instantiation_id).instances.iter() {
-                    let hir = lowered.hir(instance_id);
-                    if let Some(src) = lowered.named_source_info(instance_id) {
-                        collector.push_symbol(&hir.name, src);
-                        collector.pop();
-                    }
-                }
-            }
-            GenerateItem::ProcId(proc_id) => {
-                let proc = lowered.hir(proc_id);
-                build_stmt(db, collector, proc.stmt, lowered);
-            }
-            GenerateItem::StructId(struct_id) => {
-                build_struct(collector, struct_id, lowered);
-            }
-            GenerateItem::SubroutineId(subroutine_id) => {
-                build_subroutine(collector, subroutine_id, lowered);
-            }
-            GenerateItem::TypedefId(typedef_id) => {
-                build_typedef(collector, typedef_id, lowered);
-            }
-        }
+        build_generate_block_item(db, collector, generate_item_to_block_item(item.clone()), lowered);
     }
     collector.pop();
 }
@@ -551,39 +521,83 @@ fn build_generate_block(
 
     collector.push_symbol_with_kind(&name, generate_block_src, SymbolKind::Generate);
     for item in &generate_block.items {
-        match *item {
-            GenerateBlockItem::DeclarationId(declaration_id) => {
-                build_declaration(collector, declaration_id, lowered.as_ref());
-            }
-            GenerateBlockItem::GenerateBlockId(child_id) => {
-                build_generate_block(db, collector, child_id);
-            }
-            GenerateBlockItem::TypedefId(typedef_id) => {
-                build_typedef(collector, typedef_id, lowered.as_ref());
-            }
-            GenerateBlockItem::SubroutineId(subroutine_id) => {
-                build_subroutine(collector, subroutine_id, lowered.as_ref());
-            }
-            GenerateBlockItem::ProcId(proc_id) => {
-                let proc = lowered.get(proc_id);
-                build_stmt(db, collector, proc.stmt, lowered.as_ref());
-            }
-            GenerateBlockItem::InstantiationId(instantiation_id) => {
-                for &instance_id in lowered.get(instantiation_id).instances.iter() {
-                    let hir = lowered.get(instance_id);
-                    if let Some(src) = lowered.named_source_info(instance_id) {
-                        collector.push_symbol(&hir.name, src);
-                        collector.pop();
-                    }
-                }
-            }
-            GenerateBlockItem::ContAssignId(_) | GenerateBlockItem::DefParamId(_) => {}
-            GenerateBlockItem::StructId(struct_id) => {
-                build_struct(collector, struct_id, lowered.as_ref());
-            }
-        }
+        build_generate_block_item(db, collector, item.clone(), lowered.as_ref());
     }
     collector.pop();
+}
+
+/// Builds a document symbol for one generate item, shared by generate regions
+/// (whose items live in the enclosing module's arenas) and generate blocks
+/// (whose items live in their own container).
+#[inline]
+fn build_generate_block_item<L>(
+    db: &dyn TyDb,
+    collector: &mut SymbolCollecter,
+    item: GenerateBlockItem,
+    lowered: &L,
+) where
+    L: HirLookup<DeclarationId, Hir = Declaration>
+        + HirLookup<DeclId, Hir = Declarator>
+        + HirLookup<InstanceId, Hir = Instance>
+        + HirLookup<InstantiationId, Hir = Instantiation>
+        + HirLookup<LocalSubroutineId, Hir = Subroutine>
+        + HirLookup<ProcId, Hir = Proc>
+        + HirLookup<StmtId, Hir = Stmt>
+        + HirLookup<StructId, Hir = StructDef>
+        + HirLookup<TypedefId, Hir = Typedef>
+        + SourceLookup<DeclarationId>
+        + NamedSourceLookup<DeclId>
+        + NamedSourceLookup<InstanceId>
+        + NamedSourceLookup<LocalSubroutineId>
+        + NamedSourceLookup<StmtId>
+        + NamedSourceLookup<StructId>
+        + NamedSourceLookup<TypedefId>,
+{
+    match item {
+        GenerateBlockItem::ContAssignId(_) | GenerateBlockItem::DefParamId(_) => {}
+        GenerateBlockItem::DeclarationId(declaration_id) => {
+            build_declaration(collector, declaration_id, lowered);
+        }
+        GenerateBlockItem::GenerateBlockId(child_id) => {
+            build_generate_block(db, collector, child_id);
+        }
+        GenerateBlockItem::TypedefId(typedef_id) => {
+            build_typedef(collector, typedef_id, lowered);
+        }
+        GenerateBlockItem::SubroutineId(subroutine_id) => {
+            build_subroutine(collector, subroutine_id, lowered);
+        }
+        GenerateBlockItem::ProcId(proc_id) => {
+            let proc = lowered.hir(proc_id);
+            build_stmt(db, collector, proc.stmt, lowered);
+        }
+        GenerateBlockItem::InstantiationId(instantiation_id) => {
+            for &instance_id in lowered.hir(instantiation_id).instances.iter() {
+                let hir = lowered.hir(instance_id);
+                if let Some(src) = lowered.named_source_info(instance_id) {
+                    collector.push_symbol(&hir.name, src);
+                    collector.pop();
+                }
+            }
+        }
+        GenerateBlockItem::StructId(struct_id) => {
+            build_struct(collector, struct_id, lowered);
+        }
+    }
+}
+
+fn generate_item_to_block_item(item: GenerateItem) -> GenerateBlockItem {
+    match item {
+        GenerateItem::ContAssignId(id) => GenerateBlockItem::ContAssignId(id),
+        GenerateItem::DefParamId(id) => GenerateBlockItem::DefParamId(id),
+        GenerateItem::GenerateBlockId(id) => GenerateBlockItem::GenerateBlockId(id),
+        GenerateItem::DeclarationId(id) => GenerateBlockItem::DeclarationId(id),
+        GenerateItem::StructId(id) => GenerateBlockItem::StructId(id),
+        GenerateItem::InstantiationId(id) => GenerateBlockItem::InstantiationId(id),
+        GenerateItem::ProcId(id) => GenerateBlockItem::ProcId(id),
+        GenerateItem::TypedefId(id) => GenerateBlockItem::TypedefId(id),
+        GenerateItem::SubroutineId(id) => GenerateBlockItem::SubroutineId(id),
+    }
 }
 
 #[inline]
