@@ -4,8 +4,7 @@ use base_db::{
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
-use hir_def::{db::HirDefDb, module::ModuleId};
-use preproc_expand::db::PreprocDb;
+use hir_def::module::ModuleId;
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::text_edit::{TextRange, TextSize};
 use vfs::FileId;
@@ -409,10 +408,7 @@ mod tests {
         source_db::SourceDb,
         source_root::{SourceRoot, SourceRootId, SourceRootRole},
     };
-    use preproc_expand::{
-        compilation_plan::compilation_source_buffers_for_plan,
-        db::{PreprocDb, PreprocDbExt},
-    };
+    use preproc_expand::compilation_plan::compilation_source_buffers_for_plan;
     use triomphe::Arc;
     use utils::{
         line_index::{TextRange, TextSize},

@@ -1,6 +1,5 @@
 use hir_def::{
     container::{InContainer, InModule},
-    db::HirDefDb,
     declaration::Declaration,
     module::{
         instantiation::{ParamAssign, PortConn},

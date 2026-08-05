@@ -117,7 +117,6 @@ mod tests {
     use std::path::PathBuf;
 
     use base_db::{change::Change, source_root::SourceRoot};
-    use hir_def::db::HirDefDb;
     use insta::assert_debug_snapshot;
     use preproc_expand::macro_file::macro_files_at_offset;
     use utils::text_edit::TextSize;

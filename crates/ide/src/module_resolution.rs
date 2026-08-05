@@ -468,7 +468,6 @@ mod tests {
 
     use base_db::{change::Change, source_root::SourceRoot};
     use hir_def::symbol::{DefKind, DefOriginLoc, Resolution};
-    use preproc_expand::db::PreprocDb;
     use smol_str::SmolStr;
     use syntax::{SyntaxNodeExt, ast};
     use utils::text_edit::TextSize;

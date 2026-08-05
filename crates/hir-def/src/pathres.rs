@@ -220,7 +220,7 @@ mod tests {
     use crate::{
         Ident,
         container::ScopeId,
-        db::{HirDefDb, HirDefDbExt},
+        db::HirDefDb,
         symbol::{DefKind, NameContext},
     };
 
@@ -248,6 +248,13 @@ mod tests {
 
     #[salsa::db]
     impl HirDefDb for TestDb {}
+    impl std::ops::Deref for TestDb {
+        type Target = dyn HirDefDb;
+
+        fn deref(&self) -> &Self::Target {
+            self
+        }
+    }
 
     impl fmt::Debug for TestDb {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

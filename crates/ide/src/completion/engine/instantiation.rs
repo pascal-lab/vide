@@ -1,6 +1,5 @@
 use hir_def::{
     Ident,
-    db::HirDefDb,
     declaration::Declaration,
     expr::declarator::DeclaratorParent,
     module::{ModuleId, port::Ports},

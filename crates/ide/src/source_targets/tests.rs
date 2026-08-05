@@ -1,4 +1,4 @@
-use preproc_expand::{db::PreprocDb, macro_file::SourceEmittedTokenId};
+use preproc_expand::macro_file::SourceEmittedTokenId;
 use syntax::{
     SyntaxElement, SyntaxNode, SyntaxTree, SyntaxTreeOptions, WalkEvent, preproc::TokenOrigin,
     token::TokenKindExt,

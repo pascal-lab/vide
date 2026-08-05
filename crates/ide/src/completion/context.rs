@@ -10,7 +10,6 @@ mod util;
 
 use base_db::source_db::SourceDb;
 use hir_semantics::semantics::Semantics;
-use preproc_expand::db::PreprocDb;
 use smallvec::{SmallVec, smallvec};
 use syntax::{
     ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxNodeExt,

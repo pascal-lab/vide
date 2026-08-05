@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 
 use hir_def::{
     container::{InContainer, ScopeId, ScopeParent, SubroutineScope},
-    db::HirDefDb,
     def_id::DefId,
     lower_ident_opt,
     module::ModuleId,
@@ -207,7 +206,7 @@ fn subroutine_return_ty(db: &RootDb, subroutine_id: SubroutineScope) -> Type {
     TypeSystem::new(db).type_of_subroutine_return(subroutine_id)
 }
 
-fn module_id_for_container(db: &RootDb, container_id: ScopeId) -> Option<ModuleId> {
+fn module_id_for_container(_db: &RootDb, container_id: ScopeId) -> Option<ModuleId> {
     ScopeParent::start_from(container_id).find_map(|container_id| match container_id {
         ScopeId::Module(module_id) => Some(module_id),
         _ => None,
