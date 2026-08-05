@@ -1,10 +1,12 @@
+use std::collections::HashMap;
+
 use preproc_expand::{
     db::PreprocDb,
     macro_file::{
         ExpansionSourceHit, MacroFileId, Origin, SourceEmittedTokenId, macro_files_at_offset,
     },
 };
-use syntax::{SyntaxElement, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, WalkEvent};
+use syntax::{SyntaxElement, SyntaxNode, SyntaxTokenWithParent, TokenKind, WalkEvent};
 use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
@@ -69,10 +71,10 @@ fn preproc_hits_at_offset(
     offset: TextSize,
 ) -> PreprocHitLookup {
     let mut hits = Vec::new();
-    for (expansion_index, macro_file) in macro_files.iter().enumerate() {
+    for macro_file in macro_files {
         let expansion = db.macro_expansion(*macro_file);
         for source_hit in expansion.value.source_map.source_hits(file_id, offset) {
-            let Some(hit) = preproc_hit_for_source_hit(db, expansion_index, source_hit) else {
+            let Some(hit) = preproc_hit_for_source_hit(source_hit) else {
                 continue;
             };
             push_unique_preproc_hit(&mut hits, hit);
@@ -92,32 +94,12 @@ fn preproc_hits_at_offset(
     }
 }
 
-fn preproc_hit_for_source_hit(
-    db: &dyn PreprocDb,
-    expansion: usize,
-    source_hit: ExpansionSourceHit,
-) -> Option<PreprocTokenHit> {
-    let call = origin_call(db, &source_hit.origin).unwrap_or(0);
+fn preproc_hit_for_source_hit(source_hit: ExpansionSourceHit) -> Option<PreprocTokenHit> {
     Some(PreprocTokenHit {
-        expansion,
-        call,
         emitted_token: source_hit.emitted_token,
-        display_range: source_hit.range,
         source_range: source_hit.range,
         origin: source_hit.origin,
     })
-}
-
-fn origin_call(db: &dyn PreprocDb, origin: &Origin) -> Option<usize> {
-    let call = match origin {
-        Origin::File { .. } => return None,
-        Origin::MacroBody { call, .. }
-        | Origin::MacroArg { call, .. }
-        | Origin::TokenPaste { call }
-        | Origin::Stringify { call }
-        | Origin::Builtin { call, .. } => call,
-    };
-    usize::try_from(db.lookup_intern_macro_call(*call).trace_call.0).ok()
 }
 
 pub(super) fn push_unique_preproc_hit(hits: &mut Vec<PreprocTokenHit>, hit: PreprocTokenHit) {
@@ -198,36 +180,32 @@ fn macro_emitted_token_for_hit(hit: &PreprocTokenHit) -> Option<SourceEmittedTok
 ///
 /// Macro-emitted tokens report the call-site display range rather than a
 /// physical position, so the tree cannot be queried by offset; the
-/// preprocessor trace id is the only stable token identity. The hit's source
-/// range anchors on a token inside the expansion, whose ancestor chain covers
-/// the whole expansion subtree, so the trace-id match is searched there
-/// instead of over the entire tree.
+/// preprocessor trace id is the only stable token identity. The tree is
+/// walked once to index tokens by trace id, then each hit is a hash lookup.
+/// One trace id can map to several tokens (a macro can emit the same
+/// argument more than once), so the index stores every copy.
 fn syntax_tokens_for_macro_emitted_tokens<'tree>(
     root: SyntaxNode<'tree>,
     hits: &[PreprocTokenHit],
 ) -> Option<Vec<SyntaxTokenWithParent<'tree>>> {
+    let mut index: HashMap<SourceEmittedTokenId, Vec<SyntaxTokenWithParent<'tree>>> =
+        HashMap::new();
+    for event in root.elem_preorder() {
+        let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
+            continue;
+        };
+        if let Some(emitted_token) = syntax_token_emitted_token_id(&token) {
+            index.entry(emitted_token).or_default().push(token);
+        }
+    }
+
     let mut tokens = Vec::new();
     for hit in hits {
         let Some(emitted_token) = macro_emitted_token_for_hit(hit) else {
             continue;
         };
-        let Some(anchor) = root.token_at_offset(hit.source_range.start()).left_biased() else {
-            continue;
-        };
-        let mut scope = anchor.parent;
-        loop {
-            if let Some(token) = scope.elem_preorder().find_map(|event| {
-                let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
-                    return None;
-                };
-                (syntax_token_emitted_token_id(&token) == Some(emitted_token)).then_some(token)
-            }) {
-                if !tokens.contains(&token) {
-                    tokens.push(token);
-                }
-                break;
-            }
-            scope = scope.parent()?;
+        if let Some(copies) = index.get(&emitted_token) {
+            tokens.extend_from_slice(copies);
         }
     }
     (!tokens.is_empty()).then_some(tokens)
