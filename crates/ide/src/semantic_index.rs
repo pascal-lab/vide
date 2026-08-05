@@ -20,10 +20,10 @@ use preproc_expand::{db::PreprocDb, file::HirFileId};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use syntax::{
-    SyntaxAncestors, SyntaxElement, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
-    WalkEvent,
+    SyntaxAncestors, SyntaxElement, SyntaxNode, SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent,
+    TokenKind, WalkEvent,
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
+    has_text_range::{HasTextRange, HasTextRangeIn},
     ptr::SyntaxTokenPtr,
     token::TokenKindExt,
 };
@@ -53,12 +53,56 @@ pub(crate) struct SemanticDefinitionRange {
     pub range: TextRange,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConnSide {
+    /// The reference is the port side of a shorthand connection (`.name`).
+    Port,
+    /// The reference is the local side of a shorthand connection (`.name`).
+    Local,
+}
+
+/// Context of a reference token inside a named port connection, computed at
+/// index build time so rename and other reference consumers never re-resolve.
+///
+/// `paired` is `Some` exactly when the connection is a same-name connection
+/// (the `.name` and the data identifier have the same text): for the name
+/// side it is the local definition, for the data side it is the port
+/// definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ReferenceContext {
+    Plain,
+    /// The token is the `.name` of a named port connection.
+    ConnName {
+        /// Range of the data identifier, when the data is a simple identifier.
+        ident_range: Option<TextRange>,
+        /// Range from the name token start to the closing paren end.
+        collapse_range: Option<TextRange>,
+        /// No-parens shorthand connection (`.name`).
+        shorthand: bool,
+        /// The side of a shorthand connection this reference belongs to.
+        side: ConnSide,
+        /// Same-name connections: the local definition of the data identifier.
+        paired: Option<DefId>,
+    },
+    /// The token is a simple identifier in the data position of a named port
+    /// connection.
+    ConnData {
+        /// Range of the connection's `.name` token.
+        name_range: TextRange,
+        /// Range from the name token start to the closing paren end.
+        collapse_range: Option<TextRange>,
+        /// Same-name connections: the port definition of the name token.
+        paired: Option<DefId>,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SemanticReference {
     pub file_id: FileId,
     pub range: TextRange,
     pub category: ReferenceCategory,
     pub ptr: SyntaxTokenPtr,
+    pub context: ReferenceContext,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -316,6 +360,11 @@ impl FileSemanticIndex {
         let mut chains = ScopeChainCache::new();
         let mut groups: FxHashMap<DefId, FileReferenceGroup> = FxHashMap::default();
         let mut trace = IndexBuildTrace::start();
+        // Port definitions of named port connections by name token range,
+        // populated when the name token resolves (it precedes the data token
+        // in source order) and read back when the data token is collected.
+        let mut conn_port_by_name = FxHashMap::default();
+        let text = db.file_text(file_id);
         for event in root.elem_preorder() {
             match event {
                 WalkEvent::Enter(SyntaxElement::Node(node)) => {
@@ -375,6 +424,8 @@ impl FileSemanticIndex {
                                 container.clone(),
                                 in_special_context,
                                 &mut chains,
+                                &mut conn_port_by_name,
+                                &text,
                                 &mut groups,
                                 &mut trace,
                             )
@@ -678,6 +729,8 @@ fn collect_token(
     container: ArenaOwnerId,
     in_special_context: bool,
     chains: &mut ScopeChainCache,
+    conn_port_by_name: &mut FxHashMap<TextRange, DefId>,
+    text: &str,
     groups: &mut FxHashMap<DefId, FileReferenceGroup>,
     trace: &mut IndexBuildTrace,
 ) {
@@ -687,7 +740,8 @@ fn collect_token(
     let (resolve_cost, class) = timed(|| {
         if in_special_context {
             let start = std::time::Instant::now();
-            let class = DefinitionClass::resolve_in(db, file_id, token, Some(container)).unique();
+            let class =
+                DefinitionClass::resolve_in(db, file_id, token, Some(container.clone())).unique();
             trace.resolve_slow += start.elapsed();
             class
         } else {
@@ -701,7 +755,7 @@ fn collect_token(
             // intervening query and recompute O(scope size) each time.
             let sema = SemanticsImpl::new(db);
             let chain_start = std::time::Instant::now();
-            let chain = chains.chain_for(db, container);
+            let chain = chains.chain_for(db, container.clone());
             let chain_cost = chain_start.elapsed();
             let class = sema
                 .nameres_ident_in_scopes(token, NameContext::Value, &chain)
@@ -719,16 +773,233 @@ fn collect_token(
         return;
     };
 
-    let (definition_cost, ()) = timed(|| match class {
+    let (definition_cost, ()) = timed(|| match &class {
         DefinitionClass::Definition(definition) => {
-            collect_definition_token(db, definition, file_id.expect_file(), range, token, groups)
+            let context = reference_context(
+                db,
+                token,
+                &class,
+                container.clone(),
+                chains,
+                conn_port_by_name,
+                text,
+                ConnSide::Port,
+            );
+            collect_definition_token(
+                db,
+                definition.clone(),
+                file_id.expect_file(),
+                range,
+                token,
+                &context,
+                groups,
+            )
         }
         DefinitionClass::PortConnShorthand { port, local } => {
-            collect_definition_token(db, port, file_id.expect_file(), range, token, groups);
-            collect_definition_token(db, local, file_id.expect_file(), range, token, groups);
+            let port_context = reference_context(
+                db,
+                token,
+                &class,
+                container.clone(),
+                chains,
+                conn_port_by_name,
+                text,
+                ConnSide::Port,
+            );
+            let local_context = reference_context(
+                db,
+                token,
+                &class,
+                container.clone(),
+                chains,
+                conn_port_by_name,
+                text,
+                ConnSide::Local,
+            );
+            collect_definition_token(
+                db,
+                port.clone(),
+                file_id.expect_file(),
+                range,
+                token,
+                &port_context,
+                groups,
+            );
+            collect_definition_token(
+                db,
+                local.clone(),
+                file_id.expect_file(),
+                range,
+                token,
+                &local_context,
+                groups,
+            );
         }
     });
     trace.definition += definition_cost;
+}
+
+/// The role of a token inside a named port connection, if any, computed from
+/// the token's syntax position alone.
+enum ConnTokenRole<'tree> {
+    /// The token is the `.name` of the connection.
+    Name(ast::NamedPortConnection<'tree>),
+    /// The token is a simple identifier in the data position.
+    Data(ast::NamedPortConnection<'tree>),
+}
+
+fn conn_token_role<'tree>(token: SyntaxTokenWithParent<'tree>) -> Option<ConnTokenRole<'tree>> {
+    let SyntaxTokenWithParent { parent, tok } = token;
+    if let Some(conn) = ast::NamedPortConnection::cast(parent) {
+        return conn.name().is_some_and(|name| name == tok).then_some(ConnTokenRole::Name(conn));
+    }
+    if ast::Name::can_cast(parent.kind()) {
+        // The data identifier of a simple named port connection sits at a
+        // fixed depth below the connection node (the wrapper expression
+        // nodes are virtual).
+        if let Some(node) = SyntaxAncestors::start_from(parent).nth(3)
+            && let Some(conn) = ast::NamedPortConnection::cast(node)
+            && conn_data_ident(conn).is_some_and(|ident| ident == tok)
+        {
+            return Some(ConnTokenRole::Data(conn));
+        }
+    }
+    None
+}
+
+/// The identifier token of a connection's data side, when the data is a
+/// simple identifier (bare name or empty select). Mirrors the extraction in
+/// the rename edit rules.
+fn conn_data_ident(conn: ast::NamedPortConnection<'_>) -> Option<SyntaxToken<'_>> {
+    use ast::{Expression, Name};
+    let expr = conn.expr()?.as_simple_property_expr()?.expr().as_simple_sequence_expr()?.expr();
+    match expr {
+        Expression::Name(Name::IdentifierName(ident)) => ident.identifier(),
+        Expression::Name(Name::IdentifierSelectName(ident))
+            if ident.selectors().children().next().is_none() =>
+        {
+            ident.identifier()
+        }
+        _ => None,
+    }
+}
+
+struct ConnShape {
+    name_range: TextRange,
+    ident_range: Option<TextRange>,
+    collapse_range: Option<TextRange>,
+    shorthand: bool,
+}
+
+fn conn_shape(conn: ast::NamedPortConnection<'_>) -> Option<ConnShape> {
+    let name_range = conn.name()?.text_range_in(conn.syntax())?;
+    let collapse_range = conn
+        .close_paren()
+        .and_then(|token| token.text_range_in(conn.syntax()))
+        .map(|range| TextRange::new(name_range.start(), range.end()));
+    let ident_range = conn_data_ident(conn).and_then(|token| token.text_range_in(conn.syntax()));
+    let shorthand = conn.open_paren().is_none() && conn.close_paren().is_none();
+    Some(ConnShape { name_range, ident_range, collapse_range, shorthand })
+}
+
+fn range_text<'a>(text: &'a str, range: TextRange) -> &'a str {
+    &text[usize::from(range.start())..usize::from(range.end())]
+}
+
+fn is_same_name_conn(text: &str, conn: &ConnShape) -> bool {
+    conn.ident_range
+        .is_some_and(|ident| range_text(text, conn.name_range) == range_text(text, ident))
+}
+
+/// The [`ReferenceContext`] of a token resolved to `class`. `side` selects
+/// the shorthand side; non-shorthand tokens produce the same context for
+/// either side.
+#[allow(clippy::too_many_arguments)]
+fn reference_context(
+    db: &dyn WorkspaceSymbolIndexDb,
+    token: SyntaxTokenWithParent<'_>,
+    class: &DefinitionClass,
+    container: ArenaOwnerId,
+    chains: &mut ScopeChainCache,
+    conn_port_by_name: &mut FxHashMap<TextRange, DefId>,
+    text: &str,
+    side: ConnSide,
+) -> ReferenceContext {
+    let Some(role) = conn_token_role(token) else {
+        return ReferenceContext::Plain;
+    };
+    let sema = SemanticsImpl::new(db);
+    match role {
+        ConnTokenRole::Data(conn) => {
+            let Some(shape) = conn_shape(conn) else {
+                return ReferenceContext::Plain;
+            };
+            ReferenceContext::ConnData {
+                name_range: shape.name_range,
+                collapse_range: shape.collapse_range,
+                paired: is_same_name_conn(text, &shape)
+                    .then(|| conn_port_by_name.get(&shape.name_range).cloned())
+                    .flatten(),
+            }
+        }
+        ConnTokenRole::Name(conn) => {
+            let Some(shape) = conn_shape(conn) else {
+                return ReferenceContext::Plain;
+            };
+            if shape.shorthand {
+                let (side, paired) = match class {
+                    DefinitionClass::PortConnShorthand { port, local } => {
+                        let paired = match side {
+                            ConnSide::Port => Some(local.clone()),
+                            ConnSide::Local => Some(port.clone()),
+                        };
+                        (side, paired)
+                    }
+                    DefinitionClass::Definition(def) => {
+                        // One-sided shorthand resolution: the local side is the
+                        // definition when plain value resolution matches it.
+                        let chain = chains.chain_for(db, container.clone());
+                        let is_local = sema
+                            .nameres_ident_in_scopes(token, NameContext::Value, &chain)
+                            .unique()
+                            .is_some_and(|local| local == *def);
+                        (if is_local { ConnSide::Local } else { ConnSide::Port }, None)
+                    }
+                };
+                return ReferenceContext::ConnName {
+                    ident_range: None,
+                    collapse_range: None,
+                    shorthand: true,
+                    side,
+                    paired,
+                };
+            }
+            let same_name = is_same_name_conn(text, &shape);
+            let paired = same_name
+                .then(|| {
+                    let chain = chains.chain_for(db, container.clone());
+                    conn_data_ident(conn).and_then(|ident| {
+                        sema.nameres_ident_in_scopes(
+                            SyntaxTokenWithParent { parent: conn.syntax(), tok: ident },
+                            NameContext::Value,
+                            &chain,
+                        )
+                        .unique()
+                    })
+                })
+                .flatten();
+            if let DefinitionClass::Definition(port) = class {
+                conn_port_by_name.insert(shape.name_range, port.clone());
+            }
+            ReferenceContext::ConnName {
+                ident_range: shape.ident_range,
+                collapse_range: shape.collapse_range,
+                shorthand: false,
+                side: ConnSide::Port,
+                paired,
+            }
+        }
+    }
 }
 
 /// True when the token sits at one of the syntax positions where
@@ -781,6 +1052,7 @@ fn collect_definition_token(
     file_id: FileId,
     range: TextRange,
     token: SyntaxTokenWithParent<'_>,
+    context: &ReferenceContext,
     groups: &mut FxHashMap<DefId, FileReferenceGroup>,
 ) {
     let origins = definition.origins(db);
@@ -803,6 +1075,7 @@ fn collect_definition_token(
         range,
         category: ReferenceCategory::from_tok(token),
         ptr: SyntaxTokenPtr::from_token(token),
+        context: context.clone(),
     };
     if !group
         .references
@@ -1176,6 +1449,164 @@ endmodule
             }
         }
         assert!(checked > 20, "test should exercise a non-trivial token set");
+    }
+
+    /// Named port connections must record their shape (name/data roles,
+    /// collapse ranges, shorthand sides and same-name pairing) on the
+    /// references, so rename never re-resolves or re-parses.
+    #[test]
+    fn reference_contexts_capture_named_connection_shapes() {
+        let text = r#"
+module child(input /*marker:child_a*/a, input /*marker:child_b*/b);
+endmodule
+module top;
+  logic /*marker:local_a*/a;
+  logic /*marker:local_b*/b;
+  logic /*marker:local_c*/c;
+  logic /*marker:plain_c*/d;
+  assign d = /*marker:plain*/c;
+  child u(/*marker:same_name*/.a(/*marker:same_name_data*/a), /*marker:other_name*/.b(/*marker:other_data*/c));
+  child v(/*marker:shorthand*/.b);
+endmodule
+"#;
+        let (host, file_id, _clean, markers) = setup_marked(text);
+        let index = source_root_semantic_index_for_root(host.raw_db(), SourceRootId(0));
+
+        let range_at = |marker: &str| {
+            let start = markers[marker];
+            let end = markers[marker] + TextSize::of("a");
+            TextRange::new(start, end)
+        };
+        // Conn name markers sit on the leading dot; the name token follows it.
+        let conn_name_at = |marker: &str| {
+            let start = markers[marker] + TextSize::of(".");
+            TextRange::new(start, start + TextSize::of("a"))
+        };
+        let def_range = |marker: &str| range_at(marker);
+        let group = |name: &str, def_marker: &str| {
+            let def_range = def_range(def_marker);
+            index
+                .reference_groups_named(name)
+                .into_iter()
+                .find(|group| {
+                    group
+                        .definition_ranges
+                        .iter()
+                        .any(|range| range.file_id == file_id && range.range == def_range)
+                })
+                .unwrap_or_else(|| panic!("missing group {name} at {def_marker}"))
+        };
+        let reference =
+            |group: &SemanticReferenceGroup, range: TextRange| -> (TextRange, ReferenceContext) {
+                let reference = group
+                    .references
+                    .iter()
+                    .find(|reference| reference.range == range)
+                    .unwrap_or_else(|| panic!("missing reference at {range:?}"));
+                (range, reference.context.clone())
+            };
+
+        // Same-name connection `.a(a)`: the name token pairs the local def,
+        // the data token pairs the port def, both share the collapse range.
+        let same_name_range = conn_name_at("same_name");
+        let same_name_data_range = range_at("same_name_data");
+        let collapse =
+            TextRange::new(same_name_range.start(), same_name_data_range.end() + TextSize::of(")"));
+        let child_a = group("a", "child_a");
+        let top_a = group("a", "local_a");
+        let name_ref = reference(child_a, conn_name_at("same_name"));
+        let ReferenceContext::ConnName { ident_range, collapse_range, shorthand, side, paired } =
+            &name_ref.1
+        else {
+            panic!("same-name name token should be ConnName: {:?}", name_ref.1);
+        };
+        assert_eq!(ident_range, &Some(same_name_data_range));
+        assert_eq!(collapse_range, &Some(collapse));
+        assert!(!shorthand);
+        assert_eq!(side, &ConnSide::Port);
+        let paired = paired.as_ref().expect("same-name conn should pair the local def");
+        assert!(
+            index
+                .references_for_definition(paired.clone())
+                .expect("paired def should have a group")
+                .definition_ranges
+                .iter()
+                .any(|range| range.file_id == file_id && range.range == def_range("local_a")),
+            "paired local def should be top.a"
+        );
+        let data_ref = reference(top_a, range_at("same_name_data"));
+        let ReferenceContext::ConnData { name_range, collapse_range, paired } = &data_ref.1 else {
+            panic!("same-name data token should be ConnData: {:?}", data_ref.1);
+        };
+        assert_eq!(name_range, &same_name_range);
+        assert_eq!(collapse_range, &Some(collapse));
+        let paired = paired.as_ref().expect("same-name conn should pair the port def");
+        assert!(
+            index
+                .references_for_definition(paired.clone())
+                .expect("paired def should have a group")
+                .definition_ranges
+                .iter()
+                .any(|range| range.file_id == file_id && range.range == def_range("child_a")),
+            "paired port def should be child.a"
+        );
+
+        // Non-same-name connection `.b(c)`: shape is recorded, no pairing.
+        let child_b = group("b", "child_b");
+        let name_ref = reference(child_b, conn_name_at("other_name"));
+        let ReferenceContext::ConnName { ident_range, paired, .. } = &name_ref.1 else {
+            panic!("non-same-name name token should be ConnName: {:?}", name_ref.1);
+        };
+        assert_eq!(ident_range, &Some(range_at("other_data")));
+        assert_eq!(paired, &None);
+        let top_c = group("c", "local_c");
+        let data_ref = reference(top_c, range_at("other_data"));
+        let ReferenceContext::ConnData { name_range, paired, .. } = &data_ref.1 else {
+            panic!("non-same-name data token should be ConnData: {:?}", data_ref.1);
+        };
+        assert_eq!(name_range, &conn_name_at("other_name"));
+        assert_eq!(paired, &None);
+
+        // Shorthand `.b`: one reference in each side's group.
+        let top_b = group("b", "local_b");
+        let port_ref = reference(child_b, conn_name_at("shorthand"));
+        let ReferenceContext::ConnName { collapse_range, shorthand, side, paired, .. } =
+            &port_ref.1
+        else {
+            panic!("shorthand port reference should be ConnName: {:?}", port_ref.1);
+        };
+        assert!(shorthand);
+        assert_eq!(collapse_range, &None);
+        assert_eq!(side, &ConnSide::Port);
+        let paired = paired.as_ref().expect("shorthand should pair the local def");
+        assert!(
+            index
+                .references_for_definition(paired.clone())
+                .expect("paired def should have a group")
+                .definition_ranges
+                .iter()
+                .any(|range| range.file_id == file_id && range.range == def_range("local_b")),
+            "shorthand port side should pair top.b"
+        );
+        let local_ref = reference(top_b, conn_name_at("shorthand"));
+        let ReferenceContext::ConnName { side, paired, .. } = &local_ref.1 else {
+            panic!("shorthand local reference should be ConnName: {:?}", local_ref.1);
+        };
+        assert_eq!(side, &ConnSide::Local);
+        let paired = paired.as_ref().expect("shorthand should pair the port def");
+        assert!(
+            index
+                .references_for_definition(paired.clone())
+                .expect("paired def should have a group")
+                .definition_ranges
+                .iter()
+                .any(|range| range.file_id == file_id && range.range == def_range("child_b")),
+            "shorthand local side should pair child.b"
+        );
+
+        // Plain references stay Plain.
+        let plain = reference(top_c, range_at("plain"));
+        assert_eq!(plain.1, ReferenceContext::Plain);
     }
 
     #[test]
