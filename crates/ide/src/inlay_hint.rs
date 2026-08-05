@@ -211,6 +211,7 @@ pub(crate) fn inlay_hint(
     range: TextRange,
     config: InlayHintConfig,
 ) -> Vec<InlayHint> {
+    let _span = tracing::debug_span!("ide.inlay_hint", ?file_id, ?range).entered();
     let file_id = HirFileId::File(file_id);
     let file = db.hir_file_with_source_map(file_id);
 

@@ -188,6 +188,7 @@ impl AddRegionSymbol for Peekable<RegionTreeIterator<'_>> {
 
 // TODO: add ty info in detail
 pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSymbol> {
+    let _span = tracing::debug_span!("ide.document_symbols", ?file_id).entered();
     let file_id = HirFileId::File(file_id);
     let lowered = db.hir_file_with_source_map(file_id);
     let file = lowered.data_ref();

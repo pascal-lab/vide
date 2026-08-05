@@ -137,6 +137,7 @@ pub(crate) fn semantic_tokens(
     file_id: FileId,
     range: Option<TextRange>,
 ) -> Vec<SemaToken> {
+    let _span = tracing::debug_span!("ide.semantic_tokens", ?file_id, ?range).entered();
     let sema = Semantics::new(db);
     let parsed_file = sema.parse_file(file_id);
     let Some(root) = parsed_file.root() else {
