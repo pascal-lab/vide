@@ -90,7 +90,7 @@ fn db_with_root_text(root_text: &str) -> TestDb {
     );
 
     let mut db = TestDb::default();
-    db.set_files_with_durability(Box::new(files), Durability::HIGH);
+    db.set_files_with_durability(files, Durability::HIGH);
     db.set_project_config_with_durability(Arc::new(project_config), Durability::HIGH);
     db.set_diagnostics_config_with_durability(
         Arc::new(DiagnosticsConfig::default()),

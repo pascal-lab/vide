@@ -35,8 +35,8 @@ impl HasSource for BlockId {
 }
 
 impl HasSource for GenerateBlockId {
-    fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        let InFile { file_id, value } = self.loc().src.clone();
+    fn source(&self, _db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
+        let InFile { file_id, value } = self.loc().src;
         Some(named_source(file_id, value))
     }
 }

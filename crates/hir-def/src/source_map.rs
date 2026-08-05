@@ -459,7 +459,9 @@ where
     Ast::cast(node)
 }
 
-pub trait AstKind: Debug + PartialEq + Eq + Hash + PartialOrd + Ord + Copy + Clone + 'static {
+pub trait AstKind:
+    Debug + PartialEq + Eq + Hash + PartialOrd + Ord + Copy + Clone + 'static
+{
     type Node<'a>: AstNode<'a>;
 }
 

@@ -10,7 +10,6 @@ use hir_def::db::HirDefDb;
 use hir_ty::db::TyDb;
 use preproc_expand::db::PreprocDb;
 use triomphe::Arc;
-use utils::line_index::LineIndex;
 use vfs::{AnchoredPath, FileId};
 
 use crate::db::{line_index_db::LineIndexDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb};

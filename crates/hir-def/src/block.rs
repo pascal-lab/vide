@@ -262,7 +262,7 @@ pub struct BlockLoc {
     pub src: InFile<BlockSrc>,
 }
 
-pub(crate) type LowerBlockCtx<'a> = LoweringCtx<'a, BlockStore<'a>>;
+pub(crate) type LowerBlockCtx<'a> = LoweringCtx<BlockStore<'a>>;
 
 impl LowerBlockCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
@@ -355,7 +355,6 @@ pub(crate) fn block_with_source_map(
     };
 
     let mut lower_ctx = LoweringCtx::new(
-        db,
         file_id,
         block_id.into(),
         BlockStore { data: &mut block, sources: &mut block_source_map },

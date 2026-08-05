@@ -230,7 +230,7 @@ impl FileSourceMap {
     }
 }
 
-pub(crate) type LowerFileCtx<'a> = LoweringCtx<'a, FileStore<'a>>;
+pub(crate) type LowerFileCtx<'a> = LoweringCtx<FileStore<'a>>;
 
 impl LowerFileCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
@@ -462,7 +462,6 @@ pub(crate) fn hir_file_with_source_map(
 
     let tree = db.parse(file_id);
     let mut lower_ctx = LoweringCtx::new(
-        db,
         file_id,
         file_id.into(),
         FileStore { data: &mut hir_file, sources: &mut source_map },

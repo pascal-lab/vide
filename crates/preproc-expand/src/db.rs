@@ -803,7 +803,7 @@ mod tests {
         files.insert(TOP);
 
         let mut db = TestDb::default();
-        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_files_with_durability(files, Durability::HIGH);
         db.set_diagnostics_config_with_durability(
             Arc::new(DiagnosticsConfig::default()),
             Durability::LOW,
@@ -832,7 +832,7 @@ mod tests {
         files.insert(MANIFEST);
 
         let mut db = TestDb::default();
-        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_files_with_durability(files, Durability::HIGH);
         db.set_diagnostics_config_with_durability(
             Arc::new(DiagnosticsConfig::default()),
             Durability::LOW,
@@ -935,7 +935,7 @@ mod tests {
         files.insert(MANIFEST);
 
         let mut db = TestDb::default();
-        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_files_with_durability(files, Durability::HIGH);
         db.set_diagnostics_config_with_durability(
             Arc::new(DiagnosticsConfig::default()),
             Durability::LOW,

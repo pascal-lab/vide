@@ -104,7 +104,7 @@ pub enum NamedDataTy {
     Field(ExprId),
 }
 
-impl<Store: LoweringStore> LoweringCtx<'_, Store> {
+impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_data_ty(&mut self, ty: ast::DataType) -> DataTy {
         use ast::DataType::*;
         match ty {
