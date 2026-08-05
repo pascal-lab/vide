@@ -400,6 +400,7 @@ pub(crate) fn rename_error(i18n: I18n, err: RenameError) -> LspError {
         RenameError::OverlappingEdits => keys::RENAME_OVERLAPPING_EDITS,
         RenameError::ProjectScopeRequired => keys::RENAME_PROJECT_SCOPE_REQUIRED,
         RenameError::MacroDefinitionNotEditable => keys::RENAME_MACRO_DEFINITION_NOT_EDITABLE,
+        RenameError::MacroRenameFailed(_) => keys::RENAME_MACRO_RENAME_FAILED,
     };
     LspError::new(lsp_server::ErrorCode::InvalidParams as i32, i18n.text(key).to_owned())
 }
