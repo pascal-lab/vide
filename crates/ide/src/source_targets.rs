@@ -1,11 +1,9 @@
-use preproc_expand::macro_file::{Origin, SourceEmittedTokenId};
+use preproc_expand::{db::PreprocDb, macro_file::{Origin, SourceEmittedTokenId}};
 use syntax::{
     SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, has_text_range::HasTextRange,
 };
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
-
-use crate::db::root_db::RootDb;
 
 mod macro_gate;
 mod preproc;
@@ -134,7 +132,7 @@ pub(crate) struct PreprocTokenHit {
 }
 
 pub(crate) fn source_target_at_offset<'tree, F>(
-    db: &RootDb,
+    db: &dyn PreprocDb,
     file_id: FileId,
     root: SyntaxNode<'tree>,
     offset: TextSize,

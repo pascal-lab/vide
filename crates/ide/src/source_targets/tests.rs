@@ -1,4 +1,6 @@
 use preproc_expand::{db::PreprocDb, macro_file::SourceEmittedTokenId};
+
+use crate::db::root_db::RootDb;
 use syntax::{
     SyntaxElement, SyntaxNode, SyntaxTree, SyntaxTreeOptions, WalkEvent, preproc::TokenOrigin,
     token::TokenKindExt,

@@ -67,7 +67,7 @@ fn render_source_declaration_target(
     let origins = tokens
         .into_iter()
         .flat_map(|token| {
-            DefinitionClass::resolve(sema, hir_file_id, token).into_candidates().into_iter().map(
+            DefinitionClass::resolve(sema.db, hir_file_id, token).into_candidates().into_iter().map(
                 |class| match class {
                     DefinitionClass::Definition(definition) => definition.declaration_origin(db),
                     DefinitionClass::PortConnShorthand { port, .. } => port.declaration_origin(db),

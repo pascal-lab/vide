@@ -93,7 +93,7 @@ pub struct SemanticsImpl<'db> {
 }
 
 impl<'db> SemanticsImpl<'db> {
-    fn new(db: &'db dyn HirDefDb) -> Self {
+    pub fn new(db: &'db dyn HirDefDb) -> Self {
         SemanticsImpl { db }
     }
 

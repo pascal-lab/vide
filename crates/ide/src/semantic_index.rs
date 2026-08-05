@@ -3,9 +3,8 @@ use base_db::{
     source_root::SourceRootId,
 };
 use hir_def::{
-    Ident, container::InFile, db::HirDefDb, def_id::DefId, module::ModuleId, symbol::DefOrigin,
+    Ident, container::InFile, def_id::DefId, module::ModuleId, symbol::DefOrigin,
 };
-use hir_semantics::semantics::Semantics;
 use hir_ty::db::TyDb;
 use itertools::Itertools;
 use preproc_expand::{db::PreprocDb, file::HirFileId};
@@ -83,7 +82,7 @@ pub struct ModuleIndex {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SemanticIndex {
+pub struct SemanticIndex {
     references_by_definition: FxHashMap<DefId, SemanticReferenceGroup>,
     incoming_module_edges: FxHashMap<ModuleId, Box<[ModuleCallEdge]>>,
     outgoing_module_edges: FxHashMap<ModuleId, Box<[ModuleCallEdge]>>,
@@ -191,7 +190,10 @@ impl SemanticModuleDefinition {
 }
 
 impl SemanticIndex {
-    pub(crate) fn for_source_root(db: &RootDb, source_root_id: SourceRootId) -> Self {
+    pub(crate) fn for_source_root(
+        db: &dyn WorkspaceSymbolIndexDb,
+        source_root_id: SourceRootId,
+    ) -> Self {
         let source_root = db.source_root(source_root_id);
         let module_index = source_root_module_index_for_root(db, source_root_id);
         let mut builder = SemanticIndexBuilder::default();
@@ -226,10 +228,9 @@ impl SemanticIndex {
 }
 
 impl SemanticIndexBuilder {
-    fn collect_file(&mut self, db: &RootDb, file_id: FileId) {
-        let sema = Semantics::new(db);
-        let parsed_file = sema.parse_file(file_id);
-        let Some(root) = parsed_file.root() else {
+    fn collect_file(&mut self, db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) {
+        let tree = db.parse(file_id.into());
+        let Some(root) = tree.root() else {
             return;
         };
         let hir_file_id = HirFileId::from(file_id);
@@ -252,22 +253,21 @@ impl SemanticIndexBuilder {
             };
 
             for token in target.into_tokens().into_iter().filter(|token| token.kind().name_like()) {
-                self.collect_token(db, &sema, hir_file_id, token);
+                self.collect_token(db, hir_file_id, token);
             }
         }
     }
 
     fn collect_token(
         &mut self,
-        db: &RootDb,
-        sema: &Semantics<'_, RootDb>,
+        db: &dyn WorkspaceSymbolIndexDb,
         file_id: HirFileId,
         token: SyntaxTokenWithParent<'_>,
     ) {
         let Some(range) = token.text_range() else {
             return;
         };
-        let Some(class) = DefinitionClass::resolve(sema, file_id, token).unique() else {
+        let Some(class) = DefinitionClass::resolve(db, file_id, token).unique() else {
             return;
         };
 
@@ -284,7 +284,7 @@ impl SemanticIndexBuilder {
 
     fn collect_definition_token(
         &mut self,
-        db: &RootDb,
+        db: &dyn WorkspaceSymbolIndexDb,
         definition: DefId,
         file_id: FileId,
         range: TextRange,
@@ -332,7 +332,7 @@ impl SemanticIndexBuilder {
         }
     }
 
-    fn collect_module_edges(&mut self, db: &RootDb, module_index: &ModuleIndex) {
+    fn collect_module_edges(&mut self, db: &dyn WorkspaceSymbolIndexDb, module_index: &ModuleIndex) {
         for caller in module_index.all_module_definitions() {
             let module = db.module_with_source_map(caller.module_id);
             for (instantiation_id, instantiation) in module.instantiations.iter() {
@@ -446,7 +446,7 @@ fn module_id_at_range(db: &RootDb, file_id: FileId, name_range: TextRange) -> Op
 }
 
 fn instantiation_name_range(
-    db: &RootDb,
+    db: &dyn PreprocDb,
     file_id: FileId,
     instantiation_range: TextRange,
 ) -> Option<TextRange> {

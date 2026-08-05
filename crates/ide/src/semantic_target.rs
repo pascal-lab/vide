@@ -1,15 +1,17 @@
-use preproc_expand::preproc::{
-    IncludeDirective, MacroDefinition, MacroParamDefinition, MacroParamReferenceDefinitions,
-    MacroReferenceDefinitions, include_directives_at, macro_definition_at,
-    macro_param_definition_at, macro_param_reference_definitions_at,
-    macro_reference_definitions_at,
+use preproc_expand::{
+    db::PreprocDb,
+    preproc::{
+        IncludeDirective, MacroDefinition, MacroParamDefinition, MacroParamReferenceDefinitions,
+        MacroReferenceDefinitions, include_directives_at, macro_definition_at,
+        macro_param_definition_at, macro_param_reference_definitions_at,
+        macro_reference_definitions_at,
+    },
 };
 use syntax::{SyntaxNode, TokenKind};
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use crate::{
-    db::root_db::RootDb,
     source_targets::{
         SourceTarget, SourceTargetAlternatives, SourceTargetAmbiguity, SourceTargetBlock,
         SourceTargetBlockReason, SourceTargetDomain, SourceTargetResolution,
@@ -264,7 +266,7 @@ impl PreprocMacroTarget {
 }
 
 pub(crate) fn resolve_semantic_target<'tree, F>(
-    db: &RootDb,
+    db: &dyn PreprocDb,
     file_id: FileId,
     offset: TextSize,
     root: Option<SyntaxNode<'tree>>,
@@ -290,7 +292,7 @@ where
 }
 
 fn preproc_macro_target_at(
-    db: &RootDb,
+    db: &dyn PreprocDb,
     file_id: FileId,
     offset: TextSize,
 ) -> Option<PreprocMacroTarget> {
@@ -316,7 +318,7 @@ fn preproc_macro_target_at(
 }
 
 fn include_target_at(
-    db: &RootDb,
+    db: &dyn PreprocDb,
     file_id: FileId,
     offset: TextSize,
 ) -> Option<Vec<IncludeDirective>> {

@@ -1,13 +1,9 @@
 use std::cmp::Ordering;
 
-use base_db::{
-    source_db::{SourceDb, SourceRootDb},
-    source_root::SourceRootRole,
-};
+use base_db::source_root::SourceRootRole;
 use hir_def::{
     Ident,
     container::ArenaOwnerId,
-    db::HirDefDb,
     declaration::Declaration,
     def_id::DefId,
     expr::declarator::DeclaratorParent,
@@ -21,7 +17,9 @@ use syntax::{
 };
 use vfs::{FileId, VfsPath};
 
-use crate::db::{root_db::RootDb, workspace_symbol_index_db::source_root_module_index_for_root};
+use crate::db::workspace_symbol_index_db::{
+    WorkspaceSymbolIndexDb, source_root_module_index_for_root,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ModuleResolution {
@@ -61,7 +59,7 @@ impl ModuleResolution {
 }
 
 pub(crate) fn resolve_instantiation_target(
-    db: &RootDb,
+    db: &dyn WorkspaceSymbolIndexDb,
     from_file: FileId,
     instantiation: ast::HierarchyInstantiation,
 ) -> ModuleResolution {
@@ -72,7 +70,7 @@ pub(crate) fn resolve_instantiation_target(
 }
 
 pub(crate) fn resolve_hir_instantiation_target(
-    db: &RootDb,
+    db: &dyn WorkspaceSymbolIndexDb,
     from_file: FileId,
     instantiation: &Instantiation,
 ) -> Option<ModuleId> {
@@ -80,7 +78,7 @@ pub(crate) fn resolve_hir_instantiation_target(
 }
 
 pub(crate) fn resolve_module_name(
-    db: &RootDb,
+    db: &dyn WorkspaceSymbolIndexDb,
     from_file: FileId,
     name: &Ident,
 ) -> ModuleResolution {
@@ -89,7 +87,7 @@ pub(crate) fn resolve_module_name(
 }
 
 pub(crate) fn resolve_named_port_connection(
-    db: &RootDb,
+    db: &dyn WorkspaceSymbolIndexDb,
     from_file: FileId,
     conn: ast::NamedPortConnection,
 ) -> Resolution<DefId> {
@@ -105,7 +103,7 @@ pub(crate) fn resolve_named_port_connection(
 }
 
 pub(crate) fn resolve_named_param_assignment(
-    db: &RootDb,
+    db: &dyn WorkspaceSymbolIndexDb,
     from_file: FileId,
     assign: ast::NamedParamAssignment,
 ) -> Resolution<DefId> {
@@ -121,7 +119,7 @@ pub(crate) fn resolve_named_param_assignment(
 }
 
 fn resolve_named_port_in_instantiation(
-    db: &RootDb,
+    db: &dyn WorkspaceSymbolIndexDb,
     from_file: FileId,
     instantiation: ast::HierarchyInstantiation,
     port_name: &Ident,
@@ -132,7 +130,7 @@ fn resolve_named_port_in_instantiation(
 }
 
 fn resolve_named_param_in_instantiation(
-    db: &RootDb,
+    db: &dyn WorkspaceSymbolIndexDb,
     from_file: FileId,
     instantiation: ast::HierarchyInstantiation,
     param_name: &Ident,
@@ -143,7 +141,7 @@ fn resolve_named_param_in_instantiation(
 }
 
 fn resolve_named_port_in_module(
-    db: &RootDb,
+    db: &dyn WorkspaceSymbolIndexDb,
     module_id: ModuleId,
     port_name: &Ident,
 ) -> Resolution<DefId> {
@@ -157,7 +155,7 @@ fn resolve_named_port_in_module(
 }
 
 pub(crate) fn resolve_named_param_in_module(
-    db: &RootDb,
+    db: &dyn WorkspaceSymbolIndexDb,
     module_id: ModuleId,
     param_name: &Ident,
 ) -> Resolution<DefId> {
@@ -183,7 +181,7 @@ pub(crate) fn resolve_named_param_in_module(
 }
 
 fn resolve_module_name_with_policy(
-    db: &RootDb,
+    db: &dyn WorkspaceSymbolIndexDb,
     name: &Ident,
     policy: ModuleResolutionPolicy,
 ) -> ModuleResolution {
@@ -195,7 +193,7 @@ fn resolve_module_name_with_policy(
     }
 }
 
-fn module_candidates(db: &RootDb, name: &Ident) -> Vec<ModuleId> {
+fn module_candidates(db: &dyn WorkspaceSymbolIndexDb, name: &Ident) -> Vec<ModuleId> {
     let mut source_root_ids =
         db.files().iter().map(|&file_id| db.source_root_id(file_id)).collect::<Vec<_>>();
     source_root_ids.sort_unstable();
@@ -227,7 +225,7 @@ enum ModuleResolutionPolicy {
 }
 
 impl ModuleResolutionPolicy {
-    fn for_file(db: &RootDb, file_id: FileId) -> Self {
+    fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
         match source_root_role(db, file_id) {
             SourceRootRole::BestEffortIndex => Self::BestEffortProximity { from_file: file_id },
             SourceRootRole::Local | SourceRootRole::Library | SourceRootRole::Ignored => {
@@ -236,7 +234,11 @@ impl ModuleResolutionPolicy {
         }
     }
 
-    fn resolve_ambiguous(self, db: &RootDb, candidates: Vec<ModuleId>) -> ModuleResolution {
+    fn resolve_ambiguous(
+        self,
+        db: &dyn WorkspaceSymbolIndexDb,
+        candidates: Vec<ModuleId>,
+    ) -> ModuleResolution {
         match self {
             Self::Strict => {
                 ModuleResolution::Ambiguous { candidates, kind: ModuleResolutionAmbiguity::Strict }
@@ -249,7 +251,7 @@ impl ModuleResolutionPolicy {
 }
 
 fn resolve_by_proximity(
-    db: &RootDb,
+    db: &dyn WorkspaceSymbolIndexDb,
     from_file: FileId,
     mut candidates: Vec<ModuleId>,
 ) -> ModuleResolution {
@@ -300,7 +302,7 @@ struct ProximityScore {
 }
 
 impl ProximityScore {
-    fn new(db: &RootDb, from_file: FileId, candidate_file: FileId) -> Self {
+    fn new(db: &dyn WorkspaceSymbolIndexDb, from_file: FileId, candidate_file: FileId) -> Self {
         Self {
             same_file: from_file == candidate_file,
             common_dir_depth: common_dir_depth(
@@ -320,12 +322,12 @@ impl ProximityScore {
     }
 }
 
-fn source_root_role(db: &RootDb, file_id: FileId) -> SourceRootRole {
+fn source_root_role(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> SourceRootRole {
     let source_root_id = db.source_root_id(file_id);
     db.source_root(source_root_id).role()
 }
 
-fn file_path(db: &RootDb, file_id: FileId) -> Option<VfsPath> {
+fn file_path(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Option<VfsPath> {
     let source_root_id = db.source_root_id(file_id);
     db.source_root(source_root_id).path_for_file(&file_id).cloned()
 }
@@ -355,6 +357,7 @@ mod tests {
     use std::path::Path;
 
     use base_db::{change::Change, source_root::SourceRoot};
+    use crate::db::root_db::RootDb;
     use hir_def::symbol::{DefKind, DefOriginLoc, Resolution};
     use preproc_expand::db::PreprocDb;
     use smol_str::SmolStr;

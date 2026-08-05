@@ -250,7 +250,7 @@ fn resolve_rename_target(
     let mut targets = UniqVec::<DefId, DefOrigin>::default();
 
     for token in tokens {
-        let token_selected = match DefinitionClass::resolve(sema, hir_file_id, token)
+        let token_selected = match DefinitionClass::resolve(sema.db, hir_file_id, token)
             .unique()
             .ok_or(RenameError::NoDefFound)?
         {
@@ -436,7 +436,7 @@ fn check_same_name_conn(
     let name_range = name_token.text_range_in(conn.syntax())?;
     let token_range = token.text_range()?;
     let port_token = SyntaxTokenWithParent { parent: conn.syntax(), tok: name_token };
-    let port_resolution = DefinitionClass::resolve(sema, file_id, port_token).unique()?;
+    let port_resolution = DefinitionClass::resolve(sema.db, file_id, port_token).unique()?;
 
     let close_paren = match (conn.open_paren(), conn.close_paren()) {
         (None, None) => {

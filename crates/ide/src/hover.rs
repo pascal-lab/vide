@@ -170,7 +170,7 @@ fn handle_definition(
     tp: SyntaxTokenWithParent,
 ) -> Option<Markup> {
     let token_text = token_text(sema.db, file_id, &tp);
-    let def = DefinitionClass::resolve(sema, file_id, tp);
+    let def = DefinitionClass::resolve(sema.db, file_id, tp);
     let anchor_file_id = file_id.expect_file();
     let mut res = Markup::new();
 
