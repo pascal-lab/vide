@@ -98,10 +98,7 @@ endmodule
     );
     let source_range = source_range(source, "payload_i");
     let hit = PreprocTokenHit {
-        expansion: 0,
-        call: 0,
         emitted_token,
-        display_range: source_range,
         source_range,
         origin: expected_origin.clone(),
     };
@@ -166,10 +163,7 @@ endmodule
     assert_eq!(expected_tokens.len(), 2, "expanded syntax should contain both argument copies");
     let source_range = source_range(source, "payload_i");
     let hit = PreprocTokenHit {
-        expansion: 0,
-        call: 0,
         emitted_token: SourceEmittedTokenId::new(second_emitted_token),
-        display_range: source_range,
         source_range,
         origin: expected_origin,
     };
@@ -179,6 +173,111 @@ endmodule
             .expect("macro argument emitted token should resolve to a parsed syntax token");
 
     assert_eq!(tokens, vec![expected_tokens[1]]);
+}
+
+#[test]
+fn source_targets_macro_hit_miss_does_not_block_resolvable_hits() {
+    let db = RootDb::new(None);
+    let model_file = FileId::from_raw(0);
+    let source = r#"`define ID(x) x
+module m;
+  assign y = `ID(payload_i);
+endmodule
+"#;
+    let parsed = SyntaxTree::from_text_with_options_and_trace(
+        source,
+        "source",
+        "sample/rtl/top.sv",
+        &SyntaxTreeOptions::default(),
+    );
+    let root = parsed.tree.root().expect("test source should parse");
+    let token = root
+        .elem_preorder()
+        .filter_map(|event| match event {
+            WalkEvent::Enter(SyntaxElement::Token(token))
+                if token.raw_text().as_bytes() == b"payload_i" =>
+            {
+                Some(token)
+            }
+            _ => None,
+        })
+        .next()
+        .expect("expanded source should contain the macro argument token");
+    let emitted = token.preprocessor_trace_emitted_token();
+    let real_id = SourceEmittedTokenId::new(
+        usize::try_from(emitted.emitted_token_index.expect("trace id")).unwrap(),
+    );
+    let origin = macro_arg_origin_from_token_origin(&db, model_file, &emitted.origin);
+    let source_range = source_range(source, "payload_i");
+    let real_hit = PreprocTokenHit {
+        emitted_token: real_id,
+        source_range,
+        origin: origin.clone(),
+    };
+    // A stale or cross-trace hit whose trace id does not exist in this tree
+    // must not discard the tokens the resolvable hits produced.
+    let bogus_hit = PreprocTokenHit {
+        emitted_token: SourceEmittedTokenId::new(999_999),
+        source_range,
+        origin,
+    };
+
+    let tokens = syntax_tokens_for_preproc_hit(
+        root,
+        source_range.start(),
+        &test_precedence,
+        &[real_hit, bogus_hit],
+    )
+    .expect("resolvable hits should still resolve when another hit misses");
+
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0].raw_text().as_bytes(), b"payload_i");
+}
+
+#[test]
+fn source_targets_macro_dup_copies_all_resolve() {
+    let db = RootDb::new(None);
+    let model_file = FileId::from_raw(0);
+    let source = r#"`define DUP(x) x x
+module m;
+  assign y = `DUP(payload_i);
+endmodule
+"#;
+    let parsed = SyntaxTree::from_text_with_options_and_trace(
+        source,
+        "source",
+        "sample/rtl/top.sv",
+        &SyntaxTreeOptions::default(),
+    );
+    let root = parsed.tree.root().expect("test source should parse");
+    let trace = parsed.preprocessor_trace.expect("trace should be collected");
+    let emitted_payloads = trace
+        .emitted_tokens
+        .iter()
+        .enumerate()
+        .filter(|(_, token)| {
+            token.raw_text == "payload_i"
+                && matches!(token.origin, TokenOrigin::MacroArgument { .. })
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(emitted_payloads.len(), 2, "DUP should emit the argument twice");
+    let origin = macro_arg_origin_from_token_origin(&db, model_file, &emitted_payloads[0].1.origin);
+    let source_range = source_range(source, "payload_i");
+    let hits = emitted_payloads
+        .iter()
+        .map(|(index, _)| PreprocTokenHit {
+            emitted_token: SourceEmittedTokenId::new(*index),
+            source_range,
+            origin: origin.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    let tokens = syntax_tokens_for_preproc_hit(root, source_range.start(), &test_precedence, &hits)
+        .expect("both argument copies should resolve to their syntax tokens");
+
+    assert_eq!(tokens.len(), 2);
+    assert!(tokens.iter().all(|token| token.raw_text().as_bytes() == b"payload_i"));
+    assert_ne!(tokens[0], tokens[1], "the two copies are distinct tree tokens");
 }
 
 #[test]
@@ -280,10 +379,7 @@ fn source_range(text: &str, needle: &str) -> TextRange {
 fn test_source_hit(file_id: FileId, range: TextRange, emitted_token: usize) -> PreprocTokenHit {
     let origin = Origin::File { file: file_id, range };
     PreprocTokenHit {
-        expansion: 0,
-        call: 0,
         emitted_token: SourceEmittedTokenId::new(emitted_token),
-        display_range: range,
         source_range: range,
         origin,
     }

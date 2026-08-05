@@ -126,10 +126,7 @@ pub(crate) enum SourceTargetBlockReason {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PreprocTokenHit {
-    pub expansion: usize,
-    pub call: usize,
     pub emitted_token: SourceEmittedTokenId,
-    pub display_range: TextRange,
     pub source_range: TextRange,
     pub origin: Origin,
 }
