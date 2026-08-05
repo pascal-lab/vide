@@ -1,6 +1,5 @@
 ---
 source: crates/ide/src/verilog_2005.rs
-assertion_line: 420
 expression: report
 ---
 ## assignments/continuous_and_procedural.v
@@ -146,7 +145,8 @@ document_symbols:
         u_child Instance container=Some("g_loop")
   cfg_top Config container=None
 semantic_token_classes:
-  Port(Others) SemaTokenModifier(0x0): 6
+  Instance SemaTokenModifier(0x0): 1
+  Port(Others) SemaTokenModifier(0x0): 10
 folding_ranges: 7
   Comment 0..116
   PortList 131..160
@@ -221,7 +221,7 @@ document_symbols:
     drive Fn container=Some("tasks_functions")
     add1 Fn container=Some("tasks_functions")
 semantic_token_classes:
-  Port(Others) SemaTokenModifier(0x0): 3
+  Port(Others) SemaTokenModifier(0x0): 4
 folding_ranges: 9
   Comment 0..80
   PortList 105..150
