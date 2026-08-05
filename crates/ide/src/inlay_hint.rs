@@ -1,19 +1,15 @@
 use hir_def::{
-    Ident,
-    container::InFile,
+    container::{InContainer, InFile},
     db::HirDefDb,
-    expr::{
-        Expr,
-        declarator::{DeclId, DeclaratorParent},
-    },
+    def_id::DefId,
+    expr::Expr,
     file::FileItem,
     module::{
         Module, ModuleId, ModuleSrc,
         instantiation::{Instantiation, ParamAssign, PortConn, PortConnId},
-        port::{NonAnsiPortId, PortDeclId, PortDirection, Ports},
+        port::PortDirection,
     },
     source_map::{Lowered, SourceInfo},
-    symbol::{DefKind, NameContext, NameScope, Resolution},
 };
 use preproc_expand::{
     file::HirFileId,
@@ -27,7 +23,9 @@ use utils::{
 use vfs::FileId;
 
 use crate::{
-    db::root_db::RootDb, markup::Markup, module_resolution::resolve_module_name,
+    db::root_db::RootDb,
+    markup::Markup,
+    module_resolution::{resolve_connection_port, resolve_module_name, resolve_port_metadata},
     references::search::resolve_source_range,
 };
 
@@ -134,7 +132,7 @@ impl InlayHintCollector {
     fn collect_hint(
         &mut self,
         anchor: HintAnchor,
-        target_src: Option<InFile<SourceInfo>>,
+        target_location: Option<InFile<TextRange>>,
         label: String,
         text_edit: Option<TextEdit>,
     ) {
@@ -142,12 +140,7 @@ impl InlayHintCollector {
             return;
         }
 
-        let (tooltip, target_location) = if let Some(InFile { value: src, file_id }) = target_src {
-            let location = InFile::new(file_id, src.full_range());
-            (Some(Markup::new()), Some(location))
-        } else {
-            (None, None)
-        };
+        let tooltip = target_location.as_ref().map(|_| Markup::new());
 
         self.hints.push(InlayHint {
             label,
@@ -164,13 +157,13 @@ impl InlayHintCollector {
     fn collect_src_hint(
         &mut self,
         src: SourceInfo,
-        target_src: Option<InFile<SourceInfo>>,
+        target_location: Option<InFile<TextRange>>,
         position: Option<TextSize>,
         label: String,
         text_edit: Option<TextEdit>,
     ) {
         if let Some(anchor) = HintAnchor::from_src(src, position) {
-            self.collect_hint(anchor, target_src, label, text_edit);
+            self.collect_hint(anchor, target_location, label, text_edit);
         }
     }
 
@@ -199,12 +192,7 @@ impl InlayHintCollector {
 
     fn collect_module_end_hint(&mut self, module_src: ModuleSrc, name: &str) {
         if let Some(end_range) = module_src.end_range() {
-            self.collect_hint(
-                HintAnchor::module_end(end_range),
-                None::<InFile<SourceInfo>>,
-                format!(": {name}"),
-                None,
-            );
+            self.collect_hint(HintAnchor::module_end(end_range), None, format!(": {name}"), None);
         }
     }
 
@@ -339,10 +327,7 @@ fn process_instantiation(
     let target_module_id =
         resolve_module_name(db, from_file, instantiation.module_name.as_ref()?).unique()?;
 
-    let target_file = target_module_id.file_id;
     let target_module = db.module_with_source_map(target_module_id);
-    let target_scope = db.module_scope(target_module_id);
-    let target_scope = target_scope.as_ref();
 
     // handle param assignments
     if collector.config.parameter_assignment {
@@ -355,16 +340,16 @@ fn process_instantiation(
                 check_or_throw!(collector.intersect(assign_src.full_range()));
 
                 let param_id = target_module.overridable_param_id_by_idx(id)?;
-                let param_name = target_module.get(param_id).name.as_ref()?;
-                check_or_throw!(!should_skip(module.get(*assign_expr), param_name));
-                let target_src =
-                    InFile::new(target_file, target_module.named_source_info(param_id)?);
+                let param_def = DefId::new(db, InContainer::new(target_module_id.into(), param_id));
+                let param_name = param_def.primary_origin(db).name(db)?;
+                check_or_throw!(!should_skip(module.get(*assign_expr), &param_name));
+                let target_range = param_def.primary_origin(db).range(db)?;
                 collector.collect_src_hint(
                     assign_src,
-                    Some(target_src),
+                    Some(target_range),
                     None,
                     format!("{param_name}:"),
-                    edits_for_conn(param_name, assign_src),
+                    edits_for_conn(&param_name, assign_src),
                 );
             };
         }
@@ -390,39 +375,12 @@ fn process_instantiation(
                             .is_some_and(|range| collector.intersect(range))
                     );
 
-                    match &target_module.ports {
-                        Ports::NonAnsi { .. } => {
-                            let (port_id, name, dir) = non_ansi_port_id_for_conn(
-                                db,
-                                &target_module,
-                                target_scope,
-                                conn,
-                                idx,
-                            )?;
-                            let target_src =
-                                InFile::new(target_file, target_module.named_source_info(port_id)?);
-                            collect_connection_hint(
-                                module, conn_id, name, dir, target_src, collector,
-                            );
-                        }
-                        Ports::Ansi(_) => {
-                            let (port_decl_id, decl_id) = ansi_port_decl_id_for_conn(
-                                db,
-                                &target_module,
-                                target_scope,
-                                conn,
-                                idx,
-                            )?;
-                            let port_decl = target_module.get(port_decl_id);
-                            let name = target_module.get(decl_id).name.as_ref()?;
-                            let dir = port_decl.header.dir();
-                            let target_src =
-                                InFile::new(target_file, target_module.named_source_info(decl_id)?);
-                            collect_connection_hint(
-                                module, conn_id, name, dir, target_src, collector,
-                            );
-                        }
-                    }
+                    let def = resolve_connection_port(db, target_module_id, conn, idx).unique()?;
+                    let (name, dir, _ty) =
+                        resolve_port_metadata(db, &target_module, &def.origins(db))?;
+                    let dir = dir?;
+                    let target_range = def.primary_origin(db).range(db)?;
+                    collect_connection_hint(module, conn_id, name, dir, target_range, collector);
                 };
             }
         }
@@ -436,7 +394,7 @@ fn collect_connection_hint(
     conn_id: PortConnId,
     name: &str,
     port_dir: PortDirection,
-    target_src: InFile<SourceInfo>,
+    target_range: InFile<TextRange>,
     collector: &mut InlayHintCollector,
 ) -> Option<()> {
     let conn = module.get(conn_id);
@@ -453,20 +411,20 @@ fn collect_connection_hint(
         PortConn::Empty => {
             let label = format!("{name} {arrow}");
             let edit = edits_for_conn(name, conn_src);
-            collector.collect_src_hint(conn_src, Some(target_src), None, label, edit);
+            collector.collect_src_hint(conn_src, Some(target_range), None, label, edit);
         }
         PortConn::Ordered(expr) => {
             let same_name = should_skip(module.get(*expr), name);
             let label = if same_name { arrow.to_string() } else { format!("{name} {arrow}") };
-            let target_src = if same_name { None } else { Some(target_src) };
+            let target_range = if same_name { None } else { Some(target_range) };
             let edit = if same_name { None } else { edits_for_conn(name, conn_src) };
             let position = module.source_range(*expr).map_or(conn_start, |range| range.start());
-            collector.collect_src_hint(conn_src, target_src, Some(position), label, edit);
+            collector.collect_src_hint(conn_src, target_range, Some(position), label, edit);
         }
         PortConn::Named(port_name, expr) => {
-            let (label, target_src) =
+            let (label, target_range) =
                 if port_name.as_ref().is_none_or(|port_name| port_name != name) {
-                    (format!("{name} {arrow}"), Some(target_src))
+                    (format!("{name} {arrow}"), Some(target_range))
                 } else {
                     (arrow.to_string(), None)
                 };
@@ -474,101 +432,12 @@ fn collect_connection_hint(
                 .and_then(|expr| module.source_range(expr).map(|range| range.start()))
                 .or_else(|| conn_src.focus_range().map(|range| range.start()))
                 .unwrap_or(conn_start);
-            collector.collect_src_hint(conn_src, target_src, Some(position), label, None);
+            collector.collect_src_hint(conn_src, target_range, Some(position), label, None);
         }
         PortConn::Wildcard => {}
     }
 
     Some(())
-}
-
-fn non_ansi_port_id_for_conn<'a>(
-    db: &RootDb,
-    module: &'a Lowered<Module>,
-    scope: &NameScope,
-    conn: &'a PortConn,
-    idx: usize,
-) -> Option<(NonAnsiPortId, &'a Ident, PortDirection)> {
-    match conn {
-        PortConn::Empty | PortConn::Ordered(_) => {
-            let Ports::NonAnsi { ports, .. } = &module.ports else {
-                return None;
-            };
-            let (port_id, port) = ports.iter().nth(idx)?;
-            let name = port.label.as_ref()?;
-            let dir = non_ansi_port_dir_by_port_id(db, module, scope, port_id)?;
-            Some((port_id, name, dir))
-        }
-        PortConn::Named(Some(name), _) => {
-            let def = scope.lookup(NameContext::Value, name).unique()?;
-            let port_id = def.primary_origin(db).as_non_ansi_port(db)?.value;
-            let port_name = module.get(port_id).label.as_ref()?;
-            let dir = non_ansi_port_dir_by_port_id(db, module, scope, port_id)?;
-            Some((port_id, port_name, dir))
-        }
-        PortConn::Named(None, _) | PortConn::Wildcard => None,
-    }
-}
-
-fn non_ansi_port_dir_by_port_id(
-    db: &RootDb,
-    module: &Lowered<Module>,
-    scope: &NameScope,
-    port_id: NonAnsiPortId,
-) -> Option<PortDirection> {
-    let port = module.get(port_id);
-
-    if let Some(refs) = port.refs.clone() {
-        for ref_id in refs {
-            let Some(name) = module.get(ref_id).ident.as_ref() else {
-                continue;
-            };
-            if let Some(port_decl_id) = scope.non_ansi_port_decl_id_by_name(db, module, name) {
-                return Some(module.get(port_decl_id).header.dir());
-            }
-        }
-    }
-
-    let name = port.label.as_ref()?;
-    let port_decl_id = scope.non_ansi_port_decl_id_by_name(db, module, name)?;
-    Some(module.get(port_decl_id).header.dir())
-}
-
-fn ansi_port_decl_id_for_conn(
-    db: &RootDb,
-    module: &Lowered<Module>,
-    scope: &NameScope,
-    conn: &PortConn,
-    idx: usize,
-) -> Option<(PortDeclId, DeclId)> {
-    match conn {
-        PortConn::Empty | PortConn::Ordered(_) => {
-            let port_decl_id = module.ansi_port_decl_id_by_idx(idx)?;
-            let decl_id = module.get(port_decl_id).decls.clone().next()?;
-            Some((port_decl_id, decl_id))
-        }
-        PortConn::Named(Some(name), _) => {
-            let decl_id = Resolution::from_candidates(
-                scope
-                    .lookup(NameContext::Value, name)
-                    .into_candidates()
-                    .into_iter()
-                    .filter(|def_id| def_id.kind(db) == DefKind::Port)
-                    .filter_map(|def_id| {
-                        let decl_id = def_id.primary_origin(db).as_decl(db)?;
-                        matches!(module.get(decl_id.value).parent, DeclaratorParent::PortDeclId(_))
-                            .then_some(decl_id)
-                    }),
-            )
-            .unique()?
-            .value;
-            let DeclaratorParent::PortDeclId(port_decl_id) = module.get(decl_id).parent else {
-                return None;
-            };
-            Some((port_decl_id, decl_id))
-        }
-        PortConn::Named(None, _) | PortConn::Wildcard => None,
-    }
 }
 
 fn edits_for_conn(param: &str, conn_src: SourceInfo) -> Option<TextEdit> {

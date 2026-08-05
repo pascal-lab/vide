@@ -3,16 +3,12 @@ use std::sync::LazyLock;
 use base_db::intern::Lookup;
 use hir_def::{
     db::HirDefDb,
-    expr::{
-        data_ty::{BuiltinDataTy, DataTy},
-        declarator::DeclaratorParent,
-    },
+    expr::data_ty::{BuiltinDataTy, DataTy},
     module::{
-        Module, ModuleId,
+        ModuleId,
         port::{NonAnsiPort, PortDirection, Ports},
     },
-    source_map::Lowered,
-    symbol::{DefOrigin, NameContext},
+    symbol::NameContext,
 };
 use hir_semantics::semantics::Semantics;
 use hir_ty::db::TyDb;
@@ -23,6 +19,7 @@ use utils::text_edit::TextRange;
 use super::{SemaTokenCollector, SemaTokenTag};
 use crate::{
     db::root_db::RootDb,
+    module_resolution::resolve_port_metadata,
     semantic_tokens::{SemaToken, SemaTokenModifier, SemaTokenPort, check_range},
 };
 
@@ -58,7 +55,7 @@ pub(super) fn collect_port(
                         let name = module.get(ref_id).ident.as_ref()?;
                         let def = module_scope.lookup(NameContext::Value, name).unique()?;
                         let origins = def.origins(db);
-                        let (_, dir, ty) = resolve_non_ansi_port(db, &module, &origins)?;
+                        let (_, dir, ty) = resolve_port_metadata(db, &module, &origins)?;
                         add_port_token(db, name, dir, ty, name_range, collector);
                     };
                 }
@@ -78,7 +75,7 @@ pub(super) fn collect_port(
                             let name = decl.name.as_ref()?;
                             let def = module_scope.lookup(NameContext::Value, name).unique()?;
                             let origins = def.origins(db);
-                            let (_, dir, ty) = resolve_non_ansi_port(db, &module, &origins)?;
+                            let (_, dir, ty) = resolve_port_metadata(db, &module, &origins)?;
                             add_port_token(db, name, dir, ty, name_range, collector);
                         };
                     }
@@ -107,44 +104,6 @@ pub(super) fn collect_port(
             }
         }
     }
-}
-
-pub(super) fn resolve_non_ansi_port<'a>(
-    db: &RootDb,
-    module: &'a Lowered<Module>,
-    defs: &[DefOrigin],
-) -> Option<(&'a hir_def::Ident, Option<PortDirection>, DataTy)> {
-    let port_decl_id =
-        defs.iter().filter_map(|def_id| def_id.as_decl(db)).map(|decl_id| decl_id.value).find(
-            |decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::PortDeclId(_)),
-        )?;
-    let data_decl_id =
-        defs.iter().filter_map(|def_id| def_id.as_decl(db)).map(|decl_id| decl_id.value).find(
-            |decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::DeclarationId(_)),
-        );
-
-    let port_decl = module.get(port_decl_id);
-    let name = port_decl.name.as_ref()?;
-    let port_declaration = match port_decl.parent {
-        DeclaratorParent::PortDeclId(port_declaration_id) => module.get(port_declaration_id),
-        _ => return None,
-    };
-    let header = &port_declaration.header;
-    let dir = Some(header.dir());
-    let ty = if let Some(data_decl_id) = data_decl_id {
-        let data_decl = module.get(data_decl_id);
-        match data_decl.parent {
-            DeclaratorParent::DeclarationId(declaration_id) => {
-                let declaration = module.get(declaration_id);
-                declaration.ty()
-            }
-            _ => return None,
-        }
-    } else {
-        header.ty()
-    };
-
-    Some((name, dir, ty))
 }
 
 pub(super) fn add_port_token(
