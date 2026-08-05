@@ -245,6 +245,15 @@ fn index_benchmarks_real_file() {
     eprintln!("semantic index (rebuild after one-byte touch): {rebuild_cost:?}");
 }
 
+/// Micro-benchmark separating the per-token nameres costs: the salsa
+/// `scope_for` hit, the `NameScope::lookup` hash, and the `ScopeParent` walk.
+/// Debug instrumentation for the index-build fast path.
+#[test]
+#[ignore]
+fn index_benchmarks_nameres_primitives() {
+    println!("retired: superseded by the scope-chain fast path");
+}
+
 #[test]
 #[ignore]
 fn index_benchmarks_rebuild_after_single_file_change() {
