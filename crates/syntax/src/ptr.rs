@@ -35,6 +35,15 @@ impl SyntaxNodePtr {
     }
 }
 
+/// A parse-tree-independent identity for a token: its kind plus its display
+/// range.
+///
+/// This is a reliable identity for ordinary source tokens, but NOT for
+/// macro-emitted tokens: they all report the call-site display range, so
+/// multiple distinct tokens can share the same `(kind, range)` and
+/// [`to_token`](Self::to_token) may resolve to the wrong one. Use the
+/// preprocessor trace id (`preprocessor_trace_emitted_token().emitted_token_index`)
+/// to identify tokens inside macro expansions.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SyntaxTokenPtr {
     kind: TokenKind,

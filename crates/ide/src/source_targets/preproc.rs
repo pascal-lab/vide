@@ -4,7 +4,7 @@ use preproc_expand::{
         ExpansionSourceHit, MacroFileId, Origin, SourceEmittedTokenId, macro_files_at_offset,
     },
 };
-use syntax::{SyntaxElement, SyntaxNode, SyntaxTokenWithParent, TokenKind, WalkEvent};
+use syntax::{SyntaxElement, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, WalkEvent};
 use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
@@ -180,9 +180,8 @@ pub(super) fn syntax_tokens_for_preproc_hit<'tree>(
     precedence: &impl Fn(TokenKind) -> usize,
     hits: &[PreprocTokenHit],
 ) -> Option<Vec<SyntaxTokenWithParent<'tree>>> {
-    let emitted_tokens = hits.iter().filter_map(macro_emitted_token_for_hit).collect::<Vec<_>>();
-    if !emitted_tokens.is_empty() {
-        return syntax_tokens_for_macro_emitted_tokens(root, &emitted_tokens);
+    if hits.iter().any(|hit| macro_emitted_token_for_hit(hit).is_some()) {
+        return syntax_tokens_for_macro_emitted_tokens(root, hits);
     }
 
     normal_syntax_source_target_at_offset(root, offset, precedence)
@@ -195,25 +194,40 @@ fn macro_emitted_token_for_hit(hit: &PreprocTokenHit) -> Option<SourceEmittedTok
     (!matches!(hit.origin, Origin::File { .. })).then_some(hit.emitted_token)
 }
 
-/// Resolves the syntax tokens of a macro-emitted source hit by matching the
-/// preprocessor trace identity against every token in the expanded tree.
+/// Resolves the syntax tokens of a macro-emitted source hit.
 ///
-/// The tree's macro-emitted tokens all report the call-site display range, so
-/// positional lookup is unreliable; the trace id is the only stable identity.
+/// Macro-emitted tokens report the call-site display range rather than a
+/// physical position, so the tree cannot be queried by offset; the
+/// preprocessor trace id is the only stable token identity. The hit's source
+/// range anchors on a token inside the expansion, whose ancestor chain covers
+/// the whole expansion subtree, so the trace-id match is searched there
+/// instead of over the entire tree.
 fn syntax_tokens_for_macro_emitted_tokens<'tree>(
     root: SyntaxNode<'tree>,
-    emitted_tokens: &[SourceEmittedTokenId],
+    hits: &[PreprocTokenHit],
 ) -> Option<Vec<SyntaxTokenWithParent<'tree>>> {
     let mut tokens = Vec::new();
-    for event in root.elem_preorder() {
-        let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
+    for hit in hits {
+        let Some(emitted_token) = macro_emitted_token_for_hit(hit) else {
             continue;
         };
-        let Some(token_id) = syntax_token_emitted_token_id(&token) else {
+        let Some(anchor) = root.token_at_offset(hit.source_range.start()).left_biased() else {
             continue;
         };
-        if emitted_tokens.contains(&token_id) && !tokens.contains(&token) {
-            tokens.push(token);
+        let mut scope = anchor.parent;
+        loop {
+            if let Some(token) = scope.elem_preorder().find_map(|event| {
+                let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
+                    return None;
+                };
+                (syntax_token_emitted_token_id(&token) == Some(emitted_token)).then_some(token)
+            }) {
+                if !tokens.contains(&token) {
+                    tokens.push(token);
+                }
+                break;
+            }
+            scope = scope.parent()?;
         }
     }
     (!tokens.is_empty()).then_some(tokens)
