@@ -4,12 +4,13 @@ use base_db::{
 };
 use hir_def::{
     Ident,
-    container::{ArenaOwnerId, InFile},
+    container::{ArenaOwnerId, InFile, ScopeParent},
     def_id::DefId,
     module::{
         ModuleId,
         generate::{GenerateBlockLoc, GenerateBlockSrc},
     },
+    pathres::ResolvedScopes,
     symbol::{DefOrigin, NameContext},
 };
 use hir_semantics::semantics::SemanticsImpl;
@@ -17,6 +18,7 @@ use hir_ty::db::TyDb;
 use itertools::Itertools;
 use preproc_expand::{db::PreprocDb, file::HirFileId};
 use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
 use syntax::{
     SyntaxAncestors, SyntaxElement, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
     WalkEvent,
@@ -37,7 +39,7 @@ use crate::{
             source_root_semantic_index_for_root,
         },
     },
-    definitions::DefinitionClass,
+    definitions::{DefinitionClass, rightmost_name_token},
     module_resolution::resolve_hir_instantiation_target,
     navigation_target::nav_location,
     references::{ReferenceCategory, search::resolve_source_range},
@@ -309,25 +311,23 @@ impl FileSemanticIndex {
 
         let sema = SemanticsImpl::new(db);
         let mut containers = ContainerCache::new();
-        let mut special_depth = 0usize;
+        let mut chains = ScopeChainCache::new();
         let mut groups: FxHashMap<DefId, FileReferenceGroup> = FxHashMap::default();
+        let mut trace = IndexBuildTrace::start();
         for event in root.elem_preorder() {
             match event {
                 WalkEvent::Enter(SyntaxElement::Node(node)) => {
-                    if is_special_context_node(&node) {
-                        special_depth += 1;
-                    }
+                    trace.count_special_kinds(&node);
                 }
-                WalkEvent::Leave(SyntaxElement::Node(node)) => {
-                    if is_special_context_node(&node) {
-                        special_depth -= 1;
-                    }
-                }
+                WalkEvent::Leave(SyntaxElement::Node(_)) => {}
                 WalkEvent::Enter(SyntaxElement::Token(token)) => {
                     if !token.kind().name_like() {
                         continue;
                     }
-                    let Some(range) = token.text_range() else {
+                    trace.tokens += 1;
+                    let (range_cost, range) = timed(|| token.text_range());
+                    trace.range += range_cost;
+                    let Some(range) = range else {
                         continue;
                     };
                     // Source-only resolution: macro names, parameters and
@@ -335,37 +335,148 @@ impl FileSemanticIndex {
                     // and their targets are dropped by the FindReferences
                     // intent anyway, so skip the four preproc macro queries per
                     // token.
-                    let Some(SourceTargetResolution::Resolved(target)) = source_target_at_offset(
-                        db,
-                        file_id,
-                        root,
-                        range.start(),
-                        token_precedence,
-                        emitted_index.as_ref(),
-                    ) else {
+                    let (target_cost, target) = timed(|| {
+                        source_target_at_offset(
+                            db,
+                            file_id,
+                            root,
+                            range.start(),
+                            token_precedence,
+                            emitted_index.as_ref(),
+                        )
+                    });
+                    trace.source_target += target_cost;
+                    let Some(SourceTargetResolution::Resolved(target)) = target else {
                         continue;
                     };
 
-                    let container = containers.container_for(&sema, hir_file_id, token.parent);
-                    let in_special_context = special_depth > 0;
+                    let (container_cost, container) =
+                        timed(|| containers.container_for(&sema, hir_file_id, token.parent));
+                    trace.container += container_cost;
                     for token in
                         target.into_tokens().into_iter().filter(|token| token.kind().name_like())
                     {
-                        collect_token(
-                            db,
-                            hir_file_id,
-                            token,
-                            container,
-                            in_special_context,
-                            &mut groups,
-                        );
+                        // The heuristic chain in `DefinitionClass::resolve_in`
+                        // can only diverge from plain value-name resolution at
+                        // the token positions tested by `token_in_special_context`;
+                        // every other token resolves as a plain value identifier.
+                        let in_special_context = token_in_special_context(token);
+                        if in_special_context {
+                            trace.special_tokens += 1;
+                        }
+                        let (collect_cost, ()) = timed(|| {
+                            collect_token(
+                                db,
+                                hir_file_id,
+                                token,
+                                container,
+                                in_special_context,
+                                &mut chains,
+                                &mut groups,
+                                &mut trace,
+                            )
+                        });
+                        trace.collect += collect_cost;
                     }
                 }
                 WalkEvent::Leave(SyntaxElement::Token(_)) => {}
             }
         }
+        trace.report(file_id);
         Self { groups }
     }
+}
+
+/// Set when `VIDE_INDEX_BUILD_TRACE` is set.
+struct IndexBuildTrace {
+    enabled: bool,
+    range: std::time::Duration,
+    source_target: std::time::Duration,
+    container: std::time::Duration,
+    collect: std::time::Duration,
+    resolve: std::time::Duration,
+    resolve_fast: std::time::Duration,
+    resolve_slow: std::time::Duration,
+    chain_ns: u64,
+    nameres_ns: u64,
+    definition: std::time::Duration,
+    total: std::time::Instant,
+    tokens: usize,
+    special_tokens: usize,
+    kind_hits: [usize; 10],
+}
+
+impl IndexBuildTrace {
+    fn start() -> Self {
+        Self {
+            enabled: std::env::var_os("VIDE_INDEX_BUILD_TRACE").is_some(),
+            range: std::time::Duration::ZERO,
+            source_target: std::time::Duration::ZERO,
+            container: std::time::Duration::ZERO,
+            collect: std::time::Duration::ZERO,
+            resolve: std::time::Duration::ZERO,
+            resolve_fast: std::time::Duration::ZERO,
+            resolve_slow: std::time::Duration::ZERO,
+            chain_ns: 0,
+            nameres_ns: 0,
+            definition: std::time::Duration::ZERO,
+            total: std::time::Instant::now(),
+            tokens: 0,
+            special_tokens: 0,
+            kind_hits: [0; 10],
+        }
+    }
+
+    fn record_chain(&mut self, chain: std::time::Duration, nameres: std::time::Duration) {
+        self.chain_ns += chain.as_nanos() as u64;
+        self.nameres_ns += nameres.as_nanos() as u64;
+    }
+
+    fn count_special_kinds(&mut self, node: &SyntaxNode<'_>) {
+        if !self.enabled {
+            return;
+        }
+        let kind = node.kind();
+        self.kind_hits[0] += usize::from(ast::MemberAccessExpression::can_cast(kind));
+        self.kind_hits[1] += usize::from(ast::ScopedName::can_cast(kind));
+        self.kind_hits[2] += usize::from(ast::ModuleDeclaration::can_cast(kind));
+        self.kind_hits[3] += usize::from(ast::PrimitiveInstantiation::can_cast(kind));
+        self.kind_hits[4] += usize::from(ast::CheckerInstantiation::can_cast(kind));
+        self.kind_hits[5] += usize::from(ast::HierarchyInstantiation::can_cast(kind));
+        self.kind_hits[6] += usize::from(ast::PackageImportItem::can_cast(kind));
+        self.kind_hits[7] += usize::from(ast::NamedParamAssignment::can_cast(kind));
+        self.kind_hits[8] += usize::from(ast::NamedPortConnection::can_cast(kind));
+        self.kind_hits[9] += usize::from(ast::NamedType::can_cast(kind));
+    }
+
+    fn report(&self, file_id: FileId) {
+        if !self.enabled {
+            return;
+        }
+        eprintln!(
+            "[index trace] file={file_id:?} tokens={} special={} total={:?}\n  range={:?} source_target={:?} container={:?}\n  collect={:?} (resolve={:?} [fast={:?} slow={:?}] chain={:?} nameres={:?} definition={:?})\n  kind_hits={:?}",
+            self.tokens,
+            self.special_tokens,
+            self.total.elapsed(),
+            self.range,
+            self.source_target,
+            self.container,
+            self.collect,
+            self.resolve,
+            self.resolve_fast,
+            self.resolve_slow,
+            std::time::Duration::from_nanos(self.chain_ns),
+            std::time::Duration::from_nanos(self.nameres_ns),
+            self.definition,
+            self.kind_hits,
+        );
+    }
+}
+
+fn timed<T>(f: impl FnOnce() -> T) -> (std::time::Duration, T) {
+    let start = std::time::Instant::now();
+    let value = f();
+    (start.elapsed(), value)
 }
 
 pub(crate) fn file_semantic_index_query(
@@ -447,6 +558,40 @@ impl ContainerCache {
         let id = container_id_for_node(sema, file_id, node, self)?;
         self.by_node.insert(ptr, id);
         Some(id)
+    }
+}
+
+/// Resolved scope chains by container. The nameres fast path looks every
+/// token up in its container's chain; resolving the chain once per container
+/// avoids per-token salsa `scope_for` queries, whose memos revalidate against
+/// every intervening query during the index build and recompute O(scope
+/// size) on each miss.
+struct ScopeChainCache {
+    by_container: FxHashMap<ArenaOwnerId, Arc<ResolvedScopes>>,
+}
+
+impl ScopeChainCache {
+    fn new() -> Self {
+        Self { by_container: FxHashMap::default() }
+    }
+
+    fn chain_for(
+        &mut self,
+        db: &dyn WorkspaceSymbolIndexDb,
+        container: ArenaOwnerId,
+    ) -> Arc<ResolvedScopes> {
+        if let Some(chain) = self.by_container.get(&container) {
+            return chain.clone();
+        }
+        let chain = Arc::new({
+            let scope_ids =
+                ScopeParent::start_from(db, container.into()).collect::<SmallVec<[_; 4]>>();
+            let scopes = scope_ids.iter().map(|&id| db.scope_for(id)).collect::<Vec<_>>();
+            let unit = db.unit_scope();
+            ResolvedScopes { scope_ids, scopes, unit }
+        });
+        self.by_container.insert(container, chain.clone());
+        chain
     }
 }
 
@@ -534,28 +679,49 @@ fn collect_token(
     token: SyntaxTokenWithParent<'_>,
     container: ArenaOwnerId,
     in_special_context: bool,
+    chains: &mut ScopeChainCache,
     groups: &mut FxHashMap<DefId, FileReferenceGroup>,
+    trace: &mut IndexBuildTrace,
 ) {
     let Some(range) = token.text_range() else {
         return;
     };
-    let class = if in_special_context {
-        DefinitionClass::resolve_in(db, file_id, token, Some(container)).unique()
-    } else {
-        // Fast path: outside every syntax context the heuristic chain in
-        // `DefinitionClass::resolve` (member access, scoped names,
-        // instantiations, package imports, named connections) is provably
-        // empty, so resolve as a plain value identifier directly.
-        let sema = SemanticsImpl::new(db);
-        sema.nameres_ident_in(file_id, token, NameContext::Value, container)
-            .map(DefinitionClass::Definition)
-            .unique()
-    };
+    let (resolve_cost, class) = timed(|| {
+        if in_special_context {
+            let start = std::time::Instant::now();
+            let class = DefinitionClass::resolve_in(db, file_id, token, Some(container)).unique();
+            trace.resolve_slow += start.elapsed();
+            class
+        } else {
+            let start = std::time::Instant::now();
+            // Fast path: outside every syntax context the heuristic chain in
+            // `DefinitionClass::resolve` (member access, scoped names,
+            // instantiations, package imports, named connections) is provably
+            // empty, so resolve as a plain value identifier directly. The
+            // scope chain is resolved once per container; per-token salsa
+            // `scope_for` queries revalidate their memos against every
+            // intervening query and recompute O(scope size) each time.
+            let sema = SemanticsImpl::new(db);
+            let chain_start = std::time::Instant::now();
+            let chain = chains.chain_for(db, container);
+            let chain_cost = chain_start.elapsed();
+            let class = sema
+                .nameres_ident_in_scopes(token, NameContext::Value, &chain)
+                .map(DefinitionClass::Definition)
+                .unique();
+            if trace.enabled {
+                trace.record_chain(chain_cost, start.elapsed() - chain_cost);
+            }
+            trace.resolve_fast += start.elapsed();
+            class
+        }
+    });
+    trace.resolve += resolve_cost;
     let Some(class) = class else {
         return;
     };
 
-    match class {
+    let (definition_cost, ()) = timed(|| match class {
         DefinitionClass::Definition(definition) => {
             collect_definition_token(db, definition, file_id.expect_file(), range, token, groups)
         }
@@ -563,26 +729,52 @@ fn collect_token(
             collect_definition_token(db, port, file_id.expect_file(), range, token, groups);
             collect_definition_token(db, local, file_id.expect_file(), range, token, groups);
         }
-    }
+    });
+    trace.definition += definition_cost;
 }
 
-/// Nodes whose subtrees may require the syntax-context heuristics of
-/// `DefinitionClass::resolve`. A token outside every such subtree resolves
-/// as a plain value identifier; the heuristic chain can only hit when the
-/// token sits in one of these (member access names, scoped names, module
-/// declaration names, instantiation type names, package imports, named
-/// parameter/port connections, named types).
-fn is_special_context_node(node: &SyntaxNode<'_>) -> bool {
-    ast::MemberAccessExpression::can_cast(node.kind())
-        || ast::ScopedName::can_cast(node.kind())
-        || ast::ModuleDeclaration::can_cast(node.kind())
-        || ast::PrimitiveInstantiation::can_cast(node.kind())
-        || ast::CheckerInstantiation::can_cast(node.kind())
-        || ast::HierarchyInstantiation::can_cast(node.kind())
-        || ast::PackageImportItem::can_cast(node.kind())
-        || ast::NamedParamAssignment::can_cast(node.kind())
-        || ast::NamedPortConnection::can_cast(node.kind())
-        || ast::NamedType::can_cast(node.kind())
+/// True when the token sits at one of the syntax positions where
+/// `DefinitionClass::resolve_in` diverges from plain value-identifier
+/// resolution. Those positions are the direct token children of the listed
+/// nodes (member access fields, module-like declaration names, instantiation
+/// type names, package import names, named parameter/port connection names)
+/// and identifiers wrapped in a `Name` node under a scoped name, a named
+/// type (they select the Type name context) or a checker instantiation
+/// (its type name resolves in the Type namespace).
+///
+/// Every check is O(1) on the token's parent (and grandparent); the subtree
+/// walk from the old fast-path gate was dropped because it also flagged every
+/// token inside a module body, which made the fast path dead on module-heavy
+/// files.
+fn token_in_special_context(
+    SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent<'_>,
+) -> bool {
+    if ast::MemberAccessExpression::cast(parent).is_some_and(|node| node.name() == Some(tok))
+        || ast::ModuleHeader::cast(parent).is_some_and(|node| node.name() == Some(tok))
+        || ast::PrimitiveInstantiation::cast(parent).is_some_and(|node| node.type_() == Some(tok))
+        || ast::HierarchyInstantiation::cast(parent).is_some_and(|node| node.type_() == Some(tok))
+        || ast::PackageImportItem::cast(parent)
+            .is_some_and(|node| node.package() == Some(tok) || node.item() == Some(tok))
+        || ast::NamedParamAssignment::cast(parent).is_some_and(|node| node.name() == Some(tok))
+        || ast::NamedPortConnection::cast(parent).is_some_and(|node| node.name() == Some(tok))
+    {
+        return true;
+    }
+
+    // Identifier tokens are wrapped in a `Name` node; the divergent context is
+    // the Name's parent.
+    if !ast::Name::can_cast(parent.kind()) {
+        return false;
+    }
+    let Some(grandparent) = parent.parent() else {
+        return false;
+    };
+    if ast::ScopedName::can_cast(grandparent.kind()) || ast::NamedType::can_cast(grandparent.kind())
+    {
+        return true;
+    }
+    ast::CheckerInstantiation::cast(grandparent)
+        .is_some_and(|node| rightmost_name_token(node.type_()) == Some(tok))
 }
 
 fn collect_definition_token(
@@ -905,5 +1097,81 @@ endmodule
                 WalkEvent::Leave(SyntaxElement::Token(_)) => {}
             }
         }
+    }
+
+    /// The fast path must agree with the full heuristic chain for every
+    /// token: `token_in_special_context` has to cover exactly the syntax
+    /// positions where `DefinitionClass::resolve_in` diverges from plain
+    /// value-name resolution. The fixture exercises member accesses, scoped
+    /// names, packages, checkers, module-like declarations, hierarchy /
+    /// primitive instantiations, named port connections, named types, package
+    /// imports and a macro emitting a member access.
+    #[test]
+    fn fast_path_agrees_with_full_resolution_chain_for_every_token() {
+        let text = r#"
+`define M(a) a.x
+package pkg;
+  logic field;
+endpackage
+
+checker chk(input logic a);
+endchecker
+
+module sub(input logic in, output logic out);
+  logic internal;
+  assign out = in & internal;
+endmodule
+
+module top(input logic clk, input logic [3:0] data);
+  logic sig;
+  wire [3:0] w;
+  pkg::field f_field;
+  initial begin
+    sig = clk;
+    `M(sig)
+  end
+  sub u_sub(.in(sig), .out(w));
+  and g1(w, sig, clk);
+  chk c1(.a(sig));
+  import pkg::*;
+endmodule
+"#;
+        let (host, file_id, _clean, _markers) = setup_marked(text);
+        let db = host.raw_db();
+        let hir_file_id = HirFileId::from(file_id);
+        let tree = db.parse(hir_file_id);
+        let root = tree.root().expect("test source should parse");
+        let sema = SemanticsImpl::new(db);
+        let mut containers = ContainerCache::new();
+        let mut chains = ScopeChainCache::new();
+        let mut checked = 0usize;
+        for event in root.elem_preorder() {
+            if let WalkEvent::Enter(SyntaxElement::Token(token)) = event {
+                if !token.kind().name_like() {
+                    continue;
+                }
+                checked += 1;
+                let container = containers.container_for(&sema, hir_file_id, token.parent);
+                let chosen = if token_in_special_context(token) {
+                    DefinitionClass::resolve_in(db, hir_file_id, token, Some(container)).unique()
+                } else {
+                    let chain = chains.chain_for(db, container);
+                    sema.nameres_ident_in_scopes(token, NameContext::Value, &chain)
+                        .map(DefinitionClass::Definition)
+                        .unique()
+                };
+                let full =
+                    DefinitionClass::resolve_in(db, hir_file_id, token, Some(container)).unique();
+                assert_eq!(
+                    chosen,
+                    full,
+                    "fast path diverges at {:?} (parent={:?}, special={})",
+                    token.raw_text(),
+                    token.parent.kind(),
+                    token_in_special_context(token)
+                );
+            }
+        }
+        assert!(checked > 20, "test should exercise a non-trivial token set");
     }
 }
