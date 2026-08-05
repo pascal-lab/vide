@@ -1,98 +1,26 @@
-//! One cached scope map per compilation unit (file).
+//! On-demand name-scope construction.
 //!
-//! `DefMap` is the single authority for name-scope data. The nine
-//! `*_scope` salsa queries delegate here (see `scope.rs`), and name
-//! resolution (`pathres.rs`) walks scopes from this map instead of
-//! issuing one query per scope hop.
-//!
-//! Scopes are enumerated eagerly per file: the file's own scope plus every
-//! scope reachable from it (modules, generate blocks, blocks, subroutines,
-//! checkers, covergroups, clocking blocks). Generate blocks are interned at
-//! lowering time, so eager enumeration is complete and acyclic.
+//! Every scope (file, module, block, subroutine, generate block, checker,
+//! covergroup, clocking block) is built lazily by the single
+//! `scope_for(ScopeId)` salsa query. Name resolution (`pathres.rs`) and the
+//! typed `*_scope` queries (`scope.rs`) delegate here; the query's salsa
+//! dependency on the container lowering makes invalidation per-scope instead
+//! of per-file.
 
-use la_arena::Arena;
-use preproc_expand::file::HirFileId;
-use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 
 use crate::{
-    block::{Block, BlockInfo},
-    container::{
-        FileOrModule, InFileOrModule, InModule, ScopeId, SubroutineParent, SubroutineScope,
-    },
+    container::ScopeId,
     db::HirDefDb,
-    module::{ModuleId, generate::GenerateItem},
     scope::{
         build_block_scope, build_checker_scope, build_clocking_block_scope, build_covergroup_scope,
         build_file_scope, build_generate_block_scope, build_module_scope, build_subroutine_scope,
     },
-    stmt::{Stmt, StmtKind},
     symbol::NameScope,
 };
 
-pub(crate) fn def_map_query(db: &dyn HirDefDb, file_id: HirFileId) -> Arc<DefMap> {
-    Arc::new(DefMap::for_file(db, file_id))
-}
-
-/// The name scopes of one compilation unit (file), prebuilt and cached.
-#[derive(Debug, PartialEq, Eq)]
-pub struct DefMap {
-    scopes: FxHashMap<ScopeId, Arc<NameScope>>,
-}
-
-impl DefMap {
-    pub(crate) fn for_file(db: &dyn HirDefDb, file_id: HirFileId) -> Self {
-        let mut scopes = FxHashMap::default();
-        let mut pending = Vec::new();
-        let mut visited = FxHashSet::default();
-
-        // Seed: the file scope plus every module owned by this file.
-        let file_scope_id = ScopeId::File(file_id);
-        scopes.insert(file_scope_id, Arc::new(build_file_scope(db, file_id)));
-        visited.insert(file_scope_id);
-        pending.push(file_scope_id);
-
-        let hir_file = db.hir_file_with_source_map(file_id);
-        for (local_id, _) in hir_file.modules.iter() {
-            let module_id = ModuleId::new(file_id, local_id);
-            push_scope(db, file_id, module_id.into(), &mut scopes, &mut pending, &mut visited);
-        }
-
-        // BFS over reachable scopes. Generate blocks are interned during
-        // lowering, so following every child reference terminates.
-        while let Some(scope_id) = pending.pop() {
-            for child in child_scope_ids(db, scope_id) {
-                if child.file_id(db) != file_id {
-                    continue;
-                }
-                push_scope(db, file_id, child, &mut scopes, &mut pending, &mut visited);
-            }
-        }
-
-        DefMap { scopes }
-    }
-
-    /// The scope for `scope_id`, or a freshly built scope as a correctness
-    /// net if enumeration missed it (a bug we fail soft on).
-    pub(crate) fn scope(&self, db: &dyn HirDefDb, scope_id: ScopeId) -> Arc<NameScope> {
-        self.scopes.get(&scope_id).cloned().unwrap_or_else(|| Arc::new(build_scope(db, scope_id)))
-    }
-}
-
-fn push_scope(
-    db: &dyn HirDefDb,
-    file_id: HirFileId,
-    scope_id: ScopeId,
-    scopes: &mut FxHashMap<ScopeId, Arc<NameScope>>,
-    pending: &mut Vec<ScopeId>,
-    visited: &mut FxHashSet<ScopeId>,
-) {
-    debug_assert_eq!(scope_id.file_id(db), file_id, "scope must belong to its unit's file");
-    if !visited.insert(scope_id) {
-        return;
-    }
-    scopes.insert(scope_id, Arc::new(build_scope(db, scope_id)));
-    pending.push(scope_id);
+pub(crate) fn scope_for_query(db: &dyn HirDefDb, scope_id: ScopeId) -> Arc<NameScope> {
+    Arc::new(build_scope(db, scope_id))
 }
 
 fn build_scope(db: &dyn HirDefDb, scope_id: ScopeId) -> NameScope {
@@ -112,101 +40,189 @@ fn build_scope(db: &dyn HirDefDb, scope_id: ScopeId) -> NameScope {
     }
 }
 
-/// The scopes directly contained in `scope_id`, for DefMap enumeration.
-fn child_scope_ids(db: &dyn HirDefDb, scope_id: ScopeId) -> Vec<ScopeId> {
-    let mut children = Vec::new();
-    match scope_id {
-        ScopeId::File(file_id) => {
-            let hir_file = db.hir_file_with_source_map(file_id);
-            for (local_id, _) in hir_file.modules.iter() {
-                children.push(ModuleId::new(file_id, local_id).into());
-            }
-            for (checker_id, _) in hir_file.checkers.iter() {
-                children.push(ScopeId::Checker(InFileOrModule::new(
-                    FileOrModule::File(file_id),
-                    checker_id,
-                )));
-            }
-            for (covergroup_id, _) in hir_file.covergroups.iter() {
-                children.push(ScopeId::Covergroup(InFileOrModule::new(
-                    FileOrModule::File(file_id),
-                    covergroup_id,
-                )));
-            }
-            collect_block_ids(db, &hir_file.stmts, &mut children);
-        }
-        ScopeId::Module(module_id) => {
-            let module = db.module_with_source_map(module_id);
-            for (local_id, _) in module.subroutines.iter() {
-                children.push(ScopeId::Subroutine(SubroutineScope::new(
-                    SubroutineParent::Module(module_id),
-                    local_id,
-                )));
-            }
-            for (checker_id, _) in module.checkers.iter() {
-                children.push(ScopeId::Checker(InFileOrModule::new(
-                    FileOrModule::Module(module_id),
-                    checker_id,
-                )));
-            }
-            for (covergroup_id, _) in module.covergroups.iter() {
-                children.push(ScopeId::Covergroup(InFileOrModule::new(
-                    FileOrModule::Module(module_id),
-                    covergroup_id,
-                )));
-            }
-            for (clocking_block_id, _) in module.clocking_blocks.iter() {
-                children.push(ScopeId::ClockingBlock(InModule::new(module_id, clocking_block_id)));
-            }
-            for (region_id, region) in module.generate_regions.iter() {
-                for item in &region.items {
-                    if let GenerateItem::GenerateBlockId(generate_block_id) = *item {
-                        children.push(generate_block_id.into());
-                    }
-                }
-                let _ = region_id;
-            }
-            collect_block_ids(db, &module.stmts, &mut children);
-        }
-        ScopeId::GenerateBlock(generate_block_id) => {
-            let generate_block = db.generate_block_with_source_map(generate_block_id);
-            for (local_id, _) in generate_block.subroutines.iter() {
-                children.push(ScopeId::Subroutine(SubroutineScope::new(
-                    SubroutineParent::GenerateBlock(generate_block_id),
-                    local_id,
-                )));
-            }
-            for item in &generate_block.items {
-                if let crate::module::generate::GenerateBlockItem::GenerateBlockId(child_id) = *item
-                {
-                    children.push(child_id.into());
-                }
-            }
-            collect_block_ids(db, &generate_block.stmts, &mut children);
-        }
-        ScopeId::Block(block_id) => {
-            let block = db.block_with_source_map(block_id);
-            collect_block_ids(db, &block.stmts, &mut children);
-        }
-        ScopeId::Subroutine(subroutine_id) => {
-            let subroutine = db.subroutine_with_source_map(subroutine_id);
-            collect_block_ids(db, &subroutine.stmts, &mut children);
-        }
-        ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => {}
-    }
-    children
-}
+#[cfg(test)]
+mod tests {
+    use base_db::{
+        diagnostics_config::DiagnosticsConfig,
+        project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+        salsa::{self, Durability},
+        source_db::{
+            FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
+            SourceRootDbStorage,
+        },
+        source_root::{SourceRoot, SourceRootId},
+    };
+    use preproc_expand::{db::PreprocDbStorage, file::HirFileId};
+    use rustc_hash::FxHashSet;
+    use triomphe::Arc;
+    use utils::paths::{AbsPathBuf, Utf8PathBuf};
+    use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
-/// Collect named blocks (and, transitively, their nested named blocks) from a
-/// statement arena. Proc bodies live in the owner's statement arena, so
-/// walking the owner arena covers blocks inside procedural blocks too.
-fn collect_block_ids(db: &dyn HirDefDb, stmts: &Arena<Stmt>, out: &mut Vec<ScopeId>) {
-    for (_, stmt) in stmts.iter() {
-        if let StmtKind::Block(BlockInfo { block_id, .. }) = &stmt.kind {
-            let block_id = *block_id;
-            out.push(block_id.into());
-            let block: &Block = &db.block_with_source_map(block_id);
-            collect_block_ids(db, &block.stmts, out);
+    use super::*;
+    use la_arena::{Idx, RawIdx};
+
+    use crate::{
+        Ident,
+        container::{ScopeId, SubroutineParent, SubroutineScope},
+        db::{HirDefDb, HirDefDbStorage, InternDbStorage},
+        module::{ModuleId, generate::GenerateBlockId},
+        symbol::{DefKind, NameContext},
+    };
+
+    const TOP: FileId = FileId::from_raw(0);
+    const ROOT: SourceRootId = SourceRootId(0);
+    const PROFILE: CompilationProfileId = CompilationProfileId(0);
+
+    #[salsa::database(
+        SourceDbStorage,
+        SourceRootDbStorage,
+        PreprocDbStorage,
+        InternDbStorage,
+        HirDefDbStorage
+    )]
+    #[derive(Default)]
+    struct TestDb {
+        storage: salsa::Storage<Self>,
+    }
+
+    impl salsa::Database for TestDb {}
+
+    impl std::fmt::Debug for TestDb {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("TestDb").finish()
         }
+    }
+
+    impl FileLoader for TestDb {
+        fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId> {
+            let source_root_id = SourceRootDb::source_root_id(self, path.anchor);
+            SourceRootDb::source_root(self, source_root_id).resolve_path(path)
+        }
+    }
+
+    fn db_with_root_text(root_text: &str) -> TestDb {
+        let top_path = abs_path("rtl/top.sv");
+        let mut file_set = FileSet::default();
+        file_set.insert(TOP, VfsPath::from(top_path.clone()));
+        let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
+        let mut files = FxHashSet::default();
+        files.insert(TOP);
+
+        let preprocess = PreprocessConfig::default();
+        let project_config = ProjectConfig::new(
+            vec![Some(PROFILE)],
+            vec![CompilationProfile {
+                source_roots: vec![ROOT],
+                top_modules: Vec::new(),
+                preprocess: preprocess.clone(),
+            }],
+        );
+
+        let mut db = TestDb::default();
+        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_project_config_with_durability(Arc::new(project_config), Durability::HIGH);
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig::default()),
+            Durability::HIGH,
+        );
+        db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
+        db.set_source_root_id_with_durability(TOP, ROOT, Durability::LOW);
+        db.set_file_path_with_durability(TOP, Some(top_path), Durability::LOW);
+        db.set_file_kind_with_durability(TOP, SourceFileKind::SystemVerilog, Durability::LOW);
+        db.set_file_text_with_durability(TOP, Arc::from(root_text), Durability::LOW);
+        db
+    }
+
+    fn abs_path(path: &str) -> AbsPathBuf {
+        let prefix = if cfg!(windows) { "C:/repo" } else { "/repo" };
+        AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}/{path}")))
+    }
+
+    fn ident(name: &str) -> Ident {
+        Ident::new(name)
+    }
+
+    #[test]
+    fn scope_for_builds_only_the_requested_scope() {
+        let db = db_with_root_text(
+            "module top;\n  function void f(); endfunction\nendmodule\n",
+        );
+        let file_id = HirFileId::File(TOP);
+        let scope = db.scope_for(ScopeId::File(file_id));
+        assert!(
+            scope.lookup(NameContext::Type, &ident("top")).iter().any(|def_id| {
+                def_id.kind(&db) == DefKind::Module
+            }),
+            "file scope should contain the module"
+        );
+        assert!(
+            !scope
+                .lookup(NameContext::Value, &ident("f"))
+                .iter()
+                .any(|def_id| def_id.kind(&db) == DefKind::Subroutine),
+            "file scope alone must not contain the function body scope's name"
+        );
+    }
+
+    #[test]
+    fn scope_for_module_contains_subroutine_name() {
+        let db = db_with_root_text(
+            "module top;\n  function void f(); endfunction\nendmodule\n",
+        );
+        let file_id = HirFileId::File(TOP);
+        let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
+        let scope = db.scope_for(module_id.into());
+        assert!(
+            scope
+                .lookup(NameContext::Value, &ident("f"))
+                .iter()
+                .any(|def_id| def_id.kind(&db) == DefKind::Subroutine),
+            "module scope should contain its subroutine names"
+        );
+    }
+
+    #[test]
+    fn scope_for_subroutine_builds_on_demand() {
+        let db = db_with_root_text(
+            "module top;\n  function void f();\n    logic x;\n  endfunction\nendmodule\n",
+        );
+        let file_id = HirFileId::File(TOP);
+        let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
+        let subroutine_id = SubroutineScope::new(SubroutineParent::Module(module_id), Idx::from_raw(RawIdx::from(0)));
+        let scope = db.scope_for(subroutine_id.into());
+        assert!(
+            scope
+                .lookup(NameContext::Value, &ident("x"))
+                .iter()
+                .any(|def_id| def_id.kind(&db) == DefKind::Variable),
+            "subroutine scope should contain its body declarations"
+        );
+    }
+
+    #[test]
+    fn scope_for_generate_block_contains_items() {
+        let db = db_with_root_text(
+            "module top;\n  generate\n    if (1) begin : g\n      logic g_sig;\n    end\n  endgenerate\nendmodule\n",
+        );
+        let file_id = HirFileId::File(TOP);
+        let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
+        let module = db.module_with_source_map(module_id);
+        let mut block_id = None;
+        for (_, region) in module.generate_regions.iter() {
+            for item in &region.items {
+                if let crate::module::generate::GenerateItem::GenerateBlockId(id) = item {
+                    block_id = Some(*id);
+                }
+            }
+        }
+        let block_id: GenerateBlockId = block_id.expect("generate block should lower");
+        let scope = db.scope_for(block_id.into());
+        assert!(
+            scope
+                .lookup(NameContext::Value, &ident("g_sig"))
+                .iter()
+                .any(|def_id| def_id.kind(&db) == DefKind::Variable),
+            "generate block scope should contain its declarations"
+        );
     }
 }

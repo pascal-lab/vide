@@ -5,7 +5,7 @@ use triomphe::Arc;
 use crate::{
     block::{self, Block, BlockId, BlockLoc},
     checker::CheckerId,
-    container::{InFileOrModule, InModule, SubroutineScope},
+    container::{InFileOrModule, InModule, ScopeId, SubroutineScope},
     covergroup::CovergroupId,
     def_id::{DefId, Definition},
     expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
@@ -15,7 +15,7 @@ use crate::{
         clocking::ClockingBlockId,
         generate::{self, GenerateBlock, GenerateBlockId, GenerateBlockLoc},
     },
-    nameres::{self, DefMap},
+    nameres,
     source_map::Lowered,
     subroutine::{self, Subroutine},
     symbol::{DefOrigin, DefOriginLoc, NameScope},
@@ -85,8 +85,8 @@ pub trait HirDefDb: InternDb {
 
     fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock>;
 
-    #[salsa::invoke(nameres::def_map_query)]
-    fn def_map(&self, file_id: HirFileId) -> Arc<DefMap>;
+    #[salsa::invoke(nameres::scope_for_query)]
+    fn scope_for(&self, scope_id: ScopeId) -> Arc<NameScope>;
 
     #[salsa::invoke(NameScope::unit_scope_query)]
     fn unit_scope(&self) -> Arc<NameScope>;

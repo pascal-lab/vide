@@ -7,7 +7,6 @@ use crate::{
     db::HirDefDb,
     def_id::DefId,
     module::{ModuleId, instantiation::InstanceId},
-    nameres,
     symbol::{DefKind, NameContext, NameScope, Resolution},
 };
 
@@ -29,11 +28,10 @@ pub fn resolve_name(
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    let def_map = db.def_map(cont_id.file_id(db));
     let scopes = ScopeParent::start_from(db, cont_id).collect::<SmallVec<[_; 4]>>();
 
     for id in &scopes {
-        let resolution = def_map.scope(db, *id).lookup(ctx, ident);
+        let resolution = db.scope_for(*id).lookup(ctx, ident);
         if !resolution.is_unresolved() {
             return resolution;
         }
@@ -43,7 +41,7 @@ pub fn resolve_name(
     // declarations: visible declarations in the lexical chain win, then
     // package imports are considered, and `$unit` remains an explicit outer
     // scope. `NameContext` chooses the namespace bucket at every phase.
-    let imported = resolve_imported_name(db, &def_map, &scopes, ident, ctx);
+    let imported = resolve_imported_name(db, &scopes, ident, ctx);
     if !imported.is_unresolved() {
         return imported;
     }
@@ -109,8 +107,7 @@ pub fn resolve_child_name(
         let Some(scope_id) = descend_scope(db, def_id) else {
             return Resolution::Unresolved;
         };
-        let def_map = db.def_map(scope_id.file_id(db));
-        def_map.scope(db, scope_id).lookup(ctx, ident)
+        db.scope_for(scope_id).lookup(ctx, ident)
     })
 }
 
@@ -149,7 +146,6 @@ pub fn instance_target_def_id(
 
 fn resolve_imported_name(
     db: &dyn HirDefDb,
-    def_map: &nameres::DefMap,
     scopes: &[ScopeId],
     ident: &Ident,
     ctx: NameContext,
@@ -157,7 +153,7 @@ fn resolve_imported_name(
     let mut defs = SmallVec::<[DefId; 3]>::new();
 
     for scope_id in scopes {
-        let scope = def_map.scope(db, *scope_id);
+        let scope = db.scope_for(*scope_id);
         collect_imports(db, &scope, ident, ctx, true, &mut defs);
         if !defs.is_empty() {
             return Resolution::from_candidates(defs);
@@ -165,7 +161,7 @@ fn resolve_imported_name(
     }
 
     for scope_id in scopes {
-        let scope = def_map.scope(db, *scope_id);
+        let scope = db.scope_for(*scope_id);
         collect_imports(db, &scope, ident, ctx, false, &mut defs);
         if !defs.is_empty() {
             return Resolution::from_candidates(defs);

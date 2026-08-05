@@ -128,60 +128,53 @@ impl NameScope {
     }
 
     pub(super) fn file_scope_query(db: &dyn HirDefDb, file_id: HirFileId) -> Arc<NameScope> {
-        db.def_map(file_id).scope(db, ScopeId::File(file_id))
+        db.scope_for(ScopeId::File(file_id))
     }
 
     pub fn module_scope_query(
         db: &dyn HirDefDb,
         module_id: crate::module::ModuleId,
     ) -> Arc<NameScope> {
-        let scope_id: ScopeId = module_id.into();
-        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
+        db.scope_for(module_id.into())
     }
 
     pub fn clocking_block_scope_query(
         db: &dyn HirDefDb,
         clocking_block_id: InModule<ClockingBlockId>,
     ) -> Arc<NameScope> {
-        let scope_id: ScopeId = clocking_block_id.into();
-        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
+        db.scope_for(clocking_block_id.into())
     }
 
     pub fn checker_scope_query(
         db: &dyn HirDefDb,
         checker_id: InFileOrModule<CheckerId>,
     ) -> Arc<NameScope> {
-        let scope_id: ScopeId = checker_id.into();
-        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
+        db.scope_for(checker_id.into())
     }
 
     pub fn covergroup_scope_query(
         db: &dyn HirDefDb,
         covergroup_id: InFileOrModule<CovergroupId>,
     ) -> Arc<NameScope> {
-        let scope_id: ScopeId = covergroup_id.into();
-        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
+        db.scope_for(covergroup_id.into())
     }
 
     pub fn generate_block_scope_query(
         db: &dyn HirDefDb,
         generate_block_id: GenerateBlockId,
     ) -> Arc<NameScope> {
-        let scope_id: ScopeId = generate_block_id.into();
-        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
+        db.scope_for(generate_block_id.into())
     }
 
     pub fn block_scope_query(db: &dyn HirDefDb, block_id: crate::block::BlockId) -> Arc<NameScope> {
-        let scope_id: ScopeId = block_id.into();
-        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
+        db.scope_for(block_id.into())
     }
 
     pub fn subroutine_scope_query(
         db: &dyn HirDefDb,
         subroutine_id: SubroutineScope,
     ) -> Arc<NameScope> {
-        let scope_id: ScopeId = subroutine_id.into();
-        db.def_map(scope_id.file_id(db)).scope(db, scope_id)
+        db.scope_for(subroutine_id.into())
     }
 
     pub fn non_ansi_port_decl_id_by_name(
