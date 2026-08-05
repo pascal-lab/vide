@@ -186,6 +186,12 @@ public:
 
     bool operator==(const Token& other) const { return kind == other.kind && info == other.info; }
 
+    /// Stable identity shared by all copies of this token: a pointer to its
+    /// heap-allocated info block. Copies of the same original token compare
+    /// equal, distinct tokens never do, so this can be used as a map key.
+    /// Null for synthetic tokens without an info block.
+    const void* identity() const { return info; }
+
     /// Modification methods to make it easier to deal with immutable tokens.
     [[nodiscard]] Token withTrivia(BumpAllocator& alloc, std::span<Trivia const> trivia) const;
     [[nodiscard]] Token withLocation(BumpAllocator& alloc, SourceLocation location) const;

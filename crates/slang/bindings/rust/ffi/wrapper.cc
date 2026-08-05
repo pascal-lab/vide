@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
@@ -66,6 +67,9 @@ struct SyntaxTreeSourceInfo {
   const slang::SourceManager* sourceManager;
   const slang::parsing::PreprocessorTraceSnapshot* preprocessorTrace;
   slang::SourceLocation rootLocation;
+  // Lazily built: emitted-token object identity -> index into
+  // preprocessorTrace->emittedTokens. Null until first queried.
+  std::shared_ptr<const std::unordered_map<const void*, size_t>> emittedTokenIndex;
 };
 
 struct LexedTokenAtOffset {
@@ -174,6 +178,13 @@ constexpr uint8_t TRACE_TOKEN_ORIGIN_MACRO_ARGUMENT = 3;
 constexpr uint8_t TRACE_TOKEN_ORIGIN_BUILTIN = 4;
 constexpr uint8_t TRACE_TOKEN_ORIGIN_TOKEN_PASTE = 5;
 constexpr uint8_t TRACE_TOKEN_ORIGIN_STRINGIFICATION = 6;
+
+::RawEmittedTokenIndex empty_emitted_token_index() {
+  ::RawEmittedTokenIndex result;
+  result.emitted_token_index = 0;
+  result.has_emitted_token_index = false;
+  return result;
+}
 
 ::RawPreprocessorTraceEmittedToken empty_preprocessor_trace_emitted_token() {
   ::RawPreprocessorTraceEmittedToken token;
@@ -892,18 +903,38 @@ std::unordered_set<uint32_t> predefine_buffer_ids(
   return bufferIds;
 }
 
-std::optional<size_t> emitted_token_index_for(
-    const slang::parsing::PreprocessorTraceSnapshot* trace,
-    slang::parsing::Token token) {
-  if (!trace || !token)
-    return std::nullopt;
-
-  for (size_t index = 0; index < trace->emittedTokens.size(); index++) {
-    if (trace->emittedTokens[index] == token)
-      return index;
+void build_emitted_token_index(SyntaxTreeSourceInfo& info) {
+  auto index = std::make_shared<std::unordered_map<const void*, size_t>>();
+  const auto& emitted = info.preprocessorTrace->emittedTokens;
+  index->reserve(emitted.size());
+  for (size_t i = 0; i < emitted.size(); i++) {
+    if (const void* identity = emitted[i].identity())
+      index->emplace(identity, i);
   }
+  info.emittedTokenIndex = std::move(index);
+}
 
-  return std::nullopt;
+std::optional<SyntaxTreeSourceInfo> tree_source_info(
+    const slang::syntax::SyntaxNode& context) {
+  const auto* root = findRoot(context);
+  std::lock_guard lock(syntaxTreeSourceInfoMutex);
+  auto it = syntaxTreeSourceInfo.find(root);
+  if (it == syntaxTreeSourceInfo.end())
+    return std::nullopt;
+  if (it->second.preprocessorTrace && !it->second.emittedTokenIndex)
+    build_emitted_token_index(it->second);
+  return it->second;
+}
+
+std::optional<size_t> emitted_token_index_for(
+    const SyntaxTreeSourceInfo& info,
+    slang::parsing::Token token) {
+  if (!info.emittedTokenIndex || !token)
+    return std::nullopt;
+  auto it = info.emittedTokenIndex->find(token.identity());
+  if (it == info.emittedTokenIndex->end())
+    return std::nullopt;
+  return it->second;
 }
 
 ::RawPreprocessorTrace to_rust_preprocessor_trace_snapshot(
@@ -1454,19 +1485,28 @@ std::unique_ptr<SourceRange> SyntaxToken_rangeWithContext(
 ::RawPreprocessorTraceEmittedToken SyntaxToken_preprocessorTraceOriginWithContext(
     const wrapper::parsing::Token& token,
     const SyntaxNode& context) {
-  const auto* root = findRoot(context);
-  SyntaxTreeSourceInfo sourceInfo;
-  {
-    std::lock_guard lock(syntaxTreeSourceInfoMutex);
-    auto it = syntaxTreeSourceInfo.find(root);
-    if (it == syntaxTreeSourceInfo.end())
-      return empty_preprocessor_trace_emitted_token();
-    sourceInfo = it->second;
-  }
+  auto sourceInfo = tree_source_info(context);
+  if (!sourceInfo)
+    return empty_preprocessor_trace_emitted_token();
 
   return to_rust_preprocessor_trace_emitted_token(
-      token, *sourceInfo.sourceManager,
-      emitted_token_index_for(sourceInfo.preprocessorTrace, token));
+      token, *sourceInfo->sourceManager,
+      emitted_token_index_for(*sourceInfo, token));
+}
+
+::RawEmittedTokenIndex SyntaxToken_preprocessorTraceEmittedTokenIndexWithContext(
+    const wrapper::parsing::Token& token,
+    const SyntaxNode& context) {
+  auto sourceInfo = tree_source_info(context);
+  if (!sourceInfo)
+    return empty_emitted_token_index();
+  auto index = emitted_token_index_for(*sourceInfo, token);
+  if (!index || *index > std::numeric_limits<uint32_t>::max())
+    return empty_emitted_token_index();
+  ::RawEmittedTokenIndex result;
+  result.emitted_token_index = static_cast<uint32_t>(*index);
+  result.has_emitted_token_index = true;
+  return result;
 }
 
 } // namespace syntax

@@ -1269,6 +1269,50 @@ endmodule
 }
 
 #[test]
+fn preprocessor_trace_emitted_token_index_matches_origin_lookup() {
+    let source = r#"`define DUP(x) x x
+module m;
+wire payload_i;
+assign y = `DUP(payload_i);
+endmodule
+"#;
+    let parsed = SyntaxTree::from_text_with_options_and_trace(
+        source,
+        "source",
+        "sample/rtl/top.sv",
+        &SyntaxTreeOptions::default(),
+    );
+    let root = parsed.tree.root().expect("tree should have a root");
+    let tokens = root
+        .elem_preorder()
+        .filter_map(|event| match event {
+            WalkEvent::Enter(SyntaxElement::Token(token))
+                if token.raw_text().as_bytes() == b"payload_i"
+                    && matches!(
+                        token.preprocessor_trace_origin(),
+                        TokenOrigin::MacroArgument { .. }
+                    ) =>
+            {
+                Some(token)
+            }
+            _ => None,
+        })
+        .collect_vec();
+    assert_eq!(tokens.len(), 2, "DUP should emit the argument twice");
+
+    let indices = tokens
+        .iter()
+        .map(|token| {
+            let lean = token.preprocessor_trace_emitted_token_index();
+            let fat = token.preprocessor_trace_emitted_token().emitted_token_index;
+            assert_eq!(lean, fat, "lean index API must agree with the full trace lookup");
+            lean.expect("macro-emitted token must carry an emitted-token index")
+        })
+        .collect_vec();
+    assert_ne!(indices[0], indices[1], "the two copies must be distinct trace identities");
+}
+
+#[test]
 fn preprocessor_trace_reports_nested_macro_call_range_in_macro_body() {
     let source = r#"`define LEAF 3
 `define WRAP `LEAF

@@ -97,11 +97,7 @@ endmodule
         .unwrap(),
     );
     let source_range = source_range(source, "payload_i");
-    let hit = PreprocTokenHit {
-        emitted_token,
-        source_range,
-        origin: expected_origin.clone(),
-    };
+    let hit = PreprocTokenHit { emitted_token, source_range, origin: expected_origin.clone() };
 
     let tokens =
         syntax_tokens_for_preproc_hit(root, source_range.start(), &test_precedence, &[hit])
@@ -209,18 +205,11 @@ endmodule
     );
     let origin = macro_arg_origin_from_token_origin(&db, model_file, &emitted.origin);
     let source_range = source_range(source, "payload_i");
-    let real_hit = PreprocTokenHit {
-        emitted_token: real_id,
-        source_range,
-        origin: origin.clone(),
-    };
+    let real_hit = PreprocTokenHit { emitted_token: real_id, source_range, origin: origin.clone() };
     // A stale or cross-trace hit whose trace id does not exist in this tree
     // must not discard the tokens the resolvable hits produced.
-    let bogus_hit = PreprocTokenHit {
-        emitted_token: SourceEmittedTokenId::new(999_999),
-        source_range,
-        origin,
-    };
+    let bogus_hit =
+        PreprocTokenHit { emitted_token: SourceEmittedTokenId::new(999_999), source_range, origin };
 
     let tokens = syntax_tokens_for_preproc_hit(
         root,
