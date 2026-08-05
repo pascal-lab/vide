@@ -27,8 +27,7 @@ use crate::{
     module_resolution::resolve_hir_instantiation_target,
     navigation_target::nav_location,
     references::{ReferenceCategory, search::resolve_source_range},
-    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target_with_emitted},
-    source_targets::preproc::emit_token_index,
+    source_targets::{SourceTargetResolution, preproc::emit_token_index, source_target_at_offset},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -305,15 +304,18 @@ impl FileSemanticIndex {
             let Some(range) = token.text_range() else {
                 continue;
             };
-            let Some(SemanticTarget::Source(target)) = resolve_semantic_target_with_emitted(
+            // Source-only resolution: macro names, parameters and includes are
+            // indexed separately (macro reference index) and their targets are
+            // dropped by the FindReferences intent anyway, so skip the four
+            // preproc macro queries per token.
+            let Some(SourceTargetResolution::Resolved(target)) = source_target_at_offset(
                 db,
                 file_id,
+                root,
                 range.start(),
-                Some(root),
                 token_precedence,
                 emitted_index.as_ref(),
-            )
-            .unique_for_intent(TargetIntent::FindReferences) else {
+            ) else {
                 continue;
             };
 
