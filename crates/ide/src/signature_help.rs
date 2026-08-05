@@ -353,23 +353,24 @@ fn sig_help_for_invocation(
         sema.expr_to_def(callee)
             .candidates()
             .iter()
-            .filter_map(|def_id| def_id.primary_origin(db).as_subroutine(db)),
+            .filter_map(|def_id| def_id.primary_origin(db).as_subroutine()),
     )
     .unique()?;
-    let subroutine = db.subroutine(subroutine_id);
+    let subroutine = db.subroutine(subroutine_id.clone());
     let subroutine_name = subroutine.name.as_ref()?;
-    let container = subroutine_id.cont_id.into();
+    let container: hir_def::container::ArenaOwnerId = subroutine_id.cont_id.into();
 
     let active_param =
         invocation.arguments().and_then(|args| active_argument_at_offset(args, offset));
 
     let mut res = SignatureHelp::new(
         config,
-        match subroutine.kind {
+        match &subroutine.kind {
             SubroutineKind::Task => format!("task {subroutine_name}("),
             SubroutineKind::Function { return_ty } => {
-                let ty = return_ty
-                    .and_then(|ty| InContainer::new(container, ty).display_source(db).ok());
+                let ty = return_ty.as_ref().and_then(|ty| {
+                    InContainer::new(container.clone(), ty.clone()).display_source(db).ok()
+                });
                 match ty {
                     Some(ty) => format!("function {ty} {subroutine_name}("),
                     None => format!("function {subroutine_name}("),
@@ -385,7 +386,9 @@ fn sig_help_for_invocation(
 
         let mut param = String::new();
         if !res.config.params_only {
-            let ty = port.ty.and_then(|ty| InContainer::new(container, ty).display_source(db).ok());
+            let ty = port.ty.as_ref().and_then(|ty| {
+                InContainer::new(container.clone(), ty.clone()).display_source(db).ok()
+            });
             let dir = port.direction.display_source(db).unwrap_or_default();
             param = match (dir.is_empty(), ty) {
                 (false, Some(ty)) => format!("{dir} {ty} {port_name}"),
