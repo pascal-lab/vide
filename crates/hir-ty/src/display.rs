@@ -1,6 +1,5 @@
 use std::fmt::{self, Debug};
 
-use base_db::intern::Lookup;
 use hir_def::{
     aggregate::StructKind,
     container::{InContainer, InModule},
@@ -86,7 +85,7 @@ impl HirDisplay for Ty {
             Ty::Error => f.write_str("error"),
             Ty::Void => f.write_str("void"),
             Ty::Builtin(BuiltinTy::Data { id, container }) => {
-                InContainer::new(*container, DataTy::Builtin(*id)).hir_fmt(f)
+                InContainer::new(*container, DataTy::Builtin(id.clone())).hir_fmt(f)
             }
             Ty::Struct(struct_ref) => {
                 InContainer::new(struct_ref.cont_id, DataTy::Struct(*struct_ref)).hir_fmt(f)
@@ -237,8 +236,8 @@ impl HirDisplay for SubroutinePortDir {
 
 impl HirDisplay for InContainer<DataTy> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
-        match self.value {
-            DataTy::Builtin(ty_id) => match ty_id.lookup(f.db) {
+        match &self.value {
+            DataTy::Builtin(ty_id) => match ty_id.get() {
                 BuiltinDataTy::Int { kind, signing } => {
                     match kind {
                         IntKind::Byte => f.write_str("byte"),
@@ -248,7 +247,7 @@ impl HirDisplay for InContainer<DataTy> {
                         IntKind::Integer => f.write_str("integer"),
                         IntKind::Time => f.write_str("time"),
                     }?;
-                    if signing {
+                    if *signing {
                         f.write_str(" signed")?;
                     }
                     Ok(())
@@ -273,7 +272,7 @@ impl HirDisplay for InContainer<DataTy> {
                             wrote_head = true;
                         }
                     }
-                    if signing {
+                    if *signing {
                         if wrote_head {
                             f.write_str(" ")?;
                         }
@@ -284,7 +283,7 @@ impl HirDisplay for InContainer<DataTy> {
                         if wrote_head {
                             f.write_str(" ")?;
                         }
-                        self.with_value(*dim).hir_fmt(f)?;
+                        InContainer::new(self.cont_id, *dim).hir_fmt(f)?;
                         wrote_head = true;
                     }
                     Ok(())
@@ -300,8 +299,12 @@ impl HirDisplay for InContainer<DataTy> {
                 BuiltinDataTy::Void => f.write_str("void"),
             },
             DataTy::Named(named) => match named {
-                NamedDataTy::Ident(expr_id) => self.with_value(expr_id).hir_fmt(f),
-                NamedDataTy::Field(expr_id) => self.with_value(expr_id).hir_fmt(f),
+                NamedDataTy::Ident(expr_id) => {
+                    InContainer::new(self.cont_id, *expr_id).hir_fmt(f)
+                }
+                NamedDataTy::Field(expr_id) => {
+                    InContainer::new(self.cont_id, *expr_id).hir_fmt(f)
+                }
             },
             DataTy::Enum => f.write_str("enum"),
             DataTy::Struct(struct_ref) => {
@@ -336,7 +339,7 @@ impl HirDisplay for InModule<PortHeader> {
                 if *var_kw {
                     f.write_str("var ")?;
                 }
-                InContainer::new((*module_id).into(), *ty).hir_fmt(f)
+                InContainer::new((*module_id).into(), ty.clone()).hir_fmt(f)
             }
             PortHeader::Net { dir, net_ty: NetType { kind, ty } } => {
                 match dir {
@@ -362,7 +365,7 @@ impl HirDisplay for InModule<PortHeader> {
                     NetKind::Wand => f.write_str("wand ")?,
                     NetKind::Wor => f.write_str("wor ")?,
                 }
-                InContainer::new((*module_id).into(), *ty).hir_fmt(f)
+                InContainer::new((*module_id).into(), ty.clone()).hir_fmt(f)
             }
         }
     }
@@ -514,7 +517,7 @@ impl HirDisplay for InContainer<&Expr> {
             Expr::Ident(name) => f.write_str(name),
             Expr::Literal(lit) => lit.hir_fmt(f),
             Expr::Cast { ty, expr } => {
-                self.with_value(*ty).hir_fmt(f)?;
+                self.with_value(ty.clone()).hir_fmt(f)?;
                 f.write_str("'")?;
                 f.write_str("(")?;
                 self.with_value(*expr).hir_fmt(f)?;
@@ -699,7 +702,7 @@ impl HirDisplay for InContainer<TypedefId> {
         let typedef = container.typedef(*typedef_id);
 
         f.write_str("typedef ")?;
-        if let Some(ty) = typedef.ty {
+        if let Some(ty) = typedef.ty.clone() {
             InContainer::new(*cont_id, ty).hir_fmt(f)?;
             if typedef.name.is_some() {
                 f.write_str(" ")?;

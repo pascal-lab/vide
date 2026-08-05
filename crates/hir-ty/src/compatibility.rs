@@ -16,7 +16,7 @@ use crate::{
 pub(crate) fn type_class(db: &dyn TyDb, ty: &Ty) -> Option<TyClass> {
     match ty {
         Ty::Alias { target, .. } => type_class(db, target),
-        Ty::Builtin(BuiltinTy::Data { id, .. }) => match db.lookup_intern_ty(*id) {
+        Ty::Builtin(BuiltinTy::Data { id, .. }) => match id.get() {
             BuiltinDataTy::Int { .. } | BuiltinDataTy::Vector { .. } => Some(TyClass::Integral),
             BuiltinDataTy::Real(_) => Some(TyClass::Real),
             BuiltinDataTy::String => Some(TyClass::String),
@@ -69,13 +69,13 @@ pub(crate) fn is_typed_value(db: &dyn TyDb, ty: &Ty) -> bool {
 pub(crate) fn packed_bit_width(db: &dyn TyDb, ty: &Ty) -> Option<u64> {
     match ty {
         Ty::Alias { target, .. } => packed_bit_width(db, target),
-        Ty::Builtin(BuiltinTy::Data { id, container }) => match db.lookup_intern_ty(*id) {
+        Ty::Builtin(BuiltinTy::Data { id, container }) => match id.get() {
             BuiltinDataTy::String
             | BuiltinDataTy::Real(_)
             | BuiltinDataTy::Event
             | BuiltinDataTy::Chandle
             | BuiltinDataTy::Void => None,
-            BuiltinDataTy::Int { kind, .. } => Some(int_kind_width(kind) as u64),
+            BuiltinDataTy::Int { kind, .. } => Some(int_kind_width(*kind) as u64),
             BuiltinDataTy::Vector { dimensions, .. } => {
                 if dimensions.is_empty() {
                     return Some(1);
@@ -83,7 +83,7 @@ pub(crate) fn packed_bit_width(db: &dyn TyDb, ty: &Ty) -> Option<u64> {
 
                 let mut product: u64 = 1;
                 for dim in dimensions {
-                    let dim = dim?;
+                    let dim = (*dim)?;
                     let width = match dim {
                         Dimension::Range(left, right) => {
                             let left = eval_const_i128(db, *container, left)?;

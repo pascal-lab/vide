@@ -5,7 +5,7 @@ use hir_def::{
     def_id::DefId,
     expr::{
         Expr, ExprId,
-        data_ty::{BuiltinDataTy, DataTy, Dimension, IntKind, NamedDataTy},
+        data_ty::{BuiltinDataTy, BuiltinDataTyId, DataTy, Dimension, IntKind, NamedDataTy},
         declarator::{DeclId, DeclaratorParent},
     },
     module::port::PortDeclId,
@@ -241,7 +241,7 @@ fn type_of_expr_impl(db: &dyn TyDb, expr: InContainer<ExprId>) -> TyResult {
             selected
         }
         Expr::ElementSelect { receiver, .. } => type_of_expr_impl(db, expr.with_value(*receiver)),
-        Expr::Cast { ty, .. } => normalize_data_ty(db, expr.cont_id, *ty),
+        Expr::Cast { ty, .. } => normalize_data_ty(db, expr.cont_id, ty.clone()),
         _ => TyResult::new(Ty::Unknown),
     }
 }
@@ -254,7 +254,7 @@ fn normalize_data_ty_inner(
     seen: &mut FxHashSet<InContainer<TypedefId>>,
 ) -> TyResult {
     match data_ty {
-        DataTy::Builtin(builtin) => match db.lookup_intern_ty(builtin) {
+        DataTy::Builtin(builtin) => match builtin.get() {
             BuiltinDataTy::Void => TyResult::new(Ty::Void),
             BuiltinDataTy::Event => TyResult::new(Ty::Event),
             BuiltinDataTy::Chandle => TyResult::new(Ty::Chandle),
@@ -311,7 +311,7 @@ fn type_of_typedef_inner(
     }
 
     let data = typedef.cont_id.data(db);
-    let Some(data_ty) = data.typedef(typedef.value).ty else {
+    let Some(data_ty) = data.typedef(typedef.value).ty.clone() else {
         seen.remove(&typedef);
         return TyResult::new(Ty::Unknown);
     };
@@ -367,12 +367,12 @@ fn type_of_dimension_key(db: &dyn TyDb, container: ArenaOwnerId, expr_id: ExprId
 fn builtin_dimension_key_ty(db: &dyn TyDb, container: ArenaOwnerId, expr_id: ExprId) -> Option<Ty> {
     let data = container.data(db);
     if let Expr::Ident(ident) = data.expr(expr_id) {
-        return builtin_type_name_ty(db, container, ident);
+        return builtin_type_name_ty(container, ident);
     }
     None
 }
 
-fn builtin_type_name_ty(db: &dyn TyDb, container: ArenaOwnerId, ident: &Ident) -> Option<Ty> {
+fn builtin_type_name_ty(container: ArenaOwnerId, ident: &Ident) -> Option<Ty> {
     let ty = match ident.as_str() {
         "string" => BuiltinDataTy::String,
         "byte" => BuiltinDataTy::Int { kind: IntKind::Byte, signing: true },
@@ -394,7 +394,7 @@ fn builtin_type_name_ty(db: &dyn TyDb, container: ArenaOwnerId, ident: &Ident) -
         },
         _ => return None,
     };
-    Some(Ty::Builtin(BuiltinTy::Data { id: db.intern_ty(ty), container }))
+    Some(Ty::Builtin(BuiltinTy::Data { id: BuiltinDataTyId::new(ty), container }))
 }
 
 pub(crate) fn data_ty_of_decl(db: &dyn TyDb, decl: InContainer<DeclId>) -> Option<DataTy> {
@@ -410,7 +410,7 @@ pub(crate) fn data_ty_of_decl(db: &dyn TyDb, decl: InContainer<DeclId>) -> Optio
             };
             inits
                 .iter()
-                .find_map(|(ty, candidate)| (*candidate == decl.value).then_some(*ty).flatten())
+                .find_map(|(ty, candidate)| (*candidate == decl.value).then_some(ty.clone()).flatten())
         }
     }
 }
@@ -430,6 +430,7 @@ fn type_of_subroutine_port_impl(db: &dyn TyDb, port: InSubroutine<SubroutinePort
         return TyResult::new(Ty::Unknown);
     };
     port.ty
+        .clone()
         .map(|ty| {
             normalize_data_ty_with_owner(
                 db,
