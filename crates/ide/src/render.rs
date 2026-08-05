@@ -33,7 +33,7 @@ use syntax::{
 };
 
 use crate::{
-    db::root_db::RootDb,
+    db::{line_index_db::LineIndexDb, root_db::RootDb},
     markup::{Markup, display_project_path, file_link_target, inline_code, markdown_link},
     module_resolution::resolve_module_name,
     references::search::resolve_source_range,

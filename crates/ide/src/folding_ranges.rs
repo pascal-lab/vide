@@ -28,7 +28,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::db::root_db::RootDb;
+use crate::db::{line_index_db::LineIndexDb, root_db::RootDb};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FoldKind {
@@ -529,7 +529,7 @@ mod tests {
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
     use super::{Fold, FoldKind, folding_ranges};
-    use crate::db::root_db::RootDb;
+    use crate::db::{line_index_db::LineIndexDb, root_db::RootDb};
 
     fn db_with_file(text: &str) -> (RootDb, FileId) {
         let file_id = FileId::from_raw(0);

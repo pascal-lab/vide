@@ -22,7 +22,7 @@ use crate::{
     code_action::{self, CodeAction, CodeActionDiagnostics, CodeActionResolveStrategy},
     code_lens::{self, CodeLens, CodeLensConfig, CodeLensKind},
     completion::{CompletionItem, context::TriggerChar},
-    db::root_db::RootDb,
+    db::{line_index_db::LineIndexDb, root_db::RootDb},
     diagnostics,
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},

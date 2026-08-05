@@ -80,12 +80,7 @@ impl RootDb {
 }
 
 pub const DEFAULT_PARSE_LRU_CAP: usize = 128;
-impl RootDb {
-    pub fn line_index(&self, file_id: FileId) -> Arc<LineIndex> {
-        let db: &dyn LineIndexDb = self;
-        db.line_index(file_id)
-    }
-}
+impl RootDb {}
 
 // RootDb is the concrete IDE database; expose the workspace query surface
 // without maintaining a second set of forwarding methods.
