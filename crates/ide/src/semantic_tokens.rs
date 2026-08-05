@@ -3,7 +3,7 @@ use collector::SemaTokenCollectorTree;
 use hir_def::{
     Ident,
     block::{BlockId, BlockInfo},
-    container::{ArenaOwnerId, InContainer},
+    container::{ArenaOwnerId, InContainer, SubroutineParent, SubroutineScope},
     db::HirDefDb,
     def_id::DefId,
     expr::{
@@ -13,7 +13,8 @@ use hir_def::{
     },
     module::{
         ModuleId,
-        instantiation::{ParamAssign, PortConn},
+        generate::{GenerateBlockId, GenerateBlockItem, GenerateItem},
+        instantiation::{ParamAssign, ParamAssignId, PortConn, PortConnId},
     },
     source_map::AstLookup,
     stmt::StmtKind,
@@ -181,6 +182,104 @@ fn collect_preproc_macro_references(
     }
 }
 
+/// Collects the ident-like tokens shared by every HIR container (file, module,
+/// block, generate block, subroutine): named-data-type expressions, identifier
+/// expressions, declaration names, typedef names, and nested blocks.
+macro_rules! collect_container_body {
+    ($sema:expr, $cont_id:expr, $tree:expr, $collector:expr, $lowered:expr) => {{
+        let sema = $sema;
+        let cont_id = $cont_id;
+        let tree = $tree;
+        let collector = $collector;
+        let lowered = $lowered;
+
+        let collect_ident_like =
+            |name: &SmolStr, range: TextRange, collector: &mut SemaTokenCollector| {
+                let name_in_cont = InContainer::new(cont_id, name.clone());
+                collect_ident_like(sema, name_in_cont, range, collector);
+            };
+
+        let mut type_expr_ids = FxHashSet::default();
+        for (_, declaration) in lowered.data_ref().declarations.iter() {
+            if let Some(expr_id) = named_data_ty_expr_id(declaration.ty()) {
+                type_expr_ids.insert(expr_id);
+                let Some(range) = lowered.source_range(expr_id) else {
+                    continue;
+                };
+                check_range!(collector, range);
+                collect_type_ident_like(sema, cont_id, lowered.get(expr_id), range, collector);
+            }
+        }
+        for (_, typedef) in lowered.data_ref().typedefs.iter() {
+            let Some(ty) = typedef.ty else {
+                continue;
+            };
+            if let Some(expr_id) = named_data_ty_expr_id(ty) {
+                type_expr_ids.insert(expr_id);
+                let Some(range) = lowered.source_range(expr_id) else {
+                    continue;
+                };
+                check_range!(collector, range);
+                collect_type_ident_like(sema, cont_id, lowered.get(expr_id), range, collector);
+            }
+        }
+
+        for (expr_id, expr) in lowered.data_ref().exprs.iter() {
+            if type_expr_ids.contains(&expr_id) {
+                continue;
+            }
+            match expr {
+                Expr::Field { .. } => {
+                    let _: Option<()> = try {
+                        let expr = lowered.ast(expr_id, tree)?;
+                        collect_field_like(sema, cont_id, expr_id, expr, collector)?;
+                    };
+                }
+                Expr::Ident(name) => {
+                    let Some(range) = lowered.source_range(expr_id) else {
+                        continue;
+                    };
+                    check_range!(collector, range);
+                    collect_ident_like(name, range, collector);
+                }
+                _ => {}
+            }
+        }
+
+        for (decl_id, decl) in lowered.data_ref().decls.iter() {
+            let _: Option<()> = try {
+                let name = decl.name.as_ref()?;
+                let range = lowered.source_name_range(decl_id)?;
+                check_range!(collector, range);
+                collect_ident_like(name, range, collector);
+            };
+        }
+
+        for (typedef_id, typedef) in lowered.data_ref().typedefs.iter() {
+            let _: Option<()> = try {
+                let _name = typedef.name.as_ref()?;
+                let range = lowered.source_name_range(typedef_id)?;
+                check_range!(collector, range);
+                collector.tokens.add(SemaToken {
+                    range,
+                    tag: SemaTokenTag::Type,
+                    mods: SemaTokenModifier::DECL | SemaTokenModifier::DEF,
+                });
+            };
+        }
+
+        for (stmt_id, stmt) in lowered.data_ref().stmts.iter() {
+            if let StmtKind::Block(BlockInfo { block_id, .. }) = stmt.kind {
+                let Some(range) = lowered.source_range(stmt_id) else {
+                    continue;
+                };
+                check_range!(collector, range);
+                collect_block(sema, block_id, collector);
+            }
+        }
+    }};
+}
+
 fn collect_file(
     sema: &Semantics<'_, RootDb>,
     file_id: HirFileId,
@@ -198,90 +297,15 @@ fn collect_file(
         collect_module(sema, ModuleId::new(file_id, local_module_id), collector);
     }
 
-    let collect_ident_like =
-        |name: &SmolStr, range: TextRange, collector: &mut SemaTokenCollector| {
-            let name_in_cont = InContainer::new(file_id.into(), name.clone());
-            collect_ident_like(sema, name_in_cont, range, collector);
-        };
-
-    let mut type_expr_ids = FxHashSet::default();
-    for (_, declaration) in hir_file.declarations.iter() {
-        if let Some(expr_id) = named_data_ty_expr_id(declaration.ty()) {
-            type_expr_ids.insert(expr_id);
-            let Some(range) = lowered.source_range(expr_id) else {
-                continue;
-            };
-            check_range!(collector, range);
-            collect_type_ident_like(sema, file_id.into(), lowered.get(expr_id), range, collector);
-        }
-    }
-    for (_, typedef) in hir_file.typedefs.iter() {
-        let Some(ty) = typedef.ty else {
-            continue;
-        };
-        if let Some(expr_id) = named_data_ty_expr_id(ty) {
-            type_expr_ids.insert(expr_id);
-            let Some(range) = lowered.source_range(expr_id) else {
-                continue;
-            };
-            check_range!(collector, range);
-            collect_type_ident_like(sema, file_id.into(), lowered.get(expr_id), range, collector);
-        }
+    for (subroutine_id, _) in hir_file.subroutines.iter() {
+        collect_subroutine(
+            sema,
+            SubroutineScope::new(SubroutineParent::File(file_id), subroutine_id),
+            collector,
+        );
     }
 
-    for (expr_id, expr) in hir_file.exprs.iter() {
-        if type_expr_ids.contains(&expr_id) {
-            continue;
-        }
-        match expr {
-            Expr::Field { .. } => {
-                let _: Option<()> = try {
-                    let expr = lowered.ast(expr_id, &tree)?;
-                    collect_field_like(sema, file_id.into(), expr_id, expr, collector)?;
-                };
-            }
-            Expr::Ident(name) => {
-                let Some(range) = lowered.source_range(expr_id) else {
-                    continue;
-                };
-                check_range!(collector, range);
-                collect_ident_like(name, range, collector);
-            }
-            _ => {}
-        }
-    }
-
-    for (decl_id, decl) in hir_file.decls.iter() {
-        let _: Option<()> = try {
-            let name = decl.name.as_ref()?;
-            let range = lowered.source_name_range(decl_id)?;
-            check_range!(collector, range);
-            collect_ident_like(name, range, collector);
-        };
-    }
-
-    for (typedef_id, typedef) in hir_file.typedefs.iter() {
-        let _: Option<()> = try {
-            let _name = typedef.name.as_ref()?;
-            let range = lowered.source_name_range(typedef_id)?;
-            check_range!(collector, range);
-            collector.tokens.add(SemaToken {
-                range,
-                tag: SemaTokenTag::Type,
-                mods: SemaTokenModifier::DECL | SemaTokenModifier::DEF,
-            });
-        };
-    }
-
-    for (stmt_id, stmt) in hir_file.stmts.iter() {
-        if let StmtKind::Block(BlockInfo { block_id, .. }) = stmt.kind {
-            let Some(range) = lowered.source_range(stmt_id) else {
-                continue;
-            };
-            check_range!(collector, range);
-            collect_block(sema, block_id, collector);
-        }
-    }
+    collect_container_body!(sema, file_id.into(), &tree, collector, &lowered);
 }
 
 fn collect_module(
@@ -295,37 +319,6 @@ fn collect_module(
     let tree = db.parse(module_id.file_id);
     port::collect_port(sema, module_id, collector);
 
-    let collect_ident_like =
-        |name: &SmolStr, range: TextRange, collector: &mut SemaTokenCollector| {
-            let name_in_cont = InContainer::new(module_id.into(), name.clone());
-            collect_ident_like(sema, name_in_cont, range, collector);
-        };
-
-    let mut type_expr_ids = FxHashSet::default();
-    for (_, declaration) in module.declarations.iter() {
-        if let Some(expr_id) = named_data_ty_expr_id(declaration.ty()) {
-            type_expr_ids.insert(expr_id);
-            let Some(range) = lowered.source_range(expr_id) else {
-                continue;
-            };
-            check_range!(collector, range);
-            collect_type_ident_like(sema, module_id.into(), lowered.get(expr_id), range, collector);
-        }
-    }
-    for (_, typedef) in module.typedefs.iter() {
-        let Some(ty) = typedef.ty else {
-            continue;
-        };
-        if let Some(expr_id) = named_data_ty_expr_id(ty) {
-            type_expr_ids.insert(expr_id);
-            let Some(range) = lowered.source_range(expr_id) else {
-                continue;
-            };
-            check_range!(collector, range);
-            collect_type_ident_like(sema, module_id.into(), lowered.get(expr_id), range, collector);
-        }
-    }
-
     for (instance_id, _) in module.instances.iter() {
         if let Some(range) = lowered.source_name_range(instance_id) {
             check_range!(collector, range);
@@ -335,62 +328,111 @@ fn collect_module(
         };
     }
 
-    collect_named_param_assignments(sema, module_id, collector);
-    collect_named_port_connections(sema, module_id, collector);
+    let from_file = module_id.file_id.source_file_id(db);
+    collect_named_param_assignments(
+        sema,
+        from_file,
+        collector,
+        module.inst_param_assigns.iter(),
+        |assign_id| {
+            lowered
+                .ast(assign_id, &tree)
+                .and_then(ast::ParamAssignment::as_named_param_assignment)
+                .zip(lowered.source_name_range(assign_id))
+        },
+    );
+    collect_named_port_connections(
+        sema,
+        from_file,
+        collector,
+        module.inst_port_conns.iter(),
+        |conn_id| {
+            lowered
+                .ast(conn_id, &tree)
+                .and_then(ast::PortConnection::as_named_port_connection)
+                .zip(lowered.source_name_range(conn_id))
+        },
+    );
 
-    for (expr_id, expr) in module.exprs.iter() {
-        if type_expr_ids.contains(&expr_id) {
-            continue;
-        }
-        match expr {
-            Expr::Field { .. } => {
-                let _: Option<()> = try {
-                    let expr = lowered.ast(expr_id, &tree)?;
-                    collect_field_like(sema, module_id.into(), expr_id, expr, collector)?;
-                };
+    for (_, region) in module.generate_regions.iter() {
+        for item in &region.items {
+            if let GenerateItem::GenerateBlockId(generate_block_id) = item {
+                collect_generate_block(sema, *generate_block_id, collector);
             }
-            Expr::Ident(name) => {
-                let Some(range) = lowered.source_range(expr_id) else {
-                    continue;
-                };
-                check_range!(collector, range);
-                collect_ident_like(name, range, collector);
-            }
-            _ => {}
         }
     }
 
-    for (decl_id, decl) in module.decls.iter() {
-        let _: Option<()> = try {
-            let name = decl.name.as_ref()?;
-            let range = lowered.source_name_range(decl_id)?;
+    for (subroutine_id, _) in module.subroutines.iter() {
+        collect_subroutine(
+            sema,
+            SubroutineScope::new(SubroutineParent::Module(module_id), subroutine_id),
+            collector,
+        );
+    }
+
+    collect_container_body!(sema, module_id.into(), &tree, collector, &lowered);
+}
+
+fn collect_generate_block(
+    sema: &Semantics<'_, RootDb>,
+    generate_block_id: GenerateBlockId,
+    collector: &mut SemaTokenCollector,
+) {
+    let db = sema.db;
+    let lowered = db.generate_block_with_source_map(generate_block_id);
+    let generate_block = lowered.data_ref();
+    let tree = db.parse(generate_block_id.file_id(db));
+
+    for (instance_id, _) in generate_block.instances.iter() {
+        if let Some(range) = lowered.source_name_range(instance_id) {
             check_range!(collector, range);
-            collect_ident_like(name, range, collector);
+            let sema_token =
+                SemaToken { range, tag: SemaTokenTag::Instance, mods: SemaTokenModifier::empty() };
+            collector.tokens.add(sema_token);
         };
     }
 
-    for (typedef_id, typedef) in module.typedefs.iter() {
-        let _: Option<()> = try {
-            let _name = typedef.name.as_ref()?;
-            let range = lowered.source_name_range(typedef_id)?;
-            check_range!(collector, range);
-            collector.tokens.add(SemaToken {
-                range,
-                tag: SemaTokenTag::Type,
-                mods: SemaTokenModifier::DECL | SemaTokenModifier::DEF,
-            });
-        };
-    }
+    let from_file = generate_block_id.file_id(db).source_file_id(db);
+    collect_named_param_assignments(
+        sema,
+        from_file,
+        collector,
+        generate_block.inst_param_assigns.iter(),
+        |assign_id| {
+            lowered
+                .ast(assign_id, &tree)
+                .and_then(ast::ParamAssignment::as_named_param_assignment)
+                .zip(lowered.source_name_range(assign_id))
+        },
+    );
+    collect_named_port_connections(
+        sema,
+        from_file,
+        collector,
+        generate_block.inst_port_conns.iter(),
+        |conn_id| {
+            lowered
+                .ast(conn_id, &tree)
+                .and_then(ast::PortConnection::as_named_port_connection)
+                .zip(lowered.source_name_range(conn_id))
+        },
+    );
 
-    for (stmt_id, stmt) in module.stmts.iter() {
-        if let StmtKind::Block(BlockInfo { block_id, .. }) = stmt.kind {
-            let Some(range) = lowered.source_range(stmt_id) else {
-                continue;
-            };
-            check_range!(collector, range);
-            collect_block(sema, block_id, collector);
+    for item in &generate_block.items {
+        if let GenerateBlockItem::GenerateBlockId(child_id) = item {
+            collect_generate_block(sema, *child_id, collector);
         }
     }
+
+    for (subroutine_id, _) in generate_block.subroutines.iter() {
+        collect_subroutine(
+            sema,
+            SubroutineScope::new(SubroutineParent::GenerateBlock(generate_block_id), subroutine_id),
+            collector,
+        );
+    }
+
+    collect_container_body!(sema, generate_block_id.into(), &tree, collector, &lowered);
 }
 
 fn collect_block(
@@ -400,158 +442,75 @@ fn collect_block(
 ) {
     let db = sema.db;
     let lowered = db.block_with_source_map(block_id);
-    let block = lowered.data_ref();
     let tree = db.parse(block_id.file_id(db));
 
-    let collect_ident_like =
-        |name: &SmolStr, range: TextRange, collector: &mut SemaTokenCollector| {
-            let name_in_cont = InContainer::new(block_id.into(), name.clone());
-            collect_ident_like(sema, name_in_cont, range, collector);
-        };
-
-    let mut type_expr_ids = FxHashSet::default();
-    for (_, declaration) in block.declarations.iter() {
-        if let Some(expr_id) = named_data_ty_expr_id(declaration.ty()) {
-            type_expr_ids.insert(expr_id);
-            let Some(range) = lowered.source_range(expr_id) else {
-                continue;
-            };
-            check_range!(collector, range);
-            collect_type_ident_like(sema, block_id.into(), lowered.get(expr_id), range, collector);
-        }
-    }
-    for (_, typedef) in block.typedefs.iter() {
-        let Some(ty) = typedef.ty else {
-            continue;
-        };
-        if let Some(expr_id) = named_data_ty_expr_id(ty) {
-            type_expr_ids.insert(expr_id);
-            let Some(range) = lowered.source_range(expr_id) else {
-                continue;
-            };
-            check_range!(collector, range);
-            collect_type_ident_like(sema, block_id.into(), lowered.get(expr_id), range, collector);
-        }
-    }
-
-    for (expr_id, expr) in block.exprs.iter() {
-        if type_expr_ids.contains(&expr_id) {
-            continue;
-        }
-        match expr {
-            Expr::Field { .. } => {
-                let _: Option<()> = try {
-                    let expr = lowered.ast(expr_id, &tree)?;
-                    collect_field_like(sema, block_id.into(), expr_id, expr, collector)?;
-                };
-            }
-            Expr::Ident(name) => {
-                let Some(range) = lowered.source_range(expr_id) else {
-                    continue;
-                };
-                check_range!(collector, range);
-                collect_ident_like(name, range, collector);
-            }
-            _ => {}
-        }
-    }
-
-    for (decl_id, decl) in block.decls.iter() {
-        let _: Option<()> = try {
-            let name = decl.name.as_ref()?;
-            let range = lowered.source_name_range(decl_id)?;
-            check_range!(collector, range);
-            collect_ident_like(name, range, collector);
-        };
-    }
-
-    for (typedef_id, typedef) in block.typedefs.iter() {
-        let _: Option<()> = try {
-            let _name = typedef.name.as_ref()?;
-            let range = lowered.source_name_range(typedef_id)?;
-            check_range!(collector, range);
-            collector.tokens.add(SemaToken {
-                range,
-                tag: SemaTokenTag::Type,
-                mods: SemaTokenModifier::DECL | SemaTokenModifier::DEF,
-            });
-        };
-    }
-
-    for (stmt_id, stmt) in block.stmts.iter() {
-        if let StmtKind::Block(BlockInfo { block_id, .. }) = stmt.kind {
-            let Some(range) = lowered.source_range(stmt_id) else {
-                continue;
-            };
-            check_range!(collector, range);
-            collect_block(sema, block_id, collector);
-        }
-    }
+    collect_container_body!(sema, block_id.into(), &tree, collector, &lowered);
 }
 
-fn collect_named_port_connections(
+fn collect_subroutine(
     sema: &Semantics<'_, RootDb>,
-    module_id: ModuleId,
+    subroutine: SubroutineScope,
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let lowered = db.module_with_source_map(module_id);
-    let module = lowered.data_ref();
-    let tree = db.parse(module_id.file_id);
+    let lowered = db.subroutine_with_source_map(subroutine);
+    let tree = db.parse(subroutine.file_id(db));
 
-    for (conn_id, conn) in module.inst_port_conns.iter() {
-        let PortConn::Named(Some(_), _) = conn else {
-            continue;
-        };
-        let Some(range) = lowered.source_name_range(conn_id) else {
-            continue;
-        };
-        check_range!(collector, range);
-
-        let Some(named) =
-            lowered.ast(conn_id, &tree).and_then(ast::PortConnection::as_named_port_connection)
-        else {
-            continue;
-        };
-        let res = module_id
-            .file_id
-            .source_file_id(db)
-            .map_or(Resolution::Unresolved, |f| resolve_named_port_connection(db, f, named));
-        collect_resolved_path(sema, res, range, collector);
-    }
+    collect_container_body!(sema, subroutine.into(), &tree, collector, &lowered);
 }
 
-fn collect_named_param_assignments(
+/// Collects named parameter assignments inside `inst_param_assigns`, resolving
+/// each name against the target module. `named` projects a source range and
+/// the AST assignment from an assignment id.
+fn collect_named_param_assignments<'a>(
     sema: &Semantics<'_, RootDb>,
-    module_id: ModuleId,
+    from_file: Option<FileId>,
     collector: &mut SemaTokenCollector,
+    assigns: impl Iterator<Item = (ParamAssignId, &'a ParamAssign)>,
+    named: impl Fn(ParamAssignId) -> Option<(ast::NamedParamAssignment<'a>, TextRange)>,
 ) {
-    let db = sema.db;
-    let lowered = db.module_with_source_map(module_id);
-    let module = lowered.data_ref();
-    let tree = db.parse(module_id.file_id);
-
-    for (assign_id, assign) in module.inst_param_assigns.iter() {
+    for (assign_id, assign) in assigns {
         let ParamAssign::Named(Some(_), _) = assign else {
             continue;
         };
-        let Some(range) = lowered.source_name_range(assign_id) else {
+        let Some((named_assign, range)) = named(assign_id) else {
             continue;
         };
         check_range!(collector, range);
 
-        let Some(named) =
-            lowered.ast(assign_id, &tree).and_then(ast::ParamAssignment::as_named_param_assignment)
-        else {
-            continue;
-        };
-        let res = module_id
-            .file_id
-            .source_file_id(db)
-            .map_or(Resolution::Unresolved, |f| resolve_named_param_assignment(db, f, named));
+        let res = from_file.map_or(Resolution::Unresolved, |f| {
+            resolve_named_param_assignment(sema.db, f, named_assign)
+        });
         collect_resolved_path(sema, res, range, collector);
     }
 }
+
+/// Collects named port connections inside `inst_port_conns`, resolving each
+/// name against the target module. `named` projects a source range and the AST
+/// connection from a connection id.
+fn collect_named_port_connections<'a>(
+    sema: &Semantics<'_, RootDb>,
+    from_file: Option<FileId>,
+    collector: &mut SemaTokenCollector,
+    conns: impl Iterator<Item = (PortConnId, &'a PortConn)>,
+    named: impl Fn(PortConnId) -> Option<(ast::NamedPortConnection<'a>, TextRange)>,
+) {
+    for (conn_id, conn) in conns {
+        let PortConn::Named(Some(_), _) = conn else {
+            continue;
+        };
+        let Some((named_conn, range)) = named(conn_id) else {
+            continue;
+        };
+        check_range!(collector, range);
+
+        let res = from_file.map_or(Resolution::Unresolved, |f| {
+            resolve_named_port_connection(sema.db, f, named_conn)
+        });
+        collect_resolved_path(sema, res, range, collector);
+    }
+}
+
 
 fn collect_ident_like(
     sema: &Semantics<'_, RootDb>,
@@ -697,6 +656,68 @@ mod tests {
 
     use super::*;
     use crate::{analysis_host::AnalysisHost, test_utils::normalize_fixture_text};
+
+    #[test]
+    fn tokens_cover_generate_blocks_and_subroutine_bodies() {
+        let text = r#"
+module child(input logic clk);
+endmodule
+module top(input logic clk);
+  generate
+    if (1) begin : gen
+      child u_gen(.clk(clk));
+      typedef logic gen_ty;
+    end
+  endgenerate
+  function automatic void drive(input logic a);
+    typedef logic local_ty;
+    logic local_sig;
+    local_sig = a;
+  endfunction
+endmodule
+"#;
+        let (host, file_id) = setup(text);
+        let tokens = host
+            .make_analysis()
+            .semantic_tokens(
+                file_id,
+                SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: false, io: true } },
+                None,
+            )
+            .unwrap();
+
+        let token = |name: &str| -> Vec<SemaToken> {
+            tokens
+                .iter()
+                .copied()
+                .filter(|token| {
+                    text.get(usize::from(token.range.start())..usize::from(token.range.end()))
+                        == Some(name)
+                })
+                .collect()
+        };
+
+        let instance = token("u_gen");
+        assert!(
+            instance.iter().any(|t| t.tag == SemaTokenTag::Instance),
+            "instance inside a generate block should get an Instance tag, got {instance:?}"
+        );
+        let typedef_decl = |name: &str| {
+            token(name).iter().any(|t| {
+                t.tag == SemaTokenTag::Type
+                    && t.mods.contains(SemaTokenModifier::DECL)
+                    && t.mods.contains(SemaTokenModifier::DEF)
+            })
+        };
+        assert!(
+            typedef_decl("gen_ty"),
+            "typedef inside a generate block should get a Type|DECL|DEF token"
+        );
+        assert!(
+            typedef_decl("local_ty"),
+            "typedef inside a function body should get a Type|DECL|DEF token"
+        );
+    }
 
     fn setup(text: &str) -> (AnalysisHost, FileId) {
         let text = normalize_fixture_text(text);
