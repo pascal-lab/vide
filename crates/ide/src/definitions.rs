@@ -372,7 +372,7 @@ fn scoped_uses_dot(scoped: ast::ScopedName<'_>) -> bool {
         .any(|tok| tok.kind() == syntax::Token![.])
 }
 
-fn rightmost_name_token(name: ast::Name<'_>) -> Option<SyntaxToken<'_>> {
+pub(crate) fn rightmost_name_token(name: ast::Name<'_>) -> Option<SyntaxToken<'_>> {
     use ast::Name::*;
     match name {
         IdentifierName(ident) => ident.identifier(),
