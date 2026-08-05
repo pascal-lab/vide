@@ -7,10 +7,7 @@ use hir_def::{
     db::HirDefDb,
     declaration::Declaration,
     def_id::DefId,
-    expr::{
-        data_ty::DataTy,
-        declarator::DeclaratorParent,
-    },
+    expr::{data_ty::DataTy, declarator::DeclaratorParent},
     lower_ident_opt,
     module::{
         Module, ModuleId,
@@ -198,9 +195,7 @@ pub(crate) fn resolve_connection_port(
                 }
             }
         }
-        PortConn::Named(Some(name), _) => {
-            resolve_named_port_in_module(db, target_module_id, name)
-        }
+        PortConn::Named(Some(name), _) => resolve_named_port_in_module(db, target_module_id, name),
         PortConn::Named(None, _) | PortConn::Wildcard => Resolution::Unresolved,
     }
 }
@@ -232,16 +227,14 @@ pub(crate) fn resolve_port_metadata<'a>(
         }
     }
 
-    let port_decl_id = origins
-        .iter()
-        .filter_map(|origin| origin.as_decl(db))
-        .map(|decl_id| decl_id.value)
-        .find(|decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::PortDeclId(_)))?;
-    let data_decl_id = origins
-        .iter()
-        .filter_map(|origin| origin.as_decl(db))
-        .map(|decl_id| decl_id.value)
-        .find(|decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::DeclarationId(_)));
+    let port_decl_id =
+        origins.iter().filter_map(|origin| origin.as_decl(db)).map(|decl_id| decl_id.value).find(
+            |decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::PortDeclId(_)),
+        )?;
+    let data_decl_id =
+        origins.iter().filter_map(|origin| origin.as_decl(db)).map(|decl_id| decl_id.value).find(
+            |decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::DeclarationId(_)),
+        );
 
     let port_decl = module.get(port_decl_id);
     let name = defs
@@ -474,7 +467,6 @@ mod tests {
     use std::path::Path;
 
     use base_db::{change::Change, source_root::SourceRoot};
-    use crate::db::root_db::RootDb;
     use hir_def::symbol::{DefKind, DefOriginLoc, Resolution};
     use preproc_expand::db::PreprocDb;
     use smol_str::SmolStr;
@@ -483,6 +475,7 @@ mod tests {
     use vfs::{ChangedFile, FileId, FileSet};
 
     use super::*;
+    use crate::db::root_db::RootDb;
 
     fn db_with_root(
         files: &[(String, String)],

@@ -503,7 +503,12 @@ fn build_generate_region<L>(
     let name = Some(SmolStr::new_static("generate"));
     collector.push_symbol_with_kind(&name, src, SymbolKind::Generate);
     for item in hir.items.iter() {
-        build_generate_block_item(db, collector, generate_item_to_block_item(item.clone()), lowered);
+        build_generate_block_item(
+            db,
+            collector,
+            generate_item_to_block_item(item.clone()),
+            lowered,
+        );
     }
     collector.pop();
 }

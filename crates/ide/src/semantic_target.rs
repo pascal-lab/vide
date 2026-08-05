@@ -11,12 +11,9 @@ use syntax::{SyntaxNode, TokenKind};
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
-use crate::{
-    source_targets::{
-        SourceTarget, SourceTargetAlternatives, SourceTargetAmbiguity, SourceTargetBlock,
-        SourceTargetBlockReason, SourceTargetDomain, SourceTargetResolution,
-        source_target_at_offset,
-    },
+use crate::source_targets::{
+    SourceTarget, SourceTargetAlternatives, SourceTargetAmbiguity, SourceTargetBlock,
+    SourceTargetBlockReason, SourceTargetDomain, SourceTargetResolution, source_target_at_offset,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

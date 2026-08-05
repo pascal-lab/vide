@@ -1305,10 +1305,7 @@ endmodule
         "include should navigate to defs.svh: {nav:?}"
     );
 
-    let hover = analysis
-        .hover(position)
-        .unwrap()
-        .expect("include hover expected");
+    let hover = analysis.hover(position).unwrap().expect("include hover expected");
     assert_hover_snapshot!(
         "preproc_include_literal_supports_navigation_and_hover",
         hover.info.as_str(),
@@ -1337,10 +1334,7 @@ endmodule
     let range = target.focus_or_full_range();
     assert_eq!(clean_text[usize::from(range.start())..usize::from(range.end())].trim(), "WIDTH");
 
-    let hover = analysis
-        .hover(position)
-        .unwrap()
-        .expect("macro hover expected");
+    let hover = analysis.hover(position).unwrap().expect("macro hover expected");
     assert_hover_snapshot!(
         "preproc_macro_usage_supports_navigation_and_hover",
         hover.info.as_str()
@@ -1380,10 +1374,7 @@ endmodule
         "macro parameter definition should be linkable: {definition_nav:?}"
     );
 
-    let hover = analysis
-        .hover(param_ref)
-        .unwrap()
-        .expect("macro parameter hover expected");
+    let hover = analysis.hover(param_ref).unwrap().expect("macro parameter hover expected");
     assert_hover_snapshot!(
         "preproc_macro_param_supports_navigation_hover_and_references",
         hover.info.as_str(),
@@ -1447,10 +1438,7 @@ endmodule
         "macro argument should navigate through expanded HIR to payload_i definition: {nav:?}"
     );
 
-    let hover = analysis
-        .hover(arg)
-        .unwrap()
-        .expect("macro argument source token hover expected");
+    let hover = analysis.hover(arg).unwrap().expect("macro argument source token hover expected");
     assert_hover_snapshot!(
         "preproc_macro_argument_source_token_resolves_to_hir_definition__argument",
         hover.info.as_str(),
@@ -1532,9 +1520,7 @@ endmodule
 
     for (marker, name) in [("line", "__LINE__"), ("file", "__FILE__")] {
         let hover = analysis
-            .hover(
-                position(file_id, &markers, marker)
-            )
+            .hover(position(file_id, &markers, marker))
             .unwrap()
             .expect("builtin macro hover expected");
         assert_hover_snapshot!(
@@ -1693,9 +1679,7 @@ endmodule
     let analysis = host.make_analysis();
 
     let decl_hover = analysis
-        .hover(
-            position(top_file_id, &top_markers, "decl_call")
-        )
+        .hover(position(top_file_id, &top_markers, "decl_call"))
         .unwrap()
         .expect("DECL_PIPE macro call hover expected");
     assert_hover_snapshot!(
@@ -1704,9 +1688,7 @@ endmodule
     );
 
     let assign_hover = analysis
-        .hover(
-            position(top_file_id, &top_markers, "assign_call")
-        )
+        .hover(position(top_file_id, &top_markers, "assign_call"))
         .unwrap()
         .expect("PIPE_ASSIGN macro call hover expected");
     assert_hover_snapshot!(
@@ -1715,9 +1697,7 @@ endmodule
     );
 
     let argument_hover = analysis
-        .hover(
-            position(top_file_id, &top_markers, "assign_arg")
-        )
+        .hover(position(top_file_id, &top_markers, "assign_arg"))
         .unwrap()
         .expect("PIPE_ASSIGN actual argument hover expected");
     assert_hover_snapshot!(
@@ -1726,9 +1706,7 @@ endmodule
     );
 
     let sample_name_hover = analysis
-        .hover(
-            position(top_file_id, &top_markers, "sample_name")
-        )
+        .hover(position(top_file_id, &top_markers, "sample_name"))
         .unwrap()
         .expect("PIPE_ASSIGN pasted sample name hover expected");
     assert_hover_snapshot!(
@@ -1737,9 +1715,7 @@ endmodule
     );
 
     let trace_name_hover = analysis
-        .hover(
-            position(top_file_id, &top_markers, "trace_name")
-        )
+        .hover(position(top_file_id, &top_markers, "trace_name"))
         .unwrap()
         .expect("PIPE_ASSIGN pasted trace name hover expected");
     assert_hover_snapshot!(
@@ -1776,10 +1752,7 @@ endmodule
         "LOCAL_WIDTH"
     );
 
-    let hover = analysis
-        .hover(definition)
-        .unwrap()
-        .expect("macro definition hover expected");
+    let hover = analysis.hover(definition).unwrap().expect("macro definition hover expected");
     assert_hover_snapshot!(
         "preproc_macro_definition_supports_navigation_and_hover",
         hover.info.as_str(),
@@ -1902,10 +1875,7 @@ endmodule
         "HEADER_WIDTH"
     );
 
-    let hover = analysis
-        .hover(usage)
-        .unwrap()
-        .expect("included macro hover expected");
+    let hover = analysis.hover(usage).unwrap().expect("included macro hover expected");
     assert_hover_snapshot!(
         "preproc_include_macro_definition_feeds_ide_features",
         hover.info.as_str(),
@@ -2359,9 +2329,7 @@ include "vendor.map";
     );
 
     let hover = analysis
-        .hover(
-            position(file_id, &markers, "library_def")
-        )
+        .hover(position(file_id, &markers, "library_def"))
         .unwrap()
         .expect("library declaration hover expected");
     assert_hover_snapshot!(
@@ -2420,9 +2388,7 @@ endmodule
     let (host, file_id, _clean_text, markers) = setup_marked(text);
     let hover = host
         .make_analysis()
-        .hover(
-            position(file_id, &markers, "sig_def")
-        )
+        .hover(position(file_id, &markers, "sig_def"))
         .unwrap()
         .expect("signal hover expected");
     assert_hover_snapshot!(
@@ -2481,9 +2447,7 @@ endmodule
     let analysis = host.make_analysis();
 
     let module_hover = analysis
-        .hover(
-            position(file_id, &markers, "module_def")
-        )
+        .hover(position(file_id, &markers, "module_def"))
         .unwrap()
         .expect("module hover expected");
     assert_hover_snapshot!(
@@ -2492,9 +2456,7 @@ endmodule
     );
 
     let inst_module_hover = analysis
-        .hover(
-            position(file_id, &markers, "module_ref")
-        )
+        .hover(position(file_id, &markers, "module_ref"))
         .unwrap()
         .expect("instantiated module hover expected");
     assert_hover_snapshot!(
@@ -2503,9 +2465,7 @@ endmodule
     );
 
     let instance_hover = analysis
-        .hover(
-            position(file_id, &markers, "instance_ref")
-        )
+        .hover(position(file_id, &markers, "instance_ref"))
         .unwrap()
         .expect("instance hover expected");
     assert_hover_snapshot!(
@@ -2514,9 +2474,7 @@ endmodule
     );
 
     let port_hover = analysis
-        .hover(
-            position(file_id, &markers, "port_def")
-        )
+        .hover(position(file_id, &markers, "port_def"))
         .unwrap()
         .expect("port hover expected");
     assert_hover_snapshot!(
@@ -2525,9 +2483,7 @@ endmodule
     );
 
     let param_hover = analysis
-        .hover(
-            position(file_id, &markers, "param_def")
-        )
+        .hover(position(file_id, &markers, "param_def"))
         .unwrap()
         .expect("parameter hover expected");
     assert_hover_snapshot!(
@@ -2536,9 +2492,7 @@ endmodule
     );
 
     let task_hover = analysis
-        .hover(
-            position(file_id, &markers, "task_def")
-        )
+        .hover(position(file_id, &markers, "task_def"))
         .unwrap()
         .expect("task hover expected");
     assert_hover_snapshot!(
@@ -2547,9 +2501,7 @@ endmodule
     );
 
     let func_hover = analysis
-        .hover(
-            position(file_id, &markers, "func_def")
-        )
+        .hover(position(file_id, &markers, "func_def"))
         .unwrap()
         .expect("function hover expected");
     assert_hover_snapshot!(
@@ -2608,9 +2560,7 @@ endmodule
     );
 
     let instance_hover = analysis
-        .hover(
-            position(file_id, &markers, "inst_ref")
-        )
+        .hover(position(file_id, &markers, "inst_ref"))
         .unwrap()
         .expect("interface instance hover expected");
     assert_hover_snapshot!(
@@ -2619,9 +2569,7 @@ endmodule
     );
 
     let modport_hover = analysis
-        .hover(
-            position(file_id, &markers, "modport_ref")
-        )
+        .hover(position(file_id, &markers, "modport_ref"))
         .unwrap()
         .expect("modport hover expected");
     assert_hover_snapshot!(
@@ -2655,9 +2603,7 @@ endmodule
     );
 
     let hover = analysis
-        .hover(
-            position(file_id, &markers, "clocking_ref")
-        )
+        .hover(position(file_id, &markers, "clocking_ref"))
         .unwrap()
         .expect("clocking block hover expected");
     assert_hover_snapshot!(
@@ -2698,9 +2644,7 @@ endmodule
     );
 
     let checker_hover = analysis
-        .hover(
-            position(file_id, &markers, "checker_ref")
-        )
+        .hover(position(file_id, &markers, "checker_ref"))
         .unwrap()
         .expect("checker hover expected");
     assert_hover_snapshot!(
@@ -2709,9 +2653,7 @@ endmodule
     );
 
     let instance_hover = analysis
-        .hover(
-            position(file_id, &markers, "inst_ref")
-        )
+        .hover(position(file_id, &markers, "inst_ref"))
         .unwrap()
         .expect("checker instance hover expected");
     assert_hover_snapshot!(
@@ -2764,9 +2706,7 @@ endmodule
     );
 
     let covergroup_hover = analysis
-        .hover(
-            position(file_id, &markers, "covergroup_ref")
-        )
+        .hover(position(file_id, &markers, "covergroup_ref"))
         .unwrap()
         .expect("covergroup hover expected");
     assert_hover_snapshot!(
@@ -2775,9 +2715,7 @@ endmodule
     );
 
     let coverpoint_hover = analysis
-        .hover(
-            position(file_id, &markers, "coverpoint_ref")
-        )
+        .hover(position(file_id, &markers, "coverpoint_ref"))
         .unwrap()
         .expect("coverpoint hover expected");
     assert_hover_snapshot!(
@@ -2786,9 +2724,7 @@ endmodule
     );
 
     let cross_hover = analysis
-        .hover(
-            position(file_id, &markers, "cross_def")
-        )
+        .hover(position(file_id, &markers, "cross_def"))
         .unwrap()
         .expect("cross hover expected");
     assert_hover_snapshot!(
@@ -2797,9 +2733,7 @@ endmodule
     );
 
     let instance_hover = analysis
-        .hover(
-            position(file_id, &markers, "inst_ref")
-        )
+        .hover(position(file_id, &markers, "inst_ref"))
         .unwrap()
         .expect("covergroup instance hover expected");
     assert_hover_snapshot!(
@@ -2876,9 +2810,7 @@ endmodule
     let analysis = host.make_analysis();
 
     let hover = analysis
-        .hover(
-            position(file_id, &markers, "child_ref")
-        )
+        .hover(position(file_id, &markers, "child_ref"))
         .unwrap()
         .expect("ambiguous module hover expected");
     assert_hover_snapshot!(
@@ -2906,9 +2838,7 @@ endmodule
     let analysis = host.make_analysis();
 
     let hover = analysis
-        .hover(
-            position(file_id, &markers, "module_def")
-        )
+        .hover(position(file_id, &markers, "module_def"))
         .unwrap()
         .expect("module definition hover expected");
     assert_hover_snapshot!(
@@ -2966,9 +2896,7 @@ endmodule
     );
 
     let hover = analysis
-        .hover(
-            position(file_id, &markers, "inst_ref")
-        )
+        .hover(position(file_id, &markers, "inst_ref"))
         .unwrap()
         .expect("program instance hover expected");
     assert_hover_snapshot!(
@@ -3040,9 +2968,7 @@ endmodule
     );
 
     let package_hover = analysis
-        .hover(
-            position(file_id, &markers, "pkg_import")
-        )
+        .hover(position(file_id, &markers, "pkg_import"))
         .unwrap()
         .expect("package import hover expected");
     assert_hover_snapshot!(
@@ -3235,9 +3161,7 @@ fn verilog_2005_hover_covers_all_definition_kinds() {
         "config_def",
     ] {
         let hover = analysis
-            .hover(
-                position(file_id, &markers, marker)
-            )
+            .hover(position(file_id, &markers, marker))
             .unwrap()
             .unwrap_or_else(|| panic!("{marker} hover expected"));
         assert_hover_snapshot!(

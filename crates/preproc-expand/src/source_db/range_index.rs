@@ -72,8 +72,10 @@ struct PreprocRangeIndex {
     calls_by_file: FxHashMap<FileId, Vec<IndexedRange<SourceMacroCallId>>>,
     definitions_by_file: FxHashMap<FileId, Vec<IndexedRange<SourceMacroDefinitionId>>>,
     /// Param name tokens, keyed by (definition, param index).
-    param_definitions_by_file: FxHashMap<FileId, Vec<IndexedRange<(SourceMacroDefinitionId, usize)>>>,
-    /// Param use tokens inside definition bodies, keyed by (definition, token index).
+    param_definitions_by_file:
+        FxHashMap<FileId, Vec<IndexedRange<(SourceMacroDefinitionId, usize)>>>,
+    /// Param use tokens inside definition bodies, keyed by (definition, token
+    /// index).
     param_references_by_file:
         FxHashMap<FileId, Vec<IndexedRange<(SourceMacroDefinitionId, usize)>>>,
 }
@@ -106,8 +108,7 @@ impl PreprocRangeIndex {
             }
         }
         for definition in model.macro_definitions().iter() {
-            if let Some((file_id, range)) =
-                definition_file_range(source_map, definition.name_range)
+            if let Some((file_id, range)) = definition_file_range(source_map, definition.name_range)
             {
                 index
                     .definitions_by_file
@@ -134,7 +135,8 @@ impl PreprocRangeIndex {
                 let Some(token_range) = token.range else {
                     continue;
                 };
-                let is_param_use = params.iter().any(|param| param.name.as_ref() == Some(&token.value));
+                let is_param_use =
+                    params.iter().any(|param| param.name.as_ref() == Some(&token.value));
                 if !is_param_use {
                     continue;
                 }
@@ -189,11 +191,7 @@ impl PreprocRangeIndex {
         ids_intersecting_range(self.calls_by_file.get(&file_id), range)
     }
 
-    fn definition_ids_at(
-        &self,
-        file_id: FileId,
-        offset: TextSize,
-    ) -> Vec<SourceMacroDefinitionId> {
+    fn definition_ids_at(&self, file_id: FileId, offset: TextSize) -> Vec<SourceMacroDefinitionId> {
         ids_at(self.definitions_by_file.get(&file_id), offset)
     }
 
