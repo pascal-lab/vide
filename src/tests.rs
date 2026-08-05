@@ -26,11 +26,11 @@ use lsp_types::{
     },
     request::{
         CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls, CallHierarchyPrepare,
-        CodeActionRequest, CodeLensRequest, CodeLensResolve, Completion as CompletionRequest,
-        DocumentDiagnosticRequest, DocumentSymbolRequest, ExecuteCommand, FoldingRangeRequest,
-        GotoDefinition, GotoTypeDefinition, HoverRequest, References, Request as _,
-        SemanticTokensFullRequest, Shutdown, WorkspaceConfiguration, WorkspaceDiagnosticRequest,
-        WorkspaceSymbolRequest,
+        CodeActionRequest, CodeActionResolveRequest, CodeLensRequest, CodeLensResolve,
+        Completion as CompletionRequest, DocumentDiagnosticRequest, DocumentSymbolRequest,
+        ExecuteCommand, FoldingRangeRequest, GotoDefinition, GotoTypeDefinition, HoverRequest,
+        References, Request as _, SemanticTokensFullRequest, Shutdown, WorkspaceConfiguration,
+        WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
     },
 };
 use serde::de::DeserializeOwned;
