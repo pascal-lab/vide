@@ -7,9 +7,10 @@ use base_db::{
     source_db::{FileLoader, SourceDb, SourceDbStorage, SourceRootDb, SourceRootDbStorage},
 };
 use hir_def::db::{
-    BlockQuery, BlockScopeQuery, BlockWithSourceMapQuery, FileScopeQuery, HirDefDbStorage,
-    HirFileQuery, HirFileWithSourceMapQuery, InternDbStorage, ModuleQuery, ModuleScopeQuery,
-    ModuleWithSourceMapQuery,
+    BlockQuery, BlockScopeQuery, BlockWithSourceMapQuery, DefMapQuery, FileScopeQuery,
+    GenerateBlockQuery, GenerateBlockWithSourceMapQuery, HirDefDbStorage, HirFileQuery,
+    HirFileWithSourceMapQuery, InternDbStorage, ModuleQuery, ModuleScopeQuery,
+    ModuleWithSourceMapQuery, SubroutineQuery, SubroutineWithSourceMapQuery,
 };
 use hir_ty::db::TyDbStorage;
 use preproc_expand::db::{ParseSrcForCompilationQuery, ParsedProfileQuery, PreprocDbStorage};
@@ -83,6 +84,11 @@ impl RootDb {
         HirFileQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         ModuleQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         BlockQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        SubroutineWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        SubroutineQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        GenerateBlockWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        GenerateBlockQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        DefMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         FileScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         ModuleScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         BlockScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);

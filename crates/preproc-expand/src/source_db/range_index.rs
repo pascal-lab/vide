@@ -242,8 +242,11 @@ fn ids_at<T: Copy>(ranges: Option<&Vec<IndexedRange<T>>>, offset: TextSize) -> V
     let Some(ranges) = ranges else {
         return Vec::new();
     };
+    // Entries are sorted by (start, end); those containing `offset` are
+    // contiguous and start after the last entry ending at or before it.
+    let start = ranges.partition_point(|entry| entry.range.end() <= offset);
     let mut ids = Vec::new();
-    for entry in ranges {
+    for entry in &ranges[start..] {
         if entry.range.start() > offset {
             break;
         }
@@ -261,8 +264,10 @@ fn ids_intersecting_range<T: Copy>(
     let Some(ranges) = ranges else {
         return Vec::new();
     };
+    // Entries ending at or before the query start cannot intersect it.
+    let start = ranges.partition_point(|entry| entry.range.end() <= range.start());
     let mut ids = Vec::new();
-    for entry in ranges {
+    for entry in &ranges[start..] {
         if entry.range.start() >= range.end() {
             break;
         }
