@@ -16,16 +16,26 @@
 //! cargo test -p ide --release -- --ignored --nocapture index_benchmarks
 //! ```
 
-use std::time::{Duration, Instant};
+use std::{
+    fs,
+    time::{Duration, Instant},
+};
 
 use base_db::{change::Change, source_db::SourceRootDb, source_root::SourceRoot};
+use preproc_expand::db::PreprocDb;
+use utils::line_index::{TextRange, TextSize};
 use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
 use crate::{
+    FilePosition, ScopeVisibility,
     analysis_host::AnalysisHost,
     db::workspace_symbol_index_db::{
         source_root_module_index_for_root, source_root_semantic_index_for_root,
     },
+    document_highlight::DocumentHighlightConfig,
+    goto_definition,
+    references::ReferencesConfig,
+    semantic_index::{incoming_module_edges, outgoing_module_edges},
     test_utils::normalize_fixture_text,
 };
 
@@ -119,6 +129,120 @@ fn index_benchmarks_build_scales_with_file_size() {
             semantic_cost
         );
     }
+}
+
+/// Real-file soak test: loads `$VIDE_BENCH_FILE` as a single-file root and
+/// times the cold parse, module index, semantic index, one representative
+/// request of each navigation feature, and the incremental rebuild after a
+/// one-byte touch at the end of the file.
+///
+/// Run with:
+///
+/// ```text
+/// VIDE_BENCH_FILE=~/Downloads/XS.v \
+///   cargo test -p ide --release -- --ignored --nocapture index_benchmarks_real_file
+/// ```
+#[test]
+#[ignore]
+fn index_benchmarks_real_file() {
+    let Some(path) = std::env::var_os("VIDE_BENCH_FILE") else {
+        println!("VIDE_BENCH_FILE not set; skipping real-file benchmark");
+        return;
+    };
+    let path = std::path::PathBuf::from(path);
+    let text = fs::read_to_string(&path).expect("read benchmark file");
+    let line_count = text.lines().count();
+    eprintln!(
+        "\n== B5: real-file soak test ({path:?}, {line_count} lines, {} bytes) ==",
+        text.len()
+    );
+
+    let file_id = FileId::from_raw(0);
+    let mut file_set = FileSet::default();
+    file_set.insert(file_id, VfsPath::new_virtual_path("/XS.v".to_owned()));
+    let mut change = Change::new();
+    change.set_roots(vec![SourceRoot::new_local(file_set)]);
+    change.add_changed_file(ChangedFile::create(file_id, text.as_str()));
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+
+    let db = host.raw_db();
+    let root_id = db.source_root_id(file_id);
+
+    let (_, parse_cost) = timed(|| std::hint::black_box(db.parse(file_id.into())));
+    eprintln!("cold parse:                                    {parse_cost:?}");
+
+    let (_, module_cost) =
+        timed(|| std::hint::black_box(source_root_module_index_for_root(db, root_id)));
+    eprintln!("module index:                                  {module_cost:?}");
+
+    let (_, semantic_cost) =
+        timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
+    eprintln!("semantic index (cold, first build):           {semantic_cost:?}");
+
+    // Pick the first module declaration's name as the probe symbol.
+    let probe = "array_0_ext";
+    let probe_decl = "module array_0_ext";
+    let probe_offset = TextSize::from(
+        u32::try_from(
+            text.find(probe_decl)
+                .map(|start| start + "module ".len())
+                .expect("probe module should exist"),
+        )
+        .unwrap(),
+    );
+    let position = FilePosition { file_id, offset: probe_offset };
+
+    let (nav, goto_cost) = timed(|| goto_definition::goto_definition(db, position));
+    eprintln!(
+        "goto definition on first module ({probe}):     {goto_cost:?} ({} targets)",
+        nav.map_or(0, |info| info.info.len())
+    );
+
+    let (highlights, highlight_cost) = timed(|| {
+        crate::document_highlight::document_highlight(
+            db,
+            position,
+            DocumentHighlightConfig { scope_visibility: ScopeVisibility::Public },
+        )
+    });
+    eprintln!(
+        "document highlight:                            {highlight_cost:?} ({} highlights)",
+        highlights.map_or(0, |h| h.len())
+    );
+
+    let (refs, refs_cost) = timed(|| {
+        crate::references::references(
+            db,
+            position,
+            ReferencesConfig::new(ScopeVisibility::Public, None),
+        )
+    });
+    let ref_count =
+        refs.map_or(0, |rs| rs.iter().map(|r| r.refs.values().map(Vec::len).sum::<usize>()).sum());
+    eprintln!("find references (workspace):                  {refs_cost:?} ({ref_count} refs)");
+
+    let probe_range = TextRange::new(probe_offset, probe_offset + TextSize::of(probe));
+    let (incoming, incoming_cost) = timed(|| incoming_module_edges(db, file_id, probe_range));
+    eprintln!(
+        "call hierarchy incoming:                      {incoming_cost:?} ({} edges)",
+        incoming.len()
+    );
+    let (outgoing, outgoing_cost) = timed(|| outgoing_module_edges(db, file_id, probe_range));
+    eprintln!(
+        "call hierarchy outgoing:                      {outgoing_cost:?} ({} edges)",
+        outgoing.len()
+    );
+
+    // One-byte touch at the end of the file, then rebuild.
+    let mut touch = Change::new();
+    let touched = format!("{text} ");
+    touch.add_changed_file(ChangedFile::create(file_id, touched.as_str()));
+    host.apply_change(touch);
+    let db = host.raw_db();
+    let (_, rebuild_cost) =
+        timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
+    eprintln!("semantic index (rebuild after one-byte touch): {rebuild_cost:?}");
 }
 
 #[test]
