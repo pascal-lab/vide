@@ -244,7 +244,7 @@ pub enum Expr {
 
 pub type ExprId = Idx<Expr>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ExpressionAst;
 
 impl AstKind for ExpressionAst {

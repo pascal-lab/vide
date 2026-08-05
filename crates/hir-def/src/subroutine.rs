@@ -158,7 +158,7 @@ pub enum SubroutinePortDir {
     Unknown,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct FunctionDeclarationAst;
 
 impl AstKind for FunctionDeclarationAst {

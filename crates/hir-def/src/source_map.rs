@@ -459,11 +459,11 @@ where
     Ast::cast(node)
 }
 
-pub trait AstKind: Debug + PartialEq + Eq + Hash + Copy + Clone + 'static {
+pub trait AstKind: Debug + PartialEq + Eq + Hash + PartialOrd + Ord + Copy + Clone + 'static {
     type Node<'a>: AstNode<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct AstId<Kind: AstKind>(pub SyntaxNodePtr, HirFileId, PhantomData<fn() -> Kind>);
 
 impl<Kind: AstKind> AstId<Kind> {
@@ -524,7 +524,7 @@ impl<Kind: AstKind> From<AstId<Kind>> for SyntaxNodePtr {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct NamedAstId<Kind: AstKind> {
     pub file_id: HirFileId,
     pub node: SyntaxNodePtr,

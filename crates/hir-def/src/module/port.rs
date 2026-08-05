@@ -45,21 +45,21 @@ pub struct PortDecl {
 
 pub type PortDeclId = Idx<PortDecl>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ImplicitAnsiPortAst;
 
 impl AstKind for ImplicitAnsiPortAst {
     type Node<'a> = ast::ImplicitAnsiPort<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ExplicitAnsiPortAst;
 
 impl AstKind for ExplicitAnsiPortAst {
     type Node<'a> = ast::ExplicitAnsiPort<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct PortDeclarationAst;
 
 impl AstKind for PortDeclarationAst {
@@ -230,7 +230,7 @@ pub struct NonAnsiPort {
 
 pub type NonAnsiPortId = Idx<NonAnsiPort>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct NonAnsiPortAst;
 
 impl AstKind for NonAnsiPortAst {
@@ -247,7 +247,7 @@ pub struct PortRef {
 
 pub type PortRefId = Idx<PortRef>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct PortReferenceAst;
 
 impl AstKind for PortReferenceAst {
@@ -280,21 +280,21 @@ impl PortSrcs {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct NonAnsiPortListAst;
 
 impl AstKind for NonAnsiPortListAst {
     type Node<'a> = ast::NonAnsiPortList<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct AnsiPortListAst;
 
 impl AstKind for AnsiPortListAst {
     type Node<'a> = ast::AnsiPortList<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct WildcardPortListAst;
 
 impl AstKind for WildcardPortListAst {

@@ -35,7 +35,7 @@ pub enum EventControl {
 
 pub type EventExprId = Idx<EventExpr>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct EventExpressionAst;
 
 impl AstKind for EventExpressionAst {

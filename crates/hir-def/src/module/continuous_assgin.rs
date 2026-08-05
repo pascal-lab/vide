@@ -22,7 +22,7 @@ pub struct ContAssign {
 
 pub type ContAssignId = Idx<ContAssign>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ContinuousAssignAst;
 
 impl AstKind for ContinuousAssignAst {

@@ -22,7 +22,7 @@ pub struct SpecifyBlock {
 
 pub type SpecifyBlockId = Idx<SpecifyBlock>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct SpecifyBlockAst;
 
 impl AstKind for SpecifyBlockAst {
@@ -60,35 +60,35 @@ pub enum SpecifyItem {
 
 pub type SpecifyItemId = Idx<SpecifyItem>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct PathDeclarationAst;
 
 impl AstKind for PathDeclarationAst {
     type Node<'a> = ast::PathDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ConditionalPathDeclarationAst;
 
 impl AstKind for ConditionalPathDeclarationAst {
     type Node<'a> = ast::ConditionalPathDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct IfNonePathDeclarationAst;
 
 impl AstKind for IfNonePathDeclarationAst {
     type Node<'a> = ast::IfNonePathDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct PulseStyleDeclarationAst;
 
 impl AstKind for PulseStyleDeclarationAst {
     type Node<'a> = ast::PulseStyleDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct SystemTimingCheckAst;
 
 impl AstKind for SystemTimingCheckAst {

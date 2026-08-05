@@ -140,7 +140,7 @@ pub enum ParBlockKind {
     JoinNone,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct BlockStatementAst;
 
 impl AstKind for BlockStatementAst {
@@ -243,7 +243,7 @@ pub struct BlockInfo {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct LocalBlockId(pub StmtId);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BlockId(Arc<BlockLoc>);
 
 impl BlockId {
@@ -255,54 +255,8 @@ impl BlockId {
         &self.0
     }
 }
-impl PartialOrd for BlockId {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
 
-impl Ord for BlockId {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.loc()
-            .cont_id
-            .cmp(&other.loc().cont_id)
-            .then_with(|| self.loc().src.file_id.cmp(&other.loc().src.file_id))
-            .then_with(|| {
-                cmp_text_ranges(self.loc().src.value.range(), other.loc().src.value.range())
-            })
-            .then_with(|| {
-                cmp_optional_text_ranges(
-                    self.loc().src.value.name_range(),
-                    other.loc().src.value.name_range(),
-                )
-            })
-            .then_with(|| {
-                format!("{:?}", self.loc().src.value.kind())
-                    .cmp(&format!("{:?}", other.loc().src.value.kind()))
-            })
-    }
-}
-
-fn cmp_text_ranges(
-    left: utils::text_edit::TextRange,
-    right: utils::text_edit::TextRange,
-) -> std::cmp::Ordering {
-    left.start().cmp(&right.start()).then_with(|| left.end().cmp(&right.end()))
-}
-
-fn cmp_optional_text_ranges(
-    left: Option<utils::text_edit::TextRange>,
-    right: Option<utils::text_edit::TextRange>,
-) -> std::cmp::Ordering {
-    match (left, right) {
-        (None, None) => std::cmp::Ordering::Equal,
-        (None, Some(_)) => std::cmp::Ordering::Less,
-        (Some(_), None) => std::cmp::Ordering::Greater,
-        (Some(left), Some(right)) => cmp_text_ranges(left, right),
-    }
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct BlockLoc {
     pub cont_id: ArenaOwnerId,
     pub src: InFile<BlockSrc>,

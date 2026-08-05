@@ -28,20 +28,8 @@ use crate::{
     typedef::TypedefId,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DefOrigin(Arc<DefOriginLoc>);
-
-impl PartialOrd for DefOrigin {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for DefOrigin {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        format!("{:?}", self.0).cmp(&format!("{:?}", other.0))
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
