@@ -68,16 +68,14 @@ impl MappedSourcePreprocModel {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct PreprocRangeIndex {
-    references_by_file: FxHashMap<FileId, Vec<IndexedRange<SourceMacroReferenceId>>>,
-    calls_by_file: FxHashMap<FileId, Vec<IndexedRange<SourceMacroCallId>>>,
-    definitions_by_file: FxHashMap<FileId, Vec<IndexedRange<SourceMacroDefinitionId>>>,
+    references_by_file: FxHashMap<FileId, RangeIndex<SourceMacroReferenceId>>,
+    calls_by_file: FxHashMap<FileId, RangeIndex<SourceMacroCallId>>,
+    definitions_by_file: FxHashMap<FileId, RangeIndex<SourceMacroDefinitionId>>,
     /// Param name tokens, keyed by (definition, param index).
-    param_definitions_by_file:
-        FxHashMap<FileId, Vec<IndexedRange<(SourceMacroDefinitionId, usize)>>>,
+    param_definitions_by_file: FxHashMap<FileId, RangeIndex<(SourceMacroDefinitionId, usize)>>,
     /// Param use tokens inside definition bodies, keyed by (definition, token
     /// index).
-    param_references_by_file:
-        FxHashMap<FileId, Vec<IndexedRange<(SourceMacroDefinitionId, usize)>>>,
+    param_references_by_file: FxHashMap<FileId, RangeIndex<(SourceMacroDefinitionId, usize)>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,35 +84,94 @@ struct IndexedRange<T> {
     id: T,
 }
 
+/// Ranges for one file kept in two sort views. Range end-points are not
+/// monotonic (ranges overlap and nest), so an exact interval-stabbing query
+/// scans the smaller of the two candidate sets: ranges whose start precedes
+/// the probe point versus ranges whose end follows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RangeIndex<T> {
+    by_start: Vec<IndexedRange<T>>,
+    by_end: Vec<IndexedRange<T>>,
+}
+
+impl<T> Default for RangeIndex<T> {
+    fn default() -> Self {
+        Self { by_start: Vec::new(), by_end: Vec::new() }
+    }
+}
+
+impl<T: Copy> RangeIndex<T> {
+    fn push(&mut self, range: TextRange, id: T) {
+        self.by_start.push(IndexedRange { range, id });
+        self.by_end.push(IndexedRange { range, id });
+    }
+
+    fn finish(&mut self) {
+        self.by_start.sort_by_key(|entry| (entry.range.start(), entry.range.end()));
+        self.by_end.sort_by_key(|entry| (entry.range.end(), entry.range.start()));
+    }
+
+    /// All ids whose range contains `offset` (half-open: `start <= offset <
+    /// end`).
+    fn ids_at(&self, offset: TextSize) -> Vec<T> {
+        let start_prefix = self.by_start.partition_point(|entry| entry.range.start() <= offset);
+        let end_suffix = self.by_end.partition_point(|entry| entry.range.end() <= offset);
+        let mut ids = Vec::new();
+        if start_prefix <= self.by_end.len() - end_suffix {
+            for entry in &self.by_start[..start_prefix] {
+                if entry.range.end() > offset {
+                    ids.push(entry.id);
+                }
+            }
+        } else {
+            for entry in &self.by_end[end_suffix..] {
+                if entry.range.start() <= offset {
+                    ids.push(entry.id);
+                }
+            }
+        }
+        ids
+    }
+
+    /// All ids whose range intersects `range` (non-empty intersection).
+    fn ids_intersecting_range(&self, range: TextRange) -> Vec<T> {
+        let start_prefix = self.by_start.partition_point(|entry| entry.range.start() < range.end());
+        let end_suffix = self.by_end.partition_point(|entry| entry.range.end() <= range.start());
+        let mut ids = Vec::new();
+        if start_prefix <= self.by_end.len() - end_suffix {
+            for entry in &self.by_start[..start_prefix] {
+                if entry.range.end() > range.start() {
+                    ids.push(entry.id);
+                }
+            }
+        } else {
+            for entry in &self.by_end[end_suffix..] {
+                if entry.range.start() < range.end() {
+                    ids.push(entry.id);
+                }
+            }
+        }
+        ids
+    }
+}
+
 impl PreprocRangeIndex {
     fn from_model(model: &SourcePreprocModel, source_map: &PreprocSourceMap) -> Self {
         let mut index = Self::default();
         for reference in model.macro_references().iter() {
             if let Some((file_id, range)) = mapped_file_range(source_map, reference.name_range) {
-                index
-                    .references_by_file
-                    .entry(file_id)
-                    .or_default()
-                    .push(IndexedRange { range, id: reference.id });
+                index.references_by_file.entry(file_id).or_default().push(range, reference.id);
             }
         }
         for call in model.macro_calls().iter() {
             if let Some((file_id, range)) = mapped_file_range(source_map, call.call_range) {
-                index
-                    .calls_by_file
-                    .entry(file_id)
-                    .or_default()
-                    .push(IndexedRange { range, id: call.id });
+                index.calls_by_file.entry(file_id).or_default().push(range, call.id);
             }
         }
         for definition in model.macro_definitions().iter() {
             if let Some((file_id, range)) = definition_file_range(source_map, definition.name_range)
             {
-                index
-                    .definitions_by_file
-                    .entry(file_id)
-                    .or_default()
-                    .push(IndexedRange { range, id: definition.id });
+                index.definitions_by_file.entry(file_id).or_default().push(range, definition.id);
             }
             let Some(params) = &definition.params else {
                 continue;
@@ -128,7 +185,7 @@ impl PreprocRangeIndex {
                         .param_definitions_by_file
                         .entry(file_id)
                         .or_default()
-                        .push(IndexedRange { range, id: (definition.id, param_index) });
+                        .push(range, (definition.id, param_index));
                 }
             }
             for (token_index, token) in definition.body_tokens.iter().enumerate() {
@@ -145,30 +202,30 @@ impl PreprocRangeIndex {
                         .param_references_by_file
                         .entry(file_id)
                         .or_default()
-                        .push(IndexedRange { range, id: (definition.id, token_index) });
+                        .push(range, (definition.id, token_index));
                 }
             }
         }
-        for references in index.references_by_file.values_mut() {
-            sort_indexed_ranges(references);
+        for entries in index.references_by_file.values_mut() {
+            entries.finish();
         }
         for calls in index.calls_by_file.values_mut() {
-            sort_indexed_ranges(calls);
+            calls.finish();
         }
         for definitions in index.definitions_by_file.values_mut() {
-            sort_indexed_ranges(definitions);
+            definitions.finish();
         }
         for definitions in index.param_definitions_by_file.values_mut() {
-            sort_indexed_ranges(definitions);
+            definitions.finish();
         }
         for references in index.param_references_by_file.values_mut() {
-            sort_indexed_ranges(references);
+            references.finish();
         }
         index
     }
 
     fn reference_ids_at(&self, file_id: FileId, offset: TextSize) -> Vec<SourceMacroReferenceId> {
-        ids_at(self.references_by_file.get(&file_id), offset)
+        ids_at(&self.references_by_file, file_id, offset)
     }
 
     fn reference_ids_intersecting_range(
@@ -176,11 +233,11 @@ impl PreprocRangeIndex {
         file_id: FileId,
         range: TextRange,
     ) -> Vec<SourceMacroReferenceId> {
-        ids_intersecting_range(self.references_by_file.get(&file_id), range)
+        ids_intersecting_range(&self.references_by_file, file_id, range)
     }
 
     fn call_ids_at(&self, file_id: FileId, offset: TextSize) -> Vec<SourceMacroCallId> {
-        ids_at(self.calls_by_file.get(&file_id), offset)
+        ids_at(&self.calls_by_file, file_id, offset)
     }
 
     fn call_ids_intersecting_range(
@@ -188,11 +245,11 @@ impl PreprocRangeIndex {
         file_id: FileId,
         range: TextRange,
     ) -> Vec<SourceMacroCallId> {
-        ids_intersecting_range(self.calls_by_file.get(&file_id), range)
+        ids_intersecting_range(&self.calls_by_file, file_id, range)
     }
 
     fn definition_ids_at(&self, file_id: FileId, offset: TextSize) -> Vec<SourceMacroDefinitionId> {
-        ids_at(self.definitions_by_file.get(&file_id), offset)
+        ids_at(&self.definitions_by_file, file_id, offset)
     }
 
     fn param_definition_ids_at(
@@ -200,7 +257,7 @@ impl PreprocRangeIndex {
         file_id: FileId,
         offset: TextSize,
     ) -> Vec<(SourceMacroDefinitionId, usize)> {
-        ids_at(self.param_definitions_by_file.get(&file_id), offset)
+        ids_at(&self.param_definitions_by_file, file_id, offset)
     }
 
     fn param_reference_ids_at(
@@ -208,7 +265,7 @@ impl PreprocRangeIndex {
         file_id: FileId,
         offset: TextSize,
     ) -> Vec<(SourceMacroDefinitionId, usize)> {
-        ids_at(self.param_references_by_file.get(&file_id), offset)
+        ids_at(&self.param_references_by_file, file_id, offset)
     }
 }
 
@@ -234,46 +291,18 @@ fn definition_file_range(
     mapped_file_range(source_map, name_range)
 }
 
-fn sort_indexed_ranges<T: Copy>(ranges: &mut [IndexedRange<T>]) {
-    ranges.sort_by_key(|entry| (entry.range.start(), entry.range.end()));
-}
-
-fn ids_at<T: Copy>(ranges: Option<&Vec<IndexedRange<T>>>, offset: TextSize) -> Vec<T> {
-    let Some(ranges) = ranges else {
-        return Vec::new();
-    };
-    // Entries are sorted by (start, end); those containing `offset` are
-    // contiguous and start after the last entry ending at or before it.
-    let start = ranges.partition_point(|entry| entry.range.end() <= offset);
-    let mut ids = Vec::new();
-    for entry in &ranges[start..] {
-        if entry.range.start() > offset {
-            break;
-        }
-        if entry.range.contains(offset) {
-            ids.push(entry.id);
-        }
-    }
-    ids
+fn ids_at<T: Copy>(
+    by_file: &FxHashMap<FileId, RangeIndex<T>>,
+    file_id: FileId,
+    offset: TextSize,
+) -> Vec<T> {
+    by_file.get(&file_id).map_or_else(Vec::new, |index| index.ids_at(offset))
 }
 
 fn ids_intersecting_range<T: Copy>(
-    ranges: Option<&Vec<IndexedRange<T>>>,
+    by_file: &FxHashMap<FileId, RangeIndex<T>>,
+    file_id: FileId,
     range: TextRange,
 ) -> Vec<T> {
-    let Some(ranges) = ranges else {
-        return Vec::new();
-    };
-    // Entries ending at or before the query start cannot intersect it.
-    let start = ranges.partition_point(|entry| entry.range.end() <= range.start());
-    let mut ids = Vec::new();
-    for entry in &ranges[start..] {
-        if entry.range.start() >= range.end() {
-            break;
-        }
-        if entry.range.intersect(range).is_some_and(|intersection| !intersection.is_empty()) {
-            ids.push(entry.id);
-        }
-    }
-    ids
+    by_file.get(&file_id).map_or_else(Vec::new, |index| index.ids_intersecting_range(range))
 }
