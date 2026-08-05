@@ -209,6 +209,9 @@ impl GlobalState {
         let workspace_affecting_change =
             config.workspace_affecting_settings_changed(self.config_state.config.as_ref());
         let _old_config = std::mem::replace(&mut self.config_state.config, Arc::new(config));
+        // Semantic tokens depend on the config (port clk/rst/io toggles); drop
+        // cached payloads so the next delta falls back to a full response.
+        self.analysis.semantic_tokens_cache.lock().clear();
 
         if diagnostics_config_changed {
             self.analysis.analysis_host.set_diagnostics_config(Arc::new(diagnostics_config));

@@ -823,7 +823,7 @@ pub(crate) fn semantic_token_delta(
         }]
     };
 
-    lsp_types::SemanticTokensDelta { result_id: result_id.clone().clone(), edits }
+    lsp_types::SemanticTokensDelta { result_id: result_id.clone(), edits }
 }
 
 pub(crate) fn signature_help(

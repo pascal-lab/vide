@@ -31,19 +31,24 @@ pub(crate) fn handle_semantic_tokens_full_delta(
     let res = compute_sema_tokens_helper(&snap, file_id, None)?;
     snap.cancellation.check()?;
 
-    let old_tokens = snap.sema_tokens_cache.lock().get(&uri).cloned();
+    let delta = {
+        let cache = snap.sema_tokens_cache.lock();
+        match cache.get(&uri) {
+            Some(old @ lsp_types::SemanticTokens { result_id: Some(prev_id), .. })
+                if *prev_id == params.previous_result_id =>
+            {
+                Some(to_proto::semantic_token_delta(old, &res))
+            }
+            _ => None,
+        }
+    };
     snap.on_response_accepted(AcceptedResponseEffect::CommitSemanticTokens {
         uri,
         tokens: res.clone(),
     });
-    if let Some(old_tokens @ lsp_types::SemanticTokens { result_id: Some(prev_id), .. }) =
-        &old_tokens
-        && *prev_id == params.previous_result_id
-    {
-        let delta = to_proto::semantic_token_delta(old_tokens, &res);
-        Ok(Some(delta.into()))
-    } else {
-        Ok(Some(res.into()))
+    match delta {
+        Some(delta) => Ok(Some(delta.into())),
+        None => Ok(Some(res.into())),
     }
 }
 

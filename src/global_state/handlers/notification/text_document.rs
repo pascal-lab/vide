@@ -85,6 +85,10 @@ pub(crate) fn handle_did_change_text_document(
         if let Some(text) = text {
             set_vfs_file_contents(state, &path, text)?;
         }
+        // The cached token payload is now stale; drop it so the next delta
+        // falls back to a full response instead of diffing against an
+        // outdated base.
+        state.analysis.semantic_tokens_cache.lock().remove(&params.text_document.uri);
     }
     Ok(())
 }
@@ -101,6 +105,10 @@ pub(crate) fn handle_did_close_text_document(
         if let Some(file_id) = file_id {
             state.diagnostics.pending_document_diagnostic_targets.insert(file_id);
         }
+
+        // A closed document never needs its token payload again; drop it to
+        // keep the cache bounded to open documents.
+        state.analysis.semantic_tokens_cache.lock().remove(&params.text_document.uri);
 
         if let Some(path) = path.as_abs_path() {
             state.workspace.vfs_loader.handle.invalidate(path.to_path_buf());
