@@ -63,6 +63,8 @@ mod slang_ffi {
         has_keyword_context: bool,
         location: usize,
         has_location: bool,
+        end: usize,
+        has_end: bool,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -495,6 +497,7 @@ mod slang_ffi {
             include_paths: Vec<String>,
             include_buffers: Vec<RawSourceBuffer>,
             expand_includes: bool,
+            collect_expected_syntax: bool,
         ) -> SharedPtr<SyntaxTree>;
 
         #[namespace = "wrapper::syntax"]
@@ -527,6 +530,9 @@ mod slang_ffi {
             include_buffers: Vec<RawSourceBuffer>,
             expand_includes: bool,
         ) -> Vec<RawExpectedSyntax>;
+
+        #[namespace = "wrapper::syntax"]
+        fn SyntaxTree_expectedSyntaxAt(tree: &SyntaxTree, offset: usize) -> Vec<RawExpectedSyntax>;
 
         #[namespace = "wrapper::syntax"]
         fn SyntaxTree_libraryMapExpectedSyntaxAtOffset(
@@ -696,12 +702,13 @@ impl_functions! {
     impl SyntaxTree {
         fn fromText(text: CxxSV, name: CxxSV, path: CxxSV) -> SharedPtr<SyntaxTree> |> SyntaxTree_fromText;
         fn fromTextWithOptions(text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>, include_paths: Vec<String>, include_buffers: Vec<RawSourceBuffer>, expand_includes: bool) -> SharedPtr<SyntaxTree> |> SyntaxTree_fromTextWithOptions;
-        fn fromTextWithOptionsAndTrace(text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>, include_paths: Vec<String>, include_buffers: Vec<RawSourceBuffer>, expand_includes: bool) -> SharedPtr<SyntaxTree> |> SyntaxTree_fromTextWithOptionsAndTrace;
+        fn fromTextWithOptionsAndTrace(text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>, include_paths: Vec<String>, include_buffers: Vec<RawSourceBuffer>, expand_includes: bool, collect_expected_syntax: bool) -> SharedPtr<SyntaxTree> |> SyntaxTree_fromTextWithOptionsAndTrace;
         fn fromLibraryMapText(text: CxxSV, name: CxxSV, path: CxxSV) -> SharedPtr<SyntaxTree> |> SyntaxTree_fromLibraryMapText;
         fn root(&self) -> *const SyntaxNode |> SyntaxTree_root;
         fn diagnostics(&self) -> Vec<RawSyntaxDiagnostic> |> SyntaxTree_diagnostics;
         fn diagnostics_with_options(&self, warning_options: Vec<String>) -> Vec<RawSyntaxDiagnostic> |> SyntaxTree_diagnostics_with_options;
         fn expectedSyntaxAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize, predefines: Vec<String>, include_paths: Vec<String>, include_buffers: Vec<RawSourceBuffer>, expand_includes: bool) -> Vec<RawExpectedSyntax> |> SyntaxTree_expectedSyntaxAtOffset;
+        fn expectedSyntaxAt(&self, offset: usize) -> Vec<RawExpectedSyntax> |> SyntaxTree_expectedSyntaxAt;
         fn libraryMapExpectedSyntaxAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> Vec<RawExpectedSyntax> |> SyntaxTree_libraryMapExpectedSyntaxAtOffset;
         fn directiveAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> RawLexedTokenAtOffset |> SyntaxTree_directiveAtOffset;
         fn tokenWordAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> RawLexedTokenAtOffset |> SyntaxTree_tokenWordAtOffset;

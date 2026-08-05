@@ -246,20 +246,49 @@ bool ParserBase::atExpectedSyntaxCursor() {
 void ParserBase::recordExpectedSyntax(
     DiagCode code, TokenKind tokenKind,
     std::optional<SyntaxKeywordContext> keywordContext) {
+    auto currentLoc = peek().location();
+    if (!currentLoc)
+        return;
+
+    if (expectedSyntaxOptions.recordAll) {
+        // Record every expectation site the completion consumer actually uses:
+        // list items, expression starts, member/statement lists, diagnostics,
+        // and identifier expectations (declaration names). Skipping plain
+        // `expect()` records keeps the metadata O(syntax nodes) instead of
+        // O(tokens) with no consumer. Entries are deduplicated by the consumer
+        // (the vector can grow large, so an O(n) dedup scan per insert is
+        // avoided here).
+        if (code == diag::ExpectedToken && tokenKind != TokenKind::Identifier)
+            return;
+        size_t lower = currentLoc.offset();
+        if (window.lastConsumed) {
+            auto lastLoc = window.lastConsumed.location();
+            if (lastLoc && lastLoc.buffer() == currentLoc.buffer())
+                lower = lastLoc.offset() + window.lastConsumed.rawText().size();
+        }
+        size_t upper = currentLoc.offset() + peek().rawText().size();
+        if (!keywordContext)
+            keywordContext = keywordContextForExpectedSyntax(code);
+        expectedSyntax.emplace_back(code, tokenKind,
+                                    SourceLocation(currentLoc.buffer(), lower), upper,
+                                    keywordContext);
+        return;
+    }
+
     if (!atExpectedSyntaxCursor())
         return;
 
     if (!keywordContext)
         keywordContext = keywordContextForExpectedSyntax(code);
 
-    auto currentLoc = peek().location();
     auto location = SourceLocation(currentLoc.buffer(), *expectedSyntaxOptions.cursorOffset);
     auto exists = std::ranges::any_of(expectedSyntax, [&](const ExpectedSyntax& expected) {
         return expected.code == code && expected.tokenKind == tokenKind &&
                expected.location == location && expected.keywordContext == keywordContext;
     });
     if (!exists)
-        expectedSyntax.push_back(ExpectedSyntax{code, tokenKind, location, keywordContext});
+        expectedSyntax.emplace_back(code, tokenKind, location,
+                                    *expectedSyntaxOptions.cursorOffset, keywordContext);
 }
 
 std::vector<ExpectedSyntax> ParserBase::takeExpectedSyntax() {

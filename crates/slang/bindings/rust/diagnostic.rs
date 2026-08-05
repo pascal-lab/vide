@@ -45,6 +45,9 @@ pub struct ParserExpectedSyntax {
     pub token_kind: TokenKind,
     pub keyword_context: Option<SyntaxKeywordContext>,
     pub location: Option<usize>,
+    /// End (exclusive) of the source window where the expectation was recorded.
+    /// Equals `location` for single-cursor recordings.
+    pub end: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +71,7 @@ impl ParserExpectedSyntax {
                 .then_some(raw.keyword_context)
                 .and_then(SyntaxKeywordContext::from_raw),
             location: raw.has_location.then_some(raw.location),
+            end: raw.has_end.then_some(raw.end),
         }
     }
 }

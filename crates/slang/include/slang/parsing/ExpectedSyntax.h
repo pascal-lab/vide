@@ -17,13 +17,19 @@
 
 namespace slang::parsing {
 
-/// Options for collecting parser grammar expectations at a source offset.
+/// Options for collecting parser grammar expectations.
 struct ExpectedSyntaxOptions {
     /// Character offset within the parsed source buffer where expectations should be recorded.
+    /// Only used when `recordAll` is false.
     std::optional<size_t> cursorOffset;
+
+    /// Record every expectation site with its real source window instead of
+    /// gating on a single cursor offset. The authoritative parse uses this so
+    /// one parse serves completion requests at any caret position.
+    bool recordAll = false;
 };
 
-/// A grammar expectation observed by the parser at the requested source offset.
+/// A grammar expectation observed by the parser.
 struct ExpectedSyntax {
     /// The parser diagnostic category associated with this expectation.
     DiagCode code = DiagCode();
@@ -31,8 +37,13 @@ struct ExpectedSyntax {
     /// The specific token expected, when the parser was expecting one fixed token.
     TokenKind tokenKind = TokenKind::Unknown;
 
-    /// The source location of the requested offset.
+    /// The start of the source window where the expectation was recorded.
+    /// In single-cursor mode this is the requested cursor offset.
     SourceLocation location = SourceLocation::NoLocation;
+
+    /// The end (exclusive) of the source window where the expectation was
+    /// recorded. In single-cursor mode this equals the cursor offset.
+    size_t end = 0;
 
     /// Keyword item context associated with the expectation, when applicable.
     std::optional<syntax::SyntaxKeywordContext> keywordContext;

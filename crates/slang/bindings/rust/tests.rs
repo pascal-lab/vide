@@ -922,6 +922,7 @@ wire disabled_by_header;
                 .to_owned(),
         }],
         expand_includes: true,
+        collect_expected_syntax: false,
     };
 
     let trace = preprocessor_trace(source, "source", &source_path, &options);
@@ -1087,6 +1088,7 @@ endmodule
             text: "`define HEADER_VALUE 7\n".to_owned(),
         }],
         expand_includes: true,
+        collect_expected_syntax: false,
     };
 
     let parsed =
