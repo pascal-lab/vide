@@ -86,11 +86,11 @@ pub(crate) fn packed_bit_width(db: &dyn TyDb, ty: &Ty) -> Option<u64> {
                     let dim = (*dim)?;
                     let width = match dim {
                         Dimension::Range(left, right) => {
-                            let left = eval_const_i128(db, *container, left)?;
-                            let right = eval_const_i128(db, *container, right)?;
+                            let left = eval_const_i128(db, container, left)?;
+                            let right = eval_const_i128(db, container, right)?;
                             i128::abs(left - right).checked_add(1)?
                         }
-                        Dimension::Size(size) => eval_const_i128(db, *container, size)?,
+                        Dimension::Size(size) => eval_const_i128(db, container, size)?,
                         Dimension::Queue(_) | Dimension::Assoc(_) | Dimension::Dynamic => {
                             return None;
                         }
@@ -132,7 +132,7 @@ fn int_kind_width(kind: IntKind) -> usize {
     }
 }
 
-fn eval_const_i128(db: &dyn TyDb, container: ArenaOwnerId, expr_id: ExprId) -> Option<i128> {
+fn eval_const_i128(db: &dyn TyDb, container: &ArenaOwnerId, expr_id: ExprId) -> Option<i128> {
     let data = container.data(db);
     match data.expr(expr_id) {
         Expr::Literal(Literal::Int(int)) => int.get_single_word().map(|value| value as i128),

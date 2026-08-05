@@ -23,7 +23,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DefinitionClass {
     Definition(DefId),
     PortConnShorthand { port: DefId, local: DefId },
@@ -106,13 +106,13 @@ fn combine_port_shorthand(
         (Resolution::Unresolved, Resolution::Unresolved) => Resolution::Unresolved,
         (Resolution::Unresolved, _) => local.map(DefinitionClass::Definition),
         (_, Resolution::Unresolved) => port.map(DefinitionClass::Definition),
-        _ => Resolution::from_candidates(port.into_candidates().into_iter().flat_map(|port| {
-            local
-                .candidates()
-                .iter()
-                .copied()
-                .map(move |local| DefinitionClass::PortConnShorthand { port, local })
-        })),
+        _ => {
+            Resolution::from_candidates(port.into_candidates().into_iter().flat_map(|port| {
+                local.candidates().iter().cloned().map(move |local| {
+                    DefinitionClass::PortConnShorthand { port: port.clone(), local }
+                })
+            }))
+        }
     }
 }
 
@@ -235,7 +235,7 @@ fn package_member_resolution(
         if primary_ctx == NameContext::Type { NameContext::Value } else { NameContext::Type };
     packages
         .and_then(|package| {
-            let Some(package_id) = package.primary_origin(sema.db).as_module(sema.db) else {
+            let Some(package_id) = package.primary_origin(sema.db).as_module() else {
                 return Resolution::Unresolved;
             };
             let scope = sema.db.package_export_scope(package_id);
@@ -431,7 +431,7 @@ mod tests {
             };
 
             let origins = def.origins(db);
-            let (resolution, range) = match origins.first().copied() {
+            let (resolution, range) = match origins.first().cloned() {
                 Some(origin) if origin.kind(db) == DefKind::NonAnsiPort => (
                     "NonAnsiPort",
                     origin.name_range(db).expect("non-ANSI port label should have a name range"),

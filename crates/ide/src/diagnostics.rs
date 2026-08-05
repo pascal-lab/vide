@@ -409,7 +409,10 @@ mod tests {
         source_db::SourceDb,
         source_root::{SourceRoot, SourceRootId, SourceRootRole},
     };
-    use preproc_expand::{compilation_plan::compilation_source_buffers_for_plan, db::PreprocDb};
+    use preproc_expand::{
+        compilation_plan::compilation_source_buffers_for_plan,
+        db::{PreprocDb, PreprocDbExt},
+    };
     use triomphe::Arc;
     use utils::{
         line_index::{TextRange, TextSize},
@@ -464,7 +467,7 @@ mod tests {
         configured: bool,
         preprocess: PreprocessConfig,
     ) -> RootDb {
-        let mut db = RootDb::new(None);
+        let mut db = RootDb::new();
         let mut file_set = FileSet::default();
         let mut change = Change::new();
 
@@ -789,7 +792,7 @@ mod tests {
         change.add_changed_file(ChangedFile::create(manifest_id, ""));
         change.add_changed_file(ChangedFile::create(open_file_id, "module open(;\nendmodule\n"));
 
-        let mut db = RootDb::new(None);
+        let mut db = RootDb::new();
         db.apply_change(change);
 
         assert!(!db.project_config().has_compilation_profiles());
@@ -812,7 +815,7 @@ mod tests {
 
     #[test]
     fn best_effort_index_root_does_not_produce_fallback_compilation_plan() {
-        let mut db = RootDb::new(None);
+        let mut db = RootDb::new();
         let file_id = FileId::from_raw(0);
         let mut file_set = FileSet::default();
         file_set.insert(file_id, VfsPath::new_virtual_path("/top.sv".to_owned()));
@@ -836,7 +839,7 @@ mod tests {
         let top_path = root.join("top.sv");
         let header_path = root.join("defs.vh");
 
-        let mut db = RootDb::new(None);
+        let mut db = RootDb::new();
         let mut file_set = FileSet::default();
         file_set.insert(FileId::from_raw(0), VfsPath::from(top_path.clone()));
         file_set.insert(FileId::from_raw(1), VfsPath::from(header_path));
@@ -888,7 +891,7 @@ mod tests {
         std::fs::write(&pkg_path, pkg_text).unwrap();
         std::fs::write(&frag_path, disk_frag_text).unwrap();
 
-        let mut db = RootDb::new(None);
+        let mut db = RootDb::new();
         let mut file_set = FileSet::default();
         file_set.insert(FileId::from_raw(0), VfsPath::from(pkg_path.clone()));
         file_set.insert(FileId::from_raw(1), VfsPath::from(frag_path));
@@ -941,7 +944,7 @@ mod tests {
         std::fs::write(&mid_path, mid_text).unwrap();
         std::fs::write(&leaf_path, disk_leaf_text).unwrap();
 
-        let mut db = RootDb::new(None);
+        let mut db = RootDb::new();
         let mut src_files = FileSet::default();
         src_files.insert(FileId::from_raw(0), VfsPath::from(top_path));
         let mut include_files = FileSet::default();
@@ -996,7 +999,7 @@ mod tests {
         std::fs::write(&a_path, a_text).unwrap();
         std::fs::write(&b_path, b_text).unwrap();
 
-        let mut db = RootDb::new(None);
+        let mut db = RootDb::new();
         let mut file_set = FileSet::default();
         file_set.insert(FileId::from_raw(0), VfsPath::from(a_path.clone()));
         file_set.insert(FileId::from_raw(1), VfsPath::from(b_path.clone()));

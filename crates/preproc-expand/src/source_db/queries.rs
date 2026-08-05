@@ -73,9 +73,11 @@ pub fn workspace_preproc_model_file_ids(
     file_ids
 }
 
+#[salsa::tracked(returns(clone))]
 pub(crate) fn source_preproc_model(
     db: &dyn PreprocDb,
     file_id: FileId,
+    _key: (),
 ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>> {
     let file_kind = db.file_kind(file_id);
     if !matches!(file_kind, SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader) {

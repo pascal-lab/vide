@@ -7,7 +7,7 @@ use syntax::{
 
 use super::{
     Ident,
-    block::{BlockInfo, BlockLoc, BlockSrc},
+    block::{BlockId, BlockInfo, BlockLoc, BlockSrc},
     expr::{ExprId, data_ty::DataTy, declarator::DeclId, timing_control::TimingControl},
     lower::{LoweringCtx, LoweringStore},
     lower_ident_opt,
@@ -405,10 +405,10 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
 
     fn lower_block_stmt(&mut self, stmt: ast::BlockStatement) -> StmtKind {
         let loc = BlockLoc {
-            cont_id: self.owner,
+            cont_id: self.owner.clone(),
             src: InFile::new(self.file_id, BlockSrc::from_ast(self.file_id, stmt)),
         };
-        let block_id = self.db.intern_block(loc);
+        let block_id = BlockId::new(loc);
         let name = stmt.block_name().and_then(|name| lower_ident_opt(name.name()));
         StmtKind::Block(BlockInfo { name, block_id })
     }

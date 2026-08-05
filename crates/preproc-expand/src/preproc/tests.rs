@@ -7,9 +7,7 @@ use base_db::{
         ProjectConfig,
     },
     salsa::{self, Durability},
-    source_db::{
-        FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb, SourceRootDbStorage,
-    },
+    source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
     source_root::{SourceRoot, SourceRootId},
 };
 use rustc_hash::FxHashSet;
@@ -22,7 +20,7 @@ use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
 use super::*;
 use crate::{
-    db::{PreprocDb, PreprocDbStorage},
+    db::{PreprocDb, PreprocDbExt},
     macro_file::{MacroFileId, macro_files_at_offset},
 };
 
@@ -33,13 +31,23 @@ const MANIFEST: FileId = FileId::from_raw(3);
 const ROOT: SourceRootId = SourceRootId(0);
 const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
-#[salsa::database(SourceDbStorage, SourceRootDbStorage, PreprocDbStorage)]
+#[salsa::db]
 #[derive(Default)]
 struct TestDb {
     storage: salsa::Storage<Self>,
 }
 
+#[salsa::db]
 impl salsa::Database for TestDb {}
+
+#[salsa::db]
+impl SourceDb for TestDb {}
+
+#[salsa::db]
+impl SourceRootDb for TestDb {}
+
+#[salsa::db]
+impl PreprocDb for TestDb {}
 
 impl fmt::Debug for TestDb {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

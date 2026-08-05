@@ -1,10 +1,10 @@
 use itertools::Either;
 use smallvec::SmallVec;
-use triomphe::Arc;
 use syntax::{
     SyntaxNode, SyntaxToken, TokenKind,
     ast::{self, AstNode},
 };
+use triomphe::Arc;
 
 use super::{Expr, ExprId, Selector};
 use crate::{

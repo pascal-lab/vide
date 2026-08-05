@@ -286,7 +286,7 @@ fn render_def_origin(
 
 fn render_definition_title(db: &RootDb, origin: &DefOrigin) -> Option<String> {
     let name = origin.name(db)?;
-    let kind = match origin.loc(db) {
+    let kind = match origin.loc() {
         DefOriginLoc::Module(module_id) => {
             match db.hir_file_with_source_map(module_id.file_id).get(module_id.value).kind {
                 ModuleKind::Module => "Module",
@@ -343,7 +343,7 @@ fn render_decl_title_kind(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<&
 
 fn render_signature(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<String> {
     let db = sema.db;
-    match origin.loc(db) {
+    match origin.loc() {
         DefOriginLoc::Module(module_id) => render_module_signature(db, module_id),
         DefOriginLoc::Subroutine(subroutine_id) => render_subroutine_signature(db, subroutine_id),
         DefOriginLoc::SubroutinePort(port_id) => render_subroutine_port_signature(db, port_id),
@@ -419,11 +419,11 @@ fn render_subroutine_port_signature(
     db: &RootDb,
     port_id: InSubroutine<SubroutinePortId>,
 ) -> Option<String> {
-    let subroutine = db.subroutine(port_id.subroutine);
+    let subroutine = db.subroutine(port_id.subroutine.clone());
     let port = subroutine.ports.get(port_id.value.0 as usize)?;
     let name = port.name.as_ref()?;
-    let container = port_id.subroutine.cont_id;
-    let ty = port.ty.and_then(|ty| render_data_ty(db, container.into(), ty));
+    let container = port_id.subroutine.cont_id.clone();
+    let ty = port.ty.clone().and_then(|ty| render_data_ty(db, container.into(), ty));
     let dir = port.direction.display_source(db).ok()?;
 
     match (dir.is_empty(), ty) {
@@ -435,14 +435,14 @@ fn render_subroutine_port_signature(
 }
 
 fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineScope) -> Option<String> {
-    let subroutine = db.subroutine(subroutine_id);
+    let subroutine = db.subroutine(subroutine_id.clone());
     let name = subroutine.name.as_ref()?;
-    let container = subroutine_id.cont_id;
-    let mut signature = match subroutine.kind {
+    let container = subroutine_id.cont_id.clone();
+    let mut signature = match &subroutine.kind {
         SubroutineKind::Task => format!("task {name}"),
         SubroutineKind::Function { return_ty } => {
             if let Some(return_ty) =
-                return_ty.and_then(|ty| render_data_ty(db, container.into(), ty))
+                return_ty.clone().and_then(|ty| render_data_ty(db, container.clone().into(), ty))
             {
                 format!("function {return_ty} {name}")
             } else {
@@ -458,7 +458,7 @@ fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineScope) -> O
         .filter_map(|(idx, _)| {
             render_subroutine_port_signature(
                 db,
-                InSubroutine::new(subroutine_id, SubroutinePortId(idx as u32)),
+                InSubroutine::new(subroutine_id.clone(), SubroutinePortId(idx as u32)),
             )
         })
         .collect_vec();
@@ -487,7 +487,8 @@ fn render_module_port_list(db: &RootDb, module_id: ModuleId) -> Vec<String> {
         Ports::Ansi(port_decls) => {
             let mut ports = Vec::new();
             for port_decl in port_decls.values() {
-                let header = InModule::new(module_id, port_decl.header).display_source(db).ok();
+                let header =
+                    InModule::new(module_id, port_decl.header.clone()).display_source(db).ok();
                 for decl_id in port_decl.decls.clone() {
                     let name =
                         InContainer::new(module_id.into(), decl_id).display_signature(db).ok();
@@ -574,28 +575,31 @@ fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<St
 
     match decl.parent {
         DeclaratorParent::PortDeclId(port_decl_id) => {
-            let ArenaOwnerId::Module(module_id) = decl_id.cont_id else {
+            let ArenaOwnerId::Module(module_id) = decl_id.cont_id.clone() else {
                 return None;
             };
             let module = db.module_with_source_map(module_id);
-            let header = InModule::new(module_id, module.get(port_decl_id).header)
+            let header = InModule::new(module_id, module.get(port_decl_id).header.clone())
                 .display_source(db)
                 .ok()?;
-            let decl =
-                InContainer::new(decl_id.cont_id, decl_id.value).display_signature(db).ok()?;
+            let decl = InContainer::new(decl_id.cont_id.clone(), decl_id.value)
+                .display_signature(db)
+                .ok()?;
             Some(format!("{header} {decl}"))
         }
         DeclaratorParent::DeclarationId(parent) => {
             let declaration = container.declaration(parent);
-            let prefix = render_declaration_prefix(db, decl_id.cont_id, declaration)?;
-            let decl =
-                InContainer::new(decl_id.cont_id, decl_id.value).display_signature(db).ok()?;
-            let initializer = render_initializer(db, decl_id).unwrap_or_default();
+            let prefix = render_declaration_prefix(db, decl_id.cont_id.clone(), declaration)?;
+            let decl = InContainer::new(decl_id.cont_id.clone(), decl_id.value)
+                .display_signature(db)
+                .ok()?;
+            let initializer = render_initializer(db, decl_id.clone()).unwrap_or_default();
             Some(format!("{prefix} {decl}{initializer}"))
         }
         DeclaratorParent::StmtId(_) => {
-            let decl =
-                InContainer::new(decl_id.cont_id, decl_id.value).display_signature(db).ok()?;
+            let decl = InContainer::new(decl_id.cont_id.clone(), decl_id.value)
+                .display_signature(db)
+                .ok()?;
             let initializer = render_initializer(db, decl_id).unwrap_or_default();
             Some(format!("variable {decl}{initializer}"))
         }
@@ -652,11 +656,11 @@ fn render_initializer(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<Strin
     let decl = container.declarator(decl_id.value);
     let init = decl
         .initializer
-        .map(|expr| InContainer::new(decl_id.cont_id, expr).display_source(db).ok())??;
+        .map(|expr| InContainer::new(decl_id.cont_id.clone(), expr).display_source(db).ok())??;
     let mut rendered = format!(" = {init}");
     if let Some(second) = decl
         .secondary_initializer
-        .and_then(|expr| InContainer::new(decl_id.cont_id, expr).display_source(db).ok())
+        .and_then(|expr| InContainer::new(decl_id.cont_id.clone(), expr).display_source(db).ok())
     {
         rendered.push(':');
         rendered.push_str(&second);
@@ -670,7 +674,7 @@ fn render_data_ty(db: &RootDb, container: ArenaOwnerId, ty: DataTy) -> Option<St
 
 fn render_label_signature(db: &RootDb, origin: &DefOrigin) -> Option<String> {
     let name = origin.name(db)?;
-    let kind = match origin.loc(db) {
+    let kind = match origin.loc() {
         DefOriginLoc::Config(_) => "config",
         DefOriginLoc::Library(_) => "library",
         DefOriginLoc::Udp(_) => "primitive",
@@ -742,7 +746,7 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<Str
 
     let mut containers = Vec::new();
 
-    for cont_id in ScopeParent::start_from(db, cont_id) {
+    for cont_id in ScopeParent::start_from(cont_id) {
         if let Some(owner_id) = cont_id.arena_owner() {
             let src_map = owner_id.source_map(db);
             let region_tree = src_map.region_tree();

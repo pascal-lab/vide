@@ -115,7 +115,7 @@ impl ModuleIndex {
                 for module_id in defs
                     .iter()
                     .filter(|def_id| def_id.kind(db).is_instantiable_def())
-                    .filter_map(|def_id| def_id.primary_origin(db).as_module(db))
+                    .filter_map(|def_id| def_id.primary_origin(db).as_module())
                 {
                     let Some(module) = SemanticModuleDefinition::new(db, module_id) else {
                         continue;
@@ -161,7 +161,7 @@ impl ModuleIndex {
 
 impl SemanticModuleDefinition {
     fn new(db: &dyn TyDb, module_id: ModuleId) -> Option<Self> {
-        let origin = DefOrigin::new(db, module_id);
+        let origin = DefOrigin::new(module_id);
         let name = origin.name(db)?;
         let InFile { file_id, value: name_range } = origin.name_range(db)?;
         let InFile { value: full_range, .. } = origin.range(db)?;

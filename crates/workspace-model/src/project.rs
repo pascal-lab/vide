@@ -6,6 +6,9 @@ use crate::source_root::SourceRootId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CompilationProfileId(pub u32);
 
+// SAFETY: `CompilationProfileId` is a copy-only, `'static` identity value.
+unsafe impl salsa::SalsaValue for CompilationProfileId {}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PreprocessConfig {
     pub predefines: Vec<Predefine>,

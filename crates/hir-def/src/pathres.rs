@@ -28,10 +28,10 @@ pub fn resolve_name(
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    let scopes = ScopeParent::start_from(db, cont_id).collect::<SmallVec<[_; 4]>>();
+    let scopes = ScopeParent::start_from(cont_id).collect::<SmallVec<[_; 4]>>();
 
     for id in &scopes {
-        let resolution = db.scope_for(*id).lookup(ctx, ident);
+        let resolution = db.scope_for(id.clone()).lookup(ctx, ident);
         if !resolution.is_unresolved() {
             return resolution;
         }
@@ -58,7 +58,7 @@ pub fn resolve_path(
     let Some((first, rest)) = path.split_first() else {
         return Resolution::Unresolved;
     };
-    let mut current = resolve_name(db, cont_id, first, ctx)
+    let mut current = resolve_name(db, cont_id.clone(), first, ctx)
         .or_else(|| resolve_top_level_module_root(db, cont_id, first, ctx, !rest.is_empty()));
 
     for (idx, segment) in rest.iter().enumerate() {
@@ -92,7 +92,7 @@ fn resolve_top_level_module_root(
         resolve_name(db, cont_id, ident, NameContext::Type)
             .candidates()
             .iter()
-            .copied()
+            .cloned()
             .filter(|def_id| def_id.kind(db).is_instantiable_def()),
     )
 }
@@ -115,18 +115,18 @@ pub fn descend_scope(db: &dyn HirDefDb, def_id: DefId) -> Option<ScopeId> {
     let origin = def_id.primary_origin(db);
     match def_id.kind(db) {
         DefKind::Module | DefKind::Interface | DefKind::Program => {
-            origin.as_module(db).map(Into::into)
+            origin.as_module().map(Into::into)
         }
-        DefKind::ClockingBlock => origin.as_clocking_block(db).map(Into::into),
-        DefKind::Checker => origin.as_checker(db).map(ScopeId::Checker),
-        DefKind::Covergroup => origin.as_covergroup(db).map(ScopeId::Covergroup),
+        DefKind::ClockingBlock => origin.as_clocking_block().map(Into::into),
+        DefKind::Checker => origin.as_checker().map(ScopeId::Checker),
+        DefKind::Covergroup => origin.as_covergroup().map(ScopeId::Covergroup),
         DefKind::Instance => {
-            let instance = origin.as_instance(db)?;
+            let instance = origin.as_instance()?;
             let target = instance_target_def_id(db, instance.module_id, instance.value)?;
             descend_scope(db, target)
         }
-        DefKind::Block => origin.as_block(db).map(Into::into),
-        DefKind::GenerateBlock => origin.as_generate_block(db).map(Into::into),
+        DefKind::Block => origin.as_block().map(Into::into),
+        DefKind::GenerateBlock => origin.as_generate_block().map(Into::into),
         _ => None,
     }
 }
@@ -153,7 +153,7 @@ fn resolve_imported_name(
     let mut defs = SmallVec::<[DefId; 3]>::new();
 
     for scope_id in scopes {
-        let scope = db.scope_for(*scope_id);
+        let scope = db.scope_for(scope_id.clone());
         collect_imports(db, &scope, ident, ctx, true, &mut defs);
         if !defs.is_empty() {
             return Resolution::from_candidates(defs);
@@ -161,7 +161,7 @@ fn resolve_imported_name(
     }
 
     for scope_id in scopes {
-        let scope = db.scope_for(*scope_id);
+        let scope = db.scope_for(scope_id.clone());
         collect_imports(db, &scope, ident, ctx, false, &mut defs);
         if !defs.is_empty() {
             return Resolution::from_candidates(defs);
@@ -206,13 +206,10 @@ mod tests {
         diagnostics_config::DiagnosticsConfig,
         project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
         salsa::{self, Durability},
-        source_db::{
-            FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
-            SourceRootDbStorage,
-        },
+        source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
         source_root::{SourceRoot, SourceRootId},
     };
-    use preproc_expand::{db::PreprocDbStorage, file::HirFileId};
+    use preproc_expand::{db::PreprocDb, file::HirFileId};
     use rustc_hash::FxHashSet;
     use smol_str::SmolStr;
     use triomphe::Arc;
@@ -223,7 +220,7 @@ mod tests {
     use crate::{
         Ident,
         container::ScopeId,
-        db::{HirDefDb, HirDefDbStorage, InternDbStorage},
+        db::{HirDefDb, HirDefDbExt},
         symbol::{DefKind, NameContext},
     };
 
@@ -231,19 +228,26 @@ mod tests {
     const ROOT: SourceRootId = SourceRootId(0);
     const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
-    #[salsa::database(
-        SourceDbStorage,
-        SourceRootDbStorage,
-        PreprocDbStorage,
-        InternDbStorage,
-        HirDefDbStorage
-    )]
+    #[salsa::db]
     #[derive(Default)]
     struct TestDb {
         storage: salsa::Storage<Self>,
     }
 
+    #[salsa::db]
     impl salsa::Database for TestDb {}
+
+    #[salsa::db]
+    impl SourceDb for TestDb {}
+
+    #[salsa::db]
+    impl SourceRootDb for TestDb {}
+
+    #[salsa::db]
+    impl PreprocDb for TestDb {}
+
+    #[salsa::db]
+    impl HirDefDb for TestDb {}
 
     impl fmt::Debug for TestDb {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

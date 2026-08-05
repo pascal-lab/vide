@@ -9,6 +9,7 @@ default = ["notify-backend"]
 notify-backend = ["dep:notify", "dep:rayon", "dep:walkdir"]
 
 [dependencies]
+salsa.workspace = true
 crossbeam-channel.workspace = true
 fst = "0.4.7"
 globset.workspace = true
