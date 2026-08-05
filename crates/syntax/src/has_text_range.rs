@@ -33,6 +33,19 @@ fn root_node(mut node: SyntaxNode<'_>) -> SyntaxNode<'_> {
 }
 
 pub trait HasTextRange {
+    /// Returns the token's or node's range in the file's display coordinates.
+    ///
+    /// These are the coordinates an editor shows: for tokens emitted by a
+    /// macro expansion, the range is the macro call site (every body token
+    /// reports the whole call range), not a physical position in the expanded
+    /// text — the parser consumes a token stream, not text, so expanded tokens
+    /// have no physical offsets. Consequently positional lookups
+    /// ([`SyntaxNodeExt::token_at_offset`]) are unreliable *inside* macro
+    /// expansions, and ranges are not unique token identities there; match on
+    /// `preprocessor_trace_emitted_token().emitted_token_index` instead.
+    ///
+    /// Returns `None` when the element spans multiple buffers (e.g. trees
+    /// built with `expand_includes: false`).
     fn text_range(&self) -> Option<TextRange>;
 }
 
