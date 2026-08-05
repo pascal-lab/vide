@@ -118,7 +118,7 @@ mod tests {
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
     use super::*;
-    use crate::db::{PreprocDb, PreprocDbStorage};
+    use crate::db::PreprocDbStorage;
 
     const TOP: FileId = FileId::from_raw(0);
     const ROOT: SourceRootId = SourceRootId(0);
