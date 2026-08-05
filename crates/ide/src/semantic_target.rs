@@ -257,7 +257,9 @@ impl PreprocMacroTarget {
             PreprocMacroTarget::Reference(resolution) => !resolution.definitions.is_empty(),
         };
         if has_definitions {
-            capabilities |= TargetCapability::NAVIGATE | TargetCapability::REFERENCES;
+            capabilities |= TargetCapability::NAVIGATE
+                | TargetCapability::REFERENCES
+                | TargetCapability::RENAME;
         }
         capabilities
     }

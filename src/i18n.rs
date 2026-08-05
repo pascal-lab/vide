@@ -161,6 +161,7 @@ pub(crate) mod keys {
     pub(crate) const RENAME_PROJECT_SCOPE_REQUIRED: &str = "rename.project_scope_required";
     pub(crate) const RENAME_MACRO_DEFINITION_NOT_EDITABLE: &str =
         "rename.macro_definition_not_editable";
+    pub(crate) const RENAME_MACRO_RENAME_FAILED: &str = "rename.macro_rename_failed";
 
     pub(crate) const CODE_ACTION_RESOLVE_NO_DATA: &str = "code_action_resolve.no_data";
     pub(crate) const CODE_ACTION_RESOLVE_STALE: &str = "code_action_resolve.stale";

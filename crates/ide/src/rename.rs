@@ -5,6 +5,10 @@ use nohash_hasher::IntMap;
 use preproc_expand::{
     file::HirFileId,
     macro_file::{macro_file_call_site, macro_files_at_offset},
+    preproc::{
+        MacroDefinition, MacroParamDefinition, MacroReference, PreprocError,
+        macro_param_references, macro_references,
+    },
 };
 use smol_str::SmolStr;
 use syntax::{TokenKind, token::TokenKindExt};
@@ -21,8 +25,9 @@ use crate::{
         search::{ReferenceToken, ReferencesCtx, SearchScope, search_references},
     },
     semantic_index::{ConnSide, ReferenceContext},
-    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
+    semantic_target::{PreprocMacroTarget, SemanticTarget, TargetIntent, resolve_semantic_target},
     source_change::SourceChange,
+    source_targets::SourceTarget,
 };
 
 pub type RenameResult<T> = Result<T, RenameError>;
@@ -85,6 +90,8 @@ pub enum RenameError {
     ProjectScopeRequired,
     #[error("Cannot rename a macro-generated definition")]
     MacroDefinitionNotEditable,
+    #[error("Macro rename failed: {0:?}")]
+    MacroRenameFailed(PreprocError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,8 +111,13 @@ pub(crate) fn prepare_rename(
 ) -> RenameResult<TextRange> {
     let sema = Semantics::new(db);
     let target = resolve_rename_target(&sema, position)?;
-    let _ = config.references_config(db, &target.selected_def, file_id)?;
-    Ok(target.range)
+    match &target {
+        RenameTarget::Hdl(target) => {
+            let _ = config.references_config(db, &target.selected_def, file_id)?;
+        }
+        RenameTarget::Macro(_) => {}
+    }
+    Ok(target.range())
 }
 
 pub(crate) fn rename(
@@ -115,8 +127,12 @@ pub(crate) fn rename(
     new_name: &str,
 ) -> RenameResult<SourceChange> {
     let sema = Semantics::new(db);
-    let ResolvedRenameTarget { selected_def, .. } = resolve_rename_target(&sema, position)?;
-    rename_definition(db, &sema, file_id, &config, &selected_def, new_name, None)
+    match resolve_rename_target(&sema, position)? {
+        RenameTarget::Macro(target) => rename_macro(db, file_id, &config, target, new_name),
+        RenameTarget::Hdl(ResolvedRenameTarget { selected_def, .. }) => {
+            rename_definition(db, &sema, file_id, &config, &selected_def, new_name, None)
+        }
+    }
 }
 
 pub(crate) fn rename_expansion_info(
@@ -125,7 +141,14 @@ pub(crate) fn rename_expansion_info(
     config: RenameConfig,
 ) -> RenameResult<RecursiveRenameInfo> {
     let sema = Semantics::new(db);
-    let resolved = resolve_rename_target(&sema, position)?;
+    let resolved = match resolve_rename_target(&sema, position)? {
+        RenameTarget::Macro(_) => {
+            // Recursive rename follows same-name port connections; macros have
+            // no such semantics.
+            return Ok(RecursiveRenameInfo { additional_symbols: 0 });
+        }
+        RenameTarget::Hdl(target) => target,
+    };
     let targets = recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?;
     let additional_symbols = targets.len().saturating_sub(1);
     Ok(RecursiveRenameInfo { additional_symbols })
@@ -138,31 +161,40 @@ pub(crate) fn expanded_rename(
     new_name: &str,
 ) -> RenameResult<SourceChange> {
     let sema = Semantics::new(db);
-    let resolved = resolve_rename_target(&sema, position)?;
-    let targets = recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?;
-    let mut rename_targets = UniqVec::<(), DefOrigin>::default();
-    for target in &targets {
-        rename_targets.push(target.def.origins(db), ());
-    }
-    let mut source_changes = SourceChange::default();
+    match resolve_rename_target(&sema, position)? {
+        // Macros have no recursive semantics; the expanded rename is the
+        // plain rename.
+        RenameTarget::Macro(target) => {
+            rename_macro(db, position.file_id, &config, target, new_name)
+        }
+        RenameTarget::Hdl(resolved) => {
+            let targets =
+                recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?;
+            let mut rename_targets = UniqVec::<(), DefOrigin>::default();
+            for target in &targets {
+                rename_targets.push(target.def.origins(db), ());
+            }
+            let mut source_changes = SourceChange::default();
 
-    for target in &targets {
-        let changes = rename_definition_with_refs(
-            db,
-            &sema,
-            &target.def,
-            new_name,
-            Some(&rename_targets),
-            &target.refs,
-        )?;
-        for (file_id, edit) in changes.text_edits {
-            source_changes
-                .insert_text_edit(file_id, edit)
-                .map_err(|_| RenameError::OverlappingEdits)?;
+            for target in &targets {
+                let changes = rename_definition_with_refs(
+                    db,
+                    &sema,
+                    &target.def,
+                    new_name,
+                    Some(&rename_targets),
+                    &target.refs,
+                )?;
+                for (file_id, edit) in changes.text_edits {
+                    source_changes
+                        .insert_text_edit(file_id, edit)
+                        .map_err(|_| RenameError::OverlappingEdits)?;
+                }
+            }
+
+            Ok(source_changes)
         }
     }
-
-    Ok(source_changes)
 }
 
 pub(crate) fn rename_conflict_info(
@@ -173,7 +205,12 @@ pub(crate) fn rename_conflict_info(
     recursive: bool,
 ) -> RenameResult<RenameCollisionInfo> {
     let sema = Semantics::new(db);
-    let resolved = resolve_rename_target(&sema, position)?;
+    let resolved = match resolve_rename_target(&sema, position)? {
+        // The preproc model has no name-scope query for macros yet; report no
+        // collisions for macro renames.
+        RenameTarget::Macro(_) => return Ok(RenameCollisionInfo { conflicts: 0 }),
+        RenameTarget::Hdl(target) => target,
+    };
     let targets: Vec<DefId> = if recursive {
         recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?
             .into_iter()
@@ -202,10 +239,36 @@ pub(crate) fn rename_conflict_info(
     Ok(RenameCollisionInfo { conflicts: conflicts.len() })
 }
 
+enum RenameTarget {
+    Hdl(ResolvedRenameTarget),
+    Macro(ResolvedMacroTarget),
+}
+
+impl RenameTarget {
+    fn range(&self) -> TextRange {
+        match self {
+            RenameTarget::Hdl(target) => target.range,
+            RenameTarget::Macro(target) => target.range,
+        }
+    }
+}
+
 struct ResolvedRenameTarget {
     range: TextRange,
     selected_def: DefId,
     targets: Vec<DefId>,
+}
+
+struct ResolvedMacroTarget {
+    range: TextRange,
+    kind: MacroRenameKind,
+}
+
+enum MacroRenameKind {
+    /// ``define NAME(...)``: rename the definition name and every call site.
+    Definition(MacroDefinition),
+    /// A macro parameter: rename the header parameter and every body usage.
+    Param(MacroParamDefinition),
 }
 
 type ReferenceSearchResult = IntMap<FileId, Vec<ReferenceToken>>;
@@ -233,7 +296,7 @@ enum ReferenceEdit {
 fn resolve_rename_target(
     sema: &Semantics<'_, RootDb>,
     FilePosition { file_id, offset }: FilePosition,
-) -> RenameResult<ResolvedRenameTarget> {
+) -> RenameResult<RenameTarget> {
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let target = resolve_semantic_target(
@@ -243,11 +306,67 @@ fn resolve_rename_target(
         parsed_file.root(),
         rename_token_precedence,
     );
-    let SemanticTarget::Source(target) =
-        target.unique_for_intent(TargetIntent::Rename).ok_or(RenameError::NoRefFound)?
-    else {
-        return Err(RenameError::NoRefFound);
+    match target.unique_for_intent(TargetIntent::Rename).ok_or(RenameError::NoRefFound)? {
+        SemanticTarget::PreprocMacro(target) => resolve_macro_rename_target(target),
+        SemanticTarget::Include(_) => Err(RenameError::NoRefFound),
+        SemanticTarget::Source(target) => {
+            resolve_hdl_rename_target(sema, hir_file_id, target).map(RenameTarget::Hdl)
+        }
+    }
+}
+
+/// The macro target behind a rename position: the definition or parameter
+/// the caret names, deduplicated across the workspace models.
+fn resolve_macro_rename_target(target: PreprocMacroTarget) -> RenameResult<RenameTarget> {
+    let target = match target {
+        PreprocMacroTarget::ParamDefinition(definition) => ResolvedMacroTarget {
+            range: definition.range,
+            kind: MacroRenameKind::Param(definition),
+        },
+        PreprocMacroTarget::ParamReference(resolution) => {
+            let Some(definition) = unique_macro_param_definition(&resolution.definitions) else {
+                return Err(RenameError::NoDefFound);
+            };
+            ResolvedMacroTarget {
+                range: resolution.range,
+                kind: MacroRenameKind::Param(definition),
+            }
+        }
+        PreprocMacroTarget::Definition(definition) => ResolvedMacroTarget {
+            range: definition.name_range,
+            kind: MacroRenameKind::Definition(definition),
+        },
+        PreprocMacroTarget::Reference(resolution) => {
+            let Some(definition) = unique_macro_definition(&resolution.definitions) else {
+                return Err(RenameError::NoDefFound);
+            };
+            ResolvedMacroTarget {
+                range: resolution.range,
+                kind: MacroRenameKind::Definition(definition),
+            }
+        }
     };
+    Ok(RenameTarget::Macro(target))
+}
+
+/// The definition behind a rename position must be unique: several same-name
+/// macros (or predefines from multiple manifests) are distinct definitions
+/// that must not be renamed together.
+fn unique_macro_definition(definitions: &[MacroDefinition]) -> Option<MacroDefinition> {
+    (definitions.len() == 1).then(|| definitions[0].clone())
+}
+
+fn unique_macro_param_definition(
+    definitions: &[MacroParamDefinition],
+) -> Option<MacroParamDefinition> {
+    (definitions.len() == 1).then(|| definitions[0].clone())
+}
+
+fn resolve_hdl_rename_target(
+    sema: &Semantics<'_, RootDb>,
+    hir_file_id: HirFileId,
+    target: SourceTarget<'_>,
+) -> RenameResult<ResolvedRenameTarget> {
     let (range, tokens) = target.into_parts();
     let mut selected_def = None;
     let mut targets = UniqVec::<DefId, DefOrigin>::default();
@@ -287,6 +406,80 @@ fn resolve_rename_target(
         return Err(RenameError::MacroDefinitionNotEditable);
     }
     Ok(ResolvedRenameTarget { range, selected_def, targets })
+}
+
+/// Renames a macro definition or parameter: the defining token plus every
+/// reference from the preproc reference index.
+fn rename_macro(
+    db: &RootDb,
+    request_file_id: FileId,
+    config: &RenameConfig,
+    target: ResolvedMacroTarget,
+    new_name: &str,
+) -> RenameResult<SourceChange> {
+    let mut source_changes = SourceChange::default();
+    let mut insert = |file_id, range| {
+        source_changes
+            .insert_text_edit(file_id, TextEdit::replace(range, new_name.to_owned()))
+            .map_err(|_| RenameError::OverlappingEdits)
+    };
+
+    match target.kind {
+        MacroRenameKind::Definition(definition) => {
+            if config.edit_scope == RenameEditScope::SingleFile
+                && (definition.file_id != request_file_id)
+            {
+                return Err(RenameError::ProjectScopeRequired);
+            }
+            let refs = macro_references(db, request_file_id, &definition)
+                .map_err(RenameError::MacroRenameFailed)?;
+            insert(definition.file_id, definition.name_range)?;
+            for reference in refs.references {
+                if config.edit_scope == RenameEditScope::SingleFile
+                    && reference.file_id != request_file_id
+                {
+                    return Err(RenameError::ProjectScopeRequired);
+                }
+                let range = macro_reference_name_range(db, &reference);
+                insert(reference.file_id, range)?;
+            }
+        }
+        MacroRenameKind::Param(definition) => {
+            if config.edit_scope == RenameEditScope::SingleFile
+                && (definition.macro_definition.file_id != request_file_id)
+            {
+                return Err(RenameError::ProjectScopeRequired);
+            }
+            let refs = macro_param_references(db, request_file_id, &definition)
+                .map_err(RenameError::MacroRenameFailed)?;
+            insert(definition.macro_definition.file_id, definition.range)?;
+            for reference in refs.references {
+                if config.edit_scope == RenameEditScope::SingleFile
+                    && reference.file_id != request_file_id
+                {
+                    return Err(RenameError::ProjectScopeRequired);
+                }
+                insert(reference.file_id, reference.range)?;
+            }
+        }
+    }
+
+    Ok(source_changes)
+}
+
+/// The call-site reference range can include the directive backtick
+/// (`` `NAME ``); the rename only replaces the name token.
+fn macro_reference_name_range(db: &RootDb, reference: &MacroReference) -> TextRange {
+    let mut range = reference.range;
+    if range.start() < range.end() {
+        let text = db.file_text(reference.file_id);
+        let start = usize::from(range.start());
+        if text.as_bytes().get(start) == Some(&b'`') {
+            range =
+                TextRange::new(range.start() + utils::text_edit::TextSize::from(1), range.end());
+        }
+    }
+    range
 }
 
 fn rename_definition(
@@ -687,5 +880,54 @@ mod tests {
             "c",
             "module child(input c);\nendmodule\nmodule top;\n  logic b;\n  child u(.c(b));\nendmodule\n",
         );
+    }
+
+    #[test]
+    fn macro_definition_rename_updates_definition_and_call_sites() {
+        check_rename(
+            "`define /*caret*/FOO(x) x\nmodule top;\n  logic a;\n  assign y = `FOO(a);\nendmodule\n",
+            "BAR",
+            "`define BAR(x) x\nmodule top;\n  logic a;\n  assign y = `BAR(a);\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn macro_definition_rename_from_call_site() {
+        check_rename(
+            "`define FOO(x) x\nmodule top;\n  logic a;\n  assign y = `/*caret*/FOO(a);\nendmodule\n",
+            "BAR",
+            "`define BAR(x) x\nmodule top;\n  logic a;\n  assign y = `BAR(a);\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn macro_param_rename_updates_header_and_body_usages() {
+        check_rename(
+            "`define FOO(/*caret*/x) x + x\nmodule top;\n  assign y = `FOO(1);\nendmodule\n",
+            "y",
+            "`define FOO(y) y + y\nmodule top;\n  assign y = `FOO(1);\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn macro_param_rename_from_body_usage() {
+        check_rename(
+            "`define FOO(x) /*caret*/x + x\nmodule top;\n  assign y = `FOO(1);\nendmodule\n",
+            "y",
+            "`define FOO(y) y + y\nmodule top;\n  assign y = `FOO(1);\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn macro_rename_has_no_recursive_expansion_or_conflicts() {
+        let (db, file_id, offset) = db_with_caret(
+            "`define /*caret*/FOO(x) x\nmodule top;\n  assign y = `FOO(1);\nendmodule\n",
+        );
+        let config = RenameConfig::workspace(ScopeVisibility::Public);
+        let position = FilePosition { file_id, offset };
+        let info = rename_expansion_info(&db, position, config.clone()).unwrap();
+        assert_eq!(info.additional_symbols, 0);
+        let conflicts = rename_conflict_info(&db, position, config, "BAR", false).unwrap();
+        assert_eq!(conflicts.conflicts, 0);
     }
 }

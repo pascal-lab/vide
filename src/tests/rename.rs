@@ -280,6 +280,43 @@ fn configured_workspace_expanded_rename_command_updates_chain() {
 }
 
 #[test]
+fn configured_workspace_rename_updates_macro_definition_and_uses() {
+    let header_text = "`define WIDTH 8\n";
+    let top_text = "`include \"defs.svh\"\nmodule top;\n  localparam int W = `WIDTH;\nendmodule\n";
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        &[("defs.svh", header_text), ("top.sv", top_text)],
+    );
+    let header_uri = uris[0].clone();
+    let top_uri = uris[1].clone();
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let edit = request_rename(&client, top_uri.clone(), top_text, "`WIDTH;", "DEPTH", 2)
+        .expect("macro rename should return an edit");
+
+    let Some(lsp_types::DocumentChanges::Edits(document_edits)) = edit.document_changes else {
+        panic!("macro rename should use document edits: {edit:?}");
+    };
+    assert!(
+        document_edits.iter().any(|edit| edit.text_document.uri == header_uri),
+        "macro rename should edit the header definition: {document_edits:?}"
+    );
+    let top_edit = document_edits
+        .iter()
+        .find(|edit| edit.text_document.uri == top_uri)
+        .expect("macro rename should edit the use site");
+    assert!(
+        top_edit.edits.iter().any(|edit| {
+            matches!(edit, lsp_types::OneOf::Left(edit) if edit.new_text == "DEPTH")
+        }),
+        "macro use edit should replace only the name: {top_edit:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn configured_workspace_rename_conflict_info_command_reports_conflicts() {
     let text = "module top;\n  logic a;\n  logic b;\n  assign a = b;\nendmodule\n";
     let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
