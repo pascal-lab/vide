@@ -477,7 +477,7 @@ mod tests {
         change.set_roots(vec![root]);
         change.add_changed_file(ChangedFile::create(file_id, text));
 
-        let mut db = RootDb::new();
+        let mut db = RootDb::new(None);
         change.apply(&mut db);
         (db, file_id)
     }

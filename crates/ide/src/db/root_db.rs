@@ -60,7 +60,7 @@ impl FileLoader for RootDb {
 }
 
 impl RootDb {
-    pub fn new() -> RootDb {
+    pub fn new(lru_capacity: Option<usize>) -> RootDb {
         let mut db = RootDb { storage: salsa::Storage::default() };
         db.set_files_with_durability(Default::default(), Durability::HIGH);
         db.set_diagnostics_config_with_durability(
@@ -68,9 +68,18 @@ impl RootDb {
             Durability::HIGH,
         );
         db.set_project_config_with_durability(Arc::new(ProjectConfig::default()), Durability::HIGH);
+        db.update_parse_query_lru_capacity(lru_capacity);
         db
     }
+
+    pub fn update_parse_query_lru_capacity(&mut self, lru_capacity: Option<usize>) {
+        let lru_capacity = lru_capacity.unwrap_or(DEFAULT_PARSE_LRU_CAP);
+        preproc_expand::db::set_parse_lru_capacity(self, lru_capacity);
+        hir_def::db::set_lru_capacity(self, lru_capacity);
+    }
 }
+
+pub const DEFAULT_PARSE_LRU_CAP: usize = 128;
 impl RootDb {
     pub fn line_index(&self, file_id: FileId) -> Arc<LineIndex> {
         let db: &dyn LineIndexDb = self;

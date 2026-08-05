@@ -808,3 +808,7 @@ pub(crate) fn module_with_source_map(
     module_source_map.shrink_to_fit();
     Arc::new(Lowered::new(module, module_source_map))
 }
+
+pub(crate) fn set_module_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    module_with_source_map::set_lru_capacity(db, capacity);
+}

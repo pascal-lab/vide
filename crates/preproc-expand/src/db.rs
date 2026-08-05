@@ -267,6 +267,11 @@ fn parse_src_for_compilation(db: &dyn PreprocDb, file_id: FileId, _key: ()) -> S
     db.parsed_compilation_unit(file_id).syntax_tree.clone()
 }
 
+pub fn set_parse_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
+    parsed_profile::set_lru_capacity(db, capacity);
+    parse_src_for_compilation::set_lru_capacity(db, capacity);
+}
+
 #[salsa::tracked(returns(clone))]
 fn parser_expected_syntax(
     db: &dyn PreprocDb,

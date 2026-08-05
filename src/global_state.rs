@@ -196,7 +196,7 @@ impl GlobalState {
             Handle { handle, receiver }
         };
 
-        let mut analysis_host = AnalysisHost::new();
+        let mut analysis_host = AnalysisHost::new(None);
         let diagnostics_config = Arc::new(config.diagnostics_config());
         analysis_host.set_diagnostics_config(diagnostics_config);
 

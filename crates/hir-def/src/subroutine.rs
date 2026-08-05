@@ -397,3 +397,7 @@ pub(crate) fn subroutine_with_source_map(
     subroutine_source_map.shrink_to_fit();
     Arc::new(Lowered::new(subroutine, subroutine_source_map))
 }
+
+pub(crate) fn set_subroutine_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    subroutine_with_source_map::set_lru_capacity(db, capacity);
+}

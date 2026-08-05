@@ -480,7 +480,7 @@ mod tests {
         files: &[(String, String)],
         root: impl FnOnce(FileSet) -> SourceRoot,
     ) -> RootDb {
-        let mut db = RootDb::new();
+        let mut db = RootDb::new(None);
         let mut file_set = FileSet::default();
         let mut change = Change::new();
 

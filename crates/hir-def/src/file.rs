@@ -489,3 +489,7 @@ pub(crate) fn hir_file_with_source_map(
 
     Arc::new(Lowered::new(hir_file, source_map))
 }
+
+pub(crate) fn set_hir_file_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    hir_file_with_source_map::set_lru_capacity(db, capacity);
+}

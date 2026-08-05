@@ -12,8 +12,8 @@ pub struct AnalysisHost {
 }
 
 impl AnalysisHost {
-    pub fn new() -> AnalysisHost {
-        AnalysisHost { db: RootDb::new(), snapshot_id: AnalysisSnapshotId::default() }
+    pub fn new(lru_capacity: Option<usize>) -> AnalysisHost {
+        AnalysisHost { db: RootDb::new(lru_capacity), snapshot_id: AnalysisSnapshotId::default() }
     }
 
     pub fn make_analysis(&self) -> Analysis {
@@ -46,7 +46,7 @@ impl AnalysisHost {
 
 impl Default for AnalysisHost {
     fn default() -> AnalysisHost {
-        AnalysisHost::new()
+        AnalysisHost::new(None)
     }
 }
 
