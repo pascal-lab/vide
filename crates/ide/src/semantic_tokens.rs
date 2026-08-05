@@ -512,7 +512,6 @@ fn collect_named_port_connections<'a>(
     }
 }
 
-
 fn collect_ident_like(
     sema: &Semantics<'_, RootDb>,
     in_cont: InContainer<Ident>,

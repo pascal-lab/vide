@@ -522,7 +522,10 @@ endmodule
             .pick_bext_token(crate::goto_definition::token_precedence)
             .unwrap();
 
-        assert_eq!(DefinitionClass::resolve(sema.db, file_id.into(), token), Resolution::Unresolved);
+        assert_eq!(
+            DefinitionClass::resolve(sema.db, file_id.into(), token),
+            Resolution::Unresolved
+        );
     }
 
     #[test]

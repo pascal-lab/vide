@@ -9,11 +9,7 @@ use triomphe::Arc;
 use utils::{test_support::TestDir, text_edit::TextSize};
 use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
-use crate::{
-    FilePosition,
-    analysis_host::AnalysisHost,
-    test_utils::normalize_fixture_text,
-};
+use crate::{FilePosition, analysis_host::AnalysisHost, test_utils::normalize_fixture_text};
 
 struct PipelineMacroFixture {
     _dir: TestDir,
@@ -142,9 +138,7 @@ fn macro_definition_hover_preserves_multiline_source_layout() {
     let analysis = fixture.host.make_analysis();
 
     let hover = analysis
-        .hover(
-            position(fixture.header_file_id, &fixture.header_markers, "pipe_assign_def")
-        )
+        .hover(position(fixture.header_file_id, &fixture.header_markers, "pipe_assign_def"))
         .unwrap()
         .expect("PIPE_ASSIGN macro definition hover expected");
     let info = hover.info.as_str();
@@ -173,9 +167,7 @@ fn macro_argument_hover_deduplicates_pasted_symbol_result() {
     let analysis = fixture.host.make_analysis();
 
     let hover = analysis
-        .hover(
-            position(fixture.top_file_id, &fixture.top_markers, "trace_arg")
-        )
+        .hover(position(fixture.top_file_id, &fixture.top_markers, "trace_arg"))
         .unwrap()
         .expect("PIPE_ASSIGN trace argument hover expected");
     let info = hover.info.as_str();

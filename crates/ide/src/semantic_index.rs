@@ -2,9 +2,7 @@ use base_db::{
     source_db::{SourceDb, SourceRootDb},
     source_root::SourceRootId,
 };
-use hir_def::{
-    Ident, container::InFile, def_id::DefId, module::ModuleId, symbol::DefOrigin,
-};
+use hir_def::{Ident, container::InFile, def_id::DefId, module::ModuleId, symbol::DefOrigin};
 use hir_ty::db::TyDb;
 use itertools::Itertools;
 use preproc_expand::{db::PreprocDb, file::HirFileId};
@@ -332,7 +330,11 @@ impl SemanticIndexBuilder {
         }
     }
 
-    fn collect_module_edges(&mut self, db: &dyn WorkspaceSymbolIndexDb, module_index: &ModuleIndex) {
+    fn collect_module_edges(
+        &mut self,
+        db: &dyn WorkspaceSymbolIndexDb,
+        module_index: &ModuleIndex,
+    ) {
         for caller in module_index.all_module_definitions() {
             let module = db.module_with_source_map(caller.module_id);
             for (instantiation_id, instantiation) in module.instantiations.iter() {

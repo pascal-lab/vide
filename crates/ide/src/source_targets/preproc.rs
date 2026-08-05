@@ -32,8 +32,7 @@ pub(super) fn preproc_source_target_at_offset<'tree>(
 
     match preproc_hits_at_offset(db, &macro_files, file_id, offset) {
         PreprocHitLookup::Available { range, hits } => {
-            let Some(tokens) =
-                syntax_tokens_for_preproc_hit(root, offset, precedence, &hits)
+            let Some(tokens) = syntax_tokens_for_preproc_hit(root, offset, precedence, &hits)
             else {
                 return SourceTargetProviderResult::Blocked(
                     SourceTargetBlock::preproc_unavailable(range),

@@ -1,4 +1,7 @@
-use preproc_expand::{db::PreprocDb, macro_file::{Origin, SourceEmittedTokenId}};
+use preproc_expand::{
+    db::PreprocDb,
+    macro_file::{Origin, SourceEmittedTokenId},
+};
 use syntax::{
     SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, has_text_range::HasTextRange,
 };
