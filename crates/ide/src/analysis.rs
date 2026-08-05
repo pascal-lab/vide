@@ -290,12 +290,8 @@ impl Analysis {
         self.with_db(|db| folding_ranges::folding_ranges(db, file_id))
     }
 
-    pub fn hover(
-        &self,
-        position: FilePosition,
-        config: HoverConfig,
-    ) -> Cancellable<Option<RangeInfo<Markup>>> {
-        self.with_db(|db| hover::hover(db, position, config))
+    pub fn hover(&self, position: FilePosition) -> Cancellable<Option<RangeInfo<Markup>>> {
+        self.with_db(|db| hover::hover(db, position))
     }
 
     pub fn inlay_hint(

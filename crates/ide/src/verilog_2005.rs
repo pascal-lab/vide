@@ -33,7 +33,6 @@ use crate::{
     db::root_db::RootDb,
     document_highlight::DocumentHighlightConfig,
     document_symbols::DocumentSymbol,
-    hover::{HoverConfig, HoverFormat},
     references::{ReferencesConfig, search::SearchScope},
     rename::{RenameConfig, RenameEditScope, RenameError},
     semantic_tokens::{SemaTokenConfig, SemaTokenPortConfig},
@@ -1307,7 +1306,7 @@ endmodule
     );
 
     let hover = analysis
-        .hover(position, HoverConfig { format: HoverFormat::PlainText })
+        .hover(position)
         .unwrap()
         .expect("include hover expected");
     assert_hover_snapshot!(
@@ -1339,7 +1338,7 @@ endmodule
     assert_eq!(clean_text[usize::from(range.start())..usize::from(range.end())].trim(), "WIDTH");
 
     let hover = analysis
-        .hover(position, HoverConfig { format: HoverFormat::PlainText })
+        .hover(position)
         .unwrap()
         .expect("macro hover expected");
     assert_hover_snapshot!(
@@ -1382,7 +1381,7 @@ endmodule
     );
 
     let hover = analysis
-        .hover(param_ref, HoverConfig { format: HoverFormat::PlainText })
+        .hover(param_ref)
         .unwrap()
         .expect("macro parameter hover expected");
     assert_hover_snapshot!(
@@ -1449,7 +1448,7 @@ endmodule
     );
 
     let hover = analysis
-        .hover(arg, HoverConfig { format: HoverFormat::PlainText })
+        .hover(arg)
         .unwrap()
         .expect("macro argument source token hover expected");
     assert_hover_snapshot!(
@@ -1502,7 +1501,7 @@ endmodule
     let analysis = host.make_analysis();
 
     let hover = analysis
-        .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
+        .hover(position(file_id, &markers, "call"))
         .unwrap()
         .expect("macro call hover expected");
     assert_hover_snapshot!(
@@ -1511,7 +1510,7 @@ endmodule
     );
 
     let arg_hover = analysis
-        .hover(position(file_id, &markers, "arg"), HoverConfig { format: HoverFormat::PlainText })
+        .hover(position(file_id, &markers, "arg"))
         .unwrap()
         .expect("macro argument hover expected");
     assert_hover_snapshot!(
@@ -1534,8 +1533,7 @@ endmodule
     for (marker, name) in [("line", "__LINE__"), ("file", "__FILE__")] {
         let hover = analysis
             .hover(
-                position(file_id, &markers, marker),
-                HoverConfig { format: HoverFormat::PlainText },
+                position(file_id, &markers, marker)
             )
             .unwrap()
             .expect("builtin macro hover expected");
@@ -1559,7 +1557,7 @@ endmodule
     let analysis = host.make_analysis();
 
     let hover = analysis
-        .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
+        .hover(position(file_id, &markers, "call"))
         .unwrap()
         .expect("nested macro call hover expected");
     assert_hover_snapshot!(
@@ -1582,7 +1580,7 @@ endmodule
     let analysis = host.make_analysis();
 
     let call_hover = analysis
-        .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
+        .hover(position(file_id, &markers, "call"))
         .unwrap()
         .expect("outer macro call hover expected");
     assert_hover_snapshot!(
@@ -1604,7 +1602,7 @@ endmodule
     );
 
     let payl_hover = analysis
-        .hover(payl_position, HoverConfig { format: HoverFormat::PlainText })
+        .hover(payl_position)
         .unwrap()
         .expect("nested actual-argument macro hover expected");
     assert_hover_snapshot!(
@@ -1625,7 +1623,7 @@ endmodule
     let analysis = host.make_analysis();
 
     let hover = analysis
-        .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
+        .hover(position(file_id, &markers, "call"))
         .unwrap()
         .expect("macro call hover expected");
     assert_hover_snapshot!("preproc_macro_hover_shows_token_paste_expansion", hover.info.as_str());
@@ -1696,8 +1694,7 @@ endmodule
 
     let decl_hover = analysis
         .hover(
-            position(top_file_id, &top_markers, "decl_call"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(top_file_id, &top_markers, "decl_call")
         )
         .unwrap()
         .expect("DECL_PIPE macro call hover expected");
@@ -1708,8 +1705,7 @@ endmodule
 
     let assign_hover = analysis
         .hover(
-            position(top_file_id, &top_markers, "assign_call"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(top_file_id, &top_markers, "assign_call")
         )
         .unwrap()
         .expect("PIPE_ASSIGN macro call hover expected");
@@ -1720,8 +1716,7 @@ endmodule
 
     let argument_hover = analysis
         .hover(
-            position(top_file_id, &top_markers, "assign_arg"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(top_file_id, &top_markers, "assign_arg")
         )
         .unwrap()
         .expect("PIPE_ASSIGN actual argument hover expected");
@@ -1732,8 +1727,7 @@ endmodule
 
     let sample_name_hover = analysis
         .hover(
-            position(top_file_id, &top_markers, "sample_name"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(top_file_id, &top_markers, "sample_name")
         )
         .unwrap()
         .expect("PIPE_ASSIGN pasted sample name hover expected");
@@ -1744,8 +1738,7 @@ endmodule
 
     let trace_name_hover = analysis
         .hover(
-            position(top_file_id, &top_markers, "trace_name"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(top_file_id, &top_markers, "trace_name")
         )
         .unwrap()
         .expect("PIPE_ASSIGN pasted trace name hover expected");
@@ -1784,7 +1777,7 @@ endmodule
     );
 
     let hover = analysis
-        .hover(definition, HoverConfig { format: HoverFormat::PlainText })
+        .hover(definition)
         .unwrap()
         .expect("macro definition hover expected");
     assert_hover_snapshot!(
@@ -1910,7 +1903,7 @@ endmodule
     );
 
     let hover = analysis
-        .hover(usage, HoverConfig { format: HoverFormat::PlainText })
+        .hover(usage)
         .unwrap()
         .expect("included macro hover expected");
     assert_hover_snapshot!(
@@ -2367,8 +2360,7 @@ include "vendor.map";
 
     let hover = analysis
         .hover(
-            position(file_id, &markers, "library_def"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "library_def")
         )
         .unwrap()
         .expect("library declaration hover expected");
@@ -2429,8 +2421,7 @@ endmodule
     let hover = host
         .make_analysis()
         .hover(
-            position(file_id, &markers, "sig_def"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "sig_def")
         )
         .unwrap()
         .expect("signal hover expected");
@@ -2454,7 +2445,7 @@ fn verilog_2005_hover_after_truncation_uses_current_syntax_context() {
 
     let hover = host
         .make_analysis()
-        .hover(position(file_id, &markers, "name"), HoverConfig { format: HoverFormat::PlainText })
+        .hover(position(file_id, &markers, "name"))
         .unwrap()
         .expect("truncated module hover expected");
     assert_hover_snapshot!(
@@ -2491,8 +2482,7 @@ endmodule
 
     let module_hover = analysis
         .hover(
-            position(file_id, &markers, "module_def"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "module_def")
         )
         .unwrap()
         .expect("module hover expected");
@@ -2503,8 +2493,7 @@ endmodule
 
     let inst_module_hover = analysis
         .hover(
-            position(file_id, &markers, "module_ref"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "module_ref")
         )
         .unwrap()
         .expect("instantiated module hover expected");
@@ -2515,8 +2504,7 @@ endmodule
 
     let instance_hover = analysis
         .hover(
-            position(file_id, &markers, "instance_ref"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "instance_ref")
         )
         .unwrap()
         .expect("instance hover expected");
@@ -2527,8 +2515,7 @@ endmodule
 
     let port_hover = analysis
         .hover(
-            position(file_id, &markers, "port_def"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "port_def")
         )
         .unwrap()
         .expect("port hover expected");
@@ -2539,8 +2526,7 @@ endmodule
 
     let param_hover = analysis
         .hover(
-            position(file_id, &markers, "param_def"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "param_def")
         )
         .unwrap()
         .expect("parameter hover expected");
@@ -2551,8 +2537,7 @@ endmodule
 
     let task_hover = analysis
         .hover(
-            position(file_id, &markers, "task_def"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "task_def")
         )
         .unwrap()
         .expect("task hover expected");
@@ -2563,8 +2548,7 @@ endmodule
 
     let func_hover = analysis
         .hover(
-            position(file_id, &markers, "func_def"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "func_def")
         )
         .unwrap()
         .expect("function hover expected");
@@ -2625,8 +2609,7 @@ endmodule
 
     let instance_hover = analysis
         .hover(
-            position(file_id, &markers, "inst_ref"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "inst_ref")
         )
         .unwrap()
         .expect("interface instance hover expected");
@@ -2637,8 +2620,7 @@ endmodule
 
     let modport_hover = analysis
         .hover(
-            position(file_id, &markers, "modport_ref"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "modport_ref")
         )
         .unwrap()
         .expect("modport hover expected");
@@ -2674,8 +2656,7 @@ endmodule
 
     let hover = analysis
         .hover(
-            position(file_id, &markers, "clocking_ref"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "clocking_ref")
         )
         .unwrap()
         .expect("clocking block hover expected");
@@ -2718,8 +2699,7 @@ endmodule
 
     let checker_hover = analysis
         .hover(
-            position(file_id, &markers, "checker_ref"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "checker_ref")
         )
         .unwrap()
         .expect("checker hover expected");
@@ -2730,8 +2710,7 @@ endmodule
 
     let instance_hover = analysis
         .hover(
-            position(file_id, &markers, "inst_ref"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "inst_ref")
         )
         .unwrap()
         .expect("checker instance hover expected");
@@ -2786,8 +2765,7 @@ endmodule
 
     let covergroup_hover = analysis
         .hover(
-            position(file_id, &markers, "covergroup_ref"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "covergroup_ref")
         )
         .unwrap()
         .expect("covergroup hover expected");
@@ -2798,8 +2776,7 @@ endmodule
 
     let coverpoint_hover = analysis
         .hover(
-            position(file_id, &markers, "coverpoint_ref"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "coverpoint_ref")
         )
         .unwrap()
         .expect("coverpoint hover expected");
@@ -2810,8 +2787,7 @@ endmodule
 
     let cross_hover = analysis
         .hover(
-            position(file_id, &markers, "cross_def"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "cross_def")
         )
         .unwrap()
         .expect("cross hover expected");
@@ -2822,8 +2798,7 @@ endmodule
 
     let instance_hover = analysis
         .hover(
-            position(file_id, &markers, "inst_ref"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "inst_ref")
         )
         .unwrap()
         .expect("covergroup instance hover expected");
@@ -2870,7 +2845,7 @@ endmodule
     host.apply_change(change);
     let hover = host
         .make_analysis()
-        .hover(position(file_id, &markers, "port"), HoverConfig { format: HoverFormat::PlainText })
+        .hover(position(file_id, &markers, "port"))
         .unwrap()
         .expect("port hover expected");
     let normalized = normalize_hover_snapshot(hover.info.as_str());
@@ -2902,8 +2877,7 @@ endmodule
 
     let hover = analysis
         .hover(
-            position(file_id, &markers, "child_ref"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "child_ref")
         )
         .unwrap()
         .expect("ambiguous module hover expected");
@@ -2933,8 +2907,7 @@ endmodule
 
     let hover = analysis
         .hover(
-            position(file_id, &markers, "module_def"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "module_def")
         )
         .unwrap()
         .expect("module definition hover expected");
@@ -2994,8 +2967,7 @@ endmodule
 
     let hover = analysis
         .hover(
-            position(file_id, &markers, "inst_ref"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "inst_ref")
         )
         .unwrap()
         .expect("program instance hover expected");
@@ -3069,8 +3041,7 @@ endmodule
 
     let package_hover = analysis
         .hover(
-            position(file_id, &markers, "pkg_import"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(file_id, &markers, "pkg_import")
         )
         .unwrap()
         .expect("package import hover expected");
@@ -3265,8 +3236,7 @@ fn verilog_2005_hover_covers_all_definition_kinds() {
     ] {
         let hover = analysis
             .hover(
-                position(file_id, &markers, marker),
-                HoverConfig { format: HoverFormat::PlainText },
+                position(file_id, &markers, marker)
             )
             .unwrap()
             .unwrap_or_else(|| panic!("{marker} hover expected"));

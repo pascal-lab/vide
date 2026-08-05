@@ -262,9 +262,8 @@ pub(crate) fn handle_hover(
 ) -> anyhow::Result<Option<lsp_types::Hover>> {
     let position = from_proto::file_position(&snap, params.text_document_position_params)?;
 
-    let config = snap.config.hover();
-    let hover_format = config.format;
-    let Some(hover_info) = snap.analysis.hover(position, config)? else {
+    let hover_format = snap.config.hover().format;
+    let Some(hover_info) = snap.analysis.hover(position)? else {
         return Ok(None);
     };
 
