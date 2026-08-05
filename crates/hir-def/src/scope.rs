@@ -139,14 +139,13 @@ impl NameScope {
         Arc::new(scope)
     }
 
-    pub(super) fn file_scope(db: &dyn HirDefDb, file_id: HirFileId, _key: ()) -> Arc<NameScope> {
+    pub(super) fn file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> Arc<NameScope> {
         db.scope_for(ScopeId::File(file_id))
     }
 
     pub fn module_scope(
         db: &dyn HirDefDb,
         module_id: crate::module::ModuleId,
-        _key: (),
     ) -> Arc<NameScope> {
         db.scope_for(module_id.into())
     }
@@ -154,7 +153,6 @@ impl NameScope {
     pub fn clocking_block_scope(
         db: &dyn HirDefDb,
         clocking_block_id: InModule<ClockingBlockId>,
-        _key: (),
     ) -> Arc<NameScope> {
         db.scope_for(clocking_block_id.into())
     }
@@ -162,7 +160,6 @@ impl NameScope {
     pub fn checker_scope(
         db: &dyn HirDefDb,
         checker_id: InFileOrModule<CheckerId>,
-        _key: (),
     ) -> Arc<NameScope> {
         db.scope_for(checker_id.into())
     }
@@ -170,7 +167,6 @@ impl NameScope {
     pub fn covergroup_scope(
         db: &dyn HirDefDb,
         covergroup_id: InFileOrModule<CovergroupId>,
-        _key: (),
     ) -> Arc<NameScope> {
         db.scope_for(covergroup_id.into())
     }
@@ -178,7 +174,6 @@ impl NameScope {
     pub fn generate_block_scope(
         db: &dyn HirDefDb,
         generate_block_id: GenerateBlockId,
-        _key: (),
     ) -> Arc<NameScope> {
         db.scope_for(generate_block_id.into())
     }
@@ -186,7 +181,6 @@ impl NameScope {
     pub fn block_scope(
         db: &dyn HirDefDb,
         block_id: crate::block::BlockId,
-        _key: (),
     ) -> Arc<NameScope> {
         db.scope_for(block_id.into())
     }
@@ -194,7 +188,6 @@ impl NameScope {
     pub fn subroutine_scope(
         db: &dyn HirDefDb,
         subroutine_id: SubroutineScope,
-        _key: (),
     ) -> Arc<NameScope> {
         db.scope_for(subroutine_id.into())
     }

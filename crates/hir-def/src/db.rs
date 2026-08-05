@@ -90,38 +90,38 @@ impl dyn HirDefDb + '_ {
     }
 
     pub fn file_scope(&self, file_id: HirFileId) -> Arc<NameScope> {
-        NameScope::file_scope(self, file_id, ())
+        NameScope::file_scope(self, file_id)
     }
 
     pub fn module_scope(&self, module_id: ModuleId) -> Arc<NameScope> {
-        NameScope::module_scope(self, module_id, ())
+        NameScope::module_scope(self, module_id)
     }
 
     pub fn clocking_block_scope(
         &self,
         clocking_block_id: InModule<ClockingBlockId>,
     ) -> Arc<NameScope> {
-        NameScope::clocking_block_scope(self, clocking_block_id, ())
+        NameScope::clocking_block_scope(self, clocking_block_id)
     }
 
     pub fn checker_scope(&self, checker_id: InFileOrModule<CheckerId>) -> Arc<NameScope> {
-        NameScope::checker_scope(self, checker_id, ())
+        NameScope::checker_scope(self, checker_id)
     }
 
     pub fn covergroup_scope(&self, covergroup_id: InFileOrModule<CovergroupId>) -> Arc<NameScope> {
-        NameScope::covergroup_scope(self, covergroup_id, ())
+        NameScope::covergroup_scope(self, covergroup_id)
     }
 
     pub fn generate_block_scope(&self, generate_block_id: GenerateBlockId) -> Arc<NameScope> {
-        NameScope::generate_block_scope(self, generate_block_id, ())
+        NameScope::generate_block_scope(self, generate_block_id)
     }
 
     pub fn block_scope(&self, block_id: BlockId) -> Arc<NameScope> {
-        NameScope::block_scope(self, block_id, ())
+        NameScope::block_scope(self, block_id)
     }
 
     pub fn subroutine_scope(&self, subroutine_id: SubroutineScope) -> Arc<NameScope> {
-        NameScope::subroutine_scope(self, subroutine_id, ())
+        NameScope::subroutine_scope(self, subroutine_id)
     }
 
     pub fn package_export_signature(&self, package_id: PackageId) -> Arc<NameScope> {
