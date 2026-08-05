@@ -1,8 +1,4 @@
-use base_db::{
-    salsa::Database,
-    source_db::{SourceDb, SourceRootDb},
-    source_root::SourceRootId,
-};
+use base_db::source_root::SourceRootId;
 use hir_def::{
     container::{InFile, ScopeId},
     def_id::DefId,
@@ -20,7 +16,10 @@ use vfs::FileId;
 use super::{ReferenceCategory, ReferencesConfig};
 use crate::{
     ScopeVisibility,
-    db::{root_db::RootDb, workspace_symbol_index_db::source_root_semantic_index_for_root},
+    db::{
+        root_db::RootDb,
+        workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_semantic_index_for_root},
+    },
     semantic_index::{ReferenceContext, SemanticReference},
 };
 
@@ -36,7 +35,7 @@ impl SearchScope {
     }
 
     pub(crate) fn new(
-        db: &RootDb,
+        db: &dyn WorkspaceSymbolIndexDb,
         def: &DefId,
         ReferencesConfig { scope_visibility, search_scope }: ReferencesConfig,
     ) -> Self {
@@ -60,7 +59,7 @@ impl SearchScope {
         }
     }
 
-    pub(crate) fn all(db: &RootDb) -> Self {
+    pub(crate) fn all(db: &dyn WorkspaceSymbolIndexDb) -> Self {
         let res = db.files().iter().map(|&file_id| (file_id, None)).collect();
         SearchScope(res)
     }
@@ -74,14 +73,18 @@ impl SearchScope {
     /// location to its user-facing source file and range first. Macro
     /// expansions map to their call site; when a call site cannot be resolved
     /// the search falls back to the whole workspace.
-    fn single_source_range(db: &RootDb, file_id: HirFileId, range: TextRange) -> Self {
+    fn single_source_range(
+        db: &dyn WorkspaceSymbolIndexDb,
+        file_id: HirFileId,
+        range: TextRange,
+    ) -> Self {
         match resolve_source_range(db, file_id, range) {
             Some((file_id, range)) => Self::single_range(file_id, range),
             None => Self::all(db),
         }
     }
 
-    fn from_conts(db: &RootDb, cont: ScopeId) -> Self {
+    fn from_conts(db: &dyn WorkspaceSymbolIndexDb, cont: ScopeId) -> Self {
         if matches!(cont, ScopeId::File(_)) {
             return Self::all(db);
         }
@@ -135,7 +138,7 @@ impl SearchScope {
         })
     }
 
-    fn source_root_ids(&self, db: &RootDb) -> Vec<SourceRootId> {
+    fn source_root_ids(&self, db: &dyn WorkspaceSymbolIndexDb) -> Vec<SourceRootId> {
         let mut root_ids =
             self.0.keys().map(|file_id| db.source_root_id(*file_id)).collect::<Vec<_>>();
         root_ids.sort_unstable();
@@ -198,47 +201,58 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
     }
 
     pub(crate) fn search(&self) -> IntMap<FileId, Vec<ReferenceToken>> {
-        let db = self.sema.db;
-        let mut res: IntMap<_, Vec<_>> = IntMap::default();
-
-        // Single-file scopes (document highlight, single-file rename) read
-        // the file's own index directly and skip the root merge pass.
-        if let Some(file_id) = self.scope.single_file_id() {
-            db.unwind_if_revision_cancelled();
-            let index = db.file_semantic_index(file_id);
-            let Some(group) = index.references_for_definition(self.def.clone()) else {
-                return res;
-            };
-            for reference in group.references().iter() {
-                if !self.scope.contains(reference.file_id, reference.range) {
-                    continue;
-                }
-                res.entry(reference.file_id)
-                    .or_insert_with(|| Vec::with_capacity(Self::FILE_REF_CAPACITY))
-                    .push(ReferenceToken::from_semantic_reference(reference));
-            }
-            return res;
-        }
-
-        for source_root_id in self.scope.source_root_ids(db) {
-            db.unwind_if_revision_cancelled();
-            let index = source_root_semantic_index_for_root(db, source_root_id);
-            let Some(group) = index.references_for_definition(self.def.clone()) else {
-                continue;
-            };
-
-            for reference in group.references.iter() {
-                if !self.scope.contains(reference.file_id, reference.range) {
-                    continue;
-                }
-                res.entry(reference.file_id)
-                    .or_insert_with(|| Vec::with_capacity(Self::FILE_REF_CAPACITY))
-                    .push(ReferenceToken::from_semantic_reference(reference));
-            }
-        }
-
-        res
+        search_references(self.sema.db, self.def, self.scope.clone())
     }
+}
+
+/// Collects the references of `def` inside `scope`. The work is shared by
+/// find-references, document highlight, rename and the recursive rename
+/// closure query; it only touches salsa queries, so it can run on a `dyn`
+/// database.
+pub(crate) fn search_references(
+    db: &dyn WorkspaceSymbolIndexDb,
+    def: &DefId,
+    scope: SearchScope,
+) -> IntMap<FileId, Vec<ReferenceToken>> {
+    let mut res: IntMap<_, Vec<_>> = IntMap::default();
+
+    // Single-file scopes (document highlight, single-file rename) read
+    // the file's own index directly and skip the root merge pass.
+    if let Some(file_id) = scope.single_file_id() {
+        db.unwind_if_revision_cancelled();
+        let index = db.file_semantic_index(file_id);
+        let Some(group) = index.references_for_definition(def.clone()) else {
+            return res;
+        };
+        for reference in group.references().iter() {
+            if !scope.contains(reference.file_id, reference.range) {
+                continue;
+            }
+            res.entry(reference.file_id)
+                .or_insert_with(|| Vec::with_capacity(ReferencesCtx::FILE_REF_CAPACITY))
+                .push(ReferenceToken::from_semantic_reference(reference));
+        }
+        return res;
+    }
+
+    for source_root_id in scope.source_root_ids(db) {
+        db.unwind_if_revision_cancelled();
+        let index = source_root_semantic_index_for_root(db, source_root_id);
+        let Some(group) = index.references_for_definition(def.clone()) else {
+            continue;
+        };
+
+        for reference in group.references.iter() {
+            if !scope.contains(reference.file_id, reference.range) {
+                continue;
+            }
+            res.entry(reference.file_id)
+                .or_insert_with(|| Vec::with_capacity(ReferencesCtx::FILE_REF_CAPACITY))
+                .push(ReferenceToken::from_semantic_reference(reference));
+        }
+    }
+
+    res
 }
 
 /// Resolves a HIR file location to a user-facing source file and range.

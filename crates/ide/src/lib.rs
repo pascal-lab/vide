@@ -132,7 +132,7 @@ impl From<hir_def::symbol::SymbolKind> for SymbolKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScopeVisibility {
     Public,
     Private,

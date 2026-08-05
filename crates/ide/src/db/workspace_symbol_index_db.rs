@@ -1,11 +1,13 @@
 use std::ops::Deref;
 
 use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
+use hir_def::def_id::DefId;
 use hir_ty::db::TyDb;
 use triomphe::Arc;
 use vfs::FileId;
 
 use crate::{
+    ScopeVisibility,
     semantic_index::{
         FileModuleEdges, FileModuleIndex, FileSemanticIndex, ModuleIndex, SemanticIndex,
     },
@@ -51,6 +53,18 @@ impl dyn WorkspaceSymbolIndexDb + '_ {
 
     pub fn file_semantic_index(&self, file_id: FileId) -> Arc<FileSemanticIndex> {
         file_semantic_index(self, file_id, ())
+    }
+
+    /// The connected component of same-name port connections around `def`,
+    /// in discovery order. Shared by the recursive rename info, conflict and
+    /// edit commands so a single F2 interaction computes it once.
+    pub fn recursive_rename_closure(
+        &self,
+        def: DefId,
+        visibility: ScopeVisibility,
+        single_file: Option<FileId>,
+    ) -> Arc<Vec<DefId>> {
+        recursive_rename_closure(self, def, visibility, single_file, ())
     }
 }
 
@@ -136,4 +150,15 @@ fn file_semantic_index(
     _key: (),
 ) -> Arc<FileSemanticIndex> {
     Arc::new(crate::semantic_index::FileSemanticIndex::for_file(db, file_id))
+}
+
+#[salsa::tracked(returns(clone))]
+fn recursive_rename_closure(
+    db: &dyn WorkspaceSymbolIndexDb,
+    def: DefId,
+    visibility: ScopeVisibility,
+    single_file: Option<FileId>,
+    _key: (),
+) -> Arc<Vec<DefId>> {
+    Arc::new(crate::rename::recursive_rename_closure_impl(db, def, visibility, single_file))
 }
