@@ -243,6 +243,12 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameSco
         scope.insert_value_opt(&decl.name, def_id(db, InContainer::new(file_id.into(), decl_id)));
     }
 
+    for (local_subroutine_id, subroutine) in hir_file.subroutines.iter() {
+        let subroutine_id =
+            SubroutineScope::new(SubroutineParent::File(file_id), local_subroutine_id);
+        scope.insert_value_opt(&subroutine.name, def_id(db, subroutine_id));
+    }
+
     for (config_decl_id, config_decl) in hir_file.config_decls.iter() {
         scope.insert_value_opt(&config_decl.name, def_id(db, InFile::new(file_id, config_decl_id)));
     }
