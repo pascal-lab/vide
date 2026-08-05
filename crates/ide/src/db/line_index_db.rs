@@ -4,10 +4,11 @@ use utils::line_index::LineIndex;
 use vfs::FileId;
 
 #[salsa::db]
-pub trait LineIndexDb: SourceDb {}
-
-impl dyn LineIndexDb + '_ {
-    pub fn line_index(&self, file_id: FileId) -> Arc<LineIndex> {
+pub trait LineIndexDb: SourceDb {
+    fn line_index(&self, file_id: FileId) -> Arc<LineIndex>
+    where
+        Self: Sized,
+    {
         line_index(self, file_id, ())
     }
 }
