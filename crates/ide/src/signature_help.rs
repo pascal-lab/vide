@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use hir_def::{
     container::{InContainer, InModule},
     declaration::Declaration,
@@ -339,6 +341,12 @@ fn sig_help_for_invocation(
 ) -> Option<SignatureHelp> {
     let db = sema.db;
 
+    // System subroutines are not name-resolvable; serve them from the built-in
+    // signature table before falling back to scope resolution.
+    if let Some(system_name) = system_identifier_of(invocation.left()) {
+        return sig_help_for_system_call(&system_name, invocation, offset, config);
+    }
+
     // Resolve the callee expression to a subroutine (function or task).
     let callee = sema.resolve_expr(file_id, invocation.left())?;
     let subroutine_id = Resolution::from_candidates(
@@ -424,4 +432,112 @@ fn active_argument_at_offset(
         }
     }
     None
+}
+
+/// The `$name` of a system subroutine call, when `expr` is a system name.
+fn system_identifier_of(expr: ast::Expression<'_>) -> Option<String> {
+    match expr {
+        ast::Expression::Name(ast::Name::SystemName(system)) => {
+            system.system_identifier().map(|tok| tok.raw_text().to_string())
+        }
+        _ => None,
+    }
+}
+
+fn sig_help_for_system_call(
+    name: &str,
+    invocation: ast::InvocationExpression<'_>,
+    offset: TextSize,
+    config: SignatureHelpConfig,
+) -> Option<SignatureHelp> {
+    let params = system_signature(name)?;
+
+    let mut res = SignatureHelp::new(config, format!("{name}("));
+    for param in params {
+        res.push_param(param);
+    }
+    res.label.push(')');
+
+    // System subroutines take positional arguments only; clamp the active
+    // index to the last (variadic) slot so `...` highlights once the fixed
+    // arguments are exhausted.
+    if let Some(Some(Either::Left(idx))) =
+        invocation.arguments().map(|args| active_argument_at_offset(args, offset))
+        && let Some(last) = res.param_ranges.len().checked_sub(1)
+    {
+        res.active_parameter = Some(idx.min(last));
+    }
+
+    Some(res)
+}
+
+/// Parameter labels for a system subroutine, from the bundled
+/// `system_signatures.toml` table. `...` marks variadic arguments.
+fn system_signature(name: &str) -> Option<&'static [String]> {
+    use std::sync::OnceLock;
+
+    static TABLE: OnceLock<BTreeMap<String, SystemSignatureDef>> = OnceLock::new();
+    TABLE
+        .get_or_init(|| {
+            toml::from_str(include_str!("system_signatures.toml"))
+                .expect("bundled system_signatures.toml must parse")
+        })
+        .get(name)
+        .map(|def| def.params.as_slice())
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct SystemSignatureDef {
+    /// Read only by the slang-alignment test; the runtime path needs `params`.
+    #[allow(dead_code)]
+    kind: String,
+    params: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeSet, HashMap};
+
+    use syntax::Compilation as SlangCompilation;
+
+    use super::*;
+
+    fn table() -> BTreeMap<String, SystemSignatureDef> {
+        toml::from_str(include_str!("system_signatures.toml"))
+            .expect("bundled system_signatures.toml must parse")
+    }
+
+    #[test]
+    fn system_signature_table_matches_slang_subroutine_tables() {
+        let table = table();
+        let tasks: HashMap<String, bool> = SlangCompilation::system_task_names()
+            .into_iter()
+            .map(|name| (name, true))
+            .chain(SlangCompilation::system_function_names().into_iter().map(|name| (name, false)))
+            .collect();
+
+        let mut unknown = Vec::new();
+        let mut kind_mismatch = Vec::new();
+        for (name, def) in &table {
+            let Some(is_task) = tasks.get(name) else {
+                unknown.push(name.clone());
+                continue;
+            };
+            let expected = if *is_task { "task" } else { "function" };
+            if def.kind != expected {
+                kind_mismatch
+                    .push(format!("{name}: table says {} but slang says {expected}", def.kind));
+            }
+        }
+
+        assert!(unknown.is_empty(), "unknown system subroutines: {unknown:?}");
+        assert!(kind_mismatch.is_empty(), "kind mismatches vs slang: {kind_mismatch:?}");
+    }
+
+    #[test]
+    fn system_signature_table_has_unique_names() {
+        let table = table();
+        let names: BTreeSet<String> = table.keys().cloned().collect();
+        assert_eq!(names.len(), table.len(), "duplicate names in system_signatures.toml");
+    }
 }

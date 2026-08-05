@@ -3425,6 +3425,74 @@ endmodule
 }
 
 #[test]
+fn system_task_signature_help_uses_builtin_signatures() {
+    let text = r#"
+module top;
+  logic [7:0] mem [0:3];
+  initial begin
+    $display(/*marker:first*/"x=%d", value);
+    $readmemh(/*marker:second*/"mem.txt", mem);
+    $display("x=%d", /*marker:third*/value);
+  end
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let first = analysis
+        .signature_help(
+            position(file_id, &markers, "first"),
+            crate::signature_help::SignatureHelpConfig { params_only: false },
+        )
+        .unwrap()
+        .expect("signature help expected for $display");
+    assert_eq!(first.label, "$display(format, ...)");
+    assert_eq!(first.active_parameter, Some(0));
+
+    let second = analysis
+        .signature_help(
+            position(file_id, &markers, "second"),
+            crate::signature_help::SignatureHelpConfig { params_only: false },
+        )
+        .unwrap()
+        .expect("signature help expected for $readmemh");
+    assert_eq!(second.label, "$readmemh(file, mem)");
+    assert_eq!(second.active_parameter, Some(0));
+
+    // Beyond the fixed arguments the variadic `...` slot stays active.
+    let third = analysis
+        .signature_help(
+            position(file_id, &markers, "third"),
+            crate::signature_help::SignatureHelpConfig { params_only: false },
+        )
+        .unwrap()
+        .expect("signature help expected for $display");
+    assert_eq!(third.label, "$display(format, ...)");
+    assert_eq!(third.active_parameter, Some(1));
+}
+
+#[test]
+fn system_task_signature_help_is_none_for_unlisted_call() {
+    let text = r#"
+module top;
+  initial begin
+    $not_a_real_task(/*marker:args*/1);
+  end
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let signature = host
+        .make_analysis()
+        .signature_help(
+            position(file_id, &markers, "args"),
+            crate::signature_help::SignatureHelpConfig { params_only: false },
+        )
+        .unwrap();
+
+    assert!(signature.is_none(), "unlisted system call should yield no signature help");
+}
+
+#[test]
 fn signature_help_is_none_for_unresolved_subroutine_call() {
     let text = r#"
 module top;
