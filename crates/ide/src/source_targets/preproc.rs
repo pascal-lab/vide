@@ -1,10 +1,9 @@
-use std::collections::HashMap;
-
 use preproc_expand::{
     context::{MacroContext, macro_context_at},
     db::PreprocDb,
     macro_file::{ExpansionSourceHit, MacroFileId, Origin, SourceEmittedTokenId},
 };
+use rustc_hash::FxHashMap;
 use syntax::{SyntaxElement, SyntaxNode, SyntaxTokenWithParent, TokenKind, WalkEvent};
 use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
@@ -14,12 +13,38 @@ use super::{
     SourceTargetProviderResult, SourceTargetResolution, normal_syntax_source_target_at_offset,
 };
 
+/// Emitted-token id to syntax tokens for one parse tree, built with a single
+/// tree walk. Macro-emitted tokens share the call-site display range, so
+/// positional lookups cannot enumerate them; the preprocessor trace id is the
+/// only stable token identity. One id can map to several tokens (a macro can
+/// emit the same argument more than once), so every copy is kept.
+///
+/// Callers that resolve many offsets of one tree (the semantic index build)
+/// construct this once and share it across every resolution instead of
+/// re-walking the tree per token.
+pub(crate) type EmittedTokenIndex<'tree> =
+    FxHashMap<SourceEmittedTokenId, Vec<SyntaxTokenWithParent<'tree>>>;
+
+pub(crate) fn emit_token_index<'tree>(root: SyntaxNode<'tree>) -> EmittedTokenIndex<'tree> {
+    let mut index = EmittedTokenIndex::default();
+    for event in root.elem_preorder() {
+        let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
+            continue;
+        };
+        if let Some(emitted_token) = syntax_token_emitted_token_id(&token) {
+            index.entry(emitted_token).or_default().push(token);
+        }
+    }
+    index
+}
+
 pub(super) fn preproc_source_target_at_offset<'tree>(
     db: &dyn PreprocDb,
     file_id: FileId,
     root: SyntaxNode<'tree>,
     offset: TextSize,
     precedence: &impl Fn(TokenKind) -> usize,
+    emitted: Option<&EmittedTokenIndex<'tree>>,
 ) -> SourceTargetProviderResult<'tree> {
     let MacroContext::Invocation { macro_files } = macro_context_at(db, file_id, offset) else {
         return SourceTargetProviderResult::NotApplicable;
@@ -27,7 +52,8 @@ pub(super) fn preproc_source_target_at_offset<'tree>(
 
     match preproc_hits_at_offset(db, &macro_files, file_id, offset) {
         PreprocHitLookup::Available { range, hits } => {
-            let Some(tokens) = syntax_tokens_for_preproc_hit(root, offset, precedence, &hits)
+            let Some(tokens) =
+                syntax_tokens_for_preproc_hit(root, offset, precedence, emitted, &hits)
             else {
                 return SourceTargetProviderResult::Blocked(
                     SourceTargetBlock::preproc_unavailable(range),
@@ -40,7 +66,7 @@ pub(super) fn preproc_source_target_at_offset<'tree>(
         }
         PreprocHitLookup::Ambiguous { range, hits } => {
             let block_hits = hits.clone();
-            ambiguous_preproc_source_targets(root, offset, precedence, range, hits)
+            ambiguous_preproc_source_targets(root, offset, precedence, emitted, range, hits)
                 .map(SourceTargetProviderResult::Ambiguous)
                 .unwrap_or_else(|| {
                     SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_ambiguous(
@@ -113,6 +139,7 @@ pub(super) fn ambiguous_preproc_source_targets<'tree>(
     root: SyntaxNode<'tree>,
     offset: TextSize,
     precedence: &impl Fn(TokenKind) -> usize,
+    emitted: Option<&EmittedTokenIndex<'tree>>,
     range: TextRange,
     hits: Vec<PreprocTokenHit>,
 ) -> Option<SourceTargetAlternatives<'tree>> {
@@ -127,7 +154,7 @@ pub(super) fn ambiguous_preproc_source_targets<'tree>(
         let group_range =
             covering_range(&group.iter().map(|hit| hit.source_range).collect::<Vec<_>>())
                 .unwrap_or(range);
-        let tokens = syntax_tokens_for_preproc_hit(root, offset, precedence, &group)?;
+        let tokens = syntax_tokens_for_preproc_hit(root, offset, precedence, emitted, &group)?;
         targets.push(SourceTarget::preproc(group_range, tokens));
     }
 
@@ -153,10 +180,11 @@ pub(super) fn syntax_tokens_for_preproc_hit<'tree>(
     root: SyntaxNode<'tree>,
     offset: TextSize,
     precedence: &impl Fn(TokenKind) -> usize,
+    emitted: Option<&EmittedTokenIndex<'tree>>,
     hits: &[PreprocTokenHit],
 ) -> Option<Vec<SyntaxTokenWithParent<'tree>>> {
     if hits.iter().any(|hit| macro_emitted_token_for_hit(hit).is_some()) {
-        return syntax_tokens_for_macro_emitted_tokens(root, hits);
+        return syntax_tokens_for_macro_emitted_tokens(root, emitted, hits);
     }
 
     normal_syntax_source_target_at_offset(root, offset, precedence)
@@ -179,18 +207,13 @@ fn macro_emitted_token_for_hit(hit: &PreprocTokenHit) -> Option<SourceEmittedTok
 /// argument more than once), so the index stores every copy.
 fn syntax_tokens_for_macro_emitted_tokens<'tree>(
     root: SyntaxNode<'tree>,
+    emitted: Option<&EmittedTokenIndex<'tree>>,
     hits: &[PreprocTokenHit],
 ) -> Option<Vec<SyntaxTokenWithParent<'tree>>> {
-    let mut index: HashMap<SourceEmittedTokenId, Vec<SyntaxTokenWithParent<'tree>>> =
-        HashMap::new();
-    for event in root.elem_preorder() {
-        let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
-            continue;
-        };
-        if let Some(emitted_token) = syntax_token_emitted_token_id(&token) {
-            index.entry(emitted_token).or_default().push(token);
-        }
-    }
+    let index = match emitted {
+        Some(index) => index,
+        None => &emit_token_index(root),
+    };
 
     let mut tokens = Vec::new();
     for hit in hits {
