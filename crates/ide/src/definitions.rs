@@ -4,7 +4,7 @@ use hir_def::{
     lower_ident_opt,
     symbol::{DefKind, DefOrigin, NameContext, Resolution},
 };
-use hir_semantics::semantics::Semantics;
+use hir_semantics::semantics::SemanticsImpl;
 use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
 use syntax::{
@@ -16,7 +16,7 @@ use syntax::{
 };
 
 use crate::{
-    db::root_db::RootDb,
+    db::workspace_symbol_index_db::WorkspaceSymbolIndexDb,
     module_resolution::{
         ModuleResolution, resolve_instantiation_target, resolve_named_param_assignment,
         resolve_named_port_connection,
@@ -33,31 +33,33 @@ pub type DefinitionResolution = Resolution<DefinitionClass>;
 
 impl DefinitionClass {
     pub(crate) fn resolve(
-        sema: &Semantics<'_, RootDb>,
+        db: &dyn WorkspaceSymbolIndexDb,
         file_id: HirFileId,
         tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
     ) -> DefinitionResolution {
+        let sema = SemanticsImpl::new(db);
+
         if !tok.kind().name_like() {
             return Resolution::Unresolved;
         }
 
-        if let Some(resolution) = resolve_member_or_scoped_name(sema, file_id, tp) {
+        if let Some(resolution) = resolve_member_or_scoped_name(&sema, file_id, tp) {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_declaration_name(sema, file_id, tp) {
+        if let Some(resolution) = resolve_declaration_name(&sema, file_id, tp) {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_instantiation_type_name(sema, file_id, tp) {
+        if let Some(resolution) = resolve_instantiation_type_name(db, &sema, file_id, tp) {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_package_import_item(sema, file_id, tp) {
+        if let Some(resolution) = resolve_package_import_item(&sema, file_id, tp) {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_package_scoped_name(sema, file_id, tp) {
+        if let Some(resolution) = resolve_package_scoped_name(&sema, file_id, tp) {
             return resolution;
         }
 
@@ -67,11 +69,11 @@ impl DefinitionClass {
 
         match_ast! { parent,
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
-                resolve_named_param_assignment(sema.db, file_id.expect_file(), it)
+                resolve_named_param_assignment(db, file_id.expect_file(), it)
                     .map(DefinitionClass::Definition)
             },
             ast::NamedPortConnection[it] if it.name() == Some(tok) => {
-                let port = resolve_named_port_connection(sema.db, file_id.expect_file(), it);
+                let port = resolve_named_port_connection(db, file_id.expect_file(), it);
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
                     let local = sema.nameres_ident(file_id, tp, NameContext::Value);
@@ -86,7 +88,7 @@ impl DefinitionClass {
         }
     }
 
-    pub(crate) fn origins(self, db: &RootDb) -> SmallVec<[DefOrigin; 6]> {
+    pub(crate) fn origins(self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 6]> {
         match self {
             DefinitionClass::Definition(definition) => definition.origins(db).into_iter().collect(),
             DefinitionClass::PortConnShorthand { port, local } => {
@@ -115,7 +117,7 @@ fn combine_port_shorthand(
 }
 
 fn resolve_declaration_name(
-    sema: &Semantics<'_, RootDb>,
+    sema: &SemanticsImpl,
     file_id: HirFileId,
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<DefinitionResolution> {
@@ -134,7 +136,7 @@ fn resolve_declaration_name(
 }
 
 fn resolve_member_or_scoped_name(
-    sema: &Semantics<'_, RootDb>,
+    sema: &SemanticsImpl,
     file_id: HirFileId,
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<DefinitionResolution> {
@@ -166,7 +168,7 @@ fn resolve_member_or_scoped_name(
 }
 
 fn resolve_package_scoped_name(
-    sema: &Semantics<'_, RootDb>,
+    sema: &SemanticsImpl,
     file_id: HirFileId,
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<DefinitionResolution> {
@@ -192,7 +194,7 @@ fn resolve_package_scoped_name(
 }
 
 fn resolve_package_import_item(
-    sema: &Semantics<'_, RootDb>,
+    sema: &SemanticsImpl,
     file_id: HirFileId,
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<DefinitionResolution> {
@@ -211,7 +213,7 @@ fn resolve_package_import_item(
 }
 
 fn package_defs(
-    sema: &Semantics<'_, RootDb>,
+    sema: &SemanticsImpl,
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
 ) -> Resolution<DefId> {
@@ -224,7 +226,7 @@ fn package_defs(
 }
 
 fn package_member_resolution(
-    sema: &Semantics<'_, RootDb>,
+    sema: &SemanticsImpl,
     packages: Resolution<DefId>,
     ident: &hir_def::Ident,
     primary_ctx: NameContext,
@@ -243,7 +245,8 @@ fn package_member_resolution(
 }
 
 fn resolve_instantiation_type_name(
-    sema: &Semantics<'_, RootDb>,
+    db: &dyn WorkspaceSymbolIndexDb,
+    sema: &SemanticsImpl,
     file_id: HirFileId,
     tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<DefinitionResolution> {
@@ -270,7 +273,7 @@ fn resolve_instantiation_type_name(
         && instantiation.type_() == Some(tok)
     {
         let resolution =
-            match resolve_instantiation_target(sema.db, file_id.expect_file(), instantiation) {
+            match resolve_instantiation_target(db, file_id.expect_file(), instantiation) {
                 ModuleResolution::Unique(module_id)
                 | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
                     Resolution::Unique(DefId::new(sema.db, module_id))
@@ -358,6 +361,7 @@ mod tests {
 
     use base_db::{change::Change, source_root::SourceRoot};
     use hir_def::symbol::DefKind;
+    use hir_semantics::semantics::Semantics;
     use syntax::SyntaxNodeExt;
     use utils::text_edit::TextSize;
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};
@@ -421,7 +425,7 @@ mod tests {
             }
             .unwrap();
             let DefinitionClass::Definition(def) =
-                DefinitionClass::resolve(&sema, file_id.into(), token).unique().unwrap()
+                DefinitionClass::resolve(sema.db, file_id.into(), token).unique().unwrap()
             else {
                 panic!("expected plain definition for {name}");
             };
@@ -481,7 +485,7 @@ endmodule
             .unwrap();
 
         let DefinitionClass::Definition(def) =
-            DefinitionClass::resolve(&sema, file_id.into(), token).unique().unwrap()
+            DefinitionClass::resolve(sema.db, file_id.into(), token).unique().unwrap()
         else {
             panic!("expected plain definition for hierarchical leaf");
         };
@@ -518,7 +522,7 @@ endmodule
             .pick_bext_token(crate::goto_definition::token_precedence)
             .unwrap();
 
-        assert_eq!(DefinitionClass::resolve(&sema, file_id.into(), token), Resolution::Unresolved);
+        assert_eq!(DefinitionClass::resolve(sema.db, file_id.into(), token), Resolution::Unresolved);
     }
 
     #[test]
@@ -546,7 +550,7 @@ endmodule
             .unwrap();
 
         let Resolution::Ambiguous(candidates) =
-            DefinitionClass::resolve(&sema, file_id.into(), token)
+            DefinitionClass::resolve(sema.db, file_id.into(), token)
         else {
             panic!("duplicate named parameters should remain ambiguous");
         };
@@ -604,7 +608,7 @@ endmodule
                 .unwrap();
 
             assert_eq!(
-                DefinitionClass::resolve(&sema, file_id.into(), token),
+                DefinitionClass::resolve(sema.db, file_id.into(), token),
                 Resolution::Unresolved,
                 "{case} must not use child existence to disambiguate its package"
             );
@@ -641,7 +645,7 @@ endmodule
             .pick_bext_token(crate::goto_definition::token_precedence)
             .unwrap();
 
-        let resolution = DefinitionClass::resolve(&sema, file_id.into(), token);
+        let resolution = DefinitionClass::resolve(sema.db, file_id.into(), token);
         let Some(DefinitionClass::Definition(def)) = resolution.unique() else {
             panic!("UDP type should resolve uniquely, got {resolution:?}");
         };
@@ -670,7 +674,7 @@ endmodule
             .pick_bext_token(crate::goto_definition::token_precedence)
             .unwrap();
 
-        let resolution = DefinitionClass::resolve(&sema, file_id.into(), token);
+        let resolution = DefinitionClass::resolve(sema.db, file_id.into(), token);
         let Resolution::Ambiguous(candidates) = resolution else {
             panic!("duplicate declarations should produce an ambiguous definition resolution");
         };

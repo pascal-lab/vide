@@ -1,4 +1,3 @@
-use base_db::source_db::SourceDb;
 use preproc_expand::{
     db::PreprocDb,
     macro_file::{
@@ -14,10 +13,9 @@ use super::{
     SourceTargetProviderResult, SourceTargetResolution,
     macro_gate::source_macro_invocation_may_cover_offset, normal_syntax_source_target_at_offset,
 };
-use crate::db::root_db::RootDb;
 
 pub(super) fn preproc_source_target_at_offset<'tree>(
-    db: &RootDb,
+    db: &dyn PreprocDb,
     file_id: FileId,
     root: SyntaxNode<'tree>,
     offset: TextSize,
@@ -65,7 +63,7 @@ enum PreprocHitLookup {
 }
 
 fn preproc_hits_at_offset(
-    db: &RootDb,
+    db: &dyn PreprocDb,
     macro_files: &[MacroFileId],
     file_id: FileId,
     offset: TextSize,
