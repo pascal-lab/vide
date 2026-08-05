@@ -59,7 +59,7 @@ impl RepairKind {
 #[cfg(test)]
 mod tests {
     use syntax::DiagnosticSeverity;
-    use utils::text_edit::TextSize;
+    use utils::text_edit::{TextRange, TextSize};
     use vfs::FileId;
 
     use super::RepairKind;
@@ -74,7 +74,7 @@ mod tests {
             option_name: option_name.map(ToOwned::to_owned),
             groups: Vec::new(),
             source: DiagnosticSource::SlangSemantic,
-            range: TextSize::from(0).into(),
+            range: TextRange::empty(TextSize::from(0)),
             severity: DiagnosticSeverity::Error,
             message: String::new(),
             args: Vec::new(),
