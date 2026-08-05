@@ -4,7 +4,9 @@ use triomphe::Arc;
 use vfs::FileId;
 
 use crate::{
-    semantic_index::{ModuleIndex, SemanticIndex},
+    semantic_index::{
+        FileModuleEdges, FileModuleIndex, FileSemanticIndex, ModuleIndex, SemanticIndex,
+    },
     workspace_symbols::{SymbolIndex, WorkspaceSymbol},
 };
 
@@ -14,6 +16,15 @@ pub trait WorkspaceSymbolIndexDb: SourceRootDb + TyDb {
     fn source_root_symbol_index(&self, source_root_id: SourceRootId) -> Arc<SymbolIndex>;
     fn source_root_module_index(&self, source_root_id: SourceRootId) -> Arc<ModuleIndex>;
     fn source_root_semantic_index(&self, source_root_id: SourceRootId) -> Arc<SemanticIndex>;
+
+    #[salsa::invoke(crate::semantic_index::file_module_index_query)]
+    fn file_module_index(&self, file_id: FileId) -> Arc<FileModuleIndex>;
+
+    #[salsa::invoke(crate::semantic_index::file_module_edges_query)]
+    fn file_module_edges(&self, file_id: FileId) -> Arc<FileModuleEdges>;
+
+    #[salsa::invoke(crate::semantic_index::file_semantic_index_query)]
+    fn file_semantic_index(&self, file_id: FileId) -> Arc<FileSemanticIndex>;
 }
 
 fn file_workspace_symbols(

@@ -13,7 +13,8 @@ use vfs::FileId;
 
 use crate::source_targets::{
     SourceTarget, SourceTargetAlternatives, SourceTargetAmbiguity, SourceTargetBlock,
-    SourceTargetBlockReason, SourceTargetDomain, SourceTargetResolution, source_target_at_offset,
+    SourceTargetBlockReason, SourceTargetDomain, SourceTargetResolution,
+    preproc::EmittedTokenIndex, source_target_at_offset,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,6 +273,24 @@ pub(crate) fn resolve_semantic_target<'tree, F>(
 where
     F: Fn(TokenKind) -> usize,
 {
+    resolve_semantic_target_with_emitted(db, file_id, offset, root, precedence, None)
+}
+
+/// Like [`resolve_semantic_target`], but reuses a prebuilt emitted-token
+/// index of `root`'s tree. Callers that resolve many offsets of one tree
+/// (the semantic index build) should build the index once with
+/// [`emit_token_index`] and pass it here.
+pub(crate) fn resolve_semantic_target_with_emitted<'tree, F>(
+    db: &dyn PreprocDb,
+    file_id: FileId,
+    offset: TextSize,
+    root: Option<SyntaxNode<'tree>>,
+    precedence: F,
+    emitted: Option<&EmittedTokenIndex<'tree>>,
+) -> TargetResolution<'tree>
+where
+    F: Fn(TokenKind) -> usize,
+{
     if let Some(target) = preproc_macro_target_at(db, file_id, offset) {
         return TargetResolution::from_preproc_macro(target);
     }
@@ -283,7 +302,7 @@ where
     let Some(root) = root else {
         return TargetResolution::Unresolved;
     };
-    source_target_at_offset(db, file_id, root, offset, precedence)
+    source_target_at_offset(db, file_id, root, offset, precedence, emitted)
         .map(|resolution| TargetResolution::from_source_resolution(file_id, resolution))
         .unwrap_or(TargetResolution::Unresolved)
 }

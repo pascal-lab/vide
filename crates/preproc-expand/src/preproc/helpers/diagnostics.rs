@@ -7,7 +7,6 @@ use super::*;
 use crate::{
     macro_file::{
         MacroCallId, MacroCallLoc, Origin, SourceEmittedTokenId, SourceEmittedTokenRange,
-        emitted_range_for_trace_call,
     },
     source_db::{PreprocSourceMapping, PreprocVirtualOrigin},
 };
@@ -25,7 +24,7 @@ pub(in crate::preproc) fn diagnostic_target_for_call(
     let Some(trace) = parsed.preprocessor_trace.as_ref() else {
         return Ok(None);
     };
-    let Some(emitted_range) = emitted_range_for_trace_call(trace, trace_call) else {
+    let Some(emitted_range) = db.trace_index(model_file).emitted_range_for_call(trace_call) else {
         return Ok(None);
     };
     diagnostic_target_for_source_expansion(

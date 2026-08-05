@@ -1,3 +1,10 @@
+pub(crate) mod preproc;
+
+use preproc::preproc_source_target_at_offset;
+#[cfg(test)]
+use preproc::{
+    ambiguous_preproc_source_targets, push_unique_preproc_hit, syntax_tokens_for_preproc_hit,
+};
 use preproc_expand::{
     db::PreprocDb,
     macro_file::{Origin, SourceEmittedTokenId},
@@ -7,17 +14,6 @@ use syntax::{
 };
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
-
-mod macro_gate;
-mod preproc;
-
-#[cfg(test)]
-use macro_gate::source_macro_invocation_may_cover_offset;
-use preproc::preproc_source_target_at_offset;
-#[cfg(test)]
-use preproc::{
-    ambiguous_preproc_source_targets, push_unique_preproc_hit, syntax_tokens_for_preproc_hit,
-};
 
 #[derive(Debug, Clone)]
 pub(crate) enum SourceTargetResolution<'tree> {
@@ -137,11 +133,12 @@ pub(crate) fn source_target_at_offset<'tree, F>(
     root: SyntaxNode<'tree>,
     offset: TextSize,
     precedence: F,
+    emitted: Option<&preproc::EmittedTokenIndex<'tree>>,
 ) -> Option<SourceTargetResolution<'tree>>
 where
     F: Fn(TokenKind) -> usize,
 {
-    match preproc_source_target_at_offset(db, file_id, root, offset, &precedence) {
+    match preproc_source_target_at_offset(db, file_id, root, offset, &precedence, emitted) {
         SourceTargetProviderResult::NotApplicable => {
             normal_syntax_source_target_at_offset(root, offset, &precedence).into_resolution()
         }
