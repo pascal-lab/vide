@@ -55,7 +55,7 @@ fn source_targets_source_token_range_mismatch_uses_original_syntax_hit() {
 
 #[test]
 fn source_targets_macro_argument_selects_syntax_token_by_trace_identity() {
-    let db = RootDb::new();
+    let db = RootDb::new(None);
     let model_file = FileId::from_raw(0);
     let source = r#"`define ID(x) x
 module m;
@@ -113,7 +113,7 @@ endmodule
 
 #[test]
 fn source_targets_macro_argument_selects_only_the_hit_emitted_token() {
-    let db = RootDb::new();
+    let db = RootDb::new(None);
     let model_file = FileId::from_raw(0);
     let source = r#"`define DUP(x) x x
 module m;
@@ -173,7 +173,7 @@ endmodule
 
 #[test]
 fn source_targets_macro_hit_miss_does_not_block_resolvable_hits() {
-    let db = RootDb::new();
+    let db = RootDb::new(None);
     let model_file = FileId::from_raw(0);
     let source = r#"`define ID(x) x
 module m;
@@ -225,7 +225,7 @@ endmodule
 
 #[test]
 fn source_targets_macro_dup_copies_all_resolve() {
-    let db = RootDb::new();
+    let db = RootDb::new(None);
     let model_file = FileId::from_raw(0);
     let source = r#"`define DUP(x) x x
 module m;

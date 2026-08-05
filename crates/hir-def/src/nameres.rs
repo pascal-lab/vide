@@ -24,6 +24,10 @@ pub(crate) fn scope_for(db: &dyn HirDefDb, scope_id: ScopeId, _key: ()) -> Arc<N
     Arc::new(build_scope(db, scope_id))
 }
 
+pub(crate) fn set_scope_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    scope_for::set_lru_capacity(db, capacity);
+}
+
 fn build_scope(db: &dyn HirDefDb, scope_id: ScopeId) -> NameScope {
     match scope_id {
         ScopeId::File(file_id) => build_file_scope(db, file_id),

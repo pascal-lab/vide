@@ -367,3 +367,7 @@ pub(crate) fn block_with_source_map(
     block_source_map.shrink_to_fit();
     Arc::new(Lowered::new(block, block_source_map))
 }
+
+pub(crate) fn set_block_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    block_with_source_map::set_lru_capacity(db, capacity);
+}

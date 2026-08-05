@@ -107,7 +107,7 @@ fn parsed_file_nodes_survive_parse_lru_eviction() {
     }
     change.set_roots(vec![SourceRoot::new_local(file_set)]);
 
-    let mut db = RootDb::new();
+    let mut db = RootDb::new(Some(1));
     db.apply_change(change);
 
     let sema = Semantics::new(&db);

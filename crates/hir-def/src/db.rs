@@ -152,3 +152,14 @@ fn subroutine(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> Arc<Subrouti
 fn generate_block(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock> {
     db.generate_block_with_source_map(generate_block_id).data()
 }
+
+/// Sets the LRU capacity of the tracked HIR queries, mirroring the previous
+/// `RootDb::update_parse_query_lru_capacity` knob.
+pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    block::set_block_lru_capacity(db, capacity);
+    file::set_hir_file_lru_capacity(db, capacity);
+    module::set_module_lru_capacity(db, capacity);
+    module::generate::set_generate_block_lru_capacity(db, capacity);
+    nameres::set_scope_lru_capacity(db, capacity);
+    subroutine::set_subroutine_lru_capacity(db, capacity);
+}
