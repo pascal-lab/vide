@@ -18,7 +18,7 @@ use crate::db::{PreprocDb, path_file_ids, syntax_tree_options_for_file};
 
 mod context;
 mod queries;
-mod range_index;
+pub(crate) mod range_index;
 mod source_map;
 mod source_mapping;
 

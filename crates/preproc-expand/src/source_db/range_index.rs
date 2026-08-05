@@ -89,7 +89,7 @@ struct IndexedRange<T> {
 /// scans the smaller of the two candidate sets: ranges whose start precedes
 /// the probe point versus ranges whose end follows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RangeIndex<T> {
+pub(crate) struct RangeIndex<T> {
     by_start: Vec<IndexedRange<T>>,
     by_end: Vec<IndexedRange<T>>,
 }
@@ -101,19 +101,19 @@ impl<T> Default for RangeIndex<T> {
 }
 
 impl<T: Copy> RangeIndex<T> {
-    fn push(&mut self, range: TextRange, id: T) {
+    pub(crate) fn push(&mut self, range: TextRange, id: T) {
         self.by_start.push(IndexedRange { range, id });
         self.by_end.push(IndexedRange { range, id });
     }
 
-    fn finish(&mut self) {
+    pub(crate) fn finish(&mut self) {
         self.by_start.sort_by_key(|entry| (entry.range.start(), entry.range.end()));
         self.by_end.sort_by_key(|entry| (entry.range.end(), entry.range.start()));
     }
 
     /// All ids whose range contains `offset` (half-open: `start <= offset <
     /// end`), in start order.
-    fn ids_at(&self, offset: TextSize) -> Vec<T> {
+    pub(crate) fn ids_at(&self, offset: TextSize) -> Vec<T> {
         let start_prefix = self.by_start.partition_point(|entry| entry.range.start() <= offset);
         let end_suffix = self.by_end.partition_point(|entry| entry.range.end() <= offset);
         let mut hits = Vec::new();
@@ -132,7 +132,7 @@ impl<T: Copy> RangeIndex<T> {
 
     /// All ids whose range intersects `range` (non-empty intersection), in
     /// start order.
-    fn ids_intersecting_range(&self, range: TextRange) -> Vec<T> {
+    pub(crate) fn ids_intersecting_range(&self, range: TextRange) -> Vec<T> {
         let start_prefix = self.by_start.partition_point(|entry| entry.range.start() < range.end());
         let end_suffix = self.by_end.partition_point(|entry| entry.range.end() <= range.start());
         let mut hits = Vec::new();
