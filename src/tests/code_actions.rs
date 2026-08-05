@@ -53,6 +53,64 @@ endmodule
 }
 
 #[test]
+fn code_action_resolve_returns_edits_for_action_without_edits() {
+    let text = "\
+module ca_leaf(input clk, input rst_n, output done);
+endmodule
+
+module top;
+  logic clk, rst_n, done;
+  ca_leaf convert_ports_only (clk, rst_n, done);
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+
+    let actions = request_code_actions(
+        &client,
+        uri.clone(),
+        text,
+        "convert_ports_only (clk",
+        CodeActionContext {
+            diagnostics: Vec::new(),
+            only: Some(vec![CodeActionKind::REFACTOR_REWRITE]),
+            trigger_kind: None,
+        },
+        200,
+    );
+    let code_action = actions
+        .into_iter()
+        .find_map(|action| match action {
+            CodeActionOrCommand::CodeAction(action)
+                if action.title == "Convert ordered port connections to named connections" =>
+            {
+                Some(action)
+            }
+            _ => None,
+        })
+        .expect("expected the ordered port conversion action");
+    assert!(
+        code_action.edit.is_none(),
+        "resolvable action should not carry an edit: {code_action:?}"
+    );
+    assert!(code_action.data.is_some(), "resolvable action should carry resolve data");
+
+    let resolve_id = lsp_server::RequestId::from(201);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            resolve_id.clone(),
+            CodeActionResolveRequest::METHOD.to_string(),
+            code_action,
+        )))
+        .unwrap();
+    let resolved: lsp_types::CodeAction = recv_response(&client, resolve_id, "codeAction/resolve");
+    assert!(resolved.edit.is_some(), "resolved action should carry an edit: {resolved:?}");
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn code_action_request_returns_extract_variable_for_selected_expression() {
     let text = "\
 module top;
