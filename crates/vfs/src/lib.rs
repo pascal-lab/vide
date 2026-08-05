@@ -50,6 +50,9 @@ fn hash_once<Hasher: std::hash::Hasher + Default>(thing: impl std::hash::Hash) -
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct FileId(u32);
 
+// SAFETY: `FileId` is a copy-only, `'static` identity value.
+unsafe impl salsa::SalsaValue for FileId {}
+
 impl FileId {
     const MAX: u32 = 0x7fff_ffff;
 

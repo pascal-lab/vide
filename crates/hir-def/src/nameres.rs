@@ -19,7 +19,8 @@ use crate::{
     symbol::NameScope,
 };
 
-pub(crate) fn scope_for_query(db: &dyn HirDefDb, scope_id: ScopeId) -> Arc<NameScope> {
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn scope_for(db: &dyn HirDefDb, scope_id: ScopeId, _key: ()) -> Arc<NameScope> {
     Arc::new(build_scope(db, scope_id))
 }
 
@@ -46,25 +47,21 @@ mod tests {
         diagnostics_config::DiagnosticsConfig,
         project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
         salsa::{self, Durability},
-        source_db::{
-            FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
-            SourceRootDbStorage,
-        },
+        source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
         source_root::{SourceRoot, SourceRootId},
     };
-    use preproc_expand::{db::PreprocDbStorage, file::HirFileId};
+    use la_arena::{Idx, RawIdx};
+    use preproc_expand::{db::PreprocDb, file::HirFileId};
     use rustc_hash::FxHashSet;
     use triomphe::Arc;
     use utils::paths::{AbsPathBuf, Utf8PathBuf};
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
     use super::*;
-    use la_arena::{Idx, RawIdx};
-
     use crate::{
         Ident,
         container::{ScopeId, SubroutineParent, SubroutineScope},
-        db::{HirDefDb, HirDefDbStorage, InternDbStorage},
+        db::{HirDefDb, HirDefDbExt},
         module::{ModuleId, generate::GenerateBlockId},
         symbol::{DefKind, NameContext},
     };
@@ -73,19 +70,26 @@ mod tests {
     const ROOT: SourceRootId = SourceRootId(0);
     const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
-    #[salsa::database(
-        SourceDbStorage,
-        SourceRootDbStorage,
-        PreprocDbStorage,
-        InternDbStorage,
-        HirDefDbStorage
-    )]
+    #[salsa::db]
     #[derive(Default)]
     struct TestDb {
         storage: salsa::Storage<Self>,
     }
 
+    #[salsa::db]
     impl salsa::Database for TestDb {}
+
+    #[salsa::db]
+    impl SourceDb for TestDb {}
+
+    #[salsa::db]
+    impl SourceRootDb for TestDb {}
+
+    #[salsa::db]
+    impl PreprocDb for TestDb {}
+
+    #[salsa::db]
+    impl HirDefDb for TestDb {}
 
     impl std::fmt::Debug for TestDb {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -144,15 +148,14 @@ mod tests {
 
     #[test]
     fn scope_for_builds_only_the_requested_scope() {
-        let db = db_with_root_text(
-            "module top;\n  function void f(); endfunction\nendmodule\n",
-        );
+        let db = db_with_root_text("module top;\n  function void f(); endfunction\nendmodule\n");
         let file_id = HirFileId::File(TOP);
         let scope = db.scope_for(ScopeId::File(file_id));
         assert!(
-            scope.lookup(NameContext::Type, &ident("top")).iter().any(|def_id| {
-                def_id.kind(&db) == DefKind::Module
-            }),
+            scope
+                .lookup(NameContext::Type, &ident("top"))
+                .iter()
+                .any(|def_id| { def_id.kind(&db) == DefKind::Module }),
             "file scope should contain the module"
         );
         assert!(
@@ -166,9 +169,7 @@ mod tests {
 
     #[test]
     fn scope_for_module_contains_subroutine_name() {
-        let db = db_with_root_text(
-            "module top;\n  function void f(); endfunction\nendmodule\n",
-        );
+        let db = db_with_root_text("module top;\n  function void f(); endfunction\nendmodule\n");
         let file_id = HirFileId::File(TOP);
         let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
         let scope = db.scope_for(module_id.into());
@@ -188,7 +189,10 @@ mod tests {
         );
         let file_id = HirFileId::File(TOP);
         let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
-        let subroutine_id = SubroutineScope::new(SubroutineParent::Module(module_id), Idx::from_raw(RawIdx::from(0)));
+        let subroutine_id = SubroutineScope::new(
+            SubroutineParent::Module(module_id),
+            Idx::from_raw(RawIdx::from(0)),
+        );
         let scope = db.scope_for(subroutine_id.into());
         assert!(
             scope
@@ -211,7 +215,7 @@ mod tests {
         for (_, region) in module.generate_regions.iter() {
             for item in &region.items {
                 if let crate::module::generate::GenerateItem::GenerateBlockId(id) = item {
-                    block_id = Some(*id);
+                    block_id = Some(id.clone());
                 }
             }
         }

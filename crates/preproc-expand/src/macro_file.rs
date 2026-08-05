@@ -210,9 +210,11 @@ pub fn macro_file_expansion(
     })
 }
 
+#[salsa::tracked(returns(clone))]
 pub(crate) fn macro_expansion_query(
     db: &dyn PreprocDb,
     macro_file: MacroFileId,
+    _key: (),
 ) -> Arc<ExpandResult<ExpansionInfo>> {
     Arc::new(macro_expansion(db, macro_file))
 }

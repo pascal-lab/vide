@@ -85,13 +85,14 @@ impl HirDisplay for Ty {
             Ty::Error => f.write_str("error"),
             Ty::Void => f.write_str("void"),
             Ty::Builtin(BuiltinTy::Data { id, container }) => {
-                InContainer::new(*container, DataTy::Builtin(id.clone())).hir_fmt(f)
+                InContainer::new(container.clone(), DataTy::Builtin(id.clone())).hir_fmt(f)
             }
             Ty::Struct(struct_ref) => {
-                InContainer::new(struct_ref.cont_id, DataTy::Struct(*struct_ref)).hir_fmt(f)
+                InContainer::new(struct_ref.cont_id.clone(), DataTy::Struct(struct_ref.clone()))
+                    .hir_fmt(f)
             }
-            Ty::Enum(def) => hir_fmt_def_backed_type(f, "enum", *def),
-            Ty::Union(def) => hir_fmt_def_backed_type(f, "union", *def),
+            Ty::Enum(def) => hir_fmt_def_backed_type(f, "enum", def.clone()),
+            Ty::Union(def) => hir_fmt_def_backed_type(f, "union", def.clone()),
             Ty::Queue { elem, size } => {
                 elem.hir_fmt(f)?;
                 f.write_str(" [$")?;
@@ -129,8 +130,8 @@ impl HirDisplay for Ty {
                     f.write_str("module")
                 }
             }
-            Ty::Checker(def) => hir_fmt_named_def_type(f, "checker", *def),
-            Ty::Covergroup(def) => hir_fmt_named_def_type(f, "covergroup", *def),
+            Ty::Checker(def) => hir_fmt_named_def_type(f, "checker", def.clone()),
+            Ty::Covergroup(def) => hir_fmt_named_def_type(f, "covergroup", def.clone()),
             Ty::VirtualInterface { def, modport } => {
                 f.write_str("virtual interface ")?;
                 if let Some(name) = def.name(f.db) {
@@ -138,14 +139,15 @@ impl HirDisplay for Ty {
                 } else {
                     f.write_str("interface")?;
                 }
-                if let Some(modport_name) = modport.and_then(|modport| modport.name(f.db)) {
+                if let Some(modport_name) = modport.as_ref().and_then(|modport| modport.name(f.db))
+                {
                     f.write_str(".")?;
                     f.write_str(&modport_name)?;
                 }
                 Ok(())
             }
             Ty::GenerateBlock(generate_block_id) => {
-                let block = f.db.generate_block(*generate_block_id);
+                let block = f.db.generate_block(generate_block_id.clone());
                 if let Some(name) = &block.name {
                     f.write_str(name)
                 } else {
@@ -153,7 +155,7 @@ impl HirDisplay for Ty {
                 }
             }
             Ty::Block(block_id) => {
-                let block = f.db.block(*block_id);
+                let block = f.db.block(block_id.clone());
                 if let Some(name) = &block.name { f.write_str(name) } else { f.write_str("block") }
             }
         }
@@ -166,7 +168,7 @@ fn hir_fmt_def_backed_type(
     def: DefId,
 ) -> Result<(), HirDisplayError> {
     f.write_str(keyword)?;
-    if let DefOriginLoc::Typedef(typedef) = def.primary_origin(f.db).loc(f.db) {
+    if let DefOriginLoc::Typedef(typedef) = def.primary_origin(f.db).loc() {
         let container = typedef.cont_id.data(f.db);
         if let Some(name) = &container.typedef(typedef.value).name {
             f.write_str(" ")?;
@@ -194,10 +196,10 @@ fn ty_expr_container(
     ty: &Ty,
 ) -> Option<hir_def::container::ArenaOwnerId> {
     match ty {
-        Ty::Builtin(BuiltinTy::Data { container, .. }) => Some(*container),
-        Ty::Struct(struct_ref) => Some(struct_ref.cont_id),
-        Ty::Alias { typedef, .. } => Some(typedef.cont_id),
-        Ty::Enum(def) | Ty::Union(def) => match def.primary_origin(db).loc(db) {
+        Ty::Builtin(BuiltinTy::Data { container, .. }) => Some(container.clone()),
+        Ty::Struct(struct_ref) => Some(struct_ref.cont_id.clone()),
+        Ty::Alias { typedef, .. } => Some(typedef.cont_id.clone()),
+        Ty::Enum(def) | Ty::Union(def) => match def.primary_origin(db).loc() {
             DefOriginLoc::Decl(decl) => Some(decl.cont_id),
             DefOriginLoc::Typedef(typedef) => Some(typedef.cont_id),
             DefOriginLoc::SubroutinePort(port) => Some(port.subroutine.into()),
@@ -283,7 +285,7 @@ impl HirDisplay for InContainer<DataTy> {
                         if wrote_head {
                             f.write_str(" ")?;
                         }
-                        InContainer::new(self.cont_id, *dim).hir_fmt(f)?;
+                        InContainer::new(self.cont_id.clone(), *dim).hir_fmt(f)?;
                         wrote_head = true;
                     }
                     Ok(())
@@ -300,10 +302,10 @@ impl HirDisplay for InContainer<DataTy> {
             },
             DataTy::Named(named) => match named {
                 NamedDataTy::Ident(expr_id) => {
-                    InContainer::new(self.cont_id, *expr_id).hir_fmt(f)
+                    InContainer::new(self.cont_id.clone(), *expr_id).hir_fmt(f)
                 }
                 NamedDataTy::Field(expr_id) => {
-                    InContainer::new(self.cont_id, *expr_id).hir_fmt(f)
+                    InContainer::new(self.cont_id.clone(), *expr_id).hir_fmt(f)
                 }
             },
             DataTy::Enum => f.write_str("enum"),
@@ -703,7 +705,7 @@ impl HirDisplay for InContainer<TypedefId> {
 
         f.write_str("typedef ")?;
         if let Some(ty) = typedef.ty.clone() {
-            InContainer::new(*cont_id, ty).hir_fmt(f)?;
+            InContainer::new(cont_id.clone(), ty).hir_fmt(f)?;
             if typedef.name.is_some() {
                 f.write_str(" ")?;
             }

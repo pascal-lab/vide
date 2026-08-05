@@ -4,7 +4,7 @@ use hir_def::{
     db::HirDefDb,
     module::{
         ModuleId, ModuleSrc,
-        generate::{GenerateBlockLoc, GenerateBlockSrc},
+        generate::{GenerateBlockId, GenerateBlockLoc, GenerateBlockSrc},
     },
     source_map::ToAstNode,
     subroutine::{LocalSubroutineId, SubroutineSrc},
@@ -56,27 +56,27 @@ fn block_to_def_inner(
         ArenaOwnerId::File(file_id) => {
             let file = db.hir_file_with_source_map(file_id);
             let local_block_id = find_local_block_id(&file.source_map().stmt_srcs, block_src)?;
-            file.get(local_block_id).block_id
+            file.get(local_block_id).block_id.clone()
         }
         ArenaOwnerId::Module(module_id) => {
             let module = db.module_with_source_map(module_id);
             let local_block_id = find_local_block_id(&module.source_map().stmt_srcs, block_src)?;
-            module.get(local_block_id).block_id
+            module.get(local_block_id).block_id.clone()
         }
         ArenaOwnerId::Block(block_id) => {
             let block = db.block_with_source_map(block_id);
             let local_block_id = *block.source_map().block_srcs.get(&block_src)?;
-            block.get(local_block_id).block_id
+            block.get(local_block_id).block_id.clone()
         }
         ArenaOwnerId::GenerateBlock(generate_block_id) => {
             let generate_block = db.generate_block_with_source_map(generate_block_id);
             let local_block_id = generate_block.hir_id(block_src)?;
-            generate_block.get(local_block_id).block_id
+            generate_block.get(local_block_id).block_id.clone()
         }
         ArenaOwnerId::Subroutine(subroutine_id) => {
             let subroutine = db.subroutine_with_source_map(subroutine_id);
             let local_block_id = *subroutine.source_map().block_srcs.get(&block_src)?;
-            subroutine.get(local_block_id).block_id
+            subroutine.get(local_block_id).block_id.clone()
         }
     };
 
@@ -108,7 +108,7 @@ fn container_to_def(
                .skip(1)
                .find_map(|node| container_to_def(db, file_id, node))
                .unwrap_or(file_id.into());
-           db.intern_generate_block(GenerateBlockLoc {
+           GenerateBlockId::new(GenerateBlockLoc {
                cont_id: parent,
                src: InFile::new(file_id, src),
            }).into()
@@ -149,7 +149,7 @@ fn subroutine_to_def_inner(
         }
         ArenaOwnerId::Block(_) | ArenaOwnerId::Subroutine(_) => return None,
     };
-    let local_id = local_subroutine_id(db, parent, src)?;
+    let local_id = local_subroutine_id(db, parent.clone(), src)?;
     Some(SubroutineScope::new(parent, local_id))
 }
 
@@ -187,7 +187,7 @@ fn single_member_generate_block_to_def(
         .unwrap_or(file_id.into());
 
     Some(
-        db.intern_generate_block(GenerateBlockLoc {
+        GenerateBlockId::new(GenerateBlockLoc {
             cont_id: parent,
             src: InFile::new(file_id, member.into()),
         })

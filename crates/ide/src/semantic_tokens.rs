@@ -189,14 +189,14 @@ fn collect_preproc_macro_references(
 macro_rules! collect_container_body {
     ($sema:expr, $cont_id:expr, $tree:expr, $collector:expr, $lowered:expr) => {{
         let sema = $sema;
-        let cont_id = $cont_id;
+        let cont_id: ArenaOwnerId = $cont_id;
         let tree = $tree;
         let collector = $collector;
         let lowered = $lowered;
 
         let collect_ident_like =
             |name: &SmolStr, range: TextRange, collector: &mut SemaTokenCollector| {
-                let name_in_cont = InContainer::new(cont_id, name.clone());
+                let name_in_cont = InContainer::new(cont_id.clone(), name.clone());
                 collect_ident_like(sema, name_in_cont, range, collector);
             };
 
@@ -208,11 +208,17 @@ macro_rules! collect_container_body {
                     continue;
                 };
                 check_range!(collector, range);
-                collect_type_ident_like(sema, cont_id, lowered.get(expr_id), range, collector);
+                collect_type_ident_like(
+                    sema,
+                    cont_id.clone(),
+                    lowered.get(expr_id),
+                    range,
+                    collector,
+                );
             }
         }
         for (_, typedef) in lowered.data_ref().typedefs.iter() {
-            let Some(ty) = typedef.ty else {
+            let Some(ty) = typedef.ty.clone() else {
                 continue;
             };
             if let Some(expr_id) = named_data_ty_expr_id(ty) {
@@ -221,7 +227,13 @@ macro_rules! collect_container_body {
                     continue;
                 };
                 check_range!(collector, range);
-                collect_type_ident_like(sema, cont_id, lowered.get(expr_id), range, collector);
+                collect_type_ident_like(
+                    sema,
+                    cont_id.clone(),
+                    lowered.get(expr_id),
+                    range,
+                    collector,
+                );
             }
         }
 
@@ -233,7 +245,7 @@ macro_rules! collect_container_body {
                 Expr::Field { .. } => {
                     let _: Option<()> = try {
                         let expr = lowered.ast(expr_id, tree)?;
-                        collect_field_like(sema, cont_id, expr_id, expr, collector)?;
+                        collect_field_like(sema, cont_id.clone(), expr_id, expr, collector)?;
                     };
                 }
                 Expr::Ident(name) => {
@@ -241,7 +253,7 @@ macro_rules! collect_container_body {
                         continue;
                     };
                     check_range!(collector, range);
-                    collect_ident_like(name, range, collector);
+                    collect_ident_like(&name, range, collector);
                 }
                 _ => {}
             }
@@ -270,12 +282,12 @@ macro_rules! collect_container_body {
         }
 
         for (stmt_id, stmt) in lowered.data_ref().stmts.iter() {
-            if let StmtKind::Block(BlockInfo { block_id, .. }) = stmt.kind {
+            if let StmtKind::Block(BlockInfo { block_id, .. }) = &stmt.kind {
                 let Some(range) = lowered.source_range(stmt_id) else {
                     continue;
                 };
                 check_range!(collector, range);
-                collect_block(sema, block_id, collector);
+                collect_block(sema, block_id.clone(), collector);
             }
         }
     }};
@@ -358,7 +370,7 @@ fn collect_module(
     for (_, region) in module.generate_regions.iter() {
         for item in &region.items {
             if let GenerateItem::GenerateBlockId(generate_block_id) = item {
-                collect_generate_block(sema, *generate_block_id, collector);
+                collect_generate_block(sema, generate_block_id.clone(), collector);
             }
         }
     }
@@ -380,7 +392,7 @@ fn collect_generate_block(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let lowered = db.generate_block_with_source_map(generate_block_id);
+    let lowered = db.generate_block_with_source_map(generate_block_id.clone());
     let generate_block = lowered.data_ref();
     let tree = db.parse(generate_block_id.file_id(db));
 
@@ -421,14 +433,17 @@ fn collect_generate_block(
 
     for item in &generate_block.items {
         if let GenerateBlockItem::GenerateBlockId(child_id) = item {
-            collect_generate_block(sema, *child_id, collector);
+            collect_generate_block(sema, child_id.clone(), collector);
         }
     }
 
     for (subroutine_id, _) in generate_block.subroutines.iter() {
         collect_subroutine(
             sema,
-            SubroutineScope::new(SubroutineParent::GenerateBlock(generate_block_id), subroutine_id),
+            SubroutineScope::new(
+                SubroutineParent::GenerateBlock(generate_block_id.clone()),
+                subroutine_id,
+            ),
             collector,
         );
     }
@@ -442,7 +457,7 @@ fn collect_block(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let lowered = db.block_with_source_map(block_id);
+    let lowered = db.block_with_source_map(block_id.clone());
     let tree = db.parse(block_id.file_id(db));
 
     collect_container_body!(sema, block_id.into(), &tree, collector, &lowered);
@@ -454,10 +469,10 @@ fn collect_subroutine(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let lowered = db.subroutine_with_source_map(subroutine);
-    let tree = db.parse(subroutine.file_id(db));
+    let lowered = db.subroutine_with_source_map(subroutine.clone());
+    let tree = db.parse(subroutine.clone().file_id(db));
 
-    collect_container_body!(sema, subroutine.into(), &tree, collector, &lowered);
+    collect_container_body!(sema, subroutine.clone().into(), &tree, collector, &lowered);
 }
 
 /// Collects named parameter assignments inside `inst_param_assigns`, resolving
@@ -600,7 +615,7 @@ fn collect_resolved_path(
     let def_id = res.unique()?;
 
     if def_id.is_non_ansi_port(db) {
-        let port_id = def_id.primary_origin(db).as_non_ansi_port(db)?;
+        let port_id = def_id.primary_origin(db).as_non_ansi_port()?;
         let module = db.module_with_source_map(port_id.module_id);
         let origins = def_id.origins(db);
         let (name, dir, ty) = resolve_port_metadata(db, &module, &origins)?;
@@ -610,7 +625,7 @@ fn collect_resolved_path(
 
     match def_id.kind(db) {
         DefKind::Port => {
-            let decl_id = def_id.primary_origin(db).as_decl(db)?;
+            let decl_id = def_id.primary_origin(db).as_decl()?;
             let ArenaOwnerId::Module(module_id) = decl_id.cont_id else {
                 return None;
             };

@@ -62,7 +62,7 @@ macro_rules! impl_to_nav_via_origin {
         $(
             impl ToNav for $ty {
                 fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-                    DefOrigin::new(db, *self).to_nav(db)
+                    DefOrigin::new(self.clone()).to_nav(db)
                 }
             }
         )*

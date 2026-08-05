@@ -353,7 +353,7 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
 }
 
 fn collect_block_items(db: &dyn TyDb, collector: &mut SymbolCollecter, block_id: BlockId) {
-    let lowered = db.block_with_source_map(block_id);
+    let lowered = db.block_with_source_map(block_id.clone());
     let block = lowered.data_ref();
     let src_map = lowered.source_map();
     let mut regions = src_map.region_tree.walk().peekable();
@@ -395,7 +395,7 @@ where
     let stmt = lowered.hir(stmt_id);
 
     if let StmtKind::Block(block_info) = &stmt.kind {
-        collect_block_items(db, collector, block_info.block_id);
+        collect_block_items(db, collector, block_info.block_id.clone());
         return;
     }
 

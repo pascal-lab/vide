@@ -211,9 +211,9 @@ pub(crate) fn resolve_port_metadata<'a>(
     defs: &[DefOrigin],
 ) -> Option<(&'a Ident, Option<PortDirection>, DataTy)> {
     let mut origins: SmallVec<[DefOrigin; 8]> = SmallVec::new();
-    origins.extend(defs.iter().copied());
+    origins.extend(defs.iter().cloned());
 
-    if let Some(port_id) = defs.iter().find_map(|origin| origin.as_non_ansi_port(db)) {
+    if let Some(port_id) = defs.iter().find_map(|origin| origin.as_non_ansi_port()) {
         let scope = db.module_scope(port_id.module_id);
         if let Some(refs) = module.get(port_id.value).refs.clone() {
             for ref_id in refs {
@@ -228,18 +228,18 @@ pub(crate) fn resolve_port_metadata<'a>(
     }
 
     let port_decl_id =
-        origins.iter().filter_map(|origin| origin.as_decl(db)).map(|decl_id| decl_id.value).find(
+        origins.iter().filter_map(|origin| origin.as_decl()).map(|decl_id| decl_id.value).find(
             |decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::PortDeclId(_)),
         )?;
     let data_decl_id =
-        origins.iter().filter_map(|origin| origin.as_decl(db)).map(|decl_id| decl_id.value).find(
+        origins.iter().filter_map(|origin| origin.as_decl()).map(|decl_id| decl_id.value).find(
             |decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::DeclarationId(_)),
         );
 
     let port_decl = module.get(port_decl_id);
     let name = defs
         .iter()
-        .find_map(|origin| origin.as_non_ansi_port(db))
+        .find_map(|origin| origin.as_non_ansi_port())
         .and_then(|port_id| module.get(port_id.value).label.as_ref())
         .or(port_decl.name.as_ref())?;
     let port_declaration = match port_decl.parent {
@@ -273,7 +273,7 @@ pub(crate) fn resolve_named_param_in_module(
     let module = db.module_with_source_map(module_id);
 
     Resolution::from_candidates(defs.into_candidates().into_iter().filter(|def_id| {
-        let Some(decl_id) = def_id.primary_origin(db).as_decl(db) else {
+        let Some(decl_id) = def_id.primary_origin(db).as_decl() else {
             return false;
         };
         if decl_id.cont_id != ArenaOwnerId::Module(module_id) {
@@ -481,7 +481,7 @@ mod tests {
         files: &[(String, String)],
         root: impl FnOnce(FileSet) -> SourceRoot,
     ) -> RootDb {
-        let mut db = RootDb::new(None);
+        let mut db = RootDb::new();
         let mut file_set = FileSet::default();
         let mut change = Change::new();
 
@@ -665,7 +665,7 @@ mod tests {
         if def_id.kind(db) != kind {
             return None;
         }
-        match def_id.primary_origin(db).loc(db) {
+        match def_id.primary_origin(db).loc() {
             DefOriginLoc::Decl(decl_id) => match decl_id.cont_id {
                 ArenaOwnerId::Module(module_id) => Some(module_id),
                 _ => None,

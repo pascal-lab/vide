@@ -3,7 +3,7 @@ use la_arena::{Arena, Idx};
 use library::{
     LibraryDecl, LibraryDeclId, LibraryDeclSrc, LibraryInclude, LibraryIncludeId, LibraryIncludeSrc,
 };
-use preproc_expand::file::HirFileId;
+pub use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
 use syntax::{
     ast::{self, AstNode},
@@ -34,9 +34,7 @@ use super::{
     module::{LocalModuleId, ModuleInfo, ModuleKind, ModuleSrc},
     proc::{Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc},
-    subroutine::{
-        LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine,
-    },
+    subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
@@ -277,7 +275,7 @@ impl LowerFileCtx<'_> {
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
         // Only the skeleton is lowered here; the body is lowered on first
-        // access by subroutine_with_source_map_query.
+        // access by subroutine_with_source_map.
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let local_subroutine_id = alloc_with_source(
@@ -453,9 +451,11 @@ impl LowerFileCtx<'_> {
     }
 }
 
-pub(crate) fn hir_file_with_source_map_query(
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn hir_file_with_source_map(
     db: &dyn HirDefDb,
     file_id: HirFileId,
+    _key: (),
 ) -> Arc<Lowered<HirFile>> {
     let mut hir_file = HirFile::default();
     let mut source_map = FileSourceMap::default();

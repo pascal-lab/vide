@@ -216,14 +216,14 @@ fn non_ansi_port_replacement(
 
     let port_decl = origins
         .iter()
-        .filter_map(|origin| origin.as_decl(ctx.sema().db))
+        .filter_map(|origin| origin.as_decl())
         .find(|decl_id| {
             matches!(module.get(decl_id.value).parent, DeclaratorParent::PortDeclId(_))
         })?
         .value;
     let data_decl = origins
         .iter()
-        .filter_map(|origin| origin.as_decl(ctx.sema().db))
+        .filter_map(|origin| origin.as_decl())
         .find(|decl_id| {
             matches!(module.get(decl_id.value).parent, DeclaratorParent::DeclarationId(_))
         })
@@ -303,7 +303,8 @@ fn render_ansi_port_declaration(
     }
 
     let decl_id = single_port_decl_id(port_decl)?;
-    let header = InModule::new(module_id, port_decl.header).display_source(ctx.sema().db).ok()?;
+    let header =
+        InModule::new(module_id, port_decl.header.clone()).display_source(ctx.sema().db).ok()?;
     let decl = InContainer::new(module_id.into(), decl_id).display_signature(ctx.sema().db).ok()?;
 
     if header.is_empty() { Some(format!("{decl};")) } else { Some(format!("{header} {decl};")) }

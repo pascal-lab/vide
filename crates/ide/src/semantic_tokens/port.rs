@@ -1,6 +1,5 @@
 use std::sync::LazyLock;
 
-use base_db::intern::Lookup;
 use hir_def::{
     db::HirDefDb,
     expr::data_ty::{BuiltinDataTy, DataTy},
@@ -107,14 +106,14 @@ pub(super) fn collect_port(
 }
 
 pub(super) fn add_port_token(
-    db: &dyn TyDb,
+    _db: &dyn TyDb,
     name: &str,
     dir: Option<PortDirection>,
     ty: DataTy,
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) {
-    let Some(tag) = port_tag(db, ty, name, collector) else {
+    let Some(tag) = port_tag(ty, name, collector) else {
         return;
     };
 
@@ -134,12 +133,7 @@ pub(super) fn add_port_token(
     collector.tokens.add(SemaToken { range, tag, mods });
 }
 
-fn port_tag(
-    db: &dyn TyDb,
-    ty: DataTy,
-    name: &str,
-    collector: &mut SemaTokenCollector,
-) -> Option<SemaTokenTag> {
+fn port_tag(ty: DataTy, name: &str, collector: &mut SemaTokenCollector) -> Option<SemaTokenTag> {
     static CLK_RE: LazyLock<Option<Regex>> = LazyLock::new(|| {
         RegexBuilder::new(r"(clock|clk|tck)\d*$").case_insensitive(true).build().ok()
     });
@@ -161,7 +155,7 @@ fn port_tag(
     let DataTy::Builtin(tyid) = ty else {
         return Some(SemaTokenTag::Port(SemaTokenPort::Others));
     };
-    let BuiltinDataTy::Vector { dimensions, .. } = tyid.lookup(db) else {
+    let BuiltinDataTy::Vector { dimensions, .. } = tyid.get() else {
         return Some(SemaTokenTag::Port(SemaTokenPort::Others));
     };
     if !dimensions.is_empty() {

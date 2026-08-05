@@ -117,7 +117,7 @@ fn db_with_text(text: &str) -> (RootDb, FileId) {
     change.set_roots(vec![SourceRoot::new_local(file_set)]);
     change.add_changed_file(ChangedFile::create(file_id, text));
 
-    let mut db = RootDb::new(None);
+    let mut db = RootDb::new();
     db.apply_change(change);
     (db, file_id)
 }

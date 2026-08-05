@@ -49,9 +49,7 @@ use super::{
     lower_ident_opt, lower_package_imports,
     proc::{Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc},
-    subroutine::{
-        LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine,
-    },
+    subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
@@ -506,7 +504,7 @@ impl LowerModuleCtx<'_> {
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
         // Only the skeleton is lowered here; the body is lowered on first
-        // access by subroutine_with_source_map_query.
+        // access by subroutine_with_source_map.
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let subroutine_id = alloc_with_source(
@@ -779,9 +777,11 @@ impl LowerModuleCtx<'_> {
     }
 }
 
-pub(crate) fn module_with_source_map_query(
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn module_with_source_map(
     db: &dyn HirDefDb,
     module_id @ InFile { value: local_module_id, file_id }: ModuleId,
+    _key: (),
 ) -> Arc<Lowered<Module>> {
     let lowered_file = db.hir_file_with_source_map(file_id);
     let tree = db.parse(file_id);

@@ -29,7 +29,7 @@ use super::{
     ty::NetKind,
 };
 use crate::{
-    container::ArenaOwnerId, db::InternDb, region_tree::RegionTreeBuilder, source_map::SourceMap,
+    container::ArenaOwnerId, db::HirDefDb, region_tree::RegionTreeBuilder, source_map::SourceMap,
 };
 
 /// Mutable data/source pair for a file lowering pass.
@@ -349,7 +349,7 @@ pub(crate) struct LoweringDiagnostic {
 
 /// Complete mutable state for one HIR lowering pass.
 pub(crate) struct LoweringCtx<'a, Store> {
-    pub(crate) db: &'a dyn InternDb,
+    pub(crate) db: &'a dyn HirDefDb,
     pub(crate) file_id: HirFileId,
     pub(crate) owner: ArenaOwnerId,
     pub(crate) store: Store,
@@ -360,7 +360,7 @@ pub(crate) struct LoweringCtx<'a, Store> {
 
 impl<'a, Store> LoweringCtx<'a, Store> {
     pub(crate) fn new(
-        db: &'a dyn InternDb,
+        db: &'a dyn HirDefDb,
         file_id: HirFileId,
         owner: ArenaOwnerId,
         store: Store,
@@ -377,24 +377,24 @@ impl<'a, Store> LoweringCtx<'a, Store> {
     }
 
     pub(crate) fn module_id(&self) -> ModuleId {
-        let ArenaOwnerId::Module(module_id) = self.owner else {
+        let ArenaOwnerId::Module(module_id) = &self.owner else {
             unreachable!("module-only lowering called for {:?}", self.owner);
         };
-        module_id
+        module_id.clone()
     }
 
     pub(crate) fn generate_block_id(&self) -> GenerateBlockId {
-        let ArenaOwnerId::GenerateBlock(generate_block_id) = self.owner else {
+        let ArenaOwnerId::GenerateBlock(generate_block_id) = &self.owner else {
             unreachable!("generate-block-only lowering called for {:?}", self.owner);
         };
-        generate_block_id
+        generate_block_id.clone()
     }
 
     pub(crate) fn block_id(&self) -> BlockId {
-        let ArenaOwnerId::Block(block_id) = self.owner else {
+        let ArenaOwnerId::Block(block_id) = &self.owner else {
             unreachable!("block-only lowering called for {:?}", self.owner);
         };
-        block_id
+        block_id.clone()
     }
 
     pub(crate) fn report_unsupported(

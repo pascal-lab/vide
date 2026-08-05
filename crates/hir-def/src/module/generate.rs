@@ -1,4 +1,5 @@
-use base_db::intern::Lookup;
+use std::cmp::Ordering;
+
 use la_arena::{Arena, Idx};
 use smallvec::SmallVec;
 use syntax::{
@@ -40,9 +41,7 @@ use crate::{
         root_token_in,
     },
     stmt::{Stmt, StmtId, StmtSrc},
-    subroutine::{
-        LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine,
-    },
+    subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 
@@ -447,8 +446,65 @@ pub enum GenerateBlockKind {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct GenerateBlockId(pub salsa::InternId);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GenerateBlockId(Arc<GenerateBlockLoc>);
+
+impl GenerateBlockId {
+    pub fn new(loc: GenerateBlockLoc) -> Self {
+        Self(Arc::new(loc))
+    }
+
+    pub fn loc(&self) -> &GenerateBlockLoc {
+        &self.0
+    }
+}
+
+impl PartialOrd for GenerateBlockId {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for GenerateBlockId {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.loc()
+            .cont_id
+            .cmp(&other.loc().cont_id)
+            .then_with(|| self.loc().src.file_id.cmp(&other.loc().src.file_id))
+            .then_with(|| {
+                cmp_text_ranges(self.loc().src.value.range(), other.loc().src.value.range())
+            })
+            .then_with(|| {
+                cmp_optional_text_ranges(
+                    self.loc().src.value.name_range(),
+                    other.loc().src.value.name_range(),
+                )
+            })
+            .then_with(|| {
+                format!("{:?}", self.loc().src.value.kind())
+                    .cmp(&format!("{:?}", other.loc().src.value.kind()))
+            })
+    }
+}
+
+fn cmp_text_ranges(
+    left: utils::text_edit::TextRange,
+    right: utils::text_edit::TextRange,
+) -> Ordering {
+    left.start().cmp(&right.start()).then_with(|| left.end().cmp(&right.end()))
+}
+
+fn cmp_optional_text_ranges(
+    left: Option<utils::text_edit::TextRange>,
+    right: Option<utils::text_edit::TextRange>,
+) -> Ordering {
+    match (left, right) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (Some(left), Some(right)) => cmp_text_ranges(left, right),
+    }
+}
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct GenerateBlockLoc {
@@ -502,7 +558,7 @@ impl LowerGenerateBlockCtx<'_> {
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
         // Only the skeleton is lowered here; the body is lowered on first
-        // access by subroutine_with_source_map_query.
+        // access by subroutine_with_source_map.
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let subroutine_id = alloc_with_source(
@@ -519,7 +575,7 @@ impl LowerGenerateBlockCtx<'_> {
     }
 
     fn intern_generate_block(&self, src: GenerateBlockSrc) -> GenerateBlockId {
-        self.db.intern_generate_block(GenerateBlockLoc {
+        GenerateBlockId::new(GenerateBlockLoc {
             cont_id: self.generate_block_id().into(),
             src: InFile::new(self.file_id, src),
         })
@@ -700,7 +756,7 @@ impl LowerGenerateBlockCtx<'_> {
 
 impl LowerModuleCtx<'_> {
     pub(crate) fn intern_generate_block(&self, src: GenerateBlockSrc) -> GenerateBlockId {
-        self.db.intern_generate_block(GenerateBlockLoc {
+        GenerateBlockId::new(GenerateBlockLoc {
             cont_id: self.module_id().into(),
             src: InFile::new(self.file_id, src),
         })
@@ -864,11 +920,14 @@ impl LowerModuleCtx<'_> {
     }
 }
 
-pub(crate) fn generate_block_with_source_map_query(
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn generate_block_with_source_map(
     db: &dyn HirDefDb,
     generate_block_id: GenerateBlockId,
+    _key: (),
 ) -> Arc<Lowered<GenerateBlock>> {
-    let GenerateBlockLoc { src: InFile { file_id, value: src }, .. } = generate_block_id.lookup(db);
+    let GenerateBlockLoc { src: InFile { file_id, value: src }, .. } =
+        generate_block_id.loc().clone();
     let tree = db.parse(file_id);
 
     let mut generate_block = GenerateBlock::default();

@@ -185,9 +185,9 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         let mut res: IntMap<_, Vec<_>> = IntMap::default();
 
         for source_root_id in self.scope.source_root_ids(db) {
-            self.sema.db.unwind_if_cancelled();
+            self.sema.db.unwind_if_revision_cancelled();
             let index = source_root_semantic_index_for_root(db, source_root_id);
-            let Some(group) = index.references_for_definition(*self.def) else {
+            let Some(group) = index.references_for_definition(self.def.clone()) else {
                 continue;
             };
 

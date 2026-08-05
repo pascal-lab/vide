@@ -119,7 +119,8 @@ fn syntax_tree_options_for_profile(
     }
 }
 
-fn parsed_compilation_unit(db: &dyn PreprocDb, file_id: FileId) -> ParsedCompilationUnit {
+#[salsa::tracked(returns(clone))]
+fn parsed_compilation_unit(db: &dyn PreprocDb, file_id: FileId, _key: ()) -> ParsedCompilationUnit {
     let profile_id = db.file_compilation_profile(file_id);
     if let Some(profile_id) = profile_id {
         let plan = db.compilation_plan_for_profile(Some(profile_id));
@@ -190,9 +191,11 @@ fn parsed_compilation_unit(db: &dyn PreprocDb, file_id: FileId) -> ParsedCompila
     }
 }
 
+#[salsa::tracked(lru = 128, returns(clone))]
 fn parsed_profile(
     db: &dyn PreprocDb,
     profile_id: Option<CompilationProfileId>,
+    _key: (),
 ) -> Arc<ParsedProfile> {
     let context = db.compilation_context(profile_id);
     let plan = db.compilation_plan_for_profile(profile_id);
@@ -259,10 +262,12 @@ fn parsed_profile(
     Arc::new(ParsedProfile { units: Arc::from(units) })
 }
 
-fn parse_src_for_compilation(db: &dyn PreprocDb, file_id: FileId) -> SyntaxTree {
+#[salsa::tracked(lru = 128, returns(clone))]
+fn parse_src_for_compilation(db: &dyn PreprocDb, file_id: FileId, _key: ()) -> SyntaxTree {
     db.parsed_compilation_unit(file_id).syntax_tree.clone()
 }
 
+#[salsa::tracked(returns(clone))]
 fn parser_expected_syntax(
     db: &dyn PreprocDb,
     file_id: FileId,
@@ -305,7 +310,8 @@ fn parser_expected_syntax(
     Arc::from(expected)
 }
 
-fn parse_diagnostics(db: &dyn PreprocDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
+#[salsa::tracked(returns(clone))]
+fn parse_diagnostics(db: &dyn PreprocDb, file_id: FileId, _key: ()) -> Arc<[SyntaxDiagnostic]> {
     let config = db.diagnostics_config();
     if !config.enabled || !config.parse.enabled || !db.file_kind(file_id).is_slang_parse_unit() {
         return Arc::from(Vec::<SyntaxDiagnostic>::new());
@@ -352,70 +358,191 @@ fn parse_diagnostics(db: &dyn PreprocDb, file_id: FileId) -> Arc<[SyntaxDiagnost
 ///
 /// This is the first semantic database layer. Keeping the interface in this
 /// crate makes a `base-db -> preproc-expand` dependency impossible in Cargo.
-#[salsa::query_group(PreprocDbStorage)]
-pub trait PreprocDb: SourceRootDb {
+#[salsa::db]
+pub trait PreprocDb: SourceRootDb {}
+
+impl dyn PreprocDb + '_ {
+    pub fn compilation_plan_for_root(&self, source_root_id: SourceRootId) -> Arc<CompilationPlan> {
+        compilation_plan_for_root(self, source_root_id, ())
+    }
+
+    pub fn compilation_plan_for_profile(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> Arc<CompilationPlan> {
+        compilation_plan_for_profile(self, profile_id, ())
+    }
+
+    pub fn compilation_context(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> Arc<CompilationContext> {
+        compilation_context(self, profile_id, ())
+    }
+
+    pub fn compilation_context_for_file(&self, file_id: FileId) -> Arc<CompilationContext> {
+        compilation_context_for_file(self, file_id, ())
+    }
+
+    pub fn compilation_profile_diagnostics(
+        &self,
+        profile_id: CompilationProfileId,
+    ) -> Arc<CompilationProfileDiagnostics> {
+        compilation_profile_diagnostics(self, profile_id, ())
+    }
+
+    pub fn include_buffers_for_profile(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> Arc<Vec<SyntaxTreeBuffer>> {
+        include_buffers_for_profile(self, profile_id, ())
+    }
+
+    pub fn source_preproc_model(
+        &self,
+        file_id: FileId,
+    ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>> {
+        source_preproc_model(self, file_id, ())
+    }
+
+    pub fn source_preproc_context_index_for_profile(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> Arc<SourcePreprocContextIndex> {
+        source_preproc_context_index_for_profile(self, profile_id, ())
+    }
+
+    pub fn source_preproc_contexts_for_file(
+        &self,
+        file_id: FileId,
+    ) -> Arc<SourcePreprocRelevantContexts> {
+        source_preproc_contexts_for_file(self, file_id, ())
+    }
+
+    pub fn parsed_compilation_unit(&self, file_id: FileId) -> ParsedCompilationUnit {
+        parsed_compilation_unit(self, file_id, ())
+    }
+
+    pub fn parsed_profile(&self, profile_id: Option<CompilationProfileId>) -> Arc<ParsedProfile> {
+        parsed_profile(self, profile_id, ())
+    }
+
+    pub fn parse_src_for_compilation(&self, file_id: FileId) -> SyntaxTree {
+        parse_src_for_compilation(self, file_id, ())
+    }
+
+    pub fn parser_expected_syntax(
+        &self,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> Arc<[ParserExpectedSyntax]> {
+        parser_expected_syntax(self, file_id, offset)
+    }
+
+    pub fn parse_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
+        parse_diagnostics(self, file_id, ())
+    }
+
+    pub fn file_compilation_diagnostics(&self, file_id: FileId) -> Arc<[CompilationDiagnostic]> {
+        file_compilation_diagnostics(self, file_id, ())
+    }
+
+    pub fn semantic_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
+        semantic_diagnostics(self, file_id, ())
+    }
+
+    pub fn source_root_semantic_diagnostics(
+        &self,
+        file_id: FileId,
+    ) -> Arc<[(FileId, SyntaxDiagnostic)]> {
+        source_root_semantic_diagnostics(self, file_id, ())
+    }
+
+    pub fn macro_expansion(&self, macro_file: MacroFileId) -> Arc<ExpandResult<ExpansionInfo>> {
+        macro_file::macro_expansion_query(self, macro_file, ())
+    }
+
+    pub fn parse(&self, file_id: HirFileId) -> SyntaxTree {
+        parse(self, file_id)
+    }
+
+    pub fn macro_reference_index_for_profile(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> Arc<MacroReferenceIndex> {
+        macro_reference_index_for_profile_query(self, profile_id, ())
+    }
+}
+
+pub trait PreprocDbExt {
     fn compilation_plan_for_root(&self, source_root_id: SourceRootId) -> Arc<CompilationPlan>;
     fn compilation_plan_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<CompilationPlan>;
-    fn compilation_context(
-        &self,
-        profile_id: Option<CompilationProfileId>,
-    ) -> Arc<CompilationContext>;
-    fn compilation_context_for_file(&self, file_id: FileId) -> Arc<CompilationContext>;
-    /// Diagnostics produced by one slang compilation profile. This is the
-    /// semantic diagnostics path, but it also returns parse diagnostics from
-    /// the same syntax trees so one request does not parse the same roots
-    /// twice.
-    fn compilation_profile_diagnostics(
-        &self,
-        profile_id: CompilationProfileId,
-    ) -> Arc<CompilationProfileDiagnostics>;
-    fn include_buffers_for_profile(
-        &self,
-        profile_id: Option<CompilationProfileId>,
-    ) -> Arc<Vec<SyntaxTreeBuffer>>;
     fn source_preproc_model(
         &self,
         file_id: FileId,
     ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>>;
-    fn source_preproc_context_index_for_profile(
-        &self,
-        profile_id: Option<CompilationProfileId>,
-    ) -> Arc<SourcePreprocContextIndex>;
-    fn source_preproc_contexts_for_file(
-        &self,
-        file_id: FileId,
-    ) -> Arc<SourcePreprocRelevantContexts>;
     fn parsed_compilation_unit(&self, file_id: FileId) -> ParsedCompilationUnit;
     fn parsed_profile(&self, profile_id: Option<CompilationProfileId>) -> Arc<ParsedProfile>;
-    fn parse_src_for_compilation(&self, file_id: FileId) -> SyntaxTree;
-    fn parser_expected_syntax(
-        &self,
-        file_id: FileId,
-        offset: TextSize,
-    ) -> Arc<[ParserExpectedSyntax]>;
     fn parse_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
-    /// Diagnostics for the compilation profile that owns `file_id`.
-    fn file_compilation_diagnostics(&self, file_id: FileId) -> Arc<[CompilationDiagnostic]>;
     fn semantic_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
-    fn source_root_semantic_diagnostics(
-        &self,
-        file_id: FileId,
-    ) -> Arc<[(FileId, SyntaxDiagnostic)]>;
-
-    #[salsa::invoke(macro_file::macro_expansion_query)]
     fn macro_expansion(&self, macro_file: MacroFileId) -> Arc<ExpandResult<ExpansionInfo>>;
-
-    #[salsa::transparent]
     fn parse(&self, file_id: HirFileId) -> SyntaxTree;
+}
 
-    #[salsa::invoke(macro_reference_index_for_profile_query)]
-    fn macro_reference_index_for_profile(
+impl<Db: PreprocDb> PreprocDbExt for Db {
+    fn compilation_plan_for_root(&self, source_root_id: SourceRootId) -> Arc<CompilationPlan> {
+        let db: &dyn PreprocDb = self;
+        db.compilation_plan_for_root(source_root_id)
+    }
+
+    fn compilation_plan_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
-    ) -> Arc<MacroReferenceIndex>;
+    ) -> Arc<CompilationPlan> {
+        let db: &dyn PreprocDb = self;
+        db.compilation_plan_for_profile(profile_id)
+    }
+
+    fn source_preproc_model(
+        &self,
+        file_id: FileId,
+    ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>> {
+        let db: &dyn PreprocDb = self;
+        db.source_preproc_model(file_id)
+    }
+
+    fn parsed_compilation_unit(&self, file_id: FileId) -> ParsedCompilationUnit {
+        let db: &dyn PreprocDb = self;
+        db.parsed_compilation_unit(file_id)
+    }
+
+    fn parsed_profile(&self, profile_id: Option<CompilationProfileId>) -> Arc<ParsedProfile> {
+        let db: &dyn PreprocDb = self;
+        db.parsed_profile(profile_id)
+    }
+
+    fn parse_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
+        let db: &dyn PreprocDb = self;
+        db.parse_diagnostics(file_id)
+    }
+
+    fn semantic_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
+        let db: &dyn PreprocDb = self;
+        db.semantic_diagnostics(file_id)
+    }
+
+    fn macro_expansion(&self, macro_file: MacroFileId) -> Arc<ExpandResult<ExpansionInfo>> {
+        let db: &dyn PreprocDb = self;
+        db.macro_expansion(macro_file)
+    }
+
+    fn parse(&self, file_id: HirFileId) -> SyntaxTree {
+        let db: &dyn PreprocDb = self;
+        db.parse(file_id)
+    }
 }
 
 fn parse(db: &dyn PreprocDb, file_id: HirFileId) -> SyntaxTree {
@@ -425,23 +552,29 @@ fn parse(db: &dyn PreprocDb, file_id: HirFileId) -> SyntaxTree {
     }
 }
 
+#[salsa::tracked(returns(clone))]
 fn compilation_plan_for_root(
     db: &dyn PreprocDb,
     source_root_id: SourceRootId,
+    _key: (),
 ) -> Arc<CompilationPlan> {
     Arc::new(CompilationPlan::for_source_root(db, source_root_id))
 }
 
+#[salsa::tracked(returns(clone))]
 fn compilation_plan_for_profile(
     db: &dyn PreprocDb,
     profile_id: Option<CompilationProfileId>,
+    _key: (),
 ) -> Arc<CompilationPlan> {
     Arc::new(CompilationPlan::for_profile(db, profile_id))
 }
 
+#[salsa::tracked(returns(clone))]
 fn compilation_context(
     db: &dyn PreprocDb,
     profile_id: Option<CompilationProfileId>,
+    _key: (),
 ) -> Arc<CompilationContext> {
     let plan = db.compilation_plan_for_profile(profile_id);
     let library_maps = plan
@@ -460,14 +593,21 @@ fn compilation_context(
     ))
 }
 
-fn compilation_context_for_file(db: &dyn PreprocDb, file_id: FileId) -> Arc<CompilationContext> {
+#[salsa::tracked(returns(clone))]
+fn compilation_context_for_file(
+    db: &dyn PreprocDb,
+    file_id: FileId,
+    _key: (),
+) -> Arc<CompilationContext> {
     let profile_id = db.file_compilation_profile(file_id);
     db.compilation_context(profile_id)
 }
 
+#[salsa::tracked(returns(clone))]
 fn compilation_profile_diagnostics(
     db: &dyn PreprocDb,
     profile_id: CompilationProfileId,
+    _key: (),
 ) -> Arc<CompilationProfileDiagnostics> {
     let config = db.diagnostics_config();
     let _span =
@@ -594,15 +734,18 @@ fn compilation_diagnostics_from_compilation(
     Arc::from(diagnostics)
 }
 
+#[salsa::tracked(returns(clone))]
 fn include_buffers_for_profile(
     db: &dyn PreprocDb,
     profile_id: Option<CompilationProfileId>,
+    _key: (),
 ) -> Arc<Vec<SyntaxTreeBuffer>> {
     let plan = db.compilation_plan_for_profile(profile_id);
     Arc::new(compilation_plan::include_buffers_for_plan(db, &plan))
 }
 
-fn semantic_diagnostics(db: &dyn PreprocDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
+#[salsa::tracked(returns(clone))]
+fn semantic_diagnostics(db: &dyn PreprocDb, file_id: FileId, _key: ()) -> Arc<[SyntaxDiagnostic]> {
     Arc::from(
         db.source_root_semantic_diagnostics(file_id)
             .iter()
@@ -611,9 +754,11 @@ fn semantic_diagnostics(db: &dyn PreprocDb, file_id: FileId) -> Arc<[SyntaxDiagn
     )
 }
 
+#[salsa::tracked(returns(clone))]
 fn file_compilation_diagnostics(
     db: &dyn PreprocDb,
     file_id: FileId,
+    _key: (),
 ) -> Arc<[CompilationDiagnostic]> {
     let source_root_id = db.source_root_id(file_id);
     let config = db.diagnostics_config();
@@ -628,9 +773,11 @@ fn file_compilation_diagnostics(
     db.compilation_profile_diagnostics(profile_id).diagnostics.clone()
 }
 
+#[salsa::tracked(returns(clone))]
 fn source_root_semantic_diagnostics(
     db: &dyn PreprocDb,
     file_id: FileId,
+    _key: (),
 ) -> Arc<[(FileId, SyntaxDiagnostic)]> {
     Arc::from(
         db.file_compilation_diagnostics(file_id)
@@ -653,10 +800,7 @@ mod tests {
             CompilationProfile, Predefine, PredefineSource, PreprocessConfig, ProjectConfig,
         },
         salsa::{self, Durability},
-        source_db::{
-            FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
-            SourceRootDbStorage,
-        },
+        source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
         source_root::SourceRoot,
     };
     use rustc_hash::FxHashSet;
@@ -678,13 +822,23 @@ mod tests {
     const MANIFEST: FileId = FileId::from_raw(1);
     const ROOT: SourceRootId = SourceRootId(0);
 
-    #[salsa::database(SourceDbStorage, SourceRootDbStorage, PreprocDbStorage)]
+    #[salsa::db]
     #[derive(Default)]
     struct TestDb {
         storage: salsa::Storage<Self>,
     }
 
+    #[salsa::db]
     impl salsa::Database for TestDb {}
+
+    #[salsa::db]
+    impl SourceDb for TestDb {}
+
+    #[salsa::db]
+    impl SourceRootDb for TestDb {}
+
+    #[salsa::db]
+    impl PreprocDb for TestDb {}
 
     impl fmt::Debug for TestDb {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

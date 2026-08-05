@@ -17,22 +17,22 @@ pub(super) fn expr_to_def(
             let Some(field) = field.as_ref() else {
                 return Resolution::Unresolved;
             };
-            resolve_expr_path(db, cont_id, expr_id, NameContext::Value).or_else(|| {
-                let receiver_res = expr_to_def(db, InContainer::new(cont_id, *receiver));
+            resolve_expr_path(db, cont_id.clone(), expr_id, NameContext::Value).or_else(|| {
+                let receiver_res = expr_to_def(db, InContainer::new(cont_id.clone(), *receiver));
                 resolve_child_name(db, &receiver_res, field, NameContext::Value)
             })
         }
         Expr::ElementSelect { receiver, .. } => {
-            resolve_expr_path(db, cont_id, expr_id, NameContext::Value)
-                .or_else(|| expr_to_def(db, InContainer::new(cont_id, *receiver)))
+            resolve_expr_path(db, cont_id.clone(), expr_id, NameContext::Value)
+                .or_else(|| expr_to_def(db, InContainer::new(cont_id.clone(), *receiver)))
         }
         Expr::Ident(ident) => {
-            name_to_def(db, InContainer::new(cont_id, ident.clone()), NameContext::Value)
+            name_to_def(db, InContainer::new(cont_id.clone(), ident.clone()), NameContext::Value)
         }
         _ => Resolution::Unresolved,
     };
 
-    let Some(expr) = expr_in_container(db, cont_id, expr_id) else {
+    let Some(expr) = expr_in_container(db, cont_id.clone(), expr_id) else {
         return Resolution::Unresolved;
     };
     resolve(&expr)
@@ -52,17 +52,17 @@ fn resolve_expr_path(
     expr_id: ExprId,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    let Some(path) = expr_path(db, cont_id, expr_id) else {
+    let Some(path) = expr_path(db, cont_id.clone(), expr_id) else {
         return Resolution::Unresolved;
     };
     resolve_path(db, cont_id.into(), &path, ctx)
 }
 
 fn expr_path(db: &dyn HirDefDb, cont_id: ArenaOwnerId, expr_id: ExprId) -> Option<Vec<Ident>> {
-    match expr_in_container(db, cont_id, expr_id)? {
+    match expr_in_container(db, cont_id.clone(), expr_id)? {
         Expr::Ident(ident) => Some(vec![ident]),
         Expr::Field { receiver, field } => {
-            let mut path = expr_path(db, cont_id, receiver)?;
+            let mut path = expr_path(db, cont_id.clone(), receiver)?;
             path.push(field?);
             Some(path)
         }
