@@ -6,7 +6,9 @@ use triomphe::Arc;
 use vfs::FileId;
 
 use crate::{
-    semantic_index::{ModuleIndex, SemanticIndex},
+    semantic_index::{
+        FileModuleEdges, FileModuleIndex, FileSemanticIndex, ModuleIndex, SemanticIndex,
+    },
     workspace_symbols::{SymbolIndex, WorkspaceSymbol},
 };
 
@@ -37,6 +39,18 @@ impl dyn WorkspaceSymbolIndexDb + '_ {
 
     pub fn source_root_semantic_index(&self, source_root_id: SourceRootId) -> Arc<SemanticIndex> {
         source_root_semantic_index(self, source_root_id, ())
+    }
+
+    pub fn file_module_index(&self, file_id: FileId) -> Arc<FileModuleIndex> {
+        file_module_index(self, file_id, ())
+    }
+
+    pub fn file_module_edges(&self, file_id: FileId) -> Arc<FileModuleEdges> {
+        file_module_edges(self, file_id, ())
+    }
+
+    pub fn file_semantic_index(&self, file_id: FileId) -> Arc<FileSemanticIndex> {
+        file_semantic_index(self, file_id, ())
     }
 }
 
@@ -95,4 +109,31 @@ pub(crate) fn source_root_semantic_index_for_root(
     source_root_id: SourceRootId,
 ) -> Arc<SemanticIndex> {
     db.source_root_semantic_index(source_root_id)
+}
+
+#[salsa::tracked(returns(clone))]
+fn file_module_index(
+    db: &dyn WorkspaceSymbolIndexDb,
+    file_id: FileId,
+    _key: (),
+) -> Arc<FileModuleIndex> {
+    Arc::new(crate::semantic_index::FileModuleIndex::for_file(db, file_id))
+}
+
+#[salsa::tracked(returns(clone))]
+fn file_module_edges(
+    db: &dyn WorkspaceSymbolIndexDb,
+    file_id: FileId,
+    _key: (),
+) -> Arc<FileModuleEdges> {
+    Arc::new(crate::semantic_index::FileModuleEdges::for_file(db, file_id))
+}
+
+#[salsa::tracked(returns(clone))]
+fn file_semantic_index(
+    db: &dyn WorkspaceSymbolIndexDb,
+    file_id: FileId,
+    _key: (),
+) -> Arc<FileSemanticIndex> {
+    Arc::new(crate::semantic_index::FileSemanticIndex::for_file(db, file_id))
 }

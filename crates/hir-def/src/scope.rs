@@ -204,17 +204,22 @@ impl NameScope {
     }
 
     fn extend_defs_from(&mut self, other: &NameScope) {
+        use crate::symbol::ident_pool;
+
         for (ident, defs) in &other.types {
+            let ident = ident_pool::lookup(*ident);
             for def_id in defs {
                 self.insert_type(ident, def_id.clone());
             }
         }
         for (ident, defs) in &other.values {
+            let ident = ident_pool::lookup(*ident);
             for def_id in defs {
                 self.insert_value(ident, def_id.clone());
             }
         }
         for (ident, defs) in &other.assertions {
+            let ident = ident_pool::lookup(*ident);
             for def_id in defs {
                 self.insert_assertion(ident, def_id.clone());
             }

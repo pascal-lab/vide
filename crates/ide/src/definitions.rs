@@ -1,4 +1,5 @@
 use hir_def::{
+    container::ArenaOwnerId,
     db::HirDefDb,
     def_id::DefId,
     lower_ident_opt,
@@ -35,7 +36,20 @@ impl DefinitionClass {
     pub(crate) fn resolve(
         db: &dyn WorkspaceSymbolIndexDb,
         file_id: HirFileId,
+        tp: SyntaxTokenWithParent,
+    ) -> DefinitionResolution {
+        Self::resolve_in(db, file_id, tp, None)
+    }
+
+    /// Like [`resolve`](Self::resolve), but resolves identifiers inside a
+    /// caller-provided container instead of re-walking the ancestor chain.
+    /// The container must be the token's containing scope; callers that walk
+    /// the tree (the semantic index build) track it incrementally.
+    pub(crate) fn resolve_in(
+        db: &dyn WorkspaceSymbolIndexDb,
+        file_id: HirFileId,
         tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+        container: Option<ArenaOwnerId>,
     ) -> DefinitionResolution {
         let sema = SemanticsImpl::new(db);
 
@@ -51,15 +65,19 @@ impl DefinitionClass {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_instantiation_type_name(db, &sema, file_id, tp) {
+        if let Some(resolution) =
+            resolve_instantiation_type_name(db, &sema, file_id, tp, container.clone())
+        {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_package_import_item(&sema, file_id, tp) {
+        if let Some(resolution) = resolve_package_import_item(&sema, file_id, tp, container.clone())
+        {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_package_scoped_name(&sema, file_id, tp) {
+        if let Some(resolution) = resolve_package_scoped_name(&sema, file_id, tp, container.clone())
+        {
             return resolution;
         }
 
@@ -76,14 +94,13 @@ impl DefinitionClass {
                 let port = resolve_named_port_connection(db, file_id.expect_file(), it);
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
-                    let local = sema.nameres_ident(file_id, tp, NameContext::Value);
+                    let local = nameres_ident(&sema, file_id, tp, NameContext::Value, container);
                     combine_port_shorthand(port, local)
                 } else {
                     port.map(DefinitionClass::Definition)
                 }
             },
-            _ => sema
-                .nameres_ident(file_id, tp, name_context_for_token(parent))
+            _ => nameres_ident(&sema, file_id, tp, name_context_for_token(parent), container)
                 .map(DefinitionClass::Definition),
         }
     }
@@ -113,6 +130,19 @@ fn combine_port_shorthand(
                 })
             }))
         }
+    }
+}
+
+fn nameres_ident(
+    sema: &SemanticsImpl,
+    file_id: HirFileId,
+    tp: SyntaxTokenWithParent<'_>,
+    name_ctx: NameContext,
+    container: Option<ArenaOwnerId>,
+) -> Resolution<DefId> {
+    match container {
+        Some(container) => sema.nameres_ident_in(file_id, tp, name_ctx, container),
+        None => sema.nameres_ident(file_id, tp, name_ctx),
     }
 }
 
@@ -171,6 +201,7 @@ fn resolve_package_scoped_name(
     sema: &SemanticsImpl,
     file_id: HirFileId,
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+    container: Option<ArenaOwnerId>,
 ) -> Option<DefinitionResolution> {
     let scoped = SyntaxAncestors::start_from(parent).find_map(ast::ScopedName::cast)?;
     if scoped_uses_dot(scoped) {
@@ -178,7 +209,7 @@ fn resolve_package_scoped_name(
     }
 
     let left = scoped_left_token(scoped)?;
-    let packages = package_defs(sema, file_id, left);
+    let packages = package_defs(sema, file_id, left, container);
     if left.tok == tok {
         return Some(packages.map(DefinitionClass::Definition));
     }
@@ -197,10 +228,11 @@ fn resolve_package_import_item(
     sema: &SemanticsImpl,
     file_id: HirFileId,
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+    container: Option<ArenaOwnerId>,
 ) -> Option<DefinitionResolution> {
     let item = SyntaxAncestors::start_from(parent).find_map(ast::PackageImportItem::cast)?;
     let package_token = SyntaxTokenWithParent { parent: item.syntax(), tok: item.package()? };
-    let packages = package_defs(sema, file_id, package_token);
+    let packages = package_defs(sema, file_id, package_token, container);
     if item.package() == Some(tok) {
         return Some(packages.map(DefinitionClass::Definition));
     }
@@ -216,9 +248,10 @@ fn package_defs(
     sema: &SemanticsImpl,
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
+    container: Option<ArenaOwnerId>,
 ) -> Resolution<DefId> {
     Resolution::from_candidates(
-        sema.nameres_ident(file_id, token, NameContext::Type)
+        nameres_ident(sema, file_id, token, NameContext::Type, container)
             .into_candidates()
             .into_iter()
             .filter(|def| def.kind(sema.db) == DefKind::Package),
@@ -249,13 +282,15 @@ fn resolve_instantiation_type_name(
     sema: &SemanticsImpl,
     file_id: HirFileId,
     tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+    container: Option<ArenaOwnerId>,
 ) -> Option<DefinitionResolution> {
     if let Some(instantiation) =
         SyntaxAncestors::start_from(parent).find_map(ast::PrimitiveInstantiation::cast)
         && instantiation.type_() == Some(tok)
     {
         return Some(
-            sema.nameres_ident(file_id, tp, NameContext::Value).map(DefinitionClass::Definition),
+            nameres_ident(sema, file_id, tp, NameContext::Value, container)
+                .map(DefinitionClass::Definition),
         );
     }
 
@@ -264,7 +299,8 @@ fn resolve_instantiation_type_name(
         && rightmost_name_token(instantiation.type_()) == Some(tok)
     {
         return Some(
-            sema.nameres_ident(file_id, tp, NameContext::Type).map(DefinitionClass::Definition),
+            nameres_ident(sema, file_id, tp, NameContext::Type, container)
+                .map(DefinitionClass::Definition),
         );
     }
 
@@ -282,14 +318,16 @@ fn resolve_instantiation_type_name(
                     candidates.into_iter().map(|module_id| DefId::new(sema.db, module_id)),
                 ),
                 ModuleResolution::Unresolved => {
-                    sema.nameres_ident(file_id, tp, NameContext::Type).or_else(|| {
-                        Resolution::from_candidates(
-                            sema.nameres_ident(file_id, tp, NameContext::Value)
-                                .into_candidates()
-                                .into_iter()
-                                .filter(|def| def.kind(sema.db) == DefKind::Udp),
-                        )
-                    })
+                    nameres_ident(sema, file_id, tp, NameContext::Type, container.clone()).or_else(
+                        || {
+                            Resolution::from_candidates(
+                                nameres_ident(sema, file_id, tp, NameContext::Value, container)
+                                    .into_candidates()
+                                    .into_iter()
+                                    .filter(|def| def.kind(sema.db) == DefKind::Udp),
+                            )
+                        },
+                    )
                 }
             };
         return Some(resolution.map(DefinitionClass::Definition));
@@ -339,7 +377,7 @@ fn scoped_uses_dot(scoped: ast::ScopedName<'_>) -> bool {
         .any(|tok| tok.kind() == syntax::Token![.])
 }
 
-fn rightmost_name_token(name: ast::Name<'_>) -> Option<SyntaxToken<'_>> {
+pub(crate) fn rightmost_name_token(name: ast::Name<'_>) -> Option<SyntaxToken<'_>> {
     use ast::Name::*;
     match name {
         IdentifierName(ident) => ident.identifier(),

@@ -8,7 +8,7 @@ use utils::line_index::covering_range;
 use super::*;
 use crate::db::root_db::RootDb;
 
-mod macro_gate;
+mod bench_context;
 
 #[test]
 fn source_targets_origin_source_range_hit_test_is_half_open() {
@@ -100,7 +100,7 @@ endmodule
     let hit = PreprocTokenHit { emitted_token, source_range, origin: expected_origin.clone() };
 
     let tokens =
-        syntax_tokens_for_preproc_hit(root, source_range.start(), &test_precedence, &[hit])
+        syntax_tokens_for_preproc_hit(root, source_range.start(), &test_precedence, None, &[hit])
             .expect("macro argument origin should resolve to a parsed syntax token");
 
     assert_eq!(tokens.len(), 1);
@@ -165,7 +165,7 @@ endmodule
     };
 
     let tokens =
-        syntax_tokens_for_preproc_hit(root, source_range.start(), &test_precedence, &[hit])
+        syntax_tokens_for_preproc_hit(root, source_range.start(), &test_precedence, None, &[hit])
             .expect("macro argument emitted token should resolve to a parsed syntax token");
 
     assert_eq!(tokens, vec![expected_tokens[1]]);
@@ -215,6 +215,7 @@ endmodule
         root,
         source_range.start(),
         &test_precedence,
+        None,
         &[real_hit, bogus_hit],
     )
     .expect("resolvable hits should still resolve when another hit misses");
@@ -261,8 +262,9 @@ endmodule
         })
         .collect::<Vec<_>>();
 
-    let tokens = syntax_tokens_for_preproc_hit(root, source_range.start(), &test_precedence, &hits)
-        .expect("both argument copies should resolve to their syntax tokens");
+    let tokens =
+        syntax_tokens_for_preproc_hit(root, source_range.start(), &test_precedence, None, &hits)
+            .expect("both argument copies should resolve to their syntax tokens");
 
     assert_eq!(tokens.len(), 2);
     assert!(tokens.iter().all(|token| token.raw_text().as_bytes() == b"payload_i"));
@@ -356,10 +358,6 @@ fn root_and_offset<'tree>(
     (root, range.start() + TextSize::from(delta), range)
 }
 
-pub(super) fn offset(text: &str, needle: &str) -> TextSize {
-    TextSize::from(u32::try_from(text.find(needle).expect("needle should exist")).unwrap())
-}
-
 fn source_range(text: &str, needle: &str) -> TextRange {
     let start = text.find(needle).expect("needle should exist");
     TextRange::new(TextSize::from(start as u32), TextSize::from((start + needle.len()) as u32))
@@ -421,15 +419,23 @@ fn preproc_provider_result_from_hits<'tree>(
         .is_some_and(|first| unique_hits.iter().any(|hit| hit.origin != first.origin));
     if has_conflicting_origin {
         let block_hits = unique_hits.clone();
-        return ambiguous_preproc_source_targets(root, offset, precedence, range, unique_hits)
-            .map(SourceTargetProviderResult::Ambiguous)
-            .unwrap_or_else(|| {
-                SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_ambiguous(
-                    range, block_hits,
-                ))
-            });
+        return ambiguous_preproc_source_targets(
+            root,
+            offset,
+            precedence,
+            None,
+            range,
+            unique_hits,
+        )
+        .map(SourceTargetProviderResult::Ambiguous)
+        .unwrap_or_else(|| {
+            SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_ambiguous(
+                range, block_hits,
+            ))
+        });
     }
-    let Some(tokens) = syntax_tokens_for_preproc_hit(root, offset, precedence, &unique_hits) else {
+    let Some(tokens) = syntax_tokens_for_preproc_hit(root, offset, precedence, None, &unique_hits)
+    else {
         return SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(range));
     };
     SourceTargetProviderResult::Resolved(SourceTarget::preproc(range, tokens))

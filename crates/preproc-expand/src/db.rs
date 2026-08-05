@@ -16,8 +16,9 @@ use vfs::FileId;
 
 use crate::{
     compilation_plan::{self, CompilationPlan},
+    context::{MacroCoverage, file_macro_coverage_query},
     file::HirFileId,
-    macro_file::{self, ExpandResult, ExpansionInfo, MacroFileId},
+    macro_file::{self, ExpandResult, ExpansionInfo, MacroFileId, TraceIndex},
     preproc::{MacroReferenceIndex, macro_reference_index_for_profile_query},
     source_db::{
         MappedSourcePreprocModel, SourcePreprocContextIndex, SourcePreprocQueryError,
@@ -469,6 +470,14 @@ impl dyn PreprocDb + '_ {
 
     pub fn parse(&self, file_id: HirFileId) -> SyntaxTree {
         parse(self, file_id)
+    }
+
+    pub fn trace_index(&self, model_file: FileId) -> Arc<TraceIndex> {
+        macro_file::trace_index_query(self, model_file)
+    }
+
+    pub fn file_macro_coverage(&self, file_id: FileId) -> Arc<MacroCoverage> {
+        file_macro_coverage_query(self, file_id)
     }
 
     pub fn macro_reference_index_for_profile(
