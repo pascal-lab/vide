@@ -1,4 +1,5 @@
 use smallvec::SmallVec;
+use triomphe::Arc;
 use utils::get::GetRef;
 
 use crate::{
@@ -47,6 +48,44 @@ pub fn resolve_name(
     }
 
     db.unit_scope().lookup(ctx, ident)
+}
+
+/// A scope chain (innermost first) resolved once per container. The index
+/// build resolves each container's chain a single time and reuses it for
+/// every token in that container; calling `db.scope_for` per token instead
+/// is O(scope size) per call because salsa 0.17 revalidates the memo against
+/// the database revision, which advances on every other query executed
+/// between two tokens.
+pub struct ResolvedScopes {
+    /// Original scope ids, innermost first; kept for the import fallback.
+    pub scope_ids: SmallVec<[ScopeId; 4]>,
+    /// Lexical scopes from innermost to outermost, already fetched.
+    pub scopes: Vec<Arc<NameScope>>,
+    /// `$unit` scope, shared by every chain.
+    pub unit: Arc<NameScope>,
+}
+
+/// Resolves `ident` in a pre-resolved scope chain. Pure in-memory lookup;
+/// the only part needing the database is package import resolution, which is
+/// deferred to the full `resolve_name` when any scope carries imports.
+pub fn resolve_in_resolved_scopes(
+    db: &dyn HirDefDb,
+    resolved: &ResolvedScopes,
+    ident: &Ident,
+    ctx: NameContext,
+) -> Resolution<DefId> {
+    for (idx, scope) in resolved.scopes.iter().enumerate() {
+        if !scope.imports.is_empty() {
+            // Imports resolve package members through database queries; fall
+            // back to the general path so behavior stays identical.
+            return resolve_name(db, resolved.scope_ids[idx], ident, ctx);
+        }
+        let resolution = scope.lookup(ctx, ident);
+        if !resolution.is_unresolved() {
+            return resolution;
+        }
+    }
+    resolved.unit.lookup(ctx, ident)
 }
 
 pub fn resolve_path(

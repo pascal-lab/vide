@@ -3,6 +3,7 @@ use hir_def::{
     container::{ArenaOwnerId, InContainer, InFile, ScopeId},
     def_id::DefId,
     lower_ident_opt,
+    pathres::{ResolvedScopes, resolve_in_resolved_scopes},
     symbol::{NameContext, Resolution},
 };
 use preproc_expand::file::HirFileId;
@@ -40,6 +41,23 @@ impl SemanticsImpl<'_> {
             return Resolution::Unresolved;
         };
         hir_to_def::name_to_def(self.db, InContainer::new(container, ident), name_ctx)
+    }
+
+    /// Like [`nameres_ident_in`](Self::nameres_ident_in), but looks up the
+    /// name in an already-resolved scope chain, avoiding the per-token salsa
+    /// `scope_for` queries (whose memos revalidate against every intervening
+    /// query during the index build). The result is identical to
+    /// `nameres_ident_in` as long as the chain matches the container.
+    pub fn nameres_ident_in_scopes(
+        &self,
+        SyntaxTokenWithParent { tok, .. }: SyntaxTokenWithParent,
+        name_ctx: NameContext,
+        resolved: &ResolvedScopes,
+    ) -> Resolution<DefId> {
+        let Some(ident) = lower_ident_opt(Some(tok)) else {
+            return Resolution::Unresolved;
+        };
+        resolve_in_resolved_scopes(self.db, resolved, &ident, name_ctx)
     }
 
     pub(in crate::semantics) fn find_container(&self, node: InFile<SyntaxNode>) -> ArenaOwnerId {
