@@ -418,9 +418,6 @@ pub(crate) fn code_action_resolve_error(i18n: I18n, err: CodeActionResolveError)
     let message = match err {
         CodeActionResolveError::NoData => i18n.text(keys::CODE_ACTION_RESOLVE_NO_DATA).to_owned(),
         CodeActionResolveError::Stable => i18n.text(keys::CODE_ACTION_RESOLVE_STALE).to_owned(),
-        CodeActionResolveError::InvalidId(id) => {
-            i18n.format(keys::CODE_ACTION_RESOLVE_INVALID_ID, [("id", id)])
-        }
     };
     LspError::new(lsp_server::ErrorCode::InvalidParams as i32, message)
 }
@@ -885,7 +882,7 @@ pub(crate) fn code_action_kind(kind: CodeActionKind) -> lsp_types::CodeActionKin
 pub(crate) fn code_action(
     snap: &GlobalStateSnapshot,
     CodeAction { id, label, source_change, .. }: CodeAction,
-    resolve_data: Option<(usize, lsp_types::CodeActionParams, Option<i32>)>,
+    resolve_data: Option<(lsp_types::CodeActionParams, Option<i32>)>,
     diagnostics: Option<Vec<lsp_types::Diagnostic>>,
 ) -> anyhow::Result<lsp_types::CodeAction> {
     let title = code_action_title(snap.config.i18n, id.name, &label);
@@ -902,12 +899,8 @@ pub(crate) fn code_action(
 
     match (source_change, resolve_data) {
         (Some(it), _) => res.edit = Some(workspace_edit(snap, it)?),
-        (None, Some((idx, code_action_params, version))) => {
-            let data = ext::CodeActionData {
-                id: format!("{}:{idx}", id.name),
-                code_action_params,
-                version,
-            };
+        (None, Some((code_action_params, version))) => {
+            let data = ext::CodeActionData { id: id.name.to_owned(), code_action_params, version };
             res.data = Some(serde_json::to_value(data)?);
         }
         (None, None) => {

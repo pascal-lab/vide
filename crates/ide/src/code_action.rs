@@ -10,9 +10,7 @@ mod module_members;
 pub use action::{CodeAction, CodeActionId, CodeActionKind, CodeActionResolveStrategy};
 pub(crate) use collector::CodeActionCollector;
 pub(crate) use context::CodeActionCtx;
-pub use diagnostics::{
-    CodeActionDiagnostic, CodeActionDiagnostics, DiagnosticCode, DiagnosticSource, RepairKind,
-};
+pub use diagnostics::RepairKind;
 pub(crate) use edits::{apply_missing_list_edit, line_indent};
 pub(crate) use engine::code_action;
 pub(crate) use module_members::{

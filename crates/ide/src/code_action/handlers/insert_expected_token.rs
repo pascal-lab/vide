@@ -30,9 +30,9 @@ pub(super) fn insert_expected_token(
         return None;
     }
 
-    let (token, range) = ctx.diagnostics().items.iter().find_map(|diag| {
-        let token = diag.expected_token.as_deref()?;
-        Some((token, diag.range.unwrap_or_else(|| ctx.range())))
+    let (token, range) = ctx.diagnostics().iter().find_map(|diag| {
+        let token = diag.expected_token()?;
+        Some((token, diag.range))
     })?;
     let offset = range.start();
     let text = ctx.sema().db.file_text(ctx.file_id());

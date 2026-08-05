@@ -124,12 +124,12 @@ fn db_with_text(text: &str) -> (RootDb, FileId) {
 
 fn apply_action(text: &str, repair: RepairKind) -> Option<String> {
     let (db, file_id, offset) = db_with_file(text);
-    let diagnostics = CodeActionDiagnostics { items: vec![diagnostic_for_repair(repair)] };
+    let diagnostics = vec![diagnostic_for_repair(repair, TextRange::empty(offset))];
     let actions = code_action(
         &db,
         file_id,
         utils::text_edit::TextRange::empty(offset),
-        diagnostics,
+        &diagnostics,
         CodeActionResolveStrategy::All,
     );
     let action = actions.into_iter().find(|action| match repair {
@@ -173,7 +173,7 @@ fn apply_action_without_diagnostics_by(
         &db,
         file_id,
         utils::text_edit::TextRange::empty(offset),
-        CodeActionDiagnostics::default(),
+        &[],
         CodeActionResolveStrategy::All,
     );
     let action = actions.into_iter().find(pred)?;
@@ -196,13 +196,7 @@ fn apply_action_without_diagnostics_with_selection_by(
 ) -> Option<String> {
     let (mut text, range) = text_with_selection_range(text);
     let (db, file_id) = db_with_text(&text);
-    let actions = code_action(
-        &db,
-        file_id,
-        range,
-        CodeActionDiagnostics::default(),
-        CodeActionResolveStrategy::All,
-    );
+    let actions = code_action(&db, file_id, range, &[], CodeActionResolveStrategy::All);
     let action = actions.into_iter().find(pred)?;
     let edit = action.source_change?.text_edits.remove(&file_id)?;
     edit.apply(&mut text);
@@ -212,16 +206,10 @@ fn apply_action_without_diagnostics_with_selection_by(
 fn action_labels_without_diagnostics_with_selection(text: &str) -> Vec<String> {
     let (text, range) = text_with_selection_range(text);
     let (db, file_id) = db_with_text(&text);
-    code_action(
-        &db,
-        file_id,
-        range,
-        CodeActionDiagnostics::default(),
-        CodeActionResolveStrategy::All,
-    )
-    .into_iter()
-    .map(|action| action.label)
-    .collect()
+    code_action(&db, file_id, range, &[], CodeActionResolveStrategy::All)
+        .into_iter()
+        .map(|action| action.label)
+        .collect()
 }
 
 fn text_with_selection_range(text: &str) -> (String, TextRange) {
@@ -234,83 +222,65 @@ fn text_with_selection_range(text: &str) -> (String, TextRange) {
     (text, range)
 }
 
-fn diagnostic_for_repair(repair: RepairKind) -> CodeActionDiagnostic {
-    match repair {
-        RepairKind::MissingConnection => CodeActionDiagnostic {
-            source: Some(DiagnosticSource::Semantic),
-            code: None,
-            name: Some("UnconnectedNamedPort".to_owned()),
-            option: Some("unconnected-port".to_owned()),
-            range: None,
-            expected_token: None,
-        },
-        RepairKind::MissingParameter => CodeActionDiagnostic {
-            source: Some(DiagnosticSource::Semantic),
-            code: Some(DiagnosticCode { subsystem: 2, code: 29 }),
-            name: Some("ParamHasNoValue".to_owned()),
-            option: None,
-            range: None,
-            expected_token: None,
-        },
-        RepairKind::ConvertOrderedPorts => CodeActionDiagnostic {
-            source: Some(DiagnosticSource::Semantic),
-            code: None,
-            name: Some("MixingOrderedAndNamedPorts".to_owned()),
-            option: None,
-            range: None,
-            expected_token: None,
-        },
-        RepairKind::ConvertOrderedParams => CodeActionDiagnostic {
-            source: Some(DiagnosticSource::Semantic),
-            code: None,
-            name: Some("MixingOrderedAndNamedParams".to_owned()),
-            option: None,
-            range: None,
-            expected_token: None,
-        },
-        RepairKind::RemoveEmptyPortConnections => CodeActionDiagnostic {
-            source: Some(DiagnosticSource::Semantic),
-            code: None,
-            name: Some("MixingOrderedAndNamedPorts".to_owned()),
-            option: None,
-            range: None,
-            expected_token: None,
-        },
-        RepairKind::AddImplicitNamedPortParens => CodeActionDiagnostic {
-            source: Some(DiagnosticSource::Semantic),
-            code: None,
-            name: Some("ImplicitNamedPortNotFound".to_owned()),
-            option: None,
-            range: None,
-            expected_token: None,
-        },
-        RepairKind::AddInstanceParens => CodeActionDiagnostic {
-            source: Some(DiagnosticSource::Semantic),
-            code: None,
-            name: Some("InstanceMissingParens".to_owned()),
-            option: None,
-            range: None,
-            expected_token: None,
-        },
-        RepairKind::InsertExpectedToken => CodeActionDiagnostic {
-            source: Some(DiagnosticSource::Parse),
-            code: None,
-            name: Some("ExpectedToken".to_owned()),
-            option: None,
-            range: None,
-            expected_token: Some(";".to_owned()),
-        },
+fn diagnostic_for_repair(repair: RepairKind, range: TextRange) -> crate::diagnostics::Diagnostic {
+    use crate::diagnostics::{Diagnostic, DiagnosticSource};
+    let (source, name, option_name, subsystem, code, args) = match repair {
+        RepairKind::MissingConnection => (
+            DiagnosticSource::SlangSemantic,
+            "UnconnectedNamedPort",
+            Some("unconnected-port"),
+            2,
+            260,
+            Vec::new(),
+        ),
+        RepairKind::MissingParameter => {
+            (DiagnosticSource::SlangSemantic, "ParamHasNoValue", None, 2, 29, Vec::new())
+        }
+        RepairKind::ConvertOrderedPorts => {
+            (DiagnosticSource::SlangSemantic, "MixingOrderedAndNamedPorts", None, 2, 0, Vec::new())
+        }
+        RepairKind::ConvertOrderedParams => {
+            (DiagnosticSource::SlangSemantic, "MixingOrderedAndNamedParams", None, 2, 0, Vec::new())
+        }
+        RepairKind::RemoveEmptyPortConnections => {
+            (DiagnosticSource::SlangSemantic, "MixingOrderedAndNamedPorts", None, 2, 0, Vec::new())
+        }
+        RepairKind::AddImplicitNamedPortParens => {
+            (DiagnosticSource::SlangSemantic, "ImplicitNamedPortNotFound", None, 2, 0, Vec::new())
+        }
+        RepairKind::AddInstanceParens => {
+            (DiagnosticSource::SlangSemantic, "InstanceMissingParens", None, 2, 0, Vec::new())
+        }
+        RepairKind::InsertExpectedToken => {
+            (DiagnosticSource::SlangParse, "ExpectedToken", None, 1, 0, vec![";".to_owned()])
+        }
+    };
+    Diagnostic {
+        file_id: FileId::from_raw(0),
+        code,
+        subsystem,
+        name: name.to_owned(),
+        option_name: option_name.map(ToOwned::to_owned),
+        groups: Vec::new(),
+        source,
+        range,
+        severity: syntax::DiagnosticSeverity::Error,
+        message: String::new(),
+        args,
+        message_key: None,
+        message_args: Vec::new(),
+        tags: Vec::new(),
     }
 }
 
 fn action_labels(text: &str, repair: RepairKind) -> Vec<String> {
     let (db, file_id, offset) = db_with_file(text);
-    let diagnostics = CodeActionDiagnostics { items: vec![diagnostic_for_repair(repair)] };
+    let diagnostics = vec![diagnostic_for_repair(repair, TextRange::empty(offset))];
     code_action(
         &db,
         file_id,
         utils::text_edit::TextRange::empty(offset),
-        diagnostics,
+        &diagnostics,
         CodeActionResolveStrategy::None,
     )
     .into_iter()
@@ -324,7 +294,7 @@ fn action_labels_without_diagnostics(text: &str) -> Vec<String> {
         &db,
         file_id,
         utils::text_edit::TextRange::empty(offset),
-        CodeActionDiagnostics::default(),
+        &[],
         CodeActionResolveStrategy::None,
     )
     .into_iter()
@@ -353,11 +323,12 @@ fn action_labels_for_case(case: &LabelCase) -> Vec<String> {
         LabelCaseKind::Repair(repair) => action_labels(case.text, repair),
         LabelCaseKind::MismatchedRepair(repair) => {
             let (db, file_id, offset) = db_with_file(case.text);
+            let diagnostics = vec![diagnostic_for_repair(repair, TextRange::empty(offset))];
             code_action(
                 &db,
                 file_id,
                 TextRange::empty(offset),
-                CodeActionDiagnostics { items: vec![diagnostic_for_repair(repair)] },
+                &diagnostics,
                 CodeActionResolveStrategy::All,
             )
             .into_iter()
@@ -638,13 +609,14 @@ fn expected_token_repair_uses_diagnostic_range() {
     let clean_text = text.replace("/*caret*/", "");
     let diagnostic_offset = TextSize::from(clean_text.find("\nendmodule").unwrap() as u32);
     let (db, file_id, offset) = db_with_file(text);
-    let mut diagnostic = diagnostic_for_repair(RepairKind::InsertExpectedToken);
-    diagnostic.range = Some(TextRange::empty(diagnostic_offset));
+    let mut diagnostic =
+        diagnostic_for_repair(RepairKind::InsertExpectedToken, TextRange::empty(diagnostic_offset));
+    diagnostic.range = TextRange::empty(diagnostic_offset);
     let actions = code_action(
         &db,
         file_id,
         TextRange::empty(offset),
-        CodeActionDiagnostics { items: vec![diagnostic] },
+        &[diagnostic],
         CodeActionResolveStrategy::All,
     );
     let action =
