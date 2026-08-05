@@ -1136,6 +1136,8 @@ std::unique_ptr<SourceRange> mapRawSourceRangeWithContext(
   rust_expected.has_keyword_context = false;
   rust_expected.location = 0;
   rust_expected.has_location = false;
+  rust_expected.end = 0;
+  rust_expected.has_end = false;
 
   if (expected.keywordContext) {
     rust_expected.keyword_context = static_cast<uint8_t>(*expected.keywordContext);
@@ -1147,16 +1149,19 @@ std::unique_ptr<SourceRange> mapRawSourceRangeWithContext(
     rust_expected.has_location = true;
   }
 
+  rust_expected.end = expected.end;
+  rust_expected.has_end = expected.location.valid();
+
   return rust_expected;
 }
 
 rust::Vec<::RawExpectedSyntax> collect_expected_syntax(
-    const std::shared_ptr<syntax::SyntaxTree>& tree) {
+    const std::shared_ptr<::slang::syntax::SyntaxTree>& tree) {
   rust::Vec<::RawExpectedSyntax> rust_expected;
-  if (!tree || !tree->sharedInner())
+  if (!tree)
     return rust_expected;
 
-  const auto& expectedSyntax = tree->inner().getMetadata().expectedSyntax;
+  const auto& expectedSyntax = tree->getMetadata().expectedSyntax;
   rust_expected.reserve(expectedSyntax.size());
   for (const auto& expected : expectedSyntax)
     rust_expected.emplace_back(to_rust_expected_syntax(expected));
@@ -1229,7 +1234,8 @@ std::shared_ptr<SyntaxTree> SourceSession::parseText(
     rust::Vec<::RawSourceBuffer> include_buffers,
     std::optional<size_t> expectedSyntaxCursor,
     bool expandIncludes,
-    bool collectPreprocessorTrace) {
+    bool collectPreprocessorTrace,
+    bool collectExpectedSyntax) {
   slang::Bag options;
   auto& ppOptions = options.insertOrGet<slang::parsing::PreprocessorOptions>();
   for (const auto& predefine : predefines)
@@ -1238,9 +1244,10 @@ std::shared_ptr<SyntaxTree> SourceSession::parseText(
     ppOptions.additionalIncludePaths.emplace_back(std::string(include_path));
   ppOptions.expandIncludes = expandIncludes;
 
-  if (expectedSyntaxCursor) {
+  if (expectedSyntaxCursor || collectExpectedSyntax) {
     slang::parsing::ExpectedSyntaxOptions expectedOptions;
-    expectedOptions.cursorOffset = *expectedSyntaxCursor;
+    expectedOptions.cursorOffset = expectedSyntaxCursor;
+    expectedOptions.recordAll = collectExpectedSyntax;
     options.set(expectedOptions);
   }
 
@@ -1328,7 +1335,8 @@ std::shared_ptr<SyntaxTree> SyntaxTree_fromTextWithOptionsAndTrace(
     rust::Vec<rust::String> predefines,
     rust::Vec<rust::String> include_paths,
     rust::Vec<::RawSourceBuffer> include_buffers,
-    bool expandIncludes) {
+    bool expandIncludes,
+    bool collectExpectedSyntax) {
   auto session = std::make_shared<SourceSession>();
   return session->parseText(
       text,
@@ -1339,7 +1347,8 @@ std::shared_ptr<SyntaxTree> SyntaxTree_fromTextWithOptionsAndTrace(
       std::move(include_buffers),
       std::nullopt,
       expandIncludes,
-      true);
+      true,
+      collectExpectedSyntax);
 }
 
 std::shared_ptr<SyntaxTree> SyntaxTree_fromLibraryMapText(
@@ -1394,7 +1403,7 @@ rust::Vec<::RawExpectedSyntax> SyntaxTree_expectedSyntaxAtOffset(
       std::move(includeBuffers),
       offset,
       expandIncludes);
-  return collect_expected_syntax(std::move(tree));
+  return collect_expected_syntax(tree->sharedInner());
 }
 
 rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
@@ -1404,7 +1413,38 @@ rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
     size_t offset) {
   auto session = std::make_shared<SourceSession>();
   auto tree = session->parseLibraryMapText(text, name, path, offset);
-  return collect_expected_syntax(std::move(tree));
+  return collect_expected_syntax(tree->sharedInner());
+}
+
+rust::Vec<::RawExpectedSyntax> SyntaxTree_expectedSyntaxAt(const SyntaxTree& tree, size_t offset) {
+  auto inner = tree.sharedInner();
+  if (!inner)
+    return {};
+
+  // Linear scan: expectation records are kept in record order (no sort on the
+  // parse path); only the window-covered subset is converted, so the per-query
+  // conversion cost is proportional to the result, not the file.
+  rust::Vec<::RawExpectedSyntax> rust_expected;
+  const auto& expectedSyntax = inner->getMetadata().expectedSyntax;
+  for (const auto& expected : expectedSyntax) {
+    auto start = expected.location.offset();
+    if (start > offset)
+      continue;
+    if (expected.end < offset)
+      continue;
+    auto exists = std::ranges::any_of(
+        rust_expected, [&](const ::RawExpectedSyntax& existing) {
+          return existing.code == expected.code.getCode() &&
+                 existing.token_kind == static_cast<uint16_t>(expected.tokenKind) &&
+                 existing.has_keyword_context == expected.keywordContext.has_value() &&
+                 (!expected.keywordContext ||
+                  existing.keyword_context == static_cast<uint8_t>(*expected.keywordContext));
+        });
+    if (exists)
+      continue;
+    rust_expected.emplace_back(to_rust_expected_syntax(expected));
+  }
+  return rust_expected;
 }
 
 ::RawLexedTokenAtOffset SyntaxTree_directiveAtOffset(

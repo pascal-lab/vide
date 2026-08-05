@@ -104,6 +104,8 @@ pub(crate) fn syntax_tree_options_for_file(
         predefines: context.predefines.to_vec(),
         include_paths: context.include_dirs.iter().map(ToString::to_string).collect(),
         include_buffers,
+        // One authoritative parse must serve completion at any caret offset.
+        collect_expected_syntax: true,
         ..syntax::SyntaxTreeOptions::default()
     }
 }
@@ -116,6 +118,8 @@ fn syntax_tree_options_for_profile(
         predefines: context.predefines.to_vec(),
         include_paths: context.include_dirs.iter().map(ToString::to_string).collect(),
         include_buffers,
+        // One authoritative parse must serve completion at any caret offset.
+        collect_expected_syntax: true,
         ..syntax::SyntaxTreeOptions::default()
     }
 }
@@ -273,6 +277,11 @@ pub fn set_parse_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
     parse_src_for_compilation::set_lru_capacity(db, capacity);
 }
 
+/// Parser expectations whose recorded source window covers `offset`.
+///
+/// The authoritative parse records all expectation sites (with their source
+/// windows) when `collect_expected_syntax` is enabled, so this query is a
+/// cheap in-tree lookup: no re-parse happens per caret offset.
 #[salsa::tracked(returns(clone))]
 fn parser_expected_syntax(
     db: &dyn PreprocDb,
@@ -283,37 +292,23 @@ fn parser_expected_syntax(
         return Arc::from(Vec::<ParserExpectedSyntax>::new());
     }
 
-    let profile_id = db.file_compilation_profile(file_id);
-    let _span = tracing::info_span!(
-        "slang.parser_expected_syntax",
-        ?profile_id,
-        ?file_id,
-        parse_mode = "completion"
-    )
-    .entered();
-    let text = db.file_text(file_id);
-    let identity = source_file_identity(db, file_id);
-    let offset = usize::from(offset);
-    let expected = match db.file_kind(file_id) {
-        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
-            let options = syntax_tree_options_for_file(db, file_id);
-            SyntaxTree::expected_syntax_at_offset_with_options(
-                &text,
-                &identity.name,
-                &identity.path,
-                offset,
-                &options,
-            )
-        }
-        SourceFileKind::LibraryMap => SyntaxTree::library_map_expected_syntax_at_offset(
+    if matches!(db.file_kind(file_id), SourceFileKind::LibraryMap) {
+        // Library maps are tiny and parsed without expectation collection;
+        // keep the dedicated single-cursor parse for them.
+        let text = db.file_text(file_id);
+        let identity = source_file_identity(db, file_id);
+        let offset = usize::from(offset);
+        return Arc::from(SyntaxTree::library_map_expected_syntax_at_offset(
             &text,
             &identity.name,
             &identity.path,
             offset,
-        ),
-        SourceFileKind::ProjectManifest => Vec::new(),
-    };
-    Arc::from(expected)
+        ));
+    }
+
+    Arc::from(
+        db.parsed_compilation_unit(file_id).syntax_tree.expected_syntax_at(usize::from(offset)),
+    )
 }
 
 #[salsa::tracked(returns(clone))]

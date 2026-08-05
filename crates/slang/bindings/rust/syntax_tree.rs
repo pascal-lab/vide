@@ -48,6 +48,9 @@ pub struct SyntaxTreeOptions {
     pub include_paths: Vec<String>,
     pub include_buffers: Vec<SyntaxTreeBuffer>,
     pub expand_includes: bool,
+    /// Record every parser expectation site (with its source window) into the
+    /// tree metadata, so one parse serves completion at any caret offset.
+    pub collect_expected_syntax: bool,
 }
 
 impl Default for SyntaxTreeOptions {
@@ -57,6 +60,7 @@ impl Default for SyntaxTreeOptions {
             include_paths: Vec::new(),
             include_buffers: Vec::new(),
             expand_includes: true,
+            collect_expected_syntax: false,
         }
     }
 }
@@ -486,10 +490,20 @@ impl SyntaxTree {
                 options.include_paths.clone(),
                 raw_include_buffers(options),
                 options.expand_includes,
+                options.collect_expected_syntax,
             ),
         };
         let preprocessor_trace = Trace::from_raw(tree._ptr.preprocessorTraceFromParsed());
         SyntaxTreeWithTrace { tree, preprocessor_trace }
+    }
+
+    /// Parser expectations whose recorded source window covers `offset`,
+    /// deduplicated by (code, token kind, keyword context). Only populated
+    /// when the tree was parsed with
+    /// `SyntaxTreeOptions::collect_expected_syntax`.
+    #[inline]
+    pub fn expected_syntax_at(&self, offset: usize) -> Vec<ParserExpectedSyntax> {
+        self._ptr.expectedSyntaxAt(offset).into_iter().map(ParserExpectedSyntax::from_raw).collect()
     }
 
     #[inline]

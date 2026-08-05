@@ -96,7 +96,8 @@ namespace wrapper {
           rust::Vec<::RawSourceBuffer> includeBuffers,
           std::optional<size_t> expectedSyntaxCursor = std::nullopt,
           bool expandIncludes = true,
-          bool collectPreprocessorTrace = false);
+          bool collectPreprocessorTrace = false,
+          bool collectExpectedSyntax = false);
 
       std::shared_ptr<SyntaxTree> parseLibraryMapText(
           std::string_view text,
@@ -484,7 +485,8 @@ namespace wrapper {
         rust::Vec<rust::String> predefines,
         rust::Vec<rust::String> include_paths,
         rust::Vec<::RawSourceBuffer> include_buffers,
-        bool expandIncludes);
+        bool expandIncludes,
+        bool collectExpectedSyntax);
 
     std::shared_ptr<SyntaxTree> SyntaxTree_fromLibraryMapText(
         std::string_view text,
@@ -576,6 +578,8 @@ namespace wrapper {
         rust::Vec<rust::String> includePaths,
         rust::Vec<::RawSourceBuffer> includeBuffers,
         bool expandIncludes);
+
+    rust::Vec<::RawExpectedSyntax> SyntaxTree_expectedSyntaxAt(const SyntaxTree& tree, size_t offset);
 
     rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
         std::string_view text,

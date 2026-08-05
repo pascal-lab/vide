@@ -164,6 +164,7 @@ mod tests {
             token_kind: TokenKind::UNKNOWN,
             keyword_context: None,
             location: None,
+            end: None,
         }
     }
 
