@@ -248,10 +248,56 @@ pub enum ScopeKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NameScope {
-    pub types: FxHashMap<Ident, SmallVec<[DefId; 1]>>,
-    pub values: FxHashMap<Ident, SmallVec<[DefId; 1]>>,
-    pub assertions: FxHashMap<Ident, SmallVec<[DefId; 1]>>,
+    pub types: FxHashMap<ident_pool::IdentId, SmallVec<[DefId; 1]>>,
+    pub values: FxHashMap<ident_pool::IdentId, SmallVec<[DefId; 1]>>,
+    pub assertions: FxHashMap<ident_pool::IdentId, SmallVec<[DefId; 1]>>,
     pub imports: SmallVec<[Import; 2]>,
+}
+
+/// Interns identifier text to a compact integer so `NameScope` lookups hash
+/// and compare integers instead of strings. Real designs repeat names densely
+/// (port lists, generated signals), which made `SmolStr` hashing and equality
+/// a hot spot of the index build; interning turns both into O(1) integer
+/// operations.
+///
+/// The pool is process-global and append-only: ids stay valid for the whole
+/// process and are stable across database revisions, which is what `NameScope`
+/// (a salsa memo value) needs.
+pub mod ident_pool {
+    use std::sync::{Mutex, OnceLock};
+
+    use rustc_hash::FxHashMap;
+
+    use crate::Ident;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    pub struct IdentId(pub u32);
+
+    struct Pool {
+        by_text: FxHashMap<Ident, IdentId>,
+        texts: Vec<&'static Ident>,
+    }
+
+    fn pool() -> &'static Mutex<Pool> {
+        static POOL: OnceLock<Mutex<Pool>> = OnceLock::new();
+        POOL.get_or_init(|| Mutex::new(Pool { by_text: FxHashMap::default(), texts: Vec::new() }))
+    }
+
+    pub fn intern(text: &str) -> IdentId {
+        let mut pool = pool().lock().unwrap();
+        if let Some(&id) = pool.by_text.get(text) {
+            return id;
+        }
+        let id = IdentId(pool.texts.len() as u32);
+        let owned: &'static Ident = Box::leak(Box::new(Ident::new(text)));
+        pool.by_text.insert(owned.clone(), id);
+        pool.texts.push(owned);
+        id
+    }
+
+    pub fn lookup(id: IdentId) -> &'static Ident {
+        pool().lock().unwrap().texts[id.0 as usize]
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -382,28 +428,30 @@ impl NameScope {
     }
 
     pub fn lookup(&self, ctx: NameContext, ident: &Ident) -> Resolution<DefId> {
+        let id = ident_pool::intern(ident);
         let candidates = match ctx {
-            NameContext::Type => self.types.get(ident).map(SmallVec::as_slice).unwrap_or_default(),
-            NameContext::Value => {
-                self.values.get(ident).map(SmallVec::as_slice).unwrap_or_default()
-            }
+            NameContext::Type => self.types.get(&id).map(SmallVec::as_slice).unwrap_or_default(),
+            NameContext::Value => self.values.get(&id).map(SmallVec::as_slice).unwrap_or_default(),
             NameContext::Listing => return Resolution::from_candidates(self.lookup_listing(ident)),
         };
         Resolution::from_candidates(candidates.iter().cloned())
     }
 
     pub fn lookup_listing(&self, ident: &Ident) -> SmallVec<[DefId; 1]> {
+        let id = ident_pool::intern(ident);
         let mut defs = SmallVec::new();
-        if let Some(type_defs) = self.types.get(ident) {
+        if let Some(type_defs) = self.types.get(&id) {
             defs.extend(type_defs.iter().cloned());
         }
-        if let Some(value_defs) = self.values.get(ident) {
+        if let Some(value_defs) = self.values.get(&id) {
             defs.extend(value_defs.iter().cloned());
         }
         defs
     }
 
-    pub fn iter_listing(&self) -> impl Iterator<Item = (&Ident, SmallVec<[DefId; 1]>)> + '_ {
+    pub fn iter_listing(
+        &self,
+    ) -> impl Iterator<Item = (&'static Ident, SmallVec<[DefId; 1]>)> + '_ {
         self.types
             .iter()
             .map(|(ident, type_defs)| {
@@ -411,13 +459,12 @@ impl NameScope {
                 if let Some(value_defs) = self.values.get(ident) {
                     defs.extend(value_defs.iter().cloned());
                 }
-                (ident, defs)
+                (ident_pool::lookup(*ident), defs)
             })
             .chain(
-                self.values
-                    .iter()
-                    .filter(|(ident, _)| !self.types.contains_key(*ident))
-                    .map(|(ident, defs)| (ident, defs.iter().cloned().collect())),
+                self.values.iter().filter(|(ident, _)| !self.types.contains_key(*ident)).map(
+                    |(ident, defs)| (ident_pool::lookup(*ident), defs.iter().cloned().collect()),
+                ),
             )
     }
 
@@ -426,9 +473,10 @@ impl NameScope {
         db: &dyn HirDefDb,
         ident: &Ident,
     ) -> Resolution<crate::module::ModuleId> {
+        let id = ident_pool::intern(ident);
         let entries = self
             .types
-            .get(ident)
+            .get(&id)
             .into_iter()
             .flat_map(|defs| defs.iter())
             .filter(|def_id| def_id.kind(db).is_instantiable_def())
@@ -442,9 +490,10 @@ impl NameScope {
         db: &dyn HirDefDb,
         ident: &Ident,
     ) -> Resolution<crate::module::PackageId> {
+        let id = ident_pool::intern(ident);
         let entries = self
             .types
-            .get(ident)
+            .get(&id)
             .into_iter()
             .flat_map(|defs| defs.iter())
             .filter(|def_id| def_id.kind(db) == DefKind::Package)
@@ -463,7 +512,7 @@ impl NameScope {
                     def_id.kind(db).is_instantiable_def()
                         && def_id.primary_origin(db).as_module().is_some()
                 })
-                .then_some(ident)
+                .then_some(ident_pool::lookup(*ident))
         })
     }
 
@@ -474,12 +523,16 @@ impl NameScope {
         self.types.iter().filter_map(move |(ident, defs)| {
             defs.iter()
                 .any(|def_id| matches!(def_id.primary_origin(db).loc(), DefOriginLoc::Typedef(_)))
-                .then_some(ident)
+                .then_some(ident_pool::lookup(*ident))
         })
     }
 
-    fn insert(map: &mut FxHashMap<Ident, SmallVec<[DefId; 1]>>, ident: &Ident, def_id: DefId) {
-        let defs = map.entry(ident.clone()).or_default();
+    fn insert(
+        map: &mut FxHashMap<ident_pool::IdentId, SmallVec<[DefId; 1]>>,
+        ident: &Ident,
+        def_id: DefId,
+    ) {
+        let defs = map.entry(ident_pool::intern(ident)).or_default();
         if !defs.contains(&def_id) {
             defs.push(def_id);
         }
