@@ -3321,6 +3321,131 @@ endmodule
 }
 
 #[test]
+fn function_call_signature_help_tracks_ordered_active_parameter() {
+    let text = r#"
+function logic [7:0] adder(input logic [7:0] a, input logic [7:0] b, input logic carry);
+  return a + b + carry;
+endfunction
+
+module top;
+  logic [7:0] sum;
+  initial begin
+    sum = adder(/*marker:first*/8'h01, /*marker:second*/8'h02, /*marker:third*/1'b0);
+  end
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let first = analysis
+        .signature_help(
+            position(file_id, &markers, "first"),
+            crate::signature_help::SignatureHelpConfig { params_only: false },
+        )
+        .unwrap()
+        .expect("signature help expected for function call");
+    assert_eq!(
+        first.label,
+        "function logic [7:0] adder(input logic [7:0] a, input logic [7:0] b, input logic carry)"
+    );
+    assert_eq!(first.active_parameter, Some(0));
+
+    let second = analysis
+        .signature_help(
+            position(file_id, &markers, "second"),
+            crate::signature_help::SignatureHelpConfig { params_only: false },
+        )
+        .unwrap()
+        .expect("signature help expected for function call");
+    assert_eq!(second.active_parameter, Some(1));
+
+    let third = analysis
+        .signature_help(
+            position(file_id, &markers, "third"),
+            crate::signature_help::SignatureHelpConfig { params_only: false },
+        )
+        .unwrap()
+        .expect("signature help expected for function call");
+    assert_eq!(third.active_parameter, Some(2));
+}
+
+#[test]
+fn task_call_statement_signature_help_matches_named_arguments() {
+    let text = r#"
+task automatic drive(input logic [3:0] value, output logic [3:0] result);
+  result = value;
+endtask
+
+module top;
+  logic [3:0] out;
+  initial begin
+    drive(/*marker:value*/.value(4'hf), .result(out));
+  end
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let signature = host
+        .make_analysis()
+        .signature_help(
+            position(file_id, &markers, "value"),
+            crate::signature_help::SignatureHelpConfig { params_only: false },
+        )
+        .unwrap()
+        .expect("signature help expected for task call");
+
+    assert_eq!(signature.label, "task drive(input logic [3:0] value, output logic [3:0] result)");
+    assert_eq!(signature.active_parameter, Some(0));
+}
+
+#[test]
+fn params_only_signature_help_hides_subroutine_types() {
+    let text = r#"
+function logic [7:0] adder(input logic [7:0] a, input logic [7:0] b);
+  return a + b;
+endfunction
+
+module top;
+  initial begin
+    adder(/*marker:args*/8'h01, 8'h02);
+  end
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let signature = host
+        .make_analysis()
+        .signature_help(
+            position(file_id, &markers, "args"),
+            crate::signature_help::SignatureHelpConfig { params_only: true },
+        )
+        .unwrap()
+        .expect("signature help expected for function call");
+
+    assert_eq!(signature.label, "function logic [7:0] adder(a, b)");
+    assert_eq!(signature.active_parameter, Some(0));
+}
+
+#[test]
+fn signature_help_is_none_for_unresolved_subroutine_call() {
+    let text = r#"
+module top;
+  initial begin
+    missing_subroutine(/*marker:args*/1);
+  end
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let signature = host
+        .make_analysis()
+        .signature_help(
+            position(file_id, &markers, "args"),
+            crate::signature_help::SignatureHelpConfig { params_only: false },
+        )
+        .unwrap();
+
+    assert!(signature.is_none(), "unresolved callee should yield no signature help");
+}
+
+#[test]
 fn verilog_2005_direct_generate_subroutine_resolves_locally() {
     let text = r#"
 module direct_generate_subroutine_ctx;

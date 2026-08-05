@@ -1,10 +1,13 @@
 use hir_def::{
     container::{InContainer, InModule},
     declaration::Declaration,
+    lower_ident_opt,
     module::{
         instantiation::{ParamAssign, PortConn},
         port::Ports,
     },
+    subroutine::SubroutineKind,
+    symbol::Resolution,
 };
 use hir_semantics::semantics::Semantics;
 use hir_ty::display::HirDisplay;
@@ -13,7 +16,7 @@ use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,
     ast::{self, AstNode},
-    has_text_range::HasTextRangeIn,
+    has_text_range::{HasTextRange, HasTextRangeIn},
     match_ast,
 };
 // Last week, I found an issue with the original strategy and have successfully implemented
@@ -90,6 +93,19 @@ pub(crate) fn signature_help(
                 {
                         return sig_help_for_instantiation(&sema, hir_file_id, it, offset, config);
                     }
+            },
+            ast::InvocationExpression[it] => {
+                let Some(args) = it.arguments() else {
+                    continue;
+                };
+                let in_args = args
+                    .open_paren()
+                    .and_then(|open_paren| open_paren.text_range_in(args.syntax()))
+                    .is_some_and(|range| offset >= range.end())
+                    && args.close_paren().is_none_or(|tok| tok != token.tok);
+                if in_args {
+                    return sig_help_for_invocation(&sema, hir_file_id, it, offset, config);
+                }
             },
             _ => {},
         };
@@ -312,4 +328,100 @@ fn sig_help_for_instantiation(
 
     res.label.push(')');
     Some(res)
+}
+
+fn sig_help_for_invocation(
+    sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
+    invocation: ast::InvocationExpression,
+    offset: TextSize,
+    config: SignatureHelpConfig,
+) -> Option<SignatureHelp> {
+    let db = sema.db;
+
+    // Resolve the callee expression to a subroutine (function or task).
+    let callee = sema.resolve_expr(file_id, invocation.left())?;
+    let subroutine_id = Resolution::from_candidates(
+        sema.expr_to_def(callee)
+            .candidates()
+            .iter()
+            .filter_map(|def_id| def_id.primary_origin(db).as_subroutine(db)),
+    )
+    .unique()?;
+    let subroutine = db.subroutine(subroutine_id);
+    let subroutine_name = subroutine.name.as_ref()?;
+    let container = subroutine_id.cont_id.into();
+
+    let active_param =
+        invocation.arguments().and_then(|args| active_argument_at_offset(args, offset));
+
+    let mut res = SignatureHelp::new(
+        config,
+        match subroutine.kind {
+            SubroutineKind::Task => format!("task {subroutine_name}("),
+            SubroutineKind::Function { return_ty } => {
+                let ty = return_ty
+                    .and_then(|ty| InContainer::new(container, ty).display_source(db).ok());
+                match ty {
+                    Some(ty) => format!("function {ty} {subroutine_name}("),
+                    None => format!("function {subroutine_name}("),
+                }
+            }
+        },
+    );
+
+    for (idx, port) in subroutine.ports.iter().enumerate() {
+        let Some(port_name) = port.name.as_ref() else {
+            continue;
+        };
+
+        let mut param = String::new();
+        if !res.config.params_only {
+            let ty = port.ty.and_then(|ty| InContainer::new(container, ty).display_source(db).ok());
+            let dir = port.direction.display_source(db).unwrap_or_default();
+            param = match (dir.is_empty(), ty) {
+                (false, Some(ty)) => format!("{dir} {ty} {port_name}"),
+                (false, None) => format!("{dir} {port_name}"),
+                (true, Some(ty)) => format!("{ty} {port_name}"),
+                (true, None) => port_name.to_string(),
+            };
+        } else {
+            param.push_str(port_name.as_str());
+        }
+        res.push_param(&param);
+
+        match &active_param {
+            Some(Either::Left(active_idx)) if *active_idx == idx => {
+                res.active_parameter = Some(res.param_ranges.len() - 1);
+            }
+            Some(Either::Right(active_name)) if active_name == port_name.as_str() => {
+                res.active_parameter = Some(res.param_ranges.len() - 1);
+            }
+            _ => {}
+        }
+    }
+
+    res.label.push(')');
+    Some(res)
+}
+
+/// The argument covering `offset`: its ordered index, or the connected port
+/// name for a named argument. Mirrors the instance-connection logic above.
+fn active_argument_at_offset(
+    args: ast::ArgumentList<'_>,
+    offset: TextSize,
+) -> Option<Either<usize, String>> {
+    for (idx, arg) in args.parameters().children().enumerate() {
+        let range = arg.syntax().text_range()?;
+        if range.end() >= offset {
+            return match arg {
+                ast::Argument::NamedArgument(named) => named
+                    .name()
+                    .and_then(|name| lower_ident_opt(Some(name)))
+                    .map(|name| Either::Right(name.to_string())),
+                _ => Some(Either::Left(idx)),
+            };
+        }
+    }
+    None
 }
