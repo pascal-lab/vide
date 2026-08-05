@@ -101,6 +101,12 @@ pub struct FileReferenceGroup {
     references: Vec<SemanticReference>,
 }
 
+impl FileReferenceGroup {
+    pub(crate) fn references(&self) -> &[SemanticReference] {
+        &self.references
+    }
+}
+
 /// Module definitions contributed by one file.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FileModuleIndex {
@@ -267,6 +273,13 @@ impl SemanticIndex {
 }
 
 impl FileSemanticIndex {
+    pub(crate) fn references_for_definition(
+        &self,
+        definition: DefId,
+    ) -> Option<&FileReferenceGroup> {
+        self.groups.get(&definition)
+    }
+
     pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
         let tree = db.parse(file_id.into());
         let Some(root) = tree.root() else {
