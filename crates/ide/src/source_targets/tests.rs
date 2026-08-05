@@ -8,7 +8,7 @@ use utils::line_index::covering_range;
 use super::*;
 use crate::db::root_db::RootDb;
 
-mod macro_gate;
+mod bench_context;
 
 #[test]
 fn source_targets_origin_source_range_hit_test_is_half_open() {
@@ -354,10 +354,6 @@ fn root_and_offset<'tree>(
     let range =
         TextRange::new(TextSize::from(start as u32), TextSize::from((start + needle.len()) as u32));
     (root, range.start() + TextSize::from(delta), range)
-}
-
-pub(super) fn offset(text: &str, needle: &str) -> TextSize {
-    TextSize::from(u32::try_from(text.find(needle).expect("needle should exist")).unwrap())
 }
 
 fn source_range(text: &str, needle: &str) -> TextRange {

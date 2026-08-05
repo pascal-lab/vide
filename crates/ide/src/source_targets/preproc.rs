@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
 use preproc_expand::{
+    context::{MacroContext, macro_context_at},
     db::PreprocDb,
-    macro_file::{
-        ExpansionSourceHit, MacroFileId, Origin, SourceEmittedTokenId, macro_files_at_offset,
-    },
+    macro_file::{ExpansionSourceHit, MacroFileId, Origin, SourceEmittedTokenId},
 };
 use syntax::{SyntaxElement, SyntaxNode, SyntaxTokenWithParent, TokenKind, WalkEvent};
 use utils::line_index::{TextRange, TextSize, covering_range};
@@ -12,8 +11,7 @@ use vfs::FileId;
 
 use super::{
     PreprocTokenHit, SourceTarget, SourceTargetAlternatives, SourceTargetBlock,
-    SourceTargetProviderResult, SourceTargetResolution,
-    macro_gate::source_macro_invocation_may_cover_offset, normal_syntax_source_target_at_offset,
+    SourceTargetProviderResult, SourceTargetResolution, normal_syntax_source_target_at_offset,
 };
 
 pub(super) fn preproc_source_target_at_offset<'tree>(
@@ -23,14 +21,9 @@ pub(super) fn preproc_source_target_at_offset<'tree>(
     offset: TextSize,
     precedence: &impl Fn(TokenKind) -> usize,
 ) -> SourceTargetProviderResult<'tree> {
-    if !source_macro_invocation_may_cover_offset(db.file_text(file_id).as_ref(), offset) {
+    let MacroContext::Invocation { macro_files } = macro_context_at(db, file_id, offset) else {
         return SourceTargetProviderResult::NotApplicable;
-    }
-
-    let macro_files = macro_files_at_offset(db, file_id, offset);
-    if macro_files.is_empty() {
-        return SourceTargetProviderResult::NotApplicable;
-    }
+    };
 
     match preproc_hits_at_offset(db, &macro_files, file_id, offset) {
         PreprocHitLookup::Available { range, hits } => {
