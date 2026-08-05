@@ -21,7 +21,7 @@ use super::{ReferenceCategory, ReferencesConfig};
 use crate::{
     ScopeVisibility,
     db::{root_db::RootDb, workspace_symbol_index_db::source_root_semantic_index_for_root},
-    semantic_index::SemanticReference,
+    semantic_index::{ReferenceContext, SemanticReference},
 };
 
 /// A search scope is a set of files and ranges within those files that should
@@ -150,16 +150,22 @@ pub(crate) struct ReferencesCtx<'a, 'b> {
     scope: SearchScope,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct ReferenceToken {
     ptr: SyntaxTokenPtr,
     range: TextRange,
     category: ReferenceCategory,
+    context: ReferenceContext,
 }
 
 impl ReferenceToken {
     pub(crate) fn from_semantic_reference(reference: &SemanticReference) -> Self {
-        Self { ptr: reference.ptr, range: reference.range, category: reference.category }
+        Self {
+            ptr: reference.ptr,
+            range: reference.range,
+            category: reference.category,
+            context: reference.context.clone(),
+        }
     }
 
     pub fn range(&self) -> TextRange {
@@ -170,7 +176,11 @@ impl ReferenceToken {
         self.category
     }
 
-    pub fn to_token<'a>(self, tree: &'a syntax::SyntaxTree) -> Option<SyntaxTokenWithParent<'a>> {
+    pub(crate) fn context(&self) -> &ReferenceContext {
+        &self.context
+    }
+
+    pub fn to_token<'a>(&self, tree: &'a syntax::SyntaxTree) -> Option<SyntaxTokenWithParent<'a>> {
         self.ptr.to_token(tree)
     }
 }

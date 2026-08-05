@@ -1,24 +1,13 @@
 use base_db::source_db::SourceDb;
-use hir_def::{
-    container::InFile,
-    def_id::DefId,
-    symbol::{DefOrigin, NameContext},
-};
+use hir_def::{container::InFile, def_id::DefId, symbol::DefOrigin};
 use hir_semantics::semantics::Semantics;
 use nohash_hasher::IntMap;
 use preproc_expand::{
     file::HirFileId,
     macro_file::{macro_file_call_site, macro_files_at_offset},
 };
-use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
-use syntax::{
-    SyntaxAncestors, SyntaxTokenWithParent, TokenKind,
-    ast::{self, AstNode, Expression, Name},
-    has_text_range::{HasTextRange, HasTextRangeIn},
-    match_ast,
-    token::TokenKindExt,
-};
+use syntax::{TokenKind, token::TokenKindExt};
 use thiserror::Error;
 use utils::{line_index::TextRange, text_edit::TextEdit, uniq_vec::UniqVec};
 use vfs::FileId;
@@ -31,6 +20,7 @@ use crate::{
         ReferencesConfig,
         search::{ReferenceToken, ReferencesCtx, SearchScope},
     },
+    semantic_index::{ConnSide, ReferenceContext},
     semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
     source_change::SourceChange,
 };
@@ -164,7 +154,6 @@ pub(crate) fn expanded_rename(
             new_name,
             Some(&rename_targets),
             &target.refs,
-            &target.same_name_refs,
         )?;
         for (file_id, edit) in changes.text_edits {
             source_changes
@@ -224,7 +213,21 @@ type ReferenceSearchResult = IntMap<FileId, Vec<ReferenceToken>>;
 struct RecursiveRenameTarget {
     def: DefId,
     refs: ReferenceSearchResult,
-    same_name_refs: Vec<SameNameConnectionRef>,
+}
+
+/// The edit a single reference contributes to a rename, decided from the
+/// index-recorded connection context and the file text alone: rename no
+/// longer parses or re-resolves anything per reference.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ReferenceEdit {
+    /// Replace the reference range with the new name.
+    Replace(TextRange),
+    /// Replace a range with an arbitrary string (collapse or shorthand
+    /// expansion).
+    ReplaceWith(TextRange, String),
+    /// Skip this reference: the paired side of the connection already
+    /// produced the edit.
+    Skip,
 }
 
 fn resolve_rename_target(
@@ -286,20 +289,6 @@ fn resolve_rename_target(
     Ok(ResolvedRenameTarget { range, selected_def, targets })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SameNameConnection {
-    port: DefId,
-    local: DefId,
-    collapse_range: TextRange,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SameNameConnectionRef {
-    file_id: FileId,
-    range: TextRange,
-    conn: SameNameConnection,
-}
-
 fn rename_definition(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
@@ -310,7 +299,7 @@ fn rename_definition(
     rename_targets: Option<&UniqVec<(), DefOrigin>>,
 ) -> RenameResult<SourceChange> {
     let refs = references_for_definition(db, sema, request_file_id, config, def)?;
-    rename_definition_with_refs(db, sema, def, new_name, rename_targets, &refs, &[])
+    rename_definition_with_refs(db, sema, def, new_name, rename_targets, &refs)
 }
 
 fn references_for_definition(
@@ -331,7 +320,6 @@ fn rename_definition_with_refs(
     new_name: &str,
     rename_targets: Option<&UniqVec<(), DefOrigin>>,
     refs: &ReferenceSearchResult,
-    same_name_refs: &[SameNameConnectionRef],
 ) -> RenameResult<SourceChange> {
     let old_name = def
         .origins(db)
@@ -341,16 +329,26 @@ fn rename_definition_with_refs(
     let mut source_changes = SourceChange::default();
     refs.iter()
         .map(|(&file_id, toks)| {
-            edits_from_refs(
-                sema,
-                file_id,
-                toks,
-                def,
-                &old_name,
-                new_name,
-                rename_targets,
-                same_name_refs,
-            )
+            let text = sema.db.file_text(file_id);
+            let mut text_edit = TextEdit::builder();
+            for token_ref in toks {
+                match reference_edit(
+                    db,
+                    token_ref.context(),
+                    token_ref.range(),
+                    &text,
+                    &old_name,
+                    new_name,
+                    rename_targets,
+                ) {
+                    ReferenceEdit::Replace(range) => text_edit.replace(range, new_name.to_owned()),
+                    ReferenceEdit::ReplaceWith(range, replacement) => {
+                        text_edit.replace(range, replacement)
+                    }
+                    ReferenceEdit::Skip => {}
+                }
+            }
+            (file_id, text_edit.finish())
         })
         .try_for_each(|(file_id, edit)| {
             source_changes
@@ -374,6 +372,82 @@ fn rename_definition_with_refs(
     Ok(source_changes)
 }
 
+/// Decides the edit for one reference from its index-recorded context and
+/// the file text. `rename_targets` is `Some` for recursive renames: the set
+/// of every definition being renamed, used to collapse same-name
+/// connections (`.a(a)` becomes `.new`) instead of renaming both sides
+/// independently.
+fn reference_edit(
+    db: &RootDb,
+    context: &ReferenceContext,
+    range: TextRange,
+    text: &str,
+    old_name: &str,
+    new_name: &str,
+    rename_targets: Option<&UniqVec<(), DefOrigin>>,
+) -> ReferenceEdit {
+    let paired_is_target = rename_targets.is_some_and(|targets| {
+        context
+            .paired()
+            .is_some_and(|paired| paired.origins(db).iter().any(|origin| targets.contains(origin)))
+    });
+    match context {
+        ReferenceContext::Plain => ReferenceEdit::Replace(range),
+        ReferenceContext::ConnData { name_range, collapse_range, .. } => {
+            if paired_is_target {
+                // The name side already collapsed the connection.
+                return ReferenceEdit::Skip;
+            }
+            // `.new(data) => .new`: the port name already equals the new name.
+            if collapse_range.is_some_and(|_| range_text(text, *name_range) == new_name) {
+                return ReferenceEdit::ReplaceWith(
+                    collapse_range.expect("checked above"),
+                    new_name.to_owned(),
+                );
+            }
+            ReferenceEdit::Replace(range)
+        }
+        ReferenceContext::ConnName { ident_range, collapse_range, shorthand, side, .. } => {
+            if *shorthand {
+                if paired_is_target {
+                    // Both sides are renamed: the port side rewrites the
+                    // shorthand (`.a => .new`), the local side leaves it.
+                    return match side {
+                        ConnSide::Port => ReferenceEdit::Replace(range),
+                        ConnSide::Local => ReferenceEdit::Skip,
+                    };
+                }
+                return match side {
+                    // `.old => .old(new)`: the local side is renamed.
+                    ConnSide::Local => {
+                        ReferenceEdit::ReplaceWith(range, format!("{old_name}({new_name})"))
+                    }
+                    // `.old => .new(old)`: the port side is renamed.
+                    ConnSide::Port => {
+                        ReferenceEdit::ReplaceWith(range, format!("{new_name}({old_name})"))
+                    }
+                };
+            }
+            // `.a(new) => .new`: the data already equals the new name.
+            if ident_range.is_some_and(|ident| range_text(text, ident) == new_name)
+                && let Some(collapse) = collapse_range
+            {
+                return ReferenceEdit::ReplaceWith(*collapse, new_name.to_owned());
+            }
+            // Same-name connection with both sides renamed: collapse the
+            // whole `.a(a)` into `.new`.
+            if paired_is_target && let Some(collapse) = collapse_range {
+                return ReferenceEdit::ReplaceWith(*collapse, new_name.to_owned());
+            }
+            ReferenceEdit::Replace(range)
+        }
+    }
+}
+
+fn range_text(text: &str, range: TextRange) -> &str {
+    &text[usize::from(range.start())..usize::from(range.end())]
+}
+
 fn recursive_rename_targets(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
@@ -392,100 +466,19 @@ fn recursive_rename_targets(
         idx += 1;
 
         let refs = references_for_definition(db, sema, file_id, config, &current)?;
-        let same_name_refs = same_name_refs_collect(sema, &refs);
-        for conn_ref in &same_name_refs {
-            targets.push(conn_ref.conn.port.origins(db), conn_ref.conn.port.clone());
-            targets.push(conn_ref.conn.local.origins(db), conn_ref.conn.local.clone());
+        // Same-name connections connect their paired definition: follow them
+        // to close the recursive rename set.
+        for toks in refs.values() {
+            for token_ref in toks {
+                if let Some(paired) = token_ref.context().paired() {
+                    targets.push(paired.origins(db), paired.clone());
+                }
+            }
         }
-        resolved_targets.push(RecursiveRenameTarget { def: current, refs, same_name_refs });
+        resolved_targets.push(RecursiveRenameTarget { def: current, refs });
     }
 
     Ok(resolved_targets)
-}
-
-fn same_name_refs_collect(
-    sema: &Semantics<'_, RootDb>,
-    refs_by_file: &ReferenceSearchResult,
-) -> Vec<SameNameConnectionRef> {
-    let mut conn_refs = Vec::new();
-
-    for (&file_id, refs) in refs_by_file {
-        let parsed_file = sema.parse_file(file_id);
-        for token_ref in refs {
-            let range = token_ref.range();
-            let Some(token) = token_ref.to_token(parsed_file.syntax_tree()) else {
-                continue;
-            };
-            if let Some(conn) = check_same_name_conn(sema, file_id.into(), token) {
-                conn_refs.push(SameNameConnectionRef { file_id, range, conn });
-            };
-        }
-    }
-
-    conn_refs
-}
-
-fn check_same_name_conn(
-    sema: &Semantics<'_, RootDb>,
-    file_id: preproc_expand::file::HirFileId,
-    token: SyntaxTokenWithParent<'_>,
-) -> Option<SameNameConnection> {
-    let conn =
-        SyntaxAncestors::start_from(token.parent).find_map(ast::NamedPortConnection::cast)?;
-    let name_token = conn.name()?;
-    let name_range = name_token.text_range_in(conn.syntax())?;
-    let token_range = token.text_range()?;
-    let port_token = SyntaxTokenWithParent { parent: conn.syntax(), tok: name_token };
-    let port_resolution = DefinitionClass::resolve(sema.db, file_id, port_token).unique()?;
-
-    let close_paren = match (conn.open_paren(), conn.close_paren()) {
-        (None, None) => {
-            if token_range != name_range {
-                return None;
-            }
-
-            return match port_resolution {
-                DefinitionClass::PortConnShorthand { port, local } => {
-                    Some(SameNameConnection { port, local, collapse_range: token_range })
-                }
-                _ => None,
-            };
-        }
-        (_, Some(close_paren)) => close_paren,
-        _ => return None,
-    };
-
-    let port = match port_resolution {
-        DefinitionClass::Definition(def) => def,
-        DefinitionClass::PortConnShorthand { port, .. } => port,
-    };
-    let port_name = name_token.value_text().to_string();
-    let expr = conn.expr()?.as_simple_property_expr()?.expr().as_simple_sequence_expr()?.expr();
-    let actual_token = match expr {
-        Expression::Name(Name::IdentifierName(ident)) => ident.identifier()?,
-        Expression::Name(Name::IdentifierSelectName(ident))
-            if ident.selectors().children().next().is_none() =>
-        {
-            ident.identifier()?
-        }
-        _ => return None,
-    };
-    if actual_token.value_text().to_string() != port_name {
-        return None;
-    }
-    let actual_token = SyntaxTokenWithParent { parent: expr.syntax(), tok: actual_token };
-
-    let actual_range = actual_token.text_range()?;
-    if token_range != name_range && token_range != actual_range {
-        return None;
-    }
-
-    let collapse_end = close_paren.text_range_in(conn.syntax())?.end();
-    Some(SameNameConnection {
-        port,
-        local: sema.nameres_ident(file_id, actual_token, NameContext::Value).unique()?,
-        collapse_range: TextRange::new(name_range.start(), collapse_end),
-    })
 }
 
 fn origin_is_macro_generated(db: &RootDb, origin: DefOrigin) -> bool {
@@ -513,113 +506,160 @@ fn origins_are_editable(db: &RootDb, def: &DefId, file_id: FileId) -> bool {
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-fn edits_from_refs(
-    sema: &Semantics<'_, RootDb>,
-    file_id: FileId,
-    toks: &[ReferenceToken],
-    def: &DefId,
-    old_name: &str,
-    new_name: &str,
-    rename_targets: Option<&UniqVec<(), DefOrigin>>,
-    same_name_refs: &[SameNameConnectionRef],
-) -> (FileId, TextEdit) {
-    let mut text_edit = TextEdit::builder();
-    let text = sema.db.file_text(file_id);
-    let hir_file_id = file_id.into();
-    let parsed_file = sema.parse_file(file_id);
-    let def_origins = def.origins(sema.db);
-    let same_name_refs: FxHashMap<_, _> = same_name_refs
-        .iter()
-        .filter(|it| it.file_id == file_id)
-        .map(|SameNameConnectionRef { range, conn, .. }| {
-            let SameNameConnection { port, local, collapse_range } = conn;
-            (*range, (port.origins(sema.db), local.origins(sema.db), *collapse_range))
-        })
-        .collect();
-
-    for token_ref in toks {
-        let range = token_ref.range();
-        let Some(token) = token_ref.to_token(parsed_file.syntax_tree()) else {
-            continue;
-        };
-        let SyntaxTokenWithParent { parent, tok } = token;
-
-        if let Some(rename_targets) = rename_targets
-            && let Some((ports, locals, collapse_range)) = same_name_refs.get(&range)
-            && ports.iter().any(|origin| rename_targets.contains(origin))
-            && locals.iter().any(|origin| rename_targets.contains(origin))
-        {
-            if def_origins.iter().any(|origin| ports.contains(origin)) {
-                text_edit.replace(*collapse_range, new_name.to_owned());
-            }
-            continue;
-        }
-
-        let conn_data_range = |it: ast::NamedPortConnection| it.expr()?.syntax().text_range();
-
-        match_ast! { parent,
-            ast::NamedPortConnection[it] if it.name() == Some(tok) => {
-                // .[port](data)
-                match (it.open_paren(), it.close_paren()) {
-                    (Some(_), Some(cp)) if conn_data_range(it).is_some_and(|r| &text[r] == new_name) => {
-                        // .port(new),  => .new,
-                        if let Some(end) = cp.text_range_in(it.syntax()).map(|range| range.end()) {
-                            text_edit.replace(TextRange::new(range.start(), end), new_name.to_owned());
-                        } else {
-                            text_edit.replace(range, new_name.to_owned());
-                        }
-                    }
-                    (None, None) => {
-                        if let Some(port_conn) = ast::PortConnection::cast(it.syntax()) {
-                            if let Some(ref_container) = sema.resolve_port_connection(hir_file_id, port_conn)
-                                && def.container_id(sema.db) == ref_container.module_id.into()
-                            {
-                                // .old => .old(new)
-                                text_edit.replace(range, format!("{old_name}({new_name})"));
-                            } else {
-                                // .old => .new(old)
-                                text_edit.replace(range, format!("{new_name}({old_name})"));
-                            }
-                        } else {
-                            text_edit.replace(range, new_name.to_owned());
-                        }
-                    }
-                    _ => text_edit.replace(range, new_name.to_owned()),
-                }
-            },
-            ast::IdentifierName => {
-                if let Some(node) = SyntaxAncestors::start_from(parent).nth(3)
-                && let Some(port_conn) = ast::NamedPortConnection::cast(node)
-                && conn_data_range(port_conn).is_some_and(|r| r == range)
-                && let Some(port_name) = port_conn
-                    .name()
-                    .filter(|n| n.value_text().to_string() == new_name) {
-                    // .new(data) => .new
-                    let Some(start) =
-                        port_name.text_range_in(port_conn.syntax()).map(|range| range.start()) else {
-                        text_edit.replace(range, new_name.to_owned());
-                        continue;
-                    };
-                    let end = if let Some(cp) = port_conn.close_paren() {
-                        cp.text_range_in(port_conn.syntax())
-                            .map(|range| range.end())
-                            .unwrap_or(range.end())
-                    } else {
-                        range.end()
-                    };
-                    text_edit.replace(TextRange::new(start, end), new_name.to_owned());
-                } else {
-                    text_edit.replace(range, new_name.to_owned());
-                }
-            },
-            _ => text_edit.replace(range, new_name.to_owned()),
-        }
-    }
-
-    (file_id, text_edit.finish())
-}
-
 fn rename_token_precedence(kind: TokenKind) -> usize {
     usize::from(kind.name_like())
+}
+
+#[cfg(test)]
+mod tests {
+    use base_db::{change::Change, source_root::SourceRoot};
+    use utils::text_edit::TextSize;
+    use vfs::{ChangedFile, FileId, FileSet, VfsPath};
+
+    use super::*;
+
+    fn db_with_text(text: &str) -> (RootDb, FileId) {
+        let file_id = FileId::from_raw(0);
+        let mut file_set = FileSet::default();
+        file_set.insert(file_id, VfsPath::new_virtual_path("/test.sv".to_owned()));
+
+        let mut change = Change::new();
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.add_changed_file(ChangedFile::create(file_id, text));
+
+        let mut db = RootDb::new(None);
+        db.apply_change(change);
+        (db, file_id)
+    }
+
+    fn db_with_caret(text: &str) -> (RootDb, FileId, TextSize) {
+        let marker = "/*caret*/";
+        let offset = text.find(marker).expect("missing caret marker");
+        let text = text.replace(marker, "");
+        let (db, file_id) = db_with_text(&text);
+        (db, file_id, TextSize::from(offset as u32))
+    }
+
+    fn apply_rename(text: &str, new_name: &str, recursive: bool) -> String {
+        let (db, file_id, offset) = db_with_caret(text);
+        let config = RenameConfig::workspace(ScopeVisibility::Public);
+        let position = FilePosition { file_id, offset };
+        let change = if recursive {
+            expanded_rename(&db, position, config, new_name)
+        } else {
+            rename(&db, position, config, new_name)
+        }
+        .expect("rename should succeed");
+        let edit = change.text_edits.get(&file_id).expect("edit in the test file");
+        let mut result = db.file_text(file_id).to_string();
+        edit.apply(&mut result);
+        result
+    }
+
+    fn check_rename(text: &str, new_name: &str, expected: &str) {
+        assert_eq!(apply_rename(text, new_name, false), expected);
+    }
+
+    fn check_expanded_rename(text: &str, new_name: &str, expected: &str) {
+        assert_eq!(apply_rename(text, new_name, true), expected);
+    }
+
+    #[test]
+    fn plain_rename_updates_declaration_and_uses() {
+        check_rename(
+            "module m;\n  logic /*caret*/a;\n  always_comb a = a + 1;\nendmodule\n",
+            "b",
+            "module m;\n  logic b;\n  always_comb b = b + 1;\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn same_name_connection_renames_port_side_only() {
+        check_rename(
+            "module child(input a);\nendmodule\nmodule top;\n  logic a;\n  child u(./*caret*/a(a));\nendmodule\n",
+            "b",
+            "module child(input b);\nendmodule\nmodule top;\n  logic a;\n  child u(.b(a));\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn same_name_connection_renames_local_side_only() {
+        check_rename(
+            "module child(input a);\nendmodule\nmodule top;\n  logic /*caret*/a;\n  child u(.a(a));\nendmodule\n",
+            "b",
+            "module child(input a);\nendmodule\nmodule top;\n  logic b;\n  child u(.a(b));\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn same_name_connection_collapses_in_expanded_rename() {
+        check_expanded_rename(
+            "module child(input /*caret*/a);\nendmodule\nmodule top;\n  logic a;\n  child u(.a(a));\nendmodule\n",
+            "b",
+            "module child(input b);\nendmodule\nmodule top;\n  logic b;\n  child u(.b);\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn connection_data_equal_to_new_name_collapses() {
+        check_rename(
+            "module child(input a);\nendmodule\nmodule top;\n  logic c;\n  child u(./*caret*/a(c));\nendmodule\n",
+            "c",
+            "module child(input c);\nendmodule\nmodule top;\n  logic c;\n  child u(.c);\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn non_same_name_connection_renames_port_side() {
+        check_rename(
+            "module child(input a);\nendmodule\nmodule top;\n  logic b;\n  child u(./*caret*/a(b));\nendmodule\n",
+            "c",
+            "module child(input c);\nendmodule\nmodule top;\n  logic b;\n  child u(.c(b));\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn shorthand_connection_renames_port_side() {
+        check_rename(
+            "module child(input /*caret*/a);\nendmodule\nmodule top;\n  logic a;\n  child u(.a);\nendmodule\n",
+            "b",
+            "module child(input b);\nendmodule\nmodule top;\n  logic a;\n  child u(.b(a));\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn shorthand_connection_renames_local_side_from_shorthand() {
+        check_rename(
+            "module child(input a);\nendmodule\nmodule top;\n  logic a;\n  child u(./*caret*/a);\nendmodule\n",
+            "b",
+            "module child(input a);\nendmodule\nmodule top;\n  logic b;\n  child u(.a(b));\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn shorthand_connection_renames_local_side() {
+        check_rename(
+            "module child(input a);\nendmodule\nmodule top;\n  logic /*caret*/a;\n  child u(.a);\nendmodule\n",
+            "b",
+            "module child(input a);\nendmodule\nmodule top;\n  logic b;\n  child u(.a(b));\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn shorthand_connection_collapses_in_expanded_rename() {
+        check_expanded_rename(
+            "module child(input /*caret*/a);\nendmodule\nmodule top;\n  logic a;\n  child u(.a);\nendmodule\n",
+            "b",
+            "module child(input b);\nendmodule\nmodule top;\n  logic b;\n  child u(.b);\nendmodule\n",
+        );
+    }
+
+    #[test]
+    fn expanded_rename_does_not_follow_non_same_name_connections() {
+        check_expanded_rename(
+            "module child(input /*caret*/a);\nendmodule\nmodule top;\n  logic b;\n  child u(.a(b));\nendmodule\n",
+            "c",
+            "module child(input c);\nendmodule\nmodule top;\n  logic b;\n  child u(.c(b));\nendmodule\n",
+        );
+    }
 }
