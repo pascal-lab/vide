@@ -60,7 +60,8 @@ fn struct_members(db: &dyn TyDb, struct_id: InContainer<StructId>) -> Vec<TyMemb
             let name = member.name.clone()?;
             let ty = member
                 .ty
-                .map(|ty| normalize_data_ty(db, ty.cont_id, ty.value).ty)
+                .as_ref()
+                .map(|ty| normalize_data_ty(db, ty.cont_id, ty.value.clone()).ty)
                 .unwrap_or(Ty::Unknown);
             Some(TyMember { name, ty })
         })
@@ -76,7 +77,7 @@ fn union_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
 
 fn aggregate_struct_id_from_def(db: &dyn TyDb, def_id: DefId) -> Option<InContainer<StructId>> {
     let data_ty = match def_id.primary_origin(db).loc(db) {
-        DefOriginLoc::Typedef(typedef) => typedef.cont_id.data(db).typedef(typedef.value).ty?,
+        DefOriginLoc::Typedef(typedef) => typedef.cont_id.data(db).typedef(typedef.value).ty.clone()?,
         DefOriginLoc::Decl(decl) => data_ty_of_decl(db, decl)?,
         _ => return None,
     };

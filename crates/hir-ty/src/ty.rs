@@ -10,7 +10,7 @@ use hir_def::{
 
 use crate::TypeDiagnostic;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum BuiltinTy {
     Data { id: BuiltinDataTyId, container: ArenaOwnerId },
 }

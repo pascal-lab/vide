@@ -271,7 +271,7 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
                         ty = Some(self.lower_data_ty(ast_ty));
                     }
                     let decl = self.lower_declarator(init.declarator(), parent);
-                    inits.push((ty, decl));
+                    inits.push((ty.clone(), decl));
                 }
                 ForInit::Init(inits)
             }

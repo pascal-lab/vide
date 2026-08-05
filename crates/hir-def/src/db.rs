@@ -8,7 +8,6 @@ use crate::{
     container::{InFileOrModule, InModule, ScopeId, SubroutineScope},
     covergroup::CovergroupId,
     def_id::{DefId, Definition},
-    expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
     file::{self, HirFile},
     module::{
         self, Module, ModuleId, PackageId,
@@ -28,8 +27,6 @@ pub(crate) macro impl_intern($id:ident, $loc:ident, $intern:ident, $lookup:ident
 
 #[salsa::query_group(InternDbStorage)]
 pub trait InternDb: PreprocDb {
-    #[salsa::interned]
-    fn intern_ty(&self, ty: BuiltinDataTy) -> BuiltinDataTyId;
 
     #[salsa::interned]
     fn intern_block(&self, block: BlockLoc) -> BlockId;
@@ -44,7 +41,6 @@ pub trait InternDb: PreprocDb {
     fn intern_def(&self, definition: Definition) -> DefId;
 }
 
-impl_intern!(BuiltinDataTyId, BuiltinDataTy, intern_ty, lookup_intern_ty);
 impl_intern!(BlockId, BlockLoc, intern_block, lookup_intern_block);
 impl_intern!(
     GenerateBlockId,
