@@ -12,7 +12,6 @@ use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 use crate::{
     FilePosition,
     analysis_host::AnalysisHost,
-    hover::{HoverConfig, HoverFormat},
     test_utils::normalize_fixture_text,
 };
 
@@ -144,8 +143,7 @@ fn macro_definition_hover_preserves_multiline_source_layout() {
 
     let hover = analysis
         .hover(
-            position(fixture.header_file_id, &fixture.header_markers, "pipe_assign_def"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(fixture.header_file_id, &fixture.header_markers, "pipe_assign_def")
         )
         .unwrap()
         .expect("PIPE_ASSIGN macro definition hover expected");
@@ -176,8 +174,7 @@ fn macro_argument_hover_deduplicates_pasted_symbol_result() {
 
     let hover = analysis
         .hover(
-            position(fixture.top_file_id, &fixture.top_markers, "trace_arg"),
-            HoverConfig { format: HoverFormat::PlainText },
+            position(fixture.top_file_id, &fixture.top_markers, "trace_arg")
         )
         .unwrap()
         .expect("PIPE_ASSIGN trace argument hover expected");

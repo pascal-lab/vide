@@ -48,7 +48,6 @@ pub struct HoverConfig {
 pub(crate) fn hover(
     db: &RootDb,
     FilePosition { file_id, offset }: FilePosition,
-    _config: HoverConfig,
 ) -> Option<RangeInfo<Markup>> {
     let sema = Semantics::new(db);
     let parsed_file = sema.parse_file(file_id);
