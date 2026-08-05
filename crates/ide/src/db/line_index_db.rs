@@ -12,7 +12,7 @@ impl dyn LineIndexDb + '_ {
     }
 }
 
-#[salsa::tracked(returns(clone), unsafe(non_salsa_values))]
+#[salsa::tracked(returns(clone))]
 fn line_index(db: &dyn LineIndexDb, file_id: FileId, _key: ()) -> Arc<LineIndex> {
     let text = db.file_text(file_id);
     Arc::new(LineIndex::new(&text))
