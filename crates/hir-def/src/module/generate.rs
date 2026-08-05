@@ -40,9 +40,7 @@ use crate::{
         root_token_in,
     },
     stmt::{Stmt, StmtId, StmtSrc},
-    subroutine::{
-        LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine,
-    },
+    subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 

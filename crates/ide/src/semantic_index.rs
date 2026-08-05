@@ -678,6 +678,7 @@ fn is_generate_branch_member(member: SyntaxNode<'_>) -> bool {
     false
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_token(
     db: &dyn WorkspaceSymbolIndexDb,
     file_id: HirFileId,
@@ -1104,18 +1105,14 @@ endmodule
                     let expected = sema
                         .container_for_node(hir_file_id, token.parent)
                         .unwrap_or(hir_file_id.into());
-                    if cached != expected {
-                        if let (ArenaOwnerId::GenerateBlock(a), ArenaOwnerId::GenerateBlock(b)) =
+                    if cached != expected
+                        && let (ArenaOwnerId::GenerateBlock(a), ArenaOwnerId::GenerateBlock(b)) =
                             (cached, expected)
-                        {
-                            let loc_a = db.lookup_intern_generate_block(a);
-                            let loc_b = db.lookup_intern_generate_block(b);
-                            eprintln!("cached loc cont_id={:?} src={:?}", loc_a.cont_id, loc_a.src);
-                            eprintln!(
-                                "expected loc cont_id={:?} src={:?}",
-                                loc_b.cont_id, loc_b.src
-                            );
-                        }
+                    {
+                        let loc_a = db.lookup_intern_generate_block(a);
+                        let loc_b = db.lookup_intern_generate_block(b);
+                        eprintln!("cached loc cont_id={:?} src={:?}", loc_a.cont_id, loc_a.src);
+                        eprintln!("expected loc cont_id={:?} src={:?}", loc_b.cont_id, loc_b.src);
                     }
                     assert_eq!(cached, expected, "container mismatch at {:?}", token.raw_text());
                 }

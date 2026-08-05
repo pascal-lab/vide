@@ -52,14 +52,12 @@ mod tests {
         },
         source_root::{SourceRoot, SourceRootId},
     };
+    use la_arena::{Idx, RawIdx};
     use preproc_expand::{db::PreprocDbStorage, file::HirFileId};
     use rustc_hash::FxHashSet;
     use triomphe::Arc;
     use utils::paths::{AbsPathBuf, Utf8PathBuf};
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
-
-    use super::*;
-    use la_arena::{Idx, RawIdx};
 
     use crate::{
         Ident,
@@ -144,15 +142,14 @@ mod tests {
 
     #[test]
     fn scope_for_builds_only_the_requested_scope() {
-        let db = db_with_root_text(
-            "module top;\n  function void f(); endfunction\nendmodule\n",
-        );
+        let db = db_with_root_text("module top;\n  function void f(); endfunction\nendmodule\n");
         let file_id = HirFileId::File(TOP);
         let scope = db.scope_for(ScopeId::File(file_id));
         assert!(
-            scope.lookup(NameContext::Type, &ident("top")).iter().any(|def_id| {
-                def_id.kind(&db) == DefKind::Module
-            }),
+            scope
+                .lookup(NameContext::Type, &ident("top"))
+                .iter()
+                .any(|def_id| { def_id.kind(&db) == DefKind::Module }),
             "file scope should contain the module"
         );
         assert!(
@@ -166,9 +163,7 @@ mod tests {
 
     #[test]
     fn scope_for_module_contains_subroutine_name() {
-        let db = db_with_root_text(
-            "module top;\n  function void f(); endfunction\nendmodule\n",
-        );
+        let db = db_with_root_text("module top;\n  function void f(); endfunction\nendmodule\n");
         let file_id = HirFileId::File(TOP);
         let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
         let scope = db.scope_for(module_id.into());
@@ -188,7 +183,10 @@ mod tests {
         );
         let file_id = HirFileId::File(TOP);
         let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
-        let subroutine_id = SubroutineScope::new(SubroutineParent::Module(module_id), Idx::from_raw(RawIdx::from(0)));
+        let subroutine_id = SubroutineScope::new(
+            SubroutineParent::Module(module_id),
+            Idx::from_raw(RawIdx::from(0)),
+        );
         let scope = db.scope_for(subroutine_id.into());
         assert!(
             scope
