@@ -15,8 +15,7 @@ use super::{
     ExpandError, ExpandErrorKind, ExpandResult, MacroCallId, MacroCallLoc, SourceEmittedTokenId,
     SourceEmittedTokenRange,
 };
-use crate::{db::PreprocDb, source_db::PreprocSourceMap};
-
+use crate::source_db::PreprocSourceMap;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
     File { file: FileId, range: TextRange },
@@ -104,7 +103,6 @@ impl ExpansionSourceMap {
     }
 
     pub(crate) fn from_trace_range(
-        db: &dyn PreprocDb,
         model_file: FileId,
         trace: &Trace,
         source_map: &PreprocSourceMap,
@@ -140,7 +138,6 @@ impl ExpansionSourceMap {
                 );
             };
             origins.push(origin_slot_from_token_origin(
-                db,
                 model_file,
                 emitted_token,
                 &token.origin,
@@ -153,7 +150,6 @@ impl ExpansionSourceMap {
 
     #[cfg(test)]
     pub(crate) fn from_token_origins<'a>(
-        db: &dyn PreprocDb,
         model_file: FileId,
         origins: impl IntoIterator<Item = &'a TokenOrigin>,
         source_map: &PreprocSourceMap,
@@ -164,7 +160,6 @@ impl ExpansionSourceMap {
                 .enumerate()
                 .map(|origin| {
                     origin_slot_from_token_origin(
-                        db,
                         model_file,
                         SourceEmittedTokenId::new(origin.0),
                         origin.1,
@@ -223,7 +218,6 @@ impl Origin {
     /// `Origin` carries hir-side `TextRange`s. When `source_map` cannot map a
     /// range, the raw buffer offsets are used as a fallback.
     pub fn from_token_origin(
-        db: &dyn PreprocDb,
         model_file: FileId,
         origin: &TokenOrigin,
         source_map: &PreprocSourceMap,
@@ -235,7 +229,7 @@ impl Origin {
             }
             TokenOrigin::MacroBody { call_id, definition_id, body_token_range, .. } => {
                 Origin::MacroBody {
-                    call: macro_call_id(db, model_file, *call_id),
+                    call: macro_call_id(model_file, *call_id),
                     def: *definition_id,
                     body_range: source_location(source_map, body_token_range)
                         .map_or(text_range(body_token_range)?, |s| s.range),
@@ -244,19 +238,19 @@ impl Origin {
             TokenOrigin::MacroArgument {
                 call_id, argument_index, argument_token_range, ..
             } => Origin::MacroArg {
-                call: macro_call_id(db, model_file, *call_id),
+                call: macro_call_id(model_file, *call_id),
                 arg_index: usize::try_from(*argument_index).ok()?,
                 arg_range: source_location(source_map, argument_token_range)
                     .map_or(text_range(argument_token_range)?, |s| s.range),
             },
             TokenOrigin::TokenPaste { call_id, .. } => {
-                Origin::TokenPaste { call: macro_call_id(db, model_file, *call_id) }
+                Origin::TokenPaste { call: macro_call_id(model_file, *call_id) }
             }
             TokenOrigin::Stringify { call_id, .. } => {
-                Origin::Stringify { call: macro_call_id(db, model_file, *call_id) }
+                Origin::Stringify { call: macro_call_id(model_file, *call_id) }
             }
             TokenOrigin::Builtin { name, call_id, .. } if !name.is_empty() => Origin::Builtin {
-                call: macro_call_id(db, model_file, *call_id),
+                call: macro_call_id(model_file, *call_id),
                 name: name.to_smolstr(),
             },
             TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => return None,
@@ -265,14 +259,13 @@ impl Origin {
 }
 
 fn origin_slot_from_token_origin(
-    db: &dyn PreprocDb,
     model_file: FileId,
     emitted_token: SourceEmittedTokenId,
     origin: &TokenOrigin,
     source_map: &PreprocSourceMap,
     operation_sources: Option<&OperationSourceResolver<'_>>,
 ) -> Option<OriginSlot> {
-    let mapped_origin = Origin::from_token_origin(db, model_file, origin, source_map)?;
+    let mapped_origin = Origin::from_token_origin(model_file, origin, source_map)?;
     let source = match origin {
         TokenOrigin::Source { token_range } => source_location(source_map, token_range),
         TokenOrigin::MacroBody { body_token_range, .. } => {
@@ -297,12 +290,8 @@ fn origin_slot_from_token_origin(
     Some(OriginSlot { emitted_token, origin: mapped_origin, source })
 }
 
-fn macro_call_id(
-    db: &dyn PreprocDb,
-    model_file: FileId,
-    trace_call: TraceMacroCallId,
-) -> MacroCallId {
-    db.intern_macro_call(MacroCallLoc { model_file, trace_call })
+fn macro_call_id(model_file: FileId, trace_call: TraceMacroCallId) -> MacroCallId {
+    MacroCallId(MacroCallLoc { model_file, trace_call })
 }
 
 fn source_location(

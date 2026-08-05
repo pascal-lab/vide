@@ -17,7 +17,7 @@ use vfs::FileId;
 use crate::{
     compilation_plan::{self, CompilationPlan},
     file::HirFileId,
-    macro_file::{self, ExpandResult, ExpansionInfo, MacroCallId, MacroCallLoc, MacroFileId},
+    macro_file::{self, ExpandResult, ExpansionInfo, MacroFileId},
     preproc::{MacroReferenceIndex, macro_reference_index_for_profile_query},
     source_db::{
         MappedSourcePreprocModel, SourcePreprocContextIndex, SourcePreprocQueryError,
@@ -405,12 +405,6 @@ pub trait PreprocDb: SourceRootDb {
         file_id: FileId,
     ) -> Arc<[(FileId, SyntaxDiagnostic)]>;
 
-    #[salsa::interned]
-    fn intern_macro_call(&self, macro_call: MacroCallLoc) -> MacroCallId;
-
-    #[salsa::interned]
-    fn intern_macro_file(&self, macro_file: MacroCallLoc) -> MacroFileId;
-
     #[salsa::invoke(macro_file::macro_expansion_query)]
     fn macro_expansion(&self, macro_file: MacroFileId) -> Arc<ExpandResult<ExpansionInfo>>;
 
@@ -423,16 +417,6 @@ pub trait PreprocDb: SourceRootDb {
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<MacroReferenceIndex>;
 }
-
-base_db::impl_intern_key!(MacroCallId);
-base_db::impl_intern_key!(MacroFileId);
-base_db::impl_intern_lookup!(
-    PreprocDb,
-    MacroCallId,
-    MacroCallLoc,
-    intern_macro_call,
-    lookup_intern_macro_call
-);
 
 fn parse(db: &dyn PreprocDb, file_id: HirFileId) -> SyntaxTree {
     match file_id {
