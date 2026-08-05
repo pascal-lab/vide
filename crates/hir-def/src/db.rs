@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use base_db::salsa;
 use preproc_expand::{db::PreprocDb, file::HirFileId};
 use triomphe::Arc;
@@ -21,6 +23,16 @@ use crate::{
 
 #[salsa::db]
 pub trait HirDefDb: PreprocDb {}
+
+// Salsa attaches tracked query methods to `dyn Db`; keep the lower-layer
+// surface available on composed database trait objects without forwarding.
+impl Deref for dyn HirDefDb {
+    type Target = dyn PreprocDb;
+
+    fn deref(&self) -> &Self::Target {
+        self
+    }
+}
 
 impl dyn HirDefDb + '_ {
     pub fn hir_file_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<HirFile>> {
@@ -118,165 +130,6 @@ impl dyn HirDefDb + '_ {
 
     pub fn package_export_scope(&self, package_id: PackageId) -> Arc<NameScope> {
         NameScope::package_export_scope(self, package_id, ())
-    }
-
-    pub fn parse(&self, file_id: HirFileId) -> syntax::SyntaxTree {
-        let db: &dyn PreprocDb = self;
-        db.parse(file_id)
-    }
-}
-pub trait HirDefDbExt {
-    fn hir_file_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<HirFile>>;
-    fn hir_file(&self, file_id: HirFileId) -> Arc<HirFile>;
-    fn module_with_source_map(&self, module_id: ModuleId) -> Arc<Lowered<Module>>;
-    fn module(&self, module_id: ModuleId) -> Arc<Module>;
-    fn block_with_source_map(&self, block_id: BlockId) -> Arc<Lowered<Block>>;
-    fn block(&self, block_id: BlockId) -> Arc<Block>;
-    fn subroutine_with_source_map(
-        &self,
-        subroutine_id: SubroutineScope,
-    ) -> Arc<Lowered<Subroutine>>;
-    fn subroutine(&self, subroutine_id: SubroutineScope) -> Arc<Subroutine>;
-    fn generate_block_with_source_map(
-        &self,
-        generate_block_id: GenerateBlockId,
-    ) -> Arc<Lowered<GenerateBlock>>;
-    fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock>;
-    fn scope_for(&self, scope_id: ScopeId) -> Arc<NameScope>;
-    fn unit_scope(&self) -> Arc<NameScope>;
-    fn file_scope(&self, file_id: HirFileId) -> Arc<NameScope>;
-    fn module_scope(&self, module_id: ModuleId) -> Arc<NameScope>;
-    fn clocking_block_scope(&self, clocking_block_id: InModule<ClockingBlockId>) -> Arc<NameScope>;
-    fn checker_scope(&self, checker_id: InFileOrModule<CheckerId>) -> Arc<NameScope>;
-    fn covergroup_scope(&self, covergroup_id: InFileOrModule<CovergroupId>) -> Arc<NameScope>;
-    fn generate_block_scope(&self, generate_block_id: GenerateBlockId) -> Arc<NameScope>;
-    fn block_scope(&self, block_id: BlockId) -> Arc<NameScope>;
-    fn subroutine_scope(&self, subroutine_id: SubroutineScope) -> Arc<NameScope>;
-    fn package_export_signature(&self, package_id: PackageId) -> Arc<NameScope>;
-    fn package_export_scope(&self, package_id: PackageId) -> Arc<NameScope>;
-    fn parse(&self, file_id: HirFileId) -> syntax::SyntaxTree;
-}
-
-impl<Db: HirDefDb> HirDefDbExt for Db {
-    fn hir_file_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<HirFile>> {
-        let db: &dyn HirDefDb = self;
-        db.hir_file_with_source_map(file_id)
-    }
-
-    fn hir_file(&self, file_id: HirFileId) -> Arc<HirFile> {
-        let db: &dyn HirDefDb = self;
-        db.hir_file(file_id)
-    }
-
-    fn module_with_source_map(&self, module_id: ModuleId) -> Arc<Lowered<Module>> {
-        let db: &dyn HirDefDb = self;
-        db.module_with_source_map(module_id)
-    }
-
-    fn module(&self, module_id: ModuleId) -> Arc<Module> {
-        let db: &dyn HirDefDb = self;
-        db.module(module_id)
-    }
-
-    fn block_with_source_map(&self, block_id: BlockId) -> Arc<Lowered<Block>> {
-        let db: &dyn HirDefDb = self;
-        db.block_with_source_map(block_id)
-    }
-
-    fn block(&self, block_id: BlockId) -> Arc<Block> {
-        let db: &dyn HirDefDb = self;
-        db.block(block_id)
-    }
-
-    fn subroutine_with_source_map(
-        &self,
-        subroutine_id: SubroutineScope,
-    ) -> Arc<Lowered<Subroutine>> {
-        let db: &dyn HirDefDb = self;
-        db.subroutine_with_source_map(subroutine_id)
-    }
-
-    fn subroutine(&self, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
-        let db: &dyn HirDefDb = self;
-        db.subroutine(subroutine_id)
-    }
-
-    fn generate_block_with_source_map(
-        &self,
-        generate_block_id: GenerateBlockId,
-    ) -> Arc<Lowered<GenerateBlock>> {
-        let db: &dyn HirDefDb = self;
-        db.generate_block_with_source_map(generate_block_id)
-    }
-
-    fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock> {
-        let db: &dyn HirDefDb = self;
-        db.generate_block(generate_block_id)
-    }
-
-    fn scope_for(&self, scope_id: ScopeId) -> Arc<NameScope> {
-        let db: &dyn HirDefDb = self;
-        db.scope_for(scope_id)
-    }
-
-    fn unit_scope(&self) -> Arc<NameScope> {
-        let db: &dyn HirDefDb = self;
-        db.unit_scope()
-    }
-
-    fn file_scope(&self, file_id: HirFileId) -> Arc<NameScope> {
-        let db: &dyn HirDefDb = self;
-        db.file_scope(file_id)
-    }
-
-    fn module_scope(&self, module_id: ModuleId) -> Arc<NameScope> {
-        let db: &dyn HirDefDb = self;
-        db.module_scope(module_id)
-    }
-
-    fn clocking_block_scope(&self, clocking_block_id: InModule<ClockingBlockId>) -> Arc<NameScope> {
-        let db: &dyn HirDefDb = self;
-        db.clocking_block_scope(clocking_block_id)
-    }
-
-    fn checker_scope(&self, checker_id: InFileOrModule<CheckerId>) -> Arc<NameScope> {
-        let db: &dyn HirDefDb = self;
-        db.checker_scope(checker_id)
-    }
-
-    fn covergroup_scope(&self, covergroup_id: InFileOrModule<CovergroupId>) -> Arc<NameScope> {
-        let db: &dyn HirDefDb = self;
-        db.covergroup_scope(covergroup_id)
-    }
-
-    fn generate_block_scope(&self, generate_block_id: GenerateBlockId) -> Arc<NameScope> {
-        let db: &dyn HirDefDb = self;
-        db.generate_block_scope(generate_block_id)
-    }
-
-    fn block_scope(&self, block_id: BlockId) -> Arc<NameScope> {
-        let db: &dyn HirDefDb = self;
-        db.block_scope(block_id)
-    }
-
-    fn subroutine_scope(&self, subroutine_id: SubroutineScope) -> Arc<NameScope> {
-        let db: &dyn HirDefDb = self;
-        db.subroutine_scope(subroutine_id)
-    }
-
-    fn package_export_signature(&self, package_id: PackageId) -> Arc<NameScope> {
-        let db: &dyn HirDefDb = self;
-        db.package_export_signature(package_id)
-    }
-
-    fn package_export_scope(&self, package_id: PackageId) -> Arc<NameScope> {
-        let db: &dyn HirDefDb = self;
-        db.package_export_scope(package_id)
-    }
-
-    fn parse(&self, file_id: HirFileId) -> syntax::SyntaxTree {
-        let db: &dyn HirDefDb = self;
-        db.parse(file_id)
     }
 }
 

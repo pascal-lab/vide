@@ -4,7 +4,6 @@ use base_db::source_db::SourceDb;
 use hir_def::{
     Ident,
     container::{InContainer, InModule},
-    db::HirDefDb,
     declaration::DeclarationSrc,
     expr::declarator::{DeclId, DeclaratorParent},
     module::{

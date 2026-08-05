@@ -7,7 +7,7 @@ use base_db::{
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootId, SourceRootRole},
 };
-use preproc_expand::{compilation_plan::CompilationPlan, db::PreprocDb};
+use preproc_expand::compilation_plan::CompilationPlan;
 use triomphe::Arc;
 use utils::{
     cancellation::CancellationToken,
@@ -22,7 +22,7 @@ use crate::{
     code_action::{self, CodeAction, CodeActionDiagnostics, CodeActionResolveStrategy},
     code_lens::{self, CodeLens, CodeLensConfig, CodeLensKind},
     completion::{CompletionItem, context::TriggerChar},
-    db::{line_index_db::LineIndexDb, root_db::RootDb},
+    db::root_db::RootDb,
     diagnostics,
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},

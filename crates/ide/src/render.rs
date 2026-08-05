@@ -5,7 +5,6 @@ use hir_def::{
         ArenaOwnerId, InContainer, InFile, InModule, InSubroutine, ScopeId, ScopeParent,
         SubroutineScope,
     },
-    db::HirDefDb,
     declaration::Declaration,
     def_id::DefId,
     expr::{
@@ -34,7 +33,7 @@ use syntax::{
 };
 
 use crate::{
-    db::{line_index_db::LineIndexDb, root_db::RootDb},
+    db::root_db::RootDb,
     markup::{Markup, display_project_path, file_link_target, inline_code, markdown_link},
     module_resolution::resolve_module_name,
     references::search::resolve_source_range,

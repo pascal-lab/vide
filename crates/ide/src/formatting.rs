@@ -384,10 +384,7 @@ mod tests {
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
     use super::{FmtConfig, FormatterProvider, format_on_type};
-    use crate::{
-        FilePosition,
-        db::{line_index_db::LineIndexDb, root_db::RootDb},
-    };
+    use crate::{FilePosition, db::root_db::RootDb};
 
     fn db_with_file(text: &str) -> (RootDb, FileId) {
         let file_id = FileId::from_raw(0);

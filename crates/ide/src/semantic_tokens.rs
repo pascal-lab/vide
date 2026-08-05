@@ -4,7 +4,6 @@ use hir_def::{
     Ident,
     block::{BlockId, BlockInfo},
     container::{ArenaOwnerId, InContainer, SubroutineParent, SubroutineScope},
-    db::HirDefDb,
     def_id::DefId,
     expr::{
         Expr, ExprId,
@@ -21,7 +20,7 @@ use hir_def::{
     symbol::{DefKind, NameContext, Resolution},
 };
 use hir_semantics::semantics::Semantics;
-use preproc_expand::{db::PreprocDb, file::HirFileId, preproc::macro_references_in_range};
+use preproc_expand::{file::HirFileId, preproc::macro_references_in_range};
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use syntax::{

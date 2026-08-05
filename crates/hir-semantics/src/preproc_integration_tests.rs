@@ -11,7 +11,7 @@ use base_db::{
 };
 use hir_def::{
     container::{InFile, ScopeId},
-    db::{HirDefDb, HirDefDbExt},
+    db::HirDefDb,
     module::ModuleId,
 };
 use preproc_expand::{
@@ -52,6 +52,13 @@ impl PreprocDb for TestDb {}
 
 #[salsa::db]
 impl HirDefDb for TestDb {}
+impl std::ops::Deref for TestDb {
+    type Target = dyn HirDefDb;
+
+    fn deref(&self) -> &Self::Target {
+        self
+    }
+}
 
 impl fmt::Debug for TestDb {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

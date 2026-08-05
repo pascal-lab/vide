@@ -1,7 +1,6 @@
 use std::sync::LazyLock;
 
 use hir_def::{
-    db::HirDefDb,
     expr::data_ty::{BuiltinDataTy, DataTy},
     module::{
         ModuleId,

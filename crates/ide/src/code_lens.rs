@@ -1,4 +1,4 @@
-use hir_def::{db::HirDefDb, def_id::DefId, file::HirFile, module::ModuleId, source_map::Lowered};
+use hir_def::{def_id::DefId, file::HirFile, module::ModuleId, source_map::Lowered};
 use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
 use syntax::{

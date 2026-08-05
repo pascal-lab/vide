@@ -20,7 +20,7 @@ use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
 use super::*;
 use crate::{
-    db::{PreprocDb, PreprocDbExt},
+    db::PreprocDb,
     macro_file::{MacroFileId, macro_files_at_offset},
 };
 
@@ -48,6 +48,13 @@ impl SourceRootDb for TestDb {}
 
 #[salsa::db]
 impl PreprocDb for TestDb {}
+impl std::ops::Deref for TestDb {
+    type Target = dyn PreprocDb;
+
+    fn deref(&self) -> &Self::Target {
+        self
+    }
+}
 
 impl fmt::Debug for TestDb {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

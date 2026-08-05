@@ -12,13 +12,9 @@ use base_db::{
     },
     source_root::{SourceRoot, SourceRootId},
 };
-use hir_def::db::HirDefDb;
 use hir_semantics::semantics::Semantics;
 use insta::assert_snapshot;
-use preproc_expand::{
-    db::PreprocDb,
-    preproc::{IncludeTarget, include_directive_at},
-};
+use preproc_expand::preproc::{IncludeTarget, include_directive_at};
 use triomphe::Arc;
 use utils::{
     test_support::TestDir,

@@ -1,6 +1,6 @@
 use hir_semantics::semantics::Semantics;
 use itertools::Itertools;
-use preproc_expand::{db::PreprocDb, file::HirFileId};
+use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxCursorExt, SyntaxNodeExt, TokenKind, Trivia,
     has_text_range::HasTextRange,

@@ -3,7 +3,6 @@ use std::ops::Range;
 use base_db::source_db::SourceDb;
 use hir_def::{
     container::InModule,
-    db::HirDefDb,
     module::instantiation::{ParamAssign, PortConn},
 };
 use itertools::Itertools;

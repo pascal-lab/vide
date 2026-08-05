@@ -10,7 +10,7 @@ use base_db::{
 use hir_def::{
     Ident,
     container::InContainer,
-    db::{HirDefDb, HirDefDbExt},
+    db::HirDefDb,
     module::ModuleId,
     pathres::{resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
@@ -50,6 +50,13 @@ impl HirDefDb for TestDb {}
 
 #[salsa::db]
 impl TyDb for TestDb {}
+impl std::ops::Deref for TestDb {
+    type Target = dyn HirDefDb;
+
+    fn deref(&self) -> &Self::Target {
+        self
+    }
+}
 
 impl fmt::Debug for TestDb {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -1,7 +1,6 @@
 use hir_def::{
     block::{BlockId, BlockSrc},
     container::{SubroutineParent, SubroutineScope},
-    db::HirDefDb,
     module::{
         ModuleId,
         generate::GenerateBlockId,
@@ -15,7 +14,7 @@ use hir_def::{
     subroutine::{Subroutine, SubroutineSrc},
 };
 use la_arena::Arena;
-use preproc_expand::{db::PreprocDb, file::HirFileId};
+use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxKind, SyntaxTokenWithParent, SyntaxTrivia,
     has_text_range::HasTextRange,
@@ -29,7 +28,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::db::{line_index_db::LineIndexDb, root_db::RootDb};
+use crate::db::root_db::RootDb;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FoldKind {

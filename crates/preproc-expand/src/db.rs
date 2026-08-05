@@ -474,77 +474,6 @@ impl dyn PreprocDb + '_ {
     }
 }
 
-pub trait PreprocDbExt {
-    fn compilation_plan_for_root(&self, source_root_id: SourceRootId) -> Arc<CompilationPlan>;
-    fn compilation_plan_for_profile(
-        &self,
-        profile_id: Option<CompilationProfileId>,
-    ) -> Arc<CompilationPlan>;
-    fn source_preproc_model(
-        &self,
-        file_id: FileId,
-    ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>>;
-    fn parsed_compilation_unit(&self, file_id: FileId) -> ParsedCompilationUnit;
-    fn parsed_profile(&self, profile_id: Option<CompilationProfileId>) -> Arc<ParsedProfile>;
-    fn parse_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
-    fn semantic_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
-    fn macro_expansion(&self, macro_file: MacroFileId) -> Arc<ExpandResult<ExpansionInfo>>;
-    fn parse(&self, file_id: HirFileId) -> SyntaxTree;
-}
-
-impl<Db: PreprocDb> PreprocDbExt for Db {
-    fn compilation_plan_for_root(&self, source_root_id: SourceRootId) -> Arc<CompilationPlan> {
-        let db: &dyn PreprocDb = self;
-        db.compilation_plan_for_root(source_root_id)
-    }
-
-    fn compilation_plan_for_profile(
-        &self,
-        profile_id: Option<CompilationProfileId>,
-    ) -> Arc<CompilationPlan> {
-        let db: &dyn PreprocDb = self;
-        db.compilation_plan_for_profile(profile_id)
-    }
-
-    fn source_preproc_model(
-        &self,
-        file_id: FileId,
-    ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>> {
-        let db: &dyn PreprocDb = self;
-        db.source_preproc_model(file_id)
-    }
-
-    fn parsed_compilation_unit(&self, file_id: FileId) -> ParsedCompilationUnit {
-        let db: &dyn PreprocDb = self;
-        db.parsed_compilation_unit(file_id)
-    }
-
-    fn parsed_profile(&self, profile_id: Option<CompilationProfileId>) -> Arc<ParsedProfile> {
-        let db: &dyn PreprocDb = self;
-        db.parsed_profile(profile_id)
-    }
-
-    fn parse_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
-        let db: &dyn PreprocDb = self;
-        db.parse_diagnostics(file_id)
-    }
-
-    fn semantic_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
-        let db: &dyn PreprocDb = self;
-        db.semantic_diagnostics(file_id)
-    }
-
-    fn macro_expansion(&self, macro_file: MacroFileId) -> Arc<ExpandResult<ExpansionInfo>> {
-        let db: &dyn PreprocDb = self;
-        db.macro_expansion(macro_file)
-    }
-
-    fn parse(&self, file_id: HirFileId) -> SyntaxTree {
-        let db: &dyn PreprocDb = self;
-        db.parse(file_id)
-    }
-}
-
 fn parse(db: &dyn PreprocDb, file_id: HirFileId) -> SyntaxTree {
     match file_id {
         HirFileId::File(file_id) => db.parse_src_for_compilation(file_id),
@@ -839,6 +768,13 @@ mod tests {
 
     #[salsa::db]
     impl PreprocDb for TestDb {}
+    impl std::ops::Deref for TestDb {
+        type Target = dyn PreprocDb;
+
+        fn deref(&self) -> &Self::Target {
+            self
+        }
+    }
 
     impl fmt::Debug for TestDb {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
