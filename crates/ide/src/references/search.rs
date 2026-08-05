@@ -20,7 +20,10 @@ use vfs::FileId;
 use super::{ReferenceCategory, ReferencesConfig};
 use crate::{
     ScopeVisibility,
-    db::{root_db::RootDb, workspace_symbol_index_db::source_root_semantic_index_for_root},
+    db::{
+        root_db::RootDb,
+        workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_semantic_index_for_root},
+    },
     semantic_index::SemanticReference,
 };
 
@@ -118,6 +121,13 @@ impl SearchScope {
         self.0.keys().all(|candidate| *candidate == file_id)
     }
 
+    /// The single file of the scope, if it covers exactly one file.
+    fn single_file_id(&self) -> Option<FileId> {
+        let mut keys = self.0.keys();
+        let first = keys.next()?;
+        keys.next().is_none().then_some(*first)
+    }
+
     pub(crate) fn range_for_file(&self, file_id: FileId) -> Option<Option<TextRange>> {
         self.0.get(&file_id).copied()
     }
@@ -184,8 +194,27 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         let db = self.sema.db;
         let mut res: IntMap<_, Vec<_>> = IntMap::default();
 
+        // Single-file scopes (document highlight, single-file rename) read
+        // the file's own index directly and skip the root merge pass.
+        if let Some(file_id) = self.scope.single_file_id() {
+            db.unwind_if_cancelled();
+            let index = db.file_semantic_index(file_id);
+            let Some(group) = index.references_for_definition(*self.def) else {
+                return res;
+            };
+            for reference in group.references().iter() {
+                if !self.scope.contains(reference.file_id, reference.range) {
+                    continue;
+                }
+                res.entry(reference.file_id)
+                    .or_insert_with(|| Vec::with_capacity(Self::FILE_REF_CAPACITY))
+                    .push(ReferenceToken::from_semantic_reference(reference));
+            }
+            return res;
+        }
+
         for source_root_id in self.scope.source_root_ids(db) {
-            self.sema.db.unwind_if_cancelled();
+            db.unwind_if_cancelled();
             let index = source_root_semantic_index_for_root(db, source_root_id);
             let Some(group) = index.references_for_definition(*self.def) else {
                 continue;
