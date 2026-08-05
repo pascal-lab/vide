@@ -3,14 +3,24 @@ use std::cmp::Ordering;
 use base_db::source_root::SourceRootRole;
 use hir_def::{
     Ident,
-    container::ArenaOwnerId,
+    container::{ArenaOwnerId, InContainer, InModule},
+    db::HirDefDb,
     declaration::Declaration,
     def_id::DefId,
-    expr::declarator::DeclaratorParent,
+    expr::{
+        data_ty::DataTy,
+        declarator::DeclaratorParent,
+    },
     lower_ident_opt,
-    module::{ModuleId, instantiation::Instantiation},
-    symbol::{NameContext, Resolution},
+    module::{
+        Module, ModuleId,
+        instantiation::{Instantiation, PortConn},
+        port::{PortDirection, Ports},
+    },
+    source_map::Lowered,
+    symbol::{DefOrigin, NameContext, Resolution},
 };
+use smallvec::SmallVec;
 use syntax::{
     SyntaxAncestors,
     ast::{self, AstNode},
@@ -152,6 +162,113 @@ fn resolve_named_port_in_module(
             .into_iter()
             .filter(|def_id| def_id.is_port(db)),
     )
+}
+
+/// Resolves the port connected by `conn` at position `idx` inside
+/// `target_module_id` to its `DefId`. Ordered and empty connections select the
+/// port by position; named connections look the name up in the target module
+/// scope.
+pub(crate) fn resolve_connection_port(
+    db: &dyn WorkspaceSymbolIndexDb,
+    target_module_id: ModuleId,
+    conn: &PortConn,
+    idx: usize,
+) -> Resolution<DefId> {
+    match conn {
+        PortConn::Empty | PortConn::Ordered(_) => {
+            let module = db.module_with_source_map(target_module_id);
+            match &module.ports {
+                Ports::NonAnsi { ports, .. } => {
+                    let Some((port_id, _)) = ports.iter().nth(idx) else {
+                        return Resolution::Unresolved;
+                    };
+                    Resolution::Unique(DefId::new(db, InModule::new(target_module_id, port_id)))
+                }
+                Ports::Ansi(_) => {
+                    let Some(port_decl_id) = module.ansi_port_decl_id_by_idx(idx) else {
+                        return Resolution::Unresolved;
+                    };
+                    let Some(decl_id) = module.get(port_decl_id).decls.clone().next() else {
+                        return Resolution::Unresolved;
+                    };
+                    Resolution::Unique(DefId::new(
+                        db,
+                        InContainer::new(target_module_id.into(), decl_id),
+                    ))
+                }
+            }
+        }
+        PortConn::Named(Some(name), _) => {
+            resolve_named_port_in_module(db, target_module_id, name)
+        }
+        PortConn::Named(None, _) | PortConn::Wildcard => Resolution::Unresolved,
+    }
+}
+
+/// Resolves the name, direction and type of the port a `DefId` refers to.
+/// Works for both ANSI and non-ANSI ports: the metadata is derived from the
+/// port declaration, found either among the def's origins or — for non-ANSI
+/// ports declared in the body under a name different from their port label —
+/// through the port's internal references.
+pub(crate) fn resolve_port_metadata<'a>(
+    db: &dyn HirDefDb,
+    module: &'a Lowered<Module>,
+    defs: &[DefOrigin],
+) -> Option<(&'a Ident, Option<PortDirection>, DataTy)> {
+    let mut origins: SmallVec<[DefOrigin; 8]> = SmallVec::new();
+    origins.extend(defs.iter().copied());
+
+    if let Some(port_id) = defs.iter().find_map(|origin| origin.as_non_ansi_port(db)) {
+        let scope = db.module_scope(port_id.module_id);
+        if let Some(refs) = module.get(port_id.value).refs.clone() {
+            for ref_id in refs {
+                let Some(name) = module.get(ref_id).ident.as_ref() else {
+                    continue;
+                };
+                for def in scope.lookup(NameContext::Value, name).into_candidates() {
+                    origins.extend(def.origins(db));
+                }
+            }
+        }
+    }
+
+    let port_decl_id = origins
+        .iter()
+        .filter_map(|origin| origin.as_decl(db))
+        .map(|decl_id| decl_id.value)
+        .find(|decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::PortDeclId(_)))?;
+    let data_decl_id = origins
+        .iter()
+        .filter_map(|origin| origin.as_decl(db))
+        .map(|decl_id| decl_id.value)
+        .find(|decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::DeclarationId(_)));
+
+    let port_decl = module.get(port_decl_id);
+    let name = defs
+        .iter()
+        .find_map(|origin| origin.as_non_ansi_port(db))
+        .and_then(|port_id| module.get(port_id.value).label.as_ref())
+        .or(port_decl.name.as_ref())?;
+    let port_declaration = match port_decl.parent {
+        DeclaratorParent::PortDeclId(port_declaration_id) => module.get(port_declaration_id),
+        _ => return None,
+    };
+    let header = &port_declaration.header;
+    let dir = Some(header.dir());
+    let ty = if let Some(data_decl_id) = data_decl_id {
+        let data_decl = module.get(data_decl_id);
+        match data_decl.parent {
+            DeclaratorParent::DeclarationId(declaration_id) => {
+                let declaration = module.get(declaration_id);
+                declaration.ty()
+            }
+            _ => return None,
+        }
+    } else {
+        header.ty()
+    };
+
+    Some((name, dir, ty))
 }
 
 pub(crate) fn resolve_named_param_in_module(

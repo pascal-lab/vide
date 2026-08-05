@@ -30,7 +30,7 @@ use crate::{
     folding_ranges::{self, Fold},
     formatting::{self, FmtConfig},
     goto_declaration, goto_definition,
-    hover::{self, HoverConfig},
+    hover,
     inlay_hint::{self, InlayHint, InlayHintConfig},
     markup::Markup,
     navigation_target::NavTarget,

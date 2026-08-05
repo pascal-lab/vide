@@ -32,7 +32,9 @@ use vfs::FileId;
 
 use crate::{
     db::root_db::RootDb,
-    module_resolution::{resolve_named_param_assignment, resolve_named_port_connection},
+    module_resolution::{
+        resolve_named_param_assignment, resolve_named_port_connection, resolve_port_metadata,
+    },
 };
 
 mod collector;
@@ -642,7 +644,7 @@ fn collect_resolved_path(
         let port_id = def_id.primary_origin(db).as_non_ansi_port(db)?;
         let module = db.module_with_source_map(port_id.module_id);
         let origins = def_id.origins(db);
-        let (name, dir, ty) = port::resolve_non_ansi_port(db, &module, &origins)?;
+        let (name, dir, ty) = resolve_port_metadata(db, &module, &origins)?;
         port::add_port_token(db, name, dir, ty, range, collector);
         return Some(());
     }
