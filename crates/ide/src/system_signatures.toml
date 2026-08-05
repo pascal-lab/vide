@@ -1,0 +1,487 @@
+# IEEE 1800 system subroutine signatures for signature help.
+#
+# `kind` is "task" or "function"; `params` are semantic parameter labels with
+# a trailing "..." marking variadic arguments. Every name and its kind must
+# match slang's system subroutine tables (enforced by tests in
+# signature_help.rs); the parameter labels themselves are semantic knowledge
+# maintained here by hand.
+
+["$display"]
+kind = "task"
+params = ["format", "..."]
+
+["$displayb"]
+kind = "task"
+params = ["format", "..."]
+
+["$displayh"]
+kind = "task"
+params = ["format", "..."]
+
+["$displayo"]
+kind = "task"
+params = ["format", "..."]
+
+["$write"]
+kind = "task"
+params = ["format", "..."]
+
+["$writeb"]
+kind = "task"
+params = ["format", "..."]
+
+["$writeh"]
+kind = "task"
+params = ["format", "..."]
+
+["$writeo"]
+kind = "task"
+params = ["format", "..."]
+
+["$strobe"]
+kind = "task"
+params = ["format", "..."]
+
+["$strobeb"]
+kind = "task"
+params = ["format", "..."]
+
+["$strobeh"]
+kind = "task"
+params = ["format", "..."]
+
+["$strobeo"]
+kind = "task"
+params = ["format", "..."]
+
+["$monitor"]
+kind = "task"
+params = ["format", "..."]
+
+["$monitorb"]
+kind = "task"
+params = ["format", "..."]
+
+["$monitorh"]
+kind = "task"
+params = ["format", "..."]
+
+["$monitoro"]
+kind = "task"
+params = ["format", "..."]
+
+["$monitoron"]
+kind = "task"
+params = []
+
+["$monitoroff"]
+kind = "task"
+params = []
+
+["$sformat"]
+kind = "task"
+params = ["str", "format", "..."]
+
+["$sformatf"]
+kind = "function"
+params = ["format", "..."]
+
+["$swrite"]
+kind = "task"
+params = ["str", "format", "..."]
+
+["$swriteb"]
+kind = "task"
+params = ["str", "format", "..."]
+
+["$swriteh"]
+kind = "task"
+params = ["str", "format", "..."]
+
+["$swriteo"]
+kind = "task"
+params = ["str", "format", "..."]
+
+["$fopen"]
+kind = "function"
+params = ["file", "mode"]
+
+["$fclose"]
+kind = "function"
+params = ["fd"]
+
+["$fflush"]
+kind = "function"
+params = ["fd"]
+
+["$feof"]
+kind = "function"
+params = ["fd"]
+
+["$ferror"]
+kind = "function"
+params = ["fd", "str"]
+
+["$fgetc"]
+kind = "function"
+params = ["fd"]
+
+["$fgets"]
+kind = "function"
+params = ["str", "size", "fd"]
+
+["$fread"]
+kind = "function"
+params = ["mem", "fd"]
+
+["$fscanf"]
+kind = "function"
+params = ["fd", "format", "..."]
+
+["$sscanf"]
+kind = "function"
+params = ["str", "format", "..."]
+
+["$ungetc"]
+kind = "function"
+params = ["char", "fd"]
+
+["$fdisplay"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fdisplayb"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fdisplayh"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fdisplayo"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fwrite"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fwriteb"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fwriteh"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fwriteo"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fstrobe"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fstrobeb"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fstrobeh"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fstrobeo"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fmonitor"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fmonitorb"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fmonitorh"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$fmonitoro"]
+kind = "task"
+params = ["fd", "format", "..."]
+
+["$readmemb"]
+kind = "task"
+params = ["file", "mem"]
+
+["$readmemh"]
+kind = "task"
+params = ["file", "mem"]
+
+["$writememb"]
+kind = "task"
+params = ["file", "mem"]
+
+["$writememh"]
+kind = "task"
+params = ["file", "mem"]
+
+["$dumpfile"]
+kind = "task"
+params = ["file"]
+
+["$dumpvars"]
+kind = "task"
+params = ["depth", "..."]
+
+["$dumpall"]
+kind = "task"
+params = []
+
+["$dumpflush"]
+kind = "task"
+params = []
+
+["$dumplimit"]
+kind = "task"
+params = ["limit"]
+
+["$dumpoff"]
+kind = "task"
+params = []
+
+["$dumpon"]
+kind = "task"
+params = []
+
+["$finish"]
+kind = "task"
+params = ["depth"]
+
+["$stop"]
+kind = "task"
+params = ["depth"]
+
+["$fatal"]
+kind = "function"
+params = ["depth", "format", "..."]
+
+["$error"]
+kind = "function"
+params = ["format", "..."]
+
+["$warning"]
+kind = "function"
+params = ["format", "..."]
+
+["$info"]
+kind = "function"
+params = ["format", "..."]
+
+["$time"]
+kind = "function"
+params = []
+
+["$stime"]
+kind = "function"
+params = []
+
+["$realtime"]
+kind = "function"
+params = []
+
+["$printtimescale"]
+kind = "task"
+params = ["module"]
+
+["$timeformat"]
+kind = "task"
+params = ["unit", "precision", "suffix", "min_width"]
+
+["$value$plusargs"]
+kind = "function"
+params = ["format", "value"]
+
+["$test$plusargs"]
+kind = "function"
+params = ["format"]
+
+["$system"]
+kind = "task"
+params = ["command"]
+
+["$random"]
+kind = "function"
+params = ["seed"]
+
+["$urandom"]
+kind = "function"
+params = ["seed"]
+
+["$urandom_range"]
+kind = "function"
+params = ["maxval", "minval"]
+
+["$bits"]
+kind = "function"
+params = ["expr"]
+
+["$size"]
+kind = "function"
+params = ["expr"]
+
+["$left"]
+kind = "function"
+params = ["expr"]
+
+["$right"]
+kind = "function"
+params = ["expr"]
+
+["$low"]
+kind = "function"
+params = ["expr"]
+
+["$high"]
+kind = "function"
+params = ["expr"]
+
+["$increment"]
+kind = "function"
+params = ["expr"]
+
+["$dimensions"]
+kind = "function"
+params = ["expr"]
+
+["$unpacked_dimensions"]
+kind = "function"
+params = ["expr"]
+
+["$isunbounded"]
+kind = "function"
+params = ["expr"]
+
+["$countones"]
+kind = "function"
+params = ["expr"]
+
+["$onehot"]
+kind = "function"
+params = ["expr"]
+
+["$onehot0"]
+kind = "function"
+params = ["expr"]
+
+["$isunknown"]
+kind = "function"
+params = ["expr"]
+
+["$clog2"]
+kind = "function"
+params = ["value"]
+
+["$sqrt"]
+kind = "function"
+params = ["expr"]
+
+["$floor"]
+kind = "function"
+params = ["expr"]
+
+["$ceil"]
+kind = "function"
+params = ["expr"]
+
+["$pow"]
+kind = "function"
+params = ["x", "y"]
+
+["$ln"]
+kind = "function"
+params = ["expr"]
+
+["$log10"]
+kind = "function"
+params = ["expr"]
+
+["$exp"]
+kind = "function"
+params = ["expr"]
+
+["$sin"]
+kind = "function"
+params = ["expr"]
+
+["$cos"]
+kind = "function"
+params = ["expr"]
+
+["$tan"]
+kind = "function"
+params = ["expr"]
+
+["$asin"]
+kind = "function"
+params = ["expr"]
+
+["$acos"]
+kind = "function"
+params = ["expr"]
+
+["$atan"]
+kind = "function"
+params = ["expr"]
+
+["$atan2"]
+kind = "function"
+params = ["y", "x"]
+
+["$sinh"]
+kind = "function"
+params = ["expr"]
+
+["$cosh"]
+kind = "function"
+params = ["expr"]
+
+["$tanh"]
+kind = "function"
+params = ["expr"]
+
+["$asinh"]
+kind = "function"
+params = ["expr"]
+
+["$acosh"]
+kind = "function"
+params = ["expr"]
+
+["$atanh"]
+kind = "function"
+params = ["expr"]
+
+["$itor"]
+kind = "function"
+params = ["expr"]
+
+["$rtoi"]
+kind = "function"
+params = ["expr"]
+
+["$signed"]
+kind = "function"
+params = ["expr"]
+
+["$unsigned"]
+kind = "function"
+params = ["expr"]
+
+["$cast"]
+kind = "task"
+params = ["dest", "expr"]
+
+["$typename"]
+kind = "function"
+params = ["expr"]
