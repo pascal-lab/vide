@@ -14,11 +14,11 @@ use vfs::FileId;
 
 use crate::{
     FilePosition, ScopeVisibility,
-    db::root_db::RootDb,
+    db::{root_db::RootDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb},
     definitions::DefinitionClass,
     references::{
         ReferencesConfig,
-        search::{ReferenceToken, ReferencesCtx, SearchScope},
+        search::{ReferenceToken, ReferencesCtx, SearchScope, search_references},
     },
     semantic_index::{ConnSide, ReferenceContext},
     semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
@@ -55,7 +55,7 @@ impl RenameConfig {
         def: &DefId,
         file_id: FileId,
     ) -> RenameResult<ReferencesConfig> {
-        let mut config = ReferencesConfig::new(self.scope_visibility.clone(), None);
+        let mut config = ReferencesConfig::new(self.scope_visibility, None);
 
         match self.edit_scope {
             RenameEditScope::Workspace => Ok(config),
@@ -448,24 +448,25 @@ fn range_text(text: &str, range: TextRange) -> &str {
     &text[usize::from(range.start())..usize::from(range.end())]
 }
 
-fn recursive_rename_targets(
-    db: &RootDb,
-    sema: &Semantics<'_, RootDb>,
-    file_id: FileId,
-    config: &RenameConfig,
-    initial_targets: Vec<DefId>,
-) -> RenameResult<Vec<RecursiveRenameTarget>> {
+/// The connected component of same-name port connections around `def` under
+/// `visibility`, optionally restricted to one file, in discovery order. A
+/// salsa query so the recursive rename info, conflict and edit commands share
+/// one computation across requests.
+pub(crate) fn recursive_rename_closure_impl(
+    db: &dyn WorkspaceSymbolIndexDb,
+    def: DefId,
+    visibility: ScopeVisibility,
+    single_file: Option<FileId>,
+) -> Vec<DefId> {
+    let config = ReferencesConfig::new(visibility, single_file.map(SearchScope::single_file));
     let mut targets = UniqVec::<DefId, DefOrigin>::default();
-    for target in initial_targets {
-        targets.push(target.origins(db), target);
-    }
-    let mut resolved_targets = Vec::new();
+    targets.push(def.origins(db), def);
     let mut idx = 0;
     while idx < targets.len() {
         let current = targets.get(idx).clone();
         idx += 1;
-
-        let refs = references_for_definition(db, sema, file_id, config, &current)?;
+        let scope = SearchScope::new(db, &current, config.clone());
+        let refs = search_references(db, &current, scope);
         // Same-name connections connect their paired definition: follow them
         // to close the recursive rename set.
         for toks in refs.values() {
@@ -475,7 +476,32 @@ fn recursive_rename_targets(
                 }
             }
         }
-        resolved_targets.push(RecursiveRenameTarget { def: current, refs });
+    }
+    targets.into_vec()
+}
+
+fn recursive_rename_targets(
+    db: &RootDb,
+    sema: &Semantics<'_, RootDb>,
+    file_id: FileId,
+    config: &RenameConfig,
+    initial_targets: Vec<DefId>,
+) -> RenameResult<Vec<RecursiveRenameTarget>> {
+    let single_file = match config.edit_scope {
+        RenameEditScope::Workspace => None,
+        RenameEditScope::SingleFile => Some(file_id),
+    };
+    let mut targets = UniqVec::<DefId, DefOrigin>::default();
+    for target in initial_targets {
+        let closure = db.recursive_rename_closure(target, config.scope_visibility, single_file);
+        for def in closure.iter() {
+            targets.push(def.origins(db), def.clone());
+        }
+    }
+    let mut resolved_targets = Vec::new();
+    for def in targets.into_vec() {
+        let refs = references_for_definition(db, sema, file_id, config, &def)?;
+        resolved_targets.push(RecursiveRenameTarget { def, refs });
     }
 
     Ok(resolved_targets)
