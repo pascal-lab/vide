@@ -16,8 +16,11 @@ use vfs::FileId;
 
 use crate::{
     compilation_plan::{self, CompilationPlan},
+    context::{MacroCoverage, file_macro_coverage_query},
     file::HirFileId,
-    macro_file::{self, ExpandResult, ExpansionInfo, MacroCallId, MacroCallLoc, MacroFileId},
+    macro_file::{
+        self, ExpandResult, ExpansionInfo, MacroCallId, MacroCallLoc, MacroFileId, TraceIndex,
+    },
     preproc::{MacroReferenceIndex, macro_reference_index_for_profile_query},
     source_db::{
         MappedSourcePreprocModel, SourcePreprocContextIndex, SourcePreprocQueryError,
@@ -413,6 +416,12 @@ pub trait PreprocDb: SourceRootDb {
 
     #[salsa::invoke(macro_file::macro_expansion_query)]
     fn macro_expansion(&self, macro_file: MacroFileId) -> Arc<ExpandResult<ExpansionInfo>>;
+
+    #[salsa::invoke(macro_file::trace_index_query)]
+    fn trace_index(&self, model_file: FileId) -> Arc<TraceIndex>;
+
+    #[salsa::invoke(file_macro_coverage_query)]
+    fn file_macro_coverage(&self, file_id: FileId) -> Arc<MacroCoverage>;
 
     #[salsa::transparent]
     fn parse(&self, file_id: HirFileId) -> SyntaxTree;

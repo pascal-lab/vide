@@ -92,6 +92,15 @@ impl RootDb {
         FileScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         ModuleScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         BlockScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        crate::db::workspace_symbol_index_db::FileModuleIndexQuery
+            .in_db_mut(self)
+            .set_lru_capacity(lru_capacity);
+        crate::db::workspace_symbol_index_db::FileModuleEdgesQuery
+            .in_db_mut(self)
+            .set_lru_capacity(lru_capacity);
+        crate::db::workspace_symbol_index_db::FileSemanticIndexQuery
+            .in_db_mut(self)
+            .set_lru_capacity(lru_capacity);
     }
 }
 

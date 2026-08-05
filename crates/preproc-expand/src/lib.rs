@@ -7,6 +7,7 @@
 //! lower-layer crates as compatibility namespaces.
 
 pub mod compilation_plan;
+pub mod context;
 pub mod db;
 pub mod file;
 pub mod macro_file;
