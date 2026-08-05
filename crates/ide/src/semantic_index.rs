@@ -26,7 +26,8 @@ use crate::{
     module_resolution::resolve_hir_instantiation_target,
     navigation_target::nav_location,
     references::{ReferenceCategory, search::resolve_source_range},
-    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
+    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target_with_emitted},
+    source_targets::preproc::emit_token_index,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -233,6 +234,13 @@ impl SemanticIndexBuilder {
         };
         let hir_file_id = HirFileId::from(file_id);
 
+        // Macro-emitted tokens share the call-site display range, so resolving
+        // them needs a tree walk indexed by trace id. Build it once per file
+        // and share it across every token resolution instead of re-walking the
+        // tree for each macro-region token.
+        let has_backtick = db.file_text(file_id).contains('`');
+        let emitted_index = has_backtick.then(|| emit_token_index(root));
+
         for event in root.elem_preorder() {
             let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
                 continue;
@@ -243,10 +251,15 @@ impl SemanticIndexBuilder {
             let Some(range) = token.text_range() else {
                 continue;
             };
-            let Some(SemanticTarget::Source(target)) =
-                resolve_semantic_target(db, file_id, range.start(), Some(root), token_precedence)
-                    .unique_for_intent(TargetIntent::FindReferences)
-            else {
+            let Some(SemanticTarget::Source(target)) = resolve_semantic_target_with_emitted(
+                db,
+                file_id,
+                range.start(),
+                Some(root),
+                token_precedence,
+                emitted_index.as_ref(),
+            )
+            .unique_for_intent(TargetIntent::FindReferences) else {
                 continue;
             };
 
