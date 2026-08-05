@@ -40,7 +40,7 @@ impl dyn WorkspaceSymbolIndexDb + '_ {
     }
 }
 
-#[salsa::tracked(returns(clone), unsafe(non_salsa_values))]
+#[salsa::tracked(returns(clone))]
 fn file_workspace_symbols(
     db: &dyn WorkspaceSymbolIndexDb,
     file_id: FileId,
@@ -49,7 +49,7 @@ fn file_workspace_symbols(
     crate::workspace_symbols::file_symbols(db, file_id)
 }
 
-#[salsa::tracked(returns(clone), unsafe(non_salsa_values))]
+#[salsa::tracked(returns(clone))]
 fn source_root_symbol_index(
     db: &dyn WorkspaceSymbolIndexDb,
     source_root_id: SourceRootId,
@@ -58,7 +58,7 @@ fn source_root_symbol_index(
     Arc::new(SymbolIndex::for_source_root(db, source_root_id))
 }
 
-#[salsa::tracked(returns(clone), unsafe(non_salsa_values))]
+#[salsa::tracked(returns(clone))]
 fn source_root_module_index(
     db: &dyn WorkspaceSymbolIndexDb,
     source_root_id: SourceRootId,
@@ -67,7 +67,7 @@ fn source_root_module_index(
     Arc::new(ModuleIndex::for_source_root(db, source_root_id))
 }
 
-#[salsa::tracked(returns(clone), unsafe(non_salsa_values))]
+#[salsa::tracked(returns(clone))]
 fn source_root_semantic_index(
     db: &dyn WorkspaceSymbolIndexDb,
     source_root_id: SourceRootId,

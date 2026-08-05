@@ -42,7 +42,7 @@ fn normalize_data_ty_with_owner(
     normalize_data_ty_inner(db, container, data_ty, owner, &mut FxHashSet::default())
 }
 
-#[salsa::tracked(returns(clone), unsafe(non_salsa_values))]
+#[salsa::tracked(returns(clone))]
 pub(crate) fn type_of_path_resolution_query(
     db: &dyn TyDb,
     res: Resolution<DefId>,
@@ -51,7 +51,7 @@ pub(crate) fn type_of_path_resolution_query(
     type_of_path_resolution_impl(db, res).into()
 }
 
-#[salsa::tracked(returns(clone), unsafe(non_salsa_values))]
+#[salsa::tracked(returns(clone))]
 pub(crate) fn type_of_expr_query(db: &dyn TyDb, expr: InContainer<ExprId>, _key: ()) -> Type {
     type_of_expr_impl(db, expr).into()
 }
