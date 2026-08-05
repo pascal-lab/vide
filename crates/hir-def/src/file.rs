@@ -29,18 +29,18 @@ use super::{
         declarator::{DeclId, Declarator, DeclaratorSrc},
         timing_control::{EventExpr, EventExprId, EventExprSrc},
     },
-    lower::{FileStore, LoweringCtx, SubroutineStore},
+    lower::{FileStore, LoweringCtx},
     lower_package_imports,
     module::{LocalModuleId, ModuleInfo, ModuleKind, ModuleSrc},
     proc::{Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc},
     subroutine::{
-        LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine, lower_subroutine_body,
+        LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine,
     },
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{ArenaOwnerId, SubroutineParent, SubroutineScope},
+    container::ArenaOwnerId,
     db::HirDefDb,
     lower_ident_opt,
     region_tree::RegionTree,
@@ -276,6 +276,8 @@ impl LowerFileCtx<'_> {
         &mut self,
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
+        // Only the skeleton is lowered here; the body is lowered on first
+        // access by subroutine_with_source_map_query.
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let local_subroutine_id = alloc_with_source(
@@ -285,25 +287,6 @@ impl LowerFileCtx<'_> {
             subroutine,
             func,
         );
-
-        let subroutine_id =
-            SubroutineScope::new(SubroutineParent::File(self.file_id), local_subroutine_id);
-
-        if func.end().is_some() {
-            let subroutine = &mut self.store.data.subroutines[local_subroutine_id];
-            let mut subroutine_source_map = std::mem::take(&mut subroutine.source_map);
-            let mut ctx = LoweringCtx::new(
-                self.db,
-                self.file_id,
-                subroutine_id.into(),
-                SubroutineStore { data: subroutine, sources: &mut subroutine_source_map },
-            );
-            lower_subroutine_body(&mut ctx, func);
-            ctx.emit_diagnostics();
-            drop(ctx);
-            subroutine.source_map = subroutine_source_map;
-            subroutine.source_map.shrink_to_fit();
-        }
 
         self.store.data.subroutines[local_subroutine_id].shrink_to_fit();
 

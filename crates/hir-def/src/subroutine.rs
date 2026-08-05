@@ -26,10 +26,11 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{ArenaOwnerId, SubroutineParent, SubroutineScope},
+    container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
     db::HirDefDb,
+    def_id::subroutine_src,
     region_tree::RegionTree,
-    source_map::{AstKind, Lowered, LoweredData, NamedAstId, SourceMap},
+    source_map::{AstKind, Lowered, LoweredData, NamedAstId, SourceMap, ToAstNode},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -45,7 +46,6 @@ pub struct Subroutine {
     pub event_exprs: Arena<EventExpr>,
     pub decls: Arena<Declarator>,
     pub stmts: Arena<Stmt>,
-    pub source_map: SubroutineSourceMap,
 }
 
 impl Subroutine {
@@ -74,7 +74,6 @@ impl Default for Subroutine {
             event_exprs: Arena::new(),
             decls: Arena::new(),
             stmts: Arena::new(),
-            source_map: SubroutineSourceMap::default(),
         }
     }
 }
@@ -356,7 +355,10 @@ pub(crate) fn subroutine_with_source_map_query(
     db: &dyn HirDefDb,
     subroutine_id: SubroutineScope,
 ) -> Arc<Lowered<Subroutine>> {
-    let subroutine = match subroutine_id.cont_id {
+    // The parent container lowers only the subroutine skeleton (name, kind and
+    // ports, whose type expressions live in the parent arena); the body is
+    // lowered here on first access, like modules and generate blocks.
+    let mut subroutine = match subroutine_id.cont_id {
         SubroutineParent::File(file_id) => {
             db.hir_file(file_id).subroutines[subroutine_id.value].clone()
         }
@@ -367,6 +369,29 @@ pub(crate) fn subroutine_with_source_map_query(
             db.generate_block(generate_block_id).subroutines[subroutine_id.value].clone()
         }
     };
-    let source_map = subroutine.source_map.clone();
-    Arc::new(Lowered::new(subroutine, source_map))
+
+    let Some(InFile { file_id, value: src }) = subroutine_src(db, subroutine_id) else {
+        return Arc::new(Lowered::new(subroutine, SubroutineSourceMap::default()));
+    };
+    let tree = db.parse(file_id);
+    let Some(func) = src.to_node(&tree) else {
+        return Arc::new(Lowered::new(subroutine, SubroutineSourceMap::default()));
+    };
+    if func.end().is_none() {
+        return Arc::new(Lowered::new(subroutine, SubroutineSourceMap::default()));
+    }
+
+    let mut subroutine_source_map = SubroutineSourceMap::default();
+    let mut ctx = LoweringCtx::new(
+        db,
+        file_id,
+        subroutine_id.into(),
+        SubroutineStore { data: &mut subroutine, sources: &mut subroutine_source_map },
+    );
+    lower_subroutine_body(&mut ctx, func);
+    ctx.emit_diagnostics();
+    drop(ctx);
+    subroutine.shrink_to_fit();
+    subroutine_source_map.shrink_to_fit();
+    Arc::new(Lowered::new(subroutine, subroutine_source_map))
 }

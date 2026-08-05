@@ -23,7 +23,7 @@ use crate::{
     Ident,
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_with_optional_source_entry, alloc_with_source,
-    container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
+    container::{ArenaOwnerId, InFile},
     db::HirDefDb,
     declaration::{Declaration, DeclarationId, DeclarationSrc},
     expr::{
@@ -31,7 +31,7 @@ use crate::{
         declarator::{DeclId, Declarator, DeclaratorSrc},
         timing_control::{EventExpr, EventExprId, EventExprSrc},
     },
-    lower::{GenerateBlockStore, LoweringCtx, SubroutineStore},
+    lower::{GenerateBlockStore, LoweringCtx},
     lower_ident_opt,
     proc::{Proc, ProcId, ProcSrc},
     region_tree::RegionTree,
@@ -41,7 +41,7 @@ use crate::{
     },
     stmt::{Stmt, StmtId, StmtSrc},
     subroutine::{
-        LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine, lower_subroutine_body,
+        LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine,
     },
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
@@ -501,6 +501,8 @@ impl LowerGenerateBlockCtx<'_> {
         &mut self,
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
+        // Only the skeleton is lowered here; the body is lowered on first
+        // access by subroutine_with_source_map_query.
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let subroutine_id = alloc_with_source(
@@ -510,27 +512,6 @@ impl LowerGenerateBlockCtx<'_> {
             subroutine,
             func,
         );
-
-        let subroutine_def_id = SubroutineScope::new(
-            SubroutineParent::GenerateBlock(self.generate_block_id()),
-            subroutine_id,
-        );
-
-        if func.end().is_some() {
-            let subroutine = &mut self.store.data.subroutines[subroutine_id];
-            let mut subroutine_source_map = std::mem::take(&mut subroutine.source_map);
-            let mut ctx = LoweringCtx::new(
-                self.db,
-                self.file_id,
-                subroutine_def_id.into(),
-                SubroutineStore { data: subroutine, sources: &mut subroutine_source_map },
-            );
-            lower_subroutine_body(&mut ctx, func);
-            ctx.emit_diagnostics();
-            drop(ctx);
-            subroutine.source_map = subroutine_source_map;
-            subroutine.source_map.shrink_to_fit();
-        }
 
         self.store.data.subroutines[subroutine_id].shrink_to_fit();
 
