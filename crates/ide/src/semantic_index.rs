@@ -11,6 +11,7 @@ use syntax::{
     SyntaxElement, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, WalkEvent,
     has_text_range::HasTextRange, ptr::SyntaxTokenPtr, token::TokenKindExt,
 };
+use triomphe::Arc;
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -80,18 +81,37 @@ pub struct ModuleIndex {
     modules_by_name: FxHashMap<Ident, Box<[SemanticModuleDefinition]>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SemanticIndex {
     references_by_definition: FxHashMap<DefId, SemanticReferenceGroup>,
     incoming_module_edges: FxHashMap<ModuleId, Box<[ModuleCallEdge]>>,
     outgoing_module_edges: FxHashMap<ModuleId, Box<[ModuleCallEdge]>>,
 }
 
-#[derive(Debug, Default)]
-struct SemanticIndexBuilder {
-    references_by_definition: FxHashMap<DefId, SemanticReferenceGroupBuilder>,
-    incoming_module_edges: FxHashMap<ModuleId, Vec<ModuleCallEdge>>,
-    outgoing_module_edges: FxHashMap<ModuleId, Vec<ModuleCallEdge>>,
+/// Per-file slice of the semantic index: reference groups without the
+/// cross-file definition ranges, which are computed once at merge time.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FileSemanticIndex {
+    groups: FxHashMap<DefId, FileReferenceGroup>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileReferenceGroup {
+    name: String,
+    references: Vec<SemanticReference>,
+}
+
+/// Module definitions contributed by one file.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FileModuleIndex {
+    modules: Vec<SemanticModuleDefinition>,
+}
+
+/// Module edges contributed by one file: the outgoing edges of the file's
+/// modules, with caller and callee ids so the merge can build both maps.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FileModuleEdges {
+    edges: Vec<(ModuleId, ModuleId, ModuleCallEdge)>,
 }
 
 #[derive(Debug)]
@@ -102,6 +122,7 @@ struct SemanticReferenceGroupBuilder {
 }
 
 impl ModuleIndex {
+    /// Merges the per-file module indexes of a source root.
     pub(crate) fn for_source_root(
         db: &dyn WorkspaceSymbolIndexDb,
         source_root_id: SourceRootId,
@@ -111,18 +132,8 @@ impl ModuleIndex {
             FxHashMap::default();
 
         for file_id in source_root.iter() {
-            let hir_file_id = HirFileId::from(file_id);
-            for (_, defs) in db.file_scope(hir_file_id).iter_listing() {
-                for module_id in defs
-                    .iter()
-                    .filter(|def_id| def_id.kind(db).is_instantiable_def())
-                    .filter_map(|def_id| def_id.primary_origin(db).as_module(db))
-                {
-                    let Some(module) = SemanticModuleDefinition::new(db, module_id) else {
-                        continue;
-                    };
-                    modules_by_name.entry(module.name.clone()).or_default().push(module);
-                }
+            for module in db.file_module_index(file_id).modules.iter() {
+                modules_by_name.entry(module.name.clone()).or_default().push(module.clone());
             }
         }
 
@@ -189,20 +200,49 @@ impl SemanticModuleDefinition {
 }
 
 impl SemanticIndex {
+    /// Merges the per-file semantic indexes and module edges of a source root.
+    ///
+    /// The merge is pure memory assembly: no name resolution happens here, so
+    /// a change in one file only re-runs that file's index and this pass.
     pub(crate) fn for_source_root(
         db: &dyn WorkspaceSymbolIndexDb,
         source_root_id: SourceRootId,
     ) -> Self {
         let source_root = db.source_root(source_root_id);
-        let module_index = source_root_module_index_for_root(db, source_root_id);
-        let mut builder = SemanticIndexBuilder::default();
+        let mut references_by_definition: FxHashMap<DefId, SemanticReferenceGroupBuilder> =
+            FxHashMap::default();
+        let mut incoming_module_edges: FxHashMap<ModuleId, Vec<ModuleCallEdge>> =
+            FxHashMap::default();
+        let mut outgoing_module_edges: FxHashMap<ModuleId, Vec<ModuleCallEdge>> =
+            FxHashMap::default();
 
-        builder.collect_module_edges(db, &module_index);
         for file_id in source_root.iter() {
-            builder.collect_file(db, file_id);
+            db.unwind_if_cancelled();
+            let file_index = db.file_semantic_index(file_id);
+            for (definition, group) in &file_index.groups {
+                let builder = references_by_definition.entry(*definition).or_insert_with(|| {
+                    SemanticReferenceGroupBuilder {
+                        name: group.name.clone(),
+                        definition_ranges: definition_ranges_for(db, *definition),
+                        references: Vec::new(),
+                    }
+                });
+                builder.references.extend(group.references.iter().cloned());
+            }
+            for (caller, callee, edge) in &db.file_module_edges(file_id).edges {
+                push_unique_edge(outgoing_module_edges.entry(*caller).or_default(), edge.clone());
+                push_unique_edge(incoming_module_edges.entry(*callee).or_default(), edge.clone());
+            }
         }
 
-        builder.finish()
+        SemanticIndex {
+            references_by_definition: references_by_definition
+                .into_iter()
+                .map(|(key, group)| (key, group.finish()))
+                .collect(),
+            incoming_module_edges: finish_edge_map(incoming_module_edges),
+            outgoing_module_edges: finish_edge_map(outgoing_module_edges),
+        }
     }
 
     pub(crate) fn references_for_definition(
@@ -226,11 +266,11 @@ impl SemanticIndex {
     }
 }
 
-impl SemanticIndexBuilder {
-    fn collect_file(&mut self, db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) {
+impl FileSemanticIndex {
+    pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
         let tree = db.parse(file_id.into());
         let Some(root) = tree.root() else {
-            return;
+            return Self::default();
         };
         let hir_file_id = HirFileId::from(file_id);
 
@@ -241,6 +281,7 @@ impl SemanticIndexBuilder {
         let has_backtick = db.file_text(file_id).contains('`');
         let emitted_index = has_backtick.then(|| emit_token_index(root));
 
+        let mut groups: FxHashMap<DefId, FileReferenceGroup> = FxHashMap::default();
         for event in root.elem_preorder() {
             let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
                 continue;
@@ -264,145 +305,176 @@ impl SemanticIndexBuilder {
             };
 
             for token in target.into_tokens().into_iter().filter(|token| token.kind().name_like()) {
-                self.collect_token(db, hir_file_id, token);
+                collect_token(db, hir_file_id, token, &mut groups);
             }
+        }
+        Self { groups }
+    }
+}
+
+pub(crate) fn file_semantic_index_query(
+    db: &dyn WorkspaceSymbolIndexDb,
+    file_id: FileId,
+) -> Arc<FileSemanticIndex> {
+    Arc::new(FileSemanticIndex::for_file(db, file_id))
+}
+
+fn collect_token(
+    db: &dyn WorkspaceSymbolIndexDb,
+    file_id: HirFileId,
+    token: SyntaxTokenWithParent<'_>,
+    groups: &mut FxHashMap<DefId, FileReferenceGroup>,
+) {
+    let Some(range) = token.text_range() else {
+        return;
+    };
+    let Some(class) = DefinitionClass::resolve(db, file_id, token).unique() else {
+        return;
+    };
+
+    match class {
+        DefinitionClass::Definition(definition) => {
+            collect_definition_token(db, definition, file_id.expect_file(), range, token, groups)
+        }
+        DefinitionClass::PortConnShorthand { port, local } => {
+            collect_definition_token(db, port, file_id.expect_file(), range, token, groups);
+            collect_definition_token(db, local, file_id.expect_file(), range, token, groups);
         }
     }
+}
 
-    fn collect_token(
-        &mut self,
-        db: &dyn WorkspaceSymbolIndexDb,
-        file_id: HirFileId,
-        token: SyntaxTokenWithParent<'_>,
-    ) {
-        let Some(range) = token.text_range() else {
-            return;
-        };
-        let Some(class) = DefinitionClass::resolve(db, file_id, token).unique() else {
-            return;
-        };
-
-        match class {
-            DefinitionClass::Definition(definition) => {
-                self.collect_definition_token(db, definition, file_id.expect_file(), range, token)
-            }
-            DefinitionClass::PortConnShorthand { port, local } => {
-                self.collect_definition_token(db, port, file_id.expect_file(), range, token);
-                self.collect_definition_token(db, local, file_id.expect_file(), range, token);
-            }
-        }
+fn collect_definition_token(
+    db: &dyn WorkspaceSymbolIndexDb,
+    definition: DefId,
+    file_id: FileId,
+    range: TextRange,
+    token: SyntaxTokenWithParent<'_>,
+    groups: &mut FxHashMap<DefId, FileReferenceGroup>,
+) {
+    let origins = definition.origins(db);
+    let Some(name) = origins.iter().find_map(|origin| origin.name(db)) else {
+        return;
+    };
+    let definition_ranges = definition_ranges_for(db, definition);
+    let is_definition_site = definition_ranges.iter().any(|definition_range| {
+        definition_range.file_id == file_id && definition_range.range == range
+    });
+    if is_definition_site {
+        return;
     }
 
-    fn collect_definition_token(
-        &mut self,
-        db: &dyn WorkspaceSymbolIndexDb,
-        definition: DefId,
-        file_id: FileId,
-        range: TextRange,
-        token: SyntaxTokenWithParent<'_>,
-    ) {
-        let origins = definition.origins(db);
-        let Some(name) = origins.iter().find_map(|origin| origin.name(db)) else {
-            return;
-        };
-        let definition_ranges = origins
-            .iter()
-            .filter_map(|origin| {
-                let InFile { file_id, value } = origin.name_range(db)?;
-                let (file_id, range) = resolve_source_range(db, file_id, value)?;
-                Some(SemanticDefinitionRange { file_id, range })
-            })
-            .unique()
-            .collect_vec();
-        let is_definition_site = definition_ranges.iter().any(|definition_range| {
-            definition_range.file_id == file_id && definition_range.range == range
-        });
-
-        let group = self.references_by_definition.entry(definition).or_insert_with(|| {
-            SemanticReferenceGroupBuilder {
-                name: name.to_string(),
-                definition_ranges,
-                references: Vec::new(),
-            }
-        });
-
-        if is_definition_site {
-            return;
-        }
-
-        let reference = SemanticReference {
-            file_id,
-            range,
-            category: ReferenceCategory::from_tok(token),
-            ptr: SyntaxTokenPtr::from_token(token),
-        };
-        if !group.references.iter().any(|existing| {
-            existing.file_id == reference.file_id && existing.range == reference.range
-        }) {
-            group.references.push(reference);
-        }
+    let group = groups
+        .entry(definition)
+        .or_insert_with(|| FileReferenceGroup { name: name.to_string(), references: Vec::new() });
+    let reference = SemanticReference {
+        file_id,
+        range,
+        category: ReferenceCategory::from_tok(token),
+        ptr: SyntaxTokenPtr::from_token(token),
+    };
+    if !group
+        .references
+        .iter()
+        .any(|existing| existing.file_id == reference.file_id && existing.range == reference.range)
+    {
+        group.references.push(reference);
     }
+}
 
-    fn collect_module_edges(
-        &mut self,
-        db: &dyn WorkspaceSymbolIndexDb,
-        module_index: &ModuleIndex,
-    ) {
-        for caller in module_index.all_module_definitions() {
-            let module = db.module_with_source_map(caller.module_id);
-            for (instantiation_id, instantiation) in module.instantiations.iter() {
-                let Some(callee_module_id) =
-                    resolve_hir_instantiation_target(db, caller.file_id, instantiation)
-                else {
+/// Definition name ranges of `definition` mapped to user-facing files, in
+/// origin order. Computed once per definition at merge time.
+fn definition_ranges_for(
+    db: &dyn WorkspaceSymbolIndexDb,
+    definition: DefId,
+) -> Vec<SemanticDefinitionRange> {
+    definition
+        .origins(db)
+        .iter()
+        .filter_map(|origin| {
+            let InFile { file_id, value } = origin.name_range(db)?;
+            let (file_id, range) = resolve_source_range(db, file_id, value)?;
+            Some(SemanticDefinitionRange { file_id, range })
+        })
+        .unique()
+        .collect_vec()
+}
+
+impl FileModuleIndex {
+    pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
+        let hir_file_id = HirFileId::from(file_id);
+        let mut modules = Vec::new();
+        for (_, defs) in db.file_scope(hir_file_id).iter_listing() {
+            for module_id in defs
+                .iter()
+                .filter(|def_id| def_id.kind(db).is_instantiable_def())
+                .filter_map(|def_id| def_id.primary_origin(db).as_module(db))
+            {
+                let Some(module) = SemanticModuleDefinition::new(db, module_id) else {
                     continue;
                 };
-                let Some(callee) = SemanticModuleDefinition::new(db, callee_module_id) else {
-                    continue;
-                };
-                let Some(call_range) = module
-                    .source_range(instantiation_id)
-                    .and_then(|range| instantiation_name_range(db, caller.file_id, range))
-                else {
-                    continue;
-                };
-
-                self.collect_module_edge(
-                    caller.module_id,
-                    callee.module_id,
-                    ModuleCallEdge {
-                        caller: caller.call_item(),
-                        callee: callee.call_item(),
-                        call_range,
-                    },
-                );
+                modules.push(module);
             }
         }
+        Self { modules }
     }
+}
 
-    fn collect_module_edge(
-        &mut self,
-        caller_module_id: ModuleId,
-        callee_module_id: ModuleId,
-        edge: ModuleCallEdge,
-    ) {
-        push_unique_edge(
-            self.outgoing_module_edges.entry(caller_module_id).or_default(),
-            edge.clone(),
-        );
-        push_unique_edge(self.incoming_module_edges.entry(callee_module_id).or_default(), edge);
-    }
+pub(crate) fn file_module_index_query(
+    db: &dyn WorkspaceSymbolIndexDb,
+    file_id: FileId,
+) -> Arc<FileModuleIndex> {
+    Arc::new(FileModuleIndex::for_file(db, file_id))
+}
 
-    fn finish(self) -> SemanticIndex {
-        SemanticIndex {
-            references_by_definition: self
-                .references_by_definition
-                .into_iter()
-                .map(|(key, group)| (key, group.finish()))
-                .collect(),
-            incoming_module_edges: finish_edge_map(self.incoming_module_edges),
-            outgoing_module_edges: finish_edge_map(self.outgoing_module_edges),
+impl FileModuleEdges {
+    pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
+        let hir_file_id = HirFileId::from(file_id);
+        let mut edges = Vec::new();
+        for (_, defs) in db.file_scope(hir_file_id).iter_listing() {
+            for def_id in defs.iter().filter(|def_id| def_id.kind(db).is_instantiable_def()) {
+                let Some(caller) = def_id.primary_origin(db).as_module(db) else {
+                    continue;
+                };
+                let Some(caller_def) = SemanticModuleDefinition::new(db, caller) else {
+                    continue;
+                };
+                let module = db.module_with_source_map(caller);
+                for (instantiation_id, instantiation) in module.instantiations.iter() {
+                    let Some(callee_module_id) =
+                        resolve_hir_instantiation_target(db, file_id, instantiation)
+                    else {
+                        continue;
+                    };
+                    let Some(callee) = SemanticModuleDefinition::new(db, callee_module_id) else {
+                        continue;
+                    };
+                    let Some(call_range) = module
+                        .source_range(instantiation_id)
+                        .and_then(|range| instantiation_name_range(db, file_id, range))
+                    else {
+                        continue;
+                    };
+                    edges.push((
+                        caller,
+                        callee.module_id,
+                        ModuleCallEdge {
+                            caller: caller_def.call_item(),
+                            callee: callee.call_item(),
+                            call_range,
+                        },
+                    ));
+                }
+            }
         }
+        Self { edges }
     }
+}
+
+pub(crate) fn file_module_edges_query(
+    db: &dyn WorkspaceSymbolIndexDb,
+    file_id: FileId,
+) -> Arc<FileModuleEdges> {
+    Arc::new(FileModuleEdges::for_file(db, file_id))
 }
 
 impl SemanticReferenceGroupBuilder {
