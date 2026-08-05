@@ -43,21 +43,21 @@ pub(crate) fn empty_decls_range() -> DeclsRange {
 }
 pub type DeclsRange = IdxRange<Declarator>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct DeclaratorAst;
 
 impl AstKind for DeclaratorAst {
     type Node<'a> = ast::Declarator<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct IdentifierNameAst;
 
 impl AstKind for IdentifierNameAst {
     type Node<'a> = ast::IdentifierName<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct SpecparamDeclaratorAst;
 
 impl AstKind for SpecparamDeclaratorAst {
@@ -148,7 +148,7 @@ impl<'a> FromSourceAst<'a, ast::SpecparamDeclarator<'a>> for DeclaratorSrc {
     }
 }
 
-impl<Store: LoweringStore> LoweringCtx<'_, Store> {
+impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_declarators<'a>(
         &mut self,
         declarators: ast::SeparatedList<'a, ast::Declarator<'a>>,

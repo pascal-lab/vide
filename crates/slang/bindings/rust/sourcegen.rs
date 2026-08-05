@@ -304,7 +304,7 @@ pub mod generator {
         let res = quote! {
             use std::fmt;
 
-            #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+            #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
             pub struct SyntaxKind(u16);
             impl SyntaxKind {
                 #(#syntax_kinds)*
@@ -330,7 +330,7 @@ pub mod generator {
                 }
             }
 
-            #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+            #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
             pub struct TokenKind(u16);
             impl TokenKind {
                 #(#token_kinds)*
@@ -350,7 +350,7 @@ pub mod generator {
                 }
             }
 
-            #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+            #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
             pub struct TriviaKind(u8);
             impl TriviaKind {
                 #(#trivia_kinds)*

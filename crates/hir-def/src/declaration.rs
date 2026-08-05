@@ -3,7 +3,7 @@ use syntax::{TokenKind, ast, ptr::SyntaxNodePtr};
 use utils::define_enum_deriving_from;
 
 use super::expr::{
-    data_ty::{BuiltinDataTy, DataTy, IntKind},
+    data_ty::{BuiltinDataTy, BuiltinDataTyId, DataTy, IntKind},
     declarator::{DeclsRange, empty_decls_range},
     timing_control::DelayControl,
 };
@@ -29,56 +29,56 @@ define_enum_deriving_from! {
 
 pub type DeclarationId = Idx<Declaration>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct DataDeclarationAst;
 
 impl AstKind for DataDeclarationAst {
     type Node<'a> = ast::DataDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct NetDeclarationAst;
 
 impl AstKind for NetDeclarationAst {
     type Node<'a> = ast::NetDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct DeclarationPortDeclarationAst;
 
 impl AstKind for DeclarationPortDeclarationAst {
     type Node<'a> = ast::PortDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ParameterDeclarationAst;
 
 impl AstKind for ParameterDeclarationAst {
     type Node<'a> = ast::ParameterDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct TypeParameterDeclarationAst;
 
 impl AstKind for TypeParameterDeclarationAst {
     type Node<'a> = ast::TypeParameterDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct LocalVariableDeclarationAst;
 
 impl AstKind for LocalVariableDeclarationAst {
     type Node<'a> = ast::LocalVariableDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct GenvarDeclarationAst;
 
 impl AstKind for GenvarDeclarationAst {
     type Node<'a> = ast::GenvarDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct SpecparamDeclarationAst;
 
 impl AstKind for SpecparamDeclarationAst {
@@ -239,11 +239,11 @@ impl Declaration {
 
     pub fn ty(&self) -> DataTy {
         match self {
-            Declaration::DataDecl(data_decl) => data_decl.ty,
-            Declaration::NetDecl(net_decl) => net_decl.ty,
-            Declaration::ParamDecl(param_decl) => param_decl.ty,
-            Declaration::GenvarDecl(genvar_decl) => genvar_decl.ty,
-            Declaration::SpecparamDecl(specparam_decl) => specparam_decl.ty,
+            Declaration::DataDecl(data_decl) => data_decl.ty.clone(),
+            Declaration::NetDecl(net_decl) => net_decl.ty.clone(),
+            Declaration::ParamDecl(param_decl) => param_decl.ty.clone(),
+            Declaration::GenvarDecl(genvar_decl) => genvar_decl.ty.clone(),
+            Declaration::SpecparamDecl(specparam_decl) => specparam_decl.ty.clone(),
         }
     }
 }
@@ -311,7 +311,7 @@ pub struct SpecparamDecl {
     pub decls: DeclsRange,
 }
 
-impl<Store: LoweringStore> LoweringCtx<'_, Store> {
+impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn alloc_declaration<'ast, Ast>(
         &mut self,
         declaration: impl Into<Declaration>,
@@ -448,7 +448,7 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
             force_local,
         );
         let decls = empty_decls_range();
-        let ty = DataTy::Builtin(self.db.intern_ty(crate::expr::data_ty::BuiltinDataTy::default()));
+        let ty = DataTy::Builtin(BuiltinDataTyId::new(BuiltinDataTy::default()));
 
         self.alloc_declaration(ParamDecl { ty, kind, is_port, decls }, type_param_decl)
     }
@@ -480,9 +480,10 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
         &mut self,
         genvar_decl: ast::GenvarDeclaration,
     ) -> DeclarationId {
-        let ty = DataTy::Builtin(
-            self.db.intern_ty(BuiltinDataTy::Int { kind: IntKind::Integer, signing: true }),
-        );
+        let ty = DataTy::Builtin(BuiltinDataTyId::new(BuiltinDataTy::Int {
+            kind: IntKind::Integer,
+            signing: true,
+        }));
         let parent =
             self.alloc_declaration(GenvarDecl { ty, decls: empty_decls_range() }, genvar_decl);
         let decls = self.lower_identifier_names(genvar_decl.identifiers(), parent.into());

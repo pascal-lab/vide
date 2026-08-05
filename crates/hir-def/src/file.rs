@@ -3,7 +3,7 @@ use la_arena::{Arena, Idx};
 use library::{
     LibraryDecl, LibraryDeclId, LibraryDeclSrc, LibraryInclude, LibraryIncludeId, LibraryIncludeSrc,
 };
-use preproc_expand::file::HirFileId;
+pub use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
 use syntax::{
     ast::{self, AstNode},
@@ -230,7 +230,7 @@ impl FileSourceMap {
     }
 }
 
-pub(crate) type LowerFileCtx<'a> = LoweringCtx<'a, FileStore<'a>>;
+pub(crate) type LowerFileCtx<'a> = LoweringCtx<FileStore<'a>>;
 
 impl LowerFileCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
@@ -275,7 +275,7 @@ impl LowerFileCtx<'_> {
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
         // Only the skeleton is lowered here; the body is lowered on first
-        // access by subroutine_with_source_map_query.
+        // access by subroutine_with_source_map.
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let local_subroutine_id = alloc_with_source(
@@ -451,16 +451,17 @@ impl LowerFileCtx<'_> {
     }
 }
 
-pub(crate) fn hir_file_with_source_map_query(
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn hir_file_with_source_map(
     db: &dyn HirDefDb,
     file_id: HirFileId,
+    _key: (),
 ) -> Arc<Lowered<HirFile>> {
     let mut hir_file = HirFile::default();
     let mut source_map = FileSourceMap::default();
 
     let tree = db.parse(file_id);
     let mut lower_ctx = LoweringCtx::new(
-        db,
         file_id,
         file_id.into(),
         FileStore { data: &mut hir_file, sources: &mut source_map },
@@ -486,4 +487,8 @@ pub(crate) fn hir_file_with_source_map_query(
     source_map.shrink_to_fit();
 
     Arc::new(Lowered::new(hir_file, source_map))
+}
+
+pub(crate) fn set_hir_file_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    hir_file_with_source_map::set_lru_capacity(db, capacity);
 }

@@ -13,7 +13,7 @@ pub struct UdpDecl {
 
 pub type UdpDeclId = Idx<UdpDecl>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct UdpDeclarationAst;
 
 impl AstKind for UdpDeclarationAst {

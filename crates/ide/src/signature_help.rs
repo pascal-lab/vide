@@ -1,6 +1,5 @@
 use hir_def::{
     container::{InContainer, InModule},
-    db::HirDefDb,
     declaration::Declaration,
     module::{
         instantiation::{ParamAssign, PortConn},
@@ -173,7 +172,7 @@ fn sig_help_for_instance(
                             match InContainer::new(target_module_id.into(), *select)
                                 .display_signature(db)
                             {
-                                Ok(s) => buf.push_str(&s),
+                                Ok(s) => buf.push_str(s.as_str()),
                                 Err(_) => buf.push_str("<missing>"),
                             }
                         }
@@ -187,7 +186,7 @@ fn sig_help_for_instance(
             for port_decl in port_decls.values() {
                 let mut buf = String::new();
                 if !res.config.params_only {
-                    let header = InModule::new(target_module_id, port_decl.header)
+                    let header = InModule::new(target_module_id, port_decl.header.clone())
                         .display_signature(db)
                         .unwrap_or_else(|_| "<missing-header>".to_string());
                     let header = header.trim_end();

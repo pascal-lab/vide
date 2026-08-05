@@ -1,6 +1,5 @@
 use hir_def::{
     Ident,
-    db::HirDefDb,
     module::ModuleId,
     symbol::{DefKind, NameContext, Resolution},
 };

@@ -64,7 +64,7 @@ pub(crate) fn lower_struct_def(
         let member_ty = lower_data_ty(member.type_());
         for declarator in member.declarators().children() {
             let name = lower_ident_opt(declarator.name());
-            let ty = InContainer::new(container_id, member_ty);
+            let ty = InContainer::new(container_id.clone(), member_ty.clone());
             members.push(StructMember { name, ty: Some(ty) });
         }
     }

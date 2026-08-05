@@ -1,5 +1,4 @@
 use hir_def::{
-    db::HirDefDb,
     module::{ModuleId, ModuleSrc},
     symbol::DefKind,
 };

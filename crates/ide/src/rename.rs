@@ -255,12 +255,12 @@ fn resolve_rename_target(
             .ok_or(RenameError::NoDefFound)?
         {
             DefinitionClass::Definition(def) => {
-                targets.push(def.origins(sema.db), def);
+                targets.push(def.origins(sema.db), def.clone());
                 def
             }
             DefinitionClass::PortConnShorthand { port, local } => {
-                targets.push(local.origins(sema.db), local);
-                targets.push(port.origins(sema.db), port);
+                targets.push(local.origins(sema.db), local.clone());
+                targets.push(port.origins(sema.db), port.clone());
                 local
             }
         };
@@ -388,14 +388,14 @@ fn recursive_rename_targets(
     let mut resolved_targets = Vec::new();
     let mut idx = 0;
     while idx < targets.len() {
-        let current = *targets.get(idx);
+        let current = targets.get(idx).clone();
         idx += 1;
 
         let refs = references_for_definition(db, sema, file_id, config, &current)?;
         let same_name_refs = same_name_refs_collect(sema, &refs);
         for conn_ref in &same_name_refs {
-            targets.push(conn_ref.conn.port.origins(db), conn_ref.conn.port);
-            targets.push(conn_ref.conn.local.origins(db), conn_ref.conn.local);
+            targets.push(conn_ref.conn.port.origins(db), conn_ref.conn.port.clone());
+            targets.push(conn_ref.conn.local.origins(db), conn_ref.conn.local.clone());
         }
         resolved_targets.push(RecursiveRenameTarget { def: current, refs, same_name_refs });
     }

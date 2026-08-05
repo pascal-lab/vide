@@ -1,4 +1,3 @@
-use base_db::{intern::Lookup, salsa};
 use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
@@ -6,6 +5,7 @@ use syntax::{
     ast::AstNode,
     has_text_range::{HasTextRange, HasTextRangeIn},
 };
+use triomphe::Arc;
 use utils::{
     get::{Get, GetRef},
     line_index::TextRange,
@@ -42,8 +42,8 @@ pub(crate) fn subroutine_src(
             Some(InFile::new(module_id.file_id, lowered.source(subroutine.value)?))
         }
         SubroutineParent::GenerateBlock(generate_block_id) => {
-            let lowered = db.generate_block_with_source_map(generate_block_id);
-            let file_id = generate_block_id.lookup(db).src.file_id;
+            let lowered = db.generate_block_with_source_map(generate_block_id.clone());
+            let file_id = generate_block_id.loc().src.file_id;
             Some(InFile::new(file_id, lowered.source(subroutine.value)?))
         }
     }
@@ -132,15 +132,15 @@ fn cross_of(db: &dyn HirDefDb, cross: InScope<CrossId>) -> Option<(CrossDef, Hir
 
 impl DefOrigin {
     #[inline]
-    pub fn container_id(self, db: &dyn HirDefDb) -> ScopeId {
-        match self.loc(db) {
+    pub fn container_id(&self, _db: &dyn HirDefDb) -> ScopeId {
+        match self.loc() {
             DefOriginLoc::Module(InFile { file_id, .. }) => file_id.into(),
             DefOriginLoc::Config(InFile { file_id, .. }) => file_id.into(),
             DefOriginLoc::Library(InFile { file_id, .. }) => file_id.into(),
             DefOriginLoc::Udp(InFile { file_id, .. }) => file_id.into(),
-            DefOriginLoc::Block(block_id) => block_id.lookup(db).cont_id.into(),
+            DefOriginLoc::Block(block_id) => block_id.loc().cont_id.clone().into(),
             DefOriginLoc::GenerateBlock(generate_block_id) => {
-                generate_block_id.lookup(db).cont_id.into()
+                generate_block_id.loc().cont_id.clone().into()
             }
             DefOriginLoc::Subroutine(subroutine_id) => subroutine_id.cont_id.into(),
             DefOriginLoc::SubroutinePort(InSubroutine { subroutine, .. }) => {
@@ -162,8 +162,8 @@ impl DefOrigin {
         }
     }
 
-    pub fn kind(self, db: &dyn HirDefDb) -> DefKind {
-        match self.loc(db) {
+    pub fn kind(&self, db: &dyn HirDefDb) -> DefKind {
+        match self.loc() {
             DefOriginLoc::Module(module_id) => {
                 let file = db.hir_file(module_id.file_id);
                 match file.get(module_id.value).kind {
@@ -212,8 +212,8 @@ impl DefOrigin {
         }
     }
 
-    pub fn name(self, db: &dyn HirDefDb) -> Option<SmolStr> {
-        match self.loc(db) {
+    pub fn name(&self, db: &dyn HirDefDb) -> Option<SmolStr> {
+        match self.loc() {
             DefOriginLoc::Module(InFile { value, file_id }) => {
                 db.hir_file(file_id).get(value).name.clone()
             }
@@ -227,8 +227,9 @@ impl DefOrigin {
                 db.hir_file(file_id).get(value).name.clone()
             }
             DefOriginLoc::Block(block_id) => {
-                let BlockLoc { cont_id, src: InFile { value, file_id: _ } } = block_id.lookup(db);
-                let cont = cont_id.data(db);
+                let BlockLoc { cont_id, src: InFile { value, file_id: _ } } =
+                    block_id.loc().clone();
+                let cont = cont_id.clone().data(db);
                 let source_map = cont_id.source_map(db);
                 cont.block_info(source_map.block_from_source(value)?).name.clone()
             }
@@ -274,17 +275,19 @@ impl DefOrigin {
                 }
             },
             DefOriginLoc::Coverpoint(coverpoint) => {
-                coverpoint_of(db, coverpoint).and_then(|(coverpoint, _)| coverpoint.name)
+                coverpoint_of(db, coverpoint.clone()).and_then(|(coverpoint, _)| coverpoint.name)
             }
-            DefOriginLoc::Cross(cross) => cross_of(db, cross).and_then(|(cross, _)| cross.name),
+            DefOriginLoc::Cross(cross) => {
+                cross_of(db, cross.clone()).and_then(|(cross, _)| cross.name)
+            }
             DefOriginLoc::Stmt(InContainer { value, cont_id }) => {
                 cont_id.data(db).stmt(value).label.clone()
             }
         }
     }
 
-    pub fn name_range(self, db: &dyn HirDefDb) -> Option<InFile<TextRange>> {
-        match self.loc(db) {
+    pub fn name_range(&self, db: &dyn HirDefDb) -> Option<InFile<TextRange>> {
+        match self.loc() {
             DefOriginLoc::Module(InFile { value, file_id }) => {
                 let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
@@ -302,13 +305,13 @@ impl DefOrigin {
                 Some(InFile::new(file_id, range))
             }
             DefOriginLoc::Block(block_id) => {
-                let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
+                let BlockLoc { src: InFile { value, file_id }, .. } = block_id.loc().clone();
                 let range = value.name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefOriginLoc::GenerateBlock(generate_block_id) => {
                 let GenerateBlockLoc { src: InFile { value, file_id }, .. } =
-                    generate_block_id.lookup(db);
+                    generate_block_id.loc().clone();
                 let range = value.name_range()?;
                 Some(InFile::new(file_id, range))
             }
@@ -338,11 +341,13 @@ impl DefOrigin {
                 Some(InFile::new(module_id.file_id, range))
             }
             DefOriginLoc::Decl(InContainer { value, cont_id }) => {
-                let range = cont_id.source_map(db).source_of_declarator(value)?.name_range()?;
+                let range =
+                    cont_id.clone().source_map(db).source_of_declarator(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db), range))
             }
             DefOriginLoc::Typedef(InContainer { value, cont_id }) => {
-                let range = cont_id.source_map(db).source_of_typedef(value)?.name_range()?;
+                let range =
+                    cont_id.clone().source_map(db).source_of_typedef(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db), range))
             }
             DefOriginLoc::Instance(InModule { value, module_id }) => {
@@ -386,7 +391,7 @@ impl DefOrigin {
                 }
             },
             DefOriginLoc::Coverpoint(coverpoint) => {
-                let (_, file_id) = coverpoint_of(db, coverpoint)?;
+                let (_, file_id) = coverpoint_of(db, coverpoint.clone())?;
                 match file_or_module_storage(coverpoint.scope_id)? {
                     FileOrModule::File(storage_file) => {
                         let range = db
@@ -405,7 +410,7 @@ impl DefOrigin {
                 }
             }
             DefOriginLoc::Cross(cross) => {
-                let (_, file_id) = cross_of(db, cross)?;
+                let (_, file_id) = cross_of(db, cross.clone())?;
                 match file_or_module_storage(cross.scope_id)? {
                     FileOrModule::File(storage_file) => {
                         let range = db
@@ -424,14 +429,14 @@ impl DefOrigin {
                 }
             }
             DefOriginLoc::Stmt(InContainer { value, cont_id }) => {
-                let range = cont_id.source_map(db).source_of_stmt(value)?.name_range()?;
+                let range = cont_id.clone().source_map(db).source_of_stmt(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db), range))
             }
         }
     }
 
-    pub fn range(self, db: &dyn HirDefDb) -> Option<InFile<TextRange>> {
-        Some(match self.loc(db) {
+    pub fn range(&self, db: &dyn HirDefDb) -> Option<InFile<TextRange>> {
+        Some(match self.loc() {
             DefOriginLoc::Module(InFile { value, file_id }) => {
                 let range = db.hir_file_with_source_map(file_id).source(value)?.range();
                 InFile::new(file_id, range)
@@ -449,13 +454,13 @@ impl DefOrigin {
                 InFile::new(file_id, range)
             }
             DefOriginLoc::Block(block_id) => {
-                let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
+                let BlockLoc { src: InFile { value, file_id }, .. } = block_id.loc().clone();
                 let range = value.range();
                 InFile::new(file_id, range)
             }
             DefOriginLoc::GenerateBlock(generate_block_id) => {
                 let GenerateBlockLoc { src: InFile { value, file_id }, .. } =
-                    generate_block_id.lookup(db);
+                    generate_block_id.loc().clone();
                 let range = value.range();
                 InFile::new(file_id, range)
             }
@@ -482,11 +487,11 @@ impl DefOrigin {
                 InFile::new(module_id.file_id, range)
             }
             DefOriginLoc::Decl(InContainer { value, cont_id }) => {
-                let range = cont_id.source_map(db).source_of_declarator(value)?.range();
+                let range = cont_id.clone().source_map(db).source_of_declarator(value)?.range();
                 InFile::new(cont_id.file_id(db), range)
             }
             DefOriginLoc::Typedef(InContainer { value, cont_id }) => {
-                let range = cont_id.source_map(db).source_of_typedef(value)?.range();
+                let range = cont_id.clone().source_map(db).source_of_typedef(value)?.range();
                 InFile::new(cont_id.file_id(db), range)
             }
             DefOriginLoc::Instance(InModule { value, module_id }) => {
@@ -530,7 +535,7 @@ impl DefOrigin {
                 }
             },
             DefOriginLoc::Coverpoint(coverpoint) => {
-                let (_, file_id) = coverpoint_of(db, coverpoint)?;
+                let (_, file_id) = coverpoint_of(db, coverpoint.clone())?;
                 match file_or_module_storage(coverpoint.scope_id)? {
                     FileOrModule::File(storage_file) => {
                         let range = db
@@ -547,7 +552,7 @@ impl DefOrigin {
                 }
             }
             DefOriginLoc::Cross(cross) => {
-                let (_, file_id) = cross_of(db, cross)?;
+                let (_, file_id) = cross_of(db, cross.clone())?;
                 match file_or_module_storage(cross.scope_id)? {
                     FileOrModule::File(storage_file) => {
                         let range =
@@ -562,14 +567,14 @@ impl DefOrigin {
                 }
             }
             DefOriginLoc::Stmt(InContainer { value, cont_id }) => {
-                let range = cont_id.source_map(db).source_of_stmt(value)?.range();
+                let range = cont_id.clone().source_map(db).source_of_stmt(value)?.range();
                 InFile::new(cont_id.file_id(db), range)
             }
         })
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Definition {
     primary_origin: DefOrigin,
 }
@@ -579,16 +584,16 @@ impl Definition {
         Self { primary_origin }
     }
 
-    fn origins(self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 3]> {
+    fn origins(&self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 3]> {
         let mut origins = SmallVec::new();
-        origins.push(self.primary_origin);
-        origins.extend(additional_origins(db, self.primary_origin));
+        origins.push(self.primary_origin.clone());
+        origins.extend(additional_origins(db, self.primary_origin.clone()));
         origins
     }
 }
 
 fn additional_origins(db: &dyn HirDefDb, primary_origin: DefOrigin) -> SmallVec<[DefOrigin; 2]> {
-    let Some(port_id) = primary_origin.as_non_ansi_port(db) else {
+    let Some(port_id) = primary_origin.as_non_ansi_port() else {
         return SmallVec::new();
     };
     let module = db.module(port_id.module_id);
@@ -599,78 +604,76 @@ fn additional_origins(db: &dyn HirDefDb, primary_origin: DefOrigin) -> SmallVec<
         .decls
         .iter()
         .filter(|(_, decl)| decl.name.as_ref() == Some(port_name))
-        .map(|(decl_id, _)| DefOrigin::new(db, InContainer::new(port_id.module_id.into(), decl_id)))
-        .filter(|origin| non_ansi_port_for_origin(db, *origin) == Some(port_id))
+        .map(|(decl_id, _)| DefOrigin::new(InContainer::new(port_id.module_id.into(), decl_id)))
+        .filter(|origin| non_ansi_port_for_origin(db, origin.clone()) == Some(port_id))
         .collect()
 }
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub struct DefId(pub salsa::InternId);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DefId(Arc<Definition>);
 
 impl DefId {
     pub fn new(db: &dyn HirDefDb, loc: impl Into<DefOriginLoc>) -> Self {
-        let origin = DefOrigin::new(db, loc);
-        let primary_origin = non_ansi_port_for_origin(db, origin)
-            .map(|port_id| DefOrigin::new(db, port_id))
-            .unwrap_or(origin);
-        let definition = Definition::from_origin(primary_origin);
-        db.intern_def(definition)
+        let origin = DefOrigin::new(loc);
+        let primary_origin =
+            non_ansi_port_for_origin(db, origin.clone()).map(DefOrigin::new).unwrap_or(origin);
+        Self(Arc::new(Definition::from_origin(primary_origin)))
     }
 
-    pub fn origins(self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 3]> {
-        db.lookup_intern_def(self).origins(db)
+    pub fn origins(&self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 3]> {
+        self.0.origins(db)
     }
 
-    pub fn primary_origin(self, db: &dyn HirDefDb) -> DefOrigin {
-        db.lookup_intern_def(self).primary_origin
+    pub fn primary_origin(&self, _db: &dyn HirDefDb) -> DefOrigin {
+        self.0.primary_origin.clone()
     }
 
-    pub fn declaration_origin(self, db: &dyn HirDefDb) -> DefOrigin {
+    pub fn declaration_origin(&self, db: &dyn HirDefDb) -> DefOrigin {
         let primary_origin = self.primary_origin(db);
-        if primary_origin.as_non_ansi_port(db).is_some() {
-            let additional_origins = additional_origins(db, primary_origin);
+        if primary_origin.as_non_ansi_port().is_some() {
+            let additional_origins = additional_origins(db, primary_origin.clone());
             return additional_origins
                 .iter()
-                .copied()
-                .find(|origin| is_port_decl_origin(db, *origin))
-                .or_else(|| additional_origins.first().copied())
+                .find(|origin| is_port_decl_origin(db, (*origin).clone()))
+                .cloned()
+                .or_else(|| additional_origins.first().cloned())
                 .unwrap_or(primary_origin);
         }
 
         primary_origin
     }
 
-    pub fn declaration_origins(self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 2]> {
+    pub fn declaration_origins(&self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 2]> {
         let primary_origin = self.primary_origin(db);
-        if primary_origin.as_non_ansi_port(db).is_some() {
+        if primary_origin.as_non_ansi_port().is_some() {
             return additional_origins(db, primary_origin)
                 .into_iter()
-                .filter(|origin| matches!(origin.loc(db), DefOriginLoc::Decl(_)))
+                .filter(|origin| matches!(origin.loc(), DefOriginLoc::Decl(_)))
                 .collect();
         }
 
-        SmallVec::from_slice(&[primary_origin])
+        let mut origins = SmallVec::new();
+        origins.push(primary_origin);
+        origins
     }
 
-    pub fn is_non_ansi_port(self, db: &dyn HirDefDb) -> bool {
-        self.primary_origin(db).as_non_ansi_port(db).is_some()
+    pub fn is_non_ansi_port(&self, db: &dyn HirDefDb) -> bool {
+        self.primary_origin(db).as_non_ansi_port().is_some()
     }
 
-    pub fn is_port(self, db: &dyn HirDefDb) -> bool {
+    pub fn is_port(&self, db: &dyn HirDefDb) -> bool {
         self.is_non_ansi_port(db)
-            || self.origins(db).iter().any(|origin| is_port_decl_origin(db, *origin))
+            || self.origins(db).iter().any(|origin| is_port_decl_origin(db, origin.clone()))
     }
 
-    pub fn container_id(self, db: &dyn HirDefDb) -> ScopeId {
-        self.primary_origin(db).container_id(db)
+    pub fn container_id(&self, _db: &dyn HirDefDb) -> ScopeId {
+        self.primary_origin(_db).container_id(_db)
     }
 
-    pub fn kind(self, db: &dyn HirDefDb) -> DefKind {
+    pub fn kind(&self, db: &dyn HirDefDb) -> DefKind {
         if self.is_non_ansi_port(db) { DefKind::Port } else { self.primary_origin(db).kind(db) }
     }
 
-    pub fn name(self, db: &dyn HirDefDb) -> Option<SmolStr> {
+    pub fn name(&self, db: &dyn HirDefDb) -> Option<SmolStr> {
         self.primary_origin(db).name(db)
     }
 }
@@ -696,18 +699,18 @@ fn non_ansi_port_for_origin(
     db: &dyn HirDefDb,
     origin: DefOrigin,
 ) -> Option<InModule<crate::module::port::NonAnsiPortId>> {
-    match origin.loc(db) {
+    match origin.loc() {
         DefOriginLoc::NonAnsiPort(port_id) => Some(port_id),
         DefOriginLoc::Decl(InContainer { value, cont_id: ArenaOwnerId::Module(module_id) }) => {
-            let role = non_ansi_port_origin_role(db, origin)?;
+            let role = non_ansi_port_origin_role(db, origin.clone())?;
             let module = db.module(module_id);
             let name = module.get(value).name.as_ref()?;
             let matching_role_count = module
                 .decls
                 .iter()
                 .filter(|(_, decl)| decl.name.as_ref() == Some(name))
-                .map(|(decl_id, _)| DefOrigin::new(db, InContainer::new(module_id.into(), decl_id)))
-                .filter(|candidate| non_ansi_port_origin_role(db, *candidate) == Some(role))
+                .map(|(decl_id, _)| DefOrigin::new(InContainer::new(module_id.into(), decl_id)))
+                .filter(|candidate| non_ansi_port_origin_role(db, candidate.clone()) == Some(role))
                 .take(2)
                 .count();
             if matching_role_count != 1 {
@@ -729,7 +732,7 @@ fn non_ansi_port_for_origin(
 }
 
 fn is_port_decl_origin(db: &dyn HirDefDb, origin: DefOrigin) -> bool {
-    let DefOriginLoc::Decl(decl_id) = origin.loc(db) else {
+    let DefOriginLoc::Decl(decl_id) = origin.loc() else {
         return false;
     };
     matches!(

@@ -5,6 +5,9 @@ use crate::source_db::SourceFileKind;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SourceRootId(pub u32);
 
+// SAFETY: `SourceRootId` is a copy-only, `'static` identity value.
+unsafe impl salsa::SalsaValue for SourceRootId {}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SourceRootRole {
     Local,

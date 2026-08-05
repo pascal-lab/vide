@@ -12,13 +12,9 @@ use base_db::{
     },
     source_root::{SourceRoot, SourceRootId},
 };
-use hir_def::db::HirDefDb;
 use hir_semantics::semantics::Semantics;
 use insta::assert_snapshot;
-use preproc_expand::{
-    db::PreprocDb,
-    preproc::{IncludeTarget, include_directive_at},
-};
+use preproc_expand::preproc::{IncludeTarget, include_directive_at};
 use triomphe::Arc;
 use utils::{
     test_support::TestDir,
@@ -96,16 +92,17 @@ endconfig
 
 #[test]
 fn parsed_file_nodes_survive_parse_lru_eviction() {
+    const FILE_COUNT: u32 = 130;
     let mut file_set = FileSet::default();
-    let files = [
-        (FileId::from_raw(0), "/a.sv", "module a;\n  wire x;\nendmodule\n"),
-        (FileId::from_raw(1), "/b.sv", "module b;\nendmodule\n"),
-        (FileId::from_raw(2), "/c.sv", "module c;\nendmodule\n"),
-    ];
-
     let mut change = Change::new();
-    for (file_id, path, text) in files {
-        file_set.insert(file_id, VfsPath::new_virtual_path(path.to_owned()));
+    for raw_id in 0..FILE_COUNT {
+        let file_id = FileId::from_raw(raw_id);
+        let (path, text) = if raw_id == 0 {
+            ("/a.sv".to_owned(), "module a;\n  wire x;\nendmodule\n".to_owned())
+        } else {
+            (format!("/{raw_id}.sv"), format!("module m{raw_id};\nendmodule\n"))
+        };
+        file_set.insert(file_id, VfsPath::new_virtual_path(path));
         change.add_changed_file(ChangedFile::create(file_id, text));
     }
     change.set_roots(vec![SourceRoot::new_local(file_set)]);
@@ -119,8 +116,9 @@ fn parsed_file_nodes_survive_parse_lru_eviction() {
     let child_count = root.child_count();
     assert!(child_count > 0);
 
-    let _ = db.parse_src_for_compilation(FileId::from_raw(1));
-    let _ = db.parse_src_for_compilation(FileId::from_raw(2));
+    for raw_id in 1..FILE_COUNT {
+        let _ = db.parse_src_for_compilation(FileId::from_raw(raw_id));
+    }
 
     assert_eq!(root.child_count(), child_count);
     assert!(root.first_token().is_some());
@@ -3537,7 +3535,7 @@ endmodule
 
             match &stmt.kind {
                 StmtKind::Block(info) => {
-                    let block = db.block(info.block_id);
+                    let block = db.block(info.block_id.clone());
                     stmt_arena_has(db, &block.stmts, matches_kind)
                 }
                 StmtKind::TimingCtrl(_, stmt_id)

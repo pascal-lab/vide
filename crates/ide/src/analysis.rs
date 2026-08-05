@@ -4,11 +4,10 @@ use base_db::{
     Cancelled,
     analysis_snapshot::AnalysisSnapshotId,
     project::CompilationProfileId,
-    salsa,
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootId, SourceRootRole},
 };
-use preproc_expand::{compilation_plan::CompilationPlan, db::PreprocDb};
+use preproc_expand::compilation_plan::CompilationPlan;
 use triomphe::Arc;
 use utils::{
     cancellation::CancellationToken,
@@ -45,7 +44,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct AnalysisSnapshot {
-    pub(crate) db: salsa::Snapshot<RootDb>,
+    pub(crate) db: RootDb,
     pub(crate) snapshot_id: AnalysisSnapshotId,
 }
 

@@ -1,49 +1,48 @@
-use std::{fmt, mem::ManuallyDrop};
+use std::{fmt, ops::Deref};
 
 use base_db::{
     diagnostics_config::DiagnosticsConfig,
     project::ProjectConfig,
     salsa::{self, Durability},
-    source_db::{FileLoader, SourceDb, SourceDbStorage, SourceRootDb, SourceRootDbStorage},
+    source_db::{FileLoader, SourceDb, SourceRootDb},
 };
-use hir_def::db::{
-    BlockQuery, BlockScopeQuery, BlockWithSourceMapQuery, FileScopeQuery, GenerateBlockQuery,
-    GenerateBlockWithSourceMapQuery, HirDefDbStorage, HirFileQuery, HirFileWithSourceMapQuery,
-    InternDbStorage, ModuleQuery, ModuleScopeQuery, ModuleWithSourceMapQuery, ScopeForQuery,
-    SubroutineQuery, SubroutineWithSourceMapQuery,
-};
-use hir_ty::db::TyDbStorage;
-use preproc_expand::db::{ParseSrcForCompilationQuery, ParsedProfileQuery, PreprocDbStorage};
+use hir_def::db::HirDefDb;
+use hir_ty::db::TyDb;
+use preproc_expand::db::PreprocDb;
 use triomphe::Arc;
 use vfs::{AnchoredPath, FileId};
 
-use crate::db::{
-    line_index_db::LineIndexDbStorage, workspace_symbol_index_db::WorkspaceSymbolIndexDbStorage,
-};
+use crate::db::{line_index_db::LineIndexDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb};
 
-#[salsa::database(
-    SourceDbStorage,
-    SourceRootDbStorage,
-    PreprocDbStorage,
-    InternDbStorage,
-    HirDefDbStorage,
-    TyDbStorage,
-    LineIndexDbStorage,
-    WorkspaceSymbolIndexDbStorage
-)]
+#[salsa::db]
+#[derive(Clone)]
 pub struct RootDb {
-    // `ManuallyDrop` is used to avoid duplicating drop glue like `Weak::drop'
-    // for improved compile times and performance.
-    storage: ManuallyDrop<salsa::Storage<Self>>,
+    storage: salsa::Storage<Self>,
 }
 
+#[salsa::db]
 impl salsa::Database for RootDb {}
 
-impl Drop for RootDb {
-    fn drop(&mut self) {
-        unsafe { ManuallyDrop::drop(&mut self.storage) };
-    }
-}
+#[salsa::db]
+impl SourceDb for RootDb {}
+
+#[salsa::db]
+impl SourceRootDb for RootDb {}
+
+#[salsa::db]
+impl PreprocDb for RootDb {}
+
+#[salsa::db]
+impl HirDefDb for RootDb {}
+
+#[salsa::db]
+impl TyDb for RootDb {}
+
+#[salsa::db]
+impl LineIndexDb for RootDb {}
+
+#[salsa::db]
+impl WorkspaceSymbolIndexDb for RootDb {}
 
 impl fmt::Debug for RootDb {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -59,11 +58,9 @@ impl FileLoader for RootDb {
     }
 }
 
-pub const DEFAULT_PARSE_LRU_CAP: usize = 128;
-
 impl RootDb {
     pub fn new(lru_capacity: Option<usize>) -> RootDb {
-        let mut db = RootDb { storage: ManuallyDrop::new(salsa::Storage::default()) };
+        let mut db = RootDb { storage: salsa::Storage::default() };
         db.set_files_with_durability(Default::default(), Durability::HIGH);
         db.set_diagnostics_config_with_durability(
             Arc::new(DiagnosticsConfig::default()),
@@ -76,36 +73,20 @@ impl RootDb {
 
     pub fn update_parse_query_lru_capacity(&mut self, lru_capacity: Option<usize>) {
         let lru_capacity = lru_capacity.unwrap_or(DEFAULT_PARSE_LRU_CAP);
-        ParseSrcForCompilationQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        ParsedProfileQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        HirFileWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        ModuleWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        BlockWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        HirFileQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        ModuleQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        BlockQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        SubroutineWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        SubroutineQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        GenerateBlockWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        GenerateBlockQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        ScopeForQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        FileScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        ModuleScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        BlockScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        crate::db::workspace_symbol_index_db::FileModuleIndexQuery
-            .in_db_mut(self)
-            .set_lru_capacity(lru_capacity);
-        crate::db::workspace_symbol_index_db::FileModuleEdgesQuery
-            .in_db_mut(self)
-            .set_lru_capacity(lru_capacity);
-        crate::db::workspace_symbol_index_db::FileSemanticIndexQuery
-            .in_db_mut(self)
-            .set_lru_capacity(lru_capacity);
+        preproc_expand::db::set_parse_lru_capacity(self, lru_capacity);
+        hir_def::db::set_lru_capacity(self, lru_capacity);
     }
 }
 
-impl salsa::ParallelDatabase for RootDb {
-    fn snapshot(&self) -> salsa::Snapshot<RootDb> {
-        salsa::Snapshot::new(RootDb { storage: ManuallyDrop::new(self.storage.snapshot()) })
+pub const DEFAULT_PARSE_LRU_CAP: usize = 128;
+impl RootDb {}
+
+// RootDb is the concrete IDE database; expose the workspace query surface
+// without maintaining a second set of forwarding methods.
+impl Deref for RootDb {
+    type Target = dyn WorkspaceSymbolIndexDb;
+
+    fn deref(&self) -> &Self::Target {
+        self
     }
 }

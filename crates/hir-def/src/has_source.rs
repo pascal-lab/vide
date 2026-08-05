@@ -1,5 +1,3 @@
-use base_db::intern::Lookup;
-
 use crate::{
     block::BlockId,
     container::{InFile, ScopeId, SubroutineScope},
@@ -30,36 +28,36 @@ impl HasSource for ModuleId {
 }
 
 impl HasSource for BlockId {
-    fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        let InFile { file_id, value } = self.lookup(db).src;
+    fn source(&self, _db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
+        let InFile { file_id, value } = self.loc().src;
         Some(named_source(file_id, value))
     }
 }
 
 impl HasSource for GenerateBlockId {
-    fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        let InFile { file_id, value } = self.lookup(db).src;
+    fn source(&self, _db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
+        let InFile { file_id, value } = self.loc().src;
         Some(named_source(file_id, value))
     }
 }
 
 impl HasSource for SubroutineScope {
     fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        let InFile { file_id, value } = subroutine_src(db, *self)?;
+        let InFile { file_id, value } = subroutine_src(db, self.clone())?;
         Some(named_source(file_id, value))
     }
 }
 impl HasSource for ScopeId {
     fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        match *self {
+        match self.clone() {
             ScopeId::File(_) => None,
             ScopeId::Module(module_id) => module_id.source(db),
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.source(db),
             ScopeId::Block(block_id) => block_id.source(db),
             ScopeId::Subroutine(subroutine) => subroutine.source(db),
-            ScopeId::ClockingBlock(clocking_block) => DefOrigin::new(db, clocking_block).source(db),
-            ScopeId::Checker(checker) => DefOrigin::new(db, checker).source(db),
-            ScopeId::Covergroup(covergroup) => DefOrigin::new(db, covergroup).source(db),
+            ScopeId::ClockingBlock(clocking_block) => DefOrigin::new(clocking_block).source(db),
+            ScopeId::Checker(checker) => DefOrigin::new(checker).source(db),
+            ScopeId::Covergroup(covergroup) => DefOrigin::new(covergroup).source(db),
         }
     }
 }
@@ -75,7 +73,7 @@ impl HasSource for DefOrigin {
 
 impl HasSource for DefOriginLoc {
     fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        DefOrigin::new(db, *self).source(db)
+        DefOrigin::new(self.clone()).source(db)
     }
 }
 

@@ -22,7 +22,7 @@ pub struct DefParamAssignment {
 
 pub type DefParamId = Idx<DefParam>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct DefParamAst;
 
 impl AstKind for DefParamAst {
@@ -31,7 +31,7 @@ impl AstKind for DefParamAst {
 
 pub type DefParamSrc = AstId<DefParamAst>;
 
-impl<Store: ModuleItemStore> LoweringCtx<'_, Store> {
+impl<Store: ModuleItemStore> LoweringCtx<Store> {
     pub(crate) fn lower_defparam(&mut self, defparam: ast::DefParam) -> DefParamId {
         let assignments = defparam
             .assignments()

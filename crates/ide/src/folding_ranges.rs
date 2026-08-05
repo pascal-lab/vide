@@ -1,7 +1,6 @@
 use hir_def::{
     block::{BlockId, BlockSrc},
     container::{SubroutineParent, SubroutineScope},
-    db::HirDefDb,
     module::{
         ModuleId,
         generate::GenerateBlockId,
@@ -15,7 +14,7 @@ use hir_def::{
     subroutine::{Subroutine, SubroutineSrc},
 };
 use la_arena::Arena;
-use preproc_expand::{db::PreprocDb, file::HirFileId};
+use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxKind, SyntaxTokenWithParent, SyntaxTrivia,
     has_text_range::HasTextRange,
@@ -367,7 +366,7 @@ fn collect_subroutines(
     line_index: &LineIndex,
 ) {
     for (value, src) in srcs.iter() {
-        let scope = SubroutineScope { cont_id: parent, value };
+        let scope = SubroutineScope { cont_id: parent.clone(), value };
         let subroutine = db.subroutine_with_source_map(scope);
         let src_map = subroutine.source_map();
 
@@ -403,7 +402,7 @@ fn collect_generate_regions(
         let region = module.get(region_id);
         for item in &region.items {
             if let hir_def::module::generate::GenerateItem::GenerateBlockId(block_id) = item {
-                collect_generate_block(db, folds, *block_id, line_index);
+                collect_generate_block(db, folds, block_id.clone(), line_index);
             }
         }
     }
@@ -415,7 +414,7 @@ fn collect_generate_block(
     block_id: GenerateBlockId,
     line_index: &LineIndex,
 ) {
-    let block = db.generate_block_with_source_map(block_id);
+    let block = db.generate_block_with_source_map(block_id.clone());
     let src_map = block.source_map();
 
     folds.collect_docs(&src_map.region_tree, line_index);
@@ -433,14 +432,14 @@ fn collect_generate_block(
     collect_subroutines(
         db,
         folds,
-        SubroutineParent::GenerateBlock(block_id),
+        SubroutineParent::GenerateBlock(block_id.clone()),
         &src_map.subroutine_srcs,
         line_index,
     );
 
     for item in &block.items {
         if let hir_def::module::generate::GenerateBlockItem::GenerateBlockId(block_id) = item {
-            collect_generate_block(db, folds, *block_id, line_index);
+            collect_generate_block(db, folds, block_id.clone(), line_index);
         }
     }
 }
@@ -514,7 +513,7 @@ fn collect_stmt(
         StmtKind::Block(block_info) => {
             if let Ok(block_src) = BlockSrc::try_from(stmt_src) {
                 let range = SourceInfo::new(block_src).full_range();
-                collect_block(db, folds, block_info.block_id, range, line_index);
+                collect_block(db, folds, block_info.block_id.clone(), range, line_index);
             }
         }
         _ => {

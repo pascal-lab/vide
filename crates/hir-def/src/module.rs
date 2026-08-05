@@ -458,7 +458,7 @@ pub type LocalModuleId = Idx<ModuleInfo>;
 pub type ModuleId = InFile<LocalModuleId>;
 pub type PackageId = ModuleId;
 
-pub(crate) type LowerModuleCtx<'a> = LoweringCtx<'a, ModuleStore<'a>>;
+pub(crate) type LowerModuleCtx<'a> = LoweringCtx<ModuleStore<'a>>;
 
 impl LowerModuleCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
@@ -504,7 +504,7 @@ impl LowerModuleCtx<'_> {
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
         // Only the skeleton is lowered here; the body is lowered on first
-        // access by subroutine_with_source_map_query.
+        // access by subroutine_with_source_map.
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let subroutine_id = alloc_with_source(
@@ -777,9 +777,11 @@ impl LowerModuleCtx<'_> {
     }
 }
 
-pub(crate) fn module_with_source_map_query(
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn module_with_source_map(
     db: &dyn HirDefDb,
     module_id @ InFile { value: local_module_id, file_id }: ModuleId,
+    _key: (),
 ) -> Arc<Lowered<Module>> {
     let lowered_file = db.hir_file_with_source_map(file_id);
     let tree = db.parse(file_id);
@@ -794,7 +796,6 @@ pub(crate) fn module_with_source_map_query(
     };
 
     let mut lower_ctx = LoweringCtx::new(
-        db,
         file_id,
         module_id.into(),
         ModuleStore { data: &mut module, sources: &mut module_source_map },
@@ -805,4 +806,8 @@ pub(crate) fn module_with_source_map_query(
     module.shrink_to_fit();
     module_source_map.shrink_to_fit();
     Arc::new(Lowered::new(module, module_source_map))
+}
+
+pub(crate) fn set_module_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    module_with_source_map::set_lru_capacity(db, capacity);
 }

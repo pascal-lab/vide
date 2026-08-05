@@ -158,7 +158,7 @@ pub enum SubroutinePortDir {
     Unknown,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct FunctionDeclarationAst;
 
 impl AstKind for FunctionDeclarationAst {
@@ -233,11 +233,11 @@ fn map_direction(kind: Option<TokenKind>) -> SubroutinePortDir {
     }
 }
 
-pub(crate) type LowerSubroutineBodyCtx<'a> = LoweringCtx<'a, SubroutineStore<'a>>;
+pub(crate) type LowerSubroutineBodyCtx<'a> = LoweringCtx<SubroutineStore<'a>>;
 
 impl LowerSubroutineBodyCtx<'_> {
     fn container_id(&self) -> ArenaOwnerId {
-        self.owner
+        self.owner.clone()
     }
 
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
@@ -351,14 +351,16 @@ pub(crate) fn lower_subroutine_body(
     ctx.lower_items(func);
 }
 
-pub(crate) fn subroutine_with_source_map_query(
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn subroutine_with_source_map(
     db: &dyn HirDefDb,
     subroutine_id: SubroutineScope,
+    _key: (),
 ) -> Arc<Lowered<Subroutine>> {
     // The parent container lowers only the subroutine skeleton (name, kind and
     // ports, whose type expressions live in the parent arena); the body is
     // lowered here on first access, like modules and generate blocks.
-    let mut subroutine = match subroutine_id.cont_id {
+    let mut subroutine = match subroutine_id.cont_id.clone() {
         SubroutineParent::File(file_id) => {
             db.hir_file(file_id).subroutines[subroutine_id.value].clone()
         }
@@ -370,7 +372,7 @@ pub(crate) fn subroutine_with_source_map_query(
         }
     };
 
-    let Some(InFile { file_id, value: src }) = subroutine_src(db, subroutine_id) else {
+    let Some(InFile { file_id, value: src }) = subroutine_src(db, subroutine_id.clone()) else {
         return Arc::new(Lowered::new(subroutine, SubroutineSourceMap::default()));
     };
     let tree = db.parse(file_id);
@@ -383,7 +385,6 @@ pub(crate) fn subroutine_with_source_map_query(
 
     let mut subroutine_source_map = SubroutineSourceMap::default();
     let mut ctx = LoweringCtx::new(
-        db,
         file_id,
         subroutine_id.into(),
         SubroutineStore { data: &mut subroutine, sources: &mut subroutine_source_map },
@@ -394,4 +395,8 @@ pub(crate) fn subroutine_with_source_map_query(
     subroutine.shrink_to_fit();
     subroutine_source_map.shrink_to_fit();
     Arc::new(Lowered::new(subroutine, subroutine_source_map))
+}
+
+pub(crate) fn set_subroutine_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    subroutine_with_source_map::set_lru_capacity(db, capacity);
 }
