@@ -112,46 +112,39 @@ impl<T: Copy> RangeIndex<T> {
     }
 
     /// All ids whose range contains `offset` (half-open: `start <= offset <
-    /// end`).
+    /// end`), in start order.
     fn ids_at(&self, offset: TextSize) -> Vec<T> {
         let start_prefix = self.by_start.partition_point(|entry| entry.range.start() <= offset);
         let end_suffix = self.by_end.partition_point(|entry| entry.range.end() <= offset);
-        let mut ids = Vec::new();
+        let mut hits = Vec::new();
         if start_prefix <= self.by_end.len() - end_suffix {
-            for entry in &self.by_start[..start_prefix] {
-                if entry.range.end() > offset {
-                    ids.push(entry.id);
-                }
-            }
+            hits.extend_from_slice(&self.by_start[..start_prefix]);
+            hits.retain(|entry| entry.range.end() > offset);
         } else {
-            for entry in &self.by_end[end_suffix..] {
-                if entry.range.start() <= offset {
-                    ids.push(entry.id);
-                }
-            }
+            hits.extend_from_slice(&self.by_end[end_suffix..]);
+            hits.retain(|entry| entry.range.start() <= offset);
+            // The end-sorted view is not in start order; restore the stable
+            // start order callers observe (e.g. nested macro call targets).
+            hits.sort_unstable_by_key(|entry| entry.range.start());
         }
-        ids
+        hits.into_iter().map(|entry| entry.id).collect()
     }
 
-    /// All ids whose range intersects `range` (non-empty intersection).
+    /// All ids whose range intersects `range` (non-empty intersection), in
+    /// start order.
     fn ids_intersecting_range(&self, range: TextRange) -> Vec<T> {
         let start_prefix = self.by_start.partition_point(|entry| entry.range.start() < range.end());
         let end_suffix = self.by_end.partition_point(|entry| entry.range.end() <= range.start());
-        let mut ids = Vec::new();
+        let mut hits = Vec::new();
         if start_prefix <= self.by_end.len() - end_suffix {
-            for entry in &self.by_start[..start_prefix] {
-                if entry.range.end() > range.start() {
-                    ids.push(entry.id);
-                }
-            }
+            hits.extend_from_slice(&self.by_start[..start_prefix]);
+            hits.retain(|entry| entry.range.end() > range.start());
         } else {
-            for entry in &self.by_end[end_suffix..] {
-                if entry.range.start() < range.end() {
-                    ids.push(entry.id);
-                }
-            }
+            hits.extend_from_slice(&self.by_end[end_suffix..]);
+            hits.retain(|entry| entry.range.start() < range.end());
+            hits.sort_unstable_by_key(|entry| entry.range.start());
         }
-        ids
+        hits.into_iter().map(|entry| entry.id).collect()
     }
 }
 

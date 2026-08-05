@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use ::preproc::source::{SourceMacroCall, SourceMacroResolution, SourcePreprocModel};
 use base_db::salsa;
+use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use syntax::{
     SyntaxTree, Trace,
@@ -155,9 +156,9 @@ pub fn macro_files_at_offset(
             continue;
         };
         let parsed = db.parsed_compilation_unit(model_file);
-        let Some(trace) = parsed.preprocessor_trace.as_ref() else {
+        if parsed.preprocessor_trace.is_none() {
             continue;
-        };
+        }
         for call in mapped.macro_call_ids_at(file_id, offset) {
             let Some(source_call) = mapped.model.macro_calls().get(call) else {
                 continue;
@@ -165,7 +166,7 @@ pub fn macro_files_at_offset(
             let Some(trace_call) = source_call.trace_call else {
                 continue;
             };
-            if emitted_range_for_trace_call(trace, trace_call).is_none() {
+            if db.trace_index(model_file).emitted_range_for_call(trace_call).is_none() {
                 continue;
             }
             let macro_file = db.intern_macro_file(MacroCallLoc { model_file, trace_call });
@@ -202,7 +203,8 @@ pub fn macro_file_expansion(
     let call = source_call_for_trace_call(&mapped.model, call_loc.trace_call)?;
     let parsed = db.parsed_compilation_unit(call_loc.model_file);
     let trace = parsed.preprocessor_trace.as_ref()?;
-    let emitted_range = emitted_range_for_trace_call(trace, call_loc.trace_call)?;
+    let emitted_range =
+        db.trace_index(call_loc.model_file).emitted_range_for_call(call_loc.trace_call)?;
     let definition = expansion_definition(mapped, call, trace, emitted_range)?;
     Some(MacroFileExpansion {
         call_file_id: call_site.call_file_id,
@@ -246,7 +248,9 @@ fn macro_expansion(db: &dyn PreprocDb, macro_file: MacroFileId) -> ExpandResult<
             ExpandErrorKind::TraceUnavailable,
         );
     };
-    let Some(emitted_range) = emitted_range_for_trace_call(trace, call_loc.trace_call) else {
+    let Some(emitted_range) =
+        db.trace_index(call_loc.model_file).emitted_range_for_call(call_loc.trace_call)
+    else {
         return expansion_error(
             String::new(),
             ExpansionSourceMap::empty(),
@@ -321,38 +325,76 @@ fn expansion_definition(
     }
 }
 
-/// Emitted-token range of one macro expansion.
+/// Precomputed lookup tables over one slang preprocessor trace.
 ///
-/// Slang emits every token of an expansion — direct body tokens, argument
-/// replacements, nested expansions, and predefine tokens — as one contiguous
-/// run. The range is therefore `[first, last]` over all tokens whose origin
-/// expansion chain contains the call's expansion. Zero-token expansions yield
-/// an empty range.
-pub(crate) fn emitted_range_for_trace_call(
-    trace: &Trace,
-    trace_call: TraceMacroCallId,
-) -> Option<SourceEmittedTokenRange> {
-    let expansion_id = trace
-        .events
-        .iter()
-        .find(|event| event.macro_call_id == Some(trace_call))?
-        .macro_expansion_id?;
-    let parents = expansion_parents(trace);
-    let mut first = None;
-    let mut last = None;
-    for (index, token) in trace.emitted_tokens.iter().enumerate() {
-        if token_belongs_to_expansion(&token.origin, expansion_id, &parents) {
-            first.get_or_insert(index);
-            last = Some(index);
+/// Both tables are built in a single pass over the trace (usage events for
+/// the call→expansion map, emitted tokens for the expansion→range map) so
+/// that per-call queries are O(1) instead of re-scanning events and emitted
+/// tokens on every request.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TraceIndex {
+    expansion_by_call: FxHashMap<TraceMacroCallId, MacroExpansionId>,
+    emitted_range_by_expansion: FxHashMap<MacroExpansionId, (usize, usize)>,
+}
+
+impl TraceIndex {
+    pub(crate) fn new(trace: &Trace) -> Self {
+        let mut expansion_by_call = FxHashMap::default();
+        for event in &trace.events {
+            if let (Some(call), Some(expansion)) = (event.macro_call_id, event.macro_expansion_id) {
+                expansion_by_call.entry(call).or_insert(expansion);
+            }
+        }
+
+        let parents = expansion_parents(trace);
+        let mut first_by_expansion: FxHashMap<MacroExpansionId, usize> = FxHashMap::default();
+        let mut last_by_expansion: FxHashMap<MacroExpansionId, usize> = FxHashMap::default();
+        for (index, token) in trace.emitted_tokens.iter().enumerate() {
+            let Some(expansion) = token_origin_expansion(&token.origin) else {
+                continue;
+            };
+            // A token belongs to its own expansion and every ancestor
+            // expansion, mirroring `token_belongs_to_expansion`.
+            let mut current = expansion;
+            loop {
+                first_by_expansion.entry(current).or_insert(index);
+                last_by_expansion.insert(current, index);
+                match parents.get(&current) {
+                    Some(parent) => current = *parent,
+                    None => break,
+                }
+            }
+        }
+
+        let emitted_range_by_expansion = first_by_expansion
+            .into_iter()
+            .map(|(expansion, first)| (expansion, (first, last_by_expansion[&expansion])))
+            .collect();
+        Self { expansion_by_call, emitted_range_by_expansion }
+    }
+
+    /// Emitted-token range of one macro expansion, or `None` when the call has
+    /// no recorded expansion. Zero-token expansions yield an empty range.
+    pub(crate) fn emitted_range_for_call(
+        &self,
+        trace_call: TraceMacroCallId,
+    ) -> Option<SourceEmittedTokenRange> {
+        let expansion_id = *self.expansion_by_call.get(&trace_call)?;
+        match self.emitted_range_by_expansion.get(&expansion_id) {
+            Some((first, last)) => Some(SourceEmittedTokenRange {
+                start: SourceEmittedTokenId::new(*first),
+                len: last - first + 1,
+            }),
+            None => Some(SourceEmittedTokenRange { start: SourceEmittedTokenId::new(0), len: 0 }),
         }
     }
-    match last {
-        Some(last) => Some(SourceEmittedTokenRange {
-            start: SourceEmittedTokenId::new(first.unwrap_or_default()),
-            len: last - first.unwrap_or_default() + 1,
-        }),
-        // Zero-token expansion: available, but empty.
-        None => Some(SourceEmittedTokenRange { start: SourceEmittedTokenId::new(0), len: 0 }),
+}
+
+pub(crate) fn trace_index_query(db: &dyn PreprocDb, model_file: FileId) -> Arc<TraceIndex> {
+    let parsed = db.parsed_compilation_unit(model_file);
+    match parsed.preprocessor_trace.as_ref() {
+        Some(trace) => Arc::new(TraceIndex::new(trace)),
+        None => Arc::new(TraceIndex::default()),
     }
 }
 
@@ -390,30 +432,6 @@ fn token_origin_parent_expansion(origin: &TokenOrigin) -> Option<MacroExpansionI
         | TokenOrigin::TokenPaste { parent_expansion_id, .. }
         | TokenOrigin::Stringify { parent_expansion_id, .. } => *parent_expansion_id,
         TokenOrigin::Source { .. } | TokenOrigin::Unavailable => None,
-    }
-}
-
-fn token_belongs_to_expansion(
-    origin: &TokenOrigin,
-    target: MacroExpansionId,
-    parents: &BTreeMap<MacroExpansionId, MacroExpansionId>,
-) -> bool {
-    let mut current = match origin {
-        TokenOrigin::Source { .. } | TokenOrigin::Unavailable => return false,
-        TokenOrigin::MacroBody { expansion_id, .. }
-        | TokenOrigin::MacroArgument { expansion_id, .. }
-        | TokenOrigin::Builtin { expansion_id, .. }
-        | TokenOrigin::TokenPaste { expansion_id, .. }
-        | TokenOrigin::Stringify { expansion_id, .. } => *expansion_id,
-    };
-    loop {
-        if current == target {
-            return true;
-        }
-        match parents.get(&current) {
-            Some(parent) => current = *parent,
-            None => return false,
-        }
     }
 }
 
