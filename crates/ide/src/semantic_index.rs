@@ -24,7 +24,7 @@ use syntax::{
     WalkEvent,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
-    ptr::{SyntaxNodePtr, SyntaxTokenPtr},
+    ptr::SyntaxTokenPtr,
     token::TokenKindExt,
 };
 use triomphe::Arc;
@@ -43,7 +43,8 @@ use crate::{
     module_resolution::resolve_hir_instantiation_target,
     navigation_target::nav_location,
     references::{ReferenceCategory, search::resolve_source_range},
-    source_targets::{SourceTargetResolution, preproc::emit_token_index, source_target_at_offset},
+    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target_with_emitted},
+    source_targets::preproc::emit_token_index,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -330,23 +331,24 @@ impl FileSemanticIndex {
                     let Some(range) = range else {
                         continue;
                     };
-                    // Source-only resolution: macro names, parameters and
-                    // includes are indexed separately (macro reference index)
-                    // and their targets are dropped by the FindReferences
-                    // intent anyway, so skip the four preproc macro queries per
-                    // token.
+                    // Preserve the semantic target's preprocessor ownership
+                    // checks while reusing the emitted-token index for macro
+                    // expansion tokens. Preprocessor definitions, parameters,
+                    // and includes are indexed by their own indexes rather
+                    // than as HDL references.
                     let (target_cost, target) = timed(|| {
-                        source_target_at_offset(
+                        resolve_semantic_target_with_emitted(
                             db,
                             file_id,
-                            root,
                             range.start(),
+                            Some(root),
                             token_precedence,
                             emitted_index.as_ref(),
                         )
+                        .unique_for_intent(TargetIntent::FindReferences)
                     });
                     trace.source_target += target_cost;
-                    let Some(SourceTargetResolution::Resolved(target)) = target else {
+                    let Some(SemanticTarget::Source(target)) = target else {
                         continue;
                     };
 
@@ -499,11 +501,15 @@ pub(crate) fn file_semantic_index_query(
 /// module/block/subroutine arms use the public `Semantics` projections, and
 /// generate blocks / single-member generate branches intern through
 /// `intern_generate_block` with the nearest enclosing container as parent.
-struct ContainerCache {
-    by_node: FxHashMap<SyntaxNodePtr, ArenaOwnerId>,
+///
+/// The key is the Slang node itself, not `SyntaxNodePtr`: macro-emitted nodes
+/// can share a display range and kind at their call site, while their pointer
+/// identities remain distinct.
+struct ContainerCache<'tree> {
+    by_node: FxHashMap<SyntaxNode<'tree>, ArenaOwnerId>,
 }
 
-impl ContainerCache {
+impl<'tree> ContainerCache<'tree> {
     fn new() -> Self {
         Self { by_node: FxHashMap::default() }
     }
@@ -515,7 +521,7 @@ impl ContainerCache {
         &mut self,
         sema: &SemanticsImpl<'_>,
         file_id: HirFileId,
-        token_parent: SyntaxNode<'_>,
+        token_parent: SyntaxNode<'tree>,
     ) -> ArenaOwnerId {
         for node in SyntaxAncestors::start_from(token_parent) {
             if is_container_node(&node)
@@ -533,7 +539,7 @@ impl ContainerCache {
         &mut self,
         sema: &SemanticsImpl<'_>,
         file_id: HirFileId,
-        node: SyntaxNode<'_>,
+        node: SyntaxNode<'tree>,
     ) -> ArenaOwnerId {
         for ancestor in SyntaxAncestors::start_from(node).skip(1) {
             if is_container_node(&ancestor)
@@ -549,14 +555,13 @@ impl ContainerCache {
         &mut self,
         sema: &SemanticsImpl<'_>,
         file_id: HirFileId,
-        node: SyntaxNode<'_>,
+        node: SyntaxNode<'tree>,
     ) -> Option<ArenaOwnerId> {
-        let ptr = SyntaxNodePtr::from_node(node);
-        if let Some(&id) = self.by_node.get(&ptr) {
+        if let Some(&id) = self.by_node.get(&node) {
             return Some(id);
         }
         let id = container_id_for_node(sema, file_id, node, self)?;
-        self.by_node.insert(ptr, id);
+        self.by_node.insert(node, id);
         Some(id)
     }
 }
@@ -608,11 +613,11 @@ fn is_container_node(node: &SyntaxNode<'_>) -> bool {
         || (ast::Member::cast(*node).is_some() && is_generate_branch_member(*node))
 }
 
-fn container_id_for_node(
+fn container_id_for_node<'tree>(
     sema: &SemanticsImpl<'_>,
     file_id: HirFileId,
-    node: SyntaxNode<'_>,
-    cache: &mut ContainerCache,
+    node: SyntaxNode<'tree>,
+    cache: &mut ContainerCache<'tree>,
 ) -> Option<ArenaOwnerId> {
     if let Some(module) = ast::ModuleDeclaration::cast(node) {
         return sema.module_to_def(file_id, module).map(Into::into);
@@ -1030,6 +1035,7 @@ mod tests {
     use hir_def::db::InternDb;
     use hir_semantics::semantics::SemanticsImpl;
     use syntax::SyntaxElement;
+    use utils::line_index::TextSize;
 
     use super::*;
     use crate::test_utils::setup_marked;
@@ -1042,6 +1048,8 @@ mod tests {
     #[test]
     fn container_stack_matches_find_container_for_every_token() {
         let text = r#"
+`define TWO_MODULES module first; endmodule module second; endmodule
+`TWO_MODULES
 module top(input logic clk);
   logic sig;
   always_ff @(posedge clk) begin
@@ -1065,6 +1073,23 @@ endmodule
         let hir_file_id = HirFileId::from(file_id);
         let tree = db.parse(hir_file_id);
         let root = tree.root().expect("test source should parse");
+        let macro_modules = root
+            .elem_preorder()
+            .filter_map(|event| match event {
+                WalkEvent::Enter(SyntaxElement::Node(node)) => {
+                    ast::ModuleDeclaration::cast(node).map(|module| module.syntax())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            macro_modules.windows(2).any(|modules| {
+                modules[0].kind() == modules[1].kind()
+                    && modules[0].text_range() == modules[1].text_range()
+                    && modules[0] != modules[1]
+            }),
+            "macro expansion should contain distinct module nodes with the same display identity"
+        );
         let sema = SemanticsImpl::new(db);
         let mut containers = ContainerCache::new();
         for event in root.elem_preorder() {
@@ -1173,5 +1198,69 @@ endmodule
             }
         }
         assert!(checked > 20, "test should exercise a non-trivial token set");
+    }
+
+    #[test]
+    fn semantic_index_skips_preprocessor_owned_identifiers() {
+        let text = r#"
+`define BODY(/*marker:param*/x) /*marker:body*/x
+module top;
+  wire /*marker:def*/x;
+  assign y = /*marker:ordinary*/x;
+  assign y = `BODY(/*marker:arg*/x);
+endmodule
+"#;
+        let (host, file_id, _clean, markers) = setup_marked(text);
+        let db = host.raw_db();
+        let tree = db.parse(HirFileId::from(file_id));
+        let root = tree.root().expect("test source should parse");
+        let emitted = emit_token_index(root);
+        for marker in ["param", "body"] {
+            let target = resolve_semantic_target_with_emitted(
+                db,
+                file_id,
+                markers[marker],
+                Some(root),
+                token_precedence,
+                Some(&emitted),
+            )
+            .unique_for_intent(TargetIntent::FindReferences);
+            assert!(
+                matches!(target, Some(SemanticTarget::PreprocMacro(_))),
+                "{marker} must remain owned by the preprocessor: {target:?}"
+            );
+        }
+        let index = source_root_semantic_index_for_root(host.raw_db(), SourceRootId(0));
+        let definition_range = TextRange::new(markers["def"], markers["def"] + TextSize::of("x"));
+        let preproc_ranges = [
+            TextRange::new(markers["param"], markers["param"] + TextSize::of("x")),
+            TextRange::new(markers["body"], markers["body"] + TextSize::of("x")),
+        ];
+        let group = index
+            .reference_groups_named("x")
+            .into_iter()
+            .find(|group| {
+                group
+                    .definition_ranges
+                    .iter()
+                    .any(|range| range.file_id == file_id && range.range == definition_range)
+            })
+            .expect("the HDL declaration should have a semantic reference group");
+
+        assert!(
+            group
+                .references
+                .iter()
+                .all(|reference| { !preproc_ranges.iter().any(|range| range == &reference.range) }),
+            "preprocessor-owned x tokens must not become HDL references: {:?}",
+            group.references
+        );
+        assert!(group.references.iter().any(|reference| {
+            reference.range
+                == TextRange::new(markers["ordinary"], markers["ordinary"] + TextSize::of("x"))
+        }));
+        assert!(group.references.iter().any(|reference| {
+            reference.range == TextRange::new(markers["arg"], markers["arg"] + TextSize::of("x"))
+        }));
     }
 }
