@@ -52,6 +52,17 @@ pub enum DiagnosticTag {
     Unnecessary,
 }
 
+impl Diagnostic {
+    /// The token a parse `ExpectedToken` diagnostic wanted to insert, when
+    /// this is such a diagnostic.
+    pub(crate) fn expected_token(&self) -> Option<&str> {
+        (self.source == DiagnosticSource::SlangParse && self.name == "ExpectedToken")
+            .then(|| self.args.first())
+            .flatten()
+            .map(String::as_str)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct VideDiagnosticDescriptor {
     code: u16,

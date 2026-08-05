@@ -6,14 +6,13 @@ use syntax::{
 use utils::text_edit::{TextRange, TextSize};
 use vfs::FileId;
 
-use super::{CodeActionDiagnostics, RepairKind};
-use crate::db::root_db::RootDb;
+use crate::{db::root_db::RootDb, diagnostics::Diagnostic};
 
 pub(crate) struct CodeActionCtx<'a> {
     sema: &'a Semantics<'a, RootDb>,
     file_id: FileId,
     range: TextRange,
-    diagnostics: CodeActionDiagnostics,
+    diagnostics: &'a [Diagnostic],
     parsed_file: ParsedFile,
 }
 
@@ -22,7 +21,7 @@ impl<'a> CodeActionCtx<'a> {
         sema: &'a Semantics<'a, RootDb>,
         file_id: FileId,
         range: TextRange,
-        diagnostics: CodeActionDiagnostics,
+        diagnostics: &'a [Diagnostic],
     ) -> Option<Self> {
         let parsed_file = sema.parse_file(file_id);
         parsed_file.compilation_unit()?;
@@ -46,12 +45,12 @@ impl<'a> CodeActionCtx<'a> {
         self.compilation_unit().syntax()
     }
 
-    pub(crate) fn allows_repair(&self, repair: RepairKind) -> bool {
-        self.diagnostics.allows_repair(repair)
+    pub(crate) fn allows_repair(&self, repair: super::RepairKind) -> bool {
+        self.diagnostics.iter().any(|diag| repair.matches(diag))
     }
 
-    pub(crate) fn diagnostics(&self) -> &CodeActionDiagnostics {
-        &self.diagnostics
+    pub(crate) fn diagnostics(&self) -> &'a [Diagnostic] {
+        self.diagnostics
     }
 
     fn offset(&self) -> TextSize {

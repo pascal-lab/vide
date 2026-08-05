@@ -95,4 +95,3 @@ macro_definition_not_editable = "无法重命名由宏生成的定义。"
 [code_action_resolve]
 no_data = "代码操作缺少数据"
 stale = "代码操作已过期"
-invalid_id = "无效的操作 ID：{id}"

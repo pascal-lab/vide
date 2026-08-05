@@ -1,7 +1,7 @@
 use utils::text_edit::TextRange;
 
 use super::diagnostics::RepairKind;
-use crate::source_change::SourceChange;
+use crate::{diagnostics::Diagnostic, source_change::SourceChange};
 
 #[derive(Debug, Clone)]
 pub enum CodeActionResolveStrategy {
@@ -19,13 +19,6 @@ impl CodeActionResolveStrategy {
         match self {
             CodeActionResolveStrategy::None => false,
             CodeActionResolveStrategy::All => true,
-            CodeActionResolveStrategy::Single { name } => id.name == name,
-        }
-    }
-
-    pub fn should_add(&self, id: CodeActionId) -> bool {
-        match self {
-            CodeActionResolveStrategy::All | CodeActionResolveStrategy::None => false,
             CodeActionResolveStrategy::Single { name } => id.name == name,
         }
     }
@@ -50,25 +43,6 @@ pub enum CodeActionKind {
     RefactorRewrite,
 }
 
-impl CodeActionKind {
-    pub fn contains(self, other: CodeActionKind) -> bool {
-        if self == other {
-            return true;
-        }
-
-        match self {
-            CodeActionKind::Generate => true,
-            CodeActionKind::Refactor => matches!(
-                other,
-                CodeActionKind::RefactorExtract
-                    | CodeActionKind::RefactorInline
-                    | CodeActionKind::RefactorRewrite
-            ),
-            _ => false,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct CodeAction {
     pub id: CodeActionId,
@@ -78,4 +52,8 @@ pub struct CodeAction {
     pub target: TextRange,
     /// Compute it lazily.
     pub source_change: Option<SourceChange>,
+    /// Server diagnostics this action repairs, attached by the engine when
+    /// the action's `RepairKind` matches. Quick-fix classification follows
+    /// from a non-empty list.
+    pub diagnostics: Vec<Diagnostic>,
 }

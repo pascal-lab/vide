@@ -136,8 +136,6 @@ pub enum CodeActionResolveError {
     NoData,
     #[error("stale code action")]
     Stable,
-    #[error("invalid action id: {0}")]
-    InvalidId(String),
 }
 
 pub const RUN_QIHE_ANALYSIS_COMMAND: &str = "vide.server.runQiheAnalysis";

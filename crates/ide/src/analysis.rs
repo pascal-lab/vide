@@ -19,7 +19,7 @@ use vfs::FileId;
 
 use crate::{
     Cancellable, FilePosition, RangeInfo,
-    code_action::{self, CodeAction, CodeActionDiagnostics, CodeActionResolveStrategy},
+    code_action::{self, CodeAction, CodeActionResolveStrategy},
     code_lens::{self, CodeLens, CodeLensConfig, CodeLensKind},
     completion::{CompletionItem, context::TriggerChar},
     db::{line_index_db::LineIndexDb, root_db::RootDb},
@@ -338,7 +338,7 @@ impl Analysis {
         &self,
         file_id: FileId,
         range: TextRange,
-        diagnostics: CodeActionDiagnostics,
+        diagnostics: &[crate::diagnostics::Diagnostic],
         resolve_strategy: CodeActionResolveStrategy,
     ) -> Cancellable<Vec<CodeAction>> {
         self.with_db(|db| {

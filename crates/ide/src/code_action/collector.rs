@@ -1,18 +1,26 @@
 use utils::text_edit::TextRange;
 use vfs::FileId;
 
-use super::{CodeAction, CodeActionId, CodeActionResolveStrategy};
-use crate::source_change::SourceChangeBuilder;
+use super::{CodeAction, CodeActionId};
+use crate::{
+    code_action::CodeActionResolveStrategy, diagnostics::Diagnostic,
+    source_change::SourceChangeBuilder,
+};
 
-pub(crate) struct CodeActionCollector {
+pub(crate) struct CodeActionCollector<'a> {
     file: FileId,
     resolve_strategy: CodeActionResolveStrategy,
+    diagnostics: &'a [Diagnostic],
     buf: Vec<CodeAction>,
 }
 
-impl CodeActionCollector {
-    pub(super) fn new(file: FileId, resolve_strategy: CodeActionResolveStrategy) -> Self {
-        Self { file, resolve_strategy, buf: Vec::new() }
+impl<'a> CodeActionCollector<'a> {
+    pub(super) fn new(
+        file: FileId,
+        resolve_strategy: CodeActionResolveStrategy,
+        diagnostics: &'a [Diagnostic],
+    ) -> Self {
+        Self { file, resolve_strategy, diagnostics, buf: Vec::new() }
     }
 
     pub(crate) fn add(
@@ -30,11 +38,30 @@ impl CodeActionCollector {
             None
         };
 
-        self.buf.push(CodeAction { id, label: label.into(), target, source_change });
+        self.buf.push(CodeAction {
+            id,
+            label: label.into(),
+            target,
+            source_change,
+            diagnostics: Vec::new(),
+        });
         Some(())
     }
 
+    /// Attaches the diagnostics each action repairs and classifies quick
+    /// fixes, then sorts by target size.
     pub(super) fn finish(mut self) -> Vec<CodeAction> {
+        for action in &mut self.buf {
+            let Some(repair) = action.id.repair else {
+                continue;
+            };
+            let matched: Vec<Diagnostic> =
+                self.diagnostics.iter().filter(|diag| repair.matches(diag)).cloned().collect();
+            if !matched.is_empty() {
+                action.id.kind = super::CodeActionKind::QuickFix;
+                action.diagnostics = matched;
+            }
+        }
         self.buf.sort_by_key(|assist| assist.target.len());
         self.buf
     }

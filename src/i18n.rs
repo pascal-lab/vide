@@ -164,7 +164,6 @@ pub(crate) mod keys {
 
     pub(crate) const CODE_ACTION_RESOLVE_NO_DATA: &str = "code_action_resolve.no_data";
     pub(crate) const CODE_ACTION_RESOLVE_STALE: &str = "code_action_resolve.stale";
-    pub(crate) const CODE_ACTION_RESOLVE_INVALID_ID: &str = "code_action_resolve.invalid_id";
 }
 
 static EN_MESSAGES: LazyLock<toml::Table> =
