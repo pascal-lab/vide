@@ -215,8 +215,7 @@ fn syntax_token_emitted_token_id(
     token: &SyntaxTokenWithParent<'_>,
 ) -> Option<SourceEmittedTokenId> {
     token
-        .preprocessor_trace_emitted_token()
-        .emitted_token_index
+        .preprocessor_trace_emitted_token_index()
         .and_then(|index| usize::try_from(index).ok())
         .map(SourceEmittedTokenId::new)
 }

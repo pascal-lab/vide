@@ -38,6 +38,7 @@ struct RawSyntaxTreeBufferIds;
 struct RawExpectedSyntax;
 struct RawLexedTokenAtOffset;
 struct RawPreprocessorTrace;
+struct RawEmittedTokenIndex;
 struct RawPreprocessorTraceEmittedToken;
 
 namespace wrapper {
@@ -511,6 +512,10 @@ namespace wrapper {
         const SyntaxNode& context);
 
     ::RawPreprocessorTraceEmittedToken SyntaxToken_preprocessorTraceOriginWithContext(
+        const wrapper::parsing::Token& token,
+        const SyntaxNode& context);
+
+    ::RawEmittedTokenIndex SyntaxToken_preprocessorTraceEmittedTokenIndexWithContext(
         const wrapper::parsing::Token& token,
         const SyntaxNode& context);
 

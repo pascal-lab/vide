@@ -657,6 +657,18 @@ impl SyntaxTokenWithParent<'_> {
         EmittedToken::from_raw(ffi::SyntaxToken::preprocessorTraceOriginWithContext(token, context))
     }
 
+    /// The emitted-token index alone, without the (allocating) full trace
+    /// origin lookup. Same value as
+    /// [`preprocessor_trace_emitted_token`](Self::preprocessor_trace_emitted_token)
+    /// `emitted_token_index`; use this on hot paths that only need the index.
+    #[inline]
+    pub fn preprocessor_trace_emitted_token_index(&self) -> Option<u32> {
+        let token = self.tok._ptr.as_ref().get_ref();
+        let context = self.parent._ptr.as_ref().get_ref();
+        let raw = ffi::SyntaxToken::preprocessorTraceEmittedTokenIndexWithContext(token, context);
+        raw.has_emitted_token_index.then_some(raw.emitted_token_index)
+    }
+
     #[inline]
     pub fn preprocessor_trace_origin(&self) -> TokenOrigin {
         self.preprocessor_trace_emitted_token().origin

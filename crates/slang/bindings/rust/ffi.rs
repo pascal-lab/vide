@@ -130,6 +130,12 @@ mod slang_ffi {
         disabled_ranges: Vec<RawSourceBufferRange>,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct RawEmittedTokenIndex {
+        emitted_token_index: u32,
+        has_emitted_token_index: bool,
+    }
+
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct RawPreprocessorTraceEmittedToken {
         emitted_token_index: u32,
@@ -423,6 +429,12 @@ mod slang_ffi {
             context: &SyntaxNode,
         ) -> RawPreprocessorTraceEmittedToken;
 
+        #[namespace = "wrapper::syntax"]
+        fn SyntaxToken_preprocessorTraceEmittedTokenIndexWithContext(
+            token: &SyntaxToken,
+            context: &SyntaxNode,
+        ) -> RawEmittedTokenIndex;
+
         fn childNode(self: &SyntaxNode, idx: usize) -> *const SyntaxNode;
 
         #[namespace = "wrapper::syntax"]
@@ -713,6 +725,7 @@ impl_functions! {
         fn range(&self) -> UniquePtr<SourceRange> |> SyntaxToken_range;
         fn rangeWithContext(token: &SyntaxToken, context: &SyntaxNode) -> UniquePtr<SourceRange> |> SyntaxToken_rangeWithContext;
         fn preprocessorTraceOriginWithContext(token: &SyntaxToken, context: &SyntaxNode) -> RawPreprocessorTraceEmittedToken |> SyntaxToken_preprocessorTraceOriginWithContext;
+        fn preprocessorTraceEmittedTokenIndexWithContext(token: &SyntaxToken, context: &SyntaxNode) -> RawEmittedTokenIndex |> SyntaxToken_preprocessorTraceEmittedTokenIndexWithContext;
     }
 }
 
