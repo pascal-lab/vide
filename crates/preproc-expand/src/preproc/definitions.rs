@@ -48,10 +48,12 @@ pub fn macro_definition_at(
     let mut first = None;
     let mut query = ContextQuery::new(db, file_id);
     query.for_each_model(db, |_model_file_id, mapped| {
-        for definition in mapped.model.macro_definitions().iter() {
+        for definition_id in mapped.macro_definition_ids_at(file_id, offset) {
+            let Some(definition) = mapped.model.macro_definitions().get(definition_id) else {
+                continue;
+            };
             let mapped_definition = map_macro_definition(mapped, definition)?;
-            if mapped_definition.file_id == file_id && mapped_definition.name_range.contains(offset)
-            {
+            if mapped_definition.name_range.contains(offset) {
                 first = Some(mapped_definition);
                 break;
             }
@@ -95,22 +97,23 @@ pub fn macro_param_definitions_at(
     let mut definitions = UniqVec::<MacroParamDefinition, MacroParamDefinitionKey>::default();
     let mut query = ContextQuery::new(db, file_id);
     query.for_each_model(db, |_model_file_id, mapped| {
-        for definition in mapped.model.macro_definitions().iter() {
+        for (definition_id, param_index) in mapped.macro_param_definition_ids_at(file_id, offset) {
+            let Some(definition) = mapped.model.macro_definitions().get(definition_id) else {
+                continue;
+            };
             let Some(params) = &definition.params else {
                 continue;
             };
-            for (param_index, param) in params.iter().enumerate() {
-                let Some(param_definition) =
-                    map_macro_param_definition(mapped, definition, param_index, param)?
-                else {
-                    continue;
-                };
-                if param_definition.macro_definition.file_id == file_id
-                    && param_definition.range.contains(offset)
-                {
-                    definitions
-                        .push_keyed(param_definition, MacroParamDefinitionKey::from_definition);
-                }
+            let Some(param) = params.get(param_index) else {
+                continue;
+            };
+            let Some(param_definition) =
+                map_macro_param_definition(mapped, definition, param_index, param)?
+            else {
+                continue;
+            };
+            if param_definition.range.contains(offset) {
+                definitions.push_keyed(param_definition, MacroParamDefinitionKey::from_definition);
             }
         }
         Ok(())
@@ -130,41 +133,44 @@ pub fn macro_param_reference_definitions_at(
     let mut query_range = None;
     let mut query = ContextQuery::new(db, file_id);
     query.for_each_model(db, |_model_file_id, mapped| {
-        for definition in mapped.model.macro_definitions().iter() {
+        for (definition_id, token_index) in mapped.macro_param_reference_ids_at(file_id, offset) {
+            let Some(definition) = mapped.model.macro_definitions().get(definition_id) else {
+                continue;
+            };
             let Some(params) = &definition.params else {
                 continue;
             };
-            for (token_index, token) in definition.body_tokens.iter().enumerate() {
-                let Some(token_range) = token.range else {
+            let Some(token) = definition.body_tokens.get(token_index) else {
+                continue;
+            };
+            let Some(token_range) = token.range else {
+                continue;
+            };
+            let Some((_, range)) =
+                source_mapping_range_at_offset(mapped, token_range, file_id, offset)?
+            else {
+                continue;
+            };
+
+            for (param_index, param) in params.iter().enumerate() {
+                if param.name.as_ref() != Some(&token.value) {
                     continue;
-                };
-                let Some((_, range)) =
-                    source_mapping_range_at_offset(mapped, token_range, file_id, offset)?
+                }
+                let Some(param_definition) =
+                    map_macro_param_definition(mapped, definition, param_index, param)?
                 else {
                     continue;
                 };
-
-                for (param_index, param) in params.iter().enumerate() {
-                    if param.name.as_ref() != Some(&token.value) {
-                        continue;
-                    }
-                    let Some(param_definition) =
-                        map_macro_param_definition(mapped, definition, param_index, param)?
-                    else {
-                        continue;
-                    };
-                    let reference = map_macro_param_reference(
-                        mapped,
-                        definition,
-                        param_index,
-                        token_index,
-                        token_range,
-                    )?;
-                    query_range.get_or_insert(range);
-                    definitions
-                        .push_keyed(param_definition, MacroParamDefinitionKey::from_definition);
-                    references.push_keyed(reference, MacroParamReferenceKey::from_reference);
-                }
+                let reference = map_macro_param_reference(
+                    mapped,
+                    definition,
+                    param_index,
+                    token_index,
+                    token_range,
+                )?;
+                query_range.get_or_insert(range);
+                definitions.push_keyed(param_definition, MacroParamDefinitionKey::from_definition);
+                references.push_keyed(reference, MacroParamReferenceKey::from_reference);
             }
         }
         Ok(())

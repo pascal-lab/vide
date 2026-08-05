@@ -32,7 +32,8 @@ pub(super) fn preproc_source_target_at_offset<'tree>(
 
     match preproc_hits_at_offset(db, &macro_files, file_id, offset) {
         PreprocHitLookup::Available { range, hits } => {
-            let Some(tokens) = syntax_tokens_for_preproc_hit(root, offset, precedence, &hits)
+            let Some(tokens) =
+                syntax_tokens_for_preproc_hit(root, offset, precedence, &hits)
             else {
                 return SourceTargetProviderResult::Blocked(
                     SourceTargetBlock::preproc_unavailable(range),
@@ -195,6 +196,11 @@ fn macro_emitted_token_for_hit(hit: &PreprocTokenHit) -> Option<SourceEmittedTok
     (!matches!(hit.origin, Origin::File { .. })).then_some(hit.emitted_token)
 }
 
+/// Resolves the syntax tokens of a macro-emitted source hit by matching the
+/// preprocessor trace identity against every token in the expanded tree.
+///
+/// The tree's macro-emitted tokens all report the call-site display range, so
+/// positional lookup is unreliable; the trace id is the only stable identity.
 fn syntax_tokens_for_macro_emitted_tokens<'tree>(
     root: SyntaxNode<'tree>,
     emitted_tokens: &[SourceEmittedTokenId],

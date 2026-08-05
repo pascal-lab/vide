@@ -40,12 +40,42 @@ impl MappedSourcePreprocModel {
     ) -> Vec<SourceMacroCallId> {
         self.range_index.call_ids_intersecting_range(file_id, range)
     }
+
+    pub fn macro_definition_ids_at(
+        &self,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> Vec<SourceMacroDefinitionId> {
+        self.range_index.definition_ids_at(file_id, offset)
+    }
+
+    pub fn macro_param_definition_ids_at(
+        &self,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> Vec<(SourceMacroDefinitionId, usize)> {
+        self.range_index.param_definition_ids_at(file_id, offset)
+    }
+
+    pub fn macro_param_reference_ids_at(
+        &self,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> Vec<(SourceMacroDefinitionId, usize)> {
+        self.range_index.param_reference_ids_at(file_id, offset)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct PreprocRangeIndex {
     references_by_file: FxHashMap<FileId, Vec<IndexedRange<SourceMacroReferenceId>>>,
     calls_by_file: FxHashMap<FileId, Vec<IndexedRange<SourceMacroCallId>>>,
+    definitions_by_file: FxHashMap<FileId, Vec<IndexedRange<SourceMacroDefinitionId>>>,
+    /// Param name tokens, keyed by (definition, param index).
+    param_definitions_by_file: FxHashMap<FileId, Vec<IndexedRange<(SourceMacroDefinitionId, usize)>>>,
+    /// Param use tokens inside definition bodies, keyed by (definition, token index).
+    param_references_by_file:
+        FxHashMap<FileId, Vec<IndexedRange<(SourceMacroDefinitionId, usize)>>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,11 +105,62 @@ impl PreprocRangeIndex {
                     .push(IndexedRange { range, id: call.id });
             }
         }
+        for definition in model.macro_definitions().iter() {
+            if let Some((file_id, range)) =
+                definition_file_range(source_map, definition.name_range)
+            {
+                index
+                    .definitions_by_file
+                    .entry(file_id)
+                    .or_default()
+                    .push(IndexedRange { range, id: definition.id });
+            }
+            let Some(params) = &definition.params else {
+                continue;
+            };
+            for (param_index, param) in params.iter().enumerate() {
+                let Some(name_range) = param.name_range else {
+                    continue;
+                };
+                if let Some((file_id, range)) = mapped_file_range(source_map, name_range) {
+                    index
+                        .param_definitions_by_file
+                        .entry(file_id)
+                        .or_default()
+                        .push(IndexedRange { range, id: (definition.id, param_index) });
+                }
+            }
+            for (token_index, token) in definition.body_tokens.iter().enumerate() {
+                let Some(token_range) = token.range else {
+                    continue;
+                };
+                let is_param_use = params.iter().any(|param| param.name.as_ref() == Some(&token.value));
+                if !is_param_use {
+                    continue;
+                }
+                if let Some((file_id, range)) = mapped_file_range(source_map, token_range) {
+                    index
+                        .param_references_by_file
+                        .entry(file_id)
+                        .or_default()
+                        .push(IndexedRange { range, id: (definition.id, token_index) });
+                }
+            }
+        }
         for references in index.references_by_file.values_mut() {
             sort_indexed_ranges(references);
         }
         for calls in index.calls_by_file.values_mut() {
             sort_indexed_ranges(calls);
+        }
+        for definitions in index.definitions_by_file.values_mut() {
+            sort_indexed_ranges(definitions);
+        }
+        for definitions in index.param_definitions_by_file.values_mut() {
+            sort_indexed_ranges(definitions);
+        }
+        for references in index.param_references_by_file.values_mut() {
+            sort_indexed_ranges(references);
         }
         index
     }
@@ -107,6 +188,30 @@ impl PreprocRangeIndex {
     ) -> Vec<SourceMacroCallId> {
         ids_intersecting_range(self.calls_by_file.get(&file_id), range)
     }
+
+    fn definition_ids_at(
+        &self,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> Vec<SourceMacroDefinitionId> {
+        ids_at(self.definitions_by_file.get(&file_id), offset)
+    }
+
+    fn param_definition_ids_at(
+        &self,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> Vec<(SourceMacroDefinitionId, usize)> {
+        ids_at(self.param_definitions_by_file.get(&file_id), offset)
+    }
+
+    fn param_reference_ids_at(
+        &self,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> Vec<(SourceMacroDefinitionId, usize)> {
+        ids_at(self.param_references_by_file.get(&file_id), offset)
+    }
 }
 
 fn mapped_file_range(
@@ -116,6 +221,19 @@ fn mapped_file_range(
     let range = source_map.map_range(source_range).ok()?;
     let file_id = source_map.file_id(source_range.source).ok()?;
     Some((file_id, range))
+}
+
+/// Maps a macro definition's name range to its backing file, applying the
+/// manifest-predefine remap so indexed ranges match what
+/// `map_macro_definition` reports.
+fn definition_file_range(
+    source_map: &PreprocSourceMap,
+    name_range: SourceRange,
+) -> Option<(FileId, TextRange)> {
+    if let Some(manifest) = source_map.predefine_manifest_source(name_range.source) {
+        return Some((manifest.file_id, manifest.range));
+    }
+    mapped_file_range(source_map, name_range)
 }
 
 fn sort_indexed_ranges<T: Copy>(ranges: &mut [IndexedRange<T>]) {
