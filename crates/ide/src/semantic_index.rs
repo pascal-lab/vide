@@ -96,6 +96,19 @@ pub(crate) enum ReferenceContext {
     },
 }
 
+impl ReferenceContext {
+    /// The paired same-name connection definition, when the connection is
+    /// same-name: the local def for name tokens, the port def for data
+    /// tokens, and the counterpart def for shorthand references.
+    pub(crate) fn paired(&self) -> Option<&DefId> {
+        match self {
+            ReferenceContext::Plain => None,
+            ReferenceContext::ConnName { paired, .. }
+            | ReferenceContext::ConnData { paired, .. } => paired.as_ref(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SemanticReference {
     pub file_id: FileId,
@@ -902,7 +915,7 @@ fn conn_shape(conn: ast::NamedPortConnection<'_>) -> Option<ConnShape> {
     Some(ConnShape { name_range, ident_range, collapse_range, shorthand })
 }
 
-fn range_text<'a>(text: &'a str, range: TextRange) -> &'a str {
+fn range_text(text: &str, range: TextRange) -> &str {
     &text[usize::from(range.start())..usize::from(range.end())]
 }
 
