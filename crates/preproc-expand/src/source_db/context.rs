@@ -123,9 +123,11 @@ fn collect_context_source(
     }
 }
 
+#[salsa::tracked(returns(clone))]
 pub(crate) fn source_preproc_context_index_for_profile(
     db: &dyn PreprocDb,
     profile_id: Option<CompilationProfileId>,
+    _key: (),
 ) -> Arc<SourcePreprocContextIndex> {
     let plan = db.compilation_plan_for_profile(profile_id);
     let mut contexts_by_file = FxHashMap::<FileId, UniqVec<FileId, FileId>>::default();
@@ -167,10 +169,11 @@ pub(crate) fn source_preproc_context_index_for_profile(
     };
     Arc::new(SourcePreprocContextIndex { contexts_by_file, status })
 }
-
+#[salsa::tracked(returns(clone))]
 pub(crate) fn source_preproc_contexts_for_file(
     db: &dyn PreprocDb,
     file_id: FileId,
+    _key: (),
 ) -> Arc<SourcePreprocRelevantContexts> {
     let profile_id = db.file_compilation_profile(file_id);
     Arc::new(db.source_preproc_context_index_for_profile(profile_id).contexts_for_file(file_id))

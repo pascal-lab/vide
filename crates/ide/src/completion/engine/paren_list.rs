@@ -1,7 +1,5 @@
 use hir_def::{
-    Ident,
-    db::HirDefDb,
-    lower_ident_opt,
+    Ident, lower_ident_opt,
     module::{ModuleId, ModuleSrc},
 };
 use hir_semantics::semantics::Semantics;

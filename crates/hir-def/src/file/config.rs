@@ -13,7 +13,7 @@ pub struct ConfigDecl {
 
 pub type ConfigDeclId = Idx<ConfigDecl>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ConfigDeclarationAst;
 
 impl AstKind for ConfigDeclarationAst {

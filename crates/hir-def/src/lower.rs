@@ -28,9 +28,7 @@ use super::{
     subroutine::{Subroutine, SubroutineSourceMap},
     ty::NetKind,
 };
-use crate::{
-    container::ArenaOwnerId, db::InternDb, region_tree::RegionTreeBuilder, source_map::SourceMap,
-};
+use crate::{container::ArenaOwnerId, region_tree::RegionTreeBuilder, source_map::SourceMap};
 
 /// Mutable data/source pair for a file lowering pass.
 pub(crate) struct FileStore<'a> {
@@ -348,8 +346,7 @@ pub(crate) struct LoweringDiagnostic {
 }
 
 /// Complete mutable state for one HIR lowering pass.
-pub(crate) struct LoweringCtx<'a, Store> {
-    pub(crate) db: &'a dyn InternDb,
+pub(crate) struct LoweringCtx<Store> {
     pub(crate) file_id: HirFileId,
     pub(crate) owner: ArenaOwnerId,
     pub(crate) store: Store,
@@ -358,15 +355,9 @@ pub(crate) struct LoweringCtx<'a, Store> {
     pub(crate) default_net_type: NetKind,
 }
 
-impl<'a, Store> LoweringCtx<'a, Store> {
-    pub(crate) fn new(
-        db: &'a dyn InternDb,
-        file_id: HirFileId,
-        owner: ArenaOwnerId,
-        store: Store,
-    ) -> Self {
+impl<Store> LoweringCtx<Store> {
+    pub(crate) fn new(file_id: HirFileId, owner: ArenaOwnerId, store: Store) -> Self {
         Self {
-            db,
             file_id,
             owner,
             store,
@@ -377,24 +368,24 @@ impl<'a, Store> LoweringCtx<'a, Store> {
     }
 
     pub(crate) fn module_id(&self) -> ModuleId {
-        let ArenaOwnerId::Module(module_id) = self.owner else {
+        let ArenaOwnerId::Module(module_id) = &self.owner else {
             unreachable!("module-only lowering called for {:?}", self.owner);
         };
-        module_id
+        *module_id
     }
 
     pub(crate) fn generate_block_id(&self) -> GenerateBlockId {
-        let ArenaOwnerId::GenerateBlock(generate_block_id) = self.owner else {
+        let ArenaOwnerId::GenerateBlock(generate_block_id) = &self.owner else {
             unreachable!("generate-block-only lowering called for {:?}", self.owner);
         };
-        generate_block_id
+        generate_block_id.clone()
     }
 
     pub(crate) fn block_id(&self) -> BlockId {
-        let ArenaOwnerId::Block(block_id) = self.owner else {
+        let ArenaOwnerId::Block(block_id) = &self.owner else {
             unreachable!("block-only lowering called for {:?}", self.owner);
         };
-        block_id
+        block_id.clone()
     }
 
     pub(crate) fn report_unsupported(
@@ -420,7 +411,7 @@ impl<'a, Store> LoweringCtx<'a, Store> {
     }
 }
 
-impl<Store: LoweringStore> LoweringCtx<'_, Store> {
+impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn expressions(&mut self) -> (&mut Arena<Expr>, &mut SourceMap<ExprSrc, Expr>) {
         self.store.expressions()
     }
@@ -448,13 +439,13 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
     }
 }
 
-impl<Store: ProcStore> LoweringCtx<'_, Store> {
+impl<Store: ProcStore> LoweringCtx<Store> {
     pub(crate) fn procs(&mut self) -> (&mut Arena<Proc>, &mut SourceMap<ProcSrc, Proc>) {
         self.store.procs()
     }
 }
 
-impl<Store: ModuleItemStore> LoweringCtx<'_, Store> {
+impl<Store: ModuleItemStore> LoweringCtx<Store> {
     pub(crate) fn continuous_assigns(
         &mut self,
     ) -> (&mut Arena<ContAssign>, &mut SourceMap<ContAssignSrc, ContAssign>) {

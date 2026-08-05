@@ -1,5 +1,5 @@
 use base_db::source_db::SourceDb;
-use hir_def::{container::InModule, db::HirDefDb, module::instantiation::PortConn};
+use hir_def::{container::InModule, module::instantiation::PortConn};
 use rustc_hash::FxHashSet;
 use syntax::{
     ast::{self, AstNode},

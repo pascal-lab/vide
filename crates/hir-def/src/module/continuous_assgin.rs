@@ -22,7 +22,7 @@ pub struct ContAssign {
 
 pub type ContAssignId = Idx<ContAssign>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ContinuousAssignAst;
 
 impl AstKind for ContinuousAssignAst {
@@ -31,7 +31,7 @@ impl AstKind for ContinuousAssignAst {
 
 pub type ContAssignSrc = AstId<ContinuousAssignAst>;
 
-impl<Store: ModuleItemStore> LoweringCtx<'_, Store> {
+impl<Store: ModuleItemStore> LoweringCtx<Store> {
     pub(crate) fn lower_continuous_assign(
         &mut self,
         assign: ast::ContinuousAssign,

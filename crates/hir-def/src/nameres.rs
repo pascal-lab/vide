@@ -19,8 +19,13 @@ use crate::{
     symbol::NameScope,
 };
 
-pub(crate) fn scope_for_query(db: &dyn HirDefDb, scope_id: ScopeId) -> Arc<NameScope> {
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn scope_for(db: &dyn HirDefDb, scope_id: ScopeId, _key: ()) -> Arc<NameScope> {
     Arc::new(build_scope(db, scope_id))
+}
+
+pub(crate) fn set_scope_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    scope_for::set_lru_capacity(db, capacity);
 }
 
 fn build_scope(db: &dyn HirDefDb, scope_id: ScopeId) -> NameScope {
@@ -46,14 +51,11 @@ mod tests {
         diagnostics_config::DiagnosticsConfig,
         project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
         salsa::{self, Durability},
-        source_db::{
-            FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
-            SourceRootDbStorage,
-        },
+        source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
         source_root::{SourceRoot, SourceRootId},
     };
     use la_arena::{Idx, RawIdx};
-    use preproc_expand::{db::PreprocDbStorage, file::HirFileId};
+    use preproc_expand::{db::PreprocDb, file::HirFileId};
     use rustc_hash::FxHashSet;
     use triomphe::Arc;
     use utils::paths::{AbsPathBuf, Utf8PathBuf};
@@ -62,7 +64,7 @@ mod tests {
     use crate::{
         Ident,
         container::{ScopeId, SubroutineParent, SubroutineScope},
-        db::{HirDefDb, HirDefDbStorage, InternDbStorage},
+        db::HirDefDb,
         module::{ModuleId, generate::GenerateBlockId},
         symbol::{DefKind, NameContext},
     };
@@ -71,19 +73,33 @@ mod tests {
     const ROOT: SourceRootId = SourceRootId(0);
     const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
-    #[salsa::database(
-        SourceDbStorage,
-        SourceRootDbStorage,
-        PreprocDbStorage,
-        InternDbStorage,
-        HirDefDbStorage
-    )]
+    #[salsa::db]
     #[derive(Default)]
     struct TestDb {
         storage: salsa::Storage<Self>,
     }
 
+    #[salsa::db]
     impl salsa::Database for TestDb {}
+
+    #[salsa::db]
+    impl SourceDb for TestDb {}
+
+    #[salsa::db]
+    impl SourceRootDb for TestDb {}
+
+    #[salsa::db]
+    impl PreprocDb for TestDb {}
+
+    #[salsa::db]
+    impl HirDefDb for TestDb {}
+    impl std::ops::Deref for TestDb {
+        type Target = dyn HirDefDb;
+
+        fn deref(&self) -> &Self::Target {
+            self
+        }
+    }
 
     impl std::fmt::Debug for TestDb {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -117,7 +133,7 @@ mod tests {
         );
 
         let mut db = TestDb::default();
-        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_files_with_durability(files, Durability::HIGH);
         db.set_project_config_with_durability(Arc::new(project_config), Durability::HIGH);
         db.set_diagnostics_config_with_durability(
             Arc::new(DiagnosticsConfig::default()),
@@ -209,7 +225,7 @@ mod tests {
         for (_, region) in module.generate_regions.iter() {
             for item in &region.items {
                 if let crate::module::generate::GenerateItem::GenerateBlockId(id) = item {
-                    block_id = Some(*id);
+                    block_id = Some(id.clone());
                 }
             }
         }

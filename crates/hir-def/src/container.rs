@@ -1,4 +1,3 @@
-use base_db::intern::Lookup;
 use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
 use triomphe::Arc;
@@ -12,7 +11,7 @@ use crate::{
     block::{Block, BlockId, BlockInfo, BlockSourceMap, BlockSrc, LocalBlockId},
     checker::CheckerId,
     covergroup::CovergroupId,
-    db::{HirDefDb, InternDb},
+    db::HirDefDb,
     declaration::{Declaration, DeclarationId, DeclarationSrc},
     expr::{
         Expr, ExprId, ExprSrc,
@@ -33,7 +32,7 @@ use crate::{
 };
 
 define_enum_deriving_from! {
-    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
     pub enum ScopeId {
         File(HirFileId),
         Module(ModuleId),
@@ -47,7 +46,7 @@ define_enum_deriving_from! {
 }
 
 define_enum_deriving_from! {
-    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
     pub enum ArenaOwnerId {
         File(HirFileId),
         Module(ModuleId),
@@ -57,7 +56,7 @@ define_enum_deriving_from! {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub struct InScope<T> {
     pub value: T,
     pub scope_id: ScopeId,
@@ -68,8 +67,8 @@ impl<T> InScope<T> {
         Self { value, scope_id }
     }
 
-    pub fn with_value<U>(self, value: U) -> InScope<U> {
-        InScope::new(self.scope_id, value)
+    pub fn with_value<U>(&self, value: U) -> InScope<U> {
+        InScope::new(self.scope_id.clone(), value)
     }
 
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> InScope<U> {
@@ -123,13 +122,13 @@ impl From<FileOrModule> for ScopeId {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub struct SubroutineScope {
     pub cont_id: SubroutineParent,
     pub value: LocalSubroutineId,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub enum SubroutineParent {
     File(HirFileId),
     Module(ModuleId),
@@ -149,7 +148,7 @@ impl SubroutineScope {
         InContainer::new(self.cont_id.into(), self.value)
     }
 
-    pub fn file_id(self, db: &dyn InternDb) -> HirFileId {
+    pub fn file_id(self, db: &dyn HirDefDb) -> HirFileId {
         match self.cont_id {
             SubroutineParent::File(file_id) => file_id,
             SubroutineParent::Module(module_id) => module_id.file_id,
@@ -174,7 +173,7 @@ impl From<SubroutineParent> for ScopeId {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub struct InContainer<T> {
     pub value: T,
     pub cont_id: ArenaOwnerId,
@@ -185,8 +184,8 @@ impl<T> InContainer<T> {
         InContainer { value, cont_id }
     }
 
-    pub fn with_value<U>(self, value: U) -> InContainer<U> {
-        InContainer::<U>::new(self.cont_id, value)
+    pub fn with_value<U>(&self, value: U) -> InContainer<U> {
+        InContainer::<U>::new(self.cont_id.clone(), value)
     }
 
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> InContainer<U> {
@@ -194,7 +193,7 @@ impl<T> InContainer<T> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub struct InSubroutine<T> {
     pub value: T,
     pub subroutine: SubroutineScope,
@@ -219,7 +218,7 @@ impl<T> From<InSubroutine<T>> for InContainer<T> {
 macro_rules! define_container_id {
     ($($name:ident[$id:ident : $ty:ty]),* $(,)?) => {
         $(
-            #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+            #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
             pub struct $name<T> {
                 pub value: T,
                 pub $id: $ty,
@@ -252,7 +251,34 @@ define_container_id! {
     InFile[file_id: HirFileId],
     InModule[module_id: ModuleId],
     InGenerateBlock[generate_block_id: GenerateBlockId],
-    InBlock[block_id: BlockId],
+}
+impl<T: Copy> Copy for InFile<T> {}
+impl<T: Copy> Copy for InModule<T> {}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+pub struct InBlock<T> {
+    pub value: T,
+    pub block_id: BlockId,
+}
+
+impl<T> InBlock<T> {
+    pub fn new(block_id: BlockId, value: T) -> Self {
+        Self { value, block_id }
+    }
+
+    pub fn with_value<U>(self, value: U) -> InBlock<U> {
+        InBlock::new(self.block_id, value)
+    }
+
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> InBlock<U> {
+        InBlock::new(self.block_id, f(self.value))
+    }
+}
+
+impl<T> From<InBlock<T>> for InContainer<T> {
+    fn from(item: InBlock<T>) -> InContainer<T> {
+        InContainer::new(item.block_id.into(), item.value)
+    }
 }
 
 impl From<ArenaOwnerId> for ScopeId {
@@ -317,24 +343,24 @@ impl ScopeId {
         }
     }
 
-    pub fn arena_owner(self) -> Option<ArenaOwnerId> {
+    pub fn arena_owner(&self) -> Option<ArenaOwnerId> {
         match self {
-            ScopeId::File(file_id) => Some(file_id.into()),
-            ScopeId::Module(module_id) => Some(module_id.into()),
-            ScopeId::GenerateBlock(generate_block_id) => Some(generate_block_id.into()),
-            ScopeId::Block(block_id) => Some(block_id.into()),
-            ScopeId::Subroutine(subroutine) => Some(subroutine.into()),
+            ScopeId::File(file_id) => Some((*file_id).into()),
+            ScopeId::Module(module_id) => Some((*module_id).into()),
+            ScopeId::GenerateBlock(generate_block_id) => Some(generate_block_id.clone().into()),
+            ScopeId::Block(block_id) => Some(block_id.clone().into()),
+            ScopeId::Subroutine(subroutine) => Some(subroutine.clone().into()),
             ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
         }
     }
 
-    pub fn file_id(self, db: &dyn InternDb) -> HirFileId {
+    pub fn file_id(&self, db: &dyn HirDefDb) -> HirFileId {
         match self {
-            ScopeId::File(file_id) => file_id,
+            ScopeId::File(file_id) => *file_id,
             ScopeId::Module(module_id) => module_id.file_id,
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.file_id(db),
             ScopeId::Block(block_id) => block_id.file_id(db),
-            ScopeId::Subroutine(subroutine) => subroutine.file_id(db),
+            ScopeId::Subroutine(subroutine) => subroutine.clone().file_id(db),
             ScopeId::ClockingBlock(clocking_block) => clocking_block.module_id.file_id,
             ScopeId::Checker(checker) => checker.cont_id.file_id(),
             ScopeId::Covergroup(covergroup) => covergroup.cont_id.file_id(),
@@ -354,28 +380,28 @@ impl ScopeId {
 /// }
 /// ```
 impl ArenaOwnerId {
-    pub fn file_id(self, db: &dyn InternDb) -> HirFileId {
-        ScopeId::from(self).file_id(db)
+    pub fn file_id(&self, db: &dyn HirDefDb) -> HirFileId {
+        ScopeId::from(self.clone()).file_id(db)
     }
 
-    pub fn data(self, db: &dyn HirDefDb) -> Container {
+    pub fn data(&self, db: &dyn HirDefDb) -> Container {
         match self {
-            ArenaOwnerId::File(file_id) => Container::HirFile(db.hir_file(file_id)),
+            ArenaOwnerId::File(file_id) => Container::HirFile(db.hir_file(*file_id)),
             ArenaOwnerId::Module(module_id) => Container::Module(module_id.to_container(db)),
             ArenaOwnerId::GenerateBlock(generate_block_id) => {
                 Container::GenerateBlock(generate_block_id.to_container(db))
             }
             ArenaOwnerId::Block(block_id) => Container::Block(block_id.to_container(db)),
             ArenaOwnerId::Subroutine(subroutine) => {
-                Container::Subroutine(db.subroutine(subroutine))
+                Container::Subroutine(db.subroutine(subroutine.clone()))
             }
         }
     }
 
-    pub fn source_map(self, db: &dyn HirDefDb) -> ContainerSrcMap {
+    pub fn source_map(&self, db: &dyn HirDefDb) -> ContainerSrcMap {
         match self {
             ArenaOwnerId::File(file_id) => {
-                ContainerSrcMap::File(db.hir_file_with_source_map(file_id).source_map_arc())
+                ContainerSrcMap::File(db.hir_file_with_source_map(*file_id).source_map_arc())
             }
             ArenaOwnerId::Module(module_id) => {
                 ContainerSrcMap::Module(module_id.to_container_src_map(db))
@@ -387,7 +413,7 @@ impl ArenaOwnerId {
                 ContainerSrcMap::Block(block_id.to_container_src_map(db))
             }
             ArenaOwnerId::Subroutine(subroutine) => ContainerSrcMap::Subroutine(
-                db.subroutine_with_source_map(subroutine).source_map_arc(),
+                db.subroutine_with_source_map(subroutine.clone()).source_map_arc(),
             ),
         }
     }
@@ -406,34 +432,34 @@ impl ModuleId {
 }
 
 impl BlockId {
-    pub fn file_id(&self, db: &dyn InternDb) -> HirFileId {
-        self.lookup(db).src.file_id
+    pub fn file_id(&self, _db: &dyn HirDefDb) -> HirFileId {
+        self.loc().src.file_id
     }
 
     #[inline]
     pub fn to_container(&self, db: &dyn HirDefDb) -> Arc<Block> {
-        db.block(*self)
+        db.block(self.clone())
     }
 
     #[inline]
     pub fn to_container_src_map(&self, db: &dyn HirDefDb) -> Arc<BlockSourceMap> {
-        db.block_with_source_map(*self).source_map_arc()
+        db.block_with_source_map(self.clone()).source_map_arc()
     }
 }
 
 impl GenerateBlockId {
-    pub fn file_id(&self, db: &dyn InternDb) -> HirFileId {
-        self.lookup(db).src.file_id
+    pub fn file_id(&self, _db: &dyn HirDefDb) -> HirFileId {
+        self.loc().src.file_id
     }
 
     #[inline]
     pub fn to_container(&self, db: &dyn HirDefDb) -> Arc<GenerateBlock> {
-        db.generate_block(*self)
+        db.generate_block(self.clone())
     }
 
     #[inline]
     pub fn to_container_src_map(&self, db: &dyn HirDefDb) -> Arc<GenerateBlockSourceMap> {
-        db.generate_block_with_source_map(*self).source_map_arc()
+        db.generate_block_with_source_map(self.clone()).source_map_arc()
     }
 }
 
@@ -720,29 +746,28 @@ impl ContainerSrcMap {
 }
 
 /// Parents of a scope.
-pub struct ScopeParent<'db> {
-    db: &'db dyn InternDb,
+pub struct ScopeParent {
     cont_id: Option<ScopeId>,
 }
 
-impl ScopeParent<'_> {
-    pub fn start_from(db: &dyn InternDb, cont_id: ScopeId) -> ScopeParent<'_> {
-        ScopeParent { db, cont_id: Some(cont_id) }
+impl ScopeParent {
+    pub fn start_from(cont_id: ScopeId) -> ScopeParent {
+        ScopeParent { cont_id: Some(cont_id) }
     }
 }
 
-impl Iterator for ScopeParent<'_> {
+impl Iterator for ScopeParent {
     type Item = ScopeId;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let next = self.cont_id;
-        self.cont_id = match self.cont_id? {
+        let next = self.cont_id.clone();
+        self.cont_id = match self.cont_id.clone()? {
             ScopeId::File(_) => None,
             ScopeId::Module(module_id) => Some(module_id.file_id.into()),
             ScopeId::GenerateBlock(generate_block_id) => {
-                Some(generate_block_id.lookup(self.db).cont_id.into())
+                Some(generate_block_id.loc().cont_id.clone().into())
             }
-            ScopeId::Block(block_id) => Some(block_id.lookup(self.db).cont_id.into()),
+            ScopeId::Block(block_id) => Some(block_id.loc().cont_id.clone().into()),
             ScopeId::Subroutine(subroutine) => Some(subroutine.parent_scope()),
             ScopeId::ClockingBlock(clocking_block) => Some(clocking_block.module_id.into()),
             ScopeId::Checker(checker) => Some(checker.parent_scope()),

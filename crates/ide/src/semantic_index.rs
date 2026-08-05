@@ -8,7 +8,7 @@ use hir_def::{
     def_id::DefId,
     module::{
         ModuleId,
-        generate::{GenerateBlockLoc, GenerateBlockSrc},
+        generate::{GenerateBlockId, GenerateBlockLoc, GenerateBlockSrc},
     },
     pathres::ResolvedScopes,
     symbol::{DefOrigin, NameContext},
@@ -195,7 +195,7 @@ impl ModuleIndex {
 
 impl SemanticModuleDefinition {
     fn new(db: &dyn TyDb, module_id: ModuleId) -> Option<Self> {
-        let origin = DefOrigin::new(db, module_id);
+        let origin = DefOrigin::new(module_id);
         let name = origin.name(db)?;
         let InFile { file_id, value: name_range } = origin.name_range(db)?;
         let InFile { value: full_range, .. } = origin.range(db)?;
@@ -239,16 +239,17 @@ impl SemanticIndex {
             FxHashMap::default();
 
         for file_id in source_root.iter() {
-            db.unwind_if_cancelled();
+            db.unwind_if_revision_cancelled();
             let file_index = db.file_semantic_index(file_id);
             for (definition, group) in &file_index.groups {
-                let builder = references_by_definition.entry(*definition).or_insert_with(|| {
-                    SemanticReferenceGroupBuilder {
-                        name: group.name.clone(),
-                        definition_ranges: definition_ranges_for(db, *definition),
-                        references: Vec::new(),
-                    }
-                });
+                let builder =
+                    references_by_definition.entry(definition.clone()).or_insert_with(|| {
+                        SemanticReferenceGroupBuilder {
+                            name: group.name.clone(),
+                            definition_ranges: definition_ranges_for(db, definition.clone()),
+                            references: Vec::new(),
+                        }
+                    });
                 builder.references.extend(group.references.iter().cloned());
             }
             for (caller, callee, edge) in &db.file_module_edges(file_id).edges {
@@ -371,7 +372,7 @@ impl FileSemanticIndex {
                                 db,
                                 hir_file_id,
                                 token,
-                                container,
+                                container.clone(),
                                 in_special_context,
                                 &mut chains,
                                 &mut groups,
@@ -481,13 +482,6 @@ fn timed<T>(f: impl FnOnce() -> T) -> (std::time::Duration, T) {
     (start.elapsed(), value)
 }
 
-pub(crate) fn file_semantic_index_query(
-    db: &dyn WorkspaceSymbolIndexDb,
-    file_id: FileId,
-) -> Arc<FileSemanticIndex> {
-    Arc::new(FileSemanticIndex::for_file(db, file_id))
-}
-
 /// Caches HIR container ids by syntax node while walking a tree.
 ///
 /// `source_to_def::find_container` finds a token's container by walking up
@@ -557,11 +551,11 @@ impl<'tree> ContainerCache<'tree> {
         file_id: HirFileId,
         node: SyntaxNode<'tree>,
     ) -> Option<ArenaOwnerId> {
-        if let Some(&id) = self.by_node.get(&node) {
-            return Some(id);
+        if let Some(id) = self.by_node.get(&node) {
+            return Some(id.clone());
         }
         let id = container_id_for_node(sema, file_id, node, self)?;
-        self.by_node.insert(node, id);
+        self.by_node.insert(node, id.clone());
         Some(id)
     }
 }
@@ -590,8 +584,8 @@ impl ScopeChainCache {
         }
         let chain = Arc::new({
             let scope_ids =
-                ScopeParent::start_from(db, container.into()).collect::<SmallVec<[_; 4]>>();
-            let scopes = scope_ids.iter().map(|&id| db.scope_for(id)).collect::<Vec<_>>();
+                ScopeParent::start_from(container.clone().into()).collect::<SmallVec<[_; 4]>>();
+            let scopes = scope_ids.iter().map(|id| db.scope_for(id.clone())).collect::<Vec<_>>();
             let unit = db.unit_scope();
             ResolvedScopes { scope_ids, scopes, unit }
         });
@@ -634,24 +628,22 @@ fn container_id_for_node<'tree>(
     if let Some(block) = ast::GenerateBlock::cast(node) {
         let src = GenerateBlockSrc::from_generate_block(block);
         let parent = cache.parent_of(sema, file_id, block.syntax());
-        return Some(intern_generate_container(sema, file_id, src, parent));
+        return Some(intern_generate_container(file_id, src, parent));
     }
     let member = ast::Member::cast(node)?;
     if !is_generate_branch_member(node) {
         return None;
     }
     let parent = cache.parent_of(sema, file_id, node);
-    Some(intern_generate_container(sema, file_id, GenerateBlockSrc::from(member), parent))
+    Some(intern_generate_container(file_id, GenerateBlockSrc::from(member), parent))
 }
 
 fn intern_generate_container(
-    sema: &SemanticsImpl<'_>,
     file_id: HirFileId,
     src: GenerateBlockSrc,
     parent: ArenaOwnerId,
 ) -> ArenaOwnerId {
-    sema.db
-        .intern_generate_block(GenerateBlockLoc { cont_id: parent, src: InFile::new(file_id, src) })
+    GenerateBlockId::new(GenerateBlockLoc { cont_id: parent, src: InFile::new(file_id, src) })
         .into()
 }
 
@@ -795,7 +787,7 @@ fn collect_definition_token(
     let Some(name) = origins.iter().find_map(|origin| origin.name(db)) else {
         return;
     };
-    let definition_ranges = definition_ranges_for(db, definition);
+    let definition_ranges = definition_ranges_for(db, definition.clone());
     let is_definition_site = definition_ranges.iter().any(|definition_range| {
         definition_range.file_id == file_id && definition_range.range == range
     });
@@ -804,7 +796,7 @@ fn collect_definition_token(
     }
 
     let group = groups
-        .entry(definition)
+        .entry(definition.clone())
         .or_insert_with(|| FileReferenceGroup { name: name.to_string(), references: Vec::new() });
     let reference = SemanticReference {
         file_id,
@@ -847,7 +839,7 @@ impl FileModuleIndex {
             for module_id in defs
                 .iter()
                 .filter(|def_id| def_id.kind(db).is_instantiable_def())
-                .filter_map(|def_id| def_id.primary_origin(db).as_module(db))
+                .filter_map(|def_id| def_id.primary_origin(db).as_module())
             {
                 let Some(module) = SemanticModuleDefinition::new(db, module_id) else {
                     continue;
@@ -859,20 +851,13 @@ impl FileModuleIndex {
     }
 }
 
-pub(crate) fn file_module_index_query(
-    db: &dyn WorkspaceSymbolIndexDb,
-    file_id: FileId,
-) -> Arc<FileModuleIndex> {
-    Arc::new(FileModuleIndex::for_file(db, file_id))
-}
-
 impl FileModuleEdges {
     pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
         let hir_file_id = HirFileId::from(file_id);
         let mut edges = Vec::new();
         for (_, defs) in db.file_scope(hir_file_id).iter_listing() {
             for def_id in defs.iter().filter(|def_id| def_id.kind(db).is_instantiable_def()) {
-                let Some(caller) = def_id.primary_origin(db).as_module(db) else {
+                let Some(caller) = def_id.primary_origin(db).as_module() else {
                     continue;
                 };
                 let Some(caller_def) = SemanticModuleDefinition::new(db, caller) else {
@@ -908,13 +893,6 @@ impl FileModuleEdges {
         }
         Self { edges }
     }
-}
-
-pub(crate) fn file_module_edges_query(
-    db: &dyn WorkspaceSymbolIndexDb,
-    file_id: FileId,
-) -> Arc<FileModuleEdges> {
-    Arc::new(FileModuleEdges::for_file(db, file_id))
 }
 
 impl SemanticReferenceGroupBuilder {
@@ -1033,7 +1011,6 @@ fn token_precedence(kind: TokenKind) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use hir_def::db::InternDb;
     use hir_semantics::semantics::SemanticsImpl;
     use syntax::SyntaxElement;
     use utils::line_index::TextSize;
@@ -1107,12 +1084,14 @@ endmodule
                         .unwrap_or(hir_file_id.into());
                     if cached != expected
                         && let (ArenaOwnerId::GenerateBlock(a), ArenaOwnerId::GenerateBlock(b)) =
-                            (cached, expected)
+                            (cached.clone(), expected.clone())
                     {
-                        let loc_a = db.lookup_intern_generate_block(a);
-                        let loc_b = db.lookup_intern_generate_block(b);
-                        eprintln!("cached loc cont_id={:?} src={:?}", loc_a.cont_id, loc_a.src);
-                        eprintln!("expected loc cont_id={:?} src={:?}", loc_b.cont_id, loc_b.src);
+                        eprintln!("cached loc cont_id={:?} src={:?}", a.loc().cont_id, a.loc().src);
+                        eprintln!(
+                            "expected loc cont_id={:?} src={:?}",
+                            b.loc().cont_id,
+                            b.loc().src
+                        );
                     }
                     assert_eq!(cached, expected, "container mismatch at {:?}", token.raw_text());
                 }
@@ -1175,15 +1154,17 @@ endmodule
                 checked += 1;
                 let container = containers.container_for(&sema, hir_file_id, token.parent);
                 let chosen = if token_in_special_context(token) {
-                    DefinitionClass::resolve_in(db, hir_file_id, token, Some(container)).unique()
+                    DefinitionClass::resolve_in(db, hir_file_id, token, Some(container.clone()))
+                        .unique()
                 } else {
-                    let chain = chains.chain_for(db, container);
+                    let chain = chains.chain_for(db, container.clone());
                     sema.nameres_ident_in_scopes(token, NameContext::Value, &chain)
                         .map(DefinitionClass::Definition)
                         .unique()
                 };
                 let full =
-                    DefinitionClass::resolve_in(db, hir_file_id, token, Some(container)).unique();
+                    DefinitionClass::resolve_in(db, hir_file_id, token, Some(container.clone()))
+                        .unique();
                 assert_eq!(
                     chosen,
                     full,

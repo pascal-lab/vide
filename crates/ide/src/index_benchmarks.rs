@@ -22,7 +22,6 @@ use std::{
 };
 
 use base_db::{change::Change, source_db::SourceRootDb, source_root::SourceRoot};
-use preproc_expand::db::PreprocDb;
 use utils::line_index::{TextRange, TextSize};
 use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 

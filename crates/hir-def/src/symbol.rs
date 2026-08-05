@@ -1,6 +1,6 @@
-use base_db::salsa;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
+use triomphe::Arc;
 use utils::impl_from;
 
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
         InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine, SubroutineScope,
     },
     covergroup::{CovergroupId, CoverpointId, CrossId},
-    db::{HirDefDb, InternDb},
+    db::HirDefDb,
     def_id::DefId,
     expr::declarator::DeclId,
     file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
@@ -28,11 +28,10 @@ use crate::{
     typedef::TypedefId,
 };
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub struct DefOrigin(pub salsa::InternId);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DefOrigin(Arc<DefOriginLoc>);
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum DefOriginLoc {
     Module(ModuleId),
@@ -84,8 +83,8 @@ impl_from! { DefOriginLoc =>
 
 macro_rules! impl_origin_cast {
     ($method:ident, $variant:ident, $ty:ty) => {
-        pub fn $method(self, db: &dyn InternDb) -> Option<$ty> {
-            match self.loc(db) {
+        pub fn $method(&self) -> Option<$ty> {
+            match self.loc() {
                 DefOriginLoc::$variant(id) => Some(id),
                 _ => None,
             }
@@ -132,12 +131,12 @@ impl DefOrigin {
 
     impl_origin_cast!(as_stmt, Stmt, InContainer<StmtId>);
 
-    pub fn new(db: &dyn InternDb, loc: impl Into<DefOriginLoc>) -> Self {
-        db.intern_def_origin(loc.into())
+    pub fn new(loc: impl Into<DefOriginLoc>) -> Self {
+        Self(Arc::new(loc.into()))
     }
 
-    pub fn loc(self, db: &dyn InternDb) -> DefOriginLoc {
-        db.lookup_intern_def_origin(self)
+    pub fn loc(&self) -> DefOriginLoc {
+        self.0.as_ref().clone()
     }
 }
 
@@ -359,10 +358,10 @@ impl<T> Resolution<T> {
     }
 }
 
-impl<T: Copy> Resolution<T> {
+impl<T: Clone> Resolution<T> {
     pub fn unique(&self) -> Option<T> {
         match self {
-            Resolution::Unique(value) => Some(*value),
+            Resolution::Unique(value) => Some(value.clone()),
             Resolution::Ambiguous(_) | Resolution::Unresolved => None,
         }
     }
@@ -371,7 +370,7 @@ impl<T: Copy> Resolution<T> {
     /// ambiguous parent.
     pub fn and_then<U: Eq>(&self, mut resolve: impl FnMut(T) -> Resolution<U>) -> Resolution<U> {
         let children = Resolution::from_candidates(
-            self.iter().copied().flat_map(|candidate| resolve(candidate).into_candidates()),
+            self.iter().cloned().flat_map(|candidate| resolve(candidate).into_candidates()),
         );
         match (self, children) {
             (Resolution::Ambiguous(_), Resolution::Unique(_)) => Resolution::Unresolved,
@@ -435,17 +434,17 @@ impl NameScope {
             NameContext::Value => self.values.get(&id).map(SmallVec::as_slice).unwrap_or_default(),
             NameContext::Listing => return Resolution::from_candidates(self.lookup_listing(ident)),
         };
-        Resolution::from_candidates(candidates.iter().copied())
+        Resolution::from_candidates(candidates.iter().cloned())
     }
 
     pub fn lookup_listing(&self, ident: &Ident) -> SmallVec<[DefId; 1]> {
         let id = ident_pool::intern(ident);
         let mut defs = SmallVec::new();
         if let Some(type_defs) = self.types.get(&id) {
-            defs.extend_from_slice(type_defs);
+            defs.extend(type_defs.iter().cloned());
         }
         if let Some(value_defs) = self.values.get(&id) {
-            defs.extend_from_slice(value_defs);
+            defs.extend(value_defs.iter().cloned());
         }
         defs
     }
@@ -456,17 +455,16 @@ impl NameScope {
         self.types
             .iter()
             .map(|(ident, type_defs)| {
-                let mut defs = SmallVec::from_slice(type_defs);
+                let mut defs = type_defs.iter().cloned().collect::<SmallVec<[DefId; 1]>>();
                 if let Some(value_defs) = self.values.get(ident) {
-                    defs.extend_from_slice(value_defs);
+                    defs.extend(value_defs.iter().cloned());
                 }
                 (ident_pool::lookup(*ident), defs)
             })
             .chain(
-                self.values
-                    .iter()
-                    .filter(|(ident, _)| !self.types.contains_key(*ident))
-                    .map(|(ident, defs)| (ident_pool::lookup(*ident), SmallVec::from_slice(defs))),
+                self.values.iter().filter(|(ident, _)| !self.types.contains_key(*ident)).map(
+                    |(ident, defs)| (ident_pool::lookup(*ident), defs.iter().cloned().collect()),
+                ),
             )
     }
 
@@ -482,7 +480,7 @@ impl NameScope {
             .into_iter()
             .flat_map(|defs| defs.iter())
             .filter(|def_id| def_id.kind(db).is_instantiable_def())
-            .filter_map(|def_id| def_id.primary_origin(db).as_module(db))
+            .filter_map(|def_id| def_id.primary_origin(db).as_module())
             .collect::<SmallVec<[_; 2]>>();
         Resolution::from_candidates(entries)
     }
@@ -499,7 +497,7 @@ impl NameScope {
             .into_iter()
             .flat_map(|defs| defs.iter())
             .filter(|def_id| def_id.kind(db) == DefKind::Package)
-            .filter_map(|def_id| def_id.primary_origin(db).as_module(db))
+            .filter_map(|def_id| def_id.primary_origin(db).as_module())
             .collect::<SmallVec<[_; 2]>>();
         Resolution::from_candidates(entries)
     }
@@ -512,7 +510,7 @@ impl NameScope {
             defs.iter()
                 .any(|def_id| {
                     def_id.kind(db).is_instantiable_def()
-                        && def_id.primary_origin(db).as_module(db).is_some()
+                        && def_id.primary_origin(db).as_module().is_some()
                 })
                 .then_some(ident_pool::lookup(*ident))
         })
@@ -524,7 +522,7 @@ impl NameScope {
     ) -> impl Iterator<Item = &'a Ident> + 'a {
         self.types.iter().filter_map(move |(ident, defs)| {
             defs.iter()
-                .any(|def_id| matches!(def_id.primary_origin(db).loc(db), DefOriginLoc::Typedef(_)))
+                .any(|def_id| matches!(def_id.primary_origin(db).loc(), DefOriginLoc::Typedef(_)))
                 .then_some(ident_pool::lookup(*ident))
         })
     }

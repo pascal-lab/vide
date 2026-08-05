@@ -1,4 +1,4 @@
-use hir_def::{db::HirDefDb, module::ModuleId};
+use hir_def::module::ModuleId;
 use preproc_expand::file::HirFileId;
 use utils::text_edit::TextSize;
 

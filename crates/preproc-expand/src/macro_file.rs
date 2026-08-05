@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use ::preproc::source::{SourceMacroCall, SourceMacroResolution, SourcePreprocModel};
-use base_db::salsa;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use syntax::{
@@ -49,16 +48,16 @@ pub struct SourceEmittedTokenRange {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct MacroCallId(pub salsa::InternId);
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct MacroCallLoc {
     pub model_file: FileId,
     pub trace_call: TraceMacroCallId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct MacroFileId(pub salsa::InternId);
+pub struct MacroCallId(pub MacroCallLoc);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct MacroFileId(pub MacroCallLoc);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpansionInfo {
@@ -169,7 +168,7 @@ pub fn macro_files_at_offset(
             if db.trace_index(model_file).emitted_range_for_call(trace_call).is_none() {
                 continue;
             }
-            let macro_file = db.intern_macro_file(MacroCallLoc { model_file, trace_call });
+            let macro_file = MacroFileId(MacroCallLoc { model_file, trace_call });
             if !macro_files.contains(&macro_file) {
                 macro_files.push(macro_file);
             }
@@ -182,7 +181,7 @@ pub fn macro_file_call_site(
     db: &dyn PreprocDb,
     macro_file: MacroFileId,
 ) -> Option<MacroFileCallSite> {
-    let call_loc = db.lookup_intern_macro_file(macro_file);
+    let call_loc = macro_file.0;
     let mapped = db.source_preproc_model(call_loc.model_file);
     let mapped = mapped.as_ref().as_ref().ok()?;
     let call = source_call_for_trace_call(&mapped.model, call_loc.trace_call)?;
@@ -197,7 +196,7 @@ pub fn macro_file_expansion(
     macro_file: MacroFileId,
 ) -> Option<MacroFileExpansion> {
     let call_site = macro_file_call_site(db, macro_file)?;
-    let call_loc = db.lookup_intern_macro_file(macro_file);
+    let call_loc = macro_file.0;
     let mapped = db.source_preproc_model(call_loc.model_file);
     let mapped = mapped.as_ref().as_ref().ok()?;
     let call = source_call_for_trace_call(&mapped.model, call_loc.trace_call)?;
@@ -213,15 +212,17 @@ pub fn macro_file_expansion(
     })
 }
 
+#[salsa::tracked(returns(clone))]
 pub(crate) fn macro_expansion_query(
     db: &dyn PreprocDb,
     macro_file: MacroFileId,
+    _key: (),
 ) -> Arc<ExpandResult<ExpansionInfo>> {
     Arc::new(macro_expansion(db, macro_file))
 }
 
 fn macro_expansion(db: &dyn PreprocDb, macro_file: MacroFileId) -> ExpandResult<ExpansionInfo> {
-    let call_loc = db.lookup_intern_macro_file(macro_file);
+    let call_loc = macro_file.0;
     let mapped = db.source_preproc_model(call_loc.model_file);
     let mapped = match mapped.as_ref() {
         Ok(mapped) => mapped,
@@ -259,7 +260,6 @@ fn macro_expansion(db: &dyn PreprocDb, macro_file: MacroFileId) -> ExpandResult<
     };
     let text = expansion_text_for_range(trace, emitted_range);
     let source_map = ExpansionSourceMap::from_trace_range(
-        db,
         call_loc.model_file,
         trace,
         &mapped.source_map,

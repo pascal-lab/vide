@@ -1,4 +1,4 @@
-use preproc_expand::{db::PreprocDb, macro_file::SourceEmittedTokenId};
+use preproc_expand::macro_file::SourceEmittedTokenId;
 use syntax::{
     SyntaxElement, SyntaxNode, SyntaxTree, SyntaxTreeOptions, WalkEvent, preproc::TokenOrigin,
     token::TokenKindExt,
@@ -373,7 +373,7 @@ fn test_source_hit(file_id: FileId, range: TextRange, emitted_token: usize) -> P
 }
 
 fn macro_arg_origin_from_token_origin(
-    db: &RootDb,
+    _db: &RootDb,
     model_file: FileId,
     origin: &TokenOrigin,
 ) -> Origin {
@@ -382,7 +382,7 @@ fn macro_arg_origin_from_token_origin(
         panic!("macro argument origin expected");
     };
     Origin::MacroArg {
-        call: db.intern_macro_call(preproc_expand::macro_file::MacroCallLoc {
+        call: preproc_expand::macro_file::MacroCallId(preproc_expand::macro_file::MacroCallLoc {
             model_file,
             trace_call: *call_id,
         }),

@@ -4,6 +4,7 @@ use syntax::{
     SyntaxNode, SyntaxToken, TokenKind,
     ast::{self, AstNode},
 };
+use triomphe::Arc;
 
 use super::{Expr, ExprId, Selector};
 use crate::{
@@ -21,7 +22,7 @@ use crate::{
 // associative. Plain `[expr]` stays a fixed-size unpacked dimension;
 // typedef-key and wildcard associative arrays need scope-aware key lowering and
 // are left for a later construct PR.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DataTy {
     Builtin(BuiltinDataTyId),
     Named(NamedDataTy),
@@ -29,8 +30,18 @@ pub enum DataTy {
     Enum,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct BuiltinDataTyId(pub salsa::InternId);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BuiltinDataTyId(Arc<BuiltinDataTy>);
+
+impl BuiltinDataTyId {
+    pub fn new(ty: BuiltinDataTy) -> Self {
+        Self(Arc::new(ty))
+    }
+
+    pub fn get(&self) -> &BuiltinDataTy {
+        &self.0
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum BuiltinDataTy {
@@ -93,14 +104,14 @@ pub enum NamedDataTy {
     Field(ExprId),
 }
 
-impl<Store: LoweringStore> LoweringCtx<'_, Store> {
+impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_data_ty(&mut self, ty: ast::DataType) -> DataTy {
         use ast::DataType::*;
         match ty {
-            KeywordType(ty) => DataTy::Builtin(self.db.intern_ty(self.lower_keyword_ty(ty))),
+            KeywordType(ty) => DataTy::Builtin(BuiltinDataTyId::new(self.lower_keyword_ty(ty))),
             NamedType(named_type) => DataTy::Named(self.lower_named_ty(named_type)),
-            IntegerType(ty) => DataTy::Builtin(self.db.intern_ty(self.lower_integer_type(ty))),
-            ImplicitType(ty) => DataTy::Builtin(self.db.intern_ty(self.lower_implicit_type(ty))),
+            IntegerType(ty) => DataTy::Builtin(BuiltinDataTyId::new(self.lower_integer_type(ty))),
+            ImplicitType(ty) => DataTy::Builtin(BuiltinDataTyId::new(self.lower_implicit_type(ty))),
             EnumType(enum_ty) => self.lower_enum_type(enum_ty),
             StructUnionType(_) | TypeReference(_) | VirtualInterfaceType(_) => {
                 self.default_data_ty()
@@ -170,7 +181,7 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
     }
 
     pub(crate) fn lower_implicit_data_ty(&mut self, ty: ast::ImplicitType) -> DataTy {
-        DataTy::Builtin(self.db.intern_ty(self.lower_implicit_type(ty)))
+        DataTy::Builtin(BuiltinDataTyId::new(self.lower_implicit_type(ty)))
     }
 
     fn lower_signing(signing: Option<SyntaxToken>) -> Option<bool> {
@@ -220,7 +231,7 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
     }
 
     fn default_data_ty(&self) -> DataTy {
-        DataTy::Builtin(self.db.intern_ty(BuiltinDataTy::default()))
+        DataTy::Builtin(BuiltinDataTyId::new(BuiltinDataTy::default()))
     }
 }
 

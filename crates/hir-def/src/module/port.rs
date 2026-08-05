@@ -11,7 +11,7 @@ use crate::{
     Ident, alloc_with_optional_source_entry, alloc_with_source,
     expr::{
         Selector,
-        data_ty::{BuiltinDataTy, DataTy},
+        data_ty::{BuiltinDataTy, BuiltinDataTyId, DataTy},
         declarator::{DeclsRange, empty_decls_range},
     },
     lower_ident_opt,
@@ -45,21 +45,21 @@ pub struct PortDecl {
 
 pub type PortDeclId = Idx<PortDecl>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ImplicitAnsiPortAst;
 
 impl AstKind for ImplicitAnsiPortAst {
     type Node<'a> = ast::ImplicitAnsiPort<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ExplicitAnsiPortAst;
 
 impl AstKind for ExplicitAnsiPortAst {
     type Node<'a> = ast::ExplicitAnsiPort<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct PortDeclarationAst;
 
 impl AstKind for PortDeclarationAst {
@@ -141,7 +141,7 @@ pub enum PortDirection {
     Inout,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum PortHeader {
     Var { dir: PortDirection, var_kw: bool, ty: DataTy },
     Net { dir: PortDirection, net_ty: NetType },
@@ -156,8 +156,8 @@ impl PortHeader {
 
     pub fn ty(&self) -> DataTy {
         match self {
-            PortHeader::Var { ty, .. } => *ty,
-            PortHeader::Net { net_ty: NetType { ty, .. }, .. } => *ty,
+            PortHeader::Var { ty, .. } => ty.clone(),
+            PortHeader::Net { net_ty: NetType { ty, .. }, .. } => ty.clone(),
         }
     }
 }
@@ -230,7 +230,7 @@ pub struct NonAnsiPort {
 
 pub type NonAnsiPortId = Idx<NonAnsiPort>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct NonAnsiPortAst;
 
 impl AstKind for NonAnsiPortAst {
@@ -247,7 +247,7 @@ pub struct PortRef {
 
 pub type PortRefId = Idx<PortRef>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct PortReferenceAst;
 
 impl AstKind for PortReferenceAst {
@@ -280,21 +280,21 @@ impl PortSrcs {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct NonAnsiPortListAst;
 
 impl AstKind for NonAnsiPortListAst {
     type Node<'a> = ast::NonAnsiPortList<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct AnsiPortListAst;
 
 impl AstKind for AnsiPortListAst {
     type Node<'a> = ast::AnsiPortList<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct WildcardPortListAst;
 
 impl AstKind for WildcardPortListAst {
@@ -462,7 +462,7 @@ impl LowerModuleCtx<'_> {
                 ImplicitAnsiPort(port) => {
                     header = Some(self.lower_port_header(port.header(), header));
                     let current_header = header.unwrap_or_else(|| self.default_port_header());
-                    header = Some(current_header);
+                    header = Some(current_header.clone());
                     let parent = alloc_with_source(
                         self.file_id,
                         &mut ports,
@@ -480,7 +480,7 @@ impl LowerModuleCtx<'_> {
                     }
 
                     let current_header = header.unwrap_or_else(|| self.default_port_header());
-                    header = Some(current_header);
+                    header = Some(current_header.clone());
                     alloc_with_source(
                         self.file_id,
                         &mut ports,
@@ -652,7 +652,7 @@ impl LowerModuleCtx<'_> {
         header: ast::PortHeader,
         prev_header: Option<PortHeader>,
     ) -> PortHeader {
-        let default_data_ty = DataTy::Builtin(self.db.intern_ty(BuiltinDataTy::default()));
+        let default_data_ty = DataTy::Builtin(BuiltinDataTyId::new(BuiltinDataTy::default()));
         let default_net_kind = self.default_net_type;
         let prev_header = prev_header.unwrap_or_else(|| self.default_port_header());
 
@@ -716,7 +716,7 @@ impl LowerModuleCtx<'_> {
     }
 
     fn default_port_header(&mut self) -> PortHeader {
-        let default_data_ty = DataTy::Builtin(self.db.intern_ty(BuiltinDataTy::default()));
+        let default_data_ty = DataTy::Builtin(BuiltinDataTyId::new(BuiltinDataTy::default()));
         let default_net_kind = self.default_net_type;
         PortHeader::Net {
             dir: PortDirection::default(),

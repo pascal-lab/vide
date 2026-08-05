@@ -6,18 +6,16 @@ use base_db::{
         CompilationProfile, CompilationProfileId, Predefine, PreprocessConfig, ProjectConfig,
     },
     salsa::{self, Durability},
-    source_db::{
-        FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb, SourceRootDbStorage,
-    },
+    source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
     source_root::{SourceRoot, SourceRootId},
 };
 use hir_def::{
     container::{InFile, ScopeId},
-    db::{HirDefDb, HirDefDbStorage, InternDbStorage},
+    db::HirDefDb,
     module::ModuleId,
 };
 use preproc_expand::{
-    db::PreprocDbStorage, file::HirFileId, macro_file::macro_files_at_offset,
+    db::PreprocDb, file::HirFileId, macro_file::macro_files_at_offset,
     preproc::diagnostic_target_for_range,
 };
 use rustc_hash::FxHashSet;
@@ -34,19 +32,33 @@ const TOP: FileId = FileId::from_raw(0);
 const ROOT: SourceRootId = SourceRootId(0);
 const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
-#[salsa::database(
-    SourceDbStorage,
-    SourceRootDbStorage,
-    PreprocDbStorage,
-    InternDbStorage,
-    HirDefDbStorage
-)]
+#[salsa::db]
 #[derive(Default)]
 struct TestDb {
     storage: salsa::Storage<Self>,
 }
 
+#[salsa::db]
 impl salsa::Database for TestDb {}
+
+#[salsa::db]
+impl SourceDb for TestDb {}
+
+#[salsa::db]
+impl SourceRootDb for TestDb {}
+
+#[salsa::db]
+impl PreprocDb for TestDb {}
+
+#[salsa::db]
+impl HirDefDb for TestDb {}
+impl std::ops::Deref for TestDb {
+    type Target = dyn HirDefDb;
+
+    fn deref(&self) -> &Self::Target {
+        self
+    }
+}
 
 impl fmt::Debug for TestDb {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -79,7 +91,7 @@ fn db_with_root_text_and_predefines(root_text: &str, predefines: Vec<Predefine>)
     files.insert(TOP);
 
     let mut db = TestDb::default();
-    db.set_files_with_durability(Box::new(files), Durability::HIGH);
+    db.set_files_with_durability(files, Durability::HIGH);
     db.set_project_config_with_durability(Arc::new(project_config), Durability::HIGH);
     db.set_diagnostics_config_with_durability(
         Arc::new(DiagnosticsConfig::default()),

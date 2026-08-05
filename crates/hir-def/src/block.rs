@@ -1,4 +1,3 @@
-use base_db::intern::Lookup;
 use la_arena::Arena;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -141,7 +140,7 @@ pub enum ParBlockKind {
     JoinNone,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct BlockStatementAst;
 
 impl AstKind for BlockStatementAst {
@@ -244,16 +243,26 @@ pub struct BlockInfo {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct LocalBlockId(pub StmtId);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct BlockId(pub salsa::InternId);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BlockId(Arc<BlockLoc>);
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+impl BlockId {
+    pub fn new(loc: BlockLoc) -> Self {
+        Self(Arc::new(loc))
+    }
+
+    pub fn loc(&self) -> &BlockLoc {
+        &self.0
+    }
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct BlockLoc {
     pub cont_id: ArenaOwnerId,
     pub src: InFile<BlockSrc>,
 }
 
-pub(crate) type LowerBlockCtx<'a> = LoweringCtx<'a, BlockStore<'a>>;
+pub(crate) type LowerBlockCtx<'a> = LoweringCtx<BlockStore<'a>>;
 
 impl LowerBlockCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
@@ -326,16 +335,17 @@ impl LowerBlockCtx<'_> {
             self.region_tree.handle_node(node.syntax());
         }
 
-        self.region_tree.stage(block.end(), block.syntax());
         self.store.sources.region_tree = self.region_tree.finish();
     }
 }
 
-pub(crate) fn block_with_source_map_query(
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn block_with_source_map(
     db: &dyn HirDefDb,
     block_id: BlockId,
+    _key: (),
 ) -> Arc<Lowered<Block>> {
-    let InFile { file_id, value: block_src } = block_id.lookup(db).src;
+    let InFile { file_id, value: block_src } = block_id.loc().src;
     let tree = db.parse(file_id);
 
     let mut block = Block::default();
@@ -345,7 +355,6 @@ pub(crate) fn block_with_source_map_query(
     };
 
     let mut lower_ctx = LoweringCtx::new(
-        db,
         file_id,
         block_id.into(),
         BlockStore { data: &mut block, sources: &mut block_source_map },
@@ -356,4 +365,8 @@ pub(crate) fn block_with_source_map_query(
     block.shrink_to_fit();
     block_source_map.shrink_to_fit();
     Arc::new(Lowered::new(block, block_source_map))
+}
+
+pub(crate) fn set_block_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    block_with_source_map::set_lru_capacity(db, capacity);
 }

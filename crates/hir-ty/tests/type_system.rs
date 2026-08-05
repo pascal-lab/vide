@@ -4,21 +4,19 @@ use base_db::{
     diagnostics_config::DiagnosticsConfig,
     project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
     salsa::{self, Durability},
-    source_db::{
-        FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb, SourceRootDbStorage,
-    },
+    source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
     source_root::{SourceRoot, SourceRootId},
 };
 use hir_def::{
     Ident,
     container::InContainer,
-    db::{HirDefDb, HirDefDbStorage, InternDbStorage},
+    db::HirDefDb,
     module::ModuleId,
     pathres::{resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
 };
-use hir_ty::{Compatibility, Type, TypeSystem, db::TyDbStorage, display::HirDisplay};
-use preproc_expand::db::PreprocDbStorage;
+use hir_ty::{Compatibility, Type, TypeSystem, db::TyDb, display::HirDisplay};
+use preproc_expand::db::PreprocDb;
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use triomphe::Arc;
@@ -29,20 +27,36 @@ const TOP: FileId = FileId::from_raw(0);
 const ROOT: SourceRootId = SourceRootId(0);
 const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
-#[salsa::database(
-    SourceDbStorage,
-    SourceRootDbStorage,
-    PreprocDbStorage,
-    InternDbStorage,
-    HirDefDbStorage,
-    TyDbStorage
-)]
+#[salsa::db]
 #[derive(Default)]
 struct TestDb {
     storage: salsa::Storage<Self>,
 }
 
+#[salsa::db]
 impl salsa::Database for TestDb {}
+
+#[salsa::db]
+impl SourceDb for TestDb {}
+
+#[salsa::db]
+impl SourceRootDb for TestDb {}
+
+#[salsa::db]
+impl PreprocDb for TestDb {}
+
+#[salsa::db]
+impl HirDefDb for TestDb {}
+
+#[salsa::db]
+impl TyDb for TestDb {}
+impl std::ops::Deref for TestDb {
+    type Target = dyn HirDefDb;
+
+    fn deref(&self) -> &Self::Target {
+        self
+    }
+}
 
 impl fmt::Debug for TestDb {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -76,7 +90,7 @@ fn db_with_root_text(root_text: &str) -> TestDb {
     );
 
     let mut db = TestDb::default();
-    db.set_files_with_durability(Box::new(files), Durability::HIGH);
+    db.set_files_with_durability(files, Durability::HIGH);
     db.set_project_config_with_durability(Arc::new(project_config), Durability::HIGH);
     db.set_diagnostics_config_with_durability(
         Arc::new(DiagnosticsConfig::default()),

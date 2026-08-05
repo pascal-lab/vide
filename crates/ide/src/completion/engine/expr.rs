@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 
 use hir_def::{
     container::{InContainer, ScopeId, ScopeParent, SubroutineScope},
-    db::HirDefDb,
     def_id::DefId,
     lower_ident_opt,
     module::ModuleId,
@@ -62,8 +61,8 @@ fn complete_expression_impl(
     let mut current_module_id = None;
 
     if let Some(container_id) = container_id_at_offset(&sema, file_id, root, position.offset) {
-        current_module_id = module_id_for_container(db, container_id);
-        for container_id in ScopeParent::start_from(db, container_id) {
+        current_module_id = module_id_for_container(db, container_id.clone());
+        for container_id in ScopeParent::start_from(container_id) {
             collect_container_names(db, container_id, &mut names);
         }
     }
@@ -173,7 +172,7 @@ fn collect_def_names(
     let defs = defs.into_iter().collect::<Vec<_>>();
 
     let subroutines = Resolution::from_candidates(
-        defs.iter().filter_map(|def_id| def_id.primary_origin(db).as_subroutine(db)),
+        defs.iter().filter_map(|def_id| def_id.primary_origin(db).as_subroutine()),
     );
     let return_ty = match subroutines {
         Resolution::Unresolved => None,
@@ -197,7 +196,7 @@ fn collect_def_names(
                 | DefKind::SubroutinePort
         )
     }) {
-        let res = Resolution::from_candidates(defs.iter().copied());
+        let res = Resolution::from_candidates(defs.iter().cloned());
         let ty = TypeSystem::new(db).type_of_resolution(res);
         names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
     }
@@ -207,8 +206,8 @@ fn subroutine_return_ty(db: &RootDb, subroutine_id: SubroutineScope) -> Type {
     TypeSystem::new(db).type_of_subroutine_return(subroutine_id)
 }
 
-fn module_id_for_container(db: &RootDb, container_id: ScopeId) -> Option<ModuleId> {
-    ScopeParent::start_from(db, container_id).find_map(|container_id| match container_id {
+fn module_id_for_container(_db: &RootDb, container_id: ScopeId) -> Option<ModuleId> {
+    ScopeParent::start_from(container_id).find_map(|container_id| match container_id {
         ScopeId::Module(module_id) => Some(module_id),
         _ => None,
     })

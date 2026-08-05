@@ -33,7 +33,7 @@ pub struct Proc {
 
 pub type ProcId = Idx<Proc>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ProceduralBlockAst;
 
 impl AstKind for ProceduralBlockAst {
@@ -42,7 +42,7 @@ impl AstKind for ProceduralBlockAst {
 
 pub type ProcSrc = AstId<ProceduralBlockAst>;
 
-impl<Store: ProcStore> LoweringCtx<'_, Store> {
+impl<Store: ProcStore> LoweringCtx<Store> {
     pub(crate) fn lower_proc(&mut self, proc: ast::ProceduralBlock) -> ProcId {
         use ast::ProceduralBlock::*;
         let proc_ty = match proc {

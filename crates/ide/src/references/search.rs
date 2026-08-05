@@ -20,10 +20,7 @@ use vfs::FileId;
 use super::{ReferenceCategory, ReferencesConfig};
 use crate::{
     ScopeVisibility,
-    db::{
-        root_db::RootDb,
-        workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_semantic_index_for_root},
-    },
+    db::{root_db::RootDb, workspace_symbol_index_db::source_root_semantic_index_for_root},
     semantic_index::SemanticReference,
 };
 
@@ -197,9 +194,9 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         // Single-file scopes (document highlight, single-file rename) read
         // the file's own index directly and skip the root merge pass.
         if let Some(file_id) = self.scope.single_file_id() {
-            db.unwind_if_cancelled();
+            db.unwind_if_revision_cancelled();
             let index = db.file_semantic_index(file_id);
-            let Some(group) = index.references_for_definition(*self.def) else {
+            let Some(group) = index.references_for_definition(self.def.clone()) else {
                 return res;
             };
             for reference in group.references().iter() {
@@ -214,9 +211,9 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         }
 
         for source_root_id in self.scope.source_root_ids(db) {
-            db.unwind_if_cancelled();
+            db.unwind_if_revision_cancelled();
             let index = source_root_semantic_index_for_root(db, source_root_id);
-            let Some(group) = index.references_for_definition(*self.def) else {
+            let Some(group) = index.references_for_definition(self.def.clone()) else {
                 continue;
             };
 

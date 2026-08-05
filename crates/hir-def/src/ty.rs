@@ -2,7 +2,7 @@ use syntax::{SyntaxToken, TokenKind, ast};
 
 use super::expr::data_ty::DataTy;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct NetType {
     pub kind: NetKind,
     pub ty: DataTy,

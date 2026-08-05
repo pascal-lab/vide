@@ -6,6 +6,7 @@ description = "Shared workspace model types"
 edition.workspace = true
 
 [dependencies]
+salsa.workspace = true
 triomphe.workspace = true
 utils.workspace = true
 vfs.workspace = true

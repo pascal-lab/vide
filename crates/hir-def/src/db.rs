@@ -1,125 +1,136 @@
-use base_db::{impl_intern_key, impl_intern_lookup, salsa};
+use std::ops::Deref;
+
+use base_db::salsa;
 use preproc_expand::{db::PreprocDb, file::HirFileId};
 use triomphe::Arc;
 
 use crate::{
-    block::{self, Block, BlockId, BlockLoc},
+    block::{self, Block, BlockId},
     checker::CheckerId,
     container::{InFileOrModule, InModule, ScopeId, SubroutineScope},
     covergroup::CovergroupId,
-    def_id::{DefId, Definition},
-    expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
     file::{self, HirFile},
     module::{
         self, Module, ModuleId, PackageId,
         clocking::ClockingBlockId,
-        generate::{self, GenerateBlock, GenerateBlockId, GenerateBlockLoc},
+        generate::{self, GenerateBlock, GenerateBlockId},
     },
     nameres,
     source_map::Lowered,
     subroutine::{self, Subroutine},
-    symbol::{DefOrigin, DefOriginLoc, NameScope},
+    symbol::NameScope,
 };
 
-pub(crate) macro impl_intern($id:ident, $loc:ident, $intern:ident, $lookup:ident) {
-    impl_intern_key!($id);
-    impl_intern_lookup!(InternDb, $id, $loc, $intern, $lookup);
+#[salsa::db]
+pub trait HirDefDb: PreprocDb {}
+
+// Salsa attaches tracked query methods to `dyn Db`; keep the lower-layer
+// surface available on composed database trait objects without forwarding.
+impl Deref for dyn HirDefDb {
+    type Target = dyn PreprocDb;
+
+    fn deref(&self) -> &Self::Target {
+        self
+    }
 }
 
-#[salsa::query_group(InternDbStorage)]
-pub trait InternDb: PreprocDb {
-    #[salsa::interned]
-    fn intern_ty(&self, ty: BuiltinDataTy) -> BuiltinDataTyId;
+impl dyn HirDefDb + '_ {
+    pub fn hir_file_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<HirFile>> {
+        file::hir_file_with_source_map(self, file_id, ())
+    }
 
-    #[salsa::interned]
-    fn intern_block(&self, block: BlockLoc) -> BlockId;
+    pub fn hir_file(&self, file_id: HirFileId) -> Arc<HirFile> {
+        hir_file(self, file_id)
+    }
 
-    #[salsa::interned]
-    fn intern_generate_block(&self, generate_block: GenerateBlockLoc) -> GenerateBlockId;
+    pub fn module_with_source_map(&self, module_id: ModuleId) -> Arc<Lowered<Module>> {
+        module::module_with_source_map(self, module_id, ())
+    }
 
-    #[salsa::interned]
-    fn intern_def_origin(&self, origin: DefOriginLoc) -> DefOrigin;
+    pub fn module(&self, module_id: ModuleId) -> Arc<Module> {
+        module(self, module_id)
+    }
 
-    #[salsa::interned]
-    fn intern_def(&self, definition: Definition) -> DefId;
-}
+    pub fn block_with_source_map(&self, block_id: BlockId) -> Arc<Lowered<Block>> {
+        block::block_with_source_map(self, block_id, ())
+    }
 
-impl_intern!(BuiltinDataTyId, BuiltinDataTy, intern_ty, lookup_intern_ty);
-impl_intern!(BlockId, BlockLoc, intern_block, lookup_intern_block);
-impl_intern!(
-    GenerateBlockId,
-    GenerateBlockLoc,
-    intern_generate_block,
-    lookup_intern_generate_block
-);
-impl_intern!(DefOrigin, DefOriginLoc, intern_def_origin, lookup_intern_def_origin);
-impl_intern!(DefId, Definition, intern_def, lookup_intern_def);
+    pub fn block(&self, block_id: BlockId) -> Arc<Block> {
+        block(self, block_id)
+    }
 
-#[salsa::query_group(HirDefDbStorage)]
-pub trait HirDefDb: InternDb {
-    #[salsa::invoke(file::hir_file_with_source_map_query)]
-    fn hir_file_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<HirFile>>;
+    pub fn subroutine_with_source_map(
+        &self,
+        subroutine_id: SubroutineScope,
+    ) -> Arc<Lowered<Subroutine>> {
+        subroutine::subroutine_with_source_map(self, subroutine_id, ())
+    }
 
-    fn hir_file(&self, file_id: HirFileId) -> Arc<HirFile>;
+    pub fn subroutine(&self, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
+        subroutine(self, subroutine_id)
+    }
 
-    #[salsa::invoke(module::module_with_source_map_query)]
-    fn module_with_source_map(&self, module_id: ModuleId) -> Arc<Lowered<Module>>;
-
-    fn module(&self, module_id: ModuleId) -> Arc<Module>;
-
-    #[salsa::invoke(block::block_with_source_map_query)]
-    fn block_with_source_map(&self, block_id: BlockId) -> Arc<Lowered<Block>>;
-
-    fn block(&self, block_id: BlockId) -> Arc<Block>;
-
-    #[salsa::invoke(subroutine::subroutine_with_source_map_query)]
-    fn subroutine_with_source_map(&self, subroutine: SubroutineScope) -> Arc<Lowered<Subroutine>>;
-
-    fn subroutine(&self, subroutine_id: SubroutineScope) -> Arc<Subroutine>;
-
-    #[salsa::invoke(generate::generate_block_with_source_map_query)]
-    fn generate_block_with_source_map(
+    pub fn generate_block_with_source_map(
         &self,
         generate_block_id: GenerateBlockId,
-    ) -> Arc<Lowered<GenerateBlock>>;
+    ) -> Arc<Lowered<GenerateBlock>> {
+        generate::generate_block_with_source_map(self, generate_block_id, ())
+    }
 
-    fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock>;
+    pub fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock> {
+        generate_block(self, generate_block_id)
+    }
 
-    #[salsa::invoke(nameres::scope_for_query)]
-    fn scope_for(&self, scope_id: ScopeId) -> Arc<NameScope>;
+    pub fn scope_for(&self, scope_id: ScopeId) -> Arc<NameScope> {
+        nameres::scope_for(self, scope_id, ())
+    }
 
-    #[salsa::invoke(NameScope::unit_scope_query)]
-    fn unit_scope(&self) -> Arc<NameScope>;
+    pub fn unit_scope(&self) -> Arc<NameScope> {
+        NameScope::unit_scope(self)
+    }
 
-    #[salsa::invoke(NameScope::file_scope_query)]
-    fn file_scope(&self, file_id: HirFileId) -> Arc<NameScope>;
+    pub fn file_scope(&self, file_id: HirFileId) -> Arc<NameScope> {
+        NameScope::file_scope(self, file_id)
+    }
 
-    #[salsa::invoke(NameScope::module_scope_query)]
-    fn module_scope(&self, module_id: ModuleId) -> Arc<NameScope>;
+    pub fn module_scope(&self, module_id: ModuleId) -> Arc<NameScope> {
+        NameScope::module_scope(self, module_id)
+    }
 
-    #[salsa::invoke(NameScope::clocking_block_scope_query)]
-    fn clocking_block_scope(&self, clocking_block_id: InModule<ClockingBlockId>) -> Arc<NameScope>;
+    pub fn clocking_block_scope(
+        &self,
+        clocking_block_id: InModule<ClockingBlockId>,
+    ) -> Arc<NameScope> {
+        NameScope::clocking_block_scope(self, clocking_block_id)
+    }
 
-    #[salsa::invoke(NameScope::checker_scope_query)]
-    fn checker_scope(&self, checker_id: InFileOrModule<CheckerId>) -> Arc<NameScope>;
+    pub fn checker_scope(&self, checker_id: InFileOrModule<CheckerId>) -> Arc<NameScope> {
+        NameScope::checker_scope(self, checker_id)
+    }
 
-    #[salsa::invoke(NameScope::covergroup_scope_query)]
-    fn covergroup_scope(&self, covergroup_id: InFileOrModule<CovergroupId>) -> Arc<NameScope>;
+    pub fn covergroup_scope(&self, covergroup_id: InFileOrModule<CovergroupId>) -> Arc<NameScope> {
+        NameScope::covergroup_scope(self, covergroup_id)
+    }
 
-    #[salsa::invoke(NameScope::generate_block_scope_query)]
-    fn generate_block_scope(&self, generate_block_id: GenerateBlockId) -> Arc<NameScope>;
+    pub fn generate_block_scope(&self, generate_block_id: GenerateBlockId) -> Arc<NameScope> {
+        NameScope::generate_block_scope(self, generate_block_id)
+    }
 
-    #[salsa::invoke(NameScope::block_scope_query)]
-    fn block_scope(&self, block_id: BlockId) -> Arc<NameScope>;
+    pub fn block_scope(&self, block_id: BlockId) -> Arc<NameScope> {
+        NameScope::block_scope(self, block_id)
+    }
 
-    #[salsa::invoke(NameScope::subroutine_scope_query)]
-    fn subroutine_scope(&self, subroutine_id: SubroutineScope) -> Arc<NameScope>;
+    pub fn subroutine_scope(&self, subroutine_id: SubroutineScope) -> Arc<NameScope> {
+        NameScope::subroutine_scope(self, subroutine_id)
+    }
 
-    #[salsa::invoke(NameScope::package_export_signature_query)]
-    fn package_export_signature(&self, package_id: PackageId) -> Arc<NameScope>;
+    pub fn package_export_signature(&self, package_id: PackageId) -> Arc<NameScope> {
+        NameScope::package_export_signature(self, package_id, ())
+    }
 
-    #[salsa::invoke(NameScope::package_export_scope_query)]
-    fn package_export_scope(&self, package_id: PackageId) -> Arc<NameScope>;
+    pub fn package_export_scope(&self, package_id: PackageId) -> Arc<NameScope> {
+        NameScope::package_export_scope(self, package_id, ())
+    }
 }
 
 fn hir_file(db: &dyn HirDefDb, file_id: HirFileId) -> Arc<HirFile> {
@@ -140,4 +151,15 @@ fn subroutine(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> Arc<Subrouti
 
 fn generate_block(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock> {
     db.generate_block_with_source_map(generate_block_id).data()
+}
+
+/// Sets the LRU capacity of the tracked HIR queries, mirroring the previous
+/// `RootDb::update_parse_query_lru_capacity` knob.
+pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    block::set_block_lru_capacity(db, capacity);
+    file::set_hir_file_lru_capacity(db, capacity);
+    module::set_module_lru_capacity(db, capacity);
+    module::generate::set_generate_block_lru_capacity(db, capacity);
+    nameres::set_scope_lru_capacity(db, capacity);
+    subroutine::set_subroutine_lru_capacity(db, capacity);
 }

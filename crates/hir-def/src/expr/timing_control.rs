@@ -35,7 +35,7 @@ pub enum EventControl {
 
 pub type EventExprId = Idx<EventExpr>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct EventExpressionAst;
 
 impl AstKind for EventExpressionAst {
@@ -60,7 +60,7 @@ pub enum Sensitivity {
     Edge,
 }
 
-impl<Store: LoweringStore> LoweringCtx<'_, Store> {
+impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_event_expr(&mut self, event_expr: ast::EventExpression) -> EventExprId {
         let hir_event_expr = self.lower_event_expr_inner(event_expr);
         let file_id = self.file_id;
@@ -102,7 +102,7 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
     }
 }
 
-impl<Store: LoweringStore> LoweringCtx<'_, Store> {
+impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_timing_control(&mut self, control: ast::TimingControl) -> TimingControl {
         match control {
             ast::TimingControl::OneStepDelay(_) => {

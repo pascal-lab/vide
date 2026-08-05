@@ -244,7 +244,7 @@ pub enum Expr {
 
 pub type ExprId = Idx<Expr>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ExpressionAst;
 
 impl AstKind for ExpressionAst {
@@ -283,7 +283,7 @@ pub enum Selector {
     Descending(ExprId, ExprId),
 }
 
-impl<Store: LoweringStore> LoweringCtx<'_, Store> {
+impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_expr_opt(&mut self, expr: Option<ast::Expression>) -> ExprId {
         if let Some(expr) = expr { self.lower_expr(expr) } else { self.alloc_missing_expr() }
     }
@@ -371,7 +371,7 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
 
     fn lower_name(&mut self, name: ast::Name) -> Option<Expr> {
         fn lower_ident_select(
-            ctx: &mut LoweringCtx<'_, impl LoweringStore>,
+            ctx: &mut LoweringCtx<impl LoweringStore>,
             ident_select: ast::IdentifierSelectName,
         ) -> Option<Expr> {
             let mut expr =
@@ -637,7 +637,7 @@ impl<Store: LoweringStore> LoweringCtx<'_, Store> {
     }
 }
 
-impl<Store: LoweringStore> LoweringCtx<'_, Store> {
+impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_property_expr(&mut self, expr: ast::PropertyExpr) -> ExprId {
         self.lower_property_expr_inner(expr).unwrap_or_else(|| self.alloc_missing_expr())
     }

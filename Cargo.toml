@@ -91,7 +91,7 @@ nohash-hasher = "0.2.0"
 num_cpus = "1.16.0"
 regex = "1.10.2"
 rustc-hash = "2.1.1"
-salsa = "0.17.0-pre.2"
+salsa = "0.28.2"
 serde = { version = "1.0.189", features = ["derive"] }
 serde_json = "1.0.107"
 smallvec = { version = "1.10.0", features = [
@@ -106,7 +106,7 @@ thiserror = "2.0.0"
 toml = "0.9.8"
 tracing = "0.1.37"
 triomphe = "0.1.9"
-winapi = "0.3.9"
+winapi = { version = "0.3.9", features = ["processthreadsapi"] }
 
 [profile.dev]
 debug = 1

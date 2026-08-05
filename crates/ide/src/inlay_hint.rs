@@ -1,6 +1,5 @@
 use hir_def::{
     container::{InContainer, InFile},
-    db::HirDefDb,
     def_id::DefId,
     expr::Expr,
     file::FileItem,

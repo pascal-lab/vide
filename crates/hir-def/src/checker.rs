@@ -95,7 +95,7 @@ pub fn lower_checker_decl(checker: ast::CheckerDeclaration<'_>) -> CheckerDef {
     }
 }
 
-impl<Store: CheckerStore> LoweringCtx<'_, Store> {
+impl<Store: CheckerStore> LoweringCtx<Store> {
     pub(crate) fn lower_checker_decl(
         &mut self,
         checker_decl: ast::CheckerDeclaration<'_>,

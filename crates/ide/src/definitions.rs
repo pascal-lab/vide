@@ -24,7 +24,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DefinitionClass {
     Definition(DefId),
     PortConnShorthand { port: DefId, local: DefId },
@@ -65,16 +65,19 @@ impl DefinitionClass {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_instantiation_type_name(db, &sema, file_id, tp, container)
+        if let Some(resolution) =
+            resolve_instantiation_type_name(db, &sema, file_id, tp, container.clone())
         {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_package_import_item(&sema, file_id, tp, container) {
+        if let Some(resolution) = resolve_package_import_item(&sema, file_id, tp, container.clone())
+        {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_package_scoped_name(&sema, file_id, tp, container) {
+        if let Some(resolution) = resolve_package_scoped_name(&sema, file_id, tp, container.clone())
+        {
             return resolution;
         }
 
@@ -120,13 +123,13 @@ fn combine_port_shorthand(
         (Resolution::Unresolved, Resolution::Unresolved) => Resolution::Unresolved,
         (Resolution::Unresolved, _) => local.map(DefinitionClass::Definition),
         (_, Resolution::Unresolved) => port.map(DefinitionClass::Definition),
-        _ => Resolution::from_candidates(port.into_candidates().into_iter().flat_map(|port| {
-            local
-                .candidates()
-                .iter()
-                .copied()
-                .map(move |local| DefinitionClass::PortConnShorthand { port, local })
-        })),
+        _ => {
+            Resolution::from_candidates(port.into_candidates().into_iter().flat_map(|port| {
+                local.candidates().iter().cloned().map(move |local| {
+                    DefinitionClass::PortConnShorthand { port: port.clone(), local }
+                })
+            }))
+        }
     }
 }
 
@@ -265,7 +268,7 @@ fn package_member_resolution(
         if primary_ctx == NameContext::Type { NameContext::Value } else { NameContext::Type };
     packages
         .and_then(|package| {
-            let Some(package_id) = package.primary_origin(sema.db).as_module(sema.db) else {
+            let Some(package_id) = package.primary_origin(sema.db).as_module() else {
                 return Resolution::Unresolved;
             };
             let scope = sema.db.package_export_scope(package_id);
@@ -315,14 +318,16 @@ fn resolve_instantiation_type_name(
                     candidates.into_iter().map(|module_id| DefId::new(sema.db, module_id)),
                 ),
                 ModuleResolution::Unresolved => {
-                    nameres_ident(sema, file_id, tp, NameContext::Type, container).or_else(|| {
-                        Resolution::from_candidates(
-                            nameres_ident(sema, file_id, tp, NameContext::Value, container)
-                                .into_candidates()
-                                .into_iter()
-                                .filter(|def| def.kind(sema.db) == DefKind::Udp),
-                        )
-                    })
+                    nameres_ident(sema, file_id, tp, NameContext::Type, container.clone()).or_else(
+                        || {
+                            Resolution::from_candidates(
+                                nameres_ident(sema, file_id, tp, NameContext::Value, container)
+                                    .into_candidates()
+                                    .into_iter()
+                                    .filter(|def| def.kind(sema.db) == DefKind::Udp),
+                            )
+                        },
+                    )
                 }
             };
         return Some(resolution.map(DefinitionClass::Definition));
@@ -464,7 +469,7 @@ mod tests {
             };
 
             let origins = def.origins(db);
-            let (resolution, range) = match origins.first().copied() {
+            let (resolution, range) = match origins.first().cloned() {
                 Some(origin) if origin.kind(db) == DefKind::NonAnsiPort => (
                     "NonAnsiPort",
                     origin.name_range(db).expect("non-ANSI port label should have a name range"),

@@ -12,6 +12,21 @@ pub struct SyntaxNodePtr {
     range: TextRange,
 }
 
+impl PartialOrd for SyntaxNodePtr {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SyntaxNodePtr {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.kind
+            .cmp(&other.kind)
+            .then_with(|| self.range.start().cmp(&other.range.start()))
+            .then_with(|| self.range.end().cmp(&other.range.end()))
+    }
+}
+
 impl SyntaxNodePtr {
     #[inline]
     pub fn from_node(node: SyntaxNode) -> SyntaxNodePtr {
@@ -49,6 +64,21 @@ impl SyntaxNodePtr {
 pub struct SyntaxTokenPtr {
     kind: TokenKind,
     range: TextRange,
+}
+
+impl PartialOrd for SyntaxTokenPtr {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SyntaxTokenPtr {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.kind
+            .cmp(&other.kind)
+            .then_with(|| self.range.start().cmp(&other.range.start()))
+            .then_with(|| self.range.end().cmp(&other.range.end()))
+    }
 }
 
 impl SyntaxTokenPtr {

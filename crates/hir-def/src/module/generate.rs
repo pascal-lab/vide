@@ -1,4 +1,3 @@
-use base_db::intern::Lookup;
 use la_arena::{Arena, Idx};
 use smallvec::SmallVec;
 use syntax::{
@@ -131,7 +130,7 @@ impl From<GenerateRegionSrc> for SyntaxNodePtr {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum GenerateBlockSrc {
     GenerateBlock { node: SyntaxNodePtr, name: Option<SyntaxTokenPtr> },
     LoopGenerate { node: SyntaxNodePtr, name: Option<SyntaxTokenPtr> },
@@ -445,16 +444,26 @@ pub enum GenerateBlockKind {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct GenerateBlockId(pub salsa::InternId);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GenerateBlockId(Arc<GenerateBlockLoc>);
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+impl GenerateBlockId {
+    pub fn new(loc: GenerateBlockLoc) -> Self {
+        Self(Arc::new(loc))
+    }
+
+    pub fn loc(&self) -> &GenerateBlockLoc {
+        &self.0
+    }
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct GenerateBlockLoc {
     pub cont_id: ArenaOwnerId,
     pub src: InFile<GenerateBlockSrc>,
 }
 
-pub(crate) type LowerGenerateBlockCtx<'a> = LoweringCtx<'a, GenerateBlockStore<'a>>;
+pub(crate) type LowerGenerateBlockCtx<'a> = LoweringCtx<GenerateBlockStore<'a>>;
 
 impl LowerGenerateBlockCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
@@ -500,7 +509,7 @@ impl LowerGenerateBlockCtx<'_> {
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
         // Only the skeleton is lowered here; the body is lowered on first
-        // access by subroutine_with_source_map_query.
+        // access by subroutine_with_source_map.
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let subroutine_id = alloc_with_source(
@@ -517,7 +526,7 @@ impl LowerGenerateBlockCtx<'_> {
     }
 
     fn intern_generate_block(&self, src: GenerateBlockSrc) -> GenerateBlockId {
-        self.db.intern_generate_block(GenerateBlockLoc {
+        GenerateBlockId::new(GenerateBlockLoc {
             cont_id: self.generate_block_id().into(),
             src: InFile::new(self.file_id, src),
         })
@@ -698,7 +707,7 @@ impl LowerGenerateBlockCtx<'_> {
 
 impl LowerModuleCtx<'_> {
     pub(crate) fn intern_generate_block(&self, src: GenerateBlockSrc) -> GenerateBlockId {
-        self.db.intern_generate_block(GenerateBlockLoc {
+        GenerateBlockId::new(GenerateBlockLoc {
             cont_id: self.module_id().into(),
             src: InFile::new(self.file_id, src),
         })
@@ -862,18 +871,20 @@ impl LowerModuleCtx<'_> {
     }
 }
 
-pub(crate) fn generate_block_with_source_map_query(
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn generate_block_with_source_map(
     db: &dyn HirDefDb,
     generate_block_id: GenerateBlockId,
+    _key: (),
 ) -> Arc<Lowered<GenerateBlock>> {
-    let GenerateBlockLoc { src: InFile { file_id, value: src }, .. } = generate_block_id.lookup(db);
+    let GenerateBlockLoc { src: InFile { file_id, value: src }, .. } =
+        generate_block_id.loc().clone();
     let tree = db.parse(file_id);
 
     let mut generate_block = GenerateBlock::default();
     let mut generate_block_source_map = GenerateBlockSourceMap::default();
 
     let mut lower_ctx = LoweringCtx::new(
-        db,
         file_id,
         generate_block_id.into(),
         GenerateBlockStore { data: &mut generate_block, sources: &mut generate_block_source_map },
@@ -903,4 +914,8 @@ pub(crate) fn generate_block_with_source_map_query(
     generate_block.shrink_to_fit();
     generate_block_source_map.shrink_to_fit();
     Arc::new(Lowered::new(generate_block, generate_block_source_map))
+}
+
+pub(crate) fn set_generate_block_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    generate_block_with_source_map::set_lru_capacity(db, capacity);
 }
