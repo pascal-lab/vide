@@ -43,21 +43,21 @@ pub(crate) fn empty_decls_range() -> DeclsRange {
 }
 pub type DeclsRange = IdxRange<Declarator>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct DeclaratorAst;
 
 impl AstKind for DeclaratorAst {
     type Node<'a> = ast::Declarator<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct IdentifierNameAst;
 
 impl AstKind for IdentifierNameAst {
     type Node<'a> = ast::IdentifierName<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct SpecparamDeclaratorAst;
 
 impl AstKind for SpecparamDeclaratorAst {

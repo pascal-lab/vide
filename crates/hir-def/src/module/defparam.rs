@@ -22,7 +22,7 @@ pub struct DefParamAssignment {
 
 pub type DefParamId = Idx<DefParam>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct DefParamAst;
 
 impl AstKind for DefParamAst {

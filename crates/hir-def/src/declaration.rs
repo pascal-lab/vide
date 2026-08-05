@@ -29,56 +29,56 @@ define_enum_deriving_from! {
 
 pub type DeclarationId = Idx<Declaration>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct DataDeclarationAst;
 
 impl AstKind for DataDeclarationAst {
     type Node<'a> = ast::DataDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct NetDeclarationAst;
 
 impl AstKind for NetDeclarationAst {
     type Node<'a> = ast::NetDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct DeclarationPortDeclarationAst;
 
 impl AstKind for DeclarationPortDeclarationAst {
     type Node<'a> = ast::PortDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ParameterDeclarationAst;
 
 impl AstKind for ParameterDeclarationAst {
     type Node<'a> = ast::ParameterDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct TypeParameterDeclarationAst;
 
 impl AstKind for TypeParameterDeclarationAst {
     type Node<'a> = ast::TypeParameterDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct LocalVariableDeclarationAst;
 
 impl AstKind for LocalVariableDeclarationAst {
     type Node<'a> = ast::LocalVariableDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct GenvarDeclarationAst;
 
 impl AstKind for GenvarDeclarationAst {
     type Node<'a> = ast::GenvarDeclaration<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct SpecparamDeclarationAst;
 
 impl AstKind for SpecparamDeclarationAst {

@@ -574,7 +574,7 @@ impl DefOrigin {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Definition {
     primary_origin: DefOrigin,
 }
@@ -608,20 +608,8 @@ fn additional_origins(db: &dyn HirDefDb, primary_origin: DefOrigin) -> SmallVec<
         .filter(|origin| non_ansi_port_for_origin(db, origin.clone()) == Some(port_id))
         .collect()
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DefId(Arc<Definition>);
-
-impl PartialOrd for DefId {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for DefId {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.primary_origin.cmp(&other.0.primary_origin)
-    }
-}
 
 impl DefId {
     pub fn new(db: &dyn HirDefDb, loc: impl Into<DefOriginLoc>) -> Self {

@@ -22,21 +22,21 @@ pub struct Instantiation {
 
 pub type InstantiationId = Idx<Instantiation>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct HierarchyInstantiationAst;
 
 impl AstKind for HierarchyInstantiationAst {
     type Node<'a> = ast::HierarchyInstantiation<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct PrimitiveInstantiationAst;
 
 impl AstKind for PrimitiveInstantiationAst {
     type Node<'a> = ast::PrimitiveInstantiation<'a>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct CheckerInstantiationAst;
 
 impl AstKind for CheckerInstantiationAst {
@@ -121,7 +121,7 @@ pub struct Instance {
 
 pub type InstanceId = Idx<Instance>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct HierarchicalInstanceAst;
 
 impl AstKind for HierarchicalInstanceAst {
@@ -138,7 +138,7 @@ pub enum ParamAssign {
 
 pub type ParamAssignId = Idx<ParamAssign>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct ParamAssignmentAst;
 
 impl AstKind for ParamAssignmentAst {
@@ -157,7 +157,7 @@ pub enum PortConn {
 
 pub type PortConnId = Idx<PortConn>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct PortConnectionAst;
 
 impl AstKind for PortConnectionAst {
