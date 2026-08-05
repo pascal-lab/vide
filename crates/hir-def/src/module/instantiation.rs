@@ -166,7 +166,7 @@ impl AstKind for PortConnectionAst {
 
 pub type PortConnSrc = NamedAstId<PortConnectionAst>;
 
-impl<Store: ModuleItemStore> LoweringCtx<'_, Store> {
+impl<Store: ModuleItemStore> LoweringCtx<Store> {
     fn reserve_instantiation<'ast, Ast>(&mut self, ast: Ast) -> InstantiationId
     where
         Ast: syntax::ast::AstNode<'ast>,

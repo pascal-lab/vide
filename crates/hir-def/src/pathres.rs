@@ -90,9 +90,8 @@ fn resolve_top_level_module_root(
     // segment value fallback: `top` alone remains a type-space module name.
     Resolution::from_candidates(
         resolve_name(db, cont_id, ident, NameContext::Type)
-            .candidates()
-            .iter()
-            .cloned()
+            .into_candidates()
+            .into_iter()
             .filter(|def_id| def_id.kind(db).is_instantiable_def()),
     )
 }
@@ -288,7 +287,7 @@ mod tests {
         );
 
         let mut db = TestDb::default();
-        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_files_with_durability(files, Durability::HIGH);
         db.set_project_config_with_durability(Arc::new(project_config), Durability::HIGH);
         db.set_diagnostics_config_with_durability(
             Arc::new(DiagnosticsConfig::default()),

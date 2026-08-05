@@ -143,10 +143,7 @@ impl NameScope {
         db.scope_for(ScopeId::File(file_id))
     }
 
-    pub fn module_scope(
-        db: &dyn HirDefDb,
-        module_id: crate::module::ModuleId,
-    ) -> Arc<NameScope> {
+    pub fn module_scope(db: &dyn HirDefDb, module_id: crate::module::ModuleId) -> Arc<NameScope> {
         db.scope_for(module_id.into())
     }
 
@@ -178,17 +175,11 @@ impl NameScope {
         db.scope_for(generate_block_id.into())
     }
 
-    pub fn block_scope(
-        db: &dyn HirDefDb,
-        block_id: crate::block::BlockId,
-    ) -> Arc<NameScope> {
+    pub fn block_scope(db: &dyn HirDefDb, block_id: crate::block::BlockId) -> Arc<NameScope> {
         db.scope_for(block_id.into())
     }
 
-    pub fn subroutine_scope(
-        db: &dyn HirDefDb,
-        subroutine_id: SubroutineScope,
-    ) -> Arc<NameScope> {
+    pub fn subroutine_scope(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> Arc<NameScope> {
         db.scope_for(subroutine_id.into())
     }
 
@@ -808,7 +799,7 @@ mod tests {
         );
 
         let mut db = TestDb::default();
-        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_files_with_durability(files, Durability::HIGH);
         db.set_project_config_with_durability(Arc::new(project_config), Durability::HIGH);
         db.set_diagnostics_config_with_durability(
             Arc::new(DiagnosticsConfig::default()),
@@ -1300,7 +1291,6 @@ endmodule
         let mut missing_file = crate::file::HirFile::default();
         let mut missing_file_source_map = crate::file::FileSourceMap::default();
         let mut ctx = crate::lower::LoweringCtx::new(
-            &db,
             TOP.into(),
             crate::container::ArenaOwnerId::File(HirFileId::File(TOP)),
             crate::lower::FileStore {

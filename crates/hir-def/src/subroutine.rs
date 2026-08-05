@@ -233,7 +233,7 @@ fn map_direction(kind: Option<TokenKind>) -> SubroutinePortDir {
     }
 }
 
-pub(crate) type LowerSubroutineBodyCtx<'a> = LoweringCtx<'a, SubroutineStore<'a>>;
+pub(crate) type LowerSubroutineBodyCtx<'a> = LoweringCtx<SubroutineStore<'a>>;
 
 impl LowerSubroutineBodyCtx<'_> {
     fn container_id(&self) -> ArenaOwnerId {
@@ -385,7 +385,6 @@ pub(crate) fn subroutine_with_source_map(
 
     let mut subroutine_source_map = SubroutineSourceMap::default();
     let mut ctx = LoweringCtx::new(
-        db,
         file_id,
         subroutine_id.into(),
         SubroutineStore { data: &mut subroutine, sources: &mut subroutine_source_map },

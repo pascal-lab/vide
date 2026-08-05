@@ -146,7 +146,7 @@ pub enum CaseItem {
     Default(StmtId),
 }
 
-impl<Store: LoweringStore> LoweringCtx<'_, Store> {
+impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_stmt_opt(&mut self, stmt: Option<ast::Statement>) -> StmtId {
         if let Some(stmt) = stmt { self.lower_stmt(stmt) } else { self.alloc_missing() }
     }

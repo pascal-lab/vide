@@ -132,7 +132,7 @@ fn cross_of(db: &dyn HirDefDb, cross: InScope<CrossId>) -> Option<(CrossDef, Hir
 
 impl DefOrigin {
     #[inline]
-    pub fn container_id(&self, db: &dyn HirDefDb) -> ScopeId {
+    pub fn container_id(&self, _db: &dyn HirDefDb) -> ScopeId {
         match self.loc() {
             DefOriginLoc::Module(InFile { file_id, .. }) => file_id.into(),
             DefOriginLoc::Config(InFile { file_id, .. }) => file_id.into(),
@@ -665,8 +665,8 @@ impl DefId {
             || self.origins(db).iter().any(|origin| is_port_decl_origin(db, origin.clone()))
     }
 
-    pub fn container_id(&self, db: &dyn HirDefDb) -> ScopeId {
-        self.primary_origin(db).container_id(db)
+    pub fn container_id(&self, _db: &dyn HirDefDb) -> ScopeId {
+        self.primary_origin(_db).container_id(_db)
     }
 
     pub fn kind(&self, db: &dyn HirDefDb) -> DefKind {

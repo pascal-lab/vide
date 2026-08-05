@@ -31,7 +31,7 @@ impl AstKind for DefParamAst {
 
 pub type DefParamSrc = AstId<DefParamAst>;
 
-impl<Store: ModuleItemStore> LoweringCtx<'_, Store> {
+impl<Store: ModuleItemStore> LoweringCtx<Store> {
     pub(crate) fn lower_defparam(&mut self, defparam: ast::DefParam) -> DefParamId {
         let assignments = defparam
             .assignments()

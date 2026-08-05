@@ -148,7 +148,7 @@ impl<'a> FromSourceAst<'a, ast::SpecparamDeclarator<'a>> for DeclaratorSrc {
     }
 }
 
-impl<Store: LoweringStore> LoweringCtx<'_, Store> {
+impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_declarators<'a>(
         &mut self,
         declarators: ast::SeparatedList<'a, ast::Declarator<'a>>,

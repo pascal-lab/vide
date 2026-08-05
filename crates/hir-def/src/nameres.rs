@@ -61,7 +61,6 @@ mod tests {
     use utils::paths::{AbsPathBuf, Utf8PathBuf};
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
-    use super::*;
     use crate::{
         Ident,
         container::{ScopeId, SubroutineParent, SubroutineScope},
@@ -134,7 +133,7 @@ mod tests {
         );
 
         let mut db = TestDb::default();
-        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_files_with_durability(files, Durability::HIGH);
         db.set_project_config_with_durability(Arc::new(project_config), Durability::HIGH);
         db.set_diagnostics_config_with_durability(
             Arc::new(DiagnosticsConfig::default()),

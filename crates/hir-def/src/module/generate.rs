@@ -463,7 +463,7 @@ pub struct GenerateBlockLoc {
     pub src: InFile<GenerateBlockSrc>,
 }
 
-pub(crate) type LowerGenerateBlockCtx<'a> = LoweringCtx<'a, GenerateBlockStore<'a>>;
+pub(crate) type LowerGenerateBlockCtx<'a> = LoweringCtx<GenerateBlockStore<'a>>;
 
 impl LowerGenerateBlockCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
@@ -885,7 +885,6 @@ pub(crate) fn generate_block_with_source_map(
     let mut generate_block_source_map = GenerateBlockSourceMap::default();
 
     let mut lower_ctx = LoweringCtx::new(
-        db,
         file_id,
         generate_block_id.into(),
         GenerateBlockStore { data: &mut generate_block, sources: &mut generate_block_source_map },

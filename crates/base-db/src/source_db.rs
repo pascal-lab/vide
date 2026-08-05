@@ -98,9 +98,9 @@ pub trait SourceDb: salsa::Database + FileLoader + fmt::Debug {
         })
     }
 
-    fn files(&self) -> Box<FxHashSet<FileId>> {
+    fn files(&self) -> FxHashSet<FileId> {
         let registry = SourceFiles::get(self);
-        Box::new(registry.files(self).keys().copied().map(FileId::from_raw).collect())
+        registry.files(self).keys().copied().map(FileId::from_raw).collect()
     }
 
     fn diagnostics_config(&self) -> Arc<DiagnosticsConfig> {
@@ -144,7 +144,7 @@ pub trait SourceDb: salsa::Database + FileLoader + fmt::Debug {
             .to(path.map(Into::into));
     }
 
-    fn set_files_with_durability(&mut self, files: Box<FxHashSet<FileId>>, durability: Durability) {
+    fn set_files_with_durability(&mut self, files: FxHashSet<FileId>, durability: Durability) {
         let registry = ensure_source_files(self);
         let mut file_inputs = registry.files(self).clone();
         file_inputs.retain(|file_id, _| files.contains(&FileId::from_raw(*file_id)));

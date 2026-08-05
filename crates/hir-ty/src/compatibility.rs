@@ -13,9 +13,9 @@ use crate::{
     type_system::Compatibility,
 };
 
-pub(crate) fn type_class(db: &dyn TyDb, ty: &Ty) -> Option<TyClass> {
+pub(crate) fn type_class(_db: &dyn TyDb, ty: &Ty) -> Option<TyClass> {
     match ty {
-        Ty::Alias { target, .. } => type_class(db, target),
+        Ty::Alias { target, .. } => type_class(_db, target),
         Ty::Builtin(BuiltinTy::Data { id, .. }) => match id.get() {
             BuiltinDataTy::Int { .. } | BuiltinDataTy::Vector { .. } => Some(TyClass::Integral),
             BuiltinDataTy::Real(_) => Some(TyClass::Real),

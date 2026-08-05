@@ -311,7 +311,7 @@ pub struct SpecparamDecl {
     pub decls: DeclsRange,
 }
 
-impl<Store: LoweringStore> LoweringCtx<'_, Store> {
+impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn alloc_declaration<'ast, Ast>(
         &mut self,
         declaration: impl Into<Declaration>,

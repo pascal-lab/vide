@@ -362,8 +362,8 @@ impl ScopeId {
             ScopeId::Block(block_id) => block_id.file_id(db),
             ScopeId::Subroutine(subroutine) => subroutine.clone().file_id(db),
             ScopeId::ClockingBlock(clocking_block) => clocking_block.module_id.file_id,
-            ScopeId::Checker(checker) => checker.cont_id.clone().file_id(),
-            ScopeId::Covergroup(covergroup) => covergroup.cont_id.clone().file_id(),
+            ScopeId::Checker(checker) => checker.cont_id.file_id(),
+            ScopeId::Covergroup(covergroup) => covergroup.cont_id.file_id(),
         }
     }
 }

@@ -458,7 +458,7 @@ pub type LocalModuleId = Idx<ModuleInfo>;
 pub type ModuleId = InFile<LocalModuleId>;
 pub type PackageId = ModuleId;
 
-pub(crate) type LowerModuleCtx<'a> = LoweringCtx<'a, ModuleStore<'a>>;
+pub(crate) type LowerModuleCtx<'a> = LoweringCtx<ModuleStore<'a>>;
 
 impl LowerModuleCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
@@ -796,7 +796,6 @@ pub(crate) fn module_with_source_map(
     };
 
     let mut lower_ctx = LoweringCtx::new(
-        db,
         file_id,
         module_id.into(),
         ModuleStore { data: &mut module, sources: &mut module_source_map },
