@@ -1,3 +1,10 @@
+//! Preprocessor-owned source target resolution.
+//!
+//! Offsets inside macro definitions, parameters, references, includes, and
+//! macro-emitted tokens resolve here. The provider returns a
+//! [`SourceTargetProviderResult`] without a file anchor; the caller attaches
+//! the file id and produces the final [`TargetResolution`].
+
 use preproc_expand::{
     context::{MacroContext, macro_context_at},
     db::PreprocDb,
@@ -9,8 +16,8 @@ use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
 use super::{
-    PreprocTokenHit, SourceTarget, SourceTargetAlternatives, SourceTargetBlock,
-    SourceTargetProviderResult, SourceTargetResolution, normal_syntax_source_target_at_offset,
+    SourceTarget, TargetAlternatives, TargetCandidate, TargetResolution, TargetAmbiguityReason,
+    SemanticTarget, normal_syntax_source_target_at_offset, source_capabilities,
 };
 
 /// Emitted-token id to syntax tokens for one parse tree, built with a single
@@ -38,6 +45,17 @@ pub(crate) fn emit_token_index<'tree>(root: SyntaxNode<'tree>) -> EmittedTokenIn
     index
 }
 
+/// A preprocessor source hit: one macro-emitted token (or file range) that
+/// the caret offset overlaps, with its trace identity and origin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PreprocTokenHit {
+    pub emitted_token: SourceEmittedTokenId,
+    pub source_range: TextRange,
+    pub origin: Origin,
+}
+
+/// The preproc provider's result. `None` means the offset is not
+/// preprocessor-owned and the caller falls back to plain syntax resolution.
 pub(super) fn preproc_source_target_at_offset<'tree>(
     db: &dyn PreprocDb,
     file_id: FileId,
@@ -45,9 +63,9 @@ pub(super) fn preproc_source_target_at_offset<'tree>(
     offset: TextSize,
     precedence: &impl Fn(TokenKind) -> usize,
     emitted: Option<&EmittedTokenIndex<'tree>>,
-) -> SourceTargetProviderResult<'tree> {
+) -> Option<TargetResolution<'tree>> {
     let MacroContext::Invocation { macro_files } = macro_context_at(db, file_id, offset) else {
-        return SourceTargetProviderResult::NotApplicable;
+        return None;
     };
 
     match preproc_hits_at_offset(db, &macro_files, file_id, offset) {
@@ -55,31 +73,26 @@ pub(super) fn preproc_source_target_at_offset<'tree>(
             let Some(tokens) =
                 syntax_tokens_for_preproc_hit(root, offset, precedence, emitted, &hits)
             else {
-                return SourceTargetProviderResult::Blocked(
-                    SourceTargetBlock::preproc_unavailable(range),
-                );
+                return Some(TargetResolution::Blocked);
             };
-            SourceTargetProviderResult::Resolved(SourceTarget::preproc(range, tokens))
+            Some(TargetResolution::Resolved(TargetCandidate::new(
+                SemanticTarget::Source(SourceTarget::preproc(range, tokens)),
+                source_capabilities(),
+            )))
         }
-        PreprocHitLookup::Unavailable { range } => {
-            SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(range))
-        }
-        PreprocHitLookup::Ambiguous { range, hits } => {
-            let block_hits = hits.clone();
+        PreprocHitLookup::Unavailable { .. } => Some(TargetResolution::Blocked),
+        PreprocHitLookup::Ambiguous { range, hits } => Some(
             ambiguous_preproc_source_targets(root, offset, precedence, emitted, range, hits)
-                .map(SourceTargetProviderResult::Ambiguous)
-                .unwrap_or_else(|| {
-                    SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_ambiguous(
-                        range, block_hits,
-                    ))
-                })
-        }
+                .map_or(TargetResolution::Blocked, |(reason, candidates)| {
+                    TargetResolution::Ambiguous(TargetAlternatives { reason, candidates })
+                }),
+        ),
     }
 }
 
 enum PreprocHitLookup {
     Available { range: TextRange, hits: Vec<PreprocTokenHit> },
-    Unavailable { range: TextRange },
+    Unavailable,
     Ambiguous { range: TextRange, hits: Vec<PreprocTokenHit> },
 }
 
@@ -101,7 +114,7 @@ fn preproc_hits_at_offset(
     }
 
     if hits.is_empty() {
-        return PreprocHitLookup::Unavailable { range: TextRange::empty(offset) };
+        return PreprocHitLookup::Unavailable;
     }
 
     let range = covering_range(&hits.iter().map(|hit| hit.source_range).collect::<Vec<_>>())
@@ -135,6 +148,9 @@ fn hits_have_one_origin(hits: &[PreprocTokenHit]) -> bool {
     hits.iter().all(|hit| hit.origin == first.origin)
 }
 
+/// Projects conflicting preproc hits to one candidate per origin. Returns
+/// `None` when the hits cannot be projected to syntax tokens or there is
+/// only one origin group.
 pub(super) fn ambiguous_preproc_source_targets<'tree>(
     root: SyntaxNode<'tree>,
     offset: TextSize,
@@ -142,23 +158,26 @@ pub(super) fn ambiguous_preproc_source_targets<'tree>(
     emitted: Option<&EmittedTokenIndex<'tree>>,
     range: TextRange,
     hits: Vec<PreprocTokenHit>,
-) -> Option<SourceTargetAlternatives<'tree>> {
+) -> Option<(TargetAmbiguityReason, Vec<TargetCandidate<'tree>>)> {
     let hit_count = hits.len();
     let groups = group_preproc_hits_by_origin(hits);
     if groups.len() <= 1 {
         return None;
     }
 
-    let mut targets = Vec::with_capacity(groups.len());
+    let mut candidates = Vec::with_capacity(groups.len());
     for group in groups {
         let group_range =
             covering_range(&group.iter().map(|hit| hit.source_range).collect::<Vec<_>>())
                 .unwrap_or(range);
         let tokens = syntax_tokens_for_preproc_hit(root, offset, precedence, emitted, &group)?;
-        targets.push(SourceTarget::preproc(group_range, tokens));
+        candidates.push(TargetCandidate::new(
+            SemanticTarget::Source(SourceTarget::preproc(group_range, tokens)),
+            source_capabilities(),
+        ));
     }
 
-    Some(SourceTargetAlternatives::preproc_ambiguous(range, hit_count, targets))
+    Some((TargetAmbiguityReason::PreprocHits { hit_count }, candidates))
 }
 
 fn group_preproc_hits_by_origin(hits: Vec<PreprocTokenHit>) -> Vec<Vec<PreprocTokenHit>> {
@@ -188,8 +207,6 @@ pub(super) fn syntax_tokens_for_preproc_hit<'tree>(
     }
 
     normal_syntax_source_target_at_offset(root, offset, precedence)
-        .into_resolution()
-        .and_then(SourceTargetResolution::resolved)
         .map(SourceTarget::into_tokens)
 }
 

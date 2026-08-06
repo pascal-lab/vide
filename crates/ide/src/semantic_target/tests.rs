@@ -1,39 +1,57 @@
-use preproc_expand::macro_file::SourceEmittedTokenId;
+use base_db::{change::Change, source_root::SourceRoot};
+use hir_semantics::semantics::Semantics;
+use preproc_expand::macro_file::{Origin, SourceEmittedTokenId};
 use syntax::{
     SyntaxElement, SyntaxNode, SyntaxTree, SyntaxTreeOptions, WalkEvent, preproc::TokenOrigin,
     token::TokenKindExt,
 };
 use utils::line_index::covering_range;
+use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
 use super::*;
-use crate::db::root_db::RootDb;
+use super::preproc::{
+    PreprocTokenHit, ambiguous_preproc_source_targets, push_unique_preproc_hit,
+    syntax_tokens_for_preproc_hit,
+};
+use crate::{analysis_host::AnalysisHost, db::root_db::RootDb, token::name_precedence as token_precedence};
 
 mod bench_context;
 
 #[test]
-fn source_targets_origin_source_range_hit_test_is_half_open() {
-    let file_id = FileId::from_raw(0);
-    let range = TextRange::new(5.into(), 10.into());
-    let origin = Origin::File { file: file_id, range };
+fn source_token_target_is_complete_and_source_origin() {
+    let (host, file_id, offset, range) =
+        setup("module m; wire payload_i; endmodule\n", "payload_i");
+    let sema = Semantics::new(host.raw_db());
+    let parsed = sema.parse_file(file_id);
+    let root = parsed.root().expect("test source should parse");
 
-    assert!(
-        preproc_hit_for_raw_origin(&origin, file_id, 5.into()).is_some(),
-        "range start should hit"
-    );
-    assert!(
-        preproc_hit_for_raw_origin(&origin, file_id, 9.into()).is_some(),
-        "offset before range end should hit"
-    );
-    assert!(
-        preproc_hit_for_raw_origin(&origin, file_id, 10.into()).is_none(),
-        "range end should not hit"
-    );
+    let resolution =
+        resolve_semantic_target(host.raw_db(), file_id, offset, Some(root), token_precedence);
+    assert!(matches!(
+        resolution.clone().unique_for_intent(TargetIntent::Describe),
+        Some(SemanticTarget::Source(_))
+    ));
+    assert!(matches!(
+        resolution.clone().unique_for_intent(TargetIntent::Rename),
+        Some(SemanticTarget::Source(_))
+    ));
+
+    let TargetResolution::Resolved(target) = resolution else {
+        panic!("source token should resolve");
+    };
+
+    assert!(target.capabilities.contains(TargetCapability::DESCRIBE));
+    let SemanticTarget::Source(target) = target.target else {
+        panic!("source token should resolve as source target");
+    };
+    assert_eq!(target.range, range);
 }
 
 #[test]
-fn source_targets_source_token_range_mismatch_uses_original_syntax_hit() {
-    let (root, offset, parser_range) =
+fn source_token_range_mismatch_uses_original_syntax_hit() {
+    let (tree, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 2);
+    let root = tree.root().expect("test source should parse");
     let file_id = FileId::from_raw(0);
     let origin_range = TextRange::new(
         parser_range.start() + TextSize::from(1),
@@ -41,10 +59,13 @@ fn source_targets_source_token_range_mismatch_uses_original_syntax_hit() {
     );
     let hit = test_source_hit(file_id, origin_range, 0);
 
-    let SourceTargetProviderResult::Resolved(selection) =
+    let TargetResolution::Resolved(selection) =
         preproc_provider_result_from_hits(root, offset, &test_precedence, vec![hit], origin_range)
     else {
         panic!("source-token hit should select by the original syntax token at the offset");
+    };
+    let SemanticTarget::Source(selection) = selection.target else {
+        panic!("source-token hit should resolve as a source target");
     };
 
     assert_eq!(selection.range, origin_range);
@@ -54,7 +75,7 @@ fn source_targets_source_token_range_mismatch_uses_original_syntax_hit() {
 }
 
 #[test]
-fn source_targets_macro_argument_selects_syntax_token_by_trace_identity() {
+fn macro_argument_selects_syntax_token_by_trace_identity() {
     let db = RootDb::new(None);
     let model_file = FileId::from_raw(0);
     let source = r#"`define ID(x) x
@@ -112,7 +133,7 @@ endmodule
 }
 
 #[test]
-fn source_targets_macro_argument_selects_only_the_hit_emitted_token() {
+fn macro_argument_selects_only_the_hit_emitted_token() {
     let db = RootDb::new(None);
     let model_file = FileId::from_raw(0);
     let source = r#"`define DUP(x) x x
@@ -172,7 +193,7 @@ endmodule
 }
 
 #[test]
-fn source_targets_macro_hit_miss_does_not_block_resolvable_hits() {
+fn macro_hit_miss_does_not_block_resolvable_hits() {
     let db = RootDb::new(None);
     let model_file = FileId::from_raw(0);
     let source = r#"`define ID(x) x
@@ -225,7 +246,7 @@ endmodule
 }
 
 #[test]
-fn source_targets_macro_dup_copies_all_resolve() {
+fn macro_dup_copies_all_resolve() {
     let db = RootDb::new(None);
     let model_file = FileId::from_raw(0);
     let source = r#"`define DUP(x) x x
@@ -272,35 +293,29 @@ endmodule
 }
 
 #[test]
-fn source_targets_preproc_owned_unresolved_does_not_use_normal_syntax_fallback() {
-    let (root, offset, parser_range) =
+fn preproc_owned_unresolved_does_not_use_normal_syntax_fallback() {
+    let (tree, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
+    let root = tree.root().expect("test source should parse");
     assert!(
         matches!(
             normal_syntax_source_target_at_offset(root, offset, &test_precedence),
-            SourceTargetProviderResult::Resolved(_)
+            Some(_)
         ),
         "test setup must have an ordinary syntax token that fallback could have selected"
     );
 
     let lookup =
         preproc_provider_result_from_hits(root, offset, &test_precedence, Vec::new(), parser_range);
-    assert!(matches!(
-        lookup,
-        SourceTargetProviderResult::Blocked(SourceTargetBlock {
-            domain: SourceTargetDomain::Preproc,
-            reason: SourceTargetBlockReason::Unavailable,
-            ..
-        })
-    ));
+    assert!(matches!(lookup, TargetResolution::Blocked));
 }
 
 #[test]
-fn source_targets_normal_syntax_path_still_selects_non_preproc_offsets() {
-    let (root, offset, parser_range) =
+fn normal_syntax_path_still_selects_non_preproc_offsets() {
+    let (tree, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
-    let SourceTargetProviderResult::Resolved(selection) =
-        normal_syntax_source_target_at_offset(root, offset, &test_precedence)
+    let root = tree.root().expect("test source should parse");
+    let Some(selection) = normal_syntax_source_target_at_offset(root, offset, &test_precedence)
     else {
         panic!("normal syntax token expected");
     };
@@ -310,52 +325,78 @@ fn source_targets_normal_syntax_path_still_selects_non_preproc_offsets() {
 }
 
 #[test]
-fn source_targets_same_origin_hits_resolve_without_ambiguity() {
-    let (root, offset, parser_range) =
+fn same_origin_hits_resolve_without_ambiguity() {
+    let (tree, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
+    let root = tree.root().expect("test source should parse");
     let file_id = FileId::from_raw(0);
     let hits =
         vec![test_source_hit(file_id, parser_range, 0), test_source_hit(file_id, parser_range, 1)];
 
-    let SourceTargetProviderResult::Resolved(selection) =
+    let TargetResolution::Resolved(selection) =
         preproc_provider_result_from_hits(root, offset, &test_precedence, hits, parser_range)
     else {
         panic!("same-origin hits should remain available");
+    };
+    let SemanticTarget::Source(selection) = selection.target else {
+        panic!("same-origin hits should resolve as a source target");
     };
 
     assert_eq!(selection.range, parser_range);
 }
 
 #[test]
-fn source_targets_reports_ambiguous_preproc_hits_for_conflicting_targets() {
-    let (root, offset, parser_range) =
+fn reports_ambiguous_preproc_hits_for_conflicting_targets() {
+    let (tree, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 2);
+    let root = tree.root().expect("test source should parse");
     let file_id = FileId::from_raw(0);
     let first = TextRange::new(parser_range.start(), parser_range.start() + TextSize::from(4));
     let second = TextRange::new(parser_range.start() + TextSize::from(1), parser_range.end());
     let hits = vec![test_source_hit(file_id, first, 0), test_source_hit(file_id, second, 1)];
 
-    let SourceTargetProviderResult::Ambiguous(alternatives) =
+    let TargetResolution::Ambiguous(alternatives) =
         preproc_provider_result_from_hits(root, offset, &test_precedence, hits, parser_range)
     else {
         panic!("conflicting preproc targets should produce alternatives");
     };
 
-    assert_eq!(alternatives.reason, SourceTargetAmbiguity::PreprocHits { hit_count: 2 });
-    assert_eq!(alternatives.targets.len(), 2);
+    assert_eq!(alternatives.reason, TargetAmbiguityReason::PreprocHits { hit_count: 2 });
+    assert_eq!(alternatives.candidates.len(), 2);
 }
 
-fn root_and_offset<'tree>(
+fn setup(text: &str, needle: &str) -> (AnalysisHost, FileId, TextSize, TextRange) {
+    let file_id = FileId::from_raw(0);
+    let path = VfsPath::new_virtual_path("/test.sv".to_string());
+    let mut file_set = FileSet::default();
+    file_set.insert(file_id, path);
+    let root = SourceRoot::new_local(file_set);
+
+    let mut change = Change::new();
+    change.set_roots(vec![root]);
+    change.add_changed_file(ChangedFile::create(file_id, text));
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+
+    let start = text.find(needle).expect("needle should exist");
+    let range = TextRange::new(
+        TextSize::from(start as u32),
+        TextSize::from((start + needle.len()) as u32),
+    );
+    (host, file_id, range.start(), range)
+}
+
+fn root_and_offset(
     text: &str,
     needle: &str,
     delta: u32,
-) -> (SyntaxNode<'tree>, TextSize, TextRange) {
-    let tree = Box::leak(Box::new(SyntaxTree::from_text(text, "test", "test.sv")));
-    let root = tree.root().expect("test source should parse");
+) -> (SyntaxTree, TextSize, TextRange) {
+    let tree = SyntaxTree::from_text(text, "test", "test.sv");
     let start = text.find(needle).expect("needle should exist");
     let range =
         TextRange::new(TextSize::from(start as u32), TextSize::from((start + needle.len()) as u32));
-    (root, range.start() + TextSize::from(delta), range)
+    (tree, range.start() + TextSize::from(delta), range)
 }
 
 fn source_range(text: &str, needle: &str) -> TextRange {
@@ -400,7 +441,7 @@ fn preproc_provider_result_from_hits<'tree>(
     precedence: &impl Fn(TokenKind) -> usize,
     hits: Vec<PreprocTokenHit>,
     fallback_range: TextRange,
-) -> SourceTargetProviderResult<'tree> {
+) -> TargetResolution<'tree> {
     let mut unique_hits = Vec::new();
     for hit in hits {
         if hit.source_range.contains(offset) {
@@ -408,9 +449,7 @@ fn preproc_provider_result_from_hits<'tree>(
         }
     }
     if unique_hits.is_empty() {
-        return SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(
-            fallback_range,
-        ));
+        return TargetResolution::Blocked;
     }
     let range = covering_range(&unique_hits.iter().map(|hit| hit.source_range).collect::<Vec<_>>())
         .unwrap_or(fallback_range);
@@ -418,39 +457,19 @@ fn preproc_provider_result_from_hits<'tree>(
         .first()
         .is_some_and(|first| unique_hits.iter().any(|hit| hit.origin != first.origin));
     if has_conflicting_origin {
-        let block_hits = unique_hits.clone();
-        return ambiguous_preproc_source_targets(
-            root,
-            offset,
-            precedence,
-            None,
-            range,
-            unique_hits,
-        )
-        .map(SourceTargetProviderResult::Ambiguous)
-        .unwrap_or_else(|| {
-            SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_ambiguous(
-                range, block_hits,
-            ))
-        });
+        return ambiguous_preproc_source_targets(root, offset, precedence, None, range, unique_hits)
+            .map_or(TargetResolution::Blocked, |(reason, candidates)| {
+                TargetResolution::Ambiguous(TargetAlternatives { reason, candidates })
+            });
     }
     let Some(tokens) = syntax_tokens_for_preproc_hit(root, offset, precedence, None, &unique_hits)
     else {
-        return SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(range));
+        return TargetResolution::Blocked;
     };
-    SourceTargetProviderResult::Resolved(SourceTarget::preproc(range, tokens))
-}
-
-fn preproc_hit_for_raw_origin(
-    origin: &Origin,
-    file_id: FileId,
-    offset: TextSize,
-) -> Option<TextRange> {
-    let (source_file, range) = match origin {
-        Origin::File { file, range } => (*file, *range),
-        _ => return None,
-    };
-    (source_file == file_id && range.contains(offset)).then_some(range)
+    TargetResolution::Resolved(TargetCandidate::new(
+        SemanticTarget::Source(SourceTarget::preproc(range, tokens)),
+        source_capabilities(),
+    ))
 }
 
 fn test_precedence(kind: TokenKind) -> usize {

@@ -27,7 +27,7 @@ use crate::{
     semantic_index::{ConnSide, ReferenceContext},
     semantic_target::{PreprocMacroTarget, SemanticTarget, TargetIntent, resolve_semantic_target},
     source_change::SourceChange,
-    source_targets::SourceTarget,
+    semantic_target::SourceTarget,
 };
 
 pub type RenameResult<T> = Result<T, RenameError>;
