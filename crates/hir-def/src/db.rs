@@ -5,7 +5,7 @@ use preproc_expand::{db::PreprocDb, file::HirFileId};
 use triomphe::Arc;
 
 use crate::{
-    ast_id_map::{self, AstIdMap},
+    ast_id_map::{self, AstIdMap, SourceAstId},
     block::{self, Block, BlockId},
     checker::CheckerId,
     container::{InFileOrModule, InModule, ScopeId, SubroutineScope},
@@ -19,7 +19,7 @@ use crate::{
         generate::{self, GenerateBlock, GenerateBlockId},
     },
     nameres,
-    owner::{self, OwnerTable},
+    owner::{self, OwnerId, OwnerSourceMap, OwnerTable},
     source_map::Lowered,
     source_projection::{self, SourceProjection},
     subroutine::{self, Subroutine},
@@ -40,16 +40,26 @@ impl Deref for dyn HirDefDb {
 }
 
 impl dyn HirDefDb + '_ {
-    /// Stable per-file AST node ids in breadth-first preorder; the join key
-    /// between the syntax tree and every semantic layer.
+    /// Stable per-file AST node ids in depth-first preorder; source-side
+    /// identity is deliberately separate from owner identity.
     pub fn ast_id_map(&self, file_id: HirFileId) -> Arc<AstIdMap> {
         ast_id_map::ast_id_map(self, file_id, ())
     }
 
     /// The canonical owner enumeration of a file, in source order and
-    /// independent of any lowering.
+    /// independent of source projection and lowering.
     pub fn owner_table(&self, file_id: HirFileId) -> Arc<OwnerTable> {
         owner::owner_table(self, file_id, ())
+    }
+
+    /// Current source-side mapping for the file's canonical owners.
+    pub fn owner_source_map(&self, file_id: HirFileId) -> Arc<OwnerSourceMap> {
+        owner::owner_source_map(self, file_id, ())
+    }
+
+    /// Current AST identity for one canonical owner.
+    pub fn owner_source_ast_id(&self, owner: OwnerId) -> Option<SourceAstId> {
+        owner::owner_source_ast_id(self, owner)
     }
 
     pub fn item_tree(&self, file_id: HirFileId) -> Arc<ItemTree> {

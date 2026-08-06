@@ -2,20 +2,19 @@
 //!
 //! Every lowering container — file, module, generate block, procedural block,
 //! subroutine — is one [`OwnerId`]. The id is interned by
-//! `(file, kind, parent, name, ast_id)` so it is `Copy` and equality is
-//! identity, and it is `'static` (via `unsafe(no_lifetime)`) so it can be
-//! stored across salsa revisions.
+//! `(file, kind, parent, slot)`, so it is independent of names, ranges, and
+//! AST numbering. `slot` is the ordinal among the owner's direct owner
+//! children; body syntax that is not itself an owner cannot change it.
 //!
-//! The per-file [`owner_table`] enumerates owners from the syntax tree in
-//! source order, independently of any lowering. It is the incrementality
-//! foundation of the rearchitecture: a body edit changes the owner *contents*
-//! but never the owner *set* (same nodes, same ids), so the table — and
-//! everything keyed by [`OwnerId`] — survives a body edit without recompute.
-//! The design doc sketches a salsa *tracked* struct for this; crates.io salsa
-//! 0.28.2 tracked structs cannot erase the `'db` lifetime, so the id is
-//! interned instead (the [`DefOrigin`](crate::symbol::DefOrigin) pattern),
-//! which also satisfies the salsa single-key rule for the queries that will
-//! consume it.
+//! The per-file [`owner_table`] enumerates structural owners independently of
+//! source projection. [`OwnerSourceMap`] joins those owners to the current
+//! [`SourceAstId`](crate::ast_id_map::SourceAstId), keeping source identity and
+//! owner identity separate.
+//!
+//! The id is `'static` via `unsafe(no_lifetime)` so it can be used as a Salsa
+//! single query key. This is an explicit safety tradeoff: it is paired with
+//! `revisions = usize::MAX`, and the owner identity contains only immutable
+//! interned fields.
 
 use base_db::salsa;
 use preproc_expand::file::HirFileId;
@@ -52,22 +51,20 @@ pub enum OwnerKind {
     ClockingBlock,
 }
 
+/// A unified owner identity: `Copy`, `'static`, and independent of source
+/// ranges or names. `slot` is the ordinal among the owner's direct owner
+/// children; body syntax that is not itself an owner cannot change it.
 #[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
-struct InternedOwnerId {
+pub struct OwnerId {
     #[returns(copy)]
-    file: HirFileId,
+    pub file: HirFileId,
     #[returns(copy)]
-    kind: OwnerKind,
+    pub kind: OwnerKind,
     #[returns(copy)]
-    parent: Option<OwnerId>,
-    name: SmolStr,
+    pub parent: Option<OwnerId>,
     #[returns(copy)]
-    ast_id: Option<SourceAstId>,
+    pub slot: u32,
 }
-
-/// A unified owner identity: `Copy`, `'static`, path-shaped (parent chain).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct OwnerId(InternedOwnerId);
 
 impl PartialOrd for OwnerId {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -77,40 +74,7 @@ impl PartialOrd for OwnerId {
 
 impl Ord for OwnerId {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        salsa::plumbing::AsId::as_id(&self.0).cmp(&salsa::plumbing::AsId::as_id(&other.0))
-    }
-}
-
-impl OwnerId {
-    pub fn new(
-        db: &dyn HirDefDb,
-        file: HirFileId,
-        kind: OwnerKind,
-        parent: Option<OwnerId>,
-        name: SmolStr,
-        ast_id: Option<SourceAstId>,
-    ) -> Self {
-        Self(InternedOwnerId::new(db, file, kind, parent, name, ast_id))
-    }
-
-    pub fn file(self, db: &dyn HirDefDb) -> HirFileId {
-        self.0.file(db)
-    }
-
-    pub fn kind(self, db: &dyn HirDefDb) -> OwnerKind {
-        self.0.kind(db)
-    }
-
-    pub fn parent(self, db: &dyn HirDefDb) -> Option<OwnerId> {
-        self.0.parent(db)
-    }
-
-    pub fn name(self, db: &dyn HirDefDb) -> &SmolStr {
-        self.0.name(db)
-    }
-
-    pub fn ast_id(self, db: &dyn HirDefDb) -> Option<SourceAstId> {
-        self.0.ast_id(db)
+        salsa::plumbing::AsId::as_id(self).cmp(&salsa::plumbing::AsId::as_id(other))
     }
 }
 
@@ -121,14 +85,15 @@ pub struct OwnerData {
     pub kind: OwnerKind,
     pub parent: Option<OwnerId>,
     pub name: SmolStr,
-    pub ast_id: Option<SourceAstId>,
 }
 
 /// The canonical owner enumeration of a file, in source (DFS preorder) order.
+///
+/// This is structural data only. Source AST ids and ranges live in
+/// [`OwnerSourceMap`] so body/source edits do not redefine owner identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnerTable {
     owners: Vec<OwnerData>,
-    by_ast: FxHashMap<SourceAstId, OwnerId>,
 }
 
 impl OwnerTable {
@@ -138,11 +103,6 @@ impl OwnerTable {
 
     pub fn is_empty(&self) -> bool {
         self.owners.is_empty()
-    }
-
-    /// The owner whose AST node carries `ast_id`, when there is one.
-    pub fn owner_by_ast(&self, ast_id: SourceAstId) -> Option<OwnerId> {
-        self.by_ast.get(&ast_id).copied()
     }
 
     /// The file owner (the first entry).
@@ -156,77 +116,142 @@ impl OwnerTable {
     }
 }
 
+/// The source-side join between an [`OwnerId`] and the current AST.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnerSourceMap {
+    by_owner: FxHashMap<OwnerId, Option<SourceAstId>>,
+    by_ast: FxHashMap<SourceAstId, OwnerId>,
+}
+
+impl OwnerSourceMap {
+    pub fn source_ast_id(&self, owner: OwnerId) -> Option<SourceAstId> {
+        self.by_owner.get(&owner).copied().flatten()
+    }
+
+    pub fn owner_by_ast(&self, ast_id: SourceAstId) -> Option<OwnerId> {
+        self.by_ast.get(&ast_id).copied()
+    }
+}
+
 #[salsa::tracked(lru = 256, returns(clone))]
 pub(crate) fn owner_table(db: &dyn HirDefDb, file_id: HirFileId, _key: ()) -> Arc<OwnerTable> {
     let tree = db.parse(file_id);
+    Arc::new(owner_table_from_source(db, file_id, &tree))
+}
+
+#[salsa::tracked(lru = 256, returns(clone))]
+pub(crate) fn owner_source_map(
+    db: &dyn HirDefDb,
+    file_id: HirFileId,
+    _key: (),
+) -> Arc<OwnerSourceMap> {
+    let tree = db.parse(file_id);
     let ast_ids = db.ast_id_map(file_id);
-    Arc::new(owner_table_from_source(db, file_id, &tree, &ast_ids))
+    Arc::new(owner_source_map_from_source(db, file_id, &tree, &ast_ids))
+}
+
+/// Owner-local source lookup. The single `OwnerId` key is intentional: body
+/// queries can locate their current syntax without re-keying through a legacy
+/// container id.
+#[salsa::tracked(returns(copy))]
+pub(crate) fn owner_source_ast_id(db: &dyn HirDefDb, owner: OwnerId) -> Option<SourceAstId> {
+    db.owner_source_map(owner.file(db)).source_ast_id(owner)
 }
 
 pub(crate) fn set_owner_table_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     owner_table::set_lru_capacity(db, capacity);
+    owner_source_map::set_lru_capacity(db, capacity);
 }
 
-fn owner_table_from_source(
+fn owner_table_from_source(db: &dyn HirDefDb, file_id: HirFileId, tree: &SyntaxTree) -> OwnerTable {
+    let owners = discover_owners(db, file_id, tree, None)
+        .into_iter()
+        .map(|owner| OwnerData {
+            id: owner.id,
+            kind: owner.kind,
+            parent: owner.parent,
+            name: owner.name,
+        })
+        .collect();
+    OwnerTable { owners }
+}
+
+fn owner_source_map_from_source(
     db: &dyn HirDefDb,
     file_id: HirFileId,
     tree: &SyntaxTree,
     ast_ids: &AstIdMap,
-) -> OwnerTable {
-    let mut owners = Vec::new();
+) -> OwnerSourceMap {
+    let owners = discover_owners(db, file_id, tree, Some(ast_ids));
+    let mut by_owner = FxHashMap::default();
     let mut by_ast = FxHashMap::default();
+    for discovered in owners {
+        by_owner.insert(discovered.id, discovered.ast_id);
+        if let Some(ast_id) = discovered.ast_id {
+            by_ast.insert(ast_id, discovered.id);
+        }
+    }
+    OwnerSourceMap { by_owner, by_ast }
+}
 
-    // The file itself is the root owner; every top-level owner is its child.
-    let root_ast_id = tree.root().and_then(|root| ast_ids.id_of_node(root));
-    let file_owner =
-        OwnerId::new(db, file_id, OwnerKind::File, None, SmolStr::new_static(""), root_ast_id);
-    owners.push(OwnerData {
+struct DiscoveredOwner {
+    id: OwnerId,
+    kind: OwnerKind,
+    parent: Option<OwnerId>,
+    name: SmolStr,
+    ast_id: Option<SourceAstId>,
+}
+
+fn discover_owners(
+    db: &dyn HirDefDb,
+    file_id: HirFileId,
+    tree: &SyntaxTree,
+    ast_ids: Option<&AstIdMap>,
+) -> Vec<DiscoveredOwner> {
+    let root_ast_id =
+        tree.root().and_then(|root| ast_ids.and_then(|ast_ids| ast_ids.id_of_node(root)));
+    let file_owner = OwnerId::new(db, file_id, OwnerKind::File, None, 0);
+    let mut discovered = vec![DiscoveredOwner {
         id: file_owner,
         kind: OwnerKind::File,
         parent: None,
         name: SmolStr::new_static(""),
         ast_id: root_ast_id,
-    });
-    if let Some(ast_id) = root_ast_id {
-        by_ast.insert(ast_id, file_owner);
-    }
+    }];
 
     let Some(root) = tree.root() else {
-        return OwnerTable { owners, by_ast };
+        return discovered;
     };
 
-    let mut stack = vec![file_owner];
+    let mut owners = vec![file_owner];
+    let mut next_slots = vec![0u32];
     for event in root.node_preorder() {
         match event {
             WalkEvent::Enter(node) => {
                 let Some(kind) = owner_kind_of(node.kind()) else {
                     continue;
                 };
+                let slot = next_slots.last_mut().expect("owner stack is non-empty");
+                let owner_slot = *slot;
+                *slot += 1;
+                let parent = owners.last().copied();
+                let owner = OwnerId::new(db, file_id, kind, parent, owner_slot);
                 let name = owner_name(node);
-                let ast_id = ast_ids.id_of_node(node);
-                let owner =
-                    OwnerId::new(db, file_id, kind, stack.last().copied(), name.clone(), ast_id);
-                owners.push(OwnerData {
-                    id: owner,
-                    kind,
-                    parent: stack.last().copied(),
-                    name,
-                    ast_id,
-                });
-                if let Some(ast_id) = ast_id {
-                    by_ast.insert(ast_id, owner);
-                }
-                stack.push(owner);
+                let ast_id = ast_ids.and_then(|ast_ids| ast_ids.id_of_node(node));
+                discovered.push(DiscoveredOwner { id: owner, kind, parent, name, ast_id });
+                owners.push(owner);
+                next_slots.push(0);
             }
             WalkEvent::Leave(node) => {
                 if owner_kind_of(node.kind()).is_some() {
-                    stack.pop();
+                    owners.pop();
+                    next_slots.pop();
                 }
             }
         }
     }
 
-    OwnerTable { owners, by_ast }
+    discovered
 }
 
 /// The node kinds that start a new owner; everything else belongs to the
@@ -267,13 +292,13 @@ fn owner_name(node: SyntaxNode<'_>) -> SmolStr {
 // ---------------------------------------------------------------------------
 
 impl ModuleId {
-    /// The unified owner of this module, when its node is in the file's AST
-    /// id map (root-buffer modules always are).
+    /// The unified owner of this module, when its node is in the file's source
+    /// projection (root-buffer modules always are).
     pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
         let lowered_file = db.hir_file_with_source_map(self.file_id);
         let src = lowered_file.source_map().get(self.value)?;
         let ast_id = db.ast_id_map(self.file_id).id_of_ptr(src.node)?;
-        db.owner_table(self.file_id).owner_by_ast(ast_id)
+        db.owner_source_map(self.file_id).owner_by_ast(ast_id)
     }
 }
 
@@ -282,7 +307,7 @@ impl BlockId {
     pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
         let src = self.loc().src;
         let ast_id = db.ast_id_map(src.file_id).id_of_ptr(src.value.node)?;
-        db.owner_table(src.file_id).owner_by_ast(ast_id)
+        db.owner_source_map(src.file_id).owner_by_ast(ast_id)
     }
 }
 
@@ -291,7 +316,7 @@ impl crate::module::generate::GenerateBlockId {
     pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
         let src = self.loc().src;
         let ast_id = db.ast_id_map(src.file_id).id_of_ptr(src.value.node())?;
-        db.owner_table(src.file_id).owner_by_ast(ast_id)
+        db.owner_source_map(src.file_id).owner_by_ast(ast_id)
     }
 }
 
@@ -300,7 +325,7 @@ impl SubroutineScope {
     pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
         let src = crate::def_id::subroutine_src(db, self)?;
         let ast_id = db.ast_id_map(src.file_id).id_of_ptr(src.value.node)?;
-        db.owner_table(src.file_id).owner_by_ast(ast_id)
+        db.owner_source_map(src.file_id).owner_by_ast(ast_id)
     }
 }
 
@@ -411,24 +436,21 @@ mod tests {
         AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}/{path}")))
     }
 
-    /// Structural fingerprint of an owner table: (kind, name, parent name,
-    /// ast id). Comparable across databases, unlike the interned ids.
-    fn fingerprint(
-        table: &crate::owner::OwnerTable,
-    ) -> Vec<(String, String, Option<String>, Option<SourceAstId>)> {
+    /// Structural fingerprint of an owner table: (kind, name, parent name).
+    /// Comparable across databases, unlike the interned ids.
+    fn fingerprint(table: &crate::owner::OwnerTable) -> Vec<(String, String, Option<String>)> {
         table
             .owners()
             .iter()
             .map(|owner| {
-                let parent = owner.parent.map(|parent| {
+                let parent = owner.parent.and_then(|parent| {
                     table
                         .owners()
                         .iter()
                         .find(|candidate| candidate.id == parent)
                         .map(|candidate| candidate.name.to_string())
-                        .unwrap_or_default()
                 });
-                (format!("{:?}", owner.kind), owner.name.to_string(), parent, owner.ast_id)
+                (format!("{:?}", owner.kind), owner.name.to_string(), parent)
             })
             .collect()
     }
@@ -456,7 +478,13 @@ endmodule
             .owners()
             .iter()
             .map(|owner| {
-                let parent = owner.parent.map(|parent| parent.name(&db).to_string());
+                let parent = owner.parent.and_then(|parent| {
+                    table
+                        .owners()
+                        .iter()
+                        .find(|candidate| candidate.id == parent)
+                        .map(|candidate| candidate.name.to_string())
+                });
                 (format!("{:?}", owner.kind), owner.name.to_string(), parent)
             })
             .collect();
@@ -475,14 +503,19 @@ endmodule
 
     #[test]
     fn owner_table_is_stable_across_body_edits() {
-        let before = "module m; task automatic t; begin int x = 1; end endtask endmodule\n";
-        let after =
-            "module m; task automatic t; begin int x = 1; x = x + 1; end endtask endmodule\n";
-        let before_table = db_with_root_text(before).owner_table(HirFileId::File(TOP));
-        let after_table = db_with_root_text(after).owner_table(HirFileId::File(TOP));
+        let before = "module m; task automatic t; begin int x = 1; end endtask task automatic u; endtask endmodule\n";
+        let after = "module m; task automatic t; begin int x = 1; x = x + 1; end endtask task automatic u; endtask endmodule\n";
+        let mut db = db_with_root_text(before);
+        let file_id = HirFileId::File(TOP);
+        let before_table = db.owner_table(file_id);
+        let before_ids: Vec<_> = before_table.owners().iter().map(|owner| owner.id).collect();
 
+        db.set_file_text_with_durability(TOP, Arc::from(after), Durability::LOW);
+
+        let after_table = db.owner_table(file_id);
+        let after_ids: Vec<_> = after_table.owners().iter().map(|owner| owner.id).collect();
         assert_eq!(fingerprint(&before_table), fingerprint(&after_table));
-        assert_eq!(before_table.owners().len(), after_table.owners().len());
+        assert_eq!(before_ids, after_ids);
     }
 
     #[test]
@@ -493,7 +526,7 @@ endmodule
         let after_table = db_with_root_text(after).owner_table(HirFileId::File(TOP));
 
         // The new sibling is appended last, so every existing owner keeps its
-        // source position and its ast id.
+        // structural slot.
         assert_eq!(before_table.owners().len() + 1, after_table.owners().len());
         let before_rows: Vec<_> = fingerprint(&before_table);
         let after_rows: Vec<_> = fingerprint(&after_table);
@@ -508,6 +541,7 @@ endmodule
         let hir_file = db.hir_file(file_id);
         let table = db.owner_table(file_id);
 
+        let source_map = db.owner_source_map(file_id);
         for (local_module_id, module_info) in hir_file.modules.iter() {
             let module_id = ModuleId::new(file_id, local_module_id);
             let owner = module_id.owner(&db).expect("module must map to an owner");
@@ -516,7 +550,7 @@ endmodule
                 .find(|owner| owner.name == module_info.name.as_deref().unwrap_or(""))
                 .expect("module owner must exist");
             assert_eq!(owner, expected.id);
-            assert!(owner.ast_id(&db).is_some());
+            assert!(db.owner_source_ast_id(expected.id).is_some());
         }
     }
 
@@ -544,8 +578,8 @@ endmodule
                 crate::stmt::StmtKind::Block(info)
                     if {
                         let node = info.block_id.loc().src.value.node;
-                        Some(node)
-                            == block_owner.ast_id.and_then(|id| db.ast_id_map(file_id).ptr(id))
+                        let ast_id = db.owner_source_map(file_id).source_ast_id(block_owner.id);
+                        Some(node) == ast_id.and_then(|id| db.ast_id_map(file_id).ptr(id))
                     } =>
                 {
                     Some(info.block_id.clone())
@@ -557,7 +591,6 @@ endmodule
 
         assert_eq!(block_id.owner(&db), Some(block_owner.id));
     }
-
     #[test]
     fn subroutine_scope_maps_to_its_owner() {
         let text = "module m; task automatic t; endtask endmodule\n";
@@ -579,8 +612,8 @@ endmodule
             .subroutine_srcs
             .iter()
             .find(|(_, src)| {
-                Some(src.node)
-                    == subroutine_owner.ast_id.and_then(|id| db.ast_id_map(file_id).ptr(id))
+                let ast_id = db.owner_source_map(file_id).source_ast_id(subroutine_owner.id);
+                Some(src.node) == ast_id.and_then(|id| db.ast_id_map(file_id).ptr(id))
             })
             .expect("lowering must create the subroutine");
         let scope = SubroutineScope { cont_id: SubroutineParent::Module(module_id), value };

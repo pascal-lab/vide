@@ -1,4 +1,4 @@
-//! Per-file stable AST node identity.
+//! Per-file source AST identity.
 //!
 //! Every root-buffer node of a file's syntax tree gets a `SourceAstId`
 //! assigned in depth-first preorder: a parent is numbered before its
@@ -36,7 +36,7 @@ use triomphe::Arc;
 
 use crate::db::HirDefDb;
 
-/// A stable, file-local index of a syntax node in breadth-first preorder.
+/// A file-local index of a syntax node in depth-first preorder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SourceAstId(pub u32);
 
