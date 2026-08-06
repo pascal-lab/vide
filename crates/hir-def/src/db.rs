@@ -5,11 +5,12 @@ use preproc_expand::{db::PreprocDb, file::HirFileId};
 use triomphe::Arc;
 
 use crate::{
+    ast_id_map::{self, AstIdMap},
     block::{self, Block, BlockId},
     checker::CheckerId,
-    diagnostics,
     container::{InFileOrModule, InModule, ScopeId, SubroutineScope},
     covergroup::CovergroupId,
+    diagnostics,
     file::{self, HirFile},
     item_tree::{self, ItemTree},
     module::{
@@ -18,6 +19,7 @@ use crate::{
         generate::{self, GenerateBlock, GenerateBlockId},
     },
     nameres,
+    owner::{self, OwnerTable},
     source_map::Lowered,
     source_projection::{self, SourceProjection},
     subroutine::{self, Subroutine},
@@ -38,6 +40,18 @@ impl Deref for dyn HirDefDb {
 }
 
 impl dyn HirDefDb + '_ {
+    /// Stable per-file AST node ids in breadth-first preorder; the join key
+    /// between the syntax tree and every semantic layer.
+    pub fn ast_id_map(&self, file_id: HirFileId) -> Arc<AstIdMap> {
+        ast_id_map::ast_id_map(self, file_id, ())
+    }
+
+    /// The canonical owner enumeration of a file, in source order and
+    /// independent of any lowering.
+    pub fn owner_table(&self, file_id: HirFileId) -> Arc<OwnerTable> {
+        owner::owner_table(self, file_id, ())
+    }
+
     pub fn item_tree(&self, file_id: HirFileId) -> Arc<ItemTree> {
         item_tree::item_tree(self, file_id, ())
     }
@@ -178,9 +192,11 @@ fn generate_block(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> Arc<
 /// Sets the LRU capacity of the tracked HIR queries, mirroring the previous
 /// `RootDb::update_parse_query_lru_capacity` knob.
 pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    ast_id_map::set_ast_id_map_lru_capacity(db, capacity);
     block::set_block_lru_capacity(db, capacity);
     file::set_hir_file_lru_capacity(db, capacity);
     item_tree::set_item_tree_lru_capacity(db, capacity);
+    owner::set_owner_table_lru_capacity(db, capacity);
     module::set_module_lru_capacity(db, capacity);
     module::generate::set_generate_block_lru_capacity(db, capacity);
     nameres::set_scope_lru_capacity(db, capacity);

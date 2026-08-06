@@ -18,9 +18,7 @@
 
 use la_arena::Arena;
 use preproc_expand::file::HirFileId;
-use syntax::{
-    SyntaxKind, SyntaxTree, WalkEvent, has_text_range::HasTextRange,
-};
+use syntax::{SyntaxKind, SyntaxTree, WalkEvent, has_text_range::HasTextRange};
 use triomphe::Arc;
 use utils::{
     get::GetRef,
@@ -234,10 +232,7 @@ mod tests {
         source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
         source_root::{SourceRoot, SourceRootId},
     };
-    use preproc_expand::{
-        db::PreprocDb,
-        file::HirFileId,
-    };
+    use preproc_expand::{db::PreprocDb, file::HirFileId};
     use rustc_hash::FxHashSet;
     use syntax::{SyntaxKind, SyntaxTree};
     use triomphe::Arc;
@@ -422,7 +417,9 @@ endmodule
         let diagnostic = diagnostics
             .iter()
             .find(|diag| diag.syntax_kind == SyntaxKind::STRUCT_TYPE)
-            .unwrap_or_else(|| panic!("include-buffer struct type should be diagnosed: {diagnostics:?}"));
+            .unwrap_or_else(|| {
+                panic!("include-buffer struct type should be diagnosed: {diagnostics:?}")
+            });
 
         // The struct lives in an included buffer and has no root-buffer range;
         // the strategy falls back to a zero-width marker at the owner start.
@@ -481,4 +478,3 @@ endmodule
         assert_eq!(range, TextRange::empty(owner_range.start()));
     }
 }
-

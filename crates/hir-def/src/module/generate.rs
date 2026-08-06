@@ -268,7 +268,7 @@ impl From<GenerateBlockSrc> for SyntaxNodePtr {
     }
 }
 
-fn generate_block_name(block: ast::GenerateBlock<'_>) -> Option<SyntaxToken<'_>> {
+pub(crate) fn generate_block_name(block: ast::GenerateBlock<'_>) -> Option<SyntaxToken<'_>> {
     block
         .label()
         .and_then(|label| label.name())

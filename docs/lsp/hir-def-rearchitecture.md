@@ -690,22 +690,21 @@ ItemTree + SourceProjection
 
 #### 10.4.1 稳定 item id：`SourceAstId`（FileAstId 等价物）
 
-新建 `hir-def/src/ast_id_map.rs`，`ast_id_map(file_id)` 为 tracked query（lru），返回按 BFS 预序分配、**父先于子**的稳定 id 表（与 r-a AstIdMap 同构，见 10.3-1）：
+**已实现**（`hir-def/src/ast_id_map.rs`）：`ast_id_map(file_id)` 为 tracked query（lru），按 **DFS 预序**分配、**父先于子**的稳定 id 表：
 
 ```rust
-#[salsa::tracked(lru = 1024, returns(ref))]
-fn ast_id_map(db: &dyn HirDefDb, file_id: HirFileId) -> AstIdMap;
+#[salsa::tracked(lru = 1024, returns(clone))]
+fn ast_id_map(db: &dyn HirDefDb, file_id: HirFileId, _key: ()) -> Arc<AstIdMap>;
 
-pub struct AstIdMap { /* Vec<(SyntaxNodePtr, u32)> 双向表，BFS 序 */ }
+pub struct AstIdMap { /* Vec<SyntaxNodePtr> + by_ptr 双向表，DFS 序 */ }
 pub struct SourceAstId(pub u32);          // per-file 稳定索引，Copy
-pub struct AstId<K: AstKind>(pub HirFileId, pub SourceAstId, PhantomData<fn() -> K>);  // 现有 AstId 保留
 ```
 
-要点：
-- `AstIdMap::from_source` 用 BFS 保证「子节点 id 只在父之后追加」，新增兄弟节点不移动既有 id → 跨 revision 稳定；
-- `SourceAstId` 取代 `NamedAstId`/手写 `{node,name}` src 的四套并存机制（modport.rs、clocking.rs、generate.rs、aggregate.rs 各一套）；
-- `SourceAst`/`FromSourceAst`/`root_token_in` 的宏/include 守卫保留，但「无可导航 range」成为 `SourceOrigin::NonNavigable` 显式值（见 10.4.6），不再靠 `Option` 全链传播；
-- salsa 单 key 约束：`ast_id_map(db, file_id)` 两个参数，天然合法，无 `_key`。
+要点与实现时的两处事实修正：
+- **BFS → DFS**：原稿声称 BFS 满足「新增兄弟节点不移动既有 id」，实测不成立——BFS 下在浅层追加兄弟节点会重排其后的深层节点；DFS 预序才能保证**追加**不改动既有 id（测试 `appending_a_member_does_not_renumber_existing_nodes` 钉死）。r-a 后续已转向 kind+name+parent 内容哈希 id（见其 master ast_id.rs），需要那类稳定性时可在 `SourceAstId` 上重建，消费者不变。
+- **`_key: ()` 无法避免**：salsa 0.28.2 的「单 key 必须是 Salsa struct」规则下，`(db, file_id)` 就是单 key，`HirFileId` 不是 Salsa struct → 编译报错（实测）。所以 `ast_id_map` 仍带 `_key: ()`；**消除 `_key` 只能等 key 变成 `OwnerId`（salsa interned，见 10.4.3）**。原稿「两个参数，天然合法，无 `_key`」是错的。
+- include 缓冲区节点没有 root-buffer range，不编号（`Option<SourceAstId>` None），与 `SourceAst` 边界一致；
+- 已接入 `ItemTreeItem.ast_id`（item → 节点身份），`SourceAstId` 取代 `NamedAstId`/手写 `{node,name}` src 的迁移仍待做。
 
 #### 10.4.2 DefId：db-interned，替换全局 pool
 
@@ -736,23 +735,13 @@ pub struct DefData {           // DefId → 元数据，owner-level query
 
 #### 10.4.3 OwnerId：统一容器身份，删除 wrapper soup
 
-用 salsa tracked 结构体做 owner（与 r-a `ModuleIdLt` 同构，天然满足「单 key 是 Salsa struct」，消灭全部 `_key: ()`）：
+**已实现**（`hir-def/src/owner.rs`）：`OwnerId` 是 **salsa interned** 结构体（`unsafe(no_lifetime)` + `revisions = usize::MAX`，`DefOrigin` 同款手法），字段 `(file, kind, parent, name, ast_id)`，Copy + 'static。`owner_table(file_id)` tracked query 从语法树 DFS 枚举全部 owner（File/Module/GenerateBlock/Block/Subroutine），带 parent 链与 ast_id；`owner_table` 与 body 无关——body 编辑不改变 owner 集合（测试 `owner_table_is_stable_across_body_edits` 钉死），这是后续拆查询粒度的增量基础。旧 id → `OwnerId` 的正向映射已实现：`ModuleId::owner` / `BlockId::owner` / `GenerateBlockId::owner` / `SubroutineScope::owner`（经 `ast_id` 联接，无 lockstep 顺序依赖）。
 
-```rust
-#[salsa::tracked(debug)]
-pub struct OwnerIdLt<'db> {
-    #[returns(copy)] pub file: HirFileId,
-    #[returns(copy)] pub kind: OwnerKind,          // File | Module | GenerateBlock | Block | Subroutine | Checker | Covergroup | ClockingBlock
-    pub parent: Option<OwnerIdLt<'db>>,            // 显式 parent 链（替代 ScopeParent match）
-    #[returns(copy)] pub name_or_empty: IdentId,   // path-shaped 定位
-    #[returns(copy)] pub ast_id: Option<SourceAstId>,
-}
-```
-
-- `OwnerId` 取代 `ScopeId`/`ArenaOwnerId`/`FileOrModule`/`SubroutineParent`/`SubroutineScope`/`InScope`/`InFileOrModule` 全部 7 个包装类型；
-- `InFile<T>` 保留（唯一通用包装），`InModule`/`InContainer`/`InBlock`/`InSubroutine`/`InGenerateBlock` 删除；`InScope` 是死类型直接删除（R12）；
-- 所有 owner 派生数据查询（`*_with_source_map`）key 改为 `OwnerId` 单参数 → `_key: ()` 全部消失（R7 根除）；
-- `BlockId`/`GenerateBlockId` 的 `Arc<BlockLoc>` 改为 `OwnerId`（Copy），`LocalBlockId(pub StmtId)` 别名删除（R10）。
+实现偏差（相对原稿）：
+- **tracked → interned**：salsa 0.28.2 的 tracked struct 不支持 `no_lifetime`（`salsa-macros-0.28.2/src/tracked_struct.rs:40` `NO_LIFETIME = false`），handle 带 `'db`，无法存进 `Arc<Lowered<T>>` 跨 revision；interned + `unsafe(no_lifetime)` 是 crates.io salsa 下唯一能给出 `'static` Copy handle 的路径（与 `DefOrigin`/`DefId` 一致），同样满足「单 key 是 Salsa struct」的 salsa 规则。
+- **`name_or_empty: IdentId` → `name: SmolStr`**：ident_pool 迁移（R9）在 Phase 2，Phase 1 直接用 `SmolStr`；
+- **enumeration 覆盖 5 个 lowering owner**：Checker/Covergroup/ClockingBlock 变体保留，等各自 per-owner query 落地再枚举；
+- 后续步骤：`*_with_source_map` 查询 key 改为 `OwnerId` 单参数（`_key: ()` 消失，R7），`BlockId`/`GenerateBlockId` 的 `Arc<BlockLoc>` 改为 `OwnerId`（R10），删除 wrapper soup（R10/R12）。
 
 #### 10.4.4 ItemTree：per-file 结构摘要
 
@@ -889,7 +878,7 @@ lexical chain（innermost → outermost，来自 OwnerId.parent，非 ScopeParen
 
 前文 Phase 0-5 顺序成立，但依据 R7/R8/R9 调整两个前置条件：
 
-1. **Phase 1 提前建 `ast_id_map` + `OwnerId`**：没有稳定 `SourceAstId` 与统一 `OwnerId`，ItemTree/DefId/DesignMap 三层的 id 都会中途换 key。`OwnerId`（salsa tracked struct）同时解决 `_key: ()`（R7）——这是最便宜、收益最大的一步。
+1. **Phase 1 提前建 `ast_id_map` + `OwnerId`**：没有稳定 `SourceAstId` 与统一 `OwnerId`，ItemTree/DefId/DesignMap 三层的 id 都会中途换 key。`OwnerId`（salsa interned struct，见 10.4.3 的偏差说明）同时解决 `_key: ()`（R7）——这是最便宜、收益最大的一步。**已落地**：`ast_id_map`/`SourceAstId`（接入 ItemTree）+ `OwnerId`/`OwnerKind`/`owner_table` + 旧 id 正向映射；下一步是 `*_with_source_map` 查询按 `OwnerId` 重 key（拆查询粒度，即用户要求的「先统一身份，再拆粒度」的第二半）。
 2. **Phase 2 的 non-ANSI slot 归并先于 scope 迁移**：`DefId::new` 的 O(n) 扫描（R8）在 scope 构建期被放大；先消除扫描，scope 迁移时 DefId 已是 O(1) 分配。
 3. **`ident_pool`/`origin_pool` 删除放 Phase 2 一起**：两者互相纠缠（NameScope 依赖 pool 稳定性），一次替换避免中间态双 pool。
 
