@@ -8,7 +8,8 @@ use crate::{
     block::BlockId,
     checker::{CheckerId, CheckerPortId},
     container::{
-        InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine, SubroutineScope,
+        InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine, ScopeId,
+        SubroutineScope,
     },
     covergroup::{CovergroupId, CoverpointId, CrossId},
     db::HirDefDb,
@@ -90,6 +91,63 @@ macro_rules! impl_origin_cast {
             }
         }
     };
+}
+
+/// Generates `DefOriginLoc::trivial_kind`: the `DefKind` of every variant
+/// whose kind does not depend on the database. Variant names mirror
+/// `DefKind` names one-to-one; `Module` and `Decl` are excluded because their
+/// kind is derived from the lowered data.
+macro_rules! trivial_kind {
+    ($($variant:ident),* $(,)?) => {
+        pub fn trivial_kind(&self) -> DefKind {
+            match self {
+                $(DefOriginLoc::$variant(_) => DefKind::$variant,)*
+                DefOriginLoc::Module(_) | DefOriginLoc::Decl(_) => {
+                    unreachable!("kind requires the database")
+                }
+            }
+        }
+    };
+}
+
+impl DefOriginLoc {
+    trivial_kind! {
+        Config, Library, Udp, Block, GenerateBlock, Subroutine, SubroutinePort, NonAnsiPort,
+        Typedef, Instance, Modport, ClockingBlock, ClockingSignal, Checker, CheckerPort,
+        Covergroup, Coverpoint, Cross, Stmt,
+    }
+
+    /// The scope that owns this origin. Does not need the database: every
+    /// variant carries its container directly.
+    pub fn container_id(&self) -> ScopeId {
+        match self {
+            DefOriginLoc::Module(InFile { file_id, .. }) => (*file_id).into(),
+            DefOriginLoc::Config(InFile { file_id, .. }) => (*file_id).into(),
+            DefOriginLoc::Library(InFile { file_id, .. }) => (*file_id).into(),
+            DefOriginLoc::Udp(InFile { file_id, .. }) => (*file_id).into(),
+            DefOriginLoc::Block(block_id) => block_id.loc().cont_id.clone().into(),
+            DefOriginLoc::GenerateBlock(generate_block_id) => {
+                generate_block_id.loc().cont_id.clone().into()
+            }
+            DefOriginLoc::Subroutine(subroutine_id) => subroutine_id.cont_id.clone().into(),
+            DefOriginLoc::SubroutinePort(InSubroutine { subroutine, .. }) => {
+                ScopeId::Subroutine(subroutine.clone())
+            }
+            DefOriginLoc::NonAnsiPort(InModule { module_id, .. }) => (*module_id).into(),
+            DefOriginLoc::Decl(InContainer { cont_id, .. }) => cont_id.clone().into(),
+            DefOriginLoc::Typedef(InContainer { cont_id, .. }) => cont_id.clone().into(),
+            DefOriginLoc::Instance(InModule { module_id, .. }) => (*module_id).into(),
+            DefOriginLoc::Modport(InModule { module_id, .. }) => (*module_id).into(),
+            DefOriginLoc::ClockingBlock(InModule { module_id, .. }) => (*module_id).into(),
+            DefOriginLoc::ClockingSignal(InScope { scope_id, .. }) => scope_id.clone(),
+            DefOriginLoc::Checker(InFileOrModule { cont_id, .. }) => cont_id.clone().into(),
+            DefOriginLoc::CheckerPort(InScope { scope_id, .. }) => scope_id.clone(),
+            DefOriginLoc::Covergroup(InFileOrModule { cont_id, .. }) => cont_id.clone().into(),
+            DefOriginLoc::Coverpoint(InScope { scope_id, .. }) => scope_id.clone(),
+            DefOriginLoc::Cross(InScope { scope_id, .. }) => scope_id.clone(),
+            DefOriginLoc::Stmt(InContainer { cont_id, .. }) => cont_id.clone().into(),
+        }
+    }
 }
 
 impl DefOrigin {
