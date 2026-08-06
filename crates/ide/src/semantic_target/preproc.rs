@@ -16,8 +16,8 @@ use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
 use super::{
-    SourceTarget, TargetAlternatives, TargetCandidate, TargetResolution, TargetAmbiguityReason,
-    SemanticTarget, normal_syntax_source_target_at_offset, source_capabilities,
+    SemanticTarget, SourceTarget, TargetAlternatives, TargetAmbiguityReason, TargetCandidate,
+    TargetResolution, normal_syntax_source_target_at_offset, source_capabilities,
 };
 
 /// Emitted-token id to syntax tokens for one parse tree, built with a single
@@ -80,7 +80,7 @@ pub(super) fn preproc_source_target_at_offset<'tree>(
                 source_capabilities(),
             )))
         }
-        PreprocHitLookup::Unavailable { .. } => Some(TargetResolution::Blocked),
+        PreprocHitLookup::Unavailable => Some(TargetResolution::Blocked),
         PreprocHitLookup::Ambiguous { range, hits } => Some(
             ambiguous_preproc_source_targets(root, offset, precedence, emitted, range, hits)
                 .map_or(TargetResolution::Blocked, |(reason, candidates)| {
@@ -206,8 +206,7 @@ pub(super) fn syntax_tokens_for_preproc_hit<'tree>(
         return syntax_tokens_for_macro_emitted_tokens(root, emitted, hits);
     }
 
-    normal_syntax_source_target_at_offset(root, offset, precedence)
-        .map(SourceTarget::into_tokens)
+    normal_syntax_source_target_at_offset(root, offset, precedence).map(SourceTarget::into_tokens)
 }
 
 fn macro_emitted_token_for_hit(hit: &PreprocTokenHit) -> Option<SourceEmittedTokenId> {
