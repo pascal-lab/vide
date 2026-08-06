@@ -76,183 +76,80 @@ pub(crate) trait LoweringStore {
     ) -> (&mut Arena<Declaration>, &mut SourceMap<DeclarationSrc, Declaration>);
 }
 
-impl LoweringStore for FileStore<'_> {
-    fn expressions(&mut self) -> (&mut Arena<Expr>, &mut SourceMap<ExprSrc, Expr>) {
-        (&mut self.data.exprs, &mut self.sources.expr_srcs)
-    }
+macro_rules! impl_lowering_store {
+    ($store:ty) => {
+        impl LoweringStore for $store {
+            fn expressions(&mut self) -> (&mut Arena<Expr>, &mut SourceMap<ExprSrc, Expr>) {
+                (&mut self.data.exprs, &mut self.sources.expr_srcs)
+            }
 
-    fn event_expressions(
-        &mut self,
-    ) -> (&mut Arena<EventExpr>, &mut SourceMap<EventExprSrc, EventExpr>) {
-        (&mut self.data.event_exprs, &mut self.sources.event_expr_srcs)
-    }
+            fn event_expressions(
+                &mut self,
+            ) -> (&mut Arena<EventExpr>, &mut SourceMap<EventExprSrc, EventExpr>) {
+                (&mut self.data.event_exprs, &mut self.sources.event_expr_srcs)
+            }
 
-    fn declarators(
-        &mut self,
-    ) -> (&mut Arena<Declarator>, &mut SourceMap<DeclaratorSrc, Declarator>) {
-        (&mut self.data.decls, &mut self.sources.decl_srcs)
-    }
+            fn declarators(
+                &mut self,
+            ) -> (&mut Arena<Declarator>, &mut SourceMap<DeclaratorSrc, Declarator>) {
+                (&mut self.data.decls, &mut self.sources.decl_srcs)
+            }
 
-    fn statements(&mut self) -> (&mut Arena<Stmt>, &mut SourceMap<StmtSrc, Stmt>) {
-        (&mut self.data.stmts, &mut self.sources.stmt_srcs)
-    }
+            fn statements(&mut self) -> (&mut Arena<Stmt>, &mut SourceMap<StmtSrc, Stmt>) {
+                (&mut self.data.stmts, &mut self.sources.stmt_srcs)
+            }
 
-    fn declarations(
-        &mut self,
-    ) -> (&mut Arena<Declaration>, &mut SourceMap<DeclarationSrc, Declaration>) {
-        (&mut self.data.declarations, &mut self.sources.declaration_srcs)
-    }
+            fn declarations(
+                &mut self,
+            ) -> (&mut Arena<Declaration>, &mut SourceMap<DeclarationSrc, Declaration>) {
+                (&mut self.data.declarations, &mut self.sources.declaration_srcs)
+            }
+        }
+    };
 }
 
-impl LoweringStore for ModuleStore<'_> {
-    fn expressions(&mut self) -> (&mut Arena<Expr>, &mut SourceMap<ExprSrc, Expr>) {
-        (&mut self.data.exprs, &mut self.sources.expr_srcs)
-    }
-
-    fn event_expressions(
-        &mut self,
-    ) -> (&mut Arena<EventExpr>, &mut SourceMap<EventExprSrc, EventExpr>) {
-        (&mut self.data.event_exprs, &mut self.sources.event_expr_srcs)
-    }
-
-    fn declarators(
-        &mut self,
-    ) -> (&mut Arena<Declarator>, &mut SourceMap<DeclaratorSrc, Declarator>) {
-        (&mut self.data.decls, &mut self.sources.decl_srcs)
-    }
-
-    fn statements(&mut self) -> (&mut Arena<Stmt>, &mut SourceMap<StmtSrc, Stmt>) {
-        (&mut self.data.stmts, &mut self.sources.stmt_srcs)
-    }
-
-    fn declarations(
-        &mut self,
-    ) -> (&mut Arena<Declaration>, &mut SourceMap<DeclarationSrc, Declaration>) {
-        (&mut self.data.declarations, &mut self.sources.declaration_srcs)
-    }
-}
-
-impl LoweringStore for GenerateBlockStore<'_> {
-    fn expressions(&mut self) -> (&mut Arena<Expr>, &mut SourceMap<ExprSrc, Expr>) {
-        (&mut self.data.exprs, &mut self.sources.expr_srcs)
-    }
-
-    fn event_expressions(
-        &mut self,
-    ) -> (&mut Arena<EventExpr>, &mut SourceMap<EventExprSrc, EventExpr>) {
-        (&mut self.data.event_exprs, &mut self.sources.event_expr_srcs)
-    }
-
-    fn declarators(
-        &mut self,
-    ) -> (&mut Arena<Declarator>, &mut SourceMap<DeclaratorSrc, Declarator>) {
-        (&mut self.data.decls, &mut self.sources.decl_srcs)
-    }
-
-    fn statements(&mut self) -> (&mut Arena<Stmt>, &mut SourceMap<StmtSrc, Stmt>) {
-        (&mut self.data.stmts, &mut self.sources.stmt_srcs)
-    }
-
-    fn declarations(
-        &mut self,
-    ) -> (&mut Arena<Declaration>, &mut SourceMap<DeclarationSrc, Declaration>) {
-        (&mut self.data.declarations, &mut self.sources.declaration_srcs)
-    }
-}
-
-impl LoweringStore for BlockStore<'_> {
-    fn expressions(&mut self) -> (&mut Arena<Expr>, &mut SourceMap<ExprSrc, Expr>) {
-        (&mut self.data.exprs, &mut self.sources.expr_srcs)
-    }
-
-    fn event_expressions(
-        &mut self,
-    ) -> (&mut Arena<EventExpr>, &mut SourceMap<EventExprSrc, EventExpr>) {
-        (&mut self.data.event_exprs, &mut self.sources.event_expr_srcs)
-    }
-
-    fn declarators(
-        &mut self,
-    ) -> (&mut Arena<Declarator>, &mut SourceMap<DeclaratorSrc, Declarator>) {
-        (&mut self.data.decls, &mut self.sources.decl_srcs)
-    }
-
-    fn statements(&mut self) -> (&mut Arena<Stmt>, &mut SourceMap<StmtSrc, Stmt>) {
-        (&mut self.data.stmts, &mut self.sources.stmt_srcs)
-    }
-
-    fn declarations(
-        &mut self,
-    ) -> (&mut Arena<Declaration>, &mut SourceMap<DeclarationSrc, Declaration>) {
-        (&mut self.data.declarations, &mut self.sources.declaration_srcs)
-    }
-}
-
-impl LoweringStore for SubroutineStore<'_> {
-    fn expressions(&mut self) -> (&mut Arena<Expr>, &mut SourceMap<ExprSrc, Expr>) {
-        (&mut self.data.exprs, &mut self.sources.expr_srcs)
-    }
-
-    fn event_expressions(
-        &mut self,
-    ) -> (&mut Arena<EventExpr>, &mut SourceMap<EventExprSrc, EventExpr>) {
-        (&mut self.data.event_exprs, &mut self.sources.event_expr_srcs)
-    }
-
-    fn declarators(
-        &mut self,
-    ) -> (&mut Arena<Declarator>, &mut SourceMap<DeclaratorSrc, Declarator>) {
-        (&mut self.data.decls, &mut self.sources.decl_srcs)
-    }
-
-    fn statements(&mut self) -> (&mut Arena<Stmt>, &mut SourceMap<StmtSrc, Stmt>) {
-        (&mut self.data.stmts, &mut self.sources.stmt_srcs)
-    }
-
-    fn declarations(
-        &mut self,
-    ) -> (&mut Arena<Declaration>, &mut SourceMap<DeclarationSrc, Declaration>) {
-        (&mut self.data.declarations, &mut self.sources.declaration_srcs)
-    }
-}
+impl_lowering_store!(FileStore<'_>);
+impl_lowering_store!(ModuleStore<'_>);
+impl_lowering_store!(GenerateBlockStore<'_>);
+impl_lowering_store!(BlockStore<'_>);
+impl_lowering_store!(SubroutineStore<'_>);
 
 pub(crate) trait CheckerStore: LoweringStore {
     fn checkers(&mut self) -> (&mut Arena<CheckerDef>, &mut SourceMap<CheckerSrc, CheckerDef>);
 }
 
-impl CheckerStore for FileStore<'_> {
-    fn checkers(&mut self) -> (&mut Arena<CheckerDef>, &mut SourceMap<CheckerSrc, CheckerDef>) {
-        (&mut self.data.checkers, &mut self.sources.checker_srcs)
-    }
+macro_rules! impl_checker_store {
+    ($store:ty) => {
+        impl CheckerStore for $store {
+            fn checkers(
+                &mut self,
+            ) -> (&mut Arena<CheckerDef>, &mut SourceMap<CheckerSrc, CheckerDef>) {
+                (&mut self.data.checkers, &mut self.sources.checker_srcs)
+            }
+        }
+    };
 }
 
-impl CheckerStore for ModuleStore<'_> {
-    fn checkers(&mut self) -> (&mut Arena<CheckerDef>, &mut SourceMap<CheckerSrc, CheckerDef>) {
-        (&mut self.data.checkers, &mut self.sources.checker_srcs)
-    }
-}
+impl_checker_store!(FileStore<'_>);
+impl_checker_store!(ModuleStore<'_>);
 
 pub(crate) trait ProcStore: LoweringStore {
     fn procs(&mut self) -> (&mut Arena<Proc>, &mut SourceMap<ProcSrc, Proc>);
 }
 
-impl ProcStore for FileStore<'_> {
-    fn procs(&mut self) -> (&mut Arena<Proc>, &mut SourceMap<ProcSrc, Proc>) {
-        (&mut self.data.procs, &mut self.sources.proc_srcs)
-    }
+macro_rules! impl_proc_store {
+    ($store:ty) => {
+        impl ProcStore for $store {
+            fn procs(&mut self) -> (&mut Arena<Proc>, &mut SourceMap<ProcSrc, Proc>) {
+                (&mut self.data.procs, &mut self.sources.proc_srcs)
+            }
+        }
+    };
 }
 
-impl ProcStore for ModuleStore<'_> {
-    fn procs(&mut self) -> (&mut Arena<Proc>, &mut SourceMap<ProcSrc, Proc>) {
-        (&mut self.data.procs, &mut self.sources.proc_srcs)
-    }
-}
-
-impl ProcStore for GenerateBlockStore<'_> {
-    fn procs(&mut self) -> (&mut Arena<Proc>, &mut SourceMap<ProcSrc, Proc>) {
-        (&mut self.data.procs, &mut self.sources.proc_srcs)
-    }
-}
+impl_proc_store!(FileStore<'_>);
+impl_proc_store!(ModuleStore<'_>);
+impl_proc_store!(GenerateBlockStore<'_>);
 
 pub(crate) trait ModuleItemStore: LoweringStore {
     fn continuous_assigns(
@@ -270,73 +167,50 @@ pub(crate) trait ModuleItemStore: LoweringStore {
     -> (&mut Arena<PortConn>, &mut SourceMap<PortConnSrc, PortConn>);
 }
 
-impl ModuleItemStore for ModuleStore<'_> {
-    fn continuous_assigns(
-        &mut self,
-    ) -> (&mut Arena<ContAssign>, &mut SourceMap<ContAssignSrc, ContAssign>) {
-        (&mut self.data.cont_assigns, &mut self.sources.assign_srcs)
-    }
+macro_rules! impl_module_item_store {
+    ($store:ty) => {
+        impl ModuleItemStore for $store {
+            fn continuous_assigns(
+                &mut self,
+            ) -> (&mut Arena<ContAssign>, &mut SourceMap<ContAssignSrc, ContAssign>) {
+                (&mut self.data.cont_assigns, &mut self.sources.assign_srcs)
+            }
 
-    fn defparams(&mut self) -> (&mut Arena<DefParam>, &mut SourceMap<DefParamSrc, DefParam>) {
-        (&mut self.data.defparams, &mut self.sources.defparam_srcs)
-    }
+            fn defparams(
+                &mut self,
+            ) -> (&mut Arena<DefParam>, &mut SourceMap<DefParamSrc, DefParam>) {
+                (&mut self.data.defparams, &mut self.sources.defparam_srcs)
+            }
 
-    fn instantiations(
-        &mut self,
-    ) -> (&mut Arena<Instantiation>, &mut SourceMap<InstantiationSrc, Instantiation>) {
-        (&mut self.data.instantiations, &mut self.sources.instantiation_srcs)
-    }
+            fn instantiations(
+                &mut self,
+            ) -> (&mut Arena<Instantiation>, &mut SourceMap<InstantiationSrc, Instantiation>) {
+                (&mut self.data.instantiations, &mut self.sources.instantiation_srcs)
+            }
 
-    fn parameter_assignments(
-        &mut self,
-    ) -> (&mut Arena<ParamAssign>, &mut SourceMap<ParamAssignSrc, ParamAssign>) {
-        (&mut self.data.inst_param_assigns, &mut self.sources.inst_param_assign_srcs)
-    }
+            fn parameter_assignments(
+                &mut self,
+            ) -> (&mut Arena<ParamAssign>, &mut SourceMap<ParamAssignSrc, ParamAssign>) {
+                (&mut self.data.inst_param_assigns, &mut self.sources.inst_param_assign_srcs)
+            }
 
-    fn instances(&mut self) -> (&mut Arena<Instance>, &mut SourceMap<InstanceSrc, Instance>) {
-        (&mut self.data.instances, &mut self.sources.instance_srcs)
-    }
+            fn instances(
+                &mut self,
+            ) -> (&mut Arena<Instance>, &mut SourceMap<InstanceSrc, Instance>) {
+                (&mut self.data.instances, &mut self.sources.instance_srcs)
+            }
 
-    fn port_connections(
-        &mut self,
-    ) -> (&mut Arena<PortConn>, &mut SourceMap<PortConnSrc, PortConn>) {
-        (&mut self.data.inst_port_conns, &mut self.sources.inst_port_conn_srcs)
-    }
+            fn port_connections(
+                &mut self,
+            ) -> (&mut Arena<PortConn>, &mut SourceMap<PortConnSrc, PortConn>) {
+                (&mut self.data.inst_port_conns, &mut self.sources.inst_port_conn_srcs)
+            }
+        }
+    };
 }
 
-impl ModuleItemStore for GenerateBlockStore<'_> {
-    fn continuous_assigns(
-        &mut self,
-    ) -> (&mut Arena<ContAssign>, &mut SourceMap<ContAssignSrc, ContAssign>) {
-        (&mut self.data.cont_assigns, &mut self.sources.assign_srcs)
-    }
-
-    fn defparams(&mut self) -> (&mut Arena<DefParam>, &mut SourceMap<DefParamSrc, DefParam>) {
-        (&mut self.data.defparams, &mut self.sources.defparam_srcs)
-    }
-
-    fn instantiations(
-        &mut self,
-    ) -> (&mut Arena<Instantiation>, &mut SourceMap<InstantiationSrc, Instantiation>) {
-        (&mut self.data.instantiations, &mut self.sources.instantiation_srcs)
-    }
-
-    fn parameter_assignments(
-        &mut self,
-    ) -> (&mut Arena<ParamAssign>, &mut SourceMap<ParamAssignSrc, ParamAssign>) {
-        (&mut self.data.inst_param_assigns, &mut self.sources.inst_param_assign_srcs)
-    }
-
-    fn instances(&mut self) -> (&mut Arena<Instance>, &mut SourceMap<InstanceSrc, Instance>) {
-        (&mut self.data.instances, &mut self.sources.instance_srcs)
-    }
-
-    fn port_connections(
-        &mut self,
-    ) -> (&mut Arena<PortConn>, &mut SourceMap<PortConnSrc, PortConn>) {
-        (&mut self.data.inst_port_conns, &mut self.sources.inst_port_conn_srcs)
-    }
-}
+impl_module_item_store!(ModuleStore<'_>);
+impl_module_item_store!(GenerateBlockStore<'_>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LoweringDiagnostic {

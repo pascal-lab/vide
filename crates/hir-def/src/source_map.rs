@@ -294,9 +294,42 @@ pub struct SourceMap<Src: IsSrc, Hir> {
 }
 
 impl<Src: IsSrc, Hir> SourceMap<Src, Hir> {
+    /// Inserts the canonical source for a HIR value.
+    ///
+    /// A HIR value has at most one canonical source. Source keys are not
+    /// globally unique: macro/include expansion can produce several lowered
+    /// values with the same visible source key, so source-to-HIR lookup keeps
+    /// the most recently lowered value.
+    ///
+    /// Additional source representations, such as a non-ANSI port's label,
+    /// must use [`Self::insert_preferred_alias`] so the distinction remains
+    /// explicit.
     pub fn insert(&mut self, src: Src, idx: Idx<Hir>) {
+        self.assert_hir_slot(idx, src);
         self.src2hir.insert(src, idx);
         self.hir2src.insert(idx, src);
+    }
+
+    /// Adds a source-to-HIR alias without changing the canonical source.
+    pub fn insert_alias(&mut self, src: Src, idx: Idx<Hir>) {
+        self.assert_target(idx);
+        self.src2hir.insert(src, idx);
+    }
+
+    /// Adds an alias and makes it the preferred HIR-to-source projection.
+    pub fn insert_preferred_alias(&mut self, src: Src, idx: Idx<Hir>) {
+        self.insert_alias(src, idx);
+        self.hir2src.insert(idx, src);
+    }
+
+    fn assert_target(&self, idx: Idx<Hir>) {
+        assert!(self.hir2src.get(idx).is_some(), "source map alias target has no canonical source");
+    }
+
+    fn assert_hir_slot(&self, idx: Idx<Hir>, src: Src) {
+        if let Some(existing) = self.hir2src.get(idx) {
+            assert_eq!(*existing, src, "source map HIR value already has another canonical source");
+        }
     }
 
     pub fn shrink_to_fit(&mut self) {
@@ -625,5 +658,55 @@ impl<Kind: AstKind> From<NamedAstId<Kind>> for SyntaxNodePtr {
 impl<Kind: AstKind> From<NamedAstId<Kind>> for Option<SyntaxTokenPtr> {
     fn from(src: NamedAstId<Kind>) -> Self {
         src.name
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use la_arena::Arena;
+    use utils::text_edit::TextSize;
+
+    use super::{IsSrc, SourceMap, SyntaxKind, TextRange};
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct TestSource(u32);
+
+    impl IsSrc for TestSource {
+        fn kind(&self) -> SyntaxKind {
+            SyntaxKind::MODULE_DECLARATION
+        }
+
+        fn range(&self) -> TextRange {
+            TextRange::new(TextSize::new(self.0), TextSize::new(self.0 + 1))
+        }
+    }
+
+    #[test]
+    fn aliases_do_not_change_the_canonical_source() {
+        let mut arena = Arena::new();
+        let hir = arena.alloc(());
+        let primary = TestSource(0);
+        let alias = TestSource(10);
+        let mut map = SourceMap::default();
+
+        map.insert(primary, hir);
+        map.insert_alias(alias, hir);
+
+        assert_eq!(map.src_to_hir(alias), Some(hir));
+        assert_eq!(map.hir_to_src(hir), Some(primary));
+
+        map.insert_preferred_alias(alias, hir);
+        assert_eq!(map.hir_to_src(hir), Some(alias));
+    }
+
+    #[test]
+    #[should_panic(expected = "source map HIR value already has another canonical source")]
+    fn a_hir_value_cannot_have_two_canonical_sources() {
+        let mut arena = Arena::new();
+        let hir = arena.alloc(());
+        let mut map = SourceMap::default();
+
+        map.insert(TestSource(0), hir);
+        map.insert(TestSource(10), hir);
     }
 }

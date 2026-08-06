@@ -18,8 +18,8 @@ pub enum RegionKind {
 
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct RegionTree {
-    pub roots: Vec<Idx<RegionNode>>,
-    pub nodes: Arena<RegionNode>,
+    roots: Vec<Idx<RegionNode>>,
+    nodes: Arena<RegionNode>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -44,6 +44,14 @@ impl RegionTree {
             self.roots.push(idx);
         }
         idx
+    }
+
+    pub fn root_count(&self) -> usize {
+        self.roots.len()
+    }
+
+    pub fn nodes(&self) -> impl Iterator<Item = &RegionNode> {
+        self.nodes.values()
     }
 
     pub fn walk(&self) -> RegionTreeIterator<'_> {
@@ -71,19 +79,37 @@ impl RegionTree {
         children: &[Idx<RegionNode>],
         offset: TextSize,
     ) -> Option<Idx<RegionNode>> {
-        let idx = children
-            .binary_search_by(|&idx| {
-                let node = &nodes[idx];
-                if node.range.contains(offset) {
-                    std::cmp::Ordering::Equal
-                } else if node.range.start() > offset {
-                    std::cmp::Ordering::Greater
-                } else {
-                    std::cmp::Ordering::Less
-                }
-            })
-            .ok()?;
-        children.get(idx).copied()
+        let candidate_count = children.partition_point(|&idx| nodes[idx].range.start() <= offset);
+        children[..candidate_count]
+            .iter()
+            .rev()
+            .find(|&&idx| nodes[idx].range.contains(offset))
+            .copied()
+    }
+
+    fn normalize(&mut self) {
+        let roots = std::mem::take(&mut self.roots);
+        self.roots = Self::normalize_children(&mut self.nodes, roots);
+    }
+
+    fn normalize_children(
+        nodes: &mut Arena<RegionNode>,
+        mut children: Vec<Idx<RegionNode>>,
+    ) -> Vec<Idx<RegionNode>> {
+        children.sort_by(|left, right| {
+            nodes[*left]
+                .range
+                .start()
+                .cmp(&nodes[*right].range.start())
+                .then_with(|| nodes[*right].range.end().cmp(&nodes[*left].range.end()))
+        });
+
+        for idx in children.iter().copied().collect::<Vec<_>>() {
+            let nested = std::mem::take(&mut nodes[idx].children);
+            nodes[idx].children = Self::normalize_children(nodes, nested);
+        }
+
+        children
     }
 }
 
@@ -155,6 +181,7 @@ impl RegionTreeBuilder {
     }
 
     pub(crate) fn finish(&mut self) -> RegionTree {
+        self.tree.normalize();
         self.tree.nodes.shrink_to_fit();
         self.tree.roots.shrink_to_fit();
         std::mem::take(&mut self.tree)
@@ -311,5 +338,52 @@ impl<'a> Iterator for RegionParent<'a> {
         let node = &self.tree.nodes[self.node?];
         self.node = node.parent;
         Some(node)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use utils::text_edit::{TextRange, TextSize};
+
+    use super::{RegionKind, RegionTree};
+
+    fn range(start: u32, end: u32) -> TextRange {
+        TextRange::new(TextSize::new(start), TextSize::new(end))
+    }
+
+    #[test]
+    fn find_is_independent_of_builder_insertion_order() {
+        let mut tree = RegionTree::default();
+        let late =
+            tree.add_node(range(10, 20), RegionKind::PseudoRegion { description: None }, None);
+        let early =
+            tree.add_node(range(0, 5), RegionKind::PseudoRegion { description: None }, None);
+
+        tree.normalize();
+
+        assert_eq!(tree.find(TextSize::new(2)), Some(early));
+        assert_eq!(tree.find(TextSize::new(12)), Some(late));
+    }
+
+    #[test]
+    fn find_descends_into_sorted_children() {
+        let mut tree = RegionTree::default();
+        let parent =
+            tree.add_node(range(0, 30), RegionKind::PseudoRegion { description: None }, None);
+        let late = tree.add_node(
+            range(20, 25),
+            RegionKind::PseudoRegion { description: None },
+            Some(parent),
+        );
+        let early = tree.add_node(
+            range(5, 10),
+            RegionKind::PseudoRegion { description: None },
+            Some(parent),
+        );
+
+        tree.normalize();
+
+        assert_eq!(tree.find(TextSize::new(7)), Some(early));
+        assert_eq!(tree.find(TextSize::new(22)), Some(late));
     }
 }
