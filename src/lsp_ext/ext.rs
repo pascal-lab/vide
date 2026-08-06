@@ -126,6 +126,9 @@ impl ops::BitOrAssign<lsp_types::SemanticTokenModifier> for SemaTokenModifierSet
 pub struct CodeActionData {
     pub code_action_params: lsp_types::CodeActionParams,
     pub id: String,
+    /// Per-request occurrence index, distinguishing same-name actions (e.g.
+    /// the multiple target bases of one literal).
+    pub ordinal: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<i32>,
 }

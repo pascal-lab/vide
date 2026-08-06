@@ -882,7 +882,7 @@ pub(crate) fn code_action_kind(kind: CodeActionKind) -> lsp_types::CodeActionKin
 
 pub(crate) fn code_action(
     snap: &GlobalStateSnapshot,
-    CodeAction { id, label, source_change, .. }: CodeAction,
+    CodeAction { id, label, source_change, ordinal, .. }: CodeAction,
     resolve_data: Option<(lsp_types::CodeActionParams, Option<i32>)>,
     diagnostics: Option<Vec<lsp_types::Diagnostic>>,
 ) -> anyhow::Result<lsp_types::CodeAction> {
@@ -901,7 +901,12 @@ pub(crate) fn code_action(
     match (source_change, resolve_data) {
         (Some(it), _) => res.edit = Some(workspace_edit(snap, it)?),
         (None, Some((code_action_params, version))) => {
-            let data = ext::CodeActionData { id: id.name.to_owned(), code_action_params, version };
+            let data = ext::CodeActionData {
+                id: id.name.to_owned(),
+                ordinal,
+                code_action_params,
+                version,
+            };
             res.data = Some(serde_json::to_value(data)?);
         }
         (None, None) => {
