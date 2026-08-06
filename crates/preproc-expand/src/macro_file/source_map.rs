@@ -231,8 +231,7 @@ impl Origin {
                 Origin::MacroBody {
                     call: macro_call_id(model_file, *call_id),
                     def: *definition_id,
-                    body_range: source_location(source_map, body_token_range)
-                        .map_or(text_range(body_token_range)?, |s| s.range),
+                    body_range: mapped_or_raw_range(source_map, body_token_range)?,
                 }
             }
             TokenOrigin::MacroArgument {
@@ -240,8 +239,7 @@ impl Origin {
             } => Origin::MacroArg {
                 call: macro_call_id(model_file, *call_id),
                 arg_index: usize::try_from(*argument_index).ok()?,
-                arg_range: source_location(source_map, argument_token_range)
-                    .map_or(text_range(argument_token_range)?, |s| s.range),
+                arg_range: mapped_or_raw_range(source_map, argument_token_range)?,
             },
             TokenOrigin::TokenPaste { call_id, .. } => {
                 Origin::TokenPaste { call: macro_call_id(model_file, *call_id) }
@@ -302,6 +300,22 @@ fn source_location(
     let range = source_map.map_range(source_range).ok()?;
     let file = source_map.file_id(source_range.source).ok()?;
     Some(OriginSource { file, range })
+}
+
+/// Map `token_range` through [`source_location`], or fall back to the raw
+/// slang-buffer offsets when the source map cannot represent it.
+///
+/// Raw offsets live in slang's buffer coordinate space, **not** the user
+/// file; this fallback is only reachable for macro body/argument ranges that
+/// have no file-backed target and is used purely for display. Routing it
+/// through one helper keeps the degenerate path single-sourced and reviewed
+/// alongside the authoritative `PreprocSourceMap::map_range`.
+fn mapped_or_raw_range(
+    source_map: &PreprocSourceMap,
+    token_range: &SourceBufferRange,
+) -> Option<TextRange> {
+    source_location(source_map, token_range)
+        .map_or_else(|| text_range(token_range), |s| Some(s.range))
 }
 
 fn source_range_from_trace(range: &SourceBufferRange) -> Option<SourceRange> {
