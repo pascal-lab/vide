@@ -19,6 +19,7 @@ use hir_ty::{Compatibility, Type, TypeSystem, db::TyDb, display::HirDisplay};
 use preproc_expand::db::PreprocDb;
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
+use syntax::SyntaxKind;
 use triomphe::Arc;
 use utils::paths::{AbsPathBuf, Utf8PathBuf};
 use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
@@ -212,6 +213,24 @@ endmodule
     assert_eq!(
         types.compatibility(&four_bits, &types.type_of_resolution(Resolution::Unresolved)),
         Compatibility::Unknown
+    );
+}
+
+#[test]
+fn unsupported_data_type_preserves_type_diagnostic() {
+    let db = db_with_root_text(
+        r#"
+module m;
+  struct { logic x; } value;
+endmodule
+"#,
+    );
+    let module = module_id(&db, "m");
+    let value = type_of_name(&db, module, "value", NameContext::Value);
+
+    assert_eq!(
+        value.diagnostics(),
+        &[hir_ty::TypeDiagnostic::UnsupportedDataType(SyntaxKind::STRUCT_TYPE)]
     );
 }
 

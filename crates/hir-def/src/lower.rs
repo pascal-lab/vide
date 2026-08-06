@@ -28,7 +28,11 @@ use super::{
     subroutine::{Subroutine, SubroutineSourceMap},
     ty::NetKind,
 };
-use crate::{container::ArenaOwnerId, region_tree::RegionTreeBuilder, source_map::SourceMap};
+use crate::{
+    container::ArenaOwnerId,
+    region_tree::RegionTreeBuilder,
+    source_map::{LoweringDiagnostic, LoweringDiagnosticKind, SourceMap},
+};
 
 /// Mutable data/source pair for a file lowering pass.
 pub(crate) struct FileStore<'a> {
@@ -212,13 +216,6 @@ macro_rules! impl_module_item_store {
 impl_module_item_store!(ModuleStore<'_>);
 impl_module_item_store!(GenerateBlockStore<'_>);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LoweringDiagnostic {
-    pub(crate) kind: SyntaxKind,
-    pub(crate) range: Option<TextRange>,
-    pub(crate) message: &'static str,
-}
-
 /// Complete mutable state for one HIR lowering pass.
 pub(crate) struct LoweringCtx<Store> {
     pub(crate) file_id: HirFileId,
@@ -264,24 +261,46 @@ impl<Store> LoweringCtx<Store> {
 
     pub(crate) fn report_unsupported(
         &mut self,
-        kind: SyntaxKind,
+        syntax_kind: SyntaxKind,
         range: Option<TextRange>,
         message: &'static str,
     ) {
-        self.diagnostics.push(LoweringDiagnostic { kind, range, message });
+        self.diagnostics.push(LoweringDiagnostic {
+            kind: LoweringDiagnosticKind::UnsupportedSyntax,
+            syntax_kind,
+            range,
+            message,
+        });
     }
 
-    pub(crate) fn emit_diagnostics(&mut self) {
-        for diagnostic in self.diagnostics.drain(..) {
+    pub(crate) fn report_invalid(
+        &mut self,
+        syntax_kind: SyntaxKind,
+        range: Option<TextRange>,
+        message: &'static str,
+    ) {
+        self.diagnostics.push(LoweringDiagnostic {
+            kind: LoweringDiagnosticKind::InvalidSyntax,
+            syntax_kind,
+            range,
+            message,
+        });
+    }
+
+    pub(crate) fn emit_diagnostics(&mut self) -> Vec<LoweringDiagnostic> {
+        let diagnostics = std::mem::take(&mut self.diagnostics);
+        for diagnostic in &diagnostics {
             tracing::warn!(
                 file = ?self.file_id,
                 owner = ?self.owner,
                 kind = ?diagnostic.kind,
+                syntax_kind = ?diagnostic.syntax_kind,
                 range = ?diagnostic.range,
                 message = diagnostic.message,
                 "HIR lowering diagnostic"
             );
         }
+        diagnostics
     }
 }
 

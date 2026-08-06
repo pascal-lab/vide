@@ -35,8 +35,8 @@ use crate::{
     proc::{Proc, ProcId, ProcSrc},
     region_tree::RegionTree,
     source_map::{
-        FromSourceAst, IsNamedSrc, IsSrc, Lowered, LoweredData, SourceAst, SourceMap, ToAstNode,
-        root_token_in,
+        DiagnosticSource, FromSourceAst, IsNamedSrc, IsSrc, Lowered, LoweredData,
+        LoweringDiagnostic, SourceAst, SourceMap, ToAstNode, root_token_in,
     },
     stmt::{Stmt, StmtId, StmtSrc},
     subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine},
@@ -337,9 +337,16 @@ pub struct GenerateBlockSourceMap {
     pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
     pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
     pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+    pub diagnostics: Vec<LoweringDiagnostic>,
 }
 impl LoweredData for GenerateBlock {
     type SourceMap = GenerateBlockSourceMap;
+}
+
+impl DiagnosticSource for GenerateBlockSourceMap {
+    fn diagnostics(&self) -> &[LoweringDiagnostic] {
+        &self.diagnostics
+    }
 }
 
 impl GenerateBlockSourceMap {
@@ -359,6 +366,7 @@ impl GenerateBlockSourceMap {
         self.event_expr_srcs.shrink_to_fit();
         self.decl_srcs.shrink_to_fit();
         self.stmt_srcs.shrink_to_fit();
+        self.diagnostics.shrink_to_fit();
     }
 }
 
@@ -908,8 +916,9 @@ pub(crate) fn generate_block_with_source_map(
         }
     }
 
-    lower_ctx.emit_diagnostics();
+    let diagnostics = lower_ctx.emit_diagnostics();
     drop(lower_ctx);
+    generate_block_source_map.diagnostics = diagnostics;
 
     generate_block.shrink_to_fit();
     generate_block_source_map.shrink_to_fit();

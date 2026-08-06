@@ -309,6 +309,10 @@ impl HirDisplay for InContainer<DataTy> {
                 }
             },
             DataTy::Enum => f.write_str("enum"),
+            DataTy::Unsupported(kind) => {
+                write!(f.f, "<unsupported {kind:?}>")?;
+                Ok(())
+            }
             DataTy::Struct(struct_ref) => {
                 let cont = struct_ref.cont_id.data(f.db);
                 let def = cont.struct_def(struct_ref.value);
@@ -452,7 +456,10 @@ impl HirDisplay for InContainer<&Expr> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         match self.value {
             Expr::Missing => f.write_str("<missing>"),
-            Expr::Invalid => f.write_str("<invalid>"),
+            Expr::Error(kind) => {
+                write!(f.f, "<error {kind:?}>")?;
+                Ok(())
+            }
             Expr::Unsupported(kind) => {
                 write!(f.f, "<unsupported {kind:?}>")?;
                 Ok(())
