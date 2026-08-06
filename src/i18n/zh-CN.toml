@@ -32,6 +32,10 @@ inactive_preprocessor_branch = "代码因预处理条件未激活"
 strict = "模块实例化 '{module_name}' 找到 {candidate_count} 个同名模块定义，无法确定应使用哪一个"
 best_effort = "模块实例化 '{module_name}' 找到 {candidate_count} 个同名模块定义，无法确定应使用哪一个"
 
+[diagnostic.lowering]
+invalid_syntax = "无效语法 '{syntax_kind}'：{message}"
+unsupported_syntax = "暂不支持的语法 '{syntax_kind}'：{message}"
+
 [code_lens]
 instances_one = "{count} 个实例"
 instances_many = "{count} 个实例"

@@ -4,7 +4,10 @@ use base_db::{
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
-use hir_def::module::ModuleId;
+use hir_def::{
+    module::ModuleId,
+    source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
+};
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::text_edit::{TextRange, TextSize};
 use vfs::FileId;
@@ -18,9 +21,16 @@ const AMBIGUOUS_MODULE_INSTANTIATION: VideDiagnosticDescriptor =
     VideDiagnosticDescriptor { code: 1, subsystem: 0, name: "ambiguous-module-instantiation" };
 const INACTIVE_PREPROCESSOR_BRANCH: VideDiagnosticDescriptor =
     VideDiagnosticDescriptor { code: 2, subsystem: 0, name: "inactive-preprocessor-branch" };
+const LOWERING_INVALID_SYNTAX: VideDiagnosticDescriptor =
+    VideDiagnosticDescriptor { code: 3, subsystem: 0, name: "lowering-invalid-syntax" };
+const LOWERING_UNSUPPORTED_SYNTAX: VideDiagnosticDescriptor =
+    VideDiagnosticDescriptor { code: 4, subsystem: 0, name: "lowering-unsupported-syntax" };
 pub const DIAGNOSTIC_AMBIGUOUS_MODULE_STRICT: &str = "diagnostic.ambiguous_module.strict";
 pub const DIAGNOSTIC_AMBIGUOUS_MODULE_BEST_EFFORT: &str = "diagnostic.ambiguous_module.best_effort";
 pub const DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH: &str = "diagnostic.inactive_preprocessor_branch";
+pub const DIAGNOSTIC_LOWERING_INVALID_SYNTAX: &str = "diagnostic.lowering.invalid_syntax";
+pub const DIAGNOSTIC_LOWERING_UNSUPPORTED_SYNTAX: &str =
+    "diagnostic.lowering.unsupported_syntax";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticSource {
@@ -279,7 +289,11 @@ trait VideDiagnosticProvider {
 }
 
 fn vide_providers() -> Vec<Box<dyn VideDiagnosticProvider>> {
-    vec![Box::new(InactivePreprocessorBranch), Box::new(AmbiguousModuleInstantiation)]
+    vec![
+        Box::new(InactivePreprocessorBranch),
+        Box::new(AmbiguousModuleInstantiation),
+        Box::new(LoweringSyntaxDiagnostics),
+    ]
 }
 
 fn vide_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
@@ -296,6 +310,78 @@ fn vide_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
 
 fn vide_diagnostics_enabled(db: &RootDb) -> bool {
     db.diagnostics_config().enabled
+}
+
+/// HIR lowering recovery diagnostics surfaced to the editor.
+///
+/// [`hir_def::diagnostics::file_lowering_diagnostics`] already resolved a
+/// display range for every diagnostic (including the `range: None` cases the
+/// lowerer could not locate), so this conversion only decides severity and
+/// deduplicates against slang.
+struct LoweringSyntaxDiagnostics;
+
+impl VideDiagnosticProvider for LoweringSyntaxDiagnostics {
+    fn diagnostic(&self, db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+        lowering_syntax_diagnostics(db, file_id)
+    }
+}
+
+fn lowering_syntax_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    let parse_ranges = db
+        .parse_diagnostics(file_id)
+        .iter()
+        .map(to_text_range)
+        .collect::<Vec<_>>();
+
+    db.file_lowering_diagnostics(file_id.into())
+        .iter()
+        .filter_map(|diag| lowering_diagnostic(file_id, diag, &parse_ranges))
+        .collect()
+}
+
+fn lowering_diagnostic(
+    file_id: FileId,
+    diag: &LoweringDiagnostic,
+    parse_ranges: &[TextRange],
+) -> Option<Diagnostic> {
+    let range = diag.range?;
+    let (descriptor, severity, message_key) = match diag.kind {
+        LoweringDiagnosticKind::InvalidSyntax => {
+            // The parser already flagged the offending syntax at this range;
+            // publishing the lowering recovery note on top would duplicate the
+            // squiggle. `parse_diagnostics` is config-gated, so disabling
+            // parse diagnostics keeps the note as a fallback.
+            if parse_ranges.iter().any(|parse_range| ranges_overlap(*parse_range, range)) {
+                return None;
+            }
+            (LOWERING_INVALID_SYNTAX, DiagnosticSeverity::Note, DIAGNOSTIC_LOWERING_INVALID_SYNTAX)
+        }
+        LoweringDiagnosticKind::UnsupportedSyntax => (
+            // Valid SystemVerilog that vide does not lower yet; slang has no
+            // diagnostic for it, so this is the only signal the user gets.
+            LOWERING_UNSUPPORTED_SYNTAX,
+            DiagnosticSeverity::Warning,
+            DIAGNOSTIC_LOWERING_UNSUPPORTED_SYNTAX,
+        ),
+    };
+    let syntax_kind = format!("{:?}", diag.syntax_kind);
+    let kind_label = match diag.kind {
+        LoweringDiagnosticKind::InvalidSyntax => "invalid",
+        LoweringDiagnosticKind::UnsupportedSyntax => "unsupported",
+    };
+    let message = format!("{kind_label} syntax '{syntax_kind}': {}", diag.message);
+    Some(descriptor.diagnostic(
+        file_id,
+        range,
+        severity,
+        message,
+        message_key,
+        vec![("syntax_kind", syntax_kind), ("message", diag.message.to_owned())],
+    ))
+}
+
+fn ranges_overlap(a: TextRange, b: TextRange) -> bool {
+    a.start() <= b.end() && b.start() <= a.end()
 }
 
 fn slang_semantic_diagnostics_active(db: &RootDb, file_id: FileId) -> bool {
@@ -451,9 +537,11 @@ fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
+
     use base_db::{
         change::Change,
-        diagnostics_config::DiagnosticsConfig,
+        diagnostics_config::{DiagnosticPhaseConfig, DiagnosticsConfig},
         project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
         salsa::Durability,
         source_db::SourceDb,
@@ -469,8 +557,10 @@ mod tests {
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
     use super::{
-        AMBIGUOUS_MODULE_INSTANTIATION, DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH, DiagnosticSource,
-        DiagnosticTag, INACTIVE_PREPROCESSOR_BRANCH, compilation_profile_diagnostics, diagnostics,
+        AMBIGUOUS_MODULE_INSTANTIATION, DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH,
+        DIAGNOSTIC_LOWERING_INVALID_SYNTAX, DIAGNOSTIC_LOWERING_UNSUPPORTED_SYNTAX,
+        DiagnosticSource, DiagnosticTag, INACTIVE_PREPROCESSOR_BRANCH, LOWERING_INVALID_SYNTAX,
+        LOWERING_UNSUPPORTED_SYNTAX, compilation_profile_diagnostics, diagnostics,
     };
     use crate::db::root_db::RootDb;
 
@@ -1065,5 +1155,116 @@ mod tests {
         let b_path = b_path.to_string();
         assert!(buffer_paths.contains(&a_path.as_str()));
         assert!(buffer_paths.contains(&b_path.as_str()));
+    }
+
+    #[test]
+    fn lowering_unsupported_syntax_reports_vide_warning() {
+        let text = "module m;\n  int x = '{default: 0};\nendmodule\n";
+        let db = db_with_files(&[("/top.sv", text)], false);
+
+        let diagnostics = diagnostics(&db, FileId::from_raw(0));
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diag| diag.name == LOWERING_UNSUPPORTED_SYNTAX.name)
+            .unwrap_or_else(|| panic!("expected unsupported syntax diagnostic: {diagnostics:?}"));
+
+        assert_eq!(diagnostic.source, DiagnosticSource::Vide);
+        assert_eq!(diagnostic.severity, syntax::DiagnosticSeverity::Warning);
+        assert_eq!(diagnostic.message_key, Some(DIAGNOSTIC_LOWERING_UNSUPPORTED_SYNTAX));
+        assert_eq!(diagnostic.range, range_of(text, "'{default: 0}"));
+        assert!(
+            diagnostic.message.contains("AssignmentPatternExpression"),
+            "message should name the offending syntax kind: {}",
+            diagnostic.message
+        );
+        assert!(
+            diagnostic.message.contains("unsupported expression"),
+            "message should carry the lowering reason: {}",
+            diagnostic.message
+        );
+    }
+
+    /// `for (i = 0; i < 1; 2)` — the iteration expression `2` is not a valid
+    /// genvar iteration form, so slang parses it into a `BadExpression` (with
+    /// a parse diagnostic) and lowering reports it as invalid syntax.
+    const INVALID_ITERATION_TEXT: &str =
+        "module m;\n  genvar i;\n  for (i = 0; i < 1; 2) begin : g\n  end\nendmodule\n";
+
+    #[test]
+    fn lowering_invalid_syntax_is_suppressed_by_parse_diagnostic() {
+        let db = db_with_files(&[("/top.sv", INVALID_ITERATION_TEXT)], false);
+
+        let diagnostics = diagnostics(&db, FileId::from_raw(0));
+
+        assert!(
+            diagnostics.iter().any(|diag| diag.source == DiagnosticSource::SlangParse),
+            "the fixture must produce a parse diagnostic: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics.iter().all(|diag| diag.name != LOWERING_INVALID_SYNTAX.name),
+            "lowering invalid-syntax must not duplicate the parse diagnostic: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn lowering_invalid_syntax_reports_note_when_parse_diagnostics_disabled() {
+        let mut db = db_with_files(&[("/top.sv", INVALID_ITERATION_TEXT)], false);
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig {
+                parse: DiagnosticPhaseConfig { enabled: false },
+                ..DiagnosticsConfig::default()
+            }),
+            Durability::HIGH,
+        );
+
+        let diagnostics = diagnostics(&db, FileId::from_raw(0));
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diag| diag.name == LOWERING_INVALID_SYNTAX.name)
+            .unwrap_or_else(|| {
+                panic!("expected lowering invalid-syntax note fallback: {diagnostics:?}")
+            });
+
+        assert_eq!(diagnostic.source, DiagnosticSource::Vide);
+        assert_eq!(diagnostic.severity, syntax::DiagnosticSeverity::Note);
+        assert_eq!(diagnostic.message_key, Some(DIAGNOSTIC_LOWERING_INVALID_SYNTAX));
+        assert_eq!(diagnostic.range, range_of(INVALID_ITERATION_TEXT, "2"));
+    }
+
+    #[test]
+    fn lowering_diagnostics_lsp_snapshot() {
+        let text = r#"
+module lowering_diags;
+  int pattern = '{default: 0};
+  struct { logic a; } struct_value;
+  genvar i;
+  for (i = 0; i < 1; 2) begin : g
+  end
+  initial begin : blk
+    int block_pattern = '{default: 0};
+  end
+  task automatic t;
+    int task_pattern = '{default: 0};
+  endtask
+endmodule
+"#;
+        let db = db_with_files(&[("/top.sv", text)], false);
+
+        let mut report = String::new();
+        for diag in diagnostics(&db, FileId::from_raw(0)) {
+            writeln!(
+                &mut report,
+                "{:?} {} {:?} {:?} key={:?} args={:?} {}",
+                diag.source,
+                diag.name,
+                diag.severity,
+                diag.range,
+                diag.message_key,
+                diag.message_args,
+                diag.message
+            )
+            .unwrap();
+        }
+        insta::assert_snapshot!("lowering_diagnostics_lsp_snapshot", report);
     }
 }

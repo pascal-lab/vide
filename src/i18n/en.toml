@@ -32,6 +32,10 @@ inactive_preprocessor_branch = "code is inactive due to preprocessor conditional
 strict = "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
 best_effort = "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
 
+[diagnostic.lowering]
+invalid_syntax = "invalid syntax '{syntax_kind}': {message}"
+unsupported_syntax = "unsupported syntax '{syntax_kind}': {message}"
+
 [code_lens]
 instances_one = "{count} instance"
 instances_many = "{count} instances"
