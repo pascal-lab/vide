@@ -614,7 +614,7 @@ fn collect_resolved_path(
     let def_id = res.unique()?;
 
     if def_id.is_non_ansi_port(db) {
-        let port_id = def_id.primary_origin(db).as_non_ansi_port()?;
+        let port_id = def_id.primary_origin(db).as_non_ansi_port(db)?;
         let module = db.module_with_source_map(port_id.module_id);
         let origins = def_id.origins(db);
         let (name, dir, ty) = resolve_port_metadata(db, &module, &origins)?;
@@ -624,7 +624,7 @@ fn collect_resolved_path(
 
     match def_id.kind(db) {
         DefKind::Port => {
-            let decl_id = def_id.primary_origin(db).as_decl()?;
+            let decl_id = def_id.primary_origin(db).as_decl(db)?;
             let ArenaOwnerId::Module(module_id) = decl_id.cont_id else {
                 return None;
             };

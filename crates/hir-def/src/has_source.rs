@@ -55,9 +55,15 @@ impl HasSource for ScopeId {
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.source(db),
             ScopeId::Block(block_id) => block_id.source(db),
             ScopeId::Subroutine(subroutine) => subroutine.source(db),
-            ScopeId::ClockingBlock(clocking_block) => DefOrigin::new(clocking_block).source(db),
-            ScopeId::Checker(checker) => DefOrigin::new(checker).source(db),
-            ScopeId::Covergroup(covergroup) => DefOrigin::new(covergroup).source(db),
+            ScopeId::ClockingBlock(clocking_block) => {
+                DefOrigin::new(db, DefOriginLoc::ClockingBlock(clocking_block)).source(db)
+            }
+            ScopeId::Checker(checker) => {
+                DefOrigin::new(db, DefOriginLoc::Checker(checker)).source(db)
+            }
+            ScopeId::Covergroup(covergroup) => {
+                DefOrigin::new(db, DefOriginLoc::Covergroup(covergroup)).source(db)
+            }
         }
     }
 }
@@ -73,7 +79,7 @@ impl HasSource for DefOrigin {
 
 impl HasSource for DefOriginLoc {
     fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        DefOrigin::new(self.clone()).source(db)
+        DefOrigin::new(db, self.clone()).source(db)
     }
 }
 

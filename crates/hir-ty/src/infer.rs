@@ -89,7 +89,7 @@ fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
     let origin = def_id.primary_origin(db);
     match def_id.kind(db) {
         DefKind::Module | DefKind::Package | DefKind::Program => origin
-            .as_module()
+            .as_module(db)
             .map(|module_id| TyResult::new(Ty::Module(module_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Interface => TyResult::new(Ty::VirtualInterface { def: def_id, modport: None }),
@@ -102,19 +102,19 @@ fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
         | DefKind::Param
         | DefKind::Genvar
         | DefKind::Specparam => origin
-            .as_decl()
+            .as_decl(db)
             .map(|decl| type_of_decl_impl(db, decl))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Typedef => origin
-            .as_typedef()
+            .as_typedef(db)
             .map(|typedef| type_of_typedef_impl(db, typedef))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::SubroutinePort => origin
-            .as_subroutine_port()
+            .as_subroutine_port(db)
             .map(|port| type_of_subroutine_port_impl(db, port))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Instance => origin
-            .as_instance()
+            .as_instance(db)
             .and_then(|instance| instance_target_def_id(db, instance.module_id, instance.value))
             .map(|target| match target.kind(db) {
                 DefKind::Interface => {
@@ -122,7 +122,7 @@ fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
                 }
                 DefKind::Module | DefKind::Program => target
                     .primary_origin(db)
-                    .as_module()
+                    .as_module(db)
                     .map(|module_id| TyResult::new(Ty::Module(module_id)))
                     .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
                 DefKind::Checker => TyResult::new(Ty::Checker(target)),
@@ -154,7 +154,7 @@ fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
             })
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Modport => origin
-            .as_modport()
+            .as_modport(db)
             .map(|modport| {
                 TyResult::new(Ty::VirtualInterface {
                     def: DefId::new(db, modport.module_id),
@@ -163,11 +163,11 @@ fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
             })
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::GenerateBlock => origin
-            .as_generate_block()
+            .as_generate_block(db)
             .map(|generate_block_id| TyResult::new(Ty::GenerateBlock(generate_block_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Block => origin
-            .as_block()
+            .as_block(db)
             .map(|block_id| TyResult::new(Ty::Block(block_id)))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Udp
@@ -185,7 +185,7 @@ fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
 fn type_of_non_ansi_port(db: &dyn TyDb, def_id: DefId) -> TyResult {
     let mut port_ty = None;
     for origin in def_id.origins(db) {
-        let Some(decl) = origin.as_decl() else {
+        let Some(decl) = origin.as_decl(db) else {
             continue;
         };
         let ty = type_of_decl_impl(db, decl);
@@ -298,7 +298,7 @@ fn type_of_named_data_ty(
     let Some(def_id) = resolution.unique() else {
         return TyResult::new(Ty::Unknown);
     };
-    if let Some(typedef) = def_id.primary_origin(db).as_typedef() {
+    if let Some(typedef) = def_id.primary_origin(db).as_typedef(db) {
         return type_of_typedef_inner(db, typedef, seen);
     }
     type_of_def_id(db, def_id)

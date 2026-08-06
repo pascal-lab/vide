@@ -1,4 +1,3 @@
-use std::fmt;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use utils::impl_from;
@@ -29,71 +28,14 @@ use crate::{
     typedef::TypedefId,
 };
 
-/// Interns `DefOriginLoc` values to compact integers so `DefOrigin` and
-/// `DefId` are `Copy` and hash/compare integers instead of deep structures.
+/// A concrete source representation of a semantic definition.
 ///
-/// The pool is process-global and append-only: ids stay valid for the whole
-/// process and are stable across database revisions, which is what `NameScope`
-/// (a salsa memo value) needs. The pool owns its values for the process
-/// lifetime; arena data is never copied.
-pub mod origin_pool {
-    use std::sync::LazyLock;
-
-    use parking_lot::Mutex;
-    use rustc_hash::FxHashMap;
-
-    use super::DefOriginLoc;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-    pub struct OriginId(pub u32);
-
-    struct Pool {
-        by_loc: FxHashMap<DefOriginLoc, OriginId>,
-        locs: Vec<DefOriginLoc>,
-    }
-
-    static POOL: LazyLock<Mutex<Pool>> = LazyLock::new(|| Mutex::new(Pool {
-        by_loc: FxHashMap::default(),
-        locs: Vec::new(),
-    }));
-
-    pub fn intern(loc: DefOriginLoc) -> OriginId {
-        let mut pool = POOL.lock();
-        if let Some(&id) = pool.by_loc.get(&loc) {
-            return id;
-        }
-        let id = OriginId(pool.locs.len() as u32);
-        pool.by_loc.insert(loc.clone(), id);
-        pool.locs.push(loc);
-        id
-    }
-
-    pub fn lookup(id: OriginId) -> DefOriginLoc {
-        POOL.lock().locs[id.0 as usize].clone()
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DefOrigin(origin_pool::OriginId);
-
-impl DefOrigin {
-    pub fn new(loc: impl Into<DefOriginLoc>) -> Self {
-        Self(origin_pool::intern(loc.into()))
-    }
-
-    pub fn loc(&self) -> DefOriginLoc {
-        origin_pool::lookup(self.0)
-    }
-
-    pub(crate) fn from_id(id: origin_pool::OriginId) -> Self {
-        Self(id)
-    }
-}
-
-impl fmt::Debug for DefOrigin {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&self.loc(), f)
-    }
+/// Origins are interned in the Salsa database rather than in a process-global
+/// pool. Their identity is therefore scoped to the database that owns the
+/// corresponding HIR.
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub struct DefOrigin {
+    pub loc: DefOriginLoc,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -148,9 +90,9 @@ impl_from! { DefOriginLoc =>
 
 macro_rules! impl_origin_cast {
     ($method:ident, $variant:ident, $ty:ty) => {
-        pub fn $method(&self) -> Option<$ty> {
-            match self.loc() {
-                DefOriginLoc::$variant(id) => Some(id),
+        pub fn $method(&self, db: &dyn HirDefDb) -> Option<$ty> {
+            match self.loc(db) {
+                DefOriginLoc::$variant(id) => Some(id.clone()),
                 _ => None,
             }
         }
@@ -594,8 +536,7 @@ impl NameScope {
             .into_iter()
             .flat_map(|defs| defs.iter())
             .filter(|def_id| def_id.kind(db).is_instantiable_def())
-            .filter_map(|def_id| def_id.primary_origin(db).as_module())
-            .collect::<SmallVec<[_; 2]>>();
+            .filter_map(|def_id| def_id.primary_origin(db).as_module(db));
         Resolution::from_candidates(entries)
     }
 
@@ -611,8 +552,7 @@ impl NameScope {
             .into_iter()
             .flat_map(|defs| defs.iter())
             .filter(|def_id| def_id.kind(db) == DefKind::Package)
-            .filter_map(|def_id| def_id.primary_origin(db).as_module())
-            .collect::<SmallVec<[_; 2]>>();
+            .filter_map(|def_id| def_id.primary_origin(db).as_module(db));
         Resolution::from_candidates(entries)
     }
 
@@ -624,7 +564,7 @@ impl NameScope {
             defs.iter()
                 .any(|def_id| {
                     def_id.kind(db).is_instantiable_def()
-                        && def_id.primary_origin(db).as_module().is_some()
+                        && def_id.primary_origin(db).as_module(db).is_some()
                 })
                 .then_some(ident_pool::lookup(*ident))
         })
@@ -636,7 +576,7 @@ impl NameScope {
     ) -> impl Iterator<Item = &'a Ident> + 'a {
         self.types.iter().filter_map(move |(ident, defs)| {
             defs.iter()
-                .any(|def_id| matches!(def_id.primary_origin(db).loc(), DefOriginLoc::Typedef(_)))
+                .any(|def_id| matches!(def_id.primary_origin(db).loc(db), DefOriginLoc::Typedef(_)))
                 .then_some(ident_pool::lookup(*ident))
         })
     }

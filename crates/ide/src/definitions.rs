@@ -268,7 +268,7 @@ fn package_member_resolution(
         if primary_ctx == NameContext::Type { NameContext::Value } else { NameContext::Type };
     packages
         .and_then(|package| {
-            let Some(package_id) = package.primary_origin(sema.db).as_module() else {
+            let Some(package_id) = package.primary_origin(sema.db).as_module(sema.db) else {
                 return Resolution::Unresolved;
             };
             let scope = sema.db.package_export_scope(package_id);

@@ -1,10 +1,15 @@
+use base_db::salsa;
+use la_arena::{Idx, RawIdx};
 use preproc_expand::file::HirFileId;
+use rustc_hash::FxHashMap;
+use salsa::plumbing::AsId;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
 use syntax::{
     ast::AstNode,
     has_text_range::{HasTextRange, HasTextRangeIn},
 };
+use triomphe::Arc;
 use utils::{
     get::{Get, GetRef},
     line_index::TextRange,
@@ -21,7 +26,7 @@ use crate::{
     db::HirDefDb,
     declaration::Declaration,
     expr::declarator::DeclaratorParent,
-    module::{ModuleKind, clocking::ClockingSignal, generate::GenerateBlockLoc},
+    module::{Module, ModuleKind, clocking::ClockingSignal, generate::GenerateBlockLoc},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
     subroutine::SubroutineSrc,
     symbol::{DefKind, DefOrigin, DefOriginLoc},
@@ -526,39 +531,58 @@ impl DefOriginLoc {
 
 impl DefOrigin {
     #[inline]
-    pub fn container_id(&self, _db: &dyn HirDefDb) -> ScopeId {
-        self.loc().container_id()
+    pub fn container_id(&self, db: &dyn HirDefDb) -> ScopeId {
+        self.loc(db).clone().container_id()
     }
 
     pub fn kind(&self, db: &dyn HirDefDb) -> DefKind {
-        self.loc().kind(db)
+        self.loc(db).clone().kind(db)
     }
 
     pub fn name(&self, db: &dyn HirDefDb) -> Option<SmolStr> {
-        self.loc().name(db)
+        self.loc(db).clone().name(db)
     }
 
     pub fn name_range(&self, db: &dyn HirDefDb) -> Option<InFile<TextRange>> {
-        self.loc().name_range(db)
+        self.loc(db).clone().name_range(db)
     }
 
     pub fn range(&self, db: &dyn HirDefDb) -> Option<InFile<TextRange>> {
-        self.loc().range(db)
+        self.loc(db).clone().range(db)
     }
+}
+
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+struct InternedDefId {
+    #[returns(copy)]
+    origin: DefOrigin,
 }
 
 /// A definition id, interned so it is `Copy`. The primary origin is the
 /// canonical origin of the definition; non-ANSI ports canonicalize to the port
 /// label origin so the same logical port always yields the same id.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DefId(crate::symbol::origin_pool::OriginId);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DefId(InternedDefId);
+
+impl PartialOrd for DefId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DefId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.as_id().cmp(&other.0.as_id())
+    }
+}
 
 impl DefId {
     pub fn new(db: &dyn HirDefDb, loc: impl Into<DefOriginLoc>) -> Self {
-        let origin = DefOrigin::new(loc);
-        let primary_origin =
-            non_ansi_port_for_origin(db, origin).map(DefOrigin::new).unwrap_or(origin);
-        Self(crate::symbol::origin_pool::intern(primary_origin.loc()))
+        let origin = DefOrigin::new(db, loc.into());
+        let primary_origin = non_ansi_port_for_origin(db, origin)
+            .map(|loc| DefOrigin::new(db, DefOriginLoc::NonAnsiPort(loc)))
+            .unwrap_or(origin);
+        Self(InternedDefId::new(db, primary_origin))
     }
 
     pub fn origins(&self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 3]> {
@@ -568,13 +592,13 @@ impl DefId {
         origins
     }
 
-    pub fn primary_origin(&self, _db: &dyn HirDefDb) -> DefOrigin {
-        DefOrigin::from_id(self.0)
+    pub fn primary_origin(&self, db: &dyn HirDefDb) -> DefOrigin {
+        self.0.origin(db)
     }
 
     pub fn declaration_origin(&self, db: &dyn HirDefDb) -> DefOrigin {
         let primary_origin = self.primary_origin(db);
-        if primary_origin.as_non_ansi_port().is_some() {
+        if primary_origin.as_non_ansi_port(db).is_some() {
             let additional_origins = additional_origins(db, primary_origin);
             return additional_origins
                 .iter()
@@ -589,10 +613,10 @@ impl DefId {
 
     pub fn declaration_origins(&self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 2]> {
         let primary_origin = self.primary_origin(db);
-        if primary_origin.as_non_ansi_port().is_some() {
+        if primary_origin.as_non_ansi_port(db).is_some() {
             return additional_origins(db, primary_origin)
                 .into_iter()
-                .filter(|origin| matches!(origin.loc(), DefOriginLoc::Decl(_)))
+                .filter(|origin| matches!(origin.loc(db), DefOriginLoc::Decl(_)))
                 .collect();
         }
 
@@ -602,7 +626,7 @@ impl DefId {
     }
 
     pub fn is_non_ansi_port(&self, db: &dyn HirDefDb) -> bool {
-        self.primary_origin(db).as_non_ansi_port().is_some()
+        self.primary_origin(db).as_non_ansi_port(db).is_some()
     }
 
     pub fn is_port(&self, db: &dyn HirDefDb) -> bool {
@@ -624,36 +648,103 @@ impl DefId {
 }
 
 fn additional_origins(db: &dyn HirDefDb, primary_origin: DefOrigin) -> SmallVec<[DefOrigin; 2]> {
-    let Some(port_id) = primary_origin.as_non_ansi_port() else {
+    let Some(port_id) = primary_origin.as_non_ansi_port(db) else {
         return SmallVec::new();
     };
-    let module = db.module(port_id.module_id);
-    let Some(port_name) = module.get(port_id.value).label.as_ref() else {
-        return SmallVec::new();
-    };
-    module
-        .decls
-        .iter()
-        .filter(|(_, decl)| decl.name.as_ref() == Some(port_name))
-        .map(|(decl_id, _)| DefOrigin::new(InContainer::new(port_id.module_id.into(), decl_id)))
-        .filter(|origin| non_ansi_port_for_origin(db, *origin) == Some(port_id))
+    let index = non_ansi_port_index(
+        db,
+        port_id.module_id.file_id,
+        u32::from(port_id.module_id.value.into_raw()),
+    );
+    index
+        .origins_by_port
+        .get(&port_id.value)
+        .into_iter()
+        .flatten()
+        .map(|decl_id| {
+            DefOrigin::new(
+                db,
+                DefOriginLoc::Decl(InContainer::new(port_id.module_id.into(), *decl_id)),
+            )
+        })
         .collect()
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum NonAnsiPortOriginRole {
     PortDeclaration,
     DataDeclaration,
 }
 
-fn non_ansi_port_origin_role(
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct NonAnsiPortIndex {
+    declaration_to_port:
+        FxHashMap<crate::expr::declarator::DeclId, InModule<crate::module::port::NonAnsiPortId>>,
+    origins_by_port: FxHashMap<
+        crate::module::port::NonAnsiPortId,
+        SmallVec<[crate::expr::declarator::DeclId; 2]>,
+    >,
+}
+
+#[salsa::tracked(lru = 128, returns(clone))]
+fn non_ansi_port_index(
     db: &dyn HirDefDb,
-    origin: DefOrigin,
-) -> Option<NonAnsiPortOriginRole> {
-    match origin.kind(db) {
-        DefKind::Port => Some(NonAnsiPortOriginRole::PortDeclaration),
-        DefKind::Variable | DefKind::Net => Some(NonAnsiPortOriginRole::DataDeclaration),
-        _ => None,
+    file_id: HirFileId,
+    module_index: u32,
+) -> Arc<NonAnsiPortIndex> {
+    let module_id =
+        crate::module::ModuleId::new(file_id, Idx::from_raw(RawIdx::from(module_index)));
+    let module = db.module(module_id);
+    let crate::module::port::Ports::NonAnsi { ports, .. } = &module.ports else {
+        return Arc::new(NonAnsiPortIndex::default());
+    };
+
+    let mut ports_by_name =
+        FxHashMap::<SmolStr, SmallVec<[crate::module::port::NonAnsiPortId; 2]>>::default();
+    for (port_id, port) in ports.iter() {
+        if let Some(name) = &port.label {
+            ports_by_name.entry(name.clone()).or_default().push(port_id);
+        }
+    }
+
+    let mut role_counts = FxHashMap::<(SmolStr, NonAnsiPortOriginRole), usize>::default();
+    for (_, decl) in module.decls.iter() {
+        let Some(name) = &decl.name else { continue };
+        let Some(role) = non_ansi_port_role(&module, decl.parent) else { continue };
+        *role_counts.entry((name.clone(), role)).or_default() += 1;
+    }
+
+    let mut index = NonAnsiPortIndex::default();
+    for (decl_id, decl) in module.decls.iter() {
+        let Some(name) = &decl.name else { continue };
+        let Some(role) = non_ansi_port_role(&module, decl.parent) else { continue };
+        if role_counts.get(&(name.clone(), role)) != Some(&1) {
+            continue;
+        }
+        let Some(port_ids) = ports_by_name.get(name) else { continue };
+        let [port_id] = port_ids.as_slice() else { continue };
+        let port_id = InModule::new(module_id, *port_id);
+        index.declaration_to_port.insert(decl_id, port_id);
+        index.origins_by_port.entry(port_id.value).or_default().push(decl_id);
+    }
+
+    Arc::new(index)
+}
+
+fn non_ansi_port_role(module: &Module, parent: DeclaratorParent) -> Option<NonAnsiPortOriginRole> {
+    match parent {
+        DeclaratorParent::PortDeclId(_) => Some(NonAnsiPortOriginRole::PortDeclaration),
+        DeclaratorParent::StmtId(_) => None,
+        DeclaratorParent::DeclarationId(declaration_id) => {
+            match &module.declarations[declaration_id] {
+                Declaration::DataDecl(_) | Declaration::NetDecl(_) => {
+                    Some(NonAnsiPortOriginRole::DataDeclaration)
+                }
+                Declaration::ParamDecl(_)
+                | Declaration::GenvarDecl(_)
+                | Declaration::SpecparamDecl(_) => None,
+            }
+        }
     }
 }
 
@@ -661,40 +752,20 @@ fn non_ansi_port_for_origin(
     db: &dyn HirDefDb,
     origin: DefOrigin,
 ) -> Option<InModule<crate::module::port::NonAnsiPortId>> {
-    match origin.loc() {
-        DefOriginLoc::NonAnsiPort(port_id) => Some(port_id),
+    match origin.loc(db) {
+        DefOriginLoc::NonAnsiPort(port_id) => Some(port_id.clone()),
         DefOriginLoc::Decl(InContainer { value, cont_id: ArenaOwnerId::Module(module_id) }) => {
-            let role = non_ansi_port_origin_role(db, origin)?;
-            let module = db.module(module_id);
-            let name = module.get(value).name.as_ref()?;
-            let matching_role_count = module
-                .decls
-                .iter()
-                .filter(|(_, decl)| decl.name.as_ref() == Some(name))
-                .map(|(decl_id, _)| DefOrigin::new(InContainer::new(module_id.into(), decl_id)))
-                .filter(|candidate| non_ansi_port_origin_role(db, *candidate) == Some(role))
-                .take(2)
-                .count();
-            if matching_role_count != 1 {
-                return None;
-            }
-
-            let crate::module::port::Ports::NonAnsi { ports, .. } = &module.ports else {
-                return None;
-            };
-            let mut matches = ports.iter().filter(|(_, port)| port.label.as_ref() == Some(name));
-            let (port_id, _) = matches.next()?;
-            if matches.next().is_some() {
-                return None;
-            }
-            Some(InModule::new(module_id, port_id))
+            non_ansi_port_index(db, module_id.file_id, u32::from(module_id.value.into_raw()))
+                .declaration_to_port
+                .get(value)
+                .copied()
         }
         _ => None,
     }
 }
 
 fn is_port_decl_origin(db: &dyn HirDefDb, origin: DefOrigin) -> bool {
-    let DefOriginLoc::Decl(decl_id) = origin.loc() else {
+    let DefOriginLoc::Decl(decl_id) = origin.loc(db) else {
         return false;
     };
     matches!(

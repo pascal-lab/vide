@@ -798,7 +798,7 @@ impl FileModuleIndex {
             for module_id in defs
                 .iter()
                 .filter(|def_id| def_id.kind(db).is_instantiable_def())
-                .filter_map(|def_id| def_id.primary_origin(db).as_module())
+                .filter_map(|def_id| def_id.primary_origin(db).as_module(db))
             {
                 let Some(module) = SemanticModuleDefinition::new(db, module_id) else {
                     continue;
@@ -816,7 +816,7 @@ impl FileModuleEdges {
         let mut edges = Vec::new();
         for (_, defs) in db.file_scope(hir_file_id).iter_listing() {
             for def_id in defs.iter().filter(|def_id| def_id.kind(db).is_instantiable_def()) {
-                let Some(caller) = def_id.primary_origin(db).as_module() else {
+                let Some(caller) = def_id.primary_origin(db).as_module(db) else {
                     continue;
                 };
                 let Some(caller_def) = SemanticModuleDefinition::new(db, caller) else {

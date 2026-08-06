@@ -25,7 +25,7 @@ pub(crate) fn members_of_ty(db: &dyn TyDb, ty: &Ty) -> Vec<TyMember> {
         Ty::Covergroup(def_id) => covergroup_members(db, def_id.clone()),
         Ty::VirtualInterface { def, .. } => def
             .primary_origin(db)
-            .as_module()
+            .as_module(db)
             .map(|module_id| module_members(db, module_id))
             .unwrap_or_default(),
         Ty::GenerateBlock(generate_block_id) => {
@@ -78,11 +78,11 @@ fn union_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
 }
 
 fn aggregate_struct_id_from_def(db: &dyn TyDb, def_id: DefId) -> Option<InContainer<StructId>> {
-    let data_ty = match def_id.primary_origin(db).loc() {
+    let data_ty = match def_id.primary_origin(db).loc(db) {
         DefOriginLoc::Typedef(typedef) => {
             typedef.cont_id.data(db).typedef(typedef.value).ty.clone()?
         }
-        DefOriginLoc::Decl(decl) => data_ty_of_decl(db, decl)?,
+        DefOriginLoc::Decl(decl) => data_ty_of_decl(db, decl.clone())?,
         _ => return None,
     };
     match data_ty {
@@ -106,14 +106,14 @@ fn module_members(db: &dyn TyDb, module_id: ModuleId) -> Vec<TyMember> {
 }
 
 fn checker_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
-    let Some(checker_id) = def_id.primary_origin(db).as_checker() else {
+    let Some(checker_id) = def_id.primary_origin(db).as_checker(db) else {
         return Vec::new();
     };
     scope_members(db, &db.checker_scope(checker_id))
 }
 
 fn covergroup_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
-    let Some(covergroup_id) = def_id.primary_origin(db).as_covergroup() else {
+    let Some(covergroup_id) = def_id.primary_origin(db).as_covergroup(db) else {
         return Vec::new();
     };
     scope_members(db, &db.covergroup_scope(covergroup_id))

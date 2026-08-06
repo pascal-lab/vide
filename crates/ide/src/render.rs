@@ -285,7 +285,7 @@ fn render_def_origin(
 
 fn render_definition_title(db: &RootDb, origin: &DefOrigin) -> Option<String> {
     let name = origin.name(db)?;
-    let kind = match origin.loc() {
+    let kind = match origin.loc(db).clone() {
         DefOriginLoc::Module(module_id) => {
             match db.hir_file_with_source_map(module_id.file_id).get(module_id.value).kind {
                 ModuleKind::Module => "Module",
@@ -342,7 +342,7 @@ fn render_decl_title_kind(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<&
 
 fn render_signature(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<String> {
     let db = sema.db;
-    match origin.loc() {
+    match origin.loc(db).clone() {
         DefOriginLoc::Module(module_id) => render_module_signature(db, module_id),
         DefOriginLoc::Subroutine(subroutine_id) => render_subroutine_signature(db, subroutine_id),
         DefOriginLoc::SubroutinePort(port_id) => render_subroutine_port_signature(db, port_id),
@@ -673,7 +673,7 @@ fn render_data_ty(db: &RootDb, container: ArenaOwnerId, ty: DataTy) -> Option<St
 
 fn render_label_signature(db: &RootDb, origin: &DefOrigin) -> Option<String> {
     let name = origin.name(db)?;
-    let kind = match origin.loc() {
+    let kind = match origin.loc(db).clone() {
         DefOriginLoc::Config(_) => "config",
         DefOriginLoc::Library(_) => "library",
         DefOriginLoc::Udp(_) => "primitive",

@@ -7,7 +7,7 @@ use hir_def::{
     module::{ModuleId, generate::GenerateBlockId, instantiation::InstanceId, port::NonAnsiPortId},
     stmt::StmtId,
     subroutine::SubroutinePortId,
-    symbol::DefOrigin,
+    symbol::{DefOrigin, DefOriginLoc},
     typedef::TypedefId,
 };
 use hir_ty::db::TyDb;
@@ -62,7 +62,7 @@ macro_rules! impl_to_nav_via_origin {
         $(
             impl ToNav for $ty {
                 fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-                    DefOrigin::new(self.clone()).to_nav(db)
+                    DefOrigin::new(db, DefOriginLoc::from(self.clone())).to_nav(db)
                 }
             }
         )*

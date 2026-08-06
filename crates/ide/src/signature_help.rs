@@ -353,7 +353,7 @@ fn sig_help_for_invocation(
         sema.expr_to_def(callee)
             .candidates()
             .iter()
-            .filter_map(|def_id| def_id.primary_origin(db).as_subroutine()),
+            .filter_map(|def_id| def_id.primary_origin(db).as_subroutine(db)),
     )
     .unique()?;
     let subroutine = db.subroutine(subroutine_id.clone());

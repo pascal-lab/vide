@@ -153,18 +153,18 @@ pub fn descend_scope(db: &dyn HirDefDb, def_id: DefId) -> Option<ScopeId> {
     let origin = def_id.primary_origin(db);
     match def_id.kind(db) {
         DefKind::Module | DefKind::Interface | DefKind::Program => {
-            origin.as_module().map(Into::into)
+            origin.as_module(db).map(Into::into)
         }
-        DefKind::ClockingBlock => origin.as_clocking_block().map(Into::into),
-        DefKind::Checker => origin.as_checker().map(ScopeId::Checker),
-        DefKind::Covergroup => origin.as_covergroup().map(ScopeId::Covergroup),
+        DefKind::ClockingBlock => origin.as_clocking_block(db).map(Into::into),
+        DefKind::Checker => origin.as_checker(db).map(ScopeId::Checker),
+        DefKind::Covergroup => origin.as_covergroup(db).map(ScopeId::Covergroup),
         DefKind::Instance => {
-            let instance = origin.as_instance()?;
+            let instance = origin.as_instance(db)?;
             let target = instance_target_def_id(db, instance.module_id, instance.value)?;
             descend_scope(db, target)
         }
-        DefKind::Block => origin.as_block().map(Into::into),
-        DefKind::GenerateBlock => origin.as_generate_block().map(Into::into),
+        DefKind::Block => origin.as_block(db).map(Into::into),
+        DefKind::GenerateBlock => origin.as_generate_block(db).map(Into::into),
         _ => None,
     }
 }

@@ -172,7 +172,7 @@ fn collect_def_names(
     let defs = defs.into_iter().collect::<Vec<_>>();
 
     let subroutines = Resolution::from_candidates(
-        defs.iter().filter_map(|def_id| def_id.primary_origin(db).as_subroutine()),
+        defs.iter().filter_map(|def_id| def_id.primary_origin(db).as_subroutine(db)),
     );
     let return_ty = match subroutines {
         Resolution::Unresolved => None,

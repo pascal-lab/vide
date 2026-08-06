@@ -190,7 +190,7 @@ impl NameScope {
         name: &SmolStr,
     ) -> Option<PortDeclId> {
         let def = self.lookup(NameContext::Value, name).unique()?;
-        def.origins(db).into_iter().filter_map(|origin| origin.as_decl()).find_map(|decl_id| {
+        def.origins(db).into_iter().filter_map(|origin| origin.as_decl(db)).find_map(|decl_id| {
             let decl = module.get(decl_id.value);
             match decl.parent {
                 DeclaratorParent::PortDeclId(port_decl_id) => Some(port_decl_id),
@@ -947,7 +947,7 @@ endmodule
         let subroutine_id = module_scope
             .lookup(NameContext::Value, &ident("f"))
             .iter()
-            .find_map(|def_id| def_id.primary_origin(&db).as_subroutine())
+            .find_map(|def_id| def_id.primary_origin(&db).as_subroutine(&db))
             .expect("subroutine should be visible from module scope");
         assert!(
             subroutine_id
@@ -968,7 +968,7 @@ endmodule
         let block_id = subroutine_scope
             .lookup(NameContext::Value, &ident("b"))
             .iter()
-            .find_map(|def_id| def_id.primary_origin(&db).as_block())
+            .find_map(|def_id| def_id.primary_origin(&db).as_block(&db))
             .expect("named block should be visible from subroutine scope");
         assert!(
             block_id
@@ -988,7 +988,7 @@ endmodule
         let generate_block_id = module_scope
             .lookup(NameContext::Value, &ident("g"))
             .iter()
-            .find_map(|def_id| def_id.primary_origin(&db).as_generate_block())
+            .find_map(|def_id| def_id.primary_origin(&db).as_generate_block(&db))
             .expect("generate block should be visible from module scope");
         assert!(
             generate_block_id
@@ -1045,7 +1045,7 @@ endmodule
         assert_eq!(origins.len(), 3);
         assert_eq!(port.declaration_origin(&db).kind(&db), DefKind::Port);
         for origin in origins {
-            assert_eq!(DefId::new(&db, origin.loc()), port);
+            assert_eq!(DefId::new(&db, origin.loc(&db).clone()), port);
         }
     }
 
@@ -1428,7 +1428,7 @@ endmodule
             def_id.kind(&db) == DefKind::ClockingBlock
                 && def_id
                     .primary_origin(&db)
-                    .as_clocking_block()
+                    .as_clocking_block(&db)
                     .is_some_and(|id| id.value == clocking_block_id)
         }));
     }
@@ -1452,7 +1452,7 @@ endmodule
         let checker_id = checker_defs
             .iter()
             .cloned()
-            .find_map(|def_id| def_id.primary_origin(&db).as_checker())
+            .find_map(|def_id| def_id.primary_origin(&db).as_checker(&db))
             .expect("checker definition should have a concrete id");
         let checker_scope = db.checker_scope(checker_id);
         assert!(
@@ -1525,31 +1525,31 @@ endmodule
             def_id.kind(&db) == DefKind::Covergroup
                 && def_id
                     .primary_origin(&db)
-                    .as_covergroup()
+                    .as_covergroup(&db)
                     .is_some_and(|id| id.value == covergroup_id)
         }));
 
         let coverpoint_defs = module_scope.lookup(NameContext::Value, &ident("cp"));
         assert!(coverpoint_defs.iter().any(|def_id| {
-            matches!(def_id.primary_origin(&db).loc(), DefOriginLoc::Coverpoint(id) if id.value == coverpoint_id)
+            matches!(def_id.primary_origin(&db).loc(&db), DefOriginLoc::Coverpoint(id) if id.value == coverpoint_id)
         }));
 
         let cross_defs = module_scope.lookup(NameContext::Value, &ident("cx"));
         assert!(
             cross_defs
                 .iter()
-                .any(|def_id| matches!(def_id.primary_origin(&db).loc(), DefOriginLoc::Cross(id) if id.value == cross_id))
+                .any(|def_id| matches!(def_id.primary_origin(&db).loc(&db), DefOriginLoc::Cross(id) if id.value == cross_id))
         );
 
         let covergroup_scope = db
             .covergroup_scope(InFileOrModule::new(FileOrModule::Module(module_id), covergroup_id));
         let scoped_coverpoint_defs = covergroup_scope.lookup(NameContext::Value, &ident("cp"));
         assert!(scoped_coverpoint_defs.iter().any(|def_id| {
-            matches!(def_id.primary_origin(&db).loc(), DefOriginLoc::Coverpoint(id) if matches!(id.scope_id, ScopeId::Covergroup(_)) && id.value == coverpoint_id)
+            matches!(def_id.primary_origin(&db).loc(&db), DefOriginLoc::Coverpoint(id) if matches!(id.scope_id, ScopeId::Covergroup(_)) && id.value == coverpoint_id)
         }));
         let scoped_cross_defs = covergroup_scope.lookup(NameContext::Value, &ident("cx"));
         assert!(scoped_cross_defs.iter().any(|def_id| {
-            matches!(def_id.primary_origin(&db).loc(), DefOriginLoc::Cross(id) if matches!(id.scope_id, ScopeId::Covergroup(_)) && id.value == cross_id)
+            matches!(def_id.primary_origin(&db).loc(&db), DefOriginLoc::Cross(id) if matches!(id.scope_id, ScopeId::Covergroup(_)) && id.value == cross_id)
         }));
 
         let instantiation = module
@@ -1714,7 +1714,7 @@ endmodule
                 .unique()
                 .expect("package scope should resolve package subroutine");
 
-        let DefOriginLoc::Subroutine(package_subroutine) = package_f.primary_origin(&db).loc()
+        let DefOriginLoc::Subroutine(package_subroutine) = package_f.primary_origin(&db).loc(&db)
         else {
             panic!("package f should resolve to a subroutine");
         };
@@ -1741,11 +1741,14 @@ endmodule
                 .expect("wildcard import should resolve package subroutine");
 
         assert_eq!(package_f, named_import_f);
-        assert_eq!(package_f.primary_origin(&db).loc(), named_import_f.primary_origin(&db).loc());
+        assert_eq!(
+            package_f.primary_origin(&db).loc(&db),
+            named_import_f.primary_origin(&db).loc(&db)
+        );
         assert_eq!(package_f, wildcard_import_f);
         assert_eq!(
-            package_f.primary_origin(&db).loc(),
-            wildcard_import_f.primary_origin(&db).loc()
+            package_f.primary_origin(&db).loc(&db),
+            wildcard_import_f.primary_origin(&db).loc(&db)
         );
     }
 
