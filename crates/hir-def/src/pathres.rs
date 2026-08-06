@@ -4,7 +4,7 @@ use utils::get::GetRef;
 
 use crate::{
     Ident,
-    container::{ScopeId, ScopeParent},
+    container::{ScopeChain, ScopeId},
     db::HirDefDb,
     def_id::DefId,
     module::{ModuleId, instantiation::InstanceId},
@@ -29,9 +29,9 @@ pub fn resolve_name(
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    let scopes = ScopeParent::start_from(cont_id).collect::<SmallVec<[_; 4]>>();
+    let scopes = ScopeChain::from_inner(cont_id);
 
-    for id in &scopes {
+    for id in scopes.iter() {
         let resolution = db.scope_for(id.clone()).lookup(ctx, ident);
         if !resolution.is_unresolved() {
             return resolution;
@@ -57,12 +57,17 @@ pub fn resolve_name(
 /// the database revision, which advances on every other query executed
 /// between two tokens.
 pub struct ResolvedScopes {
-    /// Original scope ids, innermost first; kept for the import fallback.
-    pub scope_ids: SmallVec<[ScopeId; 4]>,
-    /// Lexical scopes from innermost to outermost, already fetched.
-    pub scopes: Vec<Arc<NameScope>>,
-    /// `$unit` scope, shared by every chain.
-    pub unit: Arc<NameScope>,
+    scope_chain: ScopeChain,
+    scopes: Vec<Arc<NameScope>>,
+    unit: Arc<NameScope>,
+}
+
+impl ResolvedScopes {
+    pub fn new(db: &dyn HirDefDb, scope_chain: ScopeChain) -> Self {
+        let scopes = scope_chain.iter().map(|id| db.scope_for(id.clone())).collect();
+        let unit = db.unit_scope();
+        Self { scope_chain, scopes, unit }
+    }
 }
 
 /// Resolves `ident` in a pre-resolved scope chain. Pure in-memory lookup;
@@ -75,10 +80,10 @@ pub fn resolve_in_resolved_scopes(
     ctx: NameContext,
 ) -> Resolution<DefId> {
     for (idx, scope) in resolved.scopes.iter().enumerate() {
-        if !scope.imports.is_empty() {
+        if scope.has_imports() {
             // Imports resolve package members through database queries; fall
             // back to the general path so behavior stays identical.
-            return resolve_name(db, resolved.scope_ids[idx].clone(), ident, ctx);
+            return resolve_name(db, resolved.scope_chain.ids()[idx].clone(), ident, ctx);
         }
         let resolution = scope.lookup(ctx, ident);
         if !resolution.is_unresolved() {
@@ -184,13 +189,13 @@ pub fn instance_target_def_id(
 
 fn resolve_imported_name(
     db: &dyn HirDefDb,
-    scopes: &[ScopeId],
+    scopes: &ScopeChain,
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
     let mut defs = SmallVec::<[DefId; 3]>::new();
 
-    for scope_id in scopes {
+    for scope_id in scopes.iter() {
         let scope = db.scope_for(scope_id.clone());
         collect_imports(db, &scope, ident, ctx, true, &mut defs);
         if !defs.is_empty() {
@@ -198,7 +203,7 @@ fn resolve_imported_name(
         }
     }
 
-    for scope_id in scopes {
+    for scope_id in scopes.iter() {
         let scope = db.scope_for(scope_id.clone());
         collect_imports(db, &scope, ident, ctx, false, &mut defs);
         if !defs.is_empty() {
@@ -217,7 +222,7 @@ fn collect_imports(
     named_only: bool,
     defs: &mut SmallVec<[DefId; 3]>,
 ) {
-    for import in &scope.imports {
+    for import in scope.imports() {
         match (&import.name, named_only) {
             (Some(name), true) if name == ident => {}
             (None, false) => {}

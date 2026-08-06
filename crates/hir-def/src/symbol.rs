@@ -302,58 +302,17 @@ pub enum ScopeKind {
     Checker,
 }
 
+/// Names visible in one lexical scope.
+///
+/// Each namespace stores all candidates for a name. A name becomes
+/// `Resolution::Ambiguous` only when it has multiple distinct `DefId`s;
+/// multiple origins of one `DefId` are already merged by canonical identity.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NameScope {
-    pub types: FxHashMap<ident_pool::IdentId, SmallVec<[DefId; 1]>>,
-    pub values: FxHashMap<ident_pool::IdentId, SmallVec<[DefId; 1]>>,
-    pub assertions: FxHashMap<ident_pool::IdentId, SmallVec<[DefId; 1]>>,
-    pub imports: SmallVec<[Import; 2]>,
-}
-
-/// Interns identifier text to a compact integer so `NameScope` lookups hash
-/// and compare integers instead of strings. Real designs repeat names densely
-/// (port lists, generated signals), which made `SmolStr` hashing and equality
-/// a hot spot of the index build; interning turns both into O(1) integer
-/// operations.
-///
-/// The pool is process-global and append-only: ids stay valid for the whole
-/// process and are stable across database revisions, which is what `NameScope`
-/// (a salsa memo value) needs.
-pub mod ident_pool {
-    use std::sync::{Mutex, OnceLock};
-
-    use rustc_hash::FxHashMap;
-
-    use crate::Ident;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-    pub struct IdentId(pub u32);
-
-    struct Pool {
-        by_text: FxHashMap<Ident, IdentId>,
-        texts: Vec<&'static Ident>,
-    }
-
-    fn pool() -> &'static Mutex<Pool> {
-        static POOL: OnceLock<Mutex<Pool>> = OnceLock::new();
-        POOL.get_or_init(|| Mutex::new(Pool { by_text: FxHashMap::default(), texts: Vec::new() }))
-    }
-
-    pub fn intern(text: &str) -> IdentId {
-        let mut pool = pool().lock().unwrap();
-        if let Some(&id) = pool.by_text.get(text) {
-            return id;
-        }
-        let id = IdentId(pool.texts.len() as u32);
-        let owned: &'static Ident = Box::leak(Box::new(Ident::new(text)));
-        pool.by_text.insert(owned.clone(), id);
-        pool.texts.push(owned);
-        id
-    }
-
-    pub fn lookup(id: IdentId) -> &'static Ident {
-        pool().lock().unwrap().texts[id.0 as usize]
-    }
+    types: FxHashMap<Ident, SmallVec<[DefId; 1]>>,
+    values: FxHashMap<Ident, SmallVec<[DefId; 1]>>,
+    assertions: FxHashMap<Ident, SmallVec<[DefId; 1]>>,
+    imports: SmallVec<[Import; 2]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -362,6 +321,11 @@ pub struct Import {
     pub name: Option<Ident>,
 }
 
+/// Namespace selected by a lookup.
+///
+/// `Listing` is the explicit editor-facing union of type and value names.
+/// Assertion declarations remain in their own bucket and are not returned by
+/// `Listing` until assertion lookup is part of the public resolver contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NameContext {
     Type,
@@ -369,13 +333,14 @@ pub enum NameContext {
     Listing,
 }
 
+/// A lookup result that preserves the difference between no match, one
+/// logical definition, and several competing definitions.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Resolution<T> {
     Unresolved,
     Unique(T),
     Ambiguous(SmallVec<[T; 2]>),
 }
-
 impl<T> Resolution<T> {
     pub fn candidates(&self) -> &[T] {
         match self {
@@ -459,6 +424,36 @@ impl<T: Eq> Resolution<T> {
 }
 
 impl NameScope {
+    pub fn imports(&self) -> &[Import] {
+        &self.imports
+    }
+
+    pub fn has_imports(&self) -> bool {
+        !self.imports.is_empty()
+    }
+
+    pub(crate) fn insert_import(&mut self, import: Import) {
+        self.imports.push(import);
+    }
+
+    pub(crate) fn extend_definitions_from(&mut self, other: &NameScope) {
+        for (ident, defs) in &other.types {
+            for def_id in defs {
+                self.insert_type(ident, *def_id);
+            }
+        }
+        for (ident, defs) in &other.values {
+            for def_id in defs {
+                self.insert_value(ident, *def_id);
+            }
+        }
+        for (ident, defs) in &other.assertions {
+            for def_id in defs {
+                self.insert_assertion(ident, *def_id);
+            }
+        }
+    }
+
     pub fn insert_type(&mut self, ident: &Ident, def_id: DefId) {
         Self::insert(&mut self.types, ident, def_id);
     }
@@ -484,43 +479,42 @@ impl NameScope {
     }
 
     pub fn lookup(&self, ctx: NameContext, ident: &Ident) -> Resolution<DefId> {
-        let id = ident_pool::intern(ident);
         let candidates = match ctx {
-            NameContext::Type => self.types.get(&id).map(SmallVec::as_slice).unwrap_or_default(),
-            NameContext::Value => self.values.get(&id).map(SmallVec::as_slice).unwrap_or_default(),
+            NameContext::Type => self.types.get(ident).map(SmallVec::as_slice).unwrap_or_default(),
+            NameContext::Value => {
+                self.values.get(ident).map(SmallVec::as_slice).unwrap_or_default()
+            }
             NameContext::Listing => return Resolution::from_candidates(self.lookup_listing(ident)),
         };
-        Resolution::from_candidates(candidates.iter().cloned())
+        Resolution::from_candidates(candidates.iter().copied())
     }
 
     pub fn lookup_listing(&self, ident: &Ident) -> SmallVec<[DefId; 1]> {
-        let id = ident_pool::intern(ident);
         let mut defs = SmallVec::new();
-        if let Some(type_defs) = self.types.get(&id) {
-            defs.extend(type_defs.iter().cloned());
+        if let Some(type_defs) = self.types.get(ident) {
+            defs.extend(type_defs.iter().copied());
         }
-        if let Some(value_defs) = self.values.get(&id) {
-            defs.extend(value_defs.iter().cloned());
+        if let Some(value_defs) = self.values.get(ident) {
+            defs.extend(value_defs.iter().copied());
         }
         defs
     }
 
-    pub fn iter_listing(
-        &self,
-    ) -> impl Iterator<Item = (&'static Ident, SmallVec<[DefId; 1]>)> + '_ {
+    pub fn iter_listing(&self) -> impl Iterator<Item = (&Ident, SmallVec<[DefId; 1]>)> + '_ {
         self.types
             .iter()
             .map(|(ident, type_defs)| {
-                let mut defs = type_defs.iter().cloned().collect::<SmallVec<[DefId; 1]>>();
+                let mut defs = type_defs.iter().copied().collect::<SmallVec<[DefId; 1]>>();
                 if let Some(value_defs) = self.values.get(ident) {
-                    defs.extend(value_defs.iter().cloned());
+                    defs.extend(value_defs.iter().copied());
                 }
-                (ident_pool::lookup(*ident), defs)
+                (ident, defs)
             })
             .chain(
-                self.values.iter().filter(|(ident, _)| !self.types.contains_key(*ident)).map(
-                    |(ident, defs)| (ident_pool::lookup(*ident), defs.iter().cloned().collect()),
-                ),
+                self.values
+                    .iter()
+                    .filter(|(ident, _)| !self.types.contains_key(*ident))
+                    .map(|(ident, defs)| (ident, defs.iter().copied().collect())),
             )
     }
 
@@ -529,10 +523,9 @@ impl NameScope {
         db: &dyn HirDefDb,
         ident: &Ident,
     ) -> Resolution<crate::module::ModuleId> {
-        let id = ident_pool::intern(ident);
         let entries = self
             .types
-            .get(&id)
+            .get(ident)
             .into_iter()
             .flat_map(|defs| defs.iter())
             .filter(|def_id| def_id.kind(db).is_instantiable_def())
@@ -545,10 +538,9 @@ impl NameScope {
         db: &dyn HirDefDb,
         ident: &Ident,
     ) -> Resolution<crate::module::PackageId> {
-        let id = ident_pool::intern(ident);
         let entries = self
             .types
-            .get(&id)
+            .get(ident)
             .into_iter()
             .flat_map(|defs| defs.iter())
             .filter(|def_id| def_id.kind(db) == DefKind::Package)
@@ -566,7 +558,7 @@ impl NameScope {
                     def_id.kind(db).is_instantiable_def()
                         && def_id.primary_origin(db).as_module(db).is_some()
                 })
-                .then_some(ident_pool::lookup(*ident))
+                .then_some(ident)
         })
     }
 
@@ -577,16 +569,12 @@ impl NameScope {
         self.types.iter().filter_map(move |(ident, defs)| {
             defs.iter()
                 .any(|def_id| matches!(def_id.primary_origin(db).loc(db), DefOriginLoc::Typedef(_)))
-                .then_some(ident_pool::lookup(*ident))
+                .then_some(ident)
         })
     }
 
-    fn insert(
-        map: &mut FxHashMap<ident_pool::IdentId, SmallVec<[DefId; 1]>>,
-        ident: &Ident,
-        def_id: DefId,
-    ) {
-        let defs = map.entry(ident_pool::intern(ident)).or_default();
+    fn insert(map: &mut FxHashMap<Ident, SmallVec<[DefId; 1]>>, ident: &Ident, def_id: DefId) {
+        let defs = map.entry(ident.clone()).or_default();
         if !defs.contains(&def_id) {
             defs.push(def_id);
         }
@@ -627,5 +615,15 @@ mod tests {
     fn resolution_map_deduplicates_candidates() {
         let resolution = Resolution::from_candidates([1, 2]).map(|_| 0);
         assert_eq!(resolution, Resolution::Unique(0));
+    }
+
+    #[test]
+    fn resolution_does_not_let_one_ambiguous_parent_become_unique() {
+        let parent = Resolution::from_candidates([1, 2]);
+        let child = parent.and_then(|candidate| {
+            if candidate == 1 { Resolution::Unique("child") } else { Resolution::Unresolved }
+        });
+
+        assert_eq!(child, Resolution::Unresolved);
     }
 }

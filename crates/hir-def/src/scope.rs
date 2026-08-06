@@ -92,7 +92,7 @@ impl NameScope {
         for file_id in db.files().iter() {
             let file_id = HirFileId::File(*file_id);
             let file_scope = db.file_scope(file_id);
-            scope.extend_defs_from(&file_scope);
+            scope.extend_definitions_from(&file_scope);
         }
 
         Arc::new(scope)
@@ -200,30 +200,7 @@ impl NameScope {
     }
 
     fn insert_package_import(&mut self, import: &PackageImport) {
-        self.imports.push(Import { package: import.package.clone(), name: import.item.clone() });
-    }
-
-    fn extend_defs_from(&mut self, other: &NameScope) {
-        use crate::symbol::ident_pool;
-
-        for (ident, defs) in &other.types {
-            let ident = ident_pool::lookup(*ident);
-            for def_id in defs {
-                self.insert_type(ident, def_id.clone());
-            }
-        }
-        for (ident, defs) in &other.values {
-            let ident = ident_pool::lookup(*ident);
-            for def_id in defs {
-                self.insert_value(ident, def_id.clone());
-            }
-        }
-        for (ident, defs) in &other.assertions {
-            let ident = ident_pool::lookup(*ident);
-            for def_id in defs {
-                self.insert_assertion(ident, def_id.clone());
-            }
-        }
+        self.insert_import(Import { package: import.package.clone(), name: import.item.clone() });
     }
 }
 
@@ -1622,7 +1599,7 @@ endmodule
         let wildcard_scope = db.module_scope(wildcard_importer);
         assert!(
             wildcard_scope
-                .imports
+                .imports()
                 .iter()
                 .any(|import| import.package == ident("pkg") && import.name.is_none())
         );
@@ -1660,7 +1637,7 @@ endmodule
             .unique()
             .expect("named importer should resolve uniquely");
         let named_scope = db.module_scope(named_importer);
-        assert!(named_scope.imports.iter().any(|import| {
+        assert!(named_scope.imports().iter().any(|import| {
             import.package == ident("pkg")
                 && import.name.as_ref().is_some_and(|name| name == "imported_v")
         }));

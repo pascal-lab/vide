@@ -63,7 +63,7 @@ mod tests {
 
     use crate::{
         Ident,
-        container::{ScopeId, SubroutineParent, SubroutineScope},
+        container::{ScopeChain, ScopeId, SubroutineParent, SubroutineScope},
         db::HirDefDb,
         module::{ModuleId, generate::GenerateBlockId},
         symbol::{DefKind, NameContext},
@@ -154,6 +154,15 @@ mod tests {
 
     fn ident(name: &str) -> Ident {
         Ident::new(name)
+    }
+
+    #[test]
+    fn scope_chain_is_ordered_from_inner_scope_to_file_scope() {
+        let file_id = HirFileId::File(TOP);
+        let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
+        let chain = ScopeChain::from_inner(ScopeId::Module(module_id));
+
+        assert_eq!(chain.ids(), &[ScopeId::Module(module_id), ScopeId::File(file_id)]);
     }
 
     #[test]
