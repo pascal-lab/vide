@@ -7,6 +7,7 @@ edition.workspace = true
 base-db.workspace = true
 itertools.workspace = true
 la-arena.workspace = true
+parking_lot.workspace = true
 preproc-expand.workspace = true
 rustc-hash.workspace = true
 salsa.workspace = true
