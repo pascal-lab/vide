@@ -10,6 +10,7 @@ use crate::{
     container::{InFileOrModule, InModule, ScopeId, SubroutineScope},
     covergroup::CovergroupId,
     file::{self, HirFile},
+    item_tree::{self, ItemTree},
     module::{
         self, Module, ModuleId, PackageId,
         clocking::ClockingBlockId,
@@ -17,6 +18,7 @@ use crate::{
     },
     nameres,
     source_map::Lowered,
+    source_projection::{self, SourceProjection},
     subroutine::{self, Subroutine},
     symbol::NameScope,
 };
@@ -35,6 +37,14 @@ impl Deref for dyn HirDefDb {
 }
 
 impl dyn HirDefDb + '_ {
+    pub fn item_tree(&self, file_id: HirFileId) -> Arc<ItemTree> {
+        item_tree::item_tree(self, file_id, ())
+    }
+
+    pub fn source_projection(&self, file_id: HirFileId) -> Arc<SourceProjection> {
+        source_projection::source_projection(self, file_id, ())
+    }
+
     pub fn hir_file_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<HirFile>> {
         file::hir_file_with_source_map(self, file_id, ())
     }
@@ -158,8 +168,10 @@ fn generate_block(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> Arc<
 pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     block::set_block_lru_capacity(db, capacity);
     file::set_hir_file_lru_capacity(db, capacity);
+    item_tree::set_item_tree_lru_capacity(db, capacity);
     module::set_module_lru_capacity(db, capacity);
     module::generate::set_generate_block_lru_capacity(db, capacity);
     nameres::set_scope_lru_capacity(db, capacity);
+    source_projection::set_source_projection_lru_capacity(db, capacity);
     subroutine::set_subroutine_lru_capacity(db, capacity);
 }
