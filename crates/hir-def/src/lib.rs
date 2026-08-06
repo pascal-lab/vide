@@ -10,14 +10,15 @@
 #![feature(decl_macro)]
 
 pub mod aggregate;
+pub mod ast_id_map;
 pub mod block;
 pub mod checker;
 pub mod container;
 pub mod covergroup;
 pub mod db;
 pub mod declaration;
-pub mod diagnostics;
 pub mod def_id;
+pub mod diagnostics;
 pub mod expr;
 pub mod file;
 pub mod has_source;
@@ -26,6 +27,7 @@ pub mod literal;
 pub(crate) mod lower;
 pub mod module;
 pub mod nameres;
+pub mod owner;
 pub mod pathres;
 pub mod proc;
 pub mod region_tree;
