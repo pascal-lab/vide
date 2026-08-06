@@ -1,0 +1,9 @@
+---
+source: crates/ide/src/diagnostics.rs
+expression: report
+---
+SlangParse InvalidGenvarIterExpression Error 124..125 key=None args=[] invalid genvar iteration expression
+Vide lowering-unsupported-syntax Warning 40..53 key=Some("diagnostic.lowering.unsupported_syntax") args=[("syntax_kind", "AssignmentPatternExpression"), ("message", "unsupported expression")] unsupported syntax 'AssignmentPatternExpression': unsupported expression
+Vide lowering-unsupported-syntax Warning 57..76 key=Some("diagnostic.lowering.unsupported_syntax") args=[("syntax_kind", "StructType"), ("message", "unsupported data type")] unsupported syntax 'StructType': unsupported data type
+Vide lowering-unsupported-syntax Warning 253..266 key=Some("diagnostic.lowering.unsupported_syntax") args=[("syntax_kind", "AssignmentPatternExpression"), ("message", "unsupported expression")] unsupported syntax 'AssignmentPatternExpression': unsupported expression
+Vide lowering-unsupported-syntax Warning 189..202 key=Some("diagnostic.lowering.unsupported_syntax") args=[("syntax_kind", "AssignmentPatternExpression"), ("message", "unsupported expression")] unsupported syntax 'AssignmentPatternExpression': unsupported expression
