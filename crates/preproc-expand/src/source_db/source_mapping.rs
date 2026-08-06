@@ -324,6 +324,13 @@ fn file_id_for_vfs_path(db: &dyn PreprocDb, path: &VfsPath) -> Option<FileId> {
     None
 }
 
+/// Shift a range by `range_offset`. This and [`unshift_text_size`] are the
+/// **single** authoritative range-shift primitives for slang-buffer offsets
+/// -> user-file offsets: both the buffer->file map (`PreprocSourceMap`,
+/// `source_map/mapping.rs`) and, transitively, the expansion token map
+/// (`macro_file/source_map.rs`) map ranges through
+/// `PreprocSourceMap::map_range`. Range arithmetic lives here and nowhere else
+/// so the two layers cannot drift apart.
 pub(in crate::source_db) fn shift_text_range(range: TextRange, offset: usize) -> Option<TextRange> {
     let start = usize::from(range.start()).checked_add(offset)?;
     let end = usize::from(range.end()).checked_add(offset)?;
