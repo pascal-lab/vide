@@ -1,5 +1,5 @@
 use hir_def::{
-    container::{ArenaOwnerId, InFile, ScopeParent},
+    container::{ArenaOwnerId, InFile, ScopeChain},
     def_id::DefId,
     module::generate::{GenerateBlockId, GenerateBlockLoc, GenerateBlockSrc},
     pathres::ResolvedScopes,
@@ -9,7 +9,6 @@ use hir_semantics::semantics::SemanticsImpl;
 use itertools::Itertools;
 use preproc_expand::file::HirFileId;
 use rustc_hash::FxHashMap;
-use smallvec::SmallVec;
 use syntax::{
     SyntaxAncestors, SyntaxElement, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, WalkEvent,
     ast::{self, AstNode},
@@ -333,13 +332,8 @@ impl ScopeChainCache {
         if let Some(chain) = self.by_container.get(&container) {
             return chain.clone();
         }
-        let chain = Arc::new({
-            let scope_ids =
-                ScopeParent::start_from(container.clone().into()).collect::<SmallVec<[_; 4]>>();
-            let scopes = scope_ids.iter().map(|id| db.scope_for(id.clone())).collect::<Vec<_>>();
-            let unit = db.unit_scope();
-            ResolvedScopes { scope_ids, scopes, unit }
-        });
+        let chain =
+            Arc::new(ResolvedScopes::new(db, ScopeChain::from_inner(container.clone().into())));
         self.by_container.insert(container, chain.clone());
         chain
     }

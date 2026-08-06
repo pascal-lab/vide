@@ -1,4 +1,5 @@
 use preproc_expand::file::HirFileId;
+use smallvec::SmallVec;
 use smol_str::SmolStr;
 use triomphe::Arc;
 use utils::{
@@ -742,6 +743,33 @@ impl ContainerSrcMap {
             ContainerSrcMap::Block(container) => container.stmt_srcs.get(id),
             ContainerSrcMap::Subroutine(container) => container.stmt_srcs.get(id),
         }
+    }
+}
+
+/// An explicit lexical scope chain, ordered from the innermost scope outward.
+///
+/// Keeping the order in a value object prevents callers from rebuilding the
+/// parent walk independently and accidentally changing shadowing precedence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScopeChain {
+    ids: SmallVec<[ScopeId; 4]>,
+}
+
+impl ScopeChain {
+    pub fn from_inner(scope_id: ScopeId) -> Self {
+        Self { ids: ScopeParent::start_from(scope_id).collect() }
+    }
+
+    pub fn ids(&self) -> &[ScopeId] {
+        &self.ids
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &ScopeId> {
+        self.ids.iter()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.ids.is_empty()
     }
 }
 
