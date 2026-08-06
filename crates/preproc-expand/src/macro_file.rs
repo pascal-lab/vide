@@ -390,7 +390,12 @@ impl TraceIndex {
     }
 }
 
-pub(crate) fn trace_index_query(db: &dyn PreprocDb, model_file: FileId) -> Arc<TraceIndex> {
+#[salsa::tracked(returns(clone), lru = 128)]
+pub(crate) fn trace_index_query(
+    db: &dyn PreprocDb,
+    model_file: FileId,
+    _key: (),
+) -> Arc<TraceIndex> {
     let parsed = db.parsed_compilation_unit(model_file);
     match parsed.preprocessor_trace.as_ref() {
         Some(trace) => Arc::new(TraceIndex::new(trace)),

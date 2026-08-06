@@ -55,6 +55,20 @@ impl dyn WorkspaceSymbolIndexDb + '_ {
         file_semantic_index(self, file_id, ())
     }
 
+    /// Distinct source roots derived from the current file set, in stable
+    /// order. Module-name resolution scans every root's module index, so both
+    /// callers (`module_candidates`, `module_edges`) share one implementation
+    /// instead of each recomputing `files().map(source_root_id)` inline. The
+    /// per-root module/semantic indices are themselves salsa-memoized, so the
+    /// only per-call work here is the cheap O(files) root-list derivation.
+    pub fn workspace_source_root_ids(&self) -> Vec<SourceRootId> {
+        let mut ids =
+            self.files().iter().map(|&file_id| self.source_root_id(file_id)).collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
     /// The connected component of same-name port connections around `def`,
     /// in discovery order. Shared by the recursive rename info, conflict and
     /// edit commands so a single F2 interaction computes it once.

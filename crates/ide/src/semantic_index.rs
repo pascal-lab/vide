@@ -1,7 +1,4 @@
-use base_db::{
-    source_db::{SourceDb, SourceRootDb},
-    source_root::SourceRootId,
-};
+use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
 use hir_def::{
     Ident,
     container::{ArenaOwnerId, InFile, ScopeParent},
@@ -1217,13 +1214,8 @@ fn module_edges(
         return Vec::new();
     };
 
-    let mut source_root_ids =
-        db.files().iter().map(|&file_id| db.source_root_id(file_id)).collect::<Vec<_>>();
-    source_root_ids.sort_unstable();
-    source_root_ids.dedup();
-
     let mut edges = Vec::new();
-    for source_root_id in source_root_ids {
+    for source_root_id in db.workspace_source_root_ids().iter().copied() {
         let index = source_root_semantic_index_for_root(db, source_root_id);
         edges.extend(edges_for_index(&index, module_id).iter().cloned());
     }

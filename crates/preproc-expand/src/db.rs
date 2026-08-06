@@ -468,7 +468,7 @@ impl dyn PreprocDb + '_ {
     }
 
     pub fn trace_index(&self, model_file: FileId) -> Arc<TraceIndex> {
-        macro_file::trace_index_query(self, model_file)
+        macro_file::trace_index_query(self, model_file, ())
     }
 
     pub fn file_macro_coverage(&self, file_id: FileId) -> Arc<MacroCoverage> {
