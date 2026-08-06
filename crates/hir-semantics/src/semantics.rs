@@ -25,6 +25,8 @@ pub mod pathres;
 pub mod resolver;
 mod source_to_def;
 
+pub use source_to_def::is_generate_branch_member;
+
 pub struct Semantics<'db, DB> {
     pub db: &'db DB,
     impl_: SemanticsImpl<'db>,

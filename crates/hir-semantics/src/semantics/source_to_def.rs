@@ -195,7 +195,11 @@ fn single_member_generate_block_to_def(
     )
 }
 
-fn is_generate_branch_member(member: SyntaxNode) -> bool {
+/// Whether a member is a single-member generate branch: it sits inside an
+/// if/case generate and no stronger container (module, block, generate
+/// region) separates it. Shared with the IDE semantic index build, which
+/// mirrors the container dispatch and must not re-implement this predicate.
+pub fn is_generate_branch_member(member: SyntaxNode<'_>) -> bool {
     for ancestor in SyntaxAncestors::start_from(member).skip(1) {
         if ast::IfGenerate::can_cast(ancestor.kind())
             || ast::CaseGenerate::can_cast(ancestor.kind())
