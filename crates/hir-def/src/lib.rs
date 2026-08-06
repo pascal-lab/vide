@@ -16,6 +16,7 @@ pub mod container;
 pub mod covergroup;
 pub mod db;
 pub mod declaration;
+pub mod diagnostics;
 pub mod def_id;
 pub mod expr;
 pub mod file;

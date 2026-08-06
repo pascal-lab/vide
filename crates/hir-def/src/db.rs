@@ -7,6 +7,7 @@ use triomphe::Arc;
 use crate::{
     block::{self, Block, BlockId},
     checker::CheckerId,
+    diagnostics,
     container::{InFileOrModule, InModule, ScopeId, SubroutineScope},
     covergroup::CovergroupId,
     file::{self, HirFile},
@@ -47,6 +48,17 @@ impl dyn HirDefDb + '_ {
 
     pub fn hir_file_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<HirFile>> {
         file::hir_file_with_source_map(self, file_id, ())
+    }
+
+    /// All lowering diagnostics of a file, flattened across every lowering
+    /// owner (file, module, block, subroutine, generate block). Diagnostics
+    /// reported without a root-buffer range get a display range resolved here
+    /// (see [`diagnostics`](crate::diagnostics)).
+    pub fn file_lowering_diagnostics(
+        &self,
+        file_id: HirFileId,
+    ) -> Arc<[crate::source_map::LoweringDiagnostic]> {
+        diagnostics::file_lowering_diagnostics(self, file_id, ())
     }
 
     pub fn hir_file(&self, file_id: HirFileId) -> Arc<HirFile> {

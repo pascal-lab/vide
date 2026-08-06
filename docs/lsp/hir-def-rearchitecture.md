@@ -111,7 +111,7 @@ base-db (Salsa inputs)
 
 #### F. 错误不是一等结果
 
-`crates/hir-def/src/lower.rs:341-411` 的 `LoweringDiagnostic` 最终只由 `emit_diagnostics` 通过 `tracing::warn!` 输出；lowering query 返回的 `Lowered<T>` 没有 typed diagnostics。代码中还存在多种静默降级：
+`crates/hir-def/src/lower.rs` 的 `LoweringDiagnostic` 已存入各 owner 的 source map，并由 `diagnostics::file_lowering_diagnostics` 聚合成查询结果、`crates/ide` 转成编辑器诊断（`range: None` 有显示定位策略，unsupported → Warning，invalid 与 slang parse 诊断去重后按 Note 兜底）；`tracing::warn!` 只剩 instrumentation 作用。但 `Lowered<T>` 仍没有 typed diagnostics（owner/source/code/severity 是 IDE 侧拼出来的）。代码中还存在多种静默降级：
 
 - `expr.rs:291-295` 无法 lower 时写入 `Expr::Invalid`；
 - `expr/data_ty.rs:116-119` 对 struct/type-reference/virtual-interface 直接返回默认 data type；
