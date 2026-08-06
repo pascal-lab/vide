@@ -91,7 +91,7 @@ pub struct OwnerData {
 ///
 /// This is structural data only. Source AST ids and ranges live in
 /// [`OwnerSourceMap`] so body/source edits do not redefine owner identity.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OwnerTable {
     owners: Vec<OwnerData>,
 }
@@ -653,5 +653,31 @@ endmodule
         assert_eq!(ptr.kind(), syntax::SyntaxKind::FUNCTION_DECLARATION);
         let body = db.subroutine_body_with_source_map(owner);
         assert_eq!(body.decls.len(), 1);
+    }
+    #[test]
+    fn item_tree_excludes_source_ranges_from_semantic_data() {
+        let before_text = "module m; function void f(); logic x; endfunction endmodule\n";
+        let after_text = "module m; function void f(); logic x; x = 1; endfunction endmodule\n";
+        let mut db = db_with_root_text(before_text);
+        let file_id = HirFileId::File(TOP);
+
+        let before_items = db.item_tree(file_id);
+        let before_source = db.source_projection(file_id);
+        assert_eq!(before_items.root_owner(), db.owner_table(file_id).file_owner());
+        let function = before_items
+            .items()
+            .find(|item| item.kind() == syntax::SyntaxKind::FUNCTION_DECLARATION)
+            .expect("function item must exist");
+        let before_range =
+            before_source.origin(function.id()).expect("function source must exist").full_range();
+
+        db.set_file_text_with_durability(TOP, Arc::from(after_text), Durability::LOW);
+
+        let after_items = db.item_tree(file_id);
+        let after_source = db.source_projection(file_id);
+        assert_eq!(before_items, after_items);
+        let after_range =
+            after_source.origin(function.id()).expect("function source must exist").full_range();
+        assert_ne!(before_range, after_range);
     }
 }

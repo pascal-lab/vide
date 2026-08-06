@@ -97,7 +97,8 @@ pub(crate) fn source_projection(
     file_id: HirFileId,
     _key: (),
 ) -> Arc<SourceProjection> {
-    Arc::new(crate::item_tree::item_tree_data(db, file_id, ()).source_projection.clone())
+    let tree = db.parse(file_id);
+    Arc::new(crate::item_tree::build_source_projection(file_id, &tree))
 }
 
 pub(crate) fn set_source_projection_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
