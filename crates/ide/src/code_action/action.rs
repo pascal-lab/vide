@@ -26,6 +26,10 @@ impl CodeActionResolveStrategy {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CodeActionId {
+    /// Stable kind identifier, also used to offer lazy resolution
+    /// (`CodeActionResolveStrategy::Single`). A single request may contain
+    /// several actions with the same `name` (e.g. `convert_literal_base`'s
+    /// per-target-base variants); they are told apart by `CodeAction::ordinal`.
     pub name: &'static str,
     pub kind: CodeActionKind,
     /// Diagnostic repair this action can satisfy when a matching diagnostic is
@@ -46,6 +50,13 @@ pub enum CodeActionKind {
 #[derive(Debug, Clone)]
 pub struct CodeAction {
     pub id: CodeActionId,
+    /// Per-request occurrence index assigned by the collector. Together with
+    /// `id.name` this uniquely identifies one offered action, which is what
+    /// lazy resolve uses to locate the exact occurrence the user picked
+    /// (several same-name actions — e.g. the multiple target bases of one
+    /// literal — are otherwise indistinguishable). Stable across resolve
+    /// because the engine is deterministic for a given text/revision.
+    pub ordinal: u32,
     pub label: String,
     /// Target ranges are used to sort assists: the smaller the target range,
     /// the more specific assist is, and so it should be sorted first.

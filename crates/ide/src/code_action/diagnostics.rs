@@ -17,6 +17,18 @@ pub enum RepairKind {
 }
 
 impl RepairKind {
+    /// Returns whether `diag` is the diagnostic this repair satisfies.
+    ///
+    /// The matchers encode identity fields of slang's diagnostics — the
+    /// traits (`option_name`) and numeric codes (`subsystem`/`code`) below
+    /// come from the slang version vide is built against and may drift when
+    /// slang changes its diagnostic schema. Keeping the matching here, next
+    /// to a `#[cfg(test)]` table that pins every `RepairKind`, makes a slang
+    /// upgrade that renumbers/renames a diagnostic fail loudly in tests
+    /// rather than silently detaching a quick fix. The `MissingConnection`
+    /// arm is deliberately double-keyed (by `option_name` **or** by
+    /// subsystem/code) so it keeps working even when one of the two encodings
+    /// changes.
     pub fn matches(self, diag: &Diagnostic) -> bool {
         match self {
             RepairKind::MissingConnection => {

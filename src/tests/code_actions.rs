@@ -265,3 +265,80 @@ endmodule
 
     shutdown_test_server(&client, server_thread);
 }
+
+#[test]
+fn code_action_resolve_distinguishes_same_name_occurrences_by_ordinal() {
+    // A hex literal offers several same-name `convert_literal_base` actions
+    // (one per target base) that share the same `target` range. Resolve must
+    // pick the exact occurrence the user chose, not the first one.
+    let text = "\
+module ca_literal;
+  localparam int value = 8'h0f;
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+
+    let actions = request_code_actions(
+        &client,
+        uri.clone(),
+        text,
+        "8'h0f",
+        CodeActionContext {
+            diagnostics: Vec::new(),
+            only: Some(vec![CodeActionKind::REFACTOR_REWRITE]),
+            trigger_kind: None,
+        },
+        220,
+    );
+    let titles = code_action_titles(&actions);
+    assert!(
+        titles.contains(&"Convert literal to decimal".to_owned()),
+        "expected per-base convert actions, got {titles:?}"
+    );
+
+    let code_action = actions
+        .into_iter()
+        .find_map(|action| match action {
+            CodeActionOrCommand::CodeAction(action)
+                if action.title == "Convert literal to decimal" =>
+            {
+                Some(action)
+            }
+            _ => None,
+        })
+        .expect("expected the 'Convert literal to decimal' action");
+    assert!(code_action.data.is_some(), "resolvable action should carry resolve data");
+
+    let resolve_id = lsp_server::RequestId::from(221);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            resolve_id.clone(),
+            CodeActionResolveRequest::METHOD.to_string(),
+            code_action,
+        )))
+        .unwrap();
+    let resolved: lsp_types::CodeAction = recv_response(&client, resolve_id, "codeAction/resolve");
+
+    let new_text = resolved
+        .edit
+        .and_then(|edit| edit.document_changes)
+        .and_then(|changes| match changes {
+            lsp_types::DocumentChanges::Edits(edits) => edits.into_iter().next(),
+            lsp_types::DocumentChanges::Operations(_) => None,
+        })
+        .and_then(|text_document_edit| text_document_edit.edits.into_iter().next())
+        .and_then(|edit| match edit {
+            lsp_types::OneOf::Left(text_edit) => Some(text_edit.new_text),
+            lsp_types::OneOf::Right(_) => None,
+        })
+        .expect("resolved action should carry a text edit");
+
+    assert_eq!(
+        new_text, "8'd15",
+        "resolve must apply the decimal conversion (ordinal 2), not the first (binary) base"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}

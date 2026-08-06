@@ -172,9 +172,12 @@ pub(crate) fn handle_code_action_resolve(
     )?;
     let actions =
         snap.analysis.code_action(file_id, range, &server_diagnostics, resolve_strategy)?;
-    let action = actions.into_iter().find(|action| action.id.name == data.id).ok_or_else(|| {
-        to_proto::code_action_resolve_error(snap.config.i18n, CodeActionResolveError::Stable)
-    })?;
+    let action = actions
+        .into_iter()
+        .find(|action| action.id.name == data.id && action.ordinal == data.ordinal)
+        .ok_or_else(|| {
+            to_proto::code_action_resolve_error(snap.config.i18n, CodeActionResolveError::Stable)
+        })?;
 
     let resolved_action = to_proto::code_action(&snap, action, None, None)?;
     code_action.edit = resolved_action.edit;

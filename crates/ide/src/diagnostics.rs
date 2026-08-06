@@ -55,6 +55,12 @@ pub enum DiagnosticTag {
 impl Diagnostic {
     /// The token a parse `ExpectedToken` diagnostic wanted to insert, when
     /// this is such a diagnostic.
+    ///
+    /// Assumes slang's parse `ExpectedToken` reports the wanted token as the
+    /// first diagnostic arg. This is positional: if slang changes that
+    /// layout, the `insert_expected_token` quick fix silently inserts the
+    /// wrong token, so when upgrading slang, re-check that `args[0]` is still
+    /// the expected token (covered by the `insert_expected_token` tests).
     pub(crate) fn expected_token(&self) -> Option<&str> {
         (self.source == DiagnosticSource::SlangParse && self.name == "ExpectedToken")
             .then(|| self.args.first())
