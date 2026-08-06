@@ -11,7 +11,7 @@ use utils::define_enum_deriving_from;
 
 use super::{
     LowerModuleCtx,
-    continuous_assgin::{ContAssign, ContAssignId, ContAssignSrc},
+    continuous_assign::{ContAssign, ContAssignId, ContAssignSrc},
     defparam::{DefParam, DefParamId, DefParamSrc},
     instantiation::{
         Instance, InstanceId, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc,

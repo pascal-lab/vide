@@ -1284,7 +1284,7 @@ fn sort_and_dedup_edges(edges: &mut Vec<ModuleCallEdge>) {
 }
 
 fn token_precedence(kind: TokenKind) -> usize {
-    usize::from(kind.name_like())
+    crate::token::name_precedence(kind)
 }
 
 #[cfg(test)]

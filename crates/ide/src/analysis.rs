@@ -48,9 +48,6 @@ pub struct AnalysisSnapshot {
     pub(crate) snapshot_id: AnalysisSnapshotId,
 }
 
-/// Backwards-compatible name for callers that only need an analysis view.
-pub type Analysis = AnalysisSnapshot;
-
 impl AnalysisSnapshot {
     pub fn snapshot_id(&self) -> AnalysisSnapshotId {
         self.snapshot_id
@@ -136,14 +133,7 @@ impl AnalysisSnapshot {
         &self,
         profile_id: CompilationProfileId,
     ) -> Cancellable<Vec<FileId>> {
-        self.with_db(|db| {
-            let plan = db.compilation_plan_for_profile(Some(profile_id));
-            let mut file_ids = plan.roots.clone();
-            file_ids.extend(plan.include_only.iter().copied());
-            file_ids.sort_unstable_by_key(|file_id| file_id.index());
-            file_ids.dedup();
-            file_ids
-        })
+        self.with_db(|db| db.compilation_plan_for_profile(Some(profile_id)).all_file_ids())
     }
 
     pub fn compilation_plan(&self, file_id: FileId) -> Cancellable<Arc<CompilationPlan>> {
@@ -151,7 +141,7 @@ impl AnalysisSnapshot {
     }
 }
 
-impl Analysis {
+impl AnalysisSnapshot {
     pub fn goto_definition(
         &self,
         position: FilePosition,

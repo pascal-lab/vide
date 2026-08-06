@@ -41,6 +41,16 @@ pub enum IncludeScanIssueReason {
 }
 
 impl CompilationPlan {
+    /// Every file the plan compiles: semantic roots plus include-only files,
+    /// in stable order without duplicates.
+    pub fn all_file_ids(&self) -> Vec<FileId> {
+        let mut file_ids = self.roots.clone();
+        file_ids.extend(self.include_only.iter().copied());
+        file_ids.sort_unstable_by_key(|file_id| file_id.index());
+        file_ids.dedup();
+        file_ids
+    }
+
     /// Whether a file should be made available to slang as an include buffer:
     /// include headers reachable through the configured include paths.
     pub fn is_include_header_in_include_paths(

@@ -7,7 +7,6 @@ use search::{ReferencesCtx, SearchScope};
 use syntax::{
     SyntaxTokenWithParent, TokenKind,
     has_text_range::HasTextRange,
-    token::{TokenKindExt, pair_token},
 };
 use utils::line_index::TextRange;
 use vfs::FileId;
@@ -152,7 +151,7 @@ pub(crate) fn handle_ctrl_flow_kw(
     file_id: HirFileId,
     tp @ SyntaxTokenWithParent { .. }: SyntaxTokenWithParent,
 ) -> Option<Vec<References>> {
-    let kind = tp.kind();
+    let (beg, end) = crate::token::ctrl_flow_pair(tp)?;
 
     let mut refs = vec![];
     let mut add_ref = |tok: SyntaxTokenWithParent| {
@@ -160,15 +159,8 @@ pub(crate) fn handle_ctrl_flow_kw(
             refs.push((range, ReferenceCategory::empty()));
         }
     };
-
-    match kind {
-        _ if let Some(pair) = pair_token(tp) => {
-            let pair = pair.either(|tok| tok, |tok| tok);
-            add_ref(tp);
-            add_ref(pair);
-        }
-        _ => return None,
-    }
+    add_ref(beg);
+    add_ref(end);
 
     Some(vec![References {
         def: None,
@@ -196,9 +188,5 @@ fn search_refs<'a>(
 }
 
 fn token_precedence(kind: TokenKind) -> usize {
-    match kind {
-        _ if kind.name_like() => 4,
-        _ if kind.is_pair_token() => 4,
-        _ => 1,
-    }
+    crate::token::navigation_precedence(kind)
 }

@@ -54,12 +54,12 @@ pub struct DocumentSymbol {
 }
 
 #[derive(Debug, Clone)]
-struct SymbolCollecter {
+struct SymbolCollector {
     res: Vec<DocumentSymbol>,
     stack: Vec<DocumentSymbol>,
 }
 
-impl SymbolCollecter {
+impl SymbolCollector {
     pub fn new(len: usize) -> Self {
         Self { res: Vec::with_capacity(len), stack: Vec::with_capacity(len) }
     }
@@ -167,13 +167,13 @@ impl SymbolCollecter {
 }
 
 trait AddRegionSymbol {
-    fn add_region_symbol(&mut self, node_range: TextRange, collector: &mut SymbolCollecter);
-    fn finish_all(&mut self, collector: &mut SymbolCollecter);
+    fn add_region_symbol(&mut self, node_range: TextRange, collector: &mut SymbolCollector);
+    fn finish_all(&mut self, collector: &mut SymbolCollector);
 }
 
 impl AddRegionSymbol for Peekable<RegionTreeIterator<'_>> {
     #[inline]
-    fn add_region_symbol<'a>(&mut self, node_range: TextRange, collector: &mut SymbolCollecter) {
+    fn add_region_symbol<'a>(&mut self, node_range: TextRange, collector: &mut SymbolCollector) {
         loop {
             match self.peek() {
                 Some(WalkEvent::Enter(region)) if region.range.start() <= node_range.start() => {
@@ -189,7 +189,7 @@ impl AddRegionSymbol for Peekable<RegionTreeIterator<'_>> {
     }
 
     #[inline]
-    fn finish_all(&mut self, collector: &mut SymbolCollecter) {
+    fn finish_all(&mut self, collector: &mut SymbolCollector) {
         for event in self {
             match event {
                 WalkEvent::Enter(region) => collector.push_region(region),
@@ -208,7 +208,7 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
     let src_map = lowered.source_map();
     let mut regions = src_map.region_tree.walk().peekable();
 
-    let mut collector = SymbolCollecter::new(
+    let mut collector = SymbolCollector::new(
         src_map.items.len() + src_map.region_tree.roots.len() + file.decls.len(),
     );
 
@@ -258,7 +258,7 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
     collector.finish()
 }
 
-fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut SymbolCollecter) {
+fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut SymbolCollector) {
     let lowered = db.module_with_source_map(module_id);
     let module = lowered.data_ref();
     let src_map = lowered.source_map();
@@ -365,7 +365,7 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
     regions.finish_all(collector);
 }
 
-fn collect_block_items(db: &dyn TyDb, collector: &mut SymbolCollecter, block_id: BlockId) {
+fn collect_block_items(db: &dyn TyDb, collector: &mut SymbolCollector, block_id: BlockId) {
     let lowered = db.block_with_source_map(block_id.clone());
     let block = lowered.data_ref();
     let src_map = lowered.source_map();
@@ -398,7 +398,7 @@ fn collect_block_items(db: &dyn TyDb, collector: &mut SymbolCollecter, block_id:
     collector.pop();
     regions.finish_all(collector);
 }
-fn build_stmt<L>(db: &dyn TyDb, collector: &mut SymbolCollecter, stmt_id: StmtId, lowered: &L)
+fn build_stmt<L>(db: &dyn TyDb, collector: &mut SymbolCollector, stmt_id: StmtId, lowered: &L)
 where
     L: HirLookup<StmtId, Hir = Stmt>
         + HirLookup<DeclId, Hir = Declarator>
@@ -462,7 +462,7 @@ where
     collector.pop();
 }
 
-fn build_declaration<L>(collector: &mut SymbolCollecter, declaration_id: DeclarationId, lowered: &L)
+fn build_declaration<L>(collector: &mut SymbolCollector, declaration_id: DeclarationId, lowered: &L)
 where
     L: HirLookup<DeclId, Hir = Declarator>
         + HirLookup<DeclarationId, Hir = Declaration>
@@ -486,7 +486,7 @@ where
 #[inline]
 fn build_generate_region<L>(
     db: &dyn TyDb,
-    collector: &mut SymbolCollecter,
+    collector: &mut SymbolCollector,
     generate_region_id: GenerateRegionId,
     lowered: &L,
 ) where
@@ -528,7 +528,7 @@ fn build_generate_region<L>(
 
 fn build_generate_block(
     db: &dyn TyDb,
-    collector: &mut SymbolCollecter,
+    collector: &mut SymbolCollector,
     generate_block_id: GenerateBlockId,
 ) {
     let Some(InFile { value: generate_block_src, .. }) = generate_block_id.source(db) else {
@@ -551,7 +551,7 @@ fn build_generate_block(
 #[inline]
 fn build_generate_block_item<L>(
     db: &dyn TyDb,
-    collector: &mut SymbolCollecter,
+    collector: &mut SymbolCollector,
     item: GenerateBlockItem,
     lowered: &L,
 ) where
@@ -620,7 +620,7 @@ fn generate_item_to_block_item(item: GenerateItem) -> GenerateBlockItem {
 }
 
 #[inline]
-fn build_checker<L>(collector: &mut SymbolCollecter, checker_id: CheckerId, lowered: &L)
+fn build_checker<L>(collector: &mut SymbolCollector, checker_id: CheckerId, lowered: &L)
 where
     L: HirLookup<CheckerId, Hir = CheckerDef> + NamedSourceLookup<CheckerId>,
 {
@@ -634,7 +634,7 @@ where
 
 #[inline]
 fn build_clocking_block<L>(
-    collector: &mut SymbolCollecter,
+    collector: &mut SymbolCollector,
     clocking_block_id: ClockingBlockId,
     lowered: &L,
 ) where
@@ -649,7 +649,7 @@ fn build_clocking_block<L>(
 }
 
 #[inline]
-fn build_covergroup<L>(collector: &mut SymbolCollecter, covergroup_id: CovergroupId, lowered: &L)
+fn build_covergroup<L>(collector: &mut SymbolCollector, covergroup_id: CovergroupId, lowered: &L)
 where
     L: HirLookup<CovergroupId, Hir = CovergroupDef>
         + HirLookup<CoverpointId, Hir = CoverpointDef>
@@ -677,7 +677,7 @@ where
 }
 
 #[inline]
-fn build_coverpoint<L>(collector: &mut SymbolCollecter, coverpoint_id: CoverpointId, lowered: &L)
+fn build_coverpoint<L>(collector: &mut SymbolCollector, coverpoint_id: CoverpointId, lowered: &L)
 where
     L: HirLookup<CoverpointId, Hir = CoverpointDef> + NamedSourceLookup<CoverpointId>,
 {
@@ -690,7 +690,7 @@ where
 }
 
 #[inline]
-fn build_cross<L>(collector: &mut SymbolCollecter, cross_id: CrossId, lowered: &L)
+fn build_cross<L>(collector: &mut SymbolCollector, cross_id: CrossId, lowered: &L)
 where
     L: HirLookup<CrossId, Hir = CrossDef> + NamedSourceLookup<CrossId>,
 {
@@ -703,7 +703,7 @@ where
 }
 
 #[inline]
-fn build_struct<L>(collector: &mut SymbolCollecter, struct_id: StructId, lowered: &L)
+fn build_struct<L>(collector: &mut SymbolCollector, struct_id: StructId, lowered: &L)
 where
     L: HirLookup<StructId, Hir = StructDef> + NamedSourceLookup<StructId>,
 {
@@ -727,7 +727,7 @@ fn struct_kind_name(kind: StructKind) -> SmolStr {
 
 #[inline]
 fn build_specify_block<L>(
-    collector: &mut SymbolCollecter,
+    collector: &mut SymbolCollector,
     specify_block_id: SpecifyBlockId,
     lowered: &L,
 ) where
@@ -757,7 +757,7 @@ fn build_specify_block<L>(
 
 #[inline]
 fn build_decls<L>(
-    collector: &mut SymbolCollecter,
+    collector: &mut SymbolCollector,
     decls: &DeclsRange,
     kind: SymbolKind,
     lowered: &L,
@@ -770,7 +770,7 @@ fn build_decls<L>(
 }
 
 #[inline]
-fn build_decl<L>(collector: &mut SymbolCollecter, decl: DeclId, kind: SymbolKind, lowered: &L)
+fn build_decl<L>(collector: &mut SymbolCollector, decl: DeclId, kind: SymbolKind, lowered: &L)
 where
     L: HirLookup<DeclId, Hir = Declarator> + NamedSourceLookup<DeclId>,
 {
@@ -783,7 +783,7 @@ where
 }
 
 #[inline]
-fn build_typedef<L>(collector: &mut SymbolCollecter, typedef_id: TypedefId, lowered: &L)
+fn build_typedef<L>(collector: &mut SymbolCollector, typedef_id: TypedefId, lowered: &L)
 where
     L: HirLookup<TypedefId, Hir = Typedef> + NamedSourceLookup<TypedefId>,
 {
@@ -801,7 +801,7 @@ where
 
 #[inline]
 fn build_subroutine<L>(
-    collector: &mut SymbolCollecter,
+    collector: &mut SymbolCollector,
     subroutine_id: LocalSubroutineId,
     lowered: &L,
 ) where
@@ -816,7 +816,7 @@ fn build_subroutine<L>(
 }
 
 #[inline]
-fn build_config_decl<L>(collector: &mut SymbolCollecter, config_id: ConfigDeclId, lowered: &L)
+fn build_config_decl<L>(collector: &mut SymbolCollector, config_id: ConfigDeclId, lowered: &L)
 where
     L: HirLookup<ConfigDeclId, Hir = ConfigDecl> + NamedSourceLookup<ConfigDeclId>,
 {
@@ -829,7 +829,7 @@ where
 }
 
 #[inline]
-fn build_udp_decl<L>(collector: &mut SymbolCollecter, udp_id: UdpDeclId, lowered: &L)
+fn build_udp_decl<L>(collector: &mut SymbolCollector, udp_id: UdpDeclId, lowered: &L)
 where
     L: HirLookup<UdpDeclId, Hir = UdpDecl> + NamedSourceLookup<UdpDeclId>,
 {
@@ -842,7 +842,7 @@ where
 }
 
 #[inline]
-fn build_library_decl<L>(collector: &mut SymbolCollecter, library_id: LibraryDeclId, lowered: &L)
+fn build_library_decl<L>(collector: &mut SymbolCollector, library_id: LibraryDeclId, lowered: &L)
 where
     L: HirLookup<LibraryDeclId, Hir = LibraryDecl> + NamedSourceLookup<LibraryDeclId>,
 {

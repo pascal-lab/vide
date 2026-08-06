@@ -9,7 +9,7 @@ pub enum TokenAtOffset<'a> {
 
 impl<'a> TokenAtOffset<'a> {
     #[inline]
-    pub fn pick_bext_token(
+    pub fn pick_best_token(
         self,
         f: impl Fn(TokenKind) -> usize,
     ) -> Option<SyntaxTokenWithParent<'a>> {
