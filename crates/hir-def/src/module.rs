@@ -1,3 +1,4 @@
+use std::ops::{Deref, DerefMut};
 use clocking::{
     ClockingBlockDef, ClockingBlockId, ClockingBlockSrc, DefaultClockingRef, DefaultClockingRefSrc,
 };
@@ -53,6 +54,7 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
+    body::{Body, BodySourceMap},
     container::{ArenaOwnerId, InFile},
     db::HirDefDb,
     owner::{OwnerId, OwnerKind},
@@ -82,9 +84,6 @@ pub struct Module {
     pub generate_regions: Arena<GenerateRegion>,
     pub specify_blocks: Arena<SpecifyBlock>,
     pub specify_items: Arena<SpecifyItem>,
-    pub declarations: Arena<Declaration>,
-    pub typedefs: Arena<Typedef>,
-    pub structs: Arena<StructDef>,
     pub subroutines: Arena<Subroutine>,
     pub modports: Arena<ModportDef>,
     pub default_clocking: Option<DefaultClockingRef>,
@@ -99,10 +98,21 @@ pub struct Module {
     pub instances: Arena<Instance>,
     pub inst_port_conns: Arena<PortConn>,
     pub procs: Arena<Proc>,
-    pub exprs: Arena<Expr>,
-    pub event_exprs: Arena<EventExpr>,
-    pub decls: Arena<Declarator>,
-    pub stmts: Arena<Stmt>,
+    pub body: Body,
+}
+
+impl Deref for Module {
+    type Target = Body;
+
+    fn deref(&self) -> &Self::Target {
+        &self.body
+    }
+}
+
+impl DerefMut for Module {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.body
+    }
 }
 
 impl Module {
@@ -113,9 +123,6 @@ impl Module {
         self.generate_regions.shrink_to_fit();
         self.specify_blocks.shrink_to_fit();
         self.specify_items.shrink_to_fit();
-        self.declarations.shrink_to_fit();
-        self.typedefs.shrink_to_fit();
-        self.structs.shrink_to_fit();
         self.subroutines.shrink_to_fit();
         self.modports.shrink_to_fit();
         self.clocking_blocks.shrink_to_fit();
@@ -129,10 +136,7 @@ impl Module {
         self.instances.shrink_to_fit();
         self.inst_port_conns.shrink_to_fit();
         self.procs.shrink_to_fit();
-        self.exprs.shrink_to_fit();
-        self.event_exprs.shrink_to_fit();
-        self.decls.shrink_to_fit();
-        self.stmts.shrink_to_fit();
+        self.body.shrink_to_fit();
     }
 }
 
@@ -146,9 +150,6 @@ pub struct ModuleSourceMap {
     pub generate_region_srcs: SourceMap<GenerateRegionSrc, GenerateRegion>,
     pub specify_block_srcs: SourceMap<SpecifyBlockSrc, SpecifyBlock>,
     pub specify_item_srcs: SourceMap<SpecifyItemSrc, SpecifyItem>,
-    pub declaration_srcs: SourceMap<DeclarationSrc, Declaration>,
-    pub typedef_srcs: SourceMap<TypedefSrc, Typedef>,
-    pub struct_srcs: SourceMap<StructSrc, StructDef>,
     pub subroutine_srcs: SourceMap<SubroutineSrc, Subroutine>,
     pub modport_srcs: SourceMap<ModportSrc, ModportDef>,
     pub default_clocking_src: Option<DefaultClockingRefSrc>,
@@ -162,11 +163,22 @@ pub struct ModuleSourceMap {
     pub instance_srcs: SourceMap<InstanceSrc, Instance>,
     pub inst_port_conn_srcs: SourceMap<PortConnSrc, PortConn>,
     pub proc_srcs: SourceMap<ProcSrc, Proc>,
-    pub expr_srcs: SourceMap<ExprSrc, Expr>,
-    pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
-    pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
-    pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+    pub body: BodySourceMap,
     pub diagnostics: Vec<LoweringDiagnostic>,
+}
+
+impl Deref for ModuleSourceMap {
+    type Target = BodySourceMap;
+
+    fn deref(&self) -> &Self::Target {
+        &self.body
+    }
+}
+
+impl DerefMut for ModuleSourceMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.body
+    }
 }
 impl LoweredData for Module {
     type SourceMap = ModuleSourceMap;
@@ -186,9 +198,6 @@ impl ModuleSourceMap {
         self.generate_region_srcs.shrink_to_fit();
         self.specify_block_srcs.shrink_to_fit();
         self.specify_item_srcs.shrink_to_fit();
-        self.declaration_srcs.shrink_to_fit();
-        self.typedef_srcs.shrink_to_fit();
-        self.struct_srcs.shrink_to_fit();
         self.subroutine_srcs.shrink_to_fit();
         self.modport_srcs.shrink_to_fit();
         self.clocking_block_srcs.shrink_to_fit();
@@ -201,13 +210,11 @@ impl ModuleSourceMap {
         self.instance_srcs.shrink_to_fit();
         self.inst_port_conn_srcs.shrink_to_fit();
         self.proc_srcs.shrink_to_fit();
-        self.expr_srcs.shrink_to_fit();
-        self.event_expr_srcs.shrink_to_fit();
-        self.decl_srcs.shrink_to_fit();
-        self.stmt_srcs.shrink_to_fit();
+        self.body.shrink_to_fit();
         self.diagnostics.shrink_to_fit();
     }
 }
+
 
 crate::impl_arena_getters!(
     Module;
@@ -588,11 +595,14 @@ impl LowerModuleCtx<'_> {
                 self.region_tree.handle_node(decls.syntax());
             }
 
-            let mut decls = self.store.data.decls.iter().map(|(id, _)| id);
-            if let Some(first) = decls.next() {
-                let last = decls.next_back().unwrap_or(first);
-                self.store.data.param_ports = Some(IdxRange::new_inclusive(first..=last));
-            }
+            let param_port_range = {
+                let mut decls = self.store.data.decls.iter().map(|(id, _)| id);
+                decls.next().map(|first| {
+                    let last = decls.next_back().unwrap_or(first);
+                    IdxRange::new_inclusive(first..=last)
+                })
+            };
+            self.store.data.param_ports = param_port_range;
 
             self.region_tree.stage(param_ports.close_paren(), param_ports.syntax());
         }
