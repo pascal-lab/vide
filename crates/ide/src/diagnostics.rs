@@ -266,18 +266,37 @@ pub(crate) fn source_root_role(db: &RootDb, file_id: FileId) -> SourceRootRole {
     db.source_root(source_root_id).role()
 }
 
+/// A pluggable source of `DiagnosticSource::Vide` diagnostics for a file.
+///
+/// Each Vide check is a self-contained provider registered in
+/// [`vide_providers`]; adding a new check is a new type plus one registration
+/// entry instead of another branch in `vide_diagnostics`. `active` lets a
+/// provider opt out per file (e.g. when slang's own semantic pass already
+/// covers the case, as for ambiguous module instantiations).
+trait VideDiagnosticProvider {
+    /// Whether this provider should run for `file_id`.
+    fn active(&self, _db: &RootDb, _file_id: FileId) -> bool {
+        true
+    }
+
+    /// Compute this provider's diagnostics for `file_id`.
+    fn diagnostic(&self, db: &RootDb, file_id: FileId) -> Vec<Diagnostic>;
+}
+
+fn vide_providers() -> Vec<Box<dyn VideDiagnosticProvider>> {
+    vec![Box::new(InactivePreprocessorBranch), Box::new(AmbiguousModuleInstantiation)]
+}
+
 fn vide_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     if !vide_diagnostics_enabled(db) {
         return Vec::new();
     }
 
-    let mut diagnostics = inactive_preprocessor_branch_diagnostics(db, file_id);
-
-    if !slang_semantic_diagnostics_active(db, file_id) {
-        diagnostics.extend(module_instantiation_resolution_diagnostics(db, file_id));
-    }
-
-    diagnostics
+    vide_providers()
+        .into_iter()
+        .filter(|provider| provider.active(db, file_id))
+        .flat_map(|provider| provider.diagnostic(db, file_id))
+        .collect()
 }
 
 fn vide_diagnostics_enabled(db: &RootDb) -> bool {
@@ -366,6 +385,26 @@ fn inactive_preprocessor_branch_diagnostics(db: &RootDb, file_id: FileId) -> Vec
             )
         })
         .collect()
+}
+
+struct InactivePreprocessorBranch;
+
+impl VideDiagnosticProvider for InactivePreprocessorBranch {
+    fn diagnostic(&self, db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+        inactive_preprocessor_branch_diagnostics(db, file_id)
+    }
+}
+
+struct AmbiguousModuleInstantiation;
+
+impl VideDiagnosticProvider for AmbiguousModuleInstantiation {
+    fn active(&self, db: &RootDb, file_id: FileId) -> bool {
+        !slang_semantic_diagnostics_active(db, file_id)
+    }
+
+    fn diagnostic(&self, db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+        module_instantiation_resolution_diagnostics(db, file_id)
+    }
 }
 
 fn ambiguous_module_instantiation_diagnostic(
