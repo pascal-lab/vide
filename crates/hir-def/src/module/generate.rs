@@ -32,6 +32,7 @@ use crate::{
     },
     lower::{GenerateBlockStore, LoweringCtx},
     lower_ident_opt,
+    owner::{OwnerId, OwnerKind},
     proc::{Proc, ProcId, ProcSrc},
     region_tree::RegionTree,
     source_map::{
@@ -880,12 +881,35 @@ impl LowerModuleCtx<'_> {
 #[salsa::tracked(lru = 128, returns(clone))]
 pub(crate) fn generate_block_with_source_map(
     db: &dyn HirDefDb,
-    generate_block_id: GenerateBlockId,
-    _key: (),
+    owner: OwnerId,
 ) -> Arc<Lowered<GenerateBlock>> {
-    let GenerateBlockLoc { src: InFile { file_id, value: src }, .. } =
-        generate_block_id.loc().clone();
+    debug_assert_eq!(owner.kind(db), OwnerKind::GenerateBlock);
+    let file_id = owner.file(db);
     let tree = db.parse(file_id);
+    let Some(node) = db
+        .owner_source_ast_id(owner)
+        .and_then(|ast_id| db.ast_id_map(file_id).ptr(ast_id))
+        .and_then(|ptr| ptr.to_node(&tree))
+    else {
+        return Arc::new(Lowered::new(
+            GenerateBlock::default(),
+            GenerateBlockSourceMap::default(),
+        ));
+    };
+    let src = if let Some(loop_generate) = ast::LoopGenerate::cast(node) {
+        loop_generate.into()
+    } else if let Some(block) = ast::GenerateBlock::cast(node) {
+        GenerateBlockSrc::from_generate_block(block)
+    } else if let Some(member) = ast::Member::cast(node) {
+        member.into()
+    } else {
+        unreachable!("generate owner must point to generate syntax")
+    };
+    let parent = owner.parent(db).expect("generate owner must have a parent");
+    let generate_block_id = GenerateBlockId::new(GenerateBlockLoc {
+        cont_id: ArenaOwnerId::Owner(parent),
+        src: InFile::new(file_id, src),
+    });
 
     let mut generate_block = GenerateBlock::default();
     let mut generate_block_source_map = GenerateBlockSourceMap::default();

@@ -31,10 +31,11 @@ use super::{
 use crate::{
     container::{ArenaOwnerId, InFile},
     db::HirDefDb,
+    owner::{OwnerId, OwnerKind},
     region_tree::RegionTree,
     source_map::{
         AstKind, DiagnosticSource, IsNamedSrc, IsSrc, Lowered, LoweredData, LoweringDiagnostic,
-        NamedAstId, SourceMap, ToAstNode,
+        NamedAstId, SourceMap,
     },
 };
 
@@ -351,17 +352,27 @@ impl LowerBlockCtx<'_> {
 #[salsa::tracked(lru = 128, returns(clone))]
 pub(crate) fn block_with_source_map(
     db: &dyn HirDefDb,
-    block_id: BlockId,
-    _key: (),
+    owner: OwnerId,
 ) -> Arc<Lowered<Block>> {
-    let InFile { file_id, value: block_src } = block_id.loc().src;
+    debug_assert_eq!(owner.kind(db), OwnerKind::Block);
+    let file_id = owner.file(db);
     let tree = db.parse(file_id);
 
     let mut block = Block::default();
     let mut block_source_map = BlockSourceMap::default();
-    let Some(ast_block) = block_src.to_node(&tree) else {
+    let Some(ast_block) = db
+        .owner_source_ast_id(owner)
+        .and_then(|ast_id| db.ast_id_map(file_id).ptr(ast_id))
+        .and_then(|ptr| ptr.to_node(&tree))
+        .and_then(ast::BlockStatement::cast)
+    else {
         return Arc::new(Lowered::new(block, block_source_map));
     };
+    let parent = owner.parent(db).expect("block owner must have a parent");
+    let block_id = BlockId::new(BlockLoc {
+        cont_id: ArenaOwnerId::Owner(parent),
+        src: InFile::new(file_id, BlockSrc::from_ast(file_id, ast_block)),
+    });
 
     let mut lower_ctx = LoweringCtx::new(
         file_id,

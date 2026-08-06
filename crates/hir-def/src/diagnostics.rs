@@ -17,7 +17,6 @@
 //! 4. the file start, as a last resort.
 
 use la_arena::Arena;
-use preproc_expand::file::HirFileId;
 use syntax::{SyntaxKind, SyntaxTree, WalkEvent, has_text_range::HasTextRange};
 use triomphe::Arc;
 use utils::{
@@ -26,6 +25,7 @@ use utils::{
 };
 
 use crate::{
+    ast_id_map::SyntaxFileId,
     block::{BlockId, BlockInfo},
     container::{SubroutineParent, SubroutineScope},
     db::HirDefDb,
@@ -41,9 +41,9 @@ use crate::{
 #[salsa::tracked(returns(clone))]
 pub(crate) fn file_lowering_diagnostics(
     db: &dyn HirDefDb,
-    file_id: HirFileId,
-    _key: (),
+    file: SyntaxFileId,
 ) -> Arc<[LoweringDiagnostic]> {
+    let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
     let lowered_file = db.hir_file_with_source_map(file_id);
     let file = lowered_file.data_ref();

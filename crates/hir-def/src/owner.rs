@@ -26,10 +26,9 @@ use syntax::{
     has_name::HasName,
 };
 use triomphe::Arc;
-use utils::get::Get;
 
 use crate::{
-    ast_id_map::{AstIdMap, SourceAstId},
+    ast_id_map::{self, AstIdMap, SourceAstId, SyntaxFileId},
     block::BlockId,
     container::SubroutineScope,
     db::HirDefDb,
@@ -42,15 +41,13 @@ pub enum OwnerKind {
     File,
     Module,
     GenerateBlock,
+    ProceduralBlock,
     Block,
     Subroutine,
-    /// Not enumerated by [`owner_table`] yet; reserved for the per-owner
-    /// queries that follow the container split.
     Checker,
     Covergroup,
     ClockingBlock,
 }
-
 /// A unified owner identity: `Copy`, `'static`, and independent of source
 /// ranges or names. `slot` is the ordinal among the owner's direct owner
 /// children; body syntax that is not itself an owner cannot change it.
@@ -134,19 +131,17 @@ impl OwnerSourceMap {
 }
 
 #[salsa::tracked(lru = 256, returns(clone))]
-pub(crate) fn owner_table(db: &dyn HirDefDb, file_id: HirFileId, _key: ()) -> Arc<OwnerTable> {
+pub(crate) fn owner_table(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerTable> {
+    let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
     Arc::new(owner_table_from_source(db, file_id, &tree))
 }
 
 #[salsa::tracked(lru = 256, returns(clone))]
-pub(crate) fn owner_source_map(
-    db: &dyn HirDefDb,
-    file_id: HirFileId,
-    _key: (),
-) -> Arc<OwnerSourceMap> {
+pub(crate) fn owner_source_map(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerSourceMap> {
+    let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
-    let ast_ids = db.ast_id_map(file_id);
+    let ast_ids = ast_id_map::ast_id_map(db, file);
     Arc::new(owner_source_map_from_source(db, file_id, &tree, &ast_ids))
 }
 
@@ -228,7 +223,7 @@ fn discover_owners(
     for event in root.node_preorder() {
         match event {
             WalkEvent::Enter(node) => {
-                let Some(kind) = owner_kind_of(node.kind()) else {
+                let Some(kind) = owner_kind_of(node) else {
                     continue;
                 };
                 let slot = next_slots.last_mut().expect("owner stack is non-empty");
@@ -243,7 +238,7 @@ fn discover_owners(
                 next_slots.push(0);
             }
             WalkEvent::Leave(node) => {
-                if owner_kind_of(node.kind()).is_some() {
+                if owner_kind_of(node).is_some() {
                     owners.pop();
                     next_slots.pop();
                 }
@@ -254,9 +249,12 @@ fn discover_owners(
     discovered
 }
 
-/// The node kinds that start a new owner; everything else belongs to the
-/// enclosing owner's body.
-fn owner_kind_of(kind: SyntaxKind) -> Option<OwnerKind> {
+/// Syntax nodes that start a semantic owner. Generate branches deliberately
+/// mirror `generate.rs`: a loop owns its block (the nested `GenerateBlock`
+/// node is not a second owner), while an unwrapped branch member is promoted
+/// to a generate-block owner.
+fn owner_kind_of(node: SyntaxNode<'_>) -> Option<OwnerKind> {
+    let kind = node.kind();
     match kind {
         SyntaxKind::MODULE_DECLARATION
         | SyntaxKind::INTERFACE_DECLARATION
@@ -265,12 +263,49 @@ fn owner_kind_of(kind: SyntaxKind) -> Option<OwnerKind> {
         SyntaxKind::FUNCTION_DECLARATION | SyntaxKind::TASK_DECLARATION => {
             Some(OwnerKind::Subroutine)
         }
+        SyntaxKind::GENERATE_BLOCK
+            if node.parent().and_then(ast::LoopGenerate::cast).is_some() =>
+        {
+            None
+        }
         SyntaxKind::GENERATE_BLOCK | SyntaxKind::LOOP_GENERATE => Some(OwnerKind::GenerateBlock),
+        SyntaxKind::INITIAL_BLOCK
+        | SyntaxKind::FINAL_BLOCK
+        | SyntaxKind::ALWAYS_BLOCK
+        | SyntaxKind::ALWAYS_COMB_BLOCK
+        | SyntaxKind::ALWAYS_FF_BLOCK
+        | SyntaxKind::ALWAYS_LATCH_BLOCK => Some(OwnerKind::ProceduralBlock),
         SyntaxKind::SEQUENTIAL_BLOCK_STATEMENT | SyntaxKind::PARALLEL_BLOCK_STATEMENT => {
             Some(OwnerKind::Block)
         }
+        SyntaxKind::CHECKER_DECLARATION => Some(OwnerKind::Checker),
+        SyntaxKind::COVERGROUP_DECLARATION => Some(OwnerKind::Covergroup),
+        SyntaxKind::CLOCKING_DECLARATION => Some(OwnerKind::ClockingBlock),
+        _ if ast::Member::cast(node).is_some() && is_unwrapped_generate_branch(node) => {
+            Some(OwnerKind::GenerateBlock)
+        }
         _ => None,
     }
+}
+
+fn is_unwrapped_generate_branch(node: SyntaxNode<'_>) -> bool {
+    let mut parent = node.parent();
+    while let Some(ancestor) = parent {
+        if ast::GenerateBlock::can_cast(ancestor.kind())
+            || ast::LoopGenerate::can_cast(ancestor.kind())
+            || ast::ModuleDeclaration::can_cast(ancestor.kind())
+        {
+            return false;
+        }
+        if ast::IfGenerate::can_cast(ancestor.kind())
+            || ast::StandardCaseItem::can_cast(ancestor.kind())
+            || ast::DefaultCaseItem::can_cast(ancestor.kind())
+        {
+            return true;
+        }
+        parent = ancestor.parent();
+    }
+    false
 }
 
 fn owner_name(node: SyntaxNode<'_>) -> SmolStr {
@@ -292,13 +327,29 @@ fn owner_name(node: SyntaxNode<'_>) -> SmolStr {
 // ---------------------------------------------------------------------------
 
 impl ModuleId {
-    /// The unified owner of this module, when its node is in the file's source
-    /// projection (root-buffer modules always are).
+    /// Canonical owner for a top-level module slot.
     pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
-        let lowered_file = db.hir_file_with_source_map(self.file_id);
-        let src = lowered_file.source_map().get(self.value)?;
-        let ast_id = db.ast_id_map(self.file_id).id_of_ptr(src.node)?;
-        db.owner_source_map(self.file_id).owner_by_ast(ast_id)
+        let table = db.owner_table(self.file_id);
+        let file_owner = table.file_owner()?;
+        let slot = u32::from(self.value.into_raw()) as usize;
+        table
+            .owners_of_kind(OwnerKind::Module)
+            .filter(|owner| owner.parent == Some(file_owner))
+            .nth(slot)
+            .map(|owner| owner.id)
+    }
+
+    pub(crate) fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
+        (owner.kind(db) == OwnerKind::Module).then_some(())?;
+        let file_id = owner.file(db);
+        let table = db.owner_table(file_id);
+        let file_owner = table.file_owner()?;
+        let slot = table
+            .owners_of_kind(OwnerKind::Module)
+            .filter(|candidate| candidate.parent == Some(file_owner))
+            .position(|candidate| candidate.id == owner)?;
+        let slot = u32::try_from(slot).ok()?;
+        Some(Self::new(file_id, la_arena::Idx::from_raw(la_arena::RawIdx::from(slot))))
     }
 }
 

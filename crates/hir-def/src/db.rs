@@ -5,7 +5,7 @@ use preproc_expand::{db::PreprocDb, file::HirFileId};
 use triomphe::Arc;
 
 use crate::{
-    ast_id_map::{self, AstIdMap, SourceAstId},
+    ast_id_map::{self, AstIdMap, SourceAstId, SyntaxFileId},
     block::{self, Block, BlockId},
     checker::CheckerId,
     container::{InFileOrModule, InModule, ScopeId, SubroutineScope},
@@ -40,21 +40,26 @@ impl Deref for dyn HirDefDb {
 }
 
 impl dyn HirDefDb + '_ {
+    /// Canonical Salsa identity for a preprocessing-layer HIR file.
+    pub fn syntax_file(&self, file_id: HirFileId) -> SyntaxFileId {
+        SyntaxFileId::new(self, file_id)
+    }
+
     /// Stable per-file AST node ids in depth-first preorder; source-side
     /// identity is deliberately separate from owner identity.
     pub fn ast_id_map(&self, file_id: HirFileId) -> Arc<AstIdMap> {
-        ast_id_map::ast_id_map(self, file_id, ())
+        ast_id_map::ast_id_map(self, self.syntax_file(file_id))
     }
 
     /// The canonical owner enumeration of a file, in source order and
     /// independent of source projection and lowering.
     pub fn owner_table(&self, file_id: HirFileId) -> Arc<OwnerTable> {
-        owner::owner_table(self, file_id, ())
+        owner::owner_table(self, self.syntax_file(file_id))
     }
 
     /// Current source-side mapping for the file's canonical owners.
     pub fn owner_source_map(&self, file_id: HirFileId) -> Arc<OwnerSourceMap> {
-        owner::owner_source_map(self, file_id, ())
+        owner::owner_source_map(self, self.syntax_file(file_id))
     }
 
     /// Current AST identity for one canonical owner.
@@ -63,7 +68,7 @@ impl dyn HirDefDb + '_ {
     }
 
     pub fn item_tree(&self, file_id: HirFileId) -> Arc<ItemTree> {
-        item_tree::item_tree(self, file_id, ())
+        item_tree::item_tree(self, self.syntax_file(file_id))
     }
 
     pub fn item_for_owner(&self, owner: OwnerId) -> Option<ItemTreeItem> {
@@ -75,11 +80,11 @@ impl dyn HirDefDb + '_ {
     }
 
     pub fn source_projection(&self, file_id: HirFileId) -> Arc<SourceProjection> {
-        source_projection::source_projection(self, file_id, ())
+        source_projection::source_projection(self, self.syntax_file(file_id))
     }
 
     pub fn hir_file_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<HirFile>> {
-        file::hir_file_with_source_map(self, file_id, ())
+        file::hir_file_with_source_map(self, self.syntax_file(file_id))
     }
 
     /// All lowering diagnostics of a file, flattened across every lowering
@@ -90,7 +95,7 @@ impl dyn HirDefDb + '_ {
         &self,
         file_id: HirFileId,
     ) -> Arc<[crate::source_map::LoweringDiagnostic]> {
-        diagnostics::file_lowering_diagnostics(self, file_id, ())
+        diagnostics::file_lowering_diagnostics(self, self.syntax_file(file_id))
     }
 
     pub fn hir_file(&self, file_id: HirFileId) -> Arc<HirFile> {
@@ -98,7 +103,8 @@ impl dyn HirDefDb + '_ {
     }
 
     pub fn module_with_source_map(&self, module_id: ModuleId) -> Arc<Lowered<Module>> {
-        module::module_with_source_map(self, module_id, ())
+        let owner = module_id.owner(self).expect("module id must resolve to an owner");
+        module::module_with_source_map(self, owner)
     }
 
     pub fn module(&self, module_id: ModuleId) -> Arc<Module> {
@@ -106,7 +112,8 @@ impl dyn HirDefDb + '_ {
     }
 
     pub fn block_with_source_map(&self, block_id: BlockId) -> Arc<Lowered<Block>> {
-        block::block_with_source_map(self, block_id, ())
+        let owner = block_id.owner(self).expect("block id must resolve to an owner");
+        block::block_with_source_map(self, owner)
     }
 
     pub fn block(&self, block_id: BlockId) -> Arc<Block> {
@@ -120,12 +127,12 @@ impl dyn HirDefDb + '_ {
     pub fn subroutine(&self, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
         subroutine(self, subroutine_id)
     }
-
     pub fn generate_block_with_source_map(
         &self,
         generate_block_id: GenerateBlockId,
     ) -> Arc<Lowered<GenerateBlock>> {
-        generate::generate_block_with_source_map(self, generate_block_id, ())
+        let owner = generate_block_id.owner(self).expect("generate block must resolve to an owner");
+        generate::generate_block_with_source_map(self, owner)
     }
 
     pub fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock> {
@@ -133,7 +140,8 @@ impl dyn HirDefDb + '_ {
     }
 
     pub fn scope_for(&self, scope_id: ScopeId) -> Arc<NameScope> {
-        nameres::scope_for(self, scope_id, ())
+        let key = nameres::ScopeQueryKey::new(self, scope_id);
+        nameres::scope_for(self, key)
     }
 
     pub fn unit_scope(&self) -> Arc<NameScope> {
@@ -176,7 +184,8 @@ impl dyn HirDefDb + '_ {
     }
 
     pub fn package_export_signature(&self, package_id: PackageId) -> Arc<NameScope> {
-        NameScope::package_export_signature(self, package_id, ())
+        let owner = package_id.owner(self).expect("package id must resolve to an owner");
+        NameScope::package_export_signature(self, owner)
     }
 
     pub fn package_export_scope(&self, package_id: PackageId) -> Arc<NameScope> {

@@ -55,6 +55,7 @@ use super::{
 use crate::{
     container::{ArenaOwnerId, InFile},
     db::HirDefDb,
+    owner::{OwnerId, OwnerKind},
     region_tree::RegionTree,
     source_map::{
         DiagnosticSource, FromSourceAst, IsNamedSrc, IsSrc, Lowered, LoweredData,
@@ -786,20 +787,24 @@ impl LowerModuleCtx<'_> {
 #[salsa::tracked(lru = 128, returns(clone))]
 pub(crate) fn module_with_source_map(
     db: &dyn HirDefDb,
-    module_id @ InFile { value: local_module_id, file_id }: ModuleId,
-    _key: (),
+    owner: OwnerId,
 ) -> Arc<Lowered<Module>> {
-    let lowered_file = db.hir_file_with_source_map(file_id);
+    debug_assert_eq!(owner.kind(db), OwnerKind::Module);
+    let file_id = owner.file(db);
+    let module_id = ModuleId::from_owner(db, owner).expect("module owner must have a module id");
     let tree = db.parse(file_id);
-
-    let module_info = lowered_file.get(local_module_id);
-    let mut module = Module { name: module_info.name.clone(), ..Default::default() };
+    let mut module = Module::default();
     let mut module_source_map = ModuleSourceMap::default();
 
-    let Some(ast_module) = lowered_file.source(local_module_id).and_then(|src| src.to_node(&tree))
+    let Some(ast_module) = db
+        .owner_source_ast_id(owner)
+        .and_then(|ast_id| db.ast_id_map(file_id).ptr(ast_id))
+        .and_then(|ptr| ptr.to_node(&tree))
+        .and_then(ast::ModuleDeclaration::cast)
     else {
         return Arc::new(Lowered::new(module, module_source_map));
     };
+    module.name = lower_ident_opt(HasName::name(&ast_module));
 
     let mut lower_ctx = LoweringCtx::new(
         file_id,

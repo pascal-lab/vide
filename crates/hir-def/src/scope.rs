@@ -1,7 +1,7 @@
 use la_arena::{Arena, Idx, RawIdx};
 use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
-use syntax::ast;
+use syntax::{SyntaxKind, ast::{self, AstNode}};
 use triomphe::Arc;
 use utils::get::GetRef;
 
@@ -20,12 +20,12 @@ use crate::{
     expr::declarator::{DeclId, Declarator, DeclaratorParent},
     lower_ident_opt,
     module::{
-        Module, ModuleKind, PackageId,
+        Module, PackageId,
         clocking::{ClockingBlockId, ClockingSignalId},
         generate::GenerateBlockId,
         port::{PortDeclId, Ports},
     },
-    source_map::ToAstNode,
+    owner::{OwnerId, OwnerKind},
     stmt::{Stmt, StmtKind},
     subroutine::{LocalSubroutineId, SubroutinePortId},
     symbol::{DefOriginLoc, Import, NameContext, NameScope},
@@ -97,26 +97,34 @@ impl NameScope {
 
         Arc::new(scope)
     }
-
     pub fn package_export_scope(db: &dyn HirDefDb, package_id: PackageId) -> Arc<NameScope> {
-        db.package_export_signature(package_id)
+        let owner = package_id.owner(db).expect("package id must resolve to an owner");
+        Self::package_export_signature(db, owner)
     }
 
     #[salsa::tracked(returns(clone))]
     pub fn package_export_signature(
         db: &dyn HirDefDb,
-        package_id: PackageId,
-        _key: (),
+        owner: OwnerId,
     ) -> Arc<NameScope> {
+        debug_assert_eq!(owner.kind(db), OwnerKind::Module);
         let mut scope = NameScope::default();
-        let file_id = package_id.file_id;
-        let file = db.hir_file_with_source_map(file_id);
-        if file.get(package_id.value).kind != ModuleKind::Package {
+        let Some(item) = db.item_for_owner(owner) else {
+            return Arc::new(scope);
+        };
+        if item.kind() != SyntaxKind::PACKAGE_DECLARATION {
             return Arc::new(scope);
         }
 
+        let file_id = owner.file(db);
+        let package_id = PackageId::from_owner(db, owner).expect("package owner must have a module id");
         let tree = db.parse(file_id);
-        let Some(package) = file.source(package_id.value).and_then(|src| src.to_node(&tree)) else {
+        let Some(package) = db
+            .owner_source_ast_id(owner)
+            .and_then(|ast_id| db.ast_id_map(file_id).ptr(ast_id))
+            .and_then(|ptr| ptr.to_node(&tree))
+            .and_then(ast::ModuleDeclaration::cast)
+        else {
             return Arc::new(scope);
         };
 

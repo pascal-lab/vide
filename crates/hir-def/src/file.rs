@@ -38,6 +38,7 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
+    ast_id_map::SyntaxFileId,
     container::ArenaOwnerId,
     db::HirDefDb,
     lower_ident_opt,
@@ -460,9 +461,9 @@ impl LowerFileCtx<'_> {
 #[salsa::tracked(lru = 128, returns(clone))]
 pub(crate) fn hir_file_with_source_map(
     db: &dyn HirDefDb,
-    file_id: HirFileId,
-    _key: (),
+    file: SyntaxFileId,
 ) -> Arc<Lowered<HirFile>> {
+    let file_id = file.hir_file(db);
     let mut hir_file = HirFile::default();
     let mut source_map = FileSourceMap::default();
 

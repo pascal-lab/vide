@@ -3,7 +3,7 @@ use syntax::{SyntaxKind, ptr::SyntaxNodePtr};
 use triomphe::Arc;
 use utils::text_edit::TextRange;
 
-use crate::{db::HirDefDb, item_tree::ItemTreeId};
+use crate::{ast_id_map::SyntaxFileId, db::HirDefDb, item_tree::ItemTreeId};
 
 /// A source representation of an item in an expanded HIR file.
 ///
@@ -94,9 +94,9 @@ impl SourceProjection {
 #[salsa::tracked(lru = 128, returns(clone))]
 pub(crate) fn source_projection(
     db: &dyn HirDefDb,
-    file_id: HirFileId,
-    _key: (),
+    file: SyntaxFileId,
 ) -> Arc<SourceProjection> {
+    let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
     Arc::new(crate::item_tree::build_source_projection(file_id, &tree))
 }
