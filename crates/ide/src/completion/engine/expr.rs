@@ -146,6 +146,12 @@ fn collect_container_names(
                 collect_def_names(db, ident, defs, names);
             }
         }
+        ScopeId::Owner(owner) => {
+            let scope = db.scope_for(ScopeId::Owner(owner));
+            for (ident, defs) in scope.iter_listing() {
+                collect_def_names(db, ident, defs, names);
+            }
+        }
     }
 }
 

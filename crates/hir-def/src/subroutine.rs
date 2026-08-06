@@ -26,13 +26,12 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
+    container::ArenaOwnerId,
     db::HirDefDb,
-    def_id::subroutine_src,
+    owner::{OwnerId, OwnerKind},
     region_tree::RegionTree,
     source_map::{
         AstKind, DiagnosticSource, Lowered, LoweredData, LoweringDiagnostic, NamedAstId, SourceMap,
-        ToAstNode,
     },
 };
 
@@ -42,6 +41,23 @@ pub struct Subroutine {
     pub kind: SubroutineKind,
     pub ports: SmallVec<[SubroutinePort; 4]>,
     pub has_body: bool,
+}
+
+impl Default for Subroutine {
+    fn default() -> Self {
+        Subroutine {
+            name: None,
+            kind: SubroutineKind::Task,
+            ports: SmallVec::new(),
+            has_body: false,
+        }
+    }
+}
+
+/// Procedure-local arenas. This is deliberately separate from `Subroutine`:
+/// header queries can remain valid when only the procedure body changes.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct SubroutineBody {
     pub declarations: Arena<Declaration>,
     pub typedefs: Arena<Typedef>,
     pub structs: Arena<StructDef>,
@@ -51,7 +67,7 @@ pub struct Subroutine {
     pub stmts: Arena<Stmt>,
 }
 
-impl Subroutine {
+impl SubroutineBody {
     pub fn shrink_to_fit(&mut self) {
         self.declarations.shrink_to_fit();
         self.typedefs.shrink_to_fit();
@@ -63,13 +79,9 @@ impl Subroutine {
     }
 }
 
-impl Default for Subroutine {
+impl Default for SubroutineBody {
     fn default() -> Self {
-        Subroutine {
-            name: None,
-            kind: SubroutineKind::Task,
-            ports: SmallVec::new(),
-            has_body: false,
+        Self {
             declarations: Arena::new(),
             typedefs: Arena::new(),
             structs: Arena::new(),
@@ -82,7 +94,7 @@ impl Default for Subroutine {
 }
 
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
-pub struct SubroutineSourceMap {
+pub struct SubroutineBodySourceMap {
     pub items: SmallVec<[BlockItem; 2]>,
     pub region_tree: RegionTree,
     pub declaration_srcs: SourceMap<DeclarationSrc, Declaration>,
@@ -95,17 +107,18 @@ pub struct SubroutineSourceMap {
     pub block_srcs: FxHashMap<BlockSrc, LocalBlockId>,
     pub diagnostics: Vec<LoweringDiagnostic>,
 }
-impl LoweredData for Subroutine {
-    type SourceMap = SubroutineSourceMap;
+
+impl LoweredData for SubroutineBody {
+    type SourceMap = SubroutineBodySourceMap;
 }
 
-impl DiagnosticSource for SubroutineSourceMap {
+impl DiagnosticSource for SubroutineBodySourceMap {
     fn diagnostics(&self) -> &[LoweringDiagnostic] {
         &self.diagnostics
     }
 }
 
-impl SubroutineSourceMap {
+impl SubroutineBodySourceMap {
     pub fn shrink_to_fit(&mut self) {
         self.declaration_srcs.shrink_to_fit();
         self.typedef_srcs.shrink_to_fit();
@@ -119,7 +132,7 @@ impl SubroutineSourceMap {
 }
 
 crate::impl_arena_getters!(
-    Subroutine;
+    SubroutineBody;
     DeclarationId => declarations => Declaration,
     TypedefId => typedefs => Typedef,
     StructId => structs => StructDef,
@@ -131,7 +144,7 @@ crate::impl_arena_getters!(
 );
 
 crate::impl_source_map_getters!(
-    SubroutineSourceMap;
+    SubroutineBodySourceMap;
     DeclarationSrc => DeclarationId => declaration_srcs,
     TypedefSrc => TypedefId => typedef_srcs,
     StructSrc => StructId => struct_srcs,
@@ -218,7 +231,7 @@ where
         SubroutineKind::Function { return_ty: Some(ret_ty) }
     };
 
-    Some(Subroutine { name: Some(name), kind, ports, ..Default::default() })
+    Some(Subroutine { name: Some(name), kind, ports, has_body: func.end().is_some() })
 }
 
 fn lower_name(name: ast::Name) -> Option<Ident> {
@@ -307,8 +320,6 @@ impl LowerSubroutineBodyCtx<'_> {
     }
 
     pub(crate) fn lower_items(&mut self, func: ast::FunctionDeclaration) {
-        self.store.data.has_body = true;
-
         for item in func.items().children() {
             self.region_tree.handle_node(item.syntax());
 
@@ -363,52 +374,45 @@ pub(crate) fn lower_subroutine_body(
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn subroutine_with_source_map(
+pub(crate) fn subroutine_body_with_source_map(
     db: &dyn HirDefDb,
-    subroutine_id: SubroutineScope,
-    _key: (),
-) -> Arc<Lowered<Subroutine>> {
-    // The parent container lowers only the subroutine skeleton (name, kind and
-    // ports, whose type expressions live in the parent arena); the body is
-    // lowered here on first access, like modules and generate blocks.
-    let mut subroutine = match subroutine_id.cont_id.clone() {
-        SubroutineParent::File(file_id) => {
-            db.hir_file(file_id).subroutines[subroutine_id.value].clone()
-        }
-        SubroutineParent::Module(module_id) => {
-            db.module(module_id).subroutines[subroutine_id.value].clone()
-        }
-        SubroutineParent::GenerateBlock(generate_block_id) => {
-            db.generate_block(generate_block_id).subroutines[subroutine_id.value].clone()
-        }
-    };
+    owner: OwnerId,
+) -> Arc<Lowered<SubroutineBody>> {
+    debug_assert_eq!(owner.kind(db), OwnerKind::Subroutine);
+    let file_id = owner.file(db);
+    let empty =
+        || Arc::new(Lowered::new(SubroutineBody::default(), SubroutineBodySourceMap::default()));
 
-    let Some(InFile { file_id, value: src }) = subroutine_src(db, subroutine_id.clone()) else {
-        return Arc::new(Lowered::new(subroutine, SubroutineSourceMap::default()));
+    let Some(ast_id) = db.owner_source_ast_id(owner) else {
+        return empty();
     };
     let tree = db.parse(file_id);
-    let Some(func) = src.to_node(&tree) else {
-        return Arc::new(Lowered::new(subroutine, SubroutineSourceMap::default()));
+    let Some(ptr) = db.ast_id_map(file_id).ptr(ast_id) else {
+        return empty();
+    };
+    let Some(func) = ptr.to_node(&tree).and_then(ast::FunctionDeclaration::cast) else {
+        return empty();
     };
     if func.end().is_none() {
-        return Arc::new(Lowered::new(subroutine, SubroutineSourceMap::default()));
+        return empty();
     }
 
-    let mut subroutine_source_map = SubroutineSourceMap::default();
+    let mut body = SubroutineBody::default();
+    let mut source_map = SubroutineBodySourceMap::default();
     let mut ctx = LoweringCtx::new(
         file_id,
-        subroutine_id.into(),
-        SubroutineStore { data: &mut subroutine, sources: &mut subroutine_source_map },
+        ArenaOwnerId::Owner(owner),
+        SubroutineStore { data: &mut body, sources: &mut source_map },
     );
     lower_subroutine_body(&mut ctx, func);
     let diagnostics = ctx.emit_diagnostics();
     drop(ctx);
-    subroutine_source_map.diagnostics = diagnostics;
-    subroutine.shrink_to_fit();
-    subroutine_source_map.shrink_to_fit();
-    Arc::new(Lowered::new(subroutine, subroutine_source_map))
+    source_map.diagnostics = diagnostics;
+    body.shrink_to_fit();
+    source_map.shrink_to_fit();
+    Arc::new(Lowered::new(body, source_map))
 }
 
 pub(crate) fn set_subroutine_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
-    subroutine_with_source_map::set_lru_capacity(db, capacity);
+    subroutine_body_with_source_map::set_lru_capacity(db, capacity);
 }

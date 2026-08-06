@@ -468,10 +468,11 @@ fn collect_subroutine(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let lowered = db.subroutine_with_source_map(subroutine.clone());
-    let tree = db.parse(subroutine.clone().file_id(db));
+    let owner = subroutine.owner(db).expect("subroutine must map to an owner");
+    let lowered = db.subroutine_body_with_source_map(owner);
+    let tree = db.parse(owner.file(db));
 
-    collect_container_body!(sema, subroutine.clone().into(), &tree, collector, &lowered);
+    collect_container_body!(sema, ArenaOwnerId::Owner(owner), &tree, collector, &lowered);
 }
 
 /// Collects named parameter assignments inside `inst_param_assigns`, resolving

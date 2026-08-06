@@ -22,7 +22,7 @@ use crate::{
     owner::{self, OwnerId, OwnerSourceMap, OwnerTable},
     source_map::Lowered,
     source_projection::{self, SourceProjection},
-    subroutine::{self, Subroutine},
+    subroutine::{self, Subroutine, SubroutineBody},
     symbol::NameScope,
 };
 
@@ -105,11 +105,8 @@ impl dyn HirDefDb + '_ {
         block(self, block_id)
     }
 
-    pub fn subroutine_with_source_map(
-        &self,
-        subroutine_id: SubroutineScope,
-    ) -> Arc<Lowered<Subroutine>> {
-        subroutine::subroutine_with_source_map(self, subroutine_id, ())
+    pub fn subroutine_body_with_source_map(&self, owner: OwnerId) -> Arc<Lowered<SubroutineBody>> {
+        subroutine::subroutine_body_with_source_map(self, owner)
     }
 
     pub fn subroutine(&self, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
@@ -192,7 +189,17 @@ fn block(db: &dyn HirDefDb, block_id: BlockId) -> Arc<Block> {
 }
 
 fn subroutine(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
-    db.subroutine_with_source_map(subroutine_id).data()
+    match subroutine_id.cont_id {
+        crate::container::SubroutineParent::File(file_id) => {
+            Arc::new(db.hir_file(file_id).subroutines[subroutine_id.value].clone())
+        }
+        crate::container::SubroutineParent::Module(module_id) => {
+            Arc::new(db.module(module_id).subroutines[subroutine_id.value].clone())
+        }
+        crate::container::SubroutineParent::GenerateBlock(generate_block_id) => {
+            Arc::new(db.generate_block(generate_block_id).subroutines[subroutine_id.value].clone())
+        }
+    }
 }
 
 fn generate_block(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock> {

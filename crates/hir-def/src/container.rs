@@ -25,9 +25,10 @@ use crate::{
         clocking::ClockingBlockId,
         generate::{GenerateBlock, GenerateBlockId, GenerateBlockSourceMap},
     },
+    owner::OwnerId,
     region_tree::RegionTree,
     stmt::{Stmt, StmtId, StmtSrc},
-    subroutine::{LocalSubroutineId, Subroutine, SubroutineSourceMap},
+    subroutine::{LocalSubroutineId, Subroutine, SubroutineBody, SubroutineBodySourceMap},
     symbol::ScopeKind,
     typedef::{Typedef, TypedefId, TypedefSrc},
 };
@@ -40,6 +41,7 @@ define_enum_deriving_from! {
         GenerateBlock(GenerateBlockId),
         Block(BlockId),
         Subroutine(SubroutineScope),
+        Owner(OwnerId),
         ClockingBlock(InModule<ClockingBlockId>),
         Checker(InFileOrModule<CheckerId>),
         Covergroup(InFileOrModule<CovergroupId>),
@@ -54,6 +56,7 @@ define_enum_deriving_from! {
         GenerateBlock(GenerateBlockId),
         Block(BlockId),
         Subroutine(SubroutineScope),
+        Owner(OwnerId),
     }
 }
 
@@ -290,6 +293,7 @@ impl From<ArenaOwnerId> for ScopeId {
             ArenaOwnerId::GenerateBlock(generate_block_id) => generate_block_id.into(),
             ArenaOwnerId::Block(block_id) => block_id.into(),
             ArenaOwnerId::Subroutine(subroutine) => subroutine.into(),
+            ArenaOwnerId::Owner(owner) => ScopeId::Owner(owner),
         }
     }
 }
@@ -308,7 +312,7 @@ impl ScopeId {
             }
             ScopeId::GenerateBlock(_) => ScopeKind::GenerateBlock,
             ScopeId::Block(_) => ScopeKind::Block,
-            ScopeId::Subroutine(_) => ScopeKind::Subroutine,
+            ScopeId::Subroutine(_) | ScopeId::Owner(_) => ScopeKind::Subroutine,
             ScopeId::ClockingBlock(_) => ScopeKind::ClockingBlock,
             ScopeId::Checker(_) => ScopeKind::Checker,
             ScopeId::Covergroup(_) => ScopeKind::Covergroup,
@@ -324,6 +328,12 @@ impl ScopeId {
             }
             ScopeId::Block(block_id) => db.block(block_id).name.clone(),
             ScopeId::Subroutine(subroutine) => db.subroutine(subroutine).name.clone(),
+            ScopeId::Owner(owner) => db
+                .owner_table(owner.file(db))
+                .owners()
+                .iter()
+                .find(|data| data.id == owner)
+                .map(|data| data.name.clone()),
             ScopeId::ClockingBlock(clocking_block) => {
                 db.module(clocking_block.module_id).get(clocking_block.value).name.clone()
             }
@@ -351,6 +361,7 @@ impl ScopeId {
             ScopeId::GenerateBlock(generate_block_id) => Some(generate_block_id.clone().into()),
             ScopeId::Block(block_id) => Some(block_id.clone().into()),
             ScopeId::Subroutine(subroutine) => Some(subroutine.clone().into()),
+            ScopeId::Owner(owner) => Some(ArenaOwnerId::Owner(*owner)),
             ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
         }
     }
@@ -362,6 +373,7 @@ impl ScopeId {
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.file_id(db),
             ScopeId::Block(block_id) => block_id.file_id(db),
             ScopeId::Subroutine(subroutine) => subroutine.clone().file_id(db),
+            ScopeId::Owner(owner) => owner.file(db),
             ScopeId::ClockingBlock(clocking_block) => clocking_block.module_id.file_id,
             ScopeId::Checker(checker) => checker.cont_id.file_id(),
             ScopeId::Covergroup(covergroup) => covergroup.cont_id.file_id(),
@@ -396,6 +408,9 @@ impl ArenaOwnerId {
             ArenaOwnerId::Subroutine(subroutine) => {
                 Container::Subroutine(db.subroutine(subroutine.clone()))
             }
+            ArenaOwnerId::Owner(owner) => {
+                Container::SubroutineBody(db.subroutine_body_with_source_map(*owner).data())
+            }
         }
     }
 
@@ -413,8 +428,14 @@ impl ArenaOwnerId {
             ArenaOwnerId::Block(block_id) => {
                 ContainerSrcMap::Block(block_id.to_container_src_map(db))
             }
-            ArenaOwnerId::Subroutine(subroutine) => ContainerSrcMap::Subroutine(
-                db.subroutine_with_source_map(subroutine.clone()).source_map_arc(),
+            ArenaOwnerId::Subroutine(subroutine) => ContainerSrcMap::SubroutineBody(
+                db.subroutine_body_with_source_map(
+                    subroutine.clone().owner(db).expect("subroutine must map to an owner"),
+                )
+                .source_map_arc(),
+            ),
+            ArenaOwnerId::Owner(owner) => ContainerSrcMap::SubroutineBody(
+                db.subroutine_body_with_source_map(*owner).source_map_arc(),
             ),
         }
     }
@@ -471,6 +492,7 @@ pub enum Container {
     GenerateBlock(Arc<GenerateBlock>),
     Block(Arc<Block>),
     Subroutine(Arc<Subroutine>),
+    SubroutineBody(Arc<SubroutineBody>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -479,7 +501,8 @@ pub enum ContainerSrcMap {
     Module(Arc<ModuleSourceMap>),
     GenerateBlock(Arc<GenerateBlockSourceMap>),
     Block(Arc<BlockSourceMap>),
-    Subroutine(Arc<SubroutineSourceMap>),
+    Subroutine(Arc<SubroutineBodySourceMap>),
+    SubroutineBody(Arc<SubroutineBodySourceMap>),
 }
 
 impl Container {
@@ -489,7 +512,8 @@ impl Container {
             Container::Module(module) => module.name.as_ref(),
             Container::GenerateBlock(generate_block) => generate_block.name.as_ref(),
             Container::Block(block) => block.name.as_ref(),
-            Container::Subroutine(subroutine) => subroutine.name.as_ref(),
+            Container::Subroutine(container) => container.name.as_ref(),
+            Container::SubroutineBody(_) => None,
         }
     }
 
@@ -499,7 +523,8 @@ impl Container {
             Container::Module(container) => &container.declarations[id],
             Container::GenerateBlock(container) => &container.declarations[id],
             Container::Block(container) => &container.declarations[id],
-            Container::Subroutine(container) => &container.declarations[id],
+            Container::Subroutine(_) => unreachable!("subroutine skeleton has no body arenas"),
+            Container::SubroutineBody(container) => &container.declarations[id],
         }
     }
 
@@ -509,7 +534,8 @@ impl Container {
             Container::Module(container) => &container.typedefs[id],
             Container::GenerateBlock(container) => &container.typedefs[id],
             Container::Block(container) => &container.typedefs[id],
-            Container::Subroutine(container) => &container.typedefs[id],
+            Container::Subroutine(_) => unreachable!("subroutine skeleton has no body arenas"),
+            Container::SubroutineBody(container) => &container.typedefs[id],
         }
     }
 
@@ -519,7 +545,8 @@ impl Container {
             Container::Module(container) => &container.structs[id],
             Container::GenerateBlock(container) => &container.structs[id],
             Container::Block(container) => &container.structs[id],
-            Container::Subroutine(container) => &container.structs[id],
+            Container::Subroutine(_) => unreachable!("subroutine skeleton has no body arenas"),
+            Container::SubroutineBody(container) => &container.structs[id],
         }
     }
 
@@ -529,7 +556,8 @@ impl Container {
             Container::Module(container) => &container.exprs[id],
             Container::GenerateBlock(container) => &container.exprs[id],
             Container::Block(container) => &container.exprs[id],
-            Container::Subroutine(container) => &container.exprs[id],
+            Container::Subroutine(_) => unreachable!("subroutine skeleton has no body arenas"),
+            Container::SubroutineBody(container) => &container.exprs[id],
         }
     }
 
@@ -539,7 +567,8 @@ impl Container {
             Container::Module(container) => &container.event_exprs[id],
             Container::GenerateBlock(container) => &container.event_exprs[id],
             Container::Block(container) => &container.event_exprs[id],
-            Container::Subroutine(container) => &container.event_exprs[id],
+            Container::Subroutine(_) => unreachable!("subroutine skeleton has no body arenas"),
+            Container::SubroutineBody(container) => &container.event_exprs[id],
         }
     }
 
@@ -549,7 +578,8 @@ impl Container {
             Container::Module(container) => &container.decls[id],
             Container::GenerateBlock(container) => &container.decls[id],
             Container::Block(container) => &container.decls[id],
-            Container::Subroutine(container) => &container.decls[id],
+            Container::Subroutine(_) => unreachable!("subroutine skeleton has no body arenas"),
+            Container::SubroutineBody(container) => &container.decls[id],
         }
     }
 
@@ -559,7 +589,8 @@ impl Container {
             Container::Module(container) => &container.stmts[id],
             Container::GenerateBlock(container) => &container.stmts[id],
             Container::Block(container) => &container.stmts[id],
-            Container::Subroutine(container) => &container.stmts[id],
+            Container::Subroutine(_) => unreachable!("subroutine skeleton has no body arenas"),
+            Container::SubroutineBody(container) => &container.stmts[id],
         }
     }
 
@@ -569,7 +600,8 @@ impl Container {
             Container::Module(container) => utils::get::GetRef::get(&container.stmts, id),
             Container::GenerateBlock(container) => utils::get::GetRef::get(&container.stmts, id),
             Container::Block(container) => utils::get::GetRef::get(&container.stmts, id),
-            Container::Subroutine(container) => utils::get::GetRef::get(&container.stmts, id),
+            Container::Subroutine(_) => unreachable!("subroutine skeleton has no body arenas"),
+            Container::SubroutineBody(container) => utils::get::GetRef::get(&container.stmts, id),
         }
     }
 }
@@ -582,6 +614,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => &container.region_tree,
             ContainerSrcMap::Block(container) => &container.region_tree,
             ContainerSrcMap::Subroutine(container) => &container.region_tree,
+            ContainerSrcMap::SubroutineBody(container) => &container.region_tree,
         }
     }
 
@@ -592,6 +625,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.declaration_srcs.get(src),
             ContainerSrcMap::Block(container) => container.declaration_srcs.get(src),
             ContainerSrcMap::Subroutine(container) => container.declaration_srcs.get(src),
+            ContainerSrcMap::SubroutineBody(container) => container.declaration_srcs.get(src),
         }
     }
 
@@ -602,6 +636,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.declaration_srcs.get(id),
             ContainerSrcMap::Block(container) => container.declaration_srcs.get(id),
             ContainerSrcMap::Subroutine(container) => container.declaration_srcs.get(id),
+            ContainerSrcMap::SubroutineBody(container) => container.declaration_srcs.get(id),
         }
     }
 
@@ -612,6 +647,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.typedef_srcs.get(src),
             ContainerSrcMap::Block(container) => container.typedef_srcs.get(src),
             ContainerSrcMap::Subroutine(container) => container.typedef_srcs.get(src),
+            ContainerSrcMap::SubroutineBody(container) => container.typedef_srcs.get(src),
         }
     }
 
@@ -622,6 +658,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.typedef_srcs.get(id),
             ContainerSrcMap::Block(container) => container.typedef_srcs.get(id),
             ContainerSrcMap::Subroutine(container) => container.typedef_srcs.get(id),
+            ContainerSrcMap::SubroutineBody(container) => container.typedef_srcs.get(id),
         }
     }
 
@@ -632,6 +669,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.struct_srcs.get(src),
             ContainerSrcMap::Block(container) => container.struct_srcs.get(src),
             ContainerSrcMap::Subroutine(container) => container.struct_srcs.get(src),
+            ContainerSrcMap::SubroutineBody(container) => container.struct_srcs.get(src),
         }
     }
 
@@ -642,6 +680,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.struct_srcs.get(id),
             ContainerSrcMap::Block(container) => container.struct_srcs.get(id),
             ContainerSrcMap::Subroutine(container) => container.struct_srcs.get(id),
+            ContainerSrcMap::SubroutineBody(container) => container.struct_srcs.get(id),
         }
     }
 
@@ -652,6 +691,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.expr_srcs.get(src),
             ContainerSrcMap::Block(container) => container.expr_srcs.get(src),
             ContainerSrcMap::Subroutine(container) => container.expr_srcs.get(src),
+            ContainerSrcMap::SubroutineBody(container) => container.expr_srcs.get(src),
         }
     }
 
@@ -662,6 +702,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.expr_srcs.get(id),
             ContainerSrcMap::Block(container) => container.expr_srcs.get(id),
             ContainerSrcMap::Subroutine(container) => container.expr_srcs.get(id),
+            ContainerSrcMap::SubroutineBody(container) => container.expr_srcs.get(id),
         }
     }
 
@@ -672,6 +713,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.event_expr_srcs.get(src),
             ContainerSrcMap::Block(container) => container.event_expr_srcs.get(src),
             ContainerSrcMap::Subroutine(container) => container.event_expr_srcs.get(src),
+            ContainerSrcMap::SubroutineBody(container) => container.event_expr_srcs.get(src),
         }
     }
 
@@ -682,6 +724,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.event_expr_srcs.get(id),
             ContainerSrcMap::Block(container) => container.event_expr_srcs.get(id),
             ContainerSrcMap::Subroutine(container) => container.event_expr_srcs.get(id),
+            ContainerSrcMap::SubroutineBody(container) => container.event_expr_srcs.get(id),
         }
     }
 
@@ -692,6 +735,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.decl_srcs.get(src),
             ContainerSrcMap::Block(container) => container.decl_srcs.get(src),
             ContainerSrcMap::Subroutine(container) => container.decl_srcs.get(src),
+            ContainerSrcMap::SubroutineBody(container) => container.decl_srcs.get(src),
         }
     }
 
@@ -702,6 +746,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.decl_srcs.get(id),
             ContainerSrcMap::Block(container) => container.decl_srcs.get(id),
             ContainerSrcMap::Subroutine(container) => container.decl_srcs.get(id),
+            ContainerSrcMap::SubroutineBody(container) => container.decl_srcs.get(id),
         }
     }
 
@@ -712,6 +757,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.stmt_srcs.get(src),
             ContainerSrcMap::Block(container) => container.stmt_srcs.get(src),
             ContainerSrcMap::Subroutine(container) => container.stmt_srcs.get(src),
+            ContainerSrcMap::SubroutineBody(container) => container.stmt_srcs.get(src),
         }
     }
 
@@ -722,6 +768,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.stmt_srcs.get(id),
             ContainerSrcMap::Block(container) => container.stmt_srcs.get(id),
             ContainerSrcMap::Subroutine(container) => container.stmt_srcs.get(id),
+            ContainerSrcMap::SubroutineBody(container) => container.stmt_srcs.get(id),
         }
     }
 
@@ -732,6 +779,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.stmt_srcs.get(src),
             ContainerSrcMap::Block(container) => container.stmt_srcs.get(src),
             ContainerSrcMap::Subroutine(container) => container.stmt_srcs.get(src),
+            ContainerSrcMap::SubroutineBody(container) => container.stmt_srcs.get(src),
         }
     }
 
@@ -742,6 +790,7 @@ impl ContainerSrcMap {
             ContainerSrcMap::GenerateBlock(container) => container.stmt_srcs.get(id),
             ContainerSrcMap::Block(container) => container.stmt_srcs.get(id),
             ContainerSrcMap::Subroutine(container) => container.stmt_srcs.get(id),
+            ContainerSrcMap::SubroutineBody(container) => container.stmt_srcs.get(id),
         }
     }
 }
@@ -797,6 +846,7 @@ impl Iterator for ScopeParent {
             }
             ScopeId::Block(block_id) => Some(block_id.loc().cont_id.clone().into()),
             ScopeId::Subroutine(subroutine) => Some(subroutine.parent_scope()),
+            ScopeId::Owner(_) => None,
             ScopeId::ClockingBlock(clocking_block) => Some(clocking_block.module_id.into()),
             ScopeId::Checker(checker) => Some(checker.parent_scope()),
             ScopeId::Covergroup(covergroup) => Some(covergroup.parent_scope()),

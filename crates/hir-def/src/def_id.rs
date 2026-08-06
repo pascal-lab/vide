@@ -100,6 +100,7 @@ fn file_or_module_storage(scope_id: ScopeId) -> Option<FileOrModule> {
         ScopeId::GenerateBlock(_)
         | ScopeId::Block(_)
         | ScopeId::Subroutine(_)
+        | ScopeId::Owner(_)
         | ScopeId::ClockingBlock(_)
         | ScopeId::Checker(_) => None,
     }

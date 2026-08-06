@@ -366,7 +366,8 @@ fn collect_subroutines(
 ) {
     for (value, src) in srcs.iter() {
         let scope = SubroutineScope { cont_id: parent.clone(), value };
-        let subroutine = db.subroutine_with_source_map(scope);
+        let owner = scope.owner(db).expect("subroutine must map to an owner");
+        let subroutine = db.subroutine_body_with_source_map(owner);
         let src_map = subroutine.source_map();
 
         folds.collect_docs(&src_map.region_tree, line_index);

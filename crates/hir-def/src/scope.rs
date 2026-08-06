@@ -522,6 +522,8 @@ pub(crate) fn build_subroutine_scope(
 ) -> NameScope {
     let mut scope = NameScope::default();
     let subroutine = db.subroutine(subroutine_id.clone());
+    let owner = subroutine_id.clone().owner(db).expect("subroutine must map to an owner");
+    let body = db.subroutine_body_with_source_map(owner);
 
     for (port_idx, port) in subroutine.ports.iter().enumerate() {
         let port_id = SubroutinePortId(port_idx as u32);
@@ -534,12 +536,31 @@ pub(crate) fn build_subroutine_scope(
     insert_decls_and_typedefs(
         &mut scope,
         db,
-        subroutine_id.clone().into(),
-        &subroutine.decls,
-        &subroutine.typedefs,
+        ArenaOwnerId::Owner(owner),
+        &body.decls,
+        &body.typedefs,
     );
-    insert_stmts(&mut scope, db, subroutine_id.into(), &subroutine.stmts);
+    insert_stmts(&mut scope, db, ArenaOwnerId::Owner(owner), &body.stmts);
 
+    scope
+}
+
+pub(crate) fn build_owner_scope(db: &dyn HirDefDb, owner: crate::owner::OwnerId) -> NameScope {
+    assert_eq!(
+        owner.kind(db),
+        crate::owner::OwnerKind::Subroutine,
+        "owner scope only supports subroutines"
+    );
+    let body = db.subroutine_body_with_source_map(owner);
+    let mut scope = NameScope::default();
+    insert_decls_and_typedefs(
+        &mut scope,
+        db,
+        ArenaOwnerId::Owner(owner),
+        &body.decls,
+        &body.typedefs,
+    );
+    insert_stmts(&mut scope, db, ArenaOwnerId::Owner(owner), &body.stmts);
     scope
 }
 

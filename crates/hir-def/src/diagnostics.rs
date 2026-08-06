@@ -142,7 +142,8 @@ fn collect_subroutine(
     tree: &SyntaxTree,
     diagnostics: &mut Vec<LoweringDiagnostic>,
 ) {
-    let lowered = db.subroutine_with_source_map(scope.clone());
+    let owner = scope.clone().owner(db).expect("subroutine must map to an owner");
+    let lowered = db.subroutine_body_with_source_map(owner);
     let owner_range = scope.source(db).map(|source| source.value.full_range());
     collect(lowered.source_map().diagnostics(), owner_range, tree, diagnostics);
     collect_blocks_from_stmts(db, &lowered.stmts, tree, diagnostics);
@@ -300,7 +301,7 @@ mod tests {
         let mut file_set = FileSet::default();
         file_set.insert(TOP, VfsPath::from(top_path.clone()));
         let mut source_files = vec![TOP];
-        if let Some(header_text) = header_text {
+        if header_text.is_some() {
             let header_path = root_path.join("defs.vh");
             file_set.insert(HEADER, VfsPath::from(header_path));
             source_files.push(HEADER);

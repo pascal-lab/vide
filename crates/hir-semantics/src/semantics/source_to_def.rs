@@ -74,7 +74,13 @@ fn block_to_def_inner(
             generate_block.get(local_block_id).block_id.clone()
         }
         ArenaOwnerId::Subroutine(subroutine_id) => {
-            let subroutine = db.subroutine_with_source_map(subroutine_id);
+            let owner = subroutine_id.owner(db)?;
+            let subroutine = db.subroutine_body_with_source_map(owner);
+            let local_block_id = *subroutine.source_map().block_srcs.get(&block_src)?;
+            subroutine.get(local_block_id).block_id.clone()
+        }
+        ArenaOwnerId::Owner(owner) => {
+            let subroutine = db.subroutine_body_with_source_map(owner);
             let local_block_id = *subroutine.source_map().block_srcs.get(&block_src)?;
             subroutine.get(local_block_id).block_id.clone()
         }
@@ -147,7 +153,9 @@ fn subroutine_to_def_inner(
         ArenaOwnerId::GenerateBlock(generate_block_id) => {
             SubroutineParent::GenerateBlock(generate_block_id)
         }
-        ArenaOwnerId::Block(_) | ArenaOwnerId::Subroutine(_) => return None,
+        ArenaOwnerId::Block(_) | ArenaOwnerId::Subroutine(_) | ArenaOwnerId::Owner(_) => {
+            return None;
+        }
     };
     let local_id = local_subroutine_id(db, parent.clone(), src)?;
     Some(SubroutineScope::new(parent, local_id))

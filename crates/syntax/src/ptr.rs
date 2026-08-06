@@ -36,7 +36,20 @@ impl SyntaxNodePtr {
     #[inline]
     pub fn to_node<'a>(&self, tree: &'a SyntaxTree) -> Option<SyntaxNode<'a>> {
         let root_node = tree.root()?;
-        root_node.elem_at_exact_range(self.range)?.as_node()
+        let mut node = root_node.elem_at_exact_range(self.range)?.as_node()?;
+        // SyntaxList wrappers may share a range with their semantic child.
+        // Descend only through same-range wrappers; never scan the whole tree.
+
+        loop {
+            if node.kind() == self.kind {
+                return Some(node);
+            }
+
+            node = node
+                .children()
+                .filter_map(|elem| elem.as_node())
+                .find(|child| child.text_range() == Some(self.range))?;
+        }
     }
 
     #[inline]

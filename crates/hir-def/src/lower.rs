@@ -25,7 +25,7 @@ use super::{
     },
     proc::{Proc, ProcSrc},
     stmt::{Stmt, StmtSrc},
-    subroutine::{Subroutine, SubroutineSourceMap},
+    subroutine::{SubroutineBody, SubroutineBodySourceMap},
     ty::NetKind,
 };
 use crate::{
@@ -60,8 +60,8 @@ pub(crate) struct BlockStore<'a> {
 
 /// Mutable data/source pair for a subroutine-body lowering pass.
 pub(crate) struct SubroutineStore<'a> {
-    pub(crate) data: &'a mut Subroutine,
-    pub(crate) sources: &'a mut SubroutineSourceMap,
+    pub(crate) data: &'a mut SubroutineBody,
+    pub(crate) sources: &'a mut SubroutineBodySourceMap,
 }
 
 /// Store interface shared by expression, declarator, statement, and declaration
