@@ -215,14 +215,14 @@ fn non_ansi_port_replacement(
 
     let port_decl = origins
         .iter()
-        .filter_map(|origin| origin.as_decl())
+        .filter_map(|origin| origin.as_decl(ctx.sema().db))
         .find(|decl_id| {
             matches!(module.get(decl_id.value).parent, DeclaratorParent::PortDeclId(_))
         })?
         .value;
     let data_decl = origins
         .iter()
-        .filter_map(|origin| origin.as_decl())
+        .filter_map(|origin| origin.as_decl(ctx.sema().db))
         .find(|decl_id| {
             matches!(module.get(decl_id.value).parent, DeclaratorParent::DeclarationId(_))
         })

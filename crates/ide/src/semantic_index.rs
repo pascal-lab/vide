@@ -1,5 +1,11 @@
 use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
-use hir_def::{Ident, container::InFile, def_id::DefId, module::ModuleId, symbol::DefOrigin};
+use hir_def::{
+    Ident,
+    container::InFile,
+    def_id::DefId,
+    module::ModuleId,
+    symbol::{DefOrigin, DefOriginLoc},
+};
 use hir_ty::db::TyDb;
 use preproc_expand::db::PreprocDb;
 use rustc_hash::FxHashMap;
@@ -230,7 +236,7 @@ impl ModuleIndex {
 
 impl SemanticModuleDefinition {
     fn new(db: &dyn TyDb, module_id: ModuleId) -> Option<Self> {
-        let origin = DefOrigin::new(module_id);
+        let origin = DefOrigin::new(db, DefOriginLoc::Module(module_id));
         let name = origin.name(db)?;
         let InFile { file_id, value: name_range } = origin.name_range(db)?;
         let InFile { value: full_range, .. } = origin.range(db)?;

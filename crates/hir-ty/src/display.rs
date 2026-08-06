@@ -168,7 +168,7 @@ fn hir_fmt_def_backed_type(
     def: DefId,
 ) -> Result<(), HirDisplayError> {
     f.write_str(keyword)?;
-    if let DefOriginLoc::Typedef(typedef) = def.primary_origin(f.db).loc() {
+    if let DefOriginLoc::Typedef(typedef) = def.primary_origin(f.db).loc(f.db) {
         let container = typedef.cont_id.data(f.db);
         if let Some(name) = &container.typedef(typedef.value).name {
             f.write_str(" ")?;
@@ -199,10 +199,10 @@ fn ty_expr_container(
         Ty::Builtin(BuiltinTy::Data { container, .. }) => Some(container.clone()),
         Ty::Struct(struct_ref) => Some(struct_ref.cont_id.clone()),
         Ty::Alias { typedef, .. } => Some(typedef.cont_id.clone()),
-        Ty::Enum(def) | Ty::Union(def) => match def.primary_origin(db).loc() {
-            DefOriginLoc::Decl(decl) => Some(decl.cont_id),
-            DefOriginLoc::Typedef(typedef) => Some(typedef.cont_id),
-            DefOriginLoc::SubroutinePort(port) => Some(port.subroutine.into()),
+        Ty::Enum(def) | Ty::Union(def) => match def.primary_origin(db).loc(db) {
+            DefOriginLoc::Decl(decl) => Some(decl.cont_id.clone()),
+            DefOriginLoc::Typedef(typedef) => Some(typedef.cont_id.clone()),
+            DefOriginLoc::SubroutinePort(port) => Some(port.subroutine.clone().into()),
             _ => None,
         },
         Ty::Queue { elem, .. } | Ty::Assoc { elem, .. } | Ty::Dynamic(elem) => {
