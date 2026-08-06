@@ -1,6 +1,6 @@
+use std::fmt;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use triomphe::Arc;
 use utils::impl_from;
 
 use crate::{
@@ -29,8 +29,72 @@ use crate::{
     typedef::TypedefId,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DefOrigin(Arc<DefOriginLoc>);
+/// Interns `DefOriginLoc` values to compact integers so `DefOrigin` and
+/// `DefId` are `Copy` and hash/compare integers instead of deep structures.
+///
+/// The pool is process-global and append-only: ids stay valid for the whole
+/// process and are stable across database revisions, which is what `NameScope`
+/// (a salsa memo value) needs. The pool owns its values for the process
+/// lifetime; arena data is never copied.
+pub mod origin_pool {
+    use std::sync::LazyLock;
+
+    use parking_lot::Mutex;
+    use rustc_hash::FxHashMap;
+
+    use super::DefOriginLoc;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    pub struct OriginId(pub u32);
+
+    struct Pool {
+        by_loc: FxHashMap<DefOriginLoc, OriginId>,
+        locs: Vec<DefOriginLoc>,
+    }
+
+    static POOL: LazyLock<Mutex<Pool>> = LazyLock::new(|| Mutex::new(Pool {
+        by_loc: FxHashMap::default(),
+        locs: Vec::new(),
+    }));
+
+    pub fn intern(loc: DefOriginLoc) -> OriginId {
+        let mut pool = POOL.lock();
+        if let Some(&id) = pool.by_loc.get(&loc) {
+            return id;
+        }
+        let id = OriginId(pool.locs.len() as u32);
+        pool.by_loc.insert(loc.clone(), id);
+        pool.locs.push(loc);
+        id
+    }
+
+    pub fn lookup(id: OriginId) -> DefOriginLoc {
+        POOL.lock().locs[id.0 as usize].clone()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DefOrigin(origin_pool::OriginId);
+
+impl DefOrigin {
+    pub fn new(loc: impl Into<DefOriginLoc>) -> Self {
+        Self(origin_pool::intern(loc.into()))
+    }
+
+    pub fn loc(&self) -> DefOriginLoc {
+        origin_pool::lookup(self.0)
+    }
+
+    pub(crate) fn from_id(id: origin_pool::OriginId) -> Self {
+        Self(id)
+    }
+}
+
+impl fmt::Debug for DefOrigin {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.loc(), f)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
@@ -188,14 +252,6 @@ impl DefOrigin {
     impl_origin_cast!(as_covergroup, Covergroup, InFileOrModule<CovergroupId>);
 
     impl_origin_cast!(as_stmt, Stmt, InContainer<StmtId>);
-
-    pub fn new(loc: impl Into<DefOriginLoc>) -> Self {
-        Self(Arc::new(loc.into()))
-    }
-
-    pub fn loc(&self) -> DefOriginLoc {
-        self.0.as_ref().clone()
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
