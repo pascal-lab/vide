@@ -711,24 +711,10 @@ fn intern_generate_container(
 /// Mirrors `source_to_def::is_generate_branch_member`: a member is a
 /// single-member generate branch when it sits inside an if/case generate and
 /// no stronger container (module, block, generate region) separates it.
+/// The predicate itself lives in `hir-semantics`; only the container
+/// dispatch is mirrored here.
 fn is_generate_branch_member(member: SyntaxNode<'_>) -> bool {
-    for ancestor in SyntaxAncestors::start_from(member).skip(1) {
-        if ast::IfGenerate::can_cast(ancestor.kind())
-            || ast::CaseGenerate::can_cast(ancestor.kind())
-        {
-            return true;
-        }
-
-        if ast::GenerateBlock::can_cast(ancestor.kind())
-            || ast::GenerateRegion::can_cast(ancestor.kind())
-            || ast::ModuleDeclaration::can_cast(ancestor.kind())
-            || ast::BlockStatement::can_cast(ancestor.kind())
-        {
-            return false;
-        }
-    }
-
-    false
+    hir_semantics::semantics::is_generate_branch_member(member)
 }
 
 #[allow(clippy::too_many_arguments)]
