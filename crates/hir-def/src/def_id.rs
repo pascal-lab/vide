@@ -133,33 +133,7 @@ fn cross_of(db: &dyn HirDefDb, cross: InScope<CrossId>) -> Option<(CrossDef, Hir
 impl DefOrigin {
     #[inline]
     pub fn container_id(&self, _db: &dyn HirDefDb) -> ScopeId {
-        match self.loc() {
-            DefOriginLoc::Module(InFile { file_id, .. }) => file_id.into(),
-            DefOriginLoc::Config(InFile { file_id, .. }) => file_id.into(),
-            DefOriginLoc::Library(InFile { file_id, .. }) => file_id.into(),
-            DefOriginLoc::Udp(InFile { file_id, .. }) => file_id.into(),
-            DefOriginLoc::Block(block_id) => block_id.loc().cont_id.clone().into(),
-            DefOriginLoc::GenerateBlock(generate_block_id) => {
-                generate_block_id.loc().cont_id.clone().into()
-            }
-            DefOriginLoc::Subroutine(subroutine_id) => subroutine_id.cont_id.into(),
-            DefOriginLoc::SubroutinePort(InSubroutine { subroutine, .. }) => {
-                ScopeId::Subroutine(subroutine)
-            }
-            DefOriginLoc::NonAnsiPort(InModule { module_id, .. }) => module_id.into(),
-            DefOriginLoc::Decl(InContainer { cont_id, .. }) => cont_id.into(),
-            DefOriginLoc::Typedef(InContainer { cont_id, .. }) => cont_id.into(),
-            DefOriginLoc::Instance(InModule { module_id, .. }) => module_id.into(),
-            DefOriginLoc::Modport(InModule { module_id, .. }) => module_id.into(),
-            DefOriginLoc::ClockingBlock(InModule { module_id, .. }) => module_id.into(),
-            DefOriginLoc::ClockingSignal(InScope { scope_id, .. }) => scope_id,
-            DefOriginLoc::Checker(InFileOrModule { cont_id, .. }) => cont_id.into(),
-            DefOriginLoc::CheckerPort(InScope { scope_id, .. }) => scope_id,
-            DefOriginLoc::Covergroup(InFileOrModule { cont_id, .. }) => cont_id.into(),
-            DefOriginLoc::Coverpoint(InScope { scope_id, .. }) => scope_id,
-            DefOriginLoc::Cross(InScope { scope_id, .. }) => scope_id,
-            DefOriginLoc::Stmt(InContainer { cont_id, .. }) => cont_id.into(),
-        }
+        self.loc().container_id()
     }
 
     pub fn kind(&self, db: &dyn HirDefDb) -> DefKind {
@@ -173,14 +147,6 @@ impl DefOrigin {
                     ModuleKind::Package => DefKind::Package,
                 }
             }
-            DefOriginLoc::Config(_) => DefKind::Config,
-            DefOriginLoc::Library(_) => DefKind::Library,
-            DefOriginLoc::Udp(_) => DefKind::Udp,
-            DefOriginLoc::Block(_) => DefKind::Block,
-            DefOriginLoc::GenerateBlock(_) => DefKind::GenerateBlock,
-            DefOriginLoc::Subroutine(_) => DefKind::Subroutine,
-            DefOriginLoc::SubroutinePort(_) => DefKind::SubroutinePort,
-            DefOriginLoc::NonAnsiPort(_) => DefKind::NonAnsiPort,
             DefOriginLoc::Decl(InContainer { value, cont_id }) => {
                 let container = cont_id.data(db);
                 let decl = container.declarator(value);
@@ -198,17 +164,7 @@ impl DefOrigin {
                     }
                 }
             }
-            DefOriginLoc::Typedef(_) => DefKind::Typedef,
-            DefOriginLoc::Instance(_) => DefKind::Instance,
-            DefOriginLoc::Modport(_) => DefKind::Modport,
-            DefOriginLoc::ClockingBlock(_) => DefKind::ClockingBlock,
-            DefOriginLoc::ClockingSignal(_) => DefKind::ClockingSignal,
-            DefOriginLoc::Checker(_) => DefKind::Checker,
-            DefOriginLoc::CheckerPort(_) => DefKind::CheckerPort,
-            DefOriginLoc::Covergroup(_) => DefKind::Covergroup,
-            DefOriginLoc::Coverpoint(_) => DefKind::Coverpoint,
-            DefOriginLoc::Cross(_) => DefKind::Cross,
-            DefOriginLoc::Stmt(_) => DefKind::Stmt,
+            _ => self.loc().trivial_kind(),
         }
     }
 
