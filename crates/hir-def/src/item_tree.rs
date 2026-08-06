@@ -15,9 +15,9 @@ use triomphe::Arc;
 use utils::text_edit::TextRange;
 
 use crate::{
-    ast_id_map::{AstIdMap, SourceAstId},
+    ast_id_map::{self, AstIdMap, SourceAstId, SyntaxFileId},
     db::HirDefDb,
-    owner::{OwnerId, OwnerTable},
+    owner::{self, OwnerId, OwnerTable},
     source_projection::SourceOrigin,
 };
 
@@ -204,11 +204,12 @@ impl ItemTree {
     }
 }
 #[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn item_tree(db: &dyn HirDefDb, file_id: HirFileId, _key: ()) -> Arc<ItemTree> {
+pub(crate) fn item_tree(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<ItemTree> {
+    let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
-    let ast_ids = db.ast_id_map(file_id);
+    let ast_ids = ast_id_map::ast_id_map(db, file);
     let source_text = file_id.as_file().map(|file_id| db.file_text(file_id));
-    let owners = db.owner_table(file_id);
+    let owners = owner::owner_table(db, file);
     Arc::new(build_item_tree(file_id, &tree, &ast_ids, source_text.as_deref(), (*owners).clone()))
 }
 

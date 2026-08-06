@@ -35,6 +35,17 @@ use syntax::{SyntaxNode, SyntaxTree, has_text_range::HasTextRange, ptr::SyntaxNo
 use triomphe::Arc;
 
 use crate::db::HirDefDb;
+/// Database-interned identity of a parsed HIR file.
+///
+/// `HirFileId` is a plain value from the preprocessing layer. Interning it at
+/// this seam gives every file-derived query one real Salsa key instead of the
+/// tuple-interning `_key: ()` workaround.
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub struct SyntaxFileId {
+    #[returns(copy)]
+    pub hir_file: HirFileId,
+}
+
 
 /// A file-local index of a syntax node in depth-first preorder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -110,8 +121,8 @@ impl AstIdMap {
 }
 
 #[salsa::tracked(lru = 1024, returns(clone))]
-pub(crate) fn ast_id_map(db: &dyn HirDefDb, file_id: HirFileId, _key: ()) -> Arc<AstIdMap> {
-    Arc::new(AstIdMap::from_source(&db.parse(file_id)))
+pub(crate) fn ast_id_map(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<AstIdMap> {
+    Arc::new(AstIdMap::from_source(&db.parse(file.hir_file(db))))
 }
 
 pub(crate) fn set_ast_id_map_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {

@@ -6,6 +6,7 @@
 //! typed `*_scope` queries (`scope.rs`) delegate here; the query's salsa
 //! dependency on the container lowering makes invalidation per-scope instead
 //! of per-file.
+use base_db::salsa;
 
 use triomphe::Arc;
 
@@ -20,9 +21,15 @@ use crate::{
     symbol::NameScope,
 };
 
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub(crate) struct ScopeQueryKey {
+    #[returns(clone)]
+    scope: ScopeId,
+}
+
 #[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn scope_for(db: &dyn HirDefDb, scope_id: ScopeId, _key: ()) -> Arc<NameScope> {
-    Arc::new(build_scope(db, scope_id))
+pub(crate) fn scope_for(db: &dyn HirDefDb, key: ScopeQueryKey) -> Arc<NameScope> {
+    Arc::new(build_scope(db, key.scope(db)))
 }
 
 pub(crate) fn set_scope_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
