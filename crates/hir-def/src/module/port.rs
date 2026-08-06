@@ -601,7 +601,7 @@ impl LowerModuleCtx<'_> {
             if let (Some(source), Some(name)) = (source, src_name) {
                 let named_source = NonAnsiPortSrc::new(source.file_id, source.node, Some(name));
                 if named_source != source {
-                    port_srcs.insert(named_source, port_id);
+                    port_srcs.insert_preferred_alias(named_source, port_id);
                 }
             }
         }

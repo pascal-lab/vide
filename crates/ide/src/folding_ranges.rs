@@ -107,8 +107,7 @@ impl FoldCollector for Vec<Fold> {
     #[inline]
     fn collect_docs(&mut self, docs: &RegionTree, line_index: &LineIndex) {
         self.extend(
-            docs.nodes
-                .values()
+            docs.nodes()
                 .filter_map(|node| Fold::try_build(node.range, FoldKind::Region, line_index)),
         );
     }

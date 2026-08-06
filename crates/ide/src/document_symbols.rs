@@ -209,7 +209,7 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
     let mut regions = src_map.region_tree.walk().peekable();
 
     let mut collector = SymbolCollector::new(
-        src_map.items.len() + src_map.region_tree.roots.len() + file.decls.len(),
+        src_map.items.len() + src_map.region_tree.root_count() + file.decls.len(),
     );
 
     for &item in src_map.items.iter() {
