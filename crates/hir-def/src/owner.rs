@@ -655,6 +655,25 @@ endmodule
         assert_eq!(body.decls.len(), 1);
     }
     #[test]
+    fn subroutine_signature_is_owner_keyed() {
+        let before = "module m; function void f(); logic x; endfunction endmodule\n";
+        let after = "module m; function void f(); logic x; x = 1; endfunction endmodule\n";
+        let mut db = db_with_root_text(before);
+        let owner = db
+            .owner_table(HirFileId::File(TOP))
+            .owners_of_kind(crate::owner::OwnerKind::Subroutine)
+            .next()
+            .expect("subroutine owner must exist")
+            .id;
+
+        let before_signature = db.signature_for_owner(owner).expect("signature must exist");
+        assert_eq!(before_signature.kind(), crate::item_tree::SignatureKind::Function);
+
+        db.set_file_text_with_durability(TOP, Arc::from(after), Durability::LOW);
+
+        assert_eq!(Some(before_signature), db.signature_for_owner(owner));
+    }
+    #[test]
     fn item_tree_excludes_source_ranges_from_semantic_data() {
         let before_text = "module m; function void f(); logic x; endfunction endmodule\n";
         let after_text = "module m; function void f(); logic x; x = 1; endfunction endmodule\n";

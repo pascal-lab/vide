@@ -98,12 +98,7 @@ impl NameScope {
         Arc::new(scope)
     }
 
-    #[salsa::tracked(returns(clone))]
-    pub fn package_export_scope(
-        db: &dyn HirDefDb,
-        package_id: PackageId,
-        _key: (),
-    ) -> Arc<NameScope> {
+    pub fn package_export_scope(db: &dyn HirDefDb, package_id: PackageId) -> Arc<NameScope> {
         db.package_export_signature(package_id)
     }
 
