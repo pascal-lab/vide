@@ -4,7 +4,8 @@ use preproc_expand::file::HirFileId;
 use rustc_hash::FxHasher;
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    SyntaxElement, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, SyntaxTree, WalkEvent,
+    SyntaxElement, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, SyntaxTree, TokenKind,
+    WalkEvent,
     ast::{self, AstNode},
     has_name::HasName,
     has_text_range::HasTextRange,
@@ -16,12 +17,82 @@ use utils::text_edit::TextRange;
 use crate::{
     ast_id_map::{AstIdMap, SourceAstId},
     db::HirDefDb,
-    owner::OwnerTable,
+    owner::{OwnerId, OwnerTable},
     source_projection::SourceOrigin,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ItemTreeId(u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SignatureId(u32);
+
+impl SignatureId {
+    pub(crate) const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    pub(crate) const fn raw(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SignatureKind {
+    Task,
+    Function,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SignaturePortDirection {
+    Input,
+    Output,
+    Inout,
+    Ref,
+    ConstRef,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignaturePort {
+    direction: SignaturePortDirection,
+    name: Option<SmolStr>,
+    type_ast: Option<SourceAstId>,
+}
+
+impl SignaturePort {
+    pub fn direction(&self) -> SignaturePortDirection {
+        self.direction
+    }
+
+    pub fn name(&self) -> Option<&SmolStr> {
+        self.name.as_ref()
+    }
+
+    pub fn type_ast(&self) -> Option<SourceAstId> {
+        self.type_ast
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Signature {
+    kind: SignatureKind,
+    return_type_ast: Option<SourceAstId>,
+    ports: Vec<SignaturePort>,
+}
+
+impl Signature {
+    pub fn kind(&self) -> SignatureKind {
+        self.kind
+    }
+
+    pub fn return_type_ast(&self) -> Option<SourceAstId> {
+        self.return_type_ast
+    }
+
+    pub fn ports(&self) -> impl Iterator<Item = &SignaturePort> {
+        self.ports.iter()
+    }
+}
 
 impl ItemTreeId {
     pub(crate) const fn from_raw(raw: u32) -> Self {
@@ -42,6 +113,7 @@ pub struct ItemTreeItem {
     /// The item's node in the file's [`AstIdMap`]; `None` only for nodes
     /// without a root-buffer range (include buffers).
     ast_id: Option<SourceAstId>,
+    signature: Option<SignatureId>,
     header_fingerprint: u64,
 }
 
@@ -67,6 +139,10 @@ impl ItemTreeItem {
         self.ast_id
     }
 
+    pub fn signature(&self) -> Option<SignatureId> {
+        self.signature
+    }
+
     /// Fingerprint of the item kind, name, and header tokens.
     ///
     /// The body is intentionally not part of this value. This is the first
@@ -84,6 +160,7 @@ pub struct ItemTree {
     file_id: HirFileId,
     owners: OwnerTable,
     items: Vec<ItemTreeItem>,
+    signatures: Vec<Signature>,
 }
 
 impl ItemTree {
@@ -107,6 +184,17 @@ impl ItemTree {
         self.items.get(id.raw() as usize)
     }
 
+    pub fn signature(&self, id: SignatureId) -> Option<&Signature> {
+        self.signatures.get(id.raw())
+    }
+
+    pub fn signatures(&self) -> impl Iterator<Item = (SignatureId, &Signature)> {
+        self.signatures
+            .iter()
+            .enumerate()
+            .map(|(raw, signature)| (SignatureId::from_raw(raw as u32), signature))
+    }
+
     pub fn len(&self) -> usize {
         self.items.len()
     }
@@ -126,6 +214,20 @@ pub(crate) fn item_tree(db: &dyn HirDefDb, file_id: HirFileId, _key: ()) -> Arc<
 
 pub(crate) fn set_item_tree_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     item_tree::set_lru_capacity(db, capacity);
+    item_for_owner::set_lru_capacity(db, capacity);
+    signature_for_owner::set_lru_capacity(db, capacity);
+}
+#[salsa::tracked(lru = 256, returns(clone))]
+pub(crate) fn item_for_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<ItemTreeItem> {
+    let ast_id = db.owner_source_ast_id(owner)?;
+    db.item_tree(owner.file(db)).items().find(|item| item.ast_id == Some(ast_id)).cloned()
+}
+
+#[salsa::tracked(lru = 256, returns(clone))]
+pub(crate) fn signature_for_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Signature> {
+    let item = item_for_owner(db, owner)?;
+    let signature = item.signature?;
+    db.item_tree(owner.file(db)).signature(signature).cloned()
 }
 
 pub(crate) fn build_source_projection(
@@ -176,28 +278,98 @@ fn build_item_tree(
     owners: OwnerTable,
 ) -> ItemTree {
     let mut items = Vec::new();
+    let mut signatures = Vec::new();
     let mut parents = Vec::new();
+    if let Some(root) = tree.root() {
+        for event in root.elem_preorder() {
+            match event {
+                WalkEvent::Enter(SyntaxElement::Node(node))
+                    if ast::Member::can_cast(node.kind()) =>
+                {
+                    let id = ItemTreeId::from_raw(items.len() as u32);
+                    let (name, _) = item_name(node);
+                    let header_range = item_header_range(node);
+                    let header_fingerprint =
+                        fingerprint(node.kind(), name.as_ref(), header_range, source_text);
+                    let full_range = node.text_range();
+                    let ast_id = full_range.and_then(|_| ast_ids.id_of_node(node));
 
-    for node in member_nodes(tree) {
-        let id = ItemTreeId::from_raw(items.len() as u32);
-        let (name, _) = item_name(node);
-        let header_range = item_header_range(node);
-        let header_fingerprint = fingerprint(node.kind(), name.as_ref(), header_range, source_text);
-        let full_range = node.text_range();
-        let ast_id = full_range.and_then(|_| ast_ids.id_of_node(node));
+                    let signature = ast::FunctionDeclaration::cast(node).map(|function| {
+                        let id = SignatureId::from_raw(signatures.len() as u32);
+                        signatures.push(lower_signature(function, ast_ids));
+                        id
+                    });
 
-        items.push(ItemTreeItem {
-            id,
-            parent: parents.last().copied(),
-            kind: node.kind(),
-            name,
-            ast_id,
-            header_fingerprint,
-        });
-        parents.push(id);
+                    items.push(ItemTreeItem {
+                        id,
+                        parent: parents.last().copied(),
+                        kind: node.kind(),
+                        name,
+                        ast_id,
+                        signature,
+                        header_fingerprint,
+                    });
+                    parents.push(id);
+                }
+                WalkEvent::Leave(SyntaxElement::Node(node))
+                    if ast::Member::can_cast(node.kind()) =>
+                {
+                    let popped = parents.pop();
+                    debug_assert!(popped.is_some());
+                }
+                _ => {}
+            }
+        }
     }
 
-    ItemTree { file_id, owners, items }
+    ItemTree { file_id, owners, items, signatures }
+}
+fn lower_signature(function: ast::FunctionDeclaration<'_>, ast_ids: &AstIdMap) -> Signature {
+    let prototype = function.prototype();
+    let kind = if function.as_task_declaration().is_some() {
+        SignatureKind::Task
+    } else {
+        SignatureKind::Function
+    };
+    let return_type_ast = (kind == SignatureKind::Function)
+        .then(|| ast_ids.id_of_node(prototype.return_type().syntax()))
+        .flatten();
+    let mut ports = Vec::new();
+
+    if let Some(port_list) = prototype.port_list() {
+        for port_base in port_list.ports().children() {
+            if let Some(port) = port_base.as_function_port() {
+                let mut direction =
+                    signature_port_direction(port.direction().map(|token| token.kind()));
+                if direction == SignaturePortDirection::Ref && port.const_keyword().is_some() {
+                    direction = SignaturePortDirection::ConstRef;
+                }
+                ports.push(SignaturePort {
+                    direction,
+                    name: port.declarator().name().map(|token| token.value_text().to_smolstr()),
+                    type_ast: port.data_type().and_then(|ty| ast_ids.id_of_node(ty.syntax())),
+                });
+            } else if port_base.as_default_function_port().is_some() {
+                ports.push(SignaturePort {
+                    direction: SignaturePortDirection::Input,
+                    name: None,
+                    type_ast: None,
+                });
+            }
+        }
+    }
+
+    Signature { kind, return_type_ast, ports }
+}
+
+fn signature_port_direction(kind: Option<TokenKind>) -> SignaturePortDirection {
+    match kind {
+        Some(TokenKind::OUTPUT_KEYWORD) => SignaturePortDirection::Output,
+        Some(TokenKind::IN_OUT_KEYWORD) => SignaturePortDirection::Inout,
+        Some(TokenKind::REF_KEYWORD) => SignaturePortDirection::Ref,
+        Some(TokenKind::INPUT_KEYWORD) | None => SignaturePortDirection::Input,
+        Some(_) => SignaturePortDirection::Unknown,
+    }
 }
 
 fn item_name(node: SyntaxNode<'_>) -> (Option<SmolStr>, Option<TextRange>) {
@@ -296,7 +468,17 @@ mod tests {
             .items()
             .find(|item| item.name().is_some_and(|name| name == "f"))
             .expect("function should be indexed");
+        let module = before
+            .items()
+            .find(|item| item.kind() == syntax::SyntaxKind::MODULE_DECLARATION)
+            .expect("module should be indexed");
+        assert_eq!(before_function.parent(), Some(module.id()));
         assert_eq!(before, after);
+        let signature = before
+            .signature(before_function.signature().expect("function signature"))
+            .expect("function signature must exist");
+        assert_eq!(signature.kind(), SignatureKind::Function);
+        assert!(signature.return_type_ast().is_some());
 
         assert_eq!(before_function.header_fingerprint(), after_function.header_fingerprint());
         assert_eq!(before_function.parent(), after_function.parent());

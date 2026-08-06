@@ -192,7 +192,11 @@ impl DefOriginLoc {
             DefOriginLoc::GenerateBlock(generate_block_id) => {
                 db.generate_block(generate_block_id).name.clone()
             }
-            DefOriginLoc::Subroutine(subroutine_id) => db.subroutine(subroutine_id).name.clone(),
+            DefOriginLoc::Subroutine(subroutine_id) => subroutine_id
+                .clone()
+                .owner(db)
+                .and_then(|owner| db.item_for_owner(owner))
+                .and_then(|item| item.name().cloned()),
             DefOriginLoc::SubroutinePort(InSubroutine { subroutine, value }) => {
                 db.subroutine(subroutine).ports.get(value.0 as usize)?.name.clone()
             }

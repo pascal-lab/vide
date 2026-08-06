@@ -12,7 +12,7 @@ use crate::{
     covergroup::CovergroupId,
     diagnostics,
     file::{self, HirFile},
-    item_tree::{self, ItemTree},
+    item_tree::{self, ItemTree, ItemTreeItem, Signature},
     module::{
         self, Module, ModuleId, PackageId,
         clocking::ClockingBlockId,
@@ -64,6 +64,14 @@ impl dyn HirDefDb + '_ {
 
     pub fn item_tree(&self, file_id: HirFileId) -> Arc<ItemTree> {
         item_tree::item_tree(self, file_id, ())
+    }
+
+    pub fn item_for_owner(&self, owner: OwnerId) -> Option<ItemTreeItem> {
+        item_tree::item_for_owner(self, owner)
+    }
+
+    pub fn signature_for_owner(&self, owner: OwnerId) -> Option<Signature> {
+        item_tree::signature_for_owner(self, owner)
     }
 
     pub fn source_projection(&self, file_id: HirFileId) -> Arc<SourceProjection> {
@@ -172,7 +180,7 @@ impl dyn HirDefDb + '_ {
     }
 
     pub fn package_export_scope(&self, package_id: PackageId) -> Arc<NameScope> {
-        NameScope::package_export_scope(self, package_id, ())
+        NameScope::package_export_scope(self, package_id)
     }
 }
 
