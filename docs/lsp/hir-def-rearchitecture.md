@@ -735,13 +735,14 @@ pub struct DefData {           // DefId → 元数据，owner-level query
 
 #### 10.4.3 OwnerId：统一容器身份，删除 wrapper soup
 
-**已实现**（`hir-def/src/owner.rs`）：`OwnerId` 是 **salsa interned** 结构体（`unsafe(no_lifetime)` + `revisions = usize::MAX`，`DefOrigin` 同款手法），字段 `(file, kind, parent, name, ast_id)`，Copy + 'static。`owner_table(file_id)` tracked query 从语法树 DFS 枚举全部 owner（File/Module/GenerateBlock/Block/Subroutine），带 parent 链与 ast_id；`owner_table` 与 body 无关——body 编辑不改变 owner 集合（测试 `owner_table_is_stable_across_body_edits` 钉死），这是后续拆查询粒度的增量基础。旧 id → `OwnerId` 的正向映射已实现：`ModuleId::owner` / `BlockId::owner` / `GenerateBlockId::owner` / `SubroutineScope::owner`（经 `ast_id` 联接，无 lockstep 顺序依赖）。
+**已实现**（`hir-def/src/owner.rs`）：`OwnerId` 是 **salsa interned** 结构体（`unsafe(no_lifetime)` + `revisions = usize::MAX`，与 `DefOrigin` 同款手法），字段为 `(file, kind, parent, slot)`，是 Copy + `'static` 的单一 Salsa query key。`owner_table(file_id)` tracked query 从语法树 DFS 枚举全部结构 owner（File/Module/GenerateBlock/Block/Subroutine），只保存结构 identity；`OwnerSourceMap` 单独把当前语法树映射到 `SourceAstId`。body 编辑不改变 owner 集合（测试 `owner_table_is_stable_across_body_edits` 钉死），这是后续拆查询粒度的增量基础。旧 id → `OwnerId` 的正向映射已实现：`ModuleId::owner` / `BlockId::owner` / `GenerateBlockId::owner` / `SubroutineScope::owner`（经 source map 联接，无 lockstep 顺序依赖）。
 
 实现偏差（相对原稿）：
 - **tracked → interned**：salsa 0.28.2 的 tracked struct 不支持 `no_lifetime`（`salsa-macros-0.28.2/src/tracked_struct.rs:40` `NO_LIFETIME = false`），handle 带 `'db`，无法存进 `Arc<Lowered<T>>` 跨 revision；interned + `unsafe(no_lifetime)` 是 crates.io salsa 下唯一能给出 `'static` Copy handle 的路径（与 `DefOrigin`/`DefId` 一致），同样满足「单 key 是 Salsa struct」的 salsa 规则。
 - **`name_or_empty: IdentId` → `name: SmolStr`**：ident_pool 迁移（R9）在 Phase 2，Phase 1 直接用 `SmolStr`；
 - **enumeration 覆盖 5 个 lowering owner**：Checker/Covergroup/ClockingBlock 变体保留，等各自 per-owner query 落地再枚举；
-- 后续步骤：`*_with_source_map` 查询 key 改为 `OwnerId` 单参数（`_key: ()` 消失，R7），`BlockId`/`GenerateBlockId` 的 `Arc<BlockLoc>` 改为 `OwnerId`（R10），删除 wrapper soup（R10/R12）。
+- 已新增 `owner_source_ast_id(owner)`：以单一 `OwnerId` 为 Salsa key，查询当前 source projection 的 owner AST 身份；这验证了后续 owner-local body query 的合法形状。
+- 后续步骤：`*_with_source_map` 查询整体迁移为 `OwnerId` 单参数（`_key: ()` 消失，R7），`BlockId`/`GenerateBlockId` 的 `Arc<BlockLoc>` 改为 `OwnerId`（R10），删除 wrapper soup（R10/R12）。
 
 #### 10.4.4 ItemTree：per-file 结构摘要
 
@@ -891,3 +892,46 @@ lexical chain（innermost → outermost，来自 OwnerId.parent，非 ScopeParen
 - 大 module（万级 decl）scope 构建：无 O(n²) 扫描（R8）；
 - body-only edit：`file_item_tree`/`design_map` memo 命中，仅 `body_with_source_map(owner)` 重算（invalidation matrix 第 1 行）；
 - 全量 resolution trace 可打印：每个 lookup 的 `(scope, name, ns, candidates, provenance, precedence, decision)`（R5/R6 修复的可观察性）。
+
+
+## 11. Salsa 约束核对
+
+本节根据仓库锁定的 crates.io `salsa = 0.28.2`、`salsa-macros`/`salsa-macro-rules` 源码，以及 rust-analyzer 当前源码复核。rust-analyzer 当前 manifest 没有启用旧的本地 Salsa fork；不能把 fork 的行为当成 vide 的约束。
+
+### 11.1 `_key: ()` 是真实的 query 形状问题
+
+Salsa 0.28.2 的 tracked function 宏按非数据库参数个数选择 key 路径：只有一个非 DB 参数时，要求它是 Salsa struct，并直接使用 `AsId::as_id`；有两个或更多非 DB 参数时，会先把参数元组交给 tuple interner。于是：
+
+```rust
+fn query(db, file_id, _key: ())
+```
+
+不是“多写了一个无意义参数”，而是把 `file_id` 强制变成 `(file_id, ())` 的 interning key。只有 query 真正重键为单一 Salsa entity（例如 `OwnerId`）后，才能删除 `_key: ()`。仍以非 Salsa `HirFileId` 为唯一输入的 file-level query 必须保留它，或者先引入一个明确的 `FileKey` Salsa entity。
+
+可在 owner-local query 上删除的目标包括 `module_with_source_map`、`block_with_source_map`、`generate_block_with_source_map`、`subroutine_with_source_map`，以及之后的 body/source-map/scope query；`ast_id_map`、`item_tree_data`、`item_tree`、`owner_table`、`hir_file_with_source_map`、`file_lowering_diagnostics`、`source_projection` 仍然是 file-keyed query，不能仅为消除参数而修改。
+
+### 11.2 identity 与 lifetime
+
+Salsa interned struct 的所有字段共同决定 identity，字段不可变，并默认携带 `'db` lifetime。`unsafe(no_lifetime)` 会绕过该编译期约束，且 Salsa 只允许它与精确的 `revisions = usize::MAX` 一起使用；这不是普通的“跨 revision 稳定 ID”标注，而是需要证明不会发生槽位回收/复用的安全债务。
+
+因此 `AstIdMap` 是 source identity，`OwnerId` 是 source/container owner identity；它们都不能替代 `DefId`/`DefOrigin` 的 semantic identity，也不能负责把多个 surface origin 合并成一个 definition。非 ANSI port 等多 origin 合并必须在 item discovery 阶段显式产生 canonical `DefId`。
+
+### 11.3 rust-analyzer 的可迁移形状
+
+rust-analyzer 的 `ItemTree` 按 `HirFileId` 构建，只保留 item/header，并作为 body edit 的 invalidation barrier；item 保留 `AstId` 以回到源码。其 `Body::with_source_map` 则按单独的 `DefWithBodyId` tracked query，`Body` 本身不携带位置数据，`BodySourceMap` 负责 IDE 投影。
+
+对 vide 的硬约束是：
+
+1. `ItemTree`、owner enumeration、`DesignMap` 只依赖 structural/header inputs；body 单独按 `OwnerId` lower。
+2. `OwnerId` 必须实际实现 Salsa 单 key 所需的 `AsId`/`FromId` 形状，不能只用一个包住 interned handle 的普通 newtype 就假设可以直接作为单 key。
+3. 每次重键都必须用同一个可变 database 做 body-only edit，并观察 `WillExecute`/memo validation；跨两个新 database 比较输出相等，不能证明 query 没有重算。
+4. `AstIdMap`/`OwnerId` 的稳定范围必须写清楚：source/container identity、当前文件/owner 结构的 join key，而不是跨任意结构编辑永久稳定的 semantic definition ID。
+
+一手来源：
+
+- Salsa tracked function 宏：<https://github.com/salsa-rs/salsa/blob/salsa-macros-v0.28.2/components/salsa-macros/src/tracked_fn.rs>
+- Salsa tracked function 生成规则：<https://github.com/salsa-rs/salsa/blob/salsa-macros-v0.28.2/components/salsa-macro-rules/src/setup_tracked_fn.rs>
+- Salsa interned/no-lifetime 约束：<https://github.com/salsa-rs/salsa/blob/salsa-macros-v0.28.2/components/salsa-macros/src/lib.rs>、<https://github.com/salsa-rs/salsa/blob/salsa-macros-v0.28.2/components/salsa-macros/src/options.rs>
+- rust-analyzer ItemTree：<https://github.com/rust-lang/rust-analyzer/blob/ece721d6cdfdf420d8bcc7b9feb48e3b6dbc1f04/crates/hir-def/src/item_tree.rs>
+- rust-analyzer Body：<https://github.com/rust-lang/rust-analyzer/blob/ece721d6/crates/hir-def/src/expr_store/body.rs>
+- rust-analyzer AstId：<https://github.com/rust-lang/rust-analyzer/blob/ece721d6/crates/span/src/ast_id.rs>
