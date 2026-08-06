@@ -178,7 +178,7 @@ pub struct Assign {
 pub enum Expr {
     #[default]
     Missing,
-    Invalid,
+    Error(SyntaxKind),
     Unsupported(SyntaxKind),
 
     Binary {
@@ -289,9 +289,20 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
     }
 
     pub(crate) fn lower_expr(&mut self, expr: ast::Expression) -> ExprId {
-        let hir_expr = self.lower_expr_inner(expr).unwrap_or(Expr::Invalid);
-        if let Expr::Unsupported(kind) = &hir_expr {
-            self.report_unsupported(*kind, expr.syntax().text_range(), "unsupported expression");
+        let syntax_kind = expr.syntax().kind();
+        let hir_expr = self.lower_expr_inner(expr).unwrap_or(Expr::Error(syntax_kind));
+        match &hir_expr {
+            Expr::Error(kind) => {
+                self.report_invalid(*kind, expr.syntax().text_range(), "invalid expression");
+            }
+            Expr::Unsupported(kind) => {
+                self.report_unsupported(
+                    *kind,
+                    expr.syntax().text_range(),
+                    "unsupported expression",
+                );
+            }
+            _ => {}
         }
         let file_id = self.file_id;
         let (expressions, sources) = self.expressions();
@@ -313,7 +324,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             CastExpression(expr) => self.lower_cast_expr(expr),
             SignedCastExpression(expr) => self.lower_cast_signed_expr(expr),
             PostfixUnaryExpression(expr) => self.lower_postfix_unary_expr(expr),
-            BadExpression(_) => Some(Expr::Invalid),
+            BadExpression(bad) => Some(Expr::Error(bad.syntax().kind())),
             unsupported => Some(Expr::Unsupported(unsupported.syntax().kind())),
         }
     }

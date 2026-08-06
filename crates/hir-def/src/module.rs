@@ -57,8 +57,8 @@ use crate::{
     db::HirDefDb,
     region_tree::RegionTree,
     source_map::{
-        FromSourceAst, IsNamedSrc, IsSrc, Lowered, LoweredData, SourceAst, SourceMap, ToAstNode,
-        ast_node_from_ptr, root_token_in,
+        DiagnosticSource, FromSourceAst, IsNamedSrc, IsSrc, Lowered, LoweredData,
+        LoweringDiagnostic, SourceAst, SourceMap, ToAstNode, ast_node_from_ptr, root_token_in,
     },
 };
 
@@ -165,9 +165,16 @@ pub struct ModuleSourceMap {
     pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
     pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
     pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+    pub diagnostics: Vec<LoweringDiagnostic>,
 }
 impl LoweredData for Module {
     type SourceMap = ModuleSourceMap;
+}
+
+impl DiagnosticSource for ModuleSourceMap {
+    fn diagnostics(&self) -> &[LoweringDiagnostic] {
+        &self.diagnostics
+    }
 }
 
 impl ModuleSourceMap {
@@ -197,6 +204,7 @@ impl ModuleSourceMap {
         self.event_expr_srcs.shrink_to_fit();
         self.decl_srcs.shrink_to_fit();
         self.stmt_srcs.shrink_to_fit();
+        self.diagnostics.shrink_to_fit();
     }
 }
 
@@ -801,7 +809,9 @@ pub(crate) fn module_with_source_map(
         ModuleStore { data: &mut module, sources: &mut module_source_map },
     );
     lower_ctx.lower_module_decl(ast_module);
-    lower_ctx.emit_diagnostics();
+    let diagnostics = lower_ctx.emit_diagnostics();
+    drop(lower_ctx);
+    module_source_map.diagnostics = diagnostics;
 
     module.shrink_to_fit();
     module_source_map.shrink_to_fit();

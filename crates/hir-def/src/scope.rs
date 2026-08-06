@@ -1251,8 +1251,47 @@ endmodule
             module.source(expr_id).is_some(),
             "valid but unsupported syntax must retain its source"
         );
+        assert_eq!(module.diagnostics().len(), 1);
+        let diagnostic = &module.diagnostics()[0];
+        assert_eq!(diagnostic.kind, crate::source_map::LoweringDiagnosticKind::UnsupportedSyntax);
+        assert_eq!(diagnostic.syntax_kind, syntax::SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION);
+        assert!(diagnostic.range.is_some());
     }
 
+    #[test]
+    fn unsupported_data_type_is_recoverable_and_diagnosed() {
+        let db = db_with_root_text(
+            r#"
+module m;
+  struct { logic x; } value;
+endmodule
+"#,
+        );
+
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let module = db.module_with_source_map(module_id);
+        let declaration = module
+            .declarations
+            .values()
+            .find(|declaration| matches!(declaration, crate::declaration::Declaration::DataDecl(_)))
+            .expect("struct variable declaration should lower");
+        assert!(matches!(
+            declaration.ty(),
+            crate::expr::data_ty::DataTy::Unsupported(syntax::SyntaxKind::STRUCT_TYPE)
+        ));
+        assert!(
+            module.diagnostics().iter().any(|diagnostic| {
+                diagnostic.kind == crate::source_map::LoweringDiagnosticKind::UnsupportedSyntax
+                    && diagnostic.syntax_kind == syntax::SyntaxKind::STRUCT_TYPE
+                    && diagnostic.range.is_some()
+            }),
+            "unsupported data types must retain provenance in lowering diagnostics"
+        );
+    }
     #[test]
     fn parser_missing_and_empty_statements_are_distinct() {
         let db = db_with_root_text(

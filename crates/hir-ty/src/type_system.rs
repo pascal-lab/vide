@@ -7,6 +7,7 @@ use hir_def::{
     symbol::Resolution,
     typedef::TypedefId,
 };
+use syntax::SyntaxKind;
 use triomphe::Arc;
 
 use crate::{
@@ -22,6 +23,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeDiagnostic {
     TypedefCycle(InContainer<TypedefId>),
+    UnsupportedDataType(SyntaxKind),
 }
 
 /// Semantic type information returned by the type system.

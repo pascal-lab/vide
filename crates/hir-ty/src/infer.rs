@@ -273,10 +273,13 @@ fn normalize_data_ty_inner(
                 .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
             Some(StructKind::Struct) | None => TyResult::new(Ty::Struct(struct_id)),
         },
+        DataTy::Named(named) => type_of_named_data_ty(db, container, named, seen),
         DataTy::Enum => {
             owner.map(Ty::Enum).map(TyResult::new).unwrap_or_else(|| TyResult::new(Ty::Unknown))
         }
-        DataTy::Named(named) => type_of_named_data_ty(db, container, named, seen),
+        DataTy::Unsupported(kind) => {
+            TyResult { ty: Ty::Error, diagnostics: vec![TypeDiagnostic::UnsupportedDataType(kind)] }
+        }
     }
 }
 

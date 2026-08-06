@@ -33,7 +33,8 @@ use crate::{
     db::HirDefDb,
     region_tree::RegionTree,
     source_map::{
-        AstKind, IsNamedSrc, IsSrc, Lowered, LoweredData, NamedAstId, SourceMap, ToAstNode,
+        AstKind, DiagnosticSource, IsNamedSrc, IsSrc, Lowered, LoweredData, LoweringDiagnostic,
+        NamedAstId, SourceMap, ToAstNode,
     },
 };
 
@@ -73,10 +74,17 @@ pub struct BlockSourceMap {
     pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
     pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
     pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+    pub diagnostics: Vec<LoweringDiagnostic>,
     pub block_srcs: FxHashMap<BlockSrc, LocalBlockId>,
 }
 impl LoweredData for Block {
     type SourceMap = BlockSourceMap;
+}
+
+impl DiagnosticSource for BlockSourceMap {
+    fn diagnostics(&self) -> &[LoweringDiagnostic] {
+        &self.diagnostics
+    }
 }
 
 impl BlockSourceMap {
@@ -88,6 +96,7 @@ impl BlockSourceMap {
         self.event_expr_srcs.shrink_to_fit();
         self.decl_srcs.shrink_to_fit();
         self.stmt_srcs.shrink_to_fit();
+        self.diagnostics.shrink_to_fit();
     }
 }
 
@@ -360,7 +369,9 @@ pub(crate) fn block_with_source_map(
         BlockStore { data: &mut block, sources: &mut block_source_map },
     );
     lower_ctx.lower_block(ast_block);
-    lower_ctx.emit_diagnostics();
+    let diagnostics = lower_ctx.emit_diagnostics();
+    drop(lower_ctx);
+    block_source_map.diagnostics = diagnostics;
 
     block.shrink_to_fit();
     block_source_map.shrink_to_fit();

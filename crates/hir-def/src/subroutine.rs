@@ -30,7 +30,10 @@ use crate::{
     db::HirDefDb,
     def_id::subroutine_src,
     region_tree::RegionTree,
-    source_map::{AstKind, Lowered, LoweredData, NamedAstId, SourceMap, ToAstNode},
+    source_map::{
+        AstKind, DiagnosticSource, Lowered, LoweredData, LoweringDiagnostic, NamedAstId, SourceMap,
+        ToAstNode,
+    },
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -90,9 +93,16 @@ pub struct SubroutineSourceMap {
     pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
     pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
     pub block_srcs: FxHashMap<BlockSrc, LocalBlockId>,
+    pub diagnostics: Vec<LoweringDiagnostic>,
 }
 impl LoweredData for Subroutine {
     type SourceMap = SubroutineSourceMap;
+}
+
+impl DiagnosticSource for SubroutineSourceMap {
+    fn diagnostics(&self) -> &[LoweringDiagnostic] {
+        &self.diagnostics
+    }
 }
 
 impl SubroutineSourceMap {
@@ -104,6 +114,7 @@ impl SubroutineSourceMap {
         self.event_expr_srcs.shrink_to_fit();
         self.decl_srcs.shrink_to_fit();
         self.stmt_srcs.shrink_to_fit();
+        self.diagnostics.shrink_to_fit();
     }
 }
 
@@ -390,8 +401,9 @@ pub(crate) fn subroutine_with_source_map(
         SubroutineStore { data: &mut subroutine, sources: &mut subroutine_source_map },
     );
     lower_subroutine_body(&mut ctx, func);
-    ctx.emit_diagnostics();
+    let diagnostics = ctx.emit_diagnostics();
     drop(ctx);
+    subroutine_source_map.diagnostics = diagnostics;
     subroutine.shrink_to_fit();
     subroutine_source_map.shrink_to_fit();
     Arc::new(Lowered::new(subroutine, subroutine_source_map))

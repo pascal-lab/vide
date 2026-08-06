@@ -19,6 +19,24 @@ pub trait LoweredData {
     type SourceMap;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LoweringDiagnosticKind {
+    InvalidSyntax,
+    UnsupportedSyntax,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoweringDiagnostic {
+    pub kind: LoweringDiagnosticKind,
+    pub syntax_kind: SyntaxKind,
+    pub range: Option<TextRange>,
+    pub message: &'static str,
+}
+
+pub trait DiagnosticSource {
+    fn diagnostics(&self) -> &[LoweringDiagnostic];
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Lowered<T: LoweredData> {
     data: Arc<T>,
@@ -40,6 +58,13 @@ impl<T: LoweredData> Lowered<T> {
 
     pub fn source_map(&self) -> &T::SourceMap {
         &self.source_map
+    }
+
+    pub fn diagnostics(&self) -> &[LoweringDiagnostic]
+    where
+        T::SourceMap: DiagnosticSource,
+    {
+        self.source_map.diagnostics()
     }
 
     pub(crate) fn source_map_arc(&self) -> Arc<T::SourceMap> {

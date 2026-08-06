@@ -600,7 +600,7 @@ fn scoped_uses_dot(scoped: ast::ScopedName<'_>) -> bool {
 fn named_data_ty_expr_id(ty: DataTy) -> Option<ExprId> {
     match ty {
         DataTy::Named(NamedDataTy::Ident(expr_id) | NamedDataTy::Field(expr_id)) => Some(expr_id),
-        DataTy::Builtin(_) | DataTy::Struct(_) | DataTy::Enum => None,
+        DataTy::Builtin(_) | DataTy::Struct(_) | DataTy::Enum | DataTy::Unsupported(_) => None,
     }
 }
 

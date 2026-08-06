@@ -1,8 +1,9 @@
 use itertools::Either;
 use smallvec::SmallVec;
 use syntax::{
-    SyntaxNode, SyntaxToken, TokenKind,
+    SyntaxKind, SyntaxNode, SyntaxToken, TokenKind,
     ast::{self, AstNode},
+    has_text_range::HasTextRange,
 };
 use triomphe::Arc;
 
@@ -28,6 +29,7 @@ pub enum DataTy {
     Named(NamedDataTy),
     Struct(InContainer<StructId>),
     Enum,
+    Unsupported(SyntaxKind),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -103,33 +105,49 @@ pub enum NamedDataTy {
     Ident(ExprId),
     Field(ExprId),
 }
-
 impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_data_ty(&mut self, ty: ast::DataType) -> DataTy {
         use ast::DataType::*;
         match ty {
-            KeywordType(ty) => DataTy::Builtin(BuiltinDataTyId::new(self.lower_keyword_ty(ty))),
+            KeywordType(ty) => match self.lower_keyword_ty(ty) {
+                Ok(ty) => DataTy::Builtin(BuiltinDataTyId::new(ty)),
+                Err(kind) => DataTy::Unsupported(kind),
+            },
             NamedType(named_type) => DataTy::Named(self.lower_named_ty(named_type)),
             IntegerType(ty) => DataTy::Builtin(BuiltinDataTyId::new(self.lower_integer_type(ty))),
             ImplicitType(ty) => DataTy::Builtin(BuiltinDataTyId::new(self.lower_implicit_type(ty))),
             EnumType(enum_ty) => self.lower_enum_type(enum_ty),
-            StructUnionType(_) | TypeReference(_) | VirtualInterfaceType(_) => {
-                self.default_data_ty()
+            unsupported @ (StructUnionType(_) | TypeReference(_) | VirtualInterfaceType(_)) => {
+                let kind = unsupported.syntax().kind();
+                self.report_unsupported(
+                    kind,
+                    unsupported.syntax().text_range(),
+                    "unsupported data type",
+                );
+                DataTy::Unsupported(kind)
             }
         }
     }
 
-    fn lower_keyword_ty(&mut self, ty: ast::KeywordType) -> BuiltinDataTy {
+    fn lower_keyword_ty(&mut self, ty: ast::KeywordType) -> Result<BuiltinDataTy, SyntaxKind> {
         use ast::KeywordType::*;
         match ty {
-            StringType(_) => BuiltinDataTy::String,
-            RealType(_) => BuiltinDataTy::Real(Real::Real),
-            ShortRealType(_) => BuiltinDataTy::Real(Real::ShortReal),
-            RealTimeType(_) => BuiltinDataTy::Real(Real::RealTime),
-            VoidType(_) => BuiltinDataTy::Void,
-            EventType(_) => BuiltinDataTy::Event,
-            CHandleType(_) => BuiltinDataTy::Chandle,
-            _ => BuiltinDataTy::default(),
+            StringType(_) => Ok(BuiltinDataTy::String),
+            RealType(_) => Ok(BuiltinDataTy::Real(Real::Real)),
+            ShortRealType(_) => Ok(BuiltinDataTy::Real(Real::ShortReal)),
+            RealTimeType(_) => Ok(BuiltinDataTy::Real(Real::RealTime)),
+            VoidType(_) => Ok(BuiltinDataTy::Void),
+            EventType(_) => Ok(BuiltinDataTy::Event),
+            CHandleType(_) => Ok(BuiltinDataTy::Chandle),
+            unsupported => {
+                let kind = unsupported.syntax().kind();
+                self.report_unsupported(
+                    kind,
+                    unsupported.syntax().text_range(),
+                    "unsupported keyword data type",
+                );
+                Err(kind)
+            }
         }
     }
 
@@ -228,10 +246,6 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
     fn associative_dimension_key_token(expr: ast::Expression) -> Option<SyntaxToken> {
         let token = first_token(expr.syntax())?;
         is_builtin_dimension_key_token(token.kind()).then_some(token)
-    }
-
-    fn default_data_ty(&self) -> DataTy {
-        DataTy::Builtin(BuiltinDataTyId::new(BuiltinDataTy::default()))
     }
 }
 

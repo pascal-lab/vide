@@ -42,7 +42,7 @@ use crate::{
     db::HirDefDb,
     lower_ident_opt,
     region_tree::RegionTree,
-    source_map::{Lowered, LoweredData, SourceMap},
+    source_map::{DiagnosticSource, Lowered, LoweredData, LoweringDiagnostic, SourceMap},
 };
 
 pub mod config;
@@ -118,9 +118,16 @@ pub struct FileSourceMap {
     pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
     pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
     pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+    pub diagnostics: Vec<LoweringDiagnostic>,
 }
 impl LoweredData for HirFile {
     type SourceMap = FileSourceMap;
+}
+
+impl DiagnosticSource for FileSourceMap {
+    fn diagnostics(&self) -> &[LoweringDiagnostic] {
+        &self.diagnostics
+    }
 }
 
 impl FileSourceMap {
@@ -143,6 +150,7 @@ impl FileSourceMap {
         self.event_expr_srcs.shrink_to_fit();
         self.decl_srcs.shrink_to_fit();
         self.stmt_srcs.shrink_to_fit();
+        self.diagnostics.shrink_to_fit();
     }
 }
 
@@ -480,8 +488,9 @@ pub(crate) fn hir_file_with_source_map(
         _ => {}
     }
 
-    lower_ctx.emit_diagnostics();
+    let diagnostics = lower_ctx.emit_diagnostics();
     drop(lower_ctx);
+    source_map.diagnostics = diagnostics;
 
     hir_file.shrink_to_fit();
     source_map.shrink_to_fit();
