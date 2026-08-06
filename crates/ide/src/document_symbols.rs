@@ -64,8 +64,21 @@ impl SymbolCollecter {
         Self { res: Vec::with_capacity(len), stack: Vec::with_capacity(len) }
     }
 
+    /// Dotted path of the current enclosing symbols (`self.stack`, which holds
+    /// every open ancestor but not the symbol being pushed). This is what
+    /// qualified workspace-symbol queries (e.g. `mod.block.sig`) filter on,
+    /// and is reported as the LSP `containerName`. The path is dotted to match
+    /// `workspace_symbols::Query::matches`, which splits on `.`.
+    fn container_path(&self) -> Option<String> {
+        if self.stack.is_empty() {
+            None
+        } else {
+            Some(self.stack.iter().map(|sym| sym.name.as_str()).collect::<Vec<_>>().join("."))
+        }
+    }
+
     pub fn push_symbol(&mut self, name: &Option<SmolStr>, src: SourceInfo) {
-        let container_name = self.stack.last().map(|sym| sym.name.to_owned());
+        let container_name = self.container_path();
         let sym = DocumentSymbol {
             name: name.as_ref().unwrap_or(&DEFAULT_NAME).to_string(),
             focus_range: src.focus_or_full_range(),
@@ -108,7 +121,7 @@ impl SymbolCollecter {
     }
 
     pub fn push_region(&mut self, region: &RegionNode) {
-        let container_name = self.stack.last().map(|sym| sym.name.to_owned());
+        let container_name = self.container_path();
         let sym = DocumentSymbol {
             name: region.name().to_string(),
             focus_range: region.focus_range(),

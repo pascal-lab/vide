@@ -35,7 +35,7 @@ document_symbols:
     q PortDecl container=Some("behavioral")
     i DataDecl container=Some("behavioral")
     unnamed Stmt container=Some("behavioral")
-      seq Block container=Some("unnamed")
+      seq Block container=Some("behavioral.unnamed")
 semantic_token_classes:
   Port(Others) SemaTokenModifier(0x0): 18
 folding_ranges: 10
@@ -141,8 +141,8 @@ document_symbols:
     y PortDecl container=Some("top")
     i Genvar container=Some("top")
     generate Generate container=Some("top")
-      g_loop Generate container=Some("generate")
-        u_child Instance container=Some("g_loop")
+      g_loop Generate container=Some("top.generate")
+        u_child Instance container=Some("top.generate.g_loop")
   cfg_top Config container=None
 semantic_token_classes:
   Instance SemaTokenModifier(0x0): 1
@@ -184,8 +184,8 @@ document_symbols:
     b PortDecl container=Some("specify_timing")
     y PortDecl container=Some("specify_timing")
     specify Specify container=Some("specify_timing")
-      t_setup Specparam container=Some("specify")
-      t_hold Specparam container=Some("specify")
+      t_setup Specparam container=Some("specify_timing.specify")
+      t_hold Specparam container=Some("specify_timing.specify")
 semantic_token_classes:
   Port(Others) SemaTokenModifier(0x0): 10
 folding_ranges: 4

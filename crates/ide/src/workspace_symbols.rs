@@ -39,10 +39,10 @@ pub(crate) fn workspace_symbols(
         .into_iter()
         .map(|source_root_id| source_root_symbol_index_for_root(db, source_root_id))
         .collect::<Vec<_>>();
-    let mut symbols = BinaryHeap::new();
+    let mut symbols: BinaryHeap<RankedSymbol> = BinaryHeap::new();
     for index in &indexes {
-        query.search(index, |symbol| {
-            let symbol = RankedSymbol(symbol);
+        query.search(db, index, |symbol| {
+            let symbol = RankedSymbol::new(symbol, query.score(&symbol.symbol));
             if symbols.len() < WORKSPACE_SYMBOL_LIMIT {
                 symbols.push(symbol);
             } else if symbols.peek().is_some_and(|worst| symbol < *worst) {
@@ -51,9 +51,11 @@ pub(crate) fn workspace_symbols(
             }
         });
     }
-    let mut symbols = symbols.into_iter().map(|symbol| symbol.0).collect::<Vec<_>>();
-    symbols.sort_unstable_by(|lhs, rhs| compare_search_entries(lhs, rhs));
-    symbols.into_iter().map(|entry| entry.symbol.clone()).collect()
+    let mut symbols = symbols.into_iter().collect::<Vec<_>>();
+    // `BinaryHeap::into_iter` yields in arbitrary order; re-sort deterministically,
+    // best match first (score desc, then the stable positional tiebreak).
+    symbols.sort_unstable_by(|lhs, rhs| rhs.cmp(lhs));
+    symbols.into_iter().map(|ranked| ranked.entry.symbol.clone()).collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,11 +72,19 @@ impl Query {
         Self { query, lowercased, path_filter }
     }
 
-    fn search<'a>(&'a self, index: &'a SymbolIndex, mut emit: impl FnMut(&'a SymbolEntry)) {
+    fn search<'a>(
+        &'a self,
+        db: &dyn WorkspaceSymbolIndexDb,
+        index: &'a SymbolIndex,
+        mut emit: impl FnMut(&'a SymbolEntry),
+    ) {
         let mut stream =
             index.map.search(fst::automaton::Subsequence::new(&self.lowercased)).into_stream();
 
         while let Some((_, indexed_value)) = stream.next() {
+            // Honor cancellation while scanning the (potentially large) fst
+            // index, so a slow workspace search doesn't pin a worker forever.
+            db.unwind_if_revision_cancelled();
             let (start, end) = SymbolIndex::map_value_to_range(indexed_value);
             for symbol in
                 index.symbols[start..end].iter().filter(|entry| self.matches(&entry.symbol))
@@ -82,6 +92,23 @@ impl Query {
                 emit(symbol);
             }
         }
+    }
+
+    /// Relevance of `symbol` to this query. Every symbol emitted by the fst is
+    /// already a (lowercased) subsequence match; sharper matches score higher
+    /// so results order exact/prefix matches before loose subsequences.
+    fn score(&self, symbol: &WorkspaceSymbol) -> u32 {
+        let lower = symbol.name.to_lowercase();
+        let mut score = 1; // subsequence (guaranteed by the automaton)
+        if lower.eq(&self.lowercased) {
+            score += 2; // exact name, case-insensitive
+        } else if lower.starts_with(&self.lowercased) {
+            score += 1; // name prefix
+        }
+        if symbol.name.eq(&self.query) {
+            score += 1; // exact name, case-sensitive
+        }
+        score
     }
 
     fn matches(&self, symbol: &WorkspaceSymbol) -> bool {
@@ -240,11 +267,21 @@ impl SymbolEntry {
 }
 
 #[derive(Clone, Copy)]
-struct RankedSymbol<'a>(&'a SymbolEntry);
+struct RankedSymbol<'a> {
+    entry: &'a SymbolEntry,
+    /// Relevance of this entry to the query, used as the primary sort key.
+    score: u32,
+}
+
+impl<'a> RankedSymbol<'a> {
+    fn new(entry: &'a SymbolEntry, score: u32) -> Self {
+        Self { entry, score }
+    }
+}
 
 impl PartialEq for RankedSymbol<'_> {
     fn eq(&self, other: &Self) -> bool {
-        compare_search_entries(self.0, other.0) == Ordering::Equal
+        self.cmp(other) == Ordering::Equal
     }
 }
 
@@ -258,7 +295,7 @@ impl PartialOrd for RankedSymbol<'_> {
 
 impl Ord for RankedSymbol<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
-        compare_search_entries(self.0, other.0)
+        self.score.cmp(&other.score).then_with(|| compare_search_entries(self.entry, other.entry))
     }
 }
 
@@ -338,5 +375,27 @@ mod tests {
             kind: SymbolKind::Module,
             container_name: container_name.map(str::to_owned),
         }
+    }
+
+    #[test]
+    fn qualified_query_matches_nested_container_path() {
+        // container_name is the full dotted ancestor path, so a multi-segment
+        // qualifier filters deeply nested symbols instead of matching only the
+        // immediate parent.
+        let symbol = symbol("sig", Some("top.block"));
+        assert!(Query::new("top.block sig").matches(&symbol));
+        assert!(Query::new("block sig").matches(&symbol));
+        assert!(!Query::new("other sig").matches(&symbol));
+    }
+
+    #[test]
+    fn relevance_ranks_exact_and_prefix_over_subsequence() {
+        let query = Query::new("clock");
+        let exact = symbol("clock", None);
+        let prefix = symbol("clock_divider", None);
+        let subsequence = symbol("core_lock", None);
+        assert!(query.score(&exact) > query.score(&prefix));
+        assert!(query.score(&prefix) > query.score(&subsequence));
+        assert!(query.score(&subsequence) >= 1, "subsequence matches must score positive");
     }
 }
