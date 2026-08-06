@@ -14,7 +14,8 @@ use crate::{
     db::HirDefDb,
     scope::{
         build_block_scope, build_checker_scope, build_clocking_block_scope, build_covergroup_scope,
-        build_file_scope, build_generate_block_scope, build_module_scope, build_subroutine_scope,
+        build_file_scope, build_generate_block_scope, build_module_scope, build_owner_scope,
+        build_subroutine_scope,
     },
     symbol::NameScope,
 };
@@ -42,6 +43,7 @@ fn build_scope(db: &dyn HirDefDb, scope_id: ScopeId) -> NameScope {
         }
         ScopeId::Block(block_id) => build_block_scope(db, block_id),
         ScopeId::Subroutine(subroutine_id) => build_subroutine_scope(db, subroutine_id),
+        ScopeId::Owner(owner) => build_owner_scope(db, owner),
     }
 }
 

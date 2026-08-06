@@ -283,7 +283,7 @@ impl LowerFileCtx<'_> {
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
         // Only the skeleton is lowered here; the body is lowered on first
-        // access by subroutine_with_source_map.
+        // access by subroutine_body_with_source_map.
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let local_subroutine_id = alloc_with_source(
@@ -293,8 +293,6 @@ impl LowerFileCtx<'_> {
             subroutine,
             func,
         );
-
-        self.store.data.subroutines[local_subroutine_id].shrink_to_fit();
 
         Some(local_subroutine_id)
     }

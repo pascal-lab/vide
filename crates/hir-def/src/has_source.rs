@@ -55,6 +55,12 @@ impl HasSource for ScopeId {
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.source(db),
             ScopeId::Block(block_id) => block_id.source(db),
             ScopeId::Subroutine(subroutine) => subroutine.source(db),
+            ScopeId::Owner(owner) => {
+                let file_id = owner.file(db);
+                let ast_id = db.owner_source_ast_id(owner)?;
+                let range = db.ast_id_map(file_id).ptr(ast_id)?.range();
+                Some(InFile::new(file_id, SourceInfo::from_ranges(range, None)))
+            }
             ScopeId::ClockingBlock(clocking_block) => {
                 DefOrigin::new(db, DefOriginLoc::ClockingBlock(clocking_block)).source(db)
             }

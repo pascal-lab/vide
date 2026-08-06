@@ -347,7 +347,6 @@ mod tests {
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
     use crate::{
-        ast_id_map::SourceAstId,
         container::{SubroutineParent, SubroutineScope},
         db::HirDefDb,
         module::ModuleId,
@@ -517,6 +516,25 @@ endmodule
         assert_eq!(fingerprint(&before_table), fingerprint(&after_table));
         assert_eq!(before_ids, after_ids);
     }
+    #[test]
+    fn subroutine_body_relowers_after_body_edit() {
+        let before = "module m; task automatic t; int x; endtask endmodule\n";
+        let after = "module m; task automatic t; int x; int y; endtask endmodule\n";
+        let mut db = db_with_root_text(before);
+        let file_id = HirFileId::File(TOP);
+        let owner = db
+            .owner_table(file_id)
+            .owners_of_kind(crate::owner::OwnerKind::Subroutine)
+            .next()
+            .expect("subroutine owner must exist")
+            .id;
+
+        assert_eq!(db.subroutine_body_with_source_map(owner).decls.len(), 1);
+
+        db.set_file_text_with_durability(TOP, Arc::from(after), Durability::LOW);
+
+        assert_eq!(db.subroutine_body_with_source_map(owner).decls.len(), 2);
+    }
 
     #[test]
     fn owner_table_ids_survive_added_sibling() {
@@ -541,7 +559,6 @@ endmodule
         let hir_file = db.hir_file(file_id);
         let table = db.owner_table(file_id);
 
-        let source_map = db.owner_source_map(file_id);
         for (local_module_id, module_info) in hir_file.modules.iter() {
             let module_id = ModuleId::new(file_id, local_module_id);
             let owner = module_id.owner(&db).expect("module must map to an owner");
@@ -619,5 +636,22 @@ endmodule
         let scope = SubroutineScope { cont_id: SubroutineParent::Module(module_id), value };
 
         assert_eq!(scope.owner(&db), Some(subroutine_owner.id));
+    }
+
+    #[test]
+    fn subroutine_body_uses_owner_key() {
+        let text = "module m; function void f(); logic x; endfunction endmodule\n";
+        let db = db_with_root_text(text);
+        let owner = db
+            .owner_table(HirFileId::File(TOP))
+            .owners_of_kind(crate::owner::OwnerKind::Subroutine)
+            .next()
+            .expect("subroutine owner must exist")
+            .id;
+        let ast_id = db.owner_source_ast_id(owner).expect("owner AST id must exist");
+        let ptr = db.ast_id_map(HirFileId::File(TOP)).ptr(ast_id).expect("owner pointer");
+        assert_eq!(ptr.kind(), syntax::SyntaxKind::FUNCTION_DECLARATION);
+        let body = db.subroutine_body_with_source_map(owner);
+        assert_eq!(body.decls.len(), 1);
     }
 }
