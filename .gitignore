@@ -21,6 +21,7 @@ tags
 generated.rs
 docs/public/vide-lab/
 docs/public/schemas/
+docs/hir-def/
 editors/zed/extension.wasm
 editors/zed/grammars/systemverilog/
 
