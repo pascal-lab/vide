@@ -115,11 +115,7 @@ fn hover_for_token_selection(
 }
 
 pub(crate) fn token_precedence(kind: TokenKind) -> usize {
-    match kind {
-        _ if kind.name_like() => 4,
-        _ if kind.is_literal() => 3,
-        _ => 1,
-    }
+    crate::token::hover_precedence(kind)
 }
 
 fn handle_literal(

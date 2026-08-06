@@ -15,7 +15,7 @@ use super::{
     file::{FileSourceMap, HirFile},
     module::{
         Module, ModuleId, ModuleSourceMap,
-        continuous_assgin::{ContAssign, ContAssignSrc},
+        continuous_assign::{ContAssign, ContAssignSrc},
         defparam::{DefParam, DefParamSrc},
         generate::{GenerateBlock, GenerateBlockId, GenerateBlockSourceMap},
         instantiation::{

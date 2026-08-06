@@ -1,7 +1,7 @@
 use hir_def::{container::InFile, def_id::DefId};
 use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
-use syntax::{SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
+use syntax::{SyntaxTokenWithParent, TokenKind};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -49,11 +49,7 @@ pub(crate) fn document_highlight(
 }
 
 fn token_precedence(kind: TokenKind) -> usize {
-    match kind {
-        _ if kind.name_like() => 4,
-        _ if kind.is_pair_token() => 4,
-        _ => 1,
-    }
+    crate::token::navigation_precedence(kind)
 }
 
 fn handle_ctrl_flow_kw(

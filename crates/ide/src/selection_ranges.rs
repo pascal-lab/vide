@@ -4,7 +4,7 @@ use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxCursorExt, SyntaxNodeExt, TokenKind, Trivia,
     has_text_range::HasTextRange,
-    token::{SyntaxTokenWithParentExt, TokenKindExt},
+    token::SyntaxTokenWithParentExt,
 };
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
@@ -27,7 +27,7 @@ pub(crate) fn selection_ranges(
 
     let mut cursor = root.walk();
 
-    let trivias_start = match root.token_at_offset(offset).pick_bext_token(token_precedence) {
+    let trivias_start = match root.token_at_offset(offset).pick_best_token(token_precedence) {
         Some(token) => {
             let Some(token_range) = token.text_range() else {
                 return res;
@@ -180,11 +180,7 @@ fn push_distinct(res: &mut Vec<TextRange>, range: TextRange) {
 }
 
 fn token_precedence(kind: TokenKind) -> usize {
-    match kind {
-        _ if kind.name_like() => 4,
-        _ if kind.is_literal() => 3,
-        _ => 1,
-    }
+    crate::token::hover_precedence(kind)
 }
 
 #[cfg(test)]

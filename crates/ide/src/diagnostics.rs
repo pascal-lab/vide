@@ -183,12 +183,7 @@ pub(crate) fn compilation_profile_diagnostics(
 }
 
 fn compilation_profile_file_ids(db: &RootDb, profile_id: CompilationProfileId) -> Vec<FileId> {
-    let plan = db.compilation_plan_for_profile(Some(profile_id));
-    let mut file_ids = plan.roots.clone();
-    file_ids.extend(plan.include_only.iter().copied());
-    file_ids.sort_unstable_by_key(|file_id| file_id.index());
-    file_ids.dedup();
-    file_ids
+    db.compilation_plan_for_profile(Some(profile_id)).all_file_ids()
 }
 
 fn syntax_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {

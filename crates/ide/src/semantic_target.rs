@@ -364,7 +364,7 @@ mod tests {
     use crate::analysis_host::AnalysisHost;
 
     fn token_precedence(kind: syntax::TokenKind) -> usize {
-        usize::from(kind.name_like())
+        crate::token::name_precedence(kind)
     }
 
     fn setup(text: &str, needle: &str) -> (AnalysisHost, FileId, TextSize, TextRange) {

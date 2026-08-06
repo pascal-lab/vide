@@ -1,7 +1,7 @@
 use clocking::{
     ClockingBlockDef, ClockingBlockId, ClockingBlockSrc, DefaultClockingRef, DefaultClockingRefSrc,
 };
-use continuous_assgin::{ContAssign, ContAssignId, ContAssignSrc};
+use continuous_assign::{ContAssign, ContAssignId, ContAssignSrc};
 use defparam::{DefParam, DefParamId, DefParamSrc};
 use generate::{GenerateRegion, GenerateRegionId, GenerateRegionSrc};
 use instantiation::{
@@ -63,7 +63,7 @@ use crate::{
 };
 
 pub mod clocking;
-pub mod continuous_assgin;
+pub mod continuous_assign;
 pub mod defparam;
 pub mod generate;
 pub mod instantiation;

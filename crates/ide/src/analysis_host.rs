@@ -4,7 +4,7 @@ use base_db::{
 };
 use triomphe::Arc;
 
-use crate::{analysis::Analysis, db::root_db::RootDb};
+use crate::{analysis::AnalysisSnapshot, db::root_db::RootDb};
 
 pub struct AnalysisHost {
     db: RootDb,
@@ -16,9 +16,9 @@ impl AnalysisHost {
         AnalysisHost { db: RootDb::new(lru_capacity), snapshot_id: AnalysisSnapshotId::default() }
     }
 
-    pub fn make_analysis(&self) -> Analysis {
+    pub fn make_analysis(&self) -> AnalysisSnapshot {
         let db = self.db.clone();
-        Analysis { db, snapshot_id: self.snapshot_id }
+        AnalysisSnapshot { db, snapshot_id: self.snapshot_id }
     }
 
     pub fn apply_change(&mut self, change: Change) {

@@ -458,7 +458,7 @@ mod tests {
             let token = match pick {
                 TokenPick::LeftBiased => tokens.left_biased(),
                 TokenPick::GotoDefinition => {
-                    tokens.pick_bext_token(crate::goto_definition::token_precedence)
+                    tokens.pick_best_token(crate::token::navigation_precedence)
                 }
             }
             .unwrap();
@@ -519,7 +519,7 @@ endmodule
         let token = file
             .syntax()
             .token_at_offset(offset)
-            .pick_bext_token(crate::goto_definition::token_precedence)
+            .pick_best_token(crate::token::navigation_precedence)
             .unwrap();
 
         let DefinitionClass::Definition(def) =
@@ -557,7 +557,7 @@ endmodule
             .unwrap()
             .syntax()
             .token_at_offset(offset)
-            .pick_bext_token(crate::goto_definition::token_precedence)
+            .pick_best_token(crate::token::navigation_precedence)
             .unwrap();
 
         assert_eq!(
@@ -587,7 +587,7 @@ endmodule
             .unwrap()
             .syntax()
             .token_at_offset(offset)
-            .pick_bext_token(crate::goto_definition::token_precedence)
+            .pick_best_token(crate::token::navigation_precedence)
             .unwrap();
 
         let Resolution::Ambiguous(candidates) =
@@ -645,7 +645,7 @@ endmodule
                 .unwrap()
                 .syntax()
                 .token_at_offset(offset)
-                .pick_bext_token(crate::goto_definition::token_precedence)
+                .pick_best_token(crate::token::navigation_precedence)
                 .unwrap();
 
             assert_eq!(
@@ -683,7 +683,7 @@ endmodule
             .unwrap()
             .syntax()
             .token_at_offset(offset)
-            .pick_bext_token(crate::goto_definition::token_precedence)
+            .pick_best_token(crate::token::navigation_precedence)
             .unwrap();
 
         let resolution = DefinitionClass::resolve(sema.db, file_id.into(), token);
@@ -712,7 +712,7 @@ endmodule
         let token = file
             .syntax()
             .token_at_offset(offset)
-            .pick_bext_token(crate::goto_definition::token_precedence)
+            .pick_best_token(crate::token::navigation_precedence)
             .unwrap();
 
         let resolution = DefinitionClass::resolve(sema.db, file_id.into(), token);

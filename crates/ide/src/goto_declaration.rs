@@ -7,7 +7,6 @@ use crate::{
     FilePosition, RangeInfo,
     db::root_db::RootDb,
     definitions::DefinitionClass,
-    goto_definition,
     navigation_target::{NavTarget, ToNav},
     semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
     source_targets::SourceTarget,
@@ -25,7 +24,7 @@ pub(crate) fn goto_declaration(
         file_id,
         offset,
         parsed_file.root(),
-        goto_definition::token_precedence,
+        crate::token::navigation_precedence,
     );
     render_declaration_target(
         db,

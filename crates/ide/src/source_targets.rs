@@ -151,7 +151,7 @@ fn normal_syntax_source_target_at_offset<'tree>(
     offset: TextSize,
     precedence: &impl Fn(TokenKind) -> usize,
 ) -> SourceTargetProviderResult<'tree> {
-    let Some(token) = root.token_at_offset(offset).pick_bext_token(precedence) else {
+    let Some(token) = root.token_at_offset(offset).pick_best_token(precedence) else {
         return SourceTargetProviderResult::NotApplicable;
     };
     let Some(range) = token.text_range() else {

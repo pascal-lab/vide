@@ -6,10 +6,7 @@ use preproc_expand::{
     file::HirFileId,
     preproc::{IncludeDirective, IncludeTarget, MacroDefinition, MacroParamDefinition},
 };
-use syntax::{
-    SyntaxTokenWithParent, TokenKind,
-    token::{TokenKindExt, pair_token},
-};
+use syntax::SyntaxTokenWithParent;
 use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
@@ -30,7 +27,13 @@ pub(crate) fn goto_definition(
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let sema = Semantics::new(db);
     let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
+    let target = resolve_semantic_target(
+        db,
+        file_id,
+        offset,
+        parsed_file.root(),
+        crate::token::navigation_precedence,
+    );
     render_definition_target(db, file_id, &sema, target)
 }
 
@@ -186,21 +189,7 @@ fn handle_ctrl_flow_kw(
     file_id: HirFileId,
     tp @ SyntaxTokenWithParent { .. }: SyntaxTokenWithParent,
 ) -> Option<Vec<NavTarget>> {
-    let kind = tp.kind();
-
-    match kind {
-        _ if let Some(pair) = pair_token(tp) => {
-            let tok = InFile::new(file_id, pair.either(|pair| pair, |_| tp));
-            Some(vec![tok.to_nav(sema.db)?])
-        }
-        _ => None,
-    }
-}
-
-pub(crate) fn token_precedence(kind: TokenKind) -> usize {
-    match kind {
-        _ if kind.name_like() => 4,
-        _ if kind.is_pair_token() => 4,
-        _ => 1,
-    }
+    let (beg, _) = crate::token::ctrl_flow_pair(tp)?;
+    let tok = InFile::new(file_id, beg);
+    Some(vec![tok.to_nav(sema.db)?])
 }
