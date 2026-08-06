@@ -24,8 +24,9 @@ use crate::{
     },
     markup::{Markup, inline_code},
     render,
-    semantic_target::{SemanticTarget, TargetIntent, TargetResolution, resolve_semantic_target},
-    semantic_target::SourceTarget,
+    semantic_target::{
+        SemanticTarget, SourceTarget, TargetIntent, TargetResolution, resolve_semantic_target,
+    },
 };
 
 mod include;

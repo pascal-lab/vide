@@ -8,12 +8,16 @@ use syntax::{
 use utils::line_index::covering_range;
 use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
-use super::*;
-use super::preproc::{
-    PreprocTokenHit, ambiguous_preproc_source_targets, push_unique_preproc_hit,
-    syntax_tokens_for_preproc_hit,
+use super::{
+    preproc::{
+        PreprocTokenHit, ambiguous_preproc_source_targets, push_unique_preproc_hit,
+        syntax_tokens_for_preproc_hit,
+    },
+    *,
 };
-use crate::{analysis_host::AnalysisHost, db::root_db::RootDb, token::name_precedence as token_precedence};
+use crate::{
+    analysis_host::AnalysisHost, db::root_db::RootDb, token::name_precedence as token_precedence,
+};
 
 mod bench_context;
 
@@ -298,10 +302,7 @@ fn preproc_owned_unresolved_does_not_use_normal_syntax_fallback() {
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
     let root = tree.root().expect("test source should parse");
     assert!(
-        matches!(
-            normal_syntax_source_target_at_offset(root, offset, &test_precedence),
-            Some(_)
-        ),
+        normal_syntax_source_target_at_offset(root, offset, &test_precedence).is_some(),
         "test setup must have an ordinary syntax token that fallback could have selected"
     );
 
@@ -380,18 +381,12 @@ fn setup(text: &str, needle: &str) -> (AnalysisHost, FileId, TextSize, TextRange
     host.apply_change(change);
 
     let start = text.find(needle).expect("needle should exist");
-    let range = TextRange::new(
-        TextSize::from(start as u32),
-        TextSize::from((start + needle.len()) as u32),
-    );
+    let range =
+        TextRange::new(TextSize::from(start as u32), TextSize::from((start + needle.len()) as u32));
     (host, file_id, range.start(), range)
 }
 
-fn root_and_offset(
-    text: &str,
-    needle: &str,
-    delta: u32,
-) -> (SyntaxTree, TextSize, TextRange) {
+fn root_and_offset(text: &str, needle: &str, delta: u32) -> (SyntaxTree, TextSize, TextRange) {
     let tree = SyntaxTree::from_text(text, "test", "test.sv");
     let start = text.find(needle).expect("needle should exist");
     let range =
@@ -457,10 +452,17 @@ fn preproc_provider_result_from_hits<'tree>(
         .first()
         .is_some_and(|first| unique_hits.iter().any(|hit| hit.origin != first.origin));
     if has_conflicting_origin {
-        return ambiguous_preproc_source_targets(root, offset, precedence, None, range, unique_hits)
-            .map_or(TargetResolution::Blocked, |(reason, candidates)| {
-                TargetResolution::Ambiguous(TargetAlternatives { reason, candidates })
-            });
+        return ambiguous_preproc_source_targets(
+            root,
+            offset,
+            precedence,
+            None,
+            range,
+            unique_hits,
+        )
+        .map_or(TargetResolution::Blocked, |(reason, candidates)| {
+            TargetResolution::Ambiguous(TargetAlternatives { reason, candidates })
+        });
     }
     let Some(tokens) = syntax_tokens_for_preproc_hit(root, offset, precedence, None, &unique_hits)
     else {

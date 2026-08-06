@@ -16,9 +16,9 @@ use crate::{
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
     semantic_target::{
-        PreprocMacroTarget, SemanticTarget, TargetIntent, TargetResolution, resolve_semantic_target,
+        PreprocMacroTarget, SemanticTarget, SourceTarget, TargetIntent, TargetResolution,
+        resolve_semantic_target,
     },
-    semantic_target::SourceTarget,
 };
 
 pub(crate) fn goto_definition(

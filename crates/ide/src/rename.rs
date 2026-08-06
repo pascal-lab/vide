@@ -25,9 +25,10 @@ use crate::{
         search::{ReferenceToken, ReferencesCtx, SearchScope, search_references},
     },
     semantic_index::{ConnSide, ReferenceContext},
-    semantic_target::{PreprocMacroTarget, SemanticTarget, TargetIntent, resolve_semantic_target},
+    semantic_target::{
+        PreprocMacroTarget, SemanticTarget, SourceTarget, TargetIntent, resolve_semantic_target,
+    },
     source_change::SourceChange,
-    semantic_target::SourceTarget,
 };
 
 pub type RenameResult<T> = Result<T, RenameError>;

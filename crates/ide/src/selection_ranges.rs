@@ -2,8 +2,7 @@ use hir_semantics::semantics::Semantics;
 use itertools::Itertools;
 use preproc_expand::file::HirFileId;
 use syntax::{
-    SyntaxCursorExt, SyntaxNodeExt, TokenKind, Trivia,
-    has_text_range::HasTextRange,
+    SyntaxCursorExt, SyntaxNodeExt, TokenKind, Trivia, has_text_range::HasTextRange,
     token::SyntaxTokenWithParentExt,
 };
 use utils::line_index::{TextRange, TextSize};

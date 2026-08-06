@@ -853,4 +853,3 @@ impl FileModuleEdges {
         Self { edges }
     }
 }
-

@@ -274,7 +274,8 @@ fn normal_syntax_source_target_at_offset<'tree>(
     root: SyntaxNode<'tree>,
     offset: TextSize,
     precedence: &impl Fn(TokenKind) -> usize,
-) -> Option<SourceTarget<'tree>> {    let token = root.token_at_offset(offset).pick_best_token(precedence)?;
+) -> Option<SourceTarget<'tree>> {
+    let token = root.token_at_offset(offset).pick_best_token(precedence)?;
     let range = token.text_range()?;
     Some(SourceTarget::normal_syntax(range, vec![token]))
 }

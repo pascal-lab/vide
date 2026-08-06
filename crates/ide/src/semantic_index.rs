@@ -1,15 +1,12 @@
 use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
-use hir_def::{
-    Ident,
-    container::InFile,
-    def_id::DefId,
-    module::ModuleId,
-    symbol::DefOrigin,
-};
+use hir_def::{Ident, container::InFile, def_id::DefId, module::ModuleId, symbol::DefOrigin};
 use hir_ty::db::TyDb;
 use preproc_expand::db::PreprocDb;
 use rustc_hash::FxHashMap;
-use syntax::{SyntaxNodeExt, TokenKind, has_text_range::HasTextRange, ptr::SyntaxTokenPtr, token::TokenKindExt};
+use syntax::{
+    SyntaxNodeExt, TokenKind, has_text_range::HasTextRange, ptr::SyntaxTokenPtr,
+    token::TokenKindExt,
+};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -442,7 +439,9 @@ mod tests {
     use hir_semantics::semantics::SemanticsImpl;
     use preproc_expand::file::HirFileId;
     use syntax::{
-        SyntaxElement, WalkEvent, ast::{self, AstNode}, has_text_range::HasTextRange,
+        SyntaxElement, WalkEvent,
+        ast::{self, AstNode},
+        has_text_range::HasTextRange,
         token::TokenKindExt,
     };
     use utils::line_index::{TextRange, TextSize};
@@ -450,9 +449,7 @@ mod tests {
     use super::*;
     use crate::{
         definitions::DefinitionClass,
-        semantic_index::build::{
-            ContainerCache, ScopeChainCache, token_in_special_context,
-        },
+        semantic_index::build::{ContainerCache, ScopeChainCache, token_in_special_context},
         semantic_target::{
             SemanticTarget, TargetIntent, preproc::emit_token_index,
             resolve_semantic_target_with_emitted,
@@ -842,4 +839,3 @@ endmodule
         }));
     }
 }
-

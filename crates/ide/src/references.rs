@@ -4,10 +4,7 @@ use itertools::Itertools;
 use nohash_hasher::IntMap;
 use preproc_expand::file::HirFileId;
 use search::{ReferencesCtx, SearchScope};
-use syntax::{
-    SyntaxTokenWithParent, TokenKind,
-    has_text_range::HasTextRange,
-};
+use syntax::{SyntaxTokenWithParent, TokenKind, has_text_range::HasTextRange};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -17,8 +14,9 @@ use crate::{
     db::root_db::RootDb,
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
-    semantic_target::{SemanticTarget, TargetIntent, TargetResolution, resolve_semantic_target},
-    semantic_target::SourceTarget,
+    semantic_target::{
+        SemanticTarget, SourceTarget, TargetIntent, TargetResolution, resolve_semantic_target,
+    },
 };
 
 mod preproc;

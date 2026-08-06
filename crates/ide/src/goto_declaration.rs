@@ -8,8 +8,7 @@ use crate::{
     db::root_db::RootDb,
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
-    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
-    semantic_target::SourceTarget,
+    semantic_target::{SemanticTarget, SourceTarget, TargetIntent, resolve_semantic_target},
 };
 
 pub(crate) fn goto_declaration(
