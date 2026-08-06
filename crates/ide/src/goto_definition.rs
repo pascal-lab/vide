@@ -18,7 +18,7 @@ use crate::{
     semantic_target::{
         PreprocMacroTarget, SemanticTarget, TargetIntent, TargetResolution, resolve_semantic_target,
     },
-    source_targets::SourceTarget,
+    semantic_target::SourceTarget,
 };
 
 pub(crate) fn goto_definition(

@@ -18,7 +18,7 @@ use crate::{
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
     semantic_target::{SemanticTarget, TargetIntent, TargetResolution, resolve_semantic_target},
-    source_targets::SourceTarget,
+    semantic_target::SourceTarget,
 };
 
 mod preproc;

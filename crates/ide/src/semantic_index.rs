@@ -41,7 +41,7 @@ use crate::{
     navigation_target::nav_location,
     references::{ReferenceCategory, search::resolve_source_range},
     semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target_with_emitted},
-    source_targets::preproc::emit_token_index,
+    semantic_target::preproc::emit_token_index,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -43,7 +43,6 @@ pub mod semantic_index;
 pub(crate) mod semantic_target;
 pub mod semantic_tokens;
 pub mod signature_help;
-pub(crate) mod source_targets;
 pub(crate) mod token;
 #[cfg(test)]
 mod test_utils;

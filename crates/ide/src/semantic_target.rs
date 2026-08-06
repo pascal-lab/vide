@@ -1,3 +1,17 @@
+//! Caret-offset resolution to a semantic target.
+//!
+//! Every IDE feature that works on a position (goto definition, references,
+//! hover, rename, highlight) first resolves the offset to a
+//! [`SemanticTarget`]: a preprocessor macro definition/parameter/reference,
+//! an include directive, or a plain source token. The preprocessor-owned
+//! paths resolve through the preproc model; source tokens fall back to the
+//! syntax token at the offset.
+//!
+//! The preproc provider lives in [`preproc`]; this module owns the target
+//! vocabulary and the resolution entry points.
+
+pub(crate) mod preproc;
+
 use preproc_expand::{
     db::PreprocDb,
     preproc::{
@@ -7,15 +21,13 @@ use preproc_expand::{
         macro_reference_definitions_at,
     },
 };
-use syntax::{SyntaxNode, TokenKind};
+use syntax::{
+    SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, has_text_range::HasTextRange,
+};
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
-use crate::source_targets::{
-    SourceTarget, SourceTargetAlternatives, SourceTargetAmbiguity, SourceTargetBlock,
-    SourceTargetBlockReason, SourceTargetDomain, SourceTargetResolution,
-    preproc::EmittedTokenIndex, source_target_at_offset,
-};
+use self::preproc::{EmittedTokenIndex, preproc_source_target_at_offset};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TargetIntent {
@@ -53,7 +65,10 @@ bitflags::bitflags! {
 pub(crate) enum TargetResolution<'tree> {
     Resolved(TargetCandidate<'tree>),
     Ambiguous(TargetAlternatives<'tree>),
-    Blocked(TargetBlock),
+    /// The offset is preprocessor-owned but cannot be resolved to syntax
+    /// tokens. Distinct from `Unresolved`: callers must not fall back to
+    /// plain syntax resolution for these offsets.
+    Blocked,
     Unresolved,
 }
 
@@ -70,53 +85,8 @@ impl<'tree> TargetResolution<'tree> {
                 candidate.into_target(required).into_iter().collect()
             }
             TargetResolution::Ambiguous(alternatives) => alternatives.into_targets(required),
-            TargetResolution::Blocked(block) => {
-                let TargetBlock { anchor, reason } = block;
-                let _ = (anchor, reason);
-                Vec::new()
-            }
-            TargetResolution::Unresolved => Vec::new(),
+            TargetResolution::Blocked | TargetResolution::Unresolved => Vec::new(),
         }
-    }
-
-    pub(crate) fn from_source_resolution(
-        file_id: FileId,
-        resolution: SourceTargetResolution<'tree>,
-    ) -> Self {
-        match resolution {
-            SourceTargetResolution::Resolved(target) => {
-                let capabilities = source_capabilities();
-                Self::Resolved(TargetCandidate::new(SemanticTarget::Source(target), capabilities))
-            }
-            SourceTargetResolution::Ambiguous(alternatives) => {
-                Self::from_source_alternatives(file_id, alternatives)
-            }
-            SourceTargetResolution::Blocked(block) => {
-                let SourceTargetBlock { range, .. } = block.clone();
-                let anchor = TargetAnchor {
-                    file_id,
-                    range,
-                    origin: TargetOrigin::from_source_block(&block),
-                };
-                Self::from_source_block(anchor, block)
-            }
-        }
-    }
-
-    fn from_source_alternatives(
-        file_id: FileId,
-        alternatives: SourceTargetAlternatives<'tree>,
-    ) -> Self {
-        let SourceTargetAlternatives { domain, range, reason, targets } = alternatives;
-        let anchor =
-            TargetAnchor { file_id, range, origin: TargetOrigin::from_source_domain(domain) };
-        let reason = TargetAmbiguityReason::from_source(reason);
-        let capabilities = source_capabilities();
-        let candidates = targets
-            .into_iter()
-            .map(|target| TargetCandidate::new(SemanticTarget::Source(target), capabilities))
-            .collect();
-        Self::Ambiguous(TargetAlternatives { anchor, reason, candidates })
     }
 
     fn from_preproc_macro(target: PreprocMacroTarget) -> Self {
@@ -130,45 +100,6 @@ impl<'tree> TargetResolution<'tree> {
             SemanticTarget::Include(includes),
             TargetCapability::DESCRIBE | TargetCapability::NAVIGATE,
         )))
-    }
-
-    fn from_source_block(anchor: TargetAnchor, block: SourceTargetBlock) -> Self {
-        match (block.domain, block.reason) {
-            (SourceTargetDomain::Preproc, SourceTargetBlockReason::Unavailable) => {
-                Self::Blocked(TargetBlock { anchor, reason: TargetBlockReason::PreprocUnavailable })
-            }
-            (SourceTargetDomain::Preproc, SourceTargetBlockReason::Ambiguous { hits }) => {
-                Self::Ambiguous(TargetAlternatives {
-                    anchor,
-                    reason: TargetAmbiguityReason::PreprocHits { hit_count: hits.len() },
-                    candidates: Vec::new(),
-                })
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TargetAnchor {
-    pub file_id: FileId,
-    pub range: TextRange,
-    pub origin: TargetOrigin,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TargetOrigin {
-    MacroExpansion,
-}
-
-impl TargetOrigin {
-    fn from_source_domain(domain: SourceTargetDomain) -> Self {
-        match domain {
-            SourceTargetDomain::Preproc => TargetOrigin::MacroExpansion,
-        }
-    }
-
-    fn from_source_block(block: &SourceTargetBlock) -> Self {
-        Self::from_source_domain(block.domain)
     }
 }
 
@@ -194,15 +125,14 @@ impl<'tree> TargetCandidate<'tree> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TargetAlternatives<'tree> {
-    pub anchor: TargetAnchor,
     pub reason: TargetAmbiguityReason,
     pub candidates: Vec<TargetCandidate<'tree>>,
 }
 
 impl<'tree> TargetAlternatives<'tree> {
     fn into_targets(self, required: TargetCapability) -> Vec<SemanticTarget<'tree>> {
-        let Self { anchor, reason, candidates } = self;
-        let _ = (anchor, reason);
+        let Self { reason, candidates } = self;
+        let _ = reason;
         candidates.into_iter().filter_map(|candidate| candidate.into_target(required)).collect()
     }
 }
@@ -212,32 +142,38 @@ pub(crate) enum TargetAmbiguityReason {
     PreprocHits { hit_count: usize },
 }
 
-impl TargetAmbiguityReason {
-    fn from_source(reason: SourceTargetAmbiguity) -> Self {
-        match reason {
-            SourceTargetAmbiguity::PreprocHits { hit_count } => {
-                TargetAmbiguityReason::PreprocHits { hit_count }
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct TargetBlock {
-    pub anchor: TargetAnchor,
-    pub reason: TargetBlockReason,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TargetBlockReason {
-    PreprocUnavailable,
-}
-
 #[derive(Debug, Clone)]
 pub(crate) enum SemanticTarget<'tree> {
     Source(SourceTarget<'tree>),
     PreprocMacro(PreprocMacroTarget),
     Include(Vec<IncludeDirective>),
+}
+
+/// The syntax tokens a caret offset resolves to, with the display range they
+/// share. Macro-emitted tokens can map to several tree tokens (a macro can
+/// emit the same argument more than once); `tokens` keeps every copy.
+#[derive(Debug, Clone)]
+pub(crate) struct SourceTarget<'tree> {
+    pub range: TextRange,
+    pub tokens: Vec<SyntaxTokenWithParent<'tree>>,
+}
+
+impl<'tree> SourceTarget<'tree> {
+    fn normal_syntax(range: TextRange, tokens: Vec<SyntaxTokenWithParent<'tree>>) -> Self {
+        Self { range, tokens }
+    }
+
+    fn preproc(range: TextRange, tokens: Vec<SyntaxTokenWithParent<'tree>>) -> Self {
+        Self { range, tokens }
+    }
+
+    pub(crate) fn into_parts(self) -> (TextRange, Vec<SyntaxTokenWithParent<'tree>>) {
+        (self.range, self.tokens)
+    }
+
+    pub(crate) fn into_tokens(self) -> Vec<SyntaxTokenWithParent<'tree>> {
+        self.into_parts().1
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -305,8 +241,42 @@ where
         return TargetResolution::Unresolved;
     };
     source_target_at_offset(db, file_id, root, offset, precedence, emitted)
-        .map(|resolution| TargetResolution::from_source_resolution(file_id, resolution))
         .unwrap_or(TargetResolution::Unresolved)
+}
+
+/// Resolves the caret offset to a semantic target, or `None` when the offset
+/// is not a resolvable token. Preprocessor-owned offsets (macro definitions,
+/// parameters, references, includes, macro-emitted tokens) resolve through
+/// the preproc path; everything else falls back to the plain syntax token at
+/// the offset.
+fn source_target_at_offset<'tree, F>(
+    db: &dyn PreprocDb,
+    file_id: FileId,
+    root: SyntaxNode<'tree>,
+    offset: TextSize,
+    precedence: F,
+    emitted: Option<&EmittedTokenIndex<'tree>>,
+) -> Option<TargetResolution<'tree>>
+where
+    F: Fn(TokenKind) -> usize,
+{
+    preproc_source_target_at_offset(db, file_id, root, offset, &precedence, emitted).or_else(|| {
+        normal_syntax_source_target_at_offset(root, offset, &precedence).map(|target| {
+            TargetResolution::Resolved(TargetCandidate::new(
+                SemanticTarget::Source(target),
+                source_capabilities(),
+            ))
+        })
+    })
+}
+
+fn normal_syntax_source_target_at_offset<'tree>(
+    root: SyntaxNode<'tree>,
+    offset: TextSize,
+    precedence: &impl Fn(TokenKind) -> usize,
+) -> Option<SourceTarget<'tree>> {    let token = root.token_at_offset(offset).pick_best_token(precedence)?;
+    let range = token.text_range()?;
+    Some(SourceTarget::normal_syntax(range, vec![token]))
 }
 
 fn preproc_macro_target_at(
@@ -344,7 +314,7 @@ fn include_target_at(
     (!includes.is_empty()).then_some(includes)
 }
 
-fn source_capabilities() -> TargetCapability {
+pub(crate) fn source_capabilities() -> TargetCapability {
     TargetCapability::DESCRIBE
         | TargetCapability::NAVIGATE
         | TargetCapability::REFERENCES
@@ -353,141 +323,4 @@ fn source_capabilities() -> TargetCapability {
 }
 
 #[cfg(test)]
-mod tests {
-    use base_db::{change::Change, source_root::SourceRoot};
-    use hir_semantics::semantics::Semantics;
-    use syntax::token::TokenKindExt;
-    use utils::line_index::{TextRange, TextSize};
-    use vfs::{ChangedFile, FileId, FileSet, VfsPath};
-
-    use super::*;
-    use crate::analysis_host::AnalysisHost;
-
-    fn token_precedence(kind: syntax::TokenKind) -> usize {
-        crate::token::name_precedence(kind)
-    }
-
-    fn setup(text: &str, needle: &str) -> (AnalysisHost, FileId, TextSize, TextRange) {
-        let file_id = FileId::from_raw(0);
-        let path = VfsPath::new_virtual_path("/test.sv".to_string());
-        let mut file_set = FileSet::default();
-        file_set.insert(file_id, path);
-        let root = SourceRoot::new_local(file_set);
-
-        let mut change = Change::new();
-        change.set_roots(vec![root]);
-        change.add_changed_file(ChangedFile::create(file_id, text));
-
-        let mut host = AnalysisHost::default();
-        host.apply_change(change);
-
-        let start = text.find(needle).expect("needle should exist");
-        let range = TextRange::new(
-            TextSize::from(start as u32),
-            TextSize::from((start + needle.len()) as u32),
-        );
-        (host, file_id, range.start(), range)
-    }
-
-    #[test]
-    fn source_token_target_is_complete_and_source_origin() {
-        let (host, file_id, offset, range) =
-            setup("module m; wire payload_i; endmodule\n", "payload_i");
-        let sema = Semantics::new(host.raw_db());
-        let parsed = sema.parse_file(file_id);
-        let root = parsed.root().expect("test source should parse");
-
-        let resolution =
-            resolve_semantic_target(host.raw_db(), file_id, offset, Some(root), token_precedence);
-        assert!(matches!(
-            resolution.clone().unique_for_intent(TargetIntent::Describe),
-            Some(SemanticTarget::Source(_))
-        ));
-        assert!(matches!(
-            resolution.clone().unique_for_intent(TargetIntent::Rename),
-            Some(SemanticTarget::Source(_))
-        ));
-
-        let TargetResolution::Resolved(target) = resolution else {
-            panic!("source token should resolve");
-        };
-
-        assert!(target.capabilities.contains(TargetCapability::DESCRIBE));
-        let SemanticTarget::Source(target) = target.target else {
-            panic!("source token should resolve as source target");
-        };
-        assert_eq!(target.range, range);
-    }
-
-    #[test]
-    fn source_target_block_is_reported_without_syntax_fallback() {
-        let block = crate::source_targets::SourceTargetBlock {
-            domain: crate::source_targets::SourceTargetDomain::Preproc,
-            range: TextRange::new(TextSize::from(1), TextSize::from(4)),
-            reason: crate::source_targets::SourceTargetBlockReason::Unavailable,
-        };
-
-        let resolution = TargetResolution::from_source_resolution(
-            FileId::from_raw(0),
-            crate::source_targets::SourceTargetResolution::Blocked(block.clone()),
-        );
-
-        let TargetResolution::Blocked(target) = resolution else {
-            panic!("unavailable source target should be blocked");
-        };
-
-        assert_eq!(target.anchor.range, block.range);
-        assert_eq!(target.anchor.origin, TargetOrigin::MacroExpansion);
-        assert_eq!(target.reason, TargetBlockReason::PreprocUnavailable);
-    }
-
-    #[test]
-    fn ambiguous_source_target_block_is_reported_as_ambiguous() {
-        let block = crate::source_targets::SourceTargetBlock {
-            domain: crate::source_targets::SourceTargetDomain::Preproc,
-            range: TextRange::new(TextSize::from(1), TextSize::from(4)),
-            reason: crate::source_targets::SourceTargetBlockReason::Ambiguous { hits: Vec::new() },
-        };
-
-        let resolution = TargetResolution::from_source_resolution(
-            FileId::from_raw(0),
-            crate::source_targets::SourceTargetResolution::Blocked(block),
-        );
-
-        let TargetResolution::Ambiguous(ambiguity) = resolution else {
-            panic!("conflicting source target should be ambiguous");
-        };
-
-        assert_eq!(ambiguity.reason, TargetAmbiguityReason::PreprocHits { hit_count: 0 });
-        assert!(ambiguity.candidates.is_empty());
-    }
-
-    #[test]
-    fn ambiguous_source_target_alternatives_project_as_candidates() {
-        let range = TextRange::new(TextSize::from(1), TextSize::from(4));
-        let target_range = TextRange::new(TextSize::from(2), TextSize::from(3));
-        let target =
-            crate::source_targets::SourceTarget { range: target_range, tokens: Vec::new() };
-        let alternatives = crate::source_targets::SourceTargetAlternatives {
-            domain: crate::source_targets::SourceTargetDomain::Preproc,
-            range,
-            reason: crate::source_targets::SourceTargetAmbiguity::PreprocHits { hit_count: 2 },
-            targets: vec![target.clone(), target],
-        };
-
-        let resolution = TargetResolution::from_source_resolution(
-            FileId::from_raw(0),
-            crate::source_targets::SourceTargetResolution::Ambiguous(alternatives),
-        );
-
-        assert!(resolution.clone().unique_for_intent(TargetIntent::Describe).is_none());
-        assert_eq!(resolution.clone().targets_for_intent(TargetIntent::Describe).len(), 2);
-
-        let TargetResolution::Ambiguous(alternatives) = resolution else {
-            panic!("source alternatives should stay ambiguous");
-        };
-        assert_eq!(alternatives.anchor.range, range);
-        assert_eq!(alternatives.reason, TargetAmbiguityReason::PreprocHits { hit_count: 2 });
-        assert_eq!(alternatives.candidates.len(), 2);
-    }
-}
+mod tests;
