@@ -13,7 +13,11 @@ use syntax::{
 use triomphe::Arc;
 use utils::text_edit::TextRange;
 
-use crate::{db::HirDefDb, source_projection::SourceOrigin};
+use crate::{
+    ast_id_map::{AstIdMap, SourceAstId},
+    db::HirDefDb,
+    source_projection::SourceOrigin,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ItemTreeId(u32);
@@ -34,6 +38,9 @@ pub struct ItemTreeItem {
     parent: Option<ItemTreeId>,
     kind: syntax::SyntaxKind,
     name: Option<SmolStr>,
+    /// The item's node in the file's [`AstIdMap`]; `None` only for nodes
+    /// without a root-buffer range (include buffers).
+    ast_id: Option<SourceAstId>,
     header_fingerprint: u64,
 }
 
@@ -52,6 +59,11 @@ impl ItemTreeItem {
 
     pub fn name(&self) -> Option<&SmolStr> {
         self.name.as_ref()
+    }
+
+    /// Stable per-file id of the item's AST node.
+    pub fn ast_id(&self) -> Option<SourceAstId> {
+        self.ast_id
     }
 
     /// Fingerprint of the item kind, name, and header tokens.
@@ -99,8 +111,9 @@ pub(crate) struct ItemTreeData {
 #[salsa::tracked(lru = 128, returns(clone))]
 pub(crate) fn item_tree_data(db: &dyn HirDefDb, file_id: HirFileId, _key: ()) -> Arc<ItemTreeData> {
     let tree = db.parse(file_id);
+    let ast_ids = db.ast_id_map(file_id);
     let source_text = file_id.as_file().map(|file_id| db.file_text(file_id));
-    Arc::new(build_item_tree(file_id, &tree, source_text.as_deref()))
+    Arc::new(build_item_tree(file_id, &tree, &ast_ids, source_text.as_deref()))
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
@@ -116,6 +129,7 @@ pub(crate) fn set_item_tree_lru_capacity(db: &mut dyn HirDefDb, capacity: usize)
 fn build_item_tree(
     file_id: HirFileId,
     tree: &SyntaxTree,
+    ast_ids: &AstIdMap,
     source_text: Option<&str>,
 ) -> ItemTreeData {
     let mut items = Vec::new();
@@ -138,6 +152,7 @@ fn build_item_tree(
                         fingerprint(node.kind(), name.as_ref(), header_range, source_text);
                     let full_range = node.text_range();
                     let source_node = full_range.map(|_| SyntaxNodePtr::from_node(node));
+                    let ast_id = full_range.and_then(|_| ast_ids.id_of_node(node));
                     let focus_range = full_range.and(focus_range);
 
                     items.push(ItemTreeItem {
@@ -145,6 +160,7 @@ fn build_item_tree(
                         parent,
                         kind: node.kind(),
                         name,
+                        ast_id,
                         header_fingerprint,
                     });
                     origins.push(Some(SourceOrigin::new(
@@ -241,14 +257,19 @@ mod tests {
         SyntaxTree::from_text(text, "test.sv", "test.sv")
     }
 
+    fn build(file_id: HirFileId, text: &str) -> ItemTreeData {
+        let tree = parse(text);
+        build_item_tree(file_id, &tree, &AstIdMap::from_source(&tree), Some(text))
+    }
+
     #[test]
     fn item_tree_tracks_nested_members_without_using_body_ranges_for_headers() {
         let before = "module top; function void f(); logic value; endfunction endmodule\n";
         let after =
             "module top; function void f(); logic value; value = 1; endfunction endmodule\n";
         let file_id = HirFileId::File(FileId::from_raw(0));
-        let before = build_item_tree(file_id, &parse(before), Some(before));
-        let after = build_item_tree(file_id, &parse(after), Some(after));
+        let before = build(file_id, before);
+        let after = build(file_id, after);
 
         let before_function = before
             .tree
@@ -273,5 +294,25 @@ mod tests {
 
         assert_eq!(projection.len(), 1);
         assert!(!projection.origin(ItemTreeId::from_raw(0)).unwrap().is_navigable());
+    }
+
+    #[test]
+    fn item_tree_items_carry_stable_ast_ids() {
+        let text = "module top; function void f(); logic value; endfunction endmodule\n";
+        let file_id = HirFileId::File(FileId::from_raw(0));
+        let tree = parse(text);
+        let ast_ids = AstIdMap::from_source(&tree);
+        let data = build_item_tree(file_id, &tree, &ast_ids, Some(text));
+
+        for item in data.tree.items() {
+            let ast_id = item.ast_id().expect("root-buffer item must be numbered");
+            let ptr = ast_ids.ptr(ast_id).expect("item ast id must resolve");
+            assert_eq!(
+                ptr.kind(),
+                item.kind(),
+                "item {} ast id must point back at the item node",
+                item.name().map_or("<unnamed>", |name| name.as_str())
+            );
+        }
     }
 }
