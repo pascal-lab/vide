@@ -110,7 +110,7 @@ pub(crate) fn build_macro_reference_index(
     index
 }
 
-#[salsa::tracked(returns(clone))]
+#[salsa::tracked(lru = 16, returns(clone))]
 pub(crate) fn macro_reference_index_for_profile_query(
     db: &dyn PreprocDb,
     profile_id: Option<CompilationProfileId>,

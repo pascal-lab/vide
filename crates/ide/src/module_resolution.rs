@@ -304,13 +304,8 @@ fn resolve_module_name_with_policy(
 }
 
 fn module_candidates(db: &dyn WorkspaceSymbolIndexDb, name: &Ident) -> Vec<ModuleId> {
-    let mut source_root_ids =
-        db.files().iter().map(|&file_id| db.source_root_id(file_id)).collect::<Vec<_>>();
-    source_root_ids.sort_unstable();
-    source_root_ids.dedup();
-
     let mut candidates = Vec::new();
-    for source_root_id in source_root_ids {
+    for source_root_id in db.workspace_source_root_ids().iter().copied() {
         let module_index = source_root_module_index_for_root(db, source_root_id);
         candidates.extend(
             module_index
