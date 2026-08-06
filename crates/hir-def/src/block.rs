@@ -1,3 +1,4 @@
+use std::ops::{Deref, DerefMut};
 use la_arena::Arena;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -29,6 +30,7 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
+    body::{Body, BodySourceMap},
     container::{ArenaOwnerId, InFile},
     db::HirDefDb,
     owner::{OwnerId, OwnerKind},
@@ -43,24 +45,26 @@ use crate::{
 pub struct Block {
     pub name: Option<Ident>,
     pub kind: BlockKind,
-    pub declarations: Arena<Declaration>,
-    pub typedefs: Arena<Typedef>,
-    pub structs: Arena<StructDef>,
-    pub exprs: Arena<Expr>,
-    pub event_exprs: Arena<EventExpr>,
-    pub decls: Arena<Declarator>,
-    pub stmts: Arena<Stmt>,
+    pub body: Body,
+}
+
+impl Deref for Block {
+    type Target = Body;
+
+    fn deref(&self) -> &Self::Target {
+        &self.body
+    }
+}
+
+impl DerefMut for Block {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.body
+    }
 }
 
 impl Block {
     pub fn shrink_to_fit(&mut self) {
-        self.declarations.shrink_to_fit();
-        self.typedefs.shrink_to_fit();
-        self.structs.shrink_to_fit();
-        self.exprs.shrink_to_fit();
-        self.event_exprs.shrink_to_fit();
-        self.decls.shrink_to_fit();
-        self.stmts.shrink_to_fit();
+        self.body.shrink_to_fit();
     }
 }
 
@@ -68,16 +72,25 @@ impl Block {
 pub struct BlockSourceMap {
     pub items: SmallVec<[BlockItem; 2]>,
     pub region_tree: RegionTree,
-    pub declaration_srcs: SourceMap<DeclarationSrc, Declaration>,
-    pub typedef_srcs: SourceMap<TypedefSrc, Typedef>,
-    pub struct_srcs: SourceMap<StructSrc, StructDef>,
-    pub expr_srcs: SourceMap<ExprSrc, Expr>,
-    pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
-    pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
-    pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+    pub body: BodySourceMap,
     pub diagnostics: Vec<LoweringDiagnostic>,
     pub block_srcs: FxHashMap<BlockSrc, LocalBlockId>,
 }
+
+impl Deref for BlockSourceMap {
+    type Target = BodySourceMap;
+
+    fn deref(&self) -> &Self::Target {
+        &self.body
+    }
+}
+
+impl DerefMut for BlockSourceMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.body
+    }
+}
+
 impl LoweredData for Block {
     type SourceMap = BlockSourceMap;
 }
@@ -90,14 +103,7 @@ impl DiagnosticSource for BlockSourceMap {
 
 impl BlockSourceMap {
     pub fn shrink_to_fit(&mut self) {
-        self.declaration_srcs.shrink_to_fit();
-        self.typedef_srcs.shrink_to_fit();
-        self.struct_srcs.shrink_to_fit();
-        self.expr_srcs.shrink_to_fit();
-        self.event_expr_srcs.shrink_to_fit();
-        self.decl_srcs.shrink_to_fit();
-        self.stmt_srcs.shrink_to_fit();
-        self.diagnostics.shrink_to_fit();
+        self.body.shrink_to_fit();
     }
 }
 

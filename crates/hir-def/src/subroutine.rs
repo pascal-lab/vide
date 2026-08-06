@@ -1,4 +1,5 @@
-use la_arena::{Arena, Idx};
+use std::ops::{Deref, DerefMut};
+use la_arena::Idx;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use syntax::{
@@ -26,12 +27,13 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
+    body::{Body, BodySourceMap},
     container::ArenaOwnerId,
     db::HirDefDb,
     owner::{OwnerId, OwnerKind},
     region_tree::RegionTree,
     source_map::{
-        AstKind, DiagnosticSource, Lowered, LoweredData, LoweringDiagnostic, NamedAstId, SourceMap,
+        AstKind, DiagnosticSource, Lowered, LoweredData, LoweringDiagnostic, NamedAstId,
     },
 };
 
@@ -54,42 +56,36 @@ impl Default for Subroutine {
     }
 }
 
-/// Procedure-local arenas. This is deliberately separate from `Subroutine`:
-/// header queries can remain valid when only the procedure body changes.
+/// Procedure-local headers are kept in `Subroutine`; the shared body arenas
+/// live in [`Body`] so every owner uses one storage model.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SubroutineBody {
-    pub declarations: Arena<Declaration>,
-    pub typedefs: Arena<Typedef>,
-    pub structs: Arena<StructDef>,
-    pub exprs: Arena<Expr>,
-    pub event_exprs: Arena<EventExpr>,
-    pub decls: Arena<Declarator>,
-    pub stmts: Arena<Stmt>,
-}
-
-impl SubroutineBody {
-    pub fn shrink_to_fit(&mut self) {
-        self.declarations.shrink_to_fit();
-        self.typedefs.shrink_to_fit();
-        self.structs.shrink_to_fit();
-        self.exprs.shrink_to_fit();
-        self.event_exprs.shrink_to_fit();
-        self.decls.shrink_to_fit();
-        self.stmts.shrink_to_fit();
-    }
+    pub body: Body,
 }
 
 impl Default for SubroutineBody {
     fn default() -> Self {
-        Self {
-            declarations: Arena::new(),
-            typedefs: Arena::new(),
-            structs: Arena::new(),
-            exprs: Arena::new(),
-            event_exprs: Arena::new(),
-            decls: Arena::new(),
-            stmts: Arena::new(),
-        }
+        Self { body: Body::default() }
+    }
+}
+
+impl Deref for SubroutineBody {
+    type Target = Body;
+
+    fn deref(&self) -> &Self::Target {
+        &self.body
+    }
+}
+
+impl DerefMut for SubroutineBody {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.body
+    }
+}
+
+impl SubroutineBody {
+    pub fn shrink_to_fit(&mut self) {
+        self.body.shrink_to_fit();
     }
 }
 
@@ -97,17 +93,24 @@ impl Default for SubroutineBody {
 pub struct SubroutineBodySourceMap {
     pub items: SmallVec<[BlockItem; 2]>,
     pub region_tree: RegionTree,
-    pub declaration_srcs: SourceMap<DeclarationSrc, Declaration>,
-    pub typedef_srcs: SourceMap<TypedefSrc, Typedef>,
-    pub struct_srcs: SourceMap<StructSrc, StructDef>,
-    pub expr_srcs: SourceMap<ExprSrc, Expr>,
-    pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
-    pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
-    pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+    pub body: BodySourceMap,
     pub block_srcs: FxHashMap<BlockSrc, LocalBlockId>,
     pub diagnostics: Vec<LoweringDiagnostic>,
 }
 
+impl Deref for SubroutineBodySourceMap {
+    type Target = BodySourceMap;
+
+    fn deref(&self) -> &Self::Target {
+        &self.body
+    }
+}
+
+impl DerefMut for SubroutineBodySourceMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.body
+    }
+}
 impl LoweredData for SubroutineBody {
     type SourceMap = SubroutineBodySourceMap;
 }
@@ -120,16 +123,10 @@ impl DiagnosticSource for SubroutineBodySourceMap {
 
 impl SubroutineBodySourceMap {
     pub fn shrink_to_fit(&mut self) {
-        self.declaration_srcs.shrink_to_fit();
-        self.typedef_srcs.shrink_to_fit();
-        self.struct_srcs.shrink_to_fit();
-        self.expr_srcs.shrink_to_fit();
-        self.event_expr_srcs.shrink_to_fit();
-        self.decl_srcs.shrink_to_fit();
-        self.stmt_srcs.shrink_to_fit();
-        self.diagnostics.shrink_to_fit();
+        self.body.shrink_to_fit();
     }
 }
+
 
 crate::impl_arena_getters!(
     SubroutineBody;

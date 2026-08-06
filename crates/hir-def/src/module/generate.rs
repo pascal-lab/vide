@@ -1,3 +1,4 @@
+use std::ops::{Deref, DerefMut};
 use la_arena::{Arena, Idx};
 use smallvec::SmallVec;
 use syntax::{
@@ -24,6 +25,7 @@ use crate::{
     alloc_with_optional_source_entry, alloc_with_source,
     container::{ArenaOwnerId, InFile},
     db::HirDefDb,
+    body::{Body, BodySourceMap},
     declaration::{Declaration, DeclarationId, DeclarationSrc},
     expr::{
         Expr, ExprId, ExprSrc,
@@ -284,38 +286,40 @@ pub struct GenerateBlock {
     pub region_tree: RegionTree,
     pub cont_assigns: Arena<ContAssign>,
     pub defparams: Arena<DefParam>,
-    pub declarations: Arena<Declaration>,
-    pub typedefs: Arena<Typedef>,
-    pub structs: Arena<StructDef>,
     pub subroutines: Arena<Subroutine>,
     pub instantiations: Arena<Instantiation>,
     pub inst_param_assigns: Arena<ParamAssign>,
     pub instances: Arena<Instance>,
     pub inst_port_conns: Arena<PortConn>,
     pub procs: Arena<Proc>,
-    pub exprs: Arena<Expr>,
-    pub event_exprs: Arena<EventExpr>,
-    pub decls: Arena<Declarator>,
-    pub stmts: Arena<Stmt>,
+    pub body: Body,
+}
+
+impl Deref for GenerateBlock {
+    type Target = Body;
+
+    fn deref(&self) -> &Self::Target {
+        &self.body
+    }
+}
+
+impl DerefMut for GenerateBlock {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.body
+    }
 }
 
 impl GenerateBlock {
     pub fn shrink_to_fit(&mut self) {
         self.cont_assigns.shrink_to_fit();
         self.defparams.shrink_to_fit();
-        self.declarations.shrink_to_fit();
-        self.typedefs.shrink_to_fit();
-        self.structs.shrink_to_fit();
         self.subroutines.shrink_to_fit();
         self.instantiations.shrink_to_fit();
         self.inst_param_assigns.shrink_to_fit();
         self.instances.shrink_to_fit();
         self.inst_port_conns.shrink_to_fit();
         self.procs.shrink_to_fit();
-        self.exprs.shrink_to_fit();
-        self.event_exprs.shrink_to_fit();
-        self.decls.shrink_to_fit();
-        self.stmts.shrink_to_fit();
+        self.body.shrink_to_fit();
     }
 }
 
@@ -325,20 +329,28 @@ pub struct GenerateBlockSourceMap {
     pub region_tree: RegionTree,
     pub assign_srcs: SourceMap<ContAssignSrc, ContAssign>,
     pub defparam_srcs: SourceMap<DefParamSrc, DefParam>,
-    pub declaration_srcs: SourceMap<DeclarationSrc, Declaration>,
-    pub typedef_srcs: SourceMap<TypedefSrc, Typedef>,
-    pub struct_srcs: SourceMap<StructSrc, StructDef>,
     pub subroutine_srcs: SourceMap<SubroutineSrc, Subroutine>,
     pub instantiation_srcs: SourceMap<InstantiationSrc, Instantiation>,
     pub inst_param_assign_srcs: SourceMap<ParamAssignSrc, ParamAssign>,
     pub instance_srcs: SourceMap<InstanceSrc, Instance>,
     pub inst_port_conn_srcs: SourceMap<PortConnSrc, PortConn>,
     pub proc_srcs: SourceMap<ProcSrc, Proc>,
-    pub expr_srcs: SourceMap<ExprSrc, Expr>,
-    pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
-    pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
-    pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+    pub body: BodySourceMap,
     pub diagnostics: Vec<LoweringDiagnostic>,
+}
+
+impl Deref for GenerateBlockSourceMap {
+    type Target = BodySourceMap;
+
+    fn deref(&self) -> &Self::Target {
+        &self.body
+    }
+}
+
+impl DerefMut for GenerateBlockSourceMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.body
+    }
 }
 impl LoweredData for GenerateBlock {
     type SourceMap = GenerateBlockSourceMap;
@@ -354,22 +366,17 @@ impl GenerateBlockSourceMap {
     pub fn shrink_to_fit(&mut self) {
         self.assign_srcs.shrink_to_fit();
         self.defparam_srcs.shrink_to_fit();
-        self.declaration_srcs.shrink_to_fit();
-        self.typedef_srcs.shrink_to_fit();
-        self.struct_srcs.shrink_to_fit();
         self.subroutine_srcs.shrink_to_fit();
         self.instantiation_srcs.shrink_to_fit();
         self.inst_param_assign_srcs.shrink_to_fit();
         self.instance_srcs.shrink_to_fit();
         self.inst_port_conn_srcs.shrink_to_fit();
         self.proc_srcs.shrink_to_fit();
-        self.expr_srcs.shrink_to_fit();
-        self.event_expr_srcs.shrink_to_fit();
-        self.decl_srcs.shrink_to_fit();
-        self.stmt_srcs.shrink_to_fit();
+        self.body.shrink_to_fit();
         self.diagnostics.shrink_to_fit();
     }
 }
+
 
 crate::impl_arena_getters!(
     GenerateBlock;

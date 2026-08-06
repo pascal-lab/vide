@@ -1,3 +1,4 @@
+use std::ops::{Deref, DerefMut};
 use config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc};
 use la_arena::{Arena, Idx};
 use library::{
@@ -38,6 +39,7 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
+    body::{Body, BodySourceMap},
     ast_id_map::SyntaxFileId,
     container::ArenaOwnerId,
     db::HirDefDb,
@@ -54,8 +56,6 @@ pub mod udp;
 pub struct HirFile {
     pub modules: Arena<ModuleInfo>,
     pub procs: Arena<Proc>,
-    pub typedefs: Arena<Typedef>,
-    pub structs: Arena<StructDef>,
     pub config_decls: Arena<ConfigDecl>,
     pub udp_decls: Arena<UdpDecl>,
     pub library_decls: Arena<LibraryDecl>,
@@ -66,19 +66,27 @@ pub struct HirFile {
     pub crosses: Arena<CrossDef>,
     pub subroutines: Arena<Subroutine>,
     pub package_imports: Arena<PackageImport>,
-    pub declarations: Arena<Declaration>,
-    pub exprs: Arena<Expr>,
-    pub event_exprs: Arena<EventExpr>,
-    pub decls: Arena<Declarator>,
-    pub stmts: Arena<Stmt>,
+    pub body: Body,
+}
+
+impl Deref for HirFile {
+    type Target = Body;
+
+    fn deref(&self) -> &Self::Target {
+        &self.body
+    }
+}
+
+impl DerefMut for HirFile {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.body
+    }
 }
 
 impl HirFile {
     pub fn shrink_to_fit(&mut self) {
         self.modules.shrink_to_fit();
         self.procs.shrink_to_fit();
-        self.typedefs.shrink_to_fit();
-        self.structs.shrink_to_fit();
         self.config_decls.shrink_to_fit();
         self.udp_decls.shrink_to_fit();
         self.library_decls.shrink_to_fit();
@@ -89,11 +97,7 @@ impl HirFile {
         self.crosses.shrink_to_fit();
         self.subroutines.shrink_to_fit();
         self.package_imports.shrink_to_fit();
-        self.declarations.shrink_to_fit();
-        self.exprs.shrink_to_fit();
-        self.event_exprs.shrink_to_fit();
-        self.decls.shrink_to_fit();
-        self.stmts.shrink_to_fit();
+        self.body.shrink_to_fit();
     }
 }
 
@@ -103,9 +107,6 @@ pub struct FileSourceMap {
     pub region_tree: RegionTree,
     pub module_srcs: SourceMap<ModuleSrc, ModuleInfo>,
     pub proc_srcs: SourceMap<ProcSrc, Proc>,
-    pub declaration_srcs: SourceMap<DeclarationSrc, Declaration>,
-    pub typedef_srcs: SourceMap<TypedefSrc, Typedef>,
-    pub struct_srcs: SourceMap<StructSrc, StructDef>,
     pub config_decl_srcs: SourceMap<ConfigDeclSrc, ConfigDecl>,
     pub udp_decl_srcs: SourceMap<UdpDeclSrc, UdpDecl>,
     pub library_decl_srcs: SourceMap<LibraryDeclSrc, LibraryDecl>,
@@ -115,11 +116,22 @@ pub struct FileSourceMap {
     pub coverpoint_srcs: SourceMap<CoverpointSrc, CoverpointDef>,
     pub cross_srcs: SourceMap<CrossSrc, CrossDef>,
     pub subroutine_srcs: SourceMap<SubroutineSrc, Subroutine>,
-    pub expr_srcs: SourceMap<ExprSrc, Expr>,
-    pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
-    pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
-    pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+    pub body: BodySourceMap,
     pub diagnostics: Vec<LoweringDiagnostic>,
+}
+
+impl Deref for FileSourceMap {
+    type Target = BodySourceMap;
+
+    fn deref(&self) -> &Self::Target {
+        &self.body
+    }
+}
+
+impl DerefMut for FileSourceMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.body
+    }
 }
 impl LoweredData for HirFile {
     type SourceMap = FileSourceMap;
@@ -135,9 +147,6 @@ impl FileSourceMap {
     pub fn shrink_to_fit(&mut self) {
         self.module_srcs.shrink_to_fit();
         self.proc_srcs.shrink_to_fit();
-        self.declaration_srcs.shrink_to_fit();
-        self.typedef_srcs.shrink_to_fit();
-        self.struct_srcs.shrink_to_fit();
         self.config_decl_srcs.shrink_to_fit();
         self.udp_decl_srcs.shrink_to_fit();
         self.library_decl_srcs.shrink_to_fit();
@@ -147,13 +156,11 @@ impl FileSourceMap {
         self.coverpoint_srcs.shrink_to_fit();
         self.cross_srcs.shrink_to_fit();
         self.subroutine_srcs.shrink_to_fit();
-        self.expr_srcs.shrink_to_fit();
-        self.event_expr_srcs.shrink_to_fit();
-        self.decl_srcs.shrink_to_fit();
-        self.stmt_srcs.shrink_to_fit();
+        self.body.shrink_to_fit();
         self.diagnostics.shrink_to_fit();
     }
 }
+
 
 crate::impl_arena_getters!(
     HirFile;
