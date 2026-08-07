@@ -27,6 +27,30 @@ use crate::{
     },
 };
 
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub(crate) struct PreprocFileQueryKey {
+    #[returns(copy)]
+    pub file_id: FileId,
+}
+
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub(crate) struct PreprocProfileQueryKey {
+    #[returns(copy)]
+    pub profile_id: Option<CompilationProfileId>,
+}
+
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub(crate) struct PreprocSourceRootQueryKey {
+    #[returns(copy)]
+    pub source_root_id: SourceRootId,
+}
+
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub(crate) struct MacroFileQueryKey {
+    #[returns(copy)]
+    pub macro_file: MacroFileId,
+}
+
 struct SourceFileIdentity {
     name: String,
     path: String,
@@ -125,7 +149,8 @@ fn syntax_tree_options_for_profile(
 }
 
 #[salsa::tracked(returns(clone))]
-fn parsed_compilation_unit(db: &dyn PreprocDb, file_id: FileId, _key: ()) -> ParsedCompilationUnit {
+fn parsed_compilation_unit(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> ParsedCompilationUnit {
+    let file_id = key.file_id(db);
     let profile_id = db.file_compilation_profile(file_id);
     if let Some(profile_id) = profile_id {
         let plan = db.compilation_plan_for_profile(Some(profile_id));
@@ -197,11 +222,8 @@ fn parsed_compilation_unit(db: &dyn PreprocDb, file_id: FileId, _key: ()) -> Par
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
-fn parsed_profile(
-    db: &dyn PreprocDb,
-    profile_id: Option<CompilationProfileId>,
-    _key: (),
-) -> Arc<ParsedProfile> {
+fn parsed_profile(db: &dyn PreprocDb, key: PreprocProfileQueryKey) -> Arc<ParsedProfile> {
+    let profile_id = key.profile_id(db);
     let context = db.compilation_context(profile_id);
     let plan = db.compilation_plan_for_profile(profile_id);
     let include_buffers = compilation_plan::include_buffers_for_plan(db, &plan);
@@ -268,8 +290,8 @@ fn parsed_profile(
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
-fn parse_src_for_compilation(db: &dyn PreprocDb, file_id: FileId, _key: ()) -> SyntaxTree {
-    db.parsed_compilation_unit(file_id).syntax_tree.clone()
+fn parse_src_for_compilation(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> SyntaxTree {
+    db.parsed_compilation_unit(key.file_id(db)).syntax_tree.clone()
 }
 
 pub fn set_parse_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
@@ -312,7 +334,8 @@ fn parser_expected_syntax(
 }
 
 #[salsa::tracked(returns(clone))]
-fn parse_diagnostics(db: &dyn PreprocDb, file_id: FileId, _key: ()) -> Arc<[SyntaxDiagnostic]> {
+fn parse_diagnostics(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<[SyntaxDiagnostic]> {
+    let file_id = key.file_id(db);
     let config = db.diagnostics_config();
     if !config.enabled || !config.parse.enabled || !db.file_kind(file_id).is_slang_parse_unit() {
         return Arc::from(Vec::<SyntaxDiagnostic>::new());
@@ -363,73 +386,84 @@ fn parse_diagnostics(db: &dyn PreprocDb, file_id: FileId, _key: ()) -> Arc<[Synt
 pub trait PreprocDb: SourceRootDb {}
 
 impl dyn PreprocDb + '_ {
+    fn file_query_key(&self, file_id: FileId) -> PreprocFileQueryKey {
+        PreprocFileQueryKey::new(self, file_id)
+    }
+
+    fn profile_query_key(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> PreprocProfileQueryKey {
+        PreprocProfileQueryKey::new(self, profile_id)
+    }
+
     pub fn compilation_plan_for_root(&self, source_root_id: SourceRootId) -> Arc<CompilationPlan> {
-        compilation_plan_for_root(self, source_root_id, ())
+        compilation_plan_for_root(self, PreprocSourceRootQueryKey::new(self, source_root_id))
     }
 
     pub fn compilation_plan_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<CompilationPlan> {
-        compilation_plan_for_profile(self, profile_id, ())
+        compilation_plan_for_profile(self, self.profile_query_key(profile_id))
     }
 
     pub fn compilation_context(
         &self,
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<CompilationContext> {
-        compilation_context(self, profile_id, ())
+        compilation_context(self, self.profile_query_key(profile_id))
     }
 
     pub fn compilation_context_for_file(&self, file_id: FileId) -> Arc<CompilationContext> {
-        compilation_context_for_file(self, file_id, ())
+        compilation_context_for_file(self, self.file_query_key(file_id))
     }
 
     pub fn compilation_profile_diagnostics(
         &self,
         profile_id: CompilationProfileId,
     ) -> Arc<CompilationProfileDiagnostics> {
-        compilation_profile_diagnostics(self, profile_id, ())
+        compilation_profile_diagnostics(self, self.profile_query_key(Some(profile_id)))
     }
 
     pub fn include_buffers_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<Vec<SyntaxTreeBuffer>> {
-        include_buffers_for_profile(self, profile_id, ())
+        include_buffers_for_profile(self, self.profile_query_key(profile_id))
     }
 
     pub fn source_preproc_model(
         &self,
         file_id: FileId,
     ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>> {
-        source_preproc_model(self, file_id, ())
+        source_preproc_model(self, self.file_query_key(file_id))
     }
 
     pub fn source_preproc_context_index_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<SourcePreprocContextIndex> {
-        source_preproc_context_index_for_profile(self, profile_id, ())
+        source_preproc_context_index_for_profile(self, self.profile_query_key(profile_id))
     }
 
     pub fn source_preproc_contexts_for_file(
         &self,
         file_id: FileId,
     ) -> Arc<SourcePreprocRelevantContexts> {
-        source_preproc_contexts_for_file(self, file_id, ())
+        source_preproc_contexts_for_file(self, self.file_query_key(file_id))
     }
 
     pub fn parsed_compilation_unit(&self, file_id: FileId) -> ParsedCompilationUnit {
-        parsed_compilation_unit(self, file_id, ())
+        parsed_compilation_unit(self, self.file_query_key(file_id))
     }
 
     pub fn parsed_profile(&self, profile_id: Option<CompilationProfileId>) -> Arc<ParsedProfile> {
-        parsed_profile(self, profile_id, ())
+        parsed_profile(self, self.profile_query_key(profile_id))
     }
 
     pub fn parse_src_for_compilation(&self, file_id: FileId) -> SyntaxTree {
-        parse_src_for_compilation(self, file_id, ())
+        parse_src_for_compilation(self, self.file_query_key(file_id))
     }
 
     pub fn parser_expected_syntax(
@@ -441,26 +475,26 @@ impl dyn PreprocDb + '_ {
     }
 
     pub fn parse_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
-        parse_diagnostics(self, file_id, ())
+        parse_diagnostics(self, self.file_query_key(file_id))
     }
 
     pub fn file_compilation_diagnostics(&self, file_id: FileId) -> Arc<[CompilationDiagnostic]> {
-        file_compilation_diagnostics(self, file_id, ())
+        file_compilation_diagnostics(self, self.file_query_key(file_id))
     }
 
     pub fn semantic_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
-        semantic_diagnostics(self, file_id, ())
+        semantic_diagnostics(self, self.file_query_key(file_id))
     }
 
     pub fn source_root_semantic_diagnostics(
         &self,
         file_id: FileId,
     ) -> Arc<[(FileId, SyntaxDiagnostic)]> {
-        source_root_semantic_diagnostics(self, file_id, ())
+        source_root_semantic_diagnostics(self, self.file_query_key(file_id))
     }
 
     pub fn macro_expansion(&self, macro_file: MacroFileId) -> Arc<ExpandResult<ExpansionInfo>> {
-        macro_file::macro_expansion_query(self, macro_file, ())
+        macro_file::macro_expansion_query(self, MacroFileQueryKey::new(self, macro_file))
     }
 
     pub fn parse(&self, file_id: HirFileId) -> SyntaxTree {
@@ -468,7 +502,7 @@ impl dyn PreprocDb + '_ {
     }
 
     pub fn trace_index(&self, model_file: FileId) -> Arc<TraceIndex> {
-        macro_file::trace_index_query(self, model_file, ())
+        macro_file::trace_index_query(self, self.file_query_key(model_file))
     }
 
     pub fn file_macro_coverage(&self, file_id: FileId) -> Arc<MacroCoverage> {
@@ -479,7 +513,7 @@ impl dyn PreprocDb + '_ {
         &self,
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<MacroReferenceIndex> {
-        macro_reference_index_for_profile_query(self, profile_id, ())
+        macro_reference_index_for_profile_query(self, self.profile_query_key(profile_id))
     }
 }
 
@@ -493,27 +527,22 @@ fn parse(db: &dyn PreprocDb, file_id: HirFileId) -> SyntaxTree {
 #[salsa::tracked(returns(clone))]
 fn compilation_plan_for_root(
     db: &dyn PreprocDb,
-    source_root_id: SourceRootId,
-    _key: (),
+    key: PreprocSourceRootQueryKey,
 ) -> Arc<CompilationPlan> {
-    Arc::new(CompilationPlan::for_source_root(db, source_root_id))
+    Arc::new(CompilationPlan::for_source_root(db, key.source_root_id(db)))
 }
 
 #[salsa::tracked(returns(clone))]
 fn compilation_plan_for_profile(
     db: &dyn PreprocDb,
-    profile_id: Option<CompilationProfileId>,
-    _key: (),
+    key: PreprocProfileQueryKey,
 ) -> Arc<CompilationPlan> {
-    Arc::new(CompilationPlan::for_profile(db, profile_id))
+    Arc::new(CompilationPlan::for_profile(db, key.profile_id(db)))
 }
 
 #[salsa::tracked(returns(clone))]
-fn compilation_context(
-    db: &dyn PreprocDb,
-    profile_id: Option<CompilationProfileId>,
-    _key: (),
-) -> Arc<CompilationContext> {
+fn compilation_context(db: &dyn PreprocDb, key: PreprocProfileQueryKey) -> Arc<CompilationContext> {
+    let profile_id = key.profile_id(db);
     let plan = db.compilation_plan_for_profile(profile_id);
     let library_maps = plan
         .roots
@@ -534,19 +563,19 @@ fn compilation_context(
 #[salsa::tracked(returns(clone))]
 fn compilation_context_for_file(
     db: &dyn PreprocDb,
-    file_id: FileId,
-    _key: (),
+    key: PreprocFileQueryKey,
 ) -> Arc<CompilationContext> {
-    let profile_id = db.file_compilation_profile(file_id);
+    let profile_id = db.file_compilation_profile(key.file_id(db));
     db.compilation_context(profile_id)
 }
 
 #[salsa::tracked(returns(clone))]
 fn compilation_profile_diagnostics(
     db: &dyn PreprocDb,
-    profile_id: CompilationProfileId,
-    _key: (),
+    key: PreprocProfileQueryKey,
 ) -> Arc<CompilationProfileDiagnostics> {
+    let profile_id =
+        key.profile_id(db).expect("compilation diagnostics require a concrete profile");
     let config = db.diagnostics_config();
     let _span =
         tracing::info_span!("slang.profile_compilation", ?profile_id, parse_mode = "authoritative")
@@ -675,15 +704,16 @@ fn compilation_diagnostics_from_compilation(
 #[salsa::tracked(returns(clone))]
 fn include_buffers_for_profile(
     db: &dyn PreprocDb,
-    profile_id: Option<CompilationProfileId>,
-    _key: (),
+    key: PreprocProfileQueryKey,
 ) -> Arc<Vec<SyntaxTreeBuffer>> {
+    let profile_id = key.profile_id(db);
     let plan = db.compilation_plan_for_profile(profile_id);
     Arc::new(compilation_plan::include_buffers_for_plan(db, &plan))
 }
 
 #[salsa::tracked(returns(clone))]
-fn semantic_diagnostics(db: &dyn PreprocDb, file_id: FileId, _key: ()) -> Arc<[SyntaxDiagnostic]> {
+fn semantic_diagnostics(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<[SyntaxDiagnostic]> {
+    let file_id = key.file_id(db);
     Arc::from(
         db.source_root_semantic_diagnostics(file_id)
             .iter()
@@ -695,9 +725,9 @@ fn semantic_diagnostics(db: &dyn PreprocDb, file_id: FileId, _key: ()) -> Arc<[S
 #[salsa::tracked(returns(clone))]
 fn file_compilation_diagnostics(
     db: &dyn PreprocDb,
-    file_id: FileId,
-    _key: (),
+    key: PreprocFileQueryKey,
 ) -> Arc<[CompilationDiagnostic]> {
+    let file_id = key.file_id(db);
     let source_root_id = db.source_root_id(file_id);
     let config = db.diagnostics_config();
     if !config.enabled || db.file_is_project_ignored(file_id) {
@@ -714,9 +744,9 @@ fn file_compilation_diagnostics(
 #[salsa::tracked(returns(clone))]
 fn source_root_semantic_diagnostics(
     db: &dyn PreprocDb,
-    file_id: FileId,
-    _key: (),
+    key: PreprocFileQueryKey,
 ) -> Arc<[(FileId, SyntaxDiagnostic)]> {
+    let file_id = key.file_id(db);
     Arc::from(
         db.file_compilation_diagnostics(file_id)
             .iter()

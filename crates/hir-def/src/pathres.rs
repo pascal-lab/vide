@@ -29,7 +29,7 @@ pub fn resolve_name(
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    let scopes = ScopeChain::from_inner(cont_id);
+    let scopes = ScopeChain::from_inner(db, cont_id);
 
     for id in scopes.iter() {
         let resolution = db.scope_for(id.clone()).lookup(ctx, ident);

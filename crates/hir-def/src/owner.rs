@@ -1,24 +1,23 @@
-//! Unified owner identity.
+//! Canonical semantic-owner identity.
 //!
-//! Every lowering container — file, module, generate block, procedural block,
-//! subroutine — is one [`OwnerId`]. The id is interned by
-//! `(file, kind, parent, slot)`, so it is independent of names, ranges, and
-//! AST numbering. `slot` is the ordinal among the owner's direct owner
-//! children; body syntax that is not itself an owner cannot change it.
+//! Every structural lowering owner is keyed by its immutable source anchor:
+//! `(file, SourceAstId, kind)`. Parentage and names are revision data owned by
+//! [`OwnerTable`]; they are deliberately not part of identity. This keeps an
+//! owner stable when unrelated siblings or body-local syntax change while
+//! still making source lookup a direct, allocation-free projection.
 //!
-//! The per-file [`owner_table`] enumerates structural owners independently of
-//! source projection. [`OwnerSourceMap`] joins those owners to the current
-//! [`SourceAstId`](crate::ast_id_map::SourceAstId), keeping source identity and
-//! owner identity separate.
+//! A syntax node may start more than one owner (for example an unwrapped
+//! generate branch containing a subroutine). `OwnerKind` distinguishes those
+//! owners without introducing another ordinal identity system.
 //!
 //! The id is `'static` via `unsafe(no_lifetime)` so it can be used as a Salsa
-//! single query key. This is an explicit safety tradeoff: it is paired with
-//! `revisions = usize::MAX`, and the owner identity contains only immutable
-//! interned fields.
+//! query key. This is paired with `revisions = usize::MAX`; every interned
+//! field is immutable across revisions.
 
 use base_db::salsa;
 use preproc_expand::file::HirFileId;
 use rustc_hash::FxHashMap;
+use smallvec::{SmallVec, smallvec};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxTree, WalkEvent,
@@ -29,10 +28,13 @@ use triomphe::Arc;
 
 use crate::{
     ast_id_map::{self, AstIdMap, SourceAstId, SyntaxFileId},
-    block::BlockId,
-    container::SubroutineScope,
+    block::{BlockId, BlockLoc, BlockSrc},
+    container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
     db::HirDefDb,
-    module::{ModuleId, generate::generate_block_name},
+    module::{
+        ModuleId,
+        generate::{GenerateBlockId, GenerateBlockLoc, GenerateBlockSrc, generate_block_name},
+    },
 };
 
 /// The kind of container an owner represents.
@@ -48,19 +50,26 @@ pub enum OwnerKind {
     Covergroup,
     ClockingBlock,
 }
-/// A unified owner identity: `Copy`, `'static`, and independent of source
-/// ranges or names. `slot` is the ordinal among the owner's direct owner
-/// children; body syntax that is not itself an owner cannot change it.
+/// Canonical semantic-owner identity.
 #[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
 pub struct OwnerId {
     #[returns(copy)]
     pub file: HirFileId,
     #[returns(copy)]
+    pub ast_id: SourceAstId,
+    #[returns(copy)]
     pub kind: OwnerKind,
-    #[returns(copy)]
-    pub parent: Option<OwnerId>,
-    #[returns(copy)]
-    pub slot: u32,
+}
+
+impl OwnerId {
+    /// Lexical parent from the current structural owner graph.
+    pub fn parent(self, db: &dyn HirDefDb) -> Option<Self> {
+        db.owner_table(self.file(db))
+            .owners()
+            .iter()
+            .find(|owner| owner.id == self)
+            .and_then(|owner| owner.parent)
+    }
 }
 
 impl PartialOrd for OwnerId {
@@ -84,13 +93,13 @@ pub struct OwnerData {
     pub name: SmolStr,
 }
 
-/// The canonical owner enumeration of a file, in source (DFS preorder) order.
-///
-/// This is structural data only. Source AST ids and ranges live in
-/// [`OwnerSourceMap`] so body/source edits do not redefine owner identity.
+/// Source positions are not stored here. Every owner already carries its
+/// stable [`SourceAstId`], while current ranges and pointers live in the AST
+/// map/source projection.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OwnerTable {
     owners: Vec<OwnerData>,
+    by_source: FxHashMap<(SourceAstId, OwnerKind), OwnerId>,
 }
 
 impl OwnerTable {
@@ -111,22 +120,9 @@ impl OwnerTable {
     pub fn owners_of_kind(&self, kind: OwnerKind) -> impl Iterator<Item = &OwnerData> {
         self.owners.iter().filter(move |owner| owner.kind == kind)
     }
-}
 
-/// The source-side join between an [`OwnerId`] and the current AST.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OwnerSourceMap {
-    by_owner: FxHashMap<OwnerId, Option<SourceAstId>>,
-    by_ast: FxHashMap<SourceAstId, OwnerId>,
-}
-
-impl OwnerSourceMap {
-    pub fn source_ast_id(&self, owner: OwnerId) -> Option<SourceAstId> {
-        self.by_owner.get(&owner).copied().flatten()
-    }
-
-    pub fn owner_by_ast(&self, ast_id: SourceAstId) -> Option<OwnerId> {
-        self.by_ast.get(&ast_id).copied()
+    pub fn owner_by_ast(&self, ast_id: SourceAstId, kind: OwnerKind) -> Option<OwnerId> {
+        self.by_source.get(&(ast_id, kind)).copied()
     }
 }
 
@@ -134,32 +130,21 @@ impl OwnerSourceMap {
 pub(crate) fn owner_table(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerTable> {
     let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
-    Arc::new(owner_table_from_source(db, file_id, &tree))
-}
-
-#[salsa::tracked(lru = 256, returns(clone))]
-pub(crate) fn owner_source_map(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerSourceMap> {
-    let file_id = file.hir_file(db);
-    let tree = db.parse(file_id);
     let ast_ids = ast_id_map::ast_id_map(db, file);
-    Arc::new(owner_source_map_from_source(db, file_id, &tree, &ast_ids))
-}
-
-/// Owner-local source lookup. The single `OwnerId` key is intentional: body
-/// queries can locate their current syntax without re-keying through a legacy
-/// container id.
-#[salsa::tracked(returns(copy))]
-pub(crate) fn owner_source_ast_id(db: &dyn HirDefDb, owner: OwnerId) -> Option<SourceAstId> {
-    db.owner_source_map(owner.file(db)).source_ast_id(owner)
+    Arc::new(owner_table_from_source(db, file_id, &tree, &ast_ids))
 }
 
 pub(crate) fn set_owner_table_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     owner_table::set_lru_capacity(db, capacity);
-    owner_source_map::set_lru_capacity(db, capacity);
 }
 
-fn owner_table_from_source(db: &dyn HirDefDb, file_id: HirFileId, tree: &SyntaxTree) -> OwnerTable {
-    let owners = discover_owners(db, file_id, tree, None)
+fn owner_table_from_source(
+    db: &dyn HirDefDb,
+    file_id: HirFileId,
+    tree: &SyntaxTree,
+    ast_ids: &AstIdMap,
+) -> OwnerTable {
+    let owners: Vec<_> = discover_owners(db, file_id, tree, ast_ids)
         .into_iter()
         .map(|owner| OwnerData {
             id: owner.id,
@@ -168,25 +153,9 @@ fn owner_table_from_source(db: &dyn HirDefDb, file_id: HirFileId, tree: &SyntaxT
             name: owner.name,
         })
         .collect();
-    OwnerTable { owners }
-}
-
-fn owner_source_map_from_source(
-    db: &dyn HirDefDb,
-    file_id: HirFileId,
-    tree: &SyntaxTree,
-    ast_ids: &AstIdMap,
-) -> OwnerSourceMap {
-    let owners = discover_owners(db, file_id, tree, Some(ast_ids));
-    let mut by_owner = FxHashMap::default();
-    let mut by_ast = FxHashMap::default();
-    for discovered in owners {
-        by_owner.insert(discovered.id, discovered.ast_id);
-        if let Some(ast_id) = discovered.ast_id {
-            by_ast.insert(ast_id, discovered.id);
-        }
-    }
-    OwnerSourceMap { by_owner, by_ast }
+    let by_source =
+        owners.iter().map(|owner| ((owner.id.ast_id(db), owner.kind), owner.id)).collect();
+    OwnerTable { owners, by_source }
 }
 
 struct DiscoveredOwner {
@@ -194,24 +163,24 @@ struct DiscoveredOwner {
     kind: OwnerKind,
     parent: Option<OwnerId>,
     name: SmolStr,
-    ast_id: Option<SourceAstId>,
 }
 
 fn discover_owners(
     db: &dyn HirDefDb,
     file_id: HirFileId,
     tree: &SyntaxTree,
-    ast_ids: Option<&AstIdMap>,
+    ast_ids: &AstIdMap,
 ) -> Vec<DiscoveredOwner> {
-    let root_ast_id =
-        tree.root().and_then(|root| ast_ids.and_then(|map| map.id_of_node_in_tree(tree, root)));
-    let file_owner = OwnerId::new(db, file_id, OwnerKind::File, None, 0);
+    let root_ast_id = tree
+        .root()
+        .and_then(|root| ast_ids.id_of_node_in_tree(tree, root))
+        .unwrap_or(SourceAstId::from_raw(0));
+    let file_owner = OwnerId::new(db, file_id, root_ast_id, OwnerKind::File);
     let mut discovered = vec![DiscoveredOwner {
         id: file_owner,
         kind: OwnerKind::File,
         parent: None,
         name: SmolStr::new_static(""),
-        ast_id: root_ast_id,
     }];
 
     let Some(root) = tree.root() else {
@@ -219,28 +188,23 @@ fn discover_owners(
     };
 
     let mut owners = vec![file_owner];
-    let mut next_slots = vec![0u32];
     for event in root.node_preorder() {
         match event {
             WalkEvent::Enter(node) => {
-                let Some(kind) = owner_kind_of(node) else {
-                    continue;
-                };
-                let slot = next_slots.last_mut().expect("owner stack is non-empty");
-                let owner_slot = *slot;
-                *slot += 1;
-                let parent = owners.last().copied();
-                let owner = OwnerId::new(db, file_id, kind, parent, owner_slot);
-                let name = owner_name(node);
-                let ast_id = ast_ids.and_then(|map| map.id_of_node_in_tree(tree, node));
-                discovered.push(DiscoveredOwner { id: owner, kind, parent, name, ast_id });
-                owners.push(owner);
-                next_slots.push(0);
+                for kind in owner_kinds_of(node) {
+                    let parent = owners.last().copied();
+                    let ast_id = ast_ids
+                        .id_of_node_in_tree(tree, node)
+                        .expect("every owner node has an AST identity");
+                    let owner = OwnerId::new(db, file_id, ast_id, kind);
+                    let name = owner_name(node, kind);
+                    discovered.push(DiscoveredOwner { id: owner, kind, parent, name });
+                    owners.push(owner);
+                }
             }
             WalkEvent::Leave(node) => {
-                if owner_kind_of(node).is_some() {
+                for _ in owner_kinds_of(node) {
                     owners.pop();
-                    next_slots.pop();
                 }
             }
         }
@@ -249,13 +213,29 @@ fn discover_owners(
     discovered
 }
 
-/// Syntax nodes that start a semantic owner. Generate branches deliberately
+/// Syntax nodes that start semantic owners. Generate branches deliberately
 /// mirror `generate.rs`: a loop owns its block (the nested `GenerateBlock`
 /// node is not a second owner), while an unwrapped branch member is promoted
-/// to a generate-block owner.
-fn owner_kind_of(node: SyntaxNode<'_>) -> Option<OwnerKind> {
-    let kind = node.kind();
-    match kind {
+/// to a synthetic generate-block owner. If that member is itself an owner,
+/// both owners share the same source AST id and are distinguished by kind.
+fn owner_kinds_of(node: SyntaxNode<'_>) -> SmallVec<[OwnerKind; 2]> {
+    let intrinsic = intrinsic_owner_kind(node);
+    if ast::Member::cast(node).is_some()
+        && is_unwrapped_generate_branch(node)
+        && intrinsic != Some(OwnerKind::GenerateBlock)
+    {
+        let mut kinds = smallvec![OwnerKind::GenerateBlock];
+        if let Some(intrinsic) = intrinsic {
+            kinds.push(intrinsic);
+        }
+        return kinds;
+    }
+
+    intrinsic.into_iter().collect()
+}
+
+fn intrinsic_owner_kind(node: SyntaxNode<'_>) -> Option<OwnerKind> {
+    match node.kind() {
         SyntaxKind::MODULE_DECLARATION
         | SyntaxKind::INTERFACE_DECLARATION
         | SyntaxKind::PACKAGE_DECLARATION
@@ -279,9 +259,6 @@ fn owner_kind_of(node: SyntaxNode<'_>) -> Option<OwnerKind> {
         SyntaxKind::CHECKER_DECLARATION => Some(OwnerKind::Checker),
         SyntaxKind::COVERGROUP_DECLARATION => Some(OwnerKind::Covergroup),
         SyntaxKind::CLOCKING_DECLARATION => Some(OwnerKind::ClockingBlock),
-        _ if ast::Member::cast(node).is_some() && is_unwrapped_generate_branch(node) => {
-            Some(OwnerKind::GenerateBlock)
-        }
         _ => None,
     }
 }
@@ -306,17 +283,31 @@ fn is_unwrapped_generate_branch(node: SyntaxNode<'_>) -> bool {
     false
 }
 
-fn owner_name(node: SyntaxNode<'_>) -> SmolStr {
-    let token = ast::ModuleDeclaration::cast(node)
-        .and_then(|item| HasName::name(&item))
-        .or_else(|| ast::FunctionDeclaration::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::GenerateBlock::cast(node).and_then(generate_block_name))
-        .or_else(|| {
-            ast::LoopGenerate::cast(node)
-                .and_then(|loop_generate| loop_generate.block().as_generate_block())
-                .and_then(generate_block_name)
-        })
-        .or_else(|| ast::BlockStatement::cast(node).and_then(|item| HasName::name(&item)));
+fn owner_name(node: SyntaxNode<'_>, kind: OwnerKind) -> SmolStr {
+    let token = match kind {
+        OwnerKind::Module => {
+            ast::ModuleDeclaration::cast(node).and_then(|item| HasName::name(&item))
+        }
+        OwnerKind::Subroutine => {
+            ast::FunctionDeclaration::cast(node).and_then(|item| HasName::name(&item))
+        }
+        OwnerKind::GenerateBlock => {
+            ast::GenerateBlock::cast(node).and_then(generate_block_name).or_else(|| {
+                ast::LoopGenerate::cast(node)
+                    .and_then(|loop_generate| loop_generate.block().as_generate_block())
+                    .and_then(generate_block_name)
+            })
+        }
+        OwnerKind::Block => ast::BlockStatement::cast(node).and_then(|item| HasName::name(&item)),
+        OwnerKind::Checker => ast::CheckerDeclaration::cast(node).and_then(|item| item.name()),
+        OwnerKind::Covergroup => {
+            ast::CovergroupDeclaration::cast(node).and_then(|item| item.name())
+        }
+        OwnerKind::ClockingBlock => {
+            ast::ClockingDeclaration::cast(node).and_then(|item| item.block_name())
+        }
+        OwnerKind::File | OwnerKind::ProceduralBlock => None,
+    };
     token.map(|token| token.value_text().to_smolstr()).unwrap_or_default()
 }
 
@@ -337,7 +328,7 @@ impl ModuleId {
             .map(|owner| owner.id)
     }
 
-    pub(crate) fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
+    pub fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
         (owner.kind(db) == OwnerKind::Module).then_some(())?;
         let file_id = owner.file(db);
         let table = db.owner_table(file_id);
@@ -351,12 +342,90 @@ impl ModuleId {
     }
 }
 
+fn owner_node<'tree>(
+    db: &dyn HirDefDb,
+    owner: OwnerId,
+    tree: &'tree SyntaxTree,
+) -> Option<SyntaxNode<'tree>> {
+    db.ast_id_map(owner.file(db)).ptr(owner.ast_id(db)).and_then(|ptr| ptr.to_node(tree))
+}
+
+fn legacy_container_for_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<ArenaOwnerId> {
+    Some(match owner.kind(db) {
+        OwnerKind::File => ArenaOwnerId::File(owner.file(db)),
+        OwnerKind::Module => ArenaOwnerId::Module(ModuleId::from_owner(db, owner)?),
+        OwnerKind::GenerateBlock => {
+            ArenaOwnerId::GenerateBlock(GenerateBlockId::from_owner(db, owner)?)
+        }
+        OwnerKind::Block => ArenaOwnerId::Block(BlockId::from_owner(db, owner)?),
+        OwnerKind::Subroutine => ArenaOwnerId::Subroutine(SubroutineScope::from_owner(db, owner)?),
+        OwnerKind::ProceduralBlock
+        | OwnerKind::Checker
+        | OwnerKind::Covergroup
+        | OwnerKind::ClockingBlock => ArenaOwnerId::Owner(owner),
+    })
+}
+
+impl GenerateBlockId {
+    pub(crate) fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
+        (owner.kind(db) == OwnerKind::GenerateBlock).then_some(())?;
+        let file_id = owner.file(db);
+        let tree = db.parse(file_id);
+        let node = owner_node(db, owner, &tree)?;
+        let src = if let Some(loop_generate) = ast::LoopGenerate::cast(node) {
+            loop_generate.into()
+        } else if let Some(block) = ast::GenerateBlock::cast(node) {
+            GenerateBlockSrc::from_generate_block(block)
+        } else {
+            ast::Member::cast(node)?.into()
+        };
+        let parent = legacy_container_for_owner(db, owner.parent(db)?)?;
+        Some(Self::new(GenerateBlockLoc { cont_id: parent, src: InFile::new(file_id, src) }))
+    }
+}
+
+impl BlockId {
+    pub(crate) fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
+        (owner.kind(db) == OwnerKind::Block).then_some(())?;
+        let file_id = owner.file(db);
+        let tree = db.parse(file_id);
+        let block = owner_node(db, owner, &tree).and_then(ast::BlockStatement::cast)?;
+        let parent = owner.parent(db)?;
+        Some(Self::new(BlockLoc {
+            cont_id: ArenaOwnerId::Owner(parent),
+            src: InFile::new(file_id, BlockSrc::from_ast(file_id, block)),
+        }))
+    }
+}
+
+impl SubroutineScope {
+    pub(crate) fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
+        (owner.kind(db) == OwnerKind::Subroutine).then_some(())?;
+        let parent = owner.parent(db)?;
+        let cont_id = match parent.kind(db) {
+            OwnerKind::File => SubroutineParent::File(parent.file(db)),
+            OwnerKind::Module => SubroutineParent::Module(ModuleId::from_owner(db, parent)?),
+            OwnerKind::GenerateBlock => {
+                SubroutineParent::GenerateBlock(GenerateBlockId::from_owner(db, parent)?)
+            }
+            _ => return None,
+        };
+        let slot = db
+            .owner_table(owner.file(db))
+            .owners_of_kind(OwnerKind::Subroutine)
+            .filter(|candidate| candidate.parent == Some(parent))
+            .position(|candidate| candidate.id == owner)?;
+        let slot = u32::try_from(slot).ok()?;
+        Some(Self::new(cont_id, la_arena::Idx::from_raw(la_arena::RawIdx::from(slot))))
+    }
+}
+
 impl BlockId {
     /// The unified owner of this block.
     pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
         let src = self.loc().src;
         let ast_id = db.ast_id_map(src.file_id).id_of_ptr(src.value.node)?;
-        db.owner_source_map(src.file_id).owner_by_ast(ast_id)
+        Some(OwnerId::new(db, src.file_id, ast_id, OwnerKind::Block))
     }
 }
 
@@ -365,7 +434,7 @@ impl crate::module::generate::GenerateBlockId {
     pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
         let src = self.loc().src;
         let ast_id = db.ast_id_map(src.file_id).id_of_ptr(src.value.node())?;
-        db.owner_source_map(src.file_id).owner_by_ast(ast_id)
+        Some(OwnerId::new(db, src.file_id, ast_id, OwnerKind::GenerateBlock))
     }
 }
 
@@ -374,7 +443,7 @@ impl SubroutineScope {
     pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
         let src = crate::def_id::subroutine_src(db, self)?;
         let ast_id = db.ast_id_map(src.file_id).id_of_ptr(src.value.node)?;
-        db.owner_source_map(src.file_id).owner_by_ast(ast_id)
+        Some(OwnerId::new(db, src.file_id, ast_id, OwnerKind::Subroutine))
     }
 }
 
@@ -646,8 +715,7 @@ endmodule
                 crate::stmt::StmtKind::Block(info)
                     if {
                         let node = info.block_id.loc().src.value.node;
-                        let ast_id = db.owner_source_map(file_id).source_ast_id(block_owner.id);
-                        Some(node) == ast_id.and_then(|id| db.ast_id_map(file_id).ptr(id))
+                        Some(node) == db.ast_id_map(file_id).ptr(block_owner.id.ast_id(&db))
                     } =>
                 {
                     Some(info.block_id.clone())
@@ -679,8 +747,7 @@ endmodule
             .subroutine_srcs
             .iter()
             .find(|(_, src)| {
-                let ast_id = db.owner_source_map(file_id).source_ast_id(subroutine_owner.id);
-                Some(src.node) == ast_id.and_then(|id| db.ast_id_map(file_id).ptr(id))
+                Some(src.node) == db.ast_id_map(file_id).ptr(subroutine_owner.id.ast_id(&db))
             })
             .expect("lowering must create the subroutine");
         let scope = SubroutineScope { cont_id: SubroutineParent::Module(module_id), value };
@@ -698,7 +765,7 @@ endmodule
             .next()
             .expect("subroutine owner must exist")
             .id;
-        let ast_id = db.owner_source_ast_id(owner).expect("owner AST id must exist");
+        let ast_id = owner.ast_id(&db);
         let ptr = db.ast_id_map(HirFileId::File(TOP)).ptr(ast_id).expect("owner pointer");
         assert_eq!(ptr.kind(), syntax::SyntaxKind::FUNCTION_DECLARATION);
         let body = db.subroutine_body_with_source_map(owner);

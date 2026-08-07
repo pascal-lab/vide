@@ -2,6 +2,7 @@ use hir_def::{
     container::{ArenaOwnerId, InFile, ScopeChain},
     def_id::DefId,
     module::generate::{GenerateBlockId, GenerateBlockLoc, GenerateBlockSrc},
+    owner::{OwnerId, OwnerKind},
     pathres::ResolvedScopes,
     symbol::NameContext,
 };
@@ -333,7 +334,7 @@ impl ScopeChainCache {
             return chain.clone();
         }
         let chain =
-            Arc::new(ResolvedScopes::new(db, ScopeChain::from_inner(container.clone().into())));
+            Arc::new(ResolvedScopes::new(db, ScopeChain::from_inner(db, container.clone().into())));
         self.by_container.insert(container, chain.clone());
         chain
     }
@@ -346,6 +347,7 @@ impl ScopeChainCache {
 fn is_container_node(node: &SyntaxNode<'_>) -> bool {
     ast::ModuleDeclaration::cast(*node).is_some()
         || ast::BlockStatement::cast(*node).is_some()
+        || ast::ProceduralBlock::cast(*node).is_some()
         || ast::FunctionDeclaration::cast(*node).is_some()
         || ast::CompilationUnit::cast(*node).is_some()
         || ast::GenerateBlock::cast(*node).is_some()
@@ -360,6 +362,11 @@ fn container_id_for_node<'tree>(
 ) -> Option<ArenaOwnerId> {
     if let Some(module) = ast::ModuleDeclaration::cast(node) {
         return sema.module_to_def(file_id, module).map(Into::into);
+    }
+    if ast::ProceduralBlock::cast(node).is_some() {
+        let ast_id = sema.db.ast_id_map(file_id).id_of_node(node)?;
+        let owner = OwnerId::new(sema.db, file_id, ast_id, OwnerKind::ProceduralBlock);
+        return Some(ArenaOwnerId::Owner(owner));
     }
     if let Some(block) = ast::BlockStatement::cast(node) {
         return sema.block_to_def(file_id, block).map(Into::into);

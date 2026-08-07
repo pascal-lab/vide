@@ -6,6 +6,7 @@ use hir_ty::db::TyDb;
 use triomphe::Arc;
 use vfs::FileId;
 
+use super::{SourceFileQueryKey, SourceRootQueryKey};
 use crate::{
     ScopeVisibility,
     semantic_index::{
@@ -28,31 +29,31 @@ impl Deref for dyn WorkspaceSymbolIndexDb {
 
 impl dyn WorkspaceSymbolIndexDb + '_ {
     pub fn file_workspace_symbols(&self, file_id: FileId) -> Arc<[WorkspaceSymbol]> {
-        file_workspace_symbols(self, file_id, ())
+        file_workspace_symbols(self, SourceFileQueryKey::new(self, file_id))
     }
 
     pub fn source_root_symbol_index(&self, source_root_id: SourceRootId) -> Arc<SymbolIndex> {
-        source_root_symbol_index(self, source_root_id, ())
+        source_root_symbol_index(self, SourceRootQueryKey::new(self, source_root_id))
     }
 
     pub fn source_root_module_index(&self, source_root_id: SourceRootId) -> Arc<ModuleIndex> {
-        source_root_module_index(self, source_root_id, ())
+        source_root_module_index(self, SourceRootQueryKey::new(self, source_root_id))
     }
 
     pub fn source_root_semantic_index(&self, source_root_id: SourceRootId) -> Arc<SemanticIndex> {
-        source_root_semantic_index(self, source_root_id, ())
+        source_root_semantic_index(self, SourceRootQueryKey::new(self, source_root_id))
     }
 
     pub fn file_module_index(&self, file_id: FileId) -> Arc<FileModuleIndex> {
-        file_module_index(self, file_id, ())
+        file_module_index(self, SourceFileQueryKey::new(self, file_id))
     }
 
     pub fn file_module_edges(&self, file_id: FileId) -> Arc<FileModuleEdges> {
-        file_module_edges(self, file_id, ())
+        file_module_edges(self, SourceFileQueryKey::new(self, file_id))
     }
 
     pub fn file_semantic_index(&self, file_id: FileId) -> Arc<FileSemanticIndex> {
-        file_semantic_index(self, file_id, ())
+        file_semantic_index(self, SourceFileQueryKey::new(self, file_id))
     }
 
     /// Distinct source roots derived from the current file set, in stable
@@ -78,44 +79,40 @@ impl dyn WorkspaceSymbolIndexDb + '_ {
         visibility: ScopeVisibility,
         single_file: Option<FileId>,
     ) -> Arc<Vec<DefId>> {
-        recursive_rename_closure(self, def, visibility, single_file, ())
+        recursive_rename_closure(self, def, visibility, single_file)
     }
 }
 
 #[salsa::tracked(returns(clone))]
 fn file_workspace_symbols(
     db: &dyn WorkspaceSymbolIndexDb,
-    file_id: FileId,
-    _key: (),
+    key: SourceFileQueryKey,
 ) -> Arc<[WorkspaceSymbol]> {
-    crate::workspace_symbols::file_symbols(db, file_id)
+    crate::workspace_symbols::file_symbols(db, key.file_id(db))
 }
 
 #[salsa::tracked(returns(clone))]
 fn source_root_symbol_index(
     db: &dyn WorkspaceSymbolIndexDb,
-    source_root_id: SourceRootId,
-    _key: (),
+    key: SourceRootQueryKey,
 ) -> Arc<SymbolIndex> {
-    Arc::new(SymbolIndex::for_source_root(db, source_root_id))
+    Arc::new(SymbolIndex::for_source_root(db, key.source_root_id(db)))
 }
 
 #[salsa::tracked(returns(clone))]
 fn source_root_module_index(
     db: &dyn WorkspaceSymbolIndexDb,
-    source_root_id: SourceRootId,
-    _key: (),
+    key: SourceRootQueryKey,
 ) -> Arc<ModuleIndex> {
-    Arc::new(ModuleIndex::for_source_root(db, source_root_id))
+    Arc::new(ModuleIndex::for_source_root(db, key.source_root_id(db)))
 }
 
 #[salsa::tracked(returns(clone))]
 fn source_root_semantic_index(
     db: &dyn WorkspaceSymbolIndexDb,
-    source_root_id: SourceRootId,
-    _key: (),
+    key: SourceRootQueryKey,
 ) -> Arc<SemanticIndex> {
-    Arc::new(SemanticIndex::for_source_root(db, source_root_id))
+    Arc::new(SemanticIndex::for_source_root(db, key.source_root_id(db)))
 }
 
 pub(crate) fn source_root_symbol_index_for_root(
@@ -142,28 +139,25 @@ pub(crate) fn source_root_semantic_index_for_root(
 #[salsa::tracked(returns(clone))]
 fn file_module_index(
     db: &dyn WorkspaceSymbolIndexDb,
-    file_id: FileId,
-    _key: (),
+    key: SourceFileQueryKey,
 ) -> Arc<FileModuleIndex> {
-    Arc::new(crate::semantic_index::FileModuleIndex::for_file(db, file_id))
+    Arc::new(crate::semantic_index::FileModuleIndex::for_file(db, key.file_id(db)))
 }
 
 #[salsa::tracked(returns(clone))]
 fn file_module_edges(
     db: &dyn WorkspaceSymbolIndexDb,
-    file_id: FileId,
-    _key: (),
+    key: SourceFileQueryKey,
 ) -> Arc<FileModuleEdges> {
-    Arc::new(crate::semantic_index::FileModuleEdges::for_file(db, file_id))
+    Arc::new(crate::semantic_index::FileModuleEdges::for_file(db, key.file_id(db)))
 }
 
 #[salsa::tracked(returns(clone))]
 fn file_semantic_index(
     db: &dyn WorkspaceSymbolIndexDb,
-    file_id: FileId,
-    _key: (),
+    key: SourceFileQueryKey,
 ) -> Arc<FileSemanticIndex> {
-    Arc::new(crate::semantic_index::FileSemanticIndex::for_file(db, file_id))
+    Arc::new(crate::semantic_index::FileSemanticIndex::for_file(db, key.file_id(db)))
 }
 
 #[salsa::tracked(returns(clone))]
@@ -172,7 +166,6 @@ fn recursive_rename_closure(
     def: DefId,
     visibility: ScopeVisibility,
     single_file: Option<FileId>,
-    _key: (),
 ) -> Arc<Vec<DefId>> {
     Arc::new(crate::rename::recursive_rename_closure_impl(db, def, visibility, single_file))
 }

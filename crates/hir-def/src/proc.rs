@@ -6,7 +6,7 @@ use super::{
     lower::{LoweringCtx, ProcStore},
 };
 use crate::{
-    owner::OwnerId,
+    owner::{OwnerId, OwnerKind},
     source_map::{AstId, AstKind},
 };
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -46,7 +46,7 @@ pub type ProcSrc = AstId<ProceduralBlockAst>;
 impl<Store: ProcStore> LoweringCtx<Store> {
     pub(crate) fn lower_proc(&mut self, proc: ast::ProceduralBlock) -> ProcId {
         let owner = self
-            .owner_for_node(proc.syntax())
+            .owner_for_node(proc.syntax(), OwnerKind::ProceduralBlock)
             .expect("procedural block must have a canonical owner");
         use ast::ProceduralBlock::*;
         let proc_ty = match proc {

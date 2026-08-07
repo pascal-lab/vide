@@ -166,9 +166,10 @@ mod tests {
 
     #[test]
     fn scope_chain_is_ordered_from_inner_scope_to_file_scope() {
+        let db = db_with_root_text("module top; endmodule\n");
         let file_id = HirFileId::File(TOP);
         let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
-        let chain = ScopeChain::from_inner(ScopeId::Module(module_id));
+        let chain = ScopeChain::from_inner(&db, ScopeId::Module(module_id));
 
         assert_eq!(chain.ids(), &[ScopeId::Module(module_id), ScopeId::File(file_id)]);
     }

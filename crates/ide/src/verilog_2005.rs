@@ -3728,8 +3728,13 @@ endmodule
 
             match &stmt.kind {
                 StmtKind::Block(info) => {
-                    let block = db.block(info.block_id.clone());
-                    stmt_arena_has(db, &block.stmts, matches_kind)
+                    let owner = info
+                        .block_id
+                        .clone()
+                        .owner(db)
+                        .expect("block statement must map to an owner");
+                    let body = db.body_with_source_map(owner);
+                    stmt_arena_has(db, &body.stmts, matches_kind)
                 }
                 StmtKind::TimingCtrl(_, stmt_id)
                 | StmtKind::Forever(stmt_id)
@@ -3775,11 +3780,17 @@ endmodule
             hir_file.modules.iter().next().expect("fixture should lower one module");
         let module = db.module_with_source_map(ModuleId::new(hir_file_id, local_module_id));
         assert!(
-            stmt_arena_has(db, &module.stmts, |kind| matches!(kind, StmtKind::Repeat(_, _))),
+            module.procs.values().any(|proc| {
+                let body = db.body_with_source_map(proc.owner);
+                stmt_arena_has(db, &body.stmts, |kind| matches!(kind, StmtKind::Repeat(_, _)))
+            }),
             "repeat statements should lower distinctly from while statements"
         );
         assert!(
-            stmt_arena_has(db, &module.stmts, |kind| matches!(kind, StmtKind::While(_, _))),
+            module.procs.values().any(|proc| {
+                let body = db.body_with_source_map(proc.owner);
+                stmt_arena_has(db, &body.stmts, |kind| matches!(kind, StmtKind::While(_, _)))
+            }),
             "while statements should still lower as while statements"
         );
     }

@@ -5,7 +5,6 @@ use hir_def::{
 };
 
 use crate::Type;
-
 #[salsa::db]
 pub trait TyDb: HirDefDb {}
 
@@ -20,10 +19,14 @@ impl Deref for dyn TyDb {
 
 impl dyn TyDb + '_ {
     pub fn infer_expr(&self, expr: InContainer<ExprId>) -> Type {
-        crate::infer::type_of_expr_query(self, expr, ())
+        let owner = expr.cont_id.owner(self);
+        let key = crate::infer::ExprQueryKey::new(self, owner, u32::from(expr.value.into_raw()));
+        crate::infer::type_of_expr_query(self, key)
     }
 
     pub fn infer_path_resolution(&self, res: Resolution<DefId>) -> Type {
-        crate::infer::type_of_path_resolution_query(self, res, ())
+        res.unique()
+            .map(|def_id| crate::infer::type_of_def_origin_query(self, def_id.primary_origin(self)))
+            .unwrap_or_else(Type::unknown)
     }
 }

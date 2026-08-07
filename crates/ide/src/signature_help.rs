@@ -347,7 +347,6 @@ fn sig_help_for_invocation(
         return sig_help_for_system_call(&system_name, invocation, offset, config);
     }
 
-    // Resolve the callee expression to a subroutine (function or task).
     let callee = sema.resolve_expr(file_id, invocation.left())?;
     let subroutine_id = Resolution::from_candidates(
         sema.expr_to_def(callee)

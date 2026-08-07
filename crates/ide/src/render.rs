@@ -745,7 +745,7 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<Str
 
     let mut containers = Vec::new();
 
-    for cont_id in ScopeParent::start_from(cont_id) {
+    for cont_id in ScopeParent::start_from(db, cont_id) {
         if let Some(owner_id) = cont_id.arena_owner() {
             let src_map = owner_id.source_map(db);
             let region_tree = src_map.region_tree();
