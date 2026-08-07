@@ -154,9 +154,8 @@ impl HirDisplay for Ty {
                     f.write_str("generate block")
                 }
             }
-            Ty::Block(block_id) => {
-                let block = f.db.block(block_id.clone());
-                if let Some(name) = &block.name { f.write_str(name) } else { f.write_str("block") }
+            Ty::Block(owner) => {
+                if let Some(name) = owner.name(f.db) { f.write_str(&name) } else { f.write_str("block") }
             }
         }
     }

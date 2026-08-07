@@ -5,7 +5,12 @@ expression: normalize_hover_snapshot(hover.info.as_str())
 Module `axi_addr_miter`
 
 ```systemverilog
-module axi_addr_miter ()
+module axi_addr_miter (
+    i_last_addr,
+    i_size,
+    i_burst,
+    i_len
+)
 ```
 
 

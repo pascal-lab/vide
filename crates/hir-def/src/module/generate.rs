@@ -425,7 +425,7 @@ pub(crate) type LowerGenerateBlockCtx<'a> = LoweringCtx<GenerateBlockStore<'a>>;
 
 impl LowerGenerateBlockCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ArenaOwnerId::GenerateBlock(self.generate_block_id());
+        let container_id = self.current_arena_owner();
         let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
         alloc_with_source(
@@ -447,12 +447,13 @@ impl LowerGenerateBlockCtx<'_> {
             Typedef { name, ty: None },
             typedef,
         );
+        self.record_body_typedef(typedef_id);
 
         let data_ty = typedef.type_();
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            ArenaOwnerId::GenerateBlock(self.generate_block_id()),
+            self.current_arena_owner(),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.lower_data_ty(ty),
         );
@@ -483,7 +484,7 @@ impl LowerGenerateBlockCtx<'_> {
 
     fn intern_generate_block(&self, src: GenerateBlockSrc) -> GenerateBlockId {
         GenerateBlockId::new(GenerateBlockLoc {
-            cont_id: self.generate_block_id().into(),
+            cont_id: self.current_arena_owner(),
             src: InFile::new(self.file_id, src),
         })
     }
@@ -655,7 +656,7 @@ impl LowerGenerateBlockCtx<'_> {
 impl LowerModuleCtx<'_> {
     pub(crate) fn intern_generate_block(&self, src: GenerateBlockSrc) -> GenerateBlockId {
         GenerateBlockId::new(GenerateBlockLoc {
-            cont_id: self.module_id().into(),
+            cont_id: self.current_arena_owner(),
             src: InFile::new(self.file_id, src),
         })
     }
@@ -823,8 +824,7 @@ fn generate_block_lowering(db: &dyn HirDefDb, owner: OwnerId) -> Arc<OwnerLoweri
     debug_assert_eq!(owner.kind(db), OwnerKind::GenerateBlock);
     let file_id = owner.file(db);
     let tree = db.parse(file_id);
-    let Some(node) =
-        db.ast_id_map(file_id).ptr(owner.ast_id(db)).and_then(|ptr| ptr.to_node(&tree))
+    let Some(node) = db.ast_id_map(file_id).node(owner.ast_id(db), &tree)
     else {
         return Arc::new(OwnerLowering::new(
             GenerateBlock::default(),
@@ -842,11 +842,6 @@ fn generate_block_lowering(db: &dyn HirDefDb, owner: OwnerId) -> Arc<OwnerLoweri
     } else {
         unreachable!("generate owner must point to generate syntax")
     };
-    let parent = owner.parent(db).expect("generate owner must have a parent");
-    let generate_block_id = GenerateBlockId::new(GenerateBlockLoc {
-        cont_id: ArenaOwnerId::Owner(parent),
-        src: InFile::new(file_id, src),
-    });
 
     let mut generate_block = GenerateBlock::default();
     let mut generate_block_source_map = GenerateBlockSourceMap::default();
@@ -854,8 +849,7 @@ fn generate_block_lowering(db: &dyn HirDefDb, owner: OwnerId) -> Arc<OwnerLoweri
     let mut body_source_map = BodySourceMap::default();
     let mut lower_ctx = LoweringCtx::new(
         db,
-        file_id,
-        generate_block_id.into(),
+        owner,
         GenerateBlockStore {
             data: &mut generate_block,
             sources: &mut generate_block_source_map,

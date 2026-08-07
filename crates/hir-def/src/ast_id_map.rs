@@ -59,14 +59,15 @@ impl StablePath {
     }
 }
 
-/// The node table behind [`SourceAstId`]. Navigable nodes retain a pointer;
-/// expanded/include nodes retain only their structural path and are resolved
-/// by walking the current tree.
+/// The node table behind [`SourceAstId`]. Unique root-buffer nodes retain an
+/// O(1) pointer; nodes with duplicate display pointers (macro expansion) are
+/// resolved by their structural path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AstIdMap {
     nodes: FxHashMap<SourceAstId, SyntaxNodePtr>,
     by_ptr: FxHashMap<SyntaxNodePtr, SourceAstId>,
     by_path: FxHashMap<StablePath, SourceAstId>,
+    paths: FxHashMap<SourceAstId, StablePath>,
 }
 
 impl AstIdMap {
@@ -79,6 +80,7 @@ impl AstIdMap {
                 nodes: FxHashMap::default(),
                 by_ptr: FxHashMap::default(),
                 by_path: FxHashMap::default(),
+                paths: FxHashMap::default(),
             };
         };
 
@@ -101,6 +103,11 @@ impl AstIdMap {
         let mut nodes = FxHashMap::default();
         let mut by_ptr = FxHashMap::default();
         let mut by_path = FxHashMap::default();
+        let mut paths_by_id = FxHashMap::default();
+        let mut ptr_counts = FxHashMap::<SyntaxNodePtr, u32>::default();
+        for ptr in candidates.iter().filter_map(|(_, ptr)| *ptr) {
+            *ptr_counts.entry(ptr).or_default() += 1;
+        }
         let mut used = FxHashMap::<SourceAstId, StablePath>::default();
         for (path, ptr) in candidates {
             let mut salt = 0;
@@ -113,13 +120,14 @@ impl AstIdMap {
                 }
             };
             used.insert(id, path.clone());
+            paths_by_id.insert(id, path.clone());
             by_path.insert(path, id);
-            if let Some(ptr) = ptr {
+            if let Some(ptr) = ptr.filter(|ptr| ptr_counts.get(ptr) == Some(&1)) {
                 nodes.insert(id, ptr);
                 by_ptr.insert(ptr, id);
             }
         }
-        Self { nodes, by_ptr, by_path }
+        Self { nodes, by_ptr, by_path, paths: paths_by_id }
     }
 
     pub fn len(&self) -> usize {
@@ -132,6 +140,37 @@ impl AstIdMap {
 
     pub fn ptr(&self, id: SourceAstId) -> Option<SyntaxNodePtr> {
         self.nodes.get(&id).copied()
+    }
+
+    pub fn node<'tree>(
+        &self,
+        id: SourceAstId,
+        tree: &'tree SyntaxTree,
+    ) -> Option<SyntaxNode<'tree>> {
+        if let Some(node) = self.ptr(id).and_then(|ptr| ptr.to_node(tree)) {
+            return Some(node);
+        }
+        let target_path = self.paths.get(&id)?;
+        let root = tree.root()?;
+        let mut paths: Vec<StablePath> = Vec::new();
+        let mut child_counts: Vec<FxHashMap<SyntaxKind, u32>> = Vec::new();
+        for event in root.node_preorder() {
+            match event {
+                syntax::WalkEvent::Enter(node) => {
+                    let path = next_path(&paths, &mut child_counts, node.kind());
+                    if &path == target_path {
+                        return Some(node);
+                    }
+                    paths.push(path);
+                    child_counts.push(FxHashMap::default());
+                }
+                syntax::WalkEvent::Leave(_) => {
+                    paths.pop();
+                    child_counts.pop();
+                }
+            }
+        }
+        None
     }
 
     pub fn id_of_node(&self, node: SyntaxNode<'_>) -> Option<SourceAstId> {
@@ -271,6 +310,17 @@ mod tests {
             before_ids[&SyntaxKind::FUNCTION_DECLARATION],
             after_ids[&SyntaxKind::FUNCTION_DECLARATION]
         );
+    }
+
+    #[test]
+    fn node_falls_back_to_stable_path_when_range_changes() {
+        let before_tree = parse("module m; endmodule\n");
+        let after_tree = parse("module m;");
+        let map = AstIdMap::from_source(&before_tree);
+        let module_id = collect_kind_ids(&map, &before_tree)[&SyntaxKind::MODULE_DECLARATION][0];
+
+        let node = map.node(module_id, &after_tree).expect("stable path must resolve current AST");
+        assert_eq!(node.kind(), SyntaxKind::MODULE_DECLARATION);
     }
 
     #[test]

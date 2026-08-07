@@ -27,7 +27,6 @@ use syntax::{
 
 use crate::{
     ast_id_map::SourceAstId,
-    block::{BlockId, BlockLoc, BlockSrc},
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
     db::HirDefDb,
     module::{
@@ -69,6 +68,13 @@ impl OwnerId {
             .find(|owner| owner.id == self)
             .and_then(|owner| owner.parent)
     }
+
+    /// Current name from the structural owner graph.
+    pub fn name(self, db: &dyn HirDefDb) -> Option<SmolStr> {
+        let table = db.owner_table(self.file(db));
+        let name = table.owner(self)?.name.clone();
+        (!name.is_empty()).then_some(name)
+    }
 }
 
 impl PartialOrd for OwnerId {
@@ -104,6 +110,10 @@ pub struct OwnerTable {
 impl OwnerTable {
     pub fn owners(&self) -> &[OwnerData] {
         &self.owners
+    }
+
+    pub fn owner(&self, owner: OwnerId) -> Option<&OwnerData> {
+        self.owners.iter().find(|data| data.id == owner)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -308,7 +318,7 @@ fn owner_node<'tree>(
     owner: OwnerId,
     tree: &'tree SyntaxTree,
 ) -> Option<SyntaxNode<'tree>> {
-    db.ast_id_map(owner.file(db)).ptr(owner.ast_id(db)).and_then(|ptr| ptr.to_node(tree))
+    db.ast_id_map(owner.file(db)).node(owner.ast_id(db), tree)
 }
 
 fn legacy_container_for_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<ArenaOwnerId> {
@@ -318,7 +328,7 @@ fn legacy_container_for_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Arena
         OwnerKind::GenerateBlock => {
             ArenaOwnerId::GenerateBlock(GenerateBlockId::from_owner(db, owner)?)
         }
-        OwnerKind::Block => ArenaOwnerId::Block(BlockId::from_owner(db, owner)?),
+        OwnerKind::Block => ArenaOwnerId::Owner(owner),
         OwnerKind::Subroutine => ArenaOwnerId::Subroutine(SubroutineScope::from_owner(db, owner)?),
         OwnerKind::ProceduralBlock
         | OwnerKind::Checker
@@ -345,19 +355,6 @@ impl GenerateBlockId {
     }
 }
 
-impl BlockId {
-    pub(crate) fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
-        (owner.kind(db) == OwnerKind::Block).then_some(())?;
-        let file_id = owner.file(db);
-        let tree = db.parse(file_id);
-        let block = owner_node(db, owner, &tree).and_then(ast::BlockStatement::cast)?;
-        let parent = owner.parent(db)?;
-        Some(Self::new(BlockLoc {
-            cont_id: ArenaOwnerId::Owner(parent),
-            src: InFile::new(file_id, BlockSrc::from_ast(file_id, block)),
-        }))
-    }
-}
 
 impl SubroutineScope {
     pub(crate) fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
@@ -381,14 +378,6 @@ impl SubroutineScope {
     }
 }
 
-impl BlockId {
-    /// The unified owner of this block.
-    pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
-        let src = self.loc().src;
-        let ast_id = db.ast_id_map(src.file_id).id_of_ptr(src.value.node)?;
-        Some(OwnerId::new(db, src.file_id, ast_id, OwnerKind::Block))
-    }
-}
 
 impl crate::module::generate::GenerateBlockId {
     /// The unified owner of this generate block.
@@ -411,6 +400,7 @@ impl SubroutineScope {
 #[cfg(test)]
 mod tests {
     use std::fmt;
+    use super::OwnerKind;
 
     use base_db::{
         diagnostics_config::DiagnosticsConfig,
@@ -651,41 +641,74 @@ endmodule
     }
 
     #[test]
-    fn block_id_maps_to_its_owner() {
+    fn block_statements_store_their_canonical_owner() {
         let text = "module m; initial begin : blk end endmodule\n";
         let db = db_with_root_text(text);
         let file_id = HirFileId::File(TOP);
-        let table = db.owner_table(file_id);
-
-        let block_owner = table
+        let block_owner = db
+            .owner_table(file_id)
             .owners_of_kind(crate::owner::OwnerKind::Block)
             .next()
-            .expect("block owner must exist");
-        assert_eq!(block_owner.name, "blk");
+            .expect("block owner must exist")
+            .id;
 
-        // Re-derive the block id the way lowering does and map it back.
         let module_id =
             ModuleId::new(file_id, db.hir_file(file_id).modules.iter().next().unwrap().0);
         let module = db.module_with_source_map(module_id);
         let proc = module.procs.iter().next().expect("initial block must lower").1;
         let body = db.body_with_source_map(proc.owner);
-        let block_id = body
+        let lowered_owner = body
             .stmts
-            .iter()
-            .find_map(|(_, stmt)| match &stmt.kind {
-                crate::stmt::StmtKind::Block(info)
-                    if {
-                        let node = info.block_id.loc().src.value.node;
-                        Some(node) == db.ast_id_map(file_id).ptr(block_owner.id.ast_id(&db))
-                    } =>
-                {
-                    Some(info.block_id.clone())
-                }
+            .values()
+            .find_map(|stmt| match stmt.kind {
+                crate::stmt::StmtKind::Block(owner) => Some(owner),
                 _ => None,
             })
             .expect("procedural body lowering must create the block");
 
-        assert_eq!(block_id.owner(&db), Some(block_owner.id));
+        assert_eq!(lowered_owner, block_owner);
+    }
+
+    #[test]
+    fn nested_blocks_share_one_body_and_keep_distinct_scopes() {
+        let text = r#"
+module m;
+  initial begin : outer
+    int x;
+    begin : inner
+      int y;
+    end
+  end
+endmodule
+"#;
+        let db = db_with_root_text(text);
+        let file_id = HirFileId::File(TOP);
+        let module_id =
+            ModuleId::new(file_id, db.hir_file(file_id).modules.iter().next().unwrap().0);
+        let module = db.module(module_id);
+        let proc_owner = module.procs.values().next().expect("initial block must lower").owner;
+        let body = db.body_with_source_map(proc_owner);
+        let table = db.owner_table(file_id);
+        let outer = table
+            .owners_of_kind(OwnerKind::Block)
+            .find(|owner| owner.name == "outer")
+            .expect("outer block owner")
+            .id;
+        let inner = table
+            .owners_of_kind(OwnerKind::Block)
+            .find(|owner| owner.name == "inner")
+            .expect("inner block owner")
+            .id;
+
+        assert_eq!(body.decls.len(), 2);
+        assert_eq!(body.scope_graph.root(), Some(proc_owner));
+        assert_eq!(body.scope(outer).and_then(|scope| scope.parent()), Some(proc_owner));
+        assert_eq!(body.scope(inner).and_then(|scope| scope.parent()), Some(outer));
+        assert_eq!(body.scope(outer).unwrap().declarators().len(), 1);
+        assert_eq!(body.scope(inner).unwrap().declarators().len(), 1);
+
+        let projected = db.body_with_source_map(inner);
+        assert!(Arc::ptr_eq(&body, &projected), "block scopes must not open child body stores");
     }
     #[test]
     fn subroutine_scope_maps_to_its_owner() {

@@ -3707,70 +3707,16 @@ endmodule
     let analysis = host.make_analysis();
 
     {
-        use hir_def::{
-            module::ModuleId,
-            stmt::{CaseItem, Stmt, StmtId, StmtKind},
-        };
-        use hir_ty::db::TyDb;
+        use hir_def::{module::ModuleId, stmt::{Stmt, StmtKind}};
         use la_arena::Arena;
         use preproc_expand::file::HirFileId;
 
-        fn stmt_tree_has(
-            db: &dyn TyDb,
-            stmts: &Arena<Stmt>,
-            stmt_id: StmtId,
-            matches_kind: impl Copy + Fn(&StmtKind) -> bool,
-        ) -> bool {
-            let stmt = &stmts[stmt_id];
-            if matches_kind(&stmt.kind) {
-                return true;
-            }
-
-            match &stmt.kind {
-                StmtKind::Block(info) => {
-                    let owner = info
-                        .block_id
-                        .clone()
-                        .owner(db)
-                        .expect("block statement must map to an owner");
-                    let body = db.body_with_source_map(owner);
-                    stmt_arena_has(db, &body.stmts, matches_kind)
-                }
-                StmtKind::TimingCtrl(_, stmt_id)
-                | StmtKind::Forever(stmt_id)
-                | StmtKind::DoWhile(stmt_id, _)
-                | StmtKind::Repeat(_, stmt_id)
-                | StmtKind::While(_, stmt_id)
-                | StmtKind::Wait(_, stmt_id) => stmt_tree_has(db, stmts, *stmt_id, matches_kind),
-                StmtKind::For { stmt, .. } => stmt_tree_has(db, stmts, *stmt, matches_kind),
-                StmtKind::Cond { then_stmt, else_stmt, .. } => {
-                    stmt_tree_has(db, stmts, *then_stmt, matches_kind)
-                        || else_stmt
-                            .is_some_and(|stmt_id| stmt_tree_has(db, stmts, stmt_id, matches_kind))
-                }
-                StmtKind::Case { items, .. } => items.iter().any(|item| match item {
-                    CaseItem::Case { clause, .. } | CaseItem::Default(clause) => {
-                        stmt_tree_has(db, stmts, *clause, matches_kind)
-                    }
-                }),
-                StmtKind::Missing
-                | StmtKind::Invalid
-                | StmtKind::Unsupported(_)
-                | StmtKind::Empty
-                | StmtKind::Expr(_)
-                | StmtKind::Jump(_)
-                | StmtKind::EventTrigger(_)
-                | StmtKind::ProcAssign(_)
-                | StmtKind::Disable(_) => false,
-            }
-        }
 
         fn stmt_arena_has(
-            db: &dyn TyDb,
             stmts: &Arena<Stmt>,
             matches_kind: impl Copy + Fn(&StmtKind) -> bool,
         ) -> bool {
-            stmts.iter().any(|(stmt_id, _)| stmt_tree_has(db, stmts, stmt_id, matches_kind))
+            stmts.values().any(|stmt| matches_kind(&stmt.kind))
         }
 
         let db = host.raw_db();
@@ -3782,14 +3728,14 @@ endmodule
         assert!(
             module.procs.values().any(|proc| {
                 let body = db.body_with_source_map(proc.owner);
-                stmt_arena_has(db, &body.stmts, |kind| matches!(kind, StmtKind::Repeat(_, _)))
+                stmt_arena_has(&body.stmts, |kind| matches!(kind, StmtKind::Repeat(_, _)))
             }),
             "repeat statements should lower distinctly from while statements"
         );
         assert!(
             module.procs.values().any(|proc| {
                 let body = db.body_with_source_map(proc.owner);
-                stmt_arena_has(db, &body.stmts, |kind| matches!(kind, StmtKind::While(_, _)))
+                stmt_arena_has(&body.stmts, |kind| matches!(kind, StmtKind::While(_, _)))
             }),
             "while statements should still lower as while statements"
         );

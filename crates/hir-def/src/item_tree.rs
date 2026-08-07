@@ -9,7 +9,6 @@ use syntax::{
     ast::{self, AstNode},
     has_name::HasName,
     has_text_range::HasTextRange,
-    ptr::SyntaxNodePtr,
 };
 use triomphe::Arc;
 use utils::text_edit::TextRange;
@@ -231,56 +230,29 @@ pub(crate) fn build_source_projection(
     tree: &SyntaxTree,
     ast_ids: &AstIdMap,
 ) -> crate::source_projection::SourceProjection {
-    let origins = member_nodes(tree)
-        .into_iter()
-        .map(|node| {
-            let id = ast_ids
-                .id_of_node_in_tree(tree, node)
-                .expect("every item node has an AST identity");
-            let member = ast::Member::cast(node).expect("member node must cast");
-            let full_range = node.text_range();
-            let source_node = full_range.map(|_| SyntaxNodePtr::from_node(node));
-            let (_, focus_range) = item_name(node);
-            let focus_range = full_range.and(focus_range);
-            (
-                id,
-                SourceOrigin::new(
-                    file_id,
-                    source_node,
-                    Some(member.syntax().kind()),
-                    full_range,
-                    focus_range,
-                ),
-            )
-        })
-        .collect();
+    let mut origins = rustc_hash::FxHashMap::default();
+    let Some(root) = tree.root() else {
+        return crate::source_projection::SourceProjection::new(origins);
+    };
+    for event in root.node_preorder() {
+        let syntax::WalkEvent::Enter(node) = event else {
+            continue;
+        };
+        let id = ast_ids
+            .id_of_node_in_tree(tree, node)
+            .expect("every syntax node has an AST identity");
+        let full_range = node.text_range();
+        let source_node = ast_ids.ptr(id);
+        let (_, focus_range) = item_name(node);
+        let focus_range = full_range.and(focus_range);
+        origins.insert(
+            id,
+            SourceOrigin::new(file_id, source_node, Some(node.kind()), full_range, focus_range),
+        );
+    }
     crate::source_projection::SourceProjection::new(origins)
 }
 
-fn member_nodes<'a>(tree: &'a SyntaxTree) -> Vec<SyntaxNode<'a>> {
-    let mut nodes = Vec::new();
-    let mut body_depth = 0usize;
-    let Some(root) = tree.root() else {
-        return nodes;
-    };
-    for event in root.elem_preorder() {
-        match event {
-            WalkEvent::Enter(SyntaxElement::Node(node)) => {
-                if body_depth == 0 && ast::Member::can_cast(node.kind()) {
-                    nodes.push(node);
-                }
-                if is_body_boundary(node) {
-                    body_depth += 1;
-                }
-            }
-            WalkEvent::Leave(SyntaxElement::Node(node)) if is_body_boundary(node) => {
-                body_depth -= 1;
-            }
-            _ => {}
-        }
-    }
-    nodes
-}
 
 fn is_body_boundary(node: SyntaxNode<'_>) -> bool {
     ast::FunctionDeclaration::can_cast(node.kind()) || ast::ProceduralBlock::can_cast(node.kind())
@@ -417,6 +389,7 @@ fn item_name(node: SyntaxNode<'_>) -> (Option<SmolStr>, Option<TextRange>) {
         .or_else(|| ast::UdpDeclaration::cast(node).and_then(|item| item.name()))
         .or_else(|| ast::LibraryDeclaration::cast(node).and_then(|item| item.name()))
         .or_else(|| ast::GenerateBlock::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| ast::BlockStatement::cast(node).and_then(|item| HasName::name(&item)))
         .or_else(|| ast::ClassDeclaration::cast(node).and_then(|item| item.name()))
         .or_else(|| ast::CheckerDeclaration::cast(node).and_then(|item| item.name()))
         .or_else(|| ast::CovergroupDeclaration::cast(node).and_then(|item| item.name()))

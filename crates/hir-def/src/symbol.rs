@@ -4,7 +4,6 @@ use utils::impl_from;
 
 use crate::{
     Ident,
-    block::BlockId,
     checker::{CheckerId, CheckerPortId},
     container::{
         InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine, ScopeId,
@@ -23,6 +22,7 @@ use crate::{
         modport::ModportId,
         port::NonAnsiPortId,
     },
+    owner::OwnerId,
     stmt::StmtId,
     subroutine::SubroutinePortId,
     typedef::TypedefId,
@@ -45,7 +45,7 @@ pub enum DefOriginLoc {
     Config(InFile<ConfigDeclId>),
     Library(InFile<LibraryDeclId>),
     Udp(InFile<UdpDeclId>),
-    Block(BlockId),
+    Block(OwnerId),
     GenerateBlock(GenerateBlockId),
     Subroutine(SubroutineScope),
     SubroutinePort(InSubroutine<SubroutinePortId>),
@@ -69,7 +69,7 @@ impl_from! { DefOriginLoc =>
     Config(InFile<ConfigDeclId>),
     Library(InFile<LibraryDeclId>),
     Udp(InFile<UdpDeclId>),
-    Block(BlockId),
+    Block(OwnerId),
     GenerateBlock(GenerateBlockId),
     Subroutine(SubroutineScope),
     SubroutinePort(InSubroutine<SubroutinePortId>),
@@ -125,13 +125,13 @@ impl DefOriginLoc {
 
     /// The scope that owns this origin. Does not need the database: every
     /// variant carries its container directly.
-    pub fn container_id(&self) -> ScopeId {
+    pub fn container_id(&self, db: &dyn HirDefDb) -> ScopeId {
         match self {
             DefOriginLoc::Module(InFile { file_id, .. }) => (*file_id).into(),
             DefOriginLoc::Config(InFile { file_id, .. }) => (*file_id).into(),
             DefOriginLoc::Library(InFile { file_id, .. }) => (*file_id).into(),
             DefOriginLoc::Udp(InFile { file_id, .. }) => (*file_id).into(),
-            DefOriginLoc::Block(block_id) => block_id.loc().cont_id.clone().into(),
+            DefOriginLoc::Block(owner) => owner.parent(db).map(ScopeId::Owner).unwrap_or(ScopeId::Owner(*owner)),
             DefOriginLoc::GenerateBlock(generate_block_id) => {
                 generate_block_id.loc().cont_id.clone().into()
             }
@@ -165,7 +165,7 @@ impl DefOrigin {
 
     impl_origin_cast!(as_udp, Udp, InFile<UdpDeclId>);
 
-    impl_origin_cast!(as_block, Block, BlockId);
+    impl_origin_cast!(as_block, Block, OwnerId);
 
     impl_origin_cast!(as_generate_block, GenerateBlock, GenerateBlockId);
 
@@ -297,6 +297,7 @@ pub enum ScopeKind {
     GenerateBlock,
     Block,
     Subroutine,
+    ProceduralBlock,
     Covergroup,
     ClockingBlock,
     Checker,

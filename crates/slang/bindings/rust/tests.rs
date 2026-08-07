@@ -1714,6 +1714,44 @@ endmodule
     assert_eq!(*parent_expansion_id, Some(str_expansion_id));
 }
 
+
+#[test]
+fn token_paste_preserves_formal_trivia_location() {
+    let source = r#"`define PIPE_ASSIGN(name) \
+  always_comb begin \
+      name``_q = 1; \
+  end
+module m;
+logic trace_q;
+`PIPE_ASSIGN(trace)
+endmodule
+"#;
+    let tree = SyntaxTree::from_text(source, "source", "sample/rtl/top.sv");
+    let root = tree.root().expect("tree should have a root");
+    let pasted = root
+        .elem_preorder()
+        .find_map(|event| match event {
+            WalkEvent::Enter(SyntaxElement::Token(token))
+                if token.raw_text().as_bytes() == b"trace_q"
+                    && matches!(token.preprocessor_trace_origin(), TokenOrigin::TokenPaste { .. })
+                    && token.trivia_count() > 0 =>
+            {
+                Some(token)
+            }
+            _ => None,
+        })
+        .expect("expanded token paste should retain the formal parameter's trivia");
+
+    let (location, whitespace) = pasted
+        .trivias_with_loc()
+        .find(|(_, trivia)| trivia.get_raw_text().as_bytes() == b"      ")
+        .expect("formal parameter indentation should remain located");
+    assert_eq!(location.buffer_id, tree.buffer_id());
+    assert_eq!(
+        &source.as_bytes()[location.start..location.end],
+        whitespace.get_raw_text().as_bytes()
+    );
+}
 #[test]
 fn preprocessor_trace_reports_predefine_and_intrinsic_emitted_token_facts() {
     let source = r#"module m;

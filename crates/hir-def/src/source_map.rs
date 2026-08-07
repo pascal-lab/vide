@@ -185,6 +185,14 @@ impl SourceInfo {
         Self { kind: None, full_range, focus_range }
     }
 
+    pub fn from_parts(
+        kind: Option<SyntaxKind>,
+        full_range: TextRange,
+        focus_range: Option<TextRange>,
+    ) -> Self {
+        Self { kind, full_range, focus_range }
+    }
+
     pub fn kind(self) -> Option<SyntaxKind> {
         self.kind
     }

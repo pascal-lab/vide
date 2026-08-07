@@ -5,6 +5,7 @@ use hir_def::{
     def_id::DefId,
     expr::{ExprId, data_ty::BuiltinDataTyId},
     module::{ModuleId, generate::GenerateBlockId},
+    owner::OwnerId,
     typedef::TypedefId,
 };
 
@@ -35,7 +36,7 @@ pub(crate) enum Ty {
     Covergroup(DefId),
     VirtualInterface { def: DefId, modport: Option<DefId> },
     GenerateBlock(GenerateBlockId),
-    Block(hir_def::block::BlockId),
+    Block(OwnerId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

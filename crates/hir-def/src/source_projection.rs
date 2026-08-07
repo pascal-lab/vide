@@ -4,11 +4,10 @@ use syntax::{SyntaxKind, ptr::SyntaxNodePtr};
 use triomphe::Arc;
 use utils::text_edit::TextRange;
 
-use crate::{ast_id_map::SyntaxFileId, db::HirDefDb, item_tree::ItemTreeId};
+use crate::{ast_id_map::{SourceAstId, SyntaxFileId}, db::HirDefDb};
 
-/// Source representation for an item identified by the same [`ItemTreeId`]
-/// used by the semantic item tree. Navigability remains an independent
-/// projection property.
+/// Current source representation for a canonical AST identity. Navigability
+/// remains independent from semantic identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceOrigin {
     file_id: HirFileId,
@@ -58,22 +57,22 @@ impl SourceOrigin {
     }
 }
 
-/// Maps the canonical AST/item identity to editor-facing source data.
+/// Maps canonical AST identities to editor-facing source data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceProjection {
-    origins: FxHashMap<ItemTreeId, SourceOrigin>,
+    origins: FxHashMap<SourceAstId, SourceOrigin>,
 }
 
 impl SourceProjection {
-    pub(crate) fn new(origins: FxHashMap<ItemTreeId, SourceOrigin>) -> Self {
+    pub(crate) fn new(origins: FxHashMap<SourceAstId, SourceOrigin>) -> Self {
         Self { origins }
     }
 
-    pub fn origin(&self, item: ItemTreeId) -> Option<SourceOrigin> {
-        self.origins.get(&item).copied()
+    pub fn origin(&self, ast_id: SourceAstId) -> Option<SourceOrigin> {
+        self.origins.get(&ast_id).copied()
     }
 
-    pub fn origins(&self) -> impl Iterator<Item = (ItemTreeId, SourceOrigin)> + '_ {
+    pub fn origins(&self) -> impl Iterator<Item = (SourceAstId, SourceOrigin)> + '_ {
         self.origins.iter().map(|(id, origin)| (*id, *origin))
     }
 

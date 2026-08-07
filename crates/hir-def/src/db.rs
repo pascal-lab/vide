@@ -6,7 +6,6 @@ use triomphe::Arc;
 
 use crate::{
     ast_id_map::{self, AstIdMap, SourceAstId, SyntaxFileId},
-    block::{self, Block, BlockId},
     body::{self, Body},
     checker::CheckerId,
     container::{InFileOrModule, InModule, ScopeId, SubroutineScope},
@@ -120,15 +119,6 @@ impl dyn HirDefDb + '_ {
         self.body_with_source_map(owner)
     }
 
-    pub fn block_with_source_map(&self, block_id: BlockId) -> Arc<Lowered<Body>> {
-        let owner = block_id.owner(self).expect("block id must resolve to an owner");
-        self.body_with_source_map(owner)
-    }
-
-    pub fn block(&self, block_id: BlockId) -> Arc<Block> {
-        let owner = block_id.owner(self).expect("block id must resolve to an owner");
-        block::block_data(self, owner)
-    }
 
     pub fn subroutine_body_with_source_map(&self, owner: OwnerId) -> Arc<Lowered<Body>> {
         self.body_with_source_map(owner)
@@ -195,8 +185,9 @@ impl dyn HirDefDb + '_ {
         NameScope::generate_block_scope(self, generate_block_id)
     }
 
-    pub fn block_scope(&self, block_id: BlockId) -> Arc<NameScope> {
-        NameScope::block_scope(self, block_id)
+    pub fn block_scope(&self, owner: OwnerId) -> Arc<NameScope> {
+        debug_assert_eq!(owner.kind(self), crate::owner::OwnerKind::Block);
+        self.scope_for(owner.into())
     }
 
     pub fn subroutine_scope(&self, subroutine_id: SubroutineScope) -> Arc<NameScope> {
@@ -244,7 +235,6 @@ fn generate_block(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> Arc<
 pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     ast_id_map::set_ast_id_map_lru_capacity(db, capacity);
     body::set_body_lru_capacity(db, capacity);
-    block::set_block_lru_capacity(db, capacity);
     file::set_hir_file_lru_capacity(db, capacity);
     item_tree::set_item_tree_lru_capacity(db, capacity);
     module::set_module_lru_capacity(db, capacity);

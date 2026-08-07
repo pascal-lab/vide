@@ -11,13 +11,12 @@ use triomphe::Arc;
 use crate::{
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_with_source,
-    block::{BlockItem, BlockSrc, LocalBlockId},
-    container::ArenaOwnerId,
+    block::BlockItem,
     db::HirDefDb,
     declaration::{DataDecl, Declaration, DeclarationId, DeclarationSrc},
     expr::{
         Expr, ExprSrc,
-        declarator::{Declarator, DeclaratorSrc, empty_decls_range},
+        declarator::{DeclId, Declarator, DeclaratorSrc, empty_decls_range},
         timing_control::{EventExpr, EventExprSrc},
     },
     lower::{BodyStore, LoweringCtx},
@@ -29,15 +28,129 @@ use crate::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 
-/// The owner-local semantic body.
-///
-/// A body owns the arenas shared by files, modules, generate blocks,
-/// procedural blocks, and subroutines. Owner-specific headers and members are
-/// kept outside this structure; this is the only allocation store for
-/// expressions, statements, declarations, and local type definitions.
+/// One lexical scope inside a [`Body`]. Canonical [`OwnerId`] values are the
+/// only scope identities; the graph does not allocate a parallel block id.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct BodyScopeData {
+    owner: OwnerId,
+    parent: Option<OwnerId>,
+    items: SmallVec<[BlockItem; 4]>,
+    declarators: SmallVec<[DeclId; 4]>,
+    typedefs: SmallVec<[TypedefId; 2]>,
+    statements: SmallVec<[StmtId; 4]>,
+}
+
+impl BodyScopeData {
+    pub fn owner(&self) -> OwnerId {
+        self.owner
+    }
+
+    pub fn parent(&self) -> Option<OwnerId> {
+        self.parent
+    }
+
+    pub fn items(&self) -> &[BlockItem] {
+        &self.items
+    }
+
+    pub fn declarators(&self) -> &[DeclId] {
+        &self.declarators
+    }
+
+    pub fn typedefs(&self) -> &[TypedefId] {
+        &self.typedefs
+    }
+
+    pub fn statements(&self) -> &[StmtId] {
+        &self.statements
+    }
+}
+
+/// Lexical scopes for one owner-local body, in source discovery order.
+#[derive(Default, Debug, PartialEq, Eq, Clone)]
+pub struct BodyScopeGraph {
+    root: Option<OwnerId>,
+    scopes: Vec<BodyScopeData>,
+    by_owner: FxHashMap<OwnerId, usize>,
+}
+
+impl BodyScopeGraph {
+    pub fn root(&self) -> Option<OwnerId> {
+        self.root
+    }
+
+    pub fn scope(&self, owner: OwnerId) -> Option<&BodyScopeData> {
+        self.by_owner.get(&owner).map(|index| &self.scopes[*index])
+    }
+
+    pub fn scopes(&self) -> impl Iterator<Item = &BodyScopeData> {
+        self.scopes.iter()
+    }
+
+    fn scope_mut(&mut self, owner: OwnerId) -> &mut BodyScopeData {
+        let index = self.by_owner[&owner];
+        &mut self.scopes[index]
+    }
+
+    pub(crate) fn ensure_root(&mut self, owner: OwnerId) {
+        if let Some(root) = self.root {
+            assert_eq!(root, owner, "one Body cannot have multiple root owners");
+            return;
+        }
+        self.root = Some(owner);
+        self.insert(owner, None);
+    }
+
+    pub(crate) fn insert(&mut self, owner: OwnerId, parent: Option<OwnerId>) {
+        assert!(!self.by_owner.contains_key(&owner), "body scope owner inserted twice");
+        if let Some(parent) = parent {
+            assert!(self.by_owner.contains_key(&parent), "body scope parent must exist first");
+        }
+        let index = self.scopes.len();
+        self.scopes.push(BodyScopeData {
+            owner,
+            parent,
+            items: SmallVec::new(),
+            declarators: SmallVec::new(),
+            typedefs: SmallVec::new(),
+            statements: SmallVec::new(),
+        });
+        self.by_owner.insert(owner, index);
+    }
+
+    pub(crate) fn push_item(&mut self, owner: OwnerId, item: BlockItem) {
+        self.scope_mut(owner).items.push(item);
+    }
+
+    pub(crate) fn push_declarator(&mut self, owner: OwnerId, declarator: DeclId) {
+        self.scope_mut(owner).declarators.push(declarator);
+    }
+
+    pub(crate) fn push_typedef(&mut self, owner: OwnerId, typedef: TypedefId) {
+        self.scope_mut(owner).typedefs.push(typedef);
+    }
+
+    pub(crate) fn push_statement(&mut self, owner: OwnerId, statement: StmtId) {
+        self.scope_mut(owner).statements.push(statement);
+    }
+
+    fn shrink_to_fit(&mut self) {
+        for scope in &mut self.scopes {
+            scope.items.shrink_to_fit();
+            scope.declarators.shrink_to_fit();
+            scope.typedefs.shrink_to_fit();
+            scope.statements.shrink_to_fit();
+        }
+        self.scopes.shrink_to_fit();
+        self.by_owner.shrink_to_fit();
+    }
+}
+
+/// The owner-local semantic body. Nested blocks share these arenas and are
+/// partitioned by [`BodyScopeGraph`] instead of opening child body queries.
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct Body {
-    pub items: SmallVec<[crate::block::BlockItem; 2]>,
+    pub scope_graph: BodyScopeGraph,
     pub declarations: Arena<Declaration>,
     pub typedefs: Arena<Typedef>,
     pub structs: Arena<StructDef>,
@@ -49,9 +162,13 @@ pub struct Body {
 }
 
 impl Body {
+    pub fn scope(&self, owner: OwnerId) -> Option<&BodyScopeData> {
+        self.scope_graph.scope(owner)
+    }
+
     pub fn shrink_to_fit(&mut self) {
+        self.scope_graph.shrink_to_fit();
         self.declarations.shrink_to_fit();
-        self.items.shrink_to_fit();
         self.typedefs.shrink_to_fit();
         self.structs.shrink_to_fit();
         self.exprs.shrink_to_fit();
@@ -75,7 +192,7 @@ pub struct BodySourceMap {
     pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
     pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
     pub region_tree: RegionTree,
-    pub block_srcs: FxHashMap<BlockSrc, LocalBlockId>,
+    scope_region_trees: FxHashMap<OwnerId, RegionTree>,
     pub diagnostics: Vec<LoweringDiagnostic>,
 }
 
@@ -88,8 +205,21 @@ impl BodySourceMap {
         self.event_expr_srcs.shrink_to_fit();
         self.decl_srcs.shrink_to_fit();
         self.stmt_srcs.shrink_to_fit();
-        self.block_srcs.shrink_to_fit();
         self.diagnostics.shrink_to_fit();
+        self.scope_region_trees.shrink_to_fit();
+    }
+
+    pub fn region_tree_for(&self, body: &Body, owner: OwnerId) -> Option<&RegionTree> {
+        if body.scope_graph.root() == Some(owner) {
+            Some(&self.region_tree)
+        } else {
+            self.scope_region_trees.get(&owner)
+        }
+    }
+
+    pub(crate) fn insert_scope_region_tree(&mut self, owner: OwnerId, regions: RegionTree) {
+        let previous = self.scope_region_trees.insert(owner, regions);
+        assert!(previous.is_none(), "body scope region tree inserted twice");
     }
 }
 impl LoweredData for Body {
@@ -130,7 +260,7 @@ pub(crate) fn body_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Low
     match owner.kind(db) {
         OwnerKind::ProceduralBlock => lower_procedural_body(db, owner),
         OwnerKind::Subroutine => lower_subroutine_body(db, owner),
-        OwnerKind::Block => lower_block_body(db, owner),
+        OwnerKind::Block => body_with_source_map(db, body_owner(db, owner)),
         OwnerKind::GenerateBlock => {
             crate::module::generate::generate_block_body_with_source_map(db, owner)
         }
@@ -144,13 +274,19 @@ pub(crate) fn body_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Low
     }
 }
 
+pub(crate) fn body_owner(db: &dyn HirDefDb, mut owner: OwnerId) -> OwnerId {
+    while owner.kind(db) == OwnerKind::Block {
+        owner = owner.parent(db).expect("block scope must have a body owner ancestor");
+    }
+    owner
+}
+
 fn lower_procedural_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
     let file_id = owner.file(db);
     let tree = db.parse(file_id);
     let Some(proc) = db
         .owner_source_ast_id(owner)
-        .and_then(|ast_id| db.ast_id_map(file_id).ptr(ast_id))
-        .and_then(|ptr| ptr.to_node(&tree))
+        .and_then(|ast_id| db.ast_id_map(file_id).node(ast_id, &tree))
         .and_then(ast::ProceduralBlock::cast)
     else {
         return Arc::new(Lowered::new(Body::default(), BodySourceMap::default()));
@@ -160,8 +296,7 @@ fn lower_procedural_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>
     let mut source_map = BodySourceMap::default();
     let mut ctx = LoweringCtx::new(
         db,
-        file_id,
-        ArenaOwnerId::Owner(owner),
+        owner,
         BodyStore { data: &mut body, sources: &mut source_map },
     );
     let root_stmt = ctx.record_stmt(proc.statement());
@@ -187,15 +322,6 @@ fn lower_subroutine_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>
     lower_body(db, owner, |ctx| ctx.lower_subroutine_items(func))
 }
 
-fn lower_block_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
-    let file_id = owner.file(db);
-    let tree = db.parse(file_id);
-    let Some(block) = owner_node(db, owner, &tree).and_then(ast::BlockStatement::cast) else {
-        return empty_body();
-    };
-
-    lower_body(db, owner, |ctx| ctx.lower_block_items(block))
-}
 
 fn owner_node<'tree>(
     db: &dyn HirDefDb,
@@ -203,8 +329,7 @@ fn owner_node<'tree>(
     tree: &'tree syntax::SyntaxTree,
 ) -> Option<syntax::SyntaxNode<'tree>> {
     db.owner_source_ast_id(owner)
-        .and_then(|ast_id| db.ast_id_map(owner.file(db)).ptr(ast_id))
-        .and_then(|ptr| ptr.to_node(tree))
+        .and_then(|ast_id| db.ast_id_map(owner.file(db)).node(ast_id, tree))
 }
 
 fn lower_body(
@@ -216,8 +341,7 @@ fn lower_body(
     let mut source_map = BodySourceMap::default();
     let mut ctx = LoweringCtx::new(
         db,
-        owner.file(db),
-        ArenaOwnerId::Owner(owner),
+        owner,
         BodyStore { data: &mut body, sources: &mut source_map },
     );
     lower(&mut ctx);
@@ -233,39 +357,47 @@ fn empty_body() -> Arc<Lowered<Body>> {
     Arc::new(Lowered::new(Body::default(), BodySourceMap::default()))
 }
 
-impl LoweringCtx<BodyStore<'_>> {
-    fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let struct_def =
-            lower_struct_def(struct_ty, self.owner.clone(), |ty| self.lower_data_ty(ty));
+impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
+    fn lower_body_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
+        let container = self.current_arena_owner();
+        let struct_def = lower_struct_def(struct_ty, container, |ty| self.lower_data_ty(ty));
+        let file_id = self.file_id;
+        let (body, sources) = self.store.body();
         alloc_with_source(
-            self.file_id,
-            &mut self.store.data.structs,
-            &mut self.store.sources.struct_srcs,
+            file_id,
+            &mut body.structs,
+            &mut sources.struct_srcs,
             struct_def,
             struct_ty,
         )
     }
 
-    fn lower_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
-        let typedef_id = alloc_with_source(
-            self.file_id,
-            &mut self.store.data.typedefs,
-            &mut self.store.sources.typedef_srcs,
-            Typedef { name: lower_ident_opt(typedef.name()), ty: None },
-            typedef,
-        );
+    fn lower_body_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
+        let file_id = self.file_id;
+        let typedef_id = {
+            let (body, sources) = self.store.body();
+            alloc_with_source(
+                file_id,
+                &mut body.typedefs,
+                &mut sources.typedef_srcs,
+                Typedef { name: lower_ident_opt(typedef.name()), ty: None },
+                typedef,
+            )
+        };
+        self.record_body_typedef(typedef_id);
+        let container = self.current_arena_owner();
         let ty = lower_typedef_data_ty(
             self,
             typedef.type_(),
-            self.owner.clone(),
-            |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
+            container,
+            |ctx, struct_ty| ctx.lower_body_struct_type(struct_ty),
             |ctx, ty| ctx.lower_data_ty(ty),
         );
-        self.store.data.typedefs[typedef_id].ty = Some(ty);
+        self.store.body().0.typedefs[typedef_id].ty = Some(ty);
         typedef_id
     }
 
-    fn lower_local_variable_decl(
+    fn lower_body_local_variable_decl(
         &mut self,
         local_decl: ast::LocalVariableDeclaration,
     ) -> DeclarationId {
@@ -284,65 +416,59 @@ impl LoweringCtx<BodyStore<'_>> {
         parent
     }
 
-    fn record_stmt(&mut self, stmt: ast::Statement) -> StmtId {
-        let stmt_id = self.lower_stmt(stmt);
-        if let Some(block) = stmt.as_block_statement() {
-            self.store
-                .sources
-                .block_srcs
-                .insert(BlockSrc::from_ast(self.file_id, block), LocalBlockId(stmt_id));
-        }
-        stmt_id
-    }
-
-    fn lower_block_items(&mut self, block: ast::BlockStatement) {
+    pub(crate) fn lower_nested_block(&mut self, block: ast::BlockStatement, owner: OwnerId) {
+        self.enter_body_scope(owner);
+        let mut regions = crate::region_tree::RegionTreeBuilder::new();
         for node in block.items().children() {
             let item = match_ast! { node.syntax(),
-                ast::Statement[it] => BlockItem::StmtId(self.record_stmt(it)),
-                ast::DataDeclaration[it] => BlockItem::DeclarationId(self.lower_data_decl(it)),
+                ast::Statement[it] => Some(BlockItem::StmtId(self.lower_stmt(it))),
+                ast::DataDeclaration[it] => { self.lower_data_decl(it); None },
                 ast::ParameterDeclarationStatement[it] => {
-                    BlockItem::DeclarationId(self.lower_param_decl_base(it.parameter()))
+                    self.lower_param_decl_base(it.parameter());
+                    None
                 },
-                ast::TypedefDeclaration[it] => BlockItem::TypedefId(self.lower_typedef(it)),
+                ast::TypedefDeclaration[it] => { self.lower_body_typedef(it); None },
                 _ => continue,
             };
-            self.store.data.items.push(item);
-            self.region_tree.handle_node(node.syntax());
+            if let Some(item) = item {
+                self.push_body_item(item);
+            }
+            regions.handle_node(node.syntax());
         }
-        self.store.sources.region_tree = self.region_tree.finish();
+        self.set_scope_region_tree(owner, regions.finish());
+        self.leave_body_scope(owner);
+    }
+}
+
+impl LoweringCtx<BodyStore<'_>> {
+    fn record_stmt(&mut self, stmt: ast::Statement) -> StmtId {
+        self.lower_stmt(stmt)
     }
 
     fn lower_subroutine_items(&mut self, func: ast::FunctionDeclaration) {
         for item in func.items().children() {
             self.region_tree.handle_node(item.syntax());
             let syntax = item.syntax();
-            match_ast! { syntax,
-                ast::Statement[it] => {
-                    let stmt_id = self.record_stmt(it);
-                    self.store.data.items.push(BlockItem::StmtId(stmt_id));
-                },
-                ast::DataDeclaration[it] => {
-                    let id = self.lower_data_decl(it);
-                    self.store.data.items.push(BlockItem::DeclarationId(id));
-                },
+            let body_item = match_ast! { syntax,
+                ast::Statement[it] => Some(BlockItem::StmtId(self.record_stmt(it))),
+                ast::DataDeclaration[it] => { self.lower_data_decl(it); None },
                 ast::PortDeclaration[it] => {
-                    if let Some(id) = self.lower_port_decl_as_data_decl(it) {
-                        self.store.data.items.push(BlockItem::DeclarationId(id));
-                    }
+                    self.lower_port_decl_as_data_decl(it);
+                    None
                 },
                 ast::LocalVariableDeclaration[it] => {
-                    let id = self.lower_local_variable_decl(it);
-                    self.store.data.items.push(BlockItem::DeclarationId(id));
+                    self.lower_body_local_variable_decl(it);
+                    None
                 },
                 ast::ParameterDeclarationStatement[it] => {
-                    let id = self.lower_param_decl_base(it.parameter());
-                    self.store.data.items.push(BlockItem::DeclarationId(id));
+                    self.lower_param_decl_base(it.parameter());
+                    None
                 },
-                ast::TypedefDeclaration[it] => {
-                    let id = self.lower_typedef(it);
-                    self.store.data.items.push(BlockItem::TypedefId(id));
-                },
-                _ => {},
+                ast::TypedefDeclaration[it] => { self.lower_body_typedef(it); None },
+                _ => continue,
+            };
+            if let Some(body_item) = body_item {
+                self.push_body_item(body_item);
             }
         }
         self.region_tree.stage(func.end(), func.syntax());
@@ -374,7 +500,6 @@ crate::impl_arena_getters!(
     crate::expr::timing_control::EventExprId => event_exprs => EventExpr,
     crate::expr::declarator::DeclId => decls => Declarator,
     crate::stmt::StmtId => stmts => Stmt,
-    crate::block::LocalBlockId => stmts => crate::block::BlockInfo,
 );
 
 crate::impl_source_map_getters!(
@@ -386,5 +511,4 @@ crate::impl_source_map_getters!(
     crate::expr::timing_control::EventExprSrc => crate::expr::timing_control::EventExprId => event_expr_srcs,
     crate::expr::declarator::DeclaratorSrc => crate::expr::declarator::DeclId => decl_srcs,
     crate::stmt::StmtSrc => crate::stmt::StmtId => stmt_srcs,
-    crate::block::BlockSrc => crate::block::LocalBlockId => stmt_srcs,
 );
