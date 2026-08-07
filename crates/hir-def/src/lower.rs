@@ -1,10 +1,12 @@
 use la_arena::Arena;
 use preproc_expand::file::HirFileId;
-use syntax::SyntaxKind;
+use syntax::{SyntaxKind, SyntaxNode};
+use triomphe::Arc;
 use utils::text_edit::TextRange;
 
 use super::{
     block::{Block, BlockId, BlockSourceMap},
+    body::{Body, BodySourceMap},
     checker::{CheckerDef, CheckerSrc},
     declaration::{Declaration, DeclarationSrc},
     expr::{
@@ -29,7 +31,10 @@ use super::{
     ty::NetKind,
 };
 use crate::{
+    ast_id_map::AstIdMap,
     container::ArenaOwnerId,
+    db::HirDefDb,
+    owner::{OwnerId, OwnerSourceMap},
     region_tree::RegionTreeBuilder,
     source_map::{LoweringDiagnostic, LoweringDiagnosticKind, SourceMap},
 };
@@ -62,6 +67,11 @@ pub(crate) struct BlockStore<'a> {
 pub(crate) struct SubroutineStore<'a> {
     pub(crate) data: &'a mut SubroutineBody,
     pub(crate) sources: &'a mut SubroutineBodySourceMap,
+}
+/// Mutable data/source pair for a canonical owner body.
+pub(crate) struct BodyStore<'a> {
+    pub(crate) data: &'a mut Body,
+    pub(crate) sources: &'a mut BodySourceMap,
 }
 
 /// Store interface shared by expression, declarator, statement, and declaration
@@ -117,6 +127,7 @@ impl_lowering_store!(ModuleStore<'_>);
 impl_lowering_store!(GenerateBlockStore<'_>);
 impl_lowering_store!(BlockStore<'_>);
 impl_lowering_store!(SubroutineStore<'_>);
+impl_lowering_store!(BodyStore<'_>);
 
 pub(crate) trait CheckerStore: LoweringStore {
     fn checkers(&mut self) -> (&mut Arena<CheckerDef>, &mut SourceMap<CheckerSrc, CheckerDef>);
@@ -220,6 +231,8 @@ impl_module_item_store!(GenerateBlockStore<'_>);
 pub(crate) struct LoweringCtx<Store> {
     pub(crate) file_id: HirFileId,
     pub(crate) owner: ArenaOwnerId,
+    ast_ids: Arc<AstIdMap>,
+    owner_sources: Arc<OwnerSourceMap>,
     pub(crate) store: Store,
     pub(crate) diagnostics: Vec<LoweringDiagnostic>,
     pub(crate) region_tree: RegionTreeBuilder,
@@ -227,15 +240,27 @@ pub(crate) struct LoweringCtx<Store> {
 }
 
 impl<Store> LoweringCtx<Store> {
-    pub(crate) fn new(file_id: HirFileId, owner: ArenaOwnerId, store: Store) -> Self {
+    pub(crate) fn new(
+        db: &dyn HirDefDb,
+        file_id: HirFileId,
+        owner: ArenaOwnerId,
+        store: Store,
+    ) -> Self {
         Self {
             file_id,
             owner,
+            ast_ids: db.ast_id_map(file_id),
+            owner_sources: db.owner_source_map(file_id),
             store,
             diagnostics: Vec::new(),
             region_tree: RegionTreeBuilder::new(),
             default_net_type: NetKind::Wire,
         }
+    }
+
+    pub(crate) fn owner_for_node(&self, node: SyntaxNode<'_>) -> Option<OwnerId> {
+        let ast_id = self.ast_ids.id_of_node(node)?;
+        self.owner_sources.owner_by_ast(ast_id)
     }
 
     pub(crate) fn module_id(&self) -> ModuleId {

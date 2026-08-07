@@ -220,9 +220,9 @@ pub(crate) fn inlay_hint(
         collect_macro_argument_hints(db, file_id.expect_file(), range, &mut collector);
     }
 
-    for &item in file.source_map().items.iter() {
+    for item in &file.data_ref().items {
         #[allow(clippy::single_match)]
-        match item {
+        match item.clone() {
             FileItem::LocalModuleId(idx) => {
                 let module_id = ModuleId::new(file_id, idx);
                 let Some(module_src) = file.source(idx) else {
