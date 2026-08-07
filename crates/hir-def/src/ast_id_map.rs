@@ -1,40 +1,22 @@
 //! Per-file source AST identity.
 //!
-//! Every root-buffer node of a file's syntax tree gets a `SourceAstId`
-//! assigned in depth-first preorder: a parent is numbered before its
-//! children, and appending a node at the end of the tree never renumbers
-//! existing nodes. The ids are file-local and deterministic for a given
-//! parse, so they are the join key between the syntax tree and every
-//! semantic layer (item tree, [`OwnerId`](crate::owner::OwnerId), body
-//! source maps) without holding a tree or a [`SyntaxNodePtr`] inside the
-//! semantic structures.
-//!
-//! The design doc ([`docs/lsp/hir-def-rearchitecture.md`](https://raw.githubusercontent.com/hjiaming/vide/main/docs/lsp/hir-def-rearchitecture.md))
-//! sketches a BFS ordering, but the stability property it wants ("appending
-//! a sibling never renumbers existing nodes") is only true of depth-first
-//! preorder: in BFS, a new sibling at a shallower depth is numbered before
-//! the existing deeper nodes it precedes. rust-analyzer has since moved to
-//! content-hashed ids (kind + name + parent) for the same reason; if that
-//! stability class is ever needed, the map can be rebuilt on top of
-//! `SourceAstId` without changing consumers.
-//!
-//! Nodes that have no stable position in the file's display coordinates
-//! (syntax from included buffers) are not numbered and yield `None`; this is
-//! the same boundary the source maps draw with
-//! [`SourceAst`](crate::source_map::SourceAst).
-//!
-//! Macro-expanded nodes report the macro call site as their display range, so
-//! [`SyntaxNodePtr`] is not a unique identity inside one expansion — the same
-//! caveat that already applies to [`SyntaxNodePtr`] itself. In practice only
-//! one macro call expands at a given call-site range, so collisions are
-//! limited to a single expansion emitting two nodes of the same kind.
+//! `SourceAstId` is a stable path identity, not an arena ordinal. The path is
+//! made from syntax kind, parent path, and the occurrence among direct
+//! siblings of the same kind. Existing item/header nodes therefore keep their
+//! id when an unrelated body grows, while a structural insertion is allowed
+//! to change the ids of later siblings of the same kind.
+
+use std::hash::{Hash, Hasher};
 
 use preproc_expand::file::HirFileId;
-use rustc_hash::FxHashMap;
-use syntax::{SyntaxNode, SyntaxTree, has_text_range::HasTextRange, ptr::SyntaxNodePtr};
+use rustc_hash::{FxHashMap, FxHasher};
+use syntax::{
+    SyntaxKind, SyntaxNode, SyntaxTree, has_text_range::HasTextRange, ptr::SyntaxNodePtr,
+};
 use triomphe::Arc;
 
 use crate::db::HirDefDb;
+
 /// Database-interned identity of a parsed HIR file.
 ///
 /// `HirFileId` is a plain value from the preprocessing layer. Interning it at
@@ -46,78 +28,178 @@ pub struct SyntaxFileId {
     pub hir_file: HirFileId,
 }
 
-
-/// A file-local index of a syntax node in depth-first preorder.
+/// A file-local identity for one syntax node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct SourceAstId(pub u32);
+pub struct SourceAstId(pub u128);
 
 impl SourceAstId {
-    pub const fn from_raw(raw: u32) -> Self {
+    pub const fn from_raw(raw: u128) -> Self {
         Self(raw)
     }
 
-    pub const fn raw(self) -> u32 {
+    pub const fn raw(self) -> u128 {
         self.0
     }
 }
 
-/// The node table behind [`SourceAstId`]: `id -> SyntaxNodePtr` with the
-/// reverse lookup.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct StableSegment {
+    kind: SyntaxKind,
+    occurrence: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct StablePath(Vec<StableSegment>);
+
+impl StablePath {
+    fn child(&self, kind: SyntaxKind, occurrence: u32) -> Self {
+        let mut path = self.0.clone();
+        path.push(StableSegment { kind, occurrence });
+        Self(path)
+    }
+}
+
+/// The node table behind [`SourceAstId`]. Navigable nodes retain a pointer;
+/// expanded/include nodes retain only their structural path and are resolved
+/// by walking the current tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AstIdMap {
-    nodes: Vec<SyntaxNodePtr>,
+    nodes: FxHashMap<SourceAstId, SyntaxNodePtr>,
     by_ptr: FxHashMap<SyntaxNodePtr, SourceAstId>,
+    by_path: FxHashMap<StablePath, SourceAstId>,
 }
 
 impl AstIdMap {
-    /// Builds the map in depth-first preorder: each node is numbered on
-    /// entry, after its parent and before any of its children.
     pub(crate) fn from_source(tree: &SyntaxTree) -> Self {
-        let mut nodes = Vec::new();
-        let mut by_ptr = FxHashMap::default();
+        let mut candidates = Vec::new();
+        let mut paths: Vec<StablePath> = Vec::new();
+        let mut child_counts: Vec<FxHashMap<SyntaxKind, u32>> = Vec::new();
         let Some(root) = tree.root() else {
-            return Self { nodes, by_ptr };
+            return Self {
+                nodes: FxHashMap::default(),
+                by_ptr: FxHashMap::default(),
+                by_path: FxHashMap::default(),
+            };
         };
 
         for event in root.node_preorder() {
-            let syntax::WalkEvent::Enter(node) = event else {
-                continue;
-            };
-            if node.text_range().is_some() {
-                let ptr = SyntaxNodePtr::from_node(node);
-                let id = SourceAstId(u32::try_from(nodes.len()).unwrap_or(u32::MAX));
-                by_ptr.insert(ptr, id);
-                nodes.push(ptr);
+            match event {
+                syntax::WalkEvent::Enter(node) => {
+                    let path = next_path(&mut paths, &mut child_counts, node.kind());
+                    let ptr = node.text_range().map(|_| SyntaxNodePtr::from_node(node));
+                    candidates.push((path.clone(), ptr));
+                    paths.push(path);
+                    child_counts.push(FxHashMap::default());
+                }
+                syntax::WalkEvent::Leave(_) => {
+                    paths.pop();
+                    child_counts.pop();
+                }
             }
         }
 
-        Self { nodes, by_ptr }
+        let mut nodes = FxHashMap::default();
+        let mut by_ptr = FxHashMap::default();
+        let mut by_path = FxHashMap::default();
+        let mut used = FxHashMap::<SourceAstId, StablePath>::default();
+        for (path, ptr) in candidates {
+            let mut salt = 0;
+            let id = loop {
+                let id = if path.0.is_empty() { SourceAstId(0) } else { stable_id(&path, salt) };
+                match used.get(&id) {
+                    None => break id,
+                    Some(existing) if existing == &path => break id,
+                    Some(_) => salt += 1,
+                }
+            };
+            used.insert(id, path.clone());
+            by_path.insert(path, id);
+            if let Some(ptr) = ptr {
+                nodes.insert(id, ptr);
+                by_ptr.insert(ptr, id);
+            }
+        }
+        Self { nodes, by_ptr, by_path }
     }
 
     pub fn len(&self) -> usize {
-        self.nodes.len()
+        self.by_path.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
+        self.by_path.is_empty()
     }
 
-    /// The node pointer for `id`.
     pub fn ptr(&self, id: SourceAstId) -> Option<SyntaxNodePtr> {
-        self.nodes.get(id.0 as usize).copied()
+        self.nodes.get(&id).copied()
     }
 
-    /// The id of a root-buffer node, when it has one.
     pub fn id_of_node(&self, node: SyntaxNode<'_>) -> Option<SourceAstId> {
-        (node.text_range().is_some())
-            .then(|| SyntaxNodePtr::from_node(node))
+        node.text_range()
+            .map(|_| SyntaxNodePtr::from_node(node))
             .and_then(|ptr| self.id_of_ptr(ptr))
     }
 
-    /// The id of a node pointer, when the node is in the map.
+    pub fn id_of_node_in_tree(
+        &self,
+        tree: &SyntaxTree,
+        target: SyntaxNode<'_>,
+    ) -> Option<SourceAstId> {
+        if let Some(id) = self.id_of_node(target) {
+            return Some(id);
+        }
+        let root = tree.root()?;
+        let mut paths: Vec<StablePath> = Vec::new();
+        let mut child_counts: Vec<FxHashMap<SyntaxKind, u32>> = Vec::new();
+        for event in root.node_preorder() {
+            match event {
+                syntax::WalkEvent::Enter(node) => {
+                    let path = next_path(&mut paths, &mut child_counts, node.kind());
+                    if node == target {
+                        return self.by_path.get(&path).copied();
+                    }
+                    paths.push(path);
+                    child_counts.push(FxHashMap::default());
+                }
+                syntax::WalkEvent::Leave(_) => {
+                    paths.pop();
+                    child_counts.pop();
+                }
+            }
+        }
+        None
+    }
+
     pub fn id_of_ptr(&self, ptr: SyntaxNodePtr) -> Option<SourceAstId> {
         self.by_ptr.get(&ptr).copied()
     }
+}
+
+fn next_path(
+    paths: &[StablePath],
+    child_counts: &mut [FxHashMap<SyntaxKind, u32>],
+    kind: SyntaxKind,
+) -> StablePath {
+    let Some(parent) = paths.last() else {
+        return StablePath(Vec::new());
+    };
+    let count = child_counts
+        .last_mut()
+        .expect("every syntax node has a child-count frame")
+        .entry(kind)
+        .and_modify(|count| *count += 1)
+        .or_insert(0);
+    parent.child(kind, *count)
+}
+fn stable_id(path: &StablePath, salt: u64) -> SourceAstId {
+    let mut hi = FxHasher::default();
+    path.hash(&mut hi);
+    salt.hash(&mut hi);
+    let mut lo = FxHasher::default();
+    0x9e37_79b9_u64.hash(&mut lo);
+    path.hash(&mut lo);
+    salt.hash(&mut lo);
+    SourceAstId((hi.finish() as u128) << 64 | lo.finish() as u128)
 }
 
 #[salsa::tracked(lru = 1024, returns(clone))]
@@ -131,6 +213,8 @@ pub(crate) fn set_ast_id_map_lru_capacity(db: &mut dyn HirDefDb, capacity: usize
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{HashMap, HashSet};
+
     use syntax::SyntaxKind;
 
     use super::*;
@@ -140,43 +224,19 @@ mod tests {
     }
 
     #[test]
-    fn preorder_orders_parents_before_children() {
-        let text = "module m; wire a; wire b; endmodule\n";
-        let map = AstIdMap::from_source(&parse(text));
-        let tree = parse(text);
+    fn stable_ids_are_unique_and_round_trip() {
+        let tree = parse("module m; wire a; wire b; endmodule\n");
+        let map = AstIdMap::from_source(&tree);
         let root = tree.root().unwrap();
+        assert_eq!(map.id_of_node(root), Some(SourceAstId(0)));
 
-        // Collect (kind, id) for every numbered node in tree order and check
-        // that each node's id is larger than any ancestor's id.
-        let mut ids = Vec::new();
-        let mut stack: Vec<u32> = Vec::new();
-        for event in root.node_preorder() {
-            match event {
-                syntax::WalkEvent::Enter(node) => {
-                    if let Some(id) = map.id_of_node(node) {
-                        if let Some(parent) = stack.last() {
-                            assert!(
-                                *parent < id.0,
-                                "parent must be numbered before child (parent {parent}, child {id:?})"
-                            );
-                        }
-                        stack.push(id.0);
-                        ids.push((node.kind(), id));
-                    }
-                }
-                syntax::WalkEvent::Leave(node) => {
-                    if map.id_of_node(node).is_some() {
-                        stack.pop();
-                    }
-                }
-            }
+        let ids = collect_kind_ids(&map, &tree);
+        let unique: HashSet<_> = ids.values().flatten().copied().collect();
+        assert_eq!(unique.len(), map.nodes.len());
+        assert!(ids.contains_key(&SyntaxKind::MODULE_DECLARATION));
+        for id in unique {
+            assert!(map.ptr(id).is_some(), "every AST id must have a pointer");
         }
-
-        assert_eq!(ids.first(), Some(&(SyntaxKind::COMPILATION_UNIT, SourceAstId(0))));
-        assert!(
-            ids.iter().any(|(kind, _)| *kind == SyntaxKind::MODULE_DECLARATION),
-            "module nodes must be numbered: {ids:?}"
-        );
     }
 
     #[test]
@@ -185,39 +245,54 @@ mod tests {
         let after = "module m; wire a; wire b; endmodule\n";
         let before_map = AstIdMap::from_source(&parse(before));
         let after_map = AstIdMap::from_source(&parse(after));
-
         let before_ids = collect_kind_ids(&before_map, &parse(before));
         let after_ids = collect_kind_ids(&after_map, &parse(after));
 
-        // Every node that exists in both trees keeps its id.
-        for ((kind_before, id_before), (kind_after, id_after)) in
-            before_ids.iter().zip(after_ids.iter())
-        {
-            assert_eq!(kind_before, kind_after);
-            assert_eq!(id_before, id_after, "{kind_before:?} must keep its id");
+        for (kind, before_ids) in before_ids {
+            let after_ids = &after_ids[&kind];
+            assert_eq!(&after_ids[..before_ids.len()], before_ids.as_slice());
         }
-        assert!(after_ids.len() > before_ids.len());
+        assert!(after_map.len() > before_map.len());
+    }
+
+    #[test]
+    fn body_edits_keep_later_owner_ids() {
+        let before = "module m; function void f(); endfunction module n; endmodule\n";
+        let after = "module m; function void f(); wire x; endfunction module n; endmodule\n";
+        let before_tree = parse(before);
+        let after_tree = parse(after);
+        let before_ids = collect_kind_ids(&AstIdMap::from_source(&before_tree), &before_tree);
+        let after_ids = collect_kind_ids(&AstIdMap::from_source(&after_tree), &after_tree);
+        assert_eq!(
+            before_ids[&SyntaxKind::MODULE_DECLARATION],
+            after_ids[&SyntaxKind::MODULE_DECLARATION]
+        );
+        assert_eq!(
+            before_ids[&SyntaxKind::FUNCTION_DECLARATION],
+            after_ids[&SyntaxKind::FUNCTION_DECLARATION]
+        );
     }
 
     #[test]
     fn id_of_ptr_roundtrips() {
-        let text = "module m; endmodule\n";
-        let tree = parse(text);
+        let tree = parse("module m; endmodule\n");
         let map = AstIdMap::from_source(&tree);
         let root = tree.root().unwrap();
-
         let id = map.id_of_node(root).expect("root must be numbered");
         assert_eq!(map.ptr(id), Some(SyntaxNodePtr::from_node(root)));
         assert_eq!(map.id_of_ptr(SyntaxNodePtr::from_node(root)), Some(id));
     }
 
-    fn collect_kind_ids(map: &AstIdMap, tree: &SyntaxTree) -> Vec<(SyntaxKind, SourceAstId)> {
-        let mut out = Vec::new();
+    fn collect_kind_ids(
+        map: &AstIdMap,
+        tree: &SyntaxTree,
+    ) -> HashMap<SyntaxKind, Vec<SourceAstId>> {
+        let mut out = HashMap::new();
         for event in tree.root().unwrap().node_preorder() {
             if let syntax::WalkEvent::Enter(node) = event
                 && let Some(id) = map.id_of_node(node)
             {
-                out.push((node.kind(), id));
+                out.entry(node.kind()).or_insert_with(Vec::new).push(id);
             }
         }
         out

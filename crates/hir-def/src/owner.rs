@@ -204,7 +204,7 @@ fn discover_owners(
     ast_ids: Option<&AstIdMap>,
 ) -> Vec<DiscoveredOwner> {
     let root_ast_id =
-        tree.root().and_then(|root| ast_ids.and_then(|ast_ids| ast_ids.id_of_node(root)));
+        tree.root().and_then(|root| ast_ids.and_then(|map| map.id_of_node_in_tree(tree, root)));
     let file_owner = OwnerId::new(db, file_id, OwnerKind::File, None, 0);
     let mut discovered = vec![DiscoveredOwner {
         id: file_owner,
@@ -232,7 +232,7 @@ fn discover_owners(
                 let parent = owners.last().copied();
                 let owner = OwnerId::new(db, file_id, kind, parent, owner_slot);
                 let name = owner_name(node);
-                let ast_id = ast_ids.and_then(|ast_ids| ast_ids.id_of_node(node));
+                let ast_id = ast_ids.and_then(|map| map.id_of_node_in_tree(tree, node));
                 discovered.push(DiscoveredOwner { id: owner, kind, parent, name, ast_id });
                 owners.push(owner);
                 next_slots.push(0);
@@ -248,6 +248,7 @@ fn discover_owners(
 
     discovered
 }
+
 
 /// Syntax nodes that start a semantic owner. Generate branches deliberately
 /// mirror `generate.rs`: a loop owns its block (the nested `GenerateBlock`
