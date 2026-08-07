@@ -15,8 +15,8 @@ use utils::{
     text_edit::TextRange,
 };
 
-pub trait LoweredData {
-    type SourceMap;
+pub trait LoweredData: Debug + Eq {
+    type SourceMap: Debug + Eq;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

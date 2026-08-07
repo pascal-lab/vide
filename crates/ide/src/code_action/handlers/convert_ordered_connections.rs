@@ -53,9 +53,12 @@ pub(super) fn convert_ordered_ports(
     let InModule { value: instance_id, module_id } =
         sema.resolve_instance(ctx.file_id().into(), ast_instance)?;
     let module = db.module_with_source_map(module_id);
+    let module_body = db.module_body_with_source_map(module_id);
     let instantiation = module.get(module.get(instance_id).parent);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let port_names = port_names(&db.module_with_source_map(target_module_id));
+    let target_module = db.module_with_source_map(target_module_id);
+    let target_body = db.module_body_with_source_map(target_module_id);
+    let port_names = port_names(&target_module, &target_body);
 
     let replacements = module
         .get(instance_id)
@@ -67,7 +70,7 @@ pub(super) fn convert_ordered_ports(
                 return None;
             };
             let name = port_names.get(idx)?;
-            let expr = module.source_range(*expr_id)?;
+            let expr = module_body.source_range(*expr_id)?;
             let range = module.source_range(*conn_id)?;
             Some((range, format!(".{name}({})", text.get(Range::from(expr))?)))
         })
@@ -109,10 +112,11 @@ pub(super) fn convert_ordered_params(
     let InModule { value: instantiation_id, module_id } =
         sema.resolve_instantiation(ctx.file_id().into(), ast_instantiation)?;
     let module = db.module_with_source_map(module_id);
+    let module_body = db.module_body_with_source_map(module_id);
     let instantiation = module.get(instantiation_id);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_module = db.module_with_source_map(target_module_id);
-    let param_names = leading_overridable_parameter_names(&target_module);
+    let target_body = db.module_body_with_source_map(target_module_id);
+    let param_names = leading_overridable_parameter_names(&target_body);
 
     let replacements = instantiation
         .param_assigns
@@ -123,7 +127,7 @@ pub(super) fn convert_ordered_params(
                 return None;
             };
             let name = param_names.get(idx)?;
-            let expr = module.source_range(*expr_id)?;
+            let expr = module_body.source_range(*expr_id)?;
             let range = module.source_range(*assign_id)?;
             Some((range, format!(".{name}({})", text.get(Range::from(expr))?)))
         })

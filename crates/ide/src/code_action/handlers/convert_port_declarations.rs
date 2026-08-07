@@ -3,6 +3,7 @@ use std::ops::Range;
 use base_db::source_db::SourceDb;
 use hir_def::{
     Ident,
+    body::Body,
     container::{InContainer, InModule},
     declaration::DeclarationSrc,
     expr::declarator::{DeclId, DeclaratorParent},
@@ -68,6 +69,7 @@ fn convert_ansi_ports_to_non_ansi(
 
     let module_id = ctx.sema().module_to_def(ctx.file_id().into(), ast_module)?;
     let module = ctx.sema().db.module_with_source_map(module_id);
+    let body = ctx.sema().db.module_body_with_source_map(module_id);
     let Ports::Ansi(port_decls) = &module.ports else {
         return None;
     };
@@ -80,7 +82,7 @@ fn convert_ansi_ports_to_non_ansi(
             return None;
         };
 
-        let name = port_decl_declared_name(&module, port_decl)?;
+        let name = port_decl_declared_name(&body, port_decl)?;
         port_names.push(name);
         port_items.push((port_decl, module.source_range(port_id)?));
     }
@@ -123,6 +125,7 @@ fn convert_non_ansi_ports_to_ansi(
 
     let module_id = ctx.sema().module_to_def(ctx.file_id().into(), ast_module)?;
     let module = ctx.sema().db.module_with_source_map(module_id);
+    let body = ctx.sema().db.module_body_with_source_map(module_id);
     let Ports::NonAnsi { ports, refs, .. } = &module.ports else {
         return None;
     };
@@ -161,7 +164,7 @@ fn convert_non_ansi_ports_to_ansi(
     let module_scope = ctx.sema().db.module_scope(module_id);
     let port_replacements = port_names
         .iter()
-        .map(|name| non_ansi_port_replacement(ctx, &module, &module_scope, name, &text))
+        .map(|name| non_ansi_port_replacement(ctx, &module, &body, &module_scope, name, &text))
         .collect::<Option<Vec<_>>>()?;
     let ansi_items = port_replacements
         .iter()
@@ -185,8 +188,8 @@ fn port_list_trigger_range(open: TextRange, close: TextRange) -> Option<TextRang
     (open.end() <= close.start()).then(|| TextRange::new(open.end(), close.start()))
 }
 
-fn port_decl_declared_name(module: &Lowered<Module>, port_decl: &PortDecl) -> Option<String> {
-    Some(module.get(single_port_decl_id(port_decl)?).name.as_ref()?.to_string())
+fn port_decl_declared_name(body: &Body, port_decl: &PortDecl) -> Option<String> {
+    Some(body.decls[single_port_decl_id(port_decl)?].name.as_ref()?.to_string())
 }
 
 fn single_port_decl_id(port_decl: &PortDecl) -> Option<DeclId> {
@@ -206,6 +209,7 @@ struct NonAnsiPortReplacement {
 fn non_ansi_port_replacement(
     ctx: &CodeActionCtx,
     module: &Lowered<Module>,
+    body: &Lowered<Body>,
     module_scope: &NameScope,
     name: &Ident,
     text: &str,
@@ -217,22 +221,22 @@ fn non_ansi_port_replacement(
         .iter()
         .filter_map(|origin| origin.as_decl(ctx.sema().db))
         .find(|decl_id| {
-            matches!(module.get(decl_id.value).parent, DeclaratorParent::PortDeclId(_))
+            matches!(body.decls[decl_id.value].parent, DeclaratorParent::PortDeclId(_))
         })?
         .value;
     let data_decl = origins
         .iter()
         .filter_map(|origin| origin.as_decl(ctx.sema().db))
         .find(|decl_id| {
-            matches!(module.get(decl_id.value).parent, DeclaratorParent::DeclarationId(_))
+            matches!(body.decls[decl_id.value].parent, DeclaratorParent::DeclarationId(_))
         })
         .map(|decl_id| decl_id.value);
 
-    let DeclaratorParent::PortDeclId(port_decl_id) = module.get(port_decl).parent else {
+    let DeclaratorParent::PortDeclId(port_decl_id) = body.decls[port_decl].parent else {
         return None;
     };
     let port_decl = module.get(port_decl_id);
-    if port_decl_declared_name(module, port_decl).as_deref() != Some(name.as_str()) {
+    if port_decl_declared_name(body, port_decl).as_deref() != Some(name.as_str()) {
         return None;
     }
 
@@ -242,7 +246,7 @@ fn non_ansi_port_replacement(
     let port_range = module.source_range(port_decl_id)?;
 
     if let Some(data_decl) = data_decl {
-        let data_range = data_decl_range_for_name(module, data_decl, name)?;
+        let data_range = data_decl_range_for_name(body, data_decl, name)?;
         let direction = port_decl.header.dir().display_source(ctx.sema().db).ok()?;
         let data_decl = declaration_text_without_semicolon(text, data_range)?;
         return Some(NonAnsiPortReplacement {
@@ -258,11 +262,11 @@ fn non_ansi_port_replacement(
 }
 
 fn data_decl_range_for_name(
-    module: &Lowered<Module>,
+    body: &Lowered<Body>,
     decl_id: DeclId,
     name: &Ident,
 ) -> Option<TextRange> {
-    let decl = module.get(decl_id);
+    let decl = &body.decls[decl_id];
     if decl.name.as_ref() != Some(name) {
         return None;
     }
@@ -270,16 +274,16 @@ fn data_decl_range_for_name(
     let DeclaratorParent::DeclarationId(declaration_id) = decl.parent else {
         return None;
     };
-    let declaration = module.get(declaration_id);
+    let declaration = &body.declarations[declaration_id];
     let mut decls = declaration.decls();
     let single_decl_id = decls.next()?;
     if single_decl_id != decl_id || decls.next().is_some() {
         return None;
     }
 
-    match module.source(declaration_id)? {
+    match body.source(declaration_id)? {
         DeclarationSrc::DataDeclaration(_) | DeclarationSrc::NetDeclaration(_) => {
-            module.source_range(declaration_id)
+            body.source_range(declaration_id)
         }
         _ => None,
     }

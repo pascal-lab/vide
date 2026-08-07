@@ -53,7 +53,7 @@ pub(super) fn add_missing_parameters(
     let close_paren = params_node.close_paren()?.text_range_in(params_node.syntax())?;
 
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_module = db.module_with_source_map(target_module_id);
+    let target_body = db.module_body_with_source_map(target_module_id);
 
     let is_ordered = instantiation
         .param_assigns
@@ -62,7 +62,7 @@ pub(super) fn add_missing_parameters(
         .unwrap_or_default();
 
     let names: Vec<_> = if is_ordered {
-        leading_overridable_parameter_names(&target_module)
+        leading_overridable_parameter_names(&target_body)
             .into_iter()
             .skip(instantiation.param_assigns.len())
             .collect()
@@ -78,7 +78,7 @@ pub(super) fn add_missing_parameters(
             }
         }
 
-        all_overridable_parameter_names(&target_module)
+        all_overridable_parameter_names(&target_body)
             .into_iter()
             .filter(|name| !assigned_names.contains(name))
             .collect()

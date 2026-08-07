@@ -86,6 +86,11 @@ impl dyn HirDefDb + '_ {
         file::hir_file_with_source_map(self, self.syntax_file(file_id))
     }
 
+    pub fn file_body_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<Body>> {
+        let owner = self.owner_table(file_id).file_owner().expect("file owner must exist");
+        self.body_with_source_map(owner)
+    }
+
     /// All lowering diagnostics of a file, flattened across every lowering
     /// owner (file, module, block, subroutine, generate block). Diagnostics
     /// reported without a root-buffer range get a display range resolved here
@@ -108,6 +113,11 @@ impl dyn HirDefDb + '_ {
 
     pub fn module(&self, module_id: ModuleId) -> Arc<Module> {
         module(self, module_id)
+    }
+
+    pub fn module_body_with_source_map(&self, module_id: ModuleId) -> Arc<Lowered<Body>> {
+        let owner = module_id.owner(self).expect("module id must resolve to an owner");
+        self.body_with_source_map(owner)
     }
 
     pub fn block_with_source_map(&self, block_id: BlockId) -> Arc<Lowered<Body>> {
@@ -138,6 +148,15 @@ impl dyn HirDefDb + '_ {
 
     pub fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock> {
         generate_block(self, generate_block_id)
+    }
+
+    pub fn generate_block_body_with_source_map(
+        &self,
+        generate_block_id: GenerateBlockId,
+    ) -> Arc<Lowered<Body>> {
+        let owner =
+            generate_block_id.owner(self).expect("generate block id must resolve to an owner");
+        self.body_with_source_map(owner)
     }
 
     pub fn scope_for(&self, scope_id: ScopeId) -> Arc<NameScope> {

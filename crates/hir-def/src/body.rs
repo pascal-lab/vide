@@ -102,14 +102,41 @@ impl DiagnosticSource for BodySourceMap {
     }
 }
 
+/// Internal result of lowering a structural owner. The aggregate guarantees
+/// one lowering pass; tracked projection queries publish structure and body
+/// independently so Salsa can backdate either value.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct OwnerLowering<T: LoweredData> {
+    pub(crate) structure: Arc<Lowered<T>>,
+    pub(crate) body: Arc<Lowered<Body>>,
+}
+
+impl<T: LoweredData> OwnerLowering<T> {
+    pub(crate) fn new(
+        structure: T,
+        structure_sources: T::SourceMap,
+        body: Body,
+        body_sources: BodySourceMap,
+    ) -> Self {
+        Self {
+            structure: Arc::new(Lowered::new(structure, structure_sources)),
+            body: Arc::new(Lowered::new(body, body_sources)),
+        }
+    }
+}
+
 #[salsa::tracked(lru = 512, returns(clone))]
 pub(crate) fn body_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
     match owner.kind(db) {
         OwnerKind::ProceduralBlock => lower_procedural_body(db, owner),
         OwnerKind::Subroutine => lower_subroutine_body(db, owner),
         OwnerKind::Block => lower_block_body(db, owner),
-        OwnerKind::GenerateBlock | OwnerKind::Module | OwnerKind::File => {
-            lower_legacy_owner_body(db, owner)
+        OwnerKind::GenerateBlock => {
+            crate::module::generate::generate_block_body_with_source_map(db, owner)
+        }
+        OwnerKind::Module => crate::module::module_body_with_source_map(db, owner),
+        OwnerKind::File => {
+            crate::file::file_body_with_source_map(db, db.syntax_file(owner.file(db)))
         }
         OwnerKind::Checker | OwnerKind::Covergroup | OwnerKind::ClockingBlock => {
             panic!("scope-only owner has no body: {:?}", owner.kind(db))
@@ -168,24 +195,6 @@ fn lower_block_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
     };
 
     lower_body(db, owner, |ctx| ctx.lower_block_items(block))
-}
-
-fn lower_legacy_owner_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
-    match owner.kind(db) {
-        OwnerKind::GenerateBlock => {
-            let lowered = crate::module::generate::generate_block_with_source_map(db, owner);
-            cloned_body(&lowered.body, &lowered.source_map().body, lowered.diagnostics())
-        }
-        OwnerKind::Module => {
-            let lowered = crate::module::module_with_source_map(db, owner);
-            cloned_body(&lowered.body, &lowered.source_map().body, lowered.diagnostics())
-        }
-        OwnerKind::File => {
-            let lowered = crate::file::hir_file_with_source_map(db, db.syntax_file(owner.file(db)));
-            cloned_body(&lowered.body, &lowered.source_map().body, lowered.diagnostics())
-        }
-        kind => unreachable!("{kind:?} is not a legacy body owner"),
-    }
 }
 
 fn owner_node<'tree>(
@@ -339,16 +348,6 @@ impl LoweringCtx<BodyStore<'_>> {
         self.region_tree.stage(func.end(), func.syntax());
         self.store.sources.region_tree = self.region_tree.finish();
     }
-}
-
-fn cloned_body(
-    body: &Body,
-    source_map: &BodySourceMap,
-    diagnostics: &[LoweringDiagnostic],
-) -> Arc<Lowered<Body>> {
-    let mut source_map = source_map.clone();
-    source_map.diagnostics = diagnostics.to_vec();
-    Arc::new(Lowered::new(body.clone(), source_map))
 }
 
 impl BodySourceMap {

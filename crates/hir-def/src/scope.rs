@@ -23,7 +23,7 @@ use crate::{
     expr::declarator::{DeclId, Declarator, DeclaratorParent},
     lower_ident_opt,
     module::{
-        Module, ModuleId, PackageId,
+        ModuleId, PackageId,
         clocking::{ClockingBlockId, ClockingSignalId},
         generate::GenerateBlockId,
         port::{PortDeclId, Ports},
@@ -198,12 +198,12 @@ impl NameScope {
     pub fn non_ansi_port_decl_id_by_name(
         &self,
         db: &dyn HirDefDb,
-        module: &Module,
+        body: &crate::body::Body,
         name: &SmolStr,
     ) -> Option<PortDeclId> {
         let def = self.lookup(NameContext::Value, name).unique()?;
         def.origins(db).into_iter().filter_map(|origin| origin.as_decl(db)).find_map(|decl_id| {
-            let decl = module.get(decl_id.value);
+            let decl = &body.decls[decl_id.value];
             match decl.parent {
                 DeclaratorParent::PortDeclId(port_decl_id) => Some(port_decl_id),
                 _ => None,
@@ -219,6 +219,8 @@ impl NameScope {
 pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameScope {
     let mut scope = NameScope::default();
     let hir_file = db.hir_file(file_id);
+    let file_owner = db.owner_table(file_id).file_owner().expect("file owner must exist");
+    let body = db.body_with_source_map(file_owner);
 
     for (module_id, module_info) in hir_file.modules.iter() {
         scope.insert_type_opt(&module_info.name, def_id(db, InFile::new(file_id, module_id)));
@@ -228,7 +230,7 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameSco
         scope.insert_package_import(import);
     }
 
-    for (decl_id, decl) in hir_file.decls.iter() {
+    for (decl_id, decl) in body.decls.iter() {
         scope.insert_value_opt(&decl.name, def_id(db, InContainer::new(file_id.into(), decl_id)));
     }
     insert_proc_bodies(&mut scope, db, &hir_file.procs);
@@ -279,7 +281,7 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameSco
         scope.insert_value_opt(&cross.name, def_id(db, InScope::new(file_id.into(), cross_id)));
     }
 
-    for (typedef_id, typedef) in hir_file.typedefs.iter() {
+    for (typedef_id, typedef) in body.typedefs.iter() {
         scope.insert_type_opt(
             &typedef.name,
             def_id(db, InContainer::new(file_id.into(), typedef_id)),
@@ -295,6 +297,8 @@ pub(crate) fn build_module_scope(
 ) -> NameScope {
     let mut scope = NameScope::default();
     let module = db.module(module_id);
+    let owner = module_id.owner(db).expect("module must have a canonical owner");
+    let body = db.body_with_source_map(owner);
 
     if let Ports::NonAnsi { ports, .. } = &module.ports {
         for (port_id, port) in ports.iter() {
@@ -348,7 +352,7 @@ pub(crate) fn build_module_scope(
         scope.insert_value_opt(&cross.name, def_id(db, InScope::new(module_id.into(), cross_id)));
     }
 
-    insert_decls_and_typedefs(&mut scope, db, module_id.into(), &module.decls, &module.typedefs);
+    insert_decls_and_typedefs(&mut scope, db, module_id.into(), &body.decls, &body.typedefs);
 
     for (instance_id, instance) in module.instances.iter() {
         scope.insert_value_opt(&instance.name, def_id(db, InModule::new(module_id, instance_id)));
@@ -368,7 +372,7 @@ pub(crate) fn build_module_scope(
         }
     }
 
-    insert_stmts(&mut scope, db, module_id.into(), &module.stmts);
+    insert_stmts(&mut scope, db, module_id.into(), &body.stmts);
     insert_proc_bodies(&mut scope, db, &module.procs);
 
     scope
@@ -481,6 +485,9 @@ pub(crate) fn build_generate_block_scope(
 ) -> NameScope {
     let mut scope = NameScope::default();
     let generate_block = db.generate_block_with_source_map(generate_block_id.clone());
+    let owner =
+        generate_block_id.clone().owner(db).expect("generate block must have a canonical owner");
+    let body = db.body_with_source_map(owner);
 
     scope.insert_value_opt(&generate_block.name, def_id(db, generate_block_id.clone()));
 
@@ -496,8 +503,8 @@ pub(crate) fn build_generate_block_scope(
         &mut scope,
         db,
         generate_block_id.clone().into(),
-        &generate_block.decls,
-        &generate_block.typedefs,
+        &body.decls,
+        &body.typedefs,
     );
 
     for item in &generate_block.items {
@@ -508,7 +515,7 @@ pub(crate) fn build_generate_block_scope(
         }
     }
 
-    insert_stmts(&mut scope, db, generate_block_id.into(), &generate_block.stmts);
+    insert_stmts(&mut scope, db, generate_block_id.into(), &body.stmts);
     insert_proc_bodies(&mut scope, db, &generate_block.procs);
 
     scope
@@ -1289,7 +1296,8 @@ endmodule
             .module_ids(&db, &ident("m"))
             .unique()
             .expect("module should resolve uniquely");
-        let module = db.module_with_source_map(module_id);
+        let owner = module_id.owner(&db).expect("module owner");
+        let module = db.body_with_source_map(owner);
         let (expr_id, expr) =
             module.exprs.iter().next().expect("initializer expression should lower");
 
@@ -1324,7 +1332,8 @@ endmodule
             .module_ids(&db, &ident("m"))
             .unique()
             .expect("module should resolve uniquely");
-        let module = db.module_with_source_map(module_id);
+        let owner = module_id.owner(&db).expect("module owner");
+        let module = db.body_with_source_map(owner);
         let declaration = module
             .declarations
             .values()
@@ -1370,6 +1379,8 @@ endmodule
 
         let mut missing_file = crate::file::HirFile::default();
         let mut missing_file_source_map = crate::file::FileSourceMap::default();
+        let mut missing_body = crate::body::Body::default();
+        let mut missing_body_source_map = crate::body::BodySourceMap::default();
         let mut ctx = crate::lower::LoweringCtx::new(
             &db,
             TOP.into(),
@@ -1377,13 +1388,15 @@ endmodule
             crate::lower::FileStore {
                 data: &mut missing_file,
                 sources: &mut missing_file_source_map,
+                body: &mut missing_body,
+                body_sources: &mut missing_body_source_map,
             },
         );
         let missing_id = ctx.lower_stmt_opt(None);
         drop(ctx);
 
-        assert!(matches!(missing_file.stmts[missing_id].kind, crate::stmt::StmtKind::Missing));
-        assert!(missing_file_source_map.stmt_srcs.get(missing_id).is_none());
+        assert!(matches!(missing_body.stmts[missing_id].kind, crate::stmt::StmtKind::Missing));
+        assert!(missing_body_source_map.stmt_srcs.get(missing_id).is_none());
     }
 
     #[test]
@@ -1401,7 +1414,8 @@ endmodule
             .module_ids(&db, &ident("m"))
             .unique()
             .expect("module should resolve uniquely");
-        let module = db.module(module_id);
+        let owner = module_id.owner(&db).expect("module owner");
+        let module = db.body_with_source_map(owner);
         let stream = module
             .exprs
             .iter()
@@ -1433,7 +1447,8 @@ endmodule
             .module_ids(&db, &ident("m"))
             .unique()
             .expect("module should resolve uniquely");
-        let module = db.module(module_id);
+        let owner = module_id.owner(&db).expect("module owner");
+        let module = db.body_with_source_map(owner);
         let stream = module
             .exprs
             .iter()
@@ -1474,17 +1489,19 @@ endmodule
             .unique()
             .expect("module should resolve uniquely");
         let module = db.module_with_source_map(module_id);
+        let owner = module_id.owner(&db).expect("module owner");
+        let body = db.body_with_source_map(owner);
         let (clocking_block_id, clocking_block) =
             module.clocking_blocks.iter().next().expect("clocking block should lower");
         assert_eq!(clocking_block.name.as_deref(), Some("cb"));
         assert!(matches!(
-            module.event_exprs[clocking_block.event],
+            body.event_exprs[clocking_block.event],
             crate::expr::timing_control::EventExpr::Atom {
                 sensitivity: Some(crate::expr::timing_control::Sensitivity::Posedge),
                 ..
             }
         ));
-        assert!(module.source(clocking_block.event).is_some());
+        assert!(body.source(clocking_block.event).is_some());
         assert_eq!(
             module.default_clocking.as_ref().and_then(|reference| reference.name.as_deref()),
             Some("cb")

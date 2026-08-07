@@ -33,6 +33,7 @@ pub(super) fn collect_port(
     let db = sema.db;
     let module_scope = db.module_scope(module_id);
     let module = db.module_with_source_map(module_id);
+    let body = db.module_body_with_source_map(module_id);
 
     match &module.ports {
         Ports::NonAnsi { ports, decls, .. } => {
@@ -53,7 +54,7 @@ pub(super) fn collect_port(
                         let name = module.get(ref_id).ident.as_ref()?;
                         let def = module_scope.lookup(NameContext::Value, name).unique()?;
                         let origins = def.origins(db);
-                        let (_, dir, ty) = resolve_port_metadata(db, &module, &origins)?;
+                        let (_, dir, ty) = resolve_port_metadata(db, &module, &body, &origins)?;
                         add_port_token(db, name, dir, ty, name_range, collector);
                     };
                 }
@@ -66,14 +67,14 @@ pub(super) fn collect_port(
 
                     for decl_id in port_decl.decls.clone() {
                         let _: Option<()> = try {
-                            let decl = module.get(decl_id);
-                            let name_range = module.source_name_range(decl_id)?;
+                            let decl = body.get(decl_id);
+                            let name_range = body.source_name_range(decl_id)?;
                             check_range!(collector, name_range);
 
                             let name = decl.name.as_ref()?;
                             let def = module_scope.lookup(NameContext::Value, name).unique()?;
                             let origins = def.origins(db);
-                            let (_, dir, ty) = resolve_port_metadata(db, &module, &origins)?;
+                            let (_, dir, ty) = resolve_port_metadata(db, &module, &body, &origins)?;
                             add_port_token(db, name, dir, ty, name_range, collector);
                         };
                     }
@@ -89,8 +90,8 @@ pub(super) fn collect_port(
 
                 for decl_id in port_decl.decls.clone() {
                     let _: Option<()> = try {
-                        let decl = module.get(decl_id);
-                        let name_range = module.source_name_range(decl_id)?;
+                        let decl = body.get(decl_id);
+                        let name_range = body.source_name_range(decl_id)?;
                         check_range!(collector, name_range);
 
                         let name = decl.name.as_ref()?;

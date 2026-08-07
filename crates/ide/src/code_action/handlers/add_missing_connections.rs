@@ -53,6 +53,7 @@ pub(super) fn add_missing_connections(
     let instantiation = module.get(instance.parent);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
     let target_module = db.module_with_source_map(target_module_id);
+    let target_body = db.module_body_with_source_map(target_module_id);
 
     let is_ordered = instance
         .connections
@@ -61,7 +62,7 @@ pub(super) fn add_missing_connections(
         .unwrap_or_default();
 
     let names: Vec<_> = if is_ordered {
-        remaining_ordered_port_names(&target_module, instance.connections.len())
+        remaining_ordered_port_names(&target_module, &target_body, instance.connections.len())
     } else {
         let mut connected_names = FxHashSet::default();
         for conn_id in instance.connections.iter() {
@@ -74,7 +75,7 @@ pub(super) fn add_missing_connections(
             }
         }
 
-        port_names(&target_module)
+        port_names(&target_module, &target_body)
             .into_iter()
             .filter(|name| !connected_names.contains(name))
             .collect()

@@ -388,15 +388,17 @@ fn render_module_signature(db: &RootDb, module_id: ModuleId) -> Option<String> {
 
 fn render_module_param_ports(db: &RootDb, module_id: ModuleId) -> Vec<String> {
     let module = db.module_with_source_map(module_id);
+    let body = db.module_body_with_source_map(module_id);
     let mut params = Vec::new();
     let mut idx = 0;
     while let Some(decl_id) = module.param_port_id_by_idx(idx) {
-        let decl = module.get(decl_id);
+        let decl = &body.decls[decl_id];
         let DeclaratorParent::DeclarationId(parent) = decl.parent else {
             idx += 1;
             continue;
         };
-        let Some(prefix) = render_declaration_prefix(db, module_id.into(), module.get(parent))
+        let Some(prefix) =
+            render_declaration_prefix(db, module_id.into(), &body.declarations[parent])
         else {
             idx += 1;
             continue;
