@@ -323,11 +323,13 @@ fn process_instantiation(
     instantiation: &Instantiation,
     collector: &mut InlayHintCollector,
 ) -> Option<()> {
+    let module_body = db.module_body_with_source_map(module_id);
     let from_file = module_id.file_id.source_file_id(db)?;
     let target_module_id =
         resolve_module_name(db, from_file, instantiation.module_name.as_ref()?).unique()?;
 
     let target_module = db.module_with_source_map(target_module_id);
+    let target_body = db.module_body_with_source_map(target_module_id);
 
     // handle param assignments
     if collector.config.parameter_assignment {
@@ -339,10 +341,10 @@ fn process_instantiation(
                 let assign_src = module.source_info(assign_id)?;
                 check_or_throw!(collector.intersect(assign_src.full_range()));
 
-                let param_id = target_module.overridable_param_id_by_idx(id)?;
+                let param_id = target_module.overridable_param_id_by_idx(&target_body, id)?;
                 let param_def = DefId::new(db, InContainer::new(target_module_id.into(), param_id));
                 let param_name = param_def.primary_origin(db).name(db)?;
-                check_or_throw!(!should_skip(module.get(*assign_expr), &param_name));
+                check_or_throw!(!should_skip(module_body.get(*assign_expr), &param_name));
                 let target_range = param_def.primary_origin(db).range(db)?;
                 collector.collect_src_hint(
                     assign_src,
@@ -377,10 +379,18 @@ fn process_instantiation(
 
                     let def = resolve_connection_port(db, target_module_id, conn, idx).unique()?;
                     let (name, dir, _ty) =
-                        resolve_port_metadata(db, &target_module, &def.origins(db))?;
+                        resolve_port_metadata(db, &target_module, &target_body, &def.origins(db))?;
                     let dir = dir?;
                     let target_range = def.primary_origin(db).range(db)?;
-                    collect_connection_hint(module, conn_id, name, dir, target_range, collector);
+                    collect_connection_hint(
+                        module,
+                        &module_body,
+                        conn_id,
+                        name,
+                        dir,
+                        target_range,
+                        collector,
+                    );
                 };
             }
         }
@@ -391,6 +401,7 @@ fn process_instantiation(
 
 fn collect_connection_hint(
     module: &Lowered<Module>,
+    body: &Lowered<hir_def::body::Body>,
     conn_id: PortConnId,
     name: &str,
     port_dir: PortDirection,
@@ -414,11 +425,11 @@ fn collect_connection_hint(
             collector.collect_src_hint(conn_src, Some(target_range), None, label, edit);
         }
         PortConn::Ordered(expr) => {
-            let same_name = should_skip(module.get(*expr), name);
+            let same_name = should_skip(body.get(*expr), name);
             let label = if same_name { arrow.to_string() } else { format!("{name} {arrow}") };
             let target_range = if same_name { None } else { Some(target_range) };
             let edit = if same_name { None } else { edits_for_conn(name, conn_src) };
-            let position = module.source_range(*expr).map_or(conn_start, |range| range.start());
+            let position = body.source_range(*expr).map_or(conn_start, |range| range.start());
             collector.collect_src_hint(conn_src, target_range, Some(position), label, edit);
         }
         PortConn::Named(port_name, expr) => {
@@ -429,7 +440,7 @@ fn collect_connection_hint(
                     (arrow.to_string(), None)
                 };
             let position = expr
-                .and_then(|expr| module.source_range(expr).map(|range| range.start()))
+                .and_then(|expr| body.source_range(expr).map(|range| range.start()))
                 .or_else(|| conn_src.focus_range().map(|range| range.start()))
                 .unwrap_or(conn_start);
             collector.collect_src_hint(conn_src, target_range, Some(position), label, None);

@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use base_db::source_root::SourceRootRole;
 use hir_def::{
     Ident,
+    body::Body,
     container::{ArenaOwnerId, InContainer, InModule},
     db::HirDefDb,
     declaration::Declaration,
@@ -208,6 +209,7 @@ pub(crate) fn resolve_connection_port(
 pub(crate) fn resolve_port_metadata<'a>(
     db: &dyn HirDefDb,
     module: &'a Lowered<Module>,
+    body: &'a Body,
     defs: &[DefOrigin],
 ) -> Option<(&'a Ident, Option<PortDirection>, DataTy)> {
     let mut origins: SmallVec<[DefOrigin; 8]> = SmallVec::new();
@@ -229,14 +231,14 @@ pub(crate) fn resolve_port_metadata<'a>(
 
     let port_decl_id =
         origins.iter().filter_map(|origin| origin.as_decl(db)).map(|decl_id| decl_id.value).find(
-            |decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::PortDeclId(_)),
+            |decl_id| matches!(body.decls[*decl_id].parent, DeclaratorParent::PortDeclId(_)),
         )?;
     let data_decl_id =
         origins.iter().filter_map(|origin| origin.as_decl(db)).map(|decl_id| decl_id.value).find(
-            |decl_id| matches!(module.get(*decl_id).parent, DeclaratorParent::DeclarationId(_)),
+            |decl_id| matches!(body.decls[*decl_id].parent, DeclaratorParent::DeclarationId(_)),
         );
 
-    let port_decl = module.get(port_decl_id);
+    let port_decl = &body.decls[port_decl_id];
     let name = defs
         .iter()
         .find_map(|origin| origin.as_non_ansi_port(db))
@@ -249,10 +251,10 @@ pub(crate) fn resolve_port_metadata<'a>(
     let header = &port_declaration.header;
     let dir = Some(header.dir());
     let ty = if let Some(data_decl_id) = data_decl_id {
-        let data_decl = module.get(data_decl_id);
+        let data_decl = &body.decls[data_decl_id];
         match data_decl.parent {
             DeclaratorParent::DeclarationId(declaration_id) => {
-                let declaration = module.get(declaration_id);
+                let declaration = &body.declarations[declaration_id];
                 declaration.ty()
             }
             _ => return None,
@@ -270,7 +272,7 @@ pub(crate) fn resolve_named_param_in_module(
     param_name: &Ident,
 ) -> Resolution<DefId> {
     let defs = db.module_scope(module_id).lookup(NameContext::Value, param_name);
-    let module = db.module_with_source_map(module_id);
+    let body = db.module_body_with_source_map(module_id);
 
     Resolution::from_candidates(defs.into_candidates().into_iter().filter(|def_id| {
         let Some(decl_id) = def_id.primary_origin(db).as_decl(db) else {
@@ -279,11 +281,11 @@ pub(crate) fn resolve_named_param_in_module(
         if decl_id.cont_id != ArenaOwnerId::Module(module_id) {
             return false;
         }
-        let DeclaratorParent::DeclarationId(declaration_id) = module.get(decl_id.value).parent
+        let DeclaratorParent::DeclarationId(declaration_id) = body.decls[decl_id.value].parent
         else {
             return false;
         };
-        let Declaration::ParamDecl(param_decl) = module.get(declaration_id) else {
+        let Declaration::ParamDecl(param_decl) = &body.declarations[declaration_id] else {
             return false;
         };
         param_decl.kind.is_overridable()

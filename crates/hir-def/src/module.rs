@@ -1,5 +1,3 @@
-use std::ops::{Deref, DerefMut};
-
 use clocking::{
     ClockingBlockDef, ClockingBlockId, ClockingBlockSrc, DefaultClockingRef, DefaultClockingRefSrc,
 };
@@ -26,36 +24,27 @@ use syntax::{
     ptr::{SyntaxNodePtr, SyntaxTokenPtr},
 };
 use triomphe::Arc;
-use utils::{
-    define_enum_deriving_from,
-    get::{Get, GetRef},
-};
+use utils::{define_enum_deriving_from, get::Get};
 
 use super::{
     Ident, PackageImport,
-    aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
+    aggregate::{StructId, lower_struct_def},
     alloc_with_source,
-    block::{BlockInfo, BlockSrc, LocalBlockId},
     checker::{CheckerDef, CheckerId, CheckerSrc},
     covergroup::{
         CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointId, CoverpointSrc,
         CrossDef, CrossId, CrossSrc, lower_covergroup_decl, lower_coverpoint, lower_cross,
     },
-    declaration::{Declaration, DeclarationId, DeclarationSrc, ParamDeclKind},
-    expr::{
-        Expr, ExprId, ExprSrc,
-        declarator::{DeclId, Declarator, DeclaratorSrc},
-        timing_control::{EventExpr, EventExprId, EventExprSrc},
-    },
+    declaration::{Declaration, DeclarationId, ParamDeclKind},
+    expr::declarator::{DeclId, Declarator},
     lower::{LoweringCtx, ModuleStore},
     lower_ident_opt, lower_package_imports,
     proc::{Proc, ProcId, ProcSrc},
-    stmt::{Stmt, StmtId, StmtSrc},
     subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine},
-    typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
+    typedef::{Typedef, TypedefId, lower_typedef_data_ty},
 };
 use crate::{
-    body::{Body, BodySourceMap},
+    body::{Body, BodySourceMap, OwnerLowering},
     container::{ArenaOwnerId, InFile},
     db::HirDefDb,
     owner::{OwnerId, OwnerKind},
@@ -100,23 +89,7 @@ pub struct Module {
     pub instances: Arena<Instance>,
     pub inst_port_conns: Arena<PortConn>,
     pub procs: Arena<Proc>,
-    pub body: Body,
 }
-
-impl Deref for Module {
-    type Target = Body;
-
-    fn deref(&self) -> &Self::Target {
-        &self.body
-    }
-}
-
-impl DerefMut for Module {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.body
-    }
-}
-
 impl Module {
     pub fn shrink_to_fit(&mut self) {
         self.ports.shrink_to_fit();
@@ -138,7 +111,6 @@ impl Module {
         self.instances.shrink_to_fit();
         self.inst_port_conns.shrink_to_fit();
         self.procs.shrink_to_fit();
-        self.body.shrink_to_fit();
     }
 }
 
@@ -164,22 +136,7 @@ pub struct ModuleSourceMap {
     pub instance_srcs: SourceMap<InstanceSrc, Instance>,
     pub inst_port_conn_srcs: SourceMap<PortConnSrc, PortConn>,
     pub proc_srcs: SourceMap<ProcSrc, Proc>,
-    pub body: BodySourceMap,
     pub diagnostics: Vec<LoweringDiagnostic>,
-}
-
-impl Deref for ModuleSourceMap {
-    type Target = BodySourceMap;
-
-    fn deref(&self) -> &Self::Target {
-        &self.body
-    }
-}
-
-impl DerefMut for ModuleSourceMap {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.body
-    }
 }
 impl LoweredData for Module {
     type SourceMap = ModuleSourceMap;
@@ -211,7 +168,6 @@ impl ModuleSourceMap {
         self.instance_srcs.shrink_to_fit();
         self.inst_port_conn_srcs.shrink_to_fit();
         self.proc_srcs.shrink_to_fit();
-        self.body.shrink_to_fit();
         self.diagnostics.shrink_to_fit();
     }
 }
@@ -226,9 +182,6 @@ crate::impl_arena_getters!(
     GenerateRegionId => generate_regions => GenerateRegion,
     SpecifyBlockId => specify_blocks => SpecifyBlock,
     SpecifyItemId => specify_items => SpecifyItem,
-    DeclarationId => declarations => Declaration,
-    TypedefId => typedefs => Typedef,
-    StructId => structs => StructDef,
     LocalSubroutineId => subroutines => Subroutine,
     ModportId => modports => ModportDef,
     ClockingBlockId => clocking_blocks => ClockingBlockDef,
@@ -242,11 +195,6 @@ crate::impl_arena_getters!(
     InstanceId => instances => Instance,
     PortConnId => inst_port_conns => PortConn,
     ProcId => procs => Proc,
-    ExprId => exprs => Expr,
-    EventExprId => event_exprs => EventExpr,
-    DeclId => decls => Declarator,
-    StmtId => stmts => Stmt,
-    LocalBlockId => stmts => BlockInfo,
 );
 
 crate::impl_source_map_getters!(
@@ -259,9 +207,6 @@ crate::impl_source_map_getters!(
     GenerateRegionSrc => GenerateRegionId => generate_region_srcs,
     SpecifyBlockSrc => SpecifyBlockId => specify_block_srcs,
     SpecifyItemSrc => SpecifyItemId => specify_item_srcs,
-    DeclarationSrc => DeclarationId => declaration_srcs,
-    TypedefSrc => TypedefId => typedef_srcs,
-    StructSrc => StructId => struct_srcs,
     SubroutineSrc => LocalSubroutineId => subroutine_srcs,
     ModportSrc => ModportId => modport_srcs,
     ClockingBlockSrc => ClockingBlockId => clocking_block_srcs,
@@ -274,11 +219,6 @@ crate::impl_source_map_getters!(
     InstanceSrc => InstanceId => instance_srcs,
     PortConnSrc => PortConnId => inst_port_conn_srcs,
     ProcSrc => ProcId => proc_srcs,
-    ExprSrc => ExprId => expr_srcs,
-    EventExprSrc => EventExprId => event_expr_srcs,
-    DeclaratorSrc => DeclId => decl_srcs,
-    StmtSrc => StmtId => stmt_srcs,
-    BlockSrc => LocalBlockId => stmt_srcs,
 );
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -368,8 +308,8 @@ impl Module {
         self.param_ports.clone()?.nth(idx)
     }
 
-    pub fn overridable_param_id_by_idx(&self, idx: usize) -> Option<DeclId> {
-        self.declarations
+    pub fn overridable_param_id_by_idx(&self, body: &Body, idx: usize) -> Option<DeclId> {
+        body.declarations
             .values()
             .filter_map(|declaration| match declaration {
                 Declaration::ParamDecl(param_decl) if param_decl.kind.is_overridable() => {
@@ -397,19 +337,19 @@ impl Module {
 }
 
 impl ModuleSourceMap {
-    pub fn item_to_ptr(&self, item: &ModuleItem) -> Option<SyntaxNodePtr> {
+    pub fn item_to_ptr(&self, body: &BodySourceMap, item: &ModuleItem) -> Option<SyntaxNodePtr> {
         Some(match item {
             ModuleItem::ContAssignId(idx) => self.get(*idx)?.0,
             ModuleItem::DefParamId(idx) => self.get(*idx)?.0,
             ModuleItem::GenerateRegionId(idx) => self.get(*idx)?.into(),
             ModuleItem::SpecifyBlockId(idx) => self.get(*idx)?.0,
             ModuleItem::SpecifyItemId(idx) => self.get(*idx)?.into(),
-            ModuleItem::DeclarationId(idx) => self.get(*idx)?.ptr(),
-            ModuleItem::StructId(idx) => self.get(*idx)?.node,
+            ModuleItem::DeclarationId(idx) => body.declaration_srcs.hir_to_src(*idx)?.ptr(),
+            ModuleItem::StructId(idx) => body.struct_srcs.hir_to_src(*idx)?.node,
             ModuleItem::InstantiationId(idx) => self.get(*idx)?.into(),
             ModuleItem::ProcId(idx) => self.get(*idx)?.0,
             ModuleItem::PortDeclId(idx) => self.get(*idx)?.ptr(),
-            ModuleItem::TypedefId(idx) => self.get(*idx)?.ptr(),
+            ModuleItem::TypedefId(idx) => body.typedef_srcs.hir_to_src(*idx)?.ptr(),
             ModuleItem::SubroutineId(idx) => self.get(*idx)?.node,
             ModuleItem::ModportId(idx) => self.get(*idx)?.node,
             ModuleItem::ClockingBlockId(idx) => self.get(*idx)?.node,
@@ -483,8 +423,8 @@ impl LowerModuleCtx<'_> {
 
         alloc_with_source(
             self.file_id,
-            &mut self.store.data.structs,
-            &mut self.store.sources.struct_srcs,
+            &mut self.store.body.structs,
+            &mut self.store.body_sources.struct_srcs,
             struct_def,
             struct_ty,
         )
@@ -495,8 +435,8 @@ impl LowerModuleCtx<'_> {
 
         let typedef_id = alloc_with_source(
             self.file_id,
-            &mut self.store.data.typedefs,
-            &mut self.store.sources.typedef_srcs,
+            &mut self.store.body.typedefs,
+            &mut self.store.body_sources.typedef_srcs,
             Typedef { name, ty: None },
             typedef,
         );
@@ -510,7 +450,7 @@ impl LowerModuleCtx<'_> {
             |ctx, ty| ctx.lower_data_ty(ty),
         );
 
-        self.store.data.typedefs[typedef_id].ty = Some(lowered_ty);
+        self.store.body.typedefs[typedef_id].ty = Some(lowered_ty);
 
         typedef_id
     }
@@ -589,14 +529,14 @@ impl LowerModuleCtx<'_> {
                     false,
                     true,
                 );
-                if let Declaration::ParamDecl(param_decl) = self.store.data.get(decl_id) {
+                if let Declaration::ParamDecl(param_decl) = &self.store.body.declarations[decl_id] {
                     inherited_kind = param_decl.kind;
                 }
                 self.region_tree.handle_node(decls.syntax());
             }
 
             let param_port_range = {
-                let mut decls = self.store.data.decls.iter().map(|(id, _)| id);
+                let mut decls = self.store.body.decls.iter().map(|(id, _)| id);
                 decls.next().map(|first| {
                     let last = decls.next_back().unwrap_or(first);
                     IdxRange::new_inclusive(first..=last)
@@ -796,21 +736,23 @@ impl LowerModuleCtx<'_> {
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn module_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Module>> {
+fn module_lowering(db: &dyn HirDefDb, owner: OwnerId) -> Arc<OwnerLowering<Module>> {
     debug_assert_eq!(owner.kind(db), OwnerKind::Module);
     let file_id = owner.file(db);
     let module_id = ModuleId::from_owner(db, owner).expect("module owner must have a module id");
     let tree = db.parse(file_id);
     let mut module = Module::default();
     let mut module_source_map = ModuleSourceMap::default();
+    let mut body = Body::default();
+    let mut body_source_map = BodySourceMap::default();
 
     let Some(ast_module) = db
-        .owner_source_ast_id(owner)
-        .and_then(|ast_id| db.ast_id_map(file_id).ptr(ast_id))
+        .ast_id_map(file_id)
+        .ptr(owner.ast_id(db))
         .and_then(|ptr| ptr.to_node(&tree))
         .and_then(ast::ModuleDeclaration::cast)
     else {
-        return Arc::new(Lowered::new(module, module_source_map));
+        return Arc::new(OwnerLowering::new(module, module_source_map, body, body_source_map));
     };
     module.name = lower_ident_opt(HasName::name(&ast_module));
 
@@ -818,16 +760,34 @@ pub(crate) fn module_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<L
         db,
         file_id,
         module_id.into(),
-        ModuleStore { data: &mut module, sources: &mut module_source_map },
+        ModuleStore {
+            data: &mut module,
+            sources: &mut module_source_map,
+            body: &mut body,
+            body_sources: &mut body_source_map,
+        },
     );
     lower_ctx.lower_module_decl(ast_module);
     let diagnostics = lower_ctx.emit_diagnostics();
     drop(lower_ctx);
-    module_source_map.diagnostics = diagnostics;
+    module_source_map.diagnostics = diagnostics.clone();
+    body_source_map.diagnostics = diagnostics;
 
     module.shrink_to_fit();
     module_source_map.shrink_to_fit();
-    Arc::new(Lowered::new(module, module_source_map))
+    body.shrink_to_fit();
+    body_source_map.shrink_to_fit();
+    Arc::new(OwnerLowering::new(module, module_source_map, body, body_source_map))
+}
+
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn module_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Module>> {
+    module_lowering(db, owner).structure.clone()
+}
+
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn module_body_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
+    module_lowering(db, owner).body.clone()
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
@@ -836,6 +796,8 @@ pub(crate) fn module_data(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Module> {
 }
 
 pub(crate) fn set_module_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    module_lowering::set_lru_capacity(db, capacity);
     module_with_source_map::set_lru_capacity(db, capacity);
+    module_body_with_source_map::set_lru_capacity(db, capacity);
     module_data::set_lru_capacity(db, capacity);
 }

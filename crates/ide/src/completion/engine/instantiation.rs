@@ -20,13 +20,14 @@ pub(super) fn ports_of_module_sorted(db: &RootDb, module_id: ModuleId) -> Vec<Id
 
 pub(super) fn ports_of_module_in_order(db: &RootDb, module_id: ModuleId) -> Vec<Ident> {
     let module = db.module_with_source_map(module_id);
+    let body = db.module_body_with_source_map(module_id);
     let mut names = Vec::new();
 
     match &module.ports {
         Ports::Ansi(port_decls) => {
             for (_, port_decl) in port_decls.iter() {
                 for decl_id in port_decl.decls.clone() {
-                    if let Some(name) = module.get(decl_id).name.as_ref() {
+                    if let Some(name) = body.decls[decl_id].name.as_ref() {
                         names.push(name.clone());
                     }
                 }
@@ -55,18 +56,18 @@ pub(super) fn overridable_params_of_module_in_order(
     db: &RootDb,
     module_id: ModuleId,
 ) -> Vec<Ident> {
-    let module = db.module_with_source_map(module_id);
+    let body = db.module_body_with_source_map(module_id);
 
     let mut names = Vec::new();
 
-    for (_decl_id, decl) in module.decls.iter() {
+    for (_decl_id, decl) in body.decls.iter() {
         if decl.name.is_none() {
             continue;
         }
         let DeclaratorParent::DeclarationId(declaration_id) = decl.parent else {
             continue;
         };
-        let Declaration::ParamDecl(param_decl) = module.get(declaration_id) else {
+        let Declaration::ParamDecl(param_decl) = &body.declarations[declaration_id] else {
             continue;
         };
         if !param_decl.kind.is_overridable() {

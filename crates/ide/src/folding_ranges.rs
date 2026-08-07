@@ -251,6 +251,8 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
 
     let file_id = HirFileId::File(file_id);
     let file = db.hir_file_with_source_map(file_id);
+    let body = db.file_body_with_source_map(file_id);
+    let body_src_map = body.source_map();
     let src_map = file.source_map();
 
     let mut folds = Vec::default();
@@ -274,19 +276,19 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
     folds.collect_folds(src_map.config_decl_srcs.ranges(), FoldKind::Config, line_index);
     folds.collect_folds(src_map.library_decl_srcs.ranges(), FoldKind::Library, line_index);
     folds.collect_folds(src_map.library_include_srcs.ranges(), FoldKind::Library, line_index);
-    folds.collect_folds(src_map.declaration_srcs.ranges(), FoldKind::Declaration, line_index);
-    folds.collect_folds(src_map.decl_srcs.ranges(), FoldKind::Decl, line_index);
+    folds.collect_folds(body_src_map.declaration_srcs.ranges(), FoldKind::Declaration, line_index);
+    folds.collect_folds(body_src_map.decl_srcs.ranges(), FoldKind::Decl, line_index);
     collect_item_groups(
         &mut folds,
-        src_map.declaration_srcs.ranges(),
+        body_src_map.declaration_srcs.ranges(),
         FoldKind::Declaration,
         line_index,
     );
     collect_stmt(
         db,
         &mut folds,
-        &file.stmts,
-        src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
+        &body.stmts,
+        body_src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
         line_index,
     );
     for proc in file.procs.values() {
@@ -313,6 +315,8 @@ fn collect_module(
     line_index: &LineIndex,
 ) {
     let module = db.module_with_source_map(module_id);
+    let body = db.module_body_with_source_map(module_id);
+    let body_src_map = body.source_map();
     let src_map = module.source_map();
 
     folds.collect_docs(&src_map.region_tree, line_index);
@@ -341,12 +345,12 @@ fn collect_module(
     folds.collect_folds(src_map.generate_region_srcs.ranges(), FoldKind::Generate, line_index);
     folds.collect_folds(src_map.specify_block_srcs.ranges(), FoldKind::Specify, line_index);
     folds.collect_folds(src_map.specify_item_srcs.ranges(), FoldKind::Specify, line_index);
-    folds.collect_folds(src_map.declaration_srcs.ranges(), FoldKind::Declaration, line_index);
-    folds.collect_folds(src_map.decl_srcs.ranges(), FoldKind::Decl, line_index);
+    folds.collect_folds(body_src_map.declaration_srcs.ranges(), FoldKind::Declaration, line_index);
+    folds.collect_folds(body_src_map.decl_srcs.ranges(), FoldKind::Decl, line_index);
     collect_item_groups(folds, src_map.assign_srcs.ranges(), FoldKind::ContAssign, line_index);
     collect_item_groups(
         folds,
-        src_map.declaration_srcs.ranges(),
+        body_src_map.declaration_srcs.ranges(),
         FoldKind::Declaration,
         line_index,
     );
@@ -363,8 +367,8 @@ fn collect_module(
     collect_stmt(
         db,
         folds,
-        &module.stmts,
-        src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
+        &body.stmts,
+        body_src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
         line_index,
     );
     for proc in module.procs.values() {
@@ -439,16 +443,18 @@ fn collect_generate_block(
     line_index: &LineIndex,
 ) {
     let block = db.generate_block_with_source_map(block_id.clone());
+    let body = db.generate_block_body_with_source_map(block_id.clone());
+    let body_src_map = body.source_map();
     let src_map = block.source_map();
 
     folds.collect_docs(&src_map.region_tree, line_index);
     folds.collect_folds(src_map.assign_srcs.ranges(), FoldKind::ContAssign, line_index);
     folds.collect_folds(src_map.defparam_srcs.ranges(), FoldKind::DefParam, line_index);
-    folds.collect_folds(src_map.declaration_srcs.ranges(), FoldKind::Declaration, line_index);
+    folds.collect_folds(body_src_map.declaration_srcs.ranges(), FoldKind::Declaration, line_index);
     collect_item_groups(folds, src_map.assign_srcs.ranges(), FoldKind::ContAssign, line_index);
     collect_item_groups(
         folds,
-        src_map.declaration_srcs.ranges(),
+        body_src_map.declaration_srcs.ranges(),
         FoldKind::Declaration,
         line_index,
     );

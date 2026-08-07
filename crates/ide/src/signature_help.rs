@@ -153,6 +153,7 @@ fn sig_help_for_instance(
     let target_module_id =
         resolve_instantiation_target(db, file_id.expect_file(), instantiation).unique()?;
     let target_module = db.module_with_source_map(target_module_id);
+    let target_body = db.module_body_with_source_map(target_module_id);
     let target_module_name =
         target_module.name.as_ref().map(|name| name.to_string()).unwrap_or("<module>".to_string());
 
@@ -224,7 +225,7 @@ fn sig_help_for_instance(
                     buf.truncate(header_size);
 
                     if let Some(Either::Right(active_name)) = &active_param
-                        && let Some(decl_name) = target_module.get(decl_id).name.as_ref()
+                        && let Some(decl_name) = target_body.decls[decl_id].name.as_ref()
                         && active_name == decl_name.as_str()
                     {
                         res.active_parameter = Some(res.param_ranges.len() - 1);
@@ -276,6 +277,7 @@ fn sig_help_for_instantiation(
     let target_module_id =
         resolve_instantiation_target(db, file_id.expect_file(), instantiation).unique()?;
     let target_module = db.module_with_source_map(target_module_id);
+    let target_body = db.module_body_with_source_map(target_module_id);
     let target_module_name =
         target_module.name.as_ref().map(|name| name.to_string()).unwrap_or("<module>".to_string());
 
@@ -288,7 +290,7 @@ fn sig_help_for_instantiation(
         }
     }
 
-    for port_decl in target_module
+    for port_decl in target_body
         .declarations
         .values()
         .take_while(|declaration| matches!(declaration, Declaration::ParamDecl(_)))
@@ -320,7 +322,7 @@ fn sig_help_for_instantiation(
             buf.truncate(header_size);
 
             if let Some(Either::Right(active_name)) = &active_param
-                && let Some(decl_name) = target_module.get(decl_id).name.as_ref()
+                && let Some(decl_name) = target_body.decls[decl_id].name.as_ref()
                 && active_name == decl_name.as_str()
             {
                 res.active_parameter = Some(res.param_ranges.len() - 1);

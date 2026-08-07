@@ -26,7 +26,7 @@ use crate::{
     db::HirDefDb,
     declaration::Declaration,
     expr::declarator::DeclaratorParent,
-    module::{Module, ModuleKind, clocking::ClockingSignal, generate::GenerateBlockLoc},
+    module::{ModuleKind, clocking::ClockingSignal, generate::GenerateBlockLoc},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
     subroutine::SubroutineSrc,
     symbol::{DefKind, DefOrigin, DefOriginLoc},
@@ -700,6 +700,8 @@ fn non_ansi_port_index(
     let module_id =
         crate::module::ModuleId::new(file_id, Idx::from_raw(RawIdx::from(module_index)));
     let module = db.module(module_id);
+    let owner = module_id.owner(db).expect("module must have a canonical owner");
+    let body = db.body_with_source_map(owner);
     let crate::module::port::Ports::NonAnsi { ports, .. } = &module.ports else {
         return Arc::new(NonAnsiPortIndex::default());
     };
@@ -713,16 +715,16 @@ fn non_ansi_port_index(
     }
 
     let mut role_counts = FxHashMap::<(SmolStr, NonAnsiPortOriginRole), usize>::default();
-    for (_, decl) in module.decls.iter() {
+    for (_, decl) in body.decls.iter() {
         let Some(name) = &decl.name else { continue };
-        let Some(role) = non_ansi_port_role(&module, decl.parent) else { continue };
+        let Some(role) = non_ansi_port_role(&body, decl.parent) else { continue };
         *role_counts.entry((name.clone(), role)).or_default() += 1;
     }
 
     let mut index = NonAnsiPortIndex::default();
-    for (decl_id, decl) in module.decls.iter() {
+    for (decl_id, decl) in body.decls.iter() {
         let Some(name) = &decl.name else { continue };
-        let Some(role) = non_ansi_port_role(&module, decl.parent) else { continue };
+        let Some(role) = non_ansi_port_role(&body, decl.parent) else { continue };
         if role_counts.get(&(name.clone(), role)) != Some(&1) {
             continue;
         }
@@ -736,12 +738,15 @@ fn non_ansi_port_index(
     Arc::new(index)
 }
 
-fn non_ansi_port_role(module: &Module, parent: DeclaratorParent) -> Option<NonAnsiPortOriginRole> {
+fn non_ansi_port_role(
+    body: &crate::body::Body,
+    parent: DeclaratorParent,
+) -> Option<NonAnsiPortOriginRole> {
     match parent {
         DeclaratorParent::PortDeclId(_) => Some(NonAnsiPortOriginRole::PortDeclaration),
         DeclaratorParent::StmtId(_) => None,
         DeclaratorParent::DeclarationId(declaration_id) => {
-            match &module.declarations[declaration_id] {
+            match &body.declarations[declaration_id] {
                 Declaration::DataDecl(_) | Declaration::NetDecl(_) => {
                     Some(NonAnsiPortOriginRole::DataDeclaration)
                 }

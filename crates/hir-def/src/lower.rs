@@ -41,21 +41,28 @@ use crate::{
 pub(crate) struct FileStore<'a> {
     pub(crate) data: &'a mut HirFile,
     pub(crate) sources: &'a mut FileSourceMap,
+    pub(crate) body: &'a mut Body,
+    pub(crate) body_sources: &'a mut BodySourceMap,
 }
 
-/// Mutable data/source pair for a module lowering pass.
+/// Mutable structural data plus the owner-local semantic store for a module.
 pub(crate) struct ModuleStore<'a> {
     pub(crate) data: &'a mut Module,
     pub(crate) sources: &'a mut ModuleSourceMap,
+    pub(crate) body: &'a mut Body,
+    pub(crate) body_sources: &'a mut BodySourceMap,
 }
 
-/// Mutable data/source pair for a generate-block lowering pass.
+/// Mutable structural data plus the owner-local semantic store for a generate
+/// block.
 pub(crate) struct GenerateBlockStore<'a> {
     pub(crate) data: &'a mut GenerateBlock,
     pub(crate) sources: &'a mut GenerateBlockSourceMap,
+    pub(crate) body: &'a mut Body,
+    pub(crate) body_sources: &'a mut BodySourceMap,
 }
 
-/// Mutable data/source pair for a canonical owner body.
+/// Mutable data/source pair for a canonical executable body.
 pub(crate) struct BodyStore<'a> {
     pub(crate) data: &'a mut Body,
     pub(crate) sources: &'a mut BodySourceMap,
@@ -77,42 +84,69 @@ pub(crate) trait LoweringStore {
     ) -> (&mut Arena<Declaration>, &mut SourceMap<DeclarationSrc, Declaration>);
 }
 
-macro_rules! impl_lowering_store {
+macro_rules! impl_owner_lowering_store {
     ($store:ty) => {
         impl LoweringStore for $store {
             fn expressions(&mut self) -> (&mut Arena<Expr>, &mut SourceMap<ExprSrc, Expr>) {
-                (&mut self.data.exprs, &mut self.sources.expr_srcs)
+                (&mut self.body.exprs, &mut self.body_sources.expr_srcs)
             }
 
             fn event_expressions(
                 &mut self,
             ) -> (&mut Arena<EventExpr>, &mut SourceMap<EventExprSrc, EventExpr>) {
-                (&mut self.data.event_exprs, &mut self.sources.event_expr_srcs)
+                (&mut self.body.event_exprs, &mut self.body_sources.event_expr_srcs)
             }
 
             fn declarators(
                 &mut self,
             ) -> (&mut Arena<Declarator>, &mut SourceMap<DeclaratorSrc, Declarator>) {
-                (&mut self.data.decls, &mut self.sources.decl_srcs)
+                (&mut self.body.decls, &mut self.body_sources.decl_srcs)
             }
 
             fn statements(&mut self) -> (&mut Arena<Stmt>, &mut SourceMap<StmtSrc, Stmt>) {
-                (&mut self.data.stmts, &mut self.sources.stmt_srcs)
+                (&mut self.body.stmts, &mut self.body_sources.stmt_srcs)
             }
 
             fn declarations(
                 &mut self,
             ) -> (&mut Arena<Declaration>, &mut SourceMap<DeclarationSrc, Declaration>) {
-                (&mut self.data.declarations, &mut self.sources.declaration_srcs)
+                (&mut self.body.declarations, &mut self.body_sources.declaration_srcs)
             }
         }
     };
 }
 
-impl_lowering_store!(FileStore<'_>);
-impl_lowering_store!(ModuleStore<'_>);
-impl_lowering_store!(GenerateBlockStore<'_>);
-impl_lowering_store!(BodyStore<'_>);
+impl_owner_lowering_store!(FileStore<'_>);
+impl_owner_lowering_store!(ModuleStore<'_>);
+impl_owner_lowering_store!(GenerateBlockStore<'_>);
+
+impl LoweringStore for BodyStore<'_> {
+    fn expressions(&mut self) -> (&mut Arena<Expr>, &mut SourceMap<ExprSrc, Expr>) {
+        (&mut self.data.exprs, &mut self.sources.expr_srcs)
+    }
+
+    fn event_expressions(
+        &mut self,
+    ) -> (&mut Arena<EventExpr>, &mut SourceMap<EventExprSrc, EventExpr>) {
+        (&mut self.data.event_exprs, &mut self.sources.event_expr_srcs)
+    }
+
+    fn declarators(
+        &mut self,
+    ) -> (&mut Arena<Declarator>, &mut SourceMap<DeclaratorSrc, Declarator>) {
+        (&mut self.data.decls, &mut self.sources.decl_srcs)
+    }
+
+    fn statements(&mut self) -> (&mut Arena<Stmt>, &mut SourceMap<StmtSrc, Stmt>) {
+        (&mut self.data.stmts, &mut self.sources.stmt_srcs)
+    }
+
+    fn declarations(
+        &mut self,
+    ) -> (&mut Arena<Declaration>, &mut SourceMap<DeclarationSrc, Declaration>) {
+        (&mut self.data.declarations, &mut self.sources.declaration_srcs)
+    }
+}
 
 pub(crate) trait CheckerStore: LoweringStore {
     fn checkers(&mut self) -> (&mut Arena<CheckerDef>, &mut SourceMap<CheckerSrc, CheckerDef>);

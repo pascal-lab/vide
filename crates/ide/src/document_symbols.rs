@@ -4,6 +4,7 @@ use hir_def::{
     DEFAULT_NAME,
     aggregate::{StructDef, StructId, StructKind},
     block::{BlockId, BlockItem},
+    body::Body,
     checker::{CheckerDef, CheckerId},
     container::InFile,
     covergroup::{CovergroupDef, CovergroupId, CoverpointDef, CoverpointId, CrossDef, CrossId},
@@ -28,7 +29,7 @@ use hir_def::{
     },
     proc::{Proc, ProcId},
     region_tree::{RegionNode, RegionTreeIterator},
-    source_map::{HirLookup, NamedSourceLookup, SourceInfo, SourceLookup},
+    source_map::{HirLookup, Lowered, NamedSourceLookup, SourceInfo, SourceLookup},
     stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind},
     subroutine::{LocalSubroutineId, Subroutine},
     typedef::{Typedef, TypedefId},
@@ -204,16 +205,17 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
     let _span = tracing::debug_span!("ide.document_symbols", ?file_id).entered();
     let file_id = HirFileId::File(file_id);
     let lowered = db.hir_file_with_source_map(file_id);
+    let body = db.file_body_with_source_map(file_id);
     let file = lowered.data_ref();
     let src_map = lowered.source_map();
     let mut regions = src_map.region_tree.walk().peekable();
 
     let mut collector = SymbolCollector::new(
-        file.items.len() + src_map.region_tree.root_count() + file.decls.len(),
+        file.items.len() + src_map.region_tree.root_count() + body.decls.len(),
     );
 
     for item in &file.items {
-        if let Some(ptr) = src_map.item_to_ptr(item) {
+        if let Some(ptr) = src_map.item_to_ptr(body.source_map(), item) {
             regions.add_region_symbol(ptr.range(), &mut collector);
         }
 
@@ -229,17 +231,15 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
                 }
             }
             FileItem::DeclarationId(declaration_id) => {
-                build_declaration(&mut collector, declaration_id, lowered.as_ref());
+                build_declaration(&mut collector, declaration_id, body.as_ref());
             }
             FileItem::TypedefId(typedef_id) => {
-                build_typedef(&mut collector, typedef_id, lowered.as_ref())
+                build_typedef(&mut collector, typedef_id, body.as_ref())
             }
             FileItem::SubroutineId(subroutine_id) => {
                 build_subroutine(&mut collector, subroutine_id, lowered.as_ref())
             }
-            FileItem::StructId(struct_id) => {
-                build_struct(&mut collector, struct_id, lowered.as_ref())
-            }
+            FileItem::StructId(struct_id) => build_struct(&mut collector, struct_id, body.as_ref()),
             FileItem::ConfigDeclId(config_id) => {
                 build_config_decl(&mut collector, config_id, lowered.as_ref())
             }
@@ -263,6 +263,7 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
 
 fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut SymbolCollector) {
     let lowered = db.module_with_source_map(module_id);
+    let body = db.module_body_with_source_map(module_id);
     let module = lowered.data_ref();
     let src_map = lowered.source_map();
     let mut regions = src_map.region_tree.walk().peekable();
@@ -273,15 +274,15 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
     collector.push_symbol_with_children(
         &module.name,
         module_src,
-        module.items.len() + module.decls.len() + module.stmts.len(),
+        module.items.len() + body.decls.len() + body.stmts.len(),
     );
 
     if let Some(params) = &module.param_ports {
         for decl_id in params.clone() {
-            if let Some(src) = lowered.source_info(decl_id) {
+            if let Some(src) = body.source_info(decl_id) {
                 regions.add_region_symbol(src.full_range(), collector);
             }
-            build_decl(collector, decl_id, SymbolKind::ParamDecl, lowered.as_ref());
+            build_decl(collector, decl_id, SymbolKind::ParamDecl, body.as_ref());
         }
     }
 
@@ -300,18 +301,18 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
                 if let Some(src) = lowered.source_info(port_id) {
                     regions.add_region_symbol(src.full_range(), collector);
                 }
-                build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, lowered.as_ref());
+                build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, body.as_ref());
             }
         }
     }
 
     for item in &module.items {
-        if let Some(ptr) = src_map.item_to_ptr(item) {
+        if let Some(ptr) = src_map.item_to_ptr(body.source_map(), item) {
             regions.add_region_symbol(ptr.range(), collector);
         }
         match *item {
             ModuleItem::DeclarationId(declaration_id) => {
-                build_declaration(collector, declaration_id, lowered.as_ref())
+                build_declaration(collector, declaration_id, body.as_ref())
             }
             ModuleItem::InstantiationId(instantiation_id) => {
                 for &instance_id in lowered.get(instantiation_id).instances.iter() {
@@ -331,19 +332,23 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
             }
             ModuleItem::PortDeclId(port_decl) => {
                 let port_decl = lowered.get(port_decl);
-                build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, lowered.as_ref())
+                build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, body.as_ref())
             }
             ModuleItem::ContAssignId(_) => {}
             ModuleItem::DefParamId(_) => {}
-            ModuleItem::GenerateRegionId(generate_region_id) => {
-                build_generate_region(db, collector, generate_region_id, lowered.as_ref())
-            }
+            ModuleItem::GenerateRegionId(generate_region_id) => build_generate_region(
+                db,
+                collector,
+                generate_region_id,
+                lowered.as_ref(),
+                body.as_ref(),
+            ),
             ModuleItem::SpecifyBlockId(specify_block_id) => {
-                build_specify_block(collector, specify_block_id, lowered.as_ref())
+                build_specify_block(collector, specify_block_id, lowered.as_ref(), body.as_ref())
             }
             ModuleItem::SpecifyItemId(_) => {}
             ModuleItem::TypedefId(typedef_id) => {
-                build_typedef(collector, typedef_id, lowered.as_ref())
+                build_typedef(collector, typedef_id, body.as_ref())
             }
             ModuleItem::SubroutineId(subroutine_id) => {
                 build_subroutine(collector, subroutine_id, lowered.as_ref())
@@ -364,7 +369,7 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
             ModuleItem::CovergroupId(covergroup_id) => {
                 build_covergroup(collector, covergroup_id, lowered.as_ref());
             }
-            ModuleItem::StructId(struct_id) => build_struct(collector, struct_id, lowered.as_ref()),
+            ModuleItem::StructId(struct_id) => build_struct(collector, struct_id, body.as_ref()),
         }
     }
     collector.pop();
@@ -491,33 +496,24 @@ where
 }
 
 #[inline]
-fn build_generate_region<L>(
+fn build_generate_region<S>(
     db: &dyn TyDb,
     collector: &mut SymbolCollector,
     generate_region_id: GenerateRegionId,
-    lowered: &L,
+    structure: &S,
+    body: &Lowered<Body>,
 ) where
-    L: HirLookup<GenerateRegionId, Hir = GenerateRegion>
-        + HirLookup<DeclarationId, Hir = Declaration>
-        + HirLookup<DeclId, Hir = Declarator>
+    S: HirLookup<GenerateRegionId, Hir = GenerateRegion>
         + HirLookup<InstanceId, Hir = Instance>
         + HirLookup<InstantiationId, Hir = Instantiation>
         + HirLookup<LocalSubroutineId, Hir = Subroutine>
         + HirLookup<ProcId, Hir = Proc>
-        + HirLookup<StmtId, Hir = Stmt>
-        + HirLookup<StructId, Hir = StructDef>
-        + HirLookup<TypedefId, Hir = Typedef>
         + NamedSourceLookup<GenerateRegionId>
-        + SourceLookup<DeclarationId>
-        + NamedSourceLookup<DeclId>
         + NamedSourceLookup<InstanceId>
-        + NamedSourceLookup<LocalSubroutineId>
-        + NamedSourceLookup<StmtId>
-        + NamedSourceLookup<StructId>
-        + NamedSourceLookup<TypedefId>,
+        + NamedSourceLookup<LocalSubroutineId>,
 {
-    let hir = lowered.hir(generate_region_id);
-    let Some(src) = lowered.named_source_info(generate_region_id) else {
+    let hir = structure.hir(generate_region_id);
+    let Some(src) = structure.named_source_info(generate_region_id) else {
         return;
     };
     let name = Some(SmolStr::new_static("generate"));
@@ -527,7 +523,8 @@ fn build_generate_region<L>(
             db,
             collector,
             generate_item_to_block_item(item.clone()),
-            lowered,
+            structure,
+            body,
         );
     }
     collector.pop();
@@ -541,13 +538,14 @@ fn build_generate_block(
     let Some(InFile { value: generate_block_src, .. }) = generate_block_id.source(db) else {
         return;
     };
-    let lowered = db.generate_block_with_source_map(generate_block_id);
+    let lowered = db.generate_block_with_source_map(generate_block_id.clone());
+    let body = db.generate_block_body_with_source_map(generate_block_id.clone());
     let generate_block = lowered.data_ref();
     let name = generate_block.name.clone();
 
     collector.push_symbol_with_kind(&name, generate_block_src, SymbolKind::Generate);
     for item in &generate_block.items {
-        build_generate_block_item(db, collector, item.clone(), lowered.as_ref());
+        build_generate_block_item(db, collector, item.clone(), lowered.as_ref(), body.as_ref());
     }
     collector.pop();
 }
@@ -556,61 +554,52 @@ fn build_generate_block(
 /// (whose items live in the enclosing module's arenas) and generate blocks
 /// (whose items live in their own container).
 #[inline]
-fn build_generate_block_item<L>(
+fn build_generate_block_item<S>(
     db: &dyn TyDb,
     collector: &mut SymbolCollector,
     item: GenerateBlockItem,
-    lowered: &L,
+    structure: &S,
+    body: &Lowered<Body>,
 ) where
-    L: HirLookup<DeclarationId, Hir = Declaration>
-        + HirLookup<DeclId, Hir = Declarator>
-        + HirLookup<InstanceId, Hir = Instance>
+    S: HirLookup<InstanceId, Hir = Instance>
         + HirLookup<InstantiationId, Hir = Instantiation>
         + HirLookup<LocalSubroutineId, Hir = Subroutine>
         + HirLookup<ProcId, Hir = Proc>
-        + HirLookup<StmtId, Hir = Stmt>
-        + HirLookup<StructId, Hir = StructDef>
-        + HirLookup<TypedefId, Hir = Typedef>
-        + SourceLookup<DeclarationId>
-        + NamedSourceLookup<DeclId>
         + NamedSourceLookup<InstanceId>
-        + NamedSourceLookup<LocalSubroutineId>
-        + NamedSourceLookup<StmtId>
-        + NamedSourceLookup<StructId>
-        + NamedSourceLookup<TypedefId>,
+        + NamedSourceLookup<LocalSubroutineId>,
 {
     match item {
         GenerateBlockItem::ContAssignId(_) | GenerateBlockItem::DefParamId(_) => {}
         GenerateBlockItem::DeclarationId(declaration_id) => {
-            build_declaration(collector, declaration_id, lowered);
+            build_declaration(collector, declaration_id, body);
         }
         GenerateBlockItem::GenerateBlockId(child_id) => {
             build_generate_block(db, collector, child_id);
         }
         GenerateBlockItem::TypedefId(typedef_id) => {
-            build_typedef(collector, typedef_id, lowered);
+            build_typedef(collector, typedef_id, body);
         }
         GenerateBlockItem::SubroutineId(subroutine_id) => {
-            build_subroutine(collector, subroutine_id, lowered);
+            build_subroutine(collector, subroutine_id, structure);
         }
         GenerateBlockItem::ProcId(proc_id) => {
-            let proc = lowered.hir(proc_id);
+            let proc = structure.hir(proc_id);
             let body = db.body_with_source_map(proc.owner);
             if let Some(stmt_id) = body.root_stmt {
                 build_stmt(db, collector, stmt_id, body.as_ref());
             }
         }
         GenerateBlockItem::InstantiationId(instantiation_id) => {
-            for &instance_id in lowered.hir(instantiation_id).instances.iter() {
-                let hir = lowered.hir(instance_id);
-                if let Some(src) = lowered.named_source_info(instance_id) {
+            for &instance_id in structure.hir(instantiation_id).instances.iter() {
+                let hir = structure.hir(instance_id);
+                if let Some(src) = structure.named_source_info(instance_id) {
                     collector.push_symbol(&hir.name, src);
                     collector.pop();
                 }
             }
         }
         GenerateBlockItem::StructId(struct_id) => {
-            build_struct(collector, struct_id, lowered);
+            build_struct(collector, struct_id, body);
         }
     }
 }
@@ -736,20 +725,16 @@ fn struct_kind_name(kind: StructKind) -> SmolStr {
 }
 
 #[inline]
-fn build_specify_block<L>(
+fn build_specify_block<S>(
     collector: &mut SymbolCollector,
     specify_block_id: SpecifyBlockId,
-    lowered: &L,
+    structure: &S,
+    body: &Lowered<Body>,
 ) where
-    L: HirLookup<SpecifyBlockId, Hir = SpecifyBlock>
-        + HirLookup<DeclarationId, Hir = Declaration>
-        + HirLookup<DeclId, Hir = Declarator>
-        + NamedSourceLookup<SpecifyBlockId>
-        + SourceLookup<DeclarationId>
-        + NamedSourceLookup<DeclId>,
+    S: HirLookup<SpecifyBlockId, Hir = SpecifyBlock> + NamedSourceLookup<SpecifyBlockId>,
 {
-    let hir = lowered.hir(specify_block_id);
-    let Some(src) = lowered.named_source_info(specify_block_id) else {
+    let hir = structure.hir(specify_block_id);
+    let Some(src) = structure.named_source_info(specify_block_id) else {
         return;
     };
     let name = Some(SmolStr::new_static("specify"));
@@ -757,7 +742,7 @@ fn build_specify_block<L>(
     for item in hir.items.iter() {
         match *item {
             SpecifyBlockItem::DeclarationId(declaration_id) => {
-                build_declaration(collector, declaration_id, lowered);
+                build_declaration(collector, declaration_id, body);
             }
             SpecifyBlockItem::SpecifyItemId(_) => {}
         }

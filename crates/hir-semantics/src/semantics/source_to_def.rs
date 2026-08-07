@@ -1,5 +1,5 @@
 use hir_def::{
-    block::{BlockId, BlockSrc, find_local_block_id},
+    block::{BlockId, BlockSrc},
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
     db::HirDefDb,
     module::{
@@ -53,39 +53,10 @@ fn block_to_def_inner(
     let node = block.syntax();
     let container = find_container(db, InFile::new(file_id, node));
 
-    let block_id = match container {
-        ArenaOwnerId::File(file_id) => {
-            let file = db.hir_file_with_source_map(file_id);
-            let local_block_id = find_local_block_id(&file.source_map().stmt_srcs, block_src)?;
-            file.get(local_block_id).block_id.clone()
-        }
-        ArenaOwnerId::Module(module_id) => {
-            let module = db.module_with_source_map(module_id);
-            let local_block_id = find_local_block_id(&module.source_map().stmt_srcs, block_src)?;
-            module.get(local_block_id).block_id.clone()
-        }
-        ArenaOwnerId::Block(block_id) => {
-            let block = db.block_with_source_map(block_id);
-            let local_block_id = *block.source_map().block_srcs.get(&block_src)?;
-            block.get(local_block_id).block_id.clone()
-        }
-        ArenaOwnerId::GenerateBlock(generate_block_id) => {
-            let generate_block = db.generate_block_with_source_map(generate_block_id);
-            let local_block_id = generate_block.hir_id(block_src)?;
-            generate_block.get(local_block_id).block_id.clone()
-        }
-        ArenaOwnerId::Subroutine(subroutine_id) => {
-            let owner = subroutine_id.owner(db)?;
-            let subroutine = db.subroutine_body_with_source_map(owner);
-            let local_block_id = *subroutine.source_map().block_srcs.get(&block_src)?;
-            subroutine.get(local_block_id).block_id.clone()
-        }
-        ArenaOwnerId::Owner(owner) => {
-            let body = db.body_with_source_map(owner);
-            let local_block_id = *body.source_map().block_srcs.get(&block_src)?;
-            body.get(local_block_id).block_id.clone()
-        }
-    };
+    let owner = container.owner(db);
+    let body = db.body_with_source_map(owner);
+    let local_block_id = *body.source_map().block_srcs.get(&block_src)?;
+    let block_id = body.get(local_block_id).block_id.clone();
 
     Some(block_id)
 }

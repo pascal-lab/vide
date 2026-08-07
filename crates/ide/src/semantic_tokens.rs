@@ -300,6 +300,7 @@ fn collect_file(
     let lowered = sema.db.hir_file_with_source_map(file_id);
     let hir_file = lowered.data_ref();
     let tree = sema.db.parse(file_id);
+    let body = sema.db.file_body_with_source_map(file_id);
 
     for (local_module_id, _) in hir_file.modules.iter() {
         let Some(range) = lowered.source_range(local_module_id) else {
@@ -321,6 +322,7 @@ fn collect_file(
         let body = sema.db.body_with_source_map(owner);
         collect_container_body!(sema, ArenaOwnerId::Owner(owner), &tree, &mut *collector, &body);
     }
+    collect_container_body!(sema, file_id.into(), &tree, collector, &body);
 }
 
 fn collect_module(
@@ -332,6 +334,7 @@ fn collect_module(
     let lowered = db.module_with_source_map(module_id);
     let module = lowered.data_ref();
     let tree = db.parse(module_id.file_id);
+    let body = db.module_body_with_source_map(module_id);
     port::collect_port(sema, module_id, collector);
 
     for (instance_id, _) in module.instances.iter() {
@@ -389,6 +392,7 @@ fn collect_module(
         let body = db.body_with_source_map(owner);
         collect_container_body!(sema, ArenaOwnerId::Owner(owner), &tree, &mut *collector, &body);
     }
+    collect_container_body!(sema, module_id.into(), &tree, collector, &body);
 }
 
 fn collect_generate_block(
@@ -400,6 +404,7 @@ fn collect_generate_block(
     let lowered = db.generate_block_with_source_map(generate_block_id.clone());
     let generate_block = lowered.data_ref();
     let tree = db.parse(generate_block_id.file_id(db));
+    let body = db.generate_block_body_with_source_map(generate_block_id.clone());
 
     for (instance_id, _) in generate_block.instances.iter() {
         if let Some(range) = lowered.source_name_range(instance_id) {
@@ -453,7 +458,7 @@ fn collect_generate_block(
         );
     }
 
-    collect_container_body!(sema, generate_block_id.into(), &tree, collector, &lowered);
+    collect_container_body!(sema, generate_block_id.into(), &tree, collector, &body);
 }
 
 fn collect_block(
@@ -623,8 +628,9 @@ fn collect_resolved_path(
     if def_id.is_non_ansi_port(db) {
         let port_id = def_id.primary_origin(db).as_non_ansi_port(db)?;
         let module = db.module_with_source_map(port_id.module_id);
+        let body = db.module_body_with_source_map(port_id.module_id);
         let origins = def_id.origins(db);
-        let (name, dir, ty) = resolve_port_metadata(db, &module, &origins)?;
+        let (name, dir, ty) = resolve_port_metadata(db, &module, &body, &origins)?;
         port::add_port_token(db, name, dir, ty, range, collector);
         return Some(());
     }
@@ -636,10 +642,10 @@ fn collect_resolved_path(
                 return None;
             };
             let module = db.module_with_source_map(module_id);
-            let name = module.get(decl_id.value).name.as_ref()?;
+            let body = db.module_body_with_source_map(module_id);
+            let name = body.get(decl_id.value).name.as_ref()?;
 
-            let DeclaratorParent::PortDeclId(port_declaration_id) =
-                module.get(decl_id.value).parent
+            let DeclaratorParent::PortDeclId(port_declaration_id) = body.get(decl_id.value).parent
             else {
                 return None;
             };

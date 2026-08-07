@@ -56,8 +56,8 @@ pub(super) fn sort_named_parameter_assignments(
     let module = db.module_with_source_map(module_id);
     let instantiation = module.get(instantiation_id);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let parameter_order =
-        all_overridable_parameter_names(&db.module_with_source_map(target_module_id));
+    let target_body = db.module_body_with_source_map(target_module_id);
+    let parameter_order = all_overridable_parameter_names(&target_body);
     let parameter_order_map: FxHashMap<_, _> =
         parameter_order.iter().enumerate().map(|(index, name)| (name.as_ref(), index)).collect();
 
@@ -118,7 +118,9 @@ pub(super) fn sort_named_port_connections(
     let instance = module.get(instance_id);
     let instantiation = module.get(instance.parent);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let port_order = port_names(&db.module_with_source_map(target_module_id));
+    let target_module = db.module_with_source_map(target_module_id);
+    let target_body = db.module_body_with_source_map(target_module_id);
+    let port_order = port_names(&target_module, &target_body);
     let port_order_map: FxHashMap<_, _> =
         port_order.iter().enumerate().map(|(index, name)| (name.as_ref(), index)).collect();
 
