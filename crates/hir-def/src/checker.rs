@@ -5,13 +5,18 @@ use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
+use triomphe::Arc;
 use utils::text_edit::TextRange;
 
 use super::{
     alloc_with_source,
+    body::{Body, BodySourceMap},
+    db::HirDefDb,
     declaration::DeclarationId,
-    lower::{CheckerStore, LoweringCtx},
+    lower::{BodyStore, CheckerStore, LoweringCtx, LoweringSyntax},
     module::port::PortDirection,
+    owner::{OwnerId, OwnerKind},
+    source_map::Lowered,
 };
 use crate::{Ident, lower_ident_opt};
 
@@ -64,6 +69,34 @@ impl<Store: CheckerStore> LoweringCtx<Store> {
         let (checkers, sources) = self.store.checkers();
         alloc_with_source(&self.ast_ids, &self.tree, checkers, sources, checker, checker_decl)
     }
+}
+
+pub(crate) fn lower_checker_owner(
+    db: &dyn HirDefDb,
+    owner: OwnerId,
+    syntax: &LoweringSyntax,
+) -> Arc<Lowered<Body>> {
+    debug_assert_eq!(owner.kind(db), OwnerKind::Checker);
+    let file_id = syntax.file_id;
+    let mut body = Body::default();
+    let mut source_map = BodySourceMap::default();
+    let Some(checker) =
+        syntax.ast_ids.node(owner.ast_id(db), &syntax.tree).and_then(ast::CheckerDeclaration::cast)
+    else {
+        return Arc::new(Lowered::new(file_id, body, source_map));
+    };
+
+    let mut ctx = LoweringCtx::new_with_syntax(
+        owner,
+        syntax,
+        BodyStore { data: &mut body, sources: &mut source_map },
+    );
+    ctx.lower_checker_decl(checker);
+    let diagnostics = ctx.emit_diagnostics();
+    drop(ctx);
+    body.shrink_to_fit();
+    source_map.shrink_to_fit();
+    Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
 }
 
 fn lower_checker_ports(checker: ast::CheckerDeclaration<'_>) -> SmallVec<[CheckerPort; 4]> {

@@ -3707,10 +3707,7 @@ endmodule
     let analysis = host.make_analysis();
 
     {
-        use hir_def::{
-            module::ModuleId,
-            stmt::{Stmt, StmtKind},
-        };
+        use hir_def::stmt::{Stmt, StmtKind};
         use la_arena::Arena;
         use preproc_expand::file::HirFileId;
 
@@ -3725,11 +3722,8 @@ endmodule
         let hir_file_id = HirFileId::File(file_id);
         let hir_file =
             db.body_with_source_map(db.owner_table(hir_file_id).file_owner().expect("file owner"));
-        let (local_module_id, _) =
-            hir_file.modules.iter().next().expect("fixture should lower one module");
-        let module = db.body_with_source_map(
-            ModuleId::new(hir_file_id, local_module_id).owner(db).expect("module owner"),
-        );
+        let module_id = hir_file.module_owners().next().expect("fixture should lower one module");
+        let module = db.body_with_source_map(module_id);
         assert!(
             module.procs.values().any(|proc| {
                 let body = db.body_with_source_map(proc.owner);

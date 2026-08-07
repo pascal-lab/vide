@@ -1,4 +1,6 @@
-use hir_def::{body::Body, def_id::DefId, module::ModuleId, source_map::Lowered};
+use hir_def::{
+    body::Body, def_id::DefId, has_source::HasSource, source_map::Lowered, symbol::DefOriginLoc,
+};
 use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -50,14 +52,15 @@ fn process_instantiations(
     file_id: HirFileId,
     res: &mut Vec<CodeLens>,
 ) {
-    for (local_module_id, module_info) in hir_file.modules.iter() {
-        if module_info.name.is_none() {
+    for module_id in hir_file.module_owners() {
+        let module = db.body_with_source_map(module_id);
+        if module.name.is_none() {
+            continue;
+        }
+        let Some(source) = module_id.source(db) else {
             continue;
         };
-
-        let Some(range) = hir_file.source_range(db, local_module_id) else {
-            continue;
-        };
+        let range = source.value.full_range();
         let pos = FilePosition { file_id: file_id.expect_file(), offset: range.start() };
 
         res.push(CodeLens { range, kind: CodeLensKind::ModuleInstance { pos, data: None } });
@@ -73,15 +76,13 @@ pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLens
             let hir_file = sema.db.body_with_source_map(
                 sema.db.owner_table(hir_file_id).file_owner().expect("file owner"),
             );
-            let Some((local_module_id, _)) = hir_file.modules.iter().find(|(id, _)| {
-                hir_file.source_range(db, *id).is_some_and(|range| range.start() == offset)
+            let Some(module_id) = hir_file.module_owners().find(|id| {
+                id.source(db).is_some_and(|source| source.value.full_range().start() == offset)
             }) else {
                 *data = Some(Vec::new());
                 return kind;
             };
-            let module_id = ModuleId::new(hir_file_id, local_module_id);
-
-            let def = DefId::new(sema.db, module_id);
+            let def = DefId::new(sema.db, DefOriginLoc::Module(module_id));
 
             let ref_config =
                 ReferencesConfig::new(ScopeVisibility::Public, Some(SearchScope::all(sema.db)));

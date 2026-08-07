@@ -25,15 +25,8 @@ use utils::{
 };
 
 use crate::{
-    ast_id_map::SyntaxFileId,
-    body::BodyItem,
-    container::{SubroutineParent, SubroutineScope},
-    db::HirDefDb,
-    has_source::HasSource,
-    module::{ModuleId, generate::GenerateBlockId},
-    proc::Proc,
-    source_map::LoweringDiagnostic,
-    source_projection::SourceProjection,
+    ast_id_map::SyntaxFileId, body::BodyItem, db::HirDefDb, has_source::HasSource, owner::OwnerId,
+    proc::Proc, source_map::LoweringDiagnostic, source_projection::SourceProjection,
 };
 
 #[salsa::tracked(returns(clone))]
@@ -43,10 +36,9 @@ pub(crate) fn file_lowering_diagnostics(
 ) -> Arc<[LoweringDiagnostic]> {
     let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
-    let lowered_file =
-        db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"));
+    let file_owner = db.owner_table(file_id).file_owner().expect("file owner");
+    let lowered_file = db.body_with_source_map(file_owner);
     let file = lowered_file.data_ref();
-    let src_map = lowered_file.source_map();
 
     let mut diagnostics = Vec::new();
     let projection = db.source_projection(file_id);
@@ -54,24 +46,12 @@ pub(crate) fn file_lowering_diagnostics(
     // search scope for range-less diagnostics.
     collect(lowered_file.raw_diagnostics(), None, &tree, &projection, &mut diagnostics);
 
-    for (value, _) in src_map.subroutine_srcs.iter() {
-        collect_subroutine(
-            db,
-            SubroutineScope { cont_id: SubroutineParent::File(file_id), value },
-            &tree,
-            &projection,
-            &mut diagnostics,
-        );
+    for owner in file.subroutine_owners() {
+        collect_subroutine(db, owner, &tree, &projection, &mut diagnostics);
     }
 
-    for (local_module_id, _) in file.modules.iter() {
-        collect_module(
-            db,
-            ModuleId::new(file_id, local_module_id),
-            &tree,
-            &projection,
-            &mut diagnostics,
-        );
+    for owner in file.module_owners() {
+        collect_module(db, owner, &tree, &projection, &mut diagnostics);
     }
 
     collect_proc_bodies(db, &file.procs, &tree, &projection, &mut diagnostics);
@@ -80,83 +60,62 @@ pub(crate) fn file_lowering_diagnostics(
 
 fn collect_module(
     db: &dyn HirDefDb,
-    module_id: ModuleId,
+    owner: OwnerId,
     tree: &SyntaxTree,
     projection: &SourceProjection,
     diagnostics: &mut Vec<LoweringDiagnostic>,
 ) {
-    let owner = module_id.owner(db).expect("module owner");
     let lowered = db.body_with_source_map(owner);
     let owner_range = owner.source(db).map(|source| source.value.full_range());
     collect(lowered.raw_diagnostics(), owner_range, tree, projection, diagnostics);
 
     let module = lowered.data_ref();
     let src_map = lowered.source_map();
-
-    for (value, _) in src_map.subroutine_srcs.iter() {
-        collect_subroutine(
-            db,
-            SubroutineScope { cont_id: SubroutineParent::Module(module_id), value },
-            tree,
-            projection,
-            diagnostics,
-        );
+    for owner in module.subroutine_owners() {
+        collect_subroutine(db, owner, tree, projection, diagnostics);
     }
 
-    for (region_id, _) in src_map.generate_region_srcs.iter() {
+    for region_id in src_map.generate_region_srcs.iter().map(|(id, _)| id) {
         let region = module.get(region_id);
         for item in &region.items {
-            if let BodyItem::GenerateBlockId(block_id) = item {
-                collect_generate_block(db, block_id.clone(), tree, projection, diagnostics);
+            if let BodyItem::GenerateBlockOwner(block_id) = item {
+                collect_generate_block(db, *block_id, tree, projection, diagnostics);
             }
         }
     }
-
     collect_proc_bodies(db, &module.procs, tree, projection, diagnostics);
 }
 
 fn collect_generate_block(
     db: &dyn HirDefDb,
-    block_id: GenerateBlockId,
+    owner: OwnerId,
     tree: &SyntaxTree,
     projection: &SourceProjection,
     diagnostics: &mut Vec<LoweringDiagnostic>,
 ) {
-    let owner = block_id.clone().owner(db).expect("generate owner");
     let lowered = db.body_with_source_map(owner);
     let owner_range = owner.source(db).map(|source| source.value.full_range());
     collect(lowered.raw_diagnostics(), owner_range, tree, projection, diagnostics);
 
     let block = lowered.data_ref();
-    let src_map = lowered.source_map();
-
-    for (value, _) in src_map.subroutine_srcs.iter() {
-        collect_subroutine(
-            db,
-            SubroutineScope { cont_id: SubroutineParent::GenerateBlock(block_id.clone()), value },
-            tree,
-            projection,
-            diagnostics,
-        );
+    for owner in block.subroutine_owners() {
+        collect_subroutine(db, owner, tree, projection, diagnostics);
     }
-
     for item in &block.items {
-        if let BodyItem::GenerateBlockId(nested) = item {
-            collect_generate_block(db, nested.clone(), tree, projection, diagnostics);
+        if let BodyItem::GenerateBlockOwner(nested) = item {
+            collect_generate_block(db, *nested, tree, projection, diagnostics);
         }
     }
-
     collect_proc_bodies(db, &block.procs, tree, projection, diagnostics);
 }
 
 fn collect_subroutine(
     db: &dyn HirDefDb,
-    scope: SubroutineScope,
+    owner: OwnerId,
     tree: &SyntaxTree,
     projection: &SourceProjection,
     diagnostics: &mut Vec<LoweringDiagnostic>,
 ) {
-    let owner = scope.clone().owner(db).expect("subroutine must map to an owner");
     let lowered = db.body_with_source_map(owner);
     let owner_range = owner.source(db).map(|source| source.value.full_range());
     collect(lowered.raw_diagnostics(), owner_range, tree, projection, diagnostics);

@@ -3,18 +3,15 @@ use collector::SemaTokenCollectorTree;
 use hir_def::{
     Ident,
     body::BodyItem,
-    container::{InContainer, SubroutineParent, SubroutineScope},
+    container::OwnerRef,
     def_id::DefId,
     expr::{
         Expr, ExprId,
         data_ty::{DataTy, NamedDataTy},
         declarator::DeclaratorParent,
     },
-    module::{
-        ModuleId,
-        generate::GenerateBlockId,
-        instantiation::{ParamAssign, ParamAssignId, PortConn, PortConnId},
-    },
+    has_source::HasSource,
+    module::instantiation::{ParamAssign, ParamAssignId, PortConn, PortConnId},
     owner::OwnerId,
     source_map::AstLookup,
     symbol::{DefKind, NameContext, Resolution},
@@ -196,7 +193,7 @@ macro_rules! collect_container_body {
 
         let collect_ident_like =
             |name: &SmolStr, range: TextRange, collector: &mut SemaTokenCollector| {
-                let name_in_cont = InContainer::new(cont_id.clone(), name.clone());
+                let name_in_cont = OwnerRef::new(cont_id.clone(), name.clone());
                 collect_ident_like(sema, name_in_cont, range, collector);
             };
 
@@ -294,20 +291,16 @@ fn collect_file(
     let tree = sema.db.parse(file_id);
     let body = lowered.clone();
 
-    for (local_module_id, _) in hir_file.modules.iter() {
-        let Some(range) = lowered.source_range(sema.db, local_module_id) else {
+    for module_id in hir_file.module_owners() {
+        let Some(range) = module_id.source(sema.db).map(|source| source.value.full_range()) else {
             continue;
         };
         check_range!(collector, range);
-        collect_module(sema, ModuleId::new(file_id, local_module_id), collector);
+        collect_module(sema, module_id, collector);
     }
 
-    for (subroutine_id, _) in hir_file.subroutines.iter() {
-        collect_subroutine(
-            sema,
-            SubroutineScope::new(SubroutineParent::File(file_id), subroutine_id),
-            collector,
-        );
+    for subroutine in hir_file.subroutine_owners() {
+        collect_subroutine(sema, subroutine, collector);
     }
     for proc in hir_file.procs.values() {
         let owner = proc.owner;
@@ -325,14 +318,14 @@ fn collect_file(
 
 fn collect_module(
     sema: &Semantics<'_, RootDb>,
-    module_id: ModuleId,
+    module_id: OwnerId,
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let owner = module_id.owner(db).expect("module owner");
+    let owner = module_id;
     let lowered = db.body_with_source_map(owner);
     let module = lowered.data_ref();
-    let tree = db.parse(module_id.file_id);
+    let tree = db.parse(module_id.file(db));
     let body = lowered.clone();
     port::collect_port(sema, module_id, collector);
 
@@ -345,7 +338,7 @@ fn collect_module(
         };
     }
 
-    let from_file = module_id.file_id.source_file_id(db);
+    let from_file = module_id.file(db).source_file_id(db);
     collect_named_param_assignments(
         sema,
         from_file,
@@ -373,44 +366,34 @@ fn collect_module(
 
     for (_, region) in module.generate_regions.iter() {
         for item in &region.items {
-            if let BodyItem::GenerateBlockId(generate_block_id) = item {
-                collect_generate_block(sema, generate_block_id.clone(), collector);
+            if let BodyItem::GenerateBlockOwner(generate_block_id) = item {
+                collect_generate_block(sema, *generate_block_id, collector);
             }
         }
     }
 
-    for (subroutine_id, _) in module.subroutines.iter() {
-        collect_subroutine(
-            sema,
-            SubroutineScope::new(SubroutineParent::Module(module_id), subroutine_id),
-            collector,
-        );
+    for subroutine in module.subroutine_owners() {
+        collect_subroutine(sema, subroutine, collector);
     }
     for proc in module.procs.values() {
         let owner = proc.owner;
         let body = db.body_with_source_map(owner);
         collect_container_body!(sema, owner, &tree, &mut *collector, &body);
     }
-    collect_container_body!(
-        sema,
-        module_id.owner(db).expect("module owner"),
-        &tree,
-        collector,
-        &body
-    );
+    collect_container_body!(sema, module_id, &tree, collector, &body);
 }
 
 fn collect_generate_block(
     sema: &Semantics<'_, RootDb>,
-    generate_block_id: GenerateBlockId,
+    generate_block_owner: OwnerId,
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let owner = generate_block_id.clone().owner(db).expect("generate owner");
-    let lowered = db.body_with_source_map(owner);
+    let lowered = db.body_with_source_map(generate_block_owner);
     let generate_block = lowered.data_ref();
-    let tree = db.parse(generate_block_id.file_id(db));
+    let tree = db.parse(generate_block_owner.file(db));
     let body = lowered.clone();
+    let from_file = generate_block_owner.file(db).source_file_id(db);
 
     for (instance_id, _) in generate_block.instances.iter() {
         if let Some(range) = lowered.source_name_range(db, instance_id) {
@@ -421,7 +404,6 @@ fn collect_generate_block(
         };
     }
 
-    let from_file = generate_block_id.file_id(db).source_file_id(db);
     collect_named_param_assignments(
         sema,
         from_file,
@@ -448,38 +430,24 @@ fn collect_generate_block(
     );
 
     for item in &generate_block.items {
-        if let BodyItem::GenerateBlockId(child_id) = item {
-            collect_generate_block(sema, child_id.clone(), collector);
+        if let BodyItem::GenerateBlockOwner(child_owner) = item {
+            collect_generate_block(sema, *child_owner, collector);
         }
     }
 
-    for (subroutine_id, _) in generate_block.subroutines.iter() {
-        collect_subroutine(
-            sema,
-            SubroutineScope::new(
-                SubroutineParent::GenerateBlock(generate_block_id.clone()),
-                subroutine_id,
-            ),
-            collector,
-        );
+    for subroutine in generate_block.subroutine_owners() {
+        collect_subroutine(sema, subroutine, collector);
     }
 
-    collect_container_body!(
-        sema,
-        generate_block_id.owner(db).expect("generate owner"),
-        &tree,
-        collector,
-        &body
-    );
+    collect_container_body!(sema, generate_block_owner, &tree, collector, &body);
 }
 
 fn collect_subroutine(
     sema: &Semantics<'_, RootDb>,
-    subroutine: SubroutineScope,
+    owner: OwnerId,
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let owner = subroutine.owner(db).expect("subroutine must map to an owner");
     let lowered = db.body_with_source_map(owner);
     let tree = db.parse(owner.file(db));
 
@@ -540,7 +508,7 @@ fn collect_named_port_connections<'a>(
 
 fn collect_ident_like(
     sema: &Semantics<'_, RootDb>,
-    in_cont: InContainer<Ident>,
+    in_cont: OwnerRef<Ident>,
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) -> Option<()> {
@@ -573,7 +541,7 @@ fn collect_field_like(
     if !collector.range.intersect(range).is_some() {
         return None;
     }
-    let res = sema.expr_to_def(InContainer::new(cont_id, expr_id));
+    let res = sema.expr_to_def(OwnerRef::new(cont_id, expr_id));
     collect_resolved_path(sema, res, range, collector)
 }
 
@@ -627,7 +595,7 @@ fn collect_resolved_path(
 
     if def_id.is_non_ansi_port(db) {
         let port_id = def_id.primary_origin(db).as_non_ansi_port(db)?;
-        let owner = port_id.module_id.owner(db).expect("module owner");
+        let owner = port_id.cont_id;
         let module = db.body_with_source_map(owner);
         let body = module.data_ref();
         let origins = def_id.origins(db);
@@ -639,8 +607,8 @@ fn collect_resolved_path(
     match def_id.kind(db) {
         DefKind::Port => {
             let decl_id = def_id.primary_origin(db).as_decl(db)?;
-            let module_id = ModuleId::from_owner(db, decl_id.cont_id)?;
-            let owner = module_id.owner(db).expect("module owner");
+            let module_id = decl_id.cont_id;
+            let owner = module_id;
             let module = db.body_with_source_map(owner);
             let body = module.data_ref();
             let name = body.declarator(decl_id.value).name.as_ref()?;

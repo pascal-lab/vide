@@ -2,7 +2,7 @@ use std::fmt::{self, Debug};
 
 use hir_def::{
     aggregate::StructKind,
-    container::{InContainer, InModule},
+    container::OwnerRef,
     def_id::DefId,
     expr::{
         Arg, AssignOp, BinaryOp, Expr, ExprId, IncDecOp, Selector, StreamOp, UnaryOp,
@@ -85,10 +85,10 @@ impl HirDisplay for Ty {
             Ty::Error => f.write_str("error"),
             Ty::Void => f.write_str("void"),
             Ty::Builtin(BuiltinTy::Data { id, container }) => {
-                InContainer::new(container.clone(), DataTy::Builtin(id.clone())).hir_fmt(f)
+                OwnerRef::new(container.clone(), DataTy::Builtin(id.clone())).hir_fmt(f)
             }
             Ty::Struct(struct_ref) => {
-                InContainer::new(struct_ref.cont_id.clone(), DataTy::Struct(struct_ref.clone()))
+                OwnerRef::new(struct_ref.cont_id.clone(), DataTy::Struct(struct_ref.clone()))
                     .hir_fmt(f)
             }
             Ty::Enum(def) => hir_fmt_def_backed_type(f, "enum", def.clone()),
@@ -98,7 +98,7 @@ impl HirDisplay for Ty {
                 f.write_str(" [$")?;
                 if let (Some(size), Some(container)) = (size, ty_expr_container(f.db, elem)) {
                     f.write_str(":")?;
-                    InContainer::new(container, *size).hir_fmt(f)?;
+                    OwnerRef::new(container, *size).hir_fmt(f)?;
                 }
                 f.write_str("]")
             }
@@ -123,7 +123,7 @@ impl HirDisplay for Ty {
                 }
             }
             Ty::Module(module_id) => {
-                let module = f.db.body(module_id.owner(f.db).expect("module owner"));
+                let module = f.db.body(*module_id);
                 if let Some(name) = &module.name {
                     f.write_str(name)
                 } else {
@@ -147,9 +147,7 @@ impl HirDisplay for Ty {
                 Ok(())
             }
             Ty::GenerateBlock(generate_block_id) => {
-                let block = f
-                    .db
-                    .body(generate_block_id.clone().clone().owner(f.db).expect("generate owner"));
+                let block = f.db.body(generate_block_id.clone().clone());
                 if let Some(name) = &block.name {
                     f.write_str(name)
                 } else {
@@ -204,7 +202,7 @@ fn ty_expr_container(db: &dyn crate::db::TyDb, ty: &Ty) -> Option<hir_def::owner
         Ty::Enum(def) | Ty::Union(def) => match def.primary_origin(db).loc(db) {
             DefOriginLoc::Decl(decl) => Some(decl.cont_id.clone()),
             DefOriginLoc::Typedef(typedef) => Some(typedef.cont_id.clone()),
-            DefOriginLoc::SubroutinePort(port) => Some(port.subroutine.parent_owner(db)),
+            DefOriginLoc::SubroutinePort(port) => Some(port.cont_id.parent(db)?),
             _ => None,
         },
         Ty::Queue { elem, .. } | Ty::Assoc { elem, .. } | Ty::Dynamic(elem) => {
@@ -238,7 +236,7 @@ impl HirDisplay for SubroutinePortDir {
     }
 }
 
-impl HirDisplay for InContainer<DataTy> {
+impl HirDisplay for OwnerRef<DataTy> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         match &self.value {
             DataTy::Builtin(ty_id) => match ty_id.get() {
@@ -287,7 +285,7 @@ impl HirDisplay for InContainer<DataTy> {
                         if wrote_head {
                             f.write_str(" ")?;
                         }
-                        InContainer::new(self.cont_id.clone(), *dim).hir_fmt(f)?;
+                        OwnerRef::new(self.cont_id.clone(), *dim).hir_fmt(f)?;
                         wrote_head = true;
                     }
                     Ok(())
@@ -304,10 +302,10 @@ impl HirDisplay for InContainer<DataTy> {
             },
             DataTy::Named(named) => match named {
                 NamedDataTy::Ident(expr_id) => {
-                    InContainer::new(self.cont_id.clone(), *expr_id).hir_fmt(f)
+                    OwnerRef::new(self.cont_id.clone(), *expr_id).hir_fmt(f)
                 }
                 NamedDataTy::Field(expr_id) => {
-                    InContainer::new(self.cont_id.clone(), *expr_id).hir_fmt(f)
+                    OwnerRef::new(self.cont_id.clone(), *expr_id).hir_fmt(f)
                 }
             },
             DataTy::Enum => f.write_str("enum"),
@@ -333,9 +331,9 @@ impl HirDisplay for InContainer<DataTy> {
     }
 }
 
-impl HirDisplay for InModule<PortHeader> {
+impl HirDisplay for OwnerRef<PortHeader> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
-        let InModule { module_id, value: port_header } = self;
+        let OwnerRef { cont_id, value: port_header } = self;
         match port_header {
             PortHeader::Var { dir, var_kw, ty } => {
                 match dir {
@@ -347,8 +345,7 @@ impl HirDisplay for InModule<PortHeader> {
                 if *var_kw {
                     f.write_str("var ")?;
                 }
-                InContainer::new(module_id.owner(f.db).expect("module owner"), ty.clone())
-                    .hir_fmt(f)
+                OwnerRef::new(*cont_id, ty.clone()).hir_fmt(f)
             }
             PortHeader::Net { dir, net_ty: NetType { kind, ty } } => {
                 match dir {
@@ -374,16 +371,15 @@ impl HirDisplay for InModule<PortHeader> {
                     NetKind::Wand => f.write_str("wand ")?,
                     NetKind::Wor => f.write_str("wor ")?,
                 }
-                InContainer::new(module_id.owner(f.db).expect("module owner"), ty.clone())
-                    .hir_fmt(f)
+                OwnerRef::new(*cont_id, ty.clone()).hir_fmt(f)
             }
         }
     }
 }
 
-impl HirDisplay for InContainer<ExprId> {
+impl HirDisplay for OwnerRef<ExprId> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
-        let InContainer { cont_id, value: expr_id } = self;
+        let OwnerRef { cont_id, value: expr_id } = self;
         let container = cont_id.data(f.db);
         let expr = container.expr(*expr_id);
         self.with_value(expr).hir_fmt(f)
@@ -456,7 +452,7 @@ impl HirDisplay for UnaryOp {
     }
 }
 
-impl HirDisplay for InContainer<&Expr> {
+impl HirDisplay for OwnerRef<&Expr> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         match self.value {
             Expr::Missing => f.write_str("<missing>"),
@@ -666,7 +662,7 @@ impl HirDisplay for Literal {
     }
 }
 
-impl HirDisplay for InContainer<Dimension> {
+impl HirDisplay for OwnerRef<Dimension> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         f.write_char('[')?;
         match self.value {
@@ -690,9 +686,9 @@ impl HirDisplay for InContainer<Dimension> {
     }
 }
 
-impl HirDisplay for InContainer<DeclId> {
+impl HirDisplay for OwnerRef<DeclId> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
-        let InContainer { cont_id, value: decl_id } = self;
+        let OwnerRef { cont_id, value: decl_id } = self;
         let container = cont_id.data(f.db);
         let decl = container.declarator(*decl_id);
 
@@ -708,15 +704,15 @@ impl HirDisplay for InContainer<DeclId> {
     }
 }
 
-impl HirDisplay for InContainer<TypedefId> {
+impl HirDisplay for OwnerRef<TypedefId> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
-        let InContainer { cont_id, value: typedef_id } = self;
+        let OwnerRef { cont_id, value: typedef_id } = self;
         let container = cont_id.data(f.db);
         let typedef = container.typedef(*typedef_id);
 
         f.write_str("typedef ")?;
         if let Some(ty) = typedef.ty.clone() {
-            InContainer::new(cont_id.clone(), ty).hir_fmt(f)?;
+            OwnerRef::new(cont_id.clone(), ty).hir_fmt(f)?;
             if typedef.name.is_some() {
                 f.write_str(" ")?;
             }
@@ -730,7 +726,7 @@ impl HirDisplay for InContainer<TypedefId> {
     }
 }
 
-impl HirDisplay for InContainer<Selector> {
+impl HirDisplay for OwnerRef<Selector> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         f.write_char('[')?;
         match self.value {

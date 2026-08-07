@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use base_db::source_db::SourceDb;
 use hir_def::{
-    container::InModule,
+    container::OwnerRef,
     module::instantiation::{ParamAssign, PortConn},
 };
 use itertools::Itertools;
@@ -50,14 +50,14 @@ pub(super) fn convert_ordered_ports(
     let db = sema.db;
     let text = db.file_text(ctx.file_id());
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
-    let InModule { value: instance_id, module_id } =
+    let OwnerRef { value: instance_id, cont_id: module_id } =
         sema.resolve_instance(ctx.file_id().into(), ast_instance)?;
-    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
-    let module_body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let module = db.body_with_source_map(module_id);
+    let module_body = db.body_with_source_map(module_id);
     let instantiation = module.get(module.get(instance_id).parent);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_module = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
-    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_module = db.body_with_source_map(target_module_id);
+    let target_body = db.body_with_source_map(target_module_id);
     let port_names = port_names(&target_module, &target_body);
 
     let replacements = module
@@ -109,13 +109,13 @@ pub(super) fn convert_ordered_params(
     let db = sema.db;
     let text = db.file_text(ctx.file_id());
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;
-    let InModule { value: instantiation_id, module_id } =
+    let OwnerRef { value: instantiation_id, cont_id: module_id } =
         sema.resolve_instantiation(ctx.file_id().into(), ast_instantiation)?;
-    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
-    let module_body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let module = db.body_with_source_map(module_id);
+    let module_body = db.body_with_source_map(module_id);
     let instantiation = module.get(instantiation_id);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_body = db.body_with_source_map(target_module_id);
     let param_names = leading_overridable_parameter_names(&target_body);
 
     let replacements = instantiation

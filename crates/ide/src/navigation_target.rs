@@ -1,10 +1,10 @@
 use hir_def::{
-    container::{InContainer, InFile, InModule, InSubroutine, SubroutineScope},
+    container::{InFile, OwnerRef},
     expr::declarator::DeclId,
     file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
     has_source::HasSource,
-    module::{ModuleId, generate::GenerateBlockId, instantiation::InstanceId, port::NonAnsiPortId},
-    owner::OwnerId,
+    module::{instantiation::InstanceId, port::NonAnsiPortId},
+    owner::{OwnerId, OwnerKind},
     stmt::StmtId,
     subroutine::SubroutinePortId,
     symbol::{DefOrigin, DefOriginLoc},
@@ -57,6 +57,19 @@ impl ToNav for DefOrigin {
     }
 }
 
+impl ToNav for OwnerId {
+    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
+        let origin = match self.kind(db) {
+            OwnerKind::Module => DefOriginLoc::Module(*self),
+            OwnerKind::GenerateBlock => DefOriginLoc::GenerateBlock(*self),
+            OwnerKind::Block => DefOriginLoc::Block(*self),
+            OwnerKind::Subroutine => DefOriginLoc::Subroutine(*self),
+            _ => return None,
+        };
+        DefOrigin::new(db, origin).to_nav(db)
+    }
+}
+
 macro_rules! impl_to_nav_via_origin {
     ($($ty:ty),* $(,)?) => {
         $(
@@ -70,19 +83,15 @@ macro_rules! impl_to_nav_via_origin {
 }
 
 impl_to_nav_via_origin!(
-    ModuleId,
     InFile<ConfigDeclId>,
     InFile<LibraryDeclId>,
     InFile<UdpDeclId>,
-    OwnerId,
-    GenerateBlockId,
-    SubroutineScope,
-    InSubroutine<SubroutinePortId>,
-    InModule<NonAnsiPortId>,
-    InContainer<DeclId>,
-    InContainer<TypedefId>,
-    InModule<InstanceId>,
-    InContainer<StmtId>,
+    OwnerRef<SubroutinePortId>,
+    OwnerRef<NonAnsiPortId>,
+    OwnerRef<DeclId>,
+    OwnerRef<TypedefId>,
+    OwnerRef<InstanceId>,
+    OwnerRef<StmtId>,
 );
 
 impl ToNav for InFile<SyntaxTokenWithParent<'_>> {

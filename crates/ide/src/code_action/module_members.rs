@@ -1,8 +1,5 @@
 use hir_def::{
-    body::Body,
-    container::InContainer,
-    declaration::Declaration,
-    module::{ModuleId, port::Ports},
+    body::Body, container::OwnerRef, declaration::Declaration, module::port::Ports, owner::OwnerId,
     symbol::Resolution,
 };
 use hir_semantics::semantics::Semantics;
@@ -66,18 +63,12 @@ pub(crate) fn all_overridable_parameter_names(body: &Body) -> Vec<SmolStr> {
 
 pub(crate) fn missing_member_entry_text(
     sema: &Semantics<'_, RootDb>,
-    module_id: ModuleId,
+    module_id: OwnerId,
     name: SmolStr,
     is_ordered: bool,
     unresolved_ordered_value: &str,
 ) -> String {
-    match (
-        sema.name_to_def(InContainer::new(
-            module_id.owner(sema.db).expect("module owner"),
-            name.clone(),
-        )),
-        is_ordered,
-    ) {
+    match (sema.name_to_def(OwnerRef::new(module_id, name.clone())), is_ordered) {
         (Resolution::Unresolved, true) => {
             format!("/* {name} */ {unresolved_ordered_value}")
         }

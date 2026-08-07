@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use base_db::source_db::SourceDb;
 use hir_def::{
-    container::InModule,
+    container::OwnerRef,
     module::instantiation::{ParamAssign, PortConn},
 };
 use itertools::Itertools;
@@ -51,12 +51,12 @@ pub(super) fn sort_named_parameter_assignments(
 
     let sema = ctx.sema();
     let db = sema.db;
-    let InModule { value: instantiation_id, module_id } =
+    let OwnerRef { value: instantiation_id, cont_id: module_id } =
         sema.resolve_instantiation(ctx.file_id().into(), ast_instantiation)?;
-    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let module = db.body_with_source_map(module_id);
     let instantiation = module.get(instantiation_id);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_body = db.body_with_source_map(target_module_id);
     let parameter_order = all_overridable_parameter_names(&target_body);
     let parameter_order_map: FxHashMap<_, _> =
         parameter_order.iter().enumerate().map(|(index, name)| (name.as_ref(), index)).collect();
@@ -112,14 +112,14 @@ pub(super) fn sort_named_port_connections(
 
     let sema = ctx.sema();
     let db = sema.db;
-    let InModule { value: instance_id, module_id } =
+    let OwnerRef { value: instance_id, cont_id: module_id } =
         sema.resolve_instance(ctx.file_id().into(), ast_instance)?;
-    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let module = db.body_with_source_map(module_id);
     let instance = module.get(instance_id);
     let instantiation = module.get(instance.parent);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_module = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
-    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_module = db.body_with_source_map(target_module_id);
+    let target_body = db.body_with_source_map(target_module_id);
     let port_order = port_names(&target_module, &target_body);
     let port_order_map: FxHashMap<_, _> =
         port_order.iter().enumerate().map(|(index, name)| (name.as_ref(), index)).collect();

@@ -5,18 +5,14 @@ use utils::impl_from;
 use crate::{
     Ident,
     checker::{CheckerId, CheckerPortId},
-    container::{
-        InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine, SubroutineScope,
-    },
+    container::{InFile, OwnerRef},
     covergroup::{CovergroupId, CoverpointId, CrossId},
     db::HirDefDb,
     def_id::DefId,
     expr::declarator::DeclId,
     file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
     module::{
-        ModuleId,
         clocking::{ClockingBlockId, ClockingSignalId},
-        generate::GenerateBlockId,
         instantiation::InstanceId,
         modport::ModportId,
         port::NonAnsiPortId,
@@ -40,51 +36,47 @@ pub struct DefOrigin {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum DefOriginLoc {
-    Module(ModuleId),
+    Module(OwnerId),
     Config(InFile<ConfigDeclId>),
     Library(InFile<LibraryDeclId>),
     Udp(InFile<UdpDeclId>),
     Block(OwnerId),
-    GenerateBlock(GenerateBlockId),
-    Subroutine(SubroutineScope),
-    SubroutinePort(InSubroutine<SubroutinePortId>),
-    NonAnsiPort(InModule<NonAnsiPortId>),
-    Decl(InContainer<DeclId>),
-    Typedef(InContainer<TypedefId>),
-    Instance(InModule<InstanceId>),
-    Modport(InModule<ModportId>),
-    ClockingBlock(InModule<ClockingBlockId>),
-    ClockingSignal(InScope<ClockingSignalId>),
-    Checker(InFileOrModule<CheckerId>),
-    CheckerPort(InScope<CheckerPortId>),
-    Covergroup(InFileOrModule<CovergroupId>),
-    Coverpoint(InScope<CoverpointId>),
-    Cross(InScope<CrossId>),
-    Stmt(InContainer<StmtId>),
+    GenerateBlock(OwnerId),
+    Subroutine(OwnerId),
+    SubroutinePort(OwnerRef<SubroutinePortId>),
+    NonAnsiPort(OwnerRef<NonAnsiPortId>),
+    Decl(OwnerRef<DeclId>),
+    Typedef(OwnerRef<TypedefId>),
+    Instance(OwnerRef<InstanceId>),
+    Modport(OwnerRef<ModportId>),
+    ClockingBlock(OwnerRef<ClockingBlockId>),
+    ClockingSignal(OwnerRef<ClockingSignalId>),
+    Checker(OwnerRef<CheckerId>),
+    CheckerPort(OwnerRef<CheckerPortId>),
+    Covergroup(OwnerRef<CovergroupId>),
+    Coverpoint(OwnerRef<CoverpointId>),
+    Cross(OwnerRef<CrossId>),
+    Stmt(OwnerRef<StmtId>),
 }
 
 impl_from! { DefOriginLoc =>
-    Module(ModuleId),
     Config(InFile<ConfigDeclId>),
     Library(InFile<LibraryDeclId>),
     Udp(InFile<UdpDeclId>),
-    Block(OwnerId),
-    GenerateBlock(GenerateBlockId),
-    Subroutine(SubroutineScope),
-    SubroutinePort(InSubroutine<SubroutinePortId>),
-    NonAnsiPort(InModule<NonAnsiPortId>),
-    Decl(InContainer<DeclId>),
-    Typedef(InContainer<TypedefId>),
-    Instance(InModule<InstanceId>),
-    Modport(InModule<ModportId>),
-    ClockingBlock(InModule<ClockingBlockId>),
-    ClockingSignal(InScope<ClockingSignalId>),
-    Checker(InFileOrModule<CheckerId>),
-    CheckerPort(InScope<CheckerPortId>),
-    Covergroup(InFileOrModule<CovergroupId>),
-    Coverpoint(InScope<CoverpointId>),
-    Cross(InScope<CrossId>),
-    Stmt(InContainer<StmtId>),
+    SubroutinePort(OwnerRef<SubroutinePortId>),
+    NonAnsiPort(OwnerRef<NonAnsiPortId>),
+    Decl(OwnerRef<DeclId>),
+    Typedef(OwnerRef<TypedefId>),
+    Instance(OwnerRef<InstanceId>),
+    Modport(OwnerRef<ModportId>),
+    ClockingBlock(OwnerRef<ClockingBlockId>),
+    ClockingSignal(OwnerRef<ClockingSignalId>),
+    Checker(OwnerRef<CheckerId>),
+    CheckerPort(OwnerRef<CheckerPortId>),
+    Covergroup(OwnerRef<CovergroupId>),
+    Coverpoint(OwnerRef<CoverpointId>),
+    Cross(OwnerRef<CrossId>),
+    Stmt(OwnerRef<StmtId>),
 }
 
 macro_rules! impl_origin_cast {
@@ -125,41 +117,38 @@ impl DefOriginLoc {
     /// Canonical semantic owner of the containing scope.
     pub fn container_id(&self, db: &dyn HirDefDb) -> OwnerId {
         match self {
-            DefOriginLoc::Module(module) => {
-                module.owner(db).expect("module owner").parent(db).expect("file owner")
-            }
+            DefOriginLoc::Module(owner) => owner.parent(db).expect("file owner"),
             DefOriginLoc::Config(InFile { file_id, .. })
             | DefOriginLoc::Library(InFile { file_id, .. })
             | DefOriginLoc::Udp(InFile { file_id, .. }) => {
                 db.owner_table(*file_id).file_owner().expect("file owner")
             }
-            DefOriginLoc::Block(owner) => owner.parent(db).unwrap_or(*owner),
-            DefOriginLoc::GenerateBlock(block) => block.loc().cont_id,
-            DefOriginLoc::Subroutine(subroutine) => subroutine.parent_owner(db),
-            DefOriginLoc::SubroutinePort(InSubroutine { subroutine, .. }) => {
-                subroutine.clone().owner(db).expect("subroutine owner")
+            DefOriginLoc::Block(owner) | DefOriginLoc::GenerateBlock(owner) => {
+                owner.parent(db).unwrap_or(*owner)
             }
-            DefOriginLoc::NonAnsiPort(InModule { module_id, .. })
-            | DefOriginLoc::Instance(InModule { module_id, .. })
-            | DefOriginLoc::Modport(InModule { module_id, .. })
-            | DefOriginLoc::ClockingBlock(InModule { module_id, .. }) => {
-                module_id.owner(db).expect("module owner")
+            DefOriginLoc::Subroutine(subroutine) => {
+                subroutine.parent(db).expect("subroutine owner must have a parent")
             }
-            DefOriginLoc::Decl(InContainer { cont_id, .. })
-            | DefOriginLoc::Typedef(InContainer { cont_id, .. })
-            | DefOriginLoc::Stmt(InContainer { cont_id, .. }) => *cont_id,
-            DefOriginLoc::ClockingSignal(InScope { scope_id, .. })
-            | DefOriginLoc::CheckerPort(InScope { scope_id, .. })
-            | DefOriginLoc::Coverpoint(InScope { scope_id, .. })
-            | DefOriginLoc::Cross(InScope { scope_id, .. }) => *scope_id,
-            DefOriginLoc::Checker(item) => item.parent_owner(db),
-            DefOriginLoc::Covergroup(item) => item.parent_owner(db),
+            DefOriginLoc::SubroutinePort(OwnerRef { cont_id, .. })
+            | DefOriginLoc::ClockingSignal(OwnerRef { cont_id, .. })
+            | DefOriginLoc::CheckerPort(OwnerRef { cont_id, .. })
+            | DefOriginLoc::Coverpoint(OwnerRef { cont_id, .. })
+            | DefOriginLoc::Cross(OwnerRef { cont_id, .. })
+            | DefOriginLoc::NonAnsiPort(OwnerRef { cont_id, .. })
+            | DefOriginLoc::Instance(OwnerRef { cont_id, .. })
+            | DefOriginLoc::Modport(OwnerRef { cont_id, .. })
+            | DefOriginLoc::ClockingBlock(OwnerRef { cont_id, .. })
+            | DefOriginLoc::Decl(OwnerRef { cont_id, .. })
+            | DefOriginLoc::Typedef(OwnerRef { cont_id, .. })
+            | DefOriginLoc::Stmt(OwnerRef { cont_id, .. })
+            | DefOriginLoc::Checker(OwnerRef { cont_id, .. })
+            | DefOriginLoc::Covergroup(OwnerRef { cont_id, .. }) => *cont_id,
         }
     }
 }
 
 impl DefOrigin {
-    impl_origin_cast!(as_module, Module, ModuleId);
+    impl_origin_cast!(as_module, Module, OwnerId);
 
     impl_origin_cast!(as_config, Config, InFile<ConfigDeclId>);
 
@@ -169,33 +158,37 @@ impl DefOrigin {
 
     impl_origin_cast!(as_block, Block, OwnerId);
 
-    impl_origin_cast!(as_generate_block, GenerateBlock, GenerateBlockId);
+    impl_origin_cast!(as_generate_block, GenerateBlock, OwnerId);
 
-    impl_origin_cast!(as_subroutine, Subroutine, SubroutineScope);
+    impl_origin_cast!(as_subroutine, Subroutine, OwnerId);
 
-    impl_origin_cast!(as_subroutine_port, SubroutinePort, InSubroutine<SubroutinePortId>);
+    impl_origin_cast!(as_subroutine_port, SubroutinePort, OwnerRef<SubroutinePortId>);
 
-    impl_origin_cast!(as_non_ansi_port, NonAnsiPort, InModule<NonAnsiPortId>);
+    impl_origin_cast!(as_non_ansi_port, NonAnsiPort, OwnerRef<NonAnsiPortId>);
 
-    impl_origin_cast!(as_decl, Decl, InContainer<DeclId>);
+    impl_origin_cast!(as_decl, Decl, OwnerRef<DeclId>);
 
-    impl_origin_cast!(as_typedef, Typedef, InContainer<TypedefId>);
+    impl_origin_cast!(as_typedef, Typedef, OwnerRef<TypedefId>);
 
-    impl_origin_cast!(as_instance, Instance, InModule<InstanceId>);
+    impl_origin_cast!(as_instance, Instance, OwnerRef<InstanceId>);
 
-    impl_origin_cast!(as_modport, Modport, InModule<ModportId>);
+    impl_origin_cast!(as_modport, Modport, OwnerRef<ModportId>);
 
-    impl_origin_cast!(as_clocking_block, ClockingBlock, InModule<ClockingBlockId>);
+    impl_origin_cast!(as_clocking_block, ClockingBlock, OwnerRef<ClockingBlockId>);
 
-    impl_origin_cast!(as_clocking_signal, ClockingSignal, InScope<ClockingSignalId>);
+    impl_origin_cast!(as_clocking_signal, ClockingSignal, OwnerRef<ClockingSignalId>);
 
-    impl_origin_cast!(as_checker, Checker, InFileOrModule<CheckerId>);
+    impl_origin_cast!(as_checker, Checker, OwnerRef<CheckerId>);
 
-    impl_origin_cast!(as_checker_port, CheckerPort, InScope<CheckerPortId>);
+    impl_origin_cast!(as_checker_port, CheckerPort, OwnerRef<CheckerPortId>);
 
-    impl_origin_cast!(as_covergroup, Covergroup, InFileOrModule<CovergroupId>);
+    impl_origin_cast!(as_covergroup, Covergroup, OwnerRef<CovergroupId>);
 
-    impl_origin_cast!(as_stmt, Stmt, InContainer<StmtId>);
+    impl_origin_cast!(as_coverpoint, Coverpoint, OwnerRef<CoverpointId>);
+
+    impl_origin_cast!(as_cross, Cross, OwnerRef<CrossId>);
+
+    impl_origin_cast!(as_stmt, Stmt, OwnerRef<StmtId>);
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -521,11 +514,7 @@ impl NameScope {
             )
     }
 
-    pub fn module_ids(
-        &self,
-        db: &dyn HirDefDb,
-        ident: &Ident,
-    ) -> Resolution<crate::module::ModuleId> {
+    pub fn module_ids(&self, db: &dyn HirDefDb, ident: &Ident) -> Resolution<OwnerId> {
         let entries = self
             .types
             .get(ident)
@@ -536,11 +525,7 @@ impl NameScope {
         Resolution::from_candidates(entries)
     }
 
-    pub fn package_ids(
-        &self,
-        db: &dyn HirDefDb,
-        ident: &Ident,
-    ) -> Resolution<crate::module::PackageId> {
+    pub fn package_ids(&self, db: &dyn HirDefDb, ident: &Ident) -> Resolution<OwnerId> {
         let entries = self
             .types
             .get(ident)

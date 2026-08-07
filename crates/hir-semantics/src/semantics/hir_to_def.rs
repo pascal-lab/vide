@@ -1,6 +1,6 @@
 use hir_def::{
     Ident,
-    container::InContainer,
+    container::OwnerRef,
     db::HirDefDb,
     def_id::DefId,
     expr::{Expr, ExprId},
@@ -11,7 +11,7 @@ use hir_def::{
 
 pub(super) fn expr_to_def(
     db: &dyn HirDefDb,
-    InContainer { cont_id, value: expr_id }: InContainer<ExprId>,
+    OwnerRef { cont_id, value: expr_id }: OwnerRef<ExprId>,
 ) -> Resolution<DefId> {
     let resolve = |expr: &Expr| match expr {
         Expr::Field { receiver, field } => {
@@ -19,16 +19,16 @@ pub(super) fn expr_to_def(
                 return Resolution::Unresolved;
             };
             resolve_expr_path(db, cont_id.clone(), expr_id, NameContext::Value).or_else(|| {
-                let receiver_res = expr_to_def(db, InContainer::new(cont_id.clone(), *receiver));
+                let receiver_res = expr_to_def(db, OwnerRef::new(cont_id.clone(), *receiver));
                 resolve_child_name(db, &receiver_res, field, NameContext::Value)
             })
         }
         Expr::ElementSelect { receiver, .. } => {
             resolve_expr_path(db, cont_id.clone(), expr_id, NameContext::Value)
-                .or_else(|| expr_to_def(db, InContainer::new(cont_id.clone(), *receiver)))
+                .or_else(|| expr_to_def(db, OwnerRef::new(cont_id.clone(), *receiver)))
         }
         Expr::Ident(ident) => {
-            name_to_def(db, InContainer::new(cont_id.clone(), ident.clone()), NameContext::Value)
+            name_to_def(db, OwnerRef::new(cont_id.clone(), ident.clone()), NameContext::Value)
         }
         _ => Resolution::Unresolved,
     };
@@ -41,7 +41,7 @@ pub(super) fn expr_to_def(
 
 pub(super) fn name_to_def(
     db: &dyn HirDefDb,
-    InContainer { cont_id, value: ident }: InContainer<Ident>,
+    OwnerRef { cont_id, value: ident }: OwnerRef<Ident>,
     name_ctx: NameContext,
 ) -> Resolution<DefId> {
     resolve_name(db, cont_id.into(), &ident, name_ctx)

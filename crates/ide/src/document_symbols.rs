@@ -17,9 +17,8 @@ use hir_def::{
     },
     has_source::HasSource,
     module::{
-        ModuleId,
         clocking::{ClockingBlockDef, ClockingBlockId},
-        generate::{GenerateBlockId, GenerateRegion, GenerateRegionId},
+        generate::{GenerateRegion, GenerateRegionId},
         instantiation::{Instance, InstanceId, Instantiation, InstantiationId},
         port::Ports,
         specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem},
@@ -29,7 +28,7 @@ use hir_def::{
     region_tree::{RegionNode, RegionTreeIterator},
     source_map::{HirLookup, Lowered, NamedSourceLookup, SourceInfo, SourceLookup},
     stmt::{CaseItem, ForInit, StmtId, StmtKind},
-    subroutine::{LocalSubroutineId, Subroutine},
+    symbol::{DefOrigin, DefOriginLoc},
     typedef::{Typedef, TypedefId},
 };
 use hir_ty::db::TyDb;
@@ -217,7 +216,7 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
 
     for item in &file.items {
         if let Some(range) = src_map
-            .item_to_source(item)
+            .item_to_source(db, item)
             .and_then(|source| projection.origin(source))
             .and_then(|origin| origin.full_range())
         {
@@ -225,8 +224,8 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
         }
 
         match item.clone() {
-            BodyItem::LocalModuleId(idx) => {
-                collect_module_items(db, ModuleId::new(file_id, idx), &mut collector);
+            BodyItem::ModuleOwner(owner) => {
+                collect_module_items(db, owner, &mut collector);
             }
             BodyItem::ProcId(proc_id) => {
                 let proc = lowered.get(proc_id);
@@ -241,9 +240,7 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
             BodyItem::TypedefId(typedef_id) => {
                 build_typedef(db, &mut collector, typedef_id, body.as_ref())
             }
-            BodyItem::SubroutineId(subroutine_id) => {
-                build_subroutine(db, &mut collector, subroutine_id, lowered.as_ref())
-            }
+            BodyItem::SubroutineOwner(owner) => build_subroutine(db, &mut collector, owner),
             BodyItem::StructId(struct_id) => {
                 build_struct(db, &mut collector, struct_id, body.as_ref())
             }
@@ -254,25 +251,21 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
                 build_library_decl(db, &mut collector, library_id, lowered.as_ref())
             }
             BodyItem::LibraryIncludeId(_) => {}
-            BodyItem::CheckerId(checker_id) => {
-                build_checker(db, &mut collector, checker_id, lowered.as_ref())
-            }
-            BodyItem::CovergroupId(covergroup_id) => {
-                build_covergroup(db, &mut collector, covergroup_id, lowered.as_ref())
-            }
+            BodyItem::CheckerOwner(owner) => build_checker_owner(db, &mut collector, owner),
+            BodyItem::CovergroupOwner(owner) => build_covergroup_owner(db, &mut collector, owner),
             BodyItem::UdpDeclId(udp_id) => {
                 build_udp_decl(db, &mut collector, udp_id, lowered.as_ref())
             }
             invalid @ (BodyItem::ContAssignId(_)
             | BodyItem::DefParamId(_)
             | BodyItem::GenerateRegionId(_)
-            | BodyItem::GenerateBlockId(_)
+            | BodyItem::GenerateBlockOwner(_)
             | BodyItem::SpecifyBlockId(_)
             | BodyItem::SpecifyItemId(_)
             | BodyItem::InstantiationId(_)
             | BodyItem::PortDeclId(_)
             | BodyItem::ModportId(_)
-            | BodyItem::ClockingBlockId(_)) => {
+            | BodyItem::ClockingBlockOwner(_)) => {
                 panic!("file owner lowered a non-file item: {invalid:?}")
             }
         }
@@ -282,15 +275,14 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
     collector.finish()
 }
 
-fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut SymbolCollector) {
-    let lowered = db.body_with_source_map(module_id.owner(db).expect("module owner"));
-    let body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+fn collect_module_items(db: &dyn TyDb, owner: OwnerId, collector: &mut SymbolCollector) {
+    let lowered = db.body_with_source_map(owner);
+    let body = db.body_with_source_map(owner);
     let module = lowered.data_ref();
     let src_map = lowered.source_map();
-    let owner = module_id.owner(db).expect("module owner must exist");
     let region_tree = db.owner_region_tree(owner);
     let mut regions = region_tree.walk().peekable();
-    let projection = db.source_projection(module_id.file_id);
+    let projection = db.source_projection(owner.file(db));
 
     let Some(InFile { value: module_src, .. }) = owner.source(db) else {
         return;
@@ -332,7 +324,7 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
 
     for item in &module.items {
         if let Some(range) = src_map
-            .item_to_source(item)
+            .item_to_source(db, item)
             .and_then(|source| projection.origin(source))
             .and_then(|origin| origin.full_range())
         {
@@ -382,9 +374,7 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
             BodyItem::TypedefId(typedef_id) => {
                 build_typedef(db, collector, typedef_id, body.as_ref())
             }
-            BodyItem::SubroutineId(subroutine_id) => {
-                build_subroutine(db, collector, subroutine_id, lowered.as_ref())
-            }
+            BodyItem::SubroutineOwner(owner) => build_subroutine(db, collector, owner),
             BodyItem::ModportId(modport_id) => {
                 let modport = lowered.get(modport_id);
                 if let Some(src) = lowered.named_source_info(db, modport_id) {
@@ -392,22 +382,22 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
                     collector.pop();
                 }
             }
-            BodyItem::ClockingBlockId(clocking_block_id) => {
-                build_clocking_block(db, collector, clocking_block_id, lowered.as_ref());
+            BodyItem::ClockingBlockOwner(owner) => {
+                build_clocking_block_owner(db, collector, owner);
             }
-            BodyItem::CheckerId(checker_id) => {
-                build_checker(db, collector, checker_id, lowered.as_ref());
+            BodyItem::CheckerOwner(owner) => {
+                build_checker_owner(db, collector, owner);
             }
-            BodyItem::CovergroupId(covergroup_id) => {
-                build_covergroup(db, collector, covergroup_id, lowered.as_ref());
+            BodyItem::CovergroupOwner(owner) => {
+                build_covergroup_owner(db, collector, owner);
             }
             BodyItem::StructId(struct_id) => build_struct(db, collector, struct_id, body.as_ref()),
-            invalid @ (BodyItem::LocalModuleId(_)
+            invalid @ (BodyItem::ModuleOwner(_)
             | BodyItem::ConfigDeclId(_)
             | BodyItem::UdpDeclId(_)
             | BodyItem::LibraryDeclId(_)
             | BodyItem::LibraryIncludeId(_)
-            | BodyItem::GenerateBlockId(_)) => {
+            | BodyItem::GenerateBlockOwner(_)) => {
                 panic!("module owner lowered a non-module item: {invalid:?}")
             }
         }
@@ -558,11 +548,9 @@ fn build_generate_region<S>(
     S: HirLookup<GenerateRegionId, Hir = GenerateRegion>
         + HirLookup<InstanceId, Hir = Instance>
         + HirLookup<InstantiationId, Hir = Instantiation>
-        + HirLookup<LocalSubroutineId, Hir = Subroutine>
         + HirLookup<ProcId, Hir = Proc>
         + NamedSourceLookup<GenerateRegionId>
-        + NamedSourceLookup<InstanceId>
-        + NamedSourceLookup<LocalSubroutineId>,
+        + NamedSourceLookup<InstanceId>,
 {
     let hir = structure.hir(generate_region_id);
     let Some(src) = structure.named_source_info(db, generate_region_id) else {
@@ -579,16 +567,14 @@ fn build_generate_region<S>(
 fn build_generate_block(
     db: &dyn TyDb,
     collector: &mut SymbolCollector,
-    generate_block_id: GenerateBlockId,
+    generate_block_owner: OwnerId,
 ) {
-    let owner = generate_block_id.clone().owner(db).expect("generate owner");
+    let owner = generate_block_owner;
     let Some(InFile { value: generate_block_src, .. }) = owner.source(db) else {
         return;
     };
-    let lowered = db
-        .body_with_source_map(generate_block_id.clone().clone().owner(db).expect("generate owner"));
-    let body = db
-        .body_with_source_map(generate_block_id.clone().clone().owner(db).expect("generate owner"));
+    let lowered = db.body_with_source_map(owner);
+    let body = db.body_with_source_map(owner);
     let generate_block = lowered.data_ref();
     let name = generate_block.name.clone();
 
@@ -612,24 +598,22 @@ fn build_generate_block_item<S>(
 ) where
     S: HirLookup<InstanceId, Hir = Instance>
         + HirLookup<InstantiationId, Hir = Instantiation>
-        + HirLookup<LocalSubroutineId, Hir = Subroutine>
         + HirLookup<ProcId, Hir = Proc>
-        + NamedSourceLookup<InstanceId>
-        + NamedSourceLookup<LocalSubroutineId>,
+        + NamedSourceLookup<InstanceId>,
 {
     match item {
         BodyItem::ContAssignId(_) | BodyItem::DefParamId(_) => {}
         BodyItem::DeclarationId(declaration_id) => {
             build_declaration(db, collector, declaration_id, body);
         }
-        BodyItem::GenerateBlockId(child_id) => {
+        BodyItem::GenerateBlockOwner(child_id) => {
             build_generate_block(db, collector, child_id);
         }
         BodyItem::TypedefId(typedef_id) => {
             build_typedef(db, collector, typedef_id, body);
         }
-        BodyItem::SubroutineId(subroutine_id) => {
-            build_subroutine(db, collector, subroutine_id, structure);
+        BodyItem::SubroutineOwner(owner) => {
+            build_subroutine(db, collector, owner);
         }
         BodyItem::ProcId(proc_id) => {
             let proc = structure.hir(proc_id);
@@ -650,25 +634,47 @@ fn build_generate_block_item<S>(
         BodyItem::StructId(struct_id) => {
             build_struct(db, collector, struct_id, body);
         }
-        invalid @ (BodyItem::LocalModuleId(_)
+        invalid @ (BodyItem::ModuleOwner(_)
         | BodyItem::ConfigDeclId(_)
         | BodyItem::UdpDeclId(_)
         | BodyItem::LibraryDeclId(_)
         | BodyItem::LibraryIncludeId(_)
-        | BodyItem::CheckerId(_)
-        | BodyItem::CovergroupId(_)
+        | BodyItem::CheckerOwner(_)
+        | BodyItem::CovergroupOwner(_)
         | BodyItem::GenerateRegionId(_)
         | BodyItem::SpecifyBlockId(_)
         | BodyItem::SpecifyItemId(_)
         | BodyItem::PortDeclId(_)
         | BodyItem::ModportId(_)
-        | BodyItem::ClockingBlockId(_)) => {
+        | BodyItem::ClockingBlockOwner(_)) => {
             panic!("generate owner lowered a non-generate item: {invalid:?}")
         }
     }
 }
+fn build_checker_owner(db: &dyn TyDb, collector: &mut SymbolCollector, owner: OwnerId) {
+    let Some(checker) = owner.as_checker(db) else {
+        return;
+    };
+    let body = db.body_with_source_map(owner);
+    build_checker(db, collector, checker.value, body.as_ref());
+}
 
-#[inline]
+fn build_clocking_block_owner(db: &dyn TyDb, collector: &mut SymbolCollector, owner: OwnerId) {
+    let Some(clocking_block) = owner.as_clocking_block(db) else {
+        return;
+    };
+    let body = db.body_with_source_map(owner);
+    build_clocking_block(db, collector, clocking_block.value, body.as_ref());
+}
+
+fn build_covergroup_owner(db: &dyn TyDb, collector: &mut SymbolCollector, owner: OwnerId) {
+    let Some(covergroup) = owner.as_covergroup(db) else {
+        return;
+    };
+    let body = db.body_with_source_map(owner);
+    build_covergroup(db, collector, covergroup.value, body.as_ref());
+}
+
 fn build_checker<L>(
     db: &dyn TyDb,
     collector: &mut SymbolCollector,
@@ -869,16 +875,11 @@ fn build_typedef<L>(
 }
 
 #[inline]
-fn build_subroutine<L>(
-    db: &dyn TyDb,
-    collector: &mut SymbolCollector,
-    subroutine_id: LocalSubroutineId,
-    lowered: &L,
-) where
-    L: HirLookup<LocalSubroutineId, Hir = Subroutine> + NamedSourceLookup<LocalSubroutineId>,
-{
-    let hir = lowered.hir(subroutine_id);
-    let Some(src) = lowered.named_source_info(db, subroutine_id) else {
+fn build_subroutine(db: &dyn TyDb, collector: &mut SymbolCollector, owner: OwnerId) {
+    let hir = db.subroutine(owner);
+    let Some(src) =
+        DefOrigin::new(db, DefOriginLoc::Subroutine(owner)).source(db).map(|source| source.value)
+    else {
         return;
     };
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Fn);

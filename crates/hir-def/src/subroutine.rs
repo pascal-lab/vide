@@ -1,4 +1,3 @@
-use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::{TokenKind, ast};
 
@@ -49,8 +48,6 @@ pub enum SubroutinePortDir {
     #[default]
     Unknown,
 }
-
-pub type LocalSubroutineId = Idx<Subroutine>;
 
 pub fn lower_subroutine<F>(func: &ast::FunctionDeclaration, mut lower_ty: F) -> Option<Subroutine>
 where

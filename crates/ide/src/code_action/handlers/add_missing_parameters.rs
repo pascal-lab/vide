@@ -1,5 +1,5 @@
 use base_db::source_db::SourceDb;
-use hir_def::{container::InModule, module::instantiation::ParamAssign};
+use hir_def::{container::OwnerRef, module::instantiation::ParamAssign};
 use rustc_hash::FxHashSet;
 use syntax::{
     ast::{self, AstNode},
@@ -43,9 +43,9 @@ pub(super) fn add_missing_parameters(
     let file_id = ctx.file_id().into();
 
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;
-    let InModule { value: instantiation_id, module_id } =
+    let OwnerRef { value: instantiation_id, cont_id: module_id } =
         sema.resolve_instantiation(file_id, ast_instantiation)?;
-    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let module = db.body_with_source_map(module_id);
     let instantiation = module.get(instantiation_id);
 
     let params_node = ast_instantiation.parameters()?;
@@ -53,7 +53,7 @@ pub(super) fn add_missing_parameters(
     let close_paren = params_node.close_paren()?.text_range_in(params_node.syntax())?;
 
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_body = db.body_with_source_map(target_module_id);
 
     let is_ordered = instantiation
         .param_assigns

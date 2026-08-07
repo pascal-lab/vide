@@ -1,6 +1,6 @@
 use hir_def::{
     Ident,
-    container::{InContainer, InFile},
+    container::{InFile, OwnerRef},
     def_id::DefId,
     lower_ident_opt,
     owner::OwnerId,
@@ -23,7 +23,7 @@ impl SemanticsImpl<'_> {
             return Resolution::Unresolved;
         };
         let container = source_to_def::find_container(self.db, InFile::new(file_id, parent));
-        hir_to_def::name_to_def(self.db, InContainer::new(container, ident), name_ctx)
+        hir_to_def::name_to_def(self.db, OwnerRef::new(container, ident), name_ctx)
     }
 
     /// Like [`nameres_ident`](Self::nameres_ident), but resolves inside a
@@ -41,7 +41,7 @@ impl SemanticsImpl<'_> {
         let Some(ident) = lower_ident_opt(Some(tok)) else {
             return Resolution::Unresolved;
         };
-        hir_to_def::name_to_def(self.db, InContainer::new(container, ident), name_ctx)
+        hir_to_def::name_to_def(self.db, OwnerRef::new(container, ident), name_ctx)
     }
 
     /// Like [`nameres_ident_in`](Self::nameres_ident_in), but looks up the

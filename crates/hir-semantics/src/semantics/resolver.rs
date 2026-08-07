@@ -1,11 +1,8 @@
 use hir_def::{
     ast_id_map::SourceAstId,
-    container::{InContainer, InFile, InModule},
+    container::{InFile, OwnerRef},
     expr::ExprId,
-    module::{
-        ModuleId,
-        instantiation::{InstanceId, InstantiationId, PortConnId},
-    },
+    module::instantiation::{InstanceId, InstantiationId, PortConnId},
 };
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -29,58 +26,61 @@ impl SemanticsImpl<'_> {
         &self,
         file_id: HirFileId,
         instance: ast::HierarchicalInstance,
-    ) -> Option<InModule<InstanceId>> {
+    ) -> Option<OwnerRef<InstanceId>> {
         let db = self.db;
         let owner = self.find_container(InFile::new(file_id, instance.syntax()));
-        let module_id = ModuleId::from_owner(db, owner)?;
-
+        if owner.kind(db) != hir_def::owner::OwnerKind::Module {
+            return None;
+        }
         let src = source_ast_id(db, file_id, instance.syntax())?;
-        let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+        let module = db.body_with_source_map(owner);
         let instance_id = module.source_map().instance_srcs.src_to_hir(src)?;
-        Some(InModule::new(module_id, instance_id))
+        Some(OwnerRef::new(owner, instance_id))
     }
 
     pub fn resolve_instantiation(
         &self,
         file_id: HirFileId,
         instantiation: ast::HierarchyInstantiation,
-    ) -> Option<InModule<InstantiationId>> {
+    ) -> Option<OwnerRef<InstantiationId>> {
         let db = self.db;
         let owner = self.find_container(InFile::new(file_id, instantiation.syntax()));
-        let module_id = ModuleId::from_owner(db, owner)?;
-
+        if owner.kind(db) != hir_def::owner::OwnerKind::Module {
+            return None;
+        }
         let src = source_ast_id(db, file_id, instantiation.syntax())?;
-        let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+        let module = db.body_with_source_map(owner);
         let instantiation_id = module.source_map().instantiation_srcs.src_to_hir(src)?;
-        Some(InModule::new(module_id, instantiation_id))
+        Some(OwnerRef::new(owner, instantiation_id))
     }
 
     pub fn resolve_port_connection(
         &self,
         file_id: HirFileId,
         conn: ast::PortConnection,
-    ) -> Option<InModule<PortConnId>> {
+    ) -> Option<OwnerRef<PortConnId>> {
         let db = self.db;
         let owner = self.find_container(InFile::new(file_id, conn.syntax()));
-        let module_id = ModuleId::from_owner(db, owner)?;
-
+        if owner.kind(db) != hir_def::owner::OwnerKind::Module {
+            return None;
+        }
         let src = source_ast_id(db, file_id, conn.syntax())?;
-        let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+        let module = db.body_with_source_map(owner);
         let conn_id = module.source_map().inst_port_conn_srcs.src_to_hir(src)?;
-        Some(InModule::new(module_id, conn_id))
+        Some(OwnerRef::new(owner, conn_id))
     }
 
     pub fn resolve_expr(
         &self,
         file_id: HirFileId,
         expr: ast::Expression,
-    ) -> Option<InContainer<ExprId>> {
+    ) -> Option<OwnerRef<ExprId>> {
         let db = self.db;
         let container_id = self.find_container(InFile::new(file_id, expr.syntax()));
         let src_map = container_id.source_map(db);
 
         let expr_src = source_ast_id(db, file_id, expr.syntax())?;
         let expr_id = src_map.expr_from_source(expr_src)?;
-        Some(InContainer::new(container_id, expr_id))
+        Some(OwnerRef::new(container_id, expr_id))
     }
 }

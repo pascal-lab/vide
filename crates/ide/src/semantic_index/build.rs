@@ -327,6 +327,9 @@ impl ScopeChainCache {
 /// would desynchronize enter/leave bookkeeping.
 fn is_container_node(node: &SyntaxNode<'_>) -> bool {
     ast::ModuleDeclaration::cast(*node).is_some()
+        || ast::CheckerDeclaration::cast(*node).is_some()
+        || ast::CovergroupDeclaration::cast(*node).is_some()
+        || ast::ClockingDeclaration::cast(*node).is_some()
         || ast::BlockStatement::cast(*node).is_some()
         || ast::ProceduralBlock::cast(*node).is_some()
         || ast::FunctionDeclaration::cast(*node).is_some()
@@ -342,14 +345,20 @@ fn container_id_for_node<'tree>(
     _cache: &mut ContainerCache<'tree>,
 ) -> Option<OwnerId> {
     if let Some(module) = ast::ModuleDeclaration::cast(node) {
-        return sema.module_to_def(file_id, module)?.owner(sema.db);
+        return Some(sema.module_to_def(file_id, module)?);
     }
-    let kind = if ast::ProceduralBlock::cast(node).is_some() {
+    let kind = if ast::CheckerDeclaration::cast(node).is_some() {
+        Some(OwnerKind::Checker)
+    } else if ast::CovergroupDeclaration::cast(node).is_some() {
+        Some(OwnerKind::Covergroup)
+    } else if ast::ClockingDeclaration::cast(node).is_some() {
+        Some(OwnerKind::ClockingBlock)
+    } else if ast::ProceduralBlock::cast(node).is_some() {
         Some(OwnerKind::ProceduralBlock)
     } else if let Some(block) = ast::BlockStatement::cast(node) {
         return sema.block_to_def(file_id, block);
     } else if let Some(func) = ast::FunctionDeclaration::cast(node) {
-        return sema.subroutine_to_def(file_id, func)?.owner(sema.db);
+        return sema.subroutine_to_def(file_id, func);
     } else if ast::CompilationUnit::cast(node).is_some() {
         return sema.db.owner_table(file_id).file_owner();
     } else if ast::GenerateBlock::cast(node).is_some()
@@ -803,7 +812,7 @@ impl FileModuleEdges {
                 let Some(caller_def) = SemanticModuleDefinition::new(db, caller) else {
                     continue;
                 };
-                let module = db.body_with_source_map(caller.owner(db).expect("module owner"));
+                let module = db.body_with_source_map(caller);
                 for (instantiation_id, instantiation) in module.instantiations.iter() {
                     let Some(callee_module_id) =
                         resolve_hir_instantiation_target(db, file_id, instantiation)

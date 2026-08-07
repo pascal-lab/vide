@@ -9,9 +9,9 @@ use base_db::{
 };
 use hir_def::{
     Ident,
-    container::InContainer,
+    container::OwnerRef,
     db::HirDefDb,
-    module::ModuleId,
+    owner::OwnerId,
     pathres::{resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
 };
@@ -114,21 +114,19 @@ fn ident(name: &str) -> Ident {
     SmolStr::new(name)
 }
 
-fn module_id(db: &TestDb, name: &str) -> ModuleId {
+fn module_id(db: &TestDb, name: &str) -> OwnerId {
     db.unit_scope().module_ids(db, &ident(name)).unique().expect("module should resolve uniquely")
 }
 
-fn type_of_name(db: &TestDb, module: ModuleId, name: &str, context: NameContext) -> Type {
-    let resolution =
-        resolve_name(db, module.owner(db).expect("module owner"), &ident(name), context);
+fn type_of_name(db: &TestDb, module: OwnerId, name: &str, context: NameContext) -> Type {
+    let resolution = resolve_name(db, module, &ident(name), context);
     assert!(!resolution.is_unresolved(), "{name} should resolve");
     TypeSystem::new(db).type_of_resolution(resolution)
 }
 
-fn type_of_path(db: &TestDb, module: ModuleId, segments: &[&str]) -> Type {
+fn type_of_path(db: &TestDb, module: OwnerId, segments: &[&str]) -> Type {
     let path = segments.iter().map(|segment| ident(segment)).collect::<Vec<_>>();
-    let resolution =
-        resolve_path(db, module.owner(db).expect("module owner"), &path, NameContext::Value);
+    let resolution = resolve_path(db, module, &path, NameContext::Value);
     assert!(!resolution.is_unresolved(), "path {segments:?} should resolve");
     TypeSystem::new(db).type_of_resolution(resolution)
 }
@@ -273,7 +271,7 @@ endmodule
 "#,
     );
     let module = module_id(&db, "m");
-    let owner = module.owner(&db).expect("module must have a canonical owner");
+    let owner = module;
     let body = db.body_with_source_map(owner);
     let (stream_id, _) = body
         .exprs
@@ -281,8 +279,5 @@ endmodule
         .find(|(_, expr)| matches!(expr, hir_def::expr::Expr::Stream { .. }))
         .expect("streaming concatenation should lower");
 
-    assert_eq!(
-        InContainer::new(owner.into(), stream_id).display_source(&db).unwrap(),
-        "{<<{a with [3:0]}}"
-    );
+    assert_eq!(OwnerRef::new(owner, stream_id).display_source(&db).unwrap(), "{<<{a with [3:0]}}");
 }

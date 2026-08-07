@@ -1,6 +1,6 @@
 use hir_def::{
     Ident,
-    module::ModuleId,
+    owner::OwnerId,
     symbol::{DefKind, NameContext, Resolution},
 };
 use hir_ty::{Compatibility, Type, TypeSystem};
@@ -9,10 +9,10 @@ use crate::db::root_db::RootDb;
 
 pub(super) fn expected_port_ty(
     db: &RootDb,
-    target_module_id: ModuleId,
+    target_module_id: OwnerId,
     port_name: &Ident,
 ) -> Option<Type> {
-    let scope = db.scope_for(target_module_id.owner(db).expect("module owner"));
+    let scope = db.scope_for(target_module_id);
     let res = Resolution::from_candidates(
         scope
             .lookup(NameContext::Value, port_name)
@@ -28,7 +28,7 @@ pub(super) fn expected_port_ty(
 
 pub(super) fn expected_param_ty(
     db: &RootDb,
-    target_module_id: ModuleId,
+    target_module_id: OwnerId,
     param_name: &Ident,
 ) -> Option<Type> {
     let res =
@@ -39,7 +39,7 @@ pub(super) fn expected_param_ty(
     Some(TypeSystem::new(db).type_of_resolution(res))
 }
 
-pub(super) fn value_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Vec<(String, Type)> {
+pub(super) fn value_candidates_in_module(db: &RootDb, module_id: OwnerId) -> Vec<(String, Type)> {
     typed_candidates_in_module(db, module_id, |kind| {
         matches!(
             kind,
@@ -53,7 +53,7 @@ pub(super) fn value_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Ve
     })
 }
 
-pub(super) fn const_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Vec<(String, Type)> {
+pub(super) fn const_candidates_in_module(db: &RootDb, module_id: OwnerId) -> Vec<(String, Type)> {
     typed_candidates_in_module(db, module_id, |kind| kind == DefKind::Param)
 }
 
@@ -63,12 +63,12 @@ pub(super) fn is_compatible_typed_value(db: &RootDb, expected: &Type, candidate:
 
 fn typed_candidates_in_module(
     db: &RootDb,
-    module_id: ModuleId,
+    module_id: OwnerId,
     include: impl Fn(DefKind) -> bool,
 ) -> Vec<(String, Type)> {
     let types = TypeSystem::new(db);
     let mut candidates: Vec<_> = db
-        .scope_for(module_id.owner(db).expect("module owner"))
+        .scope_for(module_id)
         .iter_listing()
         .filter_map(|(name, defs)| {
             let resolution =

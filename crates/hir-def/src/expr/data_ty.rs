@@ -9,7 +9,7 @@ use triomphe::Arc;
 use super::{Expr, ExprId, Selector};
 use crate::{
     aggregate::StructId,
-    container::InContainer,
+    container::OwnerRef,
     lower::{LoweringCtx, LoweringStore},
     lower_ident,
 };
@@ -26,7 +26,7 @@ use crate::{
 pub enum DataTy {
     Builtin(BuiltinDataTyId),
     Named(NamedDataTy),
-    Struct(InContainer<StructId>),
+    Struct(OwnerRef<StructId>),
     Enum,
     Unsupported(SyntaxKind),
 }

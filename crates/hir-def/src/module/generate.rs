@@ -8,20 +8,14 @@ use triomphe::Arc;
 
 use super::LowerModuleCtx;
 use crate::{
-    Ident,
-    aggregate::{StructId, lower_struct_def},
-    alloc_with_source,
-    ast_id_map::SourceAstId,
+    Ident, alloc_with_source,
     body::{Body, BodyItem, BodySourceMap},
-    container::InFile,
     db::HirDefDb,
     expr::ExprId,
-    lower::{GenerateBlockStore, LoweringCtx, LoweringSyntax},
+    lower::{BodyStore, LoweringCtx, LoweringSyntax},
     lower_ident_opt,
     owner::{OwnerId, OwnerKind},
     source_map::Lowered,
-    subroutine::{LocalSubroutineId, lower_subroutine},
-    typedef::{Typedef, TypedefId, lower_typedef_data_ty},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -59,114 +53,33 @@ pub enum GenerateBlockKind {
         iteration: ExprId,
     },
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct GenerateBlockId(Arc<GenerateBlockLoc>);
-
-impl GenerateBlockId {
-    pub fn new(loc: GenerateBlockLoc) -> Self {
-        Self(Arc::new(loc))
-    }
-
-    pub fn loc(&self) -> &GenerateBlockLoc {
-        &self.0
-    }
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct GenerateBlockLoc {
-    pub cont_id: OwnerId,
-    pub src: InFile<SourceAstId>,
-}
-
-pub(crate) type LowerGenerateBlockCtx<'a> = LoweringCtx<GenerateBlockStore<'a>>;
+pub(crate) type LowerGenerateBlockCtx<'a> = LoweringCtx<BodyStore<'a>>;
 
 impl LowerGenerateBlockCtx<'_> {
-    fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = self.current_owner();
-        let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
-
-        alloc_with_source(
-            &self.ast_ids,
-            &self.tree,
-            &mut self.store.data.structs,
-            &mut self.store.sources.struct_srcs,
-            struct_def,
-            struct_ty,
-        )
-    }
-
-    fn lower_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
-        let name = lower_ident_opt(typedef.name());
-
-        let typedef_id = alloc_with_source(
-            &self.ast_ids,
-            &self.tree,
-            &mut self.store.data.typedefs,
-            &mut self.store.sources.typedef_srcs,
-            Typedef { name, ty: None },
-            typedef,
-        );
-        self.record_body_typedef(typedef_id);
-
-        let data_ty = typedef.type_();
-        let lowered_ty = lower_typedef_data_ty(
-            self,
-            data_ty,
-            self.current_owner(),
-            |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
-            |ctx, ty| ctx.lower_data_ty(ty),
-        );
-
-        self.store.data.typedefs[typedef_id].ty = Some(lowered_ty);
-
-        typedef_id
-    }
-
-    fn lower_subroutine_decl(
-        &mut self,
-        func: ast::FunctionDeclaration,
-    ) -> Option<LocalSubroutineId> {
-        // Only the skeleton is lowered here; the body is lowered on first
-        // access by body_with_source_map.
-        let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
-
-        let subroutine_id = alloc_with_source(
-            &self.ast_ids,
-            &self.tree,
-            &mut self.store.data.subroutines,
-            &mut self.store.sources.subroutine_srcs,
-            subroutine,
-            func,
-        );
-
-        Some(subroutine_id)
-    }
-
-    fn intern_generate_node(&self, node: syntax::SyntaxNode<'_>) -> GenerateBlockId {
-        GenerateBlockId::new(GenerateBlockLoc {
-            cont_id: self.current_owner(),
-            src: InFile::new(self.file_id, self.source_id(node)),
-        })
-    }
-
     fn generate_block_item_from_branch(&mut self, member: ast::Member) -> SmallVec<[BodyItem; 4]> {
         use ast::Member::*;
         match member {
             EmptyMember(_) => SmallVec::new(),
-            GenerateBlock(block) => smallvec::smallvec![
-                self.intern_generate_node(generate_block_source_node(block)).into()
-            ],
+            GenerateBlock(block) => smallvec::smallvec![BodyItem::GenerateBlockOwner(
+                self.intern_generate_node(generate_block_source_node(block)),
+            )],
             LoopGenerate(loop_generate) => {
-                smallvec::smallvec![self.intern_generate_node(loop_generate.syntax()).into()]
+                smallvec::smallvec![BodyItem::GenerateBlockOwner(
+                    self.intern_generate_node(loop_generate.syntax())
+                )]
             }
-            IfGenerate(if_generate) => self.lower_if_generate_items(if_generate),
-            CaseGenerate(case_generate) => self.lower_case_generate_items(case_generate),
-            member => smallvec::smallvec![self.intern_generate_node(member.syntax()).into()],
+            IfGenerate(if_generate) => self.lower_if_generate_items_block(if_generate),
+            CaseGenerate(case_generate) => self.lower_case_generate_items_block(case_generate),
+            member => smallvec::smallvec![BodyItem::GenerateBlockOwner(
+                self.intern_generate_node(member.syntax())
+            )],
         }
     }
 
-    fn lower_if_generate_items(&mut self, if_generate: ast::IfGenerate) -> SmallVec<[BodyItem; 4]> {
+    fn lower_if_generate_items_block(
+        &mut self,
+        if_generate: ast::IfGenerate,
+    ) -> SmallVec<[BodyItem; 4]> {
         self.lower_expr(if_generate.condition());
 
         let mut items = self.generate_block_item_from_branch(if_generate.block());
@@ -178,7 +91,7 @@ impl LowerGenerateBlockCtx<'_> {
         items
     }
 
-    fn lower_case_generate_items(
+    fn lower_case_generate_items_block(
         &mut self,
         case_generate: ast::CaseGenerate,
     ) -> SmallVec<[BodyItem; 4]> {
@@ -226,20 +139,24 @@ impl LowerGenerateBlockCtx<'_> {
             PrimitiveInstantiation(instantiation) => {
                 self.lower_primitive_instantiation(instantiation).into()
             }
-            FunctionDeclaration(fn_decl) => self.lower_subroutine_decl(fn_decl)?.into(),
-            ProceduralBlock(proc) => self.lower_proc(proc).into(),
-            GenerateBlock(block) => {
-                self.intern_generate_node(generate_block_source_node(block)).into()
+            FunctionDeclaration(fn_decl) => {
+                BodyItem::SubroutineOwner(self.lower_subroutine_decl(fn_decl)?)
             }
-            LoopGenerate(loop_generate) => self.intern_generate_node(loop_generate.syntax()).into(),
+            ProceduralBlock(proc) => self.lower_proc(proc).into(),
+            GenerateBlock(block) => BodyItem::GenerateBlockOwner(
+                self.intern_generate_node(generate_block_source_node(block)),
+            ),
+            LoopGenerate(loop_generate) => {
+                BodyItem::GenerateBlockOwner(self.intern_generate_node(loop_generate.syntax()))
+            }
             IfGenerate(if_generate) => {
-                for item in self.lower_if_generate_items(if_generate) {
+                for item in self.lower_if_generate_items_block(if_generate) {
                     self.store.data.items.push(item);
                 }
                 return None;
             }
             CaseGenerate(case_generate) => {
-                for item in self.lower_case_generate_items(case_generate) {
+                for item in self.lower_case_generate_items_block(case_generate) {
                     self.store.data.items.push(item.clone());
                 }
                 return None;
@@ -300,26 +217,28 @@ impl LowerGenerateBlockCtx<'_> {
 }
 
 impl LowerModuleCtx<'_> {
-    pub(crate) fn intern_generate_node(&self, node: syntax::SyntaxNode<'_>) -> GenerateBlockId {
-        GenerateBlockId::new(GenerateBlockLoc {
-            cont_id: self.current_owner(),
-            src: InFile::new(self.file_id, self.source_id(node)),
-        })
+    pub(crate) fn intern_generate_node(&self, node: syntax::SyntaxNode<'_>) -> OwnerId {
+        self.owner_for_node(node, OwnerKind::GenerateBlock)
+            .expect("every lowered generate node must have a canonical owner")
     }
 
     fn generate_item_from_branch(&mut self, member: ast::Member) -> SmallVec<[BodyItem; 4]> {
         use ast::Member::*;
         match member {
             EmptyMember(_) => SmallVec::new(),
-            GenerateBlock(block) => smallvec::smallvec![
-                self.intern_generate_node(generate_block_source_node(block)).into()
-            ],
+            GenerateBlock(block) => smallvec::smallvec![BodyItem::GenerateBlockOwner(
+                self.intern_generate_node(generate_block_source_node(block)),
+            )],
             LoopGenerate(loop_generate) => {
-                smallvec::smallvec![self.intern_generate_node(loop_generate.syntax()).into()]
+                smallvec::smallvec![BodyItem::GenerateBlockOwner(
+                    self.intern_generate_node(loop_generate.syntax())
+                )]
             }
             IfGenerate(if_generate) => self.lower_if_generate_items(if_generate),
             CaseGenerate(case_generate) => self.lower_case_generate_items(case_generate),
-            member => smallvec::smallvec![self.intern_generate_node(member.syntax()).into()],
+            member => smallvec::smallvec![BodyItem::GenerateBlockOwner(
+                self.intern_generate_node(member.syntax())
+            )],
         }
     }
 
@@ -401,18 +320,22 @@ impl LowerModuleCtx<'_> {
                 items.push(self.lower_primitive_instantiation(instantiation).into());
             }
             FunctionDeclaration(fn_decl) => {
-                if let Some(sub_id) = self.lower_subroutine_decl(fn_decl) {
-                    items.push(sub_id.into());
+                if let Some(owner) = self.lower_subroutine_decl(fn_decl) {
+                    items.push(BodyItem::SubroutineOwner(owner));
                 }
             }
             ProceduralBlock(proc) => {
                 items.push(self.lower_proc(proc).into());
             }
             GenerateBlock(block) => {
-                items.push(self.intern_generate_node(generate_block_source_node(block)).into());
+                items.push(BodyItem::GenerateBlockOwner(
+                    self.intern_generate_node(generate_block_source_node(block)),
+                ));
             }
             LoopGenerate(loop_generate) => {
-                items.push(self.intern_generate_node(loop_generate.syntax()).into());
+                items.push(BodyItem::GenerateBlockOwner(
+                    self.intern_generate_node(loop_generate.syntax()),
+                ));
             }
             IfGenerate(if_generate) => {
                 items.extend(self.lower_if_generate_items(if_generate));
@@ -492,7 +415,7 @@ pub(crate) fn lower_generate_owner(
     let mut lower_ctx = LoweringCtx::new_with_syntax(
         owner,
         syntax,
-        GenerateBlockStore { data: &mut body, sources: &mut source_map },
+        BodyStore { data: &mut body, sources: &mut source_map },
     );
 
     match source_kind {

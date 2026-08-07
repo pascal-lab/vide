@@ -26,7 +26,6 @@ mod tests {
         source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
         source_root::{SourceRoot, SourceRootId},
     };
-    use la_arena::{Idx, RawIdx};
     use preproc_expand::{db::PreprocDb, file::HirFileId};
     use rustc_hash::FxHashSet;
     use triomphe::Arc;
@@ -35,9 +34,9 @@ mod tests {
 
     use crate::{
         Ident,
-        container::{ScopeChain, SubroutineParent, SubroutineScope},
+        container::ScopeChain,
         db::HirDefDb,
-        module::{ModuleId, generate::GenerateBlockId},
+        owner::{OwnerId, OwnerKind},
         symbol::{DefKind, NameContext},
     };
 
@@ -132,8 +131,12 @@ mod tests {
     fn scope_chain_is_ordered_from_inner_scope_to_file_scope() {
         let db = db_with_root_text("module top; endmodule\n");
         let file_id = HirFileId::File(TOP);
-        let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
-        let module_owner = module_id.owner(&db).expect("module owner");
+        let module_id = db
+            .body(db.owner_table(file_id).file_owner().expect("file owner"))
+            .module_owners()
+            .next()
+            .expect("module owner");
+        let module_owner = module_id;
         let file_owner = db.owner_table(file_id).file_owner().expect("file owner");
         let chain = ScopeChain::from_inner(&db, module_owner);
 
@@ -165,8 +168,12 @@ mod tests {
     fn scope_for_module_contains_subroutine_name() {
         let db = db_with_root_text("module top;\n  function void f(); endfunction\nendmodule\n");
         let file_id = HirFileId::File(TOP);
-        let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
-        let scope = db.scope_for(module_id.owner(&db).expect("module owner"));
+        let module_id = db
+            .body(db.owner_table(file_id).file_owner().expect("file owner"))
+            .module_owners()
+            .next()
+            .expect("module owner");
+        let scope = db.scope_for(module_id);
         assert!(
             scope
                 .lookup(NameContext::Value, &ident("f"))
@@ -182,12 +189,13 @@ mod tests {
             "module top;\n  function void f();\n    logic x;\n  endfunction\nendmodule\n",
         );
         let file_id = HirFileId::File(TOP);
-        let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
-        let subroutine_id = SubroutineScope::new(
-            SubroutineParent::Module(module_id),
-            Idx::from_raw(RawIdx::from(0)),
-        );
-        let scope = db.scope_for(subroutine_id.owner(&db).expect("subroutine owner"));
+        let subroutine_id = db
+            .owner_table(file_id)
+            .owners_of_kind(OwnerKind::Subroutine)
+            .next()
+            .expect("subroutine owner")
+            .id;
+        let scope = db.scope_for(subroutine_id);
         assert!(
             scope
                 .lookup(NameContext::Value, &ident("x"))
@@ -203,18 +211,22 @@ mod tests {
             "module top;\n  generate\n    if (1) begin : g\n      logic g_sig;\n    end\n  endgenerate\nendmodule\n",
         );
         let file_id = HirFileId::File(TOP);
-        let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
-        let module = db.body_with_source_map(module_id.owner(&db).expect("module owner"));
+        let module_id = db
+            .body(db.owner_table(file_id).file_owner().expect("file owner"))
+            .module_owners()
+            .next()
+            .expect("module owner");
+        let module = db.body_with_source_map(module_id);
         let mut block_id = None;
         for (_, region) in module.generate_regions.iter() {
             for item in &region.items {
-                if let crate::body::BodyItem::GenerateBlockId(id) = item {
-                    block_id = Some(id.clone());
+                if let crate::body::BodyItem::GenerateBlockOwner(owner) = item {
+                    block_id = Some(*owner);
                 }
             }
         }
-        let block_id: GenerateBlockId = block_id.expect("generate block should lower");
-        let scope = db.scope_for(block_id.owner(&db).expect("generate owner"));
+        let block_id: OwnerId = block_id.expect("generate block should lower");
+        let scope = db.scope_for(block_id);
         assert!(
             scope
                 .lookup(NameContext::Value, &ident("g_sig"))

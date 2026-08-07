@@ -1,8 +1,7 @@
 use hir_def::{
     ast_id_map::SourceAstId,
-    container::{InFile, SubroutineScope},
+    container::InFile,
     db::HirDefDb,
-    module::ModuleId,
     owner::{OwnerId, OwnerKind},
 };
 use preproc_expand::file::HirFileId;
@@ -34,8 +33,8 @@ pub(super) fn module_to_def(
     db: &dyn HirDefDb,
     file_id: HirFileId,
     module: ast::ModuleDeclaration<'_>,
-) -> Option<ModuleId> {
-    ModuleId::from_owner(db, owner_for_node(db, file_id, module.syntax(), OwnerKind::Module)?)
+) -> Option<OwnerId> {
+    owner_for_node(db, file_id, module.syntax(), OwnerKind::Module)
 }
 
 pub(super) fn block_to_def(
@@ -50,9 +49,8 @@ pub(super) fn subroutine_to_def(
     db: &dyn HirDefDb,
     file_id: HirFileId,
     subroutine: ast::FunctionDeclaration<'_>,
-) -> Option<SubroutineScope> {
-    let owner = owner_for_node(db, file_id, subroutine.syntax(), OwnerKind::Subroutine)?;
-    SubroutineScope::from_owner(db, owner)
+) -> Option<OwnerId> {
+    owner_for_node(db, file_id, subroutine.syntax(), OwnerKind::Subroutine)
 }
 
 fn generate_owner_node(node: SyntaxNode<'_>) -> SyntaxNode<'_> {
@@ -85,6 +83,15 @@ fn container_to_def(
     }
     if let Some(module) = ast::ModuleDeclaration::cast(node) {
         return owner_for_node(db, file_id, module.syntax(), OwnerKind::Module);
+    }
+    if ast::CheckerDeclaration::cast(node).is_some() {
+        return owner_for_node(db, file_id, node, OwnerKind::Checker);
+    }
+    if ast::CovergroupDeclaration::cast(node).is_some() {
+        return owner_for_node(db, file_id, node, OwnerKind::Covergroup);
+    }
+    if ast::ClockingDeclaration::cast(node).is_some() {
+        return owner_for_node(db, file_id, node, OwnerKind::ClockingBlock);
     }
     if let Some(block) = ast::BlockStatement::cast(node) {
         return block_to_def(db, file_id, block);
@@ -120,6 +127,9 @@ pub fn is_generate_branch_member(member: SyntaxNode<'_>) -> bool {
             || ast::GenerateRegion::can_cast(ancestor.kind())
             || ast::ModuleDeclaration::can_cast(ancestor.kind())
             || ast::BlockStatement::can_cast(ancestor.kind())
+            || ast::CheckerDeclaration::can_cast(ancestor.kind())
+            || ast::CovergroupDeclaration::can_cast(ancestor.kind())
+            || ast::ClockingDeclaration::can_cast(ancestor.kind())
         {
             return false;
         }

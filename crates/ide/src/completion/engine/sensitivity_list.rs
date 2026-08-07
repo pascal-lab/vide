@@ -1,4 +1,4 @@
-use hir_def::module::ModuleId;
+use hir_def::{has_source::HasSource, owner::OwnerId};
 use preproc_expand::file::HirFileId;
 use utils::text_edit::TextSize;
 
@@ -28,14 +28,14 @@ pub(super) fn complete_sensitivity_list(
     items
 }
 
-fn module_id_at_offset(db: &RootDb, position: FilePosition) -> Option<ModuleId> {
+fn module_id_at_offset(db: &RootDb, position: FilePosition) -> Option<OwnerId> {
     let file_id = HirFileId::File(position.file_id);
     let hir_file =
         db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"));
-    let mut best: Option<(TextSize, ModuleId)> = None;
+    let mut best: Option<(TextSize, OwnerId)> = None;
 
-    for (local_module_id, _) in hir_file.modules.iter() {
-        let Some(range) = hir_file.source_range(db, local_module_id) else {
+    for module_id in hir_file.module_owners() {
+        let Some(range) = module_id.source(db).map(|source| source.value.full_range()) else {
             continue;
         };
         if !range.contains(position.offset) && range.end() != position.offset {
@@ -43,7 +43,6 @@ fn module_id_at_offset(db: &RootDb, position: FilePosition) -> Option<ModuleId> 
         }
 
         let len = range.len();
-        let module_id = ModuleId::new(file_id, local_module_id);
         match best {
             None => best = Some((len, module_id)),
             Some((best_len, _)) if len < best_len => best = Some((len, module_id)),
@@ -92,7 +91,7 @@ fn push_event_keywords(
 
 fn signal_candidates(
     db: &RootDb,
-    module_id: ModuleId,
+    module_id: OwnerId,
     prefix: &str,
     ctx: &CompletionContext,
     wrap_in_parens: bool,

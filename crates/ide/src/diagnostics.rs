@@ -4,10 +4,7 @@ use base_db::{
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
-use hir_def::{
-    module::ModuleId,
-    source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
-};
+use hir_def::source_map::{LoweringDiagnostic, LoweringDiagnosticKind};
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::text_edit::{TextRange, TextSize};
 use vfs::FileId;
@@ -392,9 +389,8 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
     let hir_file = db.body(db.owner_table(hir_file_id).file_owner().expect("file owner"));
     let mut diagnostics = Vec::new();
 
-    for (local_module_id, _) in hir_file.modules.iter() {
-        let module_id = ModuleId::new(hir_file_id, local_module_id);
-        let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    for module_id in hir_file.module_owners() {
+        let module = db.body_with_source_map(module_id);
         for (instantiation_id, instantiation) in module.instantiations.iter() {
             let Some(module_name) = instantiation.module_name.as_ref() else {
                 continue;

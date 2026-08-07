@@ -9,7 +9,6 @@ use crate::{
     body::{self, Body},
     diagnostics,
     item_tree::{self, ItemTree, ItemTreeItem, Signature},
-    module::PackageId,
     nameres,
     owner::{self, OwnerId, OwnerTable},
     source_map::Lowered,
@@ -97,24 +96,20 @@ impl dyn HirDefDb + '_ {
 
     pub fn subroutine(&self, owner: OwnerId) -> Arc<Subroutine> {
         debug_assert_eq!(owner.kind(self), crate::owner::OwnerKind::Subroutine);
-        let parent = owner.parent(self).expect("subroutine owner must have a parent");
-        let lowered = self.body_with_source_map(parent);
-        let source = owner.ast_id(self);
-        let id = lowered
-            .source_map()
-            .subroutine_srcs
-            .src_to_hir(source)
-            .expect("subroutine owner must map to a parent-body skeleton");
-        Arc::new(lowered.data_ref().subroutines[id].clone())
+        Arc::new(
+            self.body(owner)
+                .subroutine
+                .clone()
+                .expect("subroutine owner must have lowered signature"),
+        )
     }
 
-    pub fn package_export_signature(&self, package_id: PackageId) -> Arc<NameScope> {
-        let owner = package_id.owner(self).expect("package id must resolve to an owner");
-        NameScope::package_export_signature(self, owner)
+    pub fn package_export_signature(&self, package_owner: OwnerId) -> Arc<NameScope> {
+        NameScope::package_export_signature(self, package_owner)
     }
 
-    pub fn package_export_scope(&self, package_id: PackageId) -> Arc<NameScope> {
-        NameScope::package_export_scope(self, package_id)
+    pub fn package_export_scope(&self, package_owner: OwnerId) -> Arc<NameScope> {
+        NameScope::package_export_scope(self, package_owner)
     }
 }
 

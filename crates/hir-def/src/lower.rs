@@ -56,21 +56,6 @@ pub(crate) struct BodyStore<'a> {
     pub(crate) sources: &'a mut BodySourceMap,
 }
 
-pub(crate) struct FileStore<'a> {
-    pub(crate) data: &'a mut Body,
-    pub(crate) sources: &'a mut BodySourceMap,
-}
-
-pub(crate) struct ModuleStore<'a> {
-    pub(crate) data: &'a mut Body,
-    pub(crate) sources: &'a mut BodySourceMap,
-}
-
-pub(crate) struct GenerateBlockStore<'a> {
-    pub(crate) data: &'a mut Body,
-    pub(crate) sources: &'a mut BodySourceMap,
-}
-
 /// Store interface shared by expression, declarator, statement, and declaration
 /// lowering.
 pub(crate) trait LoweringStore {
@@ -112,7 +97,7 @@ macro_rules! impl_lowering_store {
     )+};
 }
 
-impl_lowering_store!(BodyStore<'_>, FileStore<'_>, ModuleStore<'_>, GenerateBlockStore<'_>,);
+impl_lowering_store!(BodyStore<'_>);
 
 pub(crate) trait CheckerStore: LoweringStore {
     fn checkers(&mut self) -> (&mut Arena<CheckerDef>, &mut SourceMap<CheckerDef>);
@@ -128,7 +113,7 @@ macro_rules! impl_checker_store {
     )+};
 }
 
-impl_checker_store!(FileStore<'_>, ModuleStore<'_>);
+impl_checker_store!(BodyStore<'_>);
 pub(crate) trait ProcStore: LoweringStore {
     fn procs(&mut self) -> (&mut Arena<Proc>, &mut SourceMap<Proc>);
 }
@@ -143,7 +128,7 @@ macro_rules! impl_proc_store {
     )+};
 }
 
-impl_proc_store!(FileStore<'_>, ModuleStore<'_>, GenerateBlockStore<'_>);
+impl_proc_store!(BodyStore<'_>);
 
 pub(crate) trait ModuleItemStore: LoweringStore {
     fn continuous_assigns(&mut self) -> (&mut Arena<ContAssign>, &mut SourceMap<ContAssign>);
@@ -184,7 +169,7 @@ macro_rules! impl_module_item_store {
     )+};
 }
 
-impl_module_item_store!(FileStore<'_>, ModuleStore<'_>, GenerateBlockStore<'_>);
+impl_module_item_store!(BodyStore<'_>);
 
 /// Complete mutable state for one HIR lowering pass.
 pub(crate) struct LoweringCtx<Store> {

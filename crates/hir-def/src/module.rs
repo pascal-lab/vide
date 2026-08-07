@@ -1,23 +1,16 @@
-use la_arena::{Idx, IdxRange};
+use la_arena::IdxRange;
 use port::{NonAnsiPortId, PortDeclId, Ports};
 use syntax::ast::{self, AstNode, PortList};
 use triomphe::Arc;
 
 use super::{
-    Ident,
-    aggregate::{StructId, lower_struct_def},
-    alloc_with_source,
-    covergroup::{CovergroupId, lower_covergroup_decl, lower_coverpoint, lower_cross},
     declaration::{Declaration, ParamDeclKind},
     expr::declarator::DeclId,
-    lower::{LoweringCtx, LoweringSyntax, ModuleStore},
+    lower::{BodyStore, LoweringCtx, LoweringSyntax},
     lower_ident_opt, lower_package_imports,
-    subroutine::{LocalSubroutineId, lower_subroutine},
-    typedef::{Typedef, TypedefId, lower_typedef_data_ty},
 };
 use crate::{
     body::{Body, BodyItem, BodySourceMap},
-    container::InFile,
     db::HirDefDb,
     owner::{OwnerId, OwnerKind},
     source_map::Lowered,
@@ -86,126 +79,9 @@ impl ModuleKind {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct ModuleInfo {
-    pub name: Option<Ident>,
-    pub kind: ModuleKind,
-}
-
-pub type LocalModuleId = Idx<ModuleInfo>;
-pub type ModuleId = InFile<LocalModuleId>;
-pub type PackageId = ModuleId;
-
-pub(crate) type LowerModuleCtx<'a> = LoweringCtx<ModuleStore<'a>>;
+pub(crate) type LowerModuleCtx<'a> = LoweringCtx<BodyStore<'a>>;
 
 impl LowerModuleCtx<'_> {
-    fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = self.current_owner();
-        let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
-
-        alloc_with_source(
-            &self.ast_ids,
-            &self.tree,
-            &mut self.store.data.structs,
-            &mut self.store.sources.struct_srcs,
-            struct_def,
-            struct_ty,
-        )
-    }
-
-    fn lower_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
-        let name = lower_ident_opt(typedef.name());
-
-        let typedef_id = alloc_with_source(
-            &self.ast_ids,
-            &self.tree,
-            &mut self.store.data.typedefs,
-            &mut self.store.sources.typedef_srcs,
-            Typedef { name, ty: None },
-            typedef,
-        );
-        self.record_body_typedef(typedef_id);
-
-        let data_ty = typedef.type_();
-        let lowered_ty = lower_typedef_data_ty(
-            self,
-            data_ty,
-            self.current_owner(),
-            |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
-            |ctx, ty| ctx.lower_data_ty(ty),
-        );
-
-        self.store.data.typedefs[typedef_id].ty = Some(lowered_ty);
-
-        typedef_id
-    }
-
-    fn lower_subroutine_decl(
-        &mut self,
-        func: ast::FunctionDeclaration,
-    ) -> Option<LocalSubroutineId> {
-        // Only the skeleton is lowered here; the body is lowered on first
-        // access by body_with_source_map.
-        let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
-
-        let subroutine_id = alloc_with_source(
-            &self.ast_ids,
-            &self.tree,
-            &mut self.store.data.subroutines,
-            &mut self.store.sources.subroutine_srcs,
-            subroutine,
-            func,
-        );
-
-        Some(subroutine_id)
-    }
-
-    fn lower_covergroup_decl(
-        &mut self,
-        covergroup_decl: ast::CovergroupDeclaration,
-    ) -> CovergroupId {
-        let mut covergroup = lower_covergroup_decl(covergroup_decl);
-
-        for member in covergroup_decl.members().children() {
-            match member {
-                ast::Member::Coverpoint(coverpoint_ast) => {
-                    let coverpoint = lower_coverpoint(coverpoint_ast);
-                    let coverpoint_id = alloc_with_source(
-                        &self.ast_ids,
-                        &self.tree,
-                        &mut self.store.data.coverpoints,
-                        &mut self.store.sources.coverpoint_srcs,
-                        coverpoint,
-                        coverpoint_ast,
-                    );
-                    covergroup.coverpoints.push(coverpoint_id);
-                }
-                ast::Member::CoverCross(cross_ast) => {
-                    let cross = lower_cross(cross_ast);
-                    let cross_id = alloc_with_source(
-                        &self.ast_ids,
-                        &self.tree,
-                        &mut self.store.data.crosses,
-                        &mut self.store.sources.cross_srcs,
-                        cross,
-                        cross_ast,
-                    );
-                    covergroup.crosses.push(cross_id);
-                }
-                _ => {}
-            }
-        }
-
-        alloc_with_source(
-            &self.ast_ids,
-            &self.tree,
-            &mut self.store.data.covergroups,
-            &mut self.store.sources.covergroup_srcs,
-            covergroup,
-            covergroup_decl,
-        )
-    }
-
     pub(crate) fn lower_module_decl(&mut self, decl: ast::ModuleDeclaration) {
         let header = decl.header();
         let has_param_ports = header.parameters().is_some();
@@ -246,9 +122,18 @@ impl LowerModuleCtx<'_> {
                 // Assignments
                 ContinuousAssign(assign) => self.lower_continuous_assign(assign).into(),
 
-                // Declarations
-                DataDeclaration(data_decl) => self.lower_data_decl(data_decl).into(),
-                NetDeclaration(net_decl) => self.lower_net_decl(net_decl).into(),
+                DataDeclaration(data_decl) => {
+                    let id = self.lower_data_decl(data_decl);
+                    let decls = self.store.data.declarations[id].decls();
+                    self.bind_nonansi_declarations(decls);
+                    id.into()
+                }
+                NetDeclaration(net_decl) => {
+                    let id = self.lower_net_decl(net_decl);
+                    let decls = self.store.data.declarations[id].decls();
+                    self.bind_nonansi_declarations(decls);
+                    id.into()
+                }
                 LocalVariableDeclaration(_) => continue,
                 ParameterDeclarationStatement(param_decl) => self
                     .lower_param_decl_base_with_context(
@@ -279,7 +164,7 @@ impl LowerModuleCtx<'_> {
 
                 // Subroutines
                 FunctionDeclaration(fn_decl) => match self.lower_subroutine_decl(fn_decl) {
-                    Some(sub_id) => sub_id.into(),
+                    Some(owner) => BodyItem::SubroutineOwner(owner),
                     None => continue,
                 },
 
@@ -311,13 +196,17 @@ impl LowerModuleCtx<'_> {
                 | gen_item @ CaseGenerate(_)
                 | gen_item @ LoopGenerate(_) => self.lower_direct_generate_region(gen_item).into(),
 
-                // Timing and clocking
                 TimeUnitsDeclaration(_) | ClockingItem(_) => continue,
                 DefaultClockingReference(reference) => {
                     self.lower_default_clocking_reference(reference);
                     continue;
                 }
-                ClockingDeclaration(clocking) => self.lower_clocking_declaration(clocking).into(),
+                ClockingDeclaration(clocking) => {
+                    let owner = self
+                        .owner_for_node(clocking.syntax(), OwnerKind::ClockingBlock)
+                        .expect("every lowered clocking block must have a canonical owner");
+                    BodyItem::ClockingBlockOwner(owner)
+                }
 
                 // Assertions and properties
                 PropertyDeclaration(_)
@@ -326,20 +215,18 @@ impl LowerModuleCtx<'_> {
                 | ConcurrentAssertionMember(_) => continue,
 
                 // Coverage
-                CovergroupDeclaration(covergroup) => self.lower_covergroup_decl(covergroup).into(),
+                CovergroupDeclaration(covergroup) => {
+                    let owner = self
+                        .owner_for_node(covergroup.syntax(), OwnerKind::Covergroup)
+                        .expect("every lowered covergroup must have a canonical owner");
+                    BodyItem::CovergroupOwner(owner)
+                }
                 Coverpoint(_) | CoverCross(_) | CoverageBins(_) | BinsSelection(_)
                 | CoverageOption(_) => continue,
 
                 // Specify blocks
-                SpecifyBlock(block) => self.lower_specify_block(block).into(),
-                PathDeclaration(path) => self.lower_specify_path_item(path).into(),
-                ConditionalPathDeclaration(path) => {
-                    self.lower_conditional_specify_path_item(path).into()
-                }
-                IfNonePathDeclaration(path) => self.lower_ifnone_specify_path_item(path).into(),
-                SystemTimingCheck(timing) => self.lower_system_timing_check_item(timing).into(),
-                PulseStyleDeclaration(pulse) => self.lower_pulse_style_item(pulse).into(),
                 DefaultSkewItem(_) => continue,
+                SpecifyBlock(specify) => self.lower_specify_block(specify).into(),
                 SpecparamDeclaration(specparam_decl) => {
                     self.lower_specparam_decl(specparam_decl).into()
                 }
@@ -378,7 +265,12 @@ impl LowerModuleCtx<'_> {
                 | ClassMethodPrototype(_) => continue,
 
                 // Checker
-                CheckerDeclaration(checker_decl) => self.lower_checker_decl(checker_decl).into(),
+                CheckerDeclaration(decl) => {
+                    let owner = self
+                        .owner_for_node(decl.syntax(), OwnerKind::Checker)
+                        .expect("every lowered checker must have a canonical owner");
+                    BodyItem::CheckerOwner(owner)
+                }
                 CheckerDataDeclaration(_) => continue,
 
                 // Constraints
@@ -408,8 +300,9 @@ impl LowerModuleCtx<'_> {
                 // Anonymous program
                 AnonymousProgram(_) => continue,
 
-                // Empty member - skip
-                EmptyMember(_) => continue,
+                // Unsupported member kinds do not contribute to this owner's
+                // structural HIR yet.
+                _ => continue,
             };
             self.store.data.items.push(idx.clone());
         }
@@ -437,7 +330,7 @@ pub(crate) fn lower_module_owner(
     let mut lower_ctx = LoweringCtx::new_with_syntax(
         owner,
         syntax,
-        ModuleStore { data: &mut body, sources: &mut source_map },
+        BodyStore { data: &mut body, sources: &mut source_map },
     );
     lower_ctx.lower_module_decl(ast_module);
     let diagnostics = lower_ctx.emit_diagnostics();
