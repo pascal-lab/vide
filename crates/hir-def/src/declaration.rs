@@ -8,7 +8,6 @@ use super::expr::{
     timing_control::DelayControl,
 };
 use crate::{
-    alloc_with_source,
     ast_id_map::SourceAstId,
     lower::{LoweringCtx, LoweringStore},
     ty::{DriveStrength, NetKind, Strength, lower_drive_strength, lower_net_kind, lower_strength},

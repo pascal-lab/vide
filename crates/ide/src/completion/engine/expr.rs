@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 
 use hir_def::{
-    container::{InContainer, ScopeId, ScopeParent, SubroutineScope},
+    container::{InContainer, ScopeParent, SubroutineScope},
     def_id::DefId,
     lower_ident_opt,
     module::ModuleId,
+    owner::{OwnerId, OwnerKind},
     symbol::{DefKind, Resolution},
 };
 use hir_semantics::semantics::Semantics;
@@ -96,68 +97,14 @@ fn container_id_at_offset(
     file_id: HirFileId,
     root: SyntaxNode<'_>,
     offset: TextSize,
-) -> Option<ScopeId> {
+) -> Option<OwnerId> {
     let elem = root.covering_element(utils::line_index::TextRange::empty(offset));
     let node = elem.as_node().or_else(|| elem.parent())?;
-    sema.container_for_node(file_id, node).map(Into::into)
+    sema.container_for_node(file_id, node)
 }
 
-fn collect_container_names(
-    db: &RootDb,
-    container_id: ScopeId,
-    names: &mut BTreeMap<String, NameKind>,
-) {
-    match container_id {
-        ScopeId::File(file_id) => collect_file_names(db, file_id, names),
-        ScopeId::Module(module_id) => collect_module_names(db, module_id, names),
-        ScopeId::ClockingBlock(clocking_block_id) => {
-            let scope = db.clocking_block_scope(clocking_block_id);
-            for (ident, defs) in scope.iter_listing() {
-                collect_def_names(db, ident, defs, names);
-            }
-        }
-        ScopeId::Checker(checker_id) => {
-            let scope = db.checker_scope(checker_id);
-            for (ident, defs) in scope.iter_listing() {
-                collect_def_names(db, ident, defs, names);
-            }
-        }
-        ScopeId::Covergroup(covergroup_id) => {
-            let scope = db.covergroup_scope(covergroup_id);
-            for (ident, defs) in scope.iter_listing() {
-                collect_def_names(db, ident, defs, names);
-            }
-        }
-        ScopeId::GenerateBlock(generate_block_id) => {
-            let scope = db.generate_block_scope(generate_block_id);
-            for (ident, defs) in scope.iter_listing() {
-                collect_def_names(db, ident, defs, names);
-            }
-        }
-        ScopeId::Subroutine(subroutine_id) => {
-            let scope = db.subroutine_scope(subroutine_id);
-            for (ident, defs) in scope.iter_listing() {
-                collect_def_names(db, ident, defs, names);
-            }
-        }
-        ScopeId::Owner(owner) => {
-            let scope = db.scope_for(ScopeId::Owner(owner));
-            for (ident, defs) in scope.iter_listing() {
-                collect_def_names(db, ident, defs, names);
-            }
-        }
-    }
-}
-
-fn collect_file_names(db: &RootDb, file_id: HirFileId, names: &mut BTreeMap<String, NameKind>) {
-    let scope = db.file_scope(file_id);
-    for (ident, defs) in scope.iter_listing() {
-        collect_def_names(db, ident, defs, names);
-    }
-}
-
-fn collect_module_names(db: &RootDb, module_id: ModuleId, names: &mut BTreeMap<String, NameKind>) {
-    let scope = db.module_scope(module_id);
+fn collect_container_names(db: &RootDb, owner: OwnerId, names: &mut BTreeMap<String, NameKind>) {
+    let scope = db.scope_for(owner);
     for (ident, defs) in scope.iter_listing() {
         collect_def_names(db, ident, defs, names);
     }
@@ -206,11 +153,9 @@ fn subroutine_return_ty(db: &RootDb, subroutine_id: SubroutineScope) -> Type {
     TypeSystem::new(db).type_of_subroutine_return(subroutine_id)
 }
 
-fn module_id_for_container(db: &RootDb, container_id: ScopeId) -> Option<ModuleId> {
-    ScopeParent::start_from(db, container_id).find_map(|container_id| match container_id {
-        ScopeId::Module(module_id) => Some(module_id),
-        ScopeId::Owner(owner) => ModuleId::from_owner(db, owner),
-        _ => None,
+fn module_id_for_container(db: &RootDb, owner: OwnerId) -> Option<ModuleId> {
+    ScopeParent::start_from(db, owner).find_map(|owner| {
+        (owner.kind(db) == OwnerKind::Module).then(|| ModuleId::from_owner(db, owner)).flatten()
     })
 }
 

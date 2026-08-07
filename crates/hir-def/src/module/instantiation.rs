@@ -6,7 +6,7 @@ use syntax::{
 };
 
 use crate::{
-    Ident, alloc_with_source,
+    Ident,
     ast_id_map::SourceAstId,
     expr::{ExprId, data_ty::Dimension},
     lower::{LoweringCtx, ModuleItemStore},

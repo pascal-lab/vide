@@ -4,12 +4,11 @@ use la_arena::Idx;
 use syntax::{
     SyntaxKind, TokenKind,
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
 };
 
 use super::literal::{Literal, lower_literal};
 use crate::{
-    Ident, alloc_with_source, alloc_with_source_entry,
+    Ident, alloc_with_source_entry,
     ast_id_map::SourceAstId,
     literal::lower_integer_vector,
     lower::{LoweringCtx, LoweringStore},

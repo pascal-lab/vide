@@ -119,14 +119,16 @@ fn module_id(db: &TestDb, name: &str) -> ModuleId {
 }
 
 fn type_of_name(db: &TestDb, module: ModuleId, name: &str, context: NameContext) -> Type {
-    let resolution = resolve_name(db, module.into(), &ident(name), context);
+    let resolution =
+        resolve_name(db, module.owner(db).expect("module owner"), &ident(name), context);
     assert!(!resolution.is_unresolved(), "{name} should resolve");
     TypeSystem::new(db).type_of_resolution(resolution)
 }
 
 fn type_of_path(db: &TestDb, module: ModuleId, segments: &[&str]) -> Type {
     let path = segments.iter().map(|segment| ident(segment)).collect::<Vec<_>>();
-    let resolution = resolve_path(db, module.into(), &path, NameContext::Value);
+    let resolution =
+        resolve_path(db, module.owner(db).expect("module owner"), &path, NameContext::Value);
     assert!(!resolution.is_unresolved(), "path {segments:?} should resolve");
     TypeSystem::new(db).type_of_resolution(resolution)
 }

@@ -1,9 +1,6 @@
 use la_arena::{Idx, IdxRange};
 use port::{NonAnsiPortId, PortDeclId, Ports};
-use syntax::{
-    ast::{self, AstNode, PortList},
-    has_name::HasName,
-};
+use syntax::ast::{self, AstNode, PortList};
 use triomphe::Arc;
 
 use super::{
@@ -12,7 +9,7 @@ use super::{
     alloc_with_source,
     covergroup::{CovergroupId, lower_covergroup_decl, lower_coverpoint, lower_cross},
     declaration::{Declaration, ParamDeclKind},
-    expr::declarator::{DeclId, Declarator},
+    expr::declarator::DeclId,
     lower::{LoweringCtx, LoweringSyntax, ModuleStore},
     lower_ident_opt, lower_package_imports,
     subroutine::{LocalSubroutineId, lower_subroutine},
@@ -35,43 +32,37 @@ pub mod modport;
 pub mod port;
 pub mod specify;
 
-pub type Module = Body;
-pub type ModuleSourceMap = BodySourceMap;
-pub type ModuleItem = BodyItem;
-
 pub type ModuleSrc = crate::ast_id_map::SourceAstId;
 
-impl Module {
-    pub fn param_port_id_by_idx(&self, idx: usize) -> Option<DeclId> {
-        self.param_ports.clone()?.nth(idx)
-    }
+pub fn param_port_id_by_idx(body: &Body, idx: usize) -> Option<DeclId> {
+    body.param_ports.clone()?.nth(idx)
+}
 
-    pub fn overridable_param_id_by_idx(&self, body: &Body, idx: usize) -> Option<DeclId> {
-        body.declarations
-            .values()
-            .filter_map(|declaration| match declaration {
-                Declaration::ParamDecl(param_decl) if param_decl.kind.is_overridable() => {
-                    Some(param_decl.decls.clone())
-                }
-                _ => None,
-            })
-            .flatten()
-            .nth(idx)
-    }
+pub fn overridable_param_id_by_idx(body: &Body, idx: usize) -> Option<DeclId> {
+    body.declarations
+        .values()
+        .filter_map(|declaration| match declaration {
+            Declaration::ParamDecl(param_decl) if param_decl.kind.is_overridable() => {
+                Some(param_decl.decls.clone())
+            }
+            _ => None,
+        })
+        .flatten()
+        .nth(idx)
+}
 
-    pub fn non_ansi_port_id_by_idx(&self, idx: usize) -> Option<NonAnsiPortId> {
-        let Ports::NonAnsi { ports, .. } = &self.ports else {
-            return None;
-        };
-        ports.iter().nth(idx).map(|(port_id, _)| port_id)
-    }
+pub fn non_ansi_port_id_by_idx(body: &Body, idx: usize) -> Option<NonAnsiPortId> {
+    let Ports::NonAnsi { ports, .. } = &body.ports else {
+        return None;
+    };
+    ports.iter().nth(idx).map(|(port_id, _)| port_id)
+}
 
-    pub fn ansi_port_decl_id_by_idx(&self, idx: usize) -> Option<PortDeclId> {
-        let Ports::Ansi(port_decls) = &self.ports else {
-            return None;
-        };
-        port_decls.iter().nth(idx).map(|(port_decl_id, _)| port_decl_id)
-    }
+pub fn ansi_port_decl_id_by_idx(body: &Body, idx: usize) -> Option<PortDeclId> {
+    let Ports::Ansi(port_decls) = &body.ports else {
+        return None;
+    };
+    port_decls.iter().nth(idx).map(|(port_decl_id, _)| port_decl_id)
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Default)]
@@ -431,7 +422,7 @@ pub(crate) fn lower_module_owner(
     db: &dyn HirDefDb,
     owner: OwnerId,
     syntax: &LoweringSyntax,
-) -> Arc<Lowered<Module>> {
+) -> Arc<Lowered<Body>> {
     debug_assert_eq!(owner.kind(db), OwnerKind::Module);
     let file_id = syntax.file_id;
     let tree = syntax.tree.clone();
@@ -457,13 +448,18 @@ pub(crate) fn lower_module_owner(
     source_map.shrink_to_fit();
     Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
 }
-
 #[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn module_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Module>> {
+fn module_input(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
     debug_assert_eq!(owner.kind(db), OwnerKind::Module);
-    db.item_tree(owner.file(db)).owner_store(owner).expect("module owner store must exist")
+    lower_module_owner(db, owner, &LoweringSyntax::for_owner(db, owner))
 }
 
 pub(crate) fn set_module_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    module_input::set_lru_capacity(db, capacity);
     module_with_source_map::set_lru_capacity(db, capacity);
+}
+
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn module_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
+    module_input(db, owner)
 }

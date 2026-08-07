@@ -301,6 +301,12 @@ impl RegionTreeBuilder {
 /// position-free owner HIR.
 #[salsa::tracked(lru = 512, returns(clone))]
 pub(crate) fn owner_region_tree(db: &dyn HirDefDb, owner: OwnerId) -> Arc<RegionTree> {
+    let owner = match owner.kind(db) {
+        OwnerKind::Checker | OwnerKind::Covergroup | OwnerKind::ClockingBlock => {
+            owner.parent(db).expect("scope-only owner must have a body owner parent")
+        }
+        _ => owner,
+    };
     let file_id = owner.file(db);
     let tree = db.parse(file_id);
     let Some(root) = db.ast_id_map(file_id).node(owner.ast_id(db), &tree) else {

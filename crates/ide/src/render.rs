@@ -388,7 +388,7 @@ fn render_module_param_ports(db: &RootDb, module_id: ModuleId) -> Vec<String> {
     let module_owner = module_id.owner(db).expect("module owner");
     let mut params = Vec::new();
     let mut idx = 0;
-    while let Some(decl_id) = module.param_port_id_by_idx(idx) {
+    while let Some(decl_id) = hir_def::module::param_port_id_by_idx(&module, idx) {
         let decl = &body.decls[decl_id];
         let DeclaratorParent::DeclarationId(parent) = decl.parent else {
             idx += 1;
@@ -418,8 +418,8 @@ fn render_subroutine_port_signature(
     let subroutine = db.subroutine(port_id.subroutine.clone());
     let port = subroutine.ports.get(port_id.value.0 as usize)?;
     let name = port.name.as_ref()?;
-    let owner = port_id.subroutine.clone().owner(db).expect("subroutine owner");
-    let ty = port.ty.clone().and_then(|ty| render_data_ty(db, owner, ty));
+    let signature_owner = port_id.subroutine.parent_owner(db);
+    let ty = port.ty.clone().and_then(|ty| render_data_ty(db, signature_owner, ty));
     let dir = port.direction.display_source(db).ok()?;
 
     match (dir.is_empty(), ty) {
@@ -433,11 +433,12 @@ fn render_subroutine_port_signature(
 fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineScope) -> Option<String> {
     let subroutine = db.subroutine(subroutine_id.clone());
     let name = subroutine.name.as_ref()?;
-    let owner = subroutine_id.clone().owner(db).expect("subroutine owner");
+    let signature_owner = subroutine_id.parent_owner(db);
     let mut signature = match &subroutine.kind {
         SubroutineKind::Task => format!("task {name}"),
         SubroutineKind::Function { return_ty } => {
-            if let Some(return_ty) = return_ty.clone().and_then(|ty| render_data_ty(db, owner, ty))
+            if let Some(return_ty) =
+                return_ty.clone().and_then(|ty| render_data_ty(db, signature_owner, ty))
             {
                 format!("function {return_ty} {name}")
             } else {
@@ -732,24 +733,25 @@ fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefOrigin) -> Opt
 }
 
 fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<String> {
-    // elaboration?
     let db = sema.db;
     let InFile { value: range, .. } = origin.range(db)?;
-    let cont_id = origin.container_id(db);
-
+    let container = origin.container_id(db);
     let mut containers = Vec::new();
 
-    for cont_id in ScopeParent::start_from(db, cont_id) {
-        let owner = cont_id.owner(db);
+    for owner in ScopeParent::start_from(db, container) {
         let region_tree = db.owner_region_tree(owner);
         if let Some(node) = region_tree.find(range.start()) {
             for region in RegionParent::start_from(&region_tree, node) {
                 containers.push(format!("({})", region.name()));
             }
         }
-
-        if cont_id.clone().kind(db) != hir_def::symbol::ScopeKind::File
-            && let Some(name) = cont_id.name(db).filter(|name| !name.is_empty())
+        if !matches!(
+            owner.kind(db),
+            hir_def::owner::OwnerKind::File
+                | hir_def::owner::OwnerKind::Checker
+                | hir_def::owner::OwnerKind::Covergroup
+                | hir_def::owner::OwnerKind::ClockingBlock
+        ) && let Some(name) = owner.name(db).filter(|name| !name.is_empty())
         {
             containers.push(name.to_string());
         }

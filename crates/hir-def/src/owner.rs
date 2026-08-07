@@ -20,7 +20,7 @@ use rustc_hash::FxHashMap;
 use smallvec::{SmallVec, smallvec};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxTree, WalkEvent,
+    SyntaxElement, SyntaxKind, SyntaxNode, WalkEvent,
     ast::{self, AstNode},
     has_name::HasName,
 };
@@ -141,28 +141,10 @@ pub(crate) struct OwnerTableBuilder<'db> {
     file_id: HirFileId,
     table: OwnerTable,
     stack: Vec<OwnerId>,
-    include_body_owners: bool,
 }
 
 impl<'db> OwnerTableBuilder<'db> {
     pub(crate) fn new(db: &'db dyn HirDefDb, file_id: HirFileId, root_ast_id: SourceAstId) -> Self {
-        Self::build(db, file_id, root_ast_id, true)
-    }
-
-    pub(crate) fn new_structural(
-        db: &'db dyn HirDefDb,
-        file_id: HirFileId,
-        root_ast_id: SourceAstId,
-    ) -> Self {
-        Self::build(db, file_id, root_ast_id, false)
-    }
-
-    fn build(
-        db: &'db dyn HirDefDb,
-        file_id: HirFileId,
-        root_ast_id: SourceAstId,
-        include_body_owners: bool,
-    ) -> Self {
         let file_owner = OwnerId::new(db, file_id, root_ast_id, OwnerKind::File);
         let mut table = OwnerTable::default();
         table.owners.push(OwnerData {
@@ -172,14 +154,11 @@ impl<'db> OwnerTableBuilder<'db> {
             name: SmolStr::new_static(""),
         });
         table.by_source.insert((root_ast_id, OwnerKind::File), file_owner);
-        Self { db, file_id, table, stack: vec![file_owner], include_body_owners }
+        Self { db, file_id, table, stack: vec![file_owner] }
     }
 
     fn kinds(&self, node: SyntaxNode<'_>) -> SmallVec<[OwnerKind; 2]> {
         owner_kinds_of(node)
-            .into_iter()
-            .filter(|kind| self.include_body_owners || *kind != OwnerKind::Block)
-            .collect()
     }
 
     pub(crate) fn enter(&mut self, node: SyntaxNode<'_>, ast_id: SourceAstId) {
@@ -368,14 +347,6 @@ impl ModuleId {
         let slot = u32::try_from(slot).ok()?;
         Some(Self::new(file_id, la_arena::Idx::from_raw(la_arena::RawIdx::from(slot))))
     }
-}
-
-fn owner_node<'tree>(
-    db: &dyn HirDefDb,
-    owner: OwnerId,
-    tree: &'tree SyntaxTree,
-) -> Option<SyntaxNode<'tree>> {
-    db.ast_id_map(owner.file(db)).node(owner.ast_id(db), tree)
 }
 
 impl GenerateBlockId {

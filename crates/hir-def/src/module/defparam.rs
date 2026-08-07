@@ -3,7 +3,6 @@ use smallvec::SmallVec;
 use syntax::ast::{self, AstNode};
 
 use crate::{
-    alloc_with_source,
     ast_id_map::SourceAstId,
     expr::ExprId,
     lower::{LoweringCtx, ModuleItemStore},

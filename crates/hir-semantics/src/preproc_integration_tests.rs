@@ -9,11 +9,7 @@ use base_db::{
     source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
     source_root::{SourceRoot, SourceRootId},
 };
-use hir_def::{
-    container::{InFile, ScopeId},
-    db::HirDefDb,
-    module::ModuleId,
-};
+use hir_def::{container::InFile, db::HirDefDb, module::ModuleId};
 use preproc_expand::{
     db::PreprocDb, file::HirFileId, macro_file::macro_files_at_offset,
     preproc::diagnostic_target_for_range,
@@ -178,8 +174,8 @@ fn macro_expanded_module_keeps_macro_hir_file_id() {
     let (local_module_id, _) =
         hir_file.modules.iter().next().expect("macro expansion should lower a module");
     let module_id = InFile::new(hir_file_id, local_module_id);
-
-    assert_eq!(ScopeId::Module(module_id).file_id(&db), hir_file_id);
+    let owner = module_id.owner(&db).expect("module owner");
+    assert_eq!(owner.file(&db), hir_file_id);
     assert_eq!(module_id.file_id.source_file_id(&db), Some(TOP));
 }
 

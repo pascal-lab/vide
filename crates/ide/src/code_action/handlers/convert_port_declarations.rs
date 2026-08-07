@@ -7,7 +7,7 @@ use hir_def::{
     container::{InContainer, InModule},
     expr::declarator::{DeclId, DeclaratorParent},
     module::{
-        Module, ModuleId,
+        ModuleId,
         port::{PortDecl, Ports},
     },
     source_map::Lowered,
@@ -207,7 +207,7 @@ struct NonAnsiPortReplacement {
 
 fn non_ansi_port_replacement(
     ctx: &CodeActionCtx,
-    module: &Lowered<Module>,
+    module: &Lowered<Body>,
     body: &Lowered<Body>,
     module_scope: &NameScope,
     name: &Ident,

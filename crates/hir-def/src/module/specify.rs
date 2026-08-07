@@ -82,7 +82,7 @@ impl LowerModuleCtx<'_> {
             })
             .collect();
 
-        let file_id = self.file_id;
+        let _file_id = self.file_id;
         alloc_with_source(
             &self.ast_ids,
             &self.tree,
@@ -95,7 +95,7 @@ impl LowerModuleCtx<'_> {
 
     pub(crate) fn lower_specify_path_item(&mut self, path: ast::PathDeclaration) -> SpecifyItemId {
         let item = SpecifyItem::Path(self.lower_specify_path(path));
-        let file_id = self.file_id;
+        let _file_id = self.file_id;
         alloc_with_source(
             &self.ast_ids,
             &self.tree,
@@ -114,7 +114,7 @@ impl LowerModuleCtx<'_> {
         let path_data = self.lower_specify_path(path.path());
         let item = SpecifyItem::ConditionalPath { predicate, path: path_data };
 
-        let file_id = self.file_id;
+        let _file_id = self.file_id;
         alloc_with_source(
             &self.ast_ids,
             &self.tree,
@@ -131,7 +131,7 @@ impl LowerModuleCtx<'_> {
     ) -> SpecifyItemId {
         let item = SpecifyItem::IfNonePath(self.lower_specify_path(path.path()));
 
-        let file_id = self.file_id;
+        let _file_id = self.file_id;
         alloc_with_source(
             &self.ast_ids,
             &self.tree,
@@ -149,7 +149,7 @@ impl LowerModuleCtx<'_> {
         let controls = pulse.inputs().children().map(|name| self.lower_name_expr(name)).collect();
         let item = SpecifyItem::PulseStyle { controls };
 
-        let file_id = self.file_id;
+        let _file_id = self.file_id;
         alloc_with_source(
             &self.ast_ids,
             &self.tree,
@@ -168,7 +168,7 @@ impl LowerModuleCtx<'_> {
         let args = timing.args().children().map(|arg| self.lower_timing_check_arg(arg)).collect();
         let item = SpecifyItem::TimingCheck { name, args };
 
-        let file_id = self.file_id;
+        let _file_id = self.file_id;
         alloc_with_source(
             &self.ast_ids,
             &self.tree,

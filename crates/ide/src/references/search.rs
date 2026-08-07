@@ -1,8 +1,9 @@
 use base_db::source_root::SourceRootId;
 use hir_def::{
-    container::{InFile, ScopeId},
+    container::InFile,
     def_id::DefId,
     has_source::HasSource,
+    owner::{OwnerId, OwnerKind},
 };
 use hir_semantics::semantics::Semantics;
 use hir_ty::db::TyDb;
@@ -43,9 +44,11 @@ impl SearchScope {
             ScopeVisibility::Public => search_scope.unwrap_or_else(|| Self::all(db)),
             ScopeVisibility::Private => {
                 let container_id = def.container_id(db);
-                let container_id = match container_id {
-                    ScopeId::Module(InFile { file_id, .. }) if def.is_port(db) => file_id.into(),
-                    cont => cont,
+                let container_id = if container_id.kind(db) == OwnerKind::Module && def.is_port(db)
+                {
+                    db.owner_table(container_id.file(db)).file_owner().expect("file owner")
+                } else {
+                    container_id
                 };
 
                 let mut scope = Self::from_conts(db, container_id);
@@ -84,8 +87,8 @@ impl SearchScope {
         }
     }
 
-    fn from_conts(db: &dyn WorkspaceSymbolIndexDb, cont: ScopeId) -> Self {
-        if matches!(cont, ScopeId::File(_)) {
+    fn from_conts(db: &dyn WorkspaceSymbolIndexDb, cont: OwnerId) -> Self {
+        if cont.kind(db) == OwnerKind::File {
             return Self::all(db);
         }
 

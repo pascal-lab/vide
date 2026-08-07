@@ -3,10 +3,7 @@ use smallvec::SmallVec;
 use syntax::{TokenKind, ast};
 
 use super::{Ident, expr::data_ty::DataTy, lower_ident_opt};
-use crate::{
-    ast_id_map::SourceAstId,
-    body::{Body, BodySourceMap},
-};
+use crate::ast_id_map::SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Subroutine {
@@ -26,10 +23,6 @@ impl Default for Subroutine {
         }
     }
 }
-
-/// Compatibility names for the canonical owner-local body storage.
-pub type SubroutineBody = Body;
-pub type SubroutineBodySourceMap = BodySourceMap;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum SubroutineKind {

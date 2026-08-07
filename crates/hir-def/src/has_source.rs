@@ -1,6 +1,6 @@
 use crate::{
     ast_id_map::SourceAstId,
-    container::{InFile, ScopeId, SubroutineScope},
+    container::{InFile, SubroutineScope},
     db::HirDefDb,
     def_id::{DefId, subroutine_src},
     module::{ModuleId, generate::GenerateBlockId},
@@ -40,26 +40,6 @@ impl HasSource for GenerateBlockId {
 impl HasSource for SubroutineScope {
     fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
         project(db, subroutine_src(db, self.clone())?)
-    }
-}
-impl HasSource for ScopeId {
-    fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        match self.clone() {
-            ScopeId::File(_) => None,
-            ScopeId::Module(module_id) => module_id.source(db),
-            ScopeId::GenerateBlock(generate_block_id) => generate_block_id.source(db),
-            ScopeId::Subroutine(subroutine) => subroutine.source(db),
-            ScopeId::Owner(owner) => owner.source(db),
-            ScopeId::ClockingBlock(clocking_block) => {
-                DefOrigin::new(db, DefOriginLoc::ClockingBlock(clocking_block)).source(db)
-            }
-            ScopeId::Checker(checker) => {
-                DefOrigin::new(db, DefOriginLoc::Checker(checker)).source(db)
-            }
-            ScopeId::Covergroup(covergroup) => {
-                DefOrigin::new(db, DefOriginLoc::Covergroup(covergroup)).source(db)
-            }
-        }
     }
 }
 

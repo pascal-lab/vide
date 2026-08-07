@@ -7,7 +7,6 @@ use syntax::{
 
 use super::ExprId;
 use crate::{
-    alloc_with_source,
     ast_id_map::SourceAstId,
     lower::{LoweringCtx, LoweringStore},
 };

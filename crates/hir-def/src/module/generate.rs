@@ -26,7 +26,7 @@ use crate::{
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct GenerateRegion {
-    pub items: SmallVec<[GenerateItem; 4]>,
+    pub items: SmallVec<[BodyItem; 4]>,
 }
 
 pub type GenerateRegionId = Idx<GenerateRegion>;
@@ -50,11 +50,6 @@ pub(crate) fn generate_block_name(block: ast::GenerateBlock<'_>) -> Option<Synta
         .and_then(|label| label.name())
         .or_else(|| block.begin_name().and_then(|name| name.name()))
 }
-
-pub type GenerateBlock = Body;
-pub type GenerateBlockSourceMap = BodySourceMap;
-pub type GenerateItem = BodyItem;
-pub type GenerateBlockItem = BodyItem;
 
 #[derive(Default, Debug, PartialEq, Eq, Clone, Hash)]
 pub enum GenerateBlockKind {
@@ -158,10 +153,7 @@ impl LowerGenerateBlockCtx<'_> {
         })
     }
 
-    fn generate_block_item_from_branch(
-        &mut self,
-        member: ast::Member,
-    ) -> SmallVec<[GenerateBlockItem; 4]> {
+    fn generate_block_item_from_branch(&mut self, member: ast::Member) -> SmallVec<[BodyItem; 4]> {
         use ast::Member::*;
         match member {
             EmptyMember(_) => SmallVec::new(),
@@ -177,10 +169,7 @@ impl LowerGenerateBlockCtx<'_> {
         }
     }
 
-    fn lower_if_generate_items(
-        &mut self,
-        if_generate: ast::IfGenerate,
-    ) -> SmallVec<[GenerateBlockItem; 4]> {
+    fn lower_if_generate_items(&mut self, if_generate: ast::IfGenerate) -> SmallVec<[BodyItem; 4]> {
         self.lower_expr(if_generate.condition());
 
         let mut items = self.generate_block_item_from_branch(if_generate.block());
@@ -195,7 +184,7 @@ impl LowerGenerateBlockCtx<'_> {
     fn lower_case_generate_items(
         &mut self,
         case_generate: ast::CaseGenerate,
-    ) -> SmallVec<[GenerateBlockItem; 4]> {
+    ) -> SmallVec<[BodyItem; 4]> {
         self.lower_expr(case_generate.condition());
 
         let mut items = SmallVec::new();
@@ -225,7 +214,7 @@ impl LowerGenerateBlockCtx<'_> {
         items
     }
 
-    fn lower_generate_member(&mut self, member: ast::Member) -> Option<GenerateBlockItem> {
+    fn lower_generate_member(&mut self, member: ast::Member) -> Option<BodyItem> {
         use ast::Member::*;
         let item = match member {
             ContinuousAssign(assign) => self.lower_continuous_assign(assign).into(),
@@ -321,7 +310,7 @@ impl LowerModuleCtx<'_> {
         })
     }
 
-    fn generate_item_from_branch(&mut self, member: ast::Member) -> SmallVec<[GenerateItem; 4]> {
+    fn generate_item_from_branch(&mut self, member: ast::Member) -> SmallVec<[BodyItem; 4]> {
         use ast::Member::*;
         match member {
             EmptyMember(_) => SmallVec::new(),
@@ -337,10 +326,7 @@ impl LowerModuleCtx<'_> {
         }
     }
 
-    fn lower_if_generate_items(
-        &mut self,
-        if_generate: ast::IfGenerate,
-    ) -> SmallVec<[GenerateItem; 4]> {
+    fn lower_if_generate_items(&mut self, if_generate: ast::IfGenerate) -> SmallVec<[BodyItem; 4]> {
         self.lower_expr(if_generate.condition());
 
         let mut items = self.generate_item_from_branch(if_generate.block());
@@ -355,7 +341,7 @@ impl LowerModuleCtx<'_> {
     fn lower_case_generate_items(
         &mut self,
         case_generate: ast::CaseGenerate,
-    ) -> SmallVec<[GenerateItem; 4]> {
+    ) -> SmallVec<[BodyItem; 4]> {
         self.lower_expr(case_generate.condition());
 
         let mut items = SmallVec::new();
@@ -388,7 +374,7 @@ impl LowerModuleCtx<'_> {
     fn lower_generate_region_member(
         &mut self,
         item: ast::Member,
-        items: &mut SmallVec<[GenerateItem; 4]>,
+        items: &mut SmallVec<[BodyItem; 4]>,
     ) {
         use ast::Member::*;
         match item {
@@ -481,7 +467,7 @@ pub(crate) fn lower_generate_owner(
     db: &dyn HirDefDb,
     owner: OwnerId,
     syntax: &LoweringSyntax,
-) -> Arc<Lowered<GenerateBlock>> {
+) -> Arc<Lowered<Body>> {
     debug_assert_eq!(owner.kind(db), OwnerKind::GenerateBlock);
     let file_id = syntax.file_id;
     let tree = syntax.tree.clone();
@@ -530,16 +516,21 @@ pub(crate) fn lower_generate_owner(
     source_map.shrink_to_fit();
     Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
 }
+#[salsa::tracked(lru = 128, returns(clone))]
+fn generate_block_input(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
+    debug_assert_eq!(owner.kind(db), OwnerKind::GenerateBlock);
+    lower_generate_owner(db, owner, &LoweringSyntax::for_owner(db, owner))
+}
+
+pub(crate) fn set_generate_block_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    generate_block_input::set_lru_capacity(db, capacity);
+    generate_block_with_source_map::set_lru_capacity(db, capacity);
+}
 
 #[salsa::tracked(lru = 128, returns(clone))]
 pub(crate) fn generate_block_with_source_map(
     db: &dyn HirDefDb,
     owner: OwnerId,
-) -> Arc<Lowered<GenerateBlock>> {
-    debug_assert_eq!(owner.kind(db), OwnerKind::GenerateBlock);
-    db.item_tree(owner.file(db)).owner_store(owner).expect("generate owner store must exist")
-}
-
-pub(crate) fn set_generate_block_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
-    generate_block_with_source_map::set_lru_capacity(db, capacity);
+) -> Arc<Lowered<Body>> {
+    generate_block_input(db, owner)
 }

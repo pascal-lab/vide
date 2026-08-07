@@ -202,7 +202,7 @@ fn ty_expr_container(db: &dyn crate::db::TyDb, ty: &Ty) -> Option<hir_def::owner
         Ty::Enum(def) | Ty::Union(def) => match def.primary_origin(db).loc(db) {
             DefOriginLoc::Decl(decl) => Some(decl.cont_id.clone()),
             DefOriginLoc::Typedef(typedef) => Some(typedef.cont_id.clone()),
-            DefOriginLoc::SubroutinePort(port) => port.subroutine.clone().owner(db),
+            DefOriginLoc::SubroutinePort(port) => Some(port.subroutine.parent_owner(db)),
             _ => None,
         },
         Ty::Queue { elem, .. } | Ty::Assoc { elem, .. } | Ty::Dynamic(elem) => {

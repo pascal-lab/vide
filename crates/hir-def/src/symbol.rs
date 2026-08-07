@@ -6,8 +6,7 @@ use crate::{
     Ident,
     checker::{CheckerId, CheckerPortId},
     container::{
-        InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine, ScopeId,
-        SubroutineScope,
+        InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine, SubroutineScope,
     },
     covergroup::{CovergroupId, CoverpointId, CrossId},
     db::HirDefDb,
@@ -123,37 +122,38 @@ impl DefOriginLoc {
         Covergroup, Coverpoint, Cross, Stmt,
     }
 
-    /// The scope that owns this origin. Does not need the database: every
-    /// variant carries its container directly.
-    pub fn container_id(&self, db: &dyn HirDefDb) -> ScopeId {
+    /// Canonical semantic owner of the containing scope.
+    pub fn container_id(&self, db: &dyn HirDefDb) -> OwnerId {
         match self {
-            DefOriginLoc::Module(InFile { file_id, .. }) => (*file_id).into(),
-            DefOriginLoc::Config(InFile { file_id, .. }) => (*file_id).into(),
-            DefOriginLoc::Library(InFile { file_id, .. }) => (*file_id).into(),
-            DefOriginLoc::Udp(InFile { file_id, .. }) => (*file_id).into(),
-            DefOriginLoc::Block(owner) => {
-                owner.parent(db).map(ScopeId::Owner).unwrap_or(ScopeId::Owner(*owner))
+            DefOriginLoc::Module(module) => {
+                module.owner(db).expect("module owner").parent(db).expect("file owner")
             }
-            DefOriginLoc::GenerateBlock(generate_block_id) => {
-                generate_block_id.loc().cont_id.clone().into()
+            DefOriginLoc::Config(InFile { file_id, .. })
+            | DefOriginLoc::Library(InFile { file_id, .. })
+            | DefOriginLoc::Udp(InFile { file_id, .. }) => {
+                db.owner_table(*file_id).file_owner().expect("file owner")
             }
-            DefOriginLoc::Subroutine(subroutine_id) => subroutine_id.cont_id.clone().into(),
+            DefOriginLoc::Block(owner) => owner.parent(db).unwrap_or(*owner),
+            DefOriginLoc::GenerateBlock(block) => block.loc().cont_id,
+            DefOriginLoc::Subroutine(subroutine) => subroutine.parent_owner(db),
             DefOriginLoc::SubroutinePort(InSubroutine { subroutine, .. }) => {
-                ScopeId::Subroutine(subroutine.clone())
+                subroutine.clone().owner(db).expect("subroutine owner")
             }
-            DefOriginLoc::NonAnsiPort(InModule { module_id, .. }) => (*module_id).into(),
-            DefOriginLoc::Decl(InContainer { cont_id, .. }) => cont_id.clone().into(),
-            DefOriginLoc::Typedef(InContainer { cont_id, .. }) => cont_id.clone().into(),
-            DefOriginLoc::Instance(InModule { module_id, .. }) => (*module_id).into(),
-            DefOriginLoc::Modport(InModule { module_id, .. }) => (*module_id).into(),
-            DefOriginLoc::ClockingBlock(InModule { module_id, .. }) => (*module_id).into(),
-            DefOriginLoc::ClockingSignal(InScope { scope_id, .. }) => scope_id.clone(),
-            DefOriginLoc::Checker(InFileOrModule { cont_id, .. }) => cont_id.clone().into(),
-            DefOriginLoc::CheckerPort(InScope { scope_id, .. }) => scope_id.clone(),
-            DefOriginLoc::Covergroup(InFileOrModule { cont_id, .. }) => cont_id.clone().into(),
-            DefOriginLoc::Coverpoint(InScope { scope_id, .. }) => scope_id.clone(),
-            DefOriginLoc::Cross(InScope { scope_id, .. }) => scope_id.clone(),
-            DefOriginLoc::Stmt(InContainer { cont_id, .. }) => cont_id.clone().into(),
+            DefOriginLoc::NonAnsiPort(InModule { module_id, .. })
+            | DefOriginLoc::Instance(InModule { module_id, .. })
+            | DefOriginLoc::Modport(InModule { module_id, .. })
+            | DefOriginLoc::ClockingBlock(InModule { module_id, .. }) => {
+                module_id.owner(db).expect("module owner")
+            }
+            DefOriginLoc::Decl(InContainer { cont_id, .. })
+            | DefOriginLoc::Typedef(InContainer { cont_id, .. })
+            | DefOriginLoc::Stmt(InContainer { cont_id, .. }) => *cont_id,
+            DefOriginLoc::ClockingSignal(InScope { scope_id, .. })
+            | DefOriginLoc::CheckerPort(InScope { scope_id, .. })
+            | DefOriginLoc::Coverpoint(InScope { scope_id, .. })
+            | DefOriginLoc::Cross(InScope { scope_id, .. }) => *scope_id,
+            DefOriginLoc::Checker(item) => item.parent_owner(db),
+            DefOriginLoc::Covergroup(item) => item.parent_owner(db),
         }
     }
 }

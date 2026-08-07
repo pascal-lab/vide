@@ -11,7 +11,7 @@ use hir_def::{
     expr::{data_ty::DataTy, declarator::DeclaratorParent},
     lower_ident_opt,
     module::{
-        Module, ModuleId,
+        ModuleId, ansi_port_decl_id_by_idx,
         instantiation::{Instantiation, PortConn},
         port::{PortDirection, Ports},
     },
@@ -183,7 +183,7 @@ pub(crate) fn resolve_connection_port(
                     Resolution::Unique(DefId::new(db, InModule::new(target_module_id, port_id)))
                 }
                 Ports::Ansi(_) => {
-                    let Some(port_decl_id) = module.ansi_port_decl_id_by_idx(idx) else {
+                    let Some(port_decl_id) = ansi_port_decl_id_by_idx(&module, idx) else {
                         return Resolution::Unresolved;
                     };
                     let Some(decl_id) = module.get(port_decl_id).decls.clone().next() else {
@@ -211,7 +211,7 @@ pub(crate) fn resolve_connection_port(
 /// through the port's internal references.
 pub(crate) fn resolve_port_metadata<'a>(
     db: &dyn HirDefDb,
-    module: &'a Lowered<Module>,
+    module: &'a Lowered<Body>,
     body: &'a Body,
     defs: &[DefOrigin],
 ) -> Option<(&'a Ident, Option<PortDirection>, DataTy)> {

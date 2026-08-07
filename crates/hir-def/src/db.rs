@@ -8,16 +8,11 @@ use crate::{
     ast_id_map::{self, AstIdMap, SourceAstId, SyntaxFileId},
     body::{self, Body},
     checker::CheckerId,
-    container::{InFileOrModule, InModule, ScopeId, SubroutineScope},
+    container::{InFileOrModule, InModule, SubroutineScope},
     covergroup::CovergroupId,
-    diagnostics,
-    file::{self, HirFile},
+    diagnostics, file,
     item_tree::{self, ItemTree, ItemTreeItem, Signature},
-    module::{
-        self, Module, ModuleId, PackageId,
-        clocking::ClockingBlockId,
-        generate::{self, GenerateBlock, GenerateBlockId},
-    },
+    module::{self, ModuleId, PackageId, clocking::ClockingBlockId, generate::GenerateBlockId},
     nameres,
     owner::{self, OwnerId, OwnerTable},
     source_map::Lowered,
@@ -85,13 +80,12 @@ impl dyn HirDefDb + '_ {
         crate::region_tree::owner_region_tree(self, owner)
     }
 
-    pub fn hir_file_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<HirFile>> {
+    pub fn hir_file_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<Body>> {
         file::hir_file_with_source_map(self, self.syntax_file(file_id))
     }
 
     pub fn file_body_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<Body>> {
-        let owner = self.owner_table(file_id).file_owner().expect("file owner must exist");
-        self.body_with_source_map(owner)
+        self.hir_file_with_source_map(file_id)
     }
 
     /// All lowering diagnostics of a file, flattened across every lowering
@@ -105,22 +99,21 @@ impl dyn HirDefDb + '_ {
         diagnostics::file_lowering_diagnostics(self, self.syntax_file(file_id))
     }
 
-    pub fn hir_file(&self, file_id: HirFileId) -> Arc<HirFile> {
+    pub fn hir_file(&self, file_id: HirFileId) -> Arc<Body> {
         hir_file(self, file_id)
     }
 
-    pub fn module_with_source_map(&self, module_id: ModuleId) -> Arc<Lowered<Module>> {
+    pub fn module_with_source_map(&self, module_id: ModuleId) -> Arc<Lowered<Body>> {
         let owner = module_id.owner(self).expect("module id must resolve to an owner");
         module::module_with_source_map(self, owner)
     }
 
-    pub fn module(&self, module_id: ModuleId) -> Arc<Module> {
+    pub fn module(&self, module_id: ModuleId) -> Arc<Body> {
         module(self, module_id)
     }
 
     pub fn module_body_with_source_map(&self, module_id: ModuleId) -> Arc<Lowered<Body>> {
-        let owner = module_id.owner(self).expect("module id must resolve to an owner");
-        self.body_with_source_map(owner)
+        self.module_with_source_map(module_id)
     }
 
     pub fn subroutine_body_with_source_map(&self, owner: OwnerId) -> Arc<Lowered<Body>> {
@@ -134,12 +127,13 @@ impl dyn HirDefDb + '_ {
     pub fn generate_block_with_source_map(
         &self,
         generate_block_id: GenerateBlockId,
-    ) -> Arc<Lowered<GenerateBlock>> {
-        let owner = generate_block_id.owner(self).expect("generate block must resolve to an owner");
-        generate::generate_block_with_source_map(self, owner)
+    ) -> Arc<Lowered<Body>> {
+        let owner =
+            generate_block_id.owner(self).expect("generate block id must resolve to an owner");
+        module::generate::generate_block_with_source_map(self, owner)
     }
 
-    pub fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock> {
+    pub fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<Body> {
         generate_block(self, generate_block_id)
     }
 
@@ -147,13 +141,11 @@ impl dyn HirDefDb + '_ {
         &self,
         generate_block_id: GenerateBlockId,
     ) -> Arc<Lowered<Body>> {
-        let owner =
-            generate_block_id.owner(self).expect("generate block id must resolve to an owner");
-        self.body_with_source_map(owner)
+        self.generate_block_with_source_map(generate_block_id)
     }
 
-    pub fn scope_for(&self, scope_id: ScopeId) -> Arc<NameScope> {
-        nameres::scope_for(self, scope_id.owner(self))
+    pub fn scope_for(&self, owner: OwnerId) -> Arc<NameScope> {
+        nameres::scope_for(self, owner)
     }
 
     pub fn unit_scope(&self) -> Arc<NameScope> {
@@ -189,7 +181,7 @@ impl dyn HirDefDb + '_ {
 
     pub fn block_scope(&self, owner: OwnerId) -> Arc<NameScope> {
         debug_assert_eq!(owner.kind(self), crate::owner::OwnerKind::Block);
-        self.scope_for(owner.into())
+        self.scope_for(owner)
     }
 
     pub fn subroutine_scope(&self, subroutine_id: SubroutineScope) -> Arc<NameScope> {
@@ -206,12 +198,12 @@ impl dyn HirDefDb + '_ {
     }
 }
 
-fn hir_file(db: &dyn HirDefDb, file_id: HirFileId) -> Arc<HirFile> {
-    db.hir_file_with_source_map(file_id).data()
+fn hir_file(db: &dyn HirDefDb, file_id: HirFileId) -> Arc<Body> {
+    db.file_body_with_source_map(file_id).data()
 }
 
-fn module(db: &dyn HirDefDb, module_id: ModuleId) -> Arc<Module> {
-    db.module_with_source_map(module_id).data()
+fn module(db: &dyn HirDefDb, module_id: ModuleId) -> Arc<Body> {
+    db.module_body_with_source_map(module_id).data()
 }
 
 fn subroutine(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
@@ -228,8 +220,8 @@ fn subroutine(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> Arc<Subrouti
     }
 }
 
-fn generate_block(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock> {
-    db.generate_block_with_source_map(generate_block_id).data()
+fn generate_block(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> Arc<Body> {
+    db.generate_block_body_with_source_map(generate_block_id).data()
 }
 
 /// Sets the LRU capacity of the tracked HIR queries, mirroring the previous
@@ -238,10 +230,11 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     ast_id_map::set_ast_id_map_lru_capacity(db, capacity);
     body::set_body_lru_capacity(db, capacity);
     file::set_hir_file_lru_capacity(db, capacity);
-    item_tree::set_item_tree_lru_capacity(db, capacity);
     module::set_module_lru_capacity(db, capacity);
     module::generate::set_generate_block_lru_capacity(db, capacity);
+    item_tree::set_item_tree_lru_capacity(db, capacity);
     owner::set_owner_table_lru_capacity(db, capacity);
     nameres::set_scope_lru_capacity(db, capacity);
     source_projection::set_source_projection_lru_capacity(db, capacity);
+    crate::region_tree::set_region_tree_lru_capacity(db, capacity);
 }

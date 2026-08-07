@@ -1,10 +1,7 @@
 use la_arena::Idx;
 use syntax::ast::{self, AstNode};
 
-use super::{
-    alloc_with_source,
-    lower::{LoweringCtx, ProcStore},
-};
+use super::lower::{LoweringCtx, ProcStore};
 use crate::{
     ast_id_map::SourceAstId,
     owner::{OwnerId, OwnerKind},
