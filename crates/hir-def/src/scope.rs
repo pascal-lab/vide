@@ -1,7 +1,10 @@
 use la_arena::{Arena, Idx, RawIdx};
 use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
-use syntax::{SyntaxKind, ast::{self, AstNode}};
+use syntax::{
+    SyntaxKind,
+    ast::{self, AstNode},
+};
 use triomphe::Arc;
 use utils::get::GetRef;
 
@@ -83,6 +86,13 @@ fn insert_stmts(
     }
 }
 
+fn insert_proc_bodies(scope: &mut NameScope, db: &dyn HirDefDb, procs: &Arena<crate::proc::Proc>) {
+    for (_, proc) in procs.iter() {
+        let body = db.body_with_source_map(proc.owner);
+        insert_stmts(scope, db, ArenaOwnerId::Owner(proc.owner), &body.stmts);
+    }
+}
+
 #[salsa::tracked]
 impl NameScope {
     #[salsa::tracked(returns(clone))]
@@ -97,16 +107,14 @@ impl NameScope {
 
         Arc::new(scope)
     }
+
     pub fn package_export_scope(db: &dyn HirDefDb, package_id: PackageId) -> Arc<NameScope> {
         let owner = package_id.owner(db).expect("package id must resolve to an owner");
         Self::package_export_signature(db, owner)
     }
 
     #[salsa::tracked(returns(clone))]
-    pub fn package_export_signature(
-        db: &dyn HirDefDb,
-        owner: OwnerId,
-    ) -> Arc<NameScope> {
+    pub fn package_export_signature(db: &dyn HirDefDb, owner: OwnerId) -> Arc<NameScope> {
         debug_assert_eq!(owner.kind(db), OwnerKind::Module);
         let mut scope = NameScope::default();
         let Some(item) = db.item_for_owner(owner) else {
@@ -117,7 +125,8 @@ impl NameScope {
         }
 
         let file_id = owner.file(db);
-        let package_id = PackageId::from_owner(db, owner).expect("package owner must have a module id");
+        let package_id =
+            PackageId::from_owner(db, owner).expect("package owner must have a module id");
         let tree = db.parse(file_id);
         let Some(package) = db
             .owner_source_ast_id(owner)
@@ -222,6 +231,7 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameSco
     for (decl_id, decl) in hir_file.decls.iter() {
         scope.insert_value_opt(&decl.name, def_id(db, InContainer::new(file_id.into(), decl_id)));
     }
+    insert_proc_bodies(&mut scope, db, &hir_file.procs);
 
     for (local_subroutine_id, subroutine) in hir_file.subroutines.iter() {
         let subroutine_id =
@@ -284,8 +294,7 @@ pub(crate) fn build_module_scope(
     module_id: crate::module::ModuleId,
 ) -> NameScope {
     let mut scope = NameScope::default();
-    let module = db.module_with_source_map(module_id);
-    let module_src_map = module.source_map();
+    let module = db.module(module_id);
 
     if let Ports::NonAnsi { ports, .. } = &module.ports {
         for (port_id, port) in ports.iter() {
@@ -345,7 +354,7 @@ pub(crate) fn build_module_scope(
         scope.insert_value_opt(&instance.name, def_id(db, InModule::new(module_id, instance_id)));
     }
 
-    for item in &module_src_map.items {
+    for item in &module.items {
         if let crate::module::ModuleItem::GenerateRegionId(generate_region_id) = item {
             let generate_region = module.get(*generate_region_id);
             for item in &generate_region.items {
@@ -360,6 +369,7 @@ pub(crate) fn build_module_scope(
     }
 
     insert_stmts(&mut scope, db, module_id.into(), &module.stmts);
+    insert_proc_bodies(&mut scope, db, &module.procs);
 
     scope
 }
@@ -499,6 +509,7 @@ pub(crate) fn build_generate_block_scope(
     }
 
     insert_stmts(&mut scope, db, generate_block_id.into(), &generate_block.stmts);
+    insert_proc_bodies(&mut scope, db, &generate_block.procs);
 
     scope
 }
@@ -1332,16 +1343,19 @@ endmodule
             .unique()
             .expect("module should resolve uniquely");
         let module = db.module_with_source_map(module_id);
-        let (empty_id, _) = module
+        let proc = module.procs.iter().next().expect("initial block should lower").1;
+        let body = db.body_with_source_map(proc.owner);
+        let (empty_id, _) = body
             .stmts
             .iter()
             .find(|(_, stmt)| matches!(stmt.kind, crate::stmt::StmtKind::Empty))
             .expect("empty statement should lower");
-        assert!(module.source(empty_id).is_some());
+        assert!(body.source(empty_id).is_some());
 
         let mut missing_file = crate::file::HirFile::default();
         let mut missing_file_source_map = crate::file::FileSourceMap::default();
         let mut ctx = crate::lower::LoweringCtx::new(
+            &db,
             TOP.into(),
             crate::container::ArenaOwnerId::File(HirFileId::File(TOP)),
             crate::lower::FileStore {

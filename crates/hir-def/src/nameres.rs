@@ -7,7 +7,6 @@
 //! dependency on the container lowering makes invalidation per-scope instead
 //! of per-file.
 use base_db::salsa;
-
 use triomphe::Arc;
 
 use crate::{

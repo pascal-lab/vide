@@ -29,8 +29,7 @@ pub const DIAGNOSTIC_AMBIGUOUS_MODULE_STRICT: &str = "diagnostic.ambiguous_modul
 pub const DIAGNOSTIC_AMBIGUOUS_MODULE_BEST_EFFORT: &str = "diagnostic.ambiguous_module.best_effort";
 pub const DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH: &str = "diagnostic.inactive_preprocessor_branch";
 pub const DIAGNOSTIC_LOWERING_INVALID_SYNTAX: &str = "diagnostic.lowering.invalid_syntax";
-pub const DIAGNOSTIC_LOWERING_UNSUPPORTED_SYNTAX: &str =
-    "diagnostic.lowering.unsupported_syntax";
+pub const DIAGNOSTIC_LOWERING_UNSUPPORTED_SYNTAX: &str = "diagnostic.lowering.unsupported_syntax";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticSource {
@@ -327,11 +326,7 @@ impl VideDiagnosticProvider for LoweringSyntaxDiagnostics {
 }
 
 fn lowering_syntax_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
-    let parse_ranges = db
-        .parse_diagnostics(file_id)
-        .iter()
-        .map(to_text_range)
-        .collect::<Vec<_>>();
+    let parse_ranges = db.parse_diagnostics(file_id).iter().map(to_text_range).collect::<Vec<_>>();
 
     db.file_lowering_diagnostics(file_id.into())
         .iter()

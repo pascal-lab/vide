@@ -93,7 +93,6 @@ impl Signature {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemTreeItem {
     id: ItemTreeId,

@@ -1,4 +1,5 @@
 use std::ops::{Deref, DerefMut};
+
 use la_arena::Idx;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -32,9 +33,7 @@ use crate::{
     db::HirDefDb,
     owner::{OwnerId, OwnerKind},
     region_tree::RegionTree,
-    source_map::{
-        AstKind, DiagnosticSource, Lowered, LoweredData, LoweringDiagnostic, NamedAstId,
-    },
+    source_map::{AstKind, DiagnosticSource, Lowered, LoweredData, LoweringDiagnostic, NamedAstId},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -91,7 +90,6 @@ impl SubroutineBody {
 
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct SubroutineBodySourceMap {
-    pub items: SmallVec<[BlockItem; 2]>,
     pub region_tree: RegionTree,
     pub body: BodySourceMap,
     pub block_srcs: FxHashMap<BlockSrc, LocalBlockId>,
@@ -126,7 +124,6 @@ impl SubroutineBodySourceMap {
         self.body.shrink_to_fit();
     }
 }
-
 
 crate::impl_arena_getters!(
     SubroutineBody;
@@ -329,30 +326,30 @@ impl LowerSubroutineBodyCtx<'_> {
                         let local_block_id = LocalBlockId(stmt_id);
                         self.store.sources.block_srcs.insert(block_src, local_block_id);
                     }
-                    self.store.sources.items.push(BlockItem::StmtId(stmt_id));
+                    self.store.data.items.push(BlockItem::StmtId(stmt_id));
                 },
                 ast::DataDeclaration[it] => {
                     let decl_id = self.lower_data_decl(it);
-                    self.store.sources.items.push(BlockItem::DeclarationId(decl_id));
+                    self.store.data.items.push(BlockItem::DeclarationId(decl_id));
                 },
                 ast::PortDeclaration[it] => {
                     if let Some(decl_id) =
                         self.lower_port_decl_as_data_decl(it)
                     {
-                        self.store.sources.items.push(BlockItem::DeclarationId(decl_id));
+                        self.store.data.items.push(BlockItem::DeclarationId(decl_id));
                     }
                 },
                 ast::LocalVariableDeclaration[it] => {
                     let decl_id = self.lower_local_variable_decl(it);
-                    self.store.sources.items.push(BlockItem::DeclarationId(decl_id));
+                    self.store.data.items.push(BlockItem::DeclarationId(decl_id));
                 },
                 ast::ParameterDeclarationStatement[it] => {
                     let decl_id = self.lower_param_decl_base(it.parameter());
-                    self.store.sources.items.push(BlockItem::DeclarationId(decl_id));
+                    self.store.data.items.push(BlockItem::DeclarationId(decl_id));
                 },
                 ast::TypedefDeclaration[it] => {
                     let typedef_id = self.lower_typedef(it);
-                    self.store.sources.items.push(BlockItem::TypedefId(typedef_id));
+                    self.store.data.items.push(BlockItem::TypedefId(typedef_id));
                 },
                 _ => {},
             }
@@ -397,6 +394,7 @@ pub(crate) fn subroutine_body_with_source_map(
     let mut body = SubroutineBody::default();
     let mut source_map = SubroutineBodySourceMap::default();
     let mut ctx = LoweringCtx::new(
+        db,
         file_id,
         ArenaOwnerId::Owner(owner),
         SubroutineStore { data: &mut body, sources: &mut source_map },

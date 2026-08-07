@@ -1,4 +1,5 @@
 use std::ops::{Deref, DerefMut};
+
 use clocking::{
     ClockingBlockDef, ClockingBlockId, ClockingBlockSrc, DefaultClockingRef, DefaultClockingRefSrc,
 };
@@ -77,6 +78,7 @@ pub mod specify;
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct Module {
     pub name: Option<Ident>,
+    pub items: Vec<ModuleItem>,
     pub param_ports: Option<IdxRange<Declarator>>,
     pub ports: Ports,
     pub cont_assigns: Arena<ContAssign>,
@@ -142,7 +144,6 @@ impl Module {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct ModuleSourceMap {
-    pub items: Vec<ModuleItem>,
     pub region_tree: RegionTree,
     pub port_srcs: PortSrcs,
     pub assign_srcs: SourceMap<ContAssignSrc, ContAssign>,
@@ -214,7 +215,6 @@ impl ModuleSourceMap {
         self.diagnostics.shrink_to_fit();
     }
 }
-
 
 crate::impl_arena_getters!(
     Module;
@@ -616,7 +616,7 @@ impl LowerModuleCtx<'_> {
 
         for member in decl.members().children() {
             use ast::Member::*;
-            let idx = match member {
+            let idx: ModuleItem = match member {
                 // Assignments
                 ContinuousAssign(assign) => self.lower_continuous_assign(assign).into(),
 
@@ -738,7 +738,8 @@ impl LowerModuleCtx<'_> {
                 // Modport
                 ModportDeclaration(modport) => {
                     for modport_id in self.lower_modport_declaration(modport) {
-                        self.store.sources.items.push(modport_id.into());
+                        let item = ModuleItem::from(modport_id);
+                        self.store.data.items.push(item.clone());
                     }
                     self.region_tree.handle_node(member.syntax());
                     continue;
@@ -786,7 +787,7 @@ impl LowerModuleCtx<'_> {
                 // Empty member - skip
                 EmptyMember(_) => continue,
             };
-            self.store.sources.items.push(idx);
+            self.store.data.items.push(idx.clone());
             self.region_tree.handle_node(member.syntax());
         }
         self.region_tree.stage(decl.endmodule(), decl.syntax());
@@ -795,10 +796,7 @@ impl LowerModuleCtx<'_> {
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn module_with_source_map(
-    db: &dyn HirDefDb,
-    owner: OwnerId,
-) -> Arc<Lowered<Module>> {
+pub(crate) fn module_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Module>> {
     debug_assert_eq!(owner.kind(db), OwnerKind::Module);
     let file_id = owner.file(db);
     let module_id = ModuleId::from_owner(db, owner).expect("module owner must have a module id");
@@ -817,6 +815,7 @@ pub(crate) fn module_with_source_map(
     module.name = lower_ident_opt(HasName::name(&ast_module));
 
     let mut lower_ctx = LoweringCtx::new(
+        db,
         file_id,
         module_id.into(),
         ModuleStore { data: &mut module, sources: &mut module_source_map },
@@ -831,6 +830,12 @@ pub(crate) fn module_with_source_map(
     Arc::new(Lowered::new(module, module_source_map))
 }
 
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn module_data(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Module> {
+    module_with_source_map(db, owner).data()
+}
+
 pub(crate) fn set_module_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     module_with_source_map::set_lru_capacity(db, capacity);
+    module_data::set_lru_capacity(db, capacity);
 }

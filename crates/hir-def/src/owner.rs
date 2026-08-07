@@ -249,7 +249,6 @@ fn discover_owners(
     discovered
 }
 
-
 /// Syntax nodes that start a semantic owner. Generate branches deliberately
 /// mirror `generate.rs`: a loop owns its block (the nested `GenerateBlock`
 /// node is not a second owner), while an unwrapped branch member is promoted
@@ -264,9 +263,7 @@ fn owner_kind_of(node: SyntaxNode<'_>) -> Option<OwnerKind> {
         SyntaxKind::FUNCTION_DECLARATION | SyntaxKind::TASK_DECLARATION => {
             Some(OwnerKind::Subroutine)
         }
-        SyntaxKind::GENERATE_BLOCK
-            if node.parent().and_then(ast::LoopGenerate::cast).is_some() =>
-        {
+        SyntaxKind::GENERATE_BLOCK if node.parent().and_then(ast::LoopGenerate::cast).is_some() => {
             None
         }
         SyntaxKind::GENERATE_BLOCK | SyntaxKind::LOOP_GENERATE => Some(OwnerKind::GenerateBlock),
@@ -640,10 +637,12 @@ endmodule
         let module_id =
             ModuleId::new(file_id, db.hir_file(file_id).modules.iter().next().unwrap().0);
         let module = db.module_with_source_map(module_id);
-        let block_id = module
+        let proc = module.procs.iter().next().expect("initial block must lower").1;
+        let body = db.body_with_source_map(proc.owner);
+        let block_id = body
             .stmts
             .iter()
-            .filter_map(|(_, stmt)| match &stmt.kind {
+            .find_map(|(_, stmt)| match &stmt.kind {
                 crate::stmt::StmtKind::Block(info)
                     if {
                         let node = info.block_id.loc().src.value.node;
@@ -655,8 +654,7 @@ endmodule
                 }
                 _ => None,
             })
-            .next()
-            .expect("lowering must create the block");
+            .expect("procedural body lowering must create the block");
 
         assert_eq!(block_id.owner(&db), Some(block_owner.id));
     }

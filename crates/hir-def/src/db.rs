@@ -7,6 +7,7 @@ use triomphe::Arc;
 use crate::{
     ast_id_map::{self, AstIdMap, SourceAstId, SyntaxFileId},
     block::{self, Block, BlockId},
+    body::{self, Body},
     checker::CheckerId,
     container::{InFileOrModule, InModule, ScopeId, SubroutineScope},
     covergroup::CovergroupId,
@@ -65,6 +66,10 @@ impl dyn HirDefDb + '_ {
     /// Current AST identity for one canonical owner.
     pub fn owner_source_ast_id(&self, owner: OwnerId) -> Option<SourceAstId> {
         owner::owner_source_ast_id(self, owner)
+    }
+
+    pub fn body_with_source_map(&self, owner: OwnerId) -> Arc<Lowered<Body>> {
+        body::body_with_source_map(self, owner)
     }
 
     pub fn item_tree(&self, file_id: HirFileId) -> Arc<ItemTree> {
@@ -127,6 +132,7 @@ impl dyn HirDefDb + '_ {
     pub fn subroutine(&self, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
         subroutine(self, subroutine_id)
     }
+
     pub fn generate_block_with_source_map(
         &self,
         generate_block_id: GenerateBlockId,
@@ -227,6 +233,7 @@ fn generate_block(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> Arc<
 /// `RootDb::update_parse_query_lru_capacity` knob.
 pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     ast_id_map::set_ast_id_map_lru_capacity(db, capacity);
+    body::set_body_lru_capacity(db, capacity);
     block::set_block_lru_capacity(db, capacity);
     file::set_hir_file_lru_capacity(db, capacity);
     item_tree::set_item_tree_lru_capacity(db, capacity);

@@ -1,4 +1,5 @@
 use std::ops::{Deref, DerefMut};
+
 use la_arena::{Arena, Idx};
 use smallvec::SmallVec;
 use syntax::{
@@ -23,9 +24,9 @@ use crate::{
     Ident,
     aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_with_optional_source_entry, alloc_with_source,
+    body::{Body, BodySourceMap},
     container::{ArenaOwnerId, InFile},
     db::HirDefDb,
-    body::{Body, BodySourceMap},
     declaration::{Declaration, DeclarationId, DeclarationSrc},
     expr::{
         Expr, ExprId, ExprSrc,
@@ -283,7 +284,6 @@ pub struct GenerateBlock {
     pub name: Option<Ident>,
     pub kind: GenerateBlockKind,
     pub items: Vec<GenerateBlockItem>,
-    pub region_tree: RegionTree,
     pub cont_assigns: Arena<ContAssign>,
     pub defparams: Arena<DefParam>,
     pub subroutines: Arena<Subroutine>,
@@ -325,7 +325,6 @@ impl GenerateBlock {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct GenerateBlockSourceMap {
-    pub items: Vec<GenerateBlockItem>,
     pub region_tree: RegionTree,
     pub assign_srcs: SourceMap<ContAssignSrc, ContAssign>,
     pub defparam_srcs: SourceMap<DefParamSrc, DefParam>,
@@ -376,7 +375,6 @@ impl GenerateBlockSourceMap {
         self.diagnostics.shrink_to_fit();
     }
 }
-
 
 crate::impl_arena_getters!(
     GenerateBlock;
@@ -636,15 +634,13 @@ impl LowerGenerateBlockCtx<'_> {
             LoopGenerate(loop_generate) => self.intern_generate_block(loop_generate.into()).into(),
             IfGenerate(if_generate) => {
                 for item in self.lower_if_generate_items(if_generate) {
-                    self.store.data.items.push(item.clone());
-                    self.store.sources.items.push(item);
+                    self.store.data.items.push(item);
                 }
                 return None;
             }
             CaseGenerate(case_generate) => {
                 for item in self.lower_case_generate_items(case_generate) {
                     self.store.data.items.push(item.clone());
-                    self.store.sources.items.push(item);
                 }
                 return None;
             }
@@ -666,13 +662,10 @@ impl LowerGenerateBlockCtx<'_> {
                 continue;
             };
             self.store.data.items.push(item.clone());
-            self.store.sources.items.push(item);
             self.region_tree.handle_node(member.syntax());
         }
 
-        self.region_tree.stage(block.end(), block.syntax());
-        self.store.data.region_tree = self.region_tree.finish();
-        self.store.sources.region_tree = self.store.data.region_tree.clone();
+        self.store.sources.region_tree = self.region_tree.finish();
     }
 
     fn lower_loop_generate(&mut self, loop_generate: ast::LoopGenerate) {
@@ -698,24 +691,20 @@ impl LowerGenerateBlockCtx<'_> {
                     continue;
                 };
                 self.store.data.items.push(item.clone());
-                self.store.sources.items.push(item);
                 self.region_tree.handle_node(member.syntax());
             }
             self.region_tree.stage(block.end(), block.syntax());
         }
 
-        self.store.data.region_tree = self.region_tree.finish();
-        self.store.sources.region_tree = self.store.data.region_tree.clone();
+        self.store.sources.region_tree = self.region_tree.finish();
     }
 
     fn lower_single_member(&mut self, member: ast::Member) {
         if let Some(item) = self.lower_generate_member(member) {
             self.store.data.items.push(item.clone());
-            self.store.sources.items.push(item);
         }
 
-        self.store.data.region_tree = self.region_tree.finish();
-        self.store.sources.region_tree = self.store.data.region_tree.clone();
+        self.store.sources.region_tree = self.region_tree.finish();
     }
 }
 
@@ -898,10 +887,7 @@ pub(crate) fn generate_block_with_source_map(
         .and_then(|ast_id| db.ast_id_map(file_id).ptr(ast_id))
         .and_then(|ptr| ptr.to_node(&tree))
     else {
-        return Arc::new(Lowered::new(
-            GenerateBlock::default(),
-            GenerateBlockSourceMap::default(),
-        ));
+        return Arc::new(Lowered::new(GenerateBlock::default(), GenerateBlockSourceMap::default()));
     };
     let src = if let Some(loop_generate) = ast::LoopGenerate::cast(node) {
         loop_generate.into()
@@ -922,6 +908,7 @@ pub(crate) fn generate_block_with_source_map(
     let mut generate_block_source_map = GenerateBlockSourceMap::default();
 
     let mut lower_ctx = LoweringCtx::new(
+        db,
         file_id,
         generate_block_id.into(),
         GenerateBlockStore { data: &mut generate_block, sources: &mut generate_block_source_map },

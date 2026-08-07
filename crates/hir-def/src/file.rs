@@ -1,4 +1,5 @@
 use std::ops::{Deref, DerefMut};
+
 use config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc};
 use la_arena::{Arena, Idx};
 use library::{
@@ -39,8 +40,8 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    body::{Body, BodySourceMap},
     ast_id_map::SyntaxFileId,
+    body::{Body, BodySourceMap},
     container::ArenaOwnerId,
     db::HirDefDb,
     lower_ident_opt,
@@ -54,6 +55,7 @@ pub mod udp;
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct HirFile {
+    pub items: SmallVec<[FileItem; 3]>,
     pub modules: Arena<ModuleInfo>,
     pub procs: Arena<Proc>,
     pub config_decls: Arena<ConfigDecl>,
@@ -103,7 +105,6 @@ impl HirFile {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct FileSourceMap {
-    pub items: SmallVec<[FileItem; 3]>,
     pub region_tree: RegionTree,
     pub module_srcs: SourceMap<ModuleSrc, ModuleInfo>,
     pub proc_srcs: SourceMap<ProcSrc, Proc>,
@@ -160,7 +161,6 @@ impl FileSourceMap {
         self.diagnostics.shrink_to_fit();
     }
 }
-
 
 crate::impl_arena_getters!(
     HirFile;
@@ -437,7 +437,7 @@ impl LowerFileCtx<'_> {
                 }
                 _ => continue,
             };
-            self.store.sources.items.push(idx);
+            self.store.data.items.push(idx);
             self.region_tree.handle_node(member.syntax());
         }
 
@@ -456,7 +456,7 @@ impl LowerFileCtx<'_> {
                 EmptyMember(_) => continue,
                 _ => continue,
             };
-            self.store.sources.items.push(idx);
+            self.store.data.items.push(idx);
             self.region_tree.handle_node(member.syntax());
         }
 
@@ -476,6 +476,7 @@ pub(crate) fn hir_file_with_source_map(
 
     let tree = db.parse(file_id);
     let mut lower_ctx = LoweringCtx::new(
+        db,
         file_id,
         file_id.into(),
         FileStore { data: &mut hir_file, sources: &mut source_map },

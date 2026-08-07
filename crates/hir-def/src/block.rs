@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut};
+
 use la_arena::Arena;
 use rustc_hash::FxHashMap;
-use smallvec::SmallVec;
 use syntax::{
     TokenKind,
     ast::{self, AstNode},
@@ -70,7 +70,6 @@ impl Block {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct BlockSourceMap {
-    pub items: SmallVec<[BlockItem; 2]>,
     pub region_tree: RegionTree,
     pub body: BodySourceMap,
     pub diagnostics: Vec<LoweringDiagnostic>,
@@ -347,7 +346,7 @@ impl LowerBlockCtx<'_> {
                 ast::TypedefDeclaration[it] => self.lower_typedef(it).into(),
                 _ => continue,
             };
-            self.store.sources.items.push(idx);
+            self.store.data.items.push(idx);
             self.region_tree.handle_node(node.syntax());
         }
 
@@ -356,10 +355,7 @@ impl LowerBlockCtx<'_> {
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn block_with_source_map(
-    db: &dyn HirDefDb,
-    owner: OwnerId,
-) -> Arc<Lowered<Block>> {
+pub(crate) fn block_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Block>> {
     debug_assert_eq!(owner.kind(db), OwnerKind::Block);
     let file_id = owner.file(db);
     let tree = db.parse(file_id);
@@ -381,6 +377,7 @@ pub(crate) fn block_with_source_map(
     });
 
     let mut lower_ctx = LoweringCtx::new(
+        db,
         file_id,
         block_id.into(),
         BlockStore { data: &mut block, sources: &mut block_source_map },

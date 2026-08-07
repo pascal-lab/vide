@@ -34,6 +34,7 @@ use crate::{
         ModuleId,
         generate::{GenerateBlockId, GenerateBlockItem, GenerateItem},
     },
+    proc::Proc,
     source_map::{DiagnosticSource, LoweringDiagnostic},
     stmt::{Stmt, StmtKind},
 };
@@ -67,7 +68,7 @@ pub(crate) fn file_lowering_diagnostics(
         collect_module(db, ModuleId::new(file_id, local_module_id), &tree, &mut diagnostics);
     }
 
-    collect_blocks_from_stmts(db, &file.stmts, &tree, &mut diagnostics);
+    collect_proc_bodies(db, &file.procs, &tree, &mut diagnostics);
     Arc::from(diagnostics)
 }
 
@@ -102,7 +103,7 @@ fn collect_module(
         }
     }
 
-    collect_blocks_from_stmts(db, &module.stmts, tree, diagnostics);
+    collect_proc_bodies(db, &module.procs, tree, diagnostics);
 }
 
 fn collect_generate_block(
@@ -133,7 +134,7 @@ fn collect_generate_block(
         }
     }
 
-    collect_blocks_from_stmts(db, &block.stmts, tree, diagnostics);
+    collect_proc_bodies(db, &block.procs, tree, diagnostics);
 }
 
 fn collect_subroutine(
@@ -147,6 +148,23 @@ fn collect_subroutine(
     let owner_range = scope.source(db).map(|source| source.value.full_range());
     collect(lowered.source_map().diagnostics(), owner_range, tree, diagnostics);
     collect_blocks_from_stmts(db, &lowered.stmts, tree, diagnostics);
+}
+
+fn collect_proc_bodies(
+    db: &dyn HirDefDb,
+    procs: &Arena<Proc>,
+    tree: &SyntaxTree,
+    diagnostics: &mut Vec<LoweringDiagnostic>,
+) {
+    for (_, proc) in procs.iter() {
+        let body = db.body_with_source_map(proc.owner);
+        let owner_range = db
+            .owner_source_ast_id(proc.owner)
+            .and_then(|ast_id| db.ast_id_map(proc.owner.file(db)).ptr(ast_id))
+            .map(|ptr| ptr.range());
+        collect(body.source_map().diagnostics(), owner_range, tree, diagnostics);
+        collect_blocks_from_stmts(db, &body.stmts, tree, diagnostics);
+    }
 }
 
 fn collect_blocks_from_stmts(

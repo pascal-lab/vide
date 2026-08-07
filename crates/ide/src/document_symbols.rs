@@ -209,21 +209,24 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
     let mut regions = src_map.region_tree.walk().peekable();
 
     let mut collector = SymbolCollector::new(
-        src_map.items.len() + src_map.region_tree.root_count() + file.decls.len(),
+        file.items.len() + src_map.region_tree.root_count() + file.decls.len(),
     );
 
-    for &item in src_map.items.iter() {
-        if let Some(ptr) = src_map.item_to_ptr(&item) {
+    for item in &file.items {
+        if let Some(ptr) = src_map.item_to_ptr(item) {
             regions.add_region_symbol(ptr.range(), &mut collector);
         }
 
-        match item {
+        match item.clone() {
             FileItem::LocalModuleId(idx) => {
                 collect_module_items(db, ModuleId::new(file_id, idx), &mut collector);
             }
             FileItem::ProcId(proc_id) => {
-                let stmt_id = lowered.get(proc_id).stmt;
-                build_stmt(db, &mut collector, stmt_id, lowered.as_ref());
+                let proc = lowered.get(proc_id);
+                let body = db.body_with_source_map(proc.owner);
+                if let Some(stmt_id) = body.root_stmt {
+                    build_stmt(db, &mut collector, stmt_id, body.as_ref());
+                }
             }
             FileItem::DeclarationId(declaration_id) => {
                 build_declaration(&mut collector, declaration_id, lowered.as_ref());
@@ -270,7 +273,7 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
     collector.push_symbol_with_children(
         &module.name,
         module_src,
-        src_map.items.len() + module.decls.len() + module.stmts.len(),
+        module.items.len() + module.decls.len() + module.stmts.len(),
     );
 
     if let Some(params) = &module.param_ports {
@@ -302,7 +305,7 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
         }
     }
 
-    for item in src_map.items.iter() {
+    for item in &module.items {
         if let Some(ptr) = src_map.item_to_ptr(item) {
             regions.add_region_symbol(ptr.range(), collector);
         }
@@ -320,8 +323,11 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
                 }
             }
             ModuleItem::ProcId(proc_id) => {
-                let stmt_id = lowered.get(proc_id).stmt;
-                build_stmt(db, collector, stmt_id, lowered.as_ref());
+                let proc = lowered.get(proc_id);
+                let body = db.body_with_source_map(proc.owner);
+                if let Some(stmt_id) = body.root_stmt {
+                    build_stmt(db, collector, stmt_id, body.as_ref());
+                }
             }
             ModuleItem::PortDeclId(port_decl) => {
                 let port_decl = lowered.get(port_decl);
@@ -377,10 +383,10 @@ fn collect_block_items(db: &dyn TyDb, collector: &mut SymbolCollector, block_id:
     collector.push_symbol_with_children(
         &block.name,
         block_src,
-        block.decls.len() + src_map.items.len(),
+        block.decls.len() + block.items.len(),
     );
 
-    for item in src_map.items.iter() {
+    for item in &block.items {
         if let Some(ptr) = src_map.item_to_ptr(item) {
             regions.add_region_symbol(ptr.range(), collector);
         }
@@ -588,7 +594,10 @@ fn build_generate_block_item<L>(
         }
         GenerateBlockItem::ProcId(proc_id) => {
             let proc = lowered.hir(proc_id);
-            build_stmt(db, collector, proc.stmt, lowered);
+            let body = db.body_with_source_map(proc.owner);
+            if let Some(stmt_id) = body.root_stmt {
+                build_stmt(db, collector, stmt_id, body.as_ref());
+            }
         }
         GenerateBlockItem::InstantiationId(instantiation_id) => {
             for &instance_id in lowered.hir(instantiation_id).instances.iter() {

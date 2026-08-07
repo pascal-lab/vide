@@ -1,13 +1,14 @@
 use la_arena::Idx;
-use syntax::ast;
+use syntax::ast::{self, AstNode};
 
 use super::{
     alloc_with_source,
     lower::{LoweringCtx, ProcStore},
-    stmt::StmtId,
 };
-use crate::source_map::{AstId, AstKind};
-
+use crate::{
+    owner::OwnerId,
+    source_map::{AstId, AstKind},
+};
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum AlwaysKeyword {
     Always,
@@ -28,7 +29,7 @@ pub enum ProcType {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Proc {
     pub proc_ty: ProcType,
-    pub stmt: StmtId,
+    pub owner: OwnerId,
 }
 
 pub type ProcId = Idx<Proc>;
@@ -44,6 +45,9 @@ pub type ProcSrc = AstId<ProceduralBlockAst>;
 
 impl<Store: ProcStore> LoweringCtx<Store> {
     pub(crate) fn lower_proc(&mut self, proc: ast::ProceduralBlock) -> ProcId {
+        let owner = self
+            .owner_for_node(proc.syntax())
+            .expect("procedural block must have a canonical owner");
         use ast::ProceduralBlock::*;
         let proc_ty = match proc {
             AlwaysFFBlock(_) => ProcType::Always(AlwaysKeyword::AlwaysFf),
@@ -54,10 +58,8 @@ impl<Store: ProcStore> LoweringCtx<Store> {
             FinalBlock(_) => ProcType::Final,
         };
 
-        let stmt = self.lower_stmt(proc.statement());
-
         let file_id = self.file_id;
         let (procs, sources) = self.procs();
-        alloc_with_source(file_id, procs, sources, Proc { proc_ty, stmt }, proc)
+        alloc_with_source(file_id, procs, sources, Proc { proc_ty, owner }, proc)
     }
 }

@@ -1,5 +1,5 @@
-use rustc_hash::FxHashMap;
 use preproc_expand::file::HirFileId;
+use rustc_hash::FxHashMap;
 use syntax::{SyntaxKind, ptr::SyntaxNodePtr};
 use triomphe::Arc;
 use utils::text_edit::TextRange;
@@ -87,10 +87,7 @@ impl SourceProjection {
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn source_projection(
-    db: &dyn HirDefDb,
-    file: SyntaxFileId,
-) -> Arc<SourceProjection> {
+pub(crate) fn source_projection(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<SourceProjection> {
     let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
     let ast_ids = crate::ast_id_map::ast_id_map(db, file);
