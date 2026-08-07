@@ -119,11 +119,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             EnumType(enum_ty) => self.lower_enum_type(enum_ty),
             unsupported @ (StructUnionType(_) | TypeReference(_) | VirtualInterfaceType(_)) => {
                 let kind = unsupported.syntax().kind();
-                self.report_unsupported(
-                    kind,
-                    unsupported.syntax().text_range(),
-                    "unsupported data type",
-                );
+                self.report_unsupported(unsupported.syntax(), "unsupported data type");
                 DataTy::Unsupported(kind)
             }
         }
@@ -141,11 +137,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             CHandleType(_) => Ok(BuiltinDataTy::Chandle),
             unsupported => {
                 let kind = unsupported.syntax().kind();
-                self.report_unsupported(
-                    kind,
-                    unsupported.syntax().text_range(),
-                    "unsupported keyword data type",
-                );
+                self.report_unsupported(unsupported.syntax(), "unsupported keyword data type");
                 Err(kind)
             }
         }

@@ -1,54 +1,20 @@
-//! On-demand name-scope construction.
+//! On-demand name-scope construction keyed by canonical semantic owners.
 //!
-//! Every scope (file, module, block, subroutine, generate block, checker,
-//! covergroup, clocking block) is built lazily by the single
-//! `scope_for(ScopeId)` salsa query. Name resolution (`pathres.rs`) and the
-//! typed `*_scope` queries (`scope.rs`) delegate here; the query's salsa
-//! dependency on the container lowering makes invalidation per-scope instead
-//! of per-file.
+//! Legacy file/module/generate wrappers are projected to `OwnerId` at the
+//! database edge. The tracked query itself has one identity space and depends
+//! only on the matching ItemTree or Body owner store.
 use base_db::salsa;
 use triomphe::Arc;
 
-use crate::{
-    container::ScopeId,
-    db::HirDefDb,
-    scope::{
-        build_checker_scope, build_clocking_block_scope, build_covergroup_scope, build_file_scope,
-        build_generate_block_scope, build_module_scope, build_owner_scope, build_subroutine_scope,
-    },
-    symbol::NameScope,
-};
-
-#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
-pub(crate) struct ScopeQueryKey {
-    #[returns(clone)]
-    scope: ScopeId,
-}
+use crate::{db::HirDefDb, owner::OwnerId, scope::build_owner_scope, symbol::NameScope};
 
 #[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn scope_for(db: &dyn HirDefDb, key: ScopeQueryKey) -> Arc<NameScope> {
-    Arc::new(build_scope(db, key.scope(db)))
+pub(crate) fn scope_for(db: &dyn HirDefDb, owner: OwnerId) -> Arc<NameScope> {
+    Arc::new(build_owner_scope(db, owner))
 }
 
 pub(crate) fn set_scope_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     scope_for::set_lru_capacity(db, capacity);
-}
-
-fn build_scope(db: &dyn HirDefDb, scope_id: ScopeId) -> NameScope {
-    match scope_id {
-        ScopeId::File(file_id) => build_file_scope(db, file_id),
-        ScopeId::Module(module_id) => build_module_scope(db, module_id),
-        ScopeId::ClockingBlock(clocking_block_id) => {
-            build_clocking_block_scope(db, clocking_block_id)
-        }
-        ScopeId::Checker(checker_id) => build_checker_scope(db, checker_id),
-        ScopeId::Covergroup(covergroup_id) => build_covergroup_scope(db, covergroup_id),
-        ScopeId::GenerateBlock(generate_block_id) => {
-            build_generate_block_scope(db, generate_block_id)
-        }
-        ScopeId::Subroutine(subroutine_id) => build_subroutine_scope(db, subroutine_id),
-        ScopeId::Owner(owner) => build_owner_scope(db, owner),
-    }
 }
 
 #[cfg(test)]

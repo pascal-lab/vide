@@ -1,13 +1,21 @@
+use base_db::salsa;
 use la_arena::{Arena, Idx};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    ChildrenIter, SyntaxNode, SyntaxNodeExt, SyntaxToken, SyntaxTrivia, WalkEvent, ast,
+    ChildrenIter, SyntaxElement, SyntaxNode, SyntaxNodeExt, SyntaxToken, SyntaxTrivia, WalkEvent,
+    ast::{self, AstNode},
     has_text_range::{HasTextRange, HasTextRangeIn},
     match_ast,
     token::SyntaxTokenExt,
     trivia::{TriviaExt, TriviaKindExt},
 };
+use triomphe::Arc;
 use utils::text_edit::{TextRange, TextSize};
+
+use crate::{
+    db::HirDefDb,
+    owner::{OwnerId, OwnerKind},
+};
 
 // items, decls, stmts
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -286,6 +294,118 @@ impl RegionTreeBuilder {
             }
         }
     }
+}
+
+/// Current source regions for one canonical owner. Region ranges and comments
+/// are revision-local source data, so they are deliberately not stored in the
+/// position-free owner HIR.
+#[salsa::tracked(lru = 512, returns(clone))]
+pub(crate) fn owner_region_tree(db: &dyn HirDefDb, owner: OwnerId) -> Arc<RegionTree> {
+    let file_id = owner.file(db);
+    let tree = db.parse(file_id);
+    let Some(root) = db.ast_id_map(file_id).node(owner.ast_id(db), &tree) else {
+        return Arc::new(RegionTree::default());
+    };
+
+    let mut builder = RegionTreeBuilder::new();
+    collect_owner_regions(&mut builder, root, owner.kind(db));
+    builder.stage(last_token(root), root);
+    Arc::new(builder.finish())
+}
+
+pub(crate) fn set_region_tree_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    owner_region_tree::set_lru_capacity(db, capacity);
+}
+
+fn collect_owner_regions(builder: &mut RegionTreeBuilder, root: SyntaxNode<'_>, kind: OwnerKind) {
+    match kind {
+        OwnerKind::File => {
+            if let Some(file) = ast::CompilationUnit::cast(root) {
+                for member in file.members().children() {
+                    builder.handle_node(member.syntax());
+                }
+            } else if let Some(file) = ast::LibraryMap::cast(root) {
+                for member in file.members().children() {
+                    builder.handle_node(member.syntax());
+                }
+            }
+        }
+        OwnerKind::Module => {
+            let Some(module) = ast::ModuleDeclaration::cast(root) else {
+                return;
+            };
+            let header = module.header();
+            if let Some(parameters) = header.parameters() {
+                for declaration in parameters.declarations().children() {
+                    builder.handle_node(declaration.syntax());
+                }
+            }
+            match header.ports() {
+                Some(ast::PortList::AnsiPortList(ports)) => {
+                    for port in ports.ports().children() {
+                        builder.handle_node(port.syntax());
+                    }
+                }
+                Some(ast::PortList::NonAnsiPortList(ports)) => {
+                    for port in ports.ports().children() {
+                        builder.handle_node(port.syntax());
+                    }
+                }
+                Some(ast::PortList::WildcardPortList(_)) | None => {}
+            }
+            for member in module.members().children() {
+                builder.handle_node(member.syntax());
+            }
+        }
+        OwnerKind::GenerateBlock => {
+            if let Some(block) = ast::GenerateBlock::cast(root) {
+                for member in block.members().children() {
+                    builder.handle_node(member.syntax());
+                }
+            } else if let Some(loop_generate) = ast::LoopGenerate::cast(root) {
+                if let Some(block) = loop_generate.block().as_generate_block() {
+                    for member in block.members().children() {
+                        builder.handle_node(member.syntax());
+                    }
+                }
+            }
+        }
+        OwnerKind::Subroutine => {
+            if let Some(subroutine) = ast::FunctionDeclaration::cast(root) {
+                for item in subroutine.items().children() {
+                    builder.handle_node(item.syntax());
+                }
+            }
+        }
+        OwnerKind::Block => {
+            if let Some(block) = ast::BlockStatement::cast(root) {
+                for item in block.items().children() {
+                    builder.handle_node(item.syntax());
+                }
+            }
+        }
+        OwnerKind::ProceduralBlock => {
+            if let Some(proc) = ast::ProceduralBlock::cast(root) {
+                builder.handle_node(proc.statement().syntax());
+            }
+        }
+        OwnerKind::Checker | OwnerKind::Covergroup | OwnerKind::ClockingBlock => {
+            for child in root.children() {
+                if let SyntaxElement::Node(node) = child {
+                    builder.handle_node(node);
+                }
+            }
+        }
+    }
+}
+
+fn last_token(node: SyntaxNode<'_>) -> Option<SyntaxToken<'_>> {
+    node.elem_preorder()
+        .filter_map(|event| match event {
+            WalkEvent::Enter(SyntaxElement::Token(token)) => Some(token.tok),
+            _ => None,
+        })
+        .last()
 }
 
 pub struct RegionTreeIterator<'a> {

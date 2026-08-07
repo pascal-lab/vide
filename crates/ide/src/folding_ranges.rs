@@ -259,8 +259,6 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
 
     collect_syntax_folds(db, file_id, line_index, &mut folds);
 
-    folds.collect_docs(&src_map.region_tree, line_index);
-
     collect_subroutines(
         db,
         &mut folds,
@@ -305,8 +303,6 @@ fn collect_module(
     let body = db.module_body_with_source_map(module_id);
     let src_map = module.source_map();
     let projection = db.source_projection(module_id.file_id);
-
-    folds.collect_docs(&src_map.region_tree, line_index);
 
     if let Some(port_list_range) = src_map
         .port_srcs
@@ -420,8 +416,6 @@ fn collect_generate_block(
     let body = db.generate_block_body_with_source_map(block_id.clone());
     let src_map = block.source_map();
     let projection = db.source_projection(block_id.file_id(db));
-
-    folds.collect_docs(&src_map.region_tree, line_index);
     folds.collect_folds(src_map.assign_srcs.ranges(&projection), FoldKind::ContAssign, line_index);
     folds.collect_folds(src_map.defparam_srcs.ranges(&projection), FoldKind::DefParam, line_index);
     collect_body_scopes(db, folds, body.as_ref(), line_index);
@@ -484,9 +478,7 @@ fn collect_body_scopes(
     let src_map = body.source_map();
 
     for scope in data.scope_graph.scopes() {
-        if let Some(regions) = src_map.region_tree_for(data, scope.owner()) {
-            folds.collect_docs(regions, line_index);
-        }
+        folds.collect_docs(&db.owner_region_tree(scope.owner()), line_index);
 
         let declaration_ranges = scope
             .items()

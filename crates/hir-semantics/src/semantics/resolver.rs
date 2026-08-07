@@ -1,8 +1,11 @@
 use hir_def::{
     ast_id_map::SourceAstId,
-    container::{ArenaOwnerId, InContainer, InFile, InModule},
+    container::{InContainer, InFile, InModule},
     expr::ExprId,
-    module::instantiation::{InstanceId, InstantiationId, PortConnId},
+    module::{
+        ModuleId,
+        instantiation::{InstanceId, InstantiationId, PortConnId},
+    },
 };
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -28,11 +31,8 @@ impl SemanticsImpl<'_> {
         instance: ast::HierarchicalInstance,
     ) -> Option<InModule<InstanceId>> {
         let db = self.db;
-        let ArenaOwnerId::Module(module_id) =
-            self.find_container(InFile::new(file_id, instance.syntax()))
-        else {
-            return None;
-        };
+        let owner = self.find_container(InFile::new(file_id, instance.syntax()));
+        let module_id = ModuleId::from_owner(db, owner)?;
 
         let src = source_ast_id(db, file_id, instance.syntax())?;
         let module = db.module_with_source_map(module_id);
@@ -46,11 +46,8 @@ impl SemanticsImpl<'_> {
         instantiation: ast::HierarchyInstantiation,
     ) -> Option<InModule<InstantiationId>> {
         let db = self.db;
-        let ArenaOwnerId::Module(module_id) =
-            self.find_container(InFile::new(file_id, instantiation.syntax()))
-        else {
-            return None;
-        };
+        let owner = self.find_container(InFile::new(file_id, instantiation.syntax()));
+        let module_id = ModuleId::from_owner(db, owner)?;
 
         let src = source_ast_id(db, file_id, instantiation.syntax())?;
         let module = db.module_with_source_map(module_id);
@@ -64,11 +61,8 @@ impl SemanticsImpl<'_> {
         conn: ast::PortConnection,
     ) -> Option<InModule<PortConnId>> {
         let db = self.db;
-        let ArenaOwnerId::Module(module_id) =
-            self.find_container(InFile::new(file_id, conn.syntax()))
-        else {
-            return None;
-        };
+        let owner = self.find_container(InFile::new(file_id, conn.syntax()));
+        let module_id = ModuleId::from_owner(db, owner)?;
 
         let src = source_ast_id(db, file_id, conn.syntax())?;
         let module = db.module_with_source_map(module_id);

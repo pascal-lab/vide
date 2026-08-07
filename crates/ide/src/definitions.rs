@@ -1,8 +1,8 @@
 use hir_def::{
-    container::ArenaOwnerId,
     db::HirDefDb,
     def_id::DefId,
     lower_ident_opt,
+    owner::OwnerId,
     symbol::{DefKind, DefOrigin, NameContext, Resolution},
 };
 use hir_semantics::semantics::SemanticsImpl;
@@ -49,7 +49,7 @@ impl DefinitionClass {
         db: &dyn WorkspaceSymbolIndexDb,
         file_id: HirFileId,
         tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
-        container: Option<ArenaOwnerId>,
+        container: Option<OwnerId>,
     ) -> DefinitionResolution {
         let sema = SemanticsImpl::new(db);
 
@@ -138,7 +138,7 @@ fn nameres_ident(
     file_id: HirFileId,
     tp: SyntaxTokenWithParent<'_>,
     name_ctx: NameContext,
-    container: Option<ArenaOwnerId>,
+    container: Option<OwnerId>,
 ) -> Resolution<DefId> {
     match container {
         Some(container) => sema.nameres_ident_in(file_id, tp, name_ctx, container),
@@ -201,7 +201,7 @@ fn resolve_package_scoped_name(
     sema: &SemanticsImpl,
     file_id: HirFileId,
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
-    container: Option<ArenaOwnerId>,
+    container: Option<OwnerId>,
 ) -> Option<DefinitionResolution> {
     let scoped = SyntaxAncestors::start_from(parent).find_map(ast::ScopedName::cast)?;
     if scoped_uses_dot(scoped) {
@@ -228,7 +228,7 @@ fn resolve_package_import_item(
     sema: &SemanticsImpl,
     file_id: HirFileId,
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
-    container: Option<ArenaOwnerId>,
+    container: Option<OwnerId>,
 ) -> Option<DefinitionResolution> {
     let item = SyntaxAncestors::start_from(parent).find_map(ast::PackageImportItem::cast)?;
     let package_token = SyntaxTokenWithParent { parent: item.syntax(), tok: item.package()? };
@@ -248,7 +248,7 @@ fn package_defs(
     sema: &SemanticsImpl,
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
-    container: Option<ArenaOwnerId>,
+    container: Option<OwnerId>,
 ) -> Resolution<DefId> {
     Resolution::from_candidates(
         nameres_ident(sema, file_id, token, NameContext::Type, container)
@@ -282,7 +282,7 @@ fn resolve_instantiation_type_name(
     sema: &SemanticsImpl,
     file_id: HirFileId,
     tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
-    container: Option<ArenaOwnerId>,
+    container: Option<OwnerId>,
 ) -> Option<DefinitionResolution> {
     if let Some(instantiation) =
         SyntaxAncestors::start_from(parent).find_map(ast::PrimitiveInstantiation::cast)

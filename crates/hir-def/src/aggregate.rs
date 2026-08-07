@@ -6,10 +6,7 @@ use syntax::{
 };
 
 use super::{Ident, expr::data_ty::DataTy, lower_ident_opt};
-use crate::{
-    ast_id_map::SourceAstId,
-    container::{ArenaOwnerId, InContainer},
-};
+use crate::{ast_id_map::SourceAstId, container::InContainer, owner::OwnerId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StructKind {
@@ -37,7 +34,7 @@ pub type StructId = Idx<StructDef>;
 
 pub(crate) fn lower_struct_def(
     struct_ty: StructUnionType,
-    container_id: ArenaOwnerId,
+    container_id: OwnerId,
     mut lower_data_ty: impl FnMut(DataType) -> DataTy,
 ) -> StructDef {
     let kind = match struct_ty {
@@ -61,7 +58,7 @@ pub(crate) fn lower_struct_def(
         let member_ty = lower_data_ty(member.type_());
         for declarator in member.declarators().children() {
             let name = lower_ident_opt(declarator.name());
-            let ty = InContainer::new(container_id.clone(), member_ty.clone());
+            let ty = InContainer::new(container_id, member_ty.clone());
             members.push(StructMember { name, ty: Some(ty) });
         }
     }

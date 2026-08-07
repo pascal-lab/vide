@@ -209,12 +209,13 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
     let body = db.file_body_with_source_map(file_id);
     let file = lowered.data_ref();
     let src_map = lowered.source_map();
-    let mut regions = src_map.region_tree.walk().peekable();
+    let owner = db.owner_table(file_id).file_owner().expect("file owner must exist");
+    let region_tree = db.owner_region_tree(owner);
+    let mut regions = region_tree.walk().peekable();
     let projection = db.source_projection(file_id);
 
-    let mut collector = SymbolCollector::new(
-        file.items.len() + src_map.region_tree.root_count() + body.decls.len(),
-    );
+    let mut collector =
+        SymbolCollector::new(file.items.len() + region_tree.root_count() + body.decls.len());
 
     for item in &file.items {
         if let Some(range) = src_map
@@ -288,7 +289,9 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
     let body = db.module_body_with_source_map(module_id);
     let module = lowered.data_ref();
     let src_map = lowered.source_map();
-    let mut regions = src_map.region_tree.walk().peekable();
+    let owner = module_id.owner(db).expect("module owner must exist");
+    let region_tree = db.owner_region_tree(owner);
+    let mut regions = region_tree.walk().peekable();
     let projection = db.source_projection(module_id.file_id);
 
     let Some(InFile { value: module_src, .. }) = module_id.source(db) else {
@@ -426,11 +429,8 @@ fn collect_block_items(
     let body = lowered.data_ref();
     let scope = body.scope(owner).expect("lowered body must contain its block scope");
     let src_map = lowered.source_map();
-    let mut regions = src_map
-        .region_tree_for(body, owner)
-        .expect("block scope must retain its region tree")
-        .walk()
-        .peekable();
+    let region_tree = db.owner_region_tree(owner);
+    let mut regions = region_tree.walk().peekable();
     let projection = db.source_projection(owner.file(db));
 
     let Some(InFile { value: block_src, .. }) = owner.source(db) else {

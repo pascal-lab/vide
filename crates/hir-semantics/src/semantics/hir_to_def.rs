@@ -1,9 +1,10 @@
 use hir_def::{
     Ident,
-    container::{ArenaOwnerId, InContainer},
+    container::InContainer,
     db::HirDefDb,
     def_id::DefId,
     expr::{Expr, ExprId},
+    owner::OwnerId,
     pathres::{resolve_child_name, resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
 };
@@ -48,7 +49,7 @@ pub(super) fn name_to_def(
 
 fn resolve_expr_path(
     db: &dyn HirDefDb,
-    cont_id: ArenaOwnerId,
+    cont_id: OwnerId,
     expr_id: ExprId,
     ctx: NameContext,
 ) -> Resolution<DefId> {
@@ -58,7 +59,7 @@ fn resolve_expr_path(
     resolve_path(db, cont_id.into(), &path, ctx)
 }
 
-fn expr_path(db: &dyn HirDefDb, cont_id: ArenaOwnerId, expr_id: ExprId) -> Option<Vec<Ident>> {
+fn expr_path(db: &dyn HirDefDb, cont_id: OwnerId, expr_id: ExprId) -> Option<Vec<Ident>> {
     match expr_in_container(db, cont_id.clone(), expr_id)? {
         Expr::Ident(ident) => Some(vec![ident]),
         Expr::Field { receiver, field } => {
@@ -71,7 +72,7 @@ fn expr_path(db: &dyn HirDefDb, cont_id: ArenaOwnerId, expr_id: ExprId) -> Optio
     }
 }
 
-fn expr_in_container(db: &dyn HirDefDb, cont_id: ArenaOwnerId, expr_id: ExprId) -> Option<Expr> {
+fn expr_in_container(db: &dyn HirDefDb, cont_id: OwnerId, expr_id: ExprId) -> Option<Expr> {
     let container = cont_id.data(db);
     Some(container.expr(expr_id).clone())
 }

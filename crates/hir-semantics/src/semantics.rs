@@ -2,7 +2,7 @@ use std::ops;
 
 use hir_def::{
     Ident,
-    container::{ArenaOwnerId, InContainer, InFile, SubroutineScope},
+    container::{InContainer, InFile, SubroutineScope},
     db::HirDefDb,
     def_id::DefId,
     expr::ExprId,
@@ -103,7 +103,7 @@ impl<'db> SemanticsImpl<'db> {
         ParsedFile { file_id, tree: self.db.parse(file_id) }
     }
 
-    pub fn container_for_node(&self, file_id: HirFileId, node: SyntaxNode) -> Option<ArenaOwnerId> {
+    pub fn container_for_node(&self, file_id: HirFileId, node: SyntaxNode) -> Option<OwnerId> {
         Some(source_to_def::find_container(self.db, InFile::new(file_id, node)))
     }
 }

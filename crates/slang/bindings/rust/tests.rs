@@ -1714,7 +1714,6 @@ endmodule
     assert_eq!(*parent_expansion_id, Some(str_expansion_id));
 }
 
-
 #[test]
 fn token_paste_preserves_formal_trivia_location() {
     let source = r#"`define PIPE_ASSIGN(name) \
@@ -1733,7 +1732,10 @@ endmodule
         .find_map(|event| match event {
             WalkEvent::Enter(SyntaxElement::Token(token))
                 if token.raw_text().as_bytes() == b"trace_q"
-                    && matches!(token.preprocessor_trace_origin(), TokenOrigin::TokenPaste { .. })
+                    && matches!(
+                        token.preprocessor_trace_origin(),
+                        TokenOrigin::TokenPaste { .. }
+                    )
                     && token.trivia_count() > 0 =>
             {
                 Some(token)

@@ -1,7 +1,7 @@
 use hir_def::{
     Ident,
     aggregate::StructId,
-    container::{ArenaOwnerId, InContainer},
+    container::InContainer,
     def_id::DefId,
     expr::{ExprId, data_ty::BuiltinDataTyId},
     module::{ModuleId, generate::GenerateBlockId},
@@ -13,7 +13,7 @@ use crate::TypeDiagnostic;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum BuiltinTy {
-    Data { id: BuiltinDataTyId, container: ArenaOwnerId },
+    Data { id: BuiltinDataTyId, container: OwnerId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

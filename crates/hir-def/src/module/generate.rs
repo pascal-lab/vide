@@ -13,10 +13,10 @@ use crate::{
     alloc_with_source,
     ast_id_map::SourceAstId,
     body::{Body, BodyItem, BodySourceMap},
-    container::{ArenaOwnerId, InFile},
+    container::InFile,
     db::HirDefDb,
     expr::ExprId,
-    lower::{GenerateBlockStore, LoweringCtx},
+    lower::{GenerateBlockStore, LoweringCtx, LoweringSyntax},
     lower_ident_opt,
     owner::{OwnerId, OwnerKind},
     source_map::Lowered,
@@ -83,7 +83,7 @@ impl GenerateBlockId {
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct GenerateBlockLoc {
-    pub cont_id: ArenaOwnerId,
+    pub cont_id: OwnerId,
     pub src: InFile<GenerateBlockSrc>,
 }
 
@@ -91,7 +91,7 @@ pub(crate) type LowerGenerateBlockCtx<'a> = LoweringCtx<GenerateBlockStore<'a>>;
 
 impl LowerGenerateBlockCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = self.current_arena_owner();
+        let container_id = self.current_owner();
         let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
         alloc_with_source(
@@ -121,7 +121,7 @@ impl LowerGenerateBlockCtx<'_> {
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            self.current_arena_owner(),
+            self.current_owner(),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.lower_data_ty(ty),
         );
@@ -153,7 +153,7 @@ impl LowerGenerateBlockCtx<'_> {
 
     fn intern_generate_node(&self, node: syntax::SyntaxNode<'_>) -> GenerateBlockId {
         GenerateBlockId::new(GenerateBlockLoc {
-            cont_id: self.current_arena_owner(),
+            cont_id: self.current_owner(),
             src: InFile::new(self.file_id, self.source_id(node)),
         })
     }
@@ -276,10 +276,7 @@ impl LowerGenerateBlockCtx<'_> {
                 continue;
             };
             self.store.data.items.push(item.clone());
-            self.region_tree.handle_node(member.syntax());
         }
-
-        self.store.sources.region_tree = self.region_tree.finish();
     }
 
     fn lower_loop_generate(&mut self, loop_generate: ast::LoopGenerate) {
@@ -305,27 +302,21 @@ impl LowerGenerateBlockCtx<'_> {
                     continue;
                 };
                 self.store.data.items.push(item.clone());
-                self.region_tree.handle_node(member.syntax());
             }
-            self.region_tree.stage(block.end(), block.syntax());
         }
-
-        self.store.sources.region_tree = self.region_tree.finish();
     }
 
     fn lower_single_member(&mut self, member: ast::Member) {
         if let Some(item) = self.lower_generate_member(member) {
             self.store.data.items.push(item.clone());
         }
-
-        self.store.sources.region_tree = self.region_tree.finish();
     }
 }
 
 impl LowerModuleCtx<'_> {
     pub(crate) fn intern_generate_node(&self, node: syntax::SyntaxNode<'_>) -> GenerateBlockId {
         GenerateBlockId::new(GenerateBlockLoc {
-            cont_id: self.current_arena_owner(),
+            cont_id: self.current_owner(),
             src: InFile::new(self.file_id, self.source_id(node)),
         })
     }
@@ -486,15 +477,15 @@ impl LowerModuleCtx<'_> {
     }
 }
 
-#[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn generate_block_with_source_map(
+pub(crate) fn lower_generate_owner(
     db: &dyn HirDefDb,
     owner: OwnerId,
+    syntax: &LoweringSyntax,
 ) -> Arc<Lowered<GenerateBlock>> {
     debug_assert_eq!(owner.kind(db), OwnerKind::GenerateBlock);
-    let file_id = owner.file(db);
-    let tree = db.parse(file_id);
-    let Some(node) = db.ast_id_map(file_id).node(owner.ast_id(db), &tree) else {
+    let file_id = syntax.file_id;
+    let tree = syntax.tree.clone();
+    let Some(node) = syntax.ast_ids.node(owner.ast_id(db), &tree) else {
         return Arc::new(Lowered::new(file_id, Body::default(), BodySourceMap::default()));
     };
 
@@ -515,9 +506,9 @@ pub(crate) fn generate_block_with_source_map(
 
     let mut body = Body::default();
     let mut source_map = BodySourceMap::default();
-    let mut lower_ctx = LoweringCtx::new(
-        db,
+    let mut lower_ctx = LoweringCtx::new_with_syntax(
         owner,
+        syntax,
         GenerateBlockStore { data: &mut body, sources: &mut source_map },
     );
 
@@ -535,10 +526,18 @@ pub(crate) fn generate_block_with_source_map(
 
     let diagnostics = lower_ctx.emit_diagnostics();
     drop(lower_ctx);
-    source_map.diagnostics = diagnostics;
     body.shrink_to_fit();
     source_map.shrink_to_fit();
-    Arc::new(Lowered::new(file_id, body, source_map))
+    Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
+}
+
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn generate_block_with_source_map(
+    db: &dyn HirDefDb,
+    owner: OwnerId,
+) -> Arc<Lowered<GenerateBlock>> {
+    debug_assert_eq!(owner.kind(db), OwnerKind::GenerateBlock);
+    db.item_tree(owner.file(db)).owner_store(owner).expect("generate owner store must exist")
 }
 
 pub(crate) fn set_generate_block_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {

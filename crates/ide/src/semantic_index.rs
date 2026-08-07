@@ -441,7 +441,7 @@ fn token_precedence(kind: TokenKind) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use hir_def::{container::ArenaOwnerId, symbol::NameContext};
+    use hir_def::{owner::OwnerId, symbol::NameContext};
     use hir_semantics::semantics::SemanticsImpl;
     use preproc_expand::file::HirFileId;
     use syntax::{
@@ -524,19 +524,13 @@ endmodule
                         continue;
                     }
                     let cached = containers.container_for(&sema, hir_file_id, token.parent);
-                    let expected = sema
-                        .container_for_node(hir_file_id, token.parent)
-                        .unwrap_or(hir_file_id.into());
-                    if cached != expected
-                        && let (ArenaOwnerId::GenerateBlock(a), ArenaOwnerId::GenerateBlock(b)) =
-                            (cached.clone(), expected.clone())
-                    {
-                        eprintln!("cached loc cont_id={:?} src={:?}", a.loc().cont_id, a.loc().src);
-                        eprintln!(
-                            "expected loc cont_id={:?} src={:?}",
-                            b.loc().cont_id,
-                            b.loc().src
-                        );
+                    let expected =
+                        sema.container_for_node(hir_file_id, token.parent).unwrap_or_else(|| {
+                            db.owner_table(hir_file_id).file_owner().expect("file owner")
+                        });
+                    if cached != expected {
+                        eprintln!("cached owner={cached:?}");
+                        eprintln!("expected owner={expected:?}");
                     }
                     assert_eq!(cached, expected, "container mismatch at {:?}", token.raw_text());
                 }

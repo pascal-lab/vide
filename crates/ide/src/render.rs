@@ -1,8 +1,6 @@
 use base_db::source_db::{SourceDb, SourceRootDb};
 use hir_def::{
-    container::{
-        ArenaOwnerId, InContainer, InFile, InModule, InSubroutine, ScopeParent, SubroutineScope,
-    },
+    container::{InContainer, InFile, InModule, InSubroutine, ScopeParent, SubroutineScope},
     declaration::Declaration,
     def_id::DefId,
     expr::{
@@ -387,6 +385,7 @@ fn render_module_signature(db: &RootDb, module_id: ModuleId) -> Option<String> {
 fn render_module_param_ports(db: &RootDb, module_id: ModuleId) -> Vec<String> {
     let module = db.module_with_source_map(module_id);
     let body = db.module_body_with_source_map(module_id);
+    let module_owner = module_id.owner(db).expect("module owner");
     let mut params = Vec::new();
     let mut idx = 0;
     while let Some(decl_id) = module.param_port_id_by_idx(idx) {
@@ -395,19 +394,17 @@ fn render_module_param_ports(db: &RootDb, module_id: ModuleId) -> Vec<String> {
             idx += 1;
             continue;
         };
-        let Some(prefix) =
-            render_declaration_prefix(db, module_id.into(), &body.declarations[parent])
+        let Some(prefix) = render_declaration_prefix(db, module_owner, &body.declarations[parent])
         else {
             idx += 1;
             continue;
         };
-        let Some(decl) = InContainer::new(module_id.into(), decl_id).display_signature(db).ok()
-        else {
+        let Some(decl) = InContainer::new(module_owner, decl_id).display_signature(db).ok() else {
             idx += 1;
             continue;
         };
         let init =
-            render_initializer(db, InContainer::new(module_id.into(), decl_id)).unwrap_or_default();
+            render_initializer(db, InContainer::new(module_owner, decl_id)).unwrap_or_default();
         params.push(format!("{prefix} {decl}{init}"));
         idx += 1;
     }
@@ -421,8 +418,8 @@ fn render_subroutine_port_signature(
     let subroutine = db.subroutine(port_id.subroutine.clone());
     let port = subroutine.ports.get(port_id.value.0 as usize)?;
     let name = port.name.as_ref()?;
-    let container = port_id.subroutine.cont_id.clone();
-    let ty = port.ty.clone().and_then(|ty| render_data_ty(db, container.into(), ty));
+    let owner = port_id.subroutine.clone().owner(db).expect("subroutine owner");
+    let ty = port.ty.clone().and_then(|ty| render_data_ty(db, owner, ty));
     let dir = port.direction.display_source(db).ok()?;
 
     match (dir.is_empty(), ty) {
@@ -436,12 +433,11 @@ fn render_subroutine_port_signature(
 fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineScope) -> Option<String> {
     let subroutine = db.subroutine(subroutine_id.clone());
     let name = subroutine.name.as_ref()?;
-    let container = subroutine_id.cont_id.clone();
+    let owner = subroutine_id.clone().owner(db).expect("subroutine owner");
     let mut signature = match &subroutine.kind {
         SubroutineKind::Task => format!("task {name}"),
         SubroutineKind::Function { return_ty } => {
-            if let Some(return_ty) =
-                return_ty.clone().and_then(|ty| render_data_ty(db, container.clone().into(), ty))
+            if let Some(return_ty) = return_ty.clone().and_then(|ty| render_data_ty(db, owner, ty))
             {
                 format!("function {return_ty} {name}")
             } else {
@@ -473,6 +469,7 @@ fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineScope) -> O
 
 fn render_module_port_list(db: &RootDb, module_id: ModuleId) -> Vec<String> {
     let module = db.module_with_source_map(module_id);
+    let module_owner = module_id.owner(db).expect("module owner");
     match &module.ports {
         Ports::NonAnsi { ports, .. } => ports
             .values()
@@ -489,8 +486,7 @@ fn render_module_port_list(db: &RootDb, module_id: ModuleId) -> Vec<String> {
                 let header =
                     InModule::new(module_id, port_decl.header.clone()).display_source(db).ok();
                 for decl_id in port_decl.decls.clone() {
-                    let name =
-                        InContainer::new(module_id.into(), decl_id).display_signature(db).ok();
+                    let name = InContainer::new(module_owner, decl_id).display_signature(db).ok();
                     match (header.as_deref(), name.as_deref()) {
                         (Some(header), Some(name)) if !header.is_empty() => {
                             ports.push(format!("{header} {name}"));
@@ -574,9 +570,7 @@ fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<St
 
     match decl.parent {
         DeclaratorParent::PortDeclId(port_decl_id) => {
-            let ArenaOwnerId::Module(module_id) = decl_id.cont_id.clone() else {
-                return None;
-            };
+            let module_id = ModuleId::from_owner(db, decl_id.cont_id)?;
             let module = db.module_with_source_map(module_id);
             let header = InModule::new(module_id, module.get(port_decl_id).header.clone())
                 .display_source(db)
@@ -607,7 +601,7 @@ fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<St
 
 fn render_declaration_prefix(
     db: &RootDb,
-    cont_id: ArenaOwnerId,
+    cont_id: hir_def::owner::OwnerId,
     declaration: &Declaration,
 ) -> Option<String> {
     let ty = render_data_ty(db, cont_id, declaration.ty()).unwrap_or_default();
@@ -667,7 +661,7 @@ fn render_initializer(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<Strin
     Some(rendered)
 }
 
-fn render_data_ty(db: &RootDb, container: ArenaOwnerId, ty: DataTy) -> Option<String> {
+fn render_data_ty(db: &RootDb, container: hir_def::owner::OwnerId, ty: DataTy) -> Option<String> {
     InContainer::new(container, ty).display_source(db).ok()
 }
 
@@ -746,13 +740,11 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<Str
     let mut containers = Vec::new();
 
     for cont_id in ScopeParent::start_from(db, cont_id) {
-        if let Some(owner_id) = cont_id.arena_owner() {
-            let src_map = owner_id.source_map(db);
-            let region_tree = src_map.region_tree();
-            if let Some(node) = region_tree.find(range.start()) {
-                for region in RegionParent::start_from(region_tree, node) {
-                    containers.push(format!("({})", region.name()));
-                }
+        let owner = cont_id.owner(db);
+        let region_tree = db.owner_region_tree(owner);
+        if let Some(node) = region_tree.find(range.start()) {
+            for region in RegionParent::start_from(&region_tree, node) {
+                containers.push(format!("({})", region.name()));
             }
         }
 

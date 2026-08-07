@@ -2,7 +2,7 @@ use bitflags::bitflags;
 use collector::SemaTokenCollectorTree;
 use hir_def::{
     Ident,
-    container::{ArenaOwnerId, InContainer, SubroutineParent, SubroutineScope},
+    container::{InContainer, SubroutineParent, SubroutineScope},
     def_id::DefId,
     expr::{
         Expr, ExprId,
@@ -14,6 +14,7 @@ use hir_def::{
         generate::{GenerateBlockId, GenerateBlockItem, GenerateItem},
         instantiation::{ParamAssign, ParamAssignId, PortConn, PortConnId},
     },
+    owner::OwnerId,
     source_map::AstLookup,
     symbol::{DefKind, NameContext, Resolution},
 };
@@ -187,7 +188,7 @@ macro_rules! collect_container_body {
     ($sema:expr, $cont_id:expr, $tree:expr, $collector:expr, $lowered:expr) => {{
         let sema = $sema;
         let db = sema.db;
-        let cont_id: ArenaOwnerId = $cont_id;
+        let cont_id: OwnerId = $cont_id;
         let tree = $tree;
         let collector = $collector;
         let lowered = $lowered;
@@ -309,9 +310,15 @@ fn collect_file(
     for proc in hir_file.procs.values() {
         let owner = proc.owner;
         let body = sema.db.body_with_source_map(owner);
-        collect_container_body!(sema, ArenaOwnerId::Owner(owner), &tree, &mut *collector, &body);
+        collect_container_body!(sema, owner, &tree, &mut *collector, &body);
     }
-    collect_container_body!(sema, file_id.into(), &tree, collector, &body);
+    collect_container_body!(
+        sema,
+        sema.db.owner_table(file_id).file_owner().expect("file owner"),
+        &tree,
+        collector,
+        &body
+    );
 }
 
 fn collect_module(
@@ -379,9 +386,15 @@ fn collect_module(
     for proc in module.procs.values() {
         let owner = proc.owner;
         let body = db.body_with_source_map(owner);
-        collect_container_body!(sema, ArenaOwnerId::Owner(owner), &tree, &mut *collector, &body);
+        collect_container_body!(sema, owner, &tree, &mut *collector, &body);
     }
-    collect_container_body!(sema, module_id.into(), &tree, collector, &body);
+    collect_container_body!(
+        sema,
+        module_id.owner(db).expect("module owner"),
+        &tree,
+        collector,
+        &body
+    );
 }
 
 fn collect_generate_block(
@@ -447,7 +460,13 @@ fn collect_generate_block(
         );
     }
 
-    collect_container_body!(sema, generate_block_id.into(), &tree, collector, &body);
+    collect_container_body!(
+        sema,
+        generate_block_id.owner(db).expect("generate owner"),
+        &tree,
+        collector,
+        &body
+    );
 }
 
 fn collect_subroutine(
@@ -460,7 +479,7 @@ fn collect_subroutine(
     let lowered = db.subroutine_body_with_source_map(owner);
     let tree = db.parse(owner.file(db));
 
-    collect_container_body!(sema, ArenaOwnerId::Owner(owner), &tree, collector, &lowered);
+    collect_container_body!(sema, owner, &tree, collector, &lowered);
 }
 
 /// Collects named parameter assignments inside `inst_param_assigns`, resolving
@@ -527,7 +546,7 @@ fn collect_ident_like(
 
 fn collect_type_ident_like(
     sema: &Semantics<'_, RootDb>,
-    cont_id: ArenaOwnerId,
+    cont_id: OwnerId,
     expr: &Expr,
     range: TextRange,
     collector: &mut SemaTokenCollector,
@@ -541,7 +560,7 @@ fn collect_type_ident_like(
 
 fn collect_field_like(
     sema: &Semantics<'_, RootDb>,
-    cont_id: ArenaOwnerId,
+    cont_id: OwnerId,
     expr_id: ExprId,
     expr: ast::Expression<'_>,
     collector: &mut SemaTokenCollector,
@@ -615,9 +634,7 @@ fn collect_resolved_path(
     match def_id.kind(db) {
         DefKind::Port => {
             let decl_id = def_id.primary_origin(db).as_decl(db)?;
-            let ArenaOwnerId::Module(module_id) = decl_id.cont_id else {
-                return None;
-            };
+            let module_id = ModuleId::from_owner(db, decl_id.cont_id)?;
             let module = db.module_with_source_map(module_id);
             let body = db.module_body_with_source_map(module_id);
             let name = body.get(decl_id.value).name.as_ref()?;

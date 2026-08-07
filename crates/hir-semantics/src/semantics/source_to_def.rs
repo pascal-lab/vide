@@ -1,6 +1,6 @@
 use hir_def::{
     ast_id_map::SourceAstId,
-    container::{ArenaOwnerId, InFile, SubroutineScope},
+    container::{InFile, SubroutineScope},
     db::HirDefDb,
     module::ModuleId,
     owner::{OwnerId, OwnerKind},
@@ -52,10 +52,7 @@ pub(super) fn subroutine_to_def(
     subroutine: ast::FunctionDeclaration<'_>,
 ) -> Option<SubroutineScope> {
     let owner = owner_for_node(db, file_id, subroutine.syntax(), OwnerKind::Subroutine)?;
-    let ArenaOwnerId::Subroutine(subroutine) = owner.arena_owner(db)? else {
-        return None;
-    };
-    Some(subroutine)
+    SubroutineScope::from_owner(db, owner)
 }
 
 fn generate_owner_node(node: SyntaxNode<'_>) -> SyntaxNode<'_> {
@@ -74,29 +71,29 @@ fn owner_container(
     file_id: HirFileId,
     node: SyntaxNode<'_>,
     kind: OwnerKind,
-) -> Option<ArenaOwnerId> {
-    owner_for_node(db, file_id, node, kind)?.arena_owner(db)
+) -> Option<OwnerId> {
+    owner_for_node(db, file_id, node, kind)
 }
 
 fn container_to_def(
     db: &dyn HirDefDb,
     file_id: HirFileId,
     node: SyntaxNode<'_>,
-) -> Option<ArenaOwnerId> {
+) -> Option<OwnerId> {
     if ast::CompilationUnit::can_cast(node.kind()) {
-        return Some(file_id.into());
+        return db.owner_table(file_id).file_owner();
     }
     if let Some(module) = ast::ModuleDeclaration::cast(node) {
-        return module_to_def(db, file_id, module).map(Into::into);
+        return owner_for_node(db, file_id, module.syntax(), OwnerKind::Module);
     }
     if let Some(block) = ast::BlockStatement::cast(node) {
-        return block_to_def(db, file_id, block).map(ArenaOwnerId::Owner);
+        return block_to_def(db, file_id, block);
     }
     if ast::ProceduralBlock::can_cast(node.kind()) {
         return owner_container(db, file_id, node, OwnerKind::ProceduralBlock);
     }
     if let Some(subroutine) = ast::FunctionDeclaration::cast(node) {
-        return subroutine_to_def(db, file_id, subroutine).map(Into::into);
+        return owner_for_node(db, file_id, subroutine.syntax(), OwnerKind::Subroutine);
     }
     if ast::GenerateBlock::can_cast(node.kind()) || ast::LoopGenerate::can_cast(node.kind()) {
         return owner_container(db, file_id, generate_owner_node(node), OwnerKind::GenerateBlock);
@@ -134,9 +131,10 @@ pub fn is_generate_branch_member(member: SyntaxNode<'_>) -> bool {
 pub(super) fn find_container(
     db: &dyn HirDefDb,
     InFile { value: node, file_id }: InFile<SyntaxNode>,
-) -> ArenaOwnerId {
+) -> OwnerId {
     SyntaxAncestors::start_from(node)
         .skip(1) // skip the node itself
         .find_map(|node| container_to_def(db, file_id, node))
-        .unwrap_or(file_id.into())
+        .or_else(|| db.owner_table(file_id).file_owner())
+        .expect("every syntax file must have a canonical owner")
 }

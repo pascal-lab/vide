@@ -19,8 +19,8 @@ impl Deref for dyn TyDb {
 
 impl dyn TyDb + '_ {
     pub fn infer_expr(&self, expr: InContainer<ExprId>) -> Type {
-        let owner = expr.cont_id.owner(self);
-        let key = crate::infer::ExprQueryKey::new(self, owner, u32::from(expr.value.into_raw()));
+        let key =
+            crate::infer::ExprQueryKey::new(self, expr.cont_id, u32::from(expr.value.into_raw()));
         crate::infer::type_of_expr_query(self, key)
     }
 

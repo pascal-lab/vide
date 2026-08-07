@@ -19,7 +19,7 @@ use crate::{
         generate::{self, GenerateBlock, GenerateBlockId},
     },
     nameres,
-    owner::{OwnerId, OwnerTable},
+    owner::{self, OwnerId, OwnerTable},
     source_map::Lowered,
     source_projection::{self, SourceProjection},
     subroutine::Subroutine,
@@ -53,7 +53,7 @@ impl dyn HirDefDb + '_ {
 
     /// Canonical structural owners, built by the same traversal as ItemTree.
     pub fn owner_table(&self, file_id: HirFileId) -> Arc<OwnerTable> {
-        self.item_tree(file_id).owner_table_arc()
+        owner::owner_table(self, self.syntax_file(file_id))
     }
 
     /// Current AST identity for one canonical owner.
@@ -79,6 +79,10 @@ impl dyn HirDefDb + '_ {
 
     pub fn source_projection(&self, file_id: HirFileId) -> Arc<SourceProjection> {
         source_projection::source_projection(self, self.syntax_file(file_id))
+    }
+
+    pub fn owner_region_tree(&self, owner: OwnerId) -> Arc<crate::region_tree::RegionTree> {
+        crate::region_tree::owner_region_tree(self, owner)
     }
 
     pub fn hir_file_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<HirFile>> {
@@ -149,8 +153,7 @@ impl dyn HirDefDb + '_ {
     }
 
     pub fn scope_for(&self, scope_id: ScopeId) -> Arc<NameScope> {
-        let key = nameres::ScopeQueryKey::new(self, scope_id);
-        nameres::scope_for(self, key)
+        nameres::scope_for(self, scope_id.owner(self))
     }
 
     pub fn unit_scope(&self) -> Arc<NameScope> {
@@ -238,6 +241,7 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     item_tree::set_item_tree_lru_capacity(db, capacity);
     module::set_module_lru_capacity(db, capacity);
     module::generate::set_generate_block_lru_capacity(db, capacity);
+    owner::set_owner_table_lru_capacity(db, capacity);
     nameres::set_scope_lru_capacity(db, capacity);
     source_projection::set_source_projection_lru_capacity(db, capacity);
 }
