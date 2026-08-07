@@ -218,7 +218,7 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
 
     for item in &file.items {
         if let Some(range) = src_map
-            .item_to_source(body.source_map(), item)
+            .item_to_source(item)
             .and_then(|source| projection.origin(source))
             .and_then(|origin| origin.full_range())
         {
@@ -263,6 +263,18 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
             }
             FileItem::UdpDeclId(udp_id) => {
                 build_udp_decl(db, &mut collector, udp_id, lowered.as_ref())
+            }
+            invalid @ (FileItem::ContAssignId(_)
+            | FileItem::DefParamId(_)
+            | FileItem::GenerateRegionId(_)
+            | FileItem::GenerateBlockId(_)
+            | FileItem::SpecifyBlockId(_)
+            | FileItem::SpecifyItemId(_)
+            | FileItem::InstantiationId(_)
+            | FileItem::PortDeclId(_)
+            | FileItem::ModportId(_)
+            | FileItem::ClockingBlockId(_)) => {
+                panic!("file owner lowered a non-file item: {invalid:?}")
             }
         }
     }
@@ -319,13 +331,13 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
 
     for item in &module.items {
         if let Some(range) = src_map
-            .item_to_source(body.source_map(), item)
+            .item_to_source(item)
             .and_then(|source| projection.origin(source))
             .and_then(|origin| origin.full_range())
         {
             regions.add_region_symbol(range, collector);
         }
-        match *item {
+        match item.clone() {
             ModuleItem::DeclarationId(declaration_id) => {
                 build_declaration(db, collector, declaration_id, body.as_ref())
             }
@@ -391,6 +403,14 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
             ModuleItem::StructId(struct_id) => {
                 build_struct(db, collector, struct_id, body.as_ref())
             }
+            invalid @ (ModuleItem::LocalModuleId(_)
+            | ModuleItem::ConfigDeclId(_)
+            | ModuleItem::UdpDeclId(_)
+            | ModuleItem::LibraryDeclId(_)
+            | ModuleItem::LibraryIncludeId(_)
+            | ModuleItem::GenerateBlockId(_)) => {
+                panic!("module owner lowered a non-module item: {invalid:?}")
+            }
         }
     }
     collector.pop();
@@ -424,7 +444,7 @@ fn collect_block_items(
 
     for item in scope.items() {
         if let Some(range) = src_map
-            .item_to_source(item)
+            .block_item_to_source(item)
             .and_then(|source| projection.origin(source))
             .and_then(|origin| origin.full_range())
         {
@@ -637,21 +657,26 @@ fn build_generate_block_item<S>(
         GenerateBlockItem::StructId(struct_id) => {
             build_struct(db, collector, struct_id, body);
         }
+        invalid @ (GenerateBlockItem::LocalModuleId(_)
+        | GenerateBlockItem::ConfigDeclId(_)
+        | GenerateBlockItem::UdpDeclId(_)
+        | GenerateBlockItem::LibraryDeclId(_)
+        | GenerateBlockItem::LibraryIncludeId(_)
+        | GenerateBlockItem::CheckerId(_)
+        | GenerateBlockItem::CovergroupId(_)
+        | GenerateBlockItem::GenerateRegionId(_)
+        | GenerateBlockItem::SpecifyBlockId(_)
+        | GenerateBlockItem::SpecifyItemId(_)
+        | GenerateBlockItem::PortDeclId(_)
+        | GenerateBlockItem::ModportId(_)
+        | GenerateBlockItem::ClockingBlockId(_)) => {
+            panic!("generate owner lowered a non-generate item: {invalid:?}")
+        }
     }
 }
 
 fn generate_item_to_block_item(item: GenerateItem) -> GenerateBlockItem {
-    match item {
-        GenerateItem::ContAssignId(id) => GenerateBlockItem::ContAssignId(id),
-        GenerateItem::DefParamId(id) => GenerateBlockItem::DefParamId(id),
-        GenerateItem::GenerateBlockId(id) => GenerateBlockItem::GenerateBlockId(id),
-        GenerateItem::DeclarationId(id) => GenerateBlockItem::DeclarationId(id),
-        GenerateItem::StructId(id) => GenerateBlockItem::StructId(id),
-        GenerateItem::InstantiationId(id) => GenerateBlockItem::InstantiationId(id),
-        GenerateItem::ProcId(id) => GenerateBlockItem::ProcId(id),
-        GenerateItem::TypedefId(id) => GenerateBlockItem::TypedefId(id),
-        GenerateItem::SubroutineId(id) => GenerateBlockItem::SubroutineId(id),
-    }
+    item
 }
 
 #[inline]

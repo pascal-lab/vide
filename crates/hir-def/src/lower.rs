@@ -6,26 +6,16 @@ use utils::text_edit::TextRange;
 
 use super::{
     body::{Body, BodySourceMap},
-    checker::{CheckerDef, CheckerSrc},
-    declaration::{Declaration, DeclarationSrc},
-    expr::{
-        Expr, ExprSrc,
-        declarator::{Declarator, DeclaratorSrc},
-        timing_control::{EventExpr, EventExprSrc},
-    },
-    file::{FileSourceMap, HirFile},
+    checker::CheckerDef,
+    declaration::Declaration,
+    expr::{Expr, declarator::Declarator, timing_control::EventExpr},
     module::{
-        Module, ModuleSourceMap,
-        continuous_assign::{ContAssign, ContAssignSrc},
-        defparam::{DefParam, DefParamSrc},
-        generate::{GenerateBlock, GenerateBlockSourceMap},
-        instantiation::{
-            Instance, InstanceSrc, Instantiation, InstantiationSrc, ParamAssign, ParamAssignSrc,
-            PortConn, PortConnSrc,
-        },
+        continuous_assign::ContAssign,
+        defparam::DefParam,
+        instantiation::{Instance, Instantiation, ParamAssign, PortConn},
     },
-    proc::{Proc, ProcSrc},
-    stmt::{Stmt, StmtSrc},
+    proc::Proc,
+    stmt::Stmt,
     ty::NetKind,
 };
 use crate::{
@@ -37,33 +27,23 @@ use crate::{
     source_map::{LoweringDiagnostic, LoweringDiagnosticKind, SourceMap},
 };
 
-/// Mutable data/source pair for a file lowering pass.
-pub(crate) struct FileStore<'a> {
-    pub(crate) data: &'a mut HirFile,
-    pub(crate) sources: &'a mut FileSourceMap,
-    pub(crate) body: &'a mut Body,
-    pub(crate) body_sources: &'a mut BodySourceMap,
-}
-
-/// Mutable structural data plus the owner-local semantic store for a module.
-pub(crate) struct ModuleStore<'a> {
-    pub(crate) data: &'a mut Module,
-    pub(crate) sources: &'a mut ModuleSourceMap,
-    pub(crate) body: &'a mut Body,
-    pub(crate) body_sources: &'a mut BodySourceMap,
-}
-
-/// Mutable structural data plus the owner-local semantic store for a generate
-/// block.
-pub(crate) struct GenerateBlockStore<'a> {
-    pub(crate) data: &'a mut GenerateBlock,
-    pub(crate) sources: &'a mut GenerateBlockSourceMap,
-    pub(crate) body: &'a mut Body,
-    pub(crate) body_sources: &'a mut BodySourceMap,
-}
-
-/// Mutable data/source pair for a canonical executable body.
+/// Mutable HIR/source pair for one canonical owner lowering pass.
 pub(crate) struct BodyStore<'a> {
+    pub(crate) data: &'a mut Body,
+    pub(crate) sources: &'a mut BodySourceMap,
+}
+
+pub(crate) struct FileStore<'a> {
+    pub(crate) data: &'a mut Body,
+    pub(crate) sources: &'a mut BodySourceMap,
+}
+
+pub(crate) struct ModuleStore<'a> {
+    pub(crate) data: &'a mut Body,
+    pub(crate) sources: &'a mut BodySourceMap,
+}
+
+pub(crate) struct GenerateBlockStore<'a> {
     pub(crate) data: &'a mut Body,
     pub(crate) sources: &'a mut BodySourceMap,
 }
@@ -79,100 +59,68 @@ pub(crate) trait LoweringStore {
     fn body(&mut self) -> (&mut Body, &mut BodySourceMap);
 }
 
-macro_rules! impl_owner_lowering_store {
-    ($store:ty) => {
+macro_rules! impl_lowering_store {
+    ($($store:ty),+ $(,)?) => {$ (
         impl LoweringStore for $store {
             fn expressions(&mut self) -> (&mut Arena<Expr>, &mut SourceMap<Expr>) {
-                (&mut self.body.exprs, &mut self.body_sources.expr_srcs)
+                (&mut self.data.exprs, &mut self.sources.expr_srcs)
             }
 
             fn event_expressions(&mut self) -> (&mut Arena<EventExpr>, &mut SourceMap<EventExpr>) {
-                (&mut self.body.event_exprs, &mut self.body_sources.event_expr_srcs)
+                (&mut self.data.event_exprs, &mut self.sources.event_expr_srcs)
             }
 
             fn declarators(&mut self) -> (&mut Arena<Declarator>, &mut SourceMap<Declarator>) {
-                (&mut self.body.decls, &mut self.body_sources.decl_srcs)
+                (&mut self.data.decls, &mut self.sources.decl_srcs)
             }
 
             fn statements(&mut self) -> (&mut Arena<Stmt>, &mut SourceMap<Stmt>) {
-                (&mut self.body.stmts, &mut self.body_sources.stmt_srcs)
+                (&mut self.data.stmts, &mut self.sources.stmt_srcs)
             }
 
             fn declarations(&mut self) -> (&mut Arena<Declaration>, &mut SourceMap<Declaration>) {
-                (&mut self.body.declarations, &mut self.body_sources.declaration_srcs)
+                (&mut self.data.declarations, &mut self.sources.declaration_srcs)
             }
 
             fn body(&mut self) -> (&mut Body, &mut BodySourceMap) {
-                (self.body, self.body_sources)
+                (self.data, self.sources)
             }
         }
-    };
+    )+};
 }
 
-impl_owner_lowering_store!(FileStore<'_>);
-impl_owner_lowering_store!(ModuleStore<'_>);
-impl_owner_lowering_store!(GenerateBlockStore<'_>);
-
-impl LoweringStore for BodyStore<'_> {
-    fn expressions(&mut self) -> (&mut Arena<Expr>, &mut SourceMap<Expr>) {
-        (&mut self.data.exprs, &mut self.sources.expr_srcs)
-    }
-
-    fn event_expressions(&mut self) -> (&mut Arena<EventExpr>, &mut SourceMap<EventExpr>) {
-        (&mut self.data.event_exprs, &mut self.sources.event_expr_srcs)
-    }
-
-    fn declarators(&mut self) -> (&mut Arena<Declarator>, &mut SourceMap<Declarator>) {
-        (&mut self.data.decls, &mut self.sources.decl_srcs)
-    }
-
-    fn statements(&mut self) -> (&mut Arena<Stmt>, &mut SourceMap<Stmt>) {
-        (&mut self.data.stmts, &mut self.sources.stmt_srcs)
-    }
-
-    fn declarations(&mut self) -> (&mut Arena<Declaration>, &mut SourceMap<Declaration>) {
-        (&mut self.data.declarations, &mut self.sources.declaration_srcs)
-    }
-
-    fn body(&mut self) -> (&mut Body, &mut BodySourceMap) {
-        (self.data, self.sources)
-    }
-}
+impl_lowering_store!(BodyStore<'_>, FileStore<'_>, ModuleStore<'_>, GenerateBlockStore<'_>,);
 
 pub(crate) trait CheckerStore: LoweringStore {
     fn checkers(&mut self) -> (&mut Arena<CheckerDef>, &mut SourceMap<CheckerDef>);
 }
 
 macro_rules! impl_checker_store {
-    ($store:ty) => {
+    ($($store:ty),+ $(,)?) => {$ (
         impl CheckerStore for $store {
             fn checkers(&mut self) -> (&mut Arena<CheckerDef>, &mut SourceMap<CheckerDef>) {
                 (&mut self.data.checkers, &mut self.sources.checker_srcs)
             }
         }
-    };
+    )+};
 }
 
-impl_checker_store!(FileStore<'_>);
-impl_checker_store!(ModuleStore<'_>);
-
+impl_checker_store!(FileStore<'_>, ModuleStore<'_>);
 pub(crate) trait ProcStore: LoweringStore {
     fn procs(&mut self) -> (&mut Arena<Proc>, &mut SourceMap<Proc>);
 }
 
 macro_rules! impl_proc_store {
-    ($store:ty) => {
+    ($($store:ty),+ $(,)?) => {$ (
         impl ProcStore for $store {
             fn procs(&mut self) -> (&mut Arena<Proc>, &mut SourceMap<Proc>) {
                 (&mut self.data.procs, &mut self.sources.proc_srcs)
             }
         }
-    };
+    )+};
 }
 
-impl_proc_store!(FileStore<'_>);
-impl_proc_store!(ModuleStore<'_>);
-impl_proc_store!(GenerateBlockStore<'_>);
+impl_proc_store!(FileStore<'_>, ModuleStore<'_>, GenerateBlockStore<'_>);
 
 pub(crate) trait ModuleItemStore: LoweringStore {
     fn continuous_assigns(&mut self) -> (&mut Arena<ContAssign>, &mut SourceMap<ContAssign>);
@@ -184,11 +132,9 @@ pub(crate) trait ModuleItemStore: LoweringStore {
 }
 
 macro_rules! impl_module_item_store {
-    ($store:ty) => {
+    ($($store:ty),+ $(,)?) => {$ (
         impl ModuleItemStore for $store {
-            fn continuous_assigns(
-                &mut self,
-            ) -> (&mut Arena<ContAssign>, &mut SourceMap<ContAssign>) {
+            fn continuous_assigns(&mut self) -> (&mut Arena<ContAssign>, &mut SourceMap<ContAssign>) {
                 (&mut self.data.cont_assigns, &mut self.sources.assign_srcs)
             }
 
@@ -196,15 +142,11 @@ macro_rules! impl_module_item_store {
                 (&mut self.data.defparams, &mut self.sources.defparam_srcs)
             }
 
-            fn instantiations(
-                &mut self,
-            ) -> (&mut Arena<Instantiation>, &mut SourceMap<Instantiation>) {
+            fn instantiations(&mut self) -> (&mut Arena<Instantiation>, &mut SourceMap<Instantiation>) {
                 (&mut self.data.instantiations, &mut self.sources.instantiation_srcs)
             }
 
-            fn parameter_assignments(
-                &mut self,
-            ) -> (&mut Arena<ParamAssign>, &mut SourceMap<ParamAssign>) {
+            fn parameter_assignments(&mut self) -> (&mut Arena<ParamAssign>, &mut SourceMap<ParamAssign>) {
                 (&mut self.data.inst_param_assigns, &mut self.sources.inst_param_assign_srcs)
             }
 
@@ -216,11 +158,10 @@ macro_rules! impl_module_item_store {
                 (&mut self.data.inst_port_conns, &mut self.sources.inst_port_conn_srcs)
             }
         }
-    };
+    )+};
 }
 
-impl_module_item_store!(ModuleStore<'_>);
-impl_module_item_store!(GenerateBlockStore<'_>);
+impl_module_item_store!(FileStore<'_>, ModuleStore<'_>, GenerateBlockStore<'_>);
 
 /// Complete mutable state for one HIR lowering pass.
 pub(crate) struct LoweringCtx<Store> {

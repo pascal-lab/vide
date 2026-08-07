@@ -1,195 +1,42 @@
-use config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc};
-use la_arena::{Arena, Idx};
-use library::{
-    LibraryDecl, LibraryDeclId, LibraryDeclSrc, LibraryInclude, LibraryIncludeId, LibraryIncludeSrc,
-};
+use config::{ConfigDecl, ConfigDeclId};
+use library::{LibraryDecl, LibraryDeclId, LibraryInclude, LibraryIncludeId};
 pub use preproc_expand::file::HirFileId;
-use smallvec::SmallVec;
-use syntax::{
-    ast::{self, AstNode},
-    ptr::SyntaxNodePtr,
-};
+use syntax::ast::{self, AstNode};
 use triomphe::Arc;
-use udp::{UdpDecl, UdpDeclId, UdpDeclSrc};
-use utils::{define_enum_deriving_from, get::Get};
+use udp::{UdpDecl, UdpDeclId};
 
 use super::{
     PackageImport,
     aggregate::{StructId, lower_struct_def},
     alloc_with_source,
-    checker::{CheckerDef, CheckerId, CheckerSrc},
+    checker::{CheckerDef, CheckerId},
     covergroup::{
-        CovergroupDef, CovergroupId, CovergroupSrc, CoverpointDef, CoverpointId, CoverpointSrc,
-        CrossDef, CrossId, CrossSrc, lower_covergroup_decl, lower_coverpoint, lower_cross,
+        CovergroupDef, CovergroupId, CoverpointDef, CoverpointId, CrossDef, CrossId,
+        lower_covergroup_decl, lower_coverpoint, lower_cross,
     },
     declaration::DeclarationId,
     lower::{FileStore, LoweringCtx},
     lower_package_imports,
-    module::{LocalModuleId, ModuleInfo, ModuleKind, ModuleSrc},
-    proc::{Proc, ProcId, ProcSrc},
-    subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine},
+    module::{LocalModuleId, ModuleInfo, ModuleKind},
+    proc::{Proc, ProcId},
+    subroutine::{LocalSubroutineId, Subroutine, lower_subroutine},
     typedef::{Typedef, TypedefId, lower_typedef_data_ty},
 };
 use crate::{
     ast_id_map::SyntaxFileId,
-    body::{Body, BodySourceMap, OwnerLowering},
+    body::{Body, BodyItem, BodySourceMap},
     db::HirDefDb,
     lower_ident_opt,
-    region_tree::RegionTree,
-    source_map::{DiagnosticSource, Lowered, LoweredData, LoweringDiagnostic, SourceMap},
+    source_map::Lowered,
 };
 
 pub mod config;
 pub mod library;
 pub mod udp;
 
-#[derive(Default, Debug, PartialEq, Eq)]
-pub struct HirFile {
-    pub items: SmallVec<[FileItem; 3]>,
-    pub modules: Arena<ModuleInfo>,
-    pub procs: Arena<Proc>,
-    pub config_decls: Arena<ConfigDecl>,
-    pub udp_decls: Arena<UdpDecl>,
-    pub library_decls: Arena<LibraryDecl>,
-    pub library_includes: Arena<LibraryInclude>,
-    pub checkers: Arena<CheckerDef>,
-    pub covergroups: Arena<CovergroupDef>,
-    pub coverpoints: Arena<CoverpointDef>,
-    pub crosses: Arena<CrossDef>,
-    pub subroutines: Arena<Subroutine>,
-    pub package_imports: Arena<PackageImport>,
-}
-impl HirFile {
-    pub fn shrink_to_fit(&mut self) {
-        self.modules.shrink_to_fit();
-        self.procs.shrink_to_fit();
-        self.config_decls.shrink_to_fit();
-        self.udp_decls.shrink_to_fit();
-        self.library_decls.shrink_to_fit();
-        self.library_includes.shrink_to_fit();
-        self.checkers.shrink_to_fit();
-        self.covergroups.shrink_to_fit();
-        self.coverpoints.shrink_to_fit();
-        self.crosses.shrink_to_fit();
-        self.subroutines.shrink_to_fit();
-        self.package_imports.shrink_to_fit();
-    }
-}
-
-#[derive(Default, Debug, PartialEq, Eq)]
-pub struct FileSourceMap {
-    pub region_tree: RegionTree,
-    pub module_srcs: SourceMap<ModuleInfo>,
-    pub proc_srcs: SourceMap<Proc>,
-    pub config_decl_srcs: SourceMap<ConfigDecl>,
-    pub udp_decl_srcs: SourceMap<UdpDecl>,
-    pub library_decl_srcs: SourceMap<LibraryDecl>,
-    pub library_include_srcs: SourceMap<LibraryInclude>,
-    pub checker_srcs: SourceMap<CheckerDef>,
-    pub covergroup_srcs: SourceMap<CovergroupDef>,
-    pub coverpoint_srcs: SourceMap<CoverpointDef>,
-    pub cross_srcs: SourceMap<CrossDef>,
-    pub subroutine_srcs: SourceMap<Subroutine>,
-    pub diagnostics: Vec<LoweringDiagnostic>,
-}
-impl LoweredData for HirFile {
-    type SourceMap = FileSourceMap;
-}
-
-impl DiagnosticSource for FileSourceMap {
-    fn diagnostics(&self) -> &[LoweringDiagnostic] {
-        &self.diagnostics
-    }
-}
-
-impl FileSourceMap {
-    pub fn shrink_to_fit(&mut self) {
-        self.module_srcs.shrink_to_fit();
-        self.proc_srcs.shrink_to_fit();
-        self.config_decl_srcs.shrink_to_fit();
-        self.udp_decl_srcs.shrink_to_fit();
-        self.library_decl_srcs.shrink_to_fit();
-        self.library_include_srcs.shrink_to_fit();
-        self.checker_srcs.shrink_to_fit();
-        self.covergroup_srcs.shrink_to_fit();
-        self.coverpoint_srcs.shrink_to_fit();
-        self.cross_srcs.shrink_to_fit();
-        self.subroutine_srcs.shrink_to_fit();
-        self.diagnostics.shrink_to_fit();
-    }
-}
-
-crate::impl_arena_getters!(
-    HirFile;
-    LocalModuleId => modules => ModuleInfo,
-    ProcId => procs => Proc,
-    ConfigDeclId => config_decls => ConfigDecl,
-    UdpDeclId => udp_decls => UdpDecl,
-    LibraryDeclId => library_decls => LibraryDecl,
-    LibraryIncludeId => library_includes => LibraryInclude,
-    CheckerId => checkers => CheckerDef,
-    CovergroupId => covergroups => CovergroupDef,
-    CoverpointId => coverpoints => CoverpointDef,
-    CrossId => crosses => CrossDef,
-    LocalSubroutineId => subroutines => Subroutine,
-    Idx<PackageImport> => package_imports => PackageImport,
-);
-
-crate::impl_source_map_getters!(
-    FileSourceMap;
-    LocalModuleId => module_srcs,
-    ProcId => proc_srcs,
-    ConfigDeclId => config_decl_srcs,
-    UdpDeclId => udp_decl_srcs,
-    LibraryDeclId => library_decl_srcs,
-    LibraryIncludeId => library_include_srcs,
-    CheckerId => checker_srcs,
-    CovergroupId => covergroup_srcs,
-    CoverpointId => coverpoint_srcs,
-    CrossId => cross_srcs,
-    LocalSubroutineId => subroutine_srcs,
-);
-
-define_enum_deriving_from! {
-    #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-    pub enum FileItem {
-        LocalModuleId(LocalModuleId),
-        ProcId(ProcId),
-        DeclarationId(DeclarationId),
-        TypedefId(TypedefId),
-        StructId(StructId),
-        ConfigDeclId(ConfigDeclId),
-        UdpDeclId(UdpDeclId),
-        LibraryDeclId(LibraryDeclId),
-        LibraryIncludeId(LibraryIncludeId),
-        CheckerId(CheckerId),
-        CovergroupId(CovergroupId),
-        SubroutineId(LocalSubroutineId),
-    }
-}
-
-impl FileSourceMap {
-    pub fn item_to_source(
-        &self,
-        body: &BodySourceMap,
-        item: &FileItem,
-    ) -> Option<crate::ast_id_map::SourceAstId> {
-        match item {
-            FileItem::LocalModuleId(idx) => self.get(*idx),
-            FileItem::ProcId(idx) => self.get(*idx),
-            FileItem::DeclarationId(idx) => body.declaration_srcs.hir_to_src(*idx),
-            FileItem::TypedefId(idx) => body.typedef_srcs.hir_to_src(*idx),
-            FileItem::StructId(idx) => body.struct_srcs.hir_to_src(*idx),
-            FileItem::ConfigDeclId(idx) => self.get(*idx),
-            FileItem::UdpDeclId(idx) => self.get(*idx),
-            FileItem::LibraryDeclId(idx) => self.get(*idx),
-            FileItem::LibraryIncludeId(idx) => self.get(*idx),
-            FileItem::CheckerId(idx) => self.get(*idx),
-            FileItem::CovergroupId(idx) => self.get(*idx),
-            FileItem::SubroutineId(idx) => self.get(*idx),
-        }
-    }
-}
+pub type HirFile = Body;
+pub type FileSourceMap = BodySourceMap;
+pub type FileItem = BodyItem;
 
 pub(crate) type LowerFileCtx<'a> = LoweringCtx<FileStore<'a>>;
 
@@ -201,8 +48,8 @@ impl LowerFileCtx<'_> {
         alloc_with_source(
             &self.ast_ids,
             &self.tree,
-            &mut self.store.body.structs,
-            &mut self.store.body_sources.struct_srcs,
+            &mut self.store.data.structs,
+            &mut self.store.sources.struct_srcs,
             struct_def,
             struct_ty,
         )
@@ -213,8 +60,8 @@ impl LowerFileCtx<'_> {
         let typedef_id = alloc_with_source(
             &self.ast_ids,
             &self.tree,
-            &mut self.store.body.typedefs,
-            &mut self.store.body_sources.typedef_srcs,
+            &mut self.store.data.typedefs,
+            &mut self.store.sources.typedef_srcs,
             Typedef { name, ty: None },
             typedef,
         );
@@ -229,7 +76,7 @@ impl LowerFileCtx<'_> {
             |ctx, ty| ctx.lower_data_ty(ty),
         );
 
-        self.store.body.typedefs[typedef_id].ty = Some(lowered_ty);
+        self.store.data.typedefs[typedef_id].ty = Some(lowered_ty);
 
         typedef_id
     }
@@ -423,25 +270,17 @@ impl LowerFileCtx<'_> {
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
-fn file_lowering(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerLowering<HirFile>> {
+pub(crate) fn hir_file_with_source_map(
+    db: &dyn HirDefDb,
+    file: SyntaxFileId,
+) -> Arc<Lowered<HirFile>> {
     let file_id = file.hir_file(db);
-    let mut hir_file = HirFile::default();
-    let mut source_map = FileSourceMap::default();
-    let mut body = Body::default();
-    let mut body_source_map = BodySourceMap::default();
-
-    let tree = db.parse(file_id);
     let owner = db.owner_table(file_id).file_owner().expect("file owner must exist");
-    let mut lower_ctx = LoweringCtx::new(
-        db,
-        owner,
-        FileStore {
-            data: &mut hir_file,
-            sources: &mut source_map,
-            body: &mut body,
-            body_sources: &mut body_source_map,
-        },
-    );
+    let mut body = Body::default();
+    let mut source_map = BodySourceMap::default();
+    let tree = db.parse(file_id);
+    let mut lower_ctx =
+        LoweringCtx::new(db, owner, FileStore { data: &mut body, sources: &mut source_map });
     match tree.root() {
         Some(root) if ast::CompilationUnit::can_cast(root.kind()) => {
             if let Some(root) = ast::CompilationUnit::cast(root) {
@@ -458,34 +297,12 @@ fn file_lowering(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerLowering<Hir
 
     let diagnostics = lower_ctx.emit_diagnostics();
     drop(lower_ctx);
-    source_map.diagnostics = diagnostics.clone();
-    body_source_map.diagnostics = diagnostics;
-
-    hir_file.shrink_to_fit();
-    source_map.shrink_to_fit();
+    source_map.diagnostics = diagnostics;
     body.shrink_to_fit();
-    body_source_map.shrink_to_fit();
-    Arc::new(OwnerLowering::new(file_id, hir_file, source_map, body, body_source_map))
-}
-
-#[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn hir_file_with_source_map(
-    db: &dyn HirDefDb,
-    file: SyntaxFileId,
-) -> Arc<Lowered<HirFile>> {
-    file_lowering(db, file).structure.clone()
-}
-
-#[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn file_body_with_source_map(
-    db: &dyn HirDefDb,
-    file: SyntaxFileId,
-) -> Arc<Lowered<Body>> {
-    file_lowering(db, file).body.clone()
+    source_map.shrink_to_fit();
+    Arc::new(Lowered::new(file_id, body, source_map))
 }
 
 pub(crate) fn set_hir_file_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
-    file_lowering::set_lru_capacity(db, capacity);
     hir_file_with_source_map::set_lru_capacity(db, capacity);
-    file_body_with_source_map::set_lru_capacity(db, capacity);
 }

@@ -1,31 +1,56 @@
-use la_arena::Arena;
+use la_arena::{Arena, Idx, IdxRange};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use syntax::{
     ast::{self, AstNode},
     match_ast,
-    ptr::SyntaxNodePtr,
 };
 use triomphe::Arc;
+use utils::define_enum_deriving_from;
 
 use crate::{
-    aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
-    alloc_with_source,
+    PackageImport,
+    aggregate::{StructDef, StructId, lower_struct_def},
     block::BlockItem,
+    checker::{CheckerDef, CheckerId},
+    covergroup::{CovergroupDef, CovergroupId, CoverpointDef, CoverpointId, CrossDef, CrossId},
     db::HirDefDb,
-    declaration::{DataDecl, Declaration, DeclarationId, DeclarationSrc},
+    declaration::{DataDecl, Declaration, DeclarationId},
     expr::{
-        Expr, ExprSrc,
-        declarator::{DeclId, Declarator, DeclaratorSrc, empty_decls_range},
-        timing_control::{EventExpr, EventExprSrc},
+        Expr,
+        declarator::{DeclId, Declarator, empty_decls_range},
+        timing_control::EventExpr,
+    },
+    file::{
+        config::{ConfigDecl, ConfigDeclId},
+        library::{LibraryDecl, LibraryDeclId, LibraryInclude, LibraryIncludeId},
+        udp::{UdpDecl, UdpDeclId},
     },
     lower::{BodyStore, LoweringCtx},
     lower_ident_opt,
+    module::{
+        LocalModuleId, ModuleInfo,
+        clocking::{ClockingBlockDef, ClockingBlockId, DefaultClockingRef, DefaultClockingRefSrc},
+        continuous_assign::{ContAssign, ContAssignId},
+        defparam::{DefParam, DefParamId},
+        generate::{GenerateBlockId, GenerateBlockKind, GenerateRegion, GenerateRegionId},
+        instantiation::{
+            Instance, InstanceId, Instantiation, InstantiationId, ParamAssign, ParamAssignId,
+            PortConn, PortConnId,
+        },
+        modport::{ModportDef, ModportId},
+        port::{
+            NonAnsiPort, NonAnsiPortId, PortDecl, PortDeclId, PortRef, PortRefId, PortSrcs, Ports,
+        },
+        specify::{SpecifyBlock, SpecifyBlockId, SpecifyItem, SpecifyItemId},
+    },
     owner::{OwnerId, OwnerKind},
+    proc::{Proc, ProcId},
     region_tree::RegionTree,
     source_map::{DiagnosticSource, Lowered, LoweredData, LoweringDiagnostic, SourceMap},
-    stmt::{Stmt, StmtId, StmtSrc},
-    typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
+    stmt::{Stmt, StmtId},
+    subroutine::{LocalSubroutineId, Subroutine},
+    typedef::{Typedef, TypedefId, lower_typedef_data_ty},
 };
 
 /// One lexical scope inside a [`Body`]. Canonical [`OwnerId`] values are the
@@ -146,11 +171,43 @@ impl BodyScopeGraph {
     }
 }
 
-/// The owner-local semantic body. Nested blocks share these arenas and are
-/// partitioned by [`BodyScopeGraph`] instead of opening child body queries.
+define_enum_deriving_from! {
+// One lowered item in source order for any owner kind.
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    pub enum BodyItem {
+        LocalModuleId(LocalModuleId),
+        ProcId(ProcId),
+        DeclarationId(DeclarationId),
+        TypedefId(TypedefId),
+        StructId(StructId),
+        ConfigDeclId(ConfigDeclId),
+        UdpDeclId(UdpDeclId),
+        LibraryDeclId(LibraryDeclId),
+        LibraryIncludeId(LibraryIncludeId),
+        CheckerId(CheckerId),
+        CovergroupId(CovergroupId),
+        ContAssignId(ContAssignId),
+        DefParamId(DefParamId),
+        GenerateRegionId(GenerateRegionId),
+        GenerateBlockId(GenerateBlockId),
+        SpecifyBlockId(SpecifyBlockId),
+        SpecifyItemId(SpecifyItemId),
+        InstantiationId(InstantiationId),
+        PortDeclId(PortDeclId),
+        SubroutineId(LocalSubroutineId),
+        ModportId(ModportId),
+        ClockingBlockId(ClockingBlockId),
+    }
+}
+
+/// All position-free HIR owned by one canonical [`OwnerId`]. Nested lexical
+/// blocks share these arenas and are partitioned by [`BodyScopeGraph`].
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct Body {
+    pub name: Option<crate::Ident>,
+    pub items: Vec<BodyItem>,
     pub scope_graph: BodyScopeGraph,
+    pub modules: Arena<ModuleInfo>,
     pub declarations: Arena<Declaration>,
     pub typedefs: Arena<Typedef>,
     pub structs: Arena<StructDef>,
@@ -159,6 +216,32 @@ pub struct Body {
     pub decls: Arena<Declarator>,
     pub stmts: Arena<Stmt>,
     pub root_stmt: Option<StmtId>,
+    pub procs: Arena<Proc>,
+    pub config_decls: Arena<ConfigDecl>,
+    pub udp_decls: Arena<UdpDecl>,
+    pub library_decls: Arena<LibraryDecl>,
+    pub library_includes: Arena<LibraryInclude>,
+    pub checkers: Arena<CheckerDef>,
+    pub covergroups: Arena<CovergroupDef>,
+    pub coverpoints: Arena<CoverpointDef>,
+    pub crosses: Arena<CrossDef>,
+    pub subroutines: Arena<Subroutine>,
+    pub package_imports: Arena<PackageImport>,
+    pub param_ports: Option<IdxRange<Declarator>>,
+    pub ports: Ports,
+    pub cont_assigns: Arena<ContAssign>,
+    pub defparams: Arena<DefParam>,
+    pub generate_regions: Arena<GenerateRegion>,
+    pub generate_kind: GenerateBlockKind,
+    pub specify_blocks: Arena<SpecifyBlock>,
+    pub specify_items: Arena<SpecifyItem>,
+    pub modports: Arena<ModportDef>,
+    pub default_clocking: Option<DefaultClockingRef>,
+    pub clocking_blocks: Arena<ClockingBlockDef>,
+    pub instantiations: Arena<Instantiation>,
+    pub inst_param_assigns: Arena<ParamAssign>,
+    pub instances: Arena<Instance>,
+    pub inst_port_conns: Arena<PortConn>,
 }
 
 impl Body {
@@ -167,7 +250,9 @@ impl Body {
     }
 
     pub fn shrink_to_fit(&mut self) {
+        self.items.shrink_to_fit();
         self.scope_graph.shrink_to_fit();
+        self.modules.shrink_to_fit();
         self.declarations.shrink_to_fit();
         self.typedefs.shrink_to_fit();
         self.structs.shrink_to_fit();
@@ -175,15 +260,37 @@ impl Body {
         self.event_exprs.shrink_to_fit();
         self.decls.shrink_to_fit();
         self.stmts.shrink_to_fit();
+        self.procs.shrink_to_fit();
+        self.config_decls.shrink_to_fit();
+        self.udp_decls.shrink_to_fit();
+        self.library_decls.shrink_to_fit();
+        self.library_includes.shrink_to_fit();
+        self.checkers.shrink_to_fit();
+        self.covergroups.shrink_to_fit();
+        self.coverpoints.shrink_to_fit();
+        self.crosses.shrink_to_fit();
+        self.subroutines.shrink_to_fit();
+        self.package_imports.shrink_to_fit();
+        self.ports.shrink_to_fit();
+        self.cont_assigns.shrink_to_fit();
+        self.defparams.shrink_to_fit();
+        self.generate_regions.shrink_to_fit();
+        self.specify_blocks.shrink_to_fit();
+        self.specify_items.shrink_to_fit();
+        self.modports.shrink_to_fit();
+        self.clocking_blocks.shrink_to_fit();
+        self.instantiations.shrink_to_fit();
+        self.inst_param_assigns.shrink_to_fit();
+        self.instances.shrink_to_fit();
+        self.inst_port_conns.shrink_to_fit();
     }
 }
 
-/// Source projection for the common owner-local body arenas.
-///
-/// Position data is deliberately kept out of [`Body`], so source edits can
-/// invalidate projection without changing semantic body data.
+/// Source identities for all HIR arenas in an owner-local [`Body`]. Current
+/// pointers and ranges remain exclusively in `AstIdMap`/`SourceProjection`.
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct BodySourceMap {
+    pub module_srcs: SourceMap<ModuleInfo>,
     pub declaration_srcs: SourceMap<Declaration>,
     pub typedef_srcs: SourceMap<Typedef>,
     pub struct_srcs: SourceMap<StructDef>,
@@ -191,6 +298,29 @@ pub struct BodySourceMap {
     pub event_expr_srcs: SourceMap<EventExpr>,
     pub decl_srcs: SourceMap<Declarator>,
     pub stmt_srcs: SourceMap<Stmt>,
+    pub proc_srcs: SourceMap<Proc>,
+    pub config_decl_srcs: SourceMap<ConfigDecl>,
+    pub udp_decl_srcs: SourceMap<UdpDecl>,
+    pub library_decl_srcs: SourceMap<LibraryDecl>,
+    pub library_include_srcs: SourceMap<LibraryInclude>,
+    pub checker_srcs: SourceMap<CheckerDef>,
+    pub covergroup_srcs: SourceMap<CovergroupDef>,
+    pub coverpoint_srcs: SourceMap<CoverpointDef>,
+    pub cross_srcs: SourceMap<CrossDef>,
+    pub subroutine_srcs: SourceMap<Subroutine>,
+    pub port_srcs: PortSrcs,
+    pub assign_srcs: SourceMap<ContAssign>,
+    pub defparam_srcs: SourceMap<DefParam>,
+    pub generate_region_srcs: SourceMap<GenerateRegion>,
+    pub specify_block_srcs: SourceMap<SpecifyBlock>,
+    pub specify_item_srcs: SourceMap<SpecifyItem>,
+    pub modport_srcs: SourceMap<ModportDef>,
+    pub default_clocking_src: Option<DefaultClockingRefSrc>,
+    pub clocking_block_srcs: SourceMap<ClockingBlockDef>,
+    pub instantiation_srcs: SourceMap<Instantiation>,
+    pub inst_param_assign_srcs: SourceMap<ParamAssign>,
+    pub instance_srcs: SourceMap<Instance>,
+    pub inst_port_conn_srcs: SourceMap<PortConn>,
     pub region_tree: RegionTree,
     scope_region_trees: FxHashMap<OwnerId, RegionTree>,
     pub diagnostics: Vec<LoweringDiagnostic>,
@@ -198,6 +328,7 @@ pub struct BodySourceMap {
 
 impl BodySourceMap {
     pub fn shrink_to_fit(&mut self) {
+        self.module_srcs.shrink_to_fit();
         self.declaration_srcs.shrink_to_fit();
         self.typedef_srcs.shrink_to_fit();
         self.struct_srcs.shrink_to_fit();
@@ -205,6 +336,28 @@ impl BodySourceMap {
         self.event_expr_srcs.shrink_to_fit();
         self.decl_srcs.shrink_to_fit();
         self.stmt_srcs.shrink_to_fit();
+        self.proc_srcs.shrink_to_fit();
+        self.config_decl_srcs.shrink_to_fit();
+        self.udp_decl_srcs.shrink_to_fit();
+        self.library_decl_srcs.shrink_to_fit();
+        self.library_include_srcs.shrink_to_fit();
+        self.checker_srcs.shrink_to_fit();
+        self.covergroup_srcs.shrink_to_fit();
+        self.coverpoint_srcs.shrink_to_fit();
+        self.cross_srcs.shrink_to_fit();
+        self.subroutine_srcs.shrink_to_fit();
+        self.port_srcs.shrink_to_fit();
+        self.assign_srcs.shrink_to_fit();
+        self.defparam_srcs.shrink_to_fit();
+        self.generate_region_srcs.shrink_to_fit();
+        self.specify_block_srcs.shrink_to_fit();
+        self.specify_item_srcs.shrink_to_fit();
+        self.modport_srcs.shrink_to_fit();
+        self.clocking_block_srcs.shrink_to_fit();
+        self.instantiation_srcs.shrink_to_fit();
+        self.inst_param_assign_srcs.shrink_to_fit();
+        self.instance_srcs.shrink_to_fit();
+        self.inst_port_conn_srcs.shrink_to_fit();
         self.diagnostics.shrink_to_fit();
         self.scope_region_trees.shrink_to_fit();
     }
@@ -232,30 +385,6 @@ impl DiagnosticSource for BodySourceMap {
     }
 }
 
-/// Internal result of lowering a structural owner. The aggregate guarantees
-/// one lowering pass; tracked projection queries publish structure and body
-/// independently so Salsa can backdate either value.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct OwnerLowering<T: LoweredData> {
-    pub(crate) structure: Arc<Lowered<T>>,
-    pub(crate) body: Arc<Lowered<Body>>,
-}
-
-impl<T: LoweredData> OwnerLowering<T> {
-    pub(crate) fn new(
-        file_id: preproc_expand::file::HirFileId,
-        structure: T,
-        structure_sources: T::SourceMap,
-        body: Body,
-        body_sources: BodySourceMap,
-    ) -> Self {
-        Self {
-            structure: Arc::new(Lowered::new(file_id, structure, structure_sources)),
-            body: Arc::new(Lowered::new(file_id, body, body_sources)),
-        }
-    }
-}
-
 #[salsa::tracked(lru = 512, returns(clone))]
 pub(crate) fn body_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
     match owner.kind(db) {
@@ -263,11 +392,11 @@ pub(crate) fn body_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Low
         OwnerKind::Subroutine => lower_subroutine_body(db, owner),
         OwnerKind::Block => body_with_source_map(db, body_owner(db, owner)),
         OwnerKind::GenerateBlock => {
-            crate::module::generate::generate_block_body_with_source_map(db, owner)
+            crate::module::generate::generate_block_with_source_map(db, owner)
         }
-        OwnerKind::Module => crate::module::module_body_with_source_map(db, owner),
+        OwnerKind::Module => crate::module::module_with_source_map(db, owner),
         OwnerKind::File => {
-            crate::file::file_body_with_source_map(db, db.syntax_file(owner.file(db)))
+            crate::file::hir_file_with_source_map(db, db.syntax_file(owner.file(db)))
         }
         OwnerKind::Checker | OwnerKind::Covergroup | OwnerKind::ClockingBlock => {
             panic!("scope-only owner has no body: {:?}", owner.kind(db))
@@ -469,7 +598,34 @@ impl LoweringCtx<BodyStore<'_>> {
 }
 
 impl BodySourceMap {
-    pub fn item_to_source(&self, item: &BlockItem) -> Option<crate::ast_id_map::SourceAstId> {
+    pub fn item_to_source(&self, item: &BodyItem) -> Option<crate::ast_id_map::SourceAstId> {
+        match item {
+            BodyItem::LocalModuleId(id) => self.module_srcs.hir_to_src(*id),
+            BodyItem::ProcId(id) => self.proc_srcs.hir_to_src(*id),
+            BodyItem::DeclarationId(id) => self.declaration_srcs.hir_to_src(*id),
+            BodyItem::TypedefId(id) => self.typedef_srcs.hir_to_src(*id),
+            BodyItem::StructId(id) => self.struct_srcs.hir_to_src(*id),
+            BodyItem::ConfigDeclId(id) => self.config_decl_srcs.hir_to_src(*id),
+            BodyItem::UdpDeclId(id) => self.udp_decl_srcs.hir_to_src(*id),
+            BodyItem::LibraryDeclId(id) => self.library_decl_srcs.hir_to_src(*id),
+            BodyItem::LibraryIncludeId(id) => self.library_include_srcs.hir_to_src(*id),
+            BodyItem::CheckerId(id) => self.checker_srcs.hir_to_src(*id),
+            BodyItem::CovergroupId(id) => self.covergroup_srcs.hir_to_src(*id),
+            BodyItem::ContAssignId(id) => self.assign_srcs.hir_to_src(*id),
+            BodyItem::DefParamId(id) => self.defparam_srcs.hir_to_src(*id),
+            BodyItem::GenerateRegionId(id) => self.generate_region_srcs.hir_to_src(*id),
+            BodyItem::GenerateBlockId(id) => Some(id.loc().src.value),
+            BodyItem::SpecifyBlockId(id) => self.specify_block_srcs.hir_to_src(*id),
+            BodyItem::SpecifyItemId(id) => self.specify_item_srcs.hir_to_src(*id),
+            BodyItem::InstantiationId(id) => self.instantiation_srcs.hir_to_src(*id),
+            BodyItem::PortDeclId(id) => utils::get::Get::get(&self.port_srcs, *id),
+            BodyItem::SubroutineId(id) => self.subroutine_srcs.hir_to_src(*id),
+            BodyItem::ModportId(id) => self.modport_srcs.hir_to_src(*id),
+            BodyItem::ClockingBlockId(id) => self.clocking_block_srcs.hir_to_src(*id),
+        }
+    }
+
+    pub fn block_item_to_source(&self, item: &BlockItem) -> Option<crate::ast_id_map::SourceAstId> {
         match item {
             BlockItem::DeclarationId(id) => self.declaration_srcs.hir_to_src(*id),
             BlockItem::TypedefId(id) => self.typedef_srcs.hir_to_src(*id),
@@ -485,22 +641,115 @@ pub(crate) fn set_body_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
 
 crate::impl_arena_getters!(
     Body;
-    crate::declaration::DeclarationId => declarations => Declaration,
-    crate::typedef::TypedefId => typedefs => Typedef,
-    crate::aggregate::StructId => structs => StructDef,
+    LocalModuleId => modules => ModuleInfo,
+    DeclarationId => declarations => Declaration,
+    TypedefId => typedefs => Typedef,
+    StructId => structs => StructDef,
     crate::expr::ExprId => exprs => Expr,
     crate::expr::timing_control::EventExprId => event_exprs => EventExpr,
-    crate::expr::declarator::DeclId => decls => Declarator,
-    crate::stmt::StmtId => stmts => Stmt,
+    DeclId => decls => Declarator,
+    StmtId => stmts => Stmt,
+    ProcId => procs => Proc,
+    ConfigDeclId => config_decls => ConfigDecl,
+    UdpDeclId => udp_decls => UdpDecl,
+    LibraryDeclId => library_decls => LibraryDecl,
+    LibraryIncludeId => library_includes => LibraryInclude,
+    CheckerId => checkers => CheckerDef,
+    CovergroupId => covergroups => CovergroupDef,
+    CoverpointId => coverpoints => CoverpointDef,
+    CrossId => crosses => CrossDef,
+    LocalSubroutineId => subroutines => Subroutine,
+    Idx<PackageImport> => package_imports => PackageImport,
+    ContAssignId => cont_assigns => ContAssign,
+    DefParamId => defparams => DefParam,
+    GenerateRegionId => generate_regions => GenerateRegion,
+    SpecifyBlockId => specify_blocks => SpecifyBlock,
+    SpecifyItemId => specify_items => SpecifyItem,
+    ModportId => modports => ModportDef,
+    ClockingBlockId => clocking_blocks => ClockingBlockDef,
+    InstantiationId => instantiations => Instantiation,
+    ParamAssignId => inst_param_assigns => ParamAssign,
+    InstanceId => instances => Instance,
+    PortConnId => inst_port_conns => PortConn,
 );
+
+impl utils::get::GetRef<NonAnsiPortId> for Body {
+    type Output = NonAnsiPort;
+
+    fn get(&self, id: NonAnsiPortId) -> &Self::Output {
+        utils::get::GetRef::get(&self.ports, id)
+    }
+}
+
+impl utils::get::GetRef<PortRefId> for Body {
+    type Output = PortRef;
+
+    fn get(&self, id: PortRefId) -> &Self::Output {
+        utils::get::GetRef::get(&self.ports, id)
+    }
+}
+
+impl utils::get::GetRef<PortDeclId> for Body {
+    type Output = PortDecl;
+
+    fn get(&self, id: PortDeclId) -> &Self::Output {
+        utils::get::GetRef::get(&self.ports, id)
+    }
+}
+
+impl utils::get::Get<NonAnsiPortId> for BodySourceMap {
+    type Output = Option<crate::ast_id_map::SourceAstId>;
+
+    fn get(&self, id: NonAnsiPortId) -> Self::Output {
+        utils::get::Get::get(&self.port_srcs, id)
+    }
+}
+
+impl utils::get::Get<PortRefId> for BodySourceMap {
+    type Output = Option<crate::ast_id_map::SourceAstId>;
+
+    fn get(&self, id: PortRefId) -> Self::Output {
+        utils::get::Get::get(&self.port_srcs, id)
+    }
+}
+
+impl utils::get::Get<PortDeclId> for BodySourceMap {
+    type Output = Option<crate::ast_id_map::SourceAstId>;
+
+    fn get(&self, id: PortDeclId) -> Self::Output {
+        utils::get::Get::get(&self.port_srcs, id)
+    }
+}
 
 crate::impl_source_map_getters!(
     BodySourceMap;
-    crate::declaration::DeclarationId => declaration_srcs,
-    crate::typedef::TypedefId => typedef_srcs,
-    crate::aggregate::StructId => struct_srcs,
+    LocalModuleId => module_srcs,
+    DeclarationId => declaration_srcs,
+    TypedefId => typedef_srcs,
+    StructId => struct_srcs,
     crate::expr::ExprId => expr_srcs,
     crate::expr::timing_control::EventExprId => event_expr_srcs,
-    crate::expr::declarator::DeclId => decl_srcs,
-    crate::stmt::StmtId => stmt_srcs,
+    DeclId => decl_srcs,
+    StmtId => stmt_srcs,
+    ProcId => proc_srcs,
+    ConfigDeclId => config_decl_srcs,
+    UdpDeclId => udp_decl_srcs,
+    LibraryDeclId => library_decl_srcs,
+    LibraryIncludeId => library_include_srcs,
+    CheckerId => checker_srcs,
+    CovergroupId => covergroup_srcs,
+    CoverpointId => coverpoint_srcs,
+    CrossId => cross_srcs,
+    LocalSubroutineId => subroutine_srcs,
+    ContAssignId => assign_srcs,
+    DefParamId => defparam_srcs,
+    GenerateRegionId => generate_region_srcs,
+    SpecifyBlockId => specify_block_srcs,
+    SpecifyItemId => specify_item_srcs,
+    ModportId => modport_srcs,
+    ClockingBlockId => clocking_block_srcs,
+    InstantiationId => instantiation_srcs,
+    ParamAssignId => inst_param_assign_srcs,
+    InstanceId => instance_srcs,
+    PortConnId => inst_port_conn_srcs,
 );

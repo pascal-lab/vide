@@ -1389,8 +1389,6 @@ endmodule
             .expect("empty statement should lower");
         assert!(body.source(empty_id).is_some());
 
-        let mut missing_file = crate::file::HirFile::default();
-        let mut missing_file_source_map = crate::file::FileSourceMap::default();
         let mut missing_body = crate::body::Body::default();
         let mut missing_body_source_map = crate::body::BodySourceMap::default();
         let file_owner =
@@ -1399,10 +1397,8 @@ endmodule
             &db,
             file_owner,
             crate::lower::FileStore {
-                data: &mut missing_file,
-                sources: &mut missing_file_source_map,
-                body: &mut missing_body,
-                body_sources: &mut missing_body_source_map,
+                data: &mut missing_body,
+                sources: &mut missing_body_source_map,
             },
         );
         let missing_id = ctx.lower_stmt_opt(None);
