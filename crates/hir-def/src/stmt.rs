@@ -7,15 +7,12 @@ use syntax::{
 
 use super::{
     Ident,
-    block::{BlockId, BlockInfo, BlockLoc, BlockSrc},
     expr::{ExprId, data_ty::DataTy, declarator::DeclId, timing_control::TimingControl},
     lower::{LoweringCtx, LoweringStore},
-    lower_ident_opt,
 };
 use crate::{
-    alloc_with_source,
-    container::InFile,
-    lower_named_label_opt,
+    alloc_with_source, lower_named_label_opt,
+    owner::{OwnerId, OwnerKind},
     source_map::{AstKind, NamedAstId},
 };
 
@@ -39,7 +36,7 @@ pub enum StmtKind {
     TimingCtrl(TimingControl, StmtId),
     ProcAssign(ProcAssignKind),
     EventTrigger(EventTrigger),
-    Block(BlockInfo),
+    Block(OwnerId),
 
     Cond {
         unique_priority: Option<UniquePriority>,
@@ -154,14 +151,17 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_stmt(&mut self, stmt: ast::Statement) -> StmtId {
         let label = lower_named_label_opt(stmt.label());
         let file_id = self.file_id;
-        let (statements, sources) = self.statements();
-        let stmt_id = alloc_with_source(
-            file_id,
-            statements,
-            sources,
-            Stmt { label, kind: StmtKind::Empty },
-            stmt,
-        );
+        let stmt_id = {
+            let (statements, sources) = self.statements();
+            alloc_with_source(
+                file_id,
+                statements,
+                sources,
+                Stmt { label, kind: StmtKind::Empty },
+                stmt,
+            )
+        };
+        self.record_body_statement(stmt_id);
         let kind = self.lower_stmt_kind(stmt, stmt_id);
         self.statements().0[stmt_id].kind = kind;
         stmt_id
@@ -404,13 +404,11 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
     }
 
     fn lower_block_stmt(&mut self, stmt: ast::BlockStatement) -> StmtKind {
-        let loc = BlockLoc {
-            cont_id: self.owner.clone(),
-            src: InFile::new(self.file_id, BlockSrc::from_ast(self.file_id, stmt)),
-        };
-        let block_id = BlockId::new(loc);
-        let name = stmt.block_name().and_then(|name| lower_ident_opt(name.name()));
-        StmtKind::Block(BlockInfo { name, block_id })
+        let owner = self
+            .owner_for_node(stmt.syntax(), OwnerKind::Block)
+            .expect("block statement must have a canonical owner");
+        self.lower_nested_block(stmt, owner);
+        StmtKind::Block(owner)
     }
 
     fn alloc_missing(&mut self) -> StmtId {

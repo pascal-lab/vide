@@ -16,7 +16,6 @@ use utils::{
 };
 
 use crate::{
-    block::BlockLoc,
     checker::{CheckerDef, CheckerPort, CheckerPortId},
     container::{
         ArenaOwnerId, FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope,
@@ -24,6 +23,7 @@ use crate::{
     },
     covergroup::{CoverpointDef, CoverpointId, CrossDef, CrossId},
     db::HirDefDb,
+    has_source::HasSource,
     declaration::Declaration,
     expr::declarator::DeclaratorParent,
     module::{ModuleKind, clocking::ClockingSignal, generate::GenerateBlockLoc},
@@ -98,7 +98,6 @@ fn file_or_module_storage(scope_id: ScopeId) -> Option<FileOrModule> {
         ScopeId::File(file_id) => Some(FileOrModule::File(file_id)),
         ScopeId::Module(module_id) => Some(FileOrModule::Module(module_id)),
         ScopeId::GenerateBlock(_)
-        | ScopeId::Block(_)
         | ScopeId::Subroutine(_)
         | ScopeId::Owner(_)
         | ScopeId::ClockingBlock(_)
@@ -182,13 +181,7 @@ impl DefOriginLoc {
             DefOriginLoc::Udp(InFile { value, file_id }) => {
                 db.hir_file(file_id).get(value).name.clone()
             }
-            DefOriginLoc::Block(block_id) => {
-                let BlockLoc { cont_id, src: InFile { value, file_id: _ } } =
-                    block_id.loc().clone();
-                let cont = cont_id.clone().data(db);
-                let source_map = cont_id.source_map(db);
-                cont.block_info(source_map.block_from_source(value)?).name.clone()
-            }
+            DefOriginLoc::Block(owner) => owner.name(db),
             DefOriginLoc::GenerateBlock(generate_block_id) => {
                 db.generate_block(generate_block_id).name.clone()
             }
@@ -264,10 +257,9 @@ impl DefOriginLoc {
                 let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
                 Some(InFile::new(file_id, range))
             }
-            DefOriginLoc::Block(block_id) => {
-                let BlockLoc { src: InFile { value, file_id }, .. } = block_id.loc().clone();
-                let range = value.name_range()?;
-                Some(InFile::new(file_id, range))
+            DefOriginLoc::Block(owner) => {
+                let source = owner.source(db)?;
+                Some(InFile::new(source.file_id, source.value.focus_range()?))
             }
             DefOriginLoc::GenerateBlock(generate_block_id) => {
                 let GenerateBlockLoc { src: InFile { value, file_id }, .. } =
@@ -413,10 +405,9 @@ impl DefOriginLoc {
                 let range = db.hir_file_with_source_map(file_id).source(value)?.range();
                 InFile::new(file_id, range)
             }
-            DefOriginLoc::Block(block_id) => {
-                let BlockLoc { src: InFile { value, file_id }, .. } = block_id.loc().clone();
-                let range = value.range();
-                InFile::new(file_id, range)
+            DefOriginLoc::Block(owner) => {
+                let source = owner.source(db)?;
+                InFile::new(source.file_id, source.value.full_range())
             }
             DefOriginLoc::GenerateBlock(generate_block_id) => {
                 let GenerateBlockLoc { src: InFile { value, file_id }, .. } =
@@ -537,7 +528,7 @@ impl DefOriginLoc {
 impl DefOrigin {
     #[inline]
     pub fn container_id(&self, db: &dyn HirDefDb) -> ScopeId {
-        self.loc(db).clone().container_id()
+        self.loc(db).clone().container_id(db)
     }
 
     pub fn kind(&self, db: &dyn HirDefDb) -> DefKind {

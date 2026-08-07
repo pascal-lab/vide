@@ -1,9 +1,7 @@
 use base_db::source_db::{SourceDb, SourceRootDb};
 use hir_def::{
-    DEFAULT_NAME,
     container::{
-        ArenaOwnerId, InContainer, InFile, InModule, InSubroutine, ScopeId, ScopeParent,
-        SubroutineScope,
+        ArenaOwnerId, InContainer, InFile, InModule, InSubroutine, ScopeParent, SubroutineScope,
     },
     declaration::Declaration,
     def_id::DefId,
@@ -758,8 +756,10 @@ fn render_scope_fact(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<Str
             }
         }
 
-        if !matches!(cont_id, ScopeId::File(_)) {
-            containers.push(cont_id.name(db).unwrap_or(DEFAULT_NAME).to_string());
+        if cont_id.clone().kind(db) != hir_def::symbol::ScopeKind::File
+            && let Some(name) = cont_id.name(db).filter(|name| !name.is_empty())
+        {
+            containers.push(name.to_string());
         }
     }
 

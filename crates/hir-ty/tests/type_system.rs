@@ -271,15 +271,16 @@ endmodule
 "#,
     );
     let module = module_id(&db, "m");
-    let module_data = db.module(module);
-    let (stream_id, _) = module_data
+    let owner = module.owner(&db).expect("module must have a canonical owner");
+    let body = db.body_with_source_map(owner);
+    let (stream_id, _) = body
         .exprs
         .iter()
         .find(|(_, expr)| matches!(expr, hir_def::expr::Expr::Stream { .. }))
         .expect("streaming concatenation should lower");
 
     assert_eq!(
-        InContainer::new(module.into(), stream_id).display_source(&db).unwrap(),
+        InContainer::new(owner.into(), stream_id).display_source(&db).unwrap(),
         "{<<{a with [3:0]}}"
     );
 }

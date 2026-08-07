@@ -3,7 +3,7 @@ use std::iter::Peekable;
 use hir_def::{
     DEFAULT_NAME,
     aggregate::{StructDef, StructId, StructKind},
-    block::{BlockId, BlockItem},
+    block::BlockItem,
     body::Body,
     checker::{CheckerDef, CheckerId},
     container::InFile,
@@ -27,10 +27,11 @@ use hir_def::{
         port::Ports,
         specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem},
     },
+    owner::OwnerId,
     proc::{Proc, ProcId},
     region_tree::{RegionNode, RegionTreeIterator},
     source_map::{HirLookup, Lowered, NamedSourceLookup, SourceInfo, SourceLookup},
-    stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind},
+    stmt::{CaseItem, ForInit, StmtId, StmtKind},
     subroutine::{LocalSubroutineId, Subroutine},
     typedef::{Typedef, TypedefId},
 };
@@ -376,51 +377,56 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
     regions.finish_all(collector);
 }
 
-fn collect_block_items(db: &dyn TyDb, collector: &mut SymbolCollector, block_id: BlockId) {
-    let header = db.block(block_id.clone());
-    let lowered = db.block_with_source_map(block_id.clone());
-    let block = lowered.data_ref();
+fn collect_block_items(
+    db: &dyn TyDb,
+    collector: &mut SymbolCollector,
+    owner: OwnerId,
+    lowered: &Lowered<Body>,
+) {
+    let body = lowered.data_ref();
+    let scope = body.scope(owner).expect("lowered body must contain its block scope");
     let src_map = lowered.source_map();
-    let mut regions = src_map.region_tree.walk().peekable();
+    let mut regions = src_map
+        .region_tree_for(body, owner)
+        .expect("block scope must retain its region tree")
+        .walk()
+        .peekable();
 
-    let Some(InFile { value: block_src, .. }) = block_id.source(db) else {
+    let Some(InFile { value: block_src, .. }) = owner.source(db) else {
         return;
     };
     collector.push_symbol_with_children(
-        &header.name,
+        &owner.name(db),
         block_src,
-        block.decls.len() + block.items.len(),
+        scope.declarators().len() + scope.items().len(),
     );
 
-    for item in &block.items {
+    for item in scope.items() {
         if let Some(ptr) = src_map.item_to_ptr(item) {
             regions.add_region_symbol(ptr.range(), collector);
         }
         match *item {
             BlockItem::DeclarationId(declaration_id) => {
-                build_declaration(collector, declaration_id, lowered.as_ref())
+                build_declaration(collector, declaration_id, lowered)
             }
-            BlockItem::StmtId(stmt_id) => build_stmt(db, collector, stmt_id, lowered.as_ref()),
-            BlockItem::TypedefId(typedef_id) => {
-                build_typedef(collector, typedef_id, lowered.as_ref())
-            }
-            BlockItem::StructId(struct_id) => build_struct(collector, struct_id, lowered.as_ref()),
+            BlockItem::StmtId(stmt_id) => build_stmt(db, collector, stmt_id, lowered),
+            BlockItem::TypedefId(typedef_id) => build_typedef(collector, typedef_id, lowered),
+            BlockItem::StructId(struct_id) => build_struct(collector, struct_id, lowered),
         }
     }
     collector.pop();
     regions.finish_all(collector);
 }
-fn build_stmt<L>(db: &dyn TyDb, collector: &mut SymbolCollector, stmt_id: StmtId, lowered: &L)
-where
-    L: HirLookup<StmtId, Hir = Stmt>
-        + HirLookup<DeclId, Hir = Declarator>
-        + NamedSourceLookup<StmtId>
-        + NamedSourceLookup<DeclId>,
-{
-    let stmt = lowered.hir(stmt_id);
+fn build_stmt(
+    db: &dyn TyDb,
+    collector: &mut SymbolCollector,
+    stmt_id: StmtId,
+    lowered: &Lowered<Body>,
+) {
+    let stmt = lowered.get(stmt_id);
 
-    if let StmtKind::Block(block_info) = &stmt.kind {
-        collect_block_items(db, collector, block_info.block_id.clone());
+    if let StmtKind::Block(owner) = stmt.kind {
+        collect_block_items(db, collector, owner, lowered);
         return;
     }
 

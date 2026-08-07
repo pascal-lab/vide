@@ -10,7 +10,7 @@ use utils::get::GetRef;
 
 use crate::{
     PackageImport,
-    block::BlockInfo,
+    body::Body,
     checker::{CheckerDef, CheckerId, CheckerPortId},
     container::{
         ArenaOwnerId, FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope,
@@ -20,7 +20,7 @@ use crate::{
     db::HirDefDb,
     declaration::DeclarationId,
     def_id::DefId,
-    expr::declarator::{DeclId, Declarator, DeclaratorParent},
+    expr::declarator::{DeclId, DeclaratorParent},
     lower_ident_opt,
     module::{
         ModuleId, PackageId,
@@ -29,10 +29,10 @@ use crate::{
         port::{PortDeclId, Ports},
     },
     owner::{OwnerId, OwnerKind},
-    stmt::{Stmt, StmtKind},
+    stmt::StmtKind,
     subroutine::{LocalSubroutineId, SubroutinePortId},
     symbol::{DefOriginLoc, Import, NameContext, NameScope},
-    typedef::{Typedef, TypedefId},
+    typedef::TypedefId,
 };
 
 // SystemVerilog has separate namespaces. This scope stores current supported
@@ -46,21 +46,32 @@ fn def_id(db: &dyn HirDefDb, loc: impl Into<DefOriginLoc>) -> DefId {
     DefId::new(db, loc)
 }
 
-/// Inserts the data-net-param declarations and typedefs that every scope
-/// owns, keyed by `cont_id`. The declaration/typedef loops are identical across
-/// file, module, generate-block, block, and subroutine scopes, so they live
-/// here as the single source of truth.
-fn insert_decls_and_typedefs(
+fn body_scope<'a>(body: &'a Body, owner: OwnerId) -> &'a crate::body::BodyScopeData {
+    body.scope(owner).expect("body must contain every requested lexical scope")
+}
+
+fn insert_body_declarators(
     scope: &mut NameScope,
     db: &dyn HirDefDb,
     cont_id: ArenaOwnerId,
-    decls: &Arena<Declarator>,
-    typedefs: &Arena<Typedef>,
+    body: &Body,
+    owner: OwnerId,
 ) {
-    for (decl_id, decl) in decls.iter() {
+    for &decl_id in body_scope(body, owner).declarators() {
+        let decl = &body.decls[decl_id];
         scope.insert_value_opt(&decl.name, def_id(db, InContainer::new(cont_id.clone(), decl_id)));
     }
-    for (typedef_id, typedef) in typedefs.iter() {
+}
+
+fn insert_body_typedefs(
+    scope: &mut NameScope,
+    db: &dyn HirDefDb,
+    cont_id: ArenaOwnerId,
+    body: &Body,
+    owner: OwnerId,
+) {
+    for &typedef_id in body_scope(body, owner).typedefs() {
+        let typedef = &body.typedefs[typedef_id];
         scope.insert_type_opt(
             &typedef.name,
             def_id(db, InContainer::new(cont_id.clone(), typedef_id)),
@@ -68,20 +79,18 @@ fn insert_decls_and_typedefs(
     }
 }
 
-/// Inserts statement labels (and their nested named blocks), which every
-/// scope owns. Kept separate from `insert_decls_and_typedefs` so callers can
-/// place module/generate specific members between the two while preserving
-/// insertion order.
-fn insert_stmts(
+fn insert_body_statements(
     scope: &mut NameScope,
     db: &dyn HirDefDb,
     cont_id: ArenaOwnerId,
-    stmts: &Arena<Stmt>,
+    body: &Body,
+    owner: OwnerId,
 ) {
-    for (stmt_id, stmt) in stmts.iter() {
+    for &stmt_id in body_scope(body, owner).statements() {
+        let stmt = &body.stmts[stmt_id];
         scope.insert_value_opt(&stmt.label, def_id(db, InContainer::new(cont_id.clone(), stmt_id)));
-        if let StmtKind::Block(BlockInfo { name, block_id }) = &stmt.kind {
-            scope.insert_value_opt(name, def_id(db, block_id.clone()));
+        if let StmtKind::Block(block_owner) = stmt.kind {
+            scope.insert_value_opt(&block_owner.name(db), def_id(db, block_owner));
         }
     }
 }
@@ -89,7 +98,13 @@ fn insert_stmts(
 fn insert_proc_bodies(scope: &mut NameScope, db: &dyn HirDefDb, procs: &Arena<crate::proc::Proc>) {
     for (_, proc) in procs.iter() {
         let body = db.body_with_source_map(proc.owner);
-        insert_stmts(scope, db, ArenaOwnerId::Owner(proc.owner), &body.stmts);
+        insert_body_statements(
+            scope,
+            db,
+            ArenaOwnerId::Owner(proc.owner),
+            body.data_ref(),
+            proc.owner,
+        );
     }
 }
 
@@ -125,13 +140,12 @@ impl NameScope {
         }
 
         let file_id = owner.file(db);
+        let tree = db.parse(file_id);
         let package_id =
             PackageId::from_owner(db, owner).expect("package owner must have a module id");
-        let tree = db.parse(file_id);
         let Some(package) = db
             .owner_source_ast_id(owner)
-            .and_then(|ast_id| db.ast_id_map(file_id).ptr(ast_id))
-            .and_then(|ptr| ptr.to_node(&tree))
+            .and_then(|ast_id| db.ast_id_map(file_id).node(ast_id, &tree))
             .and_then(ast::ModuleDeclaration::cast)
         else {
             return Arc::new(scope);
@@ -187,9 +201,6 @@ impl NameScope {
         db.scope_for(generate_block_id.into())
     }
 
-    pub fn block_scope(db: &dyn HirDefDb, block_id: crate::block::BlockId) -> Arc<NameScope> {
-        db.scope_for(block_id.into())
-    }
 
     pub fn subroutine_scope(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> Arc<NameScope> {
         db.scope_for(subroutine_id.into())
@@ -230,9 +241,7 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameSco
         scope.insert_package_import(import);
     }
 
-    for (decl_id, decl) in body.decls.iter() {
-        scope.insert_value_opt(&decl.name, def_id(db, InContainer::new(file_id.into(), decl_id)));
-    }
+    insert_body_declarators(&mut scope, db, file_id.into(), body.data_ref(), file_owner);
     insert_proc_bodies(&mut scope, db, &hir_file.procs);
 
     for (local_subroutine_id, subroutine) in hir_file.subroutines.iter() {
@@ -281,12 +290,7 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameSco
         scope.insert_value_opt(&cross.name, def_id(db, InScope::new(file_id.into(), cross_id)));
     }
 
-    for (typedef_id, typedef) in body.typedefs.iter() {
-        scope.insert_type_opt(
-            &typedef.name,
-            def_id(db, InContainer::new(file_id.into(), typedef_id)),
-        );
-    }
+    insert_body_typedefs(&mut scope, db, file_id.into(), body.data_ref(), file_owner);
 
     scope
 }
@@ -352,7 +356,8 @@ pub(crate) fn build_module_scope(
         scope.insert_value_opt(&cross.name, def_id(db, InScope::new(module_id.into(), cross_id)));
     }
 
-    insert_decls_and_typedefs(&mut scope, db, module_id.into(), &body.decls, &body.typedefs);
+    insert_body_declarators(&mut scope, db, module_id.into(), body.data_ref(), owner);
+    insert_body_typedefs(&mut scope, db, module_id.into(), body.data_ref(), owner);
 
     for (instance_id, instance) in module.instances.iter() {
         scope.insert_value_opt(&instance.name, def_id(db, InModule::new(module_id, instance_id)));
@@ -372,7 +377,7 @@ pub(crate) fn build_module_scope(
         }
     }
 
-    insert_stmts(&mut scope, db, module_id.into(), &body.stmts);
+    insert_body_statements(&mut scope, db, module_id.into(), body.data_ref(), owner);
     insert_proc_bodies(&mut scope, db, &module.procs);
 
     scope
@@ -499,12 +504,19 @@ pub(crate) fn build_generate_block_scope(
         scope.insert_value_opt(&subroutine.name, def_id(db, subroutine_id));
     }
 
-    insert_decls_and_typedefs(
+    insert_body_declarators(
         &mut scope,
         db,
         generate_block_id.clone().into(),
-        &body.decls,
-        &body.typedefs,
+        body.data_ref(),
+        owner,
+    );
+    insert_body_typedefs(
+        &mut scope,
+        db,
+        generate_block_id.clone().into(),
+        body.data_ref(),
+        owner,
     );
 
     for item in &generate_block.items {
@@ -515,25 +527,46 @@ pub(crate) fn build_generate_block_scope(
         }
     }
 
-    insert_stmts(&mut scope, db, generate_block_id.into(), &body.stmts);
+    insert_body_statements(
+        &mut scope,
+        db,
+        generate_block_id.into(),
+        body.data_ref(),
+        owner,
+    );
     insert_proc_bodies(&mut scope, db, &generate_block.procs);
 
     scope
 }
 
-pub(crate) fn build_block_scope(db: &dyn HirDefDb, block_id: crate::block::BlockId) -> NameScope {
+pub(crate) fn build_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope {
+    debug_assert_eq!(owner.kind(db), OwnerKind::Block);
     let mut scope = NameScope::default();
-    let owner = block_id.clone().owner(db).expect("block must map to an owner");
     let body = db.body_with_source_map(owner);
 
-    insert_decls_and_typedefs(
+    let root = crate::body::body_owner(db, owner);
+    insert_body_declarators(
         &mut scope,
         db,
         ArenaOwnerId::Owner(owner),
-        &body.decls,
-        &body.typedefs,
+        body.data_ref(),
+        owner,
     );
-    insert_stmts(&mut scope, db, ArenaOwnerId::Owner(owner), &body.stmts);
+    insert_body_typedefs(
+        &mut scope,
+        db,
+        ArenaOwnerId::Owner(owner),
+        body.data_ref(),
+        owner,
+    );
+    insert_body_statements(
+        &mut scope,
+        db,
+        ArenaOwnerId::Owner(owner),
+        body.data_ref(),
+        owner,
+    );
+    debug_assert_eq!(body.scope_graph.root(), Some(root));
 
     scope
 }
@@ -555,14 +588,27 @@ pub(crate) fn build_subroutine_scope(
         );
     }
 
-    insert_decls_and_typedefs(
+    insert_body_declarators(
         &mut scope,
         db,
         ArenaOwnerId::Owner(owner),
-        &body.decls,
-        &body.typedefs,
+        body.data_ref(),
+        owner,
     );
-    insert_stmts(&mut scope, db, ArenaOwnerId::Owner(owner), &body.stmts);
+    insert_body_typedefs(
+        &mut scope,
+        db,
+        ArenaOwnerId::Owner(owner),
+        body.data_ref(),
+        owner,
+    );
+    insert_body_statements(
+        &mut scope,
+        db,
+        ArenaOwnerId::Owner(owner),
+        body.data_ref(),
+        owner,
+    );
 
     scope
 }
@@ -576,23 +622,34 @@ pub(crate) fn build_owner_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope 
         OwnerKind::GenerateBlock => GenerateBlockId::from_owner(db, owner)
             .map(|generate_id| build_generate_block_scope(db, generate_id))
             .unwrap_or_default(),
-        OwnerKind::Block => crate::block::BlockId::from_owner(db, owner)
-            .map(|block_id| build_block_scope(db, block_id))
-            .unwrap_or_default(),
+        OwnerKind::Block => build_block_scope(db, owner),
         OwnerKind::Subroutine => SubroutineScope::from_owner(db, owner)
             .map(|subroutine_id| build_subroutine_scope(db, subroutine_id))
             .unwrap_or_default(),
         OwnerKind::ProceduralBlock => {
             let body = db.body_with_source_map(owner);
             let mut scope = NameScope::default();
-            insert_decls_and_typedefs(
+            insert_body_declarators(
                 &mut scope,
                 db,
                 ArenaOwnerId::Owner(owner),
-                &body.decls,
-                &body.typedefs,
+                body.data_ref(),
+                owner,
             );
-            insert_stmts(&mut scope, db, ArenaOwnerId::Owner(owner), &body.stmts);
+            insert_body_typedefs(
+                &mut scope,
+                db,
+                ArenaOwnerId::Owner(owner),
+                body.data_ref(),
+                owner,
+            );
+            insert_body_statements(
+                &mut scope,
+                db,
+                ArenaOwnerId::Owner(owner),
+                body.data_ref(),
+                owner,
+            );
             scope
         }
         OwnerKind::Checker | OwnerKind::Covergroup | OwnerKind::ClockingBlock => {
@@ -1381,10 +1438,13 @@ endmodule
         let mut missing_file_source_map = crate::file::FileSourceMap::default();
         let mut missing_body = crate::body::Body::default();
         let mut missing_body_source_map = crate::body::BodySourceMap::default();
+        let file_owner = db
+            .owner_table(HirFileId::File(TOP))
+            .file_owner()
+            .expect("file owner must exist");
         let mut ctx = crate::lower::LoweringCtx::new(
             &db,
-            TOP.into(),
-            crate::container::ArenaOwnerId::File(HirFileId::File(TOP)),
+            file_owner,
             crate::lower::FileStore {
                 data: &mut missing_file,
                 sources: &mut missing_file_source_map,

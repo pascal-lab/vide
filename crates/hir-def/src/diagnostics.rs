@@ -26,7 +26,6 @@ use utils::{
 
 use crate::{
     ast_id_map::SyntaxFileId,
-    block::{BlockId, BlockInfo},
     container::{SubroutineParent, SubroutineScope},
     db::HirDefDb,
     has_source::HasSource,
@@ -36,7 +35,6 @@ use crate::{
     },
     proc::Proc,
     source_map::{DiagnosticSource, LoweringDiagnostic},
-    stmt::{Stmt, StmtKind},
 };
 
 #[salsa::tracked(returns(clone))]
@@ -147,7 +145,6 @@ fn collect_subroutine(
     let lowered = db.subroutine_body_with_source_map(owner);
     let owner_range = scope.source(db).map(|source| source.value.full_range());
     collect(lowered.source_map().diagnostics(), owner_range, tree, diagnostics);
-    collect_blocks_from_stmts(db, &lowered.stmts, tree, diagnostics);
 }
 
 fn collect_proc_bodies(
@@ -158,40 +155,11 @@ fn collect_proc_bodies(
 ) {
     for (_, proc) in procs.iter() {
         let body = db.body_with_source_map(proc.owner);
-        let owner_range = db
-            .owner_source_ast_id(proc.owner)
-            .and_then(|ast_id| db.ast_id_map(proc.owner.file(db)).ptr(ast_id))
-            .map(|ptr| ptr.range());
+        let owner_range = proc.owner.source(db).map(|source| source.value.full_range());
         collect(body.source_map().diagnostics(), owner_range, tree, diagnostics);
-        collect_blocks_from_stmts(db, &body.stmts, tree, diagnostics);
     }
 }
 
-fn collect_blocks_from_stmts(
-    db: &dyn HirDefDb,
-    stmts: &Arena<Stmt>,
-    tree: &SyntaxTree,
-    diagnostics: &mut Vec<LoweringDiagnostic>,
-) {
-    for (_, stmt) in stmts.iter() {
-        let StmtKind::Block(BlockInfo { block_id, .. }) = &stmt.kind else {
-            continue;
-        };
-        collect_block(db, block_id.clone(), tree, diagnostics);
-    }
-}
-
-fn collect_block(
-    db: &dyn HirDefDb,
-    block_id: BlockId,
-    tree: &SyntaxTree,
-    diagnostics: &mut Vec<LoweringDiagnostic>,
-) {
-    let lowered = db.block_with_source_map(block_id.clone());
-    let owner_range = block_id.source(db).map(|source| source.value.full_range());
-    collect(lowered.source_map().diagnostics(), owner_range, tree, diagnostics);
-    collect_blocks_from_stmts(db, &lowered.stmts, tree, diagnostics);
-}
 
 fn collect(
     diagnostics: &[LoweringDiagnostic],

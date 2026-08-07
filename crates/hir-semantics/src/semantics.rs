@@ -2,10 +2,10 @@ use std::ops;
 
 use hir_def::{
     Ident,
-    block::{BlockId, BlockSrc},
     container::{ArenaOwnerId, InContainer, InFile, SubroutineScope},
     db::HirDefDb,
     def_id::DefId,
+    owner::OwnerId,
     expr::ExprId,
     module::{ModuleId, ModuleSrc},
     subroutine::SubroutineSrc,
@@ -119,9 +119,8 @@ impl SemanticsImpl<'_> {
         source_to_def::module_to_def(self.db, InFile::new(file_id, module_src))
     }
 
-    pub fn block_to_def(&self, file_id: HirFileId, block: ast::BlockStatement) -> Option<BlockId> {
-        let block_src = BlockSrc::from_ast(file_id, block);
-        source_to_def::block_to_def(self.db, InFile::new(file_id, block_src))
+    pub fn block_to_def(&self, file_id: HirFileId, block: ast::BlockStatement) -> Option<OwnerId> {
+        source_to_def::block_to_def(self.db, file_id, block)
     }
 
     pub fn subroutine_to_def(

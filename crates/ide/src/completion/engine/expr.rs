@@ -134,12 +134,6 @@ fn collect_container_names(
                 collect_def_names(db, ident, defs, names);
             }
         }
-        ScopeId::Block(block_id) => {
-            let scope = db.block_scope(block_id);
-            for (ident, defs) in scope.iter_listing() {
-                collect_def_names(db, ident, defs, names);
-            }
-        }
         ScopeId::Subroutine(subroutine_id) => {
             let scope = db.subroutine_scope(subroutine_id);
             for (ident, defs) in scope.iter_listing() {

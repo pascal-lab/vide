@@ -19,6 +19,30 @@ using namespace syntax;
 
 using LF = LexerFacts;
 
+static std::span<const Trivia> anchorImplicitTrivia(BumpAllocator& alloc, Token source) {
+    auto trivia = source.trivia();
+    if (trivia.empty() || !source.location() || trivia.back().getExplicitLocation())
+        return trivia;
+
+    size_t implicitLength = 0;
+    for (auto it = trivia.rbegin(); it != trivia.rend() && !it->getExplicitLocation(); it++)
+        implicitLength += it->getRawText().size();
+    SLANG_ASSERT(source.location().offset() >= implicitLength);
+
+    SmallVector<Trivia, 8> anchored;
+    anchored.append_range(trivia);
+    anchored.back() = anchored.back().withLocation(alloc, source.location());
+    return anchored.copy(alloc);
+}
+
+static Token withTriviaFrom(BumpAllocator& alloc, Token target, Token source) {
+    return target.withTrivia(alloc, anchorImplicitTrivia(alloc, source));
+}
+
+static Token relocateToken(BumpAllocator& alloc, Token token, SourceLocation location) {
+    return token.clone(alloc, anchorImplicitTrivia(alloc, token), token.rawText(), location);
+}
+
 Preprocessor::MacroDef Preprocessor::findMacro(Token directive) {
     std::string_view name = directive.valueText().substr(1);
     if (!name.empty() && name[0] == '\\')
@@ -174,7 +198,7 @@ bool Preprocessor::applyMacroOps(std::span<Token const> tokens, SmallVectorBase<
         auto opLoc = sourceManager.createExpansionLoc(originalLoc, expansionRange, kind, metadata);
         if (provenance)
             sourceManager.setMacroTokenProvenance(opLoc, *provenance);
-        return opToken.withLocation(alloc, opLoc);
+        return relocateToken(alloc, opToken, opLoc);
     };
 
     for (size_t i = 0; i < tokens.size(); i++) {
@@ -562,7 +586,7 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
         // We need to ensure that we get correct spacing for the leading token here;
         // it needs to come from the *formal* parameter used in the macro body, not
         // from the argument itself.
-        Token first = begin->withTrivia(alloc, token.trivia());
+        Token first = withTriviaFrom(alloc, *begin, token);
         SourceLocation firstLoc = first.location();
 
         // Arguments need their own expansion location created; the original
@@ -724,7 +748,7 @@ void Preprocessor::MacroExpansion::append(Token token, SourceLocation location,
                                           SourceManager::MacroTokenProvenance provenance) {
     if (!any) {
         if (!isTopLevel)
-            token = token.withTrivia(alloc, usageSite.trivia());
+            token = withTriviaFrom(alloc, token, usageSite);
         else
             token = token.withTrivia(alloc, {});
         any = true;
@@ -733,15 +757,18 @@ void Preprocessor::MacroExpansion::append(Token token, SourceLocation location,
     // Line continuations get stripped out when we expand macros and become newline trivia instead.
     if (token.kind == TokenKind::LineContinuation && !allowLineContinuation) {
         SmallVector<Trivia, 8> newTrivia;
-        newTrivia.append_range(token.trivia());
-        newTrivia.push_back(Trivia(TriviaKind::EndOfLine, token.rawText().substr(1)));
+        newTrivia.append_range(anchorImplicitTrivia(alloc, token));
+        SLANG_ASSERT(token.location());
+        newTrivia.push_back(Trivia(TriviaKind::EndOfLine, token.rawText().substr(1))
+                                .withLocation(alloc,
+                                              token.location() + token.rawText().length()));
 
         dest.push_back(
             Token(alloc, TokenKind::EmptyMacroArgument, newTrivia.copy(alloc), "", location));
     }
     else {
         sourceManager.setMacroTokenProvenance(location, provenance);
-        dest.push_back(token.withLocation(alloc, location));
+        dest.push_back(relocateToken(alloc, token, location));
     }
 }
 

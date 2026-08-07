@@ -125,10 +125,11 @@ endmodule
     let hir_file = db.hir_file_with_source_map(TOP.into());
     let (local_module_id, _) = hir_file.modules.iter().next().unwrap();
     let module_id: ModuleId = InFile::new(TOP.into(), local_module_id);
-    let module = db.module_with_source_map(module_id);
+    let owner = module_id.owner(&db).expect("module must have a canonical owner");
+    let body = db.body_with_source_map(owner);
     let (declaration_id, _) =
-        module.declarations.iter().next().expect("generated declaration should lower to HIR");
-    let declaration_range = module
+        body.declarations.iter().next().expect("generated declaration should lower to HIR");
+    let declaration_range = body
         .source_range(declaration_id)
         .expect("generated declaration should keep a source-map range");
 

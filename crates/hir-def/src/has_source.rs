@@ -1,9 +1,9 @@
 use crate::{
-    block::BlockId,
     container::{InFile, ScopeId, SubroutineScope},
     db::HirDefDb,
     def_id::{DefId, subroutine_src},
     module::{ModuleId, generate::GenerateBlockId},
+    owner::OwnerId,
     source_map::{IsNamedSrc, SourceInfo},
     symbol::{DefOrigin, DefOriginLoc},
 };
@@ -27,10 +27,15 @@ impl HasSource for ModuleId {
     }
 }
 
-impl HasSource for BlockId {
-    fn source(&self, _db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        let InFile { file_id, value } = self.loc().src;
-        Some(named_source(file_id, value))
+
+impl HasSource for OwnerId {
+    fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
+        let file_id = self.file(db);
+        let origin = db.source_projection(file_id).origin(self.ast_id(db))?;
+        Some(InFile::new(
+            file_id,
+            SourceInfo::from_parts(origin.kind(), origin.full_range()?, origin.focus_range()),
+        ))
     }
 }
 
@@ -53,14 +58,8 @@ impl HasSource for ScopeId {
             ScopeId::File(_) => None,
             ScopeId::Module(module_id) => module_id.source(db),
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.source(db),
-            ScopeId::Block(block_id) => block_id.source(db),
             ScopeId::Subroutine(subroutine) => subroutine.source(db),
-            ScopeId::Owner(owner) => {
-                let file_id = owner.file(db);
-                let ast_id = db.owner_source_ast_id(owner)?;
-                let range = db.ast_id_map(file_id).ptr(ast_id)?.range();
-                Some(InFile::new(file_id, SourceInfo::from_ranges(range, None)))
-            }
+            ScopeId::Owner(owner) => owner.source(db),
             ScopeId::ClockingBlock(clocking_block) => {
                 DefOrigin::new(db, DefOriginLoc::ClockingBlock(clocking_block)).source(db)
             }

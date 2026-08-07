@@ -45,7 +45,7 @@ use super::{
 };
 use crate::{
     body::{Body, BodySourceMap, OwnerLowering},
-    container::{ArenaOwnerId, InFile},
+    container::InFile,
     db::HirDefDb,
     owner::{OwnerId, OwnerKind},
     region_tree::RegionTree,
@@ -418,7 +418,7 @@ pub(crate) type LowerModuleCtx<'a> = LoweringCtx<ModuleStore<'a>>;
 
 impl LowerModuleCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ArenaOwnerId::Module(self.module_id());
+        let container_id = self.current_arena_owner();
         let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
         alloc_with_source(
@@ -440,12 +440,13 @@ impl LowerModuleCtx<'_> {
             Typedef { name, ty: None },
             typedef,
         );
+        self.record_body_typedef(typedef_id);
 
         let data_ty = typedef.type_();
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            ArenaOwnerId::Module(self.module_id()),
+            self.current_arena_owner(),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.lower_data_ty(ty),
         );
@@ -739,7 +740,6 @@ impl LowerModuleCtx<'_> {
 fn module_lowering(db: &dyn HirDefDb, owner: OwnerId) -> Arc<OwnerLowering<Module>> {
     debug_assert_eq!(owner.kind(db), OwnerKind::Module);
     let file_id = owner.file(db);
-    let module_id = ModuleId::from_owner(db, owner).expect("module owner must have a module id");
     let tree = db.parse(file_id);
     let mut module = Module::default();
     let mut module_source_map = ModuleSourceMap::default();
@@ -748,18 +748,16 @@ fn module_lowering(db: &dyn HirDefDb, owner: OwnerId) -> Arc<OwnerLowering<Modul
 
     let Some(ast_module) = db
         .ast_id_map(file_id)
-        .ptr(owner.ast_id(db))
-        .and_then(|ptr| ptr.to_node(&tree))
+        .node(owner.ast_id(db), &tree)
         .and_then(ast::ModuleDeclaration::cast)
     else {
         return Arc::new(OwnerLowering::new(module, module_source_map, body, body_source_map));
     };
-    module.name = lower_ident_opt(HasName::name(&ast_module));
+    module.name = lower_ident_opt(ast_module.header().name());
 
     let mut lower_ctx = LoweringCtx::new(
         db,
-        file_id,
-        module_id.into(),
+        owner,
         ModuleStore {
             data: &mut module,
             sources: &mut module_source_map,

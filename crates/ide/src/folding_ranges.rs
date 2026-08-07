@@ -1,5 +1,6 @@
 use hir_def::{
-    block::{BlockId, BlockSrc},
+    block::BlockItem,
+    body::Body,
     container::{SubroutineParent, SubroutineScope},
     module::{
         ModuleId,
@@ -10,10 +11,9 @@ use hir_def::{
     },
     region_tree::RegionTree,
     source_map::{IsSrc, Lowered, LoweredData, SourceInfo, SourceMap},
-    stmt::{Stmt, StmtKind, StmtSrc},
+    stmt::StmtKind,
     subroutine::{Subroutine, SubroutineSrc},
 };
-use la_arena::Arena;
 use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxKind, SyntaxTokenWithParent, SyntaxTrivia,
@@ -252,7 +252,6 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
     let file_id = HirFileId::File(file_id);
     let file = db.hir_file_with_source_map(file_id);
     let body = db.file_body_with_source_map(file_id);
-    let body_src_map = body.source_map();
     let src_map = file.source_map();
 
     let mut folds = Vec::default();
@@ -276,32 +275,10 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
     folds.collect_folds(src_map.config_decl_srcs.ranges(), FoldKind::Config, line_index);
     folds.collect_folds(src_map.library_decl_srcs.ranges(), FoldKind::Library, line_index);
     folds.collect_folds(src_map.library_include_srcs.ranges(), FoldKind::Library, line_index);
-    folds.collect_folds(body_src_map.declaration_srcs.ranges(), FoldKind::Declaration, line_index);
-    folds.collect_folds(body_src_map.decl_srcs.ranges(), FoldKind::Decl, line_index);
-    collect_item_groups(
-        &mut folds,
-        body_src_map.declaration_srcs.ranges(),
-        FoldKind::Declaration,
-        line_index,
-    );
-    collect_stmt(
-        db,
-        &mut folds,
-        &body.stmts,
-        body_src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
-        line_index,
-    );
+    collect_body_scopes(&mut folds, body.as_ref(), line_index);
     for proc in file.procs.values() {
         let body = db.body_with_source_map(proc.owner);
-        let body_src_map = body.source_map();
-        folds.collect_docs(&body_src_map.region_tree, line_index);
-        collect_stmt(
-            db,
-            &mut folds,
-            &body.stmts,
-            body_src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
-            line_index,
-        );
+        collect_body_scopes(&mut folds, body.as_ref(), line_index);
     }
 
     folds
@@ -316,7 +293,6 @@ fn collect_module(
 ) {
     let module = db.module_with_source_map(module_id);
     let body = db.module_body_with_source_map(module_id);
-    let body_src_map = body.source_map();
     let src_map = module.source_map();
 
     folds.collect_docs(&src_map.region_tree, line_index);
@@ -345,16 +321,9 @@ fn collect_module(
     folds.collect_folds(src_map.generate_region_srcs.ranges(), FoldKind::Generate, line_index);
     folds.collect_folds(src_map.specify_block_srcs.ranges(), FoldKind::Specify, line_index);
     folds.collect_folds(src_map.specify_item_srcs.ranges(), FoldKind::Specify, line_index);
-    folds.collect_folds(body_src_map.declaration_srcs.ranges(), FoldKind::Declaration, line_index);
-    folds.collect_folds(body_src_map.decl_srcs.ranges(), FoldKind::Decl, line_index);
-    collect_item_groups(folds, src_map.assign_srcs.ranges(), FoldKind::ContAssign, line_index);
-    collect_item_groups(
-        folds,
-        body_src_map.declaration_srcs.ranges(),
-        FoldKind::Declaration,
-        line_index,
-    );
+    collect_body_scopes(folds, body.as_ref(), line_index);
     collect_instances(folds, &module, &src_map.instance_srcs, line_index);
+    collect_item_groups(folds, src_map.assign_srcs.ranges(), FoldKind::ContAssign, line_index);
     collect_subroutines(
         db,
         folds,
@@ -364,24 +333,9 @@ fn collect_module(
     );
     collect_generate_regions(db, folds, module_id, line_index);
 
-    collect_stmt(
-        db,
-        folds,
-        &body.stmts,
-        body_src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
-        line_index,
-    );
     for proc in module.procs.values() {
         let body = db.body_with_source_map(proc.owner);
-        let body_src_map = body.source_map();
-        folds.collect_docs(&body_src_map.region_tree, line_index);
-        collect_stmt(
-            db,
-            folds,
-            &body.stmts,
-            body_src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
-            line_index,
-        );
+        collect_body_scopes(folds, body.as_ref(), line_index);
     }
 }
 
@@ -396,25 +350,9 @@ fn collect_subroutines(
         let scope = SubroutineScope { cont_id: parent.clone(), value };
         let owner = scope.owner(db).expect("subroutine must map to an owner");
         let subroutine = db.subroutine_body_with_source_map(owner);
-        let src_map = subroutine.source_map();
 
-        folds.collect_docs(&src_map.region_tree, line_index);
         folds.collect_fold(src.range(), FoldKind::Subroutine, line_index);
-        folds.collect_folds(src_map.declaration_srcs.ranges(), FoldKind::Declaration, line_index);
-        folds.collect_folds(src_map.decl_srcs.ranges(), FoldKind::Decl, line_index);
-        collect_item_groups(
-            folds,
-            src_map.declaration_srcs.ranges(),
-            FoldKind::Declaration,
-            line_index,
-        );
-        collect_stmt(
-            db,
-            folds,
-            &subroutine.stmts,
-            src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
-            line_index,
-        );
+        collect_body_scopes(folds, subroutine.as_ref(), line_index);
     }
 }
 
@@ -444,20 +382,12 @@ fn collect_generate_block(
 ) {
     let block = db.generate_block_with_source_map(block_id.clone());
     let body = db.generate_block_body_with_source_map(block_id.clone());
-    let body_src_map = body.source_map();
     let src_map = block.source_map();
 
     folds.collect_docs(&src_map.region_tree, line_index);
     folds.collect_folds(src_map.assign_srcs.ranges(), FoldKind::ContAssign, line_index);
     folds.collect_folds(src_map.defparam_srcs.ranges(), FoldKind::DefParam, line_index);
-    folds.collect_folds(body_src_map.declaration_srcs.ranges(), FoldKind::Declaration, line_index);
-    collect_item_groups(folds, src_map.assign_srcs.ranges(), FoldKind::ContAssign, line_index);
-    collect_item_groups(
-        folds,
-        body_src_map.declaration_srcs.ranges(),
-        FoldKind::Declaration,
-        line_index,
-    );
+    collect_body_scopes(folds, body.as_ref(), line_index);
     collect_instances(folds, &block, &src_map.instance_srcs, line_index);
     collect_subroutines(
         db,
@@ -502,54 +432,53 @@ fn collect_instances<T, M>(
     }));
 }
 
-fn collect_block(
-    db: &RootDb,
-    folds: &mut Vec<Fold>,
-    block_id: BlockId,
-    block_range: TextRange,
-    line_index: &LineIndex,
-) {
-    let block = db.block_with_source_map(block_id);
-    let src_map = block.source_map();
+fn collect_body_scopes(folds: &mut Vec<Fold>, body: &Lowered<Body>, line_index: &LineIndex) {
+    let data = body.data_ref();
+    let src_map = body.source_map();
 
-    folds.collect_docs(&src_map.region_tree, line_index);
-
-    folds.collect_fold(block_range, FoldKind::Block, line_index);
-    folds.collect_folds(src_map.declaration_srcs.ranges(), FoldKind::Declaration, line_index);
-    folds.collect_folds(src_map.decl_srcs.ranges(), FoldKind::Decl, line_index);
-    collect_item_groups(
-        folds,
-        src_map.declaration_srcs.ranges(),
-        FoldKind::Declaration,
-        line_index,
-    );
-    collect_stmt(
-        db,
-        folds,
-        &block.stmts,
-        src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
-        line_index,
-    )
-}
-
-fn collect_stmt(
-    db: &RootDb,
-    folds: &mut Vec<Fold>,
-    arena: &Arena<Stmt>,
-    srcs: impl Iterator<Item = (la_arena::Idx<Stmt>, StmtSrc)>,
-    line_index: &LineIndex,
-) {
-    srcs.for_each(|(stmt_id, stmt_src)| match &arena[stmt_id].kind {
-        StmtKind::Block(block_info) => {
-            if let Ok(block_src) = BlockSrc::try_from(stmt_src) {
-                let range = SourceInfo::new(block_src).full_range();
-                collect_block(db, folds, block_info.block_id.clone(), range, line_index);
-            }
+    for scope in data.scope_graph.scopes() {
+        if let Some(regions) = src_map.region_tree_for(data, scope.owner()) {
+            folds.collect_docs(regions, line_index);
         }
-        _ => {
-            folds.collect_fold(SourceInfo::new(stmt_src).full_range(), FoldKind::Stmt, line_index);
+
+        let declaration_ranges = scope
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                BlockItem::DeclarationId(id) => body.source_range(*id),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        folds.collect_folds(
+            declaration_ranges.iter().copied(),
+            FoldKind::Declaration,
+            line_index,
+        );
+        collect_item_groups(
+            folds,
+            declaration_ranges,
+            FoldKind::Declaration,
+            line_index,
+        );
+
+        folds.collect_folds(
+            scope.declarators().iter().filter_map(|id| body.source_range(*id)),
+            FoldKind::Decl,
+            line_index,
+        );
+
+        for &stmt_id in scope.statements() {
+            let Some(range) = body.source_range(stmt_id) else {
+                continue;
+            };
+            let kind = if matches!(data.stmts[stmt_id].kind, StmtKind::Block(_)) {
+                FoldKind::Block
+            } else {
+                FoldKind::Stmt
+            };
+            folds.collect_fold(range, kind, line_index);
         }
-    });
+    }
 }
 
 #[cfg(test)]

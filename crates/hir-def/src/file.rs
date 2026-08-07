@@ -33,7 +33,6 @@ use super::{
 use crate::{
     ast_id_map::SyntaxFileId,
     body::{Body, BodySourceMap, OwnerLowering},
-    container::ArenaOwnerId,
     db::HirDefDb,
     lower_ident_opt,
     region_tree::RegionTree,
@@ -192,7 +191,7 @@ pub(crate) type LowerFileCtx<'a> = LoweringCtx<FileStore<'a>>;
 
 impl LowerFileCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ArenaOwnerId::File(self.file_id);
+        let container_id = self.current_arena_owner();
         let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
         alloc_with_source(
@@ -213,12 +212,13 @@ impl LowerFileCtx<'_> {
             Typedef { name, ty: None },
             typedef,
         );
+        self.record_body_typedef(typedef_id);
 
         let data_ty = typedef.type_();
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            ArenaOwnerId::File(self.file_id),
+            self.current_arena_owner(),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.lower_data_ty(ty),
         );
@@ -416,10 +416,10 @@ fn file_lowering(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerLowering<Hir
     let mut body_source_map = BodySourceMap::default();
 
     let tree = db.parse(file_id);
+    let owner = db.owner_table(file_id).file_owner().expect("file owner must exist");
     let mut lower_ctx = LoweringCtx::new(
         db,
-        file_id,
-        file_id.into(),
+        owner,
         FileStore {
             data: &mut hir_file,
             sources: &mut source_map,

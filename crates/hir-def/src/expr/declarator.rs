@@ -169,8 +169,12 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         let data =
             Declarator { name, dimensions, initializer, secondary_initializer: None, parent };
         let file_id = self.file_id;
-        let (declarators, sources) = self.declarators();
-        alloc_with_source(file_id, declarators, sources, data, declarator)
+        let id = {
+            let (declarators, sources) = self.declarators();
+            alloc_with_source(file_id, declarators, sources, data, declarator)
+        };
+        self.record_body_declarator(id);
+        id
     }
 
     pub(crate) fn lower_identifier_names<'a>(
@@ -195,8 +199,12 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             parent,
         };
         let file_id = self.file_id;
-        let (declarators, sources) = self.declarators();
-        alloc_with_source(file_id, declarators, sources, data, ident)
+        let id = {
+            let (declarators, sources) = self.declarators();
+            alloc_with_source(file_id, declarators, sources, data, ident)
+        };
+        self.record_body_declarator(id);
+        id
     }
 
     pub(crate) fn lower_specparam_declarators<'a>(
@@ -225,8 +233,12 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             parent,
         };
         let file_id = self.file_id;
-        let (declarators, sources) = self.declarators();
-        alloc_with_source(file_id, declarators, sources, data, declarator)
+        let id = {
+            let (declarators, sources) = self.declarators();
+            alloc_with_source(file_id, declarators, sources, data, declarator)
+        };
+        self.record_body_declarator(id);
+        id
     }
 }
 

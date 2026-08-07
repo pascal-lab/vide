@@ -9,7 +9,6 @@ use utils::{
 
 use crate::{
     aggregate::{StructDef, StructId, StructSrc},
-    block::{Block, BlockId, BlockInfo, BlockSrc, LocalBlockId},
     body::{Body, BodySourceMap},
     checker::CheckerId,
     covergroup::CovergroupId,
@@ -25,7 +24,7 @@ use crate::{
         clocking::ClockingBlockId,
         generate::{GenerateBlock, GenerateBlockId, GenerateBlockSourceMap},
     },
-    owner::OwnerId,
+    owner::{OwnerId, OwnerKind},
     region_tree::RegionTree,
     stmt::{Stmt, StmtId, StmtSrc},
     subroutine::LocalSubroutineId,
@@ -39,7 +38,6 @@ define_enum_deriving_from! {
         File(HirFileId),
         Module(ModuleId),
         GenerateBlock(GenerateBlockId),
-        Block(BlockId),
         Subroutine(SubroutineScope),
         Owner(OwnerId),
         ClockingBlock(InModule<ClockingBlockId>),
@@ -54,7 +52,6 @@ define_enum_deriving_from! {
         File(HirFileId),
         Module(ModuleId),
         GenerateBlock(GenerateBlockId),
-        Block(BlockId),
         Subroutine(SubroutineScope),
         Owner(OwnerId),
     }
@@ -259,31 +256,6 @@ define_container_id! {
 impl<T: Copy> Copy for InFile<T> {}
 impl<T: Copy> Copy for InModule<T> {}
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
-pub struct InBlock<T> {
-    pub value: T,
-    pub block_id: BlockId,
-}
-
-impl<T> InBlock<T> {
-    pub fn new(block_id: BlockId, value: T) -> Self {
-        Self { value, block_id }
-    }
-
-    pub fn with_value<U>(self, value: U) -> InBlock<U> {
-        InBlock::new(self.block_id, value)
-    }
-
-    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> InBlock<U> {
-        InBlock::new(self.block_id, f(self.value))
-    }
-}
-
-impl<T> From<InBlock<T>> for InContainer<T> {
-    fn from(item: InBlock<T>) -> InContainer<T> {
-        InContainer::new(item.block_id.into(), item.value)
-    }
-}
 
 impl From<ArenaOwnerId> for ScopeId {
     fn from(owner_id: ArenaOwnerId) -> Self {
@@ -291,7 +263,6 @@ impl From<ArenaOwnerId> for ScopeId {
             ArenaOwnerId::File(file_id) => file_id.into(),
             ArenaOwnerId::Module(module_id) => module_id.into(),
             ArenaOwnerId::GenerateBlock(generate_block_id) => generate_block_id.into(),
-            ArenaOwnerId::Block(block_id) => block_id.into(),
             ArenaOwnerId::Subroutine(subroutine) => subroutine.into(),
             ArenaOwnerId::Owner(owner) => ScopeId::Owner(owner),
         }
@@ -311,8 +282,20 @@ impl ScopeId {
                 }
             }
             ScopeId::GenerateBlock(_) => ScopeKind::GenerateBlock,
-            ScopeId::Block(_) => ScopeKind::Block,
-            ScopeId::Subroutine(_) | ScopeId::Owner(_) => ScopeKind::Subroutine,
+            ScopeId::Subroutine(_) => ScopeKind::Subroutine,
+            ScopeId::Owner(owner) => match owner.kind(db) {
+                OwnerKind::File => ScopeKind::File,
+                OwnerKind::Module => ModuleId::from_owner(db, owner)
+                    .map(|module| ScopeId::Module(module).kind(db))
+                    .unwrap_or(ScopeKind::Module),
+                OwnerKind::GenerateBlock => ScopeKind::GenerateBlock,
+                OwnerKind::ProceduralBlock => ScopeKind::ProceduralBlock,
+                OwnerKind::Block => ScopeKind::Block,
+                OwnerKind::Subroutine => ScopeKind::Subroutine,
+                OwnerKind::Checker => ScopeKind::Checker,
+                OwnerKind::Covergroup => ScopeKind::Covergroup,
+                OwnerKind::ClockingBlock => ScopeKind::ClockingBlock,
+            },
             ScopeId::ClockingBlock(_) => ScopeKind::ClockingBlock,
             ScopeId::Checker(_) => ScopeKind::Checker,
             ScopeId::Covergroup(_) => ScopeKind::Covergroup,
@@ -326,13 +309,10 @@ impl ScopeId {
             ScopeId::GenerateBlock(generate_block_id) => {
                 db.generate_block(generate_block_id).name.clone()
             }
-            ScopeId::Block(block_id) => db.block(block_id).name.clone(),
             ScopeId::Subroutine(subroutine) => db.subroutine(subroutine).name.clone(),
             ScopeId::Owner(owner) => db
                 .owner_table(owner.file(db))
-                .owners()
-                .iter()
-                .find(|data| data.id == owner)
+                .owner(owner)
                 .map(|data| data.name.clone()),
             ScopeId::ClockingBlock(clocking_block) => {
                 db.module(clocking_block.module_id).get(clocking_block.value).name.clone()
@@ -359,7 +339,6 @@ impl ScopeId {
             ScopeId::File(file_id) => Some((*file_id).into()),
             ScopeId::Module(module_id) => Some((*module_id).into()),
             ScopeId::GenerateBlock(generate_block_id) => Some(generate_block_id.clone().into()),
-            ScopeId::Block(block_id) => Some(block_id.clone().into()),
             ScopeId::Subroutine(subroutine) => Some(subroutine.clone().into()),
             ScopeId::Owner(owner) => Some(ArenaOwnerId::Owner(*owner)),
             ScopeId::ClockingBlock(_) | ScopeId::Checker(_) | ScopeId::Covergroup(_) => None,
@@ -371,7 +350,6 @@ impl ScopeId {
             ScopeId::File(file_id) => *file_id,
             ScopeId::Module(module_id) => module_id.file_id,
             ScopeId::GenerateBlock(generate_block_id) => generate_block_id.file_id(db),
-            ScopeId::Block(block_id) => block_id.file_id(db),
             ScopeId::Subroutine(subroutine) => subroutine.clone().file_id(db),
             ScopeId::Owner(owner) => owner.file(db),
             ScopeId::ClockingBlock(clocking_block) => clocking_block.module_id.file_id,
@@ -409,9 +387,6 @@ impl ArenaOwnerId {
                 .clone()
                 .owner(db)
                 .expect("generate block must have a canonical owner"),
-            ArenaOwnerId::Block(block_id) => {
-                block_id.clone().owner(db).expect("block must have a canonical owner")
-            }
             ArenaOwnerId::Subroutine(subroutine) => {
                 subroutine.clone().owner(db).expect("subroutine must have a canonical owner")
             }
@@ -440,21 +415,6 @@ impl ModuleId {
     }
 }
 
-impl BlockId {
-    pub fn file_id(&self, _db: &dyn HirDefDb) -> HirFileId {
-        self.loc().src.file_id
-    }
-
-    #[inline]
-    pub fn to_container(&self, db: &dyn HirDefDb) -> Arc<Block> {
-        db.block(self.clone())
-    }
-
-    #[inline]
-    pub fn to_container_src_map(&self, db: &dyn HirDefDb) -> Arc<BodySourceMap> {
-        db.block_with_source_map(self.clone()).source_map_arc()
-    }
-}
 
 impl GenerateBlockId {
     pub fn file_id(&self, _db: &dyn HirDefDb) -> HirFileId {
@@ -507,9 +467,6 @@ impl Container {
         &self.0.stmts[id]
     }
 
-    pub fn block_info(&self, id: LocalBlockId) -> &BlockInfo {
-        utils::get::GetRef::get(&self.0.stmts, id)
-    }
 }
 
 impl ContainerSrcMap {
@@ -573,13 +530,6 @@ impl ContainerSrcMap {
         self.0.stmt_srcs.get(id)
     }
 
-    pub fn block_from_source(&self, src: BlockSrc) -> Option<LocalBlockId> {
-        self.0.stmt_srcs.get(src)
-    }
-
-    pub fn source_of_block(&self, id: LocalBlockId) -> Option<BlockSrc> {
-        self.0.stmt_srcs.get(id)
-    }
 }
 
 /// An explicit lexical scope chain, ordered from the innermost scope outward.
@@ -632,7 +582,6 @@ impl Iterator for ScopeParent<'_> {
             ScopeId::GenerateBlock(generate_block_id) => {
                 Some(generate_block_id.loc().cont_id.clone().into())
             }
-            ScopeId::Block(block_id) => Some(block_id.loc().cont_id.clone().into()),
             ScopeId::Subroutine(subroutine) => Some(subroutine.parent_scope()),
             ScopeId::Owner(owner) => owner.parent(self.db).map(ScopeId::Owner),
             ScopeId::ClockingBlock(clocking_block) => Some(clocking_block.module_id.into()),

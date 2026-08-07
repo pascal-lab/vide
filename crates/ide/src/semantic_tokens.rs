@@ -2,7 +2,6 @@ use bitflags::bitflags;
 use collector::SemaTokenCollectorTree;
 use hir_def::{
     Ident,
-    block::{BlockId, BlockInfo},
     container::{ArenaOwnerId, InContainer, SubroutineParent, SubroutineScope},
     def_id::DefId,
     expr::{
@@ -16,7 +15,6 @@ use hir_def::{
         instantiation::{ParamAssign, ParamAssignId, PortConn, PortConnId},
     },
     source_map::AstLookup,
-    stmt::StmtKind,
     symbol::{DefKind, NameContext, Resolution},
 };
 use hir_semantics::semantics::Semantics;
@@ -280,15 +278,6 @@ macro_rules! collect_container_body {
             };
         }
 
-        for (stmt_id, stmt) in lowered.data_ref().stmts.iter() {
-            if let StmtKind::Block(BlockInfo { block_id, .. }) = &stmt.kind {
-                let Some(range) = lowered.source_range(stmt_id) else {
-                    continue;
-                };
-                check_range!(collector, range);
-                collect_block(sema, block_id.clone(), collector);
-            }
-        }
     }};
 }
 
@@ -461,17 +450,6 @@ fn collect_generate_block(
     collect_container_body!(sema, generate_block_id.into(), &tree, collector, &body);
 }
 
-fn collect_block(
-    sema: &Semantics<'_, RootDb>,
-    block_id: BlockId,
-    collector: &mut SemaTokenCollector,
-) {
-    let db = sema.db;
-    let lowered = db.block_with_source_map(block_id.clone());
-    let tree = db.parse(block_id.file_id(db));
-
-    collect_container_body!(sema, block_id.into(), &tree, collector, &lowered);
-}
 
 fn collect_subroutine(
     sema: &Semantics<'_, RootDb>,

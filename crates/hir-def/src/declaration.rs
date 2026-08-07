@@ -322,8 +322,12 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         DeclarationSrc: FromSourceAst<'ast, Ast>,
     {
         let file_id = self.file_id;
-        let (declarations, sources) = self.declarations();
-        alloc_with_source(file_id, declarations, sources, declaration, ast)
+        let id = {
+            let (declarations, sources) = self.declarations();
+            alloc_with_source(file_id, declarations, sources, declaration, ast)
+        };
+        self.record_body_declaration(id);
+        id
     }
 
     pub(crate) fn finish_declaration_decls(&mut self, id: DeclarationId, decls: DeclsRange) {

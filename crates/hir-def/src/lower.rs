@@ -1,6 +1,6 @@
 use la_arena::Arena;
 use preproc_expand::file::HirFileId;
-use syntax::{SyntaxKind, SyntaxNode};
+use syntax::{SyntaxKind, SyntaxNode, SyntaxTree};
 use triomphe::Arc;
 use utils::text_edit::TextRange;
 
@@ -15,10 +15,10 @@ use super::{
     },
     file::{FileSourceMap, HirFile},
     module::{
-        Module, ModuleId, ModuleSourceMap,
+        Module, ModuleSourceMap,
         continuous_assign::{ContAssign, ContAssignSrc},
         defparam::{DefParam, DefParamSrc},
-        generate::{GenerateBlock, GenerateBlockId, GenerateBlockSourceMap},
+        generate::{GenerateBlock, GenerateBlockSourceMap},
         instantiation::{
             Instance, InstanceSrc, Instantiation, InstantiationSrc, ParamAssign, ParamAssignSrc,
             PortConn, PortConnSrc,
@@ -82,6 +82,7 @@ pub(crate) trait LoweringStore {
     fn declarations(
         &mut self,
     ) -> (&mut Arena<Declaration>, &mut SourceMap<DeclarationSrc, Declaration>);
+    fn body(&mut self) -> (&mut Body, &mut BodySourceMap);
 }
 
 macro_rules! impl_owner_lowering_store {
@@ -111,6 +112,10 @@ macro_rules! impl_owner_lowering_store {
                 &mut self,
             ) -> (&mut Arena<Declaration>, &mut SourceMap<DeclarationSrc, Declaration>) {
                 (&mut self.body.declarations, &mut self.body_sources.declaration_srcs)
+            }
+
+            fn body(&mut self) -> (&mut Body, &mut BodySourceMap) {
+                (self.body, self.body_sources)
             }
         }
     };
@@ -145,6 +150,10 @@ impl LoweringStore for BodyStore<'_> {
         &mut self,
     ) -> (&mut Arena<Declaration>, &mut SourceMap<DeclarationSrc, Declaration>) {
         (&mut self.data.declarations, &mut self.sources.declaration_srcs)
+    }
+
+    fn body(&mut self) -> (&mut Body, &mut BodySourceMap) {
+        (self.data, self.sources)
     }
 }
 
@@ -246,54 +255,98 @@ macro_rules! impl_module_item_store {
 impl_module_item_store!(ModuleStore<'_>);
 impl_module_item_store!(GenerateBlockStore<'_>);
 
+
 /// Complete mutable state for one HIR lowering pass.
 pub(crate) struct LoweringCtx<Store> {
     pub(crate) file_id: HirFileId,
-    pub(crate) owner: ArenaOwnerId,
+    pub(crate) owner: OwnerId,
     ast_ids: Arc<AstIdMap>,
     owners: Arc<OwnerTable>,
+    tree: SyntaxTree,
+    scope_stack: Vec<OwnerId>,
     pub(crate) store: Store,
     pub(crate) diagnostics: Vec<LoweringDiagnostic>,
     pub(crate) region_tree: RegionTreeBuilder,
     pub(crate) default_net_type: NetKind,
 }
 
-impl<Store> LoweringCtx<Store> {
-    pub(crate) fn new(
-        db: &dyn HirDefDb,
-        file_id: HirFileId,
-        owner: ArenaOwnerId,
-        store: Store,
-    ) -> Self {
-        Self {
+impl<Store: LoweringStore> LoweringCtx<Store> {
+    pub(crate) fn new(db: &dyn HirDefDb, owner: OwnerId, store: Store) -> Self {
+        let file_id = owner.file(db);
+        let tree = db.parse(file_id);
+        let mut this = Self {
             file_id,
             owner,
             ast_ids: db.ast_id_map(file_id),
             owners: db.owner_table(file_id),
+            tree,
+            scope_stack: vec![owner],
             store,
             diagnostics: Vec::new(),
             region_tree: RegionTreeBuilder::new(),
             default_net_type: NetKind::Wire,
-        }
+        };
+        this.store.body().0.scope_graph.ensure_root(owner);
+        this
     }
 
     pub(crate) fn owner_for_node(&self, node: SyntaxNode<'_>, kind: OwnerKind) -> Option<OwnerId> {
-        let ast_id = self.ast_ids.id_of_node(node)?;
+        let ast_id = self.ast_ids.id_of_node_in_tree(&self.tree, node)?;
         self.owners.owner_by_ast(ast_id, kind)
     }
 
-    pub(crate) fn module_id(&self) -> ModuleId {
-        let ArenaOwnerId::Module(module_id) = &self.owner else {
-            unreachable!("module-only lowering called for {:?}", self.owner);
-        };
-        *module_id
+    pub(crate) fn current_scope(&self) -> OwnerId {
+        *self.scope_stack.last().expect("body lowering always has a root scope")
     }
 
-    pub(crate) fn generate_block_id(&self) -> GenerateBlockId {
-        let ArenaOwnerId::GenerateBlock(generate_block_id) = &self.owner else {
-            unreachable!("generate-block-only lowering called for {:?}", self.owner);
-        };
-        generate_block_id.clone()
+    pub(crate) fn current_arena_owner(&self) -> ArenaOwnerId {
+        ArenaOwnerId::Owner(self.current_scope())
+    }
+
+    pub(crate) fn enter_body_scope(&mut self, owner: OwnerId) {
+        let parent = self.current_scope();
+        let graph_parent = self.owners.owner(owner).and_then(|data| data.parent);
+        assert_eq!(graph_parent, Some(parent), "body scope must follow the canonical owner graph");
+        self.store.body().0.scope_graph.insert(owner, Some(parent));
+        self.scope_stack.push(owner);
+    }
+
+    pub(crate) fn leave_body_scope(&mut self, owner: OwnerId) {
+        assert_eq!(self.scope_stack.pop(), Some(owner), "body scopes must leave in LIFO order");
+        assert!(!self.scope_stack.is_empty(), "cannot leave the body root scope");
+    }
+
+    pub(crate) fn push_body_item(&mut self, item: crate::block::BlockItem) {
+        let scope = self.current_scope();
+        self.store.body().0.scope_graph.push_item(scope, item);
+    }
+
+    pub(crate) fn record_body_declaration(
+        &mut self,
+        declaration: crate::declaration::DeclarationId,
+    ) {
+        self.push_body_item(crate::block::BlockItem::DeclarationId(declaration));
+    }
+
+    pub(crate) fn record_body_declarator(&mut self, declarator: crate::expr::declarator::DeclId) {
+        let scope = self.current_scope();
+        self.store.body().0.scope_graph.push_declarator(scope, declarator);
+    }
+
+    pub(crate) fn record_body_typedef(&mut self, typedef: crate::typedef::TypedefId) {
+        let scope = self.current_scope();
+        let body = self.store.body().0;
+        body.scope_graph.push_typedef(scope, typedef);
+        body.scope_graph.push_item(scope, crate::block::BlockItem::TypedefId(typedef));
+    }
+
+    pub(crate) fn record_body_statement(&mut self, statement: crate::stmt::StmtId) {
+        let scope = self.current_scope();
+        self.store.body().0.scope_graph.push_statement(scope, statement);
+    }
+
+    pub(crate) fn set_scope_region_tree(&mut self, owner: OwnerId, regions: crate::region_tree::RegionTree) {
+        self.store.body().1.insert_scope_region_tree(owner, regions);
     }
 
     pub(crate) fn report_unsupported(

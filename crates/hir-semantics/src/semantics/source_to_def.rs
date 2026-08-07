@@ -1,5 +1,4 @@
 use hir_def::{
-    block::{BlockId, BlockSrc},
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
     db::HirDefDb,
     module::{
@@ -27,11 +26,12 @@ pub(super) fn module_to_def(
 
 pub(super) fn block_to_def(
     db: &dyn HirDefDb,
-    InFile { file_id, value: block_src }: InFile<BlockSrc>,
-) -> Option<BlockId> {
+    file_id: HirFileId,
+    block: ast::BlockStatement,
+) -> Option<OwnerId> {
     let tree = db.parse(file_id);
-    let node = block_src.to_node(&tree)?;
-    block_to_def_inner(db, file_id, node, block_src)
+    let ast_id = db.ast_id_map(file_id).id_of_node_in_tree(&tree, block.syntax())?;
+    db.owner_table(file_id).owner_by_ast(ast_id, OwnerKind::Block)
 }
 
 pub(super) fn subroutine_to_def(
@@ -41,24 +41,6 @@ pub(super) fn subroutine_to_def(
     let tree = db.parse(file_id);
     let node = subroutine_src.to_node(&tree)?;
     subroutine_to_def_inner(db, file_id, node, subroutine_src)
-}
-
-// This is a faster version of block_to_def that doesn't require a [`to_node`]
-fn block_to_def_inner(
-    db: &dyn HirDefDb,
-    file_id: HirFileId,
-    block: ast::BlockStatement,
-    block_src: BlockSrc,
-) -> Option<BlockId> {
-    let node = block.syntax();
-    let container = find_container(db, InFile::new(file_id, node));
-
-    let owner = container.owner(db);
-    let body = db.body_with_source_map(owner);
-    let local_block_id = *body.source_map().block_srcs.get(&block_src)?;
-    let block_id = body.get(local_block_id).block_id.clone();
-
-    Some(block_id)
 }
 
 fn container_to_def(
@@ -72,8 +54,7 @@ fn container_to_def(
            module_to_def(db, InFile::new(file_id, src))?.into()
        },
        ast::BlockStatement[block] => {
-           let block_src = BlockSrc::from_ast(file_id, block);
-           block_to_def_inner(db, file_id, block, block_src)?.into()
+           ArenaOwnerId::Owner(block_to_def(db, file_id, block)?)
        },
        ast::ProceduralBlock[proc] => {
            let ast_id = db.ast_id_map(file_id).id_of_node(proc.syntax())?;
@@ -129,9 +110,7 @@ fn subroutine_to_def_inner(
         ArenaOwnerId::GenerateBlock(generate_block_id) => {
             SubroutineParent::GenerateBlock(generate_block_id)
         }
-        ArenaOwnerId::Block(_) | ArenaOwnerId::Subroutine(_) | ArenaOwnerId::Owner(_) => {
-            return None;
-        }
+        ArenaOwnerId::Subroutine(_) | ArenaOwnerId::Owner(_) => return None,
     };
     let local_id = local_subroutine_id(db, parent.clone(), src)?;
     Some(SubroutineScope::new(parent, local_id))

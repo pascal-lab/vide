@@ -123,8 +123,8 @@ fn generate_block_members(db: &dyn TyDb, generate_block_id: GenerateBlockId) -> 
     scope_members(db, &db.generate_block_scope(generate_block_id))
 }
 
-fn block_members(db: &dyn TyDb, block_id: hir_def::block::BlockId) -> Vec<TyMember> {
-    scope_members(db, &db.block_scope(block_id))
+fn block_members(db: &dyn TyDb, owner: hir_def::owner::OwnerId) -> Vec<TyMember> {
+    scope_members(db, &db.block_scope(owner))
 }
 
 fn scope_members(db: &dyn TyDb, scope: &NameScope) -> Vec<TyMember> {
