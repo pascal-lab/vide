@@ -1,6 +1,6 @@
 use la_arena::Idx;
 
-use crate::{Ident, ast_id_map::SourceAstId};
+use crate::Ident;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct UdpDecl {
@@ -8,5 +8,3 @@ pub struct UdpDecl {
 }
 
 pub type UdpDeclId = Idx<UdpDecl>;
-
-pub type UdpDeclSrc = SourceAstId;

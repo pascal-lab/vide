@@ -118,7 +118,8 @@ module top;
 endmodule
 "#;
     let db = db_with_root_text(root_text);
-    let hir_file = db.hir_file_with_source_map(TOP.into());
+    let hir_file =
+        db.body_with_source_map(db.owner_table(TOP.into()).file_owner().expect("file owner"));
     let (local_module_id, _) = hir_file.modules.iter().next().unwrap();
     let module_id: ModuleId = InFile::new(TOP.into(), local_module_id);
     let owner = module_id.owner(&db).expect("module must have a canonical owner");
@@ -142,10 +143,11 @@ endmodule
 "#;
     let db =
         db_with_root_text_and_predefines(root_text, vec![Predefine::new("MAKE_CHILD=child u();")]);
-    let hir_file = db.hir_file_with_source_map(TOP.into());
+    let hir_file =
+        db.body_with_source_map(db.owner_table(TOP.into()).file_owner().expect("file owner"));
     let (local_module_id, _) = hir_file.modules.iter().next().unwrap();
     let module_id: ModuleId = InFile::new(TOP.into(), local_module_id);
-    let module = db.module_with_source_map(module_id);
+    let module = db.body_with_source_map(module_id.owner(&db).expect("module owner"));
     let (instantiation_id, _) = module
         .instantiations
         .iter()
@@ -170,7 +172,8 @@ fn macro_expanded_module_keeps_macro_hir_file_id() {
         .expect("macro call should expand");
     let hir_file_id = HirFileId::Macro(macro_file);
 
-    let hir_file = db.hir_file_with_source_map(hir_file_id);
+    let hir_file =
+        db.body_with_source_map(db.owner_table(hir_file_id).file_owner().expect("file owner"));
     let (local_module_id, _) =
         hir_file.modules.iter().next().expect("macro expansion should lower a module");
     let module_id = InFile::new(hir_file_id, local_module_id);

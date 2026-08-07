@@ -702,7 +702,7 @@ fn recursive_rename_targets(
 }
 
 fn origin_is_macro_generated(db: &RootDb, origin: DefOrigin) -> bool {
-    if matches!(origin.container_id(db).file_id(db), HirFileId::Macro(_)) {
+    if matches!(origin.container_id(db).file(db), HirFileId::Macro(_)) {
         return true;
     }
     let Some(InFile { file_id: HirFileId::File(file_id), value: range }) = origin.name_range(db)

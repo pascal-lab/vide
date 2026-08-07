@@ -735,14 +735,13 @@ pub struct DefData {           // DefId → 元数据，owner-level query
 
 #### 10.4.3 OwnerId：统一容器身份，删除 wrapper soup
 
-**已实现**（`hir-def/src/owner.rs`）：`OwnerId` 是 **salsa interned** 结构体（`unsafe(no_lifetime)` + `revisions = usize::MAX`，与 `DefOrigin` 同款手法），字段为 `(file, kind, parent, slot)`，是 Copy + `'static` 的单一 Salsa query key。`owner_table(file_id)` tracked query 从语法树 DFS 枚举全部结构 owner（File/Module/GenerateBlock/Block/Subroutine），只保存结构 identity；`OwnerSourceMap` 单独把当前语法树映射到 `SourceAstId`。body 编辑不改变 owner 集合（测试 `owner_table_is_stable_across_body_edits` 钉死），这是后续拆查询粒度的增量基础。旧 id → `OwnerId` 的正向映射已实现：`ModuleId::owner` / `BlockId::owner` / `GenerateBlockId::owner` / `SubroutineScope::owner`（经 source map 联接，无 lockstep 顺序依赖）。
+- `OwnerId` 的不可变身份字段为 `(file, ast_id, kind)`；父子关系、名称等 revision-local 数据由 `OwnerTable` 保存。`owner_table(file_id)` tracked query 从语法树 DFS 枚举全部结构 owner（File/Module/GenerateBlock/Block/Subroutine），只保存结构 identity；当前语法树仍通过 `AstIdMap` 映射到 `SourceAstId`。body 编辑不改变 owner 集合（测试 `owner_table_is_stable_across_body_edits` 钉死），这是后续拆查询粒度的增量基础。旧 id → `OwnerId` 的正向映射已实现：`ModuleId::owner` / `BlockId::owner` / `GenerateBlockId::owner` / `SubroutineScope::owner`（经 source map 联接，无 lockstep 顺序依赖）。
 
 实现偏差（相对原稿）：
 - **tracked → interned**：salsa 0.28.2 的 tracked struct 不支持 `no_lifetime`（`salsa-macros-0.28.2/src/tracked_struct.rs:40` `NO_LIFETIME = false`），handle 带 `'db`，无法存进 `Arc<Lowered<T>>` 跨 revision；interned + `unsafe(no_lifetime)` 是 crates.io salsa 下唯一能给出 `'static` Copy handle 的路径（与 `DefOrigin`/`DefId` 一致），同样满足「单 key 是 Salsa struct」的 salsa 规则。
 - **`name_or_empty: IdentId` → `name: SmolStr`**：ident_pool 迁移（R9）在 Phase 2，Phase 1 直接用 `SmolStr`；
 - **enumeration 覆盖 5 个 lowering owner**：Checker/Covergroup/ClockingBlock 变体保留，等各自 per-owner query 落地再枚举；
-- 已新增 `owner_source_ast_id(owner)`：以单一 `OwnerId` 为 Salsa key，查询当前 source projection 的 owner AST 身份；这验证了后续 owner-local body query 的合法形状。
-- 后续步骤：`*_with_source_map` 查询整体迁移为 `OwnerId` 单参数（`_key: ()` 消失，R7），`BlockId`/`GenerateBlockId` 的 `Arc<BlockLoc>` 改为 `OwnerId`（R10），删除 wrapper soup（R10/R12）。
+- 当前 `body_with_source_map`、`scope_for` 等 owner-local 查询均以 `OwnerId` 为唯一语义 key；`AstIdMap` 与 `SourceProjection` 负责源码投影，避免再引入 owner-specific source-map 类型。
 
 #### 10.4.4 ItemTree：per-file 结构摘要
 

@@ -8,10 +8,7 @@ use syntax::{
 use utils::text_edit::TextRange;
 
 use super::{LowerModuleCtx, port::PortDirection};
-use crate::{
-    Ident, alloc_with_source, ast_id_map::SourceAstId, expr::timing_control::EventExprId,
-    lower_ident_opt,
-};
+use crate::{Ident, alloc_with_source, expr::timing_control::EventExprId, lower_ident_opt};
 
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum ClockingBlockKind {
@@ -44,9 +41,6 @@ pub struct ClockingSignalId(pub u32);
 pub struct DefaultClockingRef {
     pub name: Option<Ident>,
 }
-
-pub type DefaultClockingRefSrc = SourceAstId;
-pub type ClockingBlockSrc = SourceAstId;
 
 impl LowerModuleCtx<'_> {
     pub(crate) fn lower_clocking_declaration(

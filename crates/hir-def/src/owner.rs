@@ -600,11 +600,11 @@ endmodule
             .expect("subroutine owner must exist")
             .id;
 
-        assert_eq!(db.subroutine_body_with_source_map(owner).decls.len(), 1);
+        assert_eq!(db.body_with_source_map(owner).decls.len(), 1);
 
         db.set_file_text_with_durability(TOP, Arc::from(after), Durability::LOW);
 
-        assert_eq!(db.subroutine_body_with_source_map(owner).decls.len(), 2);
+        assert_eq!(db.body_with_source_map(owner).decls.len(), 2);
     }
 
     #[test]
@@ -627,7 +627,7 @@ endmodule
         let text = "module m; endmodule\nmodule n; endmodule\n";
         let db = db_with_root_text(text);
         let file_id = HirFileId::File(TOP);
-        let hir_file = db.hir_file(file_id);
+        let hir_file = db.body(db.owner_table(file_id).file_owner().expect("file owner"));
         let table = db.owner_table(file_id);
 
         for (local_module_id, module_info) in hir_file.modules.iter() {
@@ -638,7 +638,6 @@ endmodule
                 .find(|owner| owner.name == module_info.name.as_deref().unwrap_or(""))
                 .expect("module owner must exist");
             assert_eq!(owner, expected.id);
-            assert!(db.owner_source_ast_id(expected.id).is_some());
         }
     }
 
@@ -654,9 +653,16 @@ endmodule
             .expect("block owner must exist")
             .id;
 
-        let module_id =
-            ModuleId::new(file_id, db.hir_file(file_id).modules.iter().next().unwrap().0);
-        let module = db.module_with_source_map(module_id);
+        let module_id = ModuleId::new(
+            file_id,
+            db.body(db.owner_table(file_id).file_owner().expect("file owner"))
+                .modules
+                .iter()
+                .next()
+                .unwrap()
+                .0,
+        );
+        let module = db.body_with_source_map(module_id.owner(&db).expect("module owner"));
         let proc = module.procs.iter().next().expect("initial block must lower").1;
         let body = db.body_with_source_map(proc.owner);
         let lowered_owner = body
@@ -685,9 +691,16 @@ endmodule
 "#;
         let db = db_with_root_text(text);
         let file_id = HirFileId::File(TOP);
-        let module_id =
-            ModuleId::new(file_id, db.hir_file(file_id).modules.iter().next().unwrap().0);
-        let module = db.module(module_id);
+        let module_id = ModuleId::new(
+            file_id,
+            db.body(db.owner_table(file_id).file_owner().expect("file owner"))
+                .modules
+                .iter()
+                .next()
+                .unwrap()
+                .0,
+        );
+        let module = db.body(module_id.owner(&db).expect("module owner"));
         let proc_owner = module.procs.values().next().expect("initial block must lower").owner;
         let body = db.body_with_source_map(proc_owner);
         let table = db.owner_table(file_id);
@@ -725,9 +738,16 @@ endmodule
             .expect("subroutine owner must exist");
         assert_eq!(subroutine_owner.name, "t");
 
-        let module_id =
-            ModuleId::new(file_id, db.hir_file(file_id).modules.iter().next().unwrap().0);
-        let module = db.module_with_source_map(module_id);
+        let module_id = ModuleId::new(
+            file_id,
+            db.body(db.owner_table(file_id).file_owner().expect("file owner"))
+                .modules
+                .iter()
+                .next()
+                .unwrap()
+                .0,
+        );
+        let module = db.body_with_source_map(module_id.owner(&db).expect("module owner"));
         let (value, _) = module
             .source_map()
             .subroutine_srcs
@@ -752,7 +772,7 @@ endmodule
         let ast_id = owner.ast_id(&db);
         let ptr = db.ast_id_map(HirFileId::File(TOP)).ptr(ast_id).expect("owner pointer");
         assert_eq!(ptr.kind(), syntax::SyntaxKind::FUNCTION_DECLARATION);
-        let body = db.subroutine_body_with_source_map(owner);
+        let body = db.body_with_source_map(owner);
         assert_eq!(body.decls.len(), 1);
     }
     #[test]
@@ -781,8 +801,15 @@ endmodule
         let after = "module m; function void f(); logic x; x = 1; endfunction endmodule\n";
         let mut db = db_with_root_text(before);
         let file_id = HirFileId::File(TOP);
-        let module_id =
-            ModuleId::new(file_id, db.hir_file(file_id).modules.iter().next().unwrap().0);
+        let module_id = ModuleId::new(
+            file_id,
+            db.body(db.owner_table(file_id).file_owner().expect("file owner"))
+                .modules
+                .iter()
+                .next()
+                .unwrap()
+                .0,
+        );
         let owner = db
             .owner_table(file_id)
             .owners_of_kind(OwnerKind::Subroutine)
@@ -791,14 +818,14 @@ endmodule
             .id;
 
         let item_tree_before = db.item_tree(file_id);
-        let module_before = db.module_with_source_map(module_id);
-        let body_before = db.subroutine_body_with_source_map(owner);
+        let module_before = db.body_with_source_map(module_id.owner(&db).expect("module owner"));
+        let body_before = db.body_with_source_map(owner);
 
         db.set_file_text_with_durability(TOP, Arc::from(after), Durability::LOW);
 
         let item_tree_after = db.item_tree(file_id);
-        let module_after = db.module_with_source_map(module_id);
-        let body_after = db.subroutine_body_with_source_map(owner);
+        let module_after = db.body_with_source_map(module_id.owner(&db).expect("module owner"));
+        let body_after = db.body_with_source_map(owner);
 
         assert!(Arc::ptr_eq(&item_tree_before, &item_tree_after));
         assert!(Arc::ptr_eq(&module_before, &module_after));

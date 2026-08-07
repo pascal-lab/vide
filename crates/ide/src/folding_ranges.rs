@@ -251,8 +251,8 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
     let line_index = line_index.as_ref();
 
     let file_id = HirFileId::File(file_id);
-    let file = db.hir_file_with_source_map(file_id);
-    let body = db.file_body_with_source_map(file_id);
+    let file = db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"));
+    let body = db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"));
     let src_map = file.source_map();
     let projection = db.source_projection(file_id);
 
@@ -301,8 +301,8 @@ fn collect_module(
     module_range: TextRange,
     line_index: &LineIndex,
 ) {
-    let module = db.module_with_source_map(module_id);
-    let body = db.module_body_with_source_map(module_id);
+    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
     let src_map = module.source_map();
     let projection = db.source_projection(module_id.file_id);
 
@@ -381,7 +381,7 @@ fn collect_subroutines(
     for (value, src) in srcs.iter() {
         let scope = SubroutineScope { cont_id: parent.clone(), value };
         let owner = scope.owner(db).expect("subroutine must map to an owner");
-        let subroutine = db.subroutine_body_with_source_map(owner);
+        let subroutine = db.body_with_source_map(owner);
 
         if let Some(range) = projection.origin(src).and_then(|origin| origin.full_range()) {
             folds.collect_fold(range, FoldKind::Subroutine, line_index);
@@ -396,7 +396,7 @@ fn collect_generate_regions(
     module_id: ModuleId,
     line_index: &LineIndex,
 ) {
-    let module = db.module_with_source_map(module_id);
+    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
     let src_map = module.source_map();
     for (region_id, _) in src_map.generate_region_srcs.iter() {
         let region = module.get(region_id);
@@ -414,8 +414,9 @@ fn collect_generate_block(
     block_id: GenerateBlockId,
     line_index: &LineIndex,
 ) {
-    let block = db.generate_block_with_source_map(block_id.clone());
-    let body = db.generate_block_body_with_source_map(block_id.clone());
+    let block =
+        db.body_with_source_map(block_id.clone().clone().owner(db).expect("generate owner"));
+    let body = db.body_with_source_map(block_id.clone().clone().owner(db).expect("generate owner"));
     let src_map = block.source_map();
     let projection = db.source_projection(block_id.file_id(db));
     folds.collect_folds(src_map.assign_srcs.ranges(&projection), FoldKind::ContAssign, line_index);

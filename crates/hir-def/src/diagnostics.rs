@@ -43,7 +43,8 @@ pub(crate) fn file_lowering_diagnostics(
 ) -> Arc<[LoweringDiagnostic]> {
     let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
-    let lowered_file = db.hir_file_with_source_map(file_id);
+    let lowered_file =
+        db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"));
     let file = lowered_file.data_ref();
     let src_map = lowered_file.source_map();
 
@@ -84,8 +85,9 @@ fn collect_module(
     projection: &SourceProjection,
     diagnostics: &mut Vec<LoweringDiagnostic>,
 ) {
-    let lowered = db.module_with_source_map(module_id);
-    let owner_range = module_id.source(db).map(|source| source.value.full_range());
+    let owner = module_id.owner(db).expect("module owner");
+    let lowered = db.body_with_source_map(owner);
+    let owner_range = owner.source(db).map(|source| source.value.full_range());
     collect(lowered.raw_diagnostics(), owner_range, tree, projection, diagnostics);
 
     let module = lowered.data_ref();
@@ -120,8 +122,9 @@ fn collect_generate_block(
     projection: &SourceProjection,
     diagnostics: &mut Vec<LoweringDiagnostic>,
 ) {
-    let lowered = db.generate_block_with_source_map(block_id.clone());
-    let owner_range = block_id.source(db).map(|source| source.value.full_range());
+    let owner = block_id.clone().owner(db).expect("generate owner");
+    let lowered = db.body_with_source_map(owner);
+    let owner_range = owner.source(db).map(|source| source.value.full_range());
     collect(lowered.raw_diagnostics(), owner_range, tree, projection, diagnostics);
 
     let block = lowered.data_ref();
@@ -154,8 +157,8 @@ fn collect_subroutine(
     diagnostics: &mut Vec<LoweringDiagnostic>,
 ) {
     let owner = scope.clone().owner(db).expect("subroutine must map to an owner");
-    let lowered = db.subroutine_body_with_source_map(owner);
-    let owner_range = scope.source(db).map(|source| source.value.full_range());
+    let lowered = db.body_with_source_map(owner);
+    let owner_range = owner.source(db).map(|source| source.value.full_range());
     collect(lowered.raw_diagnostics(), owner_range, tree, projection, diagnostics);
 }
 

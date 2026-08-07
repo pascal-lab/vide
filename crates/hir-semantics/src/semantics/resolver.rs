@@ -35,7 +35,7 @@ impl SemanticsImpl<'_> {
         let module_id = ModuleId::from_owner(db, owner)?;
 
         let src = source_ast_id(db, file_id, instance.syntax())?;
-        let module = db.module_with_source_map(module_id);
+        let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
         let instance_id = module.source_map().instance_srcs.src_to_hir(src)?;
         Some(InModule::new(module_id, instance_id))
     }
@@ -50,7 +50,7 @@ impl SemanticsImpl<'_> {
         let module_id = ModuleId::from_owner(db, owner)?;
 
         let src = source_ast_id(db, file_id, instantiation.syntax())?;
-        let module = db.module_with_source_map(module_id);
+        let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
         let instantiation_id = module.source_map().instantiation_srcs.src_to_hir(src)?;
         Some(InModule::new(module_id, instantiation_id))
     }
@@ -65,7 +65,7 @@ impl SemanticsImpl<'_> {
         let module_id = ModuleId::from_owner(db, owner)?;
 
         let src = source_ast_id(db, file_id, conn.syntax())?;
-        let module = db.module_with_source_map(module_id);
+        let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
         let conn_id = module.source_map().inst_port_conn_srcs.src_to_hir(src)?;
         Some(InModule::new(module_id, conn_id))
     }

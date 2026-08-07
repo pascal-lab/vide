@@ -12,7 +12,7 @@ pub(super) fn expected_port_ty(
     target_module_id: ModuleId,
     port_name: &Ident,
 ) -> Option<Type> {
-    let scope = db.module_scope(target_module_id);
+    let scope = db.scope_for(target_module_id.owner(db).expect("module owner"));
     let res = Resolution::from_candidates(
         scope
             .lookup(NameContext::Value, port_name)
@@ -68,7 +68,7 @@ fn typed_candidates_in_module(
 ) -> Vec<(String, Type)> {
     let types = TypeSystem::new(db);
     let mut candidates: Vec<_> = db
-        .module_scope(module_id)
+        .scope_for(module_id.owner(db).expect("module owner"))
         .iter_listing()
         .filter_map(|(name, defs)| {
             let resolution =

@@ -283,7 +283,13 @@ fn render_definition_title(db: &RootDb, origin: &DefOrigin) -> Option<String> {
     let name = origin.name(db)?;
     let kind = match origin.loc(db).clone() {
         DefOriginLoc::Module(module_id) => {
-            match db.hir_file_with_source_map(module_id.file_id).get(module_id.value).kind {
+            match db
+                .body_with_source_map(
+                    db.owner_table(module_id.file_id).file_owner().expect("file owner"),
+                )
+                .get(module_id.value)
+                .kind
+            {
                 ModuleKind::Module => "Module",
                 ModuleKind::Interface => "Interface",
                 ModuleKind::Program => "Program",
@@ -295,10 +301,12 @@ fn render_definition_title(db: &RootDb, origin: &DefOrigin) -> Option<String> {
         DefOriginLoc::Udp(_) => "Primitive",
         DefOriginLoc::Block(_) => "Block",
         DefOriginLoc::GenerateBlock(_) => "Generate block",
-        DefOriginLoc::Subroutine(subroutine_id) => match db.subroutine(subroutine_id).kind {
-            SubroutineKind::Task => "Task",
-            SubroutineKind::Function { .. } => "Function",
-        },
+        DefOriginLoc::Subroutine(subroutine_id) => {
+            match db.subroutine(subroutine_id.clone().owner(db).expect("subroutine owner")).kind {
+                SubroutineKind::Task => "Task",
+                SubroutineKind::Function { .. } => "Function",
+            }
+        }
         DefOriginLoc::SubroutinePort(_) | DefOriginLoc::NonAnsiPort(_) => "Port",
         DefOriginLoc::Decl(decl_id) => render_decl_title_kind(db, decl_id)?,
         DefOriginLoc::Typedef(_) => "Typedef",
@@ -354,9 +362,13 @@ fn render_signature(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<Stri
 }
 
 fn render_module_signature(db: &RootDb, module_id: ModuleId) -> Option<String> {
-    let module = db.module_with_source_map(module_id);
+    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
     let name = module.name.as_ref()?;
-    let keyword = match db.hir_file_with_source_map(module_id.file_id).get(module_id.value).kind {
+    let keyword = match db
+        .body_with_source_map(db.owner_table(module_id.file_id).file_owner().expect("file owner"))
+        .get(module_id.value)
+        .kind
+    {
         ModuleKind::Module => "module",
         ModuleKind::Interface => "interface",
         ModuleKind::Program => "program",
@@ -383,8 +395,8 @@ fn render_module_signature(db: &RootDb, module_id: ModuleId) -> Option<String> {
 }
 
 fn render_module_param_ports(db: &RootDb, module_id: ModuleId) -> Vec<String> {
-    let module = db.module_with_source_map(module_id);
-    let body = db.module_body_with_source_map(module_id);
+    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
     let module_owner = module_id.owner(db).expect("module owner");
     let mut params = Vec::new();
     let mut idx = 0;
@@ -415,7 +427,8 @@ fn render_subroutine_port_signature(
     db: &RootDb,
     port_id: InSubroutine<SubroutinePortId>,
 ) -> Option<String> {
-    let subroutine = db.subroutine(port_id.subroutine.clone());
+    let subroutine =
+        db.subroutine(port_id.subroutine.clone().clone().owner(db).expect("subroutine owner"));
     let port = subroutine.ports.get(port_id.value.0 as usize)?;
     let name = port.name.as_ref()?;
     let signature_owner = port_id.subroutine.parent_owner(db);
@@ -431,7 +444,8 @@ fn render_subroutine_port_signature(
 }
 
 fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineScope) -> Option<String> {
-    let subroutine = db.subroutine(subroutine_id.clone());
+    let subroutine =
+        db.subroutine(subroutine_id.clone().clone().owner(db).expect("subroutine owner"));
     let name = subroutine.name.as_ref()?;
     let signature_owner = subroutine_id.parent_owner(db);
     let mut signature = match &subroutine.kind {
@@ -469,7 +483,7 @@ fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineScope) -> O
 }
 
 fn render_module_port_list(db: &RootDb, module_id: ModuleId) -> Vec<String> {
-    let module = db.module_with_source_map(module_id);
+    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
     let module_owner = module_id.owner(db).expect("module owner");
     match &module.ports {
         Ports::NonAnsi { ports, .. } => ports
@@ -515,14 +529,15 @@ fn render_indented_list(items: &[String]) -> String {
 }
 
 fn render_non_ansi_port_signature(db: &RootDb, port_id: InModule<NonAnsiPortId>) -> Option<String> {
-    let module = db.module_with_source_map(port_id.module_id);
+    let module = db.body_with_source_map(port_id.module_id.owner(db).expect("module owner"));
     let port = module.get(port_id.value);
     let label = port.label.as_ref()?;
     Some(format!("port {label}"))
 }
 
 fn render_instance_signature(db: &RootDb, instance_id: InModule<InstanceId>) -> Option<String> {
-    let parent_module = db.module_with_source_map(instance_id.module_id);
+    let parent_module =
+        db.body_with_source_map(instance_id.module_id.owner(db).expect("module owner"));
     let instance = parent_module.get(instance_id.value);
     let instance_name = instance.name.as_ref()?;
     let instantiation = parent_module.get(instance.parent);
@@ -544,7 +559,8 @@ fn render_clocking_block_signature(
     db: &RootDb,
     clocking_block_id: InModule<ClockingBlockId>,
 ) -> Option<String> {
-    let module = db.module_with_source_map(clocking_block_id.module_id);
+    let module =
+        db.body_with_source_map(clocking_block_id.module_id.owner(db).expect("module owner"));
     let clocking_block = module.get(clocking_block_id.value);
     let name = clocking_block.name.as_ref()?;
     let mut signature = format!("clocking {name}");
@@ -572,7 +588,7 @@ fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<St
     match decl.parent {
         DeclaratorParent::PortDeclId(port_decl_id) => {
             let module_id = ModuleId::from_owner(db, decl_id.cont_id)?;
-            let module = db.module_with_source_map(module_id);
+            let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
             let header = InModule::new(module_id, module.get(port_decl_id).header.clone())
                 .display_source(db)
                 .ok()?;

@@ -45,7 +45,7 @@ pub(super) fn add_missing_parameters(
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;
     let InModule { value: instantiation_id, module_id } =
         sema.resolve_instantiation(file_id, ast_instantiation)?;
-    let module = db.module_with_source_map(module_id);
+    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
     let instantiation = module.get(instantiation_id);
 
     let params_node = ast_instantiation.parameters()?;
@@ -53,7 +53,7 @@ pub(super) fn add_missing_parameters(
     let close_paren = params_node.close_paren()?.text_range_in(params_node.syntax())?;
 
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_body = db.module_body_with_source_map(target_module_id);
+    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
 
     let is_ordered = instantiation
         .param_assigns

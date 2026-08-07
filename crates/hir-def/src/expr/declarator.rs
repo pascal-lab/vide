@@ -6,7 +6,6 @@ use utils::define_enum_deriving_from;
 use super::{ExprId, data_ty::Dimension};
 use crate::{
     Ident,
-    ast_id_map::SourceAstId,
     declaration::DeclarationId,
     lower::{LoweringCtx, LoweringStore},
     lower_ident_opt,
@@ -39,8 +38,6 @@ pub(crate) fn empty_decls_range() -> DeclsRange {
     DeclsRange::new(start..start)
 }
 pub type DeclsRange = IdxRange<Declarator>;
-
-pub type DeclaratorSrc = SourceAstId;
 
 impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_declarators<'a>(

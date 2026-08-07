@@ -3,7 +3,6 @@ use smallvec::SmallVec;
 use syntax::ast::{self, AstNode};
 
 use crate::{
-    ast_id_map::SourceAstId,
     expr::{
         Assign,
         timing_control::{DelayControl, TimingControl},
@@ -20,8 +19,6 @@ pub struct ContAssign {
 }
 
 pub type ContAssignId = Idx<ContAssign>;
-
-pub type ContAssignSrc = SourceAstId;
 
 impl<Store: ModuleItemStore> LoweringCtx<Store> {
     pub(crate) fn lower_continuous_assign(

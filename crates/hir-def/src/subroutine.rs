@@ -3,7 +3,6 @@ use smallvec::SmallVec;
 use syntax::{TokenKind, ast};
 
 use super::{Ident, expr::data_ty::DataTy, lower_ident_opt};
-use crate::ast_id_map::SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Subroutine {
@@ -50,8 +49,6 @@ pub enum SubroutinePortDir {
     #[default]
     Unknown,
 }
-
-pub type SubroutineSrc = SourceAstId;
 
 pub type LocalSubroutineId = Idx<Subroutine>;
 

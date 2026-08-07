@@ -45,15 +45,15 @@ pub(super) fn add_missing_connections(
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
     let InModule { value: instance_id, module_id } =
         sema.resolve_instance(file_id, ast_instance)?;
-    let module = db.module_with_source_map(module_id);
+    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
     let instance = module.get(instance_id);
     let open_paren = ast_instance.open_paren()?.text_range_in(ast_instance.syntax())?;
     let close_paren = ast_instance.close_paren()?.text_range_in(ast_instance.syntax())?;
 
     let instantiation = module.get(instance.parent);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_module = db.module_with_source_map(target_module_id);
-    let target_body = db.module_body_with_source_map(target_module_id);
+    let target_module = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
 
     let is_ordered = instance
         .connections

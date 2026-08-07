@@ -32,8 +32,6 @@ pub mod modport;
 pub mod port;
 pub mod specify;
 
-pub type ModuleSrc = crate::ast_id_map::SourceAstId;
-
 pub fn param_port_id_by_idx(body: &Body, idx: usize) -> Option<DeclId> {
     body.param_ports.clone()?.nth(idx)
 }
@@ -147,7 +145,7 @@ impl LowerModuleCtx<'_> {
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
         // Only the skeleton is lowered here; the body is lowered on first
-        // access by subroutine_body_with_source_map.
+        // access by body_with_source_map.
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let subroutine_id = alloc_with_source(
@@ -447,19 +445,4 @@ pub(crate) fn lower_module_owner(
     body.shrink_to_fit();
     source_map.shrink_to_fit();
     Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
-}
-#[salsa::tracked(lru = 128, returns(clone))]
-fn module_input(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
-    debug_assert_eq!(owner.kind(db), OwnerKind::Module);
-    lower_module_owner(db, owner, &LoweringSyntax::for_owner(db, owner))
-}
-
-pub(crate) fn set_module_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
-    module_input::set_lru_capacity(db, capacity);
-    module_with_source_map::set_lru_capacity(db, capacity);
-}
-
-#[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn module_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
-    module_input(db, owner)
 }

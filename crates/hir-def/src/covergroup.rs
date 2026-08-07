@@ -2,7 +2,7 @@ use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::ast;
 
-use crate::{Ident, ast_id_map::SourceAstId, lower_ident_opt, lower_named_label_opt};
+use crate::{Ident, lower_ident_opt, lower_named_label_opt};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CovergroupDef {
@@ -26,10 +26,6 @@ pub struct CrossDef {
 }
 
 pub type CrossId = Idx<CrossDef>;
-
-pub type CovergroupSrc = SourceAstId;
-pub type CoverpointSrc = SourceAstId;
-pub type CrossSrc = SourceAstId;
 
 pub fn lower_covergroup_decl(covergroup: ast::CovergroupDeclaration<'_>) -> CovergroupDef {
     CovergroupDef {

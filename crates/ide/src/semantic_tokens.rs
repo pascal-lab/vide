@@ -288,10 +288,11 @@ fn collect_file(
     file_id: HirFileId,
     collector: &mut SemaTokenCollector,
 ) {
-    let lowered = sema.db.hir_file_with_source_map(file_id);
+    let owner = sema.db.owner_table(file_id).file_owner().expect("file owner");
+    let lowered = sema.db.body_with_source_map(owner);
     let hir_file = lowered.data_ref();
     let tree = sema.db.parse(file_id);
-    let body = sema.db.file_body_with_source_map(file_id);
+    let body = lowered.clone();
 
     for (local_module_id, _) in hir_file.modules.iter() {
         let Some(range) = lowered.source_range(sema.db, local_module_id) else {
@@ -328,10 +329,11 @@ fn collect_module(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let lowered = db.module_with_source_map(module_id);
+    let owner = module_id.owner(db).expect("module owner");
+    let lowered = db.body_with_source_map(owner);
     let module = lowered.data_ref();
     let tree = db.parse(module_id.file_id);
-    let body = db.module_body_with_source_map(module_id);
+    let body = lowered.clone();
     port::collect_port(sema, module_id, collector);
 
     for (instance_id, _) in module.instances.iter() {
@@ -404,10 +406,11 @@ fn collect_generate_block(
     collector: &mut SemaTokenCollector,
 ) {
     let db = sema.db;
-    let lowered = db.generate_block_with_source_map(generate_block_id.clone());
+    let owner = generate_block_id.clone().owner(db).expect("generate owner");
+    let lowered = db.body_with_source_map(owner);
     let generate_block = lowered.data_ref();
     let tree = db.parse(generate_block_id.file_id(db));
-    let body = db.generate_block_body_with_source_map(generate_block_id.clone());
+    let body = lowered.clone();
 
     for (instance_id, _) in generate_block.instances.iter() {
         if let Some(range) = lowered.source_name_range(db, instance_id) {
@@ -477,7 +480,7 @@ fn collect_subroutine(
 ) {
     let db = sema.db;
     let owner = subroutine.owner(db).expect("subroutine must map to an owner");
-    let lowered = db.subroutine_body_with_source_map(owner);
+    let lowered = db.body_with_source_map(owner);
     let tree = db.parse(owner.file(db));
 
     collect_container_body!(sema, owner, &tree, collector, &lowered);
@@ -624,8 +627,9 @@ fn collect_resolved_path(
 
     if def_id.is_non_ansi_port(db) {
         let port_id = def_id.primary_origin(db).as_non_ansi_port(db)?;
-        let module = db.module_with_source_map(port_id.module_id);
-        let body = db.module_body_with_source_map(port_id.module_id);
+        let owner = port_id.module_id.owner(db).expect("module owner");
+        let module = db.body_with_source_map(owner);
+        let body = module.data_ref();
         let origins = def_id.origins(db);
         let (name, dir, ty) = resolve_port_metadata(db, &module, &body, &origins)?;
         port::add_port_token(db, name, dir, ty, range, collector);
@@ -636,11 +640,13 @@ fn collect_resolved_path(
         DefKind::Port => {
             let decl_id = def_id.primary_origin(db).as_decl(db)?;
             let module_id = ModuleId::from_owner(db, decl_id.cont_id)?;
-            let module = db.module_with_source_map(module_id);
-            let body = db.module_body_with_source_map(module_id);
-            let name = body.get(decl_id.value).name.as_ref()?;
+            let owner = module_id.owner(db).expect("module owner");
+            let module = db.body_with_source_map(owner);
+            let body = module.data_ref();
+            let name = body.declarator(decl_id.value).name.as_ref()?;
 
-            let DeclaratorParent::PortDeclId(port_declaration_id) = body.get(decl_id.value).parent
+            let DeclaratorParent::PortDeclId(port_declaration_id) =
+                body.declarator(decl_id.value).parent
             else {
                 return None;
             };

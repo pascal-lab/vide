@@ -441,7 +441,7 @@ fn token_precedence(kind: TokenKind) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use hir_def::{owner::OwnerId, symbol::NameContext};
+    use hir_def::symbol::NameContext;
     use hir_semantics::semantics::SemanticsImpl;
     use preproc_expand::file::HirFileId;
     use syntax::{

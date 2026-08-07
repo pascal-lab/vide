@@ -204,7 +204,7 @@ mod tests {
         );
         let file_id = HirFileId::File(TOP);
         let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
-        let module = db.module_with_source_map(module_id);
+        let module = db.body_with_source_map(module_id.owner(&db).expect("module owner"));
         let mut block_id = None;
         for (_, region) in module.generate_regions.iter() {
             for item in &region.items {

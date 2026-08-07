@@ -31,9 +31,6 @@ pub struct GenerateRegion {
 
 pub type GenerateRegionId = Idx<GenerateRegion>;
 
-pub type GenerateRegionSrc = SourceAstId;
-pub type GenerateBlockSrc = SourceAstId;
-
 /// Canonical syntax node for a generate owner. A loop-generate owns the loop
 /// node, not its nested begin/end block.
 pub(crate) fn generate_block_source_node(block: ast::GenerateBlock<'_>) -> syntax::SyntaxNode<'_> {
@@ -79,7 +76,7 @@ impl GenerateBlockId {
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct GenerateBlockLoc {
     pub cont_id: OwnerId,
-    pub src: InFile<GenerateBlockSrc>,
+    pub src: InFile<SourceAstId>,
 }
 
 pub(crate) type LowerGenerateBlockCtx<'a> = LoweringCtx<GenerateBlockStore<'a>>;
@@ -131,7 +128,7 @@ impl LowerGenerateBlockCtx<'_> {
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
         // Only the skeleton is lowered here; the body is lowered on first
-        // access by subroutine_body_with_source_map.
+        // access by body_with_source_map.
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let subroutine_id = alloc_with_source(
@@ -515,22 +512,4 @@ pub(crate) fn lower_generate_owner(
     body.shrink_to_fit();
     source_map.shrink_to_fit();
     Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
-}
-#[salsa::tracked(lru = 128, returns(clone))]
-fn generate_block_input(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
-    debug_assert_eq!(owner.kind(db), OwnerKind::GenerateBlock);
-    lower_generate_owner(db, owner, &LoweringSyntax::for_owner(db, owner))
-}
-
-pub(crate) fn set_generate_block_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
-    generate_block_input::set_lru_capacity(db, capacity);
-    generate_block_with_source_map::set_lru_capacity(db, capacity);
-}
-
-#[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn generate_block_with_source_map(
-    db: &dyn HirDefDb,
-    owner: OwnerId,
-) -> Arc<Lowered<Body>> {
-    generate_block_input(db, owner)
 }

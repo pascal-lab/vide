@@ -131,7 +131,7 @@ fn sig_help_for_instance(
         else {
             break 'blk None;
         };
-        let module = db.module_with_source_map(module_id);
+        let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
         let instance = module.get(instance_id);
 
         let Some((idx, conn_id)) = instance.connections.iter().enumerate().find(|(_, conn_id)| {
@@ -152,8 +152,8 @@ fn sig_help_for_instance(
     let instantiation = ast::HierarchyInstantiation::cast(instance.syntax().parent()?)?;
     let target_module_id =
         resolve_instantiation_target(db, file_id.expect_file(), instantiation).unique()?;
-    let target_module = db.module_with_source_map(target_module_id);
-    let target_body = db.module_body_with_source_map(target_module_id);
+    let target_module = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
     let target_module_name =
         target_module.name.as_ref().map(|name| name.to_string()).unwrap_or("<module>".to_string());
 
@@ -262,7 +262,7 @@ fn sig_help_for_instantiation(
         else {
             break 'blk None;
         };
-        let module = db.module_with_source_map(module_id);
+        let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
         let instantiation = module.get(instantiation_id);
 
         let Some((idx, conn_id)) =
@@ -284,8 +284,8 @@ fn sig_help_for_instantiation(
 
     let target_module_id =
         resolve_instantiation_target(db, file_id.expect_file(), instantiation).unique()?;
-    let target_module = db.module_with_source_map(target_module_id);
-    let target_body = db.module_body_with_source_map(target_module_id);
+    let target_module = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
     let target_module_name =
         target_module.name.as_ref().map(|name| name.to_string()).unwrap_or("<module>".to_string());
 
@@ -373,7 +373,8 @@ fn sig_help_for_invocation(
             .filter_map(|def_id| def_id.primary_origin(db).as_subroutine(db)),
     )
     .unique()?;
-    let subroutine = db.subroutine(subroutine_id.clone());
+    let subroutine =
+        db.subroutine(subroutine_id.clone().clone().owner(db).expect("subroutine owner"));
     let subroutine_name = subroutine.name.as_ref()?;
     let signature_owner = subroutine_id.parent_owner(db);
 

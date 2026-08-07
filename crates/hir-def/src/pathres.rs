@@ -174,7 +174,7 @@ pub fn descend_scope(db: &dyn HirDefDb, def_id: DefId) -> Option<OwnerId> {
 }
 
 fn definition_scope_owner(db: &dyn HirDefDb, origin: crate::symbol::DefOrigin) -> OwnerId {
-    crate::def_id::definition_owner(db, origin.loc(db))
+    origin.loc(db).clone().owner(db)
 }
 
 pub fn instance_target_def_id(
@@ -182,7 +182,7 @@ pub fn instance_target_def_id(
     module_id: ModuleId,
     instance_id: InstanceId,
 ) -> Option<DefId> {
-    let module = db.module(module_id);
+    let module = db.body(module_id.owner(db).expect("module owner"));
     let instance = module.get(instance_id);
     let instantiation = module.get(instance.parent);
     let module_name = instantiation.module_name.as_ref()?;

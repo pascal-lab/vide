@@ -5,14 +5,11 @@ use preproc_expand::{db::PreprocDb, file::HirFileId};
 use triomphe::Arc;
 
 use crate::{
-    ast_id_map::{self, AstIdMap, SourceAstId, SyntaxFileId},
+    ast_id_map::{self, AstIdMap, SyntaxFileId},
     body::{self, Body},
-    checker::CheckerId,
-    container::{InFileOrModule, InModule, SubroutineScope},
-    covergroup::CovergroupId,
-    diagnostics, file,
+    diagnostics,
     item_tree::{self, ItemTree, ItemTreeItem, Signature},
-    module::{self, ModuleId, PackageId, clocking::ClockingBlockId, generate::GenerateBlockId},
+    module::PackageId,
     nameres,
     owner::{self, OwnerId, OwnerTable},
     source_map::Lowered,
@@ -51,13 +48,12 @@ impl dyn HirDefDb + '_ {
         owner::owner_table(self, self.syntax_file(file_id))
     }
 
-    /// Current AST identity for one canonical owner.
-    pub fn owner_source_ast_id(&self, owner: OwnerId) -> Option<SourceAstId> {
-        Some(owner.ast_id(self))
-    }
-
     pub fn body_with_source_map(&self, owner: OwnerId) -> Arc<Lowered<Body>> {
         body::body_with_source_map(self, owner)
+    }
+
+    pub fn body(&self, owner: OwnerId) -> Arc<Body> {
+        self.body_with_source_map(owner).data()
     }
 
     pub fn item_tree(&self, file_id: HirFileId) -> Arc<ItemTree> {
@@ -80,14 +76,6 @@ impl dyn HirDefDb + '_ {
         crate::region_tree::owner_region_tree(self, owner)
     }
 
-    pub fn hir_file_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<Body>> {
-        file::hir_file_with_source_map(self, self.syntax_file(file_id))
-    }
-
-    pub fn file_body_with_source_map(&self, file_id: HirFileId) -> Arc<Lowered<Body>> {
-        self.hir_file_with_source_map(file_id)
-    }
-
     /// All lowering diagnostics of a file, flattened across every lowering
     /// owner (file, module, block, subroutine, generate block). Diagnostics
     /// reported without a root-buffer range get a display range resolved here
@@ -99,51 +87,6 @@ impl dyn HirDefDb + '_ {
         diagnostics::file_lowering_diagnostics(self, self.syntax_file(file_id))
     }
 
-    pub fn hir_file(&self, file_id: HirFileId) -> Arc<Body> {
-        hir_file(self, file_id)
-    }
-
-    pub fn module_with_source_map(&self, module_id: ModuleId) -> Arc<Lowered<Body>> {
-        let owner = module_id.owner(self).expect("module id must resolve to an owner");
-        module::module_with_source_map(self, owner)
-    }
-
-    pub fn module(&self, module_id: ModuleId) -> Arc<Body> {
-        module(self, module_id)
-    }
-
-    pub fn module_body_with_source_map(&self, module_id: ModuleId) -> Arc<Lowered<Body>> {
-        self.module_with_source_map(module_id)
-    }
-
-    pub fn subroutine_body_with_source_map(&self, owner: OwnerId) -> Arc<Lowered<Body>> {
-        self.body_with_source_map(owner)
-    }
-
-    pub fn subroutine(&self, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
-        subroutine(self, subroutine_id)
-    }
-
-    pub fn generate_block_with_source_map(
-        &self,
-        generate_block_id: GenerateBlockId,
-    ) -> Arc<Lowered<Body>> {
-        let owner =
-            generate_block_id.owner(self).expect("generate block id must resolve to an owner");
-        module::generate::generate_block_with_source_map(self, owner)
-    }
-
-    pub fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<Body> {
-        generate_block(self, generate_block_id)
-    }
-
-    pub fn generate_block_body_with_source_map(
-        &self,
-        generate_block_id: GenerateBlockId,
-    ) -> Arc<Lowered<Body>> {
-        self.generate_block_with_source_map(generate_block_id)
-    }
-
     pub fn scope_for(&self, owner: OwnerId) -> Arc<NameScope> {
         nameres::scope_for(self, owner)
     }
@@ -152,40 +95,17 @@ impl dyn HirDefDb + '_ {
         NameScope::unit_scope(self)
     }
 
-    pub fn file_scope(&self, file_id: HirFileId) -> Arc<NameScope> {
-        NameScope::file_scope(self, file_id)
-    }
-
-    pub fn module_scope(&self, module_id: ModuleId) -> Arc<NameScope> {
-        NameScope::module_scope(self, module_id)
-    }
-
-    pub fn clocking_block_scope(
-        &self,
-        clocking_block_id: InModule<ClockingBlockId>,
-    ) -> Arc<NameScope> {
-        NameScope::clocking_block_scope(self, clocking_block_id)
-    }
-
-    pub fn checker_scope(&self, checker_id: InFileOrModule<CheckerId>) -> Arc<NameScope> {
-        NameScope::checker_scope(self, checker_id)
-    }
-
-    pub fn covergroup_scope(&self, covergroup_id: InFileOrModule<CovergroupId>) -> Arc<NameScope> {
-        NameScope::covergroup_scope(self, covergroup_id)
-    }
-
-    pub fn generate_block_scope(&self, generate_block_id: GenerateBlockId) -> Arc<NameScope> {
-        NameScope::generate_block_scope(self, generate_block_id)
-    }
-
-    pub fn block_scope(&self, owner: OwnerId) -> Arc<NameScope> {
-        debug_assert_eq!(owner.kind(self), crate::owner::OwnerKind::Block);
-        self.scope_for(owner)
-    }
-
-    pub fn subroutine_scope(&self, subroutine_id: SubroutineScope) -> Arc<NameScope> {
-        NameScope::subroutine_scope(self, subroutine_id)
+    pub fn subroutine(&self, owner: OwnerId) -> Arc<Subroutine> {
+        debug_assert_eq!(owner.kind(self), crate::owner::OwnerKind::Subroutine);
+        let parent = owner.parent(self).expect("subroutine owner must have a parent");
+        let lowered = self.body_with_source_map(parent);
+        let source = owner.ast_id(self);
+        let id = lowered
+            .source_map()
+            .subroutine_srcs
+            .src_to_hir(source)
+            .expect("subroutine owner must map to a parent-body skeleton");
+        Arc::new(lowered.data_ref().subroutines[id].clone())
     }
 
     pub fn package_export_signature(&self, package_id: PackageId) -> Arc<NameScope> {
@@ -198,40 +118,10 @@ impl dyn HirDefDb + '_ {
     }
 }
 
-fn hir_file(db: &dyn HirDefDb, file_id: HirFileId) -> Arc<Body> {
-    db.file_body_with_source_map(file_id).data()
-}
-
-fn module(db: &dyn HirDefDb, module_id: ModuleId) -> Arc<Body> {
-    db.module_body_with_source_map(module_id).data()
-}
-
-fn subroutine(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
-    match subroutine_id.cont_id {
-        crate::container::SubroutineParent::File(file_id) => {
-            Arc::new(db.hir_file(file_id).subroutines[subroutine_id.value].clone())
-        }
-        crate::container::SubroutineParent::Module(module_id) => {
-            Arc::new(db.module(module_id).subroutines[subroutine_id.value].clone())
-        }
-        crate::container::SubroutineParent::GenerateBlock(generate_block_id) => {
-            Arc::new(db.generate_block(generate_block_id).subroutines[subroutine_id.value].clone())
-        }
-    }
-}
-
-fn generate_block(db: &dyn HirDefDb, generate_block_id: GenerateBlockId) -> Arc<Body> {
-    db.generate_block_body_with_source_map(generate_block_id).data()
-}
-
-/// Sets the LRU capacity of the tracked HIR queries, mirroring the previous
-/// `RootDb::update_parse_query_lru_capacity` knob.
+/// Sets the LRU capacity of the tracked HIR queries.
 pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     ast_id_map::set_ast_id_map_lru_capacity(db, capacity);
     body::set_body_lru_capacity(db, capacity);
-    file::set_hir_file_lru_capacity(db, capacity);
-    module::set_module_lru_capacity(db, capacity);
-    module::generate::set_generate_block_lru_capacity(db, capacity);
     item_tree::set_item_tree_lru_capacity(db, capacity);
     owner::set_owner_table_lru_capacity(db, capacity);
     nameres::set_scope_lru_capacity(db, capacity);

@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 use syntax::{SyntaxToken, TokenKind, ast};
 
 use super::{LowerModuleCtx, port::PortDirection};
-use crate::{Ident, alloc_with_source, ast_id_map::SourceAstId, lower_ident_opt};
+use crate::{Ident, alloc_with_source, lower_ident_opt};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ModportDef {
@@ -18,8 +18,6 @@ pub struct ModportPort {
     pub name: Ident,
     pub dir: PortDirection,
 }
-
-pub type ModportSrc = SourceAstId;
 
 impl LowerModuleCtx<'_> {
     pub(crate) fn lower_modport_declaration(

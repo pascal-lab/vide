@@ -6,10 +6,7 @@ use syntax::{
 };
 
 use super::ExprId;
-use crate::{
-    ast_id_map::SourceAstId,
-    lower::{LoweringCtx, LoweringStore},
-};
+use crate::lower::{LoweringCtx, LoweringStore};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum TimingControl {
@@ -36,8 +33,6 @@ pub enum EventControl {
 // EventExpressions
 
 pub type EventExprId = Idx<EventExpr>;
-
-pub type EventExprSrc = SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum EventExpr {

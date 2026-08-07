@@ -52,12 +52,12 @@ pub(super) fn convert_ordered_ports(
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
     let InModule { value: instance_id, module_id } =
         sema.resolve_instance(ctx.file_id().into(), ast_instance)?;
-    let module = db.module_with_source_map(module_id);
-    let module_body = db.module_body_with_source_map(module_id);
+    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let module_body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
     let instantiation = module.get(module.get(instance_id).parent);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_module = db.module_with_source_map(target_module_id);
-    let target_body = db.module_body_with_source_map(target_module_id);
+    let target_module = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
     let port_names = port_names(&target_module, &target_body);
 
     let replacements = module
@@ -111,11 +111,11 @@ pub(super) fn convert_ordered_params(
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;
     let InModule { value: instantiation_id, module_id } =
         sema.resolve_instantiation(ctx.file_id().into(), ast_instantiation)?;
-    let module = db.module_with_source_map(module_id);
-    let module_body = db.module_body_with_source_map(module_id);
+    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let module_body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
     let instantiation = module.get(instantiation_id);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_body = db.module_body_with_source_map(target_module_id);
+    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
     let param_names = leading_overridable_parameter_names(&target_body);
 
     let replacements = instantiation
