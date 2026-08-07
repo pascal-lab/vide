@@ -20,7 +20,7 @@ use crate::{
         generate::{self, GenerateBlock, GenerateBlockId},
     },
     nameres,
-    owner::{self, OwnerId, OwnerTable},
+    owner::{OwnerId, OwnerTable},
     source_map::Lowered,
     source_projection::{self, SourceProjection},
     subroutine::Subroutine,
@@ -52,10 +52,9 @@ impl dyn HirDefDb + '_ {
         ast_id_map::ast_id_map(self, self.syntax_file(file_id))
     }
 
-    /// The canonical owner enumeration of a file, in source order and
-    /// independent of source projection and lowering.
+    /// Canonical structural owners, built by the same traversal as ItemTree.
     pub fn owner_table(&self, file_id: HirFileId) -> Arc<OwnerTable> {
-        owner::owner_table(self, self.syntax_file(file_id))
+        self.item_tree(file_id).owner_table_arc()
     }
 
     /// Current AST identity for one canonical owner.
@@ -229,7 +228,6 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     block::set_block_lru_capacity(db, capacity);
     file::set_hir_file_lru_capacity(db, capacity);
     item_tree::set_item_tree_lru_capacity(db, capacity);
-    owner::set_owner_table_lru_capacity(db, capacity);
     module::set_module_lru_capacity(db, capacity);
     module::generate::set_generate_block_lru_capacity(db, capacity);
     nameres::set_scope_lru_capacity(db, capacity);
