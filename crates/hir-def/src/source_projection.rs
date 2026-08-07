@@ -4,7 +4,10 @@ use syntax::{SyntaxKind, ptr::SyntaxNodePtr};
 use triomphe::Arc;
 use utils::text_edit::TextRange;
 
-use crate::{ast_id_map::{SourceAstId, SyntaxFileId}, db::HirDefDb};
+use crate::{
+    ast_id_map::{SourceAstId, SyntaxFileId},
+    db::HirDefDb,
+};
 
 /// Current source representation for a canonical AST identity. Navigability
 /// remains independent from semantic identity.
@@ -70,6 +73,14 @@ impl SourceProjection {
 
     pub fn origin(&self, ast_id: SourceAstId) -> Option<SourceOrigin> {
         self.origins.get(&ast_id).copied()
+    }
+
+    pub fn node<'tree>(
+        &self,
+        ast_id: SourceAstId,
+        tree: &'tree syntax::SyntaxTree,
+    ) -> Option<syntax::SyntaxNode<'tree>> {
+        self.origin(ast_id)?.node()?.to_node(tree)
     }
 
     pub fn origins(&self) -> impl Iterator<Item = (SourceAstId, SourceOrigin)> + '_ {

@@ -1,7 +1,4 @@
-use hir_def::{
-    Ident, lower_ident_opt,
-    module::{ModuleId, ModuleSrc},
-};
+use hir_def::{Ident, lower_ident_opt, module::ModuleId};
 use hir_semantics::semantics::Semantics;
 use rustc_hash::FxHashSet;
 use syntax::{
@@ -85,9 +82,7 @@ fn complete_parameter_port_list_with_typedefs(
     else {
         return Vec::new();
     };
-    let file = db.hir_file_with_source_map(file_id);
-    let module_src = ModuleSrc::from_ast(file_id, module);
-    let Some(module_id) = file.hir_id(module_src).map(|id| ModuleId::new(file_id, id)) else {
+    let Some(module_id) = sema.module_to_def(file_id, module) else {
         return Vec::new();
     };
 

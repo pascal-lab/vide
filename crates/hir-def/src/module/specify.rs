@@ -1,18 +1,12 @@
 use la_arena::Idx;
 use smallvec::SmallVec;
-use syntax::{ast, ast::AstNode, ptr::SyntaxNodePtr};
+use syntax::ast::{self, AstNode};
 use utils::define_enum_deriving_from;
 
 use super::LowerModuleCtx;
 use crate::{
-    Ident, alloc_with_source,
-    declaration::DeclarationId,
-    expr::ExprId,
+    Ident, alloc_with_source, ast_id_map::SourceAstId, declaration::DeclarationId, expr::ExprId,
     lower_ident_opt,
-    source_map::{
-        AstId, AstKind, FromSourceAst, IsNamedSrc, IsSrc, SourceAst, ToAstNode,
-        exact_ast_node_from_ptr,
-    },
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -22,24 +16,7 @@ pub struct SpecifyBlock {
 
 pub type SpecifyBlockId = Idx<SpecifyBlock>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct SpecifyBlockAst;
-
-impl AstKind for SpecifyBlockAst {
-    type Node<'a> = ast::SpecifyBlock<'a>;
-}
-
-pub type SpecifyBlockSrc = AstId<SpecifyBlockAst>;
-
-impl IsNamedSrc for SpecifyBlockSrc {
-    fn name_kind(&self) -> Option<syntax::TokenKind> {
-        None
-    }
-
-    fn name_range(&self) -> Option<utils::text_edit::TextRange> {
-        None
-    }
-}
+pub type SpecifyBlockSrc = SourceAstId;
 
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -60,136 +37,7 @@ pub enum SpecifyItem {
 
 pub type SpecifyItemId = Idx<SpecifyItem>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct PathDeclarationAst;
-
-impl AstKind for PathDeclarationAst {
-    type Node<'a> = ast::PathDeclaration<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct ConditionalPathDeclarationAst;
-
-impl AstKind for ConditionalPathDeclarationAst {
-    type Node<'a> = ast::ConditionalPathDeclaration<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct IfNonePathDeclarationAst;
-
-impl AstKind for IfNonePathDeclarationAst {
-    type Node<'a> = ast::IfNonePathDeclaration<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct PulseStyleDeclarationAst;
-
-impl AstKind for PulseStyleDeclarationAst {
-    type Node<'a> = ast::PulseStyleDeclaration<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct SystemTimingCheckAst;
-
-impl AstKind for SystemTimingCheckAst {
-    type Node<'a> = ast::SystemTimingCheck<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub enum SpecifyItemSrc {
-    PathDeclaration(AstId<PathDeclarationAst>),
-    ConditionalPathDeclaration(AstId<ConditionalPathDeclarationAst>),
-    IfNonePathDeclaration(AstId<IfNonePathDeclarationAst>),
-    PulseStyleDeclaration(AstId<PulseStyleDeclarationAst>),
-    SystemTimingCheck(AstId<SystemTimingCheckAst>),
-}
-
-impl IsSrc for SpecifyItemSrc {
-    fn kind(&self) -> syntax::SyntaxKind {
-        SyntaxNodePtr::from(*self).kind()
-    }
-
-    fn range(&self) -> utils::text_edit::TextRange {
-        SyntaxNodePtr::from(*self).range()
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::PathDeclaration<'a>> for SpecifyItemSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::PathDeclaration<'a>> {
-        let SpecifyItemSrc::PathDeclaration(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::ConditionalPathDeclaration<'a>> for SpecifyItemSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::ConditionalPathDeclaration<'a>> {
-        let SpecifyItemSrc::ConditionalPathDeclaration(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::IfNonePathDeclaration<'a>> for SpecifyItemSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::IfNonePathDeclaration<'a>> {
-        let SpecifyItemSrc::IfNonePathDeclaration(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::PulseStyleDeclaration<'a>> for SpecifyItemSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::PulseStyleDeclaration<'a>> {
-        let SpecifyItemSrc::PulseStyleDeclaration(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::SystemTimingCheck<'a>> for SpecifyItemSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::SystemTimingCheck<'a>> {
-        let SpecifyItemSrc::SystemTimingCheck(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::PathDeclaration<'a>> for SpecifyItemSrc {
-    fn from_source_ast(path: SourceAst<ast::PathDeclaration<'a>>) -> Self {
-        Self::PathDeclaration(AstId::from_source_ast(path))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::ConditionalPathDeclaration<'a>> for SpecifyItemSrc {
-    fn from_source_ast(path: SourceAst<ast::ConditionalPathDeclaration<'a>>) -> Self {
-        Self::ConditionalPathDeclaration(AstId::from_source_ast(path))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::IfNonePathDeclaration<'a>> for SpecifyItemSrc {
-    fn from_source_ast(path: SourceAst<ast::IfNonePathDeclaration<'a>>) -> Self {
-        Self::IfNonePathDeclaration(AstId::from_source_ast(path))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::PulseStyleDeclaration<'a>> for SpecifyItemSrc {
-    fn from_source_ast(pulse: SourceAst<ast::PulseStyleDeclaration<'a>>) -> Self {
-        Self::PulseStyleDeclaration(AstId::from_source_ast(pulse))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::SystemTimingCheck<'a>> for SpecifyItemSrc {
-    fn from_source_ast(timing: SourceAst<ast::SystemTimingCheck<'a>>) -> Self {
-        Self::SystemTimingCheck(AstId::from_source_ast(timing))
-    }
-}
-
-impl From<SpecifyItemSrc> for SyntaxNodePtr {
-    fn from(src: SpecifyItemSrc) -> Self {
-        match src {
-            SpecifyItemSrc::PathDeclaration(src) => src.ptr(),
-            SpecifyItemSrc::ConditionalPathDeclaration(src) => src.ptr(),
-            SpecifyItemSrc::IfNonePathDeclaration(src) => src.ptr(),
-            SpecifyItemSrc::PulseStyleDeclaration(src) => src.ptr(),
-            SpecifyItemSrc::SystemTimingCheck(src) => src.ptr(),
-        }
-    }
-}
+pub type SpecifyItemSrc = SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SpecifyPath {
@@ -236,7 +84,8 @@ impl LowerModuleCtx<'_> {
 
         let file_id = self.file_id;
         alloc_with_source(
-            file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.specify_blocks,
             &mut self.store.sources.specify_block_srcs,
             SpecifyBlock { items },
@@ -248,7 +97,8 @@ impl LowerModuleCtx<'_> {
         let item = SpecifyItem::Path(self.lower_specify_path(path));
         let file_id = self.file_id;
         alloc_with_source(
-            file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.specify_items,
             &mut self.store.sources.specify_item_srcs,
             item,
@@ -266,7 +116,8 @@ impl LowerModuleCtx<'_> {
 
         let file_id = self.file_id;
         alloc_with_source(
-            file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.specify_items,
             &mut self.store.sources.specify_item_srcs,
             item,
@@ -282,7 +133,8 @@ impl LowerModuleCtx<'_> {
 
         let file_id = self.file_id;
         alloc_with_source(
-            file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.specify_items,
             &mut self.store.sources.specify_item_srcs,
             item,
@@ -299,7 +151,8 @@ impl LowerModuleCtx<'_> {
 
         let file_id = self.file_id;
         alloc_with_source(
-            file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.specify_items,
             &mut self.store.sources.specify_item_srcs,
             item,
@@ -317,7 +170,8 @@ impl LowerModuleCtx<'_> {
 
         let file_id = self.file_id;
         alloc_with_source(
-            file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.specify_items,
             &mut self.store.sources.specify_item_srcs,
             item,

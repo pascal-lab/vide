@@ -1,10 +1,11 @@
 use hir_def::{
+    ast_id_map::SourceAstId,
     container::{InContainer, InFile},
     def_id::DefId,
     expr::Expr,
     file::FileItem,
     module::{
-        Module, ModuleId, ModuleSrc,
+        Module, ModuleId,
         instantiation::{Instantiation, ParamAssign, PortConn, PortConnId},
         port::PortDirection,
     },
@@ -14,7 +15,12 @@ use preproc_expand::{
     file::HirFileId,
     preproc::{MacroCallResolution, macro_call_resolutions_in_range},
 };
-use syntax::{ast, match_ast_kind};
+use syntax::{
+    SyntaxTokenWithParent,
+    ast::{self, AstNode},
+    has_text_range::HasTextRange,
+    match_ast_kind,
+};
 use utils::{
     check_or_throw,
     text_edit::{TextEdit, TextRange, TextSize},
@@ -189,10 +195,8 @@ impl InlayHintCollector {
         });
     }
 
-    fn collect_module_end_hint(&mut self, module_src: ModuleSrc, name: &str) {
-        if let Some(end_range) = module_src.end_range() {
-            self.collect_hint(HintAnchor::module_end(end_range), None, format!(": {name}"), None);
-        }
+    fn collect_module_end_hint(&mut self, end_range: TextRange, name: &str) {
+        self.collect_hint(HintAnchor::module_end(end_range), None, format!(": {name}"), None);
     }
 
     fn into_hints(self) -> Vec<InlayHint> {
@@ -229,7 +233,7 @@ pub(crate) fn inlay_hint(
                     continue;
                 };
 
-                if file.source_range(idx).is_some_and(|range| collector.intersect(range)) {
+                if file.source_range(db, idx).is_some_and(|range| collector.intersect(range)) {
                     collect_module_items(db, module_id, module_src, &mut collector);
                 }
             }
@@ -293,14 +297,14 @@ fn collect_macro_argument_hints_for_call(
 fn collect_module_items(
     db: &RootDb,
     module_id: ModuleId,
-    module_src: ModuleSrc,
+    module_src: SourceAstId,
     collector: &mut InlayHintCollector,
 ) {
     let module = db.module_with_source_map(module_id);
 
     if collector.config.instantiation() {
         for (instantiation_id, instantiation) in module.instantiations.iter() {
-            let Some(instantiation_src) = module.source_info(instantiation_id) else {
+            let Some(instantiation_src) = module.source_info(db, instantiation_id) else {
                 continue;
             };
             if collector.intersect(instantiation_src.full_range()) {
@@ -312,8 +316,16 @@ fn collect_module_items(
     if collector.config.end_structure
         && let Some(name) = &module.name
     {
-        collector.collect_module_end_hint(module_src, name);
+        if let Some(end_range) = module_end_range(db, module_id.file_id, module_src) {
+            collector.collect_module_end_hint(end_range, name);
+        }
     }
+}
+
+fn module_end_range(db: &RootDb, file_id: HirFileId, source: SourceAstId) -> Option<TextRange> {
+    let tree = db.parse(file_id);
+    let module = ast::ModuleDeclaration::cast(db.ast_id_map(file_id).node(source, &tree)?)?;
+    SyntaxTokenWithParent { parent: module.syntax(), tok: module.endmodule()? }.text_range()
 }
 
 fn process_instantiation(
@@ -338,7 +350,7 @@ fn process_instantiation(
                 let ParamAssign::Ordered(assign_expr) = module.get(assign_id) else {
                     continue;
                 };
-                let assign_src = module.source_info(assign_id)?;
+                let assign_src = module.source_info(db, assign_id)?;
                 check_or_throw!(collector.intersect(assign_src.full_range()));
 
                 let param_id = target_module.overridable_param_id_by_idx(&target_body, id)?;
@@ -361,7 +373,7 @@ fn process_instantiation(
     if collector.config.port_connection {
         for instance_id in instantiation.instances.iter() {
             let instance = module.get(*instance_id);
-            let Some(instance_range) = module.source_range(*instance_id) else {
+            let Some(instance_range) = module.source_range(db, *instance_id) else {
                 continue;
             };
             if !collector.intersect(instance_range) {
@@ -373,7 +385,7 @@ fn process_instantiation(
                     let conn = module.get(conn_id);
                     check_or_throw!(
                         module
-                            .source_range(conn_id)
+                            .source_range(db, conn_id)
                             .is_some_and(|range| collector.intersect(range))
                     );
 
@@ -383,6 +395,7 @@ fn process_instantiation(
                     let dir = dir?;
                     let target_range = def.primary_origin(db).range(db)?;
                     collect_connection_hint(
+                        db,
                         module,
                         &module_body,
                         conn_id,
@@ -400,6 +413,7 @@ fn process_instantiation(
 }
 
 fn collect_connection_hint(
+    db: &RootDb,
     module: &Lowered<Module>,
     body: &Lowered<hir_def::body::Body>,
     conn_id: PortConnId,
@@ -409,7 +423,7 @@ fn collect_connection_hint(
     collector: &mut InlayHintCollector,
 ) -> Option<()> {
     let conn = module.get(conn_id);
-    let conn_src = module.named_source_info(conn_id)?;
+    let conn_src = module.named_source_info(db, conn_id)?;
     let arrow = match port_dir {
         PortDirection::Input => "←",
         PortDirection::Output => "→",
@@ -429,7 +443,7 @@ fn collect_connection_hint(
             let label = if same_name { arrow.to_string() } else { format!("{name} {arrow}") };
             let target_range = if same_name { None } else { Some(target_range) };
             let edit = if same_name { None } else { edits_for_conn(name, conn_src) };
-            let position = body.source_range(*expr).map_or(conn_start, |range| range.start());
+            let position = body.source_range(db, *expr).map_or(conn_start, |range| range.start());
             collector.collect_src_hint(conn_src, target_range, Some(position), label, edit);
         }
         PortConn::Named(port_name, expr) => {
@@ -440,7 +454,7 @@ fn collect_connection_hint(
                     (arrow.to_string(), None)
                 };
             let position = expr
-                .and_then(|expr| body.source_range(expr).map(|range| range.start()))
+                .and_then(|expr| body.source_range(db, expr).map(|range| range.start()))
                 .or_else(|| conn_src.focus_range().map(|range| range.start()))
                 .unwrap_or(conn_start);
             collector.collect_src_hint(conn_src, target_range, Some(position), label, None);

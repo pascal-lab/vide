@@ -256,7 +256,6 @@ define_container_id! {
 impl<T: Copy> Copy for InFile<T> {}
 impl<T: Copy> Copy for InModule<T> {}
 
-
 impl From<ArenaOwnerId> for ScopeId {
     fn from(owner_id: ArenaOwnerId) -> Self {
         match owner_id {
@@ -310,10 +309,9 @@ impl ScopeId {
                 db.generate_block(generate_block_id).name.clone()
             }
             ScopeId::Subroutine(subroutine) => db.subroutine(subroutine).name.clone(),
-            ScopeId::Owner(owner) => db
-                .owner_table(owner.file(db))
-                .owner(owner)
-                .map(|data| data.name.clone()),
+            ScopeId::Owner(owner) => {
+                db.owner_table(owner.file(db)).owner(owner).map(|data| data.name.clone())
+            }
             ScopeId::ClockingBlock(clocking_block) => {
                 db.module(clocking_block.module_id).get(clocking_block.value).name.clone()
             }
@@ -415,7 +413,6 @@ impl ModuleId {
     }
 }
 
-
 impl GenerateBlockId {
     pub fn file_id(&self, _db: &dyn HirDefDb) -> HirFileId {
         self.loc().src.file_id
@@ -466,7 +463,6 @@ impl Container {
     pub fn stmt(&self, id: StmtId) -> &Stmt {
         &self.0.stmts[id]
     }
-
 }
 
 impl ContainerSrcMap {
@@ -529,7 +525,6 @@ impl ContainerSrcMap {
     pub fn source_of_stmt(&self, id: StmtId) -> Option<StmtSrc> {
         self.0.stmt_srcs.get(id)
     }
-
 }
 
 /// An explicit lexical scope chain, ordered from the innermost scope outward.

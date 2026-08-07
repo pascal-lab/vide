@@ -400,7 +400,7 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
                 continue;
             };
             let mut diag_file_id = file_id;
-            let Some(mut range) = module.source_range(instantiation_id) else {
+            let Some(mut range) = module.source_range(db, instantiation_id) else {
                 continue;
             };
             match preproc_expand::preproc::diagnostic_target_for_range(db, file_id, range) {

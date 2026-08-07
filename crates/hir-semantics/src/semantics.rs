@@ -5,10 +5,9 @@ use hir_def::{
     container::{ArenaOwnerId, InContainer, InFile, SubroutineScope},
     db::HirDefDb,
     def_id::DefId,
-    owner::OwnerId,
     expr::ExprId,
-    module::{ModuleId, ModuleSrc},
-    subroutine::SubroutineSrc,
+    module::ModuleId,
+    owner::OwnerId,
     symbol::{NameContext, Resolution},
 };
 use itertools::{Either, Itertools};
@@ -115,8 +114,7 @@ impl SemanticsImpl<'_> {
         file_id: HirFileId,
         module: ast::ModuleDeclaration,
     ) -> Option<ModuleId> {
-        let module_src = ModuleSrc::from_ast(file_id, module);
-        source_to_def::module_to_def(self.db, InFile::new(file_id, module_src))
+        source_to_def::module_to_def(self.db, file_id, module)
     }
 
     pub fn block_to_def(&self, file_id: HirFileId, block: ast::BlockStatement) -> Option<OwnerId> {
@@ -128,8 +126,7 @@ impl SemanticsImpl<'_> {
         file_id: HirFileId,
         subroutine: ast::FunctionDeclaration,
     ) -> Option<SubroutineScope> {
-        let subroutine_src = SubroutineSrc::from_ast(file_id, subroutine);
-        source_to_def::subroutine_to_def(self.db, InFile::new(file_id, subroutine_src))
+        source_to_def::subroutine_to_def(self.db, file_id, subroutine)
     }
 
     pub fn expr_to_def(&self, in_cont: InContainer<ExprId>) -> Resolution<DefId> {

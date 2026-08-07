@@ -21,7 +21,6 @@ use specify::{
 use syntax::{
     ast::{self, AstNode, PortList},
     has_name::HasName,
-    ptr::{SyntaxNodePtr, SyntaxTokenPtr},
 };
 use triomphe::Arc;
 use utils::{define_enum_deriving_from, get::Get};
@@ -49,10 +48,7 @@ use crate::{
     db::HirDefDb,
     owner::{OwnerId, OwnerKind},
     region_tree::RegionTree,
-    source_map::{
-        DiagnosticSource, FromSourceAst, IsNamedSrc, IsSrc, Lowered, LoweredData,
-        LoweringDiagnostic, SourceAst, SourceMap, ToAstNode, ast_node_from_ptr, root_token_in,
-    },
+    source_map::{DiagnosticSource, Lowered, LoweredData, LoweringDiagnostic, SourceMap},
 };
 
 pub mod clocking;
@@ -118,24 +114,24 @@ impl Module {
 pub struct ModuleSourceMap {
     pub region_tree: RegionTree,
     pub port_srcs: PortSrcs,
-    pub assign_srcs: SourceMap<ContAssignSrc, ContAssign>,
-    pub defparam_srcs: SourceMap<DefParamSrc, DefParam>,
-    pub generate_region_srcs: SourceMap<GenerateRegionSrc, GenerateRegion>,
-    pub specify_block_srcs: SourceMap<SpecifyBlockSrc, SpecifyBlock>,
-    pub specify_item_srcs: SourceMap<SpecifyItemSrc, SpecifyItem>,
-    pub subroutine_srcs: SourceMap<SubroutineSrc, Subroutine>,
-    pub modport_srcs: SourceMap<ModportSrc, ModportDef>,
+    pub assign_srcs: SourceMap<ContAssign>,
+    pub defparam_srcs: SourceMap<DefParam>,
+    pub generate_region_srcs: SourceMap<GenerateRegion>,
+    pub specify_block_srcs: SourceMap<SpecifyBlock>,
+    pub specify_item_srcs: SourceMap<SpecifyItem>,
+    pub subroutine_srcs: SourceMap<Subroutine>,
+    pub modport_srcs: SourceMap<ModportDef>,
     pub default_clocking_src: Option<DefaultClockingRefSrc>,
-    pub clocking_block_srcs: SourceMap<ClockingBlockSrc, ClockingBlockDef>,
-    pub checker_srcs: SourceMap<CheckerSrc, CheckerDef>,
-    pub covergroup_srcs: SourceMap<CovergroupSrc, CovergroupDef>,
-    pub coverpoint_srcs: SourceMap<CoverpointSrc, CoverpointDef>,
-    pub cross_srcs: SourceMap<CrossSrc, CrossDef>,
-    pub instantiation_srcs: SourceMap<InstantiationSrc, Instantiation>,
-    pub inst_param_assign_srcs: SourceMap<ParamAssignSrc, ParamAssign>,
-    pub instance_srcs: SourceMap<InstanceSrc, Instance>,
-    pub inst_port_conn_srcs: SourceMap<PortConnSrc, PortConn>,
-    pub proc_srcs: SourceMap<ProcSrc, Proc>,
+    pub clocking_block_srcs: SourceMap<ClockingBlockDef>,
+    pub checker_srcs: SourceMap<CheckerDef>,
+    pub covergroup_srcs: SourceMap<CovergroupDef>,
+    pub coverpoint_srcs: SourceMap<CoverpointDef>,
+    pub cross_srcs: SourceMap<CrossDef>,
+    pub instantiation_srcs: SourceMap<Instantiation>,
+    pub inst_param_assign_srcs: SourceMap<ParamAssign>,
+    pub instance_srcs: SourceMap<Instance>,
+    pub inst_port_conn_srcs: SourceMap<PortConn>,
+    pub proc_srcs: SourceMap<Proc>,
     pub diagnostics: Vec<LoweringDiagnostic>,
 }
 impl LoweredData for Module {
@@ -199,109 +195,29 @@ crate::impl_arena_getters!(
 
 crate::impl_source_map_getters!(
     ModuleSourceMap;
-    NonAnsiPortSrc => NonAnsiPortId => port_srcs,
-    PortRefSrc => PortRefId => port_srcs,
-    PortDeclSrc => PortDeclId => port_srcs,
-    ContAssignSrc => ContAssignId => assign_srcs,
-    DefParamSrc => DefParamId => defparam_srcs,
-    GenerateRegionSrc => GenerateRegionId => generate_region_srcs,
-    SpecifyBlockSrc => SpecifyBlockId => specify_block_srcs,
-    SpecifyItemSrc => SpecifyItemId => specify_item_srcs,
-    SubroutineSrc => LocalSubroutineId => subroutine_srcs,
-    ModportSrc => ModportId => modport_srcs,
-    ClockingBlockSrc => ClockingBlockId => clocking_block_srcs,
-    CheckerSrc => CheckerId => checker_srcs,
-    CovergroupSrc => CovergroupId => covergroup_srcs,
-    CoverpointSrc => CoverpointId => coverpoint_srcs,
-    CrossSrc => CrossId => cross_srcs,
-    InstantiationSrc => InstantiationId => instantiation_srcs,
-    ParamAssignSrc => ParamAssignId => inst_param_assign_srcs,
-    InstanceSrc => InstanceId => instance_srcs,
-    PortConnSrc => PortConnId => inst_port_conn_srcs,
-    ProcSrc => ProcId => proc_srcs,
+    NonAnsiPortId => port_srcs,
+    PortRefId => port_srcs,
+    PortDeclId => port_srcs,
+    ContAssignId => assign_srcs,
+    DefParamId => defparam_srcs,
+    GenerateRegionId => generate_region_srcs,
+    SpecifyBlockId => specify_block_srcs,
+    SpecifyItemId => specify_item_srcs,
+    LocalSubroutineId => subroutine_srcs,
+    ModportId => modport_srcs,
+    ClockingBlockId => clocking_block_srcs,
+    CheckerId => checker_srcs,
+    CovergroupId => covergroup_srcs,
+    CoverpointId => coverpoint_srcs,
+    CrossId => cross_srcs,
+    InstantiationId => instantiation_srcs,
+    ParamAssignId => inst_param_assign_srcs,
+    InstanceId => instance_srcs,
+    PortConnId => inst_port_conn_srcs,
+    ProcId => proc_srcs,
 );
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct ModuleSrc {
-    pub file_id: HirFileId,
-    pub node: SyntaxNodePtr,
-    pub name: Option<SyntaxTokenPtr>,
-    endmodule: Option<SyntaxTokenPtr>,
-}
-
-impl ModuleSrc {
-    pub fn end_range(&self) -> Option<utils::text_edit::TextRange> {
-        self.endmodule.map(|token| token.range())
-    }
-}
-
-impl IsSrc for ModuleSrc {
-    fn kind(&self) -> syntax::SyntaxKind {
-        self.node.kind()
-    }
-
-    fn range(&self) -> utils::text_edit::TextRange {
-        self.node.range()
-    }
-}
-
-impl IsNamedSrc for ModuleSrc {
-    fn name_kind(&self) -> Option<syntax::TokenKind> {
-        self.name.map(|name| name.kind())
-    }
-
-    fn name_range(&self) -> Option<utils::text_edit::TextRange> {
-        self.name.map(|name| name.range())
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::ModuleDeclaration<'a>> for ModuleSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::ModuleDeclaration<'a>> {
-        ast_node_from_ptr(self.node, tree)
-    }
-}
-
-impl ModuleSrc {
-    pub fn from_ast(file_id: HirFileId, module: ast::ModuleDeclaration<'_>) -> Self {
-        let syntax = module.syntax();
-        Self {
-            file_id,
-            node: syntax::slang_ext::AstNodeExt::to_ptr(&module),
-            name: module.name().map(|name| SyntaxTokenPtr::from_token_in(syntax, name)),
-            endmodule: module.endmodule().map(|token| SyntaxTokenPtr::from_token_in(syntax, token)),
-        }
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::ModuleDeclaration<'a>> for ModuleSrc {
-    fn from_source_ast(module: SourceAst<ast::ModuleDeclaration<'a>>) -> Self {
-        let file_id = module.file_id();
-        let module = module.into_inner();
-        let syntax = module.syntax();
-        Self {
-            file_id,
-            node: syntax::slang_ext::AstNodeExt::to_ptr(&module),
-            name: module
-                .name()
-                .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token)),
-            endmodule: module
-                .endmodule()
-                .and_then(|token| root_token_in(syntax, token).map(SyntaxTokenPtr::from_token)),
-        }
-    }
-}
-
-impl From<ModuleSrc> for SyntaxNodePtr {
-    fn from(src: ModuleSrc) -> Self {
-        src.node
-    }
-}
-
-impl From<ModuleSrc> for Option<SyntaxTokenPtr> {
-    fn from(src: ModuleSrc) -> Self {
-        src.name
-    }
-}
+pub type ModuleSrc = crate::ast_id_map::SourceAstId;
 
 impl Module {
     pub fn param_port_id_by_idx(&self, idx: usize) -> Option<DeclId> {
@@ -337,25 +253,29 @@ impl Module {
 }
 
 impl ModuleSourceMap {
-    pub fn item_to_ptr(&self, body: &BodySourceMap, item: &ModuleItem) -> Option<SyntaxNodePtr> {
-        Some(match item {
-            ModuleItem::ContAssignId(idx) => self.get(*idx)?.0,
-            ModuleItem::DefParamId(idx) => self.get(*idx)?.0,
-            ModuleItem::GenerateRegionId(idx) => self.get(*idx)?.into(),
-            ModuleItem::SpecifyBlockId(idx) => self.get(*idx)?.0,
-            ModuleItem::SpecifyItemId(idx) => self.get(*idx)?.into(),
-            ModuleItem::DeclarationId(idx) => body.declaration_srcs.hir_to_src(*idx)?.ptr(),
-            ModuleItem::StructId(idx) => body.struct_srcs.hir_to_src(*idx)?.node,
-            ModuleItem::InstantiationId(idx) => self.get(*idx)?.into(),
-            ModuleItem::ProcId(idx) => self.get(*idx)?.0,
-            ModuleItem::PortDeclId(idx) => self.get(*idx)?.ptr(),
-            ModuleItem::TypedefId(idx) => body.typedef_srcs.hir_to_src(*idx)?.ptr(),
-            ModuleItem::SubroutineId(idx) => self.get(*idx)?.node,
-            ModuleItem::ModportId(idx) => self.get(*idx)?.node,
-            ModuleItem::ClockingBlockId(idx) => self.get(*idx)?.node,
-            ModuleItem::CheckerId(idx) => self.get(*idx)?.node,
-            ModuleItem::CovergroupId(idx) => self.get(*idx)?.node,
-        })
+    pub fn item_to_source(
+        &self,
+        body: &BodySourceMap,
+        item: &ModuleItem,
+    ) -> Option<crate::ast_id_map::SourceAstId> {
+        match item {
+            ModuleItem::ContAssignId(idx) => self.get(*idx),
+            ModuleItem::DefParamId(idx) => self.get(*idx),
+            ModuleItem::GenerateRegionId(idx) => self.get(*idx),
+            ModuleItem::SpecifyBlockId(idx) => self.get(*idx),
+            ModuleItem::SpecifyItemId(idx) => self.get(*idx),
+            ModuleItem::DeclarationId(idx) => body.declaration_srcs.hir_to_src(*idx),
+            ModuleItem::StructId(idx) => body.struct_srcs.hir_to_src(*idx),
+            ModuleItem::InstantiationId(idx) => self.get(*idx),
+            ModuleItem::ProcId(idx) => self.get(*idx),
+            ModuleItem::PortDeclId(idx) => self.get(*idx),
+            ModuleItem::TypedefId(idx) => body.typedef_srcs.hir_to_src(*idx),
+            ModuleItem::SubroutineId(idx) => self.get(*idx),
+            ModuleItem::ModportId(idx) => self.get(*idx),
+            ModuleItem::ClockingBlockId(idx) => self.get(*idx),
+            ModuleItem::CheckerId(idx) => self.get(*idx),
+            ModuleItem::CovergroupId(idx) => self.get(*idx),
+        }
     }
 }
 
@@ -422,7 +342,8 @@ impl LowerModuleCtx<'_> {
         let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
         alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.body.structs,
             &mut self.store.body_sources.struct_srcs,
             struct_def,
@@ -434,7 +355,8 @@ impl LowerModuleCtx<'_> {
         let name = lower_ident_opt(typedef.name());
 
         let typedef_id = alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.body.typedefs,
             &mut self.store.body_sources.typedef_srcs,
             Typedef { name, ty: None },
@@ -465,7 +387,8 @@ impl LowerModuleCtx<'_> {
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let subroutine_id = alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.subroutines,
             &mut self.store.sources.subroutine_srcs,
             subroutine,
@@ -486,7 +409,8 @@ impl LowerModuleCtx<'_> {
                 ast::Member::Coverpoint(coverpoint_ast) => {
                     let coverpoint = lower_coverpoint(coverpoint_ast);
                     let coverpoint_id = alloc_with_source(
-                        self.file_id,
+                        &self.ast_ids,
+                        &self.tree,
                         &mut self.store.data.coverpoints,
                         &mut self.store.sources.coverpoint_srcs,
                         coverpoint,
@@ -497,7 +421,8 @@ impl LowerModuleCtx<'_> {
                 ast::Member::CoverCross(cross_ast) => {
                     let cross = lower_cross(cross_ast);
                     let cross_id = alloc_with_source(
-                        self.file_id,
+                        &self.ast_ids,
+                        &self.tree,
                         &mut self.store.data.crosses,
                         &mut self.store.sources.cross_srcs,
                         cross,
@@ -510,7 +435,8 @@ impl LowerModuleCtx<'_> {
         }
 
         alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.covergroups,
             &mut self.store.sources.covergroup_srcs,
             covergroup,
@@ -746,12 +672,16 @@ fn module_lowering(db: &dyn HirDefDb, owner: OwnerId) -> Arc<OwnerLowering<Modul
     let mut body = Body::default();
     let mut body_source_map = BodySourceMap::default();
 
-    let Some(ast_module) = db
-        .ast_id_map(file_id)
-        .node(owner.ast_id(db), &tree)
-        .and_then(ast::ModuleDeclaration::cast)
+    let Some(ast_module) =
+        db.ast_id_map(file_id).node(owner.ast_id(db), &tree).and_then(ast::ModuleDeclaration::cast)
     else {
-        return Arc::new(OwnerLowering::new(module, module_source_map, body, body_source_map));
+        return Arc::new(OwnerLowering::new(
+            file_id,
+            module,
+            module_source_map,
+            body,
+            body_source_map,
+        ));
     };
     module.name = lower_ident_opt(ast_module.header().name());
 
@@ -775,7 +705,7 @@ fn module_lowering(db: &dyn HirDefDb, owner: OwnerId) -> Arc<OwnerLowering<Modul
     module_source_map.shrink_to_fit();
     body.shrink_to_fit();
     body_source_map.shrink_to_fit();
-    Arc::new(OwnerLowering::new(module, module_source_map, body, body_source_map))
+    Arc::new(OwnerLowering::new(file_id, module, module_source_map, body, body_source_map))
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]

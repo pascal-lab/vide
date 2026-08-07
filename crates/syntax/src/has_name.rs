@@ -3,8 +3,8 @@ use slang::{
     ast::{
         AstNode, BlockStatement, ConfigDeclaration, Declarator, FunctionDeclaration, GenerateBlock,
         HierarchicalInstance, IdentifierName, LibraryDeclaration, ModuleDeclaration, NonAnsiPort,
-        ParamAssignment, PortConnection, PortReference, SpecparamDeclarator, Statement,
-        UdpDeclaration,
+        ParamAssignment, PortConnection, PortExpression, PortReference, SpecparamDeclarator,
+        Statement, UdpDeclaration,
     },
 };
 
@@ -52,7 +52,14 @@ impl<'a> HasName<'a> for GenerateBlock<'a> {
 
 impl<'a> HasName<'a> for NonAnsiPort<'a> {
     fn name(&self) -> Option<SyntaxToken<'a>> {
-        self.as_explicit_non_ansi_port()?.name()
+        match self {
+            NonAnsiPort::ExplicitNonAnsiPort(port) => port.name(),
+            NonAnsiPort::ImplicitNonAnsiPort(port) => match port.expr() {
+                PortExpression::PortReference(reference) => reference.name(),
+                PortExpression::PortConcatenation(_) => None,
+            },
+            NonAnsiPort::EmptyNonAnsiPort(_) => None,
+        }
     }
 }
 

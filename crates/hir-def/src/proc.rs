@@ -6,8 +6,8 @@ use super::{
     lower::{LoweringCtx, ProcStore},
 };
 use crate::{
+    ast_id_map::SourceAstId,
     owner::{OwnerId, OwnerKind},
-    source_map::{AstId, AstKind},
 };
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum AlwaysKeyword {
@@ -34,14 +34,7 @@ pub struct Proc {
 
 pub type ProcId = Idx<Proc>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct ProceduralBlockAst;
-
-impl AstKind for ProceduralBlockAst {
-    type Node<'a> = ast::ProceduralBlock<'a>;
-}
-
-pub type ProcSrc = AstId<ProceduralBlockAst>;
+pub type ProcSrc = SourceAstId;
 
 impl<Store: ProcStore> LoweringCtx<Store> {
     pub(crate) fn lower_proc(&mut self, proc: ast::ProceduralBlock) -> ProcId {
@@ -58,8 +51,8 @@ impl<Store: ProcStore> LoweringCtx<Store> {
             FinalBlock(_) => ProcType::Final,
         };
 
-        let file_id = self.file_id;
+        let source = self.source_id(proc.syntax());
         let (procs, sources) = self.procs();
-        alloc_with_source(file_id, procs, sources, Proc { proc_ty, owner }, proc)
+        crate::alloc_with_source_entry(procs, sources, Proc { proc_ty, owner }, source)
     }
 }

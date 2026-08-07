@@ -1,5 +1,5 @@
 use la_arena::Idx;
-use syntax::{TokenKind, ast, ptr::SyntaxNodePtr};
+use syntax::{TokenKind, ast};
 use utils::define_enum_deriving_from;
 
 use super::expr::{
@@ -9,10 +9,8 @@ use super::expr::{
 };
 use crate::{
     alloc_with_source,
+    ast_id_map::SourceAstId,
     lower::{LoweringCtx, LoweringStore},
-    source_map::{
-        AstId, AstKind, FromSourceAst, IsSrc, SourceAst, ToAstNode, exact_ast_node_from_ptr,
-    },
     ty::{DriveStrength, NetKind, Strength, lower_drive_strength, lower_net_kind, lower_strength},
 };
 
@@ -29,202 +27,7 @@ define_enum_deriving_from! {
 
 pub type DeclarationId = Idx<Declaration>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct DataDeclarationAst;
-
-impl AstKind for DataDeclarationAst {
-    type Node<'a> = ast::DataDeclaration<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct NetDeclarationAst;
-
-impl AstKind for NetDeclarationAst {
-    type Node<'a> = ast::NetDeclaration<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct DeclarationPortDeclarationAst;
-
-impl AstKind for DeclarationPortDeclarationAst {
-    type Node<'a> = ast::PortDeclaration<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct ParameterDeclarationAst;
-
-impl AstKind for ParameterDeclarationAst {
-    type Node<'a> = ast::ParameterDeclaration<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct TypeParameterDeclarationAst;
-
-impl AstKind for TypeParameterDeclarationAst {
-    type Node<'a> = ast::TypeParameterDeclaration<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct LocalVariableDeclarationAst;
-
-impl AstKind for LocalVariableDeclarationAst {
-    type Node<'a> = ast::LocalVariableDeclaration<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct GenvarDeclarationAst;
-
-impl AstKind for GenvarDeclarationAst {
-    type Node<'a> = ast::GenvarDeclaration<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct SpecparamDeclarationAst;
-
-impl AstKind for SpecparamDeclarationAst {
-    type Node<'a> = ast::SpecparamDeclaration<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub enum DeclarationSrc {
-    DataDeclaration(AstId<DataDeclarationAst>),
-    NetDeclaration(AstId<NetDeclarationAst>),
-    PortDeclaration(AstId<DeclarationPortDeclarationAst>),
-    ParameterDeclaration(AstId<ParameterDeclarationAst>),
-    TypeParameterDeclaration(AstId<TypeParameterDeclarationAst>),
-    LocalVariableDeclaration(AstId<LocalVariableDeclarationAst>),
-    GenvarDeclaration(AstId<GenvarDeclarationAst>),
-    SpecparamDeclaration(AstId<SpecparamDeclarationAst>),
-}
-
-impl DeclarationSrc {
-    pub fn ptr(&self) -> SyntaxNodePtr {
-        match self {
-            DeclarationSrc::DataDeclaration(src) => src.ptr(),
-            DeclarationSrc::NetDeclaration(src) => src.ptr(),
-            DeclarationSrc::PortDeclaration(src) => src.ptr(),
-            DeclarationSrc::ParameterDeclaration(src) => src.ptr(),
-            DeclarationSrc::TypeParameterDeclaration(src) => src.ptr(),
-            DeclarationSrc::LocalVariableDeclaration(src) => src.ptr(),
-            DeclarationSrc::GenvarDeclaration(src) => src.ptr(),
-            DeclarationSrc::SpecparamDeclaration(src) => src.ptr(),
-        }
-    }
-}
-
-impl IsSrc for DeclarationSrc {
-    fn kind(&self) -> syntax::SyntaxKind {
-        self.ptr().kind()
-    }
-
-    fn range(&self) -> utils::text_edit::TextRange {
-        self.ptr().range()
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::DataDeclaration<'a>> for DeclarationSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::DataDeclaration<'a>> {
-        let DeclarationSrc::DataDeclaration(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::NetDeclaration<'a>> for DeclarationSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::NetDeclaration<'a>> {
-        let DeclarationSrc::NetDeclaration(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::PortDeclaration<'a>> for DeclarationSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::PortDeclaration<'a>> {
-        let DeclarationSrc::PortDeclaration(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::ParameterDeclaration<'a>> for DeclarationSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::ParameterDeclaration<'a>> {
-        let DeclarationSrc::ParameterDeclaration(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::TypeParameterDeclaration<'a>> for DeclarationSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::TypeParameterDeclaration<'a>> {
-        let DeclarationSrc::TypeParameterDeclaration(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::LocalVariableDeclaration<'a>> for DeclarationSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::LocalVariableDeclaration<'a>> {
-        let DeclarationSrc::LocalVariableDeclaration(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::GenvarDeclaration<'a>> for DeclarationSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::GenvarDeclaration<'a>> {
-        let DeclarationSrc::GenvarDeclaration(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::SpecparamDeclaration<'a>> for DeclarationSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::SpecparamDeclaration<'a>> {
-        let DeclarationSrc::SpecparamDeclaration(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::DataDeclaration<'a>> for DeclarationSrc {
-    fn from_source_ast(node: SourceAst<ast::DataDeclaration<'a>>) -> Self {
-        Self::DataDeclaration(AstId::from_source_ast(node))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::NetDeclaration<'a>> for DeclarationSrc {
-    fn from_source_ast(node: SourceAst<ast::NetDeclaration<'a>>) -> Self {
-        Self::NetDeclaration(AstId::from_source_ast(node))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::PortDeclaration<'a>> for DeclarationSrc {
-    fn from_source_ast(node: SourceAst<ast::PortDeclaration<'a>>) -> Self {
-        Self::PortDeclaration(AstId::from_source_ast(node))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::ParameterDeclaration<'a>> for DeclarationSrc {
-    fn from_source_ast(node: SourceAst<ast::ParameterDeclaration<'a>>) -> Self {
-        Self::ParameterDeclaration(AstId::from_source_ast(node))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::TypeParameterDeclaration<'a>> for DeclarationSrc {
-    fn from_source_ast(node: SourceAst<ast::TypeParameterDeclaration<'a>>) -> Self {
-        Self::TypeParameterDeclaration(AstId::from_source_ast(node))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::LocalVariableDeclaration<'a>> for DeclarationSrc {
-    fn from_source_ast(node: SourceAst<ast::LocalVariableDeclaration<'a>>) -> Self {
-        Self::LocalVariableDeclaration(AstId::from_source_ast(node))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::GenvarDeclaration<'a>> for DeclarationSrc {
-    fn from_source_ast(node: SourceAst<ast::GenvarDeclaration<'a>>) -> Self {
-        Self::GenvarDeclaration(AstId::from_source_ast(node))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::SpecparamDeclaration<'a>> for DeclarationSrc {
-    fn from_source_ast(node: SourceAst<ast::SpecparamDeclaration<'a>>) -> Self {
-        Self::SpecparamDeclaration(AstId::from_source_ast(node))
-    }
-}
+pub type DeclarationSrc = SourceAstId;
 
 impl Declaration {
     pub fn decls(&self) -> DeclsRange {
@@ -319,12 +122,11 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
     ) -> DeclarationId
     where
         Ast: syntax::ast::AstNode<'ast>,
-        DeclarationSrc: FromSourceAst<'ast, Ast>,
     {
-        let file_id = self.file_id;
+        let source = self.source_id(ast.syntax());
         let id = {
             let (declarations, sources) = self.declarations();
-            alloc_with_source(file_id, declarations, sources, declaration, ast)
+            crate::alloc_with_source_entry(declarations, sources, declaration, source)
         };
         self.record_body_declaration(id);
         id

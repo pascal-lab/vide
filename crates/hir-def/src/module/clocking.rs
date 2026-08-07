@@ -1,20 +1,16 @@
 use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::{
-    SyntaxKind, TokenKind,
+    SyntaxTokenWithParent, TokenKind,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
-    ptr::{SyntaxNodePtr, SyntaxTokenPtr},
-    slang_ext::AstNodeExt,
 };
 use utils::text_edit::TextRange;
 
 use super::{LowerModuleCtx, port::PortDirection};
 use crate::{
-    Ident, alloc_with_source,
-    expr::timing_control::EventExprId,
+    Ident, alloc_with_source, ast_id_map::SourceAstId, expr::timing_control::EventExprId,
     lower_ident_opt,
-    source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, root_token_in},
 };
 
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Hash)]
@@ -49,87 +45,8 @@ pub struct DefaultClockingRef {
     pub name: Option<Ident>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct DefaultClockingRefSrc {
-    pub node: SyntaxNodePtr,
-    pub name: Option<SyntaxTokenPtr>,
-}
-
-impl IsSrc for DefaultClockingRefSrc {
-    #[inline]
-    fn kind(&self) -> SyntaxKind {
-        self.node.kind()
-    }
-
-    #[inline]
-    fn range(&self) -> TextRange {
-        self.node.range()
-    }
-}
-
-impl IsNamedSrc for DefaultClockingRefSrc {
-    #[inline]
-    fn name_kind(&self) -> Option<TokenKind> {
-        self.name.map(|name| name.kind())
-    }
-
-    #[inline]
-    fn name_range(&self) -> Option<TextRange> {
-        self.name.map(|name| name.range())
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::DefaultClockingReference<'a>> for DefaultClockingRefSrc {
-    fn from_source_ast(reference: SourceAst<ast::DefaultClockingReference<'a>>) -> Self {
-        let reference = reference.into_inner();
-        let syntax = reference.syntax();
-        let name = reference
-            .name()
-            .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token));
-        Self { node: AstNodeExt::to_ptr(&reference), name }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct ClockingBlockSrc {
-    pub node: SyntaxNodePtr,
-    pub name: Option<SyntaxTokenPtr>,
-}
-
-impl IsSrc for ClockingBlockSrc {
-    #[inline]
-    fn kind(&self) -> SyntaxKind {
-        self.node.kind()
-    }
-
-    #[inline]
-    fn range(&self) -> TextRange {
-        self.node.range()
-    }
-}
-
-impl IsNamedSrc for ClockingBlockSrc {
-    #[inline]
-    fn name_kind(&self) -> Option<TokenKind> {
-        self.name.map(|name| name.kind())
-    }
-
-    #[inline]
-    fn name_range(&self) -> Option<TextRange> {
-        self.name.map(|name| name.range())
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::ClockingDeclaration<'a>> for ClockingBlockSrc {
-    fn from_source_ast(clocking: SourceAst<ast::ClockingDeclaration<'a>>) -> Self {
-        let clocking = clocking.into_inner();
-        let syntax = clocking.syntax();
-        let name = clocking
-            .block_name()
-            .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token));
-        Self { node: AstNodeExt::to_ptr(&clocking), name }
-    }
-}
+pub type DefaultClockingRefSrc = SourceAstId;
+pub type ClockingBlockSrc = SourceAstId;
 
 impl LowerModuleCtx<'_> {
     pub(crate) fn lower_clocking_declaration(
@@ -144,11 +61,11 @@ impl LowerModuleCtx<'_> {
         };
         let event = self.lower_event_expr(clocking.event());
         let signals = lower_clocking_signals(clocking);
-        let file_id = self.file_id;
         let (clocking_blocks, sources) =
             (&mut self.store.data.clocking_blocks, &mut self.store.sources.clocking_block_srcs);
         alloc_with_source(
-            file_id,
+            &self.ast_ids,
+            &self.tree,
             clocking_blocks,
             sources,
             ClockingBlockDef { name, kind, event, signals },
@@ -160,11 +77,10 @@ impl LowerModuleCtx<'_> {
         &mut self,
         reference: ast::DefaultClockingReference<'_>,
     ) {
-        let source =
-            SourceAst::new(self.file_id, reference).map(DefaultClockingRefSrc::from_source_ast);
+        let source = self.source_id(reference.syntax());
         self.store.data.default_clocking =
             Some(DefaultClockingRef { name: lower_ident_opt(reference.name()) });
-        self.store.sources.default_clocking_src = source;
+        self.store.sources.default_clocking_src = Some(source);
     }
 }
 
@@ -177,7 +93,9 @@ fn lower_clocking_signals(clocking: ast::ClockingDeclaration<'_>) -> SmallVec<[C
         };
         let dir = lower_clocking_direction(item.direction());
         for decl in item.decls().children() {
-            let name_range = decl.name().and_then(|name| root_token_in(syntax, name)?.text_range());
+            let name_range = decl
+                .name()
+                .and_then(|name| SyntaxTokenWithParent { parent: syntax, tok: name }.text_range());
             let Some(name) = lower_ident_opt(decl.name()) else {
                 continue;
             };

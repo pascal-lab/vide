@@ -70,8 +70,8 @@ pub(super) fn convert_ordered_ports(
                 return None;
             };
             let name = port_names.get(idx)?;
-            let expr = module_body.source_range(*expr_id)?;
-            let range = module.source_range(*conn_id)?;
+            let expr = module_body.source_range(ctx.sema().db, *expr_id)?;
+            let range = module.source_range(ctx.sema().db, *conn_id)?;
             Some((range, format!(".{name}({})", text.get(Range::from(expr))?)))
         })
         .collect_vec();
@@ -127,8 +127,8 @@ pub(super) fn convert_ordered_params(
                 return None;
             };
             let name = param_names.get(idx)?;
-            let expr = module_body.source_range(*expr_id)?;
-            let range = module.source_range(*assign_id)?;
+            let expr = module_body.source_range(ctx.sema().db, *expr_id)?;
+            let range = module.source_range(ctx.sema().db, *assign_id)?;
             Some((range, format!(".{name}({})", text.get(Range::from(expr))?)))
         })
         .collect_vec();

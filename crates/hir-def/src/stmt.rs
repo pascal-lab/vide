@@ -11,9 +11,10 @@ use super::{
     lower::{LoweringCtx, LoweringStore},
 };
 use crate::{
-    alloc_with_source, lower_named_label_opt,
+    alloc_with_source,
+    ast_id_map::SourceAstId,
+    lower_named_label_opt,
     owner::{OwnerId, OwnerKind},
-    source_map::{AstKind, NamedAstId},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -67,14 +68,7 @@ pub enum StmtKind {
     Disable(DisableKind),
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct StatementAst;
-
-impl AstKind for StatementAst {
-    type Node<'a> = ast::Statement<'a>;
-}
-
-pub type StmtSrc = NamedAstId<StatementAst>;
+pub type StmtSrc = SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum ProcAssignKind {
@@ -150,15 +144,14 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
 
     pub(crate) fn lower_stmt(&mut self, stmt: ast::Statement) -> StmtId {
         let label = lower_named_label_opt(stmt.label());
-        let file_id = self.file_id;
+        let source = self.source_id(stmt.syntax());
         let stmt_id = {
             let (statements, sources) = self.statements();
-            alloc_with_source(
-                file_id,
+            crate::alloc_with_source_entry(
                 statements,
                 sources,
                 Stmt { label, kind: StmtKind::Empty },
-                stmt,
+                source,
             )
         };
         self.record_body_statement(stmt_id);

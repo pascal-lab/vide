@@ -201,7 +201,6 @@ impl NameScope {
         db.scope_for(generate_block_id.into())
     }
 
-
     pub fn subroutine_scope(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> Arc<NameScope> {
         db.scope_for(subroutine_id.into())
     }
@@ -511,13 +510,7 @@ pub(crate) fn build_generate_block_scope(
         body.data_ref(),
         owner,
     );
-    insert_body_typedefs(
-        &mut scope,
-        db,
-        generate_block_id.clone().into(),
-        body.data_ref(),
-        owner,
-    );
+    insert_body_typedefs(&mut scope, db, generate_block_id.clone().into(), body.data_ref(), owner);
 
     for item in &generate_block.items {
         if let crate::module::generate::GenerateBlockItem::GenerateBlockId(child_id) = item.clone()
@@ -527,13 +520,7 @@ pub(crate) fn build_generate_block_scope(
         }
     }
 
-    insert_body_statements(
-        &mut scope,
-        db,
-        generate_block_id.into(),
-        body.data_ref(),
-        owner,
-    );
+    insert_body_statements(&mut scope, db, generate_block_id.into(), body.data_ref(), owner);
     insert_proc_bodies(&mut scope, db, &generate_block.procs);
 
     scope
@@ -545,27 +532,9 @@ pub(crate) fn build_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope 
     let body = db.body_with_source_map(owner);
 
     let root = crate::body::body_owner(db, owner);
-    insert_body_declarators(
-        &mut scope,
-        db,
-        ArenaOwnerId::Owner(owner),
-        body.data_ref(),
-        owner,
-    );
-    insert_body_typedefs(
-        &mut scope,
-        db,
-        ArenaOwnerId::Owner(owner),
-        body.data_ref(),
-        owner,
-    );
-    insert_body_statements(
-        &mut scope,
-        db,
-        ArenaOwnerId::Owner(owner),
-        body.data_ref(),
-        owner,
-    );
+    insert_body_declarators(&mut scope, db, ArenaOwnerId::Owner(owner), body.data_ref(), owner);
+    insert_body_typedefs(&mut scope, db, ArenaOwnerId::Owner(owner), body.data_ref(), owner);
+    insert_body_statements(&mut scope, db, ArenaOwnerId::Owner(owner), body.data_ref(), owner);
     debug_assert_eq!(body.scope_graph.root(), Some(root));
 
     scope
@@ -588,27 +557,9 @@ pub(crate) fn build_subroutine_scope(
         );
     }
 
-    insert_body_declarators(
-        &mut scope,
-        db,
-        ArenaOwnerId::Owner(owner),
-        body.data_ref(),
-        owner,
-    );
-    insert_body_typedefs(
-        &mut scope,
-        db,
-        ArenaOwnerId::Owner(owner),
-        body.data_ref(),
-        owner,
-    );
-    insert_body_statements(
-        &mut scope,
-        db,
-        ArenaOwnerId::Owner(owner),
-        body.data_ref(),
-        owner,
-    );
+    insert_body_declarators(&mut scope, db, ArenaOwnerId::Owner(owner), body.data_ref(), owner);
+    insert_body_typedefs(&mut scope, db, ArenaOwnerId::Owner(owner), body.data_ref(), owner);
+    insert_body_statements(&mut scope, db, ArenaOwnerId::Owner(owner), body.data_ref(), owner);
 
     scope
 }
@@ -832,9 +783,8 @@ mod tests {
         db::HirDefDb,
         def_id::DefId,
         has_source::HasSource,
-        module::port::{NonAnsiPortSrc, PortSrcs, Ports},
+        module::port::{PortSrcs, Ports},
         pathres::resolve_name,
-        source_map::IsNamedSrc,
         symbol::{DefKind, DefOriginLoc, NameContext, Resolution, ScopeKind},
     };
 
@@ -1160,9 +1110,11 @@ endmodule
             panic!("module should have non-ANSI ports");
         };
         let (port_id, _) = ports.iter().next().expect("port should lower");
-        let source = module.source(port_id).expect("port should retain its source");
 
-        assert!(source.name_range().is_some(), "explicit port name range should be preserved");
+        assert!(
+            module.source_name_range(&db, port_id).is_some(),
+            "explicit port name range should be preserved"
+        );
     }
 
     #[test]
@@ -1200,7 +1152,10 @@ endmodule
             panic!("module should have a non-ANSI port list");
         };
         let port_ast = port_list.ports().children().next().expect("port should parse");
-        let natural_source = NonAnsiPortSrc::from_ast(TOP.into(), port_ast);
+        let natural_source = db
+            .ast_id_map(TOP.into())
+            .id_of_node_in_tree(&tree, port_ast.syntax())
+            .expect("port AST node should have a source identity");
         let PortSrcs::NonAnsi { ports: port_sources, .. } = &source_map.port_srcs else {
             panic!("source map should contain non-ANSI ports");
         };
@@ -1438,10 +1393,8 @@ endmodule
         let mut missing_file_source_map = crate::file::FileSourceMap::default();
         let mut missing_body = crate::body::Body::default();
         let mut missing_body_source_map = crate::body::BodySourceMap::default();
-        let file_owner = db
-            .owner_table(HirFileId::File(TOP))
-            .file_owner()
-            .expect("file owner must exist");
+        let file_owner =
+            db.owner_table(HirFileId::File(TOP)).file_owner().expect("file owner must exist");
         let mut ctx = crate::lower::LoweringCtx::new(
             &db,
             file_owner,

@@ -1,7 +1,4 @@
-use hir_def::{
-    module::{ModuleId, ModuleSrc},
-    symbol::DefKind,
-};
+use hir_def::symbol::DefKind;
 use hir_semantics::semantics::Semantics;
 use syntax::ast;
 
@@ -63,9 +60,7 @@ fn visible_typedefs_in_module_header(db: &RootDb, position: FilePosition) -> Vec
     let Some(module) = module else {
         return Vec::new();
     };
-    let file = db.hir_file_with_source_map(file_id);
-    let module_src = ModuleSrc::from_ast(file_id, module);
-    let Some(module_id) = file.hir_id(module_src).map(|id| ModuleId::new(file_id, id)) else {
+    let Some(module_id) = sema.module_to_def(file_id, module) else {
         return Vec::new();
     };
 
@@ -95,9 +90,7 @@ fn complete_non_ansi_port_list(
     let Some(module) = module else {
         return Vec::new();
     };
-    let file = db.hir_file_with_source_map(file_id);
-    let module_src = ModuleSrc::from_ast(file_id, module);
-    let Some(module_id) = file.hir_id(module_src).map(|id| ModuleId::new(file_id, id)) else {
+    let Some(module_id) = sema.module_to_def(file_id, module) else {
         return Vec::new();
     };
 

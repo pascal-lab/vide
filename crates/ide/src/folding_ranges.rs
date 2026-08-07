@@ -1,18 +1,18 @@
 use hir_def::{
+    ast_id_map::SourceAstId,
     block::BlockItem,
     body::Body,
     container::{SubroutineParent, SubroutineScope},
     module::{
         ModuleId,
         generate::GenerateBlockId,
-        instantiation::{
-            Instance, InstanceId, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc,
-        },
+        instantiation::{Instance, InstanceId, Instantiation, InstantiationId},
     },
     region_tree::RegionTree,
-    source_map::{IsSrc, Lowered, LoweredData, SourceInfo, SourceMap},
+    source_map::{Lowered, LoweredData, SourceMap},
+    source_projection::SourceProjection,
     stmt::StmtKind,
-    subroutine::{Subroutine, SubroutineSrc},
+    subroutine::Subroutine,
 };
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -253,6 +253,7 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
     let file = db.hir_file_with_source_map(file_id);
     let body = db.file_body_with_source_map(file_id);
     let src_map = file.source_map();
+    let projection = db.source_projection(file_id);
 
     let mut folds = Vec::default();
 
@@ -265,20 +266,29 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
         &mut folds,
         SubroutineParent::File(file_id),
         &src_map.subroutine_srcs,
+        &projection,
         line_index,
     );
 
-    src_map.module_srcs.named_ranges().for_each(|(idx, range, _)| {
+    src_map.module_srcs.named_ranges(&projection).for_each(|(idx, range, _)| {
         collect_module(db, &mut folds, ModuleId::new(file_id, idx), range, line_index)
     });
 
-    folds.collect_folds(src_map.config_decl_srcs.ranges(), FoldKind::Config, line_index);
-    folds.collect_folds(src_map.library_decl_srcs.ranges(), FoldKind::Library, line_index);
-    folds.collect_folds(src_map.library_include_srcs.ranges(), FoldKind::Library, line_index);
-    collect_body_scopes(&mut folds, body.as_ref(), line_index);
+    folds.collect_folds(src_map.config_decl_srcs.ranges(&projection), FoldKind::Config, line_index);
+    folds.collect_folds(
+        src_map.library_decl_srcs.ranges(&projection),
+        FoldKind::Library,
+        line_index,
+    );
+    folds.collect_folds(
+        src_map.library_include_srcs.ranges(&projection),
+        FoldKind::Library,
+        line_index,
+    );
+    collect_body_scopes(db, &mut folds, body.as_ref(), line_index);
     for proc in file.procs.values() {
         let body = db.body_with_source_map(proc.owner);
-        collect_body_scopes(&mut folds, body.as_ref(), line_index);
+        collect_body_scopes(db, &mut folds, body.as_ref(), line_index);
     }
 
     folds
@@ -294,11 +304,16 @@ fn collect_module(
     let module = db.module_with_source_map(module_id);
     let body = db.module_body_with_source_map(module_id);
     let src_map = module.source_map();
+    let projection = db.source_projection(module_id.file_id);
 
     folds.collect_docs(&src_map.region_tree, line_index);
 
-    if let Some(port_list_src) = src_map.port_srcs.port_list_src() {
-        let port_list_range = SourceInfo::new(*port_list_src).full_range();
+    if let Some(port_list_range) = src_map
+        .port_srcs
+        .port_list_src()
+        .and_then(|source| projection.origin(source))
+        .and_then(|origin| origin.full_range())
+    {
         let port_list_fold = Fold::try_build(port_list_range, FoldKind::PortList, line_index);
         let module_body_start = port_list_fold
             .as_ref()
@@ -316,26 +331,44 @@ fn collect_module(
         folds.collect_fold(module_range, FoldKind::Module, line_index);
     }
 
-    folds.collect_folds(src_map.assign_srcs.ranges(), FoldKind::ContAssign, line_index);
-    folds.collect_folds(src_map.defparam_srcs.ranges(), FoldKind::DefParam, line_index);
-    folds.collect_folds(src_map.generate_region_srcs.ranges(), FoldKind::Generate, line_index);
-    folds.collect_folds(src_map.specify_block_srcs.ranges(), FoldKind::Specify, line_index);
-    folds.collect_folds(src_map.specify_item_srcs.ranges(), FoldKind::Specify, line_index);
-    collect_body_scopes(folds, body.as_ref(), line_index);
-    collect_instances(folds, &module, &src_map.instance_srcs, line_index);
-    collect_item_groups(folds, src_map.assign_srcs.ranges(), FoldKind::ContAssign, line_index);
+    folds.collect_folds(src_map.assign_srcs.ranges(&projection), FoldKind::ContAssign, line_index);
+    folds.collect_folds(src_map.defparam_srcs.ranges(&projection), FoldKind::DefParam, line_index);
+    folds.collect_folds(
+        src_map.generate_region_srcs.ranges(&projection),
+        FoldKind::Generate,
+        line_index,
+    );
+    folds.collect_folds(
+        src_map.specify_block_srcs.ranges(&projection),
+        FoldKind::Specify,
+        line_index,
+    );
+    folds.collect_folds(
+        src_map.specify_item_srcs.ranges(&projection),
+        FoldKind::Specify,
+        line_index,
+    );
+    collect_body_scopes(db, folds, body.as_ref(), line_index);
+    collect_instances(db, folds, &module, &src_map.instance_srcs, &projection, line_index);
+    collect_item_groups(
+        folds,
+        src_map.assign_srcs.ranges(&projection),
+        FoldKind::ContAssign,
+        line_index,
+    );
     collect_subroutines(
         db,
         folds,
         SubroutineParent::Module(module_id),
         &src_map.subroutine_srcs,
+        &projection,
         line_index,
     );
     collect_generate_regions(db, folds, module_id, line_index);
 
     for proc in module.procs.values() {
         let body = db.body_with_source_map(proc.owner);
-        collect_body_scopes(folds, body.as_ref(), line_index);
+        collect_body_scopes(db, folds, body.as_ref(), line_index);
     }
 }
 
@@ -343,7 +376,8 @@ fn collect_subroutines(
     db: &RootDb,
     folds: &mut Vec<Fold>,
     parent: SubroutineParent,
-    srcs: &SourceMap<SubroutineSrc, Subroutine>,
+    srcs: &SourceMap<Subroutine>,
+    projection: &SourceProjection,
     line_index: &LineIndex,
 ) {
     for (value, src) in srcs.iter() {
@@ -351,8 +385,10 @@ fn collect_subroutines(
         let owner = scope.owner(db).expect("subroutine must map to an owner");
         let subroutine = db.subroutine_body_with_source_map(owner);
 
-        folds.collect_fold(src.range(), FoldKind::Subroutine, line_index);
-        collect_body_scopes(folds, subroutine.as_ref(), line_index);
+        if let Some(range) = projection.origin(src).and_then(|origin| origin.full_range()) {
+            folds.collect_fold(range, FoldKind::Subroutine, line_index);
+        }
+        collect_body_scopes(db, folds, subroutine.as_ref(), line_index);
     }
 }
 
@@ -383,17 +419,19 @@ fn collect_generate_block(
     let block = db.generate_block_with_source_map(block_id.clone());
     let body = db.generate_block_body_with_source_map(block_id.clone());
     let src_map = block.source_map();
+    let projection = db.source_projection(block_id.file_id(db));
 
     folds.collect_docs(&src_map.region_tree, line_index);
-    folds.collect_folds(src_map.assign_srcs.ranges(), FoldKind::ContAssign, line_index);
-    folds.collect_folds(src_map.defparam_srcs.ranges(), FoldKind::DefParam, line_index);
-    collect_body_scopes(folds, body.as_ref(), line_index);
-    collect_instances(folds, &block, &src_map.instance_srcs, line_index);
+    folds.collect_folds(src_map.assign_srcs.ranges(&projection), FoldKind::ContAssign, line_index);
+    folds.collect_folds(src_map.defparam_srcs.ranges(&projection), FoldKind::DefParam, line_index);
+    collect_body_scopes(db, folds, body.as_ref(), line_index);
+    collect_instances(db, folds, &block, &src_map.instance_srcs, &projection, line_index);
     collect_subroutines(
         db,
         folds,
         SubroutineParent::GenerateBlock(block_id.clone()),
         &src_map.subroutine_srcs,
+        &projection,
         line_index,
     );
 
@@ -405,34 +443,43 @@ fn collect_generate_block(
 }
 
 fn collect_instances<T, M>(
+    db: &RootDb,
     folds: &mut Vec<Fold>,
     container: &Lowered<T>,
-    instance_srcs: &SourceMap<InstanceSrc, Instance>,
+    instance_srcs: &SourceMap<Instance>,
+    projection: &SourceProjection,
     line_index: &LineIndex,
 ) where
     T: LoweredData<SourceMap = M>
         + GetRef<InstanceId, Output = Instance>
         + GetRef<InstantiationId, Output = Instantiation>,
-    M: Get<InstanceId, Output = Option<InstanceSrc>>
-        + Get<InstantiationId, Output = Option<InstantiationSrc>>,
+    M: Get<InstanceId, Output = Option<SourceAstId>>
+        + Get<InstantiationId, Output = Option<SourceAstId>>,
 {
-    folds.extend(instance_srcs.named_ranges().filter_map(|(instance_id, range, name_range)| {
-        let instantiation_id = container.get(instance_id).parent;
+    folds.extend(instance_srcs.named_ranges(projection).filter_map(
+        |(instance_id, range, name_range)| {
+            let instantiation_id = container.get(instance_id).parent;
 
-        if container.get(instantiation_id).instances.len() > 1 {
-            let start = name_range.map_or(range.start(), |range| range.end());
-            Fold::try_build(TextRange::new(start, range.end()), FoldKind::Instance, line_index)
-        } else {
-            Fold::try_build(
-                container.source_range(instantiation_id)?,
-                FoldKind::Instance,
-                line_index,
-            )
-        }
-    }));
+            if container.get(instantiation_id).instances.len() > 1 {
+                let start = name_range.map_or(range.start(), |range| range.end());
+                Fold::try_build(TextRange::new(start, range.end()), FoldKind::Instance, line_index)
+            } else {
+                Fold::try_build(
+                    container.source_range(db, instantiation_id)?,
+                    FoldKind::Instance,
+                    line_index,
+                )
+            }
+        },
+    ));
 }
 
-fn collect_body_scopes(folds: &mut Vec<Fold>, body: &Lowered<Body>, line_index: &LineIndex) {
+fn collect_body_scopes(
+    db: &RootDb,
+    folds: &mut Vec<Fold>,
+    body: &Lowered<Body>,
+    line_index: &LineIndex,
+) {
     let data = body.data_ref();
     let src_map = body.source_map();
 
@@ -445,30 +492,21 @@ fn collect_body_scopes(folds: &mut Vec<Fold>, body: &Lowered<Body>, line_index: 
             .items()
             .iter()
             .filter_map(|item| match item {
-                BlockItem::DeclarationId(id) => body.source_range(*id),
+                BlockItem::DeclarationId(id) => body.source_range(db, *id),
                 _ => None,
             })
             .collect::<Vec<_>>();
-        folds.collect_folds(
-            declaration_ranges.iter().copied(),
-            FoldKind::Declaration,
-            line_index,
-        );
-        collect_item_groups(
-            folds,
-            declaration_ranges,
-            FoldKind::Declaration,
-            line_index,
-        );
+        folds.collect_folds(declaration_ranges.iter().copied(), FoldKind::Declaration, line_index);
+        collect_item_groups(folds, declaration_ranges, FoldKind::Declaration, line_index);
 
         folds.collect_folds(
-            scope.declarators().iter().filter_map(|id| body.source_range(*id)),
+            scope.declarators().iter().filter_map(|id| body.source_range(db, *id)),
             FoldKind::Decl,
             line_index,
         );
 
         for &stmt_id in scope.statements() {
-            let Some(range) = body.source_range(stmt_id) else {
+            let Some(range) = body.source_range(db, stmt_id) else {
                 continue;
             };
             let kind = if matches!(data.stmts[stmt_id].kind, StmtKind::Block(_)) {

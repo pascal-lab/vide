@@ -1,10 +1,11 @@
 use crate::{
+    ast_id_map::SourceAstId,
     container::{InFile, ScopeId, SubroutineScope},
     db::HirDefDb,
     def_id::{DefId, subroutine_src},
     module::{ModuleId, generate::GenerateBlockId},
     owner::OwnerId,
-    source_map::{IsNamedSrc, SourceInfo},
+    source_map::SourceInfo,
     symbol::{DefOrigin, DefOriginLoc},
 };
 
@@ -12,44 +13,33 @@ pub trait HasSource {
     fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>>;
 }
 
-fn named_source(
-    file_id: preproc_expand::file::HirFileId,
-    src: impl IsNamedSrc,
-) -> InFile<SourceInfo> {
-    InFile::new(file_id, SourceInfo::named(src))
+fn project(db: &dyn HirDefDb, source: InFile<SourceAstId>) -> Option<InFile<SourceInfo>> {
+    let origin = db.source_projection(source.file_id).origin(source.value)?;
+    Some(InFile::new(source.file_id, SourceInfo::from_origin(origin)?))
 }
 
 impl HasSource for ModuleId {
     fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
         let InFile { file_id, value } = *self;
-        let lowered = db.hir_file_with_source_map(file_id);
-        Some(named_source(file_id, lowered.source(value)?))
+        project(db, InFile::new(file_id, db.hir_file_with_source_map(file_id).source(value)?))
     }
 }
 
-
 impl HasSource for OwnerId {
     fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        let file_id = self.file(db);
-        let origin = db.source_projection(file_id).origin(self.ast_id(db))?;
-        Some(InFile::new(
-            file_id,
-            SourceInfo::from_parts(origin.kind(), origin.full_range()?, origin.focus_range()),
-        ))
+        project(db, InFile::new(self.file(db), self.ast_id(db)))
     }
 }
 
 impl HasSource for GenerateBlockId {
-    fn source(&self, _db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        let InFile { file_id, value } = self.loc().src;
-        Some(named_source(file_id, value))
+    fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
+        project(db, self.loc().src)
     }
 }
 
 impl HasSource for SubroutineScope {
     fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        let InFile { file_id, value } = subroutine_src(db, self.clone())?;
-        Some(named_source(file_id, value))
+        project(db, subroutine_src(db, self.clone())?)
     }
 }
 impl HasSource for ScopeId {

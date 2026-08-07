@@ -5,16 +5,15 @@ use hir_def::{
     Ident,
     body::Body,
     container::{InContainer, InModule},
-    declaration::DeclarationSrc,
     expr::declarator::{DeclId, DeclaratorParent},
     module::{
         Module, ModuleId,
-        port::{PortDecl, PortDeclSrc, Ports},
+        port::{PortDecl, Ports},
     },
     source_map::Lowered,
     symbol::{NameContext, NameScope},
 };
-use hir_ty::display::HirDisplay;
+use hir_ty::{db::TyDb, display::HirDisplay};
 use itertools::Itertools;
 use syntax::{
     ast::{self, AstNode},
@@ -77,14 +76,14 @@ fn convert_ansi_ports_to_non_ansi(
     let mut port_names = Vec::with_capacity(port_decls.len());
     let mut port_items = Vec::with_capacity(port_decls.len());
     for (port_id, port_decl) in port_decls.iter() {
-        let src = module.source(port_id)?;
-        let PortDeclSrc::ImplicitAnsiPort(_) = src else {
+        let kind = module.source_info(ctx.sema().db, port_id)?.kind()?;
+        if !ast::ImplicitAnsiPort::can_cast(kind) {
             return None;
-        };
+        }
 
         let name = port_decl_declared_name(&body, port_decl)?;
         port_names.push(name);
-        port_items.push((port_decl, module.source_range(port_id)?));
+        port_items.push((port_decl, module.source_range(ctx.sema().db, port_id)?));
     }
 
     if port_names.is_empty() {
@@ -240,13 +239,14 @@ fn non_ansi_port_replacement(
         return None;
     }
 
-    let PortDeclSrc::PortDeclaration(_) = module.source(port_decl_id)? else {
+    let kind = module.source_info(ctx.sema().db, port_decl_id)?.kind()?;
+    if !ast::PortDeclaration::can_cast(kind) {
         return None;
-    };
-    let port_range = module.source_range(port_decl_id)?;
+    }
+    let port_range = module.source_range(ctx.sema().db, port_decl_id)?;
 
     if let Some(data_decl) = data_decl {
-        let data_range = data_decl_range_for_name(body, data_decl, name)?;
+        let data_range = data_decl_range_for_name(ctx.sema().db, body, data_decl, name)?;
         let direction = port_decl.header.dir().display_source(ctx.sema().db).ok()?;
         let data_decl = declaration_text_without_semicolon(text, data_range)?;
         return Some(NonAnsiPortReplacement {
@@ -262,6 +262,7 @@ fn non_ansi_port_replacement(
 }
 
 fn data_decl_range_for_name(
+    db: &dyn TyDb,
     body: &Lowered<Body>,
     decl_id: DeclId,
     name: &Ident,
@@ -281,12 +282,10 @@ fn data_decl_range_for_name(
         return None;
     }
 
-    match body.source(declaration_id)? {
-        DeclarationSrc::DataDeclaration(_) | DeclarationSrc::NetDeclaration(_) => {
-            body.source_range(declaration_id)
-        }
-        _ => None,
-    }
+    let kind = body.source_info(db, declaration_id)?.kind()?;
+    (ast::DataDeclaration::can_cast(kind) || ast::NetDeclaration::can_cast(kind))
+        .then(|| body.source_range(db, declaration_id))
+        .flatten()
 }
 
 fn render_ansi_port_declaration(

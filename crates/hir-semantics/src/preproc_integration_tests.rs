@@ -130,7 +130,7 @@ endmodule
     let (declaration_id, _) =
         body.declarations.iter().next().expect("generated declaration should lower to HIR");
     let declaration_range = body
-        .source_range(declaration_id)
+        .source_range(&db, declaration_id)
         .expect("generated declaration should keep a source-map range");
 
     let target = diagnostic_target_for_range(&db, TOP, declaration_range).unwrap().target.unwrap();
@@ -156,7 +156,7 @@ endmodule
         .next()
         .expect("predefine expansion should lower to a module instantiation");
     let instantiation_range = module
-        .source_range(instantiation_id)
+        .source_range(&db, instantiation_id)
         .expect("generated instantiation should keep a source-map range");
 
     let target = diagnostic_target_for_range(&db, TOP, instantiation_range).unwrap();

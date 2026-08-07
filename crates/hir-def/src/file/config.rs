@@ -1,10 +1,6 @@
 use la_arena::Idx;
-use syntax::ast;
 
-use crate::{
-    Ident,
-    source_map::{AstKind, NamedAstId},
-};
+use crate::{Ident, ast_id_map::SourceAstId};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ConfigDecl {
@@ -13,11 +9,4 @@ pub struct ConfigDecl {
 
 pub type ConfigDeclId = Idx<ConfigDecl>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct ConfigDeclarationAst;
-
-impl AstKind for ConfigDeclarationAst {
-    type Node<'a> = ast::ConfigDeclaration<'a>;
-}
-
-pub type ConfigDeclSrc = NamedAstId<ConfigDeclarationAst>;
+pub type ConfigDeclSrc = SourceAstId;

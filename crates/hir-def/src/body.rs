@@ -184,13 +184,13 @@ impl Body {
 /// invalidate projection without changing semantic body data.
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct BodySourceMap {
-    pub declaration_srcs: SourceMap<DeclarationSrc, Declaration>,
-    pub typedef_srcs: SourceMap<TypedefSrc, Typedef>,
-    pub struct_srcs: SourceMap<StructSrc, StructDef>,
-    pub expr_srcs: SourceMap<ExprSrc, Expr>,
-    pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
-    pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
-    pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+    pub declaration_srcs: SourceMap<Declaration>,
+    pub typedef_srcs: SourceMap<Typedef>,
+    pub struct_srcs: SourceMap<StructDef>,
+    pub expr_srcs: SourceMap<Expr>,
+    pub event_expr_srcs: SourceMap<EventExpr>,
+    pub decl_srcs: SourceMap<Declarator>,
+    pub stmt_srcs: SourceMap<Stmt>,
     pub region_tree: RegionTree,
     scope_region_trees: FxHashMap<OwnerId, RegionTree>,
     pub diagnostics: Vec<LoweringDiagnostic>,
@@ -243,14 +243,15 @@ pub(crate) struct OwnerLowering<T: LoweredData> {
 
 impl<T: LoweredData> OwnerLowering<T> {
     pub(crate) fn new(
+        file_id: preproc_expand::file::HirFileId,
         structure: T,
         structure_sources: T::SourceMap,
         body: Body,
         body_sources: BodySourceMap,
     ) -> Self {
         Self {
-            structure: Arc::new(Lowered::new(structure, structure_sources)),
-            body: Arc::new(Lowered::new(body, body_sources)),
+            structure: Arc::new(Lowered::new(file_id, structure, structure_sources)),
+            body: Arc::new(Lowered::new(file_id, body, body_sources)),
         }
     }
 }
@@ -289,16 +290,13 @@ fn lower_procedural_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>
         .and_then(|ast_id| db.ast_id_map(file_id).node(ast_id, &tree))
         .and_then(ast::ProceduralBlock::cast)
     else {
-        return Arc::new(Lowered::new(Body::default(), BodySourceMap::default()));
+        return Arc::new(Lowered::new(file_id, Body::default(), BodySourceMap::default()));
     };
 
     let mut body = Body::default();
     let mut source_map = BodySourceMap::default();
-    let mut ctx = LoweringCtx::new(
-        db,
-        owner,
-        BodyStore { data: &mut body, sources: &mut source_map },
-    );
+    let mut ctx =
+        LoweringCtx::new(db, owner, BodyStore { data: &mut body, sources: &mut source_map });
     let root_stmt = ctx.record_stmt(proc.statement());
     let diagnostics = ctx.emit_diagnostics();
     drop(ctx);
@@ -306,22 +304,21 @@ fn lower_procedural_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>
     source_map.diagnostics = diagnostics;
     body.shrink_to_fit();
     source_map.shrink_to_fit();
-    Arc::new(Lowered::new(body, source_map))
+    Arc::new(Lowered::new(file_id, body, source_map))
 }
 
 fn lower_subroutine_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
     let file_id = owner.file(db);
     let tree = db.parse(file_id);
     let Some(func) = owner_node(db, owner, &tree).and_then(ast::FunctionDeclaration::cast) else {
-        return empty_body();
+        return empty_body(owner.file(db));
     };
     if func.end().is_none() {
-        return empty_body();
+        return empty_body(owner.file(db));
     }
 
     lower_body(db, owner, |ctx| ctx.lower_subroutine_items(func))
 }
-
 
 fn owner_node<'tree>(
     db: &dyn HirDefDb,
@@ -339,49 +336,44 @@ fn lower_body(
 ) -> Arc<Lowered<Body>> {
     let mut body = Body::default();
     let mut source_map = BodySourceMap::default();
-    let mut ctx = LoweringCtx::new(
-        db,
-        owner,
-        BodyStore { data: &mut body, sources: &mut source_map },
-    );
+    let mut ctx =
+        LoweringCtx::new(db, owner, BodyStore { data: &mut body, sources: &mut source_map });
     lower(&mut ctx);
     let diagnostics = ctx.emit_diagnostics();
     drop(ctx);
     source_map.diagnostics = diagnostics;
     body.shrink_to_fit();
     source_map.shrink_to_fit();
-    Arc::new(Lowered::new(body, source_map))
+    Arc::new(Lowered::new(owner.file(db), body, source_map))
 }
 
-fn empty_body() -> Arc<Lowered<Body>> {
-    Arc::new(Lowered::new(Body::default(), BodySourceMap::default()))
+fn empty_body(file_id: preproc_expand::file::HirFileId) -> Arc<Lowered<Body>> {
+    Arc::new(Lowered::new(file_id, Body::default(), BodySourceMap::default()))
 }
 
 impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
     fn lower_body_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
         let container = self.current_arena_owner();
         let struct_def = lower_struct_def(struct_ty, container, |ty| self.lower_data_ty(ty));
-        let file_id = self.file_id;
+        let source = self.source_id(struct_ty.syntax());
         let (body, sources) = self.store.body();
-        alloc_with_source(
-            file_id,
+        crate::alloc_with_source_entry(
             &mut body.structs,
             &mut sources.struct_srcs,
             struct_def,
-            struct_ty,
+            source,
         )
     }
 
     fn lower_body_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
-        let file_id = self.file_id;
+        let source = self.source_id(typedef.syntax());
         let typedef_id = {
             let (body, sources) = self.store.body();
-            alloc_with_source(
-                file_id,
+            crate::alloc_with_source_entry(
                 &mut body.typedefs,
                 &mut sources.typedef_srcs,
                 Typedef { name: lower_ident_opt(typedef.name()), ty: None },
-                typedef,
+                source,
             )
         };
         self.record_body_typedef(typedef_id);
@@ -477,13 +469,13 @@ impl LoweringCtx<BodyStore<'_>> {
 }
 
 impl BodySourceMap {
-    pub fn item_to_ptr(&self, item: &BlockItem) -> Option<SyntaxNodePtr> {
-        Some(match item {
-            BlockItem::DeclarationId(id) => self.declaration_srcs.hir_to_src(*id)?.ptr(),
-            BlockItem::TypedefId(id) => self.typedef_srcs.hir_to_src(*id)?.ptr(),
-            BlockItem::StructId(id) => self.struct_srcs.hir_to_src(*id)?.node,
-            BlockItem::StmtId(id) => self.stmt_srcs.hir_to_src(*id)?.node,
-        })
+    pub fn item_to_source(&self, item: &BlockItem) -> Option<crate::ast_id_map::SourceAstId> {
+        match item {
+            BlockItem::DeclarationId(id) => self.declaration_srcs.hir_to_src(*id),
+            BlockItem::TypedefId(id) => self.typedef_srcs.hir_to_src(*id),
+            BlockItem::StructId(id) => self.struct_srcs.hir_to_src(*id),
+            BlockItem::StmtId(id) => self.stmt_srcs.hir_to_src(*id),
+        }
     }
 }
 
@@ -504,11 +496,11 @@ crate::impl_arena_getters!(
 
 crate::impl_source_map_getters!(
     BodySourceMap;
-    crate::declaration::DeclarationSrc => crate::declaration::DeclarationId => declaration_srcs,
-    crate::typedef::TypedefSrc => crate::typedef::TypedefId => typedef_srcs,
-    crate::aggregate::StructSrc => crate::aggregate::StructId => struct_srcs,
-    crate::expr::ExprSrc => crate::expr::ExprId => expr_srcs,
-    crate::expr::timing_control::EventExprSrc => crate::expr::timing_control::EventExprId => event_expr_srcs,
-    crate::expr::declarator::DeclaratorSrc => crate::expr::declarator::DeclId => decl_srcs,
-    crate::stmt::StmtSrc => crate::stmt::StmtId => stmt_srcs,
+    crate::declaration::DeclarationId => declaration_srcs,
+    crate::typedef::TypedefId => typedef_srcs,
+    crate::aggregate::StructId => struct_srcs,
+    crate::expr::ExprId => expr_srcs,
+    crate::expr::timing_control::EventExprId => event_expr_srcs,
+    crate::expr::declarator::DeclId => decl_srcs,
+    crate::stmt::StmtId => stmt_srcs,
 );
