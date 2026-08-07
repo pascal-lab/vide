@@ -5,7 +5,6 @@ use triomphe::Arc;
 use utils::text_edit::TextRange;
 
 use super::{
-    block::{Block, BlockId, BlockSourceMap},
     body::{Body, BodySourceMap},
     checker::{CheckerDef, CheckerSrc},
     declaration::{Declaration, DeclarationSrc},
@@ -27,7 +26,6 @@ use super::{
     },
     proc::{Proc, ProcSrc},
     stmt::{Stmt, StmtSrc},
-    subroutine::{SubroutineBody, SubroutineBodySourceMap},
     ty::NetKind,
 };
 use crate::{
@@ -57,17 +55,6 @@ pub(crate) struct GenerateBlockStore<'a> {
     pub(crate) sources: &'a mut GenerateBlockSourceMap,
 }
 
-/// Mutable data/source pair for a procedural-block lowering pass.
-pub(crate) struct BlockStore<'a> {
-    pub(crate) data: &'a mut Block,
-    pub(crate) sources: &'a mut BlockSourceMap,
-}
-
-/// Mutable data/source pair for a subroutine-body lowering pass.
-pub(crate) struct SubroutineStore<'a> {
-    pub(crate) data: &'a mut SubroutineBody,
-    pub(crate) sources: &'a mut SubroutineBodySourceMap,
-}
 /// Mutable data/source pair for a canonical owner body.
 pub(crate) struct BodyStore<'a> {
     pub(crate) data: &'a mut Body,
@@ -125,8 +112,6 @@ macro_rules! impl_lowering_store {
 impl_lowering_store!(FileStore<'_>);
 impl_lowering_store!(ModuleStore<'_>);
 impl_lowering_store!(GenerateBlockStore<'_>);
-impl_lowering_store!(BlockStore<'_>);
-impl_lowering_store!(SubroutineStore<'_>);
 impl_lowering_store!(BodyStore<'_>);
 
 pub(crate) trait CheckerStore: LoweringStore {
@@ -275,13 +260,6 @@ impl<Store> LoweringCtx<Store> {
             unreachable!("generate-block-only lowering called for {:?}", self.owner);
         };
         generate_block_id.clone()
-    }
-
-    pub(crate) fn block_id(&self) -> BlockId {
-        let ArenaOwnerId::Block(block_id) = &self.owner else {
-            unreachable!("block-only lowering called for {:?}", self.owner);
-        };
-        block_id.clone()
     }
 
     pub(crate) fn report_unsupported(
