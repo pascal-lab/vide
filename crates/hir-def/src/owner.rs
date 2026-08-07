@@ -20,14 +20,13 @@ use rustc_hash::FxHashMap;
 use smallvec::{SmallVec, smallvec};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    SyntaxKind, SyntaxNode, SyntaxTree, WalkEvent,
+    SyntaxKind, SyntaxNode, SyntaxTree,
     ast::{self, AstNode},
     has_name::HasName,
 };
-use triomphe::Arc;
 
 use crate::{
-    ast_id_map::{self, AstIdMap, SourceAstId, SyntaxFileId},
+    ast_id_map::SourceAstId,
     block::{BlockId, BlockLoc, BlockSrc},
     container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
     db::HirDefDb,
@@ -126,91 +125,53 @@ impl OwnerTable {
     }
 }
 
-#[salsa::tracked(lru = 256, returns(clone))]
-pub(crate) fn owner_table(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerTable> {
-    let file_id = file.hir_file(db);
-    let tree = db.parse(file_id);
-    let ast_ids = ast_id_map::ast_id_map(db, file);
-    Arc::new(owner_table_from_source(db, file_id, &tree, &ast_ids))
-}
-
-pub(crate) fn set_owner_table_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
-    owner_table::set_lru_capacity(db, capacity);
-}
-
-fn owner_table_from_source(
-    db: &dyn HirDefDb,
+pub(crate) struct OwnerTableBuilder<'db> {
+    db: &'db dyn HirDefDb,
     file_id: HirFileId,
-    tree: &SyntaxTree,
-    ast_ids: &AstIdMap,
-) -> OwnerTable {
-    let owners: Vec<_> = discover_owners(db, file_id, tree, ast_ids)
-        .into_iter()
-        .map(|owner| OwnerData {
-            id: owner.id,
-            kind: owner.kind,
-            parent: owner.parent,
-            name: owner.name,
-        })
-        .collect();
-    let by_source =
-        owners.iter().map(|owner| ((owner.id.ast_id(db), owner.kind), owner.id)).collect();
-    OwnerTable { owners, by_source }
+    table: OwnerTable,
+    stack: Vec<OwnerId>,
 }
 
-struct DiscoveredOwner {
-    id: OwnerId,
-    kind: OwnerKind,
-    parent: Option<OwnerId>,
-    name: SmolStr,
-}
+impl<'db> OwnerTableBuilder<'db> {
+    pub(crate) fn new(db: &'db dyn HirDefDb, file_id: HirFileId, root_ast_id: SourceAstId) -> Self {
+        let file_owner = OwnerId::new(db, file_id, root_ast_id, OwnerKind::File);
+        let mut table = OwnerTable::default();
+        table.owners.push(OwnerData {
+            id: file_owner,
+            kind: OwnerKind::File,
+            parent: None,
+            name: SmolStr::new_static(""),
+        });
+        table.by_source.insert((root_ast_id, OwnerKind::File), file_owner);
+        Self { db, file_id, table, stack: vec![file_owner] }
+    }
 
-fn discover_owners(
-    db: &dyn HirDefDb,
-    file_id: HirFileId,
-    tree: &SyntaxTree,
-    ast_ids: &AstIdMap,
-) -> Vec<DiscoveredOwner> {
-    let root_ast_id = tree
-        .root()
-        .and_then(|root| ast_ids.id_of_node_in_tree(tree, root))
-        .unwrap_or(SourceAstId::from_raw(0));
-    let file_owner = OwnerId::new(db, file_id, root_ast_id, OwnerKind::File);
-    let mut discovered = vec![DiscoveredOwner {
-        id: file_owner,
-        kind: OwnerKind::File,
-        parent: None,
-        name: SmolStr::new_static(""),
-    }];
-
-    let Some(root) = tree.root() else {
-        return discovered;
-    };
-
-    let mut owners = vec![file_owner];
-    for event in root.node_preorder() {
-        match event {
-            WalkEvent::Enter(node) => {
-                for kind in owner_kinds_of(node) {
-                    let parent = owners.last().copied();
-                    let ast_id = ast_ids
-                        .id_of_node_in_tree(tree, node)
-                        .expect("every owner node has an AST identity");
-                    let owner = OwnerId::new(db, file_id, ast_id, kind);
-                    let name = owner_name(node, kind);
-                    discovered.push(DiscoveredOwner { id: owner, kind, parent, name });
-                    owners.push(owner);
-                }
-            }
-            WalkEvent::Leave(node) => {
-                for _ in owner_kinds_of(node) {
-                    owners.pop();
-                }
-            }
+    pub(crate) fn enter(&mut self, node: SyntaxNode<'_>, ast_id: SourceAstId) {
+        for kind in owner_kinds_of(node) {
+            let parent = self.stack.last().copied();
+            let owner = OwnerId::new(self.db, self.file_id, ast_id, kind);
+            self.table.owners.push(OwnerData {
+                id: owner,
+                kind,
+                parent,
+                name: owner_name(node, kind),
+            });
+            let replaced = self.table.by_source.insert((ast_id, kind), owner);
+            debug_assert!(replaced.is_none(), "duplicate owner source key");
+            self.stack.push(owner);
         }
     }
 
-    discovered
+    pub(crate) fn leave(&mut self, node: SyntaxNode<'_>) {
+        for _ in owner_kinds_of(node) {
+            self.stack.pop().expect("owner stack always contains the file owner");
+        }
+    }
+
+    pub(crate) fn finish(self) -> OwnerTable {
+        debug_assert_eq!(self.stack.len(), 1);
+        self.table
+    }
 }
 
 /// Syntax nodes that start semantic owners. Generate branches deliberately

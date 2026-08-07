@@ -17,7 +17,7 @@ use utils::text_edit::TextRange;
 use crate::{
     ast_id_map::{self, AstIdMap, SourceAstId, SyntaxFileId},
     db::HirDefDb,
-    owner::{self, OwnerId, OwnerTable},
+    owner::{OwnerId, OwnerTable, OwnerTableBuilder},
     source_projection::SourceOrigin,
 };
 
@@ -144,7 +144,7 @@ impl ItemTreeItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemTree {
     file_id: HirFileId,
-    owners: OwnerTable,
+    owners: Arc<OwnerTable>,
     items: Vec<ItemTreeItem>,
     signatures: Vec<Signature>,
 }
@@ -156,6 +156,10 @@ impl ItemTree {
 
     pub fn owners(&self) -> &OwnerTable {
         &self.owners
+    }
+
+    pub(crate) fn owner_table_arc(&self) -> Arc<OwnerTable> {
+        self.owners.clone()
     }
 
     pub fn root_owner(&self) -> Option<crate::owner::OwnerId> {
@@ -195,8 +199,14 @@ pub(crate) fn item_tree(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<ItemTree> 
     let tree = db.parse(file_id);
     let ast_ids = ast_id_map::ast_id_map(db, file);
     let source_text = file_id.as_file().map(|file_id| db.file_text(file_id));
-    let owners = owner::owner_table(db, file);
-    Arc::new(build_item_tree(file_id, &tree, &ast_ids, source_text.as_deref(), (*owners).clone()))
+    let root_ast_id = tree
+        .root()
+        .and_then(|root| ast_ids.id_of_node_in_tree(&tree, root))
+        .unwrap_or(SourceAstId::from_raw(0));
+    let mut owners = OwnerTableBuilder::new(db, file_id, root_ast_id);
+    let (items, signatures) =
+        build_item_tree_data(&tree, &ast_ids, source_text.as_deref(), Some(&mut owners));
+    Arc::new(ItemTree { file_id, owners: Arc::new(owners.finish()), items, signatures })
 }
 
 pub(crate) fn set_item_tree_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
@@ -206,8 +216,7 @@ pub(crate) fn set_item_tree_lru_capacity(db: &mut dyn HirDefDb, capacity: usize)
 }
 #[salsa::tracked(lru = 256, returns(clone))]
 pub(crate) fn item_for_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<ItemTreeItem> {
-    let ast_id = db.owner_source_ast_id(owner)?;
-    db.item_tree(owner.file(db)).items().find(|item| item.id == ast_id).cloned()
+    db.item_tree(owner.file(db)).item(owner.ast_id(db)).cloned()
 }
 
 #[salsa::tracked(lru = 256, returns(clone))]
@@ -249,73 +258,108 @@ pub(crate) fn build_source_projection(
 }
 
 fn member_nodes<'a>(tree: &'a SyntaxTree) -> Vec<SyntaxNode<'a>> {
-    tree.root()
-        .into_iter()
-        .flat_map(|root| {
-            root.elem_preorder().filter_map(|event| match event {
-                WalkEvent::Enter(SyntaxElement::Node(node))
-                    if ast::Member::can_cast(node.kind()) =>
-                {
-                    Some(node)
+    let mut nodes = Vec::new();
+    let mut body_depth = 0usize;
+    let Some(root) = tree.root() else {
+        return nodes;
+    };
+    for event in root.elem_preorder() {
+        match event {
+            WalkEvent::Enter(SyntaxElement::Node(node)) => {
+                if body_depth == 0 && ast::Member::can_cast(node.kind()) {
+                    nodes.push(node);
                 }
-                _ => None,
-            })
-        })
-        .collect()
+                if is_body_boundary(node) {
+                    body_depth += 1;
+                }
+            }
+            WalkEvent::Leave(SyntaxElement::Node(node)) if is_body_boundary(node) => {
+                body_depth -= 1;
+            }
+            _ => {}
+        }
+    }
+    nodes
 }
 
-fn build_item_tree(
-    file_id: HirFileId,
+fn is_body_boundary(node: SyntaxNode<'_>) -> bool {
+    ast::FunctionDeclaration::can_cast(node.kind()) || ast::ProceduralBlock::can_cast(node.kind())
+}
+
+fn build_item_tree_data(
     tree: &SyntaxTree,
     ast_ids: &AstIdMap,
     source_text: Option<&str>,
-    owners: OwnerTable,
-) -> ItemTree {
+    mut owners: Option<&mut OwnerTableBuilder<'_>>,
+) -> (Vec<ItemTreeItem>, Vec<Signature>) {
     let mut items = Vec::new();
     let mut signatures = Vec::new();
     let mut parents = Vec::new();
+    let mut body_depth = 0usize;
     if let Some(root) = tree.root() {
         for event in root.elem_preorder() {
             match event {
-                WalkEvent::Enter(SyntaxElement::Node(node))
-                    if ast::Member::can_cast(node.kind()) =>
-                {
-                    let id = ast_ids
+                WalkEvent::Enter(SyntaxElement::Node(node)) => {
+                    let ast_id = ast_ids
                         .id_of_node_in_tree(tree, node)
-                        .expect("every item node has an AST identity");
-                    let (name, _) = item_name(node);
-                    let header_range = item_header_range(node);
-                    let header_fingerprint =
-                        fingerprint(node.kind(), name.as_ref(), header_range, source_text);
+                        .expect("every syntax node has an AST identity");
+                    if let Some(owners) = &mut owners {
+                        owners.enter(node, ast_id);
+                    }
 
-                    let signature = ast::FunctionDeclaration::cast(node).map(|function| {
-                        let id = SignatureId::from_raw(signatures.len() as u32);
-                        signatures.push(lower_signature(function, ast_ids));
-                        id
-                    });
+                    if body_depth == 0 && ast::Member::can_cast(node.kind()) {
+                        let (name, _) = item_name(node);
+                        let header_range = item_header_range(node);
+                        let header_fingerprint =
+                            fingerprint(node.kind(), name.as_ref(), header_range, source_text);
+                        let signature = ast::FunctionDeclaration::cast(node).map(|function| {
+                            let id = SignatureId::from_raw(signatures.len() as u32);
+                            signatures.push(lower_signature(function, ast_ids));
+                            id
+                        });
 
-                    items.push(ItemTreeItem {
-                        id,
-                        parent: parents.last().copied(),
-                        kind: node.kind(),
-                        name,
-                        signature,
-                        header_fingerprint,
-                    });
-                    parents.push(id);
+                        items.push(ItemTreeItem {
+                            id: ast_id,
+                            parent: parents.last().copied(),
+                            kind: node.kind(),
+                            name,
+                            signature,
+                            header_fingerprint,
+                        });
+                        parents.push(ast_id);
+                    }
+                    if is_body_boundary(node) {
+                        body_depth += 1;
+                    }
                 }
-                WalkEvent::Leave(SyntaxElement::Node(node))
-                    if ast::Member::can_cast(node.kind()) =>
-                {
-                    let popped = parents.pop();
-                    debug_assert!(popped.is_some());
+                WalkEvent::Leave(SyntaxElement::Node(node)) => {
+                    if is_body_boundary(node) {
+                        body_depth -= 1;
+                    }
+                    if body_depth == 0 && ast::Member::can_cast(node.kind()) {
+                        parents.pop().expect("item parent stack is balanced");
+                    }
+                    if let Some(owners) = &mut owners {
+                        owners.leave(node);
+                    }
                 }
                 _ => {}
             }
         }
     }
+    debug_assert!(parents.is_empty());
+    (items, signatures)
+}
 
-    ItemTree { file_id, owners, items, signatures }
+#[cfg(test)]
+fn build_item_tree(
+    file_id: HirFileId,
+    tree: &SyntaxTree,
+    ast_ids: &AstIdMap,
+    source_text: Option<&str>,
+) -> ItemTree {
+    let (items, signatures) = build_item_tree_data(tree, ast_ids, source_text, None);
+    ItemTree { file_id, owners: Arc::new(OwnerTable::default()), items, signatures }
 }
 fn lower_signature(function: ast::FunctionDeclaration<'_>, ast_ids: &AstIdMap) -> Signature {
     let prototype = function.prototype();
@@ -436,23 +480,17 @@ mod tests {
 
     fn build(file_id: HirFileId, text: &str) -> ItemTree {
         let tree = parse(text);
-        build_item_tree(
-            file_id,
-            &tree,
-            &AstIdMap::from_source(&tree),
-            Some(text),
-            OwnerTable::default(),
-        )
+        build_item_tree(file_id, &tree, &AstIdMap::from_source(&tree), Some(text))
     }
 
     #[test]
-    fn item_tree_tracks_nested_members_without_using_body_ranges_for_headers() {
+    fn item_tree_excludes_body_local_members() {
         let before = "module top; function void f(); logic value; endfunction endmodule\n";
-        let after =
-            "module top; function void f(); logic value; value = 1; endfunction endmodule\n";
+        let after = "module top; function void f(); logic value; logic added; value = 1; endfunction endmodule\n";
         let file_id = HirFileId::File(FileId::from_raw(0));
         let before = build(file_id, before);
         let after = build(file_id, after);
+        assert_eq!(before.len(), 2, "only the module and function are structural items");
 
         let before_function = before
             .items()
@@ -496,8 +534,7 @@ mod tests {
         let file_id = HirFileId::File(FileId::from_raw(0));
         let tree = parse(text);
         let ast_ids = AstIdMap::from_source(&tree);
-        let item_tree =
-            build_item_tree(file_id, &tree, &ast_ids, Some(text), OwnerTable::default());
+        let item_tree = build_item_tree(file_id, &tree, &ast_ids, Some(text));
 
         for item in item_tree.items() {
             let ast_id = item.ast_id();
