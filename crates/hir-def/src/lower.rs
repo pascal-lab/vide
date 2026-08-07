@@ -20,13 +20,32 @@ use super::{
 };
 use crate::{
     ast_id_map::AstIdMap,
-    container::ArenaOwnerId,
     db::HirDefDb,
     owner::{OwnerId, OwnerKind, OwnerTable},
-    region_tree::RegionTreeBuilder,
     source_map::{LoweringDiagnostic, LoweringDiagnosticKind, SourceMap},
 };
 
+/// Shared syntax inputs for the structural owner stores built by `ItemTree`.
+/// Reusing one parse, AST map, and owner table keeps discovery and lowering on
+/// the same canonical source identities and prevents query cycles.
+#[derive(Clone)]
+pub(crate) struct LoweringSyntax {
+    pub(crate) file_id: HirFileId,
+    pub(crate) tree: SyntaxTree,
+    pub(crate) ast_ids: Arc<AstIdMap>,
+    pub(crate) owners: Arc<OwnerTable>,
+}
+
+impl LoweringSyntax {
+    pub(crate) fn new(
+        file_id: HirFileId,
+        tree: SyntaxTree,
+        ast_ids: Arc<AstIdMap>,
+        owners: Arc<OwnerTable>,
+    ) -> Self {
+        Self { file_id, tree, ast_ids, owners }
+    }
+}
 /// Mutable HIR/source pair for one canonical owner lowering pass.
 pub(crate) struct BodyStore<'a> {
     pub(crate) data: &'a mut Body,
@@ -173,24 +192,31 @@ pub(crate) struct LoweringCtx<Store> {
     scope_stack: Vec<OwnerId>,
     pub(crate) store: Store,
     pub(crate) diagnostics: Vec<LoweringDiagnostic>,
-    pub(crate) region_tree: RegionTreeBuilder,
     pub(crate) default_net_type: NetKind,
 }
 
 impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn new(db: &dyn HirDefDb, owner: OwnerId, store: Store) -> Self {
         let file_id = owner.file(db);
-        let tree = db.parse(file_id);
-        let mut this = Self {
+        let syntax = LoweringSyntax::new(
             file_id,
+            db.parse(file_id),
+            db.ast_id_map(file_id),
+            db.owner_table(file_id),
+        );
+        Self::new_with_syntax(owner, &syntax, store)
+    }
+
+    pub(crate) fn new_with_syntax(owner: OwnerId, syntax: &LoweringSyntax, store: Store) -> Self {
+        let mut this = Self {
+            file_id: syntax.file_id,
             owner,
-            ast_ids: db.ast_id_map(file_id),
-            owners: db.owner_table(file_id),
-            tree,
+            ast_ids: Arc::clone(&syntax.ast_ids),
+            owners: Arc::clone(&syntax.owners),
+            tree: syntax.tree.clone(),
             scope_stack: vec![owner],
             store,
             diagnostics: Vec::new(),
-            region_tree: RegionTreeBuilder::new(),
             default_net_type: NetKind::Wire,
         };
         this.store.body().0.scope_graph.ensure_root(owner);
@@ -212,8 +238,8 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         *self.scope_stack.last().expect("body lowering always has a root scope")
     }
 
-    pub(crate) fn current_arena_owner(&self) -> ArenaOwnerId {
-        ArenaOwnerId::Owner(self.current_scope())
+    pub(crate) fn current_owner(&self) -> OwnerId {
+        self.current_scope()
     }
 
     pub(crate) fn enter_body_scope(&mut self, owner: OwnerId) {
@@ -258,38 +284,22 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         self.store.body().0.scope_graph.push_statement(scope, statement);
     }
 
-    pub(crate) fn set_scope_region_tree(
-        &mut self,
-        owner: OwnerId,
-        regions: crate::region_tree::RegionTree,
-    ) {
-        self.store.body().1.insert_scope_region_tree(owner, regions);
-    }
-
-    pub(crate) fn report_unsupported(
-        &mut self,
-        syntax_kind: SyntaxKind,
-        range: Option<TextRange>,
-        message: &'static str,
-    ) {
+    pub(crate) fn report_unsupported(&mut self, node: SyntaxNode<'_>, message: &'static str) {
         self.diagnostics.push(LoweringDiagnostic {
             kind: LoweringDiagnosticKind::UnsupportedSyntax,
-            syntax_kind,
-            range,
+            syntax_kind: node.kind(),
+            source: Some(self.source_id(node)),
+            range: None,
             message,
         });
     }
 
-    pub(crate) fn report_invalid(
-        &mut self,
-        syntax_kind: SyntaxKind,
-        range: Option<TextRange>,
-        message: &'static str,
-    ) {
+    pub(crate) fn report_invalid(&mut self, node: SyntaxNode<'_>, message: &'static str) {
         self.diagnostics.push(LoweringDiagnostic {
             kind: LoweringDiagnosticKind::InvalidSyntax,
-            syntax_kind,
-            range,
+            syntax_kind: node.kind(),
+            source: Some(self.source_id(node)),
+            range: None,
             message,
         });
     }
@@ -300,9 +310,8 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             tracing::warn!(
                 file = ?self.file_id,
                 owner = ?self.owner,
-                kind = ?diagnostic.kind,
                 syntax_kind = ?diagnostic.syntax_kind,
-                range = ?diagnostic.range,
+                source = ?diagnostic.source,
                 message = diagnostic.message,
                 "HIR lowering diagnostic"
             );

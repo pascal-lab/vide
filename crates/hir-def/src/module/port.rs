@@ -278,17 +278,14 @@ impl LowerModuleCtx<'_> {
                 }
                 _ => continue,
             }
-            self.region_tree.handle_node(port.syntax());
         }
 
-        self.region_tree.stage(port_list.close_paren(), port_list.syntax());
         let port_list_src = self.source_id(port_list.syntax());
         self.store.data.ports = Ports::Ansi(ports);
         self.store.sources.port_srcs = PortSrcs::Ansi { decls, port_list_src: Some(port_list_src) };
     }
 
     pub(crate) fn lower_wildcard_ports(&mut self, port_list: ast::WildcardPortList) {
-        self.region_tree.stage(port_list.close_paren(), port_list.syntax());
         let port_list_src = self.source_id(port_list.syntax());
         self.store.data.ports = Ports::Ansi(Arena::default());
         self.store.sources.port_srcs =
@@ -352,12 +349,10 @@ impl LowerModuleCtx<'_> {
                 EmptyNonAnsiPort(_) => NonAnsiPort { label: None, refs: None },
             };
 
-            self.region_tree.handle_node(port.syntax());
             let source = self.source_id(port.syntax());
             alloc_with_source_entry(&mut ports, &mut port_srcs, hir_port, source);
         }
 
-        self.region_tree.stage(port_list.close_paren(), port_list.syntax());
         let port_list_src = self.source_id(port_list.syntax());
         self.store.data.ports = Ports::NonAnsi { ports, refs, decls: Arena::default() };
         self.store.sources.port_srcs = PortSrcs::NonAnsi {

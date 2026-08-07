@@ -110,9 +110,12 @@ impl<'db> TypeSystem<'db> {
 
     pub fn type_of_subroutine_return(&self, subroutine: SubroutineScope) -> Type {
         match &self.db.subroutine(subroutine.clone()).kind {
-            SubroutineKind::Function { return_ty: Some(return_ty) } => {
-                normalize_data_ty(self.db, subroutine.clone().into(), return_ty.clone()).into()
-            }
+            SubroutineKind::Function { return_ty: Some(return_ty) } => normalize_data_ty(
+                self.db,
+                subroutine.clone().owner(self.db).expect("subroutine owner"),
+                return_ty.clone(),
+            )
+            .into(),
             SubroutineKind::Function { return_ty: None } | SubroutineKind::Task => Type::unknown(),
         }
     }

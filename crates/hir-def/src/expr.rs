@@ -285,15 +285,11 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         let syntax_kind = expr.syntax().kind();
         let hir_expr = self.lower_expr_inner(expr).unwrap_or(Expr::Error(syntax_kind));
         match &hir_expr {
-            Expr::Error(kind) => {
-                self.report_invalid(*kind, expr.syntax().text_range(), "invalid expression");
+            Expr::Error(_) => {
+                self.report_invalid(expr.syntax(), "invalid expression");
             }
-            Expr::Unsupported(kind) => {
-                self.report_unsupported(
-                    *kind,
-                    expr.syntax().text_range(),
-                    "unsupported expression",
-                );
+            Expr::Unsupported(_) => {
+                self.report_unsupported(expr.syntax(), "unsupported expression");
             }
             _ => {}
         }

@@ -26,12 +26,9 @@ pub enum LoweringDiagnosticKind {
 pub struct LoweringDiagnostic {
     pub kind: LoweringDiagnosticKind,
     pub syntax_kind: SyntaxKind,
+    pub source: Option<SourceAstId>,
     pub range: Option<TextRange>,
     pub message: &'static str,
-}
-
-pub trait DiagnosticSource {
-    fn diagnostics(&self) -> &[LoweringDiagnostic];
 }
 
 /// Position-free HIR and its canonical source identities.
@@ -44,11 +41,35 @@ pub struct Lowered<T: LoweredData> {
     file_id: HirFileId,
     data: Arc<T>,
     source_map: Arc<T::SourceMap>,
+    diagnostics: Arc<[LoweringDiagnostic]>,
 }
 
 impl<T: LoweredData> Lowered<T> {
     pub fn new(file_id: HirFileId, data: T, source_map: T::SourceMap) -> Self {
-        Self { file_id, data: Arc::new(data), source_map: Arc::new(source_map) }
+        Self::new_with_diagnostics(file_id, data, source_map, Vec::new())
+    }
+
+    pub(crate) fn new_with_diagnostics(
+        file_id: HirFileId,
+        data: T,
+        source_map: T::SourceMap,
+        diagnostics: Vec<LoweringDiagnostic>,
+    ) -> Self {
+        Self {
+            file_id,
+            data: Arc::new(data),
+            source_map: Arc::new(source_map),
+            diagnostics: diagnostics.into(),
+        }
+    }
+
+    pub(crate) fn with_diagnostics(&self, diagnostics: Vec<LoweringDiagnostic>) -> Self {
+        Self {
+            file_id: self.file_id,
+            data: Arc::clone(&self.data),
+            source_map: Arc::clone(&self.source_map),
+            diagnostics: diagnostics.into(),
+        }
     }
 
     pub fn file_id(&self) -> HirFileId {
@@ -67,11 +88,25 @@ impl<T: LoweredData> Lowered<T> {
         &self.source_map
     }
 
-    pub fn diagnostics(&self) -> &[LoweringDiagnostic]
-    where
-        T::SourceMap: DiagnosticSource,
-    {
-        self.source_map.diagnostics()
+    pub fn diagnostics(&self, db: &dyn HirDefDb) -> Vec<LoweringDiagnostic> {
+        let projection = db.source_projection(self.file_id);
+        self.diagnostics
+            .iter()
+            .cloned()
+            .map(|mut diagnostic| {
+                diagnostic.range = diagnostic.range.or_else(|| {
+                    diagnostic
+                        .source
+                        .and_then(|source| projection.origin(source))
+                        .and_then(|origin| origin.full_range())
+                });
+                diagnostic
+            })
+            .collect()
+    }
+
+    pub(crate) fn raw_diagnostics(&self) -> &[LoweringDiagnostic] {
+        &self.diagnostics
     }
 
     pub(crate) fn source_map_arc(&self) -> Arc<T::SourceMap> {

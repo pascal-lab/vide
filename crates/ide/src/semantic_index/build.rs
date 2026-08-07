@@ -1,7 +1,7 @@
 use hir_def::{
-    container::{ArenaOwnerId, ScopeChain},
+    container::ScopeChain,
     def_id::DefId,
-    owner::OwnerKind,
+    owner::{OwnerId, OwnerKind},
     pathres::ResolvedScopes,
     symbol::NameContext,
 };
@@ -250,7 +250,7 @@ fn timed<T>(f: impl FnOnce() -> T) -> (std::time::Duration, T) {
 /// can share a display range and kind at their call site, while their pointer
 /// identities remain distinct.
 pub(super) struct ContainerCache<'tree> {
-    by_node: FxHashMap<SyntaxNode<'tree>, ArenaOwnerId>,
+    by_node: FxHashMap<SyntaxNode<'tree>, OwnerId>,
 }
 
 impl<'tree> ContainerCache<'tree> {
@@ -266,7 +266,7 @@ impl<'tree> ContainerCache<'tree> {
         sema: &SemanticsImpl<'_>,
         file_id: HirFileId,
         token_parent: SyntaxNode<'tree>,
-    ) -> ArenaOwnerId {
+    ) -> OwnerId {
         for node in SyntaxAncestors::start_from(token_parent) {
             if is_container_node(&node)
                 && let Some(id) = self.try_id_for(sema, file_id, node)
@@ -274,7 +274,7 @@ impl<'tree> ContainerCache<'tree> {
                 return id;
             }
         }
-        file_id.into()
+        sema.db.owner_table(file_id).file_owner().expect("file owner")
     }
 
     /// The container of a node's subtree: like
@@ -284,7 +284,7 @@ impl<'tree> ContainerCache<'tree> {
         sema: &SemanticsImpl<'_>,
         file_id: HirFileId,
         node: SyntaxNode<'tree>,
-    ) -> ArenaOwnerId {
+    ) -> OwnerId {
         for ancestor in SyntaxAncestors::start_from(node).skip(1) {
             if is_container_node(&ancestor)
                 && let Some(id) = self.try_id_for(sema, file_id, ancestor)
@@ -292,7 +292,7 @@ impl<'tree> ContainerCache<'tree> {
                 return id;
             }
         }
-        file_id.into()
+        sema.db.owner_table(file_id).file_owner().expect("file owner")
     }
 
     pub(super) fn try_id_for(
@@ -300,7 +300,7 @@ impl<'tree> ContainerCache<'tree> {
         sema: &SemanticsImpl<'_>,
         file_id: HirFileId,
         node: SyntaxNode<'tree>,
-    ) -> Option<ArenaOwnerId> {
+    ) -> Option<OwnerId> {
         if let Some(id) = self.by_node.get(&node) {
             return Some(id.clone());
         }
@@ -316,7 +316,7 @@ impl<'tree> ContainerCache<'tree> {
 /// every intervening query during the index build and recompute O(scope
 /// size) on each miss.
 pub(super) struct ScopeChainCache {
-    by_container: FxHashMap<ArenaOwnerId, Arc<ResolvedScopes>>,
+    by_container: FxHashMap<OwnerId, Arc<ResolvedScopes>>,
 }
 
 impl ScopeChainCache {
@@ -327,7 +327,7 @@ impl ScopeChainCache {
     pub(super) fn chain_for(
         &mut self,
         db: &dyn WorkspaceSymbolIndexDb,
-        container: ArenaOwnerId,
+        container: OwnerId,
     ) -> Arc<ResolvedScopes> {
         if let Some(chain) = self.by_container.get(&container) {
             return chain.clone();
@@ -358,18 +358,18 @@ fn container_id_for_node<'tree>(
     file_id: HirFileId,
     node: SyntaxNode<'tree>,
     _cache: &mut ContainerCache<'tree>,
-) -> Option<ArenaOwnerId> {
+) -> Option<OwnerId> {
     if let Some(module) = ast::ModuleDeclaration::cast(node) {
-        return sema.module_to_def(file_id, module).map(Into::into);
+        return sema.module_to_def(file_id, module)?.owner(sema.db);
     }
     let kind = if ast::ProceduralBlock::cast(node).is_some() {
         Some(OwnerKind::ProceduralBlock)
     } else if let Some(block) = ast::BlockStatement::cast(node) {
-        return sema.block_to_def(file_id, block).map(Into::into);
+        return sema.block_to_def(file_id, block);
     } else if let Some(func) = ast::FunctionDeclaration::cast(node) {
-        return sema.subroutine_to_def(file_id, func).map(Into::into);
+        return sema.subroutine_to_def(file_id, func)?.owner(sema.db);
     } else if ast::CompilationUnit::cast(node).is_some() {
-        return Some(file_id.into());
+        return sema.db.owner_table(file_id).file_owner();
     } else if ast::GenerateBlock::cast(node).is_some()
         || (ast::Member::cast(node).is_some() && is_generate_branch_member(node))
     {
@@ -388,7 +388,7 @@ fn container_id_for_node<'tree>(
     };
     let tree = sema.db.parse(file_id);
     let ast_id = sema.db.ast_id_map(file_id).id_of_node_in_tree(&tree, owner_node)?;
-    sema.db.owner_table(file_id).owner_by_ast(ast_id, kind)?.arena_owner(sema.db)
+    sema.db.owner_table(file_id).owner_by_ast(ast_id, kind)
 }
 
 /// Mirrors `source_to_def::is_generate_branch_member`: a member is a
@@ -405,7 +405,7 @@ fn collect_token(
     db: &dyn WorkspaceSymbolIndexDb,
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
-    container: ArenaOwnerId,
+    container: OwnerId,
     in_special_context: bool,
     chains: &mut ScopeChainCache,
     conn_port_by_name: &mut FxHashMap<TextRange, DefId>,
@@ -598,7 +598,7 @@ fn reference_context(
     db: &dyn WorkspaceSymbolIndexDb,
     token: SyntaxTokenWithParent<'_>,
     class: &DefinitionClass,
-    container: ArenaOwnerId,
+    container: OwnerId,
     chains: &mut ScopeChainCache,
     conn_port_by_name: &mut FxHashMap<TextRange, DefId>,
     text: &str,

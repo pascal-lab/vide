@@ -4,7 +4,7 @@ use base_db::source_root::SourceRootRole;
 use hir_def::{
     Ident,
     body::Body,
-    container::{ArenaOwnerId, InContainer, InModule},
+    container::{InContainer, InModule},
     db::HirDefDb,
     declaration::Declaration,
     def_id::DefId,
@@ -191,7 +191,10 @@ pub(crate) fn resolve_connection_port(
                     };
                     Resolution::Unique(DefId::new(
                         db,
-                        InContainer::new(target_module_id.into(), decl_id),
+                        InContainer::new(
+                            target_module_id.owner(db).expect("target module owner"),
+                            decl_id,
+                        ),
                     ))
                 }
             }
@@ -278,7 +281,7 @@ pub(crate) fn resolve_named_param_in_module(
         let Some(decl_id) = def_id.primary_origin(db).as_decl(db) else {
             return false;
         };
-        if decl_id.cont_id != ArenaOwnerId::Module(module_id) {
+        if decl_id.cont_id != module_id.owner(db).expect("module owner") {
             return false;
         }
         let DeclaratorParent::DeclarationId(declaration_id) = body.decls[decl_id.value].parent
@@ -662,10 +665,7 @@ mod tests {
             return None;
         }
         match def_id.primary_origin(db).loc(db).clone() {
-            DefOriginLoc::Decl(decl_id) => match decl_id.cont_id {
-                ArenaOwnerId::Module(module_id) => Some(module_id),
-                _ => None,
-            },
+            DefOriginLoc::Decl(decl_id) => ModuleId::from_owner(db, decl_id.cont_id),
             DefOriginLoc::NonAnsiPort(nonansi_port_id) => Some(nonansi_port_id.module_id),
             _ => None,
         }

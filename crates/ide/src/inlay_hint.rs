@@ -354,7 +354,13 @@ fn process_instantiation(
                 check_or_throw!(collector.intersect(assign_src.full_range()));
 
                 let param_id = target_module.overridable_param_id_by_idx(&target_body, id)?;
-                let param_def = DefId::new(db, InContainer::new(target_module_id.into(), param_id));
+                let param_def = DefId::new(
+                    db,
+                    InContainer::new(
+                        target_module_id.owner(db).expect("target module owner"),
+                        param_id,
+                    ),
+                );
                 let param_name = param_def.primary_origin(db).name(db)?;
                 check_or_throw!(!should_skip(module_body.get(*assign_expr), &param_name));
                 let target_range = param_def.primary_origin(db).range(db)?;

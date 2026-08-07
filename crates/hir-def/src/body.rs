@@ -46,8 +46,7 @@ use crate::{
     },
     owner::{OwnerId, OwnerKind},
     proc::{Proc, ProcId},
-    region_tree::RegionTree,
-    source_map::{DiagnosticSource, Lowered, LoweredData, LoweringDiagnostic, SourceMap},
+    source_map::{Lowered, LoweredData, SourceMap},
     stmt::{Stmt, StmtId},
     subroutine::{LocalSubroutineId, Subroutine},
     typedef::{Typedef, TypedefId, lower_typedef_data_ty},
@@ -321,9 +320,6 @@ pub struct BodySourceMap {
     pub inst_param_assign_srcs: SourceMap<ParamAssign>,
     pub instance_srcs: SourceMap<Instance>,
     pub inst_port_conn_srcs: SourceMap<PortConn>,
-    pub region_tree: RegionTree,
-    scope_region_trees: FxHashMap<OwnerId, RegionTree>,
-    pub diagnostics: Vec<LoweringDiagnostic>,
 }
 
 impl BodySourceMap {
@@ -358,31 +354,10 @@ impl BodySourceMap {
         self.inst_param_assign_srcs.shrink_to_fit();
         self.instance_srcs.shrink_to_fit();
         self.inst_port_conn_srcs.shrink_to_fit();
-        self.diagnostics.shrink_to_fit();
-        self.scope_region_trees.shrink_to_fit();
-    }
-
-    pub fn region_tree_for(&self, body: &Body, owner: OwnerId) -> Option<&RegionTree> {
-        if body.scope_graph.root() == Some(owner) {
-            Some(&self.region_tree)
-        } else {
-            self.scope_region_trees.get(&owner)
-        }
-    }
-
-    pub(crate) fn insert_scope_region_tree(&mut self, owner: OwnerId, regions: RegionTree) {
-        let previous = self.scope_region_trees.insert(owner, regions);
-        assert!(previous.is_none(), "body scope region tree inserted twice");
     }
 }
 impl LoweredData for Body {
     type SourceMap = BodySourceMap;
-}
-
-impl DiagnosticSource for BodySourceMap {
-    fn diagnostics(&self) -> &[LoweringDiagnostic] {
-        &self.diagnostics
-    }
 }
 
 #[salsa::tracked(lru = 512, returns(clone))]
@@ -430,10 +405,9 @@ fn lower_procedural_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>
     let diagnostics = ctx.emit_diagnostics();
     drop(ctx);
     body.root_stmt = Some(root_stmt);
-    source_map.diagnostics = diagnostics;
     body.shrink_to_fit();
     source_map.shrink_to_fit();
-    Arc::new(Lowered::new(file_id, body, source_map))
+    Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
 }
 
 fn lower_subroutine_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
@@ -470,10 +444,9 @@ fn lower_body(
     lower(&mut ctx);
     let diagnostics = ctx.emit_diagnostics();
     drop(ctx);
-    source_map.diagnostics = diagnostics;
     body.shrink_to_fit();
     source_map.shrink_to_fit();
-    Arc::new(Lowered::new(owner.file(db), body, source_map))
+    Arc::new(Lowered::new_with_diagnostics(owner.file(db), body, source_map, diagnostics))
 }
 
 fn empty_body(file_id: preproc_expand::file::HirFileId) -> Arc<Lowered<Body>> {
@@ -482,7 +455,7 @@ fn empty_body(file_id: preproc_expand::file::HirFileId) -> Arc<Lowered<Body>> {
 
 impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
     fn lower_body_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container = self.current_arena_owner();
+        let container = self.current_owner();
         let struct_def = lower_struct_def(struct_ty, container, |ty| self.lower_data_ty(ty));
         let source = self.source_id(struct_ty.syntax());
         let (body, sources) = self.store.body();
@@ -506,7 +479,7 @@ impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
             )
         };
         self.record_body_typedef(typedef_id);
-        let container = self.current_arena_owner();
+        let container = self.current_owner();
         let ty = lower_typedef_data_ty(
             self,
             typedef.type_(),
@@ -539,7 +512,6 @@ impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
 
     pub(crate) fn lower_nested_block(&mut self, block: ast::BlockStatement, owner: OwnerId) {
         self.enter_body_scope(owner);
-        let mut regions = crate::region_tree::RegionTreeBuilder::new();
         for node in block.items().children() {
             let item = match_ast! { node.syntax(),
                 ast::Statement[it] => Some(BlockItem::StmtId(self.lower_stmt(it))),
@@ -554,9 +526,7 @@ impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
             if let Some(item) = item {
                 self.push_body_item(item);
             }
-            regions.handle_node(node.syntax());
         }
-        self.set_scope_region_tree(owner, regions.finish());
         self.leave_body_scope(owner);
     }
 }
@@ -568,7 +538,6 @@ impl LoweringCtx<BodyStore<'_>> {
 
     fn lower_subroutine_items(&mut self, func: ast::FunctionDeclaration) {
         for item in func.items().children() {
-            self.region_tree.handle_node(item.syntax());
             let syntax = item.syntax();
             let body_item = match_ast! { syntax,
                 ast::Statement[it] => Some(BlockItem::StmtId(self.record_stmt(it))),
@@ -592,8 +561,6 @@ impl LoweringCtx<BodyStore<'_>> {
                 self.push_body_item(body_item);
             }
         }
-        self.region_tree.stage(func.end(), func.syntax());
-        self.store.sources.region_tree = self.region_tree.finish();
     }
 }
 

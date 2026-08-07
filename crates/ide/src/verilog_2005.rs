@@ -3707,10 +3707,12 @@ endmodule
     let analysis = host.make_analysis();
 
     {
-        use hir_def::{module::ModuleId, stmt::{Stmt, StmtKind}};
+        use hir_def::{
+            module::ModuleId,
+            stmt::{Stmt, StmtKind},
+        };
         use la_arena::Arena;
         use preproc_expand::file::HirFileId;
-
 
         fn stmt_arena_has(
             stmts: &Arena<Stmt>,

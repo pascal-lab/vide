@@ -1,8 +1,9 @@
 use hir_def::{
     Ident,
-    container::{ArenaOwnerId, InContainer, InFile, ScopeId},
+    container::{InContainer, InFile, ScopeId},
     def_id::DefId,
     lower_ident_opt,
+    owner::OwnerId,
     pathres::{ResolvedScopes, resolve_in_resolved_scopes},
     symbol::{NameContext, Resolution},
 };
@@ -35,7 +36,7 @@ impl SemanticsImpl<'_> {
         _file_id: HirFileId,
         SyntaxTokenWithParent { tok, .. }: SyntaxTokenWithParent,
         name_ctx: NameContext,
-        container: ArenaOwnerId,
+        container: OwnerId,
     ) -> Resolution<DefId> {
         let Some(ident) = lower_ident_opt(Some(tok)) else {
             return Resolution::Unresolved;
@@ -60,7 +61,7 @@ impl SemanticsImpl<'_> {
         resolve_in_resolved_scopes(self.db, resolved, &ident, name_ctx)
     }
 
-    pub(in crate::semantics) fn find_container(&self, node: InFile<SyntaxNode>) -> ArenaOwnerId {
+    pub(in crate::semantics) fn find_container(&self, node: InFile<SyntaxNode>) -> OwnerId {
         source_to_def::find_container(self.db, node)
     }
 

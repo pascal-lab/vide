@@ -155,7 +155,11 @@ impl HirDisplay for Ty {
                 }
             }
             Ty::Block(owner) => {
-                if let Some(name) = owner.name(f.db) { f.write_str(&name) } else { f.write_str("block") }
+                if let Some(name) = owner.name(f.db) {
+                    f.write_str(&name)
+                } else {
+                    f.write_str("block")
+                }
             }
         }
     }
@@ -190,10 +194,7 @@ fn hir_fmt_named_def_type(
     Ok(())
 }
 
-fn ty_expr_container(
-    db: &dyn crate::db::TyDb,
-    ty: &Ty,
-) -> Option<hir_def::container::ArenaOwnerId> {
+fn ty_expr_container(db: &dyn crate::db::TyDb, ty: &Ty) -> Option<hir_def::owner::OwnerId> {
     match ty {
         Ty::Builtin(BuiltinTy::Data { container, .. }) => Some(container.clone()),
         Ty::Struct(struct_ref) => Some(struct_ref.cont_id.clone()),
@@ -201,7 +202,7 @@ fn ty_expr_container(
         Ty::Enum(def) | Ty::Union(def) => match def.primary_origin(db).loc(db) {
             DefOriginLoc::Decl(decl) => Some(decl.cont_id.clone()),
             DefOriginLoc::Typedef(typedef) => Some(typedef.cont_id.clone()),
-            DefOriginLoc::SubroutinePort(port) => Some(port.subroutine.clone().into()),
+            DefOriginLoc::SubroutinePort(port) => port.subroutine.clone().owner(db),
             _ => None,
         },
         Ty::Queue { elem, .. } | Ty::Assoc { elem, .. } | Ty::Dynamic(elem) => {
@@ -344,7 +345,8 @@ impl HirDisplay for InModule<PortHeader> {
                 if *var_kw {
                     f.write_str("var ")?;
                 }
-                InContainer::new((*module_id).into(), ty.clone()).hir_fmt(f)
+                InContainer::new(module_id.owner(f.db).expect("module owner"), ty.clone())
+                    .hir_fmt(f)
             }
             PortHeader::Net { dir, net_ty: NetType { kind, ty } } => {
                 match dir {
@@ -370,7 +372,8 @@ impl HirDisplay for InModule<PortHeader> {
                     NetKind::Wand => f.write_str("wand ")?,
                     NetKind::Wor => f.write_str("wor ")?,
                 }
-                InContainer::new((*module_id).into(), ty.clone()).hir_fmt(f)
+                InContainer::new(module_id.owner(f.db).expect("module owner"), ty.clone())
+                    .hir_fmt(f)
             }
         }
     }

@@ -15,7 +15,7 @@ use super::{
         lower_covergroup_decl, lower_coverpoint, lower_cross,
     },
     declaration::DeclarationId,
-    lower::{FileStore, LoweringCtx},
+    lower::{FileStore, LoweringCtx, LoweringSyntax},
     lower_package_imports,
     module::{LocalModuleId, ModuleInfo, ModuleKind},
     proc::{Proc, ProcId},
@@ -42,7 +42,7 @@ pub(crate) type LowerFileCtx<'a> = LoweringCtx<FileStore<'a>>;
 
 impl LowerFileCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = self.current_arena_owner();
+        let container_id = self.current_owner();
         let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
         alloc_with_source(
@@ -71,7 +71,7 @@ impl LowerFileCtx<'_> {
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            self.current_arena_owner(),
+            self.current_owner(),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.lower_data_ty(ty),
         );
@@ -242,11 +242,7 @@ impl LowerFileCtx<'_> {
                 _ => continue,
             };
             self.store.data.items.push(idx);
-            self.region_tree.handle_node(member.syntax());
         }
-
-        self.region_tree.stage(root.end_of_file(), root.syntax());
-        self.store.sources.region_tree = self.region_tree.finish();
     }
 
     pub(crate) fn lower_library_map(&mut self, root: ast::LibraryMap) {
@@ -261,26 +257,23 @@ impl LowerFileCtx<'_> {
                 _ => continue,
             };
             self.store.data.items.push(idx);
-            self.region_tree.handle_node(member.syntax());
         }
-
-        self.region_tree.stage(root.end_of_file(), root.syntax());
-        self.store.sources.region_tree = self.region_tree.finish();
     }
 }
 
-#[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn hir_file_with_source_map(
-    db: &dyn HirDefDb,
-    file: SyntaxFileId,
+pub(crate) fn lower_file_owner(
+    owner: crate::owner::OwnerId,
+    syntax: &LoweringSyntax,
 ) -> Arc<Lowered<HirFile>> {
-    let file_id = file.hir_file(db);
-    let owner = db.owner_table(file_id).file_owner().expect("file owner must exist");
+    let file_id = syntax.file_id;
+    let tree = syntax.tree.clone();
     let mut body = Body::default();
     let mut source_map = BodySourceMap::default();
-    let tree = db.parse(file_id);
-    let mut lower_ctx =
-        LoweringCtx::new(db, owner, FileStore { data: &mut body, sources: &mut source_map });
+    let mut lower_ctx = LoweringCtx::new_with_syntax(
+        owner,
+        syntax,
+        FileStore { data: &mut body, sources: &mut source_map },
+    );
     match tree.root() {
         Some(root) if ast::CompilationUnit::can_cast(root.kind()) => {
             if let Some(root) = ast::CompilationUnit::cast(root) {
@@ -297,10 +290,20 @@ pub(crate) fn hir_file_with_source_map(
 
     let diagnostics = lower_ctx.emit_diagnostics();
     drop(lower_ctx);
-    source_map.diagnostics = diagnostics;
     body.shrink_to_fit();
     source_map.shrink_to_fit();
-    Arc::new(Lowered::new(file_id, body, source_map))
+    Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
+}
+
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn hir_file_with_source_map(
+    db: &dyn HirDefDb,
+    file: SyntaxFileId,
+) -> Arc<Lowered<HirFile>> {
+    let file_id = file.hir_file(db);
+    let item_tree = db.item_tree(file_id);
+    let owner = item_tree.root_owner().expect("file owner must exist");
+    item_tree.owner_store(owner).expect("file owner store must exist")
 }
 
 pub(crate) fn set_hir_file_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {

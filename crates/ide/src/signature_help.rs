@@ -188,8 +188,11 @@ fn sig_help_for_instance(
                         let r = target_module.get(r);
                         buf.push_str(r.ident.as_ref().map(|s| s.as_str()).unwrap_or("<missing>"));
                         if let Some(select) = &r.select {
-                            match InContainer::new(target_module_id.into(), *select)
-                                .display_signature(db)
+                            match InContainer::new(
+                                target_module_id.owner(db).expect("target module owner"),
+                                *select,
+                            )
+                            .display_signature(db)
                             {
                                 Ok(s) => buf.push_str(s.as_str()),
                                 Err(_) => buf.push_str("<missing>"),
@@ -217,7 +220,12 @@ fn sig_help_for_instance(
                 let header_size = buf.len();
 
                 for decl_id in port_decl.decls.clone() {
-                    match InContainer::new(target_module_id.into(), decl_id).display_signature(db) {
+                    match InContainer::new(
+                        target_module_id.owner(db).expect("target module owner"),
+                        decl_id,
+                    )
+                    .display_signature(db)
+                    {
                         Ok(decl) => buf.push_str(&decl),
                         Err(_) => buf.push_str("<missing>"),
                     }
@@ -303,9 +311,12 @@ fn sig_help_for_instantiation(
     {
         let mut buf = String::new();
         if !res.config.params_only {
-            let ty = InContainer::new(target_module_id.into(), port_decl.ty())
-                .display_signature(db)
-                .unwrap_or_default();
+            let ty = InContainer::new(
+                target_module_id.owner(db).expect("target module owner"),
+                port_decl.ty(),
+            )
+            .display_signature(db)
+            .unwrap_or_default();
             buf.push_str(&ty);
             if !ty.is_empty() {
                 buf.push(' ');
@@ -314,7 +325,12 @@ fn sig_help_for_instantiation(
         let header_size = buf.len();
 
         for decl_id in port_decl.decls() {
-            match InContainer::new(target_module_id.into(), decl_id).display_signature(db) {
+            match InContainer::new(
+                target_module_id.owner(db).expect("target module owner"),
+                decl_id,
+            )
+            .display_signature(db)
+            {
                 Ok(decl) => buf.push_str(&decl),
                 Err(_) => buf.push_str("<missing>"),
             }
@@ -359,7 +375,7 @@ fn sig_help_for_invocation(
     .unique()?;
     let subroutine = db.subroutine(subroutine_id.clone());
     let subroutine_name = subroutine.name.as_ref()?;
-    let container: hir_def::container::ArenaOwnerId = subroutine_id.cont_id.into();
+    let container = subroutine_id.clone().owner(db).expect("subroutine owner");
 
     let active_param =
         invocation.arguments().and_then(|args| active_argument_at_offset(args, offset));

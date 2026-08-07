@@ -71,7 +71,13 @@ pub(crate) fn missing_member_entry_text(
     is_ordered: bool,
     unresolved_ordered_value: &str,
 ) -> String {
-    match (sema.name_to_def(InContainer::new(module_id.into(), name.clone())), is_ordered) {
+    match (
+        sema.name_to_def(InContainer::new(
+            module_id.owner(sema.db).expect("module owner"),
+            name.clone(),
+        )),
+        is_ordered,
+    ) {
         (Resolution::Unresolved, true) => {
             format!("/* {name} */ {unresolved_ordered_value}")
         }

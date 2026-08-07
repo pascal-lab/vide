@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use preproc_expand::file::HirFileId;
-use rustc_hash::FxHasher;
+use rustc_hash::{FxHashMap, FxHasher};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SyntaxElement, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, SyntaxTree, TokenKind,
@@ -15,8 +15,11 @@ use utils::text_edit::TextRange;
 
 use crate::{
     ast_id_map::{self, AstIdMap, SourceAstId, SyntaxFileId},
+    body::Body,
     db::HirDefDb,
-    owner::{OwnerId, OwnerTable, OwnerTableBuilder},
+    lower::LoweringSyntax,
+    owner::{OwnerId, OwnerKind, OwnerTable, OwnerTableBuilder},
+    source_map::Lowered,
     source_projection::SourceOrigin,
 };
 
@@ -146,6 +149,7 @@ pub struct ItemTree {
     owners: Arc<OwnerTable>,
     items: Vec<ItemTreeItem>,
     signatures: Vec<Signature>,
+    owner_stores: FxHashMap<OwnerId, Arc<Lowered<Body>>>,
 }
 
 impl ItemTree {
@@ -184,6 +188,10 @@ impl ItemTree {
             .map(|(raw, signature)| (SignatureId::from_raw(raw as u32), signature))
     }
 
+    pub(crate) fn owner_store(&self, owner: OwnerId) -> Option<Arc<Lowered<Body>>> {
+        self.owner_stores.get(&owner).cloned()
+    }
+
     pub fn len(&self) -> usize {
         self.items.len()
     }
@@ -192,8 +200,11 @@ impl ItemTree {
         self.items.is_empty()
     }
 }
+/// Extracts position-free structural data from the live parse. This query may
+/// execute after any syntax change; equality backdating prevents body-only
+/// changes from invalidating [`item_tree`] and its consumers.
 #[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn item_tree(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<ItemTree> {
+fn item_tree_input(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<ItemTree> {
     let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
     let ast_ids = ast_id_map::ast_id_map(db, file);
@@ -202,13 +213,52 @@ pub(crate) fn item_tree(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<ItemTree> 
         .root()
         .and_then(|root| ast_ids.id_of_node_in_tree(&tree, root))
         .unwrap_or(SourceAstId::from_raw(0));
-    let mut owners = OwnerTableBuilder::new(db, file_id, root_ast_id);
+    let mut owner_builder = OwnerTableBuilder::new_structural(db, file_id, root_ast_id);
     let (items, signatures) =
-        build_item_tree_data(&tree, &ast_ids, source_text.as_deref(), Some(&mut owners));
-    Arc::new(ItemTree { file_id, owners: Arc::new(owners.finish()), items, signatures })
+        build_item_tree_data(&tree, &ast_ids, source_text.as_deref(), Some(&mut owner_builder));
+    let owners = Arc::new(owner_builder.finish());
+    let syntax = LoweringSyntax::new(file_id, tree, ast_ids, Arc::clone(&owners));
+    let owner_stores = build_owner_stores(db, &owners, &syntax);
+    Arc::new(ItemTree { file_id, owners, items, signatures, owner_stores })
+}
+
+fn build_owner_stores(
+    db: &dyn HirDefDb,
+    owners: &OwnerTable,
+    syntax: &LoweringSyntax,
+) -> FxHashMap<OwnerId, Arc<Lowered<Body>>> {
+    let mut stores = FxHashMap::default();
+    let file_owner = owners.file_owner().expect("file owner must exist");
+    stores.insert(file_owner, crate::file::lower_file_owner(file_owner, syntax));
+
+    for owner in owners.owners() {
+        let store = match owner.kind {
+            OwnerKind::Module => Some(crate::module::lower_module_owner(db, owner.id, syntax)),
+            OwnerKind::GenerateBlock => {
+                Some(crate::module::generate::lower_generate_owner(db, owner.id, syntax))
+            }
+            OwnerKind::File
+            | OwnerKind::ProceduralBlock
+            | OwnerKind::Block
+            | OwnerKind::Subroutine
+            | OwnerKind::Checker
+            | OwnerKind::Covergroup
+            | OwnerKind::ClockingBlock => None,
+        };
+        if let Some(store) = store {
+            stores.insert(owner.id, store);
+        }
+    }
+    stores
+}
+
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn item_tree(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<ItemTree> {
+    item_tree_input(db, file)
 }
 
 pub(crate) fn set_item_tree_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    item_tree_input::set_lru_capacity(db, capacity);
     item_tree::set_lru_capacity(db, capacity);
     item_for_owner::set_lru_capacity(db, capacity);
     signature_for_owner::set_lru_capacity(db, capacity);
@@ -329,7 +379,13 @@ fn build_item_tree(
     source_text: Option<&str>,
 ) -> ItemTree {
     let (items, signatures) = build_item_tree_data(tree, ast_ids, source_text, None);
-    ItemTree { file_id, owners: Arc::new(OwnerTable::default()), items, signatures }
+    ItemTree {
+        file_id,
+        owners: Arc::new(OwnerTable::default()),
+        items,
+        signatures,
+        owner_stores: FxHashMap::default(),
+    }
 }
 fn lower_signature(function: ast::FunctionDeclaration<'_>, ast_ids: &AstIdMap) -> Signature {
     let prototype = function.prototype();

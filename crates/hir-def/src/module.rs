@@ -13,7 +13,7 @@ use super::{
     covergroup::{CovergroupId, lower_covergroup_decl, lower_coverpoint, lower_cross},
     declaration::{Declaration, ParamDeclKind},
     expr::declarator::{DeclId, Declarator},
-    lower::{LoweringCtx, ModuleStore},
+    lower::{LoweringCtx, LoweringSyntax, ModuleStore},
     lower_ident_opt, lower_package_imports,
     subroutine::{LocalSubroutineId, lower_subroutine},
     typedef::{Typedef, TypedefId, lower_typedef_data_ty},
@@ -111,7 +111,7 @@ pub(crate) type LowerModuleCtx<'a> = LoweringCtx<ModuleStore<'a>>;
 
 impl LowerModuleCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = self.current_arena_owner();
+        let container_id = self.current_owner();
         let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
         alloc_with_source(
@@ -141,7 +141,7 @@ impl LowerModuleCtx<'_> {
         let lowered_ty = lower_typedef_data_ty(
             self,
             data_ty,
-            self.current_arena_owner(),
+            self.current_owner(),
             |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
             |ctx, ty| ctx.lower_data_ty(ty),
         );
@@ -232,7 +232,6 @@ impl LowerModuleCtx<'_> {
                 if let Declaration::ParamDecl(param_decl) = &self.store.data.declarations[decl_id] {
                     inherited_kind = param_decl.kind;
                 }
-                self.region_tree.handle_node(decls.syntax());
             }
 
             let param_port_range = {
@@ -243,8 +242,6 @@ impl LowerModuleCtx<'_> {
                 })
             };
             self.store.data.param_ports = param_port_range;
-
-            self.region_tree.stage(param_ports.close_paren(), param_ports.syntax());
         }
 
         match header.ports() {
@@ -329,7 +326,6 @@ impl LowerModuleCtx<'_> {
                 TimeUnitsDeclaration(_) | ClockingItem(_) => continue,
                 DefaultClockingReference(reference) => {
                     self.lower_default_clocking_reference(reference);
-                    self.region_tree.handle_node(member.syntax());
                     continue;
                 }
                 ClockingDeclaration(clocking) => self.lower_clocking_declaration(clocking).into(),
@@ -381,7 +377,6 @@ impl LowerModuleCtx<'_> {
                         let item = BodyItem::from(modport_id);
                         self.store.data.items.push(item.clone());
                     }
-                    self.region_tree.handle_node(member.syntax());
                     continue;
                 }
                 ModportClockingPort(_)
@@ -428,37 +423,45 @@ impl LowerModuleCtx<'_> {
                 EmptyMember(_) => continue,
             };
             self.store.data.items.push(idx.clone());
-            self.region_tree.handle_node(member.syntax());
         }
-        self.region_tree.stage(decl.endmodule(), decl.syntax());
-        self.store.sources.region_tree = self.region_tree.finish();
     }
 }
 
-#[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn module_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Module>> {
+pub(crate) fn lower_module_owner(
+    db: &dyn HirDefDb,
+    owner: OwnerId,
+    syntax: &LoweringSyntax,
+) -> Arc<Lowered<Module>> {
     debug_assert_eq!(owner.kind(db), OwnerKind::Module);
-    let file_id = owner.file(db);
-    let tree = db.parse(file_id);
+    let file_id = syntax.file_id;
+    let tree = syntax.tree.clone();
     let mut body = Body::default();
     let mut source_map = BodySourceMap::default();
 
     let Some(ast_module) =
-        db.ast_id_map(file_id).node(owner.ast_id(db), &tree).and_then(ast::ModuleDeclaration::cast)
+        syntax.ast_ids.node(owner.ast_id(db), &tree).and_then(ast::ModuleDeclaration::cast)
     else {
         return Arc::new(Lowered::new(file_id, body, source_map));
     };
     body.name = lower_ident_opt(ast_module.header().name());
 
-    let mut lower_ctx =
-        LoweringCtx::new(db, owner, ModuleStore { data: &mut body, sources: &mut source_map });
+    let mut lower_ctx = LoweringCtx::new_with_syntax(
+        owner,
+        syntax,
+        ModuleStore { data: &mut body, sources: &mut source_map },
+    );
     lower_ctx.lower_module_decl(ast_module);
     let diagnostics = lower_ctx.emit_diagnostics();
     drop(lower_ctx);
-    source_map.diagnostics = diagnostics;
     body.shrink_to_fit();
     source_map.shrink_to_fit();
-    Arc::new(Lowered::new(file_id, body, source_map))
+    Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
+}
+
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn module_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Module>> {
+    debug_assert_eq!(owner.kind(db), OwnerKind::Module);
+    db.item_tree(owner.file(db)).owner_store(owner).expect("module owner store must exist")
 }
 
 pub(crate) fn set_module_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {

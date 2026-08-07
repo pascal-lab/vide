@@ -1,8 +1,8 @@
 //! File-level aggregation of lowering diagnostics.
 //!
-//! Every lowering pass stores its recovery diagnostics in its own source map
-//! (see [`DiagnosticSource`]); this module flattens them for a whole file so
-//! the IDE can surface them without knowing about every owner kind.
+//! Every lowering pass stores recovery diagnostics beside its position-free
+//! result; this module projects their `SourceAstId` anchors and flattens them
+//! for a whole file without exposing owner-specific lowering to the IDE.
 //!
 //! A lowerer reports a diagnostic without a root-buffer range (`range: None`)
 //! when the offending syntax has no stable position in the file's display
@@ -34,7 +34,8 @@ use crate::{
         generate::{GenerateBlockId, GenerateBlockItem, GenerateItem},
     },
     proc::Proc,
-    source_map::{DiagnosticSource, LoweringDiagnostic},
+    source_map::LoweringDiagnostic,
+    source_projection::SourceProjection,
 };
 
 #[salsa::tracked(returns(clone))]
@@ -49,24 +50,32 @@ pub(crate) fn file_lowering_diagnostics(
     let src_map = lowered_file.source_map();
 
     let mut diagnostics = Vec::new();
+    let projection = db.source_projection(file_id);
     // File-level owners have no enclosing container; the whole file is the
     // search scope for range-less diagnostics.
-    collect(src_map.diagnostics(), None, &tree, &mut diagnostics);
+    collect(lowered_file.raw_diagnostics(), None, &tree, &projection, &mut diagnostics);
 
     for (value, _) in src_map.subroutine_srcs.iter() {
         collect_subroutine(
             db,
             SubroutineScope { cont_id: SubroutineParent::File(file_id), value },
             &tree,
+            &projection,
             &mut diagnostics,
         );
     }
 
     for (local_module_id, _) in file.modules.iter() {
-        collect_module(db, ModuleId::new(file_id, local_module_id), &tree, &mut diagnostics);
+        collect_module(
+            db,
+            ModuleId::new(file_id, local_module_id),
+            &tree,
+            &projection,
+            &mut diagnostics,
+        );
     }
 
-    collect_proc_bodies(db, &file.procs, &tree, &mut diagnostics);
+    collect_proc_bodies(db, &file.procs, &tree, &projection, &mut diagnostics);
     Arc::from(diagnostics)
 }
 
@@ -74,11 +83,12 @@ fn collect_module(
     db: &dyn HirDefDb,
     module_id: ModuleId,
     tree: &SyntaxTree,
+    projection: &SourceProjection,
     diagnostics: &mut Vec<LoweringDiagnostic>,
 ) {
     let lowered = db.module_with_source_map(module_id);
     let owner_range = module_id.source(db).map(|source| source.value.full_range());
-    collect(lowered.source_map().diagnostics(), owner_range, tree, diagnostics);
+    collect(lowered.raw_diagnostics(), owner_range, tree, projection, diagnostics);
 
     let module = lowered.data_ref();
     let src_map = lowered.source_map();
@@ -88,6 +98,7 @@ fn collect_module(
             db,
             SubroutineScope { cont_id: SubroutineParent::Module(module_id), value },
             tree,
+            projection,
             diagnostics,
         );
     }
@@ -96,23 +107,24 @@ fn collect_module(
         let region = module.get(region_id);
         for item in &region.items {
             if let GenerateItem::GenerateBlockId(block_id) = item {
-                collect_generate_block(db, block_id.clone(), tree, diagnostics);
+                collect_generate_block(db, block_id.clone(), tree, projection, diagnostics);
             }
         }
     }
 
-    collect_proc_bodies(db, &module.procs, tree, diagnostics);
+    collect_proc_bodies(db, &module.procs, tree, projection, diagnostics);
 }
 
 fn collect_generate_block(
     db: &dyn HirDefDb,
     block_id: GenerateBlockId,
     tree: &SyntaxTree,
+    projection: &SourceProjection,
     diagnostics: &mut Vec<LoweringDiagnostic>,
 ) {
     let lowered = db.generate_block_with_source_map(block_id.clone());
     let owner_range = block_id.source(db).map(|source| source.value.full_range());
-    collect(lowered.source_map().diagnostics(), owner_range, tree, diagnostics);
+    collect(lowered.raw_diagnostics(), owner_range, tree, projection, diagnostics);
 
     let block = lowered.data_ref();
     let src_map = lowered.source_map();
@@ -122,41 +134,44 @@ fn collect_generate_block(
             db,
             SubroutineScope { cont_id: SubroutineParent::GenerateBlock(block_id.clone()), value },
             tree,
+            projection,
             diagnostics,
         );
     }
 
     for item in &block.items {
         if let GenerateBlockItem::GenerateBlockId(nested) = item {
-            collect_generate_block(db, nested.clone(), tree, diagnostics);
+            collect_generate_block(db, nested.clone(), tree, projection, diagnostics);
         }
     }
 
-    collect_proc_bodies(db, &block.procs, tree, diagnostics);
+    collect_proc_bodies(db, &block.procs, tree, projection, diagnostics);
 }
 
 fn collect_subroutine(
     db: &dyn HirDefDb,
     scope: SubroutineScope,
     tree: &SyntaxTree,
+    projection: &SourceProjection,
     diagnostics: &mut Vec<LoweringDiagnostic>,
 ) {
     let owner = scope.clone().owner(db).expect("subroutine must map to an owner");
     let lowered = db.subroutine_body_with_source_map(owner);
     let owner_range = scope.source(db).map(|source| source.value.full_range());
-    collect(lowered.source_map().diagnostics(), owner_range, tree, diagnostics);
+    collect(lowered.raw_diagnostics(), owner_range, tree, projection, diagnostics);
 }
 
 fn collect_proc_bodies(
     db: &dyn HirDefDb,
     procs: &Arena<Proc>,
     tree: &SyntaxTree,
+    projection: &SourceProjection,
     diagnostics: &mut Vec<LoweringDiagnostic>,
 ) {
     for (_, proc) in procs.iter() {
         let body = db.body_with_source_map(proc.owner);
         let owner_range = proc.owner.source(db).map(|source| source.value.full_range());
-        collect(body.source_map().diagnostics(), owner_range, tree, diagnostics);
+        collect(body.raw_diagnostics(), owner_range, tree, projection, diagnostics);
     }
 }
 
@@ -164,11 +179,16 @@ fn collect(
     diagnostics: &[LoweringDiagnostic],
     owner_range: Option<TextRange>,
     tree: &SyntaxTree,
+    projection: &SourceProjection,
     out: &mut Vec<LoweringDiagnostic>,
 ) {
     for diagnostic in diagnostics {
         let mut diagnostic = diagnostic.clone();
-        diagnostic.range = Some(resolve_range(tree, owner_range, &diagnostic));
+        diagnostic.range = diagnostic
+            .source
+            .and_then(|source| projection.origin(source))
+            .and_then(|origin| origin.full_range())
+            .or_else(|| Some(resolve_range(tree, owner_range, &diagnostic)));
         out.push(diagnostic);
     }
 }
@@ -424,6 +444,7 @@ endmodule
         let diagnostic = LoweringDiagnostic {
             kind: LoweringDiagnosticKind::UnsupportedSyntax,
             syntax_kind: SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION,
+            source: None,
             range: Some(explicit),
             message: "unsupported expression",
         };
@@ -438,6 +459,7 @@ endmodule
         let diagnostic = LoweringDiagnostic {
             kind: LoweringDiagnosticKind::UnsupportedSyntax,
             syntax_kind: SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION,
+            source: None,
             range: None,
             message: "unsupported expression",
         };
@@ -453,6 +475,7 @@ endmodule
         let diagnostic = LoweringDiagnostic {
             kind: LoweringDiagnosticKind::UnsupportedSyntax,
             syntax_kind: SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION,
+            source: None,
             range: None,
             message: "unsupported expression",
         };

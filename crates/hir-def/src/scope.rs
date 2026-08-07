@@ -13,8 +13,8 @@ use crate::{
     body::Body,
     checker::{CheckerDef, CheckerId, CheckerPortId},
     container::{
-        ArenaOwnerId, FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope,
-        InSubroutine, ScopeId, SubroutineParent, SubroutineScope,
+        FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine,
+        ScopeId, SubroutineParent, SubroutineScope,
     },
     covergroup::{CovergroupDef, CovergroupId},
     db::HirDefDb,
@@ -53,42 +53,39 @@ fn body_scope<'a>(body: &'a Body, owner: OwnerId) -> &'a crate::body::BodyScopeD
 fn insert_body_declarators(
     scope: &mut NameScope,
     db: &dyn HirDefDb,
-    cont_id: ArenaOwnerId,
+    cont_id: OwnerId,
     body: &Body,
     owner: OwnerId,
 ) {
     for &decl_id in body_scope(body, owner).declarators() {
         let decl = &body.decls[decl_id];
-        scope.insert_value_opt(&decl.name, def_id(db, InContainer::new(cont_id.clone(), decl_id)));
+        scope.insert_value_opt(&decl.name, def_id(db, InContainer::new(cont_id, decl_id)));
     }
 }
 
 fn insert_body_typedefs(
     scope: &mut NameScope,
     db: &dyn HirDefDb,
-    cont_id: ArenaOwnerId,
+    cont_id: OwnerId,
     body: &Body,
     owner: OwnerId,
 ) {
     for &typedef_id in body_scope(body, owner).typedefs() {
         let typedef = &body.typedefs[typedef_id];
-        scope.insert_type_opt(
-            &typedef.name,
-            def_id(db, InContainer::new(cont_id.clone(), typedef_id)),
-        );
+        scope.insert_type_opt(&typedef.name, def_id(db, InContainer::new(cont_id, typedef_id)));
     }
 }
 
 fn insert_body_statements(
     scope: &mut NameScope,
     db: &dyn HirDefDb,
-    cont_id: ArenaOwnerId,
+    cont_id: OwnerId,
     body: &Body,
     owner: OwnerId,
 ) {
     for &stmt_id in body_scope(body, owner).statements() {
         let stmt = &body.stmts[stmt_id];
-        scope.insert_value_opt(&stmt.label, def_id(db, InContainer::new(cont_id.clone(), stmt_id)));
+        scope.insert_value_opt(&stmt.label, def_id(db, InContainer::new(cont_id, stmt_id)));
         if let StmtKind::Block(block_owner) = stmt.kind {
             scope.insert_value_opt(&block_owner.name(db), def_id(db, block_owner));
         }
@@ -98,13 +95,7 @@ fn insert_body_statements(
 fn insert_proc_bodies(scope: &mut NameScope, db: &dyn HirDefDb, procs: &Arena<crate::proc::Proc>) {
     for (_, proc) in procs.iter() {
         let body = db.body_with_source_map(proc.owner);
-        insert_body_statements(
-            scope,
-            db,
-            ArenaOwnerId::Owner(proc.owner),
-            body.data_ref(),
-            proc.owner,
-        );
+        insert_body_statements(scope, db, proc.owner, body.data_ref(), proc.owner);
     }
 }
 
@@ -240,7 +231,7 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameSco
         scope.insert_package_import(import);
     }
 
-    insert_body_declarators(&mut scope, db, file_id.into(), body.data_ref(), file_owner);
+    insert_body_declarators(&mut scope, db, file_owner, body.data_ref(), file_owner);
     insert_proc_bodies(&mut scope, db, &hir_file.procs);
 
     for (local_subroutine_id, subroutine) in hir_file.subroutines.iter() {
@@ -289,7 +280,7 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameSco
         scope.insert_value_opt(&cross.name, def_id(db, InScope::new(file_id.into(), cross_id)));
     }
 
-    insert_body_typedefs(&mut scope, db, file_id.into(), body.data_ref(), file_owner);
+    insert_body_typedefs(&mut scope, db, file_owner, body.data_ref(), file_owner);
 
     scope
 }
@@ -355,8 +346,8 @@ pub(crate) fn build_module_scope(
         scope.insert_value_opt(&cross.name, def_id(db, InScope::new(module_id.into(), cross_id)));
     }
 
-    insert_body_declarators(&mut scope, db, module_id.into(), body.data_ref(), owner);
-    insert_body_typedefs(&mut scope, db, module_id.into(), body.data_ref(), owner);
+    insert_body_declarators(&mut scope, db, owner, body.data_ref(), owner);
+    insert_body_typedefs(&mut scope, db, owner, body.data_ref(), owner);
 
     for (instance_id, instance) in module.instances.iter() {
         scope.insert_value_opt(&instance.name, def_id(db, InModule::new(module_id, instance_id)));
@@ -376,7 +367,7 @@ pub(crate) fn build_module_scope(
         }
     }
 
-    insert_body_statements(&mut scope, db, module_id.into(), body.data_ref(), owner);
+    insert_body_statements(&mut scope, db, owner, body.data_ref(), owner);
     insert_proc_bodies(&mut scope, db, &module.procs);
 
     scope
@@ -417,8 +408,8 @@ pub(crate) fn build_checker_scope(
         );
     }
 
-    let owner_id = ArenaOwnerId::from(checker_id.cont_id);
-    let container = owner_id.clone().data(db);
+    let owner_id = checker_id.parent_scope().owner(db);
+    let container = owner_id.data(db);
     for declaration_id in &checker.declarations {
         let declaration = container.declaration(*declaration_id);
         for decl_id in declaration.decls() {
@@ -503,14 +494,8 @@ pub(crate) fn build_generate_block_scope(
         scope.insert_value_opt(&subroutine.name, def_id(db, subroutine_id));
     }
 
-    insert_body_declarators(
-        &mut scope,
-        db,
-        generate_block_id.clone().into(),
-        body.data_ref(),
-        owner,
-    );
-    insert_body_typedefs(&mut scope, db, generate_block_id.clone().into(), body.data_ref(), owner);
+    insert_body_declarators(&mut scope, db, owner, body.data_ref(), owner);
+    insert_body_typedefs(&mut scope, db, owner, body.data_ref(), owner);
 
     for item in &generate_block.items {
         if let crate::module::generate::GenerateBlockItem::GenerateBlockId(child_id) = item.clone()
@@ -520,7 +505,7 @@ pub(crate) fn build_generate_block_scope(
         }
     }
 
-    insert_body_statements(&mut scope, db, generate_block_id.into(), body.data_ref(), owner);
+    insert_body_statements(&mut scope, db, owner, body.data_ref(), owner);
     insert_proc_bodies(&mut scope, db, &generate_block.procs);
 
     scope
@@ -532,9 +517,9 @@ pub(crate) fn build_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope 
     let body = db.body_with_source_map(owner);
 
     let root = crate::body::body_owner(db, owner);
-    insert_body_declarators(&mut scope, db, ArenaOwnerId::Owner(owner), body.data_ref(), owner);
-    insert_body_typedefs(&mut scope, db, ArenaOwnerId::Owner(owner), body.data_ref(), owner);
-    insert_body_statements(&mut scope, db, ArenaOwnerId::Owner(owner), body.data_ref(), owner);
+    insert_body_declarators(&mut scope, db, owner, body.data_ref(), owner);
+    insert_body_typedefs(&mut scope, db, owner, body.data_ref(), owner);
+    insert_body_statements(&mut scope, db, owner, body.data_ref(), owner);
     debug_assert_eq!(body.scope_graph.root(), Some(root));
 
     scope
@@ -557,9 +542,9 @@ pub(crate) fn build_subroutine_scope(
         );
     }
 
-    insert_body_declarators(&mut scope, db, ArenaOwnerId::Owner(owner), body.data_ref(), owner);
-    insert_body_typedefs(&mut scope, db, ArenaOwnerId::Owner(owner), body.data_ref(), owner);
-    insert_body_statements(&mut scope, db, ArenaOwnerId::Owner(owner), body.data_ref(), owner);
+    insert_body_declarators(&mut scope, db, owner, body.data_ref(), owner);
+    insert_body_typedefs(&mut scope, db, owner, body.data_ref(), owner);
+    insert_body_statements(&mut scope, db, owner, body.data_ref(), owner);
 
     scope
 }
@@ -580,32 +565,23 @@ pub(crate) fn build_owner_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope 
         OwnerKind::ProceduralBlock => {
             let body = db.body_with_source_map(owner);
             let mut scope = NameScope::default();
-            insert_body_declarators(
-                &mut scope,
-                db,
-                ArenaOwnerId::Owner(owner),
-                body.data_ref(),
-                owner,
-            );
-            insert_body_typedefs(
-                &mut scope,
-                db,
-                ArenaOwnerId::Owner(owner),
-                body.data_ref(),
-                owner,
-            );
-            insert_body_statements(
-                &mut scope,
-                db,
-                ArenaOwnerId::Owner(owner),
-                body.data_ref(),
-                owner,
-            );
+            insert_body_declarators(&mut scope, db, owner, body.data_ref(), owner);
+            insert_body_typedefs(&mut scope, db, owner, body.data_ref(), owner);
+            insert_body_statements(&mut scope, db, owner, body.data_ref(), owner);
             scope
         }
-        OwnerKind::Checker | OwnerKind::Covergroup | OwnerKind::ClockingBlock => {
-            NameScope::default()
-        }
+        OwnerKind::Checker => match ScopeId::from_owner(db, owner) {
+            Some(ScopeId::Checker(id)) => build_checker_scope(db, id),
+            _ => NameScope::default(),
+        },
+        OwnerKind::Covergroup => match ScopeId::from_owner(db, owner) {
+            Some(ScopeId::Covergroup(id)) => build_covergroup_scope(db, id),
+            _ => NameScope::default(),
+        },
+        OwnerKind::ClockingBlock => match ScopeId::from_owner(db, owner) {
+            Some(ScopeId::ClockingBlock(id)) => build_clocking_block_scope(db, id),
+            _ => NameScope::default(),
+        },
     }
 }
 
@@ -692,7 +668,10 @@ impl PackageExportSignatureBuilder<'_> {
         let decl_id = self.next_decl_id();
         self.scope.insert_value_opt(
             &name,
-            def_id(self.db, InContainer::new(self.package_id.into(), decl_id)),
+            def_id(
+                self.db,
+                InContainer::new(self.package_id.owner(self.db).expect("package owner"), decl_id),
+            ),
         );
     }
 
@@ -701,7 +680,13 @@ impl PackageExportSignatureBuilder<'_> {
         let name = lower_ident_opt(typedef.name());
         self.scope.insert_type_opt(
             &name,
-            def_id(self.db, InContainer::new(self.package_id.into(), typedef_id)),
+            def_id(
+                self.db,
+                InContainer::new(
+                    self.package_id.owner(self.db).expect("package owner"),
+                    typedef_id,
+                ),
+            ),
         );
     }
 
@@ -1322,8 +1307,8 @@ endmodule
             module.source(expr_id).is_some(),
             "valid but unsupported syntax must retain its source"
         );
-        assert_eq!(module.diagnostics().len(), 1);
-        let diagnostic = &module.diagnostics()[0];
+        assert_eq!(module.diagnostics(&db).len(), 1);
+        let diagnostic = &module.diagnostics(&db)[0];
         assert_eq!(diagnostic.kind, crate::source_map::LoweringDiagnosticKind::UnsupportedSyntax);
         assert_eq!(diagnostic.syntax_kind, syntax::SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION);
         assert!(diagnostic.range.is_some());
@@ -1356,7 +1341,7 @@ endmodule
             crate::expr::data_ty::DataTy::Unsupported(syntax::SyntaxKind::STRUCT_TYPE)
         ));
         assert!(
-            module.diagnostics().iter().any(|diagnostic| {
+            module.diagnostics(&db).iter().any(|diagnostic| {
                 diagnostic.kind == crate::source_map::LoweringDiagnosticKind::UnsupportedSyntax
                     && diagnostic.syntax_kind == syntax::SyntaxKind::STRUCT_TYPE
                     && diagnostic.range.is_some()

@@ -20,18 +20,19 @@ use rustc_hash::FxHashMap;
 use smallvec::{SmallVec, smallvec};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    SyntaxKind, SyntaxNode, SyntaxTree,
+    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxTree, WalkEvent,
     ast::{self, AstNode},
     has_name::HasName,
 };
+use triomphe::Arc;
 
 use crate::{
-    ast_id_map::SourceAstId,
-    container::{ArenaOwnerId, InFile, SubroutineParent, SubroutineScope},
+    ast_id_map::{SourceAstId, SyntaxFileId},
+    container::{InFile, SubroutineParent, SubroutineScope},
     db::HirDefDb,
     module::{
         ModuleId,
-        generate::{GenerateBlockId, GenerateBlockLoc, GenerateBlockSrc, generate_block_name},
+        generate::{GenerateBlockId, GenerateBlockLoc, generate_block_name},
     },
 };
 
@@ -74,12 +75,6 @@ impl OwnerId {
         let table = db.owner_table(self.file(db));
         let name = table.owner(self)?.name.clone();
         (!name.is_empty()).then_some(name)
-    }
-
-    /// Projects this canonical owner into the arena-facing container handle
-    /// still used by HIR consumers.
-    pub fn arena_owner(self, db: &dyn HirDefDb) -> Option<ArenaOwnerId> {
-        legacy_container_for_owner(db, self)
     }
 }
 
@@ -146,10 +141,28 @@ pub(crate) struct OwnerTableBuilder<'db> {
     file_id: HirFileId,
     table: OwnerTable,
     stack: Vec<OwnerId>,
+    include_body_owners: bool,
 }
 
 impl<'db> OwnerTableBuilder<'db> {
     pub(crate) fn new(db: &'db dyn HirDefDb, file_id: HirFileId, root_ast_id: SourceAstId) -> Self {
+        Self::build(db, file_id, root_ast_id, true)
+    }
+
+    pub(crate) fn new_structural(
+        db: &'db dyn HirDefDb,
+        file_id: HirFileId,
+        root_ast_id: SourceAstId,
+    ) -> Self {
+        Self::build(db, file_id, root_ast_id, false)
+    }
+
+    fn build(
+        db: &'db dyn HirDefDb,
+        file_id: HirFileId,
+        root_ast_id: SourceAstId,
+        include_body_owners: bool,
+    ) -> Self {
         let file_owner = OwnerId::new(db, file_id, root_ast_id, OwnerKind::File);
         let mut table = OwnerTable::default();
         table.owners.push(OwnerData {
@@ -159,11 +172,18 @@ impl<'db> OwnerTableBuilder<'db> {
             name: SmolStr::new_static(""),
         });
         table.by_source.insert((root_ast_id, OwnerKind::File), file_owner);
-        Self { db, file_id, table, stack: vec![file_owner] }
+        Self { db, file_id, table, stack: vec![file_owner], include_body_owners }
+    }
+
+    fn kinds(&self, node: SyntaxNode<'_>) -> SmallVec<[OwnerKind; 2]> {
+        owner_kinds_of(node)
+            .into_iter()
+            .filter(|kind| self.include_body_owners || *kind != OwnerKind::Block)
+            .collect()
     }
 
     pub(crate) fn enter(&mut self, node: SyntaxNode<'_>, ast_id: SourceAstId) {
-        for kind in owner_kinds_of(node) {
+        for kind in self.kinds(node) {
             let parent = self.stack.last().copied();
             let owner = OwnerId::new(self.db, self.file_id, ast_id, kind);
             self.table.owners.push(OwnerData {
@@ -179,7 +199,7 @@ impl<'db> OwnerTableBuilder<'db> {
     }
 
     pub(crate) fn leave(&mut self, node: SyntaxNode<'_>) {
-        for _ in owner_kinds_of(node) {
+        for _ in self.kinds(node) {
             self.stack.pop().expect("owner stack always contains the file owner");
         }
     }
@@ -190,12 +210,43 @@ impl<'db> OwnerTableBuilder<'db> {
     }
 }
 
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn owner_table(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerTable> {
+    let file_id = file.hir_file(db);
+    let tree = db.parse(file_id);
+    let ast_ids = crate::ast_id_map::ast_id_map(db, file);
+    let root_ast_id = tree
+        .root()
+        .and_then(|root| ast_ids.id_of_node_in_tree(&tree, root))
+        .unwrap_or(SourceAstId::from_raw(0));
+    let mut builder = OwnerTableBuilder::new(db, file_id, root_ast_id);
+    if let Some(root) = tree.root() {
+        for event in root.elem_preorder() {
+            match event {
+                WalkEvent::Enter(SyntaxElement::Node(node)) => {
+                    let ast_id = ast_ids
+                        .id_of_node_in_tree(&tree, node)
+                        .expect("every owner node has a source identity");
+                    builder.enter(node, ast_id);
+                }
+                WalkEvent::Leave(SyntaxElement::Node(node)) => builder.leave(node),
+                _ => {}
+            }
+        }
+    }
+    Arc::new(builder.finish())
+}
+
+pub(crate) fn set_owner_table_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    owner_table::set_lru_capacity(db, capacity);
+}
+
 /// Syntax nodes that start semantic owners. Generate branches deliberately
 /// mirror `generate.rs`: a loop owns its block (the nested `GenerateBlock`
 /// node is not a second owner), while an unwrapped branch member is promoted
 /// to a synthetic generate-block owner. If that member is itself an owner,
 /// both owners share the same source AST id and are distinguished by kind.
-fn owner_kinds_of(node: SyntaxNode<'_>) -> SmallVec<[OwnerKind; 2]> {
+pub(crate) fn owner_kinds_of(node: SyntaxNode<'_>) -> SmallVec<[OwnerKind; 2]> {
     let intrinsic = intrinsic_owner_kind(node);
     if ast::Member::cast(node).is_some()
         && is_unwrapped_generate_branch(node)
@@ -327,27 +378,11 @@ fn owner_node<'tree>(
     db.ast_id_map(owner.file(db)).node(owner.ast_id(db), tree)
 }
 
-fn legacy_container_for_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<ArenaOwnerId> {
-    Some(match owner.kind(db) {
-        OwnerKind::File => ArenaOwnerId::File(owner.file(db)),
-        OwnerKind::Module => ArenaOwnerId::Module(ModuleId::from_owner(db, owner)?),
-        OwnerKind::GenerateBlock => {
-            ArenaOwnerId::GenerateBlock(GenerateBlockId::from_owner(db, owner)?)
-        }
-        OwnerKind::Block => ArenaOwnerId::Owner(owner),
-        OwnerKind::Subroutine => ArenaOwnerId::Subroutine(SubroutineScope::from_owner(db, owner)?),
-        OwnerKind::ProceduralBlock
-        | OwnerKind::Checker
-        | OwnerKind::Covergroup
-        | OwnerKind::ClockingBlock => ArenaOwnerId::Owner(owner),
-    })
-}
-
 impl GenerateBlockId {
     pub(crate) fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
         (owner.kind(db) == OwnerKind::GenerateBlock).then_some(())?;
         let file_id = owner.file(db);
-        let parent = legacy_container_for_owner(db, owner.parent(db)?)?;
+        let parent = owner.parent(db)?;
         Some(Self::new(GenerateBlockLoc {
             cont_id: parent,
             src: InFile::new(file_id, owner.ast_id(db)),
@@ -356,7 +391,7 @@ impl GenerateBlockId {
 }
 
 impl SubroutineScope {
-    pub(crate) fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
+    pub fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
         (owner.kind(db) == OwnerKind::Subroutine).then_some(())?;
         let parent = owner.parent(db)?;
         let cont_id = match parent.kind(db) {
@@ -767,6 +802,36 @@ endmodule
         db.set_file_text_with_durability(TOP, Arc::from(after), Durability::LOW);
 
         assert_eq!(Some(before_signature), db.signature_for_owner(owner));
+    }
+
+    #[test]
+    fn body_edit_reuses_structural_owner_store() {
+        let before = "module m; function void f(); logic x; x = 0; endfunction endmodule\n";
+        let after = "module m; function void f(); logic x; x = 1; endfunction endmodule\n";
+        let mut db = db_with_root_text(before);
+        let file_id = HirFileId::File(TOP);
+        let module_id =
+            ModuleId::new(file_id, db.hir_file(file_id).modules.iter().next().unwrap().0);
+        let owner = db
+            .owner_table(file_id)
+            .owners_of_kind(OwnerKind::Subroutine)
+            .next()
+            .expect("subroutine owner must exist")
+            .id;
+
+        let item_tree_before = db.item_tree(file_id);
+        let module_before = db.module_with_source_map(module_id);
+        let body_before = db.subroutine_body_with_source_map(owner);
+
+        db.set_file_text_with_durability(TOP, Arc::from(after), Durability::LOW);
+
+        let item_tree_after = db.item_tree(file_id);
+        let module_after = db.module_with_source_map(module_id);
+        let body_after = db.subroutine_body_with_source_map(owner);
+
+        assert!(Arc::ptr_eq(&item_tree_before, &item_tree_after));
+        assert!(Arc::ptr_eq(&module_before, &module_after));
+        assert!(!Arc::ptr_eq(&body_before, &body_after));
     }
     #[test]
     fn item_tree_excludes_source_ranges_from_semantic_data() {

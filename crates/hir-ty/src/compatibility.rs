@@ -1,10 +1,10 @@
 use hir_def::{
-    container::ArenaOwnerId,
     expr::{
         BinaryOp, Expr, ExprId, UnaryOp,
         data_ty::{BuiltinDataTy, Dimension, IntKind},
     },
     literal::Literal,
+    owner::OwnerId,
 };
 
 use crate::{
@@ -132,7 +132,7 @@ fn int_kind_width(kind: IntKind) -> usize {
     }
 }
 
-fn eval_const_i128(db: &dyn TyDb, container: &ArenaOwnerId, expr_id: ExprId) -> Option<i128> {
+fn eval_const_i128(db: &dyn TyDb, container: &OwnerId, expr_id: ExprId) -> Option<i128> {
     let data = container.data(db);
     match data.expr(expr_id) {
         Expr::Literal(Literal::Int(int)) => int.get_single_word().map(|value| value as i128),

@@ -307,7 +307,9 @@ fn render_ansi_port_declaration(
     let decl_id = single_port_decl_id(port_decl)?;
     let header =
         InModule::new(module_id, port_decl.header.clone()).display_source(ctx.sema().db).ok()?;
-    let decl = InContainer::new(module_id.into(), decl_id).display_signature(ctx.sema().db).ok()?;
+    let decl = InContainer::new(module_id.owner(ctx.sema().db).expect("module owner"), decl_id)
+        .display_signature(ctx.sema().db)
+        .ok()?;
 
     if header.is_empty() { Some(format!("{decl};")) } else { Some(format!("{header} {decl};")) }
 }
