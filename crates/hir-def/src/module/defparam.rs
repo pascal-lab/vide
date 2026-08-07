@@ -3,7 +3,6 @@ use smallvec::SmallVec;
 use syntax::ast::{self, AstNode};
 
 use crate::{
-    ast_id_map::SourceAstId,
     expr::ExprId,
     lower::{LoweringCtx, ModuleItemStore},
 };
@@ -20,8 +19,6 @@ pub struct DefParamAssignment {
 }
 
 pub type DefParamId = Idx<DefParam>;
-
-pub type DefParamSrc = SourceAstId;
 
 impl<Store: ModuleItemStore> LoweringCtx<Store> {
     pub(crate) fn lower_defparam(&mut self, defparam: ast::DefParam) -> DefParamId {

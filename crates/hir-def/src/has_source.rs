@@ -1,9 +1,8 @@
 use crate::{
     ast_id_map::SourceAstId,
-    container::{InFile, SubroutineScope},
+    container::InFile,
     db::HirDefDb,
-    def_id::{DefId, subroutine_src},
-    module::{ModuleId, generate::GenerateBlockId},
+    def_id::DefId,
     owner::OwnerId,
     source_map::SourceInfo,
     symbol::{DefOrigin, DefOriginLoc},
@@ -17,29 +16,9 @@ fn project(db: &dyn HirDefDb, source: InFile<SourceAstId>) -> Option<InFile<Sour
     let origin = db.source_projection(source.file_id).origin(source.value)?;
     Some(InFile::new(source.file_id, SourceInfo::from_origin(origin)?))
 }
-
-impl HasSource for ModuleId {
-    fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        let InFile { file_id, value } = *self;
-        project(db, InFile::new(file_id, db.hir_file_with_source_map(file_id).source(value)?))
-    }
-}
-
 impl HasSource for OwnerId {
     fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
         project(db, InFile::new(self.file(db), self.ast_id(db)))
-    }
-}
-
-impl HasSource for GenerateBlockId {
-    fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        project(db, self.loc().src)
-    }
-}
-
-impl HasSource for SubroutineScope {
-    fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        project(db, subroutine_src(db, self.clone())?)
     }
 }
 

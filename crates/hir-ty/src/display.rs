@@ -123,7 +123,7 @@ impl HirDisplay for Ty {
                 }
             }
             Ty::Module(module_id) => {
-                let module = f.db.module(*module_id);
+                let module = f.db.body(module_id.owner(f.db).expect("module owner"));
                 if let Some(name) = &module.name {
                     f.write_str(name)
                 } else {
@@ -147,7 +147,9 @@ impl HirDisplay for Ty {
                 Ok(())
             }
             Ty::GenerateBlock(generate_block_id) => {
-                let block = f.db.generate_block(generate_block_id.clone());
+                let block = f
+                    .db
+                    .body(generate_block_id.clone().clone().owner(f.db).expect("generate owner"));
                 if let Some(name) = &block.name {
                     f.write_str(name)
                 } else {

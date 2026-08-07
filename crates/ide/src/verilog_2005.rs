@@ -3723,10 +3723,13 @@ endmodule
 
         let db = host.raw_db();
         let hir_file_id = HirFileId::File(file_id);
-        let hir_file = db.hir_file_with_source_map(hir_file_id);
+        let hir_file =
+            db.body_with_source_map(db.owner_table(hir_file_id).file_owner().expect("file owner"));
         let (local_module_id, _) =
             hir_file.modules.iter().next().expect("fixture should lower one module");
-        let module = db.module_with_source_map(ModuleId::new(hir_file_id, local_module_id));
+        let module = db.body_with_source_map(
+            ModuleId::new(hir_file_id, local_module_id).owner(db).expect("module owner"),
+        );
         assert!(
             module.procs.values().any(|proc| {
                 let body = db.body_with_source_map(proc.owner);

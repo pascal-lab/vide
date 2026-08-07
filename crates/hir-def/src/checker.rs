@@ -13,7 +13,7 @@ use super::{
     lower::{CheckerStore, LoweringCtx},
     module::port::PortDirection,
 };
-use crate::{Ident, ast_id_map::SourceAstId, lower_ident_opt};
+use crate::{Ident, lower_ident_opt};
 
 // slang AST survey:
 // - `CheckerDeclaration` owns assertion-item ports through
@@ -40,8 +40,6 @@ pub struct CheckerPort {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct CheckerPortId(pub u32);
-
-pub type CheckerSrc = SourceAstId;
 
 pub fn lower_checker_decl(checker: ast::CheckerDeclaration<'_>) -> CheckerDef {
     CheckerDef {

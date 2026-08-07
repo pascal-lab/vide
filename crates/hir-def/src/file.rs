@@ -16,9 +16,7 @@ use super::{
     typedef::{Typedef, TypedefId, lower_typedef_data_ty},
 };
 use crate::{
-    ast_id_map::SyntaxFileId,
     body::{Body, BodySourceMap},
-    db::HirDefDb,
     lower_ident_opt,
     source_map::Lowered,
 };
@@ -75,7 +73,7 @@ impl LowerFileCtx<'_> {
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
         // Only the skeleton is lowered here; the body is lowered on first
-        // access by subroutine_body_with_source_map.
+        // access by body_with_source_map.
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let local_subroutine_id = alloc_with_source(
@@ -282,23 +280,4 @@ pub(crate) fn lower_file_owner(
     body.shrink_to_fit();
     source_map.shrink_to_fit();
     Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
-}
-#[salsa::tracked(lru = 128, returns(clone))]
-fn hir_file_input(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<Lowered<Body>> {
-    let file_id = file.hir_file(db);
-    let owner = db.owner_table(file_id).file_owner().expect("file owner must exist");
-    lower_file_owner(owner, &LoweringSyntax::for_owner(db, owner))
-}
-
-pub(crate) fn set_hir_file_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
-    hir_file_input::set_lru_capacity(db, capacity);
-    hir_file_with_source_map::set_lru_capacity(db, capacity);
-}
-
-#[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn hir_file_with_source_map(
-    db: &dyn HirDefDb,
-    file: SyntaxFileId,
-) -> Arc<Lowered<Body>> {
-    hir_file_input(db, file)
 }

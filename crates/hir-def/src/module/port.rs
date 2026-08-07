@@ -42,8 +42,6 @@ pub struct PortDecl {
 
 pub type PortDeclId = Idx<PortDecl>;
 
-pub type PortDeclSrc = SourceAstId;
-
 #[derive(Default, Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum PortDirection {
     Input,
@@ -142,8 +140,6 @@ pub struct NonAnsiPort {
 
 pub type NonAnsiPortId = Idx<NonAnsiPort>;
 
-pub type NonAnsiPortSrc = SourceAstId;
-
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct PortRef {
     pub ident: Option<Ident>,
@@ -151,8 +147,6 @@ pub struct PortRef {
 }
 
 pub type PortRefId = Idx<PortRef>;
-
-pub type PortRefSrc = SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum PortSrcs {
@@ -178,8 +172,6 @@ impl PortSrcs {
     }
 }
 
-pub type PortListSrc = SourceAstId;
-
 impl Default for PortSrcs {
     fn default() -> Self {
         PortSrcs::Ansi { decls: SourceMap::default(), port_list_src: None }
@@ -187,7 +179,7 @@ impl Default for PortSrcs {
 }
 
 impl Get<NonAnsiPortId> for PortSrcs {
-    type Output = Option<NonAnsiPortSrc>;
+    type Output = Option<SourceAstId>;
 
     fn get(&self, port_id: NonAnsiPortId) -> Self::Output {
         match self {
@@ -198,7 +190,7 @@ impl Get<NonAnsiPortId> for PortSrcs {
 }
 
 impl Get<PortRefId> for PortSrcs {
-    type Output = Option<PortRefSrc>;
+    type Output = Option<SourceAstId>;
 
     fn get(&self, port_ref_id: PortRefId) -> Self::Output {
         match self {
@@ -209,7 +201,7 @@ impl Get<PortRefId> for PortSrcs {
 }
 
 impl Get<PortDeclId> for PortSrcs {
-    type Output = Option<PortDeclSrc>;
+    type Output = Option<SourceAstId>;
 
     fn get(&self, port_id: PortDeclId) -> Self::Output {
         match self {

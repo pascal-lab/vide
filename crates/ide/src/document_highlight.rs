@@ -168,7 +168,8 @@ endmodule
                 .pop()
                 .expect("macro expansion");
         let hir_file_id = HirFileId::Macro(macro_file);
-        let hir_file = db.hir_file_with_source_map(hir_file_id);
+        let hir_file =
+            db.body_with_source_map(db.owner_table(hir_file_id).file_owner().expect("file owner"));
         let (local_module_id, _) = hir_file.modules.iter().next().expect("macro-generated module");
         let def = DefId::new(db, InFile::new(hir_file_id, local_module_id));
 

@@ -7,7 +7,6 @@ use syntax::{
 
 use crate::{
     Ident,
-    ast_id_map::SourceAstId,
     expr::{ExprId, data_ty::Dimension},
     lower::{LoweringCtx, ModuleItemStore},
     lower_ident_opt,
@@ -22,8 +21,6 @@ pub struct Instantiation {
 
 pub type InstantiationId = Idx<Instantiation>;
 
-pub type InstantiationSrc = SourceAstId;
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Instance {
     pub name: Option<Ident>,
@@ -34,8 +31,6 @@ pub struct Instance {
 
 pub type InstanceId = Idx<Instance>;
 
-pub type InstanceSrc = SourceAstId;
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ParamAssign {
     Ordered(ExprId),
@@ -43,8 +38,6 @@ pub enum ParamAssign {
 }
 
 pub type ParamAssignId = Idx<ParamAssign>;
-
-pub type ParamAssignSrc = SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum PortConn {
@@ -55,8 +48,6 @@ pub enum PortConn {
 }
 
 pub type PortConnId = Idx<PortConn>;
-
-pub type PortConnSrc = SourceAstId;
 
 impl<Store: ModuleItemStore> LoweringCtx<Store> {
     fn reserve_instantiation<'ast, Ast>(&mut self, ast: Ast) -> InstantiationId

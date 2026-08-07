@@ -216,7 +216,7 @@ pub(crate) fn inlay_hint(
 ) -> Vec<InlayHint> {
     let _span = tracing::debug_span!("ide.inlay_hint", ?file_id, ?range).entered();
     let file_id = HirFileId::File(file_id);
-    let file = db.hir_file_with_source_map(file_id);
+    let file = db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"));
 
     let mut collector = InlayHintCollector::new(range, config);
 
@@ -300,7 +300,7 @@ fn collect_module_items(
     module_src: SourceAstId,
     collector: &mut InlayHintCollector,
 ) {
-    let module = db.module_with_source_map(module_id);
+    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
 
     if collector.config.instantiation() {
         for (instantiation_id, instantiation) in module.instantiations.iter() {
@@ -335,13 +335,13 @@ fn process_instantiation(
     instantiation: &Instantiation,
     collector: &mut InlayHintCollector,
 ) -> Option<()> {
-    let module_body = db.module_body_with_source_map(module_id);
+    let module_body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
     let from_file = module_id.file_id.source_file_id(db)?;
     let target_module_id =
         resolve_module_name(db, from_file, instantiation.module_name.as_ref()?).unique()?;
 
-    let target_module = db.module_with_source_map(target_module_id);
-    let target_body = db.module_body_with_source_map(target_module_id);
+    let target_module = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
 
     // handle param assignments
     if collector.config.parameter_assignment {

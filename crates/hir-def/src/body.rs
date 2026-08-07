@@ -11,6 +11,7 @@ use utils::define_enum_deriving_from;
 use crate::{
     PackageImport,
     aggregate::{StructDef, StructId, lower_struct_def},
+    ast_id_map::SourceAstId,
     block::BlockItem,
     checker::{CheckerDef, CheckerId},
     covergroup::{CovergroupDef, CovergroupId, CoverpointDef, CoverpointId, CrossDef, CrossId},
@@ -26,11 +27,11 @@ use crate::{
         library::{LibraryDecl, LibraryDeclId, LibraryInclude, LibraryIncludeId},
         udp::{UdpDecl, UdpDeclId},
     },
-    lower::{BodyStore, LoweringCtx},
+    lower::{BodyStore, LoweringCtx, LoweringSyntax},
     lower_ident_opt,
     module::{
         LocalModuleId, ModuleInfo,
-        clocking::{ClockingBlockDef, ClockingBlockId, DefaultClockingRef, DefaultClockingRefSrc},
+        clocking::{ClockingBlockDef, ClockingBlockId, DefaultClockingRef},
         continuous_assign::{ContAssign, ContAssignId},
         defparam::{DefParam, DefParamId},
         generate::{GenerateBlockId, GenerateBlockKind, GenerateRegion, GenerateRegionId},
@@ -342,7 +343,7 @@ pub struct BodySourceMap {
     pub specify_block_srcs: SourceMap<SpecifyBlock>,
     pub specify_item_srcs: SourceMap<SpecifyItem>,
     pub modport_srcs: SourceMap<ModportDef>,
-    pub default_clocking_src: Option<DefaultClockingRefSrc>,
+    pub default_clocking_src: Option<SourceAstId>,
     pub clocking_block_srcs: SourceMap<ClockingBlockDef>,
     pub instantiation_srcs: SourceMap<Instantiation>,
     pub inst_param_assign_srcs: SourceMap<ParamAssign>,
@@ -393,22 +394,30 @@ impl LoweredData for Body {
 }
 
 #[salsa::tracked(lru = 512, returns(clone))]
-pub(crate) fn body_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
+fn body_input(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
     match owner.kind(db) {
         OwnerKind::ProceduralBlock => lower_procedural_body(db, owner),
         OwnerKind::Subroutine => lower_subroutine_body(db, owner),
         OwnerKind::Block => body_with_source_map(db, body_owner(db, owner)),
         OwnerKind::File => {
-            crate::file::hir_file_with_source_map(db, db.syntax_file(owner.file(db)))
+            crate::file::lower_file_owner(owner, &LoweringSyntax::for_owner(db, owner))
         }
-        OwnerKind::Module => crate::module::module_with_source_map(db, owner),
-        OwnerKind::GenerateBlock => {
-            crate::module::generate::generate_block_with_source_map(db, owner)
+        OwnerKind::Module => {
+            crate::module::lower_module_owner(db, owner, &LoweringSyntax::for_owner(db, owner))
         }
+        OwnerKind::GenerateBlock => crate::module::generate::lower_generate_owner(
+            db,
+            owner,
+            &LoweringSyntax::for_owner(db, owner),
+        ),
         OwnerKind::Checker | OwnerKind::Covergroup | OwnerKind::ClockingBlock => {
             panic!("scope-only owner has no body: {:?}", owner.kind(db))
         }
     }
+}
+#[salsa::tracked(lru = 512, returns(clone))]
+pub(crate) fn body_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
+    body_input(db, owner)
 }
 
 pub(crate) fn body_owner(db: &dyn HirDefDb, mut owner: OwnerId) -> OwnerId {
@@ -421,10 +430,8 @@ pub(crate) fn body_owner(db: &dyn HirDefDb, mut owner: OwnerId) -> OwnerId {
 fn lower_procedural_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
     let file_id = owner.file(db);
     let tree = db.parse(file_id);
-    let Some(proc) = db
-        .owner_source_ast_id(owner)
-        .and_then(|ast_id| db.ast_id_map(file_id).node(ast_id, &tree))
-        .and_then(ast::ProceduralBlock::cast)
+    let Some(proc) =
+        db.ast_id_map(file_id).node(owner.ast_id(db), &tree).and_then(ast::ProceduralBlock::cast)
     else {
         return Arc::new(Lowered::new(file_id, Body::default(), BodySourceMap::default()));
     };
@@ -460,10 +467,8 @@ fn owner_node<'tree>(
     owner: OwnerId,
     tree: &'tree syntax::SyntaxTree,
 ) -> Option<syntax::SyntaxNode<'tree>> {
-    db.owner_source_ast_id(owner)
-        .and_then(|ast_id| db.ast_id_map(owner.file(db)).node(ast_id, tree))
+    db.ast_id_map(owner.file(db)).node(owner.ast_id(db), tree)
 }
-
 fn lower_body(
     db: &dyn HirDefDb,
     owner: OwnerId,
@@ -635,6 +640,7 @@ impl BodySourceMap {
 }
 
 pub(crate) fn set_body_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    body_input::set_lru_capacity(db, capacity);
     body_with_source_map::set_lru_capacity(db, capacity);
 }
 

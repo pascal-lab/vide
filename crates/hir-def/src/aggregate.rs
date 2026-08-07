@@ -6,7 +6,7 @@ use syntax::{
 };
 
 use super::{Ident, expr::data_ty::DataTy, lower_ident_opt};
-use crate::{ast_id_map::SourceAstId, container::InContainer, owner::OwnerId};
+use crate::{container::InContainer, owner::OwnerId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StructKind {
@@ -66,8 +66,6 @@ pub(crate) fn lower_struct_def(
     StructDef { kind, name: None, packed, signing, tagged, members }
 }
 
-pub type StructSrc = SourceAstId;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClassMemberKind {
     Property,
@@ -91,5 +89,3 @@ pub struct ClassDef {
 }
 
 pub type ClassId = Idx<ClassDef>;
-
-pub type ClassSrc = SourceAstId;

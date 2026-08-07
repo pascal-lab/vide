@@ -20,7 +20,6 @@ use crate::{
     source_projection::SourceOrigin,
 };
 
-pub type ItemTreeId = SourceAstId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SignatureId(u32);
 
@@ -94,8 +93,8 @@ impl Signature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemTreeItem {
-    id: ItemTreeId,
-    parent: Option<ItemTreeId>,
+    id: SourceAstId,
+    parent: Option<SourceAstId>,
     kind: syntax::SyntaxKind,
     name: Option<SmolStr>,
     signature: Option<SignatureId>,
@@ -103,11 +102,11 @@ pub struct ItemTreeItem {
 }
 
 impl ItemTreeItem {
-    pub fn id(&self) -> ItemTreeId {
+    pub fn id(&self) -> SourceAstId {
         self.id
     }
 
-    pub fn parent(&self) -> Option<ItemTreeId> {
+    pub fn parent(&self) -> Option<SourceAstId> {
         self.parent
     }
 
@@ -165,7 +164,7 @@ impl ItemTree {
         self.items.iter()
     }
 
-    pub fn item(&self, id: ItemTreeId) -> Option<&ItemTreeItem> {
+    pub fn item(&self, id: SourceAstId) -> Option<&ItemTreeItem> {
         self.items.iter().find(|item| item.id == id)
     }
 

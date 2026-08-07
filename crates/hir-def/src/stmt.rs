@@ -11,7 +11,6 @@ use super::{
     lower::{LoweringCtx, LoweringStore},
 };
 use crate::{
-    ast_id_map::SourceAstId,
     lower_named_label_opt,
     owner::{OwnerId, OwnerKind},
 };
@@ -66,8 +65,6 @@ pub enum StmtKind {
     Wait(WaitKind, StmtId),
     Disable(DisableKind),
 }
-
-pub type StmtSrc = SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum ProcAssignKind {

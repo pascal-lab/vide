@@ -769,7 +769,10 @@ impl FileModuleIndex {
     pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
         let hir_file_id = HirFileId::from(file_id);
         let mut modules = Vec::new();
-        for (_, defs) in db.file_scope(hir_file_id).iter_listing() {
+        for (_, defs) in db
+            .scope_for(db.owner_table(hir_file_id).file_owner().expect("file owner"))
+            .iter_listing()
+        {
             for module_id in defs
                 .iter()
                 .filter(|def_id| def_id.kind(db).is_instantiable_def())
@@ -789,7 +792,10 @@ impl FileModuleEdges {
     pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
         let hir_file_id = HirFileId::from(file_id);
         let mut edges = Vec::new();
-        for (_, defs) in db.file_scope(hir_file_id).iter_listing() {
+        for (_, defs) in db
+            .scope_for(db.owner_table(hir_file_id).file_owner().expect("file owner"))
+            .iter_listing()
+        {
             for def_id in defs.iter().filter(|def_id| def_id.kind(db).is_instantiable_def()) {
                 let Some(caller) = def_id.primary_origin(db).as_module(db) else {
                     continue;
@@ -797,7 +803,7 @@ impl FileModuleEdges {
                 let Some(caller_def) = SemanticModuleDefinition::new(db, caller) else {
                     continue;
                 };
-                let module = db.module_with_source_map(caller);
+                let module = db.body_with_source_map(caller.owner(db).expect("module owner"));
                 for (instantiation_id, instantiation) in module.instantiations.iter() {
                     let Some(callee_module_id) =
                         resolve_hir_instantiation_target(db, file_id, instantiation)

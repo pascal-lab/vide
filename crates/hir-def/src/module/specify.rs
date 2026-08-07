@@ -4,10 +4,7 @@ use syntax::ast::{self, AstNode};
 use utils::define_enum_deriving_from;
 
 use super::LowerModuleCtx;
-use crate::{
-    Ident, alloc_with_source, ast_id_map::SourceAstId, declaration::DeclarationId, expr::ExprId,
-    lower_ident_opt,
-};
+use crate::{Ident, alloc_with_source, declaration::DeclarationId, expr::ExprId, lower_ident_opt};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SpecifyBlock {
@@ -15,8 +12,6 @@ pub struct SpecifyBlock {
 }
 
 pub type SpecifyBlockId = Idx<SpecifyBlock>;
-
-pub type SpecifyBlockSrc = SourceAstId;
 
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -36,8 +31,6 @@ pub enum SpecifyItem {
 }
 
 pub type SpecifyItemId = Idx<SpecifyItem>;
-
-pub type SpecifyItemSrc = SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SpecifyPath {

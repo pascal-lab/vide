@@ -8,7 +8,6 @@ use super::expr::{
     timing_control::DelayControl,
 };
 use crate::{
-    ast_id_map::SourceAstId,
     lower::{LoweringCtx, LoweringStore},
     ty::{DriveStrength, NetKind, Strength, lower_drive_strength, lower_net_kind, lower_strength},
 };
@@ -25,8 +24,6 @@ define_enum_deriving_from! {
 }
 
 pub type DeclarationId = Idx<Declaration>;
-
-pub type DeclarationSrc = SourceAstId;
 
 impl Declaration {
     pub fn decls(&self) -> DeclsRange {

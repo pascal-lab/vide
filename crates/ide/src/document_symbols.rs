@@ -202,8 +202,9 @@ impl AddRegionSymbol for Peekable<RegionTreeIterator<'_>> {
 pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSymbol> {
     let _span = tracing::debug_span!("ide.document_symbols", ?file_id).entered();
     let file_id = HirFileId::File(file_id);
-    let lowered = db.hir_file_with_source_map(file_id);
-    let body = db.file_body_with_source_map(file_id);
+    let lowered =
+        db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"));
+    let body = db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"));
     let file = lowered.data_ref();
     let src_map = lowered.source_map();
     let owner = db.owner_table(file_id).file_owner().expect("file owner must exist");
@@ -282,8 +283,8 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
 }
 
 fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut SymbolCollector) {
-    let lowered = db.module_with_source_map(module_id);
-    let body = db.module_body_with_source_map(module_id);
+    let lowered = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
     let module = lowered.data_ref();
     let src_map = lowered.source_map();
     let owner = module_id.owner(db).expect("module owner must exist");
@@ -291,7 +292,7 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
     let mut regions = region_tree.walk().peekable();
     let projection = db.source_projection(module_id.file_id);
 
-    let Some(InFile { value: module_src, .. }) = module_id.source(db) else {
+    let Some(InFile { value: module_src, .. }) = owner.source(db) else {
         return;
     };
     collector.push_symbol_with_children(
@@ -580,11 +581,14 @@ fn build_generate_block(
     collector: &mut SymbolCollector,
     generate_block_id: GenerateBlockId,
 ) {
-    let Some(InFile { value: generate_block_src, .. }) = generate_block_id.source(db) else {
+    let owner = generate_block_id.clone().owner(db).expect("generate owner");
+    let Some(InFile { value: generate_block_src, .. }) = owner.source(db) else {
         return;
     };
-    let lowered = db.generate_block_with_source_map(generate_block_id.clone());
-    let body = db.generate_block_body_with_source_map(generate_block_id.clone());
+    let lowered = db
+        .body_with_source_map(generate_block_id.clone().clone().owner(db).expect("generate owner"));
+    let body = db
+        .body_with_source_map(generate_block_id.clone().clone().owner(db).expect("generate owner"));
     let generate_block = lowered.data_ref();
     let name = generate_block.name.clone();
 

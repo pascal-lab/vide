@@ -67,8 +67,10 @@ fn convert_ansi_ports_to_non_ansi(
     let port_list = ast_module.header().ports()?.as_ansi_port_list()?;
 
     let module_id = ctx.sema().module_to_def(ctx.file_id().into(), ast_module)?;
-    let module = ctx.sema().db.module_with_source_map(module_id);
-    let body = ctx.sema().db.module_body_with_source_map(module_id);
+    let module =
+        ctx.sema().db.body_with_source_map(module_id.owner(ctx.sema().db).expect("module owner"));
+    let body =
+        ctx.sema().db.body_with_source_map(module_id.owner(ctx.sema().db).expect("module owner"));
     let Ports::Ansi(port_decls) = &module.ports else {
         return None;
     };
@@ -123,8 +125,10 @@ fn convert_non_ansi_ports_to_ansi(
     let port_list = ast_module.header().ports()?.as_non_ansi_port_list()?;
 
     let module_id = ctx.sema().module_to_def(ctx.file_id().into(), ast_module)?;
-    let module = ctx.sema().db.module_with_source_map(module_id);
-    let body = ctx.sema().db.module_body_with_source_map(module_id);
+    let module =
+        ctx.sema().db.body_with_source_map(module_id.owner(ctx.sema().db).expect("module owner"));
+    let body =
+        ctx.sema().db.body_with_source_map(module_id.owner(ctx.sema().db).expect("module owner"));
     let Ports::NonAnsi { ports, refs, .. } = &module.ports else {
         return None;
     };
@@ -160,7 +164,8 @@ fn convert_non_ansi_ports_to_ansi(
 
     let body_range = module_body_range(ast_module)?;
     let text = ctx.sema().db.file_text(ctx.file_id());
-    let module_scope = ctx.sema().db.module_scope(module_id);
+    let module_scope =
+        ctx.sema().db.scope_for(module_id.owner(ctx.sema().db).expect("module owner"));
     let port_replacements = port_names
         .iter()
         .map(|name| non_ansi_port_replacement(ctx, &module, &body, &module_scope, name, &text))

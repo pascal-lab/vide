@@ -389,12 +389,12 @@ fn slang_semantic_diagnostics_active(db: &RootDb, file_id: FileId) -> bool {
 
 fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     let hir_file_id = file_id.into();
-    let hir_file = db.hir_file(hir_file_id);
+    let hir_file = db.body(db.owner_table(hir_file_id).file_owner().expect("file owner"));
     let mut diagnostics = Vec::new();
 
     for (local_module_id, _) in hir_file.modules.iter() {
         let module_id = ModuleId::new(hir_file_id, local_module_id);
-        let module = db.module_with_source_map(module_id);
+        let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
         for (instantiation_id, instantiation) in module.instantiations.iter() {
             let Some(module_name) = instantiation.module_name.as_ref() else {
                 continue;

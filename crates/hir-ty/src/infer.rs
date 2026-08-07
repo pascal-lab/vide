@@ -438,14 +438,14 @@ pub(crate) fn data_ty_of_decl(db: &dyn TyDb, decl: InContainer<DeclId>) -> Optio
 
 fn port_decl_ty(db: &dyn TyDb, cont_id: OwnerId, port_decl_id: PortDeclId) -> Option<DataTy> {
     let module_id = ModuleId::from_owner(db, cont_id)?;
-    let module = db.module(module_id);
+    let module = db.body(module_id.owner(db).expect("module owner"));
     Some(module.ports.get(port_decl_id).header.ty())
 }
 
 fn type_of_subroutine_port_impl(db: &dyn TyDb, port: InSubroutine<SubroutinePortId>) -> TyResult {
     let subroutine_id = port.subroutine.clone();
     let port_id = port;
-    let subroutine = db.subroutine(subroutine_id);
+    let subroutine = db.subroutine(subroutine_id.clone().owner(db).expect("subroutine owner"));
     let Some(port) = subroutine.ports.get(port_id.value.0 as usize) else {
         return TyResult::new(Ty::Unknown);
     };

@@ -67,7 +67,11 @@ fn visible_typedefs_in_module_header(db: &RootDb, position: FilePosition) -> Vec
     let mut names: Vec<String> =
         db.unit_scope().typedef_names(db).map(|ident| ident.to_string()).collect();
 
-    names.extend(db.module_scope(module_id).typedef_names(db).map(|ident| ident.to_string()));
+    names.extend(
+        db.scope_for(module_id.owner(db).expect("module owner"))
+            .typedef_names(db)
+            .map(|ident| ident.to_string()),
+    );
 
     names.sort();
     names.dedup();
@@ -94,7 +98,7 @@ fn complete_non_ansi_port_list(
         return Vec::new();
     };
 
-    let scope = db.module_scope(module_id);
+    let scope = db.scope_for(module_id.owner(db).expect("module owner"));
     scope
         .iter_listing()
         .filter_map(|(ident, defs)| {

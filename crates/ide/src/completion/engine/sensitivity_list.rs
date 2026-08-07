@@ -30,7 +30,8 @@ pub(super) fn complete_sensitivity_list(
 
 fn module_id_at_offset(db: &RootDb, position: FilePosition) -> Option<ModuleId> {
     let file_id = HirFileId::File(position.file_id);
-    let hir_file = db.hir_file_with_source_map(file_id);
+    let hir_file =
+        db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"));
     let mut best: Option<(TextSize, ModuleId)> = None;
 
     for (local_module_id, _) in hir_file.modules.iter() {

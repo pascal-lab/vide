@@ -9,7 +9,6 @@ use syntax::{
 use super::literal::{Literal, lower_literal};
 use crate::{
     Ident, alloc_with_source_entry,
-    ast_id_map::SourceAstId,
     literal::lower_integer_vector,
     lower::{LoweringCtx, LoweringStore},
     lower_ident, lower_ident_opt,
@@ -242,8 +241,6 @@ pub enum Expr {
 }
 
 pub type ExprId = Idx<Expr>;
-
-pub type ExprSrc = SourceAstId;
 
 impl Expr {
     pub fn to_assign(&self) -> Option<Assign> {

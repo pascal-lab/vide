@@ -2,7 +2,7 @@ use la_arena::Idx;
 use syntax::ast;
 
 use super::{Ident, aggregate::StructId, expr::data_ty::DataTy};
-use crate::{ast_id_map::SourceAstId, container::InContainer, owner::OwnerId};
+use crate::{container::InContainer, owner::OwnerId};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Typedef {
@@ -11,8 +11,6 @@ pub struct Typedef {
 }
 
 pub type TypedefId = Idx<Typedef>;
-
-pub type TypedefSrc = SourceAstId;
 
 pub(crate) fn lower_typedef_data_ty<Ctx>(
     ctx: &mut Ctx,

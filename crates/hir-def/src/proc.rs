@@ -2,10 +2,7 @@ use la_arena::Idx;
 use syntax::ast::{self, AstNode};
 
 use super::lower::{LoweringCtx, ProcStore};
-use crate::{
-    ast_id_map::SourceAstId,
-    owner::{OwnerId, OwnerKind},
-};
+use crate::owner::{OwnerId, OwnerKind};
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum AlwaysKeyword {
     Always,
@@ -30,8 +27,6 @@ pub struct Proc {
 }
 
 pub type ProcId = Idx<Proc>;
-
-pub type ProcSrc = SourceAstId;
 
 impl<Store: ProcStore> LoweringCtx<Store> {
     pub(crate) fn lower_proc(&mut self, proc: ast::ProceduralBlock) -> ProcId {

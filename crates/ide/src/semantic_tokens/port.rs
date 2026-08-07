@@ -31,9 +31,9 @@ pub(super) fn collect_port(
     }
 
     let db = sema.db;
-    let module_scope = db.module_scope(module_id);
-    let module = db.module_with_source_map(module_id);
-    let body = db.module_body_with_source_map(module_id);
+    let module_scope = db.scope_for(module_id.owner(db).expect("module owner"));
+    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
 
     match &module.ports {
         Ports::NonAnsi { ports, decls, .. } => {

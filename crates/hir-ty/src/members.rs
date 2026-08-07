@@ -96,11 +96,11 @@ fn struct_kind(db: &dyn TyDb, struct_id: InContainer<StructId>) -> StructKind {
 }
 
 fn module_members(db: &dyn TyDb, module_id: ModuleId) -> Vec<TyMember> {
-    let file = db.hir_file(module_id.file_id);
+    let file = db.body(db.owner_table(module_id.file_id).file_owner().expect("file owner"));
     let scope = if file.get(module_id.value).kind == ModuleKind::Package {
         db.package_export_scope(module_id)
     } else {
-        db.module_scope(module_id)
+        db.scope_for(module_id.owner(db).expect("module owner"))
     };
     scope_members(db, &scope)
 }
@@ -109,22 +109,24 @@ fn checker_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
     let Some(checker_id) = def_id.primary_origin(db).as_checker(db) else {
         return Vec::new();
     };
-    scope_members(db, &db.checker_scope(checker_id))
+    let owner = DefOriginLoc::Checker(checker_id).owner(db);
+    scope_members(db, &db.scope_for(owner))
 }
 
 fn covergroup_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
     let Some(covergroup_id) = def_id.primary_origin(db).as_covergroup(db) else {
         return Vec::new();
     };
-    scope_members(db, &db.covergroup_scope(covergroup_id))
+    let owner = DefOriginLoc::Covergroup(covergroup_id).owner(db);
+    scope_members(db, &db.scope_for(owner))
 }
 
 fn generate_block_members(db: &dyn TyDb, generate_block_id: GenerateBlockId) -> Vec<TyMember> {
-    scope_members(db, &db.generate_block_scope(generate_block_id))
+    scope_members(db, &db.scope_for(generate_block_id.clone().owner(db).expect("generate owner")))
 }
 
 fn block_members(db: &dyn TyDb, owner: hir_def::owner::OwnerId) -> Vec<TyMember> {
-    scope_members(db, &db.block_scope(owner))
+    scope_members(db, &db.scope_for(owner))
 }
 
 fn scope_members(db: &dyn TyDb, scope: &NameScope) -> Vec<TyMember> {

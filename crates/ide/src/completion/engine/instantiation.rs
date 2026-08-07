@@ -19,8 +19,8 @@ pub(super) fn ports_of_module_sorted(db: &RootDb, module_id: ModuleId) -> Vec<Id
 }
 
 pub(super) fn ports_of_module_in_order(db: &RootDb, module_id: ModuleId) -> Vec<Ident> {
-    let module = db.module_with_source_map(module_id);
-    let body = db.module_body_with_source_map(module_id);
+    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
     let mut names = Vec::new();
 
     match &module.ports {
@@ -56,7 +56,7 @@ pub(super) fn overridable_params_of_module_in_order(
     db: &RootDb,
     module_id: ModuleId,
 ) -> Vec<Ident> {
-    let body = db.module_body_with_source_map(module_id);
+    let body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
 
     let mut names = Vec::new();
 

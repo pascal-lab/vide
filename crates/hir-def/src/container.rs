@@ -205,12 +205,12 @@ impl OwnerId {
         };
         let value = match cont_id {
             FileOrModule::File(file_id) => db
-                .hir_file_with_source_map(file_id)
+                .body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"))
                 .source_map()
                 .checker_srcs
                 .src_to_hir(self.ast_id(db))?,
             FileOrModule::Module(module_id) => db
-                .module_with_source_map(module_id)
+                .body_with_source_map(module_id.owner(db).expect("module owner"))
                 .source_map()
                 .checker_srcs
                 .src_to_hir(self.ast_id(db))?,
@@ -228,12 +228,12 @@ impl OwnerId {
         };
         let value = match cont_id {
             FileOrModule::File(file_id) => db
-                .hir_file_with_source_map(file_id)
+                .body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"))
                 .source_map()
                 .covergroup_srcs
                 .src_to_hir(self.ast_id(db))?,
             FileOrModule::Module(module_id) => db
-                .module_with_source_map(module_id)
+                .body_with_source_map(module_id.owner(db).expect("module owner"))
                 .source_map()
                 .covergroup_srcs
                 .src_to_hir(self.ast_id(db))?,
@@ -245,7 +245,7 @@ impl OwnerId {
         (self.kind(db) == OwnerKind::ClockingBlock).then_some(())?;
         let module = ModuleId::from_owner(db, self.parent(db)?)?;
         let value = db
-            .module_with_source_map(module)
+            .body_with_source_map(module.owner(db).expect("module owner"))
             .source_map()
             .clocking_block_srcs
             .src_to_hir(self.ast_id(db))?;
@@ -256,11 +256,17 @@ impl OwnerId {
         match self.kind(db) {
             OwnerKind::File => ScopeKind::File,
             OwnerKind::Module => ModuleId::from_owner(db, self)
-                .map(|module| match db.hir_file(module.file_id).get(module.value).kind {
-                    ModuleKind::Module => ScopeKind::Module,
-                    ModuleKind::Interface => ScopeKind::Interface,
-                    ModuleKind::Program => ScopeKind::Program,
-                    ModuleKind::Package => ScopeKind::Package,
+                .map(|module| {
+                    match db
+                        .body(db.owner_table(module.file_id).file_owner().expect("file owner"))
+                        .get(module.value)
+                        .kind
+                    {
+                        ModuleKind::Module => ScopeKind::Module,
+                        ModuleKind::Interface => ScopeKind::Interface,
+                        ModuleKind::Program => ScopeKind::Program,
+                        ModuleKind::Package => ScopeKind::Package,
+                    }
                 })
                 .unwrap_or(ScopeKind::Module),
             OwnerKind::GenerateBlock => ScopeKind::GenerateBlock,
@@ -276,10 +282,6 @@ impl OwnerId {
 
 /// Access to the canonical owner-local HIR store and source identities.
 impl OwnerId {
-    pub fn file_id(self, db: &dyn HirDefDb) -> HirFileId {
-        self.file(db)
-    }
-
     pub fn data(self, db: &dyn HirDefDb) -> Arc<Body> {
         db.body_with_source_map(self).data()
     }
