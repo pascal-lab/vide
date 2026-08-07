@@ -1,8 +1,6 @@
 use std::ops::Deref;
 
-use hir_def::{
-    container::InContainer, db::HirDefDb, def_id::DefId, expr::ExprId, symbol::Resolution,
-};
+use hir_def::{container::OwnerRef, db::HirDefDb, def_id::DefId, expr::ExprId, symbol::Resolution};
 
 use crate::Type;
 #[salsa::db]
@@ -18,7 +16,7 @@ impl Deref for dyn TyDb {
 }
 
 impl dyn TyDb + '_ {
-    pub fn infer_expr(&self, expr: InContainer<ExprId>) -> Type {
+    pub fn infer_expr(&self, expr: OwnerRef<ExprId>) -> Type {
         let key =
             crate::infer::ExprQueryKey::new(self, expr.cont_id, u32::from(expr.value.into_raw()));
         crate::infer::type_of_expr_query(self, key)

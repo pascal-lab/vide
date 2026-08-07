@@ -1,4 +1,4 @@
-use hir_def::{Ident, lower_ident_opt, module::ModuleId};
+use hir_def::{Ident, lower_ident_opt, owner::OwnerId};
 use hir_semantics::semantics::Semantics;
 use rustc_hash::FxHashSet;
 use syntax::{
@@ -89,7 +89,7 @@ fn complete_parameter_port_list_with_typedefs(
     let mut items: Vec<CompletionCandidate> = db
         .unit_scope()
         .typedef_names(db)
-        .chain(db.scope_for(module_id.owner(db).expect("module owner")).typedef_names(db))
+        .chain(db.scope_for(module_id).typedef_names(db))
         .map(|ident| ident.to_string())
         .filter(|name| name.starts_with(prefix))
         .map(|name| CompletionCandidate::text(name, ctx.replacement))
@@ -128,7 +128,7 @@ fn complete_port_connections(
         return Vec::new();
     };
     let Some(current_module_id) =
-        sema.resolve_instantiation(file_id, instantiation).map(|it| it.module_id)
+        sema.resolve_instantiation(file_id, instantiation).map(|it| it.cont_id)
     else {
         return Vec::new();
     };
@@ -209,7 +209,7 @@ fn complete_param_value_assignment(
     };
 
     let Some(current_module_id) =
-        sema.resolve_instantiation(file_id, instantiation).map(|it| it.module_id)
+        sema.resolve_instantiation(file_id, instantiation).map(|it| it.cont_id)
     else {
         return Vec::new();
     };
@@ -299,6 +299,6 @@ fn resolve_target_module_id(
     _sema: &Semantics<'_, RootDb>,
     from_file: vfs::FileId,
     instantiation: ast::HierarchyInstantiation<'_>,
-) -> Option<ModuleId> {
+) -> Option<OwnerId> {
     resolve_instantiation_target(db, from_file, instantiation).unique()
 }

@@ -1,10 +1,9 @@
 use std::collections::BTreeMap;
 
 use hir_def::{
-    container::{InContainer, ScopeParent, SubroutineScope},
+    container::{OwnerRef, ScopeParent},
     def_id::DefId,
     lower_ident_opt,
-    module::ModuleId,
     owner::{OwnerId, OwnerKind},
     symbol::{DefKind, Resolution},
 };
@@ -148,17 +147,13 @@ fn collect_def_names(
         names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
     }
 }
-
-fn subroutine_return_ty(db: &RootDb, subroutine_id: SubroutineScope) -> Type {
-    TypeSystem::new(db).type_of_subroutine_return(subroutine_id)
+fn subroutine_return_ty(db: &RootDb, subroutine: OwnerId) -> Type {
+    TypeSystem::new(db).type_of_subroutine_return(subroutine)
 }
 
-fn module_id_for_container(db: &RootDb, owner: OwnerId) -> Option<ModuleId> {
-    ScopeParent::start_from(db, owner).find_map(|owner| {
-        (owner.kind(db) == OwnerKind::Module).then(|| ModuleId::from_owner(db, owner)).flatten()
-    })
+fn module_id_for_container(db: &RootDb, owner: OwnerId) -> Option<OwnerId> {
+    ScopeParent::start_from(db, owner).find(|owner| owner.kind(db) == OwnerKind::Module)
 }
-
 fn expression_candidate_matches_expected_type(
     db: &RootDb,
     expected_ty: Option<&Type>,
@@ -180,7 +175,7 @@ fn expected_type_at_offset(
     file_id: HirFileId,
     root: SyntaxNode<'_>,
     offset: TextSize,
-    _current_module_id: ModuleId,
+    _current_module_id: OwnerId,
 ) -> Option<Type> {
     expected_type_for_assignment_rhs(db, sema, file_id, root, offset)
         .or_else(|| expected_type_for_declarator_initializer(db, sema, file_id, root, offset))
@@ -226,7 +221,7 @@ fn expected_type_for_declarator_initializer(
 
     let ident = lower_ident_opt(declarator.name())?;
     let container_id = sema.container_for_node(file_id, declarator.syntax())?;
-    let res = sema.name_to_def(InContainer::new(container_id, ident));
+    let res = sema.name_to_def(OwnerRef::new(container_id, ident));
     Some(TypeSystem::new(db).type_of_resolution(res))
 }
 

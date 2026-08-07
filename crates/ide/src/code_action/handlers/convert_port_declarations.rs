@@ -4,12 +4,10 @@ use base_db::source_db::SourceDb;
 use hir_def::{
     Ident,
     body::Body,
-    container::{InContainer, InModule},
+    container::OwnerRef,
     expr::declarator::{DeclId, DeclaratorParent},
-    module::{
-        ModuleId,
-        port::{PortDecl, Ports},
-    },
+    module::port::{PortDecl, Ports},
+    owner::OwnerId,
     source_map::Lowered,
     symbol::{NameContext, NameScope},
 };
@@ -67,10 +65,8 @@ fn convert_ansi_ports_to_non_ansi(
     let port_list = ast_module.header().ports()?.as_ansi_port_list()?;
 
     let module_id = ctx.sema().module_to_def(ctx.file_id().into(), ast_module)?;
-    let module =
-        ctx.sema().db.body_with_source_map(module_id.owner(ctx.sema().db).expect("module owner"));
-    let body =
-        ctx.sema().db.body_with_source_map(module_id.owner(ctx.sema().db).expect("module owner"));
+    let module = ctx.sema().db.body_with_source_map(module_id);
+    let body = ctx.sema().db.body_with_source_map(module_id);
     let Ports::Ansi(port_decls) = &module.ports else {
         return None;
     };
@@ -125,10 +121,8 @@ fn convert_non_ansi_ports_to_ansi(
     let port_list = ast_module.header().ports()?.as_non_ansi_port_list()?;
 
     let module_id = ctx.sema().module_to_def(ctx.file_id().into(), ast_module)?;
-    let module =
-        ctx.sema().db.body_with_source_map(module_id.owner(ctx.sema().db).expect("module owner"));
-    let body =
-        ctx.sema().db.body_with_source_map(module_id.owner(ctx.sema().db).expect("module owner"));
+    let module = ctx.sema().db.body_with_source_map(module_id);
+    let body = ctx.sema().db.body_with_source_map(module_id);
     let Ports::NonAnsi { ports, refs, .. } = &module.ports else {
         return None;
     };
@@ -164,8 +158,7 @@ fn convert_non_ansi_ports_to_ansi(
 
     let body_range = module_body_range(ast_module)?;
     let text = ctx.sema().db.file_text(ctx.file_id());
-    let module_scope =
-        ctx.sema().db.scope_for(module_id.owner(ctx.sema().db).expect("module owner"));
+    let module_scope = ctx.sema().db.scope_for(module_id);
     let port_replacements = port_names
         .iter()
         .map(|name| non_ansi_port_replacement(ctx, &module, &body, &module_scope, name, &text))
@@ -295,7 +288,7 @@ fn data_decl_range_for_name(
 
 fn render_ansi_port_declaration(
     ctx: &CodeActionCtx,
-    module_id: ModuleId,
+    module_id: OwnerId,
     port_decl: &PortDecl,
     range: TextRange,
     text: &str,
@@ -311,10 +304,8 @@ fn render_ansi_port_declaration(
 
     let decl_id = single_port_decl_id(port_decl)?;
     let header =
-        InModule::new(module_id, port_decl.header.clone()).display_source(ctx.sema().db).ok()?;
-    let decl = InContainer::new(module_id.owner(ctx.sema().db).expect("module owner"), decl_id)
-        .display_signature(ctx.sema().db)
-        .ok()?;
+        OwnerRef::new(module_id, port_decl.header.clone()).display_source(ctx.sema().db).ok()?;
+    let decl = OwnerRef::new(module_id, decl_id).display_signature(ctx.sema().db).ok()?;
 
     if header.is_empty() { Some(format!("{decl};")) } else { Some(format!("{header} {decl};")) }
 }

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use hir_def::{
-    container::{InContainer, InModule},
+    container::OwnerRef,
     declaration::Declaration,
     lower_ident_opt,
     module::{
@@ -126,12 +126,12 @@ fn sig_help_for_instance(
     let db = sema.db;
 
     let active_param = 'blk: {
-        let Some(InModule { value: instance_id, module_id }) =
+        let Some(OwnerRef { value: instance_id, cont_id: module_id }) =
             sema.resolve_instance(file_id, instance)
         else {
             break 'blk None;
         };
-        let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+        let module = db.body_with_source_map(module_id);
         let instance = module.get(instance_id);
 
         let Some((idx, conn_id)) = instance.connections.iter().enumerate().find(|(_, conn_id)| {
@@ -152,8 +152,8 @@ fn sig_help_for_instance(
     let instantiation = ast::HierarchyInstantiation::cast(instance.syntax().parent()?)?;
     let target_module_id =
         resolve_instantiation_target(db, file_id.expect_file(), instantiation).unique()?;
-    let target_module = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
-    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_module = db.body_with_source_map(target_module_id);
+    let target_body = db.body_with_source_map(target_module_id);
     let target_module_name =
         target_module.name.as_ref().map(|name| name.to_string()).unwrap_or("<module>".to_string());
 
@@ -188,12 +188,7 @@ fn sig_help_for_instance(
                         let r = target_module.get(r);
                         buf.push_str(r.ident.as_ref().map(|s| s.as_str()).unwrap_or("<missing>"));
                         if let Some(select) = &r.select {
-                            match InContainer::new(
-                                target_module_id.owner(db).expect("target module owner"),
-                                *select,
-                            )
-                            .display_signature(db)
-                            {
+                            match OwnerRef::new(target_module_id, *select).display_signature(db) {
                                 Ok(s) => buf.push_str(s.as_str()),
                                 Err(_) => buf.push_str("<missing>"),
                             }
@@ -208,7 +203,7 @@ fn sig_help_for_instance(
             for port_decl in port_decls.values() {
                 let mut buf = String::new();
                 if !res.config.params_only {
-                    let header = InModule::new(target_module_id, port_decl.header.clone())
+                    let header = OwnerRef::new(target_module_id, port_decl.header.clone())
                         .display_signature(db)
                         .unwrap_or_else(|_| "<missing-header>".to_string());
                     let header = header.trim_end();
@@ -220,12 +215,7 @@ fn sig_help_for_instance(
                 let header_size = buf.len();
 
                 for decl_id in port_decl.decls.clone() {
-                    match InContainer::new(
-                        target_module_id.owner(db).expect("target module owner"),
-                        decl_id,
-                    )
-                    .display_signature(db)
-                    {
+                    match OwnerRef::new(target_module_id, decl_id).display_signature(db) {
                         Ok(decl) => buf.push_str(&decl),
                         Err(_) => buf.push_str("<missing>"),
                     }
@@ -257,12 +247,12 @@ fn sig_help_for_instantiation(
     let db = sema.db;
 
     let active_param = 'blk: {
-        let Some(InModule { value: instantiation_id, module_id }) =
+        let Some(OwnerRef { value: instantiation_id, cont_id: module_id }) =
             sema.resolve_instantiation(file_id, instantiation)
         else {
             break 'blk None;
         };
-        let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+        let module = db.body_with_source_map(module_id);
         let instantiation = module.get(instantiation_id);
 
         let Some((idx, conn_id)) =
@@ -284,8 +274,8 @@ fn sig_help_for_instantiation(
 
     let target_module_id =
         resolve_instantiation_target(db, file_id.expect_file(), instantiation).unique()?;
-    let target_module = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
-    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_module = db.body_with_source_map(target_module_id);
+    let target_body = db.body_with_source_map(target_module_id);
     let target_module_name =
         target_module.name.as_ref().map(|name| name.to_string()).unwrap_or("<module>".to_string());
 
@@ -311,12 +301,9 @@ fn sig_help_for_instantiation(
     {
         let mut buf = String::new();
         if !res.config.params_only {
-            let ty = InContainer::new(
-                target_module_id.owner(db).expect("target module owner"),
-                port_decl.ty(),
-            )
-            .display_signature(db)
-            .unwrap_or_default();
+            let ty = OwnerRef::new(target_module_id, port_decl.ty())
+                .display_signature(db)
+                .unwrap_or_default();
             buf.push_str(&ty);
             if !ty.is_empty() {
                 buf.push(' ');
@@ -325,12 +312,7 @@ fn sig_help_for_instantiation(
         let header_size = buf.len();
 
         for decl_id in port_decl.decls() {
-            match InContainer::new(
-                target_module_id.owner(db).expect("target module owner"),
-                decl_id,
-            )
-            .display_signature(db)
-            {
+            match OwnerRef::new(target_module_id, decl_id).display_signature(db) {
                 Ok(decl) => buf.push_str(&decl),
                 Err(_) => buf.push_str("<missing>"),
             }
@@ -373,10 +355,10 @@ fn sig_help_for_invocation(
             .filter_map(|def_id| def_id.primary_origin(db).as_subroutine(db)),
     )
     .unique()?;
-    let subroutine =
-        db.subroutine(subroutine_id.clone().clone().owner(db).expect("subroutine owner"));
+    let owner = subroutine_id;
+    let subroutine = db.subroutine(owner);
     let subroutine_name = subroutine.name.as_ref()?;
-    let signature_owner = subroutine_id.parent_owner(db);
+    let signature_owner = owner;
 
     let active_param =
         invocation.arguments().and_then(|args| active_argument_at_offset(args, offset));
@@ -387,7 +369,7 @@ fn sig_help_for_invocation(
             SubroutineKind::Task => format!("task {subroutine_name}("),
             SubroutineKind::Function { return_ty } => {
                 let ty = return_ty.as_ref().and_then(|ty| {
-                    InContainer::new(signature_owner, ty.clone()).display_source(db).ok()
+                    OwnerRef::new(signature_owner, ty.clone()).display_source(db).ok()
                 });
                 match ty {
                     Some(ty) => format!("function {ty} {subroutine_name}("),
@@ -404,9 +386,10 @@ fn sig_help_for_invocation(
 
         let mut param = String::new();
         if !res.config.params_only {
-            let ty = port.ty.as_ref().and_then(|ty| {
-                InContainer::new(signature_owner, ty.clone()).display_source(db).ok()
-            });
+            let ty = port
+                .ty
+                .as_ref()
+                .and_then(|ty| OwnerRef::new(signature_owner, ty.clone()).display_source(db).ok());
             let dir = port.direction.display_source(db).unwrap_or_default();
             param = match (dir.is_empty(), ty) {
                 (false, Some(ty)) => format!("{dir} {ty} {port_name}"),

@@ -1,13 +1,12 @@
 use hir_def::{
     Ident,
     aggregate::{StructId, StructKind},
-    container::InContainer,
+    container::OwnerRef,
     def_id::DefId,
     expr::data_ty::DataTy,
-    module::{ModuleId, ModuleKind, generate::GenerateBlockId},
+    owner::OwnerId,
     symbol::{DefOriginLoc, NameScope, Resolution},
 };
-use utils::get::GetRef;
 
 use crate::{
     db::TyDb,
@@ -53,7 +52,7 @@ pub(crate) fn select_member(db: &dyn TyDb, base: &Ty, name: &Ident) -> TyResult 
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
 }
 
-fn struct_members(db: &dyn TyDb, struct_id: InContainer<StructId>) -> Vec<TyMember> {
+fn struct_members(db: &dyn TyDb, struct_id: OwnerRef<StructId>) -> Vec<TyMember> {
     let data = struct_id.cont_id.data(db);
     data.struct_def(struct_id.value)
         .members
@@ -77,7 +76,7 @@ fn union_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
         .unwrap_or_default()
 }
 
-fn aggregate_struct_id_from_def(db: &dyn TyDb, def_id: DefId) -> Option<InContainer<StructId>> {
+fn aggregate_struct_id_from_def(db: &dyn TyDb, def_id: DefId) -> Option<OwnerRef<StructId>> {
     let data_ty = match def_id.primary_origin(db).loc(db) {
         DefOriginLoc::Typedef(typedef) => {
             typedef.cont_id.data(db).typedef(typedef.value).ty.clone()?
@@ -91,17 +90,14 @@ fn aggregate_struct_id_from_def(db: &dyn TyDb, def_id: DefId) -> Option<InContai
     }
 }
 
-fn struct_kind(db: &dyn TyDb, struct_id: InContainer<StructId>) -> StructKind {
+fn struct_kind(db: &dyn TyDb, struct_id: OwnerRef<StructId>) -> StructKind {
     struct_id.cont_id.data(db).struct_def(struct_id.value).kind
 }
 
-fn module_members(db: &dyn TyDb, module_id: ModuleId) -> Vec<TyMember> {
-    let file = db.body(db.owner_table(module_id.file_id).file_owner().expect("file owner"));
-    let scope = if file.get(module_id.value).kind == ModuleKind::Package {
-        db.package_export_scope(module_id)
-    } else {
-        db.scope_for(module_id.owner(db).expect("module owner"))
-    };
+fn module_members(db: &dyn TyDb, module_id: OwnerId) -> Vec<TyMember> {
+    let is_package = DefOriginLoc::Module(module_id).kind(db) == hir_def::symbol::DefKind::Package;
+    let scope =
+        if is_package { db.package_export_scope(module_id) } else { db.scope_for(module_id) };
     scope_members(db, &scope)
 }
 
@@ -121,8 +117,8 @@ fn covergroup_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
     scope_members(db, &db.scope_for(owner))
 }
 
-fn generate_block_members(db: &dyn TyDb, generate_block_id: GenerateBlockId) -> Vec<TyMember> {
-    scope_members(db, &db.scope_for(generate_block_id.clone().owner(db).expect("generate owner")))
+fn generate_block_members(db: &dyn TyDb, generate_block_owner: OwnerId) -> Vec<TyMember> {
+    scope_members(db, &db.scope_for(generate_block_owner))
 }
 
 fn block_members(db: &dyn TyDb, owner: hir_def::owner::OwnerId) -> Vec<TyMember> {

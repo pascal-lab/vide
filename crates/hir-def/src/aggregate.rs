@@ -6,7 +6,7 @@ use syntax::{
 };
 
 use super::{Ident, expr::data_ty::DataTy, lower_ident_opt};
-use crate::{container::InContainer, owner::OwnerId};
+use crate::{container::OwnerRef, owner::OwnerId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StructKind {
@@ -17,7 +17,7 @@ pub enum StructKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructMember {
     pub name: Option<Ident>,
-    pub ty: Option<InContainer<DataTy>>,
+    pub ty: Option<OwnerRef<DataTy>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +58,7 @@ pub(crate) fn lower_struct_def(
         let member_ty = lower_data_ty(member.type_());
         for declarator in member.declarators().children() {
             let name = lower_ident_opt(declarator.name());
-            let ty = InContainer::new(container_id, member_ty.clone());
+            let ty = OwnerRef::new(container_id, member_ty.clone());
             members.push(StructMember { name, ty: Some(ty) });
         }
     }
@@ -78,7 +78,7 @@ pub enum ClassMemberKind {
 pub struct ClassMember {
     pub name: Option<Ident>,
     pub kind: ClassMemberKind,
-    pub ty: Option<InContainer<DataTy>>,
+    pub ty: Option<OwnerRef<DataTy>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

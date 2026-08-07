@@ -1,5 +1,7 @@
 use itertools::Either;
 use la_arena::{Arena, Idx, IdxRange};
+use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
 use syntax::{
     SyntaxToken, TokenKind,
     ast::{self, AstNode, PortExpression},
@@ -9,10 +11,11 @@ use utils::get::{Get, GetRef};
 use crate::{
     Ident, alloc_with_source, alloc_with_source_entry,
     ast_id_map::SourceAstId,
+    declaration::Declaration,
     expr::{
         Selector,
         data_ty::{BuiltinDataTy, BuiltinDataTyId, DataTy},
-        declarator::{DeclsRange, empty_decls_range},
+        declarator::{DeclId, DeclsRange, empty_decls_range},
     },
     lower_ident_opt,
     module::LowerModuleCtx,
@@ -71,10 +74,31 @@ impl PortHeader {
         }
     }
 }
+#[derive(Default, Debug, PartialEq, Eq, Clone)]
+pub struct NonAnsiPortBindings {
+    pub decl_to_port: FxHashMap<DeclId, NonAnsiPortId>,
+    pub origins_by_port: FxHashMap<NonAnsiPortId, SmallVec<[DeclId; 2]>>,
+}
+fn non_ansi_binding_role(body: &crate::body::Body, decl_id: DeclId) -> Option<u8> {
+    match body.decls[decl_id].parent {
+        crate::expr::declarator::DeclaratorParent::PortDeclId(_) => Some(0),
+        crate::expr::declarator::DeclaratorParent::DeclarationId(declaration_id) => matches!(
+            body.declarations[declaration_id],
+            Declaration::DataDecl(_) | Declaration::NetDecl(_)
+        )
+        .then_some(1),
+        crate::expr::declarator::DeclaratorParent::StmtId(_) => None,
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Ports {
-    NonAnsi { ports: Arena<NonAnsiPort>, refs: Arena<PortRef>, decls: Arena<PortDecl> },
+    NonAnsi {
+        ports: Arena<NonAnsiPort>,
+        refs: Arena<PortRef>,
+        decls: Arena<PortDecl>,
+        bindings: NonAnsiPortBindings,
+    },
     Ansi(Arena<PortDecl>),
 }
 
@@ -89,10 +113,12 @@ impl Default for Ports {
 impl Ports {
     pub(crate) fn shrink_to_fit(&mut self) {
         match self {
-            Ports::NonAnsi { ports, refs, decls } => {
+            Ports::NonAnsi { ports, refs, decls, bindings } => {
                 ports.shrink_to_fit();
                 refs.shrink_to_fit();
                 decls.shrink_to_fit();
+                bindings.decl_to_port.shrink_to_fit();
+                bindings.origins_by_port.shrink_to_fit();
             }
             Ports::Ansi(ports) => ports.shrink_to_fit(),
         }
@@ -346,7 +372,12 @@ impl LowerModuleCtx<'_> {
         }
 
         let port_list_src = self.source_id(port_list.syntax());
-        self.store.data.ports = Ports::NonAnsi { ports, refs, decls: Arena::default() };
+        self.store.data.ports = Ports::NonAnsi {
+            ports,
+            refs,
+            decls: Arena::default(),
+            bindings: NonAnsiPortBindings::default(),
+        };
         self.store.sources.port_srcs = PortSrcs::NonAnsi {
             ports: port_srcs,
             refs: ref_srcs,
@@ -374,10 +405,69 @@ impl LowerModuleCtx<'_> {
         let decls = self.lower_declarators(decl.declarators(), parent.into());
         match &mut self.store.data.ports {
             Ports::NonAnsi { decls: port_decls, .. } | Ports::Ansi(port_decls) => {
-                port_decls[parent].decls = decls;
+                port_decls[parent].decls = decls.clone();
             }
         }
+        self.bind_nonansi_declarations(decls);
         parent
+    }
+
+    pub(crate) fn bind_nonansi_declarations<I>(&mut self, decl_ids: I)
+    where
+        I: IntoIterator<Item = DeclId>,
+    {
+        let decl_ids: Vec<_> = decl_ids.into_iter().collect();
+        let body = &mut self.store.data;
+        for decl_id in decl_ids {
+            let Some(role) = non_ansi_binding_role(body, decl_id) else {
+                continue;
+            };
+            let Some(name) = body.decls[decl_id].name.clone() else {
+                continue;
+            };
+            let port_id = {
+                let Ports::NonAnsi { ports, .. } = &body.ports else {
+                    continue;
+                };
+                let mut matches = ports.iter().filter_map(|(port_id, port)| {
+                    (port.label.as_ref() == Some(&name)).then_some(port_id)
+                });
+                let Some(port_id) = matches.next() else {
+                    continue;
+                };
+                if matches.next().is_some() {
+                    continue;
+                }
+                port_id
+            };
+            let conflicting: Vec<_> = {
+                let Ports::NonAnsi { bindings, .. } = &body.ports else {
+                    continue;
+                };
+                bindings
+                    .origins_by_port
+                    .get(&port_id)
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                    .filter(|existing| non_ansi_binding_role(body, *existing) == Some(role))
+                    .collect()
+            };
+            let Ports::NonAnsi { bindings, .. } = &mut body.ports else {
+                continue;
+            };
+            if !conflicting.is_empty() {
+                if let Some(origins) = bindings.origins_by_port.get_mut(&port_id) {
+                    origins.retain(|existing| !conflicting.contains(existing));
+                }
+                for existing in conflicting {
+                    bindings.decl_to_port.remove(&existing);
+                }
+                continue;
+            }
+            bindings.decl_to_port.insert(decl_id, port_id);
+            bindings.origins_by_port.entry(port_id).or_default().push(decl_id);
+        }
     }
 
     // Port header may inherit properties from the previous port header, so we

@@ -1,5 +1,5 @@
 use base_db::source_db::SourceDb;
-use hir_def::{container::InModule, module::instantiation::PortConn};
+use hir_def::{container::OwnerRef, module::instantiation::PortConn};
 use rustc_hash::FxHashSet;
 use syntax::{
     ast::{self, AstNode},
@@ -43,17 +43,17 @@ pub(super) fn add_missing_connections(
     let file_id = ctx.file_id().into();
 
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
-    let InModule { value: instance_id, module_id } =
+    let OwnerRef { value: instance_id, cont_id: module_id } =
         sema.resolve_instance(file_id, ast_instance)?;
-    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let module = db.body_with_source_map(module_id);
     let instance = module.get(instance_id);
     let open_paren = ast_instance.open_paren()?.text_range_in(ast_instance.syntax())?;
     let close_paren = ast_instance.close_paren()?.text_range_in(ast_instance.syntax())?;
 
     let instantiation = module.get(instance.parent);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let target_module = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
-    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_module = db.body_with_source_map(target_module_id);
+    let target_body = db.body_with_source_map(target_module_id);
 
     let is_ordered = instance
         .connections

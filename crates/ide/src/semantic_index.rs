@@ -3,7 +3,7 @@ use hir_def::{
     Ident,
     container::InFile,
     def_id::DefId,
-    module::ModuleId,
+    owner::OwnerId,
     symbol::{DefOrigin, DefOriginLoc},
 };
 use hir_ty::db::TyDb;
@@ -111,7 +111,7 @@ pub(crate) struct SemanticReferenceGroup {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SemanticModuleDefinition {
-    pub module_id: ModuleId,
+    pub module_id: OwnerId,
     pub file_id: FileId,
     pub name: Ident,
     pub name_range: TextRange,
@@ -141,8 +141,8 @@ pub struct ModuleIndex {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SemanticIndex {
     references_by_definition: FxHashMap<DefId, SemanticReferenceGroup>,
-    incoming_module_edges: FxHashMap<ModuleId, Box<[ModuleCallEdge]>>,
-    outgoing_module_edges: FxHashMap<ModuleId, Box<[ModuleCallEdge]>>,
+    incoming_module_edges: FxHashMap<OwnerId, Box<[ModuleCallEdge]>>,
+    outgoing_module_edges: FxHashMap<OwnerId, Box<[ModuleCallEdge]>>,
 }
 
 /// Per-file slice of the semantic index: reference groups without the
@@ -174,7 +174,7 @@ pub struct FileModuleIndex {
 /// modules, with caller and callee ids so the merge can build both maps.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FileModuleEdges {
-    edges: Vec<(ModuleId, ModuleId, ModuleCallEdge)>,
+    edges: Vec<(OwnerId, OwnerId, ModuleCallEdge)>,
 }
 
 #[derive(Debug)]
@@ -235,7 +235,7 @@ impl ModuleIndex {
 }
 
 impl SemanticModuleDefinition {
-    fn new(db: &dyn TyDb, module_id: ModuleId) -> Option<Self> {
+    fn new(db: &dyn TyDb, module_id: OwnerId) -> Option<Self> {
         let origin = DefOrigin::new(db, DefOriginLoc::Module(module_id));
         let name = origin.name(db)?;
         let InFile { file_id, value: name_range } = origin.name_range(db)?;
@@ -274,9 +274,9 @@ impl SemanticIndex {
         let source_root = db.source_root(source_root_id);
         let mut references_by_definition: FxHashMap<DefId, SemanticReferenceGroupBuilder> =
             FxHashMap::default();
-        let mut incoming_module_edges: FxHashMap<ModuleId, Vec<ModuleCallEdge>> =
+        let mut incoming_module_edges: FxHashMap<OwnerId, Vec<ModuleCallEdge>> =
             FxHashMap::default();
-        let mut outgoing_module_edges: FxHashMap<ModuleId, Vec<ModuleCallEdge>> =
+        let mut outgoing_module_edges: FxHashMap<OwnerId, Vec<ModuleCallEdge>> =
             FxHashMap::default();
 
         for file_id in source_root.iter() {
@@ -316,11 +316,11 @@ impl SemanticIndex {
         self.references_by_definition.get(&definition)
     }
 
-    pub(crate) fn incoming_module_edges(&self, module_id: ModuleId) -> &[ModuleCallEdge] {
+    pub(crate) fn incoming_module_edges(&self, module_id: OwnerId) -> &[ModuleCallEdge] {
         self.incoming_module_edges.get(&module_id).map_or(&[], |edges| edges.as_ref())
     }
 
-    pub(crate) fn outgoing_module_edges(&self, module_id: ModuleId) -> &[ModuleCallEdge] {
+    pub(crate) fn outgoing_module_edges(&self, module_id: OwnerId) -> &[ModuleCallEdge] {
         self.outgoing_module_edges.get(&module_id).map_or(&[], |edges| edges.as_ref())
     }
 
@@ -360,7 +360,7 @@ fn module_edges(
     db: &RootDb,
     file_id: FileId,
     name_range: TextRange,
-    edges_for_index: impl Fn(&SemanticIndex, ModuleId) -> &[ModuleCallEdge],
+    edges_for_index: impl Fn(&SemanticIndex, OwnerId) -> &[ModuleCallEdge],
 ) -> Vec<ModuleCallEdge> {
     let Some(module_id) = module_id_at_range(db, file_id, name_range) else {
         return Vec::new();
@@ -375,7 +375,7 @@ fn module_edges(
     edges
 }
 
-fn module_id_at_range(db: &RootDb, file_id: FileId, name_range: TextRange) -> Option<ModuleId> {
+fn module_id_at_range(db: &RootDb, file_id: FileId, name_range: TextRange) -> Option<OwnerId> {
     let module_index = source_root_module_index_for_root(db, db.source_root_id(file_id));
     module_index.module_definition_at(file_id, name_range).map(|module| module.module_id)
 }
@@ -411,8 +411,8 @@ fn push_unique_edge(edges: &mut Vec<ModuleCallEdge>, edge: ModuleCallEdge) {
 }
 
 fn finish_edge_map(
-    edges_by_module: FxHashMap<ModuleId, Vec<ModuleCallEdge>>,
-) -> FxHashMap<ModuleId, Box<[ModuleCallEdge]>> {
+    edges_by_module: FxHashMap<OwnerId, Vec<ModuleCallEdge>>,
+) -> FxHashMap<OwnerId, Box<[ModuleCallEdge]>> {
     edges_by_module
         .into_iter()
         .map(|(key, mut edges)| {

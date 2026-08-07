@@ -24,10 +24,17 @@ impl HasSource for OwnerId {
 
 impl HasSource for DefOrigin {
     fn source(&self, db: &dyn HirDefDb) -> Option<InFile<SourceInfo>> {
-        let InFile { file_id, value: full_range } = self.range(db)?;
-        let focus_range =
-            self.name_range(db).filter(|focus| focus.file_id == file_id).map(|focus| focus.value);
-        Some(InFile::new(file_id, SourceInfo::from_ranges(full_range, focus_range)))
+        let source = self.loc(db).clone().source_ast(db)?;
+        let origin = db.source_projection(source.file_id).origin(source.value)?;
+        let mut info = SourceInfo::from_origin(origin)?;
+        let focus_range = self
+            .name_range(db)
+            .filter(|focus| focus.file_id == source.file_id)
+            .map(|focus| focus.value);
+        if focus_range != info.focus_range() {
+            info = SourceInfo::from_parts(info.kind(), info.full_range(), focus_range);
+        }
+        Some(InFile::new(source.file_id, info))
     }
 }
 

@@ -1,5 +1,5 @@
 use base_db::source_db::SourceDb;
-use hir_def::{container::InContainer, expr::Expr};
+use hir_def::{container::OwnerRef, expr::Expr};
 use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -129,7 +129,7 @@ fn handle_literal(
     }
 
     let expr = ast::Expression::cast(parent)?;
-    let InContainer { value: expr_id, cont_id } = sema.resolve_expr(file_id, expr)?;
+    let OwnerRef { value: expr_id, cont_id } = sema.resolve_expr(file_id, expr)?;
     let container = cont_id.data(sema.db);
     let Expr::Literal(literal) = container.expr(expr_id) else {
         return None;

@@ -9,7 +9,7 @@ use base_db::{
     source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
     source_root::{SourceRoot, SourceRootId},
 };
-use hir_def::{container::InFile, db::HirDefDb, module::ModuleId};
+use hir_def::{db::HirDefDb, owner::OwnerId};
 use preproc_expand::{
     db::PreprocDb, file::HirFileId, macro_file::macro_files_at_offset,
     preproc::diagnostic_target_for_range,
@@ -120,9 +120,7 @@ endmodule
     let db = db_with_root_text(root_text);
     let hir_file =
         db.body_with_source_map(db.owner_table(TOP.into()).file_owner().expect("file owner"));
-    let (local_module_id, _) = hir_file.modules.iter().next().unwrap();
-    let module_id: ModuleId = InFile::new(TOP.into(), local_module_id);
-    let owner = module_id.owner(&db).expect("module must have a canonical owner");
+    let owner: OwnerId = hir_file.module_owners().next().unwrap();
     let body = db.body_with_source_map(owner);
     let (declaration_id, _) =
         body.declarations.iter().next().expect("generated declaration should lower to HIR");
@@ -145,9 +143,8 @@ endmodule
         db_with_root_text_and_predefines(root_text, vec![Predefine::new("MAKE_CHILD=child u();")]);
     let hir_file =
         db.body_with_source_map(db.owner_table(TOP.into()).file_owner().expect("file owner"));
-    let (local_module_id, _) = hir_file.modules.iter().next().unwrap();
-    let module_id: ModuleId = InFile::new(TOP.into(), local_module_id);
-    let module = db.body_with_source_map(module_id.owner(&db).expect("module owner"));
+    let owner: OwnerId = hir_file.module_owners().next().unwrap();
+    let module = db.body_with_source_map(owner);
     let (instantiation_id, _) = module
         .instantiations
         .iter()
@@ -174,12 +171,9 @@ fn macro_expanded_module_keeps_macro_hir_file_id() {
 
     let hir_file =
         db.body_with_source_map(db.owner_table(hir_file_id).file_owner().expect("file owner"));
-    let (local_module_id, _) =
-        hir_file.modules.iter().next().expect("macro expansion should lower a module");
-    let module_id = InFile::new(hir_file_id, local_module_id);
-    let owner = module_id.owner(&db).expect("module owner");
+    let owner = hir_file.module_owners().next().expect("macro expansion should lower a module");
     assert_eq!(owner.file(&db), hir_file_id);
-    assert_eq!(module_id.file_id.source_file_id(&db), Some(TOP));
+    assert_eq!(owner.file(&db).source_file_id(&db), Some(TOP));
 }
 
 #[test]

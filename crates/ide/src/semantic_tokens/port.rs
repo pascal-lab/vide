@@ -2,10 +2,8 @@ use std::sync::LazyLock;
 
 use hir_def::{
     expr::data_ty::{BuiltinDataTy, DataTy},
-    module::{
-        ModuleId,
-        port::{NonAnsiPort, PortDirection, Ports},
-    },
+    module::port::{NonAnsiPort, PortDirection, Ports},
+    owner::OwnerId,
     symbol::NameContext,
 };
 use hir_semantics::semantics::Semantics;
@@ -23,7 +21,7 @@ use crate::{
 
 pub(super) fn collect_port(
     sema: &Semantics<'_, RootDb>,
-    module_id: ModuleId,
+    module_id: OwnerId,
     collector: &mut SemaTokenCollector,
 ) {
     if !collector.config.port() {
@@ -31,9 +29,9 @@ pub(super) fn collect_port(
     }
 
     let db = sema.db;
-    let module_scope = db.scope_for(module_id.owner(db).expect("module owner"));
-    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
-    let body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let module_scope = db.scope_for(module_id);
+    let module = db.body_with_source_map(module_id);
+    let body = db.body_with_source_map(module_id);
 
     match &module.ports {
         Ports::NonAnsi { ports, decls, .. } => {

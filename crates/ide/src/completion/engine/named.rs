@@ -138,7 +138,7 @@ pub(super) fn complete_named_port_conn_expr(
     };
 
     let Some(current_module_id) =
-        sema.resolve_instantiation(file_id, instantiation).map(|it| it.module_id)
+        sema.resolve_instantiation(file_id, instantiation).map(|it| it.cont_id)
     else {
         return Vec::new();
     };
@@ -188,7 +188,7 @@ pub(super) fn complete_named_param_assign_expr(
     };
 
     let Some(current_module_id) =
-        sema.resolve_instantiation(file_id, instantiation).map(|it| it.module_id)
+        sema.resolve_instantiation(file_id, instantiation).map(|it| it.cont_id)
     else {
         return Vec::new();
     };

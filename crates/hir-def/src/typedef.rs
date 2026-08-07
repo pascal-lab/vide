@@ -2,7 +2,7 @@ use la_arena::Idx;
 use syntax::ast;
 
 use super::{Ident, aggregate::StructId, expr::data_ty::DataTy};
-use crate::{container::InContainer, owner::OwnerId};
+use crate::{container::OwnerRef, owner::OwnerId};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Typedef {
@@ -22,7 +22,7 @@ pub(crate) fn lower_typedef_data_ty<Ctx>(
     match data_ty {
         ast::DataType::StructUnionType(struct_ty) => {
             let struct_id = lower_struct_type(ctx, struct_ty);
-            DataTy::Struct(InContainer::new(container_id, struct_id))
+            DataTy::Struct(OwnerRef::new(container_id, struct_id))
         }
         other => lower_data_ty(ctx, other),
     }

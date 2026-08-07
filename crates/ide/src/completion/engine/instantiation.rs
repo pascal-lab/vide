@@ -1,8 +1,6 @@
 use hir_def::{
-    Ident,
-    declaration::Declaration,
-    expr::declarator::DeclaratorParent,
-    module::{ModuleId, port::Ports},
+    Ident, declaration::Declaration, expr::declarator::DeclaratorParent, module::port::Ports,
+    owner::OwnerId,
 };
 use syntax::{
     SyntaxAncestors,
@@ -11,16 +9,16 @@ use syntax::{
 
 use crate::db::root_db::RootDb;
 
-pub(super) fn ports_of_module_sorted(db: &RootDb, module_id: ModuleId) -> Vec<Ident> {
+pub(super) fn ports_of_module_sorted(db: &RootDb, module_id: OwnerId) -> Vec<Ident> {
     let mut names = ports_of_module_in_order(db, module_id);
     names.sort();
     names.dedup();
     names
 }
 
-pub(super) fn ports_of_module_in_order(db: &RootDb, module_id: ModuleId) -> Vec<Ident> {
-    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
-    let body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+pub(super) fn ports_of_module_in_order(db: &RootDb, module_id: OwnerId) -> Vec<Ident> {
+    let module = db.body_with_source_map(module_id);
+    let body = db.body_with_source_map(module_id);
     let mut names = Vec::new();
 
     match &module.ports {
@@ -45,18 +43,15 @@ pub(super) fn ports_of_module_in_order(db: &RootDb, module_id: ModuleId) -> Vec<
     names
 }
 
-pub(super) fn overridable_params_of_module_sorted(db: &RootDb, module_id: ModuleId) -> Vec<Ident> {
+pub(super) fn overridable_params_of_module_sorted(db: &RootDb, module_id: OwnerId) -> Vec<Ident> {
     let mut names = overridable_params_of_module_in_order(db, module_id);
     names.sort();
     names.dedup();
     names
 }
 
-pub(super) fn overridable_params_of_module_in_order(
-    db: &RootDb,
-    module_id: ModuleId,
-) -> Vec<Ident> {
-    let body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+pub(super) fn overridable_params_of_module_in_order(db: &RootDb, module_id: OwnerId) -> Vec<Ident> {
+    let body = db.body_with_source_map(module_id);
 
     let mut names = Vec::new();
 

@@ -4,17 +4,18 @@ use base_db::source_root::SourceRootRole;
 use hir_def::{
     Ident,
     body::Body,
-    container::{InContainer, InModule},
+    container::OwnerRef,
     db::HirDefDb,
     declaration::Declaration,
     def_id::DefId,
     expr::{data_ty::DataTy, declarator::DeclaratorParent},
     lower_ident_opt,
     module::{
-        ModuleId, ansi_port_decl_id_by_idx,
+        ansi_port_decl_id_by_idx,
         instantiation::{Instantiation, PortConn},
         port::{PortDirection, Ports},
     },
+    owner::OwnerId,
     source_map::Lowered,
     symbol::{DefOrigin, NameContext, Resolution},
 };
@@ -31,9 +32,9 @@ use crate::db::workspace_symbol_index_db::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ModuleResolution {
-    Unique(ModuleId),
-    BestEffortProximity { selected: ModuleId, candidates: Vec<ModuleId> },
-    Ambiguous { candidates: Vec<ModuleId>, kind: ModuleResolutionAmbiguity },
+    Unique(OwnerId),
+    BestEffortProximity { selected: OwnerId, candidates: Vec<OwnerId> },
+    Ambiguous { candidates: Vec<OwnerId>, kind: ModuleResolutionAmbiguity },
     Unresolved,
 }
 
@@ -44,7 +45,7 @@ pub(crate) enum ModuleResolutionAmbiguity {
 }
 
 impl ModuleResolution {
-    pub(crate) fn unique(&self) -> Option<ModuleId> {
+    pub(crate) fn unique(&self) -> Option<OwnerId> {
         match self {
             ModuleResolution::Unique(module_id) => Some(*module_id),
             ModuleResolution::BestEffortProximity { selected, .. } => Some(*selected),
@@ -52,7 +53,7 @@ impl ModuleResolution {
         }
     }
 
-    fn into_resolution(self) -> Resolution<ModuleId> {
+    fn into_resolution(self) -> Resolution<OwnerId> {
         match self {
             ModuleResolution::Unique(module_id)
             | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
@@ -81,7 +82,7 @@ pub(crate) fn resolve_hir_instantiation_target(
     db: &dyn WorkspaceSymbolIndexDb,
     from_file: FileId,
     instantiation: &Instantiation,
-) -> Option<ModuleId> {
+) -> Option<OwnerId> {
     resolve_module_name(db, from_file, instantiation.module_name.as_ref()?).unique()
 }
 
@@ -150,11 +151,11 @@ fn resolve_named_param_in_instantiation(
 
 fn resolve_named_port_in_module(
     db: &dyn WorkspaceSymbolIndexDb,
-    module_id: ModuleId,
+    module_id: OwnerId,
     port_name: &Ident,
 ) -> Resolution<DefId> {
     Resolution::from_candidates(
-        db.scope_for(module_id.owner(db).expect("module owner"))
+        db.scope_for(module_id)
             .lookup(NameContext::Value, port_name)
             .into_candidates()
             .into_iter()
@@ -168,19 +169,19 @@ fn resolve_named_port_in_module(
 /// scope.
 pub(crate) fn resolve_connection_port(
     db: &dyn WorkspaceSymbolIndexDb,
-    target_module_id: ModuleId,
+    target_module_id: OwnerId,
     conn: &PortConn,
     idx: usize,
 ) -> Resolution<DefId> {
     match conn {
         PortConn::Empty | PortConn::Ordered(_) => {
-            let module = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+            let module = db.body_with_source_map(target_module_id);
             match &module.ports {
                 Ports::NonAnsi { ports, .. } => {
                     let Some((port_id, _)) = ports.iter().nth(idx) else {
                         return Resolution::Unresolved;
                     };
-                    Resolution::Unique(DefId::new(db, InModule::new(target_module_id, port_id)))
+                    Resolution::Unique(DefId::new(db, OwnerRef::new(target_module_id, port_id)))
                 }
                 Ports::Ansi(_) => {
                     let Some(port_decl_id) = ansi_port_decl_id_by_idx(&module, idx) else {
@@ -189,13 +190,7 @@ pub(crate) fn resolve_connection_port(
                     let Some(decl_id) = module.get(port_decl_id).decls.clone().next() else {
                         return Resolution::Unresolved;
                     };
-                    Resolution::Unique(DefId::new(
-                        db,
-                        InContainer::new(
-                            target_module_id.owner(db).expect("target module owner"),
-                            decl_id,
-                        ),
-                    ))
+                    Resolution::Unique(DefId::new(db, OwnerRef::new(target_module_id, decl_id)))
                 }
             }
         }
@@ -219,7 +214,7 @@ pub(crate) fn resolve_port_metadata<'a>(
     origins.extend(defs.iter().cloned());
 
     if let Some(port_id) = defs.iter().find_map(|origin| origin.as_non_ansi_port(db)) {
-        let scope = db.scope_for(port_id.module_id.owner(db).expect("module owner"));
+        let scope = db.scope_for(port_id.cont_id);
         if let Some(refs) = module.get(port_id.value).refs.clone() {
             for ref_id in refs {
                 let Some(name) = module.get(ref_id).ident.as_ref() else {
@@ -271,19 +266,17 @@ pub(crate) fn resolve_port_metadata<'a>(
 
 pub(crate) fn resolve_named_param_in_module(
     db: &dyn WorkspaceSymbolIndexDb,
-    module_id: ModuleId,
+    module_id: OwnerId,
     param_name: &Ident,
 ) -> Resolution<DefId> {
-    let defs = db
-        .scope_for(module_id.owner(db).expect("module owner"))
-        .lookup(NameContext::Value, param_name);
-    let body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let defs = db.scope_for(module_id).lookup(NameContext::Value, param_name);
+    let body = db.body_with_source_map(module_id);
 
     Resolution::from_candidates(defs.into_candidates().into_iter().filter(|def_id| {
         let Some(decl_id) = def_id.primary_origin(db).as_decl(db) else {
             return false;
         };
-        if decl_id.cont_id != module_id.owner(db).expect("module owner") {
+        if decl_id.cont_id != module_id {
             return false;
         }
         let DeclaratorParent::DeclarationId(declaration_id) = body.decls[decl_id.value].parent
@@ -310,7 +303,7 @@ fn resolve_module_name_with_policy(
     }
 }
 
-fn module_candidates(db: &dyn WorkspaceSymbolIndexDb, name: &Ident) -> Vec<ModuleId> {
+fn module_candidates(db: &dyn WorkspaceSymbolIndexDb, name: &Ident) -> Vec<OwnerId> {
     let mut candidates = Vec::new();
     for source_root_id in db.workspace_source_root_ids().iter().copied() {
         let module_index = source_root_module_index_for_root(db, source_root_id);
@@ -349,7 +342,7 @@ impl ModuleResolutionPolicy {
     fn resolve_ambiguous(
         self,
         db: &dyn WorkspaceSymbolIndexDb,
-        candidates: Vec<ModuleId>,
+        candidates: Vec<OwnerId>,
     ) -> ModuleResolution {
         match self {
             Self::Strict => {
@@ -365,13 +358,13 @@ impl ModuleResolutionPolicy {
 fn resolve_by_proximity(
     db: &dyn WorkspaceSymbolIndexDb,
     from_file: FileId,
-    mut candidates: Vec<ModuleId>,
+    mut candidates: Vec<OwnerId>,
 ) -> ModuleResolution {
     let mut best_score = None;
     let mut best_modules = Vec::new();
 
     for module_id in candidates.iter().copied() {
-        let Some(score_file) = module_id.file_id.source_file_id(db) else {
+        let Some(score_file) = module_id.file(db).source_file_id(db) else {
             continue;
         };
         let score = ProximityScore::new(db, from_file, score_file);
@@ -393,7 +386,7 @@ fn resolve_by_proximity(
     }
 
     candidates.sort_by_key(|module_id| {
-        module_id.file_id.source_file_id(db).map_or(u32::MAX, FileId::index)
+        module_id.file(db).source_file_id(db).map_or(u32::MAX, FileId::index)
     });
 
     match best_modules.as_slice() {
@@ -620,7 +613,7 @@ mod tests {
         match fixture.query {
             Query::Module(module) => {
                 let result = resolve_module_name(&db, fixture.focus, &module);
-                format_module_resolution(&fixture.files, result)
+                format_module_resolution(&db, &fixture.files, result)
             }
             Query::NamedPort => {
                 let offset = fixture.offset.expect("named_port query requires /*caret*/");
@@ -633,7 +626,7 @@ mod tests {
                 match resolution_module_id(&db, &res, DefKind::Port) {
                     Some(module_id) => format!(
                         "AnsiPort module={}",
-                        file_path(&fixture.files, module_id.file_id.as_file().unwrap())
+                        file_path(&fixture.files, module_id.file(&db).as_file().unwrap())
                     ),
                     None => format!("{res:?}"),
                 }
@@ -649,7 +642,7 @@ mod tests {
                 match resolution_module_id(&db, &res, DefKind::Param) {
                     Some(module_id) => format!(
                         "ParamDecl module={}",
-                        file_path(&fixture.files, module_id.file_id.as_file().unwrap())
+                        file_path(&fixture.files, module_id.file(&db).as_file().unwrap())
                     ),
                     None => format!("{res:?}"),
                 }
@@ -661,48 +654,55 @@ mod tests {
         db: &RootDb,
         res: &Resolution<DefId>,
         kind: DefKind,
-    ) -> Option<ModuleId> {
+    ) -> Option<OwnerId> {
         let def_id = res.unique()?;
         if def_id.kind(db) != kind {
             return None;
         }
         match def_id.primary_origin(db).loc(db).clone() {
-            DefOriginLoc::Decl(decl_id) => ModuleId::from_owner(db, decl_id.cont_id),
-            DefOriginLoc::NonAnsiPort(nonansi_port_id) => Some(nonansi_port_id.module_id),
+            DefOriginLoc::Decl(decl_id) => Some(decl_id.cont_id),
+            DefOriginLoc::NonAnsiPort(nonansi_port_id) => Some(nonansi_port_id.cont_id),
             _ => None,
         }
     }
 
-    fn format_module_resolution(files: &[(String, String)], result: ModuleResolution) -> String {
+    fn format_module_resolution(
+        db: &RootDb,
+        files: &[(String, String)],
+        result: ModuleResolution,
+    ) -> String {
         match result {
             ModuleResolution::Unique(module_id) => {
                 format!(
                     "Unique selected={}",
-                    file_path(files, module_id.file_id.as_file().unwrap())
+                    file_path(files, module_id.file(db).as_file().unwrap())
                 )
             }
             ModuleResolution::BestEffortProximity { selected, candidates } => format!(
                 "BestEffortProximity selected={} candidates={:?}",
-                file_path(files, selected.file_id.as_file().unwrap()),
-                candidate_paths(files, candidates)
+                file_path(files, selected.file(db).as_file().unwrap()),
+                candidate_paths(db, files, candidates)
             ),
             ModuleResolution::Ambiguous { candidates, kind } => {
                 format!(
                     "Ambiguous kind={kind:?} candidates={:?}",
-                    candidate_paths(files, candidates)
+                    candidate_paths(db, files, candidates)
                 )
             }
             ModuleResolution::Unresolved => "Unresolved".to_string(),
         }
     }
 
-    fn candidate_paths(files: &[(String, String)], candidates: Vec<ModuleId>) -> Vec<String> {
+    fn candidate_paths(
+        db: &RootDb,
+        files: &[(String, String)],
+        candidates: Vec<OwnerId>,
+    ) -> Vec<String> {
         candidates
             .into_iter()
-            .map(|module_id| file_path(files, module_id.file_id.as_file().unwrap()))
+            .map(|module_id| file_path(files, module_id.file(db).as_file().unwrap()))
             .collect()
     }
-
     fn file_path(files: &[(String, String)], file_id: FileId) -> String {
         files
             .get(file_id.index() as usize)

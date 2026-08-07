@@ -6,7 +6,6 @@ use syntax::{
     match_ast,
 };
 use triomphe::Arc;
-use utils::define_enum_deriving_from;
 
 use crate::{
     PackageImport,
@@ -27,14 +26,13 @@ use crate::{
         library::{LibraryDecl, LibraryDeclId, LibraryInclude, LibraryIncludeId},
         udp::{UdpDecl, UdpDeclId},
     },
-    lower::{BodyStore, LoweringCtx, LoweringSyntax},
+    lower::{BodyStore, LoweringCtx, LoweringStore, LoweringSyntax},
     lower_ident_opt,
     module::{
-        LocalModuleId, ModuleInfo,
         clocking::{ClockingBlockDef, ClockingBlockId, DefaultClockingRef},
         continuous_assign::{ContAssign, ContAssignId},
         defparam::{DefParam, DefParamId},
-        generate::{GenerateBlockId, GenerateBlockKind, GenerateRegion, GenerateRegionId},
+        generate::{GenerateBlockKind, GenerateRegion, GenerateRegionId},
         instantiation::{
             Instance, InstanceId, Instantiation, InstantiationId, ParamAssign, ParamAssignId,
             PortConn, PortConnId,
@@ -49,7 +47,7 @@ use crate::{
     proc::{Proc, ProcId},
     source_map::{Lowered, LoweredData, SourceMap},
     stmt::{Stmt, StmtId},
-    subroutine::{LocalSubroutineId, Subroutine},
+    subroutine::{Subroutine, lower_subroutine},
     typedef::{Typedef, TypedefId, lower_typedef_data_ty},
 };
 
@@ -171,33 +169,62 @@ impl BodyScopeGraph {
     }
 }
 
-define_enum_deriving_from! {
-// One lowered item in source order for any owner kind.
-    #[derive(Debug, PartialEq, Eq, Clone)]
-    pub enum BodyItem {
-        LocalModuleId(LocalModuleId),
-        ProcId(ProcId),
-        DeclarationId(DeclarationId),
-        TypedefId(TypedefId),
-        StructId(StructId),
-        ConfigDeclId(ConfigDeclId),
-        UdpDeclId(UdpDeclId),
-        LibraryDeclId(LibraryDeclId),
-        LibraryIncludeId(LibraryIncludeId),
-        CheckerId(CheckerId),
-        CovergroupId(CovergroupId),
-        ContAssignId(ContAssignId),
-        DefParamId(DefParamId),
-        GenerateRegionId(GenerateRegionId),
-        GenerateBlockId(GenerateBlockId),
-        SpecifyBlockId(SpecifyBlockId),
-        SpecifyItemId(SpecifyItemId),
-        InstantiationId(InstantiationId),
-        PortDeclId(PortDeclId),
-        SubroutineId(LocalSubroutineId),
-        ModportId(ModportId),
-        ClockingBlockId(ClockingBlockId),
-    }
+/// One lowered item in source order for any owner kind.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum BodyItem {
+    ModuleOwner(OwnerId),
+    ProcId(ProcId),
+    DeclarationId(DeclarationId),
+    TypedefId(TypedefId),
+    StructId(StructId),
+    ConfigDeclId(ConfigDeclId),
+    UdpDeclId(UdpDeclId),
+    LibraryDeclId(LibraryDeclId),
+    LibraryIncludeId(LibraryIncludeId),
+    CheckerOwner(OwnerId),
+    CovergroupOwner(OwnerId),
+    ContAssignId(ContAssignId),
+    DefParamId(DefParamId),
+    GenerateRegionId(GenerateRegionId),
+    GenerateBlockOwner(OwnerId),
+    SpecifyBlockId(SpecifyBlockId),
+    SpecifyItemId(SpecifyItemId),
+    InstantiationId(InstantiationId),
+    PortDeclId(PortDeclId),
+    SubroutineOwner(OwnerId),
+    ModportId(ModportId),
+    ClockingBlockOwner(OwnerId),
+}
+
+macro_rules! impl_body_item_from {
+    ($($ty:ty => $variant:ident),* $(,)?) => {
+        $(
+            impl From<$ty> for BodyItem {
+                fn from(value: $ty) -> Self {
+                    BodyItem::$variant(value)
+                }
+            }
+        )*
+    };
+}
+
+impl_body_item_from! {
+    ProcId => ProcId,
+    DeclarationId => DeclarationId,
+    TypedefId => TypedefId,
+    StructId => StructId,
+    ConfigDeclId => ConfigDeclId,
+    UdpDeclId => UdpDeclId,
+    LibraryDeclId => LibraryDeclId,
+    LibraryIncludeId => LibraryIncludeId,
+    ContAssignId => ContAssignId,
+    DefParamId => DefParamId,
+    GenerateRegionId => GenerateRegionId,
+    SpecifyBlockId => SpecifyBlockId,
+    SpecifyItemId => SpecifyItemId,
+    InstantiationId => InstantiationId,
+    PortDeclId => PortDeclId,
+    ModportId => ModportId,
 }
 
 /// All position-free HIR owned by one canonical [`OwnerId`]. Nested lexical
@@ -207,7 +234,6 @@ pub struct Body {
     pub name: Option<crate::Ident>,
     pub items: Vec<BodyItem>,
     pub scope_graph: BodyScopeGraph,
-    pub modules: Arena<ModuleInfo>,
     pub declarations: Arena<Declaration>,
     pub typedefs: Arena<Typedef>,
     pub structs: Arena<StructDef>,
@@ -225,7 +251,7 @@ pub struct Body {
     pub covergroups: Arena<CovergroupDef>,
     pub coverpoints: Arena<CoverpointDef>,
     pub crosses: Arena<CrossDef>,
-    pub subroutines: Arena<Subroutine>,
+    pub subroutine: Option<Subroutine>,
     pub package_imports: Arena<PackageImport>,
     pub param_ports: Option<IdxRange<Declarator>>,
     pub ports: Ports,
@@ -247,6 +273,20 @@ pub struct Body {
 impl Body {
     pub fn scope(&self, owner: OwnerId) -> Option<&BodyScopeData> {
         self.scope_graph.scope(owner)
+    }
+
+    pub fn module_owners(&self) -> impl Iterator<Item = OwnerId> + '_ {
+        self.items.iter().filter_map(|item| match item {
+            BodyItem::ModuleOwner(owner) => Some(*owner),
+            _ => None,
+        })
+    }
+
+    pub fn subroutine_owners(&self) -> impl Iterator<Item = OwnerId> + '_ {
+        self.items.iter().filter_map(|item| match item {
+            BodyItem::SubroutineOwner(owner) => Some(*owner),
+            _ => None,
+        })
     }
 
     pub fn declaration(&self, id: DeclarationId) -> &Declaration {
@@ -280,7 +320,6 @@ impl Body {
     pub fn shrink_to_fit(&mut self) {
         self.items.shrink_to_fit();
         self.scope_graph.shrink_to_fit();
-        self.modules.shrink_to_fit();
         self.declarations.shrink_to_fit();
         self.typedefs.shrink_to_fit();
         self.structs.shrink_to_fit();
@@ -297,7 +336,6 @@ impl Body {
         self.covergroups.shrink_to_fit();
         self.coverpoints.shrink_to_fit();
         self.crosses.shrink_to_fit();
-        self.subroutines.shrink_to_fit();
         self.package_imports.shrink_to_fit();
         self.ports.shrink_to_fit();
         self.cont_assigns.shrink_to_fit();
@@ -318,7 +356,6 @@ impl Body {
 /// pointers and ranges remain exclusively in `AstIdMap`/`SourceProjection`.
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct BodySourceMap {
-    pub module_srcs: SourceMap<ModuleInfo>,
     pub declaration_srcs: SourceMap<Declaration>,
     pub typedef_srcs: SourceMap<Typedef>,
     pub struct_srcs: SourceMap<StructDef>,
@@ -335,7 +372,6 @@ pub struct BodySourceMap {
     pub covergroup_srcs: SourceMap<CovergroupDef>,
     pub coverpoint_srcs: SourceMap<CoverpointDef>,
     pub cross_srcs: SourceMap<CrossDef>,
-    pub subroutine_srcs: SourceMap<Subroutine>,
     pub port_srcs: PortSrcs,
     pub assign_srcs: SourceMap<ContAssign>,
     pub defparam_srcs: SourceMap<DefParam>,
@@ -357,7 +393,6 @@ impl BodySourceMap {
     }
 
     pub fn shrink_to_fit(&mut self) {
-        self.module_srcs.shrink_to_fit();
         self.declaration_srcs.shrink_to_fit();
         self.typedef_srcs.shrink_to_fit();
         self.struct_srcs.shrink_to_fit();
@@ -374,7 +409,6 @@ impl BodySourceMap {
         self.covergroup_srcs.shrink_to_fit();
         self.coverpoint_srcs.shrink_to_fit();
         self.cross_srcs.shrink_to_fit();
-        self.subroutine_srcs.shrink_to_fit();
         self.port_srcs.shrink_to_fit();
         self.assign_srcs.shrink_to_fit();
         self.defparam_srcs.shrink_to_fit();
@@ -410,9 +444,19 @@ fn body_input(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
             owner,
             &LoweringSyntax::for_owner(db, owner),
         ),
-        OwnerKind::Checker | OwnerKind::Covergroup | OwnerKind::ClockingBlock => {
-            panic!("scope-only owner has no body: {:?}", owner.kind(db))
+        OwnerKind::Checker => {
+            crate::checker::lower_checker_owner(db, owner, &LoweringSyntax::for_owner(db, owner))
         }
+        OwnerKind::Covergroup => crate::covergroup::lower_covergroup_owner(
+            db,
+            owner,
+            &LoweringSyntax::for_owner(db, owner),
+        ),
+        OwnerKind::ClockingBlock => crate::module::clocking::lower_clocking_owner(
+            db,
+            owner,
+            &LoweringSyntax::for_owner(db, owner),
+        ),
     }
 }
 #[salsa::tracked(lru = 512, returns(clone))]
@@ -453,13 +497,26 @@ fn lower_subroutine_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>
     let file_id = owner.file(db);
     let tree = db.parse(file_id);
     let Some(func) = owner_node(db, owner, &tree).and_then(ast::FunctionDeclaration::cast) else {
-        return empty_body(owner.file(db));
+        return empty_body(file_id);
     };
     if func.end().is_none() {
-        return empty_body(owner.file(db));
+        return empty_body(file_id);
     }
 
-    lower_body(db, owner, |ctx| ctx.lower_subroutine_items(func))
+    let mut body = Body::default();
+    let mut source_map = BodySourceMap::default();
+    let mut ctx =
+        LoweringCtx::new(db, owner, BodyStore { data: &mut body, sources: &mut source_map });
+    let Some(subroutine) = lower_subroutine(&func, |ty| ctx.lower_data_ty(ty)) else {
+        return empty_body(file_id);
+    };
+    ctx.store.body().0.subroutine = Some(subroutine);
+    ctx.lower_subroutine_items(func);
+    let diagnostics = ctx.emit_diagnostics();
+    drop(ctx);
+    body.shrink_to_fit();
+    source_map.shrink_to_fit();
+    Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
 }
 
 fn owner_node<'tree>(
@@ -468,22 +525,6 @@ fn owner_node<'tree>(
     tree: &'tree syntax::SyntaxTree,
 ) -> Option<syntax::SyntaxNode<'tree>> {
     db.ast_id_map(owner.file(db)).node(owner.ast_id(db), tree)
-}
-fn lower_body(
-    db: &dyn HirDefDb,
-    owner: OwnerId,
-    lower: impl FnOnce(&mut LoweringCtx<BodyStore<'_>>),
-) -> Arc<Lowered<Body>> {
-    let mut body = Body::default();
-    let mut source_map = BodySourceMap::default();
-    let mut ctx =
-        LoweringCtx::new(db, owner, BodyStore { data: &mut body, sources: &mut source_map });
-    lower(&mut ctx);
-    let diagnostics = ctx.emit_diagnostics();
-    drop(ctx);
-    body.shrink_to_fit();
-    source_map.shrink_to_fit();
-    Arc::new(Lowered::new_with_diagnostics(owner.file(db), body, source_map, diagnostics))
 }
 
 fn empty_body(file_id: preproc_expand::file::HirFileId) -> Arc<Lowered<Body>> {
@@ -602,9 +643,18 @@ impl LoweringCtx<BodyStore<'_>> {
 }
 
 impl BodySourceMap {
-    pub fn item_to_source(&self, item: &BodyItem) -> Option<crate::ast_id_map::SourceAstId> {
+    pub fn item_to_source(
+        &self,
+        db: &dyn HirDefDb,
+        item: &BodyItem,
+    ) -> Option<crate::ast_id_map::SourceAstId> {
         match item {
-            BodyItem::LocalModuleId(id) => self.module_srcs.hir_to_src(*id),
+            BodyItem::ModuleOwner(owner)
+            | BodyItem::GenerateBlockOwner(owner)
+            | BodyItem::SubroutineOwner(owner)
+            | BodyItem::CheckerOwner(owner)
+            | BodyItem::CovergroupOwner(owner)
+            | BodyItem::ClockingBlockOwner(owner) => Some(owner.ast_id(db)),
             BodyItem::ProcId(id) => self.proc_srcs.hir_to_src(*id),
             BodyItem::DeclarationId(id) => self.declaration_srcs.hir_to_src(*id),
             BodyItem::TypedefId(id) => self.typedef_srcs.hir_to_src(*id),
@@ -613,19 +663,14 @@ impl BodySourceMap {
             BodyItem::UdpDeclId(id) => self.udp_decl_srcs.hir_to_src(*id),
             BodyItem::LibraryDeclId(id) => self.library_decl_srcs.hir_to_src(*id),
             BodyItem::LibraryIncludeId(id) => self.library_include_srcs.hir_to_src(*id),
-            BodyItem::CheckerId(id) => self.checker_srcs.hir_to_src(*id),
-            BodyItem::CovergroupId(id) => self.covergroup_srcs.hir_to_src(*id),
             BodyItem::ContAssignId(id) => self.assign_srcs.hir_to_src(*id),
             BodyItem::DefParamId(id) => self.defparam_srcs.hir_to_src(*id),
             BodyItem::GenerateRegionId(id) => self.generate_region_srcs.hir_to_src(*id),
-            BodyItem::GenerateBlockId(id) => Some(id.loc().src.value),
             BodyItem::SpecifyBlockId(id) => self.specify_block_srcs.hir_to_src(*id),
             BodyItem::SpecifyItemId(id) => self.specify_item_srcs.hir_to_src(*id),
             BodyItem::InstantiationId(id) => self.instantiation_srcs.hir_to_src(*id),
             BodyItem::PortDeclId(id) => utils::get::Get::get(&self.port_srcs, *id),
-            BodyItem::SubroutineId(id) => self.subroutine_srcs.hir_to_src(*id),
             BodyItem::ModportId(id) => self.modport_srcs.hir_to_src(*id),
-            BodyItem::ClockingBlockId(id) => self.clocking_block_srcs.hir_to_src(*id),
         }
     }
 
@@ -646,7 +691,6 @@ pub(crate) fn set_body_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
 
 crate::impl_arena_getters!(
     Body;
-    LocalModuleId => modules => ModuleInfo,
     DeclarationId => declarations => Declaration,
     TypedefId => typedefs => Typedef,
     StructId => structs => StructDef,
@@ -663,7 +707,6 @@ crate::impl_arena_getters!(
     CovergroupId => covergroups => CovergroupDef,
     CoverpointId => coverpoints => CoverpointDef,
     CrossId => crosses => CrossDef,
-    LocalSubroutineId => subroutines => Subroutine,
     Idx<PackageImport> => package_imports => PackageImport,
     ContAssignId => cont_assigns => ContAssign,
     DefParamId => defparams => DefParam,
@@ -728,7 +771,6 @@ impl utils::get::Get<PortDeclId> for BodySourceMap {
 
 crate::impl_source_map_getters!(
     BodySourceMap;
-    LocalModuleId => module_srcs,
     DeclarationId => declaration_srcs,
     TypedefId => typedef_srcs,
     StructId => struct_srcs,
@@ -745,7 +787,6 @@ crate::impl_source_map_getters!(
     CovergroupId => covergroup_srcs,
     CoverpointId => coverpoint_srcs,
     CrossId => cross_srcs,
-    LocalSubroutineId => subroutine_srcs,
     ContAssignId => assign_srcs,
     DefParamId => defparam_srcs,
     GenerateRegionId => generate_region_srcs,

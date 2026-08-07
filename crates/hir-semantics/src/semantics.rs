@@ -2,11 +2,10 @@ use std::ops;
 
 use hir_def::{
     Ident,
-    container::{InContainer, InFile, SubroutineScope},
+    container::{InFile, OwnerRef},
     db::HirDefDb,
     def_id::DefId,
     expr::ExprId,
-    module::ModuleId,
     owner::OwnerId,
     symbol::{NameContext, Resolution},
 };
@@ -113,7 +112,7 @@ impl SemanticsImpl<'_> {
         &self,
         file_id: HirFileId,
         module: ast::ModuleDeclaration,
-    ) -> Option<ModuleId> {
+    ) -> Option<OwnerId> {
         source_to_def::module_to_def(self.db, file_id, module)
     }
 
@@ -125,15 +124,15 @@ impl SemanticsImpl<'_> {
         &self,
         file_id: HirFileId,
         subroutine: ast::FunctionDeclaration,
-    ) -> Option<SubroutineScope> {
+    ) -> Option<OwnerId> {
         source_to_def::subroutine_to_def(self.db, file_id, subroutine)
     }
 
-    pub fn expr_to_def(&self, in_cont: InContainer<ExprId>) -> Resolution<DefId> {
+    pub fn expr_to_def(&self, in_cont: OwnerRef<ExprId>) -> Resolution<DefId> {
         hir_to_def::expr_to_def(self.db, in_cont)
     }
 
-    pub fn name_to_def(&self, in_cont: InContainer<Ident>) -> Resolution<DefId> {
+    pub fn name_to_def(&self, in_cont: OwnerRef<Ident>) -> Resolution<DefId> {
         hir_to_def::name_to_def(self.db, in_cont, NameContext::Value)
     }
 }

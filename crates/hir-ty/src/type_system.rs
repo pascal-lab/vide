@@ -1,11 +1,6 @@
 use hir_def::{
-    Ident,
-    container::{InContainer, SubroutineScope},
-    def_id::DefId,
-    expr::ExprId,
-    subroutine::SubroutineKind,
-    symbol::Resolution,
-    typedef::TypedefId,
+    Ident, container::OwnerRef, def_id::DefId, expr::ExprId, owner::OwnerId,
+    subroutine::SubroutineKind, symbol::Resolution, typedef::TypedefId,
 };
 use syntax::SyntaxKind;
 use triomphe::Arc;
@@ -22,7 +17,7 @@ use crate::{
 /// A diagnostic produced while determining a semantic type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeDiagnostic {
-    TypedefCycle(InContainer<TypedefId>),
+    TypedefCycle(OwnerRef<TypedefId>),
     UnsupportedDataType(SyntaxKind),
 }
 
@@ -96,7 +91,7 @@ impl<'db> TypeSystem<'db> {
         Self { db }
     }
 
-    pub fn type_of_expr(&self, expr: InContainer<ExprId>) -> Type {
+    pub fn type_of_expr(&self, expr: OwnerRef<ExprId>) -> Type {
         self.db.infer_expr(expr)
     }
 
@@ -108,15 +103,10 @@ impl<'db> TypeSystem<'db> {
         self.type_of_resolution(Resolution::Unique(def))
     }
 
-    pub fn type_of_subroutine_return(&self, subroutine: SubroutineScope) -> Type {
-        match &self
-            .db
-            .subroutine(subroutine.clone().clone().owner(self.db).expect("subroutine owner"))
-            .kind
-        {
+    pub fn type_of_subroutine_return(&self, subroutine: OwnerId) -> Type {
+        match &self.db.subroutine(subroutine).kind {
             SubroutineKind::Function { return_ty: Some(return_ty) } => {
-                normalize_data_ty(self.db, subroutine.parent_owner(self.db), return_ty.clone())
-                    .into()
+                normalize_data_ty(self.db, subroutine, return_ty.clone()).into()
             }
             SubroutineKind::Function { return_ty: None } | SubroutineKind::Task => Type::unknown(),
         }

@@ -1,14 +1,15 @@
 use hir_def::{
     ast_id_map::SourceAstId,
     body::{Body, BodyItem},
-    container::{InContainer, InFile},
+    container::{InFile, OwnerRef},
     def_id::DefId,
     expr::Expr,
+    has_source::HasSource,
     module::{
-        ModuleId,
         instantiation::{Instantiation, ParamAssign, PortConn, PortConnId},
         port::PortDirection,
     },
+    owner::OwnerId,
     source_map::{Lowered, SourceInfo},
 };
 use preproc_expand::{
@@ -226,14 +227,16 @@ pub(crate) fn inlay_hint(
 
     for item in &file.data_ref().items {
         #[allow(clippy::single_match)]
-        match item.clone() {
-            BodyItem::LocalModuleId(idx) => {
-                let module_id = ModuleId::new(file_id, idx);
-                let Some(module_src) = file.source(idx) else {
+        match item {
+            BodyItem::ModuleOwner(module_id) => {
+                let module_id = *module_id;
+                let module_src = module_id.ast_id(db);
+                let Some(range) = module_id.source(db).map(|source| source.value.full_range())
+                else {
                     continue;
                 };
 
-                if file.source_range(db, idx).is_some_and(|range| collector.intersect(range)) {
+                if collector.intersect(range) {
                     collect_module_items(db, module_id, module_src, &mut collector);
                 }
             }
@@ -296,11 +299,11 @@ fn collect_macro_argument_hints_for_call(
 
 fn collect_module_items(
     db: &RootDb,
-    module_id: ModuleId,
+    module_id: OwnerId,
     module_src: SourceAstId,
     collector: &mut InlayHintCollector,
 ) {
-    let module = db.body_with_source_map(module_id.owner(db).expect("module owner"));
+    let module = db.body_with_source_map(module_id);
 
     if collector.config.instantiation() {
         for (instantiation_id, instantiation) in module.instantiations.iter() {
@@ -316,7 +319,7 @@ fn collect_module_items(
     if collector.config.end_structure
         && let Some(name) = &module.name
     {
-        if let Some(end_range) = module_end_range(db, module_id.file_id, module_src) {
+        if let Some(end_range) = module_end_range(db, module_id.file(db), module_src) {
             collector.collect_module_end_hint(end_range, name);
         }
     }
@@ -330,18 +333,18 @@ fn module_end_range(db: &RootDb, file_id: HirFileId, source: SourceAstId) -> Opt
 
 fn process_instantiation(
     db: &RootDb,
-    module_id: ModuleId,
+    module_id: OwnerId,
     module: &Lowered<Body>,
     instantiation: &Instantiation,
     collector: &mut InlayHintCollector,
 ) -> Option<()> {
-    let module_body = db.body_with_source_map(module_id.owner(db).expect("module owner"));
-    let from_file = module_id.file_id.source_file_id(db)?;
+    let module_body = db.body_with_source_map(module_id);
+    let from_file = module_id.file(db).source_file_id(db)?;
     let target_module_id =
         resolve_module_name(db, from_file, instantiation.module_name.as_ref()?).unique()?;
 
-    let target_module = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
-    let target_body = db.body_with_source_map(target_module_id.owner(db).expect("module owner"));
+    let target_module = db.body_with_source_map(target_module_id);
+    let target_body = db.body_with_source_map(target_module_id);
 
     // handle param assignments
     if collector.config.parameter_assignment {
@@ -354,13 +357,7 @@ fn process_instantiation(
                 check_or_throw!(collector.intersect(assign_src.full_range()));
 
                 let param_id = hir_def::module::overridable_param_id_by_idx(&target_body, id)?;
-                let param_def = DefId::new(
-                    db,
-                    InContainer::new(
-                        target_module_id.owner(db).expect("target module owner"),
-                        param_id,
-                    ),
-                );
+                let param_def = DefId::new(db, OwnerRef::new(target_module_id, param_id));
                 let param_name = param_def.primary_origin(db).name(db)?;
                 check_or_throw!(!should_skip(module_body.get(*assign_expr), &param_name));
                 let target_range = param_def.primary_origin(db).range(db)?;

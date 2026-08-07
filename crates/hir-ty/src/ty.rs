@@ -1,10 +1,9 @@
 use hir_def::{
     Ident,
     aggregate::StructId,
-    container::InContainer,
+    container::OwnerRef,
     def_id::DefId,
     expr::{ExprId, data_ty::BuiltinDataTyId},
-    module::{ModuleId, generate::GenerateBlockId},
     owner::OwnerId,
     typedef::TypedefId,
 };
@@ -22,7 +21,7 @@ pub(crate) enum Ty {
     Error,
     Void,
     Builtin(BuiltinTy),
-    Struct(InContainer<StructId>),
+    Struct(OwnerRef<StructId>),
     Enum(DefId),
     Union(DefId),
     Queue { elem: Box<Ty>, size: Option<ExprId> },
@@ -30,12 +29,12 @@ pub(crate) enum Ty {
     Dynamic(Box<Ty>),
     Event,
     Chandle,
-    Alias { typedef: InContainer<TypedefId>, target: Box<Ty> },
-    Module(ModuleId),
+    Alias { typedef: OwnerRef<TypedefId>, target: Box<Ty> },
+    Module(OwnerId),
     Checker(DefId),
     Covergroup(DefId),
     VirtualInterface { def: DefId, modport: Option<DefId> },
-    GenerateBlock(GenerateBlockId),
+    GenerateBlock(OwnerId),
     Block(OwnerId),
 }
 

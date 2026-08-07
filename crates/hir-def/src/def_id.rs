@@ -1,21 +1,15 @@
 use base_db::salsa;
-use la_arena::{Idx, RawIdx};
 use preproc_expand::file::HirFileId;
-use rustc_hash::FxHashMap;
 use salsa::plumbing::AsId;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
 use syntax::ast::{self, AstNode};
-use triomphe::Arc;
 use utils::{get::GetRef, line_index::TextRange};
 
 use crate::{
     ast_id_map::SourceAstId,
     checker::{CheckerDef, CheckerPort, CheckerPortId},
-    container::{
-        FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine,
-        SubroutineParent, SubroutineScope,
-    },
+    container::{InFile, OwnerRef},
     covergroup::{CoverpointDef, CoverpointId, CrossDef, CrossId},
     db::HirDefDb,
     declaration::Declaration,
@@ -26,115 +20,44 @@ use crate::{
     symbol::{DefKind, DefOrigin, DefOriginLoc},
 };
 
-pub(crate) fn subroutine_src(
-    db: &dyn HirDefDb,
-    subroutine: SubroutineScope,
-) -> Option<InFile<SourceAstId>> {
-    match subroutine.cont_id {
-        SubroutineParent::File(file_id) => {
-            let lowered =
-                db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"));
-            Some(InFile::new(file_id, lowered.source(subroutine.value)?))
-        }
-        SubroutineParent::Module(module_id) => {
-            let lowered = db.body_with_source_map(module_id.owner(db).expect("module owner"));
-            Some(InFile::new(module_id.file_id, lowered.source(subroutine.value)?))
-        }
-        SubroutineParent::GenerateBlock(generate_block_id) => {
-            let lowered = db.body_with_source_map(
-                generate_block_id.clone().clone().owner(db).expect("generate owner"),
-            );
-            let file_id = generate_block_id.loc().src.file_id;
-            Some(InFile::new(file_id, lowered.source(subroutine.value)?))
-        }
-    }
-}
-
 fn clocking_signal_of(
     db: &dyn HirDefDb,
-    signal: InScope<crate::module::clocking::ClockingSignalId>,
-) -> Option<(InModule<crate::module::clocking::ClockingSignal>, HirFileId)> {
-    let clocking_block = signal.scope_id.as_clocking_block(db)?;
-    let module = db.body(clocking_block.module_id.owner(db).expect("module owner"));
-    let clocking = module.get(clocking_block.value);
-    let signal = clocking.signals.get(signal.value.0 as usize)?.clone();
-    Some((InModule::new(clocking_block.module_id, signal), clocking_block.module_id.file_id))
+    signal: OwnerRef<crate::module::clocking::ClockingSignalId>,
+) -> Option<(OwnerRef<crate::module::clocking::ClockingSignal>, HirFileId)> {
+    let clocking = signal.cont_id.as_clocking_block(db)?;
+    let body = db.body(signal.cont_id);
+    let block = body.get(clocking.value);
+    let value = block.signals.get(signal.value.0 as usize)?.clone();
+    Some((OwnerRef::new(signal.cont_id, value), signal.cont_id.file(db)))
 }
 
 fn checker_of(
     db: &dyn HirDefDb,
-    checker: InFileOrModule<crate::checker::CheckerId>,
+    checker: OwnerRef<crate::checker::CheckerId>,
 ) -> Option<(CheckerDef, HirFileId)> {
-    match checker.cont_id {
-        FileOrModule::File(file_id) => Some((
-            db.body(db.owner_table(file_id).file_owner().expect("file owner"))
-                .get(checker.value)
-                .clone(),
-            file_id,
-        )),
-        FileOrModule::Module(module_id) => Some((
-            db.body(module_id.owner(db).expect("module owner")).get(checker.value).clone(),
-            module_id.file_id,
-        )),
-    }
+    let file_id = checker.cont_id.file(db);
+    Some((db.body(checker.cont_id).get(checker.value).clone(), file_id))
 }
 
 fn checker_port_of(
     db: &dyn HirDefDb,
-    port: InScope<CheckerPortId>,
+    port: OwnerRef<CheckerPortId>,
 ) -> Option<(CheckerPort, HirFileId)> {
-    let checker = port.scope_id.as_checker(db)?;
+    let checker = port.cont_id.as_checker(db)?;
     let (checker, file_id) = checker_of(db, checker)?;
     let port = checker.ports.get(port.value.0 as usize)?.clone();
     Some((port, file_id))
 }
 
-fn file_or_module_storage(db: &dyn HirDefDb, scope: OwnerId) -> Option<FileOrModule> {
-    let storage = if scope.kind(db) == OwnerKind::Covergroup { scope.parent(db)? } else { scope };
-    match storage.kind(db) {
-        OwnerKind::File => Some(FileOrModule::File(storage.file(db))),
-        OwnerKind::Module => {
-            Some(FileOrModule::Module(crate::module::ModuleId::from_owner(db, storage)?))
-        }
-        _ => None,
-    }
-}
-
 fn coverpoint_of(
     db: &dyn HirDefDb,
-    coverpoint: InScope<CoverpointId>,
+    coverpoint: OwnerRef<CoverpointId>,
 ) -> Option<(CoverpointDef, HirFileId)> {
-    let cont_id = file_or_module_storage(db, coverpoint.scope_id)?;
-
-    match cont_id {
-        FileOrModule::File(file_id) => Some((
-            db.body(db.owner_table(file_id).file_owner().expect("file owner"))
-                .get(coverpoint.value)
-                .clone(),
-            file_id,
-        )),
-        FileOrModule::Module(module_id) => Some((
-            db.body(module_id.owner(db).expect("module owner")).get(coverpoint.value).clone(),
-            module_id.file_id,
-        )),
-    }
+    Some((db.body(coverpoint.cont_id).get(coverpoint.value).clone(), coverpoint.cont_id.file(db)))
 }
 
-fn cross_of(db: &dyn HirDefDb, cross: InScope<CrossId>) -> Option<(CrossDef, HirFileId)> {
-    let cont_id = file_or_module_storage(db, cross.scope_id)?;
-
-    match cont_id {
-        FileOrModule::File(file_id) => Some((
-            db.body(db.owner_table(file_id).file_owner().expect("file owner"))
-                .get(cross.value)
-                .clone(),
-            file_id,
-        )),
-        FileOrModule::Module(module_id) => Some((
-            db.body(module_id.owner(db).expect("module owner")).get(cross.value).clone(),
-            module_id.file_id,
-        )),
-    }
+fn cross_of(db: &dyn HirDefDb, cross: OwnerRef<CrossId>) -> Option<(CrossDef, HirFileId)> {
+    Some((db.body(cross.cont_id).get(cross.value).clone(), cross.cont_id.file(db)))
 }
 
 impl DefOriginLoc {
@@ -145,17 +68,15 @@ impl DefOriginLoc {
 
     pub fn kind(self, db: &dyn HirDefDb) -> DefKind {
         match self {
-            DefOriginLoc::Module(module_id) => {
-                let file =
-                    db.body(db.owner_table(module_id.file_id).file_owner().expect("file owner"));
-                match file.get(module_id.value).kind {
+            DefOriginLoc::Module(owner) => {
+                match owner.module_kind(db).expect("module owner kind") {
                     ModuleKind::Module => DefKind::Module,
                     ModuleKind::Interface => DefKind::Interface,
                     ModuleKind::Program => DefKind::Program,
                     ModuleKind::Package => DefKind::Package,
                 }
             }
-            DefOriginLoc::Decl(InContainer { value, cont_id }) => {
+            DefOriginLoc::Decl(OwnerRef { value, cont_id }) => {
                 let container = cont_id.data(db);
                 let decl = container.declarator(value);
                 match decl.parent {
@@ -178,11 +99,7 @@ impl DefOriginLoc {
 
     pub fn name(self, db: &dyn HirDefDb) -> Option<SmolStr> {
         match self {
-            DefOriginLoc::Module(InFile { value, file_id }) => db
-                .body(db.owner_table(file_id).file_owner().expect("file owner"))
-                .get(value)
-                .name
-                .clone(),
+            DefOriginLoc::Module(owner) => db.body(owner).name.clone(),
             DefOriginLoc::Config(InFile { value, file_id }) => db
                 .body(db.owner_table(file_id).file_owner().expect("file owner"))
                 .get(value)
@@ -199,69 +116,44 @@ impl DefOriginLoc {
                 .name
                 .clone(),
             DefOriginLoc::Block(owner) => owner.name(db),
-            DefOriginLoc::GenerateBlock(generate_block_id) => {
-                db.body(generate_block_id.clone().owner(db).expect("generate owner")).name.clone()
+            DefOriginLoc::GenerateBlock(owner) => db.body(owner).name.clone(),
+            DefOriginLoc::Subroutine(owner) => db.subroutine(owner).name.clone(),
+            DefOriginLoc::SubroutinePort(OwnerRef { cont_id: subroutine, value }) => {
+                db.subroutine(subroutine).ports.get(value.0 as usize)?.name.clone()
             }
-            DefOriginLoc::Subroutine(subroutine_id) => subroutine_id
-                .clone()
-                .owner(db)
-                .and_then(|owner| db.item_for_owner(owner))
-                .and_then(|item| item.name().cloned()),
-            DefOriginLoc::SubroutinePort(InSubroutine { subroutine, value }) => db
-                .subroutine(subroutine.clone().owner(db).expect("subroutine owner"))
-                .ports
-                .get(value.0 as usize)?
-                .name
-                .clone(),
-            DefOriginLoc::NonAnsiPort(InModule { value, module_id }) => {
-                db.body(module_id.owner(db).expect("module owner")).get(value).label.clone()
+            DefOriginLoc::NonAnsiPort(port) => {
+                port.cont_id.data(db).ports.get(port.value).label.clone()
             }
-            DefOriginLoc::Decl(InContainer { value, cont_id }) => {
+            DefOriginLoc::Decl(OwnerRef { value, cont_id }) => {
                 cont_id.data(db).declarator(value).name.clone()
             }
-            DefOriginLoc::Typedef(InContainer { value, cont_id }) => {
+            DefOriginLoc::Typedef(OwnerRef { value, cont_id }) => {
                 cont_id.data(db).typedef(value).name.clone()
             }
-            DefOriginLoc::Instance(InModule { value, module_id }) => {
-                db.body(module_id.owner(db).expect("module owner")).get(value).name.clone()
+            DefOriginLoc::Instance(OwnerRef { value, cont_id }) => {
+                db.body(cont_id).get(value).name.clone()
             }
-            DefOriginLoc::Modport(InModule { value, module_id }) => {
-                db.body(module_id.owner(db).expect("module owner")).get(value).name.clone()
+            DefOriginLoc::Modport(OwnerRef { value, cont_id }) => {
+                db.body(cont_id).get(value).name.clone()
             }
-            DefOriginLoc::ClockingBlock(InModule { value, module_id }) => {
-                db.body(module_id.owner(db).expect("module owner")).get(value).name.clone()
+            DefOriginLoc::ClockingBlock(OwnerRef { value, cont_id }) => {
+                db.body(cont_id).get(value).name.clone()
             }
             DefOriginLoc::ClockingSignal(signal) => {
                 clocking_signal_of(db, signal).map(|(signal, _)| signal.value.name)
             }
-            DefOriginLoc::Checker(InFileOrModule { value, cont_id }) => match cont_id {
-                FileOrModule::File(file_id) => db
-                    .body(db.owner_table(file_id).file_owner().expect("file owner"))
-                    .get(value)
-                    .name
-                    .clone(),
-                FileOrModule::Module(module_id) => {
-                    db.body(module_id.owner(db).expect("module owner")).get(value).name.clone()
-                }
-            },
+            DefOriginLoc::Checker(OwnerRef { value, cont_id }) => {
+                db.body(cont_id).get(value).name.clone()
+            }
+            DefOriginLoc::Covergroup(OwnerRef { value, cont_id }) => {
+                db.body(cont_id).get(value).name.clone()
+            }
             DefOriginLoc::CheckerPort(port) => checker_port_of(db, port).map(|(port, _)| port.name),
-            DefOriginLoc::Covergroup(InFileOrModule { value, cont_id }) => match cont_id {
-                FileOrModule::File(file_id) => db
-                    .body(db.owner_table(file_id).file_owner().expect("file owner"))
-                    .get(value)
-                    .name
-                    .clone(),
-                FileOrModule::Module(module_id) => {
-                    db.body(module_id.owner(db).expect("module owner")).get(value).name.clone()
-                }
-            },
             DefOriginLoc::Coverpoint(coverpoint) => {
-                coverpoint_of(db, coverpoint.clone()).and_then(|(coverpoint, _)| coverpoint.name)
+                coverpoint_of(db, coverpoint).and_then(|(coverpoint, _)| coverpoint.name)
             }
-            DefOriginLoc::Cross(cross) => {
-                cross_of(db, cross.clone()).and_then(|(cross, _)| cross.name)
-            }
-            DefOriginLoc::Stmt(InContainer { value, cont_id }) => {
+            DefOriginLoc::Cross(cross) => cross_of(db, cross).and_then(|(cross, _)| cross.name),
+            DefOriginLoc::Stmt(OwnerRef { value, cont_id }) => {
                 cont_id.data(db).stmt(value).label.clone()
             }
         }
@@ -291,9 +183,7 @@ impl DefOriginLoc {
         }
 
         match self {
-            DefOriginLoc::Module(InFile { value, file_id }) => {
-                owner_source(db, db.owner_table(file_id).file_owner()?, value)
-            }
+            DefOriginLoc::Module(owner) => Some(InFile::new(owner.file(db), owner.ast_id(db))),
             DefOriginLoc::Config(InFile { value, file_id }) => {
                 owner_source(db, db.owner_table(file_id).file_owner()?, value)
             }
@@ -304,16 +194,12 @@ impl DefOriginLoc {
                 owner_source(db, db.owner_table(file_id).file_owner()?, value)
             }
             DefOriginLoc::Block(owner) => Some(InFile::new(owner.file(db), owner.ast_id(db))),
-            DefOriginLoc::GenerateBlock(generate_block) => {
-                let owner = generate_block.clone().owner(db)?;
+            DefOriginLoc::GenerateBlock(owner) => {
                 Some(InFile::new(owner.file(db), owner.ast_id(db)))
             }
-            DefOriginLoc::Subroutine(subroutine) => {
-                let owner = subroutine.clone().owner(db)?;
-                Some(InFile::new(owner.file(db), owner.ast_id(db)))
-            }
-            DefOriginLoc::SubroutinePort(InSubroutine { subroutine, value }) => {
-                let owner = subroutine.clone().owner(db)?;
+            DefOriginLoc::Subroutine(owner) => Some(InFile::new(owner.file(db), owner.ast_id(db))),
+            DefOriginLoc::SubroutinePort(OwnerRef { cont_id: subroutine, value }) => {
+                let owner = subroutine;
                 let file_id = owner.file(db);
                 let tree = db.parse(file_id);
                 let node = db.ast_id_map(file_id).node(owner.ast_id(db), &tree)?;
@@ -322,55 +208,30 @@ impl DefOriginLoc {
                     function.prototype().port_list()?.ports().children().nth(value.0 as usize)?;
                 child_source(db, file_id, port.syntax(), &tree)
             }
-            DefOriginLoc::NonAnsiPort(InModule { value, module_id }) => {
-                owner_source(db, module_id.owner(db)?, value)
-            }
-            DefOriginLoc::Instance(InModule { value, module_id }) => {
-                owner_source(db, module_id.owner(db)?, value)
-            }
-            DefOriginLoc::Modport(InModule { value, module_id }) => {
-                owner_source(db, module_id.owner(db)?, value)
-            }
-            DefOriginLoc::ClockingBlock(InModule { value, module_id }) => {
-                owner_source(db, module_id.owner(db)?, value)
-            }
-            DefOriginLoc::Decl(InContainer { value, cont_id }) => owner_source(db, cont_id, value),
-            DefOriginLoc::Typedef(InContainer { value, cont_id }) => {
+            DefOriginLoc::NonAnsiPort(OwnerRef { value, cont_id }) => {
                 owner_source(db, cont_id, value)
             }
-            DefOriginLoc::Stmt(InContainer { value, cont_id }) => owner_source(db, cont_id, value),
+            DefOriginLoc::Instance(OwnerRef { value, cont_id }) => owner_source(db, cont_id, value),
+            DefOriginLoc::Modport(OwnerRef { value, cont_id }) => owner_source(db, cont_id, value),
+            DefOriginLoc::ClockingBlock(OwnerRef { value, cont_id }) => {
+                owner_source(db, cont_id, value)
+            }
+            DefOriginLoc::Decl(OwnerRef { value, cont_id }) => owner_source(db, cont_id, value),
+            DefOriginLoc::Typedef(OwnerRef { value, cont_id }) => owner_source(db, cont_id, value),
+            DefOriginLoc::Stmt(OwnerRef { value, cont_id }) => owner_source(db, cont_id, value),
             DefOriginLoc::ClockingSignal(signal) => {
-                let clocking = signal.scope_id.as_clocking_block(db)?;
-                let owner = clocking.module_id.owner(db)?;
-                let file_id = owner.file(db);
-                let source = owner_source(db, owner, clocking.value)?;
-                let tree = db.parse(file_id);
-                let node = db.ast_id_map(file_id).node(source.value, &tree)?;
-                let clocking = ast::ClockingDeclaration::cast(node)?;
-                let decl = clocking
-                    .items()
-                    .children()
-                    .filter_map(|item| match item {
-                        ast::Member::ClockingItem(item) => {
-                            Some(item.decls().children().collect::<Vec<_>>())
-                        }
-                        _ => None,
-                    })
-                    .flatten()
-                    .nth(signal.value.0 as usize)?;
-                child_source(db, file_id, decl.syntax(), &tree)
+                let (signal, file_id) = clocking_signal_of(db, signal)?;
+                Some(InFile::new(file_id, signal.value.source))
             }
-            DefOriginLoc::Checker(InFileOrModule { value, cont_id }) => {
-                owner_source(db, cont_id.owner(db), value)
-            }
-            DefOriginLoc::Covergroup(InFileOrModule { value, cont_id }) => {
-                owner_source(db, cont_id.owner(db), value)
+            DefOriginLoc::Checker(OwnerRef { value, cont_id }) => owner_source(db, cont_id, value),
+            DefOriginLoc::Covergroup(OwnerRef { value, cont_id }) => {
+                owner_source(db, cont_id, value)
             }
             DefOriginLoc::CheckerPort(port) => {
-                let checker = port.scope_id.as_checker(db)?;
-                let owner = checker.cont_id.owner(db);
+                let checker = port.cont_id.as_checker(db)?;
+                let owner = owner_of_checker(db, checker);
                 let file_id = owner.file(db);
-                let source = owner_source(db, owner, checker.value)?;
+                let source = owner_source(db, checker.cont_id, checker.value)?;
                 let tree = db.parse(file_id);
                 let node = db.ast_id_map(file_id).node(source.value, &tree)?;
                 let checker = ast::CheckerDeclaration::cast(node)?;
@@ -378,10 +239,10 @@ impl DefOriginLoc {
                 child_source(db, file_id, port.syntax(), &tree)
             }
             DefOriginLoc::Coverpoint(point) => {
-                owner_source(db, definition_storage_owner(db, point.scope_id), point.value)
+                owner_source(db, definition_storage_owner(db, point.cont_id), point.value)
             }
             DefOriginLoc::Cross(cross) => {
-                owner_source(db, definition_storage_owner(db, cross.scope_id), cross.value)
+                owner_source(db, definition_storage_owner(db, cross.cont_id), cross.value)
             }
         }
     }
@@ -584,92 +445,40 @@ impl DefId {
 
 pub(crate) fn definition_owner(db: &dyn HirDefDb, loc: &DefOriginLoc) -> OwnerId {
     match loc {
-        DefOriginLoc::Module(module) => module.owner(db).expect("module definition owner"),
+        DefOriginLoc::Module(owner)
+        | DefOriginLoc::Block(owner)
+        | DefOriginLoc::GenerateBlock(owner) => *owner,
         DefOriginLoc::Config(item) => file_owner(db, item.file_id),
         DefOriginLoc::Library(item) => file_owner(db, item.file_id),
         DefOriginLoc::Udp(item) => file_owner(db, item.file_id),
-        DefOriginLoc::Block(owner) => *owner,
-        DefOriginLoc::GenerateBlock(block) => block.clone().owner(db).expect("generate owner"),
-        DefOriginLoc::Subroutine(subroutine) => {
-            subroutine.clone().owner(db).expect("subroutine owner")
-        }
-        DefOriginLoc::SubroutinePort(port) => {
-            port.subroutine.clone().owner(db).expect("subroutine owner")
-        }
-        DefOriginLoc::NonAnsiPort(port) => port.module_id.owner(db).expect("module owner"),
+        DefOriginLoc::Subroutine(owner) => *owner,
+        DefOriginLoc::SubroutinePort(port) => port.cont_id,
+        DefOriginLoc::NonAnsiPort(item) => item.cont_id,
         DefOriginLoc::Decl(item) => item.cont_id,
         DefOriginLoc::Typedef(item) => item.cont_id,
-        DefOriginLoc::Instance(item) => item.module_id.owner(db).expect("module owner"),
-        DefOriginLoc::Modport(item) => item.module_id.owner(db).expect("module owner"),
-        DefOriginLoc::ClockingBlock(item) => {
-            let source = db
-                .body_with_source_map(item.module_id.owner(db).expect("module owner"))
-                .source(item.value)
-                .expect("clocking source");
-            OwnerId::new(db, item.module_id.file_id, source, OwnerKind::ClockingBlock)
-        }
-        DefOriginLoc::ClockingSignal(item) => item.scope_id,
-        DefOriginLoc::Checker(item) => owner_of_checker(db, *item),
-        DefOriginLoc::CheckerPort(item) => item.scope_id,
-        DefOriginLoc::Covergroup(item) => owner_of_covergroup(db, *item),
-        DefOriginLoc::Coverpoint(item) => definition_storage_owner(db, item.scope_id),
-        DefOriginLoc::Cross(item) => definition_storage_owner(db, item.scope_id),
+        DefOriginLoc::Instance(item) => item.cont_id,
+        DefOriginLoc::Modport(item) => item.cont_id,
         DefOriginLoc::Stmt(item) => item.cont_id,
+        DefOriginLoc::ClockingBlock(item) => item.cont_id,
+        DefOriginLoc::ClockingSignal(item) => item.cont_id,
+        DefOriginLoc::Checker(item) => item.cont_id,
+        DefOriginLoc::CheckerPort(item) => item.cont_id,
+        DefOriginLoc::Covergroup(item) => item.cont_id,
+        DefOriginLoc::Coverpoint(item) => item.cont_id,
+        DefOriginLoc::Cross(item) => item.cont_id,
     }
 }
 
-fn owner_of_checker(
-    db: &dyn HirDefDb,
-    checker: InFileOrModule<crate::checker::CheckerId>,
-) -> OwnerId {
-    let (file_id, source) = match checker.cont_id {
-        FileOrModule::File(file_id) => (
-            file_id,
-            db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"))
-                .source(checker.value)
-                .expect("checker source"),
-        ),
-        FileOrModule::Module(module_id) => (
-            module_id.file_id,
-            db.body_with_source_map(module_id.owner(db).expect("module owner"))
-                .source(checker.value)
-                .expect("checker source"),
-        ),
-    };
-    OwnerId::new(db, file_id, source, OwnerKind::Checker)
-}
-
-fn owner_of_covergroup(
-    db: &dyn HirDefDb,
-    covergroup: InFileOrModule<crate::covergroup::CovergroupId>,
-) -> OwnerId {
-    let (file_id, source) = match covergroup.cont_id {
-        FileOrModule::File(file_id) => (
-            file_id,
-            db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"))
-                .source(covergroup.value)
-                .expect("covergroup source"),
-        ),
-        FileOrModule::Module(module_id) => (
-            module_id.file_id,
-            db.body_with_source_map(module_id.owner(db).expect("module owner"))
-                .source(covergroup.value)
-                .expect("covergroup source"),
-        ),
-    };
-    OwnerId::new(db, file_id, source, OwnerKind::Covergroup)
+fn owner_of_checker(_db: &dyn HirDefDb, checker: OwnerRef<crate::checker::CheckerId>) -> OwnerId {
+    checker.cont_id
 }
 
 fn file_owner(db: &dyn HirDefDb, file_id: HirFileId) -> OwnerId {
     db.owner_table(file_id).file_owner().expect("file must have a canonical owner")
 }
 
-fn definition_storage_owner(db: &dyn HirDefDb, scope: OwnerId) -> OwnerId {
-    if scope.kind(db) == OwnerKind::Covergroup {
-        scope.parent(db).expect("covergroup storage owner")
-    } else {
-        scope
-    }
+fn definition_storage_owner(_db: &dyn HirDefDb, scope: OwnerId) -> OwnerId {
+    scope
 }
 
 fn origin_for_identity(
@@ -679,16 +488,10 @@ fn origin_for_identity(
     role: DefinitionRole,
 ) -> Option<DefOriginLoc> {
     let loc = match role {
-        DefinitionRole::Module => {
-            DefOriginLoc::Module(crate::module::ModuleId::from_owner(db, owner)?)
-        }
+        DefinitionRole::Module => DefOriginLoc::Module(owner),
         DefinitionRole::Block => DefOriginLoc::Block(owner),
-        DefinitionRole::GenerateBlock => DefOriginLoc::GenerateBlock(
-            crate::module::generate::GenerateBlockId::from_owner(db, owner)?,
-        ),
-        DefinitionRole::Subroutine => {
-            DefOriginLoc::Subroutine(SubroutineScope::from_owner(db, owner)?)
-        }
+        DefinitionRole::GenerateBlock => DefOriginLoc::GenerateBlock(owner),
+        DefinitionRole::Subroutine => DefOriginLoc::Subroutine(owner),
         DefinitionRole::SubroutinePort => {
             DefOriginLoc::SubroutinePort(subroutine_port_for_source(db, owner, source)?)
         }
@@ -719,44 +522,37 @@ fn origin_for_identity(
                     sources.udp_decl_srcs.src_to_hir(source)?,
                 )),
                 DefinitionRole::NonAnsiPort => {
-                    let module = crate::module::ModuleId::from_owner(db, owner)?;
                     let crate::module::port::PortSrcs::NonAnsi { ports, .. } = &sources.port_srcs
                     else {
                         return None;
                     };
-                    DefOriginLoc::NonAnsiPort(InModule::new(module, ports.src_to_hir(source)?))
+                    DefOriginLoc::NonAnsiPort(OwnerRef::new(owner, ports.src_to_hir(source)?))
                 }
-                DefinitionRole::Decl => DefOriginLoc::Decl(InContainer::new(
+                DefinitionRole::Decl => DefOriginLoc::Decl(OwnerRef::new(
                     arena_owner,
                     sources.decl_srcs.src_to_hir(source)?,
                 )),
-                DefinitionRole::Typedef => DefOriginLoc::Typedef(InContainer::new(
+                DefinitionRole::Typedef => DefOriginLoc::Typedef(OwnerRef::new(
                     arena_owner,
                     sources.typedef_srcs.src_to_hir(source)?,
                 )),
-                DefinitionRole::Instance => {
-                    let module = crate::module::ModuleId::from_owner(db, owner)?;
-                    DefOriginLoc::Instance(InModule::new(
-                        module,
-                        sources.instance_srcs.src_to_hir(source)?,
-                    ))
-                }
-                DefinitionRole::Modport => {
-                    let module = crate::module::ModuleId::from_owner(db, owner)?;
-                    DefOriginLoc::Modport(InModule::new(
-                        module,
-                        sources.modport_srcs.src_to_hir(source)?,
-                    ))
-                }
-                DefinitionRole::Coverpoint => DefOriginLoc::Coverpoint(InScope::new(
+                DefinitionRole::Instance => DefOriginLoc::Instance(OwnerRef::new(
+                    owner,
+                    sources.instance_srcs.src_to_hir(source)?,
+                )),
+                DefinitionRole::Modport => DefOriginLoc::Modport(OwnerRef::new(
+                    owner,
+                    sources.modport_srcs.src_to_hir(source)?,
+                )),
+                DefinitionRole::Coverpoint => DefOriginLoc::Coverpoint(OwnerRef::new(
                     scope_for_nested_source(db, owner, source)?,
                     sources.coverpoint_srcs.src_to_hir(source)?,
                 )),
-                DefinitionRole::Cross => DefOriginLoc::Cross(InScope::new(
+                DefinitionRole::Cross => DefOriginLoc::Cross(OwnerRef::new(
                     scope_for_nested_source(db, owner, source)?,
                     sources.cross_srcs.src_to_hir(source)?,
                 )),
-                DefinitionRole::Stmt => DefOriginLoc::Stmt(InContainer::new(
+                DefinitionRole::Stmt => DefOriginLoc::Stmt(OwnerRef::new(
                     arena_owner,
                     sources.stmt_srcs.src_to_hir(source)?,
                 )),
@@ -780,8 +576,7 @@ fn subroutine_port_for_source(
     db: &dyn HirDefDb,
     owner: OwnerId,
     source: SourceAstId,
-) -> Option<InSubroutine<SubroutinePortId>> {
-    let subroutine = SubroutineScope::from_owner(db, owner)?;
+) -> Option<OwnerRef<SubroutinePortId>> {
     let file_id = owner.file(db);
     let tree = db.parse(file_id);
     let ast_ids = db.ast_id_map(file_id);
@@ -793,14 +588,14 @@ fn subroutine_port_for_source(
         .ports()
         .children()
         .position(|port| ast_ids.id_of_node_in_tree(&tree, port.syntax()) == Some(source))?;
-    Some(InSubroutine::new(subroutine, SubroutinePortId(u32::try_from(index).ok()?)))
+    Some(OwnerRef::new(owner, SubroutinePortId(u32::try_from(index).ok()?)))
 }
 
 fn checker_port_for_source(
     db: &dyn HirDefDb,
     owner: OwnerId,
     source: SourceAstId,
-) -> Option<InScope<CheckerPortId>> {
+) -> Option<OwnerRef<CheckerPortId>> {
     let scope = owner;
     let file_id = owner.file(db);
     let tree = db.parse(file_id);
@@ -812,14 +607,14 @@ fn checker_port_for_source(
         .ports()
         .children()
         .position(|port| ast_ids.id_of_node_in_tree(&tree, port.syntax()) == Some(source))?;
-    Some(InScope::new(scope, CheckerPortId(u32::try_from(index).ok()?)))
+    Some(OwnerRef::new(scope, CheckerPortId(u32::try_from(index).ok()?)))
 }
 
 fn clocking_signal_for_source(
     db: &dyn HirDefDb,
     owner: OwnerId,
     source: SourceAstId,
-) -> Option<InScope<crate::module::clocking::ClockingSignalId>> {
+) -> Option<OwnerRef<crate::module::clocking::ClockingSignalId>> {
     let scope = owner;
     let file_id = owner.file(db);
     let tree = db.parse(file_id);
@@ -831,7 +626,7 @@ fn clocking_signal_for_source(
         let ast::Member::ClockingItem(item) = item else { continue };
         for decl in item.decls().children() {
             if ast_ids.id_of_node_in_tree(&tree, decl.syntax()) == Some(source) {
-                return Some(InScope::new(
+                return Some(OwnerRef::new(
                     scope,
                     crate::module::clocking::ClockingSignalId(u32::try_from(index).ok()?),
                 ));
@@ -866,126 +661,32 @@ fn additional_origins(db: &dyn HirDefDb, primary_origin: DefOrigin) -> SmallVec<
     let Some(port_id) = primary_origin.as_non_ansi_port(db) else {
         return SmallVec::new();
     };
-    let index = non_ansi_port_index(
-        db,
-        port_id.module_id.file_id,
-        u32::from(port_id.module_id.value.into_raw()),
-    );
-    index
+    let crate::module::port::Ports::NonAnsi { bindings, .. } = &port_id.cont_id.data(db).ports
+    else {
+        return SmallVec::new();
+    };
+    bindings
         .origins_by_port
         .get(&port_id.value)
         .into_iter()
         .flatten()
         .map(|decl_id| {
-            DefOrigin::new(
-                db,
-                DefOriginLoc::Decl(InContainer::new(
-                    port_id.module_id.owner(db).expect("module owner"),
-                    *decl_id,
-                )),
-            )
+            DefOrigin::new(db, DefOriginLoc::Decl(OwnerRef::new(port_id.cont_id, *decl_id)))
         })
         .collect()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum NonAnsiPortOriginRole {
-    PortDeclaration,
-    DataDeclaration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-struct NonAnsiPortIndex {
-    declaration_to_port:
-        FxHashMap<crate::expr::declarator::DeclId, InModule<crate::module::port::NonAnsiPortId>>,
-    origins_by_port: FxHashMap<
-        crate::module::port::NonAnsiPortId,
-        SmallVec<[crate::expr::declarator::DeclId; 2]>,
-    >,
-}
-
-#[salsa::tracked(lru = 128, returns(clone))]
-fn non_ansi_port_index(
-    db: &dyn HirDefDb,
-    file_id: HirFileId,
-    module_index: u32,
-) -> Arc<NonAnsiPortIndex> {
-    let module_id =
-        crate::module::ModuleId::new(file_id, Idx::from_raw(RawIdx::from(module_index)));
-    let module = db.body(module_id.owner(db).expect("module owner"));
-    let owner = module_id.owner(db).expect("module must have a canonical owner");
-    let body = db.body_with_source_map(owner);
-    let crate::module::port::Ports::NonAnsi { ports, .. } = &module.ports else {
-        return Arc::new(NonAnsiPortIndex::default());
-    };
-
-    let mut ports_by_name =
-        FxHashMap::<SmolStr, SmallVec<[crate::module::port::NonAnsiPortId; 2]>>::default();
-    for (port_id, port) in ports.iter() {
-        if let Some(name) = &port.label {
-            ports_by_name.entry(name.clone()).or_default().push(port_id);
-        }
-    }
-
-    let mut role_counts = FxHashMap::<(SmolStr, NonAnsiPortOriginRole), usize>::default();
-    for (_, decl) in body.decls.iter() {
-        let Some(name) = &decl.name else { continue };
-        let Some(role) = non_ansi_port_role(&body, decl.parent) else { continue };
-        *role_counts.entry((name.clone(), role)).or_default() += 1;
-    }
-
-    let mut index = NonAnsiPortIndex::default();
-    for (decl_id, decl) in body.decls.iter() {
-        let Some(name) = &decl.name else { continue };
-        let Some(role) = non_ansi_port_role(&body, decl.parent) else { continue };
-        if role_counts.get(&(name.clone(), role)) != Some(&1) {
-            continue;
-        }
-        let Some(port_ids) = ports_by_name.get(name) else { continue };
-        let [port_id] = port_ids.as_slice() else { continue };
-        let port_id = InModule::new(module_id, *port_id);
-        index.declaration_to_port.insert(decl_id, port_id);
-        index.origins_by_port.entry(port_id.value).or_default().push(decl_id);
-    }
-
-    Arc::new(index)
-}
-
-fn non_ansi_port_role(
-    body: &crate::body::Body,
-    parent: DeclaratorParent,
-) -> Option<NonAnsiPortOriginRole> {
-    match parent {
-        DeclaratorParent::PortDeclId(_) => Some(NonAnsiPortOriginRole::PortDeclaration),
-        DeclaratorParent::StmtId(_) => None,
-        DeclaratorParent::DeclarationId(declaration_id) => {
-            match &body.declarations[declaration_id] {
-                Declaration::DataDecl(_) | Declaration::NetDecl(_) => {
-                    Some(NonAnsiPortOriginRole::DataDeclaration)
-                }
-                Declaration::ParamDecl(_)
-                | Declaration::GenvarDecl(_)
-                | Declaration::SpecparamDecl(_) => None,
-            }
-        }
-    }
 }
 
 fn non_ansi_port_for_origin(
     db: &dyn HirDefDb,
     origin: DefOrigin,
-) -> Option<InModule<crate::module::port::NonAnsiPortId>> {
-    match origin.loc(db) {
-        DefOriginLoc::NonAnsiPort(port_id) => Some(port_id.clone()),
-        DefOriginLoc::Decl(InContainer { value, cont_id }) => {
-            let module_id = crate::module::ModuleId::from_owner(db, *cont_id)?;
-            non_ansi_port_index(db, module_id.file_id, u32::from(module_id.value.into_raw()))
-                .declaration_to_port
-                .get(value)
-                .copied()
-        }
-        _ => None,
-    }
+) -> Option<OwnerRef<crate::module::port::NonAnsiPortId>> {
+    let DefOriginLoc::Decl(OwnerRef { value, cont_id }) = origin.loc(db) else {
+        return None;
+    };
+    let crate::module::port::Ports::NonAnsi { bindings, .. } = &cont_id.data(db).ports else {
+        return None;
+    };
+    bindings.decl_to_port.get(&value).map(|port| OwnerRef::new(*cont_id, *port))
 }
 
 fn is_port_decl_origin(db: &dyn HirDefDb, origin: DefOrigin) -> bool {

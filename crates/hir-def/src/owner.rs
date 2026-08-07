@@ -28,12 +28,8 @@ use triomphe::Arc;
 
 use crate::{
     ast_id_map::{SourceAstId, SyntaxFileId},
-    container::{InFile, SubroutineParent, SubroutineScope},
     db::HirDefDb,
-    module::{
-        ModuleId,
-        generate::{GenerateBlockId, GenerateBlockLoc, generate_block_name},
-    },
+    module::{ModuleKind, generate::generate_block_name},
 };
 
 /// The kind of container an owner represents.
@@ -76,6 +72,11 @@ impl OwnerId {
         let name = table.owner(self)?.name.clone();
         (!name.is_empty()).then_some(name)
     }
+
+    /// The language-level kind of a module-like owner.
+    pub fn module_kind(self, db: &dyn HirDefDb) -> Option<ModuleKind> {
+        db.owner_table(self.file(db)).owner(self)?.module_kind
+    }
 }
 
 impl PartialOrd for OwnerId {
@@ -89,7 +90,6 @@ impl Ord for OwnerId {
         salsa::plumbing::AsId::as_id(self).cmp(&salsa::plumbing::AsId::as_id(other))
     }
 }
-
 /// One entry of the per-file [`OwnerTable`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnerData {
@@ -97,6 +97,7 @@ pub struct OwnerData {
     pub kind: OwnerKind,
     pub parent: Option<OwnerId>,
     pub name: SmolStr,
+    pub module_kind: Option<ModuleKind>,
 }
 
 /// Source positions are not stored here. Every owner already carries its
@@ -152,6 +153,7 @@ impl<'db> OwnerTableBuilder<'db> {
             kind: OwnerKind::File,
             parent: None,
             name: SmolStr::new_static(""),
+            module_kind: None,
         });
         table.by_source.insert((root_ast_id, OwnerKind::File), file_owner);
         Self { db, file_id, table, stack: vec![file_owner] }
@@ -170,6 +172,7 @@ impl<'db> OwnerTableBuilder<'db> {
                 kind,
                 parent,
                 name: owner_name(node, kind),
+                module_kind: owner_module_kind(node, kind),
             });
             let replaced = self.table.by_source.insert((ast_id, kind), owner);
             debug_assert!(replaced.is_none(), "duplicate owner source key");
@@ -290,6 +293,13 @@ fn is_unwrapped_generate_branch(node: SyntaxNode<'_>) -> bool {
     false
 }
 
+fn owner_module_kind(node: SyntaxNode<'_>, kind: OwnerKind) -> Option<ModuleKind> {
+    (kind == OwnerKind::Module)
+        .then(|| ast::ModuleDeclaration::cast(node))
+        .flatten()
+        .map(ModuleKind::from_ast)
+}
+
 fn owner_name(node: SyntaxNode<'_>, kind: OwnerKind) -> SmolStr {
     let token = match kind {
         OwnerKind::Module => {
@@ -318,87 +328,6 @@ fn owner_name(node: SyntaxNode<'_>, kind: OwnerKind) -> SmolStr {
     token.map(|token| token.value_text().to_smolstr()).unwrap_or_default()
 }
 
-// ---------------------------------------------------------------------------
-// Legacy id -> OwnerId
-// ---------------------------------------------------------------------------
-
-impl ModuleId {
-    /// Canonical owner for a top-level module slot.
-    pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
-        let table = db.owner_table(self.file_id);
-        let file_owner = table.file_owner()?;
-        let slot = u32::from(self.value.into_raw()) as usize;
-        table
-            .owners_of_kind(OwnerKind::Module)
-            .filter(|owner| owner.parent == Some(file_owner))
-            .nth(slot)
-            .map(|owner| owner.id)
-    }
-
-    pub fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
-        (owner.kind(db) == OwnerKind::Module).then_some(())?;
-        let file_id = owner.file(db);
-        let table = db.owner_table(file_id);
-        let file_owner = table.file_owner()?;
-        let slot = table
-            .owners_of_kind(OwnerKind::Module)
-            .filter(|candidate| candidate.parent == Some(file_owner))
-            .position(|candidate| candidate.id == owner)?;
-        let slot = u32::try_from(slot).ok()?;
-        Some(Self::new(file_id, la_arena::Idx::from_raw(la_arena::RawIdx::from(slot))))
-    }
-}
-
-impl GenerateBlockId {
-    pub(crate) fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
-        (owner.kind(db) == OwnerKind::GenerateBlock).then_some(())?;
-        let file_id = owner.file(db);
-        let parent = owner.parent(db)?;
-        Some(Self::new(GenerateBlockLoc {
-            cont_id: parent,
-            src: InFile::new(file_id, owner.ast_id(db)),
-        }))
-    }
-}
-
-impl SubroutineScope {
-    pub fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
-        (owner.kind(db) == OwnerKind::Subroutine).then_some(())?;
-        let parent = owner.parent(db)?;
-        let cont_id = match parent.kind(db) {
-            OwnerKind::File => SubroutineParent::File(parent.file(db)),
-            OwnerKind::Module => SubroutineParent::Module(ModuleId::from_owner(db, parent)?),
-            OwnerKind::GenerateBlock => {
-                SubroutineParent::GenerateBlock(GenerateBlockId::from_owner(db, parent)?)
-            }
-            _ => return None,
-        };
-        let slot = db
-            .owner_table(owner.file(db))
-            .owners_of_kind(OwnerKind::Subroutine)
-            .filter(|candidate| candidate.parent == Some(parent))
-            .position(|candidate| candidate.id == owner)?;
-        let slot = u32::try_from(slot).ok()?;
-        Some(Self::new(cont_id, la_arena::Idx::from_raw(la_arena::RawIdx::from(slot))))
-    }
-}
-
-impl crate::module::generate::GenerateBlockId {
-    /// The unified owner of this generate block.
-    pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
-        let src = self.loc().src;
-        Some(OwnerId::new(db, src.file_id, src.value, OwnerKind::GenerateBlock))
-    }
-}
-
-impl SubroutineScope {
-    /// The unified owner of this subroutine.
-    pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
-        let src = crate::def_id::subroutine_src(db, self)?;
-        Some(OwnerId::new(db, src.file_id, src.value, OwnerKind::Subroutine))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::fmt;
@@ -417,11 +346,7 @@ mod tests {
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
     use super::OwnerKind;
-    use crate::{
-        container::{SubroutineParent, SubroutineScope},
-        db::HirDefDb,
-        module::ModuleId,
-    };
+    use crate::db::HirDefDb;
 
     const TOP: FileId = FileId::from_raw(0);
     const ROOT: SourceRootId = SourceRootId(0);
@@ -630,12 +555,11 @@ endmodule
         let hir_file = db.body(db.owner_table(file_id).file_owner().expect("file owner"));
         let table = db.owner_table(file_id);
 
-        for (local_module_id, module_info) in hir_file.modules.iter() {
-            let module_id = ModuleId::new(file_id, local_module_id);
-            let owner = module_id.owner(&db).expect("module must map to an owner");
+        for owner in hir_file.module_owners() {
+            let module_info = db.body(owner);
             let expected = table
                 .owners_of_kind(crate::owner::OwnerKind::Module)
-                .find(|owner| owner.name == module_info.name.as_deref().unwrap_or(""))
+                .find(|candidate| candidate.name == module_info.name.as_deref().unwrap_or(""))
                 .expect("module owner must exist");
             assert_eq!(owner, expected.id);
         }
@@ -653,16 +577,12 @@ endmodule
             .expect("block owner must exist")
             .id;
 
-        let module_id = ModuleId::new(
-            file_id,
-            db.body(db.owner_table(file_id).file_owner().expect("file owner"))
-                .modules
-                .iter()
-                .next()
-                .unwrap()
-                .0,
-        );
-        let module = db.body_with_source_map(module_id.owner(&db).expect("module owner"));
+        let module_id = db
+            .body(db.owner_table(file_id).file_owner().expect("file owner"))
+            .module_owners()
+            .next()
+            .expect("module owner");
+        let module = db.body_with_source_map(module_id);
         let proc = module.procs.iter().next().expect("initial block must lower").1;
         let body = db.body_with_source_map(proc.owner);
         let lowered_owner = body
@@ -691,16 +611,12 @@ endmodule
 "#;
         let db = db_with_root_text(text);
         let file_id = HirFileId::File(TOP);
-        let module_id = ModuleId::new(
-            file_id,
-            db.body(db.owner_table(file_id).file_owner().expect("file owner"))
-                .modules
-                .iter()
-                .next()
-                .unwrap()
-                .0,
-        );
-        let module = db.body(module_id.owner(&db).expect("module owner"));
+        let module_id = db
+            .body(db.owner_table(file_id).file_owner().expect("file owner"))
+            .module_owners()
+            .next()
+            .expect("module owner");
+        let module = db.body(module_id);
         let proc_owner = module.procs.values().next().expect("initial block must lower").owner;
         let body = db.body_with_source_map(proc_owner);
         let table = db.owner_table(file_id);
@@ -738,25 +654,16 @@ endmodule
             .expect("subroutine owner must exist");
         assert_eq!(subroutine_owner.name, "t");
 
-        let module_id = ModuleId::new(
-            file_id,
-            db.body(db.owner_table(file_id).file_owner().expect("file owner"))
-                .modules
-                .iter()
-                .next()
-                .unwrap()
-                .0,
+        let module_owner = db
+            .body(db.owner_table(file_id).file_owner().expect("file owner"))
+            .module_owners()
+            .next()
+            .expect("module owner");
+        assert!(
+            db.body(module_owner).subroutine_owners().any(|owner| owner == subroutine_owner.id),
+            "module body must retain the canonical subroutine owner"
         );
-        let module = db.body_with_source_map(module_id.owner(&db).expect("module owner"));
-        let (value, _) = module
-            .source_map()
-            .subroutine_srcs
-            .iter()
-            .find(|(_, src)| *src == subroutine_owner.id.ast_id(&db))
-            .expect("lowering must create the subroutine");
-        let scope = SubroutineScope { cont_id: SubroutineParent::Module(module_id), value };
-
-        assert_eq!(scope.owner(&db), Some(subroutine_owner.id));
+        assert_eq!(db.subroutine(subroutine_owner.id).name.as_deref(), Some("t"));
     }
 
     #[test]
@@ -801,15 +708,11 @@ endmodule
         let after = "module m; function void f(); logic x; x = 1; endfunction endmodule\n";
         let mut db = db_with_root_text(before);
         let file_id = HirFileId::File(TOP);
-        let module_id = ModuleId::new(
-            file_id,
-            db.body(db.owner_table(file_id).file_owner().expect("file owner"))
-                .modules
-                .iter()
-                .next()
-                .unwrap()
-                .0,
-        );
+        let module_id = db
+            .body(db.owner_table(file_id).file_owner().expect("file owner"))
+            .module_owners()
+            .next()
+            .expect("module owner");
         let owner = db
             .owner_table(file_id)
             .owners_of_kind(OwnerKind::Subroutine)
@@ -818,13 +721,13 @@ endmodule
             .id;
 
         let item_tree_before = db.item_tree(file_id);
-        let module_before = db.body_with_source_map(module_id.owner(&db).expect("module owner"));
+        let module_before = db.body_with_source_map(module_id);
         let body_before = db.body_with_source_map(owner);
 
         db.set_file_text_with_durability(TOP, Arc::from(after), Durability::LOW);
 
         let item_tree_after = db.item_tree(file_id);
-        let module_after = db.body_with_source_map(module_id.owner(&db).expect("module owner"));
+        let module_after = db.body_with_source_map(module_id);
         let body_after = db.body_with_source_map(owner);
 
         assert!(Arc::ptr_eq(&item_tree_before, &item_tree_after));
