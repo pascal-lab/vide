@@ -4,10 +4,11 @@ use utils::get::GetRef;
 
 use crate::{
     Ident,
-    container::{ScopeChain, ScopeId},
+    container::ScopeChain,
     db::HirDefDb,
     def_id::DefId,
     module::{ModuleId, instantiation::InstanceId},
+    owner::OwnerId,
     symbol::{DefKind, NameContext, NameScope, Resolution},
 };
 
@@ -25,14 +26,14 @@ use crate::{
 
 pub fn resolve_name(
     db: &dyn HirDefDb,
-    cont_id: ScopeId,
+    cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
     let scopes = ScopeChain::from_inner(db, cont_id);
 
     for id in scopes.iter() {
-        let resolution = db.scope_for(id.clone()).lookup(ctx, ident);
+        let resolution = db.scope_for(*id).lookup(ctx, ident);
         if !resolution.is_unresolved() {
             return resolution;
         }
@@ -64,7 +65,7 @@ pub struct ResolvedScopes {
 
 impl ResolvedScopes {
     pub fn new(db: &dyn HirDefDb, scope_chain: ScopeChain) -> Self {
-        let scopes = scope_chain.iter().map(|id| db.scope_for(id.clone())).collect();
+        let scopes = scope_chain.iter().map(|id| db.scope_for(*id)).collect();
         let unit = db.unit_scope();
         Self { scope_chain, scopes, unit }
     }
@@ -95,7 +96,7 @@ pub fn resolve_in_resolved_scopes(
 
 pub fn resolve_path(
     db: &dyn HirDefDb,
-    cont_id: ScopeId,
+    cont_id: OwnerId,
     path: &[Ident],
     ctx: NameContext,
 ) -> Resolution<DefId> {
@@ -118,7 +119,7 @@ pub fn resolve_path(
 
 fn resolve_top_level_module_root(
     db: &dyn HirDefDb,
-    cont_id: ScopeId,
+    cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
     has_child_segment: bool,
@@ -154,24 +155,26 @@ pub fn resolve_child_name(
     })
 }
 
-pub fn descend_scope(db: &dyn HirDefDb, def_id: DefId) -> Option<ScopeId> {
+pub fn descend_scope(db: &dyn HirDefDb, def_id: DefId) -> Option<OwnerId> {
     let origin = def_id.primary_origin(db);
     match def_id.kind(db) {
-        DefKind::Module | DefKind::Interface | DefKind::Program => {
-            origin.as_module(db).map(Into::into)
-        }
-        DefKind::ClockingBlock => origin.as_clocking_block(db).map(Into::into),
-        DefKind::Checker => origin.as_checker(db).map(ScopeId::Checker),
-        DefKind::Covergroup => origin.as_covergroup(db).map(ScopeId::Covergroup),
+        DefKind::Module | DefKind::Interface | DefKind::Program => origin.as_module(db)?.owner(db),
+        DefKind::ClockingBlock
+        | DefKind::Checker
+        | DefKind::Covergroup
+        | DefKind::Block
+        | DefKind::GenerateBlock => Some(definition_scope_owner(db, origin)),
         DefKind::Instance => {
             let instance = origin.as_instance(db)?;
             let target = instance_target_def_id(db, instance.module_id, instance.value)?;
             descend_scope(db, target)
         }
-        DefKind::Block => origin.as_block(db).map(Into::into),
-        DefKind::GenerateBlock => origin.as_generate_block(db).map(Into::into),
         _ => None,
     }
+}
+
+fn definition_scope_owner(db: &dyn HirDefDb, origin: crate::symbol::DefOrigin) -> OwnerId {
+    crate::def_id::definition_owner(db, origin.loc(db))
 }
 
 pub fn instance_target_def_id(
@@ -183,7 +186,8 @@ pub fn instance_target_def_id(
     let instance = module.get(instance_id);
     let instantiation = module.get(instance.parent);
     let module_name = instantiation.module_name.as_ref()?;
-    let target = resolve_name(db, module_id.into(), module_name, NameContext::Type).unique()?;
+    let owner = module_id.owner(db)?;
+    let target = resolve_name(db, owner, module_name, NameContext::Type).unique()?;
     target.kind(db).is_instantiable_def().then_some(target)
 }
 
@@ -262,8 +266,8 @@ mod tests {
     use super::*;
     use crate::{
         Ident,
-        container::ScopeId,
         db::HirDefDb,
+        owner::OwnerId,
         symbol::{DefKind, NameContext},
     };
 
@@ -360,7 +364,7 @@ mod tests {
 
     fn resolved_kind(
         db: &TestDb,
-        scope_id: ScopeId,
+        scope_id: OwnerId,
         segments: &[&str],
         ctx: NameContext,
     ) -> DefKind {
@@ -402,17 +406,40 @@ endmodule
             .unique()
             .expect("top module should resolve uniquely");
 
-        assert_eq!(resolved_kind(&db, top.into(), &["u", "sig"], NameContext::Value), DefKind::Net);
         assert_eq!(
-            resolved_kind(&db, top.into(), &["arr", "sig"], NameContext::Value),
+            resolved_kind(
+                &db,
+                top.owner(&db).expect("module owner"),
+                &["u", "sig"],
+                NameContext::Value
+            ),
             DefKind::Net
         );
         assert_eq!(
-            resolved_kind(&db, top.into(), &["b", "local_sig"], NameContext::Value),
+            resolved_kind(
+                &db,
+                top.owner(&db).expect("module owner"),
+                &["arr", "sig"],
+                NameContext::Value
+            ),
+            DefKind::Net
+        );
+        assert_eq!(
+            resolved_kind(
+                &db,
+                top.owner(&db).expect("module owner"),
+                &["b", "local_sig"],
+                NameContext::Value
+            ),
             DefKind::Variable
         );
         assert_eq!(
-            resolved_kind(&db, top.into(), &["g", "gen_sig"], NameContext::Value),
+            resolved_kind(
+                &db,
+                top.owner(&db).expect("module owner"),
+                &["g", "gen_sig"],
+                NameContext::Value
+            ),
             DefKind::Net
         );
     }
@@ -443,12 +470,20 @@ endmodule
             .expect("top module should resolve uniquely");
 
         assert!(
-            resolve_path(&db, top.into(), &path(&["u", "only_left"]), NameContext::Value)
-                .is_unresolved()
+            resolve_path(
+                &db,
+                top.owner(&db).expect("module owner"),
+                &path(&["u", "only_left"]),
+                NameContext::Value
+            )
+            .is_unresolved()
         );
-        let Resolution::Ambiguous(shared) =
-            resolve_path(&db, top.into(), &path(&["u", "shared"]), NameContext::Value)
-        else {
+        let Resolution::Ambiguous(shared) = resolve_path(
+            &db,
+            top.owner(&db).expect("module owner"),
+            &path(&["u", "shared"]),
+            NameContext::Value,
+        ) else {
             panic!("members from ambiguous parents should remain ambiguous");
         };
         assert_eq!(shared.len(), 2);
@@ -476,9 +511,12 @@ endmodule
             .module_ids(&db, &ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
-        let Resolution::Ambiguous(values) =
-            resolve_name(&db, top.into(), &ident("value"), NameContext::Value)
-        else {
+        let Resolution::Ambiguous(values) = resolve_name(
+            &db,
+            top.owner(&db).expect("module owner"),
+            &ident("value"),
+            NameContext::Value,
+        ) else {
             panic!("imports from ambiguous packages should remain ambiguous");
         };
         assert_eq!(values.len(), 2);
@@ -507,7 +545,13 @@ endmodule
             .expect("top module should resolve uniquely");
 
         assert!(
-            resolve_name(&db, top.into(), &ident("only_left"), NameContext::Value).is_unresolved(),
+            resolve_name(
+                &db,
+                top.owner(&db).expect("module owner"),
+                &ident("only_left"),
+                NameContext::Value
+            )
+            .is_unresolved(),
             "a child member must not disambiguate its parent package"
         );
     }
@@ -529,7 +573,7 @@ endmodule
         assert_eq!(
             resolved_kind(
                 &db,
-                ScopeId::File(HirFileId::File(TOP)),
+                db.owner_table(HirFileId::File(TOP)).file_owner().expect("file owner"),
                 &["top", "u", "sig"],
                 NameContext::Value,
             ),
@@ -558,19 +602,29 @@ endmodule
             .unique()
             .expect("top module should resolve uniquely");
 
-        let res = resolve_path(&db, top.into(), &path(&["u_if", "host"]), NameContext::Value);
+        let res = resolve_path(
+            &db,
+            top.owner(&db).expect("module owner"),
+            &path(&["u_if", "host"]),
+            NameContext::Value,
+        );
 
         let def = res.unique().expect("modport should produce a unique definition");
         assert_eq!(def.name(&db).as_deref(), Some("host"));
         assert_eq!(def.kind(&db), DefKind::Modport);
         assert_eq!(
-            resolved_kind(&db, top.into(), &["u_if", "clk"], NameContext::Value),
+            resolved_kind(
+                &db,
+                top.owner(&db).expect("module owner"),
+                &["u_if", "clk"],
+                NameContext::Value
+            ),
             DefKind::Net
         );
         assert_eq!(
             resolved_kind(
                 &db,
-                ScopeId::File(HirFileId::File(TOP)),
+                db.owner_table(HirFileId::File(TOP)).file_owner().expect("file owner"),
                 &["top", "u_if", "host"],
                 NameContext::Value,
             ),
@@ -597,7 +651,12 @@ endmodule
             .expect("top module should resolve uniquely");
 
         assert_eq!(
-            resolved_kind(&db, top.into(), &["cb", "a"], NameContext::Value),
+            resolved_kind(
+                &db,
+                top.owner(&db).expect("module owner"),
+                &["cb", "a"],
+                NameContext::Value
+            ),
             DefKind::ClockingSignal
         );
     }
@@ -623,11 +682,21 @@ endmodule
             .expect("top module should resolve uniquely");
 
         assert_eq!(
-            resolved_kind(&db, top.into(), &["u", "clk"], NameContext::Value),
+            resolved_kind(
+                &db,
+                top.owner(&db).expect("module owner"),
+                &["u", "clk"],
+                NameContext::Value
+            ),
             DefKind::CheckerPort
         );
         assert_eq!(
-            resolved_kind(&db, top.into(), &["u", "sig"], NameContext::Value),
+            resolved_kind(
+                &db,
+                top.owner(&db).expect("module owner"),
+                &["u", "sig"],
+                NameContext::Value
+            ),
             DefKind::Variable
         );
     }
@@ -654,11 +723,21 @@ endmodule
             .expect("top module should resolve uniquely");
 
         assert_eq!(
-            resolved_kind(&db, top.into(), &["u", "cp"], NameContext::Value),
+            resolved_kind(
+                &db,
+                top.owner(&db).expect("module owner"),
+                &["u", "cp"],
+                NameContext::Value
+            ),
             DefKind::Coverpoint
         );
         assert_eq!(
-            resolved_kind(&db, top.into(), &["u", "cx"], NameContext::Value),
+            resolved_kind(
+                &db,
+                top.owner(&db).expect("module owner"),
+                &["u", "cx"],
+                NameContext::Value
+            ),
             DefKind::Cross
         );
     }

@@ -8,6 +8,7 @@ use hir_def::{
         generate::GenerateBlockId,
         instantiation::{Instance, InstanceId, Instantiation, InstantiationId},
     },
+    owner::OwnerKind,
     region_tree::RegionTree,
     source_map::{Lowered, LoweredData, SourceMap},
     source_projection::SourceProjection,
@@ -258,6 +259,7 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
     let mut folds = Vec::default();
 
     collect_syntax_folds(db, file_id, line_index, &mut folds);
+    collect_regions(db, file_id, &mut folds, line_index);
 
     collect_subroutines(
         db,
@@ -399,7 +401,7 @@ fn collect_generate_regions(
     for (region_id, _) in src_map.generate_region_srcs.iter() {
         let region = module.get(region_id);
         for item in &region.items {
-            if let hir_def::module::generate::GenerateItem::GenerateBlockId(block_id) = item {
+            if let hir_def::body::BodyItem::GenerateBlockId(block_id) = item {
                 collect_generate_block(db, folds, block_id.clone(), line_index);
             }
         }
@@ -430,7 +432,7 @@ fn collect_generate_block(
     );
 
     for item in &block.items {
-        if let hir_def::module::generate::GenerateBlockItem::GenerateBlockId(block_id) = item {
+        if let hir_def::body::BodyItem::GenerateBlockId(block_id) = item {
             collect_generate_block(db, folds, block_id.clone(), line_index);
         }
     }
@@ -468,6 +470,23 @@ fn collect_instances<T, M>(
     ));
 }
 
+fn collect_regions(db: &RootDb, file_id: HirFileId, folds: &mut Vec<Fold>, line_index: &LineIndex) {
+    let owners = db.owner_table(file_id);
+    for owner in owners.owners().iter().filter(|owner| {
+        matches!(
+            owner.kind,
+            OwnerKind::File
+                | OwnerKind::Module
+                | OwnerKind::GenerateBlock
+                | OwnerKind::ProceduralBlock
+                | OwnerKind::Block
+                | OwnerKind::Subroutine
+        )
+    }) {
+        folds.collect_docs(&db.owner_region_tree(owner.id), line_index);
+    }
+}
+
 fn collect_body_scopes(
     db: &RootDb,
     folds: &mut Vec<Fold>,
@@ -475,11 +494,8 @@ fn collect_body_scopes(
     line_index: &LineIndex,
 ) {
     let data = body.data_ref();
-    let src_map = body.source_map();
 
     for scope in data.scope_graph.scopes() {
-        folds.collect_docs(&db.owner_region_tree(scope.owner()), line_index);
-
         let declaration_ranges = scope
             .items()
             .iter()

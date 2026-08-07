@@ -375,7 +375,7 @@ fn sig_help_for_invocation(
     .unique()?;
     let subroutine = db.subroutine(subroutine_id.clone());
     let subroutine_name = subroutine.name.as_ref()?;
-    let container = subroutine_id.clone().owner(db).expect("subroutine owner");
+    let signature_owner = subroutine_id.parent_owner(db);
 
     let active_param =
         invocation.arguments().and_then(|args| active_argument_at_offset(args, offset));
@@ -386,7 +386,7 @@ fn sig_help_for_invocation(
             SubroutineKind::Task => format!("task {subroutine_name}("),
             SubroutineKind::Function { return_ty } => {
                 let ty = return_ty.as_ref().and_then(|ty| {
-                    InContainer::new(container.clone(), ty.clone()).display_source(db).ok()
+                    InContainer::new(signature_owner, ty.clone()).display_source(db).ok()
                 });
                 match ty {
                     Some(ty) => format!("function {ty} {subroutine_name}("),
@@ -404,7 +404,7 @@ fn sig_help_for_invocation(
         let mut param = String::new();
         if !res.config.params_only {
             let ty = port.ty.as_ref().and_then(|ty| {
-                InContainer::new(container.clone(), ty.clone()).display_source(db).ok()
+                InContainer::new(signature_owner, ty.clone()).display_source(db).ok()
             });
             let dir = port.direction.display_source(db).unwrap_or_default();
             param = match (dir.is_empty(), ty) {

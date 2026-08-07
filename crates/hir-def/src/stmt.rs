@@ -11,7 +11,6 @@ use super::{
     lower::{LoweringCtx, LoweringStore},
 };
 use crate::{
-    alloc_with_source,
     ast_id_map::SourceAstId,
     lower_named_label_opt,
     owner::{OwnerId, OwnerKind},

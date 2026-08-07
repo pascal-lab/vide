@@ -1,4 +1,4 @@
-use hir_def::{def_id::DefId, file::HirFile, module::ModuleId, source_map::Lowered};
+use hir_def::{body::Body, def_id::DefId, module::ModuleId, source_map::Lowered};
 use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -45,7 +45,7 @@ pub(crate) fn code_lens(db: &RootDb, config: CodeLensConfig, file_id: FileId) ->
 
 fn process_instantiations(
     db: &RootDb,
-    hir_file: &Lowered<HirFile>,
+    hir_file: &Lowered<Body>,
     file_id: HirFileId,
     res: &mut Vec<CodeLens>,
 ) {

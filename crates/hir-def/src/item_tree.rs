@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use preproc_expand::file::HirFileId;
-use rustc_hash::{FxHashMap, FxHasher};
+use rustc_hash::FxHasher;
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SyntaxElement, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, SyntaxTree, TokenKind,
@@ -15,11 +15,8 @@ use utils::text_edit::TextRange;
 
 use crate::{
     ast_id_map::{self, AstIdMap, SourceAstId, SyntaxFileId},
-    body::Body,
     db::HirDefDb,
-    lower::LoweringSyntax,
-    owner::{OwnerId, OwnerKind, OwnerTable, OwnerTableBuilder},
-    source_map::Lowered,
+    owner::{OwnerId, OwnerTable},
     source_projection::SourceOrigin,
 };
 
@@ -149,7 +146,6 @@ pub struct ItemTree {
     owners: Arc<OwnerTable>,
     items: Vec<ItemTreeItem>,
     signatures: Vec<Signature>,
-    owner_stores: FxHashMap<OwnerId, Arc<Lowered<Body>>>,
 }
 
 impl ItemTree {
@@ -161,11 +157,7 @@ impl ItemTree {
         &self.owners
     }
 
-    pub(crate) fn owner_table_arc(&self) -> Arc<OwnerTable> {
-        self.owners.clone()
-    }
-
-    pub fn root_owner(&self) -> Option<crate::owner::OwnerId> {
+    pub fn root_owner(&self) -> Option<OwnerId> {
         self.owners.file_owner()
     }
 
@@ -188,10 +180,6 @@ impl ItemTree {
             .map(|(raw, signature)| (SignatureId::from_raw(raw as u32), signature))
     }
 
-    pub(crate) fn owner_store(&self, owner: OwnerId) -> Option<Arc<Lowered<Body>>> {
-        self.owner_stores.get(&owner).cloned()
-    }
-
     pub fn len(&self) -> usize {
         self.items.len()
     }
@@ -209,47 +197,9 @@ fn item_tree_input(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<ItemTree> {
     let tree = db.parse(file_id);
     let ast_ids = ast_id_map::ast_id_map(db, file);
     let source_text = file_id.as_file().map(|file_id| db.file_text(file_id));
-    let root_ast_id = tree
-        .root()
-        .and_then(|root| ast_ids.id_of_node_in_tree(&tree, root))
-        .unwrap_or(SourceAstId::from_raw(0));
-    let mut owner_builder = OwnerTableBuilder::new_structural(db, file_id, root_ast_id);
-    let (items, signatures) =
-        build_item_tree_data(&tree, &ast_ids, source_text.as_deref(), Some(&mut owner_builder));
-    let owners = Arc::new(owner_builder.finish());
-    let syntax = LoweringSyntax::new(file_id, tree, ast_ids, Arc::clone(&owners));
-    let owner_stores = build_owner_stores(db, &owners, &syntax);
-    Arc::new(ItemTree { file_id, owners, items, signatures, owner_stores })
-}
-
-fn build_owner_stores(
-    db: &dyn HirDefDb,
-    owners: &OwnerTable,
-    syntax: &LoweringSyntax,
-) -> FxHashMap<OwnerId, Arc<Lowered<Body>>> {
-    let mut stores = FxHashMap::default();
-    let file_owner = owners.file_owner().expect("file owner must exist");
-    stores.insert(file_owner, crate::file::lower_file_owner(file_owner, syntax));
-
-    for owner in owners.owners() {
-        let store = match owner.kind {
-            OwnerKind::Module => Some(crate::module::lower_module_owner(db, owner.id, syntax)),
-            OwnerKind::GenerateBlock => {
-                Some(crate::module::generate::lower_generate_owner(db, owner.id, syntax))
-            }
-            OwnerKind::File
-            | OwnerKind::ProceduralBlock
-            | OwnerKind::Block
-            | OwnerKind::Subroutine
-            | OwnerKind::Checker
-            | OwnerKind::Covergroup
-            | OwnerKind::ClockingBlock => None,
-        };
-        if let Some(store) = store {
-            stores.insert(owner.id, store);
-        }
-    }
-    stores
+    let owners = db.owner_table(file_id);
+    let (items, signatures) = build_item_tree_data(&tree, &ast_ids, source_text.as_deref());
+    Arc::new(ItemTree { file_id, owners, items, signatures })
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
@@ -310,7 +260,6 @@ fn build_item_tree_data(
     tree: &SyntaxTree,
     ast_ids: &AstIdMap,
     source_text: Option<&str>,
-    mut owners: Option<&mut OwnerTableBuilder<'_>>,
 ) -> (Vec<ItemTreeItem>, Vec<Signature>) {
     let mut items = Vec::new();
     let mut signatures = Vec::new();
@@ -323,9 +272,6 @@ fn build_item_tree_data(
                     let ast_id = ast_ids
                         .id_of_node_in_tree(tree, node)
                         .expect("every syntax node has an AST identity");
-                    if let Some(owners) = &mut owners {
-                        owners.enter(node, ast_id);
-                    }
 
                     if body_depth == 0 && ast::Member::can_cast(node.kind()) {
                         let (name, _) = item_name(node);
@@ -359,9 +305,6 @@ fn build_item_tree_data(
                     if body_depth == 0 && ast::Member::can_cast(node.kind()) {
                         parents.pop().expect("item parent stack is balanced");
                     }
-                    if let Some(owners) = &mut owners {
-                        owners.leave(node);
-                    }
                 }
                 _ => {}
             }
@@ -378,14 +321,8 @@ fn build_item_tree(
     ast_ids: &AstIdMap,
     source_text: Option<&str>,
 ) -> ItemTree {
-    let (items, signatures) = build_item_tree_data(tree, ast_ids, source_text, None);
-    ItemTree {
-        file_id,
-        owners: Arc::new(OwnerTable::default()),
-        items,
-        signatures,
-        owner_stores: FxHashMap::default(),
-    }
+    let (items, signatures) = build_item_tree_data(tree, ast_ids, source_text);
+    ItemTree { file_id, owners: Arc::new(OwnerTable::default()), items, signatures }
 }
 fn lower_signature(function: ast::FunctionDeclaration<'_>, ast_ids: &AstIdMap) -> Signature {
     let prototype = function.prototype();
@@ -443,6 +380,11 @@ fn item_name(node: SyntaxNode<'_>) -> (Option<SmolStr>, Option<TextRange>) {
         .or_else(|| ast::UdpDeclaration::cast(node).and_then(|item| HasName::name(&item)))
         .or_else(|| ast::LibraryDeclaration::cast(node).and_then(|item| HasName::name(&item)))
         .or_else(|| ast::GenerateBlock::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| {
+            ast::LoopGenerate::cast(node)
+                .and_then(|item| item.block().as_generate_block())
+                .and_then(crate::module::generate::generate_block_name)
+        })
         .or_else(|| ast::BlockStatement::cast(node).and_then(|item| HasName::name(&item)))
         .or_else(|| ast::NonAnsiPort::cast(node).and_then(|item| HasName::name(&item)))
         .or_else(|| ast::PortReference::cast(node).and_then(|item| HasName::name(&item)))
@@ -593,7 +535,7 @@ mod tests {
 
     #[test]
     fn source_projection_focuses_named_ast_nodes() {
-        let text = "module top; function void f(); logic value; endfunction endmodule\n";
+        let text = "module top; function void f(); logic value; endfunction generate for (genvar i = 0; i < 1; i++) begin : generated end endgenerate endmodule\n";
         let file_id = HirFileId::File(FileId::from_raw(0));
         let tree = parse(text);
         let ast_ids = AstIdMap::from_source(&tree);
@@ -620,5 +562,6 @@ mod tests {
         assert_eq!(names.get(&syntax::SyntaxKind::MODULE_DECLARATION), Some(&"top"));
         assert_eq!(names.get(&syntax::SyntaxKind::FUNCTION_DECLARATION), Some(&"f"));
         assert_eq!(names.get(&syntax::SyntaxKind::DECLARATOR), Some(&"value"));
+        assert_eq!(names.get(&syntax::SyntaxKind::LOOP_GENERATE), Some(&"generated"));
     }
 }

@@ -5,7 +5,7 @@ use utils::define_enum_deriving_from;
 
 use super::{ExprId, data_ty::Dimension};
 use crate::{
-    Ident, alloc_with_source,
+    Ident,
     ast_id_map::SourceAstId,
     declaration::DeclarationId,
     lower::{LoweringCtx, LoweringStore},

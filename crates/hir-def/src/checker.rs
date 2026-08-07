@@ -62,7 +62,7 @@ impl<Store: CheckerStore> LoweringCtx<Store> {
             CheckerDeclarationMember::Net(net_decl) => self.lower_net_decl(net_decl),
         });
 
-        let file_id = self.file_id;
+        let _file_id = self.file_id;
         let (checkers, sources) = self.store.checkers();
         alloc_with_source(&self.ast_ids, &self.tree, checkers, sources, checker, checker_decl)
     }

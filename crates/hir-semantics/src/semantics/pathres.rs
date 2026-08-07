@@ -1,6 +1,6 @@
 use hir_def::{
     Ident,
-    container::{InContainer, InFile, ScopeId},
+    container::{InContainer, InFile},
     def_id::DefId,
     lower_ident_opt,
     owner::OwnerId,
@@ -67,10 +67,10 @@ impl SemanticsImpl<'_> {
 
     pub fn resolve_name(
         &self,
-        cont_id: ScopeId,
+        owner: OwnerId,
         ident: &Ident,
         ctx: NameContext,
     ) -> Resolution<DefId> {
-        hir_def::pathres::resolve_name(self.db, cont_id, ident, ctx)
+        hir_def::pathres::resolve_name(self.db, owner, ident, ctx)
     }
 }

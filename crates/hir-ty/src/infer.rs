@@ -454,7 +454,7 @@ fn type_of_subroutine_port_impl(db: &dyn TyDb, port: InSubroutine<SubroutinePort
         .map(|ty| {
             normalize_data_ty_with_owner(
                 db,
-                port_id.subroutine.clone().owner(db).expect("subroutine owner"),
+                port_id.subroutine.parent_owner(db),
                 ty,
                 Some(DefId::new(db, port_id)),
             )

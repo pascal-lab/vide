@@ -35,7 +35,7 @@ mod tests {
 
     use crate::{
         Ident,
-        container::{ScopeChain, ScopeId, SubroutineParent, SubroutineScope},
+        container::{ScopeChain, SubroutineParent, SubroutineScope},
         db::HirDefDb,
         module::{ModuleId, generate::GenerateBlockId},
         symbol::{DefKind, NameContext},
@@ -133,16 +133,18 @@ mod tests {
         let db = db_with_root_text("module top; endmodule\n");
         let file_id = HirFileId::File(TOP);
         let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
-        let chain = ScopeChain::from_inner(&db, ScopeId::Module(module_id));
+        let module_owner = module_id.owner(&db).expect("module owner");
+        let file_owner = db.owner_table(file_id).file_owner().expect("file owner");
+        let chain = ScopeChain::from_inner(&db, module_owner);
 
-        assert_eq!(chain.ids(), &[ScopeId::Module(module_id), ScopeId::File(file_id)]);
+        assert_eq!(chain.ids(), &[module_owner, file_owner]);
     }
 
     #[test]
     fn scope_for_builds_only_the_requested_scope() {
         let db = db_with_root_text("module top;\n  function void f(); endfunction\nendmodule\n");
         let file_id = HirFileId::File(TOP);
-        let scope = db.scope_for(ScopeId::File(file_id));
+        let scope = db.scope_for(db.owner_table(file_id).file_owner().expect("file owner"));
         assert!(
             scope
                 .lookup(NameContext::Type, &ident("top"))
@@ -164,7 +166,7 @@ mod tests {
         let db = db_with_root_text("module top;\n  function void f(); endfunction\nendmodule\n");
         let file_id = HirFileId::File(TOP);
         let module_id = ModuleId::new(file_id, Idx::from_raw(RawIdx::from(0)));
-        let scope = db.scope_for(module_id.into());
+        let scope = db.scope_for(module_id.owner(&db).expect("module owner"));
         assert!(
             scope
                 .lookup(NameContext::Value, &ident("f"))
@@ -185,7 +187,7 @@ mod tests {
             SubroutineParent::Module(module_id),
             Idx::from_raw(RawIdx::from(0)),
         );
-        let scope = db.scope_for(subroutine_id.into());
+        let scope = db.scope_for(subroutine_id.owner(&db).expect("subroutine owner"));
         assert!(
             scope
                 .lookup(NameContext::Value, &ident("x"))
@@ -206,13 +208,13 @@ mod tests {
         let mut block_id = None;
         for (_, region) in module.generate_regions.iter() {
             for item in &region.items {
-                if let crate::module::generate::GenerateItem::GenerateBlockId(id) = item {
+                if let crate::body::BodyItem::GenerateBlockId(id) = item {
                     block_id = Some(id.clone());
                 }
             }
         }
         let block_id: GenerateBlockId = block_id.expect("generate block should lower");
-        let scope = db.scope_for(block_id.into());
+        let scope = db.scope_for(block_id.owner(&db).expect("generate owner"));
         assert!(
             scope
                 .lookup(NameContext::Value, &ident("g_sig"))

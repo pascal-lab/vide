@@ -1,8 +1,7 @@
 use la_arena::Arena;
 use preproc_expand::file::HirFileId;
-use syntax::{SyntaxKind, SyntaxNode, SyntaxTree};
+use syntax::{SyntaxNode, SyntaxTree};
 use triomphe::Arc;
-use utils::text_edit::TextRange;
 
 use super::{
     body::{Body, BodySourceMap},
@@ -44,6 +43,11 @@ impl LoweringSyntax {
         owners: Arc<OwnerTable>,
     ) -> Self {
         Self { file_id, tree, ast_ids, owners }
+    }
+
+    pub(crate) fn for_owner(db: &dyn HirDefDb, owner: OwnerId) -> Self {
+        let file_id = owner.file(db);
+        Self::new(file_id, db.parse(file_id), db.ast_id_map(file_id), db.owner_table(file_id))
     }
 }
 /// Mutable HIR/source pair for one canonical owner lowering pass.

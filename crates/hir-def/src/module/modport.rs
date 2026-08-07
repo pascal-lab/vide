@@ -30,7 +30,7 @@ impl LowerModuleCtx<'_> {
         for item in modport.items().children() {
             let name = lower_ident_opt(item.name());
             let ports = lower_modport_ports(item);
-            let file_id = self.file_id;
+            let _file_id = self.file_id;
             let (modports, sources) =
                 (&mut self.store.data.modports, &mut self.store.sources.modport_srcs);
             let modport_id = alloc_with_source(

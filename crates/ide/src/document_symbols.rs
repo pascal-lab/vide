@@ -4,25 +4,22 @@ use hir_def::{
     DEFAULT_NAME,
     aggregate::{StructDef, StructId, StructKind},
     block::BlockItem,
-    body::Body,
+    body::{Body, BodyItem},
     checker::{CheckerDef, CheckerId},
     container::InFile,
     covergroup::{CovergroupDef, CovergroupId, CoverpointDef, CoverpointId, CrossDef, CrossId},
     declaration::{Declaration, DeclarationId},
     expr::declarator::{DeclId, Declarator, DeclsRange},
     file::{
-        FileItem,
         config::{ConfigDecl, ConfigDeclId},
         library::{LibraryDecl, LibraryDeclId},
         udp::{UdpDecl, UdpDeclId},
     },
     has_source::HasSource,
     module::{
-        ModuleId, ModuleItem,
+        ModuleId,
         clocking::{ClockingBlockDef, ClockingBlockId},
-        generate::{
-            GenerateBlockId, GenerateBlockItem, GenerateItem, GenerateRegion, GenerateRegionId,
-        },
+        generate::{GenerateBlockId, GenerateRegion, GenerateRegionId},
         instantiation::{Instance, InstanceId, Instantiation, InstantiationId},
         port::Ports,
         specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem},
@@ -227,54 +224,54 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
         }
 
         match item.clone() {
-            FileItem::LocalModuleId(idx) => {
+            BodyItem::LocalModuleId(idx) => {
                 collect_module_items(db, ModuleId::new(file_id, idx), &mut collector);
             }
-            FileItem::ProcId(proc_id) => {
+            BodyItem::ProcId(proc_id) => {
                 let proc = lowered.get(proc_id);
                 let body = db.body_with_source_map(proc.owner);
                 if let Some(stmt_id) = body.root_stmt {
                     build_stmt(db, &mut collector, stmt_id, body.as_ref());
                 }
             }
-            FileItem::DeclarationId(declaration_id) => {
+            BodyItem::DeclarationId(declaration_id) => {
                 build_declaration(db, &mut collector, declaration_id, body.as_ref());
             }
-            FileItem::TypedefId(typedef_id) => {
+            BodyItem::TypedefId(typedef_id) => {
                 build_typedef(db, &mut collector, typedef_id, body.as_ref())
             }
-            FileItem::SubroutineId(subroutine_id) => {
+            BodyItem::SubroutineId(subroutine_id) => {
                 build_subroutine(db, &mut collector, subroutine_id, lowered.as_ref())
             }
-            FileItem::StructId(struct_id) => {
+            BodyItem::StructId(struct_id) => {
                 build_struct(db, &mut collector, struct_id, body.as_ref())
             }
-            FileItem::ConfigDeclId(config_id) => {
+            BodyItem::ConfigDeclId(config_id) => {
                 build_config_decl(db, &mut collector, config_id, lowered.as_ref())
             }
-            FileItem::LibraryDeclId(library_id) => {
+            BodyItem::LibraryDeclId(library_id) => {
                 build_library_decl(db, &mut collector, library_id, lowered.as_ref())
             }
-            FileItem::LibraryIncludeId(_) => {}
-            FileItem::CheckerId(checker_id) => {
+            BodyItem::LibraryIncludeId(_) => {}
+            BodyItem::CheckerId(checker_id) => {
                 build_checker(db, &mut collector, checker_id, lowered.as_ref())
             }
-            FileItem::CovergroupId(covergroup_id) => {
+            BodyItem::CovergroupId(covergroup_id) => {
                 build_covergroup(db, &mut collector, covergroup_id, lowered.as_ref())
             }
-            FileItem::UdpDeclId(udp_id) => {
+            BodyItem::UdpDeclId(udp_id) => {
                 build_udp_decl(db, &mut collector, udp_id, lowered.as_ref())
             }
-            invalid @ (FileItem::ContAssignId(_)
-            | FileItem::DefParamId(_)
-            | FileItem::GenerateRegionId(_)
-            | FileItem::GenerateBlockId(_)
-            | FileItem::SpecifyBlockId(_)
-            | FileItem::SpecifyItemId(_)
-            | FileItem::InstantiationId(_)
-            | FileItem::PortDeclId(_)
-            | FileItem::ModportId(_)
-            | FileItem::ClockingBlockId(_)) => {
+            invalid @ (BodyItem::ContAssignId(_)
+            | BodyItem::DefParamId(_)
+            | BodyItem::GenerateRegionId(_)
+            | BodyItem::GenerateBlockId(_)
+            | BodyItem::SpecifyBlockId(_)
+            | BodyItem::SpecifyItemId(_)
+            | BodyItem::InstantiationId(_)
+            | BodyItem::PortDeclId(_)
+            | BodyItem::ModportId(_)
+            | BodyItem::ClockingBlockId(_)) => {
                 panic!("file owner lowered a non-file item: {invalid:?}")
             }
         }
@@ -341,10 +338,10 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
             regions.add_region_symbol(range, collector);
         }
         match item.clone() {
-            ModuleItem::DeclarationId(declaration_id) => {
+            BodyItem::DeclarationId(declaration_id) => {
                 build_declaration(db, collector, declaration_id, body.as_ref())
             }
-            ModuleItem::InstantiationId(instantiation_id) => {
+            BodyItem::InstantiationId(instantiation_id) => {
                 for &instance_id in lowered.get(instantiation_id).instances.iter() {
                     let hir = lowered.get(instance_id);
                     if let Some(src) = lowered.named_source_info(db, instance_id) {
@@ -353,65 +350,63 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
                     }
                 }
             }
-            ModuleItem::ProcId(proc_id) => {
+            BodyItem::ProcId(proc_id) => {
                 let proc = lowered.get(proc_id);
                 let body = db.body_with_source_map(proc.owner);
                 if let Some(stmt_id) = body.root_stmt {
                     build_stmt(db, collector, stmt_id, body.as_ref());
                 }
             }
-            ModuleItem::PortDeclId(port_decl) => {
+            BodyItem::PortDeclId(port_decl) => {
                 let port_decl = lowered.get(port_decl);
                 build_decls(db, collector, &port_decl.decls, SymbolKind::PortDecl, body.as_ref())
             }
-            ModuleItem::ContAssignId(_) => {}
-            ModuleItem::DefParamId(_) => {}
-            ModuleItem::GenerateRegionId(generate_region_id) => build_generate_region(
+            BodyItem::ContAssignId(_) => {}
+            BodyItem::DefParamId(_) => {}
+            BodyItem::GenerateRegionId(generate_region_id) => build_generate_region(
                 db,
                 collector,
                 generate_region_id,
                 lowered.as_ref(),
                 body.as_ref(),
             ),
-            ModuleItem::SpecifyBlockId(specify_block_id) => build_specify_block(
+            BodyItem::SpecifyBlockId(specify_block_id) => build_specify_block(
                 db,
                 collector,
                 specify_block_id,
                 lowered.as_ref(),
                 body.as_ref(),
             ),
-            ModuleItem::SpecifyItemId(_) => {}
-            ModuleItem::TypedefId(typedef_id) => {
+            BodyItem::SpecifyItemId(_) => {}
+            BodyItem::TypedefId(typedef_id) => {
                 build_typedef(db, collector, typedef_id, body.as_ref())
             }
-            ModuleItem::SubroutineId(subroutine_id) => {
+            BodyItem::SubroutineId(subroutine_id) => {
                 build_subroutine(db, collector, subroutine_id, lowered.as_ref())
             }
-            ModuleItem::ModportId(modport_id) => {
+            BodyItem::ModportId(modport_id) => {
                 let modport = lowered.get(modport_id);
                 if let Some(src) = lowered.named_source_info(db, modport_id) {
                     collector.push_symbol(&modport.name, src);
                     collector.pop();
                 }
             }
-            ModuleItem::ClockingBlockId(clocking_block_id) => {
+            BodyItem::ClockingBlockId(clocking_block_id) => {
                 build_clocking_block(db, collector, clocking_block_id, lowered.as_ref());
             }
-            ModuleItem::CheckerId(checker_id) => {
+            BodyItem::CheckerId(checker_id) => {
                 build_checker(db, collector, checker_id, lowered.as_ref());
             }
-            ModuleItem::CovergroupId(covergroup_id) => {
+            BodyItem::CovergroupId(covergroup_id) => {
                 build_covergroup(db, collector, covergroup_id, lowered.as_ref());
             }
-            ModuleItem::StructId(struct_id) => {
-                build_struct(db, collector, struct_id, body.as_ref())
-            }
-            invalid @ (ModuleItem::LocalModuleId(_)
-            | ModuleItem::ConfigDeclId(_)
-            | ModuleItem::UdpDeclId(_)
-            | ModuleItem::LibraryDeclId(_)
-            | ModuleItem::LibraryIncludeId(_)
-            | ModuleItem::GenerateBlockId(_)) => {
+            BodyItem::StructId(struct_id) => build_struct(db, collector, struct_id, body.as_ref()),
+            invalid @ (BodyItem::LocalModuleId(_)
+            | BodyItem::ConfigDeclId(_)
+            | BodyItem::UdpDeclId(_)
+            | BodyItem::LibraryDeclId(_)
+            | BodyItem::LibraryIncludeId(_)
+            | BodyItem::GenerateBlockId(_)) => {
                 panic!("module owner lowered a non-module item: {invalid:?}")
             }
         }
@@ -575,13 +570,7 @@ fn build_generate_region<S>(
     let name = Some(SmolStr::new_static("generate"));
     collector.push_symbol_with_kind(&name, src, SymbolKind::Generate);
     for item in hir.items.iter() {
-        build_generate_block_item(
-            db,
-            collector,
-            generate_item_to_block_item(item.clone()),
-            structure,
-            body,
-        );
+        build_generate_block_item(db, collector, item.clone(), structure, body);
     }
     collector.pop();
 }
@@ -613,7 +602,7 @@ fn build_generate_block(
 fn build_generate_block_item<S>(
     db: &dyn TyDb,
     collector: &mut SymbolCollector,
-    item: GenerateBlockItem,
+    item: BodyItem,
     structure: &S,
     body: &Lowered<Body>,
 ) where
@@ -625,27 +614,27 @@ fn build_generate_block_item<S>(
         + NamedSourceLookup<LocalSubroutineId>,
 {
     match item {
-        GenerateBlockItem::ContAssignId(_) | GenerateBlockItem::DefParamId(_) => {}
-        GenerateBlockItem::DeclarationId(declaration_id) => {
+        BodyItem::ContAssignId(_) | BodyItem::DefParamId(_) => {}
+        BodyItem::DeclarationId(declaration_id) => {
             build_declaration(db, collector, declaration_id, body);
         }
-        GenerateBlockItem::GenerateBlockId(child_id) => {
+        BodyItem::GenerateBlockId(child_id) => {
             build_generate_block(db, collector, child_id);
         }
-        GenerateBlockItem::TypedefId(typedef_id) => {
+        BodyItem::TypedefId(typedef_id) => {
             build_typedef(db, collector, typedef_id, body);
         }
-        GenerateBlockItem::SubroutineId(subroutine_id) => {
+        BodyItem::SubroutineId(subroutine_id) => {
             build_subroutine(db, collector, subroutine_id, structure);
         }
-        GenerateBlockItem::ProcId(proc_id) => {
+        BodyItem::ProcId(proc_id) => {
             let proc = structure.hir(proc_id);
             let body = db.body_with_source_map(proc.owner);
             if let Some(stmt_id) = body.root_stmt {
                 build_stmt(db, collector, stmt_id, body.as_ref());
             }
         }
-        GenerateBlockItem::InstantiationId(instantiation_id) => {
+        BodyItem::InstantiationId(instantiation_id) => {
             for &instance_id in structure.hir(instantiation_id).instances.iter() {
                 let hir = structure.hir(instance_id);
                 if let Some(src) = structure.named_source_info(db, instance_id) {
@@ -654,29 +643,25 @@ fn build_generate_block_item<S>(
                 }
             }
         }
-        GenerateBlockItem::StructId(struct_id) => {
+        BodyItem::StructId(struct_id) => {
             build_struct(db, collector, struct_id, body);
         }
-        invalid @ (GenerateBlockItem::LocalModuleId(_)
-        | GenerateBlockItem::ConfigDeclId(_)
-        | GenerateBlockItem::UdpDeclId(_)
-        | GenerateBlockItem::LibraryDeclId(_)
-        | GenerateBlockItem::LibraryIncludeId(_)
-        | GenerateBlockItem::CheckerId(_)
-        | GenerateBlockItem::CovergroupId(_)
-        | GenerateBlockItem::GenerateRegionId(_)
-        | GenerateBlockItem::SpecifyBlockId(_)
-        | GenerateBlockItem::SpecifyItemId(_)
-        | GenerateBlockItem::PortDeclId(_)
-        | GenerateBlockItem::ModportId(_)
-        | GenerateBlockItem::ClockingBlockId(_)) => {
+        invalid @ (BodyItem::LocalModuleId(_)
+        | BodyItem::ConfigDeclId(_)
+        | BodyItem::UdpDeclId(_)
+        | BodyItem::LibraryDeclId(_)
+        | BodyItem::LibraryIncludeId(_)
+        | BodyItem::CheckerId(_)
+        | BodyItem::CovergroupId(_)
+        | BodyItem::GenerateRegionId(_)
+        | BodyItem::SpecifyBlockId(_)
+        | BodyItem::SpecifyItemId(_)
+        | BodyItem::PortDeclId(_)
+        | BodyItem::ModportId(_)
+        | BodyItem::ClockingBlockId(_)) => {
             panic!("generate owner lowered a non-generate item: {invalid:?}")
         }
     }
-}
-
-fn generate_item_to_block_item(item: GenerateItem) -> GenerateBlockItem {
-    item
 }
 
 #[inline]

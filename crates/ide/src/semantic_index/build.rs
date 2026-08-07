@@ -277,24 +277,6 @@ impl<'tree> ContainerCache<'tree> {
         sema.db.owner_table(file_id).file_owner().expect("file owner")
     }
 
-    /// The container of a node's subtree: like
-    /// [`container_for`](Self::container_for) but starting above `node`.
-    pub(super) fn parent_of(
-        &mut self,
-        sema: &SemanticsImpl<'_>,
-        file_id: HirFileId,
-        node: SyntaxNode<'tree>,
-    ) -> OwnerId {
-        for ancestor in SyntaxAncestors::start_from(node).skip(1) {
-            if is_container_node(&ancestor)
-                && let Some(id) = self.try_id_for(sema, file_id, ancestor)
-            {
-                return id;
-            }
-        }
-        sema.db.owner_table(file_id).file_owner().expect("file owner")
-    }
-
     pub(super) fn try_id_for(
         &mut self,
         sema: &SemanticsImpl<'_>,

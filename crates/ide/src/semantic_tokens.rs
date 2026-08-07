@@ -2,6 +2,7 @@ use bitflags::bitflags;
 use collector::SemaTokenCollectorTree;
 use hir_def::{
     Ident,
+    body::BodyItem,
     container::{InContainer, SubroutineParent, SubroutineScope},
     def_id::DefId,
     expr::{
@@ -11,7 +12,7 @@ use hir_def::{
     },
     module::{
         ModuleId,
-        generate::{GenerateBlockId, GenerateBlockItem, GenerateItem},
+        generate::GenerateBlockId,
         instantiation::{ParamAssign, ParamAssignId, PortConn, PortConnId},
     },
     owner::OwnerId,
@@ -370,7 +371,7 @@ fn collect_module(
 
     for (_, region) in module.generate_regions.iter() {
         for item in &region.items {
-            if let GenerateItem::GenerateBlockId(generate_block_id) = item {
+            if let BodyItem::GenerateBlockId(generate_block_id) = item {
                 collect_generate_block(sema, generate_block_id.clone(), collector);
             }
         }
@@ -444,7 +445,7 @@ fn collect_generate_block(
     );
 
     for item in &generate_block.items {
-        if let GenerateBlockItem::GenerateBlockId(child_id) = item {
+        if let BodyItem::GenerateBlockId(child_id) = item {
             collect_generate_block(sema, child_id.clone(), collector);
         }
     }

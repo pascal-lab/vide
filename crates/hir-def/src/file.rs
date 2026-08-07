@@ -6,25 +6,18 @@ use triomphe::Arc;
 use udp::{UdpDecl, UdpDeclId};
 
 use super::{
-    PackageImport,
     aggregate::{StructId, lower_struct_def},
     alloc_with_source,
-    checker::{CheckerDef, CheckerId},
-    covergroup::{
-        CovergroupDef, CovergroupId, CoverpointDef, CoverpointId, CrossDef, CrossId,
-        lower_covergroup_decl, lower_coverpoint, lower_cross,
-    },
-    declaration::DeclarationId,
+    covergroup::{CovergroupId, lower_covergroup_decl, lower_coverpoint, lower_cross},
     lower::{FileStore, LoweringCtx, LoweringSyntax},
     lower_package_imports,
-    module::{LocalModuleId, ModuleInfo, ModuleKind},
-    proc::{Proc, ProcId},
-    subroutine::{LocalSubroutineId, Subroutine, lower_subroutine},
+    module::{ModuleInfo, ModuleKind},
+    subroutine::{LocalSubroutineId, lower_subroutine},
     typedef::{Typedef, TypedefId, lower_typedef_data_ty},
 };
 use crate::{
     ast_id_map::SyntaxFileId,
-    body::{Body, BodyItem, BodySourceMap},
+    body::{Body, BodySourceMap},
     db::HirDefDb,
     lower_ident_opt,
     source_map::Lowered,
@@ -33,10 +26,6 @@ use crate::{
 pub mod config;
 pub mod library;
 pub mod udp;
-
-pub type HirFile = Body;
-pub type FileSourceMap = BodySourceMap;
-pub type FileItem = BodyItem;
 
 pub(crate) type LowerFileCtx<'a> = LoweringCtx<FileStore<'a>>;
 
@@ -264,7 +253,7 @@ impl LowerFileCtx<'_> {
 pub(crate) fn lower_file_owner(
     owner: crate::owner::OwnerId,
     syntax: &LoweringSyntax,
-) -> Arc<Lowered<HirFile>> {
+) -> Arc<Lowered<Body>> {
     let file_id = syntax.file_id;
     let tree = syntax.tree.clone();
     let mut body = Body::default();
@@ -294,18 +283,22 @@ pub(crate) fn lower_file_owner(
     source_map.shrink_to_fit();
     Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
 }
+#[salsa::tracked(lru = 128, returns(clone))]
+fn hir_file_input(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<Lowered<Body>> {
+    let file_id = file.hir_file(db);
+    let owner = db.owner_table(file_id).file_owner().expect("file owner must exist");
+    lower_file_owner(owner, &LoweringSyntax::for_owner(db, owner))
+}
+
+pub(crate) fn set_hir_file_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    hir_file_input::set_lru_capacity(db, capacity);
+    hir_file_with_source_map::set_lru_capacity(db, capacity);
+}
 
 #[salsa::tracked(lru = 128, returns(clone))]
 pub(crate) fn hir_file_with_source_map(
     db: &dyn HirDefDb,
     file: SyntaxFileId,
-) -> Arc<Lowered<HirFile>> {
-    let file_id = file.hir_file(db);
-    let item_tree = db.item_tree(file_id);
-    let owner = item_tree.root_owner().expect("file owner must exist");
-    item_tree.owner_store(owner).expect("file owner store must exist")
-}
-
-pub(crate) fn set_hir_file_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
-    hir_file_with_source_map::set_lru_capacity(db, capacity);
+) -> Arc<Lowered<Body>> {
+    hir_file_input(db, file)
 }

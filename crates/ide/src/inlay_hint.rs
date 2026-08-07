@@ -1,11 +1,11 @@
 use hir_def::{
     ast_id_map::SourceAstId,
+    body::{Body, BodyItem},
     container::{InContainer, InFile},
     def_id::DefId,
     expr::Expr,
-    file::FileItem,
     module::{
-        Module, ModuleId,
+        ModuleId,
         instantiation::{Instantiation, ParamAssign, PortConn, PortConnId},
         port::PortDirection,
     },
@@ -227,7 +227,7 @@ pub(crate) fn inlay_hint(
     for item in &file.data_ref().items {
         #[allow(clippy::single_match)]
         match item.clone() {
-            FileItem::LocalModuleId(idx) => {
+            BodyItem::LocalModuleId(idx) => {
                 let module_id = ModuleId::new(file_id, idx);
                 let Some(module_src) = file.source(idx) else {
                     continue;
@@ -331,7 +331,7 @@ fn module_end_range(db: &RootDb, file_id: HirFileId, source: SourceAstId) -> Opt
 fn process_instantiation(
     db: &RootDb,
     module_id: ModuleId,
-    module: &Lowered<Module>,
+    module: &Lowered<Body>,
     instantiation: &Instantiation,
     collector: &mut InlayHintCollector,
 ) -> Option<()> {
@@ -353,7 +353,7 @@ fn process_instantiation(
                 let assign_src = module.source_info(db, assign_id)?;
                 check_or_throw!(collector.intersect(assign_src.full_range()));
 
-                let param_id = target_module.overridable_param_id_by_idx(&target_body, id)?;
+                let param_id = hir_def::module::overridable_param_id_by_idx(&target_body, id)?;
                 let param_def = DefId::new(
                     db,
                     InContainer::new(
@@ -420,8 +420,8 @@ fn process_instantiation(
 
 fn collect_connection_hint(
     db: &RootDb,
-    module: &Lowered<Module>,
-    body: &Lowered<hir_def::body::Body>,
+    module: &Lowered<Body>,
+    body: &Lowered<Body>,
     conn_id: PortConnId,
     name: &str,
     port_dir: PortDirection,

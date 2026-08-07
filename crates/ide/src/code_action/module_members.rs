@@ -2,7 +2,7 @@ use hir_def::{
     body::Body,
     container::InContainer,
     declaration::Declaration,
-    module::{Module, ModuleId, port::Ports},
+    module::{ModuleId, port::Ports},
     symbol::Resolution,
 };
 use hir_semantics::semantics::Semantics;
@@ -10,7 +10,7 @@ use smol_str::SmolStr;
 
 use crate::db::root_db::RootDb;
 
-pub(crate) fn port_names(module: &Module, body: &Body) -> Vec<SmolStr> {
+pub(crate) fn port_names(module: &Body, body: &Body) -> Vec<SmolStr> {
     match &module.ports {
         Ports::NonAnsi { ports, .. } => {
             ports.values().filter_map(|port| port.label.clone()).collect()
@@ -24,7 +24,7 @@ pub(crate) fn port_names(module: &Module, body: &Body) -> Vec<SmolStr> {
 }
 
 pub(crate) fn remaining_ordered_port_names(
-    module: &Module,
+    module: &Body,
     body: &Body,
     connected: usize,
 ) -> Vec<SmolStr> {

@@ -3,7 +3,6 @@ use smallvec::SmallVec;
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxToken, TokenKind,
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
 };
 use triomphe::Arc;
 

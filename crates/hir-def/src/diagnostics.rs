@@ -26,13 +26,11 @@ use utils::{
 
 use crate::{
     ast_id_map::SyntaxFileId,
+    body::BodyItem,
     container::{SubroutineParent, SubroutineScope},
     db::HirDefDb,
     has_source::HasSource,
-    module::{
-        ModuleId,
-        generate::{GenerateBlockId, GenerateBlockItem, GenerateItem},
-    },
+    module::{ModuleId, generate::GenerateBlockId},
     proc::Proc,
     source_map::LoweringDiagnostic,
     source_projection::SourceProjection,
@@ -106,7 +104,7 @@ fn collect_module(
     for (region_id, _) in src_map.generate_region_srcs.iter() {
         let region = module.get(region_id);
         for item in &region.items {
-            if let GenerateItem::GenerateBlockId(block_id) = item {
+            if let BodyItem::GenerateBlockId(block_id) = item {
                 collect_generate_block(db, block_id.clone(), tree, projection, diagnostics);
             }
         }
@@ -140,7 +138,7 @@ fn collect_generate_block(
     }
 
     for item in &block.items {
-        if let GenerateBlockItem::GenerateBlockId(nested) = item {
+        if let BodyItem::GenerateBlockId(nested) = item {
             collect_generate_block(db, nested.clone(), tree, projection, diagnostics);
         }
     }

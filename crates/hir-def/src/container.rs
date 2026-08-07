@@ -1,65 +1,32 @@
 use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
-use smol_str::SmolStr;
 use triomphe::Arc;
-use utils::{
-    define_enum_deriving_from,
-    get::{Get, GetRef},
-};
+use utils::get::GetRef;
 
 use crate::{
-    aggregate::{StructDef, StructId, StructSrc},
-    ast_id_map::SourceAstId,
     body::{Body, BodySourceMap},
     checker::CheckerId,
     covergroup::CovergroupId,
     db::HirDefDb,
-    declaration::{Declaration, DeclarationId, DeclarationSrc},
-    expr::{
-        Expr, ExprId, ExprSrc,
-        declarator::{DeclId, Declarator, DeclaratorSrc},
-        timing_control::{EventExpr, EventExprId, EventExprSrc},
-    },
-    module::{
-        Module, ModuleId, ModuleKind, ModuleSourceMap,
-        clocking::ClockingBlockId,
-        generate::{GenerateBlock, GenerateBlockId, GenerateBlockSourceMap},
-    },
+    module::{ModuleId, ModuleKind, clocking::ClockingBlockId, generate::GenerateBlockId},
     owner::{OwnerId, OwnerKind},
-    region_tree::RegionTree,
-    stmt::{Stmt, StmtId, StmtSrc},
     subroutine::LocalSubroutineId,
     symbol::ScopeKind,
-    typedef::{Typedef, TypedefId, TypedefSrc},
 };
-
-define_enum_deriving_from! {
-    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
-    pub enum ScopeId {
-        File(HirFileId),
-        Module(ModuleId),
-        GenerateBlock(GenerateBlockId),
-        Subroutine(SubroutineScope),
-        Owner(OwnerId),
-        ClockingBlock(InModule<ClockingBlockId>),
-        Checker(InFileOrModule<CheckerId>),
-        Covergroup(InFileOrModule<CovergroupId>),
-    }
-}
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub struct InScope<T> {
     pub value: T,
-    pub scope_id: ScopeId,
+    pub scope_id: OwnerId,
 }
 
 impl<T> InScope<T> {
-    pub fn new(scope_id: ScopeId, value: T) -> Self {
+    pub fn new(scope_id: OwnerId, value: T) -> Self {
         Self { value, scope_id }
     }
 
     pub fn with_value<U>(&self, value: U) -> InScope<U> {
-        InScope::new(self.scope_id.clone(), value)
+        InScope::new(self.scope_id, value)
     }
 
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> InScope<U> {
@@ -84,8 +51,8 @@ impl<T> InFileOrModule<T> {
         Self { value, cont_id }
     }
 
-    pub fn parent_scope(&self) -> ScopeId {
-        self.cont_id.into()
+    pub fn parent_owner(&self, db: &dyn HirDefDb) -> OwnerId {
+        self.cont_id.owner(db)
     }
 }
 
@@ -96,13 +63,13 @@ impl FileOrModule {
             FileOrModule::Module(module_id) => module_id.file_id,
         }
     }
-}
 
-impl From<FileOrModule> for ScopeId {
-    fn from(cont_id: FileOrModule) -> Self {
-        match cont_id {
-            FileOrModule::File(file_id) => ScopeId::File(file_id),
-            FileOrModule::Module(module_id) => ScopeId::Module(module_id),
+    pub fn owner(self, db: &dyn HirDefDb) -> OwnerId {
+        match self {
+            FileOrModule::File(file_id) => {
+                db.owner_table(file_id).file_owner().expect("file owner")
+            }
+            FileOrModule::Module(module_id) => module_id.owner(db).expect("module owner"),
         }
     }
 }
@@ -125,8 +92,8 @@ impl SubroutineScope {
         Self { cont_id, value }
     }
 
-    pub fn parent_scope(self) -> ScopeId {
-        self.cont_id.into()
+    pub fn parent_owner(&self, db: &dyn HirDefDb) -> OwnerId {
+        self.cont_id.owner(db)
     }
 
     pub fn file_id(self, db: &dyn HirDefDb) -> HirFileId {
@@ -138,12 +105,16 @@ impl SubroutineScope {
     }
 }
 
-impl From<SubroutineParent> for ScopeId {
-    fn from(cont_id: SubroutineParent) -> Self {
-        match cont_id {
-            SubroutineParent::File(file_id) => ScopeId::File(file_id),
-            SubroutineParent::Module(module_id) => ScopeId::Module(module_id),
-            SubroutineParent::GenerateBlock(block) => ScopeId::GenerateBlock(block),
+impl SubroutineParent {
+    pub fn owner(&self, db: &dyn HirDefDb) -> OwnerId {
+        match self {
+            SubroutineParent::File(file_id) => {
+                db.owner_table(*file_id).file_owner().expect("file owner")
+            }
+            SubroutineParent::Module(module_id) => module_id.owner(db).expect("module owner"),
+            SubroutineParent::GenerateBlock(block) => {
+                block.clone().owner(db).expect("generate owner")
+            }
         }
     }
 }
@@ -223,149 +194,68 @@ define_container_id! {
 impl<T: Copy> Copy for InFile<T> {}
 impl<T: Copy> Copy for InModule<T> {}
 
-impl ScopeId {
-    /// Canonical owner identity for every scope wrapper.
-    pub fn owner(&self, db: &dyn HirDefDb) -> OwnerId {
-        match self {
-            ScopeId::File(file_id) => db
-                .owner_table(*file_id)
-                .file_owner()
-                .expect("file scope must have a canonical owner"),
-            ScopeId::Module(module_id) => module_id.owner(db).expect("module scope owner"),
-            ScopeId::GenerateBlock(generate) => {
-                generate.clone().owner(db).expect("generate scope owner")
-            }
-            ScopeId::Subroutine(subroutine) => {
-                subroutine.clone().owner(db).expect("subroutine scope owner")
-            }
-            ScopeId::Owner(owner) => *owner,
-            ScopeId::ClockingBlock(clocking) => {
-                let source = db
-                    .module_with_source_map(clocking.module_id)
-                    .source(clocking.value)
-                    .expect("clocking scope source");
-                OwnerId::new(db, clocking.module_id.file_id, source, OwnerKind::ClockingBlock)
-            }
-            ScopeId::Checker(checker) => {
-                let (file_id, source) = source_of_checker(db, *checker);
-                OwnerId::new(db, file_id, source, OwnerKind::Checker)
-            }
-            ScopeId::Covergroup(covergroup) => {
-                let (file_id, source) = source_of_covergroup(db, *covergroup);
-                OwnerId::new(db, file_id, source, OwnerKind::Covergroup)
-            }
-        }
+impl OwnerId {
+    pub fn as_checker(self, db: &dyn HirDefDb) -> Option<InFileOrModule<CheckerId>> {
+        (self.kind(db) == OwnerKind::Checker).then_some(())?;
+        let parent = self.parent(db)?;
+        let cont_id = match parent.kind(db) {
+            OwnerKind::File => FileOrModule::File(parent.file(db)),
+            OwnerKind::Module => FileOrModule::Module(ModuleId::from_owner(db, parent)?),
+            _ => return None,
+        };
+        let value = match cont_id {
+            FileOrModule::File(file_id) => db
+                .hir_file_with_source_map(file_id)
+                .source_map()
+                .checker_srcs
+                .src_to_hir(self.ast_id(db))?,
+            FileOrModule::Module(module_id) => db
+                .module_with_source_map(module_id)
+                .source_map()
+                .checker_srcs
+                .src_to_hir(self.ast_id(db))?,
+        };
+        Some(InFileOrModule::new(cont_id, value))
     }
 
-    pub(crate) fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
-        let parent = owner.parent(db)?;
-        match owner.kind(db) {
-            OwnerKind::Checker => {
-                let cont_id = match parent.kind(db) {
-                    OwnerKind::File => FileOrModule::File(parent.file(db)),
-                    OwnerKind::Module => FileOrModule::Module(ModuleId::from_owner(db, parent)?),
-                    _ => return None,
-                };
-                let value = match cont_id {
-                    FileOrModule::File(file_id) => db
-                        .hir_file_with_source_map(file_id)
-                        .source_map()
-                        .checker_srcs
-                        .iter()
-                        .find(|(_, source)| *source == owner.ast_id(db))
-                        .map(|(id, _)| id)?,
-                    FileOrModule::Module(module_id) => db
-                        .module_with_source_map(module_id)
-                        .source_map()
-                        .checker_srcs
-                        .iter()
-                        .find(|(_, source)| *source == owner.ast_id(db))
-                        .map(|(id, _)| id)?,
-                };
-                Some(ScopeId::Checker(InFileOrModule::new(cont_id, value)))
-            }
-            OwnerKind::Covergroup => {
-                let cont_id = match parent.kind(db) {
-                    OwnerKind::File => FileOrModule::File(parent.file(db)),
-                    OwnerKind::Module => FileOrModule::Module(ModuleId::from_owner(db, parent)?),
-                    _ => return None,
-                };
-                let value = match cont_id {
-                    FileOrModule::File(file_id) => db
-                        .hir_file_with_source_map(file_id)
-                        .source_map()
-                        .covergroup_srcs
-                        .iter()
-                        .find(|(_, source)| *source == owner.ast_id(db))
-                        .map(|(id, _)| id)?,
-                    FileOrModule::Module(module_id) => db
-                        .module_with_source_map(module_id)
-                        .source_map()
-                        .covergroup_srcs
-                        .iter()
-                        .find(|(_, source)| *source == owner.ast_id(db))
-                        .map(|(id, _)| id)?,
-                };
-                Some(ScopeId::Covergroup(InFileOrModule::new(cont_id, value)))
-            }
-            OwnerKind::ClockingBlock => {
-                let module = ModuleId::from_owner(db, parent)?;
-                let value = db
-                    .module_with_source_map(module)
-                    .source_map()
-                    .clocking_block_srcs
-                    .iter()
-                    .find(|(_, source)| *source == owner.ast_id(db))
-                    .map(|(id, _)| id)?;
-                Some(ScopeId::ClockingBlock(InModule::new(module, value)))
-            }
-            _ => None,
-        }
+    pub fn as_covergroup(self, db: &dyn HirDefDb) -> Option<InFileOrModule<CovergroupId>> {
+        (self.kind(db) == OwnerKind::Covergroup).then_some(())?;
+        let parent = self.parent(db)?;
+        let cont_id = match parent.kind(db) {
+            OwnerKind::File => FileOrModule::File(parent.file(db)),
+            OwnerKind::Module => FileOrModule::Module(ModuleId::from_owner(db, parent)?),
+            _ => return None,
+        };
+        let value = match cont_id {
+            FileOrModule::File(file_id) => db
+                .hir_file_with_source_map(file_id)
+                .source_map()
+                .covergroup_srcs
+                .src_to_hir(self.ast_id(db))?,
+            FileOrModule::Module(module_id) => db
+                .module_with_source_map(module_id)
+                .source_map()
+                .covergroup_srcs
+                .src_to_hir(self.ast_id(db))?,
+        };
+        Some(InFileOrModule::new(cont_id, value))
     }
-}
 
-fn source_of_checker(
-    db: &dyn HirDefDb,
-    checker: InFileOrModule<CheckerId>,
-) -> (HirFileId, SourceAstId) {
-    match checker.cont_id {
-        FileOrModule::File(file_id) => (
-            file_id,
-            db.hir_file_with_source_map(file_id).source(checker.value).expect("checker source"),
-        ),
-        FileOrModule::Module(module_id) => (
-            module_id.file_id,
-            db.module_with_source_map(module_id).source(checker.value).expect("checker source"),
-        ),
+    pub fn as_clocking_block(self, db: &dyn HirDefDb) -> Option<InModule<ClockingBlockId>> {
+        (self.kind(db) == OwnerKind::ClockingBlock).then_some(())?;
+        let module = ModuleId::from_owner(db, self.parent(db)?)?;
+        let value = db
+            .module_with_source_map(module)
+            .source_map()
+            .clocking_block_srcs
+            .src_to_hir(self.ast_id(db))?;
+        Some(InModule::new(module, value))
     }
-}
 
-fn source_of_covergroup(
-    db: &dyn HirDefDb,
-    covergroup: InFileOrModule<CovergroupId>,
-) -> (HirFileId, SourceAstId) {
-    match covergroup.cont_id {
-        FileOrModule::File(file_id) => (
-            file_id,
-            db.hir_file_with_source_map(file_id)
-                .source(covergroup.value)
-                .expect("covergroup source"),
-        ),
-        FileOrModule::Module(module_id) => (
-            module_id.file_id,
-            db.module_with_source_map(module_id)
-                .source(covergroup.value)
-                .expect("covergroup source"),
-        ),
-    }
-}
-
-impl ScopeId {
-    pub fn kind(self, db: &dyn HirDefDb) -> ScopeKind {
-        let owner = self.owner(db);
-        match owner.kind(db) {
+    pub fn scope_kind(self, db: &dyn HirDefDb) -> ScopeKind {
+        match self.kind(db) {
             OwnerKind::File => ScopeKind::File,
-            OwnerKind::Module => ModuleId::from_owner(db, owner)
+            OwnerKind::Module => ModuleId::from_owner(db, self)
                 .map(|module| match db.hir_file(module.file_id).get(module.value).kind {
                     ModuleKind::Module => ScopeKind::Module,
                     ModuleKind::Interface => ScopeKind::Interface,
@@ -382,200 +272,26 @@ impl ScopeId {
             OwnerKind::ClockingBlock => ScopeKind::ClockingBlock,
         }
     }
-
-    pub fn name(self, db: &dyn HirDefDb) -> Option<SmolStr> {
-        match self {
-            ScopeId::File(_) => None,
-            ScopeId::Module(module_id) => db.module(module_id).name.clone(),
-            ScopeId::GenerateBlock(generate_block_id) => {
-                db.generate_block(generate_block_id).name.clone()
-            }
-            ScopeId::Subroutine(subroutine) => db.subroutine(subroutine).name.clone(),
-            ScopeId::Owner(owner) => {
-                db.owner_table(owner.file(db)).owner(owner).map(|data| data.name.clone())
-            }
-            ScopeId::ClockingBlock(clocking_block) => {
-                db.module(clocking_block.module_id).get(clocking_block.value).name.clone()
-            }
-            ScopeId::Checker(checker) => match checker.cont_id {
-                FileOrModule::File(file_id) => db.hir_file(file_id).get(checker.value).name.clone(),
-                FileOrModule::Module(module_id) => {
-                    db.module(module_id).get(checker.value).name.clone()
-                }
-            },
-            ScopeId::Covergroup(covergroup) => match covergroup.cont_id {
-                FileOrModule::File(file_id) => {
-                    db.hir_file(file_id).get(covergroup.value).name.clone()
-                }
-                FileOrModule::Module(module_id) => {
-                    db.module(module_id).get(covergroup.value).name.clone()
-                }
-            },
-        }
-    }
-
-    pub fn arena_owner(&self, db: &dyn HirDefDb) -> OwnerId {
-        self.owner(db)
-    }
-
-    pub fn file_id(&self, db: &dyn HirDefDb) -> HirFileId {
-        match self {
-            ScopeId::File(file_id) => *file_id,
-            ScopeId::Module(module_id) => module_id.file_id,
-            ScopeId::GenerateBlock(generate_block_id) => generate_block_id.file_id(db),
-            ScopeId::Subroutine(subroutine) => subroutine.clone().file_id(db),
-            ScopeId::Owner(owner) => owner.file(db),
-            ScopeId::ClockingBlock(clocking_block) => clocking_block.module_id.file_id,
-            ScopeId::Checker(checker) => checker.cont_id.file_id(),
-            ScopeId::Covergroup(covergroup) => covergroup.cont_id.file_id(),
-        }
-    }
 }
 
-/// Name-resolution-only scopes cannot access owner-local arena data:
-///
-/// ```compile_fail
-/// use hir_def::{container::ScopeId, db::HirDefDb};
-///
-/// fn data_for_any_scope(scope: ScopeId, db: &dyn HirDefDb) {
-///     let _ = scope.data(db);
-/// }
-/// ```
-///
-/// Access to the one owner-local HIR store.
+/// Access to the canonical owner-local HIR store and source identities.
 impl OwnerId {
     pub fn file_id(self, db: &dyn HirDefDb) -> HirFileId {
         self.file(db)
     }
 
-    pub fn data(self, db: &dyn HirDefDb) -> Container {
-        Container(db.body_with_source_map(self).data())
+    pub fn data(self, db: &dyn HirDefDb) -> Arc<Body> {
+        db.body_with_source_map(self).data()
     }
 
-    pub fn source_map(self, db: &dyn HirDefDb) -> ContainerSrcMap {
-        ContainerSrcMap(db.body_with_source_map(self).source_map_arc())
-    }
-}
-
-impl ModuleId {
-    #[inline]
-    pub fn to_container(&self, db: &dyn HirDefDb) -> Arc<Module> {
-        db.module(*self)
-    }
-
-    #[inline]
-    pub fn to_container_src_map(&self, db: &dyn HirDefDb) -> Arc<ModuleSourceMap> {
-        db.module_with_source_map(*self).source_map_arc()
+    pub fn source_map(self, db: &dyn HirDefDb) -> Arc<BodySourceMap> {
+        db.body_with_source_map(self).source_map_arc()
     }
 }
 
 impl GenerateBlockId {
     pub fn file_id(&self, _db: &dyn HirDefDb) -> HirFileId {
         self.loc().src.file_id
-    }
-
-    #[inline]
-    pub fn to_container(&self, db: &dyn HirDefDb) -> Arc<GenerateBlock> {
-        db.generate_block(self.clone())
-    }
-
-    #[inline]
-    pub fn to_container_src_map(&self, db: &dyn HirDefDb) -> Arc<GenerateBlockSourceMap> {
-        db.generate_block_with_source_map(self.clone()).source_map_arc()
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Container(Arc<Body>);
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct ContainerSrcMap(Arc<BodySourceMap>);
-
-impl Container {
-    pub fn declaration(&self, id: DeclarationId) -> &Declaration {
-        &self.0.declarations[id]
-    }
-
-    pub fn typedef(&self, id: TypedefId) -> &Typedef {
-        &self.0.typedefs[id]
-    }
-
-    pub fn struct_def(&self, id: StructId) -> &StructDef {
-        &self.0.structs[id]
-    }
-
-    pub fn expr(&self, id: ExprId) -> &Expr {
-        &self.0.exprs[id]
-    }
-
-    pub fn event_expr(&self, id: EventExprId) -> &EventExpr {
-        &self.0.event_exprs[id]
-    }
-
-    pub fn declarator(&self, id: DeclId) -> &Declarator {
-        &self.0.decls[id]
-    }
-
-    pub fn stmt(&self, id: StmtId) -> &Stmt {
-        &self.0.stmts[id]
-    }
-}
-
-impl ContainerSrcMap {
-    pub fn declaration_from_source(&self, src: DeclarationSrc) -> Option<DeclarationId> {
-        self.0.declaration_srcs.get(src)
-    }
-
-    pub fn source_of_declaration(&self, id: DeclarationId) -> Option<DeclarationSrc> {
-        self.0.declaration_srcs.get(id)
-    }
-
-    pub fn typedef_from_source(&self, src: TypedefSrc) -> Option<TypedefId> {
-        self.0.typedef_srcs.get(src)
-    }
-
-    pub fn source_of_typedef(&self, id: TypedefId) -> Option<TypedefSrc> {
-        self.0.typedef_srcs.get(id)
-    }
-
-    pub fn struct_from_source(&self, src: StructSrc) -> Option<StructId> {
-        self.0.struct_srcs.get(src)
-    }
-
-    pub fn source_of_struct(&self, id: StructId) -> Option<StructSrc> {
-        self.0.struct_srcs.get(id)
-    }
-
-    pub fn expr_from_source(&self, src: ExprSrc) -> Option<ExprId> {
-        self.0.expr_srcs.get(src)
-    }
-
-    pub fn source_of_expr(&self, id: ExprId) -> Option<ExprSrc> {
-        self.0.expr_srcs.get(id)
-    }
-
-    pub fn event_expr_from_source(&self, src: EventExprSrc) -> Option<EventExprId> {
-        self.0.event_expr_srcs.get(src)
-    }
-
-    pub fn source_of_event_expr(&self, id: EventExprId) -> Option<EventExprSrc> {
-        self.0.event_expr_srcs.get(id)
-    }
-
-    pub fn declarator_from_source(&self, src: DeclaratorSrc) -> Option<DeclId> {
-        self.0.decl_srcs.get(src)
-    }
-
-    pub fn source_of_declarator(&self, id: DeclId) -> Option<DeclaratorSrc> {
-        self.0.decl_srcs.get(id)
-    }
-
-    pub fn stmt_from_source(&self, src: StmtSrc) -> Option<StmtId> {
-        self.0.stmt_srcs.get(src)
-    }
-
-    pub fn source_of_stmt(&self, id: StmtId) -> Option<StmtSrc> {
-        self.0.stmt_srcs.get(id)
     }
 }
 
@@ -585,19 +301,19 @@ impl ContainerSrcMap {
 /// parent walk independently and accidentally changing shadowing precedence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopeChain {
-    ids: SmallVec<[ScopeId; 4]>,
+    ids: SmallVec<[OwnerId; 4]>,
 }
 
 impl ScopeChain {
-    pub fn from_inner(db: &dyn HirDefDb, scope_id: ScopeId) -> Self {
-        Self { ids: ScopeParent::start_from(db, scope_id).collect() }
+    pub fn from_inner(db: &dyn HirDefDb, owner: OwnerId) -> Self {
+        Self { ids: ScopeParent::start_from(db, owner).collect() }
     }
 
-    pub fn ids(&self) -> &[ScopeId] {
+    pub fn ids(&self) -> &[OwnerId] {
         &self.ids
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &ScopeId> {
+    pub fn iter(&self) -> impl Iterator<Item = &OwnerId> {
         self.ids.iter()
     }
 
@@ -606,35 +322,24 @@ impl ScopeChain {
     }
 }
 
-/// Parents of a scope.
+/// Parents of a semantic owner.
 pub struct ScopeParent<'db> {
     db: &'db dyn HirDefDb,
-    cont_id: Option<ScopeId>,
+    owner: Option<OwnerId>,
 }
 
 impl<'db> ScopeParent<'db> {
-    pub fn start_from(db: &'db dyn HirDefDb, cont_id: ScopeId) -> ScopeParent<'db> {
-        ScopeParent { db, cont_id: Some(cont_id) }
+    pub fn start_from(db: &'db dyn HirDefDb, owner: OwnerId) -> ScopeParent<'db> {
+        ScopeParent { db, owner: Some(owner) }
     }
 }
 
 impl Iterator for ScopeParent<'_> {
-    type Item = ScopeId;
+    type Item = OwnerId;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let next = self.cont_id.clone();
-        self.cont_id = match self.cont_id.clone()? {
-            ScopeId::File(_) => None,
-            ScopeId::Module(module_id) => Some(module_id.file_id.into()),
-            ScopeId::GenerateBlock(generate_block_id) => {
-                Some(generate_block_id.loc().cont_id.clone().into())
-            }
-            ScopeId::Subroutine(subroutine) => Some(subroutine.parent_scope()),
-            ScopeId::Owner(owner) => owner.parent(self.db).map(ScopeId::Owner),
-            ScopeId::ClockingBlock(clocking_block) => Some(clocking_block.module_id.into()),
-            ScopeId::Checker(checker) => Some(checker.parent_scope()),
-            ScopeId::Covergroup(covergroup) => Some(covergroup.parent_scope()),
-        };
+        let next = self.owner;
+        self.owner = self.owner?.parent(self.db);
         next
     }
 }

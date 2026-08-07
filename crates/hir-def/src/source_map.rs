@@ -63,15 +63,6 @@ impl<T: LoweredData> Lowered<T> {
         }
     }
 
-    pub(crate) fn with_diagnostics(&self, diagnostics: Vec<LoweringDiagnostic>) -> Self {
-        Self {
-            file_id: self.file_id,
-            data: Arc::clone(&self.data),
-            source_map: Arc::clone(&self.source_map),
-            diagnostics: diagnostics.into(),
-        }
-    }
-
     pub fn file_id(&self) -> HirFileId {
         self.file_id
     }

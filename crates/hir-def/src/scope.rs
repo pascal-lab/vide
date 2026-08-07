@@ -14,7 +14,7 @@ use crate::{
     checker::{CheckerDef, CheckerId, CheckerPortId},
     container::{
         FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope, InSubroutine,
-        ScopeId, SubroutineParent, SubroutineScope,
+        SubroutineParent, SubroutineScope,
     },
     covergroup::{CovergroupDef, CovergroupId},
     db::HirDefDb,
@@ -157,43 +157,48 @@ impl NameScope {
     }
 
     pub(super) fn file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> Arc<NameScope> {
-        db.scope_for(ScopeId::File(file_id))
+        let owner = db.owner_table(file_id).file_owner().expect("file owner");
+        db.scope_for(owner)
     }
 
     pub fn module_scope(db: &dyn HirDefDb, module_id: crate::module::ModuleId) -> Arc<NameScope> {
-        db.scope_for(module_id.into())
+        db.scope_for(module_id.owner(db).expect("module owner"))
     }
 
     pub fn clocking_block_scope(
         db: &dyn HirDefDb,
         clocking_block_id: InModule<ClockingBlockId>,
     ) -> Arc<NameScope> {
-        db.scope_for(clocking_block_id.into())
+        let owner =
+            crate::def_id::definition_owner(db, &DefOriginLoc::ClockingBlock(clocking_block_id));
+        db.scope_for(owner)
     }
 
     pub fn checker_scope(
         db: &dyn HirDefDb,
         checker_id: InFileOrModule<CheckerId>,
     ) -> Arc<NameScope> {
-        db.scope_for(checker_id.into())
+        let owner = crate::def_id::definition_owner(db, &DefOriginLoc::Checker(checker_id));
+        db.scope_for(owner)
     }
 
     pub fn covergroup_scope(
         db: &dyn HirDefDb,
         covergroup_id: InFileOrModule<CovergroupId>,
     ) -> Arc<NameScope> {
-        db.scope_for(covergroup_id.into())
+        let owner = crate::def_id::definition_owner(db, &DefOriginLoc::Covergroup(covergroup_id));
+        db.scope_for(owner)
     }
 
     pub fn generate_block_scope(
         db: &dyn HirDefDb,
         generate_block_id: GenerateBlockId,
     ) -> Arc<NameScope> {
-        db.scope_for(generate_block_id.into())
+        db.scope_for(generate_block_id.owner(db).expect("generate owner"))
     }
 
     pub fn subroutine_scope(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> Arc<NameScope> {
-        db.scope_for(subroutine_id.into())
+        db.scope_for(subroutine_id.owner(db).expect("subroutine owner"))
     }
 
     pub fn non_ansi_port_decl_id_by_name(
@@ -272,12 +277,12 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameSco
     for (coverpoint_id, coverpoint) in hir_file.coverpoints.iter() {
         scope.insert_value_opt(
             &coverpoint.name,
-            def_id(db, InScope::new(file_id.into(), coverpoint_id)),
+            def_id(db, InScope::new(file_owner, coverpoint_id)),
         );
     }
 
     for (cross_id, cross) in hir_file.crosses.iter() {
-        scope.insert_value_opt(&cross.name, def_id(db, InScope::new(file_id.into(), cross_id)));
+        scope.insert_value_opt(&cross.name, def_id(db, InScope::new(file_owner, cross_id)));
     }
 
     insert_body_typedefs(&mut scope, db, file_owner, body.data_ref(), file_owner);
@@ -336,14 +341,11 @@ pub(crate) fn build_module_scope(
     }
 
     for (coverpoint_id, coverpoint) in module.coverpoints.iter() {
-        scope.insert_value_opt(
-            &coverpoint.name,
-            def_id(db, InScope::new(module_id.into(), coverpoint_id)),
-        );
+        scope.insert_value_opt(&coverpoint.name, def_id(db, InScope::new(owner, coverpoint_id)));
     }
 
     for (cross_id, cross) in module.crosses.iter() {
-        scope.insert_value_opt(&cross.name, def_id(db, InScope::new(module_id.into(), cross_id)));
+        scope.insert_value_opt(&cross.name, def_id(db, InScope::new(owner, cross_id)));
     }
 
     insert_body_declarators(&mut scope, db, owner, body.data_ref(), owner);
@@ -354,12 +356,10 @@ pub(crate) fn build_module_scope(
     }
 
     for item in &module.items {
-        if let crate::module::ModuleItem::GenerateRegionId(generate_region_id) = item {
+        if let crate::body::BodyItem::GenerateRegionId(generate_region_id) = item {
             let generate_region = module.get(*generate_region_id);
             for item in &generate_region.items {
-                if let crate::module::generate::GenerateItem::GenerateBlockId(generate_block_id) =
-                    item.clone()
-                {
+                if let crate::body::BodyItem::GenerateBlockId(generate_block_id) = item.clone() {
                     let generate_block = db.generate_block(generate_block_id.clone());
                     scope.insert_value_opt(&generate_block.name, def_id(db, generate_block_id));
                 }
@@ -380,14 +380,12 @@ pub(crate) fn build_clocking_block_scope(
     let mut scope = NameScope::default();
     let module = db.module(clocking_block_id.module_id);
     let clocking_block = module.get(clocking_block_id.value);
-    let clocking_scope = ScopeId::ClockingBlock(clocking_block_id);
+    let clocking_scope =
+        crate::def_id::definition_owner(db, &DefOriginLoc::ClockingBlock(clocking_block_id));
 
     for (idx, signal) in clocking_block.signals.iter().enumerate() {
         let signal_id = ClockingSignalId(idx as u32);
-        scope.insert_value(
-            &signal.name,
-            def_id(db, InScope::new(clocking_scope.clone(), signal_id)),
-        );
+        scope.insert_value(&signal.name, def_id(db, InScope::new(clocking_scope, signal_id)));
     }
 
     scope
@@ -399,25 +397,23 @@ pub(crate) fn build_checker_scope(
 ) -> NameScope {
     let mut scope = NameScope::default();
     let checker = checker_def(db, checker_id);
-    let checker_scope = ScopeId::Checker(checker_id);
+    let checker_scope = crate::def_id::definition_owner(db, &DefOriginLoc::Checker(checker_id));
 
     for (idx, port) in checker.ports.iter().enumerate() {
         scope.insert_value(
             &port.name,
-            def_id(db, InScope::new(checker_scope.clone(), CheckerPortId(idx as u32))),
+            def_id(db, InScope::new(checker_scope, CheckerPortId(idx as u32))),
         );
     }
 
-    let owner_id = checker_id.parent_scope().owner(db);
-    let container = owner_id.data(db);
+    let owner_id = checker_id.parent_owner(db);
+    let lowered = db.body_with_source_map(owner_id);
+    let container = lowered.data_ref();
     for declaration_id in &checker.declarations {
-        let declaration = container.declaration(*declaration_id);
+        let declaration = &container.declarations[*declaration_id];
         for decl_id in declaration.decls() {
-            let decl = container.declarator(decl_id);
-            scope.insert_value_opt(
-                &decl.name,
-                def_id(db, InContainer::new(owner_id.clone(), decl_id)),
-            );
+            let decl = &container.decls[decl_id];
+            scope.insert_value_opt(&decl.name, def_id(db, InContainer::new(owner_id, decl_id)));
         }
     }
 
@@ -430,7 +426,8 @@ pub(crate) fn build_covergroup_scope(
 ) -> NameScope {
     let mut scope = NameScope::default();
     let covergroup = covergroup_def(db, covergroup_id);
-    let covergroup_scope = ScopeId::Covergroup(covergroup_id);
+    let covergroup_scope =
+        crate::def_id::definition_owner(db, &DefOriginLoc::Covergroup(covergroup_id));
 
     match covergroup_id.cont_id {
         FileOrModule::File(file_id) => {
@@ -439,7 +436,7 @@ pub(crate) fn build_covergroup_scope(
                 let coverpoint = file.get(*coverpoint_id);
                 scope.insert_value_opt(
                     &coverpoint.name,
-                    def_id(db, InScope::new(covergroup_scope.clone(), *coverpoint_id)),
+                    def_id(db, InScope::new(covergroup_scope, *coverpoint_id)),
                 );
             }
 
@@ -447,7 +444,7 @@ pub(crate) fn build_covergroup_scope(
                 let cross = file.get(*cross_id);
                 scope.insert_value_opt(
                     &cross.name,
-                    def_id(db, InScope::new(covergroup_scope.clone(), *cross_id)),
+                    def_id(db, InScope::new(covergroup_scope, *cross_id)),
                 );
             }
         }
@@ -457,7 +454,7 @@ pub(crate) fn build_covergroup_scope(
                 let coverpoint = module.get(*coverpoint_id);
                 scope.insert_value_opt(
                     &coverpoint.name,
-                    def_id(db, InScope::new(covergroup_scope.clone(), *coverpoint_id)),
+                    def_id(db, InScope::new(covergroup_scope, *coverpoint_id)),
                 );
             }
 
@@ -465,7 +462,7 @@ pub(crate) fn build_covergroup_scope(
                 let cross = module.get(*cross_id);
                 scope.insert_value_opt(
                     &cross.name,
-                    def_id(db, InScope::new(covergroup_scope.clone(), *cross_id)),
+                    def_id(db, InScope::new(covergroup_scope, *cross_id)),
                 );
             }
         }
@@ -498,8 +495,7 @@ pub(crate) fn build_generate_block_scope(
     insert_body_typedefs(&mut scope, db, owner, body.data_ref(), owner);
 
     for item in &generate_block.items {
-        if let crate::module::generate::GenerateBlockItem::GenerateBlockId(child_id) = item.clone()
-        {
+        if let crate::body::BodyItem::GenerateBlockId(child_id) = item.clone() {
             let child = db.generate_block(child_id.clone());
             scope.insert_value_opt(&child.name, def_id(db, child_id));
         }
@@ -570,18 +566,16 @@ pub(crate) fn build_owner_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope 
             insert_body_statements(&mut scope, db, owner, body.data_ref(), owner);
             scope
         }
-        OwnerKind::Checker => match ScopeId::from_owner(db, owner) {
-            Some(ScopeId::Checker(id)) => build_checker_scope(db, id),
-            _ => NameScope::default(),
-        },
-        OwnerKind::Covergroup => match ScopeId::from_owner(db, owner) {
-            Some(ScopeId::Covergroup(id)) => build_covergroup_scope(db, id),
-            _ => NameScope::default(),
-        },
-        OwnerKind::ClockingBlock => match ScopeId::from_owner(db, owner) {
-            Some(ScopeId::ClockingBlock(id)) => build_clocking_block_scope(db, id),
-            _ => NameScope::default(),
-        },
+        OwnerKind::Checker => {
+            owner.as_checker(db).map(|id| build_checker_scope(db, id)).unwrap_or_default()
+        }
+        OwnerKind::Covergroup => {
+            owner.as_covergroup(db).map(|id| build_covergroup_scope(db, id)).unwrap_or_default()
+        }
+        OwnerKind::ClockingBlock => owner
+            .as_clocking_block(db)
+            .map(|id| build_clocking_block_scope(db, id))
+            .unwrap_or_default(),
     }
 }
 
@@ -764,11 +758,15 @@ mod tests {
 
     use crate::{
         Ident,
-        container::{FileOrModule, InFile, InFileOrModule, ScopeId, SubroutineParent},
+        container::{FileOrModule, InFile, InFileOrModule, SubroutineParent},
         db::HirDefDb,
         def_id::DefId,
         has_source::HasSource,
-        module::port::{PortSrcs, Ports},
+        module::{
+            ModuleId,
+            port::{PortSrcs, Ports},
+        },
+        owner::OwnerKind,
         pathres::resolve_name,
         symbol::{DefKind, DefOriginLoc, NameContext, Resolution, ScopeKind},
     };
@@ -880,9 +878,10 @@ endmodule
             .modules
             .iter()
             .map(|(local_id, module)| {
+                let module_id = ModuleId::new(file_id, local_id);
                 (
                     module.name.clone().unwrap(),
-                    ScopeId::Module(InFile::new(file_id, local_id)).kind(&db),
+                    module_id.owner(&db).expect("module owner").scope_kind(&db),
                 )
             })
             .collect::<Vec<_>>();
@@ -1626,11 +1625,11 @@ endmodule
             .covergroup_scope(InFileOrModule::new(FileOrModule::Module(module_id), covergroup_id));
         let scoped_coverpoint_defs = covergroup_scope.lookup(NameContext::Value, &ident("cp"));
         assert!(scoped_coverpoint_defs.iter().any(|def_id| {
-            matches!(def_id.primary_origin(&db).loc(&db), DefOriginLoc::Coverpoint(id) if matches!(id.scope_id, ScopeId::Covergroup(_)) && id.value == coverpoint_id)
+                matches!(def_id.primary_origin(&db).loc(&db), DefOriginLoc::Coverpoint(id) if id.scope_id.kind(&db) == OwnerKind::Covergroup && id.value == coverpoint_id)
         }));
         let scoped_cross_defs = covergroup_scope.lookup(NameContext::Value, &ident("cx"));
         assert!(scoped_cross_defs.iter().any(|def_id| {
-            matches!(def_id.primary_origin(&db).loc(&db), DefOriginLoc::Cross(id) if matches!(id.scope_id, ScopeId::Covergroup(_)) && id.value == cross_id)
+            matches!(def_id.primary_origin(&db).loc(&db), DefOriginLoc::Cross(id) if id.scope_id.kind(&db) == OwnerKind::Covergroup && id.value == cross_id)
         }));
 
         let instantiation = module
@@ -1710,7 +1709,7 @@ endmodule
 
         let imported_t = resolve_name(
             &db,
-            ScopeId::Module(wildcard_importer),
+            wildcard_importer.owner(&db).expect("module owner"),
             &ident("imported_t"),
             NameContext::Type,
         );
@@ -1718,7 +1717,7 @@ endmodule
         assert!(
             resolve_name(
                 &db,
-                ScopeId::Module(wildcard_importer),
+                wildcard_importer.owner(&db).expect("module owner"),
                 &ident("imported_t"),
                 NameContext::Value,
             )
@@ -1728,7 +1727,7 @@ endmodule
 
         let shadowed_v = resolve_name(
             &db,
-            ScopeId::Module(wildcard_importer),
+            wildcard_importer.owner(&db).expect("module owner"),
             &ident("shadowed_v"),
             NameContext::Value,
         );
@@ -1748,7 +1747,7 @@ endmodule
 
         let imported_v = resolve_name(
             &db,
-            ScopeId::Module(named_importer),
+            named_importer.owner(&db).expect("module owner"),
             &ident("imported_v"),
             NameContext::Value,
         );
@@ -1756,7 +1755,7 @@ endmodule
         assert!(
             resolve_name(
                 &db,
-                ScopeId::Module(named_importer),
+                named_importer.owner(&db).expect("module owner"),
                 &ident("imported_t"),
                 NameContext::Type,
             )
@@ -1790,10 +1789,14 @@ endmodule
             .package_ids(&db, &ident("pkg"))
             .unique()
             .expect("package should resolve uniquely");
-        let package_f =
-            resolve_name(&db, ScopeId::Module(package_id), &ident("f"), NameContext::Value)
-                .unique()
-                .expect("package scope should resolve package subroutine");
+        let package_f = resolve_name(
+            &db,
+            package_id.owner(&db).expect("package owner"),
+            &ident("f"),
+            NameContext::Value,
+        )
+        .unique()
+        .expect("package scope should resolve package subroutine");
 
         let DefOriginLoc::Subroutine(package_subroutine) = package_f.primary_origin(&db).loc(&db)
         else {
@@ -1806,20 +1809,28 @@ endmodule
             .module_ids(&db, &ident("named_importer"))
             .unique()
             .expect("named importer should resolve uniquely");
-        let named_import_f =
-            resolve_name(&db, ScopeId::Module(named_importer), &ident("f"), NameContext::Value)
-                .unique()
-                .expect("named import should resolve package subroutine");
+        let named_import_f = resolve_name(
+            &db,
+            named_importer.owner(&db).expect("module owner"),
+            &ident("f"),
+            NameContext::Value,
+        )
+        .unique()
+        .expect("named import should resolve package subroutine");
 
         let wildcard_importer = db
             .unit_scope()
             .module_ids(&db, &ident("wildcard_importer"))
             .unique()
             .expect("wildcard importer should resolve uniquely");
-        let wildcard_import_f =
-            resolve_name(&db, ScopeId::Module(wildcard_importer), &ident("f"), NameContext::Value)
-                .unique()
-                .expect("wildcard import should resolve package subroutine");
+        let wildcard_import_f = resolve_name(
+            &db,
+            wildcard_importer.owner(&db).expect("module owner"),
+            &ident("f"),
+            NameContext::Value,
+        )
+        .unique()
+        .expect("wildcard import should resolve package subroutine");
 
         assert_eq!(package_f, named_import_f);
         assert_eq!(

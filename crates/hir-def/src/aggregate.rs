@@ -2,7 +2,7 @@ use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::{
     TokenKind,
-    ast::{self, AstNode, DataType, StructUnionType},
+    ast::{DataType, StructUnionType},
 };
 
 use super::{Ident, expr::data_ty::DataTy, lower_ident_opt};

@@ -17,7 +17,7 @@ use crate::{
     db::HirDefDb,
     declaration::{DataDecl, Declaration, DeclarationId},
     expr::{
-        Expr,
+        Expr, ExprId,
         declarator::{DeclId, Declarator, empty_decls_range},
         timing_control::EventExpr,
     },
@@ -248,6 +248,34 @@ impl Body {
         self.scope_graph.scope(owner)
     }
 
+    pub fn declaration(&self, id: DeclarationId) -> &Declaration {
+        &self.declarations[id]
+    }
+
+    pub fn typedef(&self, id: TypedefId) -> &Typedef {
+        &self.typedefs[id]
+    }
+
+    pub fn struct_def(&self, id: StructId) -> &StructDef {
+        &self.structs[id]
+    }
+
+    pub fn expr(&self, id: ExprId) -> &Expr {
+        &self.exprs[id]
+    }
+
+    pub fn event_expr(&self, id: crate::expr::timing_control::EventExprId) -> &EventExpr {
+        &self.event_exprs[id]
+    }
+
+    pub fn declarator(&self, id: DeclId) -> &Declarator {
+        &self.decls[id]
+    }
+
+    pub fn stmt(&self, id: StmtId) -> &Stmt {
+        &self.stmts[id]
+    }
+
     pub fn shrink_to_fit(&mut self) {
         self.items.shrink_to_fit();
         self.scope_graph.shrink_to_fit();
@@ -323,6 +351,10 @@ pub struct BodySourceMap {
 }
 
 impl BodySourceMap {
+    pub fn expr_from_source(&self, source: crate::ast_id_map::SourceAstId) -> Option<ExprId> {
+        self.expr_srcs.src_to_hir(source)
+    }
+
     pub fn shrink_to_fit(&mut self) {
         self.module_srcs.shrink_to_fit();
         self.declaration_srcs.shrink_to_fit();
@@ -366,12 +398,12 @@ pub(crate) fn body_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Low
         OwnerKind::ProceduralBlock => lower_procedural_body(db, owner),
         OwnerKind::Subroutine => lower_subroutine_body(db, owner),
         OwnerKind::Block => body_with_source_map(db, body_owner(db, owner)),
-        OwnerKind::GenerateBlock => {
-            crate::module::generate::generate_block_with_source_map(db, owner)
-        }
-        OwnerKind::Module => crate::module::module_with_source_map(db, owner),
         OwnerKind::File => {
             crate::file::hir_file_with_source_map(db, db.syntax_file(owner.file(db)))
+        }
+        OwnerKind::Module => crate::module::module_with_source_map(db, owner),
+        OwnerKind::GenerateBlock => {
+            crate::module::generate::generate_block_with_source_map(db, owner)
         }
         OwnerKind::Checker | OwnerKind::Covergroup | OwnerKind::ClockingBlock => {
             panic!("scope-only owner has no body: {:?}", owner.kind(db))
