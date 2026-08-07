@@ -5,10 +5,7 @@ use rustc_hash::FxHashMap;
 use salsa::plumbing::AsId;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
-use syntax::{
-    ast::AstNode,
-    has_text_range::{HasTextRange, HasTextRangeIn},
-};
+use syntax::ast::{self, AstNode};
 use triomphe::Arc;
 use utils::{
     get::{Get, GetRef},
@@ -16,6 +13,7 @@ use utils::{
 };
 
 use crate::{
+    ast_id_map::SourceAstId,
     checker::{CheckerDef, CheckerPort, CheckerPortId},
     container::{
         ArenaOwnerId, FileOrModule, InContainer, InFile, InFileOrModule, InModule, InScope,
@@ -23,19 +21,17 @@ use crate::{
     },
     covergroup::{CoverpointDef, CoverpointId, CrossDef, CrossId},
     db::HirDefDb,
-    has_source::HasSource,
     declaration::Declaration,
     expr::declarator::DeclaratorParent,
-    module::{ModuleKind, clocking::ClockingSignal, generate::GenerateBlockLoc},
-    source_map::{IsNamedSrc, IsSrc, ToAstNode},
-    subroutine::SubroutineSrc,
+    has_source::HasSource,
+    module::ModuleKind,
     symbol::{DefKind, DefOrigin, DefOriginLoc},
 };
 
 pub(crate) fn subroutine_src(
     db: &dyn HirDefDb,
     subroutine: SubroutineScope,
-) -> Option<InFile<SubroutineSrc>> {
+) -> Option<InFile<SourceAstId>> {
     match subroutine.cont_id {
         SubroutineParent::File(file_id) => {
             let lowered = db.hir_file_with_source_map(file_id);
@@ -56,7 +52,7 @@ pub(crate) fn subroutine_src(
 fn clocking_signal_of(
     db: &dyn HirDefDb,
     signal: InScope<crate::module::clocking::ClockingSignalId>,
-) -> Option<(InModule<ClockingSignal>, HirFileId)> {
+) -> Option<(InModule<crate::module::clocking::ClockingSignal>, HirFileId)> {
     let ScopeId::ClockingBlock(clocking_block) = signal.scope_id else {
         return None;
     };
@@ -239,289 +235,155 @@ impl DefOriginLoc {
         }
     }
 
-    pub fn name_range(self, db: &dyn HirDefDb) -> Option<InFile<TextRange>> {
+    pub(crate) fn source_ast(self, db: &dyn HirDefDb) -> Option<InFile<SourceAstId>> {
+        fn child_source(
+            db: &dyn HirDefDb,
+            file_id: HirFileId,
+            child: syntax::SyntaxNode<'_>,
+            tree: &syntax::SyntaxTree,
+        ) -> Option<InFile<SourceAstId>> {
+            let source = db.ast_id_map(file_id).id_of_node_in_tree(tree, child)?;
+            Some(InFile::new(file_id, source))
+        }
+
         match self {
             DefOriginLoc::Module(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
-                Some(InFile::new(file_id, range))
+                Some(InFile::new(file_id, db.hir_file_with_source_map(file_id).source(value)?))
             }
             DefOriginLoc::Config(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
-                Some(InFile::new(file_id, range))
+                Some(InFile::new(file_id, db.hir_file_with_source_map(file_id).source(value)?))
             }
             DefOriginLoc::Library(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
-                Some(InFile::new(file_id, range))
+                Some(InFile::new(file_id, db.hir_file_with_source_map(file_id).source(value)?))
             }
             DefOriginLoc::Udp(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
-                Some(InFile::new(file_id, range))
+                Some(InFile::new(file_id, db.hir_file_with_source_map(file_id).source(value)?))
             }
-            DefOriginLoc::Block(owner) => {
-                let source = owner.source(db)?;
-                Some(InFile::new(source.file_id, source.value.focus_range()?))
-            }
-            DefOriginLoc::GenerateBlock(generate_block_id) => {
-                let GenerateBlockLoc { src: InFile { value, file_id }, .. } =
-                    generate_block_id.loc().clone();
-                let range = value.name_range()?;
-                Some(InFile::new(file_id, range))
-            }
-            DefOriginLoc::Subroutine(subroutine_id) => {
-                let src = subroutine_src(db, subroutine_id)?;
-                Some(InFile::new(src.file_id, src.value.name_or_full_range()))
-            }
+            DefOriginLoc::Block(owner) => Some(InFile::new(owner.file(db), owner.ast_id(db))),
+            DefOriginLoc::GenerateBlock(generate_block) => Some(generate_block.loc().src),
+            DefOriginLoc::Subroutine(subroutine) => subroutine_src(db, subroutine),
             DefOriginLoc::SubroutinePort(InSubroutine { subroutine, value }) => {
-                let src = subroutine_src(db, subroutine)?;
-                let tree = db.parse(src.file_id);
-                let func = src.value.to_node(&tree)?;
-                let ports = func
-                    .prototype()
-                    .port_list()
-                    .map(|ports| ports.ports().children().collect::<Vec<_>>())
-                    .unwrap_or_default();
-                let port = ports
-                    .into_iter()
-                    .nth(value.0 as usize)
-                    .and_then(|port| port.as_function_port())?;
-                let declarator = port.declarator();
-                let range = declarator.name()?.text_range_in(declarator.syntax())?;
-                Some(InFile::new(src.file_id, range))
+                let source = subroutine_src(db, subroutine)?;
+                let tree = db.parse(source.file_id);
+                let node = db.ast_id_map(source.file_id).node(source.value, &tree)?;
+                let function = ast::FunctionDeclaration::cast(node)?;
+                let port =
+                    function.prototype().port_list()?.ports().children().nth(value.0 as usize)?;
+                child_source(db, source.file_id, port.syntax(), &tree)
             }
             DefOriginLoc::NonAnsiPort(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
-                Some(InFile::new(module_id.file_id, range))
+                Some(InFile::new(module_id.file_id, module_id.to_container_src_map(db).get(value)?))
             }
-            DefOriginLoc::Decl(InContainer { value, cont_id }) => {
-                let range =
-                    cont_id.clone().source_map(db).source_of_declarator(value)?.name_range()?;
-                Some(InFile::new(cont_id.file_id(db), range))
-            }
-            DefOriginLoc::Typedef(InContainer { value, cont_id }) => {
-                let range =
-                    cont_id.clone().source_map(db).source_of_typedef(value)?.name_range()?;
-                Some(InFile::new(cont_id.file_id(db), range))
-            }
+            DefOriginLoc::Decl(InContainer { value, cont_id }) => Some(InFile::new(
+                cont_id.file_id(db),
+                cont_id.clone().source_map(db).source_of_declarator(value)?,
+            )),
+            DefOriginLoc::Typedef(InContainer { value, cont_id }) => Some(InFile::new(
+                cont_id.file_id(db),
+                cont_id.clone().source_map(db).source_of_typedef(value)?,
+            )),
             DefOriginLoc::Instance(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
-                Some(InFile::new(module_id.file_id, range))
+                Some(InFile::new(module_id.file_id, module_id.to_container_src_map(db).get(value)?))
             }
             DefOriginLoc::Modport(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
-                Some(InFile::new(module_id.file_id, range))
+                Some(InFile::new(module_id.file_id, module_id.to_container_src_map(db).get(value)?))
             }
             DefOriginLoc::ClockingBlock(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
-                Some(InFile::new(module_id.file_id, range))
+                Some(InFile::new(module_id.file_id, module_id.to_container_src_map(db).get(value)?))
             }
             DefOriginLoc::ClockingSignal(signal) => {
-                let (signal, file_id) = clocking_signal_of(db, signal)?;
-                Some(InFile::new(file_id, signal.value.name_range?))
+                let ScopeId::ClockingBlock(clocking) = signal.scope_id else { return None };
+                let file_id = clocking.module_id.file_id;
+                let source = clocking.module_id.to_container_src_map(db).get(clocking.value)?;
+                let tree = db.parse(file_id);
+                let node = db.ast_id_map(file_id).node(source, &tree)?;
+                let clocking = ast::ClockingDeclaration::cast(node)?;
+                let decl = clocking
+                    .items()
+                    .children()
+                    .filter_map(|item| match item {
+                        ast::Member::ClockingItem(item) => {
+                            Some(item.decls().children().collect::<Vec<_>>())
+                        }
+                        _ => None,
+                    })
+                    .flatten()
+                    .nth(signal.value.0 as usize)?;
+                child_source(db, file_id, decl.syntax(), &tree)
             }
             DefOriginLoc::Checker(InFileOrModule { value, cont_id }) => match cont_id {
                 FileOrModule::File(file_id) => {
-                    let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
-                    Some(InFile::new(file_id, range))
+                    Some(InFile::new(file_id, db.hir_file_with_source_map(file_id).source(value)?))
                 }
-                FileOrModule::Module(module_id) => {
-                    let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
-                    Some(InFile::new(module_id.file_id, range))
-                }
+                FileOrModule::Module(module_id) => Some(InFile::new(
+                    module_id.file_id,
+                    module_id.to_container_src_map(db).get(value)?,
+                )),
             },
             DefOriginLoc::CheckerPort(port) => {
-                let (port, file_id) = checker_port_of(db, port)?;
-                Some(InFile::new(file_id, port.name_range?))
+                let ScopeId::Checker(checker) = port.scope_id else { return None };
+                let (file_id, source) = match checker.cont_id {
+                    FileOrModule::File(file_id) => {
+                        (file_id, db.hir_file_with_source_map(file_id).source(checker.value)?)
+                    }
+                    FileOrModule::Module(module_id) => {
+                        (module_id.file_id, module_id.to_container_src_map(db).get(checker.value)?)
+                    }
+                };
+                let tree = db.parse(file_id);
+                let node = db.ast_id_map(file_id).node(source, &tree)?;
+                let checker = ast::CheckerDeclaration::cast(node)?;
+                let port = checker.port_list()?.ports().children().nth(port.value.0 as usize)?;
+                child_source(db, file_id, port.syntax(), &tree)
             }
             DefOriginLoc::Covergroup(InFileOrModule { value, cont_id }) => match cont_id {
                 FileOrModule::File(file_id) => {
-                    let range = db.hir_file_with_source_map(file_id).source(value)?.name_range()?;
-                    Some(InFile::new(file_id, range))
+                    Some(InFile::new(file_id, db.hir_file_with_source_map(file_id).source(value)?))
                 }
-                FileOrModule::Module(module_id) => {
-                    let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
-                    Some(InFile::new(module_id.file_id, range))
-                }
+                FileOrModule::Module(module_id) => Some(InFile::new(
+                    module_id.file_id,
+                    module_id.to_container_src_map(db).get(value)?,
+                )),
             },
             DefOriginLoc::Coverpoint(coverpoint) => {
-                let (_, file_id) = coverpoint_of(db, coverpoint.clone())?;
                 match file_or_module_storage(coverpoint.scope_id)? {
-                    FileOrModule::File(storage_file) => {
-                        let range = db
-                            .hir_file_with_source_map(storage_file)
-                            .source(coverpoint.value)?
-                            .name_range()?;
-                        Some(InFile::new(file_id, range))
-                    }
-                    FileOrModule::Module(storage_module) => {
-                        let range = storage_module
-                            .to_container_src_map(db)
-                            .get(coverpoint.value)?
-                            .name_range()?;
-                        Some(InFile::new(file_id, range))
-                    }
+                    FileOrModule::File(file_id) => Some(InFile::new(
+                        file_id,
+                        db.hir_file_with_source_map(file_id).source(coverpoint.value)?,
+                    )),
+                    FileOrModule::Module(module_id) => Some(InFile::new(
+                        module_id.file_id,
+                        module_id.to_container_src_map(db).get(coverpoint.value)?,
+                    )),
                 }
             }
-            DefOriginLoc::Cross(cross) => {
-                let (_, file_id) = cross_of(db, cross.clone())?;
-                match file_or_module_storage(cross.scope_id)? {
-                    FileOrModule::File(storage_file) => {
-                        let range = db
-                            .hir_file_with_source_map(storage_file)
-                            .source(cross.value)?
-                            .name_range()?;
-                        Some(InFile::new(file_id, range))
-                    }
-                    FileOrModule::Module(storage_module) => {
-                        let range = storage_module
-                            .to_container_src_map(db)
-                            .get(cross.value)?
-                            .name_range()?;
-                        Some(InFile::new(file_id, range))
-                    }
-                }
-            }
-            DefOriginLoc::Stmt(InContainer { value, cont_id }) => {
-                let range = cont_id.clone().source_map(db).source_of_stmt(value)?.name_range()?;
-                Some(InFile::new(cont_id.file_id(db), range))
-            }
+            DefOriginLoc::Cross(cross) => match file_or_module_storage(cross.scope_id)? {
+                FileOrModule::File(file_id) => Some(InFile::new(
+                    file_id,
+                    db.hir_file_with_source_map(file_id).source(cross.value)?,
+                )),
+                FileOrModule::Module(module_id) => Some(InFile::new(
+                    module_id.file_id,
+                    module_id.to_container_src_map(db).get(cross.value)?,
+                )),
+            },
+            DefOriginLoc::Stmt(InContainer { value, cont_id }) => Some(InFile::new(
+                cont_id.file_id(db),
+                cont_id.clone().source_map(db).source_of_stmt(value)?,
+            )),
         }
     }
 
+    pub fn name_range(self, db: &dyn HirDefDb) -> Option<InFile<TextRange>> {
+        let source = self.source_ast(db)?;
+        let range = db.source_projection(source.file_id).origin(source.value)?.focus_range()?;
+        Some(InFile::new(source.file_id, range))
+    }
+
     pub fn range(self, db: &dyn HirDefDb) -> Option<InFile<TextRange>> {
-        Some(match self {
-            DefOriginLoc::Module(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).source(value)?.range();
-                InFile::new(file_id, range)
-            }
-            DefOriginLoc::Config(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).source(value)?.range();
-                InFile::new(file_id, range)
-            }
-            DefOriginLoc::Library(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).source(value)?.range();
-                InFile::new(file_id, range)
-            }
-            DefOriginLoc::Udp(InFile { value, file_id }) => {
-                let range = db.hir_file_with_source_map(file_id).source(value)?.range();
-                InFile::new(file_id, range)
-            }
-            DefOriginLoc::Block(owner) => {
-                let source = owner.source(db)?;
-                InFile::new(source.file_id, source.value.full_range())
-            }
-            DefOriginLoc::GenerateBlock(generate_block_id) => {
-                let GenerateBlockLoc { src: InFile { value, file_id }, .. } =
-                    generate_block_id.loc().clone();
-                let range = value.range();
-                InFile::new(file_id, range)
-            }
-            DefOriginLoc::Subroutine(subroutine_id) => {
-                let src = subroutine_src(db, subroutine_id)?;
-                let range = src.value.range();
-                InFile::new(src.file_id, range)
-            }
-            DefOriginLoc::SubroutinePort(InSubroutine { subroutine, value }) => {
-                let src = subroutine_src(db, subroutine)?;
-                let tree = db.parse(src.file_id);
-                let func = src.value.to_node(&tree)?;
-                let ports = func.prototype().port_list()?;
-                let port = ports
-                    .ports()
-                    .children()
-                    .nth(value.0 as usize)
-                    .and_then(|port| port.as_function_port())?;
-                let range = port.syntax().text_range()?;
-                InFile::new(src.file_id, range)
-            }
-            DefOriginLoc::NonAnsiPort(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.range();
-                InFile::new(module_id.file_id, range)
-            }
-            DefOriginLoc::Decl(InContainer { value, cont_id }) => {
-                let range = cont_id.clone().source_map(db).source_of_declarator(value)?.range();
-                InFile::new(cont_id.file_id(db), range)
-            }
-            DefOriginLoc::Typedef(InContainer { value, cont_id }) => {
-                let range = cont_id.clone().source_map(db).source_of_typedef(value)?.range();
-                InFile::new(cont_id.file_id(db), range)
-            }
-            DefOriginLoc::Instance(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.range();
-                InFile::new(module_id.file_id, range)
-            }
-            DefOriginLoc::Modport(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.range();
-                InFile::new(module_id.file_id, range)
-            }
-            DefOriginLoc::ClockingBlock(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.range();
-                InFile::new(module_id.file_id, range)
-            }
-            DefOriginLoc::ClockingSignal(signal) => {
-                let (signal, file_id) = clocking_signal_of(db, signal)?;
-                InFile::new(file_id, signal.value.name_range?)
-            }
-            DefOriginLoc::Checker(InFileOrModule { value, cont_id }) => match cont_id {
-                FileOrModule::File(file_id) => {
-                    let range = db.hir_file_with_source_map(file_id).source(value)?.range();
-                    InFile::new(file_id, range)
-                }
-                FileOrModule::Module(module_id) => {
-                    let range = module_id.to_container_src_map(db).get(value)?.range();
-                    InFile::new(module_id.file_id, range)
-                }
-            },
-            DefOriginLoc::CheckerPort(port) => {
-                let (port, file_id) = checker_port_of(db, port)?;
-                InFile::new(file_id, port.name_range?)
-            }
-            DefOriginLoc::Covergroup(InFileOrModule { value, cont_id }) => match cont_id {
-                FileOrModule::File(file_id) => {
-                    let range = db.hir_file_with_source_map(file_id).source(value)?.range();
-                    InFile::new(file_id, range)
-                }
-                FileOrModule::Module(module_id) => {
-                    let range = module_id.to_container_src_map(db).get(value)?.range();
-                    InFile::new(module_id.file_id, range)
-                }
-            },
-            DefOriginLoc::Coverpoint(coverpoint) => {
-                let (_, file_id) = coverpoint_of(db, coverpoint.clone())?;
-                match file_or_module_storage(coverpoint.scope_id)? {
-                    FileOrModule::File(storage_file) => {
-                        let range = db
-                            .hir_file_with_source_map(storage_file)
-                            .source(coverpoint.value)?
-                            .range();
-                        InFile::new(file_id, range)
-                    }
-                    FileOrModule::Module(storage_module) => {
-                        let range =
-                            storage_module.to_container_src_map(db).get(coverpoint.value)?.range();
-                        InFile::new(file_id, range)
-                    }
-                }
-            }
-            DefOriginLoc::Cross(cross) => {
-                let (_, file_id) = cross_of(db, cross.clone())?;
-                match file_or_module_storage(cross.scope_id)? {
-                    FileOrModule::File(storage_file) => {
-                        let range =
-                            db.hir_file_with_source_map(storage_file).source(cross.value)?.range();
-                        InFile::new(file_id, range)
-                    }
-                    FileOrModule::Module(storage_module) => {
-                        let range =
-                            storage_module.to_container_src_map(db).get(cross.value)?.range();
-                        InFile::new(file_id, range)
-                    }
-                }
-            }
-            DefOriginLoc::Stmt(InContainer { value, cont_id }) => {
-                let range = cont_id.clone().source_map(db).source_of_stmt(value)?.range();
-                InFile::new(cont_id.file_id(db), range)
-            }
-        })
+        let source = self.source_ast(db)?;
+        let range = db.source_projection(source.file_id).origin(source.value)?.full_range()?;
+        Some(InFile::new(source.file_id, range))
     }
 }
 

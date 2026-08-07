@@ -79,17 +79,17 @@ impl HirFile {
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct FileSourceMap {
     pub region_tree: RegionTree,
-    pub module_srcs: SourceMap<ModuleSrc, ModuleInfo>,
-    pub proc_srcs: SourceMap<ProcSrc, Proc>,
-    pub config_decl_srcs: SourceMap<ConfigDeclSrc, ConfigDecl>,
-    pub udp_decl_srcs: SourceMap<UdpDeclSrc, UdpDecl>,
-    pub library_decl_srcs: SourceMap<LibraryDeclSrc, LibraryDecl>,
-    pub library_include_srcs: SourceMap<LibraryIncludeSrc, LibraryInclude>,
-    pub checker_srcs: SourceMap<CheckerSrc, CheckerDef>,
-    pub covergroup_srcs: SourceMap<CovergroupSrc, CovergroupDef>,
-    pub coverpoint_srcs: SourceMap<CoverpointSrc, CoverpointDef>,
-    pub cross_srcs: SourceMap<CrossSrc, CrossDef>,
-    pub subroutine_srcs: SourceMap<SubroutineSrc, Subroutine>,
+    pub module_srcs: SourceMap<ModuleInfo>,
+    pub proc_srcs: SourceMap<Proc>,
+    pub config_decl_srcs: SourceMap<ConfigDecl>,
+    pub udp_decl_srcs: SourceMap<UdpDecl>,
+    pub library_decl_srcs: SourceMap<LibraryDecl>,
+    pub library_include_srcs: SourceMap<LibraryInclude>,
+    pub checker_srcs: SourceMap<CheckerDef>,
+    pub covergroup_srcs: SourceMap<CovergroupDef>,
+    pub coverpoint_srcs: SourceMap<CoverpointDef>,
+    pub cross_srcs: SourceMap<CrossDef>,
+    pub subroutine_srcs: SourceMap<Subroutine>,
     pub diagnostics: Vec<LoweringDiagnostic>,
 }
 impl LoweredData for HirFile {
@@ -137,17 +137,17 @@ crate::impl_arena_getters!(
 
 crate::impl_source_map_getters!(
     FileSourceMap;
-    ModuleSrc => LocalModuleId => module_srcs,
-    ProcSrc => ProcId => proc_srcs,
-    ConfigDeclSrc => ConfigDeclId => config_decl_srcs,
-    UdpDeclSrc => UdpDeclId => udp_decl_srcs,
-    LibraryDeclSrc => LibraryDeclId => library_decl_srcs,
-    LibraryIncludeSrc => LibraryIncludeId => library_include_srcs,
-    CheckerSrc => CheckerId => checker_srcs,
-    CovergroupSrc => CovergroupId => covergroup_srcs,
-    CoverpointSrc => CoverpointId => coverpoint_srcs,
-    CrossSrc => CrossId => cross_srcs,
-    SubroutineSrc => LocalSubroutineId => subroutine_srcs,
+    LocalModuleId => module_srcs,
+    ProcId => proc_srcs,
+    ConfigDeclId => config_decl_srcs,
+    UdpDeclId => udp_decl_srcs,
+    LibraryDeclId => library_decl_srcs,
+    LibraryIncludeId => library_include_srcs,
+    CheckerId => checker_srcs,
+    CovergroupId => covergroup_srcs,
+    CoverpointId => coverpoint_srcs,
+    CrossId => cross_srcs,
+    LocalSubroutineId => subroutine_srcs,
 );
 
 define_enum_deriving_from! {
@@ -169,21 +169,25 @@ define_enum_deriving_from! {
 }
 
 impl FileSourceMap {
-    pub fn item_to_ptr(&self, body: &BodySourceMap, item: &FileItem) -> Option<SyntaxNodePtr> {
-        Some(match item {
-            FileItem::LocalModuleId(idx) => self.get(*idx)?.node,
-            FileItem::ProcId(idx) => self.get(*idx)?.0,
-            FileItem::DeclarationId(idx) => body.declaration_srcs.hir_to_src(*idx)?.ptr(),
-            FileItem::TypedefId(idx) => body.typedef_srcs.hir_to_src(*idx)?.ptr(),
-            FileItem::StructId(idx) => body.struct_srcs.hir_to_src(*idx)?.node,
-            FileItem::ConfigDeclId(idx) => self.get(*idx)?.node,
-            FileItem::UdpDeclId(idx) => self.get(*idx)?.node,
-            FileItem::LibraryDeclId(idx) => self.get(*idx)?.node,
-            FileItem::LibraryIncludeId(idx) => self.get(*idx)?.0,
-            FileItem::CheckerId(idx) => self.get(*idx)?.node,
-            FileItem::CovergroupId(idx) => self.get(*idx)?.node,
-            FileItem::SubroutineId(idx) => self.get(*idx)?.node,
-        })
+    pub fn item_to_source(
+        &self,
+        body: &BodySourceMap,
+        item: &FileItem,
+    ) -> Option<crate::ast_id_map::SourceAstId> {
+        match item {
+            FileItem::LocalModuleId(idx) => self.get(*idx),
+            FileItem::ProcId(idx) => self.get(*idx),
+            FileItem::DeclarationId(idx) => body.declaration_srcs.hir_to_src(*idx),
+            FileItem::TypedefId(idx) => body.typedef_srcs.hir_to_src(*idx),
+            FileItem::StructId(idx) => body.struct_srcs.hir_to_src(*idx),
+            FileItem::ConfigDeclId(idx) => self.get(*idx),
+            FileItem::UdpDeclId(idx) => self.get(*idx),
+            FileItem::LibraryDeclId(idx) => self.get(*idx),
+            FileItem::LibraryIncludeId(idx) => self.get(*idx),
+            FileItem::CheckerId(idx) => self.get(*idx),
+            FileItem::CovergroupId(idx) => self.get(*idx),
+            FileItem::SubroutineId(idx) => self.get(*idx),
+        }
     }
 }
 
@@ -195,7 +199,8 @@ impl LowerFileCtx<'_> {
         let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
         alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.body.structs,
             &mut self.store.body_sources.struct_srcs,
             struct_def,
@@ -206,7 +211,8 @@ impl LowerFileCtx<'_> {
     fn lower_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
         let name = lower_ident_opt(typedef.name());
         let typedef_id = alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.body.typedefs,
             &mut self.store.body_sources.typedef_srcs,
             Typedef { name, ty: None },
@@ -237,7 +243,8 @@ impl LowerFileCtx<'_> {
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let local_subroutine_id = alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.subroutines,
             &mut self.store.sources.subroutine_srcs,
             subroutine,
@@ -251,7 +258,8 @@ impl LowerFileCtx<'_> {
         let name = lower_ident_opt(config_decl.name());
 
         alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.config_decls,
             &mut self.store.sources.config_decl_srcs,
             ConfigDecl { name },
@@ -263,7 +271,8 @@ impl LowerFileCtx<'_> {
         let name = lower_ident_opt(udp_decl.name());
 
         alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.udp_decls,
             &mut self.store.sources.udp_decl_srcs,
             UdpDecl { name },
@@ -275,7 +284,8 @@ impl LowerFileCtx<'_> {
         let name = lower_ident_opt(library_decl.name());
 
         alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.library_decls,
             &mut self.store.sources.library_decl_srcs,
             LibraryDecl { name },
@@ -288,7 +298,8 @@ impl LowerFileCtx<'_> {
         library_include: ast::LibraryIncludeStatement,
     ) -> LibraryIncludeId {
         alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.library_includes,
             &mut self.store.sources.library_include_srcs,
             LibraryInclude,
@@ -307,7 +318,8 @@ impl LowerFileCtx<'_> {
                 ast::Member::Coverpoint(coverpoint_ast) => {
                     let coverpoint = lower_coverpoint(coverpoint_ast);
                     let coverpoint_id = alloc_with_source(
-                        self.file_id,
+                        &self.ast_ids,
+                        &self.tree,
                         &mut self.store.data.coverpoints,
                         &mut self.store.sources.coverpoint_srcs,
                         coverpoint,
@@ -318,7 +330,8 @@ impl LowerFileCtx<'_> {
                 ast::Member::CoverCross(cross_ast) => {
                     let cross = lower_cross(cross_ast);
                     let cross_id = alloc_with_source(
-                        self.file_id,
+                        &self.ast_ids,
+                        &self.tree,
                         &mut self.store.data.crosses,
                         &mut self.store.sources.cross_srcs,
                         cross,
@@ -331,7 +344,8 @@ impl LowerFileCtx<'_> {
         }
 
         alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.covergroups,
             &mut self.store.sources.covergroup_srcs,
             covergroup,
@@ -348,7 +362,8 @@ impl LowerFileCtx<'_> {
                     let kind = ModuleKind::from_ast(decl);
 
                     alloc_with_source(
-                        self.file_id,
+                        &self.ast_ids,
+                        &self.tree,
                         &mut self.store.data.modules,
                         &mut self.store.sources.module_srcs,
                         ModuleInfo { name, kind },
@@ -450,7 +465,7 @@ fn file_lowering(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerLowering<Hir
     source_map.shrink_to_fit();
     body.shrink_to_fit();
     body_source_map.shrink_to_fit();
-    Arc::new(OwnerLowering::new(hir_file, source_map, body, body_source_map))
+    Arc::new(OwnerLowering::new(file_id, hir_file, source_map, body, body_source_map))
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]

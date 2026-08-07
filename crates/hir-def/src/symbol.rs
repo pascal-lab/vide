@@ -131,7 +131,9 @@ impl DefOriginLoc {
             DefOriginLoc::Config(InFile { file_id, .. }) => (*file_id).into(),
             DefOriginLoc::Library(InFile { file_id, .. }) => (*file_id).into(),
             DefOriginLoc::Udp(InFile { file_id, .. }) => (*file_id).into(),
-            DefOriginLoc::Block(owner) => owner.parent(db).map(ScopeId::Owner).unwrap_or(ScopeId::Owner(*owner)),
+            DefOriginLoc::Block(owner) => {
+                owner.parent(db).map(ScopeId::Owner).unwrap_or(ScopeId::Owner(*owner))
+            }
             DefOriginLoc::GenerateBlock(generate_block_id) => {
                 generate_block_id.loc().cont_id.clone().into()
             }

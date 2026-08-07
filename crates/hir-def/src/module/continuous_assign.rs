@@ -1,15 +1,15 @@
 use la_arena::Idx;
 use smallvec::SmallVec;
-use syntax::ast;
+use syntax::ast::{self, AstNode};
 
 use crate::{
     alloc_with_source,
+    ast_id_map::SourceAstId,
     expr::{
         Assign,
         timing_control::{DelayControl, TimingControl},
     },
     lower::{LoweringCtx, ModuleItemStore},
-    source_map::{AstId, AstKind},
     ty::{DriveStrength, lower_drive_strength},
 };
 
@@ -22,14 +22,7 @@ pub struct ContAssign {
 
 pub type ContAssignId = Idx<ContAssign>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct ContinuousAssignAst;
-
-impl AstKind for ContinuousAssignAst {
-    type Node<'a> = ast::ContinuousAssign<'a>;
-}
-
-pub type ContAssignSrc = AstId<ContinuousAssignAst>;
+pub type ContAssignSrc = SourceAstId;
 
 impl<Store: ModuleItemStore> LoweringCtx<Store> {
     pub(crate) fn lower_continuous_assign(
@@ -48,8 +41,8 @@ impl<Store: ModuleItemStore> LoweringCtx<Store> {
             assign.assignments().children().flat_map(|assign| self.lower_assign(assign)).collect();
 
         let continuous_assign = ContAssign { strength, delay, assigns };
-        let file_id = self.file_id;
+        let source = self.source_id(assign.syntax());
         let (continuous_assigns, sources) = self.continuous_assigns();
-        alloc_with_source(file_id, continuous_assigns, sources, continuous_assign, assign)
+        crate::alloc_with_source_entry(continuous_assigns, sources, continuous_assign, source)
     }
 }

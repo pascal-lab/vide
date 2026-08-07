@@ -1,22 +1,19 @@
-use std::{fmt::Debug, hash::Hash, marker::PhantomData, ops::Deref};
+use std::ops::Deref;
 
 pub(crate) use la_arena::{ArenaMap, Idx};
 use preproc_expand::file::HirFileId;
 use rustc_hash::FxHashMap;
-use syntax::{
-    SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, TokenKind,
-    ast::AstNode,
-    has_text_range::HasTextRange,
-    ptr::{SyntaxNodePtr, SyntaxTokenPtr},
-};
+use syntax::{SyntaxKind, SyntaxTree, ast::AstNode};
 use triomphe::Arc;
 use utils::{
     get::{Get, GetRef},
     text_edit::TextRange,
 };
 
-pub trait LoweredData: Debug + Eq {
-    type SourceMap: Debug + Eq;
+use crate::{ast_id_map::SourceAstId, db::HirDefDb};
+
+pub trait LoweredData: std::fmt::Debug + Eq {
+    type SourceMap: std::fmt::Debug + Eq;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -37,15 +34,25 @@ pub trait DiagnosticSource {
     fn diagnostics(&self) -> &[LoweringDiagnostic];
 }
 
+/// Position-free HIR and its canonical source identities.
+///
+/// Revision-local pointers and ranges live in `AstIdMap` and
+/// `SourceProjection`. Source-facing methods query those modules explicitly so
+/// semantic lowering remains independent of whole-file position changes.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Lowered<T: LoweredData> {
+    file_id: HirFileId,
     data: Arc<T>,
     source_map: Arc<T::SourceMap>,
 }
 
 impl<T: LoweredData> Lowered<T> {
-    pub fn new(data: T, source_map: T::SourceMap) -> Self {
-        Self { data: Arc::new(data), source_map: Arc::new(source_map) }
+    pub fn new(file_id: HirFileId, data: T, source_map: T::SourceMap) -> Self {
+        Self { file_id, data: Arc::new(data), source_map: Arc::new(source_map) }
+    }
+
+    pub fn file_id(&self) -> HirFileId {
+        self.file_id
     }
 
     pub fn data(&self) -> Arc<T> {
@@ -78,51 +85,61 @@ impl<T: LoweredData> Lowered<T> {
         self.source_map.get(id)
     }
 
-    pub fn source_range<Id, Src>(&self, id: Id) -> Option<TextRange>
+    pub fn source_range<Id>(&self, db: &dyn HirDefDb, id: Id) -> Option<TextRange>
     where
-        T::SourceMap: Get<Id, Output = Option<Src>>,
-        Src: IsSrc,
+        T::SourceMap: Get<Id, Output = Option<SourceAstId>>,
     {
-        Some(self.source_map.get(id)?.range())
+        db.source_projection(self.file_id).origin(self.source_map.get(id)?)?.full_range()
     }
 
-    pub fn source_name_range<Id, Src>(&self, id: Id) -> Option<TextRange>
+    pub fn source_name_range<Id>(&self, db: &dyn HirDefDb, id: Id) -> Option<TextRange>
     where
-        T::SourceMap: Get<Id, Output = Option<Src>>,
-        Src: IsNamedSrc,
+        T::SourceMap: Get<Id, Output = Option<SourceAstId>>,
     {
-        self.source_map.get(id)?.name_range()
+        db.source_projection(self.file_id).origin(self.source_map.get(id)?)?.focus_range()
     }
 
-    pub fn source_name_or_full_range<Id, Src>(&self, id: Id) -> Option<TextRange>
+    pub fn source_name_or_full_range<Id>(&self, db: &dyn HirDefDb, id: Id) -> Option<TextRange>
     where
-        T::SourceMap: Get<Id, Output = Option<Src>>,
-        Src: IsNamedSrc,
+        T::SourceMap: Get<Id, Output = Option<SourceAstId>>,
     {
-        Some(self.source_map.get(id)?.name_or_full_range())
+        db.source_projection(self.file_id).origin(self.source_map.get(id)?)?.focus_or_full_range()
     }
 
-    pub fn source_info<Id, Src>(&self, id: Id) -> Option<SourceInfo>
+    pub fn source_info<Id>(&self, db: &dyn HirDefDb, id: Id) -> Option<SourceInfo>
     where
-        T::SourceMap: Get<Id, Output = Option<Src>>,
-        Src: IsSrc,
+        T::SourceMap: Get<Id, Output = Option<SourceAstId>>,
     {
-        Some(SourceInfo::new(self.source_map.get(id)?))
+        SourceInfo::from_origin(
+            db.source_projection(self.file_id).origin(self.source_map.get(id)?)?,
+        )
     }
 
-    pub fn named_source_info<Id, Src>(&self, id: Id) -> Option<SourceInfo>
+    pub fn named_source_info<Id>(&self, db: &dyn HirDefDb, id: Id) -> Option<SourceInfo>
     where
-        T::SourceMap: Get<Id, Output = Option<Src>>,
-        Src: IsNamedSrc,
+        T::SourceMap: Get<Id, Output = Option<SourceAstId>>,
     {
-        Some(SourceInfo::named(self.source_map.get(id)?))
+        self.source_info(db, id)
     }
 
-    pub fn hir_id<Src, Id>(&self, src: Src) -> Option<Id>
+    pub fn hir_id<Id>(&self, source: SourceAstId) -> Option<Id>
     where
-        T::SourceMap: Get<Src, Output = Option<Id>>,
+        T::SourceMap: Get<SourceAstId, Output = Option<Id>>,
     {
-        self.source_map.get(src)
+        self.source_map.get(source)
+    }
+
+    pub fn hir_id_for_node<Id>(
+        &self,
+        db: &dyn HirDefDb,
+        tree: &SyntaxTree,
+        node: syntax::SyntaxNode<'_>,
+    ) -> Option<Id>
+    where
+        T::SourceMap: Get<SourceAstId, Output = Option<Id>>,
+    {
+        let source = db.ast_id_map(self.file_id).id_of_node_in_tree(tree, node)?;
+        self.hir_id(source)
     }
 
     pub fn get<Id>(&self, id: Id) -> &<T as GetRef<Id>>::Output
@@ -130,15 +147,6 @@ impl<T: LoweredData> Lowered<T> {
         T: GetRef<Id>,
     {
         self.data.get(id)
-    }
-
-    pub fn hir<Src, Id>(&self, src: Src) -> Option<&<T as GetRef<Id>>::Output>
-    where
-        T: GetRef<Id>,
-        T::SourceMap: Get<Src, Output = Option<Id>>,
-    {
-        let id = self.source_map.get(src)?;
-        Some(self.data.get(id))
     }
 }
 
@@ -156,15 +164,6 @@ impl<T: LoweredData> AsRef<T> for Lowered<T> {
     }
 }
 
-pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
-    fn kind(&self) -> SyntaxKind;
-
-    /// Returns the full syntactic extent of the mapped AST node.
-    ///
-    /// Use this for containment, folding, diagnostics, and operations that act
-    /// on the whole construct rather than just its defining identifier.
-    fn range(&self) -> TextRange;
-}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceInfo {
     kind: Option<SyntaxKind>,
@@ -173,12 +172,12 @@ pub struct SourceInfo {
 }
 
 impl SourceInfo {
-    pub fn new(src: impl IsSrc) -> Self {
-        Self { kind: Some(src.kind()), full_range: src.range(), focus_range: None }
-    }
-
-    pub fn named(src: impl IsNamedSrc) -> Self {
-        Self { kind: Some(src.kind()), full_range: src.range(), focus_range: src.name_range() }
+    pub(crate) fn from_origin(origin: crate::source_projection::SourceOrigin) -> Option<Self> {
+        Some(Self {
+            kind: origin.kind(),
+            full_range: origin.full_range()?,
+            focus_range: origin.focus_range(),
+        })
     }
 
     pub fn from_ranges(full_range: TextRange, focus_range: Option<TextRange>) -> Self {
@@ -209,6 +208,7 @@ impl SourceInfo {
         self.focus_range.unwrap_or(self.full_range)
     }
 }
+
 pub trait HirLookup<Id> {
     type Hir;
 
@@ -226,142 +226,88 @@ where
     }
 }
 
-trait IntoSourceInfo {
-    fn into_source_info(self) -> Option<SourceInfo>;
-}
-
-impl<Src: IsSrc> IntoSourceInfo for Option<Src> {
-    fn into_source_info(self) -> Option<SourceInfo> {
-        Some(SourceInfo::new(self?))
-    }
-}
-
-trait IntoNamedSourceInfo {
-    fn into_named_source_info(self) -> Option<SourceInfo>;
-}
-
-impl<Src: IsNamedSrc> IntoNamedSourceInfo for Option<Src> {
-    fn into_named_source_info(self) -> Option<SourceInfo> {
-        Some(SourceInfo::named(self?))
-    }
-}
-
 pub trait SourceLookup<Id> {
-    fn source_info(&self, id: Id) -> Option<SourceInfo>;
+    fn source_info(&self, db: &dyn HirDefDb, id: Id) -> Option<SourceInfo>;
 }
 
 impl<T, Id> SourceLookup<Id> for Lowered<T>
 where
     T: LoweredData,
-    T::SourceMap: Get<Id>,
-    <T::SourceMap as Get<Id>>::Output: IntoSourceInfo,
+    T::SourceMap: Get<Id, Output = Option<SourceAstId>>,
 {
-    fn source_info(&self, id: Id) -> Option<SourceInfo> {
-        self.source_map.get(id).into_source_info()
+    fn source_info(&self, db: &dyn HirDefDb, id: Id) -> Option<SourceInfo> {
+        Lowered::source_info(self, db, id)
     }
 }
 
 pub trait NamedSourceLookup<Id> {
-    fn named_source_info(&self, id: Id) -> Option<SourceInfo>;
+    fn named_source_info(&self, db: &dyn HirDefDb, id: Id) -> Option<SourceInfo>;
 }
 
 impl<T, Id> NamedSourceLookup<Id> for Lowered<T>
 where
     T: LoweredData,
-    T::SourceMap: Get<Id>,
-    <T::SourceMap as Get<Id>>::Output: IntoNamedSourceInfo,
+    T::SourceMap: Get<Id, Output = Option<SourceAstId>>,
 {
-    fn named_source_info(&self, id: Id) -> Option<SourceInfo> {
-        self.source_map.get(id).into_named_source_info()
-    }
-}
-trait IntoAst<'a, Node: AstNode<'a>> {
-    fn into_ast(self, tree: &'a syntax::SyntaxTree) -> Option<Node>;
-}
-
-impl<'a, Src, Node> IntoAst<'a, Node> for Option<Src>
-where
-    Src: ToAstNode<'a, Node>,
-    Node: AstNode<'a>,
-{
-    fn into_ast(self, tree: &'a syntax::SyntaxTree) -> Option<Node> {
-        self?.to_node(tree)
+    fn named_source_info(&self, db: &dyn HirDefDb, id: Id) -> Option<SourceInfo> {
+        Lowered::source_info(self, db, id)
     }
 }
 
 pub trait AstLookup<'a, Id, Node: AstNode<'a>> {
-    fn ast(&self, id: Id, tree: &'a syntax::SyntaxTree) -> Option<Node>;
+    fn ast(&self, db: &dyn HirDefDb, id: Id, tree: &'a SyntaxTree) -> Option<Node>;
 }
 
 impl<'a, T, Id, Node> AstLookup<'a, Id, Node> for Lowered<T>
 where
     T: LoweredData,
-    T::SourceMap: Get<Id>,
-    <T::SourceMap as Get<Id>>::Output: IntoAst<'a, Node>,
+    T::SourceMap: Get<Id, Output = Option<SourceAstId>>,
     Node: AstNode<'a>,
 {
-    fn ast(&self, id: Id, tree: &'a syntax::SyntaxTree) -> Option<Node> {
-        self.source_map.get(id).into_ast(tree)
+    fn ast(&self, db: &dyn HirDefDb, id: Id, tree: &'a SyntaxTree) -> Option<Node> {
+        let source = self.source_map.get(id)?;
+        Node::cast(db.ast_id_map(self.file_id).node(source, tree)?)
     }
 }
 
-pub trait IsNamedSrc: IsSrc {
-    fn name_kind(&self) -> Option<TokenKind>;
-
-    /// Returns the token range that names this source node, when it has one.
-    ///
-    /// Use this for symbol focus ranges such as navigation targets, document
-    /// symbol selections, rename/reference origins, and semantic tokens.
-    fn name_range(&self) -> Option<TextRange>;
-
-    /// Returns the symbol focus range when present, otherwise the full range.
-    fn name_or_full_range(&self) -> TextRange {
-        self.name_range().unwrap_or_else(|| self.range())
-    }
-}
-
+/// Bidirectional relation between one HIR arena and canonical source AST ids.
+///
+/// The map deliberately contains no syntax pointer, range, kind, name token,
+/// or file id. Those are revision-local projection data owned by `AstIdMap`
+/// and `SourceProjection` and keyed by the same `SourceAstId`.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SourceMap<Src: IsSrc, Hir> {
-    src2hir: FxHashMap<Src, Idx<Hir>>,
-    hir2src: ArenaMap<Idx<Hir>, Src>,
+pub struct SourceMap<Hir> {
+    src2hir: FxHashMap<SourceAstId, Idx<Hir>>,
+    hir2src: ArenaMap<Idx<Hir>, SourceAstId>,
 }
 
-impl<Src: IsSrc, Hir> SourceMap<Src, Hir> {
-    /// Inserts the canonical source for a HIR value.
-    ///
-    /// A HIR value has at most one canonical source. Source keys are not
-    /// globally unique: macro/include expansion can produce several lowered
-    /// values with the same visible source key, so source-to-HIR lookup keeps
-    /// the most recently lowered value.
-    ///
-    /// Additional source representations, such as a non-ANSI port's label,
-    /// must use [`Self::insert_preferred_alias`] so the distinction remains
-    /// explicit.
-    pub fn insert(&mut self, src: Src, idx: Idx<Hir>) {
-        self.assert_hir_slot(idx, src);
-        self.src2hir.insert(src, idx);
-        self.hir2src.insert(idx, src);
+impl<Hir> SourceMap<Hir> {
+    pub fn insert(&mut self, source: SourceAstId, idx: Idx<Hir>) {
+        self.assert_hir_slot(idx, source);
+        self.src2hir.insert(source, idx);
+        self.hir2src.insert(idx, source);
     }
 
-    /// Adds a source-to-HIR alias without changing the canonical source.
-    pub fn insert_alias(&mut self, src: Src, idx: Idx<Hir>) {
+    pub fn insert_alias(&mut self, source: SourceAstId, idx: Idx<Hir>) {
         self.assert_target(idx);
-        self.src2hir.insert(src, idx);
+        self.src2hir.insert(source, idx);
     }
 
-    /// Adds an alias and makes it the preferred HIR-to-source projection.
-    pub fn insert_preferred_alias(&mut self, src: Src, idx: Idx<Hir>) {
-        self.insert_alias(src, idx);
-        self.hir2src.insert(idx, src);
+    pub fn insert_preferred_alias(&mut self, source: SourceAstId, idx: Idx<Hir>) {
+        self.insert_alias(source, idx);
+        self.hir2src.insert(idx, source);
     }
 
     fn assert_target(&self, idx: Idx<Hir>) {
         assert!(self.hir2src.get(idx).is_some(), "source map alias target has no canonical source");
     }
 
-    fn assert_hir_slot(&self, idx: Idx<Hir>, src: Src) {
+    fn assert_hir_slot(&self, idx: Idx<Hir>, source: SourceAstId) {
         if let Some(existing) = self.hir2src.get(idx) {
-            assert_eq!(*existing, src, "source map HIR value already has another canonical source");
+            assert_eq!(
+                *existing, source,
+                "source map HIR value already has another canonical source"
+            );
         }
     }
 
@@ -370,361 +316,76 @@ impl<Src: IsSrc, Hir> SourceMap<Src, Hir> {
         self.hir2src.shrink_to_fit();
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (Idx<Hir>, &Src)> {
-        self.hir2src.iter()
+    pub fn iter(&self) -> impl Iterator<Item = (Idx<Hir>, SourceAstId)> + '_ {
+        self.hir2src.iter().map(|(id, source)| (id, *source))
+    }
+
+    pub fn ranges<'a>(
+        &'a self,
+        projection: &'a crate::source_projection::SourceProjection,
+    ) -> impl Iterator<Item = TextRange> + 'a {
+        self.hir2src.iter().filter_map(|(_, source)| projection.origin(*source)?.full_range())
+    }
+
+    pub fn named_ranges<'a>(
+        &'a self,
+        projection: &'a crate::source_projection::SourceProjection,
+    ) -> impl Iterator<Item = (Idx<Hir>, TextRange, Option<TextRange>)> + 'a {
+        self.hir2src.iter().filter_map(|(id, source)| {
+            let origin = projection.origin(*source)?;
+            Some((id, origin.full_range()?, origin.focus_range()))
+        })
     }
 
     #[inline]
-    pub fn src_to_hir(&self, src: Src) -> Option<Idx<Hir>> {
-        self.src2hir.get(&src).copied()
+    pub fn src_to_hir(&self, source: SourceAstId) -> Option<Idx<Hir>> {
+        self.src2hir.get(&source).copied()
     }
 
     #[inline]
-    pub fn hir_to_src(&self, idx: Idx<Hir>) -> Option<Src> {
+    pub fn hir_to_src(&self, idx: Idx<Hir>) -> Option<SourceAstId> {
         self.hir2src.get(idx).copied()
     }
-
-    pub fn ranges(&self) -> impl Iterator<Item = TextRange> + '_ {
-        self.hir2src.iter().map(|(_, src)| src.range())
-    }
 }
 
-impl<Src: IsNamedSrc, Hir> SourceMap<Src, Hir> {
-    pub fn named_ranges(
-        &self,
-    ) -> impl Iterator<Item = (Idx<Hir>, TextRange, Option<TextRange>)> + '_ {
-        self.hir2src.iter().map(|(id, src)| (id, src.range(), src.name_range()))
-    }
-}
-
-impl<Src: IsSrc, Hir> Get<Src> for SourceMap<Src, Hir> {
+impl<Hir> Get<SourceAstId> for SourceMap<Hir> {
     type Output = Option<Idx<Hir>>;
 
-    fn get(&self, src: Src) -> Self::Output {
-        self.src_to_hir(src)
+    fn get(&self, source: SourceAstId) -> Self::Output {
+        self.src_to_hir(source)
     }
 }
 
-impl<Src: IsSrc, Hir> Get<Idx<Hir>> for SourceMap<Src, Hir> {
-    type Output = Option<Src>;
+impl<Hir> Get<Idx<Hir>> for SourceMap<Hir> {
+    type Output = Option<SourceAstId>;
 
     fn get(&self, idx: Idx<Hir>) -> Self::Output {
         self.hir_to_src(idx)
     }
 }
 
-impl<Src: IsSrc, Hir> Default for SourceMap<Src, Hir> {
+impl<Hir> Default for SourceMap<Hir> {
     fn default() -> Self {
-        SourceMap { src2hir: FxHashMap::default(), hir2src: ArenaMap::default() }
-    }
-}
-
-pub trait ToAstNode<'a, Output: AstNode<'a>> {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<Output>;
-}
-
-/// AST node that is valid as an IDE source-map location in the parsed root
-/// file.
-///
-/// Slang can expose semantic AST nodes that originate from include or macro
-/// expansion. Those nodes are still valid input for HIR lowering, but they do
-/// not have a stable text range in the root buffer, so they must not become
-/// source-map keys. Use `SourceAst::new` at the HIR allocation/source-map
-/// boundary when HIR should still be allocated but the source-map entry may be
-/// absent.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct SourceAst<Ast> {
-    file_id: HirFileId,
-    ast: Ast,
-}
-
-impl<'a, Ast> SourceAst<Ast>
-where
-    Ast: AstNode<'a>,
-{
-    /// Returns `None` when the AST node has no root-buffer text range.
-    ///
-    /// Callers should treat that as "no navigable source location", not as a
-    /// lowering failure.
-    pub(crate) fn new(file_id: HirFileId, ast: Ast) -> Option<Self> {
-        ast.syntax().text_range()?;
-        Some(Self { file_id, ast })
-    }
-
-    pub(crate) fn file_id(&self) -> HirFileId {
-        self.file_id
-    }
-
-    pub(crate) fn into_inner(self) -> Ast {
-        self.ast
-    }
-}
-
-/// Conversion from a root-buffer AST node into a source-map key.
-///
-/// `alloc_with_source` depends on this trait instead of plain `From<ast::...>`
-/// so adding a new source-map entry point requires an explicit implementation
-/// that is checked by `cargo check`. Keep ordinary `From<ast::...>` impls for
-/// lookup paths that already operate on AST nodes under the cursor in the root
-/// file.
-pub(crate) trait FromSourceAst<'a, Ast: AstNode<'a>> {
-    fn from_source_ast(ast: SourceAst<Ast>) -> Self;
-}
-
-/// Attach a bare token returned by generated AST accessors to a root-buffer
-/// context.
-///
-/// Use this inside `FromSourceAst` implementations for optional focus tokens
-/// such as names or keywords. A token from macro/include expansion is not a
-/// valid root-buffer focus range, so callers should leave that field as `None`
-/// while still keeping the enclosing source-map node.
-pub(crate) fn root_token_in<'a>(
-    context: SyntaxNode<'a>,
-    token: SyntaxToken<'a>,
-) -> Option<SyntaxTokenWithParent<'a>> {
-    let token = SyntaxTokenWithParent { parent: context, tok: token };
-    token.text_range()?;
-    Some(token)
-}
-
-pub(crate) fn ast_node_from_ptr<'a, Ast>(
-    ptr: SyntaxNodePtr,
-    tree: &'a syntax::SyntaxTree,
-) -> Option<Ast>
-where
-    Ast: AstNode<'a>,
-{
-    let mut node = ptr.to_node(tree)?;
-    while !Ast::can_cast(node.kind()) {
-        node = node.children().find_map(|elem| elem.as_node())?;
-    }
-    Ast::cast(node)
-}
-
-pub(crate) fn exact_ast_node_from_ptr<'a, Ast>(
-    ptr: SyntaxNodePtr,
-    tree: &'a syntax::SyntaxTree,
-) -> Option<Ast>
-where
-    Ast: AstNode<'a>,
-{
-    Ast::cast(ptr.to_node(tree)?)
-}
-
-pub(crate) fn wrapped_ast_node_from_ptr<'a, Ast>(
-    ptr: SyntaxNodePtr,
-    tree: &'a syntax::SyntaxTree,
-) -> Option<Ast>
-where
-    Ast: AstNode<'a>,
-{
-    let mut node = ptr.to_node(tree)?;
-    while !Ast::can_cast(node.kind()) && node.child_count() == 1 {
-        node = node.child_node(0)?;
-    }
-    Ast::cast(node)
-}
-
-pub trait AstKind:
-    Debug + PartialEq + Eq + Hash + PartialOrd + Ord + Copy + Clone + 'static
-{
-    type Node<'a>: AstNode<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct AstId<Kind: AstKind>(pub SyntaxNodePtr, HirFileId, PhantomData<fn() -> Kind>);
-
-impl<Kind: AstKind> AstId<Kind> {
-    #[inline]
-    pub fn new(file_id: HirFileId, node: SyntaxNodePtr) -> Self {
-        Self(node, file_id, PhantomData)
-    }
-
-    #[inline]
-    pub fn from_ast<'a>(file_id: HirFileId, node: Kind::Node<'a>) -> Self {
-        Self::new(file_id, syntax::slang_ext::AstNodeExt::to_ptr(&node))
-    }
-
-    #[inline]
-    pub(crate) fn from_source_ast<'a>(node: SourceAst<Kind::Node<'a>>) -> Self {
-        let file_id = node.file_id();
-        Self::from_ast(file_id, node.into_inner())
-    }
-
-    #[inline]
-    pub fn ptr(self) -> SyntaxNodePtr {
-        self.0
-    }
-
-    #[inline]
-    pub fn file_id(self) -> HirFileId {
-        self.1
-    }
-}
-
-impl<Kind: AstKind> IsSrc for AstId<Kind> {
-    #[inline]
-    fn kind(&self) -> SyntaxKind {
-        self.0.kind()
-    }
-
-    #[inline]
-    fn range(&self) -> TextRange {
-        self.0.range()
-    }
-}
-
-impl<'a, Kind: AstKind> ToAstNode<'a, Kind::Node<'a>> for AstId<Kind> {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<Kind::Node<'a>> {
-        ast_node_from_ptr(self.0, tree)
-    }
-}
-
-impl<'a, Kind: AstKind> FromSourceAst<'a, Kind::Node<'a>> for AstId<Kind> {
-    fn from_source_ast(node: SourceAst<Kind::Node<'a>>) -> Self {
-        Self::from_source_ast(node)
-    }
-}
-
-impl<Kind: AstKind> From<AstId<Kind>> for SyntaxNodePtr {
-    fn from(src: AstId<Kind>) -> Self {
-        src.ptr()
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct NamedAstId<Kind: AstKind> {
-    pub file_id: HirFileId,
-    pub node: SyntaxNodePtr,
-    pub name: Option<SyntaxTokenPtr>,
-    _kind: PhantomData<fn() -> Kind>,
-}
-
-impl<Kind: AstKind> NamedAstId<Kind> {
-    #[inline]
-    pub fn new(file_id: HirFileId, node: SyntaxNodePtr, name: Option<SyntaxTokenPtr>) -> Self {
-        Self { file_id, node, name, _kind: PhantomData }
-    }
-
-    #[inline]
-    pub fn from_ast<'a>(file_id: HirFileId, node: Kind::Node<'a>) -> Self
-    where
-        Kind::Node<'a>: syntax::has_name::HasName<'a>,
-    {
-        let syntax = node.syntax();
-        Self::new(
-            file_id,
-            syntax::slang_ext::AstNodeExt::to_ptr(&node),
-            <Kind::Node<'a> as syntax::has_name::HasName<'a>>::name(&node)
-                .map(|name| SyntaxTokenPtr::from_token_in(syntax, name)),
-        )
-    }
-
-    #[inline]
-    pub(crate) fn from_source_ast<'a>(node: SourceAst<Kind::Node<'a>>) -> Self
-    where
-        Kind::Node<'a>: syntax::has_name::HasName<'a>,
-    {
-        let file_id = node.file_id();
-        let node = node.into_inner();
-        let syntax = node.syntax();
-        Self::new(
-            file_id,
-            syntax::slang_ext::AstNodeExt::to_ptr(&node),
-            <Kind::Node<'a> as syntax::has_name::HasName<'a>>::name(&node)
-                .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token)),
-        )
-    }
-
-    #[inline]
-    pub fn ast_id(self) -> AstId<Kind> {
-        AstId::new(self.file_id, self.node)
-    }
-}
-
-impl<Kind: AstKind> IsSrc for NamedAstId<Kind> {
-    #[inline]
-    fn kind(&self) -> SyntaxKind {
-        self.node.kind()
-    }
-
-    #[inline]
-    fn range(&self) -> TextRange {
-        self.node.range()
-    }
-}
-
-impl<Kind: AstKind> IsNamedSrc for NamedAstId<Kind> {
-    #[inline]
-    fn name_kind(&self) -> Option<TokenKind> {
-        self.name.map(|name| name.kind())
-    }
-
-    #[inline]
-    fn name_range(&self) -> Option<TextRange> {
-        self.name.map(|name| name.range())
-    }
-}
-
-impl<'a, Kind: AstKind> ToAstNode<'a, Kind::Node<'a>> for NamedAstId<Kind> {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<Kind::Node<'a>> {
-        ast_node_from_ptr(self.node, tree)
-    }
-}
-
-impl<'a, Kind> FromSourceAst<'a, Kind::Node<'a>> for NamedAstId<Kind>
-where
-    Kind: AstKind,
-    Kind::Node<'a>: syntax::has_name::HasName<'a>,
-{
-    fn from_source_ast(node: SourceAst<Kind::Node<'a>>) -> Self {
-        Self::from_source_ast(node)
-    }
-}
-
-impl<Kind: AstKind> From<NamedAstId<Kind>> for SyntaxNodePtr {
-    fn from(src: NamedAstId<Kind>) -> Self {
-        src.node
-    }
-}
-
-impl<Kind: AstKind> From<NamedAstId<Kind>> for Option<SyntaxTokenPtr> {
-    fn from(src: NamedAstId<Kind>) -> Self {
-        src.name
+        Self { src2hir: FxHashMap::default(), hir2src: ArenaMap::default() }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use la_arena::Arena;
-    use utils::text_edit::TextSize;
 
-    use super::{IsSrc, SourceMap, SyntaxKind, TextRange};
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    struct TestSource(u32);
-
-    impl IsSrc for TestSource {
-        fn kind(&self) -> SyntaxKind {
-            SyntaxKind::MODULE_DECLARATION
-        }
-
-        fn range(&self) -> TextRange {
-            TextRange::new(TextSize::new(self.0), TextSize::new(self.0 + 1))
-        }
-    }
+    use super::{SourceAstId, SourceMap};
 
     #[test]
     fn aliases_do_not_change_the_canonical_source() {
-        let mut arena = Arena::new();
+        let mut arena = Arena::default();
         let hir = arena.alloc(());
-        let primary = TestSource(0);
-        let alias = TestSource(10);
+        let primary = SourceAstId::from_raw(1);
+        let alias = SourceAstId::from_raw(10);
         let mut map = SourceMap::default();
 
         map.insert(primary, hir);
         map.insert_alias(alias, hir);
-
         assert_eq!(map.src_to_hir(alias), Some(hir));
         assert_eq!(map.hir_to_src(hir), Some(primary));
 
@@ -735,11 +396,10 @@ mod tests {
     #[test]
     #[should_panic(expected = "source map HIR value already has another canonical source")]
     fn a_hir_value_cannot_have_two_canonical_sources() {
-        let mut arena = Arena::new();
+        let mut arena = Arena::default();
         let hir = arena.alloc(());
         let mut map = SourceMap::default();
-
-        map.insert(TestSource(0), hir);
-        map.insert(TestSource(10), hir);
+        map.insert(SourceAstId::from_raw(0), hir);
+        map.insert(SourceAstId::from_raw(10), hir);
     }
 }

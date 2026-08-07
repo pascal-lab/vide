@@ -135,7 +135,7 @@ fn sig_help_for_instance(
         let instance = module.get(instance_id);
 
         let Some((idx, conn_id)) = instance.connections.iter().enumerate().find(|(_, conn_id)| {
-            module.source_range(**conn_id).is_some_and(|range| range.end() >= offset)
+            module.source_range(db, **conn_id).is_some_and(|range| range.end() >= offset)
         }) else {
             break 'blk None;
         };
@@ -259,7 +259,7 @@ fn sig_help_for_instantiation(
 
         let Some((idx, conn_id)) =
             instantiation.param_assigns.iter().enumerate().find(|(_, conn_id)| {
-                module.source_range(**conn_id).is_some_and(|range| range.end() >= offset)
+                module.source_range(db, **conn_id).is_some_and(|range| range.end() >= offset)
             })
         else {
             break 'blk None;

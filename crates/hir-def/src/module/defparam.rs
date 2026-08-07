@@ -4,9 +4,9 @@ use syntax::ast::{self, AstNode};
 
 use crate::{
     alloc_with_source,
+    ast_id_map::SourceAstId,
     expr::ExprId,
     lower::{LoweringCtx, ModuleItemStore},
-    source_map::{AstId, AstKind},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -22,14 +22,7 @@ pub struct DefParamAssignment {
 
 pub type DefParamId = Idx<DefParam>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct DefParamAst;
-
-impl AstKind for DefParamAst {
-    type Node<'a> = ast::DefParam<'a>;
-}
-
-pub type DefParamSrc = AstId<DefParamAst>;
+pub type DefParamSrc = SourceAstId;
 
 impl<Store: ModuleItemStore> LoweringCtx<Store> {
     pub(crate) fn lower_defparam(&mut self, defparam: ast::DefParam) -> DefParamId {
@@ -43,8 +36,8 @@ impl<Store: ModuleItemStore> LoweringCtx<Store> {
             })
             .collect();
 
-        let file_id = self.file_id;
+        let source = self.source_id(defparam.syntax());
         let (defparams, sources) = self.defparams();
-        alloc_with_source(file_id, defparams, sources, DefParam { assignments }, defparam)
+        crate::alloc_with_source_entry(defparams, sources, DefParam { assignments }, source)
     }
 }

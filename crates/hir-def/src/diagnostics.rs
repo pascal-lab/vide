@@ -160,7 +160,6 @@ fn collect_proc_bodies(
     }
 }
 
-
 fn collect(
     diagnostics: &[LoweringDiagnostic],
     owner_range: Option<TextRange>,

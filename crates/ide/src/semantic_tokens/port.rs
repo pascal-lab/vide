@@ -38,7 +38,7 @@ pub(super) fn collect_port(
     match &module.ports {
         Ports::NonAnsi { ports, decls, .. } => {
             for (port_id, NonAnsiPort { refs, .. }) in ports.iter() {
-                let Some(port_range) = module.source_range(port_id) else {
+                let Some(port_range) = module.source_range(sema.db, port_id) else {
                     continue;
                 };
                 check_range!(collector, port_range);
@@ -48,7 +48,7 @@ pub(super) fn collect_port(
 
                 for ref_id in refs {
                     let _: Option<()> = try {
-                        let name_range = module.source_name_range(ref_id)?;
+                        let name_range = module.source_name_range(sema.db, ref_id)?;
                         check_range!(collector, name_range);
 
                         let name = module.get(ref_id).ident.as_ref()?;
@@ -60,7 +60,7 @@ pub(super) fn collect_port(
                 }
 
                 for (port_decl_id, port_decl) in decls.iter() {
-                    let Some(port_decl_range) = module.source_range(port_decl_id) else {
+                    let Some(port_decl_range) = module.source_range(sema.db, port_decl_id) else {
                         continue;
                     };
                     check_range!(collector, port_decl_range);
@@ -68,7 +68,7 @@ pub(super) fn collect_port(
                     for decl_id in port_decl.decls.clone() {
                         let _: Option<()> = try {
                             let decl = body.get(decl_id);
-                            let name_range = body.source_name_range(decl_id)?;
+                            let name_range = body.source_name_range(sema.db, decl_id)?;
                             check_range!(collector, name_range);
 
                             let name = decl.name.as_ref()?;
@@ -83,7 +83,7 @@ pub(super) fn collect_port(
         }
         Ports::Ansi(port_decls) => {
             for (port_decl_id, port_decl) in port_decls.iter() {
-                let Some(port_decl_range) = module.source_range(port_decl_id) else {
+                let Some(port_decl_range) = module.source_range(sema.db, port_decl_id) else {
                     continue;
                 };
                 check_range!(collector, port_decl_range);
@@ -91,7 +91,7 @@ pub(super) fn collect_port(
                 for decl_id in port_decl.decls.clone() {
                     let _: Option<()> = try {
                         let decl = body.get(decl_id);
-                        let name_range = body.source_name_range(decl_id)?;
+                        let name_range = body.source_name_range(sema.db, decl_id)?;
                         check_range!(collector, name_range);
 
                         let name = decl.name.as_ref()?;

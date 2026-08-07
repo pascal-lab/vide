@@ -68,7 +68,7 @@ pub(super) fn sort_named_parameter_assignments(
             return None;
         };
         let order = *parameter_order_map.get(name.as_str())?;
-        let range = module.source_range(*assign_id)?;
+        let range = module.source_range(ctx.sema().db, *assign_id)?;
         items.push((order, text.get(Range::from(range))?, range));
     }
 
@@ -131,7 +131,7 @@ pub(super) fn sort_named_port_connections(
             return None;
         };
         let order = *port_order_map.get(name.as_str())?;
-        let range = module.source_range(*conn_id)?;
+        let range = module.source_range(ctx.sema().db, *conn_id)?;
         items.push((order, text.get(Range::from(range))?, range));
     }
 

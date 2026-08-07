@@ -1,11 +1,9 @@
 use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::{
-    SyntaxKind, TokenKind,
+    SyntaxTokenWithParent, TokenKind,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
-    ptr::{SyntaxNodePtr, SyntaxTokenPtr},
-    slang_ext::AstNodeExt,
 };
 use utils::text_edit::TextRange;
 
@@ -15,10 +13,7 @@ use super::{
     lower::{CheckerStore, LoweringCtx},
     module::port::PortDirection,
 };
-use crate::{
-    Ident, lower_ident_opt,
-    source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, root_token_in},
-};
+use crate::{Ident, ast_id_map::SourceAstId, lower_ident_opt};
 
 // slang AST survey:
 // - `CheckerDeclaration` owns assertion-item ports through
@@ -46,46 +41,7 @@ pub struct CheckerPort {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct CheckerPortId(pub u32);
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct CheckerSrc {
-    pub node: SyntaxNodePtr,
-    pub name: Option<SyntaxTokenPtr>,
-}
-
-impl IsSrc for CheckerSrc {
-    #[inline]
-    fn kind(&self) -> SyntaxKind {
-        self.node.kind()
-    }
-
-    #[inline]
-    fn range(&self) -> TextRange {
-        self.node.range()
-    }
-}
-
-impl IsNamedSrc for CheckerSrc {
-    #[inline]
-    fn name_kind(&self) -> Option<TokenKind> {
-        self.name.map(|name| name.kind())
-    }
-
-    #[inline]
-    fn name_range(&self) -> Option<TextRange> {
-        self.name.map(|name| name.range())
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::CheckerDeclaration<'a>> for CheckerSrc {
-    fn from_source_ast(checker: SourceAst<ast::CheckerDeclaration<'a>>) -> Self {
-        let checker = checker.into_inner();
-        let syntax = checker.syntax();
-        let name = checker
-            .name()
-            .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token));
-        Self { node: AstNodeExt::to_ptr(&checker), name }
-    }
-}
+pub type CheckerSrc = SourceAstId;
 
 pub fn lower_checker_decl(checker: ast::CheckerDeclaration<'_>) -> CheckerDef {
     CheckerDef {
@@ -108,7 +64,7 @@ impl<Store: CheckerStore> LoweringCtx<Store> {
 
         let file_id = self.file_id;
         let (checkers, sources) = self.store.checkers();
-        alloc_with_source(file_id, checkers, sources, checker, checker_decl)
+        alloc_with_source(&self.ast_ids, &self.tree, checkers, sources, checker, checker_decl)
     }
 }
 
@@ -120,7 +76,9 @@ fn lower_checker_ports(checker: ast::CheckerDeclaration<'_>) -> SmallVec<[Checke
     };
 
     for port in port_list.ports().children() {
-        let name_range = port.name().and_then(|name| root_token_in(syntax, name)?.text_range());
+        let name_range = port
+            .name()
+            .and_then(|name| SyntaxTokenWithParent { parent: syntax, tok: name }.text_range());
         let Some(name) = lower_ident_opt(port.name()) else {
             continue;
         };

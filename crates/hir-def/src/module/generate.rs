@@ -1,10 +1,8 @@
 use la_arena::{Arena, Idx};
 use smallvec::SmallVec;
 use syntax::{
-    SyntaxToken, TokenKind,
+    SyntaxToken,
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
-    ptr::{SyntaxNodePtr, SyntaxTokenPtr},
 };
 use triomphe::Arc;
 use utils::define_enum_deriving_from;
@@ -21,7 +19,8 @@ use super::{
 use crate::{
     Ident,
     aggregate::{StructId, lower_struct_def},
-    alloc_with_optional_source_entry, alloc_with_source,
+    alloc_with_source,
+    ast_id_map::SourceAstId,
     body::{Body, BodySourceMap, OwnerLowering},
     container::{ArenaOwnerId, InFile},
     db::HirDefDb,
@@ -30,13 +29,10 @@ use crate::{
     lower::{GenerateBlockStore, LoweringCtx},
     lower_ident_opt,
     owner::{OwnerId, OwnerKind},
-    proc::{Proc, ProcId, ProcSrc},
+    proc::{Proc, ProcId},
     region_tree::RegionTree,
-    source_map::{
-        DiagnosticSource, FromSourceAst, IsNamedSrc, IsSrc, Lowered, LoweredData,
-        LoweringDiagnostic, SourceAst, SourceMap, ToAstNode, root_token_in,
-    },
-    subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc, lower_subroutine},
+    source_map::{DiagnosticSource, Lowered, LoweredData, LoweringDiagnostic, SourceMap},
+    subroutine::{LocalSubroutineId, Subroutine, lower_subroutine},
     typedef::{Typedef, TypedefId, lower_typedef_data_ty},
 };
 
@@ -47,222 +43,17 @@ pub struct GenerateRegion {
 
 pub type GenerateRegionId = Idx<GenerateRegion>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub enum GenerateRegionSrc {
-    GenerateRegion(SyntaxNodePtr),
-    DirectItem(SyntaxNodePtr),
-}
+pub type GenerateRegionSrc = SourceAstId;
+pub type GenerateBlockSrc = SourceAstId;
 
-impl GenerateRegionSrc {
-    /// Source-map key for synthetic generate regions that wrap a direct member.
-    ///
-    /// Direct generate regions do not have their own AST node, so use the
-    /// member as the navigable location when that member belongs to the
-    /// parsed root file. Include-expanded members still lower into HIR, but
-    /// have no source entry here.
-    pub fn from_direct_member(member: &ast::Member<'_>) -> Option<Self> {
-        member
-            .syntax()
-            .text_range()
-            .map(|_| Self::DirectItem(syntax::slang_ext::AstNodeExt::to_ptr(member)))
-    }
-
-    fn ptr(&self) -> SyntaxNodePtr {
-        match self {
-            GenerateRegionSrc::GenerateRegion(ptr) | GenerateRegionSrc::DirectItem(ptr) => *ptr,
-        }
-    }
-}
-
-impl IsSrc for GenerateRegionSrc {
-    fn kind(&self) -> syntax::SyntaxKind {
-        self.ptr().kind()
-    }
-
-    fn range(&self) -> utils::text_edit::TextRange {
-        self.ptr().range()
-    }
-}
-
-impl IsNamedSrc for GenerateRegionSrc {
-    fn name_kind(&self) -> Option<TokenKind> {
-        None
-    }
-
-    fn name_range(&self) -> Option<utils::text_edit::TextRange> {
-        None
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::GenerateRegion<'a>> for GenerateRegionSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::GenerateRegion<'a>> {
-        match self {
-            GenerateRegionSrc::GenerateRegion(ptr) => {
-                let mut node = ptr.to_node(tree)?;
-                while !ast::GenerateRegion::can_cast(node.kind()) && node.child_count() == 1 {
-                    node = node.child_node(0)?;
-                }
-                ast::GenerateRegion::cast(node)
-            }
-            GenerateRegionSrc::DirectItem(_) => None,
-        }
-    }
-}
-
-impl From<ast::GenerateRegion<'_>> for GenerateRegionSrc {
-    fn from(region: ast::GenerateRegion<'_>) -> Self {
-        Self::GenerateRegion(syntax::slang_ext::AstNodeExt::to_ptr(&region))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::GenerateRegion<'a>> for GenerateRegionSrc {
-    fn from_source_ast(region: SourceAst<ast::GenerateRegion<'a>>) -> Self {
-        Self::GenerateRegion(syntax::slang_ext::AstNodeExt::to_ptr(&region.into_inner()))
-    }
-}
-
-impl From<GenerateRegionSrc> for SyntaxNodePtr {
-    fn from(src: GenerateRegionSrc) -> Self {
-        src.ptr()
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub enum GenerateBlockSrc {
-    GenerateBlock { node: SyntaxNodePtr, name: Option<SyntaxTokenPtr> },
-    LoopGenerate { node: SyntaxNodePtr, name: Option<SyntaxTokenPtr> },
-    SingleMember { node: SyntaxNodePtr, name: Option<SyntaxTokenPtr> },
-}
-
-impl GenerateBlockSrc {
-    pub fn from_generate_block(block: ast::GenerateBlock<'_>) -> Self {
-        if let Some(parent) = block.syntax().parent()
-            && let Some(loop_generate) = ast::LoopGenerate::cast(parent)
-        {
-            return loop_generate.into();
-        }
-
-        block.into()
-    }
-
-    pub fn node(&self) -> SyntaxNodePtr {
-        match self {
-            GenerateBlockSrc::GenerateBlock { node, .. }
-            | GenerateBlockSrc::LoopGenerate { node, .. }
-            | GenerateBlockSrc::SingleMember { node, .. } => *node,
-        }
-    }
-
-    fn name(&self) -> Option<SyntaxTokenPtr> {
-        match self {
-            GenerateBlockSrc::GenerateBlock { name, .. }
-            | GenerateBlockSrc::LoopGenerate { name, .. }
-            | GenerateBlockSrc::SingleMember { name, .. } => *name,
-        }
-    }
-
-    fn to_member<'a>(self, tree: &'a syntax::SyntaxTree) -> Option<ast::Member<'a>> {
-        ast::Member::cast(self.node().to_node(tree)?)
-    }
-}
-
-impl IsSrc for GenerateBlockSrc {
-    fn kind(&self) -> syntax::SyntaxKind {
-        self.node().kind()
-    }
-
-    fn range(&self) -> utils::text_edit::TextRange {
-        self.node().range()
-    }
-}
-
-impl IsNamedSrc for GenerateBlockSrc {
-    fn name_kind(&self) -> Option<TokenKind> {
-        self.name().map(|name| name.kind())
-    }
-
-    fn name_range(&self) -> Option<utils::text_edit::TextRange> {
-        self.name().map(|name| name.range())
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::GenerateBlock<'a>> for GenerateBlockSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::GenerateBlock<'a>> {
-        match self {
-            GenerateBlockSrc::GenerateBlock { node, .. } => {
-                let mut node = node.to_node(tree)?;
-                while !ast::GenerateBlock::can_cast(node.kind()) && node.child_count() == 1 {
-                    node = node.child_node(0)?;
-                }
-                ast::GenerateBlock::cast(node)
-            }
-            GenerateBlockSrc::LoopGenerate { node, .. } => {
-                let mut node = node.to_node(tree)?;
-                while !ast::LoopGenerate::can_cast(node.kind()) && node.child_count() == 1 {
-                    node = node.child_node(0)?;
-                }
-                let loop_generate = ast::LoopGenerate::cast(node)?;
-                loop_generate.block().as_generate_block()
-            }
-            GenerateBlockSrc::SingleMember { .. } => None,
-        }
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::LoopGenerate<'a>> for GenerateBlockSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::LoopGenerate<'a>> {
-        match self {
-            GenerateBlockSrc::LoopGenerate { node, .. } => {
-                let mut node = node.to_node(tree)?;
-                while !ast::LoopGenerate::can_cast(node.kind()) && node.child_count() == 1 {
-                    node = node.child_node(0)?;
-                }
-                ast::LoopGenerate::cast(node)
-            }
-            GenerateBlockSrc::GenerateBlock { .. } => None,
-            GenerateBlockSrc::SingleMember { .. } => None,
-        }
-    }
-}
-
-impl From<ast::GenerateBlock<'_>> for GenerateBlockSrc {
-    fn from(block: ast::GenerateBlock<'_>) -> Self {
-        let syntax = block.syntax();
-        GenerateBlockSrc::GenerateBlock {
-            node: syntax::slang_ext::AstNodeExt::to_ptr(&block),
-            name: generate_block_name(block)
-                .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token)),
-        }
-    }
-}
-
-impl From<ast::LoopGenerate<'_>> for GenerateBlockSrc {
-    fn from(loop_generate: ast::LoopGenerate<'_>) -> Self {
-        let block = loop_generate.block().as_generate_block();
-        GenerateBlockSrc::LoopGenerate {
-            node: syntax::slang_ext::AstNodeExt::to_ptr(&loop_generate),
-            name: block.and_then(|block| {
-                generate_block_name(block).and_then(|name| {
-                    root_token_in(block.syntax(), name).map(SyntaxTokenPtr::from_token)
-                })
-            }),
-        }
-    }
-}
-
-impl From<ast::Member<'_>> for GenerateBlockSrc {
-    fn from(member: ast::Member<'_>) -> Self {
-        GenerateBlockSrc::SingleMember {
-            node: syntax::slang_ext::AstNodeExt::to_ptr(&member),
-            name: None,
-        }
-    }
-}
-
-impl From<GenerateBlockSrc> for SyntaxNodePtr {
-    fn from(src: GenerateBlockSrc) -> Self {
-        src.node()
-    }
+/// Canonical syntax node for a generate owner. A loop-generate owns the loop
+/// node, not its nested begin/end block.
+pub(crate) fn generate_block_source_node(block: ast::GenerateBlock<'_>) -> syntax::SyntaxNode<'_> {
+    block
+        .syntax()
+        .parent()
+        .filter(|parent| ast::LoopGenerate::can_cast(parent.kind()))
+        .unwrap_or_else(|| block.syntax())
 }
 
 pub(crate) fn generate_block_name(block: ast::GenerateBlock<'_>) -> Option<SyntaxToken<'_>> {
@@ -302,14 +93,14 @@ impl GenerateBlock {
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct GenerateBlockSourceMap {
     pub region_tree: RegionTree,
-    pub assign_srcs: SourceMap<ContAssignSrc, ContAssign>,
-    pub defparam_srcs: SourceMap<DefParamSrc, DefParam>,
-    pub subroutine_srcs: SourceMap<SubroutineSrc, Subroutine>,
-    pub instantiation_srcs: SourceMap<InstantiationSrc, Instantiation>,
-    pub inst_param_assign_srcs: SourceMap<ParamAssignSrc, ParamAssign>,
-    pub instance_srcs: SourceMap<InstanceSrc, Instance>,
-    pub inst_port_conn_srcs: SourceMap<PortConnSrc, PortConn>,
-    pub proc_srcs: SourceMap<ProcSrc, Proc>,
+    pub assign_srcs: SourceMap<ContAssign>,
+    pub defparam_srcs: SourceMap<DefParam>,
+    pub subroutine_srcs: SourceMap<Subroutine>,
+    pub instantiation_srcs: SourceMap<Instantiation>,
+    pub inst_param_assign_srcs: SourceMap<ParamAssign>,
+    pub instance_srcs: SourceMap<Instance>,
+    pub inst_port_conn_srcs: SourceMap<PortConn>,
+    pub proc_srcs: SourceMap<Proc>,
     pub diagnostics: Vec<LoweringDiagnostic>,
 }
 impl LoweredData for GenerateBlock {
@@ -350,14 +141,14 @@ crate::impl_arena_getters!(
 
 crate::impl_source_map_getters!(
     GenerateBlockSourceMap;
-    ContAssignSrc => ContAssignId => assign_srcs,
-    DefParamSrc => DefParamId => defparam_srcs,
-    SubroutineSrc => LocalSubroutineId => subroutine_srcs,
-    InstantiationSrc => InstantiationId => instantiation_srcs,
-    ParamAssignSrc => ParamAssignId => inst_param_assign_srcs,
-    InstanceSrc => InstanceId => instance_srcs,
-    PortConnSrc => PortConnId => inst_port_conn_srcs,
-    ProcSrc => ProcId => proc_srcs,
+    ContAssignId => assign_srcs,
+    DefParamId => defparam_srcs,
+    LocalSubroutineId => subroutine_srcs,
+    InstantiationId => instantiation_srcs,
+    ParamAssignId => inst_param_assign_srcs,
+    InstanceId => instance_srcs,
+    PortConnId => inst_port_conn_srcs,
+    ProcId => proc_srcs,
 );
 
 define_enum_deriving_from! {
@@ -429,7 +220,8 @@ impl LowerGenerateBlockCtx<'_> {
         let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
 
         alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.body.structs,
             &mut self.store.body_sources.struct_srcs,
             struct_def,
@@ -441,7 +233,8 @@ impl LowerGenerateBlockCtx<'_> {
         let name = lower_ident_opt(typedef.name());
 
         let typedef_id = alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.body.typedefs,
             &mut self.store.body_sources.typedef_srcs,
             Typedef { name, ty: None },
@@ -472,7 +265,8 @@ impl LowerGenerateBlockCtx<'_> {
         let subroutine = lower_subroutine(&func, |ty| self.lower_data_ty(ty))?;
 
         let subroutine_id = alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.subroutines,
             &mut self.store.sources.subroutine_srcs,
             subroutine,
@@ -482,10 +276,10 @@ impl LowerGenerateBlockCtx<'_> {
         Some(subroutine_id)
     }
 
-    fn intern_generate_block(&self, src: GenerateBlockSrc) -> GenerateBlockId {
+    fn intern_generate_node(&self, node: syntax::SyntaxNode<'_>) -> GenerateBlockId {
         GenerateBlockId::new(GenerateBlockLoc {
             cont_id: self.current_arena_owner(),
-            src: InFile::new(self.file_id, src),
+            src: InFile::new(self.file_id, self.source_id(node)),
         })
     }
 
@@ -497,14 +291,14 @@ impl LowerGenerateBlockCtx<'_> {
         match member {
             EmptyMember(_) => SmallVec::new(),
             GenerateBlock(block) => smallvec::smallvec![
-                self.intern_generate_block(GenerateBlockSrc::from_generate_block(block)).into()
+                self.intern_generate_node(generate_block_source_node(block)).into()
             ],
             LoopGenerate(loop_generate) => {
-                smallvec::smallvec![self.intern_generate_block(loop_generate.into()).into()]
+                smallvec::smallvec![self.intern_generate_node(loop_generate.syntax()).into()]
             }
             IfGenerate(if_generate) => self.lower_if_generate_items(if_generate),
             CaseGenerate(case_generate) => self.lower_case_generate_items(case_generate),
-            member => smallvec::smallvec![self.intern_generate_block(member.into()).into()],
+            member => smallvec::smallvec![self.intern_generate_node(member.syntax()).into()],
         }
     }
 
@@ -574,9 +368,9 @@ impl LowerGenerateBlockCtx<'_> {
             FunctionDeclaration(fn_decl) => self.lower_subroutine_decl(fn_decl)?.into(),
             ProceduralBlock(proc) => self.lower_proc(proc).into(),
             GenerateBlock(block) => {
-                self.intern_generate_block(GenerateBlockSrc::from_generate_block(block)).into()
+                self.intern_generate_node(generate_block_source_node(block)).into()
             }
-            LoopGenerate(loop_generate) => self.intern_generate_block(loop_generate.into()).into(),
+            LoopGenerate(loop_generate) => self.intern_generate_node(loop_generate.syntax()).into(),
             IfGenerate(if_generate) => {
                 for item in self.lower_if_generate_items(if_generate) {
                     self.store.data.items.push(item);
@@ -654,10 +448,10 @@ impl LowerGenerateBlockCtx<'_> {
 }
 
 impl LowerModuleCtx<'_> {
-    pub(crate) fn intern_generate_block(&self, src: GenerateBlockSrc) -> GenerateBlockId {
+    pub(crate) fn intern_generate_node(&self, node: syntax::SyntaxNode<'_>) -> GenerateBlockId {
         GenerateBlockId::new(GenerateBlockLoc {
             cont_id: self.current_arena_owner(),
-            src: InFile::new(self.file_id, src),
+            src: InFile::new(self.file_id, self.source_id(node)),
         })
     }
 
@@ -666,14 +460,14 @@ impl LowerModuleCtx<'_> {
         match member {
             EmptyMember(_) => SmallVec::new(),
             GenerateBlock(block) => smallvec::smallvec![
-                self.intern_generate_block(GenerateBlockSrc::from_generate_block(block)).into()
+                self.intern_generate_node(generate_block_source_node(block)).into()
             ],
             LoopGenerate(loop_generate) => {
-                smallvec::smallvec![self.intern_generate_block(loop_generate.into()).into()]
+                smallvec::smallvec![self.intern_generate_node(loop_generate.syntax()).into()]
             }
             IfGenerate(if_generate) => self.lower_if_generate_items(if_generate),
             CaseGenerate(case_generate) => self.lower_case_generate_items(case_generate),
-            member => smallvec::smallvec![self.intern_generate_block(member.into()).into()],
+            member => smallvec::smallvec![self.intern_generate_node(member.syntax()).into()],
         }
     }
 
@@ -766,12 +560,10 @@ impl LowerModuleCtx<'_> {
                 items.push(self.lower_proc(proc).into());
             }
             GenerateBlock(block) => {
-                items.push(
-                    self.intern_generate_block(GenerateBlockSrc::from_generate_block(block)).into(),
-                );
+                items.push(self.intern_generate_node(generate_block_source_node(block)).into());
             }
             LoopGenerate(loop_generate) => {
-                items.push(self.intern_generate_block(loop_generate.into()).into());
+                items.push(self.intern_generate_node(loop_generate.syntax()).into());
             }
             IfGenerate(if_generate) => {
                 items.extend(self.lower_if_generate_items(if_generate));
@@ -797,7 +589,8 @@ impl LowerModuleCtx<'_> {
         }
 
         alloc_with_source(
-            self.file_id,
+            &self.ast_ids,
+            &self.tree,
             &mut self.store.data.generate_regions,
             &mut self.store.sources.generate_region_srcs,
             GenerateRegion { items },
@@ -806,15 +599,14 @@ impl LowerModuleCtx<'_> {
     }
 
     pub(crate) fn lower_direct_generate_region(&mut self, item: ast::Member) -> GenerateRegionId {
-        let src = GenerateRegionSrc::from_direct_member(&item);
+        let source = self.source_id(item.syntax());
         let mut items = SmallVec::new();
         self.lower_generate_region_member(item, &mut items);
-
-        alloc_with_optional_source_entry(
+        crate::alloc_with_source_entry(
             &mut self.store.data.generate_regions,
             &mut self.store.sources.generate_region_srcs,
             GenerateRegion { items },
-            src,
+            source,
         )
     }
 }
@@ -824,21 +616,26 @@ fn generate_block_lowering(db: &dyn HirDefDb, owner: OwnerId) -> Arc<OwnerLoweri
     debug_assert_eq!(owner.kind(db), OwnerKind::GenerateBlock);
     let file_id = owner.file(db);
     let tree = db.parse(file_id);
-    let Some(node) = db.ast_id_map(file_id).node(owner.ast_id(db), &tree)
-    else {
+    let Some(node) = db.ast_id_map(file_id).node(owner.ast_id(db), &tree) else {
         return Arc::new(OwnerLowering::new(
+            file_id,
             GenerateBlock::default(),
             GenerateBlockSourceMap::default(),
             Body::default(),
             BodySourceMap::default(),
         ));
     };
-    let src = if let Some(loop_generate) = ast::LoopGenerate::cast(node) {
-        loop_generate.into()
-    } else if let Some(block) = ast::GenerateBlock::cast(node) {
-        GenerateBlockSrc::from_generate_block(block)
-    } else if let Some(member) = ast::Member::cast(node) {
-        member.into()
+    enum SourceKind {
+        GenerateBlock,
+        LoopGenerate,
+        SingleMember,
+    }
+    let source_kind = if ast::LoopGenerate::can_cast(node.kind()) {
+        SourceKind::LoopGenerate
+    } else if ast::GenerateBlock::can_cast(node.kind()) {
+        SourceKind::GenerateBlock
+    } else if ast::Member::can_cast(node.kind()) {
+        SourceKind::SingleMember
     } else {
         unreachable!("generate owner must point to generate syntax")
     };
@@ -858,21 +655,21 @@ fn generate_block_lowering(db: &dyn HirDefDb, owner: OwnerId) -> Arc<OwnerLoweri
         },
     );
 
-    match src {
-        GenerateBlockSrc::GenerateBlock { .. } => {
-            if let Some(block) = src.to_node(&tree) {
-                lower_ctx.lower_generate_block(block);
-            }
+    match source_kind {
+        SourceKind::GenerateBlock => {
+            lower_ctx.lower_generate_block(
+                ast::GenerateBlock::cast(node).expect("generate owner kind was checked"),
+            );
         }
-        GenerateBlockSrc::LoopGenerate { .. } => {
-            if let Some(loop_generate) = src.to_node(&tree) {
-                lower_ctx.lower_loop_generate(loop_generate);
-            }
+        SourceKind::LoopGenerate => {
+            lower_ctx.lower_loop_generate(
+                ast::LoopGenerate::cast(node).expect("loop-generate owner kind was checked"),
+            );
         }
-        GenerateBlockSrc::SingleMember { .. } => {
-            if let Some(member) = src.to_member(&tree) {
-                lower_ctx.lower_single_member(member);
-            }
+        SourceKind::SingleMember => {
+            lower_ctx.lower_single_member(
+                ast::Member::cast(node).expect("single-member owner kind was checked"),
+            );
         }
     }
 
@@ -884,7 +681,13 @@ fn generate_block_lowering(db: &dyn HirDefDb, owner: OwnerId) -> Arc<OwnerLoweri
     generate_block_source_map.shrink_to_fit();
     body.shrink_to_fit();
     body_source_map.shrink_to_fit();
-    Arc::new(OwnerLowering::new(generate_block, generate_block_source_map, body, body_source_map))
+    Arc::new(OwnerLowering::new(
+        file_id,
+        generate_block,
+        generate_block_source_map,
+        body,
+        body_source_map,
+    ))
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]

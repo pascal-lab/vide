@@ -1,16 +1,25 @@
 use hir_def::{
+    ast_id_map::SourceAstId,
     container::{ArenaOwnerId, InContainer, InFile, InModule},
-    expr::{ExprId, ExprSrc},
-    module::instantiation::{
-        HierarchyInstantiationAst, InstanceId, InstanceSrc, InstantiationId, InstantiationSrc,
-        PortConnId, PortConnSrc,
-    },
-    source_map::AstId,
+    expr::ExprId,
+    module::instantiation::{InstanceId, InstantiationId, PortConnId},
 };
 use preproc_expand::file::HirFileId;
-use syntax::ast::{self, AstNode};
+use syntax::{
+    SyntaxNode,
+    ast::{self, AstNode},
+};
 
 use super::SemanticsImpl;
+
+fn source_ast_id(
+    db: &dyn hir_def::db::HirDefDb,
+    file_id: HirFileId,
+    node: SyntaxNode<'_>,
+) -> Option<SourceAstId> {
+    let tree = db.parse(file_id);
+    db.ast_id_map(file_id).id_of_node_in_tree(&tree, node)
+}
 
 impl SemanticsImpl<'_> {
     pub fn resolve_instance(
@@ -25,9 +34,9 @@ impl SemanticsImpl<'_> {
             return None;
         };
 
-        let src = InstanceSrc::from_ast(file_id, instance);
+        let src = source_ast_id(db, file_id, instance.syntax())?;
         let module = db.module_with_source_map(module_id);
-        let instance_id = module.hir_id(src)?;
+        let instance_id = module.source_map().instance_srcs.src_to_hir(src)?;
         Some(InModule::new(module_id, instance_id))
     }
 
@@ -43,11 +52,9 @@ impl SemanticsImpl<'_> {
             return None;
         };
 
-        let src = InstantiationSrc::HierarchyInstantiation(
-            AstId::<HierarchyInstantiationAst>::from_ast(file_id, instantiation),
-        );
+        let src = source_ast_id(db, file_id, instantiation.syntax())?;
         let module = db.module_with_source_map(module_id);
-        let instantiation_id = module.hir_id(src)?;
+        let instantiation_id = module.source_map().instantiation_srcs.src_to_hir(src)?;
         Some(InModule::new(module_id, instantiation_id))
     }
 
@@ -63,9 +70,9 @@ impl SemanticsImpl<'_> {
             return None;
         };
 
-        let src = PortConnSrc::from_ast(file_id, conn);
+        let src = source_ast_id(db, file_id, conn.syntax())?;
         let module = db.module_with_source_map(module_id);
-        let conn_id = module.hir_id(src)?;
+        let conn_id = module.source_map().inst_port_conn_srcs.src_to_hir(src)?;
         Some(InModule::new(module_id, conn_id))
     }
 
@@ -78,7 +85,7 @@ impl SemanticsImpl<'_> {
         let container_id = self.find_container(InFile::new(file_id, expr.syntax()));
         let src_map = container_id.source_map(db);
 
-        let expr_src = ExprSrc::from_ast(file_id, expr);
+        let expr_src = source_ast_id(db, file_id, expr.syntax())?;
         let expr_id = src_map.expr_from_source(expr_src)?;
         Some(InContainer::new(container_id, expr_id))
     }

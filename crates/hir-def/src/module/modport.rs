@@ -1,18 +1,9 @@
 use la_arena::Idx;
 use smallvec::SmallVec;
-use syntax::{
-    SyntaxKind, SyntaxToken, TokenKind,
-    ast::{self, AstNode},
-    ptr::{SyntaxNodePtr, SyntaxTokenPtr},
-    slang_ext::AstNodeExt,
-};
-use utils::text_edit::TextRange;
+use syntax::{SyntaxToken, TokenKind, ast};
 
 use super::{LowerModuleCtx, port::PortDirection};
-use crate::{
-    Ident, alloc_with_source, lower_ident_opt,
-    source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, root_token_in},
-};
+use crate::{Ident, alloc_with_source, ast_id_map::SourceAstId, lower_ident_opt};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ModportDef {
@@ -28,46 +19,7 @@ pub struct ModportPort {
     pub dir: PortDirection,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct ModportSrc {
-    pub node: SyntaxNodePtr,
-    pub name: Option<SyntaxTokenPtr>,
-}
-
-impl IsSrc for ModportSrc {
-    #[inline]
-    fn kind(&self) -> SyntaxKind {
-        self.node.kind()
-    }
-
-    #[inline]
-    fn range(&self) -> TextRange {
-        self.node.range()
-    }
-}
-
-impl IsNamedSrc for ModportSrc {
-    #[inline]
-    fn name_kind(&self) -> Option<TokenKind> {
-        self.name.map(|name| name.kind())
-    }
-
-    #[inline]
-    fn name_range(&self) -> Option<TextRange> {
-        self.name.map(|name| name.range())
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::ModportItem<'a>> for ModportSrc {
-    fn from_source_ast(item: SourceAst<ast::ModportItem<'a>>) -> Self {
-        let item = item.into_inner();
-        let syntax = item.syntax();
-        let name = item
-            .name()
-            .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token));
-        Self { node: AstNodeExt::to_ptr(&item), name }
-    }
-}
+pub type ModportSrc = SourceAstId;
 
 impl LowerModuleCtx<'_> {
     pub(crate) fn lower_modport_declaration(
@@ -81,8 +33,14 @@ impl LowerModuleCtx<'_> {
             let file_id = self.file_id;
             let (modports, sources) =
                 (&mut self.store.data.modports, &mut self.store.sources.modport_srcs);
-            let modport_id =
-                alloc_with_source(file_id, modports, sources, ModportDef { name, ports }, item);
+            let modport_id = alloc_with_source(
+                &self.ast_ids,
+                &self.tree,
+                modports,
+                sources,
+                ModportDef { name, ports },
+                item,
+            );
             lowered.push(modport_id);
         }
         lowered

@@ -1,12 +1,15 @@
 use la_arena::Idx;
 use smallvec::SmallVec;
-use syntax::{TokenKind, ast};
+use syntax::{
+    TokenKind,
+    ast::{self, AstNode},
+};
 
 use super::ExprId;
 use crate::{
     alloc_with_source,
+    ast_id_map::SourceAstId,
     lower::{LoweringCtx, LoweringStore},
-    source_map::{AstId, AstKind},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -35,14 +38,7 @@ pub enum EventControl {
 
 pub type EventExprId = Idx<EventExpr>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct EventExpressionAst;
-
-impl AstKind for EventExpressionAst {
-    type Node<'a> = ast::EventExpression<'a>;
-}
-
-pub type EventExprSrc = AstId<EventExpressionAst>;
+pub type EventExprSrc = SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum EventExpr {
@@ -63,9 +59,9 @@ pub enum Sensitivity {
 impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_event_expr(&mut self, event_expr: ast::EventExpression) -> EventExprId {
         let hir_event_expr = self.lower_event_expr_inner(event_expr);
-        let file_id = self.file_id;
+        let source = self.source_id(event_expr.syntax());
         let (event_expressions, sources) = self.event_expressions();
-        alloc_with_source(file_id, event_expressions, sources, hir_event_expr, event_expr)
+        crate::alloc_with_source_entry(event_expressions, sources, hir_event_expr, source)
     }
 
     fn lower_event_expr_inner(&mut self, event_expr: ast::EventExpression) -> EventExpr {

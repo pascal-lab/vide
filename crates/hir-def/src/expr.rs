@@ -10,10 +10,10 @@ use syntax::{
 use super::literal::{Literal, lower_literal};
 use crate::{
     Ident, alloc_with_source, alloc_with_source_entry,
+    ast_id_map::SourceAstId,
     literal::lower_integer_vector,
     lower::{LoweringCtx, LoweringStore},
     lower_ident, lower_ident_opt,
-    source_map::{AstId, AstKind},
 };
 
 pub mod data_ty;
@@ -244,14 +244,7 @@ pub enum Expr {
 
 pub type ExprId = Idx<Expr>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct ExpressionAst;
-
-impl AstKind for ExpressionAst {
-    type Node<'a> = ast::Expression<'a>;
-}
-
-pub type ExprSrc = AstId<ExpressionAst>;
+pub type ExprSrc = SourceAstId;
 
 impl Expr {
     pub fn to_assign(&self) -> Option<Assign> {
@@ -304,9 +297,9 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             }
             _ => {}
         }
-        let file_id = self.file_id;
+        let source = self.source_id(expr.syntax());
         let (expressions, sources) = self.expressions();
-        alloc_with_source(file_id, expressions, sources, hir_expr, expr)
+        alloc_with_source_entry(expressions, sources, hir_expr, source)
     }
 
     fn lower_expr_inner(&mut self, expr: ast::Expression) -> Option<Expr> {
@@ -396,16 +389,15 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
                 .into_iter()
                 .peekable();
 
-            let Some(src) = ast::Expression::cast(ident_select.syntax())
-                .map(|expr| ExprSrc::from_ast(ctx.file_id, expr))
-            else {
+            let Some(expr_node) = ast::Expression::cast(ident_select.syntax()) else {
                 return Some(expr);
             };
+            let source = ctx.source_id(expr_node.syntax());
             loop {
                 match selectors.next() {
                     select @ Some(_) => {
                         let (expressions, sources) = ctx.expressions();
-                        let receiver = alloc_with_source_entry(expressions, sources, expr, src);
+                        let receiver = alloc_with_source_entry(expressions, sources, expr, source);
                         expr = Expr::ElementSelect { receiver, select };
                     }
                     None => return Some(expr),

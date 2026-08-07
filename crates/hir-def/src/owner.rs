@@ -75,6 +75,12 @@ impl OwnerId {
         let name = table.owner(self)?.name.clone();
         (!name.is_empty()).then_some(name)
     }
+
+    /// Projects this canonical owner into the arena-facing container handle
+    /// still used by HIR consumers.
+    pub fn arena_owner(self, db: &dyn HirDefDb) -> Option<ArenaOwnerId> {
+        legacy_container_for_owner(db, self)
+    }
 }
 
 impl PartialOrd for OwnerId {
@@ -341,20 +347,13 @@ impl GenerateBlockId {
     pub(crate) fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
         (owner.kind(db) == OwnerKind::GenerateBlock).then_some(())?;
         let file_id = owner.file(db);
-        let tree = db.parse(file_id);
-        let node = owner_node(db, owner, &tree)?;
-        let src = if let Some(loop_generate) = ast::LoopGenerate::cast(node) {
-            loop_generate.into()
-        } else if let Some(block) = ast::GenerateBlock::cast(node) {
-            GenerateBlockSrc::from_generate_block(block)
-        } else {
-            ast::Member::cast(node)?.into()
-        };
         let parent = legacy_container_for_owner(db, owner.parent(db)?)?;
-        Some(Self::new(GenerateBlockLoc { cont_id: parent, src: InFile::new(file_id, src) }))
+        Some(Self::new(GenerateBlockLoc {
+            cont_id: parent,
+            src: InFile::new(file_id, owner.ast_id(db)),
+        }))
     }
 }
-
 
 impl SubroutineScope {
     pub(crate) fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
@@ -378,13 +377,11 @@ impl SubroutineScope {
     }
 }
 
-
 impl crate::module::generate::GenerateBlockId {
     /// The unified owner of this generate block.
     pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
         let src = self.loc().src;
-        let ast_id = db.ast_id_map(src.file_id).id_of_ptr(src.value.node())?;
-        Some(OwnerId::new(db, src.file_id, ast_id, OwnerKind::GenerateBlock))
+        Some(OwnerId::new(db, src.file_id, src.value, OwnerKind::GenerateBlock))
     }
 }
 
@@ -392,15 +389,13 @@ impl SubroutineScope {
     /// The unified owner of this subroutine.
     pub fn owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
         let src = crate::def_id::subroutine_src(db, self)?;
-        let ast_id = db.ast_id_map(src.file_id).id_of_ptr(src.value.node)?;
-        Some(OwnerId::new(db, src.file_id, ast_id, OwnerKind::Subroutine))
+        Some(OwnerId::new(db, src.file_id, src.value, OwnerKind::Subroutine))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::fmt;
-    use super::OwnerKind;
 
     use base_db::{
         diagnostics_config::DiagnosticsConfig,
@@ -415,6 +410,7 @@ mod tests {
     use utils::paths::{AbsPathBuf, Utf8PathBuf};
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
+    use super::OwnerKind;
     use crate::{
         container::{SubroutineParent, SubroutineScope},
         db::HirDefDb,
@@ -730,9 +726,7 @@ endmodule
             .source_map()
             .subroutine_srcs
             .iter()
-            .find(|(_, src)| {
-                Some(src.node) == db.ast_id_map(file_id).ptr(subroutine_owner.id.ast_id(&db))
-            })
+            .find(|(_, src)| *src == subroutine_owner.id.ast_id(&db))
             .expect("lowering must create the subroutine");
         let scope = SubroutineScope { cont_id: SubroutineParent::Module(module_id), value };
 

@@ -1,8 +1,7 @@
 use hir_def::{
-    container::{ArenaOwnerId, InFile, ScopeChain},
+    container::{ArenaOwnerId, ScopeChain},
     def_id::DefId,
-    module::generate::{GenerateBlockId, GenerateBlockLoc, GenerateBlockSrc},
-    owner::{OwnerId, OwnerKind},
+    owner::OwnerKind,
     pathres::ResolvedScopes,
     symbol::NameContext,
 };
@@ -358,45 +357,38 @@ fn container_id_for_node<'tree>(
     sema: &SemanticsImpl<'_>,
     file_id: HirFileId,
     node: SyntaxNode<'tree>,
-    cache: &mut ContainerCache<'tree>,
+    _cache: &mut ContainerCache<'tree>,
 ) -> Option<ArenaOwnerId> {
     if let Some(module) = ast::ModuleDeclaration::cast(node) {
         return sema.module_to_def(file_id, module).map(Into::into);
     }
-    if ast::ProceduralBlock::cast(node).is_some() {
-        let ast_id = sema.db.ast_id_map(file_id).id_of_node(node)?;
-        let owner = OwnerId::new(sema.db, file_id, ast_id, OwnerKind::ProceduralBlock);
-        return Some(ArenaOwnerId::Owner(owner));
-    }
-    if let Some(block) = ast::BlockStatement::cast(node) {
+    let kind = if ast::ProceduralBlock::cast(node).is_some() {
+        Some(OwnerKind::ProceduralBlock)
+    } else if let Some(block) = ast::BlockStatement::cast(node) {
         return sema.block_to_def(file_id, block).map(Into::into);
-    }
-    if let Some(func) = ast::FunctionDeclaration::cast(node) {
+    } else if let Some(func) = ast::FunctionDeclaration::cast(node) {
         return sema.subroutine_to_def(file_id, func).map(Into::into);
-    }
-    if ast::CompilationUnit::cast(node).is_some() {
+    } else if ast::CompilationUnit::cast(node).is_some() {
         return Some(file_id.into());
-    }
-    if let Some(block) = ast::GenerateBlock::cast(node) {
-        let src = GenerateBlockSrc::from_generate_block(block);
-        let parent = cache.parent_of(sema, file_id, block.syntax());
-        return Some(intern_generate_container(file_id, src, parent));
-    }
-    let member = ast::Member::cast(node)?;
-    if !is_generate_branch_member(node) {
-        return None;
-    }
-    let parent = cache.parent_of(sema, file_id, node);
-    Some(intern_generate_container(file_id, GenerateBlockSrc::from(member), parent))
-}
+    } else if ast::GenerateBlock::cast(node).is_some()
+        || (ast::Member::cast(node).is_some() && is_generate_branch_member(node))
+    {
+        Some(OwnerKind::GenerateBlock)
+    } else {
+        None
+    }?;
 
-fn intern_generate_container(
-    file_id: HirFileId,
-    src: GenerateBlockSrc,
-    parent: ArenaOwnerId,
-) -> ArenaOwnerId {
-    GenerateBlockId::new(GenerateBlockLoc { cont_id: parent, src: InFile::new(file_id, src) })
-        .into()
+    let owner_node = if kind == OwnerKind::GenerateBlock
+        && ast::GenerateBlock::cast(node).is_some()
+        && node.parent().is_some_and(|parent| ast::LoopGenerate::cast(parent).is_some())
+    {
+        node.parent()?
+    } else {
+        node
+    };
+    let tree = sema.db.parse(file_id);
+    let ast_id = sema.db.ast_id_map(file_id).id_of_node_in_tree(&tree, owner_node)?;
+    sema.db.owner_table(file_id).owner_by_ast(ast_id, kind)?.arena_owner(sema.db)
 }
 
 /// Mirrors `source_to_def::is_generate_branch_member`: a member is a
@@ -834,7 +826,7 @@ impl FileModuleEdges {
                         continue;
                     };
                     let Some(call_range) = module
-                        .source_range(instantiation_id)
+                        .source_range(db, instantiation_id)
                         .and_then(|range| instantiation_name_range(db, file_id, range))
                     else {
                         continue;

@@ -4,8 +4,8 @@ use syntax::{TokenKind, ast};
 
 use super::{Ident, expr::data_ty::DataTy, lower_ident_opt};
 use crate::{
+    ast_id_map::SourceAstId,
     body::{Body, BodySourceMap},
-    source_map::{AstKind, NamedAstId},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -58,14 +58,7 @@ pub enum SubroutinePortDir {
     Unknown,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct FunctionDeclarationAst;
-
-impl AstKind for FunctionDeclarationAst {
-    type Node<'a> = ast::FunctionDeclaration<'a>;
-}
-
-pub type SubroutineSrc = NamedAstId<FunctionDeclarationAst>;
+pub type SubroutineSrc = SourceAstId;
 
 pub type LocalSubroutineId = Idx<Subroutine>;
 

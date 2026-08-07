@@ -238,9 +238,8 @@ pub(crate) fn build_source_projection(
         let syntax::WalkEvent::Enter(node) = event else {
             continue;
         };
-        let id = ast_ids
-            .id_of_node_in_tree(tree, node)
-            .expect("every syntax node has an AST identity");
+        let id =
+            ast_ids.id_of_node_in_tree(tree, node).expect("every syntax node has an AST identity");
         let full_range = node.text_range();
         let source_node = ast_ids.ptr(id);
         let (_, focus_range) = item_name(node);
@@ -252,7 +251,6 @@ pub(crate) fn build_source_projection(
     }
     crate::source_projection::SourceProjection::new(origins)
 }
-
 
 fn is_body_boundary(node: SyntaxNode<'_>) -> bool {
     ast::FunctionDeclaration::can_cast(node.kind()) || ast::ProceduralBlock::can_cast(node.kind())
@@ -385,11 +383,27 @@ fn item_name(node: SyntaxNode<'_>) -> (Option<SmolStr>, Option<TextRange>) {
     let token = ast::ModuleDeclaration::cast(node)
         .and_then(|item| HasName::name(&item))
         .or_else(|| ast::FunctionDeclaration::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::ConfigDeclaration::cast(node).and_then(|item| item.name()))
-        .or_else(|| ast::UdpDeclaration::cast(node).and_then(|item| item.name()))
-        .or_else(|| ast::LibraryDeclaration::cast(node).and_then(|item| item.name()))
+        .or_else(|| ast::ConfigDeclaration::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| ast::UdpDeclaration::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| ast::LibraryDeclaration::cast(node).and_then(|item| HasName::name(&item)))
         .or_else(|| ast::GenerateBlock::cast(node).and_then(|item| HasName::name(&item)))
         .or_else(|| ast::BlockStatement::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| ast::NonAnsiPort::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| ast::PortReference::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| ast::Declarator::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| ast::IdentifierName::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| ast::SpecparamDeclarator::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| ast::ParamAssignment::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| ast::PortConnection::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| ast::HierarchicalInstance::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| ast::Statement::cast(node).and_then(|item| HasName::name(&item)))
+        .or_else(|| ast::ImplicitAnsiPort::cast(node).and_then(|item| item.declarator().name()))
+        .or_else(|| ast::ExplicitAnsiPort::cast(node).and_then(|item| item.name()))
+        .or_else(|| ast::ModportItem::cast(node).and_then(|item| item.name()))
+        .or_else(|| ast::ClockingDeclaration::cast(node).and_then(|item| item.block_name()))
+        .or_else(|| ast::DefaultClockingReference::cast(node).and_then(|item| item.name()))
+        .or_else(|| ast::Coverpoint::cast(node).and_then(|item| item.label()?.name()))
+        .or_else(|| ast::CoverCross::cast(node).and_then(|item| item.label()?.name()))
         .or_else(|| ast::ClassDeclaration::cast(node).and_then(|item| item.name()))
         .or_else(|| ast::CheckerDeclaration::cast(node).and_then(|item| item.name()))
         .or_else(|| ast::CovergroupDeclaration::cast(node).and_then(|item| item.name()))
@@ -519,5 +533,36 @@ mod tests {
                 item.name().map_or("<unnamed>", |name| name.as_str())
             );
         }
+    }
+
+    #[test]
+    fn source_projection_focuses_named_ast_nodes() {
+        let text = "module top; function void f(); logic value; endfunction endmodule\n";
+        let file_id = HirFileId::File(FileId::from_raw(0));
+        let tree = parse(text);
+        let ast_ids = AstIdMap::from_source(&tree);
+        let projection = build_source_projection(file_id, &tree, &ast_ids);
+
+        let mut names = FxHashMap::default();
+        let root = tree.root().expect("source should parse");
+        for event in root.node_preorder() {
+            let syntax::WalkEvent::Enter(node) = event else {
+                continue;
+            };
+            let Some(id) = ast_ids.id_of_node_in_tree(&tree, node) else {
+                continue;
+            };
+            let Some(origin) = projection.origin(id) else {
+                continue;
+            };
+            let Some(focus) = origin.focus_range() else {
+                continue;
+            };
+            names.insert(node.kind(), &text[usize::from(focus.start())..usize::from(focus.end())]);
+        }
+
+        assert_eq!(names.get(&syntax::SyntaxKind::MODULE_DECLARATION), Some(&"top"));
+        assert_eq!(names.get(&syntax::SyntaxKind::FUNCTION_DECLARATION), Some(&"f"));
+        assert_eq!(names.get(&syntax::SyntaxKind::DECLARATOR), Some(&"value"));
     }
 }

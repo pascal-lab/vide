@@ -1,16 +1,16 @@
 use la_arena::Idx;
 use smallvec::SmallVec;
-use syntax::{SyntaxToken, ast};
+use syntax::{
+    SyntaxToken,
+    ast::{self, AstNode},
+};
 
 use crate::{
     Ident, alloc_with_source,
+    ast_id_map::SourceAstId,
     expr::{ExprId, data_ty::Dimension},
     lower::{LoweringCtx, ModuleItemStore},
     lower_ident_opt,
-    source_map::{
-        AstId, AstKind, FromSourceAst, IsSrc, NamedAstId, SourceAst, ToAstNode,
-        exact_ast_node_from_ptr,
-    },
 };
 
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
@@ -22,94 +22,7 @@ pub struct Instantiation {
 
 pub type InstantiationId = Idx<Instantiation>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct HierarchyInstantiationAst;
-
-impl AstKind for HierarchyInstantiationAst {
-    type Node<'a> = ast::HierarchyInstantiation<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct PrimitiveInstantiationAst;
-
-impl AstKind for PrimitiveInstantiationAst {
-    type Node<'a> = ast::PrimitiveInstantiation<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct CheckerInstantiationAst;
-
-impl AstKind for CheckerInstantiationAst {
-    type Node<'a> = ast::CheckerInstantiation<'a>;
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub enum InstantiationSrc {
-    HierarchyInstantiation(AstId<HierarchyInstantiationAst>),
-    PrimitiveInstantiation(AstId<PrimitiveInstantiationAst>),
-    CheckerInstantiation(AstId<CheckerInstantiationAst>),
-}
-
-impl IsSrc for InstantiationSrc {
-    fn kind(&self) -> syntax::SyntaxKind {
-        syntax::ptr::SyntaxNodePtr::from(*self).kind()
-    }
-
-    fn range(&self) -> utils::text_edit::TextRange {
-        syntax::ptr::SyntaxNodePtr::from(*self).range()
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::HierarchyInstantiation<'a>> for InstantiationSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::HierarchyInstantiation<'a>> {
-        let InstantiationSrc::HierarchyInstantiation(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::PrimitiveInstantiation<'a>> for InstantiationSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::PrimitiveInstantiation<'a>> {
-        let InstantiationSrc::PrimitiveInstantiation(src) = self else { return None };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::CheckerInstantiation<'a>> for InstantiationSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::CheckerInstantiation<'a>> {
-        let InstantiationSrc::CheckerInstantiation(src) = self else {
-            return None;
-        };
-        exact_ast_node_from_ptr(src.ptr(), tree)
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::HierarchyInstantiation<'a>> for InstantiationSrc {
-    fn from_source_ast(node: SourceAst<ast::HierarchyInstantiation<'a>>) -> Self {
-        Self::HierarchyInstantiation(AstId::from_source_ast(node))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::PrimitiveInstantiation<'a>> for InstantiationSrc {
-    fn from_source_ast(node: SourceAst<ast::PrimitiveInstantiation<'a>>) -> Self {
-        Self::PrimitiveInstantiation(AstId::from_source_ast(node))
-    }
-}
-
-impl<'a> FromSourceAst<'a, ast::CheckerInstantiation<'a>> for InstantiationSrc {
-    fn from_source_ast(node: SourceAst<ast::CheckerInstantiation<'a>>) -> Self {
-        Self::CheckerInstantiation(AstId::from_source_ast(node))
-    }
-}
-
-impl From<InstantiationSrc> for syntax::ptr::SyntaxNodePtr {
-    fn from(src: InstantiationSrc) -> Self {
-        match src {
-            InstantiationSrc::HierarchyInstantiation(src) => src.ptr(),
-            InstantiationSrc::PrimitiveInstantiation(src) => src.ptr(),
-            InstantiationSrc::CheckerInstantiation(src) => src.ptr(),
-        }
-    }
-}
+pub type InstantiationSrc = SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Instance {
@@ -121,14 +34,7 @@ pub struct Instance {
 
 pub type InstanceId = Idx<Instance>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct HierarchicalInstanceAst;
-
-impl AstKind for HierarchicalInstanceAst {
-    type Node<'a> = ast::HierarchicalInstance<'a>;
-}
-
-pub type InstanceSrc = NamedAstId<HierarchicalInstanceAst>;
+pub type InstanceSrc = SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ParamAssign {
@@ -138,14 +44,7 @@ pub enum ParamAssign {
 
 pub type ParamAssignId = Idx<ParamAssign>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct ParamAssignmentAst;
-
-impl AstKind for ParamAssignmentAst {
-    type Node<'a> = ast::ParamAssignment<'a>;
-}
-
-pub type ParamAssignSrc = NamedAstId<ParamAssignmentAst>;
+pub type ParamAssignSrc = SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum PortConn {
@@ -157,24 +56,16 @@ pub enum PortConn {
 
 pub type PortConnId = Idx<PortConn>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct PortConnectionAst;
-
-impl AstKind for PortConnectionAst {
-    type Node<'a> = ast::PortConnection<'a>;
-}
-
-pub type PortConnSrc = NamedAstId<PortConnectionAst>;
+pub type PortConnSrc = SourceAstId;
 
 impl<Store: ModuleItemStore> LoweringCtx<Store> {
     fn reserve_instantiation<'ast, Ast>(&mut self, ast: Ast) -> InstantiationId
     where
         Ast: syntax::ast::AstNode<'ast>,
-        InstantiationSrc: FromSourceAst<'ast, Ast>,
     {
-        let file_id = self.file_id;
+        let source = self.source_id(ast.syntax());
         let (instantiations, sources) = self.instantiations();
-        alloc_with_source(file_id, instantiations, sources, Instantiation::default(), ast)
+        crate::alloc_with_source_entry(instantiations, sources, Instantiation::default(), source)
     }
 
     fn finish_instantiation(&mut self, id: InstantiationId, instantiation: Instantiation) {
@@ -243,9 +134,9 @@ impl<Store: ModuleItemStore> LoweringCtx<Store> {
                     }
                 };
 
-                let file_id = self.file_id;
+                let source = self.source_id(assign.syntax());
                 let (assignments, sources) = self.parameter_assignments();
-                alloc_with_source(file_id, assignments, sources, hir_assign, assign)
+                crate::alloc_with_source_entry(assignments, sources, hir_assign, source)
             })
             .collect()
     }
@@ -273,9 +164,9 @@ impl<Store: ModuleItemStore> LoweringCtx<Store> {
                     }
                     WildcardPortConnection(_) => PortConn::Wildcard,
                 };
-                let file_id = self.file_id;
+                let source = self.source_id(conn.syntax());
                 let (connections, sources) = self.port_connections();
-                alloc_with_source(file_id, connections, sources, hir_conn, conn)
+                crate::alloc_with_source_entry(connections, sources, hir_conn, source)
             })
             .collect();
 
@@ -290,9 +181,9 @@ impl<Store: ModuleItemStore> LoweringCtx<Store> {
             .unwrap_or_default();
 
         let data = Instance { name, dimensions, connections, parent };
-        let file_id = self.file_id;
+        let source = self.source_id(instance.syntax());
         let (instances, sources) = self.instances();
-        alloc_with_source(file_id, instances, sources, data, instance)
+        crate::alloc_with_source_entry(instances, sources, data, source)
     }
 }
 

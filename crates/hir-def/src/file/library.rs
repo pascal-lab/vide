@@ -1,10 +1,6 @@
 use la_arena::Idx;
-use syntax::ast;
 
-use crate::{
-    Ident,
-    source_map::{AstId, AstKind, NamedAstId},
-};
+use crate::{Ident, ast_id_map::SourceAstId};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct LibraryDecl {
@@ -13,25 +9,11 @@ pub struct LibraryDecl {
 
 pub type LibraryDeclId = Idx<LibraryDecl>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct LibraryDeclarationAst;
-
-impl AstKind for LibraryDeclarationAst {
-    type Node<'a> = ast::LibraryDeclaration<'a>;
-}
-
-pub type LibraryDeclSrc = NamedAstId<LibraryDeclarationAst>;
+pub type LibraryDeclSrc = SourceAstId;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct LibraryInclude;
 
 pub type LibraryIncludeId = Idx<LibraryInclude>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct LibraryIncludeStatementAst;
-
-impl AstKind for LibraryIncludeStatementAst {
-    type Node<'a> = ast::LibraryIncludeStatement<'a>;
-}
-
-pub type LibraryIncludeSrc = AstId<LibraryIncludeStatementAst>;
+pub type LibraryIncludeSrc = SourceAstId;

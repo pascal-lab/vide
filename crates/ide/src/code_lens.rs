@@ -37,13 +37,14 @@ pub(crate) fn code_lens(db: &RootDb, config: CodeLensConfig, file_id: FileId) ->
     let mut res = Vec::new();
 
     if config.instantiations {
-        process_instantiations(&hir_file, file_id, &mut res);
+        process_instantiations(db, &hir_file, file_id, &mut res);
     }
 
     res
 }
 
 fn process_instantiations(
+    db: &RootDb,
     hir_file: &Lowered<HirFile>,
     file_id: HirFileId,
     res: &mut Vec<CodeLens>,
@@ -53,7 +54,7 @@ fn process_instantiations(
             continue;
         };
 
-        let Some(range) = hir_file.source_range(local_module_id) else {
+        let Some(range) = hir_file.source_range(db, local_module_id) else {
             continue;
         };
         let pos = FilePosition { file_id: file_id.expect_file(), offset: range.start() };
@@ -70,7 +71,7 @@ pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLens
             let hir_file_id = HirFileId::File(file_id);
             let hir_file = sema.db.hir_file_with_source_map(hir_file_id);
             let Some((local_module_id, _)) = hir_file.modules.iter().find(|(id, _)| {
-                hir_file.source_range(*id).is_some_and(|range| range.start() == offset)
+                hir_file.source_range(db, *id).is_some_and(|range| range.start() == offset)
             }) else {
                 *data = Some(Vec::new());
                 return kind;

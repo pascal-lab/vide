@@ -119,7 +119,6 @@ impl dyn HirDefDb + '_ {
         self.body_with_source_map(owner)
     }
 
-
     pub fn subroutine_body_with_source_map(&self, owner: OwnerId) -> Arc<Lowered<Body>> {
         self.body_with_source_map(owner)
     }

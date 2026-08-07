@@ -186,6 +186,7 @@ fn collect_preproc_macro_references(
 macro_rules! collect_container_body {
     ($sema:expr, $cont_id:expr, $tree:expr, $collector:expr, $lowered:expr) => {{
         let sema = $sema;
+        let db = sema.db;
         let cont_id: ArenaOwnerId = $cont_id;
         let tree = $tree;
         let collector = $collector;
@@ -201,7 +202,7 @@ macro_rules! collect_container_body {
         for (_, declaration) in lowered.data_ref().declarations.iter() {
             if let Some(expr_id) = named_data_ty_expr_id(declaration.ty()) {
                 type_expr_ids.insert(expr_id);
-                let Some(range) = lowered.source_range(expr_id) else {
+                let Some(range) = lowered.source_range(db, expr_id) else {
                     continue;
                 };
                 check_range!(collector, range);
@@ -220,7 +221,7 @@ macro_rules! collect_container_body {
             };
             if let Some(expr_id) = named_data_ty_expr_id(ty) {
                 type_expr_ids.insert(expr_id);
-                let Some(range) = lowered.source_range(expr_id) else {
+                let Some(range) = lowered.source_range(db, expr_id) else {
                     continue;
                 };
                 check_range!(collector, range);
@@ -241,12 +242,12 @@ macro_rules! collect_container_body {
             match expr {
                 Expr::Field { .. } => {
                     let _: Option<()> = try {
-                        let expr = lowered.ast(expr_id, tree)?;
+                        let expr = lowered.ast(db, expr_id, tree)?;
                         collect_field_like(sema, cont_id.clone(), expr_id, expr, collector)?;
                     };
                 }
                 Expr::Ident(name) => {
-                    let Some(range) = lowered.source_range(expr_id) else {
+                    let Some(range) = lowered.source_range(db, expr_id) else {
                         continue;
                     };
                     check_range!(collector, range);
@@ -259,7 +260,7 @@ macro_rules! collect_container_body {
         for (decl_id, decl) in lowered.data_ref().decls.iter() {
             let _: Option<()> = try {
                 let name = decl.name.as_ref()?;
-                let range = lowered.source_name_range(decl_id)?;
+                let range = lowered.source_name_range(db, decl_id)?;
                 check_range!(collector, range);
                 collect_ident_like(name, range, collector);
             };
@@ -268,7 +269,7 @@ macro_rules! collect_container_body {
         for (typedef_id, typedef) in lowered.data_ref().typedefs.iter() {
             let _: Option<()> = try {
                 let _name = typedef.name.as_ref()?;
-                let range = lowered.source_name_range(typedef_id)?;
+                let range = lowered.source_name_range(db, typedef_id)?;
                 check_range!(collector, range);
                 collector.tokens.add(SemaToken {
                     range,
@@ -277,7 +278,6 @@ macro_rules! collect_container_body {
                 });
             };
         }
-
     }};
 }
 
@@ -292,7 +292,7 @@ fn collect_file(
     let body = sema.db.file_body_with_source_map(file_id);
 
     for (local_module_id, _) in hir_file.modules.iter() {
-        let Some(range) = lowered.source_range(local_module_id) else {
+        let Some(range) = lowered.source_range(sema.db, local_module_id) else {
             continue;
         };
         check_range!(collector, range);
@@ -327,7 +327,7 @@ fn collect_module(
     port::collect_port(sema, module_id, collector);
 
     for (instance_id, _) in module.instances.iter() {
-        if let Some(range) = lowered.source_name_range(instance_id) {
+        if let Some(range) = lowered.source_name_range(db, instance_id) {
             check_range!(collector, range);
             let sema_token =
                 SemaToken { range, tag: SemaTokenTag::Instance, mods: SemaTokenModifier::empty() };
@@ -343,9 +343,9 @@ fn collect_module(
         module.inst_param_assigns.iter(),
         |assign_id| {
             lowered
-                .ast(assign_id, &tree)
+                .ast(db, assign_id, &tree)
                 .and_then(ast::ParamAssignment::as_named_param_assignment)
-                .zip(lowered.source_name_range(assign_id))
+                .zip(lowered.source_name_range(db, assign_id))
         },
     );
     collect_named_port_connections(
@@ -355,9 +355,9 @@ fn collect_module(
         module.inst_port_conns.iter(),
         |conn_id| {
             lowered
-                .ast(conn_id, &tree)
+                .ast(db, conn_id, &tree)
                 .and_then(ast::PortConnection::as_named_port_connection)
-                .zip(lowered.source_name_range(conn_id))
+                .zip(lowered.source_name_range(db, conn_id))
         },
     );
 
@@ -396,7 +396,7 @@ fn collect_generate_block(
     let body = db.generate_block_body_with_source_map(generate_block_id.clone());
 
     for (instance_id, _) in generate_block.instances.iter() {
-        if let Some(range) = lowered.source_name_range(instance_id) {
+        if let Some(range) = lowered.source_name_range(db, instance_id) {
             check_range!(collector, range);
             let sema_token =
                 SemaToken { range, tag: SemaTokenTag::Instance, mods: SemaTokenModifier::empty() };
@@ -412,9 +412,9 @@ fn collect_generate_block(
         generate_block.inst_param_assigns.iter(),
         |assign_id| {
             lowered
-                .ast(assign_id, &tree)
+                .ast(db, assign_id, &tree)
                 .and_then(ast::ParamAssignment::as_named_param_assignment)
-                .zip(lowered.source_name_range(assign_id))
+                .zip(lowered.source_name_range(db, assign_id))
         },
     );
     collect_named_port_connections(
@@ -424,9 +424,9 @@ fn collect_generate_block(
         generate_block.inst_port_conns.iter(),
         |conn_id| {
             lowered
-                .ast(conn_id, &tree)
+                .ast(db, conn_id, &tree)
                 .and_then(ast::PortConnection::as_named_port_connection)
-                .zip(lowered.source_name_range(conn_id))
+                .zip(lowered.source_name_range(db, conn_id))
         },
     );
 
@@ -449,7 +449,6 @@ fn collect_generate_block(
 
     collect_container_body!(sema, generate_block_id.into(), &tree, collector, &body);
 }
-
 
 fn collect_subroutine(
     sema: &Semantics<'_, RootDb>,

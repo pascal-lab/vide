@@ -58,19 +58,11 @@ pub(crate) macro impl_arena_getters(
 
 pub(crate) macro impl_source_map_getters(
     $container:ty;
-    $($src:ty => $id:ty => $field:ident),* $(,)?
+    $($id:ty => $field:ident),* $(,)?
 ) {
     $(
-        impl utils::get::Get<$src> for $container {
-            type Output = Option<$id>;
-
-            fn get(&self, src: $src) -> Self::Output {
-                utils::get::Get::get(&self.$field, src)
-            }
-        }
-
         impl utils::get::Get<$id> for $container {
-            type Output = Option<$src>;
+            type Output = Option<crate::ast_id_map::SourceAstId>;
 
             fn get(&self, id: $id) -> Self::Output {
                 utils::get::Get::get(&self.$field, id)
@@ -128,15 +120,14 @@ pub(crate) fn lower_package_imports(
         .collect()
 }
 
-pub(crate) fn alloc_with_optional_source_entry<Src, Input, Hir>(
+pub(crate) fn alloc_with_optional_source_entry<Input, Hir>(
     data: &mut Arena<Hir>,
-    sources: &mut crate::source_map::SourceMap<Src, Hir>,
+    sources: &mut crate::source_map::SourceMap<Hir>,
     value: Input,
-    source: Option<Src>,
+    source: Option<crate::ast_id_map::SourceAstId>,
 ) -> Idx<Hir>
 where
     Input: Into<Hir>,
-    Src: crate::source_map::IsSrc,
 {
     let idx = data.alloc(value.into());
     if let Some(source) = source {
@@ -145,31 +136,30 @@ where
     idx
 }
 
-pub(crate) fn alloc_with_source_entry<Src, Input, Hir>(
+pub(crate) fn alloc_with_source_entry<Input, Hir>(
     data: &mut Arena<Hir>,
-    sources: &mut crate::source_map::SourceMap<Src, Hir>,
+    sources: &mut crate::source_map::SourceMap<Hir>,
     value: Input,
-    source: Src,
+    source: crate::ast_id_map::SourceAstId,
 ) -> Idx<Hir>
 where
     Input: Into<Hir>,
-    Src: crate::source_map::IsSrc,
 {
     alloc_with_optional_source_entry(data, sources, value, Some(source))
 }
 
-pub(crate) fn alloc_with_source<'ast, Ast, Input, Hir, Src>(
-    file_id: preproc_expand::file::HirFileId,
+pub(crate) fn alloc_with_source<'ast, Ast, Input, Hir>(
+    ast_ids: &crate::ast_id_map::AstIdMap,
+    tree: &syntax::SyntaxTree,
     data: &mut Arena<Hir>,
-    sources: &mut crate::source_map::SourceMap<Src, Hir>,
+    sources: &mut crate::source_map::SourceMap<Hir>,
     value: Input,
     ast: Ast,
 ) -> Idx<Hir>
 where
     Ast: syntax::ast::AstNode<'ast>,
     Input: Into<Hir>,
-    Src: crate::source_map::FromSourceAst<'ast, Ast> + crate::source_map::IsSrc,
 {
-    let source = crate::source_map::SourceAst::new(file_id, ast).map(Src::from_source_ast);
+    let source = ast_ids.id_of_node_in_tree(tree, ast.syntax());
     alloc_with_optional_source_entry(data, sources, value, source)
 }
