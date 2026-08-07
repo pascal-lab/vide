@@ -12,7 +12,7 @@ use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use crate::{
-    db::PreprocDb,
+    db::{MacroFileQueryKey, PreprocDb, PreprocFileQueryKey},
     preproc::{MacroDefinition, map_macro_definition},
     source_db::{MappedSourcePreprocModel, SourcePreprocQueryError},
 };
@@ -215,10 +215,9 @@ pub fn macro_file_expansion(
 #[salsa::tracked(returns(clone))]
 pub(crate) fn macro_expansion_query(
     db: &dyn PreprocDb,
-    macro_file: MacroFileId,
-    _key: (),
+    key: MacroFileQueryKey,
 ) -> Arc<ExpandResult<ExpansionInfo>> {
-    Arc::new(macro_expansion(db, macro_file))
+    Arc::new(macro_expansion(db, key.macro_file(db)))
 }
 
 fn macro_expansion(db: &dyn PreprocDb, macro_file: MacroFileId) -> ExpandResult<ExpansionInfo> {
@@ -391,12 +390,8 @@ impl TraceIndex {
 }
 
 #[salsa::tracked(returns(clone), lru = 128)]
-pub(crate) fn trace_index_query(
-    db: &dyn PreprocDb,
-    model_file: FileId,
-    _key: (),
-) -> Arc<TraceIndex> {
-    let parsed = db.parsed_compilation_unit(model_file);
+pub(crate) fn trace_index_query(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<TraceIndex> {
+    let parsed = db.parsed_compilation_unit(key.file_id(db));
     match parsed.preprocessor_trace.as_ref() {
         Some(trace) => Arc::new(TraceIndex::new(trace)),
         None => Arc::new(TraceIndex::default()),

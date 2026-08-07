@@ -316,8 +316,11 @@ fn collect_file(
             collector,
         );
     }
-
-    collect_container_body!(sema, file_id.into(), &tree, collector, &lowered);
+    for proc in hir_file.procs.values() {
+        let owner = proc.owner;
+        let body = sema.db.body_with_source_map(owner);
+        collect_container_body!(sema, ArenaOwnerId::Owner(owner), &tree, &mut *collector, &body);
+    }
 }
 
 fn collect_module(
@@ -381,8 +384,11 @@ fn collect_module(
             collector,
         );
     }
-
-    collect_container_body!(sema, module_id.into(), &tree, collector, &lowered);
+    for proc in module.procs.values() {
+        let owner = proc.owner;
+        let body = db.body_with_source_map(owner);
+        collect_container_body!(sema, ArenaOwnerId::Owner(owner), &tree, &mut *collector, &body);
+    }
 }
 
 fn collect_generate_block(

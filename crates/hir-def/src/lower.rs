@@ -32,7 +32,7 @@ use crate::{
     ast_id_map::AstIdMap,
     container::ArenaOwnerId,
     db::HirDefDb,
-    owner::{OwnerId, OwnerSourceMap},
+    owner::{OwnerId, OwnerKind, OwnerTable},
     region_tree::RegionTreeBuilder,
     source_map::{LoweringDiagnostic, LoweringDiagnosticKind, SourceMap},
 };
@@ -217,7 +217,7 @@ pub(crate) struct LoweringCtx<Store> {
     pub(crate) file_id: HirFileId,
     pub(crate) owner: ArenaOwnerId,
     ast_ids: Arc<AstIdMap>,
-    owner_sources: Arc<OwnerSourceMap>,
+    owners: Arc<OwnerTable>,
     pub(crate) store: Store,
     pub(crate) diagnostics: Vec<LoweringDiagnostic>,
     pub(crate) region_tree: RegionTreeBuilder,
@@ -235,7 +235,7 @@ impl<Store> LoweringCtx<Store> {
             file_id,
             owner,
             ast_ids: db.ast_id_map(file_id),
-            owner_sources: db.owner_source_map(file_id),
+            owners: db.owner_table(file_id),
             store,
             diagnostics: Vec::new(),
             region_tree: RegionTreeBuilder::new(),
@@ -243,9 +243,9 @@ impl<Store> LoweringCtx<Store> {
         }
     }
 
-    pub(crate) fn owner_for_node(&self, node: SyntaxNode<'_>) -> Option<OwnerId> {
+    pub(crate) fn owner_for_node(&self, node: SyntaxNode<'_>, kind: OwnerKind) -> Option<OwnerId> {
         let ast_id = self.ast_ids.id_of_node(node)?;
-        self.owner_sources.owner_by_ast(ast_id)
+        self.owners.owner_by_ast(ast_id, kind)
     }
 
     pub(crate) fn module_id(&self) -> ModuleId {

@@ -6,6 +6,7 @@ use hir_def::{
         ModuleId, ModuleSrc,
         generate::{GenerateBlockId, GenerateBlockLoc, GenerateBlockSrc},
     },
+    owner::{OwnerId, OwnerKind},
     source_map::ToAstNode,
     subroutine::{LocalSubroutineId, SubroutineSrc},
 };
@@ -80,9 +81,9 @@ fn block_to_def_inner(
             subroutine.get(local_block_id).block_id.clone()
         }
         ArenaOwnerId::Owner(owner) => {
-            let subroutine = db.subroutine_body_with_source_map(owner);
-            let local_block_id = *subroutine.source_map().block_srcs.get(&block_src)?;
-            subroutine.get(local_block_id).block_id.clone()
+            let body = db.body_with_source_map(owner);
+            let local_block_id = *body.source_map().block_srcs.get(&block_src)?;
+            body.get(local_block_id).block_id.clone()
         }
     };
 
@@ -102,6 +103,10 @@ fn container_to_def(
        ast::BlockStatement[block] => {
            let block_src = BlockSrc::from_ast(file_id, block);
            block_to_def_inner(db, file_id, block, block_src)?.into()
+       },
+       ast::ProceduralBlock[proc] => {
+           let ast_id = db.ast_id_map(file_id).id_of_node(proc.syntax())?;
+           OwnerId::new(db, file_id, ast_id, OwnerKind::ProceduralBlock).into()
        },
        ast::GenerateBlock[block] => {
            let src = GenerateBlockSrc::from_generate_block(block);

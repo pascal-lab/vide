@@ -289,6 +289,18 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
         src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
         line_index,
     );
+    for proc in file.procs.values() {
+        let body = db.body_with_source_map(proc.owner);
+        let body_src_map = body.source_map();
+        folds.collect_docs(&body_src_map.region_tree, line_index);
+        collect_stmt(
+            db,
+            &mut folds,
+            &body.stmts,
+            body_src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
+            line_index,
+        );
+    }
 
     folds
 }
@@ -355,6 +367,18 @@ fn collect_module(
         src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
         line_index,
     );
+    for proc in module.procs.values() {
+        let body = db.body_with_source_map(proc.owner);
+        let body_src_map = body.source_map();
+        folds.collect_docs(&body_src_map.region_tree, line_index);
+        collect_stmt(
+            db,
+            folds,
+            &body.stmts,
+            body_src_map.stmt_srcs.iter().map(|(id, src)| (id, *src)),
+            line_index,
+        );
+    }
 }
 
 fn collect_subroutines(

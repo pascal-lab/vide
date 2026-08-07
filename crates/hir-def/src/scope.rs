@@ -23,7 +23,7 @@ use crate::{
     expr::declarator::{DeclId, Declarator, DeclaratorParent},
     lower_ident_opt,
     module::{
-        Module, PackageId,
+        Module, ModuleId, PackageId,
         clocking::{ClockingBlockId, ClockingSignalId},
         generate::GenerateBlockId,
         port::{PortDeclId, Ports},
@@ -560,23 +560,38 @@ pub(crate) fn build_subroutine_scope(
     scope
 }
 
-pub(crate) fn build_owner_scope(db: &dyn HirDefDb, owner: crate::owner::OwnerId) -> NameScope {
-    assert_eq!(
-        owner.kind(db),
-        crate::owner::OwnerKind::Subroutine,
-        "owner scope only supports subroutines"
-    );
-    let body = db.subroutine_body_with_source_map(owner);
-    let mut scope = NameScope::default();
-    insert_decls_and_typedefs(
-        &mut scope,
-        db,
-        ArenaOwnerId::Owner(owner),
-        &body.decls,
-        &body.typedefs,
-    );
-    insert_stmts(&mut scope, db, ArenaOwnerId::Owner(owner), &body.stmts);
-    scope
+pub(crate) fn build_owner_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope {
+    match owner.kind(db) {
+        OwnerKind::File => build_file_scope(db, owner.file(db)),
+        OwnerKind::Module => ModuleId::from_owner(db, owner)
+            .map(|module_id| build_module_scope(db, module_id))
+            .unwrap_or_default(),
+        OwnerKind::GenerateBlock => GenerateBlockId::from_owner(db, owner)
+            .map(|generate_id| build_generate_block_scope(db, generate_id))
+            .unwrap_or_default(),
+        OwnerKind::Block => crate::block::BlockId::from_owner(db, owner)
+            .map(|block_id| build_block_scope(db, block_id))
+            .unwrap_or_default(),
+        OwnerKind::Subroutine => SubroutineScope::from_owner(db, owner)
+            .map(|subroutine_id| build_subroutine_scope(db, subroutine_id))
+            .unwrap_or_default(),
+        OwnerKind::ProceduralBlock => {
+            let body = db.body_with_source_map(owner);
+            let mut scope = NameScope::default();
+            insert_decls_and_typedefs(
+                &mut scope,
+                db,
+                ArenaOwnerId::Owner(owner),
+                &body.decls,
+                &body.typedefs,
+            );
+            insert_stmts(&mut scope, db, ArenaOwnerId::Owner(owner), &body.stmts);
+            scope
+        }
+        OwnerKind::Checker | OwnerKind::Covergroup | OwnerKind::ClockingBlock => {
+            NameScope::default()
+        }
+    }
 }
 
 fn checker_def(db: &dyn HirDefDb, checker_id: InFileOrModule<CheckerId>) -> CheckerDef {

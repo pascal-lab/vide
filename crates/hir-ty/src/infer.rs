@@ -25,6 +25,13 @@ use crate::{
     ty::{BuiltinTy, Ty, TyResult},
 };
 
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub(crate) struct ExprQueryKey {
+    #[returns(copy)]
+    pub owner: hir_def::owner::OwnerId,
+    #[returns(copy)]
+    pub local: u32,
+}
 pub(crate) fn normalize_data_ty(
     db: &dyn TyDb,
     container: ArenaOwnerId,
@@ -43,19 +50,22 @@ fn normalize_data_ty_with_owner(
 }
 
 #[salsa::tracked(returns(clone))]
-pub(crate) fn type_of_path_resolution_query(
-    db: &dyn TyDb,
-    res: Resolution<DefId>,
-    _key: (),
-) -> Type {
-    type_of_path_resolution_impl(db, res).into()
+pub(crate) fn type_of_def_origin_query(db: &dyn TyDb, origin: hir_def::symbol::DefOrigin) -> Type {
+    let def_id = DefId::new(db, origin.loc(db).clone());
+    type_of_def_id(db, def_id).into()
 }
 
 #[salsa::tracked(returns(clone))]
-pub(crate) fn type_of_expr_query(db: &dyn TyDb, expr: InContainer<ExprId>, _key: ()) -> Type {
+pub(crate) fn type_of_expr_query(db: &dyn TyDb, key: ExprQueryKey) -> Type {
+    let body = db.body_with_source_map(key.owner(db));
+    let (expr_id, _) = body
+        .exprs
+        .iter()
+        .nth(key.local(db) as usize)
+        .expect("expression query key must refer to an expression in its owner body");
+    let expr = InContainer::new(ArenaOwnerId::Owner(key.owner(db)), expr_id);
     type_of_expr_impl(db, expr).into()
 }
-
 fn type_of_typedef_impl(db: &dyn TyDb, typedef: InContainer<TypedefId>) -> TyResult {
     type_of_typedef_inner(db, typedef, &mut FxHashSet::default())
 }
@@ -81,8 +91,7 @@ pub(crate) fn type_of_path_resolution_impl(db: &dyn TyDb, res: Resolution<DefId>
         .map(|def_id| type_of_def_id(db, def_id))
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
 }
-
-fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
+pub(crate) fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
     if def_id.is_non_ansi_port(db) {
         return type_of_non_ansi_port(db, def_id);
     }

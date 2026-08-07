@@ -1,4 +1,5 @@
 use super::{predefines::configured_predefine_definitions_for_name, *};
+use crate::db::PreprocProfileQueryKey;
 
 pub fn macro_references(
     db: &dyn PreprocDb,
@@ -113,10 +114,9 @@ pub(crate) fn build_macro_reference_index(
 #[salsa::tracked(lru = 16, returns(clone))]
 pub(crate) fn macro_reference_index_for_profile_query(
     db: &dyn PreprocDb,
-    profile_id: Option<CompilationProfileId>,
-    _key: (),
+    key: PreprocProfileQueryKey,
 ) -> Arc<MacroReferenceIndex> {
-    Arc::new(build_macro_reference_index(db, profile_id))
+    Arc::new(build_macro_reference_index(db, key.profile_id(db)))
 }
 
 fn collect_macro_references_in_model(

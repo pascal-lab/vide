@@ -592,8 +592,8 @@ pub struct ScopeChain {
 }
 
 impl ScopeChain {
-    pub fn from_inner(scope_id: ScopeId) -> Self {
-        Self { ids: ScopeParent::start_from(scope_id).collect() }
+    pub fn from_inner(db: &dyn HirDefDb, scope_id: ScopeId) -> Self {
+        Self { ids: ScopeParent::start_from(db, scope_id).collect() }
     }
 
     pub fn ids(&self) -> &[ScopeId] {
@@ -610,17 +610,18 @@ impl ScopeChain {
 }
 
 /// Parents of a scope.
-pub struct ScopeParent {
+pub struct ScopeParent<'db> {
+    db: &'db dyn HirDefDb,
     cont_id: Option<ScopeId>,
 }
 
-impl ScopeParent {
-    pub fn start_from(cont_id: ScopeId) -> ScopeParent {
-        ScopeParent { cont_id: Some(cont_id) }
+impl<'db> ScopeParent<'db> {
+    pub fn start_from(db: &'db dyn HirDefDb, cont_id: ScopeId) -> ScopeParent<'db> {
+        ScopeParent { db, cont_id: Some(cont_id) }
     }
 }
 
-impl Iterator for ScopeParent {
+impl Iterator for ScopeParent<'_> {
     type Item = ScopeId;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -633,7 +634,7 @@ impl Iterator for ScopeParent {
             }
             ScopeId::Block(block_id) => Some(block_id.loc().cont_id.clone().into()),
             ScopeId::Subroutine(subroutine) => Some(subroutine.parent_scope()),
-            ScopeId::Owner(_) => None,
+            ScopeId::Owner(owner) => owner.parent(self.db).map(ScopeId::Owner),
             ScopeId::ClockingBlock(clocking_block) => Some(clocking_block.module_id.into()),
             ScopeId::Checker(checker) => Some(checker.parent_scope()),
             ScopeId::Covergroup(covergroup) => Some(covergroup.parent_scope()),

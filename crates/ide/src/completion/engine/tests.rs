@@ -148,6 +148,34 @@ endmodule
 }
 
 #[test]
+fn expected_type_does_not_leak_between_analysis_hosts() {
+    let struct_completion = r#"
+module top;
+  typedef struct {
+    logic [7:0] field;
+  } packet_t;
+  packet_t pkt;
+  initial pkt./*caret*/
+endmodule
+"#;
+    assert!(
+        labels(&completions_in_text(struct_completion, Some(TriggerChar::Dot))).contains(&"field")
+    );
+
+    let assignment_completion = r#"
+module m;
+  logic [7:0] lhs;
+  logic [7:0] same_width;
+  logic [15:0] wrong_width;
+  initial lhs = /*caret*/;
+endmodule
+"#;
+    let items = completions_in_text(assignment_completion, None);
+    assert!(labels(&items).contains(&"same_width"));
+    assert!(!labels(&items).contains(&"wrong_width"), "unexpected completion items: {items:?}");
+}
+
+#[test]
 fn completion_fixtures() {
     insta::glob!("fixtures/*.v", |path| {
         let fixture = load_fixture(path);

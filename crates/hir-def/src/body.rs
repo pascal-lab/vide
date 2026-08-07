@@ -137,7 +137,7 @@ fn lower_procedural_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>
         ArenaOwnerId::Owner(owner),
         BodyStore { data: &mut body, sources: &mut source_map },
     );
-    let root_stmt = ctx.lower_stmt(proc.statement());
+    let root_stmt = ctx.record_stmt(proc.statement());
     let diagnostics = ctx.emit_diagnostics();
     drop(ctx);
     body.root_stmt = Some(root_stmt);

@@ -20,7 +20,7 @@ use crate::{
         generate::{self, GenerateBlock, GenerateBlockId},
     },
     nameres,
-    owner::{self, OwnerId, OwnerSourceMap, OwnerTable},
+    owner::{self, OwnerId, OwnerTable},
     source_map::Lowered,
     source_projection::{self, SourceProjection},
     subroutine::Subroutine,
@@ -58,14 +58,9 @@ impl dyn HirDefDb + '_ {
         owner::owner_table(self, self.syntax_file(file_id))
     }
 
-    /// Current source-side mapping for the file's canonical owners.
-    pub fn owner_source_map(&self, file_id: HirFileId) -> Arc<OwnerSourceMap> {
-        owner::owner_source_map(self, self.syntax_file(file_id))
-    }
-
     /// Current AST identity for one canonical owner.
     pub fn owner_source_ast_id(&self, owner: OwnerId) -> Option<SourceAstId> {
-        owner::owner_source_ast_id(self, owner)
+        Some(owner.ast_id(self))
     }
 
     pub fn body_with_source_map(&self, owner: OwnerId) -> Arc<Lowered<Body>> {
