@@ -1,3 +1,4 @@
+use rustc_hash::FxHashMap;
 use preproc_expand::file::HirFileId;
 use syntax::{SyntaxKind, ptr::SyntaxNodePtr};
 use triomphe::Arc;
@@ -5,11 +6,9 @@ use utils::text_edit::TextRange;
 
 use crate::{ast_id_map::SyntaxFileId, db::HirDefDb, item_tree::ItemTreeId};
 
-/// A source representation of an item in an expanded HIR file.
-///
-/// This is deliberately separate from [`ItemTreeId`]. An item may remain
-/// semantically useful when its syntax node has no stable root-buffer range,
-/// for example when it originates from an include or macro expansion.
+/// Source representation for an item identified by the same [`ItemTreeId`]
+/// used by the semantic item tree. Navigability remains an independent
+/// projection property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceOrigin {
     file_id: HirFileId,
@@ -59,27 +58,23 @@ impl SourceOrigin {
     }
 }
 
-/// Maps ItemTree ids to all source-level information needed by editor
-/// features. The mapping is one-to-one for now, while the value type already
-/// permits a future multi-origin projection without changing callers.
+/// Maps the canonical AST/item identity to editor-facing source data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceProjection {
-    origins: Vec<Option<SourceOrigin>>,
+    origins: FxHashMap<ItemTreeId, SourceOrigin>,
 }
 
 impl SourceProjection {
-    pub(crate) fn new(origins: Vec<Option<SourceOrigin>>) -> Self {
+    pub(crate) fn new(origins: FxHashMap<ItemTreeId, SourceOrigin>) -> Self {
         Self { origins }
     }
 
     pub fn origin(&self, item: ItemTreeId) -> Option<SourceOrigin> {
-        self.origins.get(item.raw() as usize).copied().flatten()
+        self.origins.get(&item).copied()
     }
 
     pub fn origins(&self) -> impl Iterator<Item = (ItemTreeId, SourceOrigin)> + '_ {
-        self.origins.iter().enumerate().filter_map(|(raw, origin)| {
-            origin.map(|origin| (ItemTreeId::from_raw(raw as u32), origin))
-        })
+        self.origins.iter().map(|(id, origin)| (*id, *origin))
     }
 
     pub fn len(&self) -> usize {
@@ -98,7 +93,8 @@ pub(crate) fn source_projection(
 ) -> Arc<SourceProjection> {
     let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
-    Arc::new(crate::item_tree::build_source_projection(file_id, &tree))
+    let ast_ids = crate::ast_id_map::ast_id_map(db, file);
+    Arc::new(crate::item_tree::build_source_projection(file_id, &tree, &ast_ids))
 }
 
 pub(crate) fn set_source_projection_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {

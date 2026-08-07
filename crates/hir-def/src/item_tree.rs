@@ -21,8 +21,7 @@ use crate::{
     source_projection::SourceOrigin,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ItemTreeId(u32);
+pub type ItemTreeId = SourceAstId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SignatureId(u32);
 
@@ -94,15 +93,6 @@ impl Signature {
     }
 }
 
-impl ItemTreeId {
-    pub(crate) const fn from_raw(raw: u32) -> Self {
-        Self(raw)
-    }
-
-    pub(crate) const fn raw(self) -> u32 {
-        self.0
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemTreeItem {
@@ -110,9 +100,6 @@ pub struct ItemTreeItem {
     parent: Option<ItemTreeId>,
     kind: syntax::SyntaxKind,
     name: Option<SmolStr>,
-    /// The item's node in the file's [`AstIdMap`]; `None` only for nodes
-    /// without a root-buffer range (include buffers).
-    ast_id: Option<SourceAstId>,
     signature: Option<SignatureId>,
     header_fingerprint: u64,
 }
@@ -134,9 +121,9 @@ impl ItemTreeItem {
         self.name.as_ref()
     }
 
-    /// Stable per-file id of the item's AST node.
-    pub fn ast_id(&self) -> Option<SourceAstId> {
-        self.ast_id
+    /// Stable source identity of this item.
+    pub fn ast_id(&self) -> SourceAstId {
+        self.id
     }
 
     pub fn signature(&self) -> Option<SignatureId> {
@@ -181,7 +168,7 @@ impl ItemTree {
     }
 
     pub fn item(&self, id: ItemTreeId) -> Option<&ItemTreeItem> {
-        self.items.get(id.raw() as usize)
+        self.items.iter().find(|item| item.id == id)
     }
 
     pub fn signature(&self, id: SignatureId) -> Option<&Signature> {
@@ -221,7 +208,7 @@ pub(crate) fn set_item_tree_lru_capacity(db: &mut dyn HirDefDb, capacity: usize)
 #[salsa::tracked(lru = 256, returns(clone))]
 pub(crate) fn item_for_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<ItemTreeItem> {
     let ast_id = db.owner_source_ast_id(owner)?;
-    db.item_tree(owner.file(db)).items().find(|item| item.ast_id == Some(ast_id)).cloned()
+    db.item_tree(owner.file(db)).items().find(|item| item.id == ast_id).cloned()
 }
 
 #[salsa::tracked(lru = 256, returns(clone))]
@@ -234,22 +221,29 @@ pub(crate) fn signature_for_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<S
 pub(crate) fn build_source_projection(
     file_id: HirFileId,
     tree: &SyntaxTree,
+    ast_ids: &AstIdMap,
 ) -> crate::source_projection::SourceProjection {
     let origins = member_nodes(tree)
         .into_iter()
         .map(|node| {
+            let id = ast_ids
+                .id_of_node_in_tree(tree, node)
+                .expect("every item node has an AST identity");
             let member = ast::Member::cast(node).expect("member node must cast");
             let full_range = node.text_range();
             let source_node = full_range.map(|_| SyntaxNodePtr::from_node(node));
             let (_, focus_range) = item_name(node);
             let focus_range = full_range.and(focus_range);
-            Some(SourceOrigin::new(
-                file_id,
-                source_node,
-                Some(member.syntax().kind()),
-                full_range,
-                focus_range,
-            ))
+            (
+                id,
+                SourceOrigin::new(
+                    file_id,
+                    source_node,
+                    Some(member.syntax().kind()),
+                    full_range,
+                    focus_range,
+                ),
+            )
         })
         .collect();
     crate::source_projection::SourceProjection::new(origins)
@@ -287,13 +281,13 @@ fn build_item_tree(
                 WalkEvent::Enter(SyntaxElement::Node(node))
                     if ast::Member::can_cast(node.kind()) =>
                 {
-                    let id = ItemTreeId::from_raw(items.len() as u32);
+                    let id = ast_ids
+                        .id_of_node_in_tree(tree, node)
+                        .expect("every item node has an AST identity");
                     let (name, _) = item_name(node);
                     let header_range = item_header_range(node);
                     let header_fingerprint =
                         fingerprint(node.kind(), name.as_ref(), header_range, source_text);
-                    let full_range = node.text_range();
-                    let ast_id = full_range.and_then(|_| ast_ids.id_of_node(node));
 
                     let signature = ast::FunctionDeclaration::cast(node).map(|function| {
                         let id = SignatureId::from_raw(signatures.len() as u32);
@@ -306,7 +300,6 @@ fn build_item_tree(
                         parent: parents.last().copied(),
                         kind: node.kind(),
                         name,
-                        ast_id,
                         signature,
                         header_fingerprint,
                     });
@@ -432,6 +425,7 @@ fn fingerprint(
 
 #[cfg(test)]
 mod tests {
+    use rustc_hash::FxHashMap;
     use vfs::FileId;
 
     use super::*;
@@ -488,11 +482,13 @@ mod tests {
     #[test]
     fn source_projection_keeps_non_navigable_items_distinct_from_missing_items() {
         let file_id = HirFileId::File(FileId::from_raw(0));
-        let projection =
-            SourceProjection::new(vec![Some(SourceOrigin::new(file_id, None, None, None, None))]);
+        let item_id = SourceAstId::from_raw(1);
+        let mut origins = FxHashMap::default();
+        origins.insert(item_id, SourceOrigin::new(file_id, None, None, None, None));
+        let projection = SourceProjection::new(origins);
 
         assert_eq!(projection.len(), 1);
-        assert!(!projection.origin(ItemTreeId::from_raw(0)).unwrap().is_navigable());
+        assert!(!projection.origin(item_id).unwrap().is_navigable());
     }
 
     #[test]
@@ -505,7 +501,7 @@ mod tests {
             build_item_tree(file_id, &tree, &ast_ids, Some(text), OwnerTable::default());
 
         for item in item_tree.items() {
-            let ast_id = item.ast_id().expect("root-buffer item must be numbered");
+            let ast_id = item.ast_id();
             let ptr = ast_ids.ptr(ast_id).expect("item ast id must resolve");
             assert_eq!(
                 ptr.kind(),
