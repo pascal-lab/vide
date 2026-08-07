@@ -23,7 +23,7 @@ use crate::{
     owner::{self, OwnerId, OwnerSourceMap, OwnerTable},
     source_map::Lowered,
     source_projection::{self, SourceProjection},
-    subroutine::{self, Subroutine, SubroutineBody},
+    subroutine::Subroutine,
     symbol::NameScope,
 };
 
@@ -116,17 +116,18 @@ impl dyn HirDefDb + '_ {
         module(self, module_id)
     }
 
-    pub fn block_with_source_map(&self, block_id: BlockId) -> Arc<Lowered<Block>> {
+    pub fn block_with_source_map(&self, block_id: BlockId) -> Arc<Lowered<Body>> {
         let owner = block_id.owner(self).expect("block id must resolve to an owner");
-        block::block_with_source_map(self, owner)
+        self.body_with_source_map(owner)
     }
 
     pub fn block(&self, block_id: BlockId) -> Arc<Block> {
-        block(self, block_id)
+        let owner = block_id.owner(self).expect("block id must resolve to an owner");
+        block::block_data(self, owner)
     }
 
-    pub fn subroutine_body_with_source_map(&self, owner: OwnerId) -> Arc<Lowered<SubroutineBody>> {
-        subroutine::subroutine_body_with_source_map(self, owner)
+    pub fn subroutine_body_with_source_map(&self, owner: OwnerId) -> Arc<Lowered<Body>> {
+        self.body_with_source_map(owner)
     }
 
     pub fn subroutine(&self, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
@@ -207,10 +208,6 @@ fn module(db: &dyn HirDefDb, module_id: ModuleId) -> Arc<Module> {
     db.module_with_source_map(module_id).data()
 }
 
-fn block(db: &dyn HirDefDb, block_id: BlockId) -> Arc<Block> {
-    db.block_with_source_map(block_id).data()
-}
-
 fn subroutine(db: &dyn HirDefDb, subroutine_id: SubroutineScope) -> Arc<Subroutine> {
     match subroutine_id.cont_id {
         crate::container::SubroutineParent::File(file_id) => {
@@ -242,5 +239,4 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     module::generate::set_generate_block_lru_capacity(db, capacity);
     nameres::set_scope_lru_capacity(db, capacity);
     source_projection::set_source_projection_lru_capacity(db, capacity);
-    subroutine::set_subroutine_lru_capacity(db, capacity);
 }

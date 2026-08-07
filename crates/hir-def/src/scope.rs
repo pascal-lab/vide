@@ -516,16 +516,17 @@ pub(crate) fn build_generate_block_scope(
 
 pub(crate) fn build_block_scope(db: &dyn HirDefDb, block_id: crate::block::BlockId) -> NameScope {
     let mut scope = NameScope::default();
-    let block = db.block(block_id.clone());
+    let owner = block_id.clone().owner(db).expect("block must map to an owner");
+    let body = db.body_with_source_map(owner);
 
     insert_decls_and_typedefs(
         &mut scope,
         db,
-        block_id.clone().into(),
-        &block.decls,
-        &block.typedefs,
+        ArenaOwnerId::Owner(owner),
+        &body.decls,
+        &body.typedefs,
     );
-    insert_stmts(&mut scope, db, block_id.into(), &block.stmts);
+    insert_stmts(&mut scope, db, ArenaOwnerId::Owner(owner), &body.stmts);
 
     scope
 }

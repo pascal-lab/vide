@@ -372,6 +372,7 @@ fn collect_module_items(db: &dyn TyDb, module_id: ModuleId, collector: &mut Symb
 }
 
 fn collect_block_items(db: &dyn TyDb, collector: &mut SymbolCollector, block_id: BlockId) {
+    let header = db.block(block_id.clone());
     let lowered = db.block_with_source_map(block_id.clone());
     let block = lowered.data_ref();
     let src_map = lowered.source_map();
@@ -381,7 +382,7 @@ fn collect_block_items(db: &dyn TyDb, collector: &mut SymbolCollector, block_id:
         return;
     };
     collector.push_symbol_with_children(
-        &block.name,
+        &header.name,
         block_src,
         block.decls.len() + block.items.len(),
     );

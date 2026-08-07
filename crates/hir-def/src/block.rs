@@ -1,12 +1,7 @@
-use std::ops::{Deref, DerefMut};
-
 use la_arena::Arena;
-use rustc_hash::FxHashMap;
 use syntax::{
     TokenKind,
     ast::{self, AstNode},
-    match_ast,
-    ptr::SyntaxNodePtr,
 };
 use triomphe::Arc;
 use utils::{
@@ -16,129 +11,22 @@ use utils::{
 
 use super::{
     Ident,
-    aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
-    alloc_with_source,
-    declaration::{Declaration, DeclarationId, DeclarationSrc},
-    expr::{
-        Expr, ExprId, ExprSrc,
-        declarator::{DeclId, Declarator, DeclaratorSrc},
-        timing_control::{EventExpr, EventExprId, EventExprSrc},
-    },
-    lower::{BlockStore, LoweringCtx},
-    lower_ident_opt,
     stmt::{Stmt, StmtId, StmtKind, StmtSrc},
-    typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    body::{Body, BodySourceMap},
+    aggregate::StructId,
     container::{ArenaOwnerId, InFile},
     db::HirDefDb,
+    declaration::DeclarationId,
     owner::{OwnerId, OwnerKind},
-    region_tree::RegionTree,
-    source_map::{
-        AstKind, DiagnosticSource, IsNamedSrc, IsSrc, Lowered, LoweredData, LoweringDiagnostic,
-        NamedAstId, SourceMap,
-    },
+    source_map::{AstKind, IsNamedSrc, IsSrc, NamedAstId, SourceMap},
+    typedef::TypedefId,
 };
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct Block {
     pub name: Option<Ident>,
     pub kind: BlockKind,
-    pub body: Body,
-}
-
-impl Deref for Block {
-    type Target = Body;
-
-    fn deref(&self) -> &Self::Target {
-        &self.body
-    }
-}
-
-impl DerefMut for Block {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.body
-    }
-}
-
-impl Block {
-    pub fn shrink_to_fit(&mut self) {
-        self.body.shrink_to_fit();
-    }
-}
-
-#[derive(Default, Debug, PartialEq, Eq)]
-pub struct BlockSourceMap {
-    pub region_tree: RegionTree,
-    pub body: BodySourceMap,
-    pub diagnostics: Vec<LoweringDiagnostic>,
-    pub block_srcs: FxHashMap<BlockSrc, LocalBlockId>,
-}
-
-impl Deref for BlockSourceMap {
-    type Target = BodySourceMap;
-
-    fn deref(&self) -> &Self::Target {
-        &self.body
-    }
-}
-
-impl DerefMut for BlockSourceMap {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.body
-    }
-}
-
-impl LoweredData for Block {
-    type SourceMap = BlockSourceMap;
-}
-
-impl DiagnosticSource for BlockSourceMap {
-    fn diagnostics(&self) -> &[LoweringDiagnostic] {
-        &self.diagnostics
-    }
-}
-
-impl BlockSourceMap {
-    pub fn shrink_to_fit(&mut self) {
-        self.body.shrink_to_fit();
-    }
-}
-
-crate::impl_arena_getters!(
-    Block;
-    DeclarationId => declarations => Declaration,
-    TypedefId => typedefs => Typedef,
-    StructId => structs => StructDef,
-    ExprId => exprs => Expr,
-    EventExprId => event_exprs => EventExpr,
-    DeclId => decls => Declarator,
-    StmtId => stmts => Stmt,
-    LocalBlockId => stmts => BlockInfo,
-);
-
-crate::impl_source_map_getters!(
-    BlockSourceMap;
-    DeclarationSrc => DeclarationId => declaration_srcs,
-    TypedefSrc => TypedefId => typedef_srcs,
-    StructSrc => StructId => struct_srcs,
-    ExprSrc => ExprId => expr_srcs,
-    EventExprSrc => EventExprId => event_expr_srcs,
-    DeclaratorSrc => DeclId => decl_srcs,
-    StmtSrc => StmtId => stmt_srcs,
-    BlockSrc => LocalBlockId => stmt_srcs,
-);
-
-impl BlockSourceMap {
-    pub fn item_to_ptr(&self, item: &BlockItem) -> Option<SyntaxNodePtr> {
-        Some(match item {
-            BlockItem::DeclarationId(idx) => self.get(*idx)?.ptr(),
-            BlockItem::TypedefId(idx) => self.get(*idx)?.ptr(),
-            BlockItem::StructId(idx) => self.get(*idx)?.node,
-            BlockItem::StmtId(idx) => self.get(*idx)?.node,
-        })
-    }
 }
 
 #[derive(Default, Debug, PartialEq, Eq, Clone, Hash)]
@@ -277,121 +165,30 @@ pub struct BlockLoc {
     pub src: InFile<BlockSrc>,
 }
 
-pub(crate) type LowerBlockCtx<'a> = LoweringCtx<BlockStore<'a>>;
-
-impl LowerBlockCtx<'_> {
-    fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
-        let container_id = ArenaOwnerId::Block(self.block_id());
-        let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
-
-        alloc_with_source(
-            self.file_id,
-            &mut self.store.data.structs,
-            &mut self.store.sources.struct_srcs,
-            struct_def,
-            struct_ty,
-        )
-    }
-
-    fn lower_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
-        let name = lower_ident_opt(typedef.name());
-
-        let typedef_id = alloc_with_source(
-            self.file_id,
-            &mut self.store.data.typedefs,
-            &mut self.store.sources.typedef_srcs,
-            Typedef { name, ty: None },
-            typedef,
-        );
-
-        let data_ty = typedef.type_();
-        let lowered_ty = lower_typedef_data_ty(
-            self,
-            data_ty,
-            ArenaOwnerId::Block(self.block_id()),
-            |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
-            |ctx, ty| ctx.lower_data_ty(ty),
-        );
-
-        self.store.data.typedefs[typedef_id].ty = Some(lowered_ty);
-
-        typedef_id
-    }
-
-    pub(crate) fn lower_block(&mut self, block: ast::BlockStatement) {
-        // TODO: label? end_block_name?
-        self.store.data.name = block.block_name().and_then(|name| lower_ident_opt(name.name()));
-        self.store.data.kind = match block.end().map(|end| end.kind()) {
-            Some(TokenKind::JOIN_KEYWORD) => BlockKind::Parallel(ParBlockKind::Join),
-            Some(TokenKind::JOIN_ANY_KEYWORD) => BlockKind::Parallel(ParBlockKind::JoinAny),
-            Some(TokenKind::JOIN_NONE_KEYWORD) => BlockKind::Parallel(ParBlockKind::JoinNone),
-            _ => BlockKind::Sequential, // Some(TokenKind::END_KEYWORD) | None | Others
-        };
-
-        for node in block.items().children() {
-            let idx = match_ast! { node.syntax(),
-                ast::Statement[it] => {
-                    let stmt_id = self.lower_stmt(it);
-                    if let Some(block_stmt) = it.as_block_statement() {
-                        let block_src = BlockSrc::from_ast(self.file_id, block_stmt);
-                        let local_block_id = LocalBlockId(stmt_id);
-                        self.store.sources.block_srcs.insert(block_src, local_block_id);
-                    }
-                    stmt_id.into()
-                },
-                ast::DataDeclaration[it] => self.lower_data_decl(it).into(),
-                ast::ParameterDeclarationStatement[it] => {
-                    self.lower_param_decl_base(it.parameter()).into()
-                },
-                ast::TypedefDeclaration[it] => self.lower_typedef(it).into(),
-                _ => continue,
-            };
-            self.store.data.items.push(idx);
-            self.region_tree.handle_node(node.syntax());
-        }
-
-        self.store.sources.region_tree = self.region_tree.finish();
-    }
-}
-
 #[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn block_with_source_map(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Block>> {
+pub(crate) fn block_data(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Block> {
     debug_assert_eq!(owner.kind(db), OwnerKind::Block);
     let file_id = owner.file(db);
     let tree = db.parse(file_id);
-
-    let mut block = Block::default();
-    let mut block_source_map = BlockSourceMap::default();
-    let Some(ast_block) = db
+    let Some(block) = db
         .owner_source_ast_id(owner)
         .and_then(|ast_id| db.ast_id_map(file_id).ptr(ast_id))
         .and_then(|ptr| ptr.to_node(&tree))
         .and_then(ast::BlockStatement::cast)
     else {
-        return Arc::new(Lowered::new(block, block_source_map));
+        return Arc::new(Block::default());
     };
-    let parent = owner.parent(db).expect("block owner must have a parent");
-    let block_id = BlockId::new(BlockLoc {
-        cont_id: ArenaOwnerId::Owner(parent),
-        src: InFile::new(file_id, BlockSrc::from_ast(file_id, ast_block)),
-    });
 
-    let mut lower_ctx = LoweringCtx::new(
-        db,
-        file_id,
-        block_id.into(),
-        BlockStore { data: &mut block, sources: &mut block_source_map },
-    );
-    lower_ctx.lower_block(ast_block);
-    let diagnostics = lower_ctx.emit_diagnostics();
-    drop(lower_ctx);
-    block_source_map.diagnostics = diagnostics;
-
-    block.shrink_to_fit();
-    block_source_map.shrink_to_fit();
-    Arc::new(Lowered::new(block, block_source_map))
+    let name = block.block_name().and_then(|name| crate::lower_ident_opt(name.name()));
+    let kind = match block.end().map(|end| end.kind()) {
+        Some(TokenKind::JOIN_KEYWORD) => BlockKind::Parallel(ParBlockKind::Join),
+        Some(TokenKind::JOIN_ANY_KEYWORD) => BlockKind::Parallel(ParBlockKind::JoinAny),
+        Some(TokenKind::JOIN_NONE_KEYWORD) => BlockKind::Parallel(ParBlockKind::JoinNone),
+        _ => BlockKind::Sequential,
+    };
+    Arc::new(Block { name, kind })
 }
 
 pub(crate) fn set_block_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
-    block_with_source_map::set_lru_capacity(db, capacity);
+    block_data::set_lru_capacity(db, capacity);
 }
