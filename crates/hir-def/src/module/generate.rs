@@ -1,38 +1,26 @@
-use la_arena::{Arena, Idx};
+use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::{
     SyntaxToken,
     ast::{self, AstNode},
 };
 use triomphe::Arc;
-use utils::define_enum_deriving_from;
 
-use super::{
-    LowerModuleCtx,
-    continuous_assign::{ContAssign, ContAssignId, ContAssignSrc},
-    defparam::{DefParam, DefParamId, DefParamSrc},
-    instantiation::{
-        Instance, InstanceId, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc,
-        ParamAssign, ParamAssignId, ParamAssignSrc, PortConn, PortConnId, PortConnSrc,
-    },
-};
+use super::LowerModuleCtx;
 use crate::{
     Ident,
     aggregate::{StructId, lower_struct_def},
     alloc_with_source,
     ast_id_map::SourceAstId,
-    body::{Body, BodySourceMap, OwnerLowering},
+    body::{Body, BodyItem, BodySourceMap},
     container::{ArenaOwnerId, InFile},
     db::HirDefDb,
-    declaration::DeclarationId,
     expr::ExprId,
     lower::{GenerateBlockStore, LoweringCtx},
     lower_ident_opt,
     owner::{OwnerId, OwnerKind},
-    proc::{Proc, ProcId},
-    region_tree::RegionTree,
-    source_map::{DiagnosticSource, Lowered, LoweredData, LoweringDiagnostic, SourceMap},
-    subroutine::{LocalSubroutineId, Subroutine, lower_subroutine},
+    source_map::Lowered,
+    subroutine::{LocalSubroutineId, lower_subroutine},
     typedef::{Typedef, TypedefId, lower_typedef_data_ty},
 };
 
@@ -63,123 +51,10 @@ pub(crate) fn generate_block_name(block: ast::GenerateBlock<'_>) -> Option<Synta
         .or_else(|| block.begin_name().and_then(|name| name.name()))
 }
 
-#[derive(Default, Debug, PartialEq, Eq)]
-pub struct GenerateBlock {
-    pub name: Option<Ident>,
-    pub kind: GenerateBlockKind,
-    pub items: Vec<GenerateBlockItem>,
-    pub cont_assigns: Arena<ContAssign>,
-    pub defparams: Arena<DefParam>,
-    pub subroutines: Arena<Subroutine>,
-    pub instantiations: Arena<Instantiation>,
-    pub inst_param_assigns: Arena<ParamAssign>,
-    pub instances: Arena<Instance>,
-    pub inst_port_conns: Arena<PortConn>,
-    pub procs: Arena<Proc>,
-}
-impl GenerateBlock {
-    pub fn shrink_to_fit(&mut self) {
-        self.cont_assigns.shrink_to_fit();
-        self.defparams.shrink_to_fit();
-        self.subroutines.shrink_to_fit();
-        self.instantiations.shrink_to_fit();
-        self.inst_param_assigns.shrink_to_fit();
-        self.instances.shrink_to_fit();
-        self.inst_port_conns.shrink_to_fit();
-        self.procs.shrink_to_fit();
-    }
-}
-
-#[derive(Default, Debug, PartialEq, Eq)]
-pub struct GenerateBlockSourceMap {
-    pub region_tree: RegionTree,
-    pub assign_srcs: SourceMap<ContAssign>,
-    pub defparam_srcs: SourceMap<DefParam>,
-    pub subroutine_srcs: SourceMap<Subroutine>,
-    pub instantiation_srcs: SourceMap<Instantiation>,
-    pub inst_param_assign_srcs: SourceMap<ParamAssign>,
-    pub instance_srcs: SourceMap<Instance>,
-    pub inst_port_conn_srcs: SourceMap<PortConn>,
-    pub proc_srcs: SourceMap<Proc>,
-    pub diagnostics: Vec<LoweringDiagnostic>,
-}
-impl LoweredData for GenerateBlock {
-    type SourceMap = GenerateBlockSourceMap;
-}
-
-impl DiagnosticSource for GenerateBlockSourceMap {
-    fn diagnostics(&self) -> &[LoweringDiagnostic] {
-        &self.diagnostics
-    }
-}
-
-impl GenerateBlockSourceMap {
-    pub fn shrink_to_fit(&mut self) {
-        self.assign_srcs.shrink_to_fit();
-        self.defparam_srcs.shrink_to_fit();
-        self.subroutine_srcs.shrink_to_fit();
-        self.instantiation_srcs.shrink_to_fit();
-        self.inst_param_assign_srcs.shrink_to_fit();
-        self.instance_srcs.shrink_to_fit();
-        self.inst_port_conn_srcs.shrink_to_fit();
-        self.proc_srcs.shrink_to_fit();
-        self.diagnostics.shrink_to_fit();
-    }
-}
-
-crate::impl_arena_getters!(
-    GenerateBlock;
-    ContAssignId => cont_assigns => ContAssign,
-    DefParamId => defparams => DefParam,
-    LocalSubroutineId => subroutines => Subroutine,
-    InstantiationId => instantiations => Instantiation,
-    ParamAssignId => inst_param_assigns => ParamAssign,
-    InstanceId => instances => Instance,
-    PortConnId => inst_port_conns => PortConn,
-    ProcId => procs => Proc,
-);
-
-crate::impl_source_map_getters!(
-    GenerateBlockSourceMap;
-    ContAssignId => assign_srcs,
-    DefParamId => defparam_srcs,
-    LocalSubroutineId => subroutine_srcs,
-    InstantiationId => instantiation_srcs,
-    ParamAssignId => inst_param_assign_srcs,
-    InstanceId => instance_srcs,
-    PortConnId => inst_port_conn_srcs,
-    ProcId => proc_srcs,
-);
-
-define_enum_deriving_from! {
-    #[derive(Debug, PartialEq, Eq, Clone)]
-    pub enum GenerateItem {
-        ContAssignId(ContAssignId),
-        DefParamId(DefParamId),
-        GenerateBlockId(GenerateBlockId),
-        DeclarationId(DeclarationId),
-        StructId(StructId),
-        InstantiationId(InstantiationId),
-        ProcId(ProcId),
-        TypedefId(TypedefId),
-        SubroutineId(LocalSubroutineId),
-    }
-}
-
-define_enum_deriving_from! {
-    #[derive(Debug, PartialEq, Eq, Clone)]
-    pub enum GenerateBlockItem {
-        ContAssignId(ContAssignId),
-        DefParamId(DefParamId),
-        GenerateBlockId(GenerateBlockId),
-        DeclarationId(DeclarationId),
-        StructId(StructId),
-        InstantiationId(InstantiationId),
-        ProcId(ProcId),
-        TypedefId(TypedefId),
-        SubroutineId(LocalSubroutineId),
-    }
-}
+pub type GenerateBlock = Body;
+pub type GenerateBlockSourceMap = BodySourceMap;
+pub type GenerateItem = BodyItem;
+pub type GenerateBlockItem = BodyItem;
 
 #[derive(Default, Debug, PartialEq, Eq, Clone, Hash)]
 pub enum GenerateBlockKind {
@@ -222,8 +97,8 @@ impl LowerGenerateBlockCtx<'_> {
         alloc_with_source(
             &self.ast_ids,
             &self.tree,
-            &mut self.store.body.structs,
-            &mut self.store.body_sources.struct_srcs,
+            &mut self.store.data.structs,
+            &mut self.store.sources.struct_srcs,
             struct_def,
             struct_ty,
         )
@@ -235,8 +110,8 @@ impl LowerGenerateBlockCtx<'_> {
         let typedef_id = alloc_with_source(
             &self.ast_ids,
             &self.tree,
-            &mut self.store.body.typedefs,
-            &mut self.store.body_sources.typedef_srcs,
+            &mut self.store.data.typedefs,
+            &mut self.store.sources.typedef_srcs,
             Typedef { name, ty: None },
             typedef,
         );
@@ -251,7 +126,7 @@ impl LowerGenerateBlockCtx<'_> {
             |ctx, ty| ctx.lower_data_ty(ty),
         );
 
-        self.store.body.typedefs[typedef_id].ty = Some(lowered_ty);
+        self.store.data.typedefs[typedef_id].ty = Some(lowered_ty);
 
         typedef_id
     }
@@ -394,7 +269,7 @@ impl LowerGenerateBlockCtx<'_> {
     fn lower_generate_block(&mut self, block: ast::GenerateBlock) {
         self.store.data.name =
             generate_block_name(block).and_then(|name| lower_ident_opt(Some(name)));
-        self.store.data.kind = GenerateBlockKind::Block;
+        self.store.data.generate_kind = GenerateBlockKind::Block;
 
         for member in block.members().children() {
             let Some(item) = self.lower_generate_member(member) else {
@@ -417,7 +292,7 @@ impl LowerGenerateBlockCtx<'_> {
         let initial = self.lower_expr(loop_generate.initial_expr());
         let stop = self.lower_expr(loop_generate.stop_expr());
         let iteration = self.lower_expr(loop_generate.iteration_expr());
-        self.store.data.kind = GenerateBlockKind::Loop {
+        self.store.data.generate_kind = GenerateBlockKind::Loop {
             genvar: lower_ident_opt(loop_generate.identifier()),
             initial,
             stop,
@@ -612,19 +487,17 @@ impl LowerModuleCtx<'_> {
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
-fn generate_block_lowering(db: &dyn HirDefDb, owner: OwnerId) -> Arc<OwnerLowering<GenerateBlock>> {
+pub(crate) fn generate_block_with_source_map(
+    db: &dyn HirDefDb,
+    owner: OwnerId,
+) -> Arc<Lowered<GenerateBlock>> {
     debug_assert_eq!(owner.kind(db), OwnerKind::GenerateBlock);
     let file_id = owner.file(db);
     let tree = db.parse(file_id);
     let Some(node) = db.ast_id_map(file_id).node(owner.ast_id(db), &tree) else {
-        return Arc::new(OwnerLowering::new(
-            file_id,
-            GenerateBlock::default(),
-            GenerateBlockSourceMap::default(),
-            Body::default(),
-            BodySourceMap::default(),
-        ));
+        return Arc::new(Lowered::new(file_id, Body::default(), BodySourceMap::default()));
     };
+
     enum SourceKind {
         GenerateBlock,
         LoopGenerate,
@@ -640,74 +513,34 @@ fn generate_block_lowering(db: &dyn HirDefDb, owner: OwnerId) -> Arc<OwnerLoweri
         unreachable!("generate owner must point to generate syntax")
     };
 
-    let mut generate_block = GenerateBlock::default();
-    let mut generate_block_source_map = GenerateBlockSourceMap::default();
     let mut body = Body::default();
-    let mut body_source_map = BodySourceMap::default();
+    let mut source_map = BodySourceMap::default();
     let mut lower_ctx = LoweringCtx::new(
         db,
         owner,
-        GenerateBlockStore {
-            data: &mut generate_block,
-            sources: &mut generate_block_source_map,
-            body: &mut body,
-            body_sources: &mut body_source_map,
-        },
+        GenerateBlockStore { data: &mut body, sources: &mut source_map },
     );
 
     match source_kind {
-        SourceKind::GenerateBlock => {
-            lower_ctx.lower_generate_block(
-                ast::GenerateBlock::cast(node).expect("generate owner kind was checked"),
-            );
-        }
-        SourceKind::LoopGenerate => {
-            lower_ctx.lower_loop_generate(
-                ast::LoopGenerate::cast(node).expect("loop-generate owner kind was checked"),
-            );
-        }
-        SourceKind::SingleMember => {
-            lower_ctx.lower_single_member(
-                ast::Member::cast(node).expect("single-member owner kind was checked"),
-            );
-        }
+        SourceKind::GenerateBlock => lower_ctx.lower_generate_block(
+            ast::GenerateBlock::cast(node).expect("generate owner kind was checked"),
+        ),
+        SourceKind::LoopGenerate => lower_ctx.lower_loop_generate(
+            ast::LoopGenerate::cast(node).expect("loop-generate owner kind was checked"),
+        ),
+        SourceKind::SingleMember => lower_ctx.lower_single_member(
+            ast::Member::cast(node).expect("single-member owner kind was checked"),
+        ),
     }
 
     let diagnostics = lower_ctx.emit_diagnostics();
     drop(lower_ctx);
-    generate_block_source_map.diagnostics = diagnostics.clone();
-    body_source_map.diagnostics = diagnostics;
-    generate_block.shrink_to_fit();
-    generate_block_source_map.shrink_to_fit();
+    source_map.diagnostics = diagnostics;
     body.shrink_to_fit();
-    body_source_map.shrink_to_fit();
-    Arc::new(OwnerLowering::new(
-        file_id,
-        generate_block,
-        generate_block_source_map,
-        body,
-        body_source_map,
-    ))
-}
-
-#[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn generate_block_with_source_map(
-    db: &dyn HirDefDb,
-    owner: OwnerId,
-) -> Arc<Lowered<GenerateBlock>> {
-    generate_block_lowering(db, owner).structure.clone()
-}
-
-#[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn generate_block_body_with_source_map(
-    db: &dyn HirDefDb,
-    owner: OwnerId,
-) -> Arc<Lowered<Body>> {
-    generate_block_lowering(db, owner).body.clone()
+    source_map.shrink_to_fit();
+    Arc::new(Lowered::new(file_id, body, source_map))
 }
 
 pub(crate) fn set_generate_block_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
-    generate_block_lowering::set_lru_capacity(db, capacity);
     generate_block_with_source_map::set_lru_capacity(db, capacity);
-    generate_block_body_with_source_map::set_lru_capacity(db, capacity);
 }
