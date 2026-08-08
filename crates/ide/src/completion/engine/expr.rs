@@ -103,8 +103,7 @@ fn container_id_at_offset(
 }
 
 fn collect_container_names(db: &RootDb, owner: OwnerId, names: &mut BTreeMap<String, NameKind>) {
-    let graph = db.scope_graph();
-    let scope = graph.scope(owner);
+    let scope = db.scope(owner);
     for (ident, defs) in scope.iter_listing() {
         collect_def_names(db, ident, defs, names);
     }

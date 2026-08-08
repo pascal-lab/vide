@@ -64,11 +64,12 @@ fn visible_typedefs_in_module_header(db: &RootDb, position: FilePosition) -> Vec
         return Vec::new();
     };
 
+    let unit_scope = db.unit_scope();
+    let module_scope = db.scope(module_id);
     let mut names: Vec<String> =
-        db.scope_graph().unit_scope().typedef_names(db).map(|ident| ident.to_string()).collect();
+        unit_scope.typedef_names(db).map(|ident| ident.to_string()).collect();
 
-    names
-        .extend(db.scope_graph().scope(module_id).typedef_names(db).map(|ident| ident.to_string()));
+    names.extend(module_scope.typedef_names(db).map(|ident| ident.to_string()));
 
     names.sort();
     names.dedup();
@@ -94,9 +95,7 @@ fn complete_non_ansi_port_list(
     let Some(module_id) = sema.module_to_def(file_id, module) else {
         return Vec::new();
     };
-
-    let graph = db.scope_graph();
-    let scope = graph.scope(module_id);
+    let scope = db.scope(module_id);
     scope
         .iter_listing()
         .filter_map(|(ident, defs)| {

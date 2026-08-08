@@ -155,8 +155,7 @@ fn resolve_named_port_in_module(
     port_name: &Ident,
 ) -> Resolution<DefId> {
     Resolution::from_candidates(
-        db.scope_graph()
-            .scope(module_id)
+        db.scope(module_id)
             .lookup(NameContext::Value, port_name)
             .into_candidates()
             .into_iter()
@@ -221,8 +220,7 @@ pub(crate) fn resolve_port_metadata<'a>(
     origins.extend(defs.iter().cloned());
 
     if let Some(port_id) = defs.iter().find_map(|origin| origin.as_non_ansi_port(db)) {
-        let graph = db.scope_graph();
-        let scope = graph.scope(port_id.cont_id);
+        let scope = db.scope(port_id.cont_id);
         if let Some(refs) = module.get(port_id.value).refs.clone() {
             for ref_id in refs {
                 let Some(name) = module.get(ref_id).ident.as_ref() else {
@@ -277,7 +275,7 @@ pub(crate) fn resolve_named_param_in_module(
     module_id: OwnerId,
     param_name: &Ident,
 ) -> Resolution<DefId> {
-    let defs = db.scope_graph().scope(module_id).lookup(NameContext::Value, param_name);
+    let defs = db.scope(module_id).lookup(NameContext::Value, param_name);
     let body = db.body_with_source_map(module_id);
 
     Resolution::from_candidates(defs.into_candidates().into_iter().filter(|def_id| {

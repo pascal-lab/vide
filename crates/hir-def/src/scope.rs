@@ -1,6 +1,5 @@
 use la_arena::Arena;
 use preproc_expand::file::HirFileId;
-use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use triomphe::Arc;
 use utils::get::GetRef;
@@ -20,7 +19,7 @@ use crate::{
     owner::{OwnerId, OwnerKind},
     stmt::StmtKind,
     subroutine::SubroutinePortId,
-    symbol::{DefOriginLoc, Import, NameContext, Resolution, ScopeData},
+    symbol::{DefOriginLoc, Import, NameContext, ScopeData},
 };
 
 // SystemVerilog has separate namespaces. This scope stores current supported
@@ -37,68 +36,50 @@ fn owner_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
     DefId::from_owner(db, owner).expect("owner must have a named definition origin")
 }
 
-/// Structural lexical scope graph.
+/// A database-bound view over independently memoized lexical scopes.
 ///
-/// `ScopeData` stores declarations for one owner. `ScopeGraph` owns the
-/// parent relation and performs nearest-scope lookup without exposing
-/// per-owner Salsa queries to callers.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct ScopeGraph {
-    scopes: FxHashMap<OwnerId, ScopeData>,
-    parents: FxHashMap<OwnerId, Option<OwnerId>>,
-    unit: ScopeData,
+/// The view itself is not a Salsa query. `scope()` is keyed by one owner and
+/// `unit_scope()` is the only intentionally workspace-wide query.
+pub struct ScopeGraph<'db> {
+    db: &'db dyn HirDefDb,
 }
 
-impl ScopeGraph {
-    pub fn scope(&self, owner: OwnerId) -> &ScopeData {
-        self.scopes.get(&owner).expect("scope graph must contain every owner")
+impl<'db> ScopeGraph<'db> {
+    pub(crate) fn new(db: &'db dyn HirDefDb) -> Self {
+        Self { db }
     }
 
-    pub fn unit_scope(&self) -> &ScopeData {
-        &self.unit
+    pub fn scope(&self, owner: OwnerId) -> Arc<ScopeData> {
+        scope_for(self.db, owner)
     }
 
-    pub fn lookup(&self, owner: OwnerId, ctx: NameContext, ident: &SmolStr) -> Resolution<DefId> {
-        let mut current = Some(owner);
-        let mut visited = FxHashMap::default();
-        while let Some(scope_owner) = current {
-            if visited.insert(scope_owner, ()).is_some() {
-                panic!("scope graph contains a parent cycle at {scope_owner:?}");
-            }
-            let resolution = self.scope(scope_owner).lookup(ctx, ident);
-            if !resolution.is_unresolved() {
-                return resolution;
-            }
-            current = self.parents.get(&scope_owner).copied().flatten();
-        }
-        self.unit.lookup(ctx, ident)
+    pub fn unit_scope(&self) -> Arc<ScopeData> {
+        unit_scope(self.db)
     }
 }
 
+/// Builds one lexical scope and invalidates only when that owner changes.
 #[salsa::tracked(lru = 128, returns(clone))]
-pub fn scope_graph(db: &dyn HirDefDb) -> Arc<ScopeGraph> {
-    let mut graph = ScopeGraph::default();
+pub fn scope_for(db: &dyn HirDefDb, owner: OwnerId) -> Arc<ScopeData> {
+    Arc::new(build_owner_scope(db, owner))
+}
+
+/// Builds the explicit `$unit` scope from file-owner scopes.
+#[salsa::tracked(lru = 128, returns(clone))]
+pub fn unit_scope(db: &dyn HirDefDb) -> Arc<ScopeData> {
+    let mut unit = ScopeData::default();
     for file_id in db.files().iter() {
         let file_id = HirFileId::File(*file_id);
-        let owner_table = db.owner_table(file_id);
-        let file_owner = owner_table.file_owner().expect("owner table must contain file owner");
-        let file_scope = build_file_scope(db, file_id);
-        graph.unit.extend_definitions_from(&file_scope);
-        for owner in owner_table.owners() {
-            let scope = if owner.id == file_owner {
-                file_scope.clone()
-            } else {
-                build_owner_scope(db, owner.id)
-            };
-            graph.scopes.insert(owner.id, scope);
-            graph.parents.insert(owner.id, owner.parent);
-        }
+        let file_owner =
+            db.owner_table(file_id).file_owner().expect("owner table must contain file owner");
+        unit.extend_definitions_from(scope_for(db, file_owner).as_ref());
     }
-    Arc::new(graph)
+    Arc::new(unit)
 }
 
 pub(crate) fn set_scope_graph_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
-    scope_graph::set_lru_capacity(db, capacity);
+    scope_for::set_lru_capacity(db, capacity);
+    unit_scope::set_lru_capacity(db, capacity);
 }
 
 fn body_scope(body: &Body, owner: OwnerId) -> &crate::body::BodyScopeData {

@@ -1,5 +1,4 @@
 use smallvec::SmallVec;
-use triomphe::Arc;
 use utils::get::GetRef;
 
 use crate::{
@@ -83,10 +82,9 @@ fn resolve_name_inner(
     ctx: NameContext,
     mut trace: Option<&mut ResolutionTrace>,
 ) -> Resolution<DefId> {
-    let graph = db.scope_graph();
     let scopes = ScopeChain::from_inner(db, cont_id);
     for id in scopes.iter() {
-        let resolution = graph.scope(*id).lookup(ctx, ident);
+        let resolution = db.scope(*id).lookup(ctx, ident);
         if let Some(trace) = trace.as_deref_mut() {
             trace.entries.push(ResolutionTraceEntry {
                 phase: ResolutionPhase::Lexical,
@@ -101,12 +99,12 @@ fn resolve_name_inner(
 
     // Lexical declarations win over package imports; `$unit` remains the
     // explicit outer scope after both named and wildcard imports.
-    let imported = resolve_imported_name(db, &graph, &scopes, ident, ctx, trace.as_deref_mut());
+    let imported = resolve_imported_name(db, &scopes, ident, ctx, trace.as_deref_mut());
     if !imported.is_unresolved() {
         return imported;
     }
 
-    let unit = graph.unit_scope().lookup(ctx, ident);
+    let unit = db.unit_scope().lookup(ctx, ident);
     if let Some(trace) = trace {
         trace.entries.push(ResolutionTraceEntry {
             phase: ResolutionPhase::Unit,
@@ -117,22 +115,19 @@ fn resolve_name_inner(
     unit
 }
 
-/// A scope chain resolved against one structural graph. The graph owns all
-/// per-owner declarations and parent edges, so each token performs only
-/// in-memory table lookup.
+/// A scope chain resolved against canonical owner-local scope queries.
 pub struct ResolvedScopes {
     scope_chain: ScopeChain,
-    graph: Arc<crate::scope::ScopeGraph>,
 }
 
 impl ResolvedScopes {
-    pub fn new(db: &dyn HirDefDb, scope_chain: ScopeChain) -> Self {
-        Self { scope_chain, graph: db.scope_graph() }
+    pub fn new(_db: &dyn HirDefDb, scope_chain: ScopeChain) -> Self {
+        Self { scope_chain }
     }
 }
 
-/// Resolves `ident` in a pre-resolved scope chain. Pure in-memory lookup;
-/// package import resolution is deferred to the full resolver.
+/// Resolves `ident` in a pre-resolved scope chain. Package import resolution
+/// is deferred to the full resolver.
 pub fn resolve_in_resolved_scopes(
     db: &dyn HirDefDb,
     resolved: &ResolvedScopes,
@@ -140,7 +135,7 @@ pub fn resolve_in_resolved_scopes(
     ctx: NameContext,
 ) -> Resolution<DefId> {
     for scope_id in resolved.scope_chain.iter() {
-        let scope = resolved.graph.scope(*scope_id);
+        let scope = db.scope(*scope_id);
         if scope.has_imports() {
             return resolve_name(db, *scope_id, ident, ctx);
         }
@@ -149,7 +144,7 @@ pub fn resolve_in_resolved_scopes(
             return resolution;
         }
     }
-    resolved.graph.unit_scope().lookup(ctx, ident)
+    db.unit_scope().lookup(ctx, ident)
 }
 
 pub fn resolve_path(
@@ -210,7 +205,7 @@ pub fn resolve_child_name(
         let Some(scope_id) = descend_scope(db, def_id) else {
             return Resolution::Unresolved;
         };
-        db.scope_graph().scope(scope_id).lookup(ctx, ident)
+        db.scope(scope_id).lookup(ctx, ident)
     })
 }
 pub fn descend_scope(db: &dyn HirDefDb, def_id: DefId) -> Option<OwnerId> {
@@ -257,7 +252,6 @@ fn instantiable_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
 }
 fn resolve_imported_name(
     db: &dyn HirDefDb,
-    graph: &crate::scope::ScopeGraph,
     scopes: &ScopeChain,
     ident: &Ident,
     ctx: NameContext,
@@ -267,8 +261,8 @@ fn resolve_imported_name(
     let mut defs = SmallVec::<[DefId; 3]>::new();
 
     for scope_id in scopes.iter() {
-        let scope = graph.scope(*scope_id);
-        collect_imports(db, &design_map, scope, ident, ctx, true, &mut defs);
+        let scope = db.scope(*scope_id);
+        collect_imports(db, &design_map, scope.as_ref(), ident, ctx, true, &mut defs);
         let resolution = Resolution::from_candidates(defs.iter().copied());
         if let Some(trace) = trace.as_deref_mut() {
             trace.entries.push(ResolutionTraceEntry {
@@ -283,8 +277,8 @@ fn resolve_imported_name(
     }
 
     for scope_id in scopes.iter() {
-        let scope = graph.scope(*scope_id);
-        collect_imports(db, &design_map, scope, ident, ctx, false, &mut defs);
+        let scope = db.scope(*scope_id);
+        collect_imports(db, &design_map, scope.as_ref(), ident, ctx, false, &mut defs);
         let resolution = Resolution::from_candidates(defs.iter().copied());
         if let Some(trace) = trace.as_deref_mut() {
             trace.entries.push(ResolutionTraceEntry {

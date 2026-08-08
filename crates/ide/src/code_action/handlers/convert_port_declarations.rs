@@ -158,8 +158,7 @@ fn convert_non_ansi_ports_to_ansi(
 
     let body_range = module_body_range(ast_module)?;
     let text = ctx.sema().db.file_text(ctx.file_id());
-    let graph = ctx.sema().db.scope_graph();
-    let module_scope = graph.scope(module_id);
+    let module_scope = ctx.sema().db.scope(module_id);
     let port_replacements = port_names
         .iter()
         .map(|name| non_ansi_port_replacement(ctx, &module, &body, &module_scope, name, &text))
