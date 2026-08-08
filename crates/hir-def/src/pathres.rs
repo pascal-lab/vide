@@ -84,7 +84,8 @@ fn resolve_name_inner(
 ) -> Resolution<DefId> {
     let scopes = ScopeChain::from_inner(db, cont_id);
     for id in scopes.iter() {
-        let resolution = db.scope(*id).lookup(ctx, ident);
+        let scope = db.scope(*id);
+        let resolution = scope.lookup(ctx, ident);
         if let Some(trace) = trace.as_deref_mut() {
             trace.entries.push(ResolutionTraceEntry {
                 phase: ResolutionPhase::Lexical,
@@ -95,13 +96,15 @@ fn resolve_name_inner(
         if !resolution.is_unresolved() {
             return resolution;
         }
-    }
 
-    // Lexical declarations win over package imports; `$unit` remains the
-    // explicit outer scope after both named and wildcard imports.
-    let imported = resolve_imported_name(db, &scopes, ident, ctx, trace.as_deref_mut());
-    if !imported.is_unresolved() {
-        return imported;
+        // Each scope is searched completely before the next outer scope:
+        // declarations and explicit imports first, then wildcard imports of
+        // this scope. `$unit` remains the final scope.
+        let imported =
+            resolve_scope_imports(db, scope.as_ref(), ident, ctx, *id, trace.as_deref_mut());
+        if !imported.is_unresolved() {
+            return imported;
+        }
     }
 
     let unit = db.unit_scope().lookup(ctx, ident);
@@ -126,8 +129,8 @@ impl ResolvedScopes {
     }
 }
 
-/// Resolves `ident` in a pre-resolved scope chain. Package import resolution
-/// is deferred to the full resolver.
+/// Resolves `ident` in a pre-resolved scope chain using the same per-scope
+/// search order as [`resolve_name`].
 pub fn resolve_in_resolved_scopes(
     db: &dyn HirDefDb,
     resolved: &ResolvedScopes,
@@ -136,12 +139,13 @@ pub fn resolve_in_resolved_scopes(
 ) -> Resolution<DefId> {
     for scope_id in resolved.scope_chain.iter() {
         let scope = db.scope(*scope_id);
-        if scope.has_imports() {
-            return resolve_name(db, *scope_id, ident, ctx);
-        }
         let resolution = scope.lookup(ctx, ident);
         if !resolution.is_unresolved() {
             return resolution;
+        }
+        let imported = resolve_scope_imports(db, scope.as_ref(), ident, ctx, *scope_id, None);
+        if !imported.is_unresolved() {
+            return imported;
         }
     }
     db.unit_scope().lookup(ctx, ident)
@@ -255,49 +259,40 @@ fn instantiable_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
     assert!(is_instantiable, "owner must be an instantiable design unit: {owner:?}");
     DefId::from_owner(db, owner).expect("instantiable owner must have a definition")
 }
-fn resolve_imported_name(
+fn resolve_scope_imports(
     db: &dyn HirDefDb,
-    scopes: &ScopeChain,
+    scope: &ScopeData,
     ident: &Ident,
     ctx: NameContext,
+    scope_id: OwnerId,
     mut trace: Option<&mut ResolutionTrace>,
 ) -> Resolution<DefId> {
     let design_map = db.design_map();
     let mut defs = SmallVec::<[DefId; 3]>::new();
 
-    for scope_id in scopes.iter() {
-        let scope = db.scope(*scope_id);
-        collect_imports(db, &design_map, scope.as_ref(), ident, ctx, true, &mut defs);
-        let resolution = Resolution::from_candidates(defs.iter().copied());
-        if let Some(trace) = trace.as_deref_mut() {
-            trace.entries.push(ResolutionTraceEntry {
-                phase: ResolutionPhase::NamedImport,
-                scope: Some(*scope_id),
-                resolution: resolution.clone(),
-            });
-        }
-        if !defs.is_empty() {
-            return resolution;
-        }
+    collect_imports(db, &design_map, scope, ident, ctx, true, &mut defs);
+    let named = Resolution::from_candidates(defs.iter().copied());
+    if let Some(trace) = trace.as_deref_mut() {
+        trace.entries.push(ResolutionTraceEntry {
+            phase: ResolutionPhase::NamedImport,
+            scope: Some(scope_id),
+            resolution: named.clone(),
+        });
+    }
+    if !named.is_unresolved() {
+        return named;
     }
 
-    for scope_id in scopes.iter() {
-        let scope = db.scope(*scope_id);
-        collect_imports(db, &design_map, scope.as_ref(), ident, ctx, false, &mut defs);
-        let resolution = Resolution::from_candidates(defs.iter().copied());
-        if let Some(trace) = trace.as_deref_mut() {
-            trace.entries.push(ResolutionTraceEntry {
-                phase: ResolutionPhase::WildcardImport,
-                scope: Some(*scope_id),
-                resolution: resolution.clone(),
-            });
-        }
-        if !defs.is_empty() {
-            return resolution;
-        }
+    collect_imports(db, &design_map, scope, ident, ctx, false, &mut defs);
+    let wildcard = Resolution::from_candidates(defs.iter().copied());
+    if let Some(trace) = trace.as_deref_mut() {
+        trace.entries.push(ResolutionTraceEntry {
+            phase: ResolutionPhase::WildcardImport,
+            scope: Some(scope_id),
+            resolution: wildcard.clone(),
+        });
     }
-
-    Resolution::Unresolved
+    wildcard
 }
 
 fn collect_imports(
@@ -669,6 +664,82 @@ endmodule
             entry.phase == ResolutionPhase::NamedImport
                 && matches!(entry.resolution, Resolution::Ambiguous(_))
         }));
+    }
+
+    #[test]
+    fn inner_scope_wildcard_shadows_outer_named_import() {
+        // IEEE 1800-2023 26.3: each scope is searched completely (including
+        // its wildcard imports) before the next outer scope, so the module
+        // wildcard import wins over the compilation-unit named import.
+        let db = db_with_root_text(
+            r#"
+import p::x;
+package p;
+int x;
+endpackage
+package p2;
+int x;
+endpackage
+module top;
+import p2::*;
+initial x = 1;
+endmodule
+"#,
+        );
+        let top = db
+            .unit_index()
+            .module_ids(&ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+        let p2 = db
+            .unit_index()
+            .package_ids(&ident("p2"))
+            .unique()
+            .expect("p2 package should resolve uniquely");
+        let p2_x = resolve_name(&db, p2, &ident("x"), NameContext::Value).unique().expect("p2::x");
+        assert_eq!(
+            resolve_name(&db, top, &ident("x"), NameContext::Value),
+            Resolution::Unique(p2_x)
+        );
+    }
+
+    #[test]
+    fn generate_block_imports_are_locally_visible() {
+        // An import inside a generate block is a member of that scope and is
+        // searched before the enclosing module scope (IEEE 1800-2017 26.3).
+        let db = db_with_root_text(
+            r#"
+package p;
+int x;
+endpackage
+package p2;
+int x;
+endpackage
+module top;
+import p::*;
+if (1) begin : b
+import p2::*;
+initial x = 1;
+end
+endmodule
+"#,
+        );
+        let block = db
+            .owner_table(HirFileId::File(TOP))
+            .owners_of_kind(crate::owner::OwnerKind::GenerateBlock)
+            .find(|owner| owner.name.as_str() == "b")
+            .expect("generate block b owner")
+            .id;
+        let p2 = db
+            .unit_index()
+            .package_ids(&ident("p2"))
+            .unique()
+            .expect("p2 package should resolve uniquely");
+        let p2_x = resolve_name(&db, p2, &ident("x"), NameContext::Value).unique().expect("p2::x");
+        assert_eq!(
+            resolve_name(&db, block, &ident("x"), NameContext::Value),
+            Resolution::Unique(p2_x)
+        );
     }
 
     #[test]
