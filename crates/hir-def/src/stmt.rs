@@ -182,7 +182,10 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
 
             EmptyStatement(_) => StmtKind::Empty,
 
-            unsupported => StmtKind::Unsupported(unsupported.syntax().kind()),
+            unsupported => {
+                self.report_unsupported(unsupported.syntax(), "unsupported statement");
+                StmtKind::Unsupported(unsupported.syntax().kind())
+            }
         }
     }
 
