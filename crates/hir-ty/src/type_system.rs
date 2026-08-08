@@ -1,6 +1,12 @@
 use hir_def::{
-    Ident, container::OwnerRef, def_id::DefId, expr::ExprId, owner::OwnerId,
-    subroutine::SubroutineKind, symbol::Resolution, typedef::TypedefId,
+    Ident,
+    container::OwnerRef,
+    def_id::DefId,
+    expr::{ExprId, data_ty::TypePathRecovery},
+    owner::OwnerId,
+    subroutine::SubroutineKind,
+    symbol::Resolution,
+    typedef::TypedefId,
 };
 use syntax::SyntaxKind;
 use triomphe::Arc;
@@ -18,6 +24,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeDiagnostic {
     TypedefCycle(OwnerRef<TypedefId>),
+    InvalidTypePath(TypePathRecovery),
     UnsupportedDataType(SyntaxKind),
 }
 

@@ -296,6 +296,12 @@ fn type_of_named_data_ty(
     named: TypeRef,
     seen: &mut FxHashSet<OwnerRef<TypedefId>>,
 ) -> TyResult {
+    if let Some(recovery) = named.recovery() {
+        return TyResult {
+            ty: Ty::Error,
+            diagnostics: vec![TypeDiagnostic::InvalidTypePath(recovery)],
+        };
+    }
     let resolution = resolve_path(db, container, named.segments(), NameContext::Type);
     let Some(def_id) = resolution.unique() else {
         return TyResult::new(Ty::Unknown);

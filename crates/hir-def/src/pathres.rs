@@ -211,7 +211,9 @@ pub fn resolve_child_name(
 pub fn descend_scope(db: &dyn HirDefDb, def_id: DefId) -> Option<OwnerId> {
     let origin = def_id.primary_origin(db);
     match def_id.kind(db) {
-        DefKind::Module | DefKind::Interface | DefKind::Program => origin.as_module(db),
+        DefKind::Module | DefKind::Interface | DefKind::Program | DefKind::Package => {
+            origin.as_module(db)
+        }
         DefKind::ClockingBlock
         | DefKind::Checker
         | DefKind::Covergroup

@@ -3,15 +3,14 @@ use smallvec::SmallVec;
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxToken, TokenKind,
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
 };
 use triomphe::Arc;
-use utils::text_edit::TextRange;
 
 use super::{Expr, ExprId, Selector};
 use crate::{
     Ident,
     aggregate::StructId,
+    ast_id_map::SourceAstId,
     container::OwnerRef,
     lower::{LoweringCtx, LoweringStore},
     lower_ident, lower_ident_opt,
@@ -102,50 +101,64 @@ pub enum Dimension {
     Dynamic,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum TypePathKind {
+    Unqualified,
+    Package,
+    Hierarchical,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum TypePathRecovery {
+    Selectors,
+    UnsupportedName(SyntaxKind),
+    MissingIdentifier,
+    MixedSeparators,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct TypeRef {
     segments: SmallVec<[Ident; 2]>,
-    source_range: Option<TextRange>,
+    segment_sources: SmallVec<[SourceAstId; 2]>,
+    path_kind: TypePathKind,
+    source: SourceAstId,
+    recovery: Option<TypePathRecovery>,
 }
 
 impl TypeRef {
-    pub(crate) fn new(segments: SmallVec<[Ident; 2]>, source_range: Option<TextRange>) -> Self {
-        Self { segments, source_range }
+    fn new(
+        segments: SmallVec<[Ident; 2]>,
+        segment_sources: SmallVec<[SourceAstId; 2]>,
+        path_kind: TypePathKind,
+        source: SourceAstId,
+        recovery: Option<TypePathRecovery>,
+    ) -> Self {
+        Self { segments, segment_sources, path_kind, source, recovery }
     }
 
     pub fn segments(&self) -> &[Ident] {
         &self.segments
     }
 
-    pub fn source_range(&self) -> Option<TextRange> {
-        self.source_range
-    }
-}
-
-fn lower_name_segments(name: ast::Name) -> SmallVec<[Ident; 2]> {
-    fn collect(name: ast::Name, segments: &mut SmallVec<[Ident; 2]>) {
-        match name {
-            ast::Name::IdentifierName(name) => {
-                if let Some(ident) = lower_ident_opt(name.identifier()) {
-                    segments.push(ident);
-                }
-            }
-            ast::Name::IdentifierSelectName(name) => {
-                if let Some(ident) = lower_ident_opt(name.identifier()) {
-                    segments.push(ident);
-                }
-            }
-            ast::Name::ScopedName(name) => {
-                collect(name.left(), segments);
-                collect(name.right(), segments);
-            }
-            _ => {}
-        }
+    pub fn segment_sources(&self) -> &[SourceAstId] {
+        &self.segment_sources
     }
 
-    let mut segments = SmallVec::new();
-    collect(name, &mut segments);
-    segments
+    pub fn path_kind(&self) -> TypePathKind {
+        self.path_kind
+    }
+
+    pub fn source(&self) -> SourceAstId {
+        self.source
+    }
+
+    pub fn recovery(&self) -> Option<TypePathRecovery> {
+        self.recovery
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.recovery.is_none()
+    }
 }
 
 impl<Store: LoweringStore> LoweringCtx<Store> {
@@ -188,7 +201,112 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
 
     fn lower_named_ty(&mut self, ty: ast::NamedType) -> TypeRef {
         let name = ty.name();
-        TypeRef::new(lower_name_segments(name), name.syntax().text_range())
+        let source = self.source_id(name.syntax());
+        let mut segments = SmallVec::new();
+        let mut segment_sources = SmallVec::new();
+        let mut separator = None;
+        let mut recovery = None;
+        self.lower_name_segments(
+            name,
+            &mut segments,
+            &mut segment_sources,
+            &mut separator,
+            &mut recovery,
+        );
+
+        if let Some(kind) = recovery {
+            segments.clear();
+            segment_sources.clear();
+            let message = match kind {
+                TypePathRecovery::Selectors => "type path selectors are unsupported",
+                TypePathRecovery::UnsupportedName(_) => "unsupported type path name",
+                TypePathRecovery::MissingIdentifier => "type path is missing an identifier",
+                TypePathRecovery::MixedSeparators => {
+                    "type path mixes package and hierarchical separators"
+                }
+            };
+            self.report_unsupported(name.syntax(), message);
+        }
+
+        TypeRef::new(
+            segments,
+            segment_sources,
+            separator.unwrap_or(TypePathKind::Unqualified),
+            source,
+            recovery,
+        )
+    }
+
+    fn lower_name_segments(
+        &mut self,
+        name: ast::Name,
+        segments: &mut SmallVec<[Ident; 2]>,
+        segment_sources: &mut SmallVec<[SourceAstId; 2]>,
+        separator: &mut Option<TypePathKind>,
+        recovery: &mut Option<TypePathRecovery>,
+    ) {
+        let mut set_recovery = |kind| {
+            if recovery.is_none() {
+                *recovery = Some(kind);
+            }
+        };
+
+        match name {
+            ast::Name::IdentifierName(name) => {
+                let source = self.source_id(name.syntax());
+                let Some(ident) = lower_ident_opt(name.identifier()) else {
+                    set_recovery(TypePathRecovery::MissingIdentifier);
+                    return;
+                };
+                segments.push(ident);
+                segment_sources.push(source);
+            }
+            ast::Name::IdentifierSelectName(name) => {
+                if name.selectors().children().next().is_some() {
+                    set_recovery(TypePathRecovery::Selectors);
+                    return;
+                }
+                let source = self.source_id(name.syntax());
+                let Some(ident) = lower_ident_opt(name.identifier()) else {
+                    set_recovery(TypePathRecovery::MissingIdentifier);
+                    return;
+                };
+                segments.push(ident);
+                segment_sources.push(source);
+            }
+            ast::Name::ScopedName(name) => {
+                let next_separator = match name.separator().map(|token| token.kind()) {
+                    Some(TokenKind::DOUBLE_COLON) => TypePathKind::Package,
+                    Some(TokenKind::DOT) => TypePathKind::Hierarchical,
+                    Some(_) | None => {
+                        set_recovery(TypePathRecovery::UnsupportedName(name.syntax().kind()));
+                        return;
+                    }
+                };
+                if let Some(previous) = *separator {
+                    if previous != next_separator {
+                        set_recovery(TypePathRecovery::MixedSeparators);
+                    }
+                } else {
+                    *separator = Some(next_separator);
+                }
+                self.lower_name_segments(
+                    name.left(),
+                    segments,
+                    segment_sources,
+                    separator,
+                    recovery,
+                );
+                self.lower_name_segments(
+                    name.right(),
+                    segments,
+                    segment_sources,
+                    separator,
+                    recovery,
+                );
+            }
+            _ => set_recovery(TypePathRecovery::UnsupportedName(name.syntax().kind())),
+        }
     }
 
     fn lower_enum_type(&mut self, _enum_ty: ast::EnumType) -> DataTy {
