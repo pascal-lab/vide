@@ -596,7 +596,7 @@ endmodule
                     DefinitionClass::resolve_in(db, hir_file_id, token, Some(container)).unique()
                 } else {
                     let chain = chains.chain_for(db, container);
-                    sema.nameres_ident_in_scopes(token, NameContext::Value, &chain)
+                    sema.nameres_ident_in_scopes_at(hir_file_id, token, NameContext::Value, &chain)
                         .map(DefinitionClass::Definition)
                         .unique()
                 };

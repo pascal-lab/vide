@@ -188,34 +188,59 @@ fn configured_workspace_rename_keeps_later_declaration_untouched() {
     let top_uri = uris[0].clone();
     let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
 
-    let edit = request_rename(&client, top_uri, top_text, "x = 1", "renamed", 2)
+    // References of the activated import must include the reference itself.
+    let ref_request_id = lsp_server::RequestId::from(2);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            ref_request_id.clone(),
+            References::METHOD.to_string(),
+            lsp_types::ReferenceParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: top_uri.clone() },
+                    position: position_of(top_text, "x = 1"),
+                },
+                context: lsp_types::ReferenceContext { include_declaration: true },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let references: Option<Vec<lsp_types::Location>> =
+        recv_response(&client, ref_request_id, "references");
+    let reference_ranges: Vec<lsp_types::Range> =
+        references.unwrap_or_default().into_iter().map(|location| location.range).collect();
+
+    let edit = request_rename(&client, top_uri, top_text, "x = 1", "renamed", 3)
         .expect("rename of the activated import reference should return an edit");
 
     let Some(lsp_types::DocumentChanges::Edits(document_edits)) = edit.document_changes else {
         panic!("rename should use document edits: {edit:?}");
     };
-    let all_edits: Vec<String> = document_edits
+    let edit_ranges: Vec<lsp_types::Range> = document_edits
         .iter()
         .flat_map(|edit| edit.edits.iter().filter_map(|text_edit| match text_edit {
-            lsp_types::OneOf::Left(text_edit) => Some(text_edit.new_text.clone()),
+            lsp_types::OneOf::Left(text_edit) => Some(text_edit.range),
             lsp_types::OneOf::Right(_) => None,
         }))
         .collect();
-    assert!(
-        all_edits.iter().any(|text| text.contains("renamed")),
-        "package declaration and reference must be renamed: {all_edits:?}"
-    );
+    // Package declaration, the import item, and the reference must all move.
+    let expected = [
+        lsp_types::Range::new(Position::new(1, 4), Position::new(1, 5)),
+        lsp_types::Range::new(Position::new(4, 10), Position::new(4, 11)),
+        lsp_types::Range::new(Position::new(6, 10), Position::new(6, 11)),
+    ];
+    for range in expected {
+        assert!(
+            edit_ranges.contains(&range),
+            "expected rename at {range:?}: {edit_ranges:?}"
+        );
+    }
     // The module's own later declaration of x stays untouched.
     let module_declaration_range = range_of(top_text, "end\nint x");
-    let module_declaration_edited = document_edits.iter().any(|edit| {
-        edit.edits.iter().any(|text_edit| match text_edit {
-            lsp_types::OneOf::Left(text_edit) => text_edit.range == module_declaration_range,
-            lsp_types::OneOf::Right(_) => false,
-        })
-    });
     assert!(
-        !module_declaration_edited,
-        "the later module declaration must not be renamed: {document_edits:?}"
+        !edit_ranges.contains(&module_declaration_range),
+        "the later module declaration must not be renamed: {edit_ranges:?}"
     );
 
     shutdown_test_server(&client, server_thread);

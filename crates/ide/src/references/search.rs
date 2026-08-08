@@ -1,5 +1,6 @@
 use base_db::source_root::SourceRootId;
 use hir_def::{
+    module::ModuleKind,
     container::InFile,
     def_id::DefId,
     has_source::HasSource,
@@ -44,7 +45,12 @@ impl SearchScope {
             ScopeVisibility::Public => search_scope.unwrap_or_else(|| Self::all(db)),
             ScopeVisibility::Private => {
                 let container_id = def.container_id(db);
-                let container_id = if container_id.kind(db) == OwnerKind::Module && def.is_port(db)
+                // Ports and package members are visible beyond their module
+                // or package block (the whole compilation unit), so a private
+                // scope must not cut their references off at the block.
+                let container_id = if container_id.kind(db) == OwnerKind::Module
+                    && (def.is_port(db)
+                        || container_id.module_kind(db) == Some(ModuleKind::Package))
                 {
                     db.owner_table(container_id.file(db)).file_owner().expect("file owner")
                 } else {
