@@ -93,10 +93,6 @@ impl dyn HirDefDb + '_ {
         diagnostics::file_lowering_diagnostics(self, self.syntax_file(file_id))
     }
 
-    pub fn scope_graph(&self) -> crate::scope::ScopeGraph<'_> {
-        crate::scope::ScopeGraph::new(self)
-    }
-
     pub fn scope(&self, owner: OwnerId) -> Arc<crate::symbol::ScopeData> {
         crate::scope::scope_for(self, owner)
     }
@@ -143,7 +139,7 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     item_tree::set_item_tree_lru_capacity(db, capacity);
     owner::set_owner_table_lru_capacity(db, capacity);
     unit_index::set_lru_capacity(db, capacity);
-    scope::set_scope_graph_lru_capacity(db, capacity);
+    scope::set_scope_lru_capacity(db, capacity);
     source_projection::set_source_projection_lru_capacity(db, capacity);
     crate::region_tree::set_region_tree_lru_capacity(db, capacity);
 }
