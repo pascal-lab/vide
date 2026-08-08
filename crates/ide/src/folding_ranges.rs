@@ -13,6 +13,7 @@ use hir_def::{
 use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxKind, SyntaxTokenWithParent, SyntaxTrivia,
+    ast::{self, AstNode},
     has_text_range::HasTextRange,
     token::SyntaxTokenWithParentExt,
     trivia::{TriviaExt, TriviaKindExt},
@@ -26,7 +27,7 @@ use vfs::FileId;
 
 use crate::db::{line_index_db::LineIndexDb, root_db::RootDb};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FoldKind {
     Comment,
     Imports,
@@ -140,6 +141,24 @@ fn collect_syntax_folds(
             SyntaxKind::PACKAGE_IMPORT_DECLARATION => {
                 if let Some(range) = node.text_range() {
                     import_ranges.push(range);
+                }
+            }
+            SyntaxKind::GENERATE_BLOCK => {
+                // A generate block's begin/end is plain block structure, so
+                // it folds syntactically. The one exception is the block of a
+                // loop-generate: the loop node below already spans the whole
+                // `for ... begin ... end` (mirroring `owner.rs`, where a loop
+                // owns its block), so folding it again would stack a second
+                // arrow on the same line.
+                if node.parent().is_none_or(|parent| !ast::LoopGenerate::can_cast(parent.kind()))
+                    && let Some(range) = node.text_range()
+                {
+                    folds.collect_fold(range, FoldKind::Generate, line_index);
+                }
+            }
+            SyntaxKind::LOOP_GENERATE => {
+                if let Some(range) = node.text_range() {
+                    folds.collect_fold(range, FoldKind::Generate, line_index);
                 }
             }
             _ => {}
@@ -283,6 +302,10 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
         collect_body_scopes(db, &mut folds, body.as_ref(), line_index);
     }
 
+    // Equal-range folds of the same kind (e.g. a direct loop-generate and its
+    // generate-region fold) may be produced by different collectors; keep one.
+    folds.sort_by_key(|fold| (fold.range.start(), fold.range.end(), fold.kind));
+    folds.dedup_by(|a, b| a.range == b.range && a.kind == b.kind);
     folds
 }
 
@@ -609,10 +632,9 @@ mod tests {
 
         // Equal-range folds (e.g. a pseudo region and its declaration group)
         // may arrive in any order, so tie-break by kind.
-        let order =
-            |fold: &Fold| (fold.range.start(), fold.range.end(), format!("{:?}", fold.kind));
+        let order = |fold: &Fold| (fold.range.start(), fold.range.end(), fold.kind);
         folds.sort_by_key(order);
-        expected.sort_by_key(|(range, kind)| (range.start(), range.end(), format!("{kind:?}")));
+        expected.sort_by_key(|(range, kind)| (range.start(), range.end(), *kind));
 
         if folds.len() != expected.len() {
             let mut report = String::new();
@@ -775,12 +797,52 @@ endmodule</fold>
         check_folds(
             r#"<fold module>module m;
 <fold generate>generate
-  if (COND) begin : genblk
+  if (COND) <fold generate>begin : genblk
     <fold instance>u_mod u1 (
       .a(a)
     );</fold>
-  end
+  end</fold>
 endgenerate</fold>
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_bare_generate_block() {
+        check_folds(
+            r#"<fold module>module m;
+<fold generate>generate
+  <fold generate>begin : g
+    wire y;
+  end</fold>
+endgenerate</fold>
+endmodule</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_loop_generate_begin_end() {
+        // A loop-generate inside a generate region folds the whole loop
+        // (the nested begin/end is not a separate owner); a direct
+        // module-level loop folds via the region fold, and the exact
+        // duplicate is deduplicated.
+        check_folds(
+            r#"<fold module>module m;
+<fold generate>generate
+  <fold generate>for (genvar i = 0; i < 4; i++) begin : genblk
+    wire x;
+  end</fold>
+endgenerate</fold>
+endmodule</fold>
+"#,
+        );
+        check_folds(
+            r#"<fold module>module m;
+<fold generate>for (genvar i = 0; i < 4; i++) begin : genblk
+  wire x;
+end</fold>
 endmodule</fold>
 "#,
         );
