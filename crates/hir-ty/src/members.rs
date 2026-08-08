@@ -90,25 +90,29 @@ fn module_members(db: &dyn TyDb, module_id: OwnerId) -> Vec<TyMember> {
         let exports = db.package_exports(module_id);
         scope_members(db, exports.iter_listing())
     } else {
-        let scope = db.scope_for(module_id);
-        scope_members(db, scope.iter_listing())
+        let graph = db.scope_graph();
+        scope_members(db, graph.scope(module_id).iter_listing())
     }
 }
 
 fn checker_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
-    scope_members(db, db.scope_for(def_id.container_id(db)).iter_listing())
+    let graph = db.scope_graph();
+    scope_members(db, graph.scope(def_id.container_id(db)).iter_listing())
 }
 
 fn covergroup_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
-    scope_members(db, db.scope_for(def_id.container_id(db)).iter_listing())
+    let graph = db.scope_graph();
+    scope_members(db, graph.scope(def_id.container_id(db)).iter_listing())
 }
 
 fn generate_block_members(db: &dyn TyDb, generate_block_owner: OwnerId) -> Vec<TyMember> {
-    scope_members(db, db.scope_for(generate_block_owner).iter_listing())
+    let graph = db.scope_graph();
+    scope_members(db, graph.scope(generate_block_owner).iter_listing())
 }
 
 fn block_members(db: &dyn TyDb, owner: hir_def::owner::OwnerId) -> Vec<TyMember> {
-    scope_members(db, db.scope_for(owner).iter_listing())
+    let graph = db.scope_graph();
+    scope_members(db, graph.scope(owner).iter_listing())
 }
 
 fn scope_members<'a, I, D>(db: &dyn TyDb, entries: I) -> Vec<TyMember>

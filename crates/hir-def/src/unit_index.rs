@@ -49,7 +49,7 @@ struct UnitData {
     top_level: bool,
 }
 
-/// File-level design-unit declarations, independent of lexical `NameScope`.
+/// File-level design-unit declarations, independent of lexical `ScopeGraph`.
 ///
 /// The index is built from [`crate::item_tree::ItemTree::module_headers`] and
 /// structural owner metadata for checker/covergroup declarations. It preserves

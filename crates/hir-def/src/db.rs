@@ -12,12 +12,11 @@ use crate::{
     design_map::PackageExports,
     diagnostics,
     item_tree::{self, ItemTree, ItemTreeItem, Signature},
-    nameres,
     owner::{self, OwnerId, OwnerTable},
+    scope,
     source_map::Lowered,
     source_projection::{self, SourceProjection},
     subroutine::Subroutine,
-    symbol::NameScope,
     unit_index,
 };
 
@@ -94,12 +93,8 @@ impl dyn HirDefDb + '_ {
         diagnostics::file_lowering_diagnostics(self, self.syntax_file(file_id))
     }
 
-    pub fn scope_for(&self, owner: OwnerId) -> Arc<NameScope> {
-        nameres::scope_for(self, owner)
-    }
-
-    pub fn unit_scope(&self) -> Arc<NameScope> {
-        NameScope::unit_scope(self)
+    pub fn scope_graph(&self) -> Arc<crate::scope::ScopeGraph> {
+        scope::scope_graph(self)
     }
 
     pub fn unit_index(&self) -> Arc<crate::unit_index::UnitIndex> {
@@ -140,7 +135,7 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     item_tree::set_item_tree_lru_capacity(db, capacity);
     owner::set_owner_table_lru_capacity(db, capacity);
     unit_index::set_lru_capacity(db, capacity);
-    nameres::set_scope_lru_capacity(db, capacity);
+    scope::set_scope_graph_lru_capacity(db, capacity);
     source_projection::set_source_projection_lru_capacity(db, capacity);
     crate::region_tree::set_region_tree_lru_capacity(db, capacity);
 }

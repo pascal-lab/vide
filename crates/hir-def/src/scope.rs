@@ -1,5 +1,6 @@
 use la_arena::Arena;
 use preproc_expand::file::HirFileId;
+use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use triomphe::Arc;
 use utils::get::GetRef;
@@ -19,7 +20,7 @@ use crate::{
     owner::{OwnerId, OwnerKind},
     stmt::StmtKind,
     subroutine::SubroutinePortId,
-    symbol::{DefOriginLoc, Import, NameContext, NameScope},
+    symbol::{DefOriginLoc, Import, NameContext, Resolution, ScopeData},
 };
 
 // SystemVerilog has separate namespaces. This scope stores current supported
@@ -30,17 +31,74 @@ use crate::{
 // Hierarchical lookup remains a separate resolver path.
 
 fn def_id(db: &dyn HirDefDb, loc: impl Into<DefOriginLoc>) -> DefId {
-    DefId::new(db, loc)
+    DefId::from_source(db, loc)
 }
 fn owner_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
-    let origin = match owner.kind(db) {
-        OwnerKind::Module => DefOriginLoc::Module(owner),
-        OwnerKind::GenerateBlock => DefOriginLoc::GenerateBlock(owner),
-        OwnerKind::Block => DefOriginLoc::Block(owner),
-        OwnerKind::Subroutine => DefOriginLoc::Subroutine(owner),
-        kind => panic!("owner {owner:?} of kind {kind:?} has no named definition origin"),
-    };
-    def_id(db, origin)
+    DefId::from_owner(db, owner).expect("owner must have a named definition origin")
+}
+
+/// Structural lexical scope graph.
+///
+/// `ScopeData` stores declarations for one owner. `ScopeGraph` owns the
+/// parent relation and performs nearest-scope lookup without exposing
+/// per-owner Salsa queries to callers.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ScopeGraph {
+    scopes: FxHashMap<OwnerId, ScopeData>,
+    parents: FxHashMap<OwnerId, Option<OwnerId>>,
+    unit: ScopeData,
+}
+
+impl ScopeGraph {
+    pub fn scope(&self, owner: OwnerId) -> &ScopeData {
+        self.scopes.get(&owner).expect("scope graph must contain every owner")
+    }
+
+    pub fn unit_scope(&self) -> &ScopeData {
+        &self.unit
+    }
+
+    pub fn lookup(&self, owner: OwnerId, ctx: NameContext, ident: &SmolStr) -> Resolution<DefId> {
+        let mut current = Some(owner);
+        let mut visited = FxHashMap::default();
+        while let Some(scope_owner) = current {
+            if visited.insert(scope_owner, ()).is_some() {
+                panic!("scope graph contains a parent cycle at {scope_owner:?}");
+            }
+            let resolution = self.scope(scope_owner).lookup(ctx, ident);
+            if !resolution.is_unresolved() {
+                return resolution;
+            }
+            current = self.parents.get(&scope_owner).copied().flatten();
+        }
+        self.unit.lookup(ctx, ident)
+    }
+}
+
+#[salsa::tracked(lru = 128, returns(clone))]
+pub fn scope_graph(db: &dyn HirDefDb) -> Arc<ScopeGraph> {
+    let mut graph = ScopeGraph::default();
+    for file_id in db.files().iter() {
+        let file_id = HirFileId::File(*file_id);
+        let owner_table = db.owner_table(file_id);
+        let file_owner = owner_table.file_owner().expect("owner table must contain file owner");
+        let file_scope = build_file_scope(db, file_id);
+        graph.unit.extend_definitions_from(&file_scope);
+        for owner in owner_table.owners() {
+            let scope = if owner.id == file_owner {
+                file_scope.clone()
+            } else {
+                build_owner_scope(db, owner.id)
+            };
+            graph.scopes.insert(owner.id, scope);
+            graph.parents.insert(owner.id, owner.parent);
+        }
+    }
+    Arc::new(graph)
+}
+
+pub(crate) fn set_scope_graph_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    scope_graph::set_lru_capacity(db, capacity);
 }
 
 fn body_scope(body: &Body, owner: OwnerId) -> &crate::body::BodyScopeData {
@@ -48,7 +106,7 @@ fn body_scope(body: &Body, owner: OwnerId) -> &crate::body::BodyScopeData {
 }
 
 fn insert_body_declarators(
-    scope: &mut NameScope,
+    scope: &mut ScopeData,
     db: &dyn HirDefDb,
     cont_id: OwnerId,
     body: &Body,
@@ -61,7 +119,7 @@ fn insert_body_declarators(
 }
 
 fn insert_specify_declarators(
-    scope: &mut NameScope,
+    scope: &mut ScopeData,
     db: &dyn HirDefDb,
     owner: OwnerId,
     body: &Body,
@@ -82,7 +140,7 @@ fn insert_specify_declarators(
 }
 
 fn insert_body_typedefs(
-    scope: &mut NameScope,
+    scope: &mut ScopeData,
     db: &dyn HirDefDb,
     cont_id: OwnerId,
     body: &Body,
@@ -95,7 +153,7 @@ fn insert_body_typedefs(
 }
 
 fn insert_body_statements(
-    scope: &mut NameScope,
+    scope: &mut ScopeData,
     db: &dyn HirDefDb,
     cont_id: OwnerId,
     body: &Body,
@@ -113,27 +171,14 @@ fn insert_body_statements(
     }
 }
 
-fn insert_proc_bodies(scope: &mut NameScope, db: &dyn HirDefDb, procs: &Arena<crate::proc::Proc>) {
+fn insert_proc_bodies(scope: &mut ScopeData, db: &dyn HirDefDb, procs: &Arena<crate::proc::Proc>) {
     for (_, proc) in procs.iter() {
         let body = db.body_with_source_map(proc.owner);
         insert_body_statements(scope, db, proc.owner, body.data_ref(), proc.owner);
     }
 }
 
-#[salsa::tracked]
-impl NameScope {
-    #[salsa::tracked(returns(clone))]
-    pub fn unit_scope(db: &dyn HirDefDb) -> Arc<NameScope> {
-        let mut scope = NameScope::default();
-        for file_id in db.files().iter() {
-            let file_id = HirFileId::File(*file_id);
-            let file_owner = db.owner_table(file_id).file_owner().expect("file owner");
-            let file_scope = db.scope_for(file_owner);
-            scope.extend_definitions_from(&file_scope);
-        }
-        Arc::new(scope)
-    }
-
+impl ScopeData {
     pub fn non_ansi_port_decl_id_by_name(
         &self,
         db: &dyn HirDefDb,
@@ -155,8 +200,8 @@ impl NameScope {
     }
 }
 
-pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameScope {
-    let mut scope = NameScope::default();
+pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> ScopeData {
+    let mut scope = ScopeData::default();
     let file_owner = db.owner_table(file_id).file_owner().expect("file owner must exist");
     let hir_file = db.body(file_owner);
     let body = db.body_with_source_map(file_owner);
@@ -215,8 +260,8 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameSco
     scope
 }
 
-pub(crate) fn build_module_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope {
-    let mut scope = NameScope::default();
+pub(crate) fn build_module_scope(db: &dyn HirDefDb, owner: OwnerId) -> ScopeData {
+    let mut scope = ScopeData::default();
     let module = db.body(owner);
     let body = db.body_with_source_map(owner);
 
@@ -289,8 +334,8 @@ pub(crate) fn build_module_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope
     scope
 }
 
-pub(crate) fn build_clocking_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope {
-    let mut scope = NameScope::default();
+pub(crate) fn build_clocking_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> ScopeData {
+    let mut scope = ScopeData::default();
     let clocking_id = owner
         .as_clocking_block(db)
         .expect("clocking owner must contain a lowered clocking definition");
@@ -303,8 +348,8 @@ pub(crate) fn build_clocking_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> N
     scope
 }
 
-pub(crate) fn build_checker_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope {
-    let mut scope = NameScope::default();
+pub(crate) fn build_checker_scope(db: &dyn HirDefDb, owner: OwnerId) -> ScopeData {
+    let mut scope = ScopeData::default();
     let checker_id =
         owner.as_checker(db).expect("checker owner must contain a lowered checker definition");
     let checker = db.body(owner).get(checker_id.value).clone();
@@ -323,8 +368,8 @@ pub(crate) fn build_checker_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScop
     scope
 }
 
-pub(crate) fn build_covergroup_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope {
-    let mut scope = NameScope::default();
+pub(crate) fn build_covergroup_scope(db: &dyn HirDefDb, owner: OwnerId) -> ScopeData {
+    let mut scope = ScopeData::default();
     let covergroup_id = owner
         .as_covergroup(db)
         .expect("covergroup owner must contain a lowered covergroup definition");
@@ -341,8 +386,8 @@ pub(crate) fn build_covergroup_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameS
     scope
 }
 
-pub(crate) fn build_generate_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope {
-    let mut scope = NameScope::default();
+pub(crate) fn build_generate_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> ScopeData {
+    let mut scope = ScopeData::default();
     let body = db.body_with_source_map(owner);
     scope.insert_value_opt(&body.name, owner_def_id(db, owner));
     for subroutine_owner in body.subroutine_owners() {
@@ -365,8 +410,8 @@ pub(crate) fn build_generate_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> N
     scope
 }
 
-pub(crate) fn build_subroutine_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope {
-    let mut scope = NameScope::default();
+pub(crate) fn build_subroutine_scope(db: &dyn HirDefDb, owner: OwnerId) -> ScopeData {
+    let mut scope = ScopeData::default();
     let subroutine = db.subroutine(owner);
     let body = db.body_with_source_map(owner);
 
@@ -381,16 +426,16 @@ pub(crate) fn build_subroutine_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameS
     scope
 }
 
-pub(crate) fn build_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope {
+pub(crate) fn build_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> ScopeData {
     let body = db.body_with_source_map(owner);
-    let mut scope = NameScope::default();
+    let mut scope = ScopeData::default();
     insert_body_declarators(&mut scope, db, owner, body.data_ref(), owner);
     insert_body_typedefs(&mut scope, db, owner, body.data_ref(), owner);
     insert_body_statements(&mut scope, db, owner, body.data_ref(), owner);
     scope
 }
 
-pub(crate) fn build_owner_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope {
+pub(crate) fn build_owner_scope(db: &dyn HirDefDb, owner: OwnerId) -> ScopeData {
     match owner.kind(db) {
         OwnerKind::File => build_file_scope(db, owner.file(db)),
         OwnerKind::Module => build_module_scope(db, owner),
@@ -399,7 +444,7 @@ pub(crate) fn build_owner_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope 
         OwnerKind::Subroutine => build_subroutine_scope(db, owner),
         OwnerKind::ProceduralBlock => {
             let body = db.body_with_source_map(owner);
-            let mut scope = NameScope::default();
+            let mut scope = ScopeData::default();
             insert_body_declarators(&mut scope, db, owner, body.data_ref(), owner);
             insert_body_typedefs(&mut scope, db, owner, body.data_ref(), owner);
             insert_body_statements(&mut scope, db, owner, body.data_ref(), owner);
@@ -566,7 +611,7 @@ endmodule
     }
 
     #[test]
-    fn name_scope_context_lookup_covers_current_scope_shapes() {
+    fn scope_graph_context_lookup_covers_current_scope_shapes() {
         let db = db_with_root_text(
             r#"
 typedef logic shared;
@@ -592,7 +637,8 @@ endmodule
 "#,
         );
 
-        let unit_scope = db.unit_scope();
+        let graph = db.scope_graph();
+        let unit_scope = graph.unit_scope();
         assert!(
             unit_scope
                 .lookup(NameContext::Value, &ident("file_sig"))
@@ -616,7 +662,7 @@ endmodule
             .expect("module should resolve uniquely");
         assert_eq!(module_id.file(&db), HirFileId::File(TOP));
 
-        let module_scope = db.scope_for(module_id);
+        let module_scope = graph.scope(module_id);
         let port_def = module_scope
             .lookup(NameContext::Value, &ident("a"))
             .unique()
@@ -644,7 +690,7 @@ endmodule
         assert!(
             subroutine_id.source(&db).is_some_and(|source| source.value.focus_range().is_some())
         );
-        let subroutine_scope = db.scope_for(subroutine_id);
+        let subroutine_scope = graph.scope(subroutine_id);
         assert!(
             subroutine_scope
                 .lookup(NameContext::Value, &ident("p"))
@@ -666,7 +712,8 @@ endmodule
                 .is_some()
         );
         assert!(
-            db.scope_for(block_id)
+            db.scope_graph()
+                .scope(block_id)
                 .lookup(NameContext::Value, &ident("x"))
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::Variable)
@@ -683,14 +730,15 @@ endmodule
                 .is_some_and(|source| source.value.focus_range().is_some())
         );
         assert!(
-            db.scope_for(generate_block_id)
+            db.scope_graph()
+                .scope(generate_block_id)
                 .lookup(NameContext::Value, &ident("y"))
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::Net)
         );
 
         // Adding an interface lowering should create a DefKind::Interface
-        // producer and insert the resulting DefId into NameScope; IDE
+        // producer and insert the resulting DefId into ScopeGraph; IDE
         // feature matches already have default no-op arms.
     }
 
@@ -708,7 +756,8 @@ endmodule
 "#,
         );
 
-        let duplicate = db.unit_scope().lookup(NameContext::Value, &ident("duplicate"));
+        let duplicate =
+            db.scope_graph().unit_scope().lookup(NameContext::Value, &ident("duplicate"));
         let crate::symbol::Resolution::Ambiguous(candidates) = duplicate else {
             panic!("same-name declarations should remain ambiguous");
         };
@@ -721,7 +770,8 @@ endmodule
             .unique()
             .expect("module should resolve uniquely");
         let port = db
-            .scope_for(module_id)
+            .scope_graph()
+            .scope(module_id)
             .lookup(NameContext::Value, &ident("a"))
             .unique()
             .expect("one logical non-ANSI port should resolve uniquely");
@@ -729,7 +779,7 @@ endmodule
         assert_eq!(origins.len(), 3);
         assert_eq!(port.declaration_origin(&db).kind(&db), DefKind::Port);
         for origin in origins {
-            assert_eq!(DefId::new(&db, origin.loc(&db).clone()), port);
+            assert_eq!(DefId::from_source(&db, origin.loc(&db).clone()), port);
         }
     }
 
@@ -824,7 +874,8 @@ endmodule
             .unique()
             .expect("module should resolve uniquely");
         let before = db
-            .scope_for(module_id)
+            .scope_graph()
+            .scope(module_id)
             .lookup(NameContext::Value, &ident("a"))
             .unique()
             .expect("port should resolve uniquely");
@@ -835,7 +886,7 @@ endmodule
             .expect("non-ANSI port must retain its declaration origin");
         assert_eq!(
             before,
-            DefId::new(&db, declaration_origin.loc(&db).clone()),
+            DefId::from_source(&db, declaration_origin.loc(&db).clone()),
             "declaration and port source identities must resolve to one local definition"
         );
         assert_eq!(before.origins(&db).len(), 2);
@@ -859,7 +910,8 @@ endmodule
             .unique()
             .expect("module should still resolve uniquely");
         let after = db
-            .scope_for(module_id)
+            .scope_graph()
+            .scope(module_id)
             .lookup(NameContext::Value, &ident("a"))
             .unique()
             .expect("port should still resolve uniquely");
@@ -883,7 +935,7 @@ endmodule
             .unique()
             .expect("module should resolve uniquely");
         let Resolution::Ambiguous(candidates) =
-            db.scope_for(module_id).lookup(NameContext::Value, &ident("a"))
+            db.scope_graph().scope(module_id).lookup(NameContext::Value, &ident("a"))
         else {
             panic!("the port and parameter should remain separate definitions");
         };
@@ -910,7 +962,7 @@ endmodule
             .unique()
             .expect("module should resolve uniquely");
         let Resolution::Ambiguous(candidates) =
-            db.scope_for(module_id).lookup(NameContext::Value, &ident("a"))
+            db.scope_graph().scope(module_id).lookup(NameContext::Value, &ident("a"))
         else {
             panic!("duplicate labels should remain ambiguous");
         };
@@ -935,7 +987,7 @@ endmodule
             .unique()
             .expect("module should resolve uniquely");
         let Resolution::Ambiguous(candidates) =
-            db.scope_for(module_id).lookup(NameContext::Value, &ident("a"))
+            db.scope_graph().scope(module_id).lookup(NameContext::Value, &ident("a"))
         else {
             panic!("duplicate data declarations should remain ambiguous");
         };
@@ -1206,7 +1258,7 @@ endmodule
         assert_eq!(clocking_block.signals.len(), 1);
         assert_eq!(clocking_block.signals[0].name.as_str(), "a");
 
-        let defs = db.scope_for(module_id).lookup(NameContext::Value, &ident("cb"));
+        let defs = db.scope_graph().scope(module_id).lookup(NameContext::Value, &ident("cb"));
         assert!(defs.iter().any(|def_id| {
             def_id.kind(&db) == DefKind::ClockingBlock
                 && def_id
@@ -1230,7 +1282,8 @@ endmodule
 "#,
         );
 
-        let checker_defs = db.unit_scope().lookup(NameContext::Type, &ident("c"));
+        let graph = db.scope_graph();
+        let checker_defs = graph.unit_scope().lookup(NameContext::Type, &ident("c"));
         assert!(checker_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Checker));
         let checker_id = checker_defs
             .iter()
@@ -1238,7 +1291,7 @@ endmodule
             .find_map(|def_id| def_id.primary_origin(&db).as_checker(&db))
             .expect("checker definition should have a concrete id");
         let owner = DefOriginLoc::Checker(checker_id).owner(&db);
-        let checker_scope = db.scope_for(owner);
+        let checker_scope = graph.scope(owner);
         assert!(
             checker_scope
                 .lookup(NameContext::Value, &ident("clk"))
@@ -1315,7 +1368,8 @@ endmodule
         assert_eq!(covergroup_body.get(coverpoint_id).name.as_deref(), Some("cp"));
         assert_eq!(covergroup_body.get(cross_id).name.as_deref(), Some("cx"));
 
-        let module_scope = db.scope_for(module_id);
+        let graph = db.scope_graph();
+        let module_scope = graph.scope(module_id);
         let covergroup_defs = module_scope.lookup(NameContext::Type, &ident("cg"));
         assert!(covergroup_defs.iter().any(|def_id| {
             def_id.kind(&db) == DefKind::Covergroup
@@ -1325,7 +1379,7 @@ endmodule
                     .is_some_and(|id| id.cont_id == covergroup_owner && id.value == covergroup_id)
         }));
 
-        let covergroup_scope = db.scope_for(covergroup_owner);
+        let covergroup_scope = graph.scope(covergroup_owner);
         let scoped_coverpoint_defs = covergroup_scope.lookup(NameContext::Value, &ident("cp"));
         assert!(scoped_coverpoint_defs.iter().any(|def_id| {
             matches!(
@@ -1410,7 +1464,8 @@ endmodule
             .module_ids(&ident("wildcard_importer"))
             .unique()
             .expect("wildcard importer should resolve uniquely");
-        let wildcard_scope = db.scope_for(wildcard_importer);
+        let graph = db.scope_graph();
+        let wildcard_scope = graph.scope(wildcard_importer);
         assert!(
             wildcard_scope
                 .imports()
@@ -1437,7 +1492,7 @@ endmodule
             .module_ids(&ident("named_importer"))
             .unique()
             .expect("named importer should resolve uniquely");
-        let named_scope = db.scope_for(named_importer);
+        let named_scope = graph.scope(named_importer);
         assert!(named_scope.imports().iter().any(|import| {
             import.package == ident("pkg")
                 && import.name.as_ref().is_some_and(|name| name == "imported_v")

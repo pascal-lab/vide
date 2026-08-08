@@ -7,18 +7,18 @@ use hir_def::{
     def_id::DefId,
     expr::{
         Expr, ExprId,
-        data_ty::{DataTy, NamedDataTy},
+        data_ty::{DataTy, TypeRef},
         declarator::DeclaratorParent,
     },
     has_source::HasSource,
     module::instantiation::{ParamAssign, ParamAssignId, PortConn, PortConnId},
     owner::OwnerId,
+    pathres::resolve_path,
     source_map::AstLookup,
     symbol::{DefKind, NameContext, Resolution},
 };
 use hir_semantics::semantics::Semantics;
 use preproc_expand::{file::HirFileId, preproc::macro_references_in_range};
-use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use syntax::{
     ast::{self, AstNode},
@@ -197,47 +197,28 @@ macro_rules! collect_container_body {
                 collect_ident_like(sema, name_in_cont, range, collector);
             };
 
-        let mut type_expr_ids = FxHashSet::default();
         for (_, declaration) in lowered.data_ref().declarations.iter() {
-            if let Some(expr_id) = named_data_ty_expr_id(declaration.ty()) {
-                type_expr_ids.insert(expr_id);
-                let Some(range) = lowered.source_range(db, expr_id) else {
-                    continue;
-                };
-                check_range!(collector, range);
-                collect_type_ident_like(
-                    sema,
-                    cont_id.clone(),
-                    lowered.get(expr_id),
-                    range,
-                    collector,
-                );
-            }
-        }
-        for (_, typedef) in lowered.data_ref().typedefs.iter() {
-            let Some(ty) = typedef.ty.clone() else {
+            let DataTy::Named(type_ref) = declaration.ty() else {
                 continue;
             };
-            if let Some(expr_id) = named_data_ty_expr_id(ty) {
-                type_expr_ids.insert(expr_id);
-                let Some(range) = lowered.source_range(db, expr_id) else {
-                    continue;
-                };
-                check_range!(collector, range);
-                collect_type_ident_like(
-                    sema,
-                    cont_id.clone(),
-                    lowered.get(expr_id),
-                    range,
-                    collector,
-                );
-            }
+            let Some(range) = type_ref.source_range() else {
+                continue;
+            };
+            check_range!(collector, range);
+            collect_type_ref_like(sema, cont_id.clone(), &type_ref, range, collector);
+        }
+        for (_, typedef) in lowered.data_ref().typedefs.iter() {
+            let Some(DataTy::Named(type_ref)) = typedef.ty.clone() else {
+                continue;
+            };
+            let Some(range) = type_ref.source_range() else {
+                continue;
+            };
+            check_range!(collector, range);
+            collect_type_ref_like(sema, cont_id.clone(), &type_ref, range, collector);
         }
 
         for (expr_id, expr) in lowered.data_ref().exprs.iter() {
-            if type_expr_ids.contains(&expr_id) {
-                continue;
-            }
             match expr {
                 Expr::Field { .. } => {
                     let _: Option<()> = try {
@@ -516,17 +497,14 @@ fn collect_ident_like(
     collect_resolved_path(sema, res, range, collector)
 }
 
-fn collect_type_ident_like(
+fn collect_type_ref_like(
     sema: &Semantics<'_, RootDb>,
     cont_id: OwnerId,
-    expr: &Expr,
+    type_ref: &TypeRef,
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) -> Option<()> {
-    let Expr::Ident(name) = expr else {
-        return None;
-    };
-    let res = sema.resolve_name(cont_id, name, NameContext::Type);
+    let res = resolve_path(sema.db, cont_id, type_ref.segments(), NameContext::Type);
     collect_resolved_path(sema, res, range, collector)
 }
 
@@ -575,13 +553,6 @@ fn scoped_uses_dot(scoped: ast::ScopedName<'_>) -> bool {
         .children()
         .filter_map(|elem| elem.as_token())
         .any(|tok| tok.kind() == syntax::Token![.])
-}
-
-fn named_data_ty_expr_id(ty: DataTy) -> Option<ExprId> {
-    match ty {
-        DataTy::Named(NamedDataTy::Ident(expr_id) | NamedDataTy::Field(expr_id)) => Some(expr_id),
-        DataTy::Builtin(_) | DataTy::Struct(_) | DataTy::Enum | DataTy::Unsupported(_) => None,
-    }
 }
 
 fn collect_resolved_path(

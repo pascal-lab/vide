@@ -9,7 +9,7 @@ use hir_def::{
     module::port::{PortDecl, Ports},
     owner::OwnerId,
     source_map::Lowered,
-    symbol::{NameContext, NameScope},
+    symbol::{NameContext, ScopeData},
 };
 use hir_ty::{db::TyDb, display::HirDisplay};
 use itertools::Itertools;
@@ -158,7 +158,8 @@ fn convert_non_ansi_ports_to_ansi(
 
     let body_range = module_body_range(ast_module)?;
     let text = ctx.sema().db.file_text(ctx.file_id());
-    let module_scope = ctx.sema().db.scope_for(module_id);
+    let graph = ctx.sema().db.scope_graph();
+    let module_scope = graph.scope(module_id);
     let port_replacements = port_names
         .iter()
         .map(|name| non_ansi_port_replacement(ctx, &module, &body, &module_scope, name, &text))
@@ -207,7 +208,7 @@ fn non_ansi_port_replacement(
     ctx: &CodeActionCtx,
     module: &Lowered<Body>,
     body: &Lowered<Body>,
-    module_scope: &NameScope,
+    module_scope: &ScopeData,
     name: &Ident,
     text: &str,
 ) -> Option<NonAnsiPortReplacement> {

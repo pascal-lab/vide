@@ -27,7 +27,7 @@ use crate::{
 /// The import-free declarations exported directly by one package.
 ///
 /// Package export resolution owns this namespace instead of borrowing the
-/// lexical `NameScope`.  The latter represents a scope chain and import edges;
+/// lexical `ScopeGraph`. The latter represents a scope chain and import edges;
 /// this value represents only the package's public type/value bindings.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PackageExports {
@@ -187,7 +187,7 @@ fn package_bindings(db: &dyn HirDefDb, package: OwnerId) -> PackageExports {
 /// Fixed-point package exports for one database revision.
 ///
 /// The map contains only package owners. Every stored namespace contains
-/// direct declarations plus package-import bindings; lexical `NameScope`
+/// direct declarations plus package-import bindings; lexical `ScopeGraph`
 /// construction is not part of this query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesignMap {

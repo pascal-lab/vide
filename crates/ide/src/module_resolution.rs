@@ -155,7 +155,8 @@ fn resolve_named_port_in_module(
     port_name: &Ident,
 ) -> Resolution<DefId> {
     Resolution::from_candidates(
-        db.scope_for(module_id)
+        db.scope_graph()
+            .scope(module_id)
             .lookup(NameContext::Value, port_name)
             .into_candidates()
             .into_iter()
@@ -181,7 +182,10 @@ pub(crate) fn resolve_connection_port(
                     let Some((port_id, _)) = ports.iter().nth(idx) else {
                         return Resolution::Unresolved;
                     };
-                    Resolution::Unique(DefId::new(db, OwnerRef::new(target_module_id, port_id)))
+                    Resolution::Unique(DefId::from_source(
+                        db,
+                        OwnerRef::new(target_module_id, port_id),
+                    ))
                 }
                 Ports::Ansi(_) => {
                     let Some(port_decl_id) = ansi_port_decl_id_by_idx(&module, idx) else {
@@ -190,7 +194,10 @@ pub(crate) fn resolve_connection_port(
                     let Some(decl_id) = module.get(port_decl_id).decls.clone().next() else {
                         return Resolution::Unresolved;
                     };
-                    Resolution::Unique(DefId::new(db, OwnerRef::new(target_module_id, decl_id)))
+                    Resolution::Unique(DefId::from_source(
+                        db,
+                        OwnerRef::new(target_module_id, decl_id),
+                    ))
                 }
             }
         }
@@ -214,7 +221,8 @@ pub(crate) fn resolve_port_metadata<'a>(
     origins.extend(defs.iter().cloned());
 
     if let Some(port_id) = defs.iter().find_map(|origin| origin.as_non_ansi_port(db)) {
-        let scope = db.scope_for(port_id.cont_id);
+        let graph = db.scope_graph();
+        let scope = graph.scope(port_id.cont_id);
         if let Some(refs) = module.get(port_id.value).refs.clone() {
             for ref_id in refs {
                 let Some(name) = module.get(ref_id).ident.as_ref() else {
@@ -269,7 +277,7 @@ pub(crate) fn resolve_named_param_in_module(
     module_id: OwnerId,
     param_name: &Ident,
 ) -> Resolution<DefId> {
-    let defs = db.scope_for(module_id).lookup(NameContext::Value, param_name);
+    let defs = db.scope_graph().scope(module_id).lookup(NameContext::Value, param_name);
     let body = db.body_with_source_map(module_id);
 
     Resolution::from_candidates(defs.into_candidates().into_iter().filter(|def_id| {

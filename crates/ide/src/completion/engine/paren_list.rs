@@ -87,9 +87,10 @@ fn complete_parameter_port_list_with_typedefs(
     };
 
     let mut items: Vec<CompletionCandidate> = db
+        .scope_graph()
         .unit_scope()
         .typedef_names(db)
-        .chain(db.scope_for(module_id).typedef_names(db))
+        .chain(db.scope_graph().scope(module_id).typedef_names(db))
         .map(|ident| ident.to_string())
         .filter(|name| name.starts_with(prefix))
         .map(|name| CompletionCandidate::text(name, ctx.replacement))
