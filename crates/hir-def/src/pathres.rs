@@ -619,7 +619,7 @@ endmodule
             .unique()
             .expect("named package should resolve uniquely");
         let expected = db
-            .package_export_scope(named)
+            .package_exports(named)
             .lookup(NameContext::Value, &ident("value"))
             .unique()
             .expect("named package value should resolve uniquely");
@@ -702,7 +702,7 @@ endmodule
             .unique()
             .expect("outer package should resolve uniquely");
         assert!(
-            db.package_export_scope(outer)
+            db.package_exports(outer)
                 .lookup(NameContext::Value, &ident("value"))
                 .unique()
                 .is_some(),

@@ -273,7 +273,7 @@ fn package_member_resolution(
             let Some(package_id) = package.primary_origin(sema.db).as_module(sema.db) else {
                 return Resolution::Unresolved;
             };
-            let scope = sema.db.package_export_scope(package_id);
+            let scope = sema.db.package_exports(package_id);
             scope.lookup(primary_ctx, ident).or_else(|| scope.lookup(fallback_ctx, ident))
         })
         .map(DefinitionClass::Definition)

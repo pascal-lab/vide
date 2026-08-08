@@ -5,7 +5,7 @@ use hir_def::{
     def_id::DefId,
     expr::data_ty::DataTy,
     owner::OwnerId,
-    symbol::{NameScope, Resolution},
+    symbol::Resolution,
 };
 
 use crate::{
@@ -86,30 +86,37 @@ fn struct_kind(db: &dyn TyDb, struct_id: OwnerRef<StructId>) -> StructKind {
 }
 fn module_members(db: &dyn TyDb, module_id: OwnerId) -> Vec<TyMember> {
     let is_package = module_id.module_kind(db) == Some(hir_def::module::ModuleKind::Package);
-    let scope =
-        if is_package { db.package_export_scope(module_id) } else { db.scope_for(module_id) };
-    scope_members(db, &scope)
+    if is_package {
+        let exports = db.package_exports(module_id);
+        scope_members(db, exports.iter_listing())
+    } else {
+        let scope = db.scope_for(module_id);
+        scope_members(db, scope.iter_listing())
+    }
 }
 
 fn checker_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
-    scope_members(db, &db.scope_for(def_id.container_id(db)))
+    scope_members(db, db.scope_for(def_id.container_id(db)).iter_listing())
 }
 
 fn covergroup_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
-    scope_members(db, &db.scope_for(def_id.container_id(db)))
+    scope_members(db, db.scope_for(def_id.container_id(db)).iter_listing())
 }
 
 fn generate_block_members(db: &dyn TyDb, generate_block_owner: OwnerId) -> Vec<TyMember> {
-    scope_members(db, &db.scope_for(generate_block_owner))
+    scope_members(db, db.scope_for(generate_block_owner).iter_listing())
 }
 
 fn block_members(db: &dyn TyDb, owner: hir_def::owner::OwnerId) -> Vec<TyMember> {
-    scope_members(db, &db.scope_for(owner))
+    scope_members(db, db.scope_for(owner).iter_listing())
 }
 
-fn scope_members(db: &dyn TyDb, scope: &NameScope) -> Vec<TyMember> {
-    let mut members: Vec<_> = scope
-        .iter_listing()
+fn scope_members<'a, I, D>(db: &dyn TyDb, entries: I) -> Vec<TyMember>
+where
+    I: Iterator<Item = (&'a Ident, D)>,
+    D: IntoIterator<Item = DefId>,
+{
+    let mut members: Vec<_> = entries
         .map(|(name, defs)| {
             let resolution = Resolution::from_candidates(defs);
             let ty = type_of_path_resolution_impl(db, resolution).ty;

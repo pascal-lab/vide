@@ -1384,7 +1384,7 @@ endmodule
             .package_ids(&db, &ident("pkg"))
             .unique()
             .expect("package should resolve uniquely");
-        let package_exports = db.package_export_scope(package_id);
+        let package_exports = db.package_exports(package_id);
         assert!(
             package_exports
                 .lookup(NameContext::Type, &ident("imported_t"))
@@ -1539,7 +1539,7 @@ endpackage
             .unique()
             .expect("package should resolve uniquely");
 
-        let exports = db.package_export_scope(package_id);
+        let exports = db.package_exports(package_id);
         assert!(
             exports
                 .lookup(NameContext::Value, &ident("exported_f"))
