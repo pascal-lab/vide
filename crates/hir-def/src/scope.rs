@@ -1524,6 +1524,106 @@ endmodule
     }
 
     #[test]
+    fn declaration_def_id_survives_preceding_declaration_insertion() {
+        let mut db = db_with_root_text(
+            r#"
+module m;
+  logic stable;
+endmodule
+"#,
+        );
+        let module_id = db
+            .unit_index()
+            .module_ids(&ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let before = db
+            .scope(module_id)
+            .lookup(NameContext::Value, &ident("stable"))
+            .unique()
+            .expect("stable declaration should resolve uniquely");
+
+        db.set_file_text_with_durability(
+            TOP,
+            Arc::from(
+                r#"
+module m;
+  logic inserted;
+  logic stable;
+endmodule
+"#,
+            ),
+            Durability::LOW,
+        );
+
+        let module_id = db
+            .unit_index()
+            .module_ids(&ident("m"))
+            .unique()
+            .expect("module should still resolve uniquely");
+        let after = db
+            .scope(module_id)
+            .lookup(NameContext::Value, &ident("stable"))
+            .unique()
+            .expect("stable declaration should still resolve uniquely");
+        assert_eq!(before, after, "a preceding declaration must not shift DefId identity");
+    }
+
+    #[test]
+    fn owner_scoped_lookup_survives_another_owner_edit() {
+        let mut db = db_with_root_text(
+            r#"
+module first;
+  logic first_value;
+endmodule
+
+module second;
+  logic second_value;
+endmodule
+"#,
+        );
+        let second = db
+            .unit_index()
+            .module_ids(&ident("second"))
+            .unique()
+            .expect("second module should resolve uniquely");
+        let before = db
+            .scope(second)
+            .lookup(NameContext::Value, &ident("second_value"))
+            .unique()
+            .expect("second owner declaration should resolve");
+
+        db.set_file_text_with_durability(
+            TOP,
+            Arc::from(
+                r#"
+module first;
+  logic inserted;
+  logic first_value;
+endmodule
+
+module second;
+  logic second_value;
+endmodule
+"#,
+            ),
+            Durability::LOW,
+        );
+
+        let second = db
+            .unit_index()
+            .module_ids(&ident("second"))
+            .unique()
+            .expect("second module should remain unique");
+        let after = db
+            .scope(second)
+            .lookup(NameContext::Value, &ident("second_value"))
+            .unique()
+            .expect("second owner declaration should remain visible");
+        assert_eq!(before, after);
+    }
+
+    #[test]
     fn package_export_signature_is_stable_across_function_body_edits() {
         let mut db = db_with_root_text(
             r#"
