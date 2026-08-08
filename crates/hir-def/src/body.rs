@@ -507,7 +507,10 @@ fn lower_subroutine_body(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>
     let mut source_map = BodySourceMap::default();
     let mut ctx =
         LoweringCtx::new(db, owner, BodyStore { data: &mut body, sources: &mut source_map });
-    let Some(subroutine) = lower_subroutine(&func, |ty| ctx.lower_data_ty(ty)) else {
+    let ast_ids = Arc::clone(&ctx.ast_ids);
+    let tree = ctx.tree.clone();
+    let Some(subroutine) = lower_subroutine(&func, |ty| ctx.lower_data_ty(ty), &ast_ids, &tree)
+    else {
         return empty_body(file_id);
     };
     ctx.store.body().0.subroutine = Some(subroutine);

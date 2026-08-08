@@ -106,6 +106,7 @@ pub struct OwnerData {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OwnerTable {
     owners: Vec<OwnerData>,
+    by_id: FxHashMap<OwnerId, usize>,
     by_source: FxHashMap<(SourceAstId, OwnerKind), OwnerId>,
 }
 
@@ -115,7 +116,7 @@ impl OwnerTable {
     }
 
     pub fn owner(&self, owner: OwnerId) -> Option<&OwnerData> {
-        self.owners.iter().find(|data| data.id == owner)
+        self.by_id.get(&owner).map(|index| &self.owners[*index])
     }
 
     pub fn is_empty(&self) -> bool {
@@ -155,6 +156,7 @@ impl<'db> OwnerTableBuilder<'db> {
             name: SmolStr::new_static(""),
             module_kind: None,
         });
+        table.by_id.insert(file_owner, 0);
         table.by_source.insert((root_ast_id, OwnerKind::File), file_owner);
         Self { db, file_id, table, stack: vec![file_owner] }
     }
@@ -167,6 +169,7 @@ impl<'db> OwnerTableBuilder<'db> {
         for kind in self.kinds(node) {
             let parent = self.stack.last().copied();
             let owner = OwnerId::new(self.db, self.file_id, ast_id, kind);
+            let index = self.table.owners.len();
             self.table.owners.push(OwnerData {
                 id: owner,
                 kind,
@@ -174,6 +177,8 @@ impl<'db> OwnerTableBuilder<'db> {
                 name: owner_name(node, kind),
                 module_kind: owner_module_kind(node, kind),
             });
+            let replaced = self.table.by_id.insert(owner, index);
+            debug_assert!(replaced.is_none(), "duplicate owner identity");
             let replaced = self.table.by_source.insert((ast_id, kind), owner);
             debug_assert!(replaced.is_none(), "duplicate owner source key");
             self.stack.push(owner);

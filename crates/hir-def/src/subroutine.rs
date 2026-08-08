@@ -1,8 +1,15 @@
 use smallvec::SmallVec;
-use syntax::{TokenKind, ast};
+use syntax::{
+    SyntaxTree, TokenKind,
+    ast::{self, AstNode},
+};
 
-use super::{Ident, expr::data_ty::DataTy, lower_ident_opt};
-
+use super::{
+    Ident,
+    ast_id_map::{AstIdMap, SourceAstId},
+    expr::data_ty::DataTy,
+    lower_ident_opt,
+};
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Subroutine {
     pub name: Option<Ident>,
@@ -33,8 +40,8 @@ pub struct SubroutinePort {
     pub direction: SubroutinePortDir,
     pub ty: Option<DataTy>,
     pub name: Option<Ident>,
+    pub source: SourceAstId,
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct SubroutinePortId(pub u32);
 
@@ -49,10 +56,12 @@ pub enum SubroutinePortDir {
     Unknown,
 }
 
-pub fn lower_subroutine<F>(func: &ast::FunctionDeclaration, mut lower_ty: F) -> Option<Subroutine>
-where
-    F: FnMut(ast::DataType) -> DataTy,
-{
+pub fn lower_subroutine(
+    func: &ast::FunctionDeclaration,
+    mut lower_ty: impl FnMut(ast::DataType) -> DataTy,
+    ast_ids: &AstIdMap,
+    tree: &SyntaxTree,
+) -> Option<Subroutine> {
     let prototype = func.prototype();
     let name = lower_name(prototype.name())?;
 
@@ -69,12 +78,15 @@ where
 
                 let ty = port.data_type().map(&mut lower_ty);
                 let name = lower_ident_opt(port.declarator().name());
-                ports.push(SubroutinePort { direction: dir, ty, name });
+                let source = ast_ids.id_of_node_in_tree(tree, port_base.syntax())?;
+                ports.push(SubroutinePort { direction: dir, ty, name, source });
             } else if port_base.as_default_function_port().is_some() {
+                let source = ast_ids.id_of_node_in_tree(tree, port_base.syntax())?;
                 ports.push(SubroutinePort {
                     direction: SubroutinePortDir::Input,
                     ty: None,
                     name: None,
+                    source,
                 });
             }
         }

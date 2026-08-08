@@ -204,18 +204,20 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> NameSco
     for item in &hir_file.items {
         match item {
             crate::body::BodyItem::CheckerOwner(owner) => {
-                if let Some(checker) = owner.as_checker(db) {
-                    let body = db.body(*owner);
-                    let checker_data = body.get(checker.value);
-                    scope.insert_type_opt(&checker_data.name, def_id(db, checker));
-                }
+                let checker = owner
+                    .as_checker(db)
+                    .expect("checker owner must contain a lowered checker definition");
+                let body = db.body(*owner);
+                let checker_data = body.get(checker.value);
+                scope.insert_type_opt(&checker_data.name, def_id(db, checker));
             }
             crate::body::BodyItem::CovergroupOwner(owner) => {
-                if let Some(covergroup) = owner.as_covergroup(db) {
-                    let body = db.body(*owner);
-                    let covergroup_data = body.get(covergroup.value);
-                    scope.insert_type_opt(&covergroup_data.name, def_id(db, covergroup));
-                }
+                let covergroup = owner
+                    .as_covergroup(db)
+                    .expect("covergroup owner must contain a lowered covergroup definition");
+                let body = db.body(*owner);
+                let covergroup_data = body.get(covergroup.value);
+                scope.insert_type_opt(&covergroup_data.name, def_id(db, covergroup));
             }
             _ => {}
         }
@@ -246,25 +248,28 @@ pub(crate) fn build_module_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope
     for item in &module.items {
         match item {
             crate::body::BodyItem::ClockingBlockOwner(owner) => {
-                if let Some(clocking) = owner.as_clocking_block(db) {
-                    let body = db.body(*owner);
-                    let clocking_data = body.get(clocking.value);
-                    scope.insert_value_opt(&clocking_data.name, def_id(db, clocking));
-                }
+                let clocking = owner
+                    .as_clocking_block(db)
+                    .expect("clocking owner must contain a lowered clocking definition");
+                let body = db.body(*owner);
+                let clocking_data = body.get(clocking.value);
+                scope.insert_value_opt(&clocking_data.name, def_id(db, clocking));
             }
             crate::body::BodyItem::CheckerOwner(owner) => {
-                if let Some(checker) = owner.as_checker(db) {
-                    let body = db.body(*owner);
-                    let checker_data = body.get(checker.value);
-                    scope.insert_type_opt(&checker_data.name, def_id(db, checker));
-                }
+                let checker = owner
+                    .as_checker(db)
+                    .expect("checker owner must contain a lowered checker definition");
+                let body = db.body(*owner);
+                let checker_data = body.get(checker.value);
+                scope.insert_type_opt(&checker_data.name, def_id(db, checker));
             }
             crate::body::BodyItem::CovergroupOwner(owner) => {
-                if let Some(covergroup) = owner.as_covergroup(db) {
-                    let body = db.body(*owner);
-                    let covergroup_data = body.get(covergroup.value);
-                    scope.insert_type_opt(&covergroup_data.name, def_id(db, covergroup));
-                }
+                let covergroup = owner
+                    .as_covergroup(db)
+                    .expect("covergroup owner must contain a lowered covergroup definition");
+                let body = db.body(*owner);
+                let covergroup_data = body.get(covergroup.value);
+                scope.insert_type_opt(&covergroup_data.name, def_id(db, covergroup));
             }
             _ => {}
         }
@@ -296,9 +301,9 @@ pub(crate) fn build_module_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope
 
 pub(crate) fn build_clocking_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope {
     let mut scope = NameScope::default();
-    let Some(clocking_id) = owner.as_clocking_block(db) else {
-        return scope;
-    };
+    let clocking_id = owner
+        .as_clocking_block(db)
+        .expect("clocking owner must contain a lowered clocking definition");
     let body = db.body(owner);
     let clocking_block = body.get(clocking_id.value);
     for (idx, signal) in clocking_block.signals.iter().enumerate() {
@@ -310,12 +315,12 @@ pub(crate) fn build_clocking_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> N
 
 pub(crate) fn build_checker_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope {
     let mut scope = NameScope::default();
-    let Some(checker_id) = owner.as_checker(db) else {
-        return scope;
-    };
+    let checker_id =
+        owner.as_checker(db).expect("checker owner must contain a lowered checker definition");
     let checker = db.body(owner).get(checker_id.value).clone();
     for (idx, port) in checker.ports.iter().enumerate() {
-        scope.insert_value(&port.name, def_id(db, OwnerRef::new(owner, CheckerPortId(idx as u32))));
+        let port_id = CheckerPortId(idx as u32);
+        scope.insert_value(&port.name, def_id(db, OwnerRef::new(owner, port_id)));
     }
     let lowered = db.body_with_source_map(owner);
     for declaration_id in &checker.declarations {
@@ -330,9 +335,9 @@ pub(crate) fn build_checker_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScop
 
 pub(crate) fn build_covergroup_scope(db: &dyn HirDefDb, owner: OwnerId) -> NameScope {
     let mut scope = NameScope::default();
-    let Some(covergroup_id) = owner.as_covergroup(db) else {
-        return scope;
-    };
+    let covergroup_id = owner
+        .as_covergroup(db)
+        .expect("covergroup owner must contain a lowered covergroup definition");
     let body = db.body(owner);
     let covergroup = body.get(covergroup_id.value);
     for coverpoint_id in &covergroup.coverpoints {
@@ -829,6 +834,16 @@ endmodule
             .lookup(NameContext::Value, &ident("a"))
             .unique()
             .expect("port should resolve uniquely");
+        let declaration_origin = before
+            .origins(&db)
+            .into_iter()
+            .find(|origin| matches!(origin.loc(&db), DefOriginLoc::Decl(_)))
+            .expect("non-ANSI port must retain its declaration origin");
+        assert_eq!(
+            before,
+            DefId::new(&db, declaration_origin.loc(&db).clone()),
+            "declaration and port source identities must resolve to one local definition"
+        );
         assert_eq!(before.origins(&db).len(), 2);
 
         db.set_file_text_with_durability(
