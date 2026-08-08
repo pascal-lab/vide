@@ -8,7 +8,9 @@ use crate::{
     ast_id_map::{self, AstIdMap, SyntaxFileId},
     body::{self, Body},
     def_id::{self, DefinitionTable},
-    design_map, diagnostics,
+    design_map,
+    design_map::PackageExports,
+    diagnostics,
     item_tree::{self, ItemTree, ItemTreeItem, Signature},
     nameres,
     owner::{self, OwnerId, OwnerTable},
@@ -109,13 +111,13 @@ impl dyn HirDefDb + '_ {
         )
     }
 
-    pub fn package_export_signature(&self, package_owner: OwnerId) -> Arc<NameScope> {
-        self.package_export_scope(package_owner)
+    pub fn package_export_signature(&self, package_owner: OwnerId) -> Arc<PackageExports> {
+        self.package_exports(package_owner)
     }
 
-    pub fn package_export_scope(&self, package_owner: OwnerId) -> Arc<NameScope> {
+    pub fn package_exports(&self, package_owner: OwnerId) -> Arc<PackageExports> {
         self.design_map()
-            .package_export_scope(package_owner)
+            .package_exports(package_owner)
             .expect("package owner must be present in the design map")
     }
 

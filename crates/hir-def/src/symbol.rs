@@ -463,32 +463,6 @@ impl NameScope {
         self.imports.push(import);
     }
 
-    /// Return this scope's declarations without its package-import edges.
-    pub(crate) fn without_imports(&self) -> Self {
-        let mut scope = Self::default();
-        scope.extend_definitions_from(self);
-        scope
-    }
-
-    /// Insert all candidates from a namespace-preserving resolution.
-    pub(crate) fn insert_resolution(
-        &mut self,
-        ctx: NameContext,
-        ident: &Ident,
-        resolution: Resolution<DefId>,
-    ) {
-        for def_id in resolution.into_candidates() {
-            match ctx {
-                NameContext::Type => self.insert_type(ident, def_id),
-                NameContext::Value => self.insert_value(ident, def_id),
-                NameContext::Listing => {
-                    self.insert_type(ident, def_id);
-                    self.insert_value(ident, def_id);
-                }
-            }
-        }
-    }
-
     pub(crate) fn extend_definitions_from(&mut self, other: &NameScope) {
         for (ident, defs) in &other.types {
             for def_id in defs {
