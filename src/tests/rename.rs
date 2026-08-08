@@ -175,6 +175,53 @@ fn unconfigured_workspace_rename_rejects_cross_file_symbol() {
 }
 
 #[test]
+fn configured_workspace_rename_keeps_later_declaration_untouched() {
+    // IEEE 1800-2017 26.3: the reference activates the explicit import p::x,
+    // so renaming it must update the package declaration and the reference,
+    // but never the unrelated later declaration in the module.
+    let top_text = "package p;\nint x;\nendpackage\nmodule top;\nimport p::x;\nif (1) begin : b\n  initial x = 1;\nend\nint x;\nendmodule\n";
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        &[("top.sv", top_text)],
+    );
+    let top_uri = uris[0].clone();
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let edit = request_rename(&client, top_uri, top_text, "x = 1", "renamed", 2)
+        .expect("rename of the activated import reference should return an edit");
+
+    let Some(lsp_types::DocumentChanges::Edits(document_edits)) = edit.document_changes else {
+        panic!("rename should use document edits: {edit:?}");
+    };
+    let all_edits: Vec<String> = document_edits
+        .iter()
+        .flat_map(|edit| edit.edits.iter().filter_map(|text_edit| match text_edit {
+            lsp_types::OneOf::Left(text_edit) => Some(text_edit.new_text.clone()),
+            lsp_types::OneOf::Right(_) => None,
+        }))
+        .collect();
+    assert!(
+        all_edits.iter().any(|text| text.contains("renamed")),
+        "package declaration and reference must be renamed: {all_edits:?}"
+    );
+    // The module's own later declaration of x stays untouched.
+    let module_declaration_range = range_of(top_text, "end\nint x");
+    let module_declaration_edited = document_edits.iter().any(|edit| {
+        edit.edits.iter().any(|text_edit| match text_edit {
+            lsp_types::OneOf::Left(text_edit) => text_edit.range == module_declaration_range,
+            lsp_types::OneOf::Right(_) => false,
+        })
+    });
+    assert!(
+        !module_declaration_edited,
+        "the later module declaration must not be renamed: {document_edits:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn configured_workspace_rename_updates_cross_file_symbol() {
     let child_text = "module child;\nendmodule\n";
     let top_text = "module top;\n  child u();\nendmodule\n";
