@@ -16,7 +16,8 @@ fn goto_definition_prefers_activated_wildcard_import_over_later_declaration() {
     open_test_document(&client, top_uri.clone(), top_text);
     let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
 
-    let definition_uris = request_goto_definition_uris(&client, top_uri.clone(), top_text, "x = 1", 2);
+    let definition_uris =
+        request_goto_definition_uris(&client, top_uri.clone(), top_text, "x = 1", 2);
     assert_eq!(definition_uris, vec![top_uri.clone()]);
 
     // A scalar/array goto-definition response carries the target range;
@@ -37,7 +38,8 @@ fn goto_definition_prefers_activated_wildcard_import_over_later_declaration() {
             },
         )))
         .unwrap();
-    let definition: Option<GotoDefinitionResponse> = recv_response(&client, request_id, "definition");
+    let definition: Option<GotoDefinitionResponse> =
+        recv_response(&client, request_id, "definition");
     let definition = definition.expect("definition response");
     let range = match definition {
         GotoDefinitionResponse::Scalar(location) => location.range,

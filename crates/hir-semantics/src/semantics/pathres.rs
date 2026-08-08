@@ -139,9 +139,11 @@ pub fn token_reference(
     let position = InFile::new(file_id, db.ast_id_map(file_id).id_of_node(node)?);
     let kind = SyntaxAncestors::start_from(parent)
         .find_map(ast::InvocationExpression::cast)
-        .map(|invocation| {
-            if invocation.left().syntax() == node { RefKind::Call } else { RefKind::Value }
-        })
+        .map(
+            |invocation| {
+                if invocation.left().syntax() == node { RefKind::Call } else { RefKind::Value }
+            },
+        )
         .unwrap_or(RefKind::Value);
     Some(NameRef { position, kind })
 }

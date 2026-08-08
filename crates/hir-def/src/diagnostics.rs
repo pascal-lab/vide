@@ -66,10 +66,22 @@ pub(crate) fn file_lowering_diagnostics(
     for owner in file.subroutine_owners() {
         collect_subroutine(db, owner, &tree, &projection, &mut diagnostics);
     }
-    collect_wildcard_activation_conflicts(db, file_owner, &references, &projection, &mut diagnostics);
+    collect_wildcard_activation_conflicts(
+        db,
+        file_owner,
+        &references,
+        &projection,
+        &mut diagnostics,
+    );
     for owner in file.module_owners() {
         collect_module(db, owner, &tree, &projection, &mut diagnostics);
-        collect_wildcard_activation_conflicts(db, owner, &references, &projection, &mut diagnostics);
+        collect_wildcard_activation_conflicts(
+            db,
+            owner,
+            &references,
+            &projection,
+            &mut diagnostics,
+        );
         let mut generate_owners = Vec::new();
         collect_generate_owner_ids(db, owner, &mut generate_owners);
         for generate_owner in generate_owners {
@@ -267,8 +279,7 @@ fn collect_wildcard_activation_conflicts(
     }
     for (name, defs) in scope.iter_listing() {
         for def_id in defs {
-            let Some(declaration_source) =
-                def_id.primary_origin(db).loc(db).clone().source_ast(db)
+            let Some(declaration_source) = def_id.primary_origin(db).loc(db).clone().source_ast(db)
             else {
                 continue;
             };
@@ -286,10 +297,12 @@ fn collect_wildcard_activation_conflicts(
                         resolve_wildcard_at(db, *ref_owner, name, ctx, Some(&reference));
                     activated_scope == Some(owner) && resolved == wildcard
                 });
-                resolved && before_reference(db, *ref_position, &NameRef {
-                    position: declaration_source,
-                    kind: RefKind::Value,
-                })
+                resolved
+                    && before_reference(
+                        db,
+                        *ref_position,
+                        &NameRef { position: declaration_source, kind: RefKind::Value },
+                    )
             });
             if !activated {
                 continue;
@@ -297,7 +310,9 @@ fn collect_wildcard_activation_conflicts(
             let origin = projection.origin(declaration_source.value);
             diagnostics.push(LoweringDiagnostic {
                 kind: LoweringDiagnosticKind::InvalidSyntax,
-                syntax_kind: origin.and_then(|origin| origin.kind()).unwrap_or(SyntaxKind::DATA_DECLARATION),
+                syntax_kind: origin
+                    .and_then(|origin| origin.kind())
+                    .unwrap_or(SyntaxKind::DATA_DECLARATION),
                 source: Some(declaration_source.value),
                 range: origin.and_then(|origin| origin.full_range()),
                 message: format!(
@@ -589,7 +604,9 @@ endmodule
         let db = db_with_files(text, None);
         let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
         assert!(
-            diagnostics.iter().any(|diag| diag.message.contains("conflicts with the name imported")),
+            diagnostics
+                .iter()
+                .any(|diag| diag.message.contains("conflicts with the name imported")),
             "later declaration after wildcard activation must be diagnosed: {diagnostics:?}"
         );
     }
@@ -602,7 +619,9 @@ endmodule
         let db = db_with_files(text, None);
         let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
         assert!(
-            !diagnostics.iter().any(|diag| diag.message.contains("conflicts with the name imported")),
+            !diagnostics
+                .iter()
+                .any(|diag| diag.message.contains("conflicts with the name imported")),
             "declaration before the reference never conflicts: {diagnostics:?}"
         );
     }
@@ -613,7 +632,9 @@ endmodule
         let db = db_with_files(text, None);
         let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
         assert!(
-            !diagnostics.iter().any(|diag| diag.message.contains("conflicts with the name imported")),
+            !diagnostics
+                .iter()
+                .any(|diag| diag.message.contains("conflicts with the name imported")),
             "a wildcard import alone must not conflict: {diagnostics:?}"
         );
     }

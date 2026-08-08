@@ -1,9 +1,9 @@
 use base_db::source_root::SourceRootId;
 use hir_def::{
-    module::ModuleKind,
     container::InFile,
     def_id::DefId,
     has_source::HasSource,
+    module::ModuleKind,
     owner::{OwnerId, OwnerKind},
 };
 use hir_semantics::semantics::Semantics;
