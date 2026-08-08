@@ -65,6 +65,12 @@ impl UnitIndex {
         self.resolve(name, |unit| unit.kind.is_module())
     }
 
+    /// Design-unit modules declared at compilation-unit scope. Only these may
+    /// act as explicit hierarchy roots for multi-segment paths.
+    pub fn top_level_module_ids(&self, name: &SmolStr) -> Resolution<OwnerId> {
+        self.resolve(name, |unit| unit.kind.is_module() && unit.top_level)
+    }
+
     pub fn package_ids(&self, name: &SmolStr) -> Resolution<OwnerId> {
         self.resolve(name, |unit| unit.kind.is_package())
     }
