@@ -278,7 +278,7 @@ pub fn resolve_path_at(
         return Resolution::Unresolved;
     };
     let mut current = resolve_name_at(db, cont_id, first, ctx, reference)
-        .or_else(|| resolve_top_level_module_root(db, cont_id, first, ctx, !rest.is_empty()));
+        .or_else(|| resolve_top_level_module_root(db, first, ctx, !rest.is_empty()));
 
     for (idx, segment) in rest.iter().enumerate() {
         let segment_ctx = if idx + 1 == rest.len() { ctx } else { NameContext::Value };
@@ -293,7 +293,6 @@ pub fn resolve_path_at(
 
 fn resolve_top_level_module_root(
     db: &dyn HirDefDb,
-    _cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
     has_child_segment: bool,
