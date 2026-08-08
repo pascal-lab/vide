@@ -152,7 +152,7 @@ pub fn resolve_in_resolved_scopes(
         if scope.has_imports() {
             // Imports resolve package members through database queries; fall
             // back to the general path so behavior stays identical.
-            return resolve_name(db, resolved.scope_chain.ids()[idx].clone(), ident, ctx);
+            return resolve_name(db, resolved.scope_chain.ids()[idx], ident, ctx);
         }
         let resolution = scope.lookup(ctx, ident);
         if !resolution.is_unresolved() {
@@ -171,7 +171,7 @@ pub fn resolve_path(
     let Some((first, rest)) = path.split_first() else {
         return Resolution::Unresolved;
     };
-    let mut current = resolve_name(db, cont_id.clone(), first, ctx)
+    let mut current = resolve_name(db, cont_id, first, ctx)
         .or_else(|| resolve_top_level_module_root(db, cont_id, first, ctx, !rest.is_empty()));
 
     for (idx, segment) in rest.iter().enumerate() {
@@ -269,7 +269,7 @@ fn resolve_imported_name(
     let mut defs = SmallVec::<[DefId; 3]>::new();
 
     for scope_id in scopes.iter() {
-        let scope = db.scope_for(scope_id.clone());
+        let scope = db.scope_for(*scope_id);
         collect_imports(db, &design_map, &scope, ident, ctx, true, &mut defs);
         let resolution = Resolution::from_candidates(defs.iter().copied());
         if let Some(trace) = trace.as_deref_mut() {
@@ -285,7 +285,7 @@ fn resolve_imported_name(
     }
 
     for scope_id in scopes.iter() {
-        let scope = db.scope_for(scope_id.clone());
+        let scope = db.scope_for(*scope_id);
         collect_imports(db, &design_map, &scope, ident, ctx, false, &mut defs);
         let resolution = Resolution::from_candidates(defs.iter().copied());
         if let Some(trace) = trace.as_deref_mut() {

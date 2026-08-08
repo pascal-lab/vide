@@ -112,7 +112,7 @@ impl RegionTree {
                 .then_with(|| nodes[*right].range.end().cmp(&nodes[*left].range.end()))
         });
 
-        for idx in children.iter().copied().collect::<Vec<_>>() {
+        for idx in children.iter().copied() {
             let nested = std::mem::take(&mut nodes[idx].children);
             nodes[idx].children = Self::normalize_children(nodes, nested);
         }
@@ -368,11 +368,11 @@ fn collect_owner_regions(builder: &mut RegionTreeBuilder, root: SyntaxNode<'_>, 
                 for member in block.members().children() {
                     builder.handle_node(member.syntax());
                 }
-            } else if let Some(loop_generate) = ast::LoopGenerate::cast(root) {
-                if let Some(block) = loop_generate.block().as_generate_block() {
-                    for member in block.members().children() {
-                        builder.handle_node(member.syntax());
-                    }
+            } else if let Some(loop_generate) = ast::LoopGenerate::cast(root)
+                && let Some(block) = loop_generate.block().as_generate_block()
+            {
+                for member in block.members().children() {
+                    builder.handle_node(member.syntax());
                 }
             }
         }

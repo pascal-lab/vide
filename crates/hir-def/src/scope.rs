@@ -43,7 +43,7 @@ fn owner_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
     def_id(db, origin)
 }
 
-fn body_scope<'a>(body: &'a Body, owner: OwnerId) -> &'a crate::body::BodyScopeData {
+fn body_scope(body: &Body, owner: OwnerId) -> &crate::body::BodyScopeData {
     body.scope(owner).expect("body must contain every requested lexical scope")
 }
 

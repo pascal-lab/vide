@@ -17,20 +17,18 @@ use crate::{
 pub(crate) fn members_of_ty(db: &dyn TyDb, ty: &Ty) -> Vec<TyMember> {
     match ty {
         Ty::Alias { target, .. } => members_of_ty(db, target),
-        Ty::Struct(struct_id) => struct_members(db, struct_id.clone()),
-        Ty::Union(def_id) => union_members(db, def_id.clone()),
+        Ty::Struct(struct_id) => struct_members(db, *struct_id),
+        Ty::Union(def_id) => union_members(db, *def_id),
         Ty::Module(module_id) => module_members(db, *module_id),
-        Ty::Checker(def_id) => checker_members(db, def_id.clone()),
-        Ty::Covergroup(def_id) => covergroup_members(db, def_id.clone()),
+        Ty::Checker(def_id) => checker_members(db, *def_id),
+        Ty::Covergroup(def_id) => covergroup_members(db, *def_id),
         Ty::VirtualInterface { def, .. } => def
             .primary_origin(db)
             .as_module(db)
             .map(|module_id| module_members(db, module_id))
             .unwrap_or_default(),
-        Ty::GenerateBlock(generate_block_id) => {
-            generate_block_members(db, generate_block_id.clone())
-        }
-        Ty::Block(block_id) => block_members(db, block_id.clone()),
+        Ty::GenerateBlock(generate_block_id) => generate_block_members(db, *generate_block_id),
+        Ty::Block(block_id) => block_members(db, *block_id),
         Ty::Unknown
         | Ty::Error
         | Ty::Void
@@ -62,7 +60,7 @@ fn struct_members(db: &dyn TyDb, struct_id: OwnerRef<StructId>) -> Vec<TyMember>
             let ty = member
                 .ty
                 .as_ref()
-                .map(|ty| normalize_data_ty(db, ty.cont_id.clone(), ty.value.clone()).ty)
+                .map(|ty| normalize_data_ty(db, ty.cont_id, ty.value.clone()).ty)
                 .unwrap_or(Ty::Unknown);
             Some(TyMember { name, ty })
         })
@@ -71,7 +69,7 @@ fn struct_members(db: &dyn TyDb, struct_id: OwnerRef<StructId>) -> Vec<TyMember>
 
 fn union_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
     aggregate_struct_id_from_def(db, def_id)
-        .filter(|struct_id| struct_kind(db, struct_id.clone()) == StructKind::Union)
+        .filter(|struct_id| struct_kind(db, *struct_id) == StructKind::Union)
         .map(|struct_id| struct_members(db, struct_id))
         .unwrap_or_default()
 }

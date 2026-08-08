@@ -120,7 +120,7 @@ impl FileSemanticIndex {
                                 db,
                                 hir_file_id,
                                 token,
-                                container.clone(),
+                                container,
                                 in_special_context,
                                 &mut chains,
                                 &mut conn_port_by_name,
@@ -284,10 +284,10 @@ impl<'tree> ContainerCache<'tree> {
         node: SyntaxNode<'tree>,
     ) -> Option<OwnerId> {
         if let Some(id) = self.by_node.get(&node) {
-            return Some(id.clone());
+            return Some(*id);
         }
         let id = container_id_for_node(sema, file_id, node, self)?;
-        self.by_node.insert(node, id.clone());
+        self.by_node.insert(node, id);
         Some(id)
     }
 }
@@ -314,8 +314,7 @@ impl ScopeChainCache {
         if let Some(chain) = self.by_container.get(&container) {
             return chain.clone();
         }
-        let chain =
-            Arc::new(ResolvedScopes::new(db, ScopeChain::from_inner(db, container.clone().into())));
+        let chain = Arc::new(ResolvedScopes::new(db, ScopeChain::from_inner(db, container)));
         self.by_container.insert(container, chain.clone());
         chain
     }
@@ -345,7 +344,7 @@ fn container_id_for_node<'tree>(
     _cache: &mut ContainerCache<'tree>,
 ) -> Option<OwnerId> {
     if let Some(module) = ast::ModuleDeclaration::cast(node) {
-        return Some(sema.module_to_def(file_id, module)?);
+        return sema.module_to_def(file_id, module);
     }
     let kind = if ast::CheckerDeclaration::cast(node).is_some() {
         Some(OwnerKind::Checker)
@@ -410,8 +409,7 @@ fn collect_token(
     let (resolve_cost, class) = timed(|| {
         if in_special_context {
             let start = std::time::Instant::now();
-            let class =
-                DefinitionClass::resolve_in(db, file_id, token, Some(container.clone())).unique();
+            let class = DefinitionClass::resolve_in(db, file_id, token, Some(container)).unique();
             trace.resolve_slow += start.elapsed();
             class
         } else {
@@ -425,7 +423,7 @@ fn collect_token(
             // intervening query and recompute O(scope size) each time.
             let sema = SemanticsImpl::new(db);
             let chain_start = std::time::Instant::now();
-            let chain = chains.chain_for(db, container.clone());
+            let chain = chains.chain_for(db, container);
             let chain_cost = chain_start.elapsed();
             let class = sema
                 .nameres_ident_in_scopes(token, NameContext::Value, &chain)
@@ -449,7 +447,7 @@ fn collect_token(
                 db,
                 token,
                 &class,
-                container.clone(),
+                container,
                 chains,
                 conn_port_by_name,
                 text,
@@ -457,7 +455,7 @@ fn collect_token(
             );
             collect_definition_token(
                 db,
-                definition.clone(),
+                *definition,
                 file_id.expect_file(),
                 range,
                 token,
@@ -470,7 +468,7 @@ fn collect_token(
                 db,
                 token,
                 &class,
-                container.clone(),
+                container,
                 chains,
                 conn_port_by_name,
                 text,
@@ -480,7 +478,7 @@ fn collect_token(
                 db,
                 token,
                 &class,
-                container.clone(),
+                container,
                 chains,
                 conn_port_by_name,
                 text,
@@ -488,7 +486,7 @@ fn collect_token(
             );
             collect_definition_token(
                 db,
-                port.clone(),
+                *port,
                 file_id.expect_file(),
                 range,
                 token,
@@ -497,7 +495,7 @@ fn collect_token(
             );
             collect_definition_token(
                 db,
-                local.clone(),
+                *local,
                 file_id.expect_file(),
                 range,
                 token,
@@ -620,15 +618,15 @@ fn reference_context(
                 let (side, paired) = match class {
                     DefinitionClass::PortConnShorthand { port, local } => {
                         let paired = match side {
-                            ConnSide::Port => Some(local.clone()),
-                            ConnSide::Local => Some(port.clone()),
+                            ConnSide::Port => Some(*local),
+                            ConnSide::Local => Some(*port),
                         };
                         (side, paired)
                     }
                     DefinitionClass::Definition(def) => {
                         // One-sided shorthand resolution: the local side is the
                         // definition when plain value resolution matches it.
-                        let chain = chains.chain_for(db, container.clone());
+                        let chain = chains.chain_for(db, container);
                         let is_local = sema
                             .nameres_ident_in_scopes(token, NameContext::Value, &chain)
                             .unique()
@@ -647,7 +645,7 @@ fn reference_context(
             let same_name = is_same_name_conn(text, &shape);
             let paired = same_name
                 .then(|| {
-                    let chain = chains.chain_for(db, container.clone());
+                    let chain = chains.chain_for(db, container);
                     conn_data_ident(conn).and_then(|ident| {
                         sema.nameres_ident_in_scopes(
                             SyntaxTokenWithParent { parent: conn.syntax(), tok: ident },
@@ -659,7 +657,7 @@ fn reference_context(
                 })
                 .flatten();
             if let DefinitionClass::Definition(port) = class {
-                conn_port_by_name.insert(shape.name_range, port.clone());
+                conn_port_by_name.insert(shape.name_range, *port);
             }
             ReferenceContext::ConnName {
                 ident_range: shape.ident_range,
@@ -729,7 +727,7 @@ fn collect_definition_token(
     let Some(name) = origins.iter().find_map(|origin| origin.name(db)) else {
         return;
     };
-    let definition_ranges = definition_ranges_for(db, definition.clone());
+    let definition_ranges = definition_ranges_for(db, definition);
     let is_definition_site = definition_ranges.iter().any(|definition_range| {
         definition_range.file_id == file_id && definition_range.range == range
     });
@@ -738,7 +736,7 @@ fn collect_definition_token(
     }
 
     let group = groups
-        .entry(definition.clone())
+        .entry(definition)
         .or_insert_with(|| FileReferenceGroup { name: name.to_string(), references: Vec::new() });
     let reference = SemanticReference {
         file_id,

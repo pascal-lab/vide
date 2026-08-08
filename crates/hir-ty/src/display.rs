@@ -85,14 +85,13 @@ impl HirDisplay for Ty {
             Ty::Error => f.write_str("error"),
             Ty::Void => f.write_str("void"),
             Ty::Builtin(BuiltinTy::Data { id, container }) => {
-                OwnerRef::new(container.clone(), DataTy::Builtin(id.clone())).hir_fmt(f)
+                OwnerRef::new(*container, DataTy::Builtin(id.clone())).hir_fmt(f)
             }
             Ty::Struct(struct_ref) => {
-                OwnerRef::new(struct_ref.cont_id.clone(), DataTy::Struct(struct_ref.clone()))
-                    .hir_fmt(f)
+                OwnerRef::new(struct_ref.cont_id, DataTy::Struct(*struct_ref)).hir_fmt(f)
             }
-            Ty::Enum(def) => hir_fmt_def_backed_type(f, "enum", def.clone()),
-            Ty::Union(def) => hir_fmt_def_backed_type(f, "union", def.clone()),
+            Ty::Enum(def) => hir_fmt_def_backed_type(f, "enum", *def),
+            Ty::Union(def) => hir_fmt_def_backed_type(f, "union", *def),
             Ty::Queue { elem, size } => {
                 elem.hir_fmt(f)?;
                 f.write_str(" [$")?;
@@ -130,8 +129,8 @@ impl HirDisplay for Ty {
                     f.write_str("module")
                 }
             }
-            Ty::Checker(def) => hir_fmt_named_def_type(f, "checker", def.clone()),
-            Ty::Covergroup(def) => hir_fmt_named_def_type(f, "covergroup", def.clone()),
+            Ty::Checker(def) => hir_fmt_named_def_type(f, "checker", *def),
+            Ty::Covergroup(def) => hir_fmt_named_def_type(f, "covergroup", *def),
             Ty::VirtualInterface { def, modport } => {
                 f.write_str("virtual interface ")?;
                 if let Some(name) = def.name(f.db) {
@@ -147,7 +146,7 @@ impl HirDisplay for Ty {
                 Ok(())
             }
             Ty::GenerateBlock(generate_block_id) => {
-                let block = f.db.body(generate_block_id.clone().clone());
+                let block = f.db.body(*generate_block_id);
                 if let Some(name) = &block.name {
                     f.write_str(name)
                 } else {
@@ -171,11 +170,11 @@ fn hir_fmt_def_backed_type(
     def: DefId,
 ) -> Result<(), HirDisplayError> {
     f.write_str(keyword)?;
-    if def.kind(f.db) == DefKind::Typedef {
-        if let Some(name) = def.name(f.db) {
-            f.write_str(" ")?;
-            f.write_str(&name)?;
-        }
+    if def.kind(f.db) == DefKind::Typedef
+        && let Some(name) = def.name(f.db)
+    {
+        f.write_str(" ")?;
+        f.write_str(&name)?;
     }
     Ok(())
 }
@@ -195,9 +194,9 @@ fn hir_fmt_named_def_type(
 
 fn ty_expr_container(db: &dyn crate::db::TyDb, ty: &Ty) -> Option<hir_def::owner::OwnerId> {
     match ty {
-        Ty::Builtin(BuiltinTy::Data { container, .. }) => Some(container.clone()),
-        Ty::Struct(struct_ref) => Some(struct_ref.cont_id.clone()),
-        Ty::Alias { typedef, .. } => Some(typedef.cont_id.clone()),
+        Ty::Builtin(BuiltinTy::Data { container, .. }) => Some(*container),
+        Ty::Struct(struct_ref) => Some(struct_ref.cont_id),
+        Ty::Alias { typedef, .. } => Some(typedef.cont_id),
         Ty::Enum(def) | Ty::Union(def) => def.type_container(db),
         Ty::Queue { elem, .. } | Ty::Assoc { elem, .. } | Ty::Dynamic(elem) => {
             ty_expr_container(db, elem)
@@ -279,7 +278,7 @@ impl HirDisplay for OwnerRef<DataTy> {
                         if wrote_head {
                             f.write_str(" ")?;
                         }
-                        OwnerRef::new(self.cont_id.clone(), *dim).hir_fmt(f)?;
+                        OwnerRef::new(self.cont_id, *dim).hir_fmt(f)?;
                         wrote_head = true;
                     }
                     Ok(())
@@ -295,12 +294,8 @@ impl HirDisplay for OwnerRef<DataTy> {
                 BuiltinDataTy::Void => f.write_str("void"),
             },
             DataTy::Named(named) => match named {
-                NamedDataTy::Ident(expr_id) => {
-                    OwnerRef::new(self.cont_id.clone(), *expr_id).hir_fmt(f)
-                }
-                NamedDataTy::Field(expr_id) => {
-                    OwnerRef::new(self.cont_id.clone(), *expr_id).hir_fmt(f)
-                }
+                NamedDataTy::Ident(expr_id) => OwnerRef::new(self.cont_id, *expr_id).hir_fmt(f),
+                NamedDataTy::Field(expr_id) => OwnerRef::new(self.cont_id, *expr_id).hir_fmt(f),
             },
             DataTy::Enum => f.write_str("enum"),
             DataTy::Unsupported(kind) => {
@@ -706,7 +701,7 @@ impl HirDisplay for OwnerRef<TypedefId> {
 
         f.write_str("typedef ")?;
         if let Some(ty) = typedef.ty.clone() {
-            OwnerRef::new(cont_id.clone(), ty).hir_fmt(f)?;
+            OwnerRef::new(*cont_id, ty).hir_fmt(f)?;
             if typedef.name.is_some() {
                 f.write_str(" ")?;
             }

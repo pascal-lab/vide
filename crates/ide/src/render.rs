@@ -572,21 +572,18 @@ fn render_decl_signature(db: &RootDb, decl_id: OwnerRef<DeclId>) -> Option<Strin
             let header = OwnerRef::new(module_id, module.get(port_decl_id).header.clone())
                 .display_source(db)
                 .ok()?;
-            let decl =
-                OwnerRef::new(decl_id.cont_id.clone(), decl_id.value).display_signature(db).ok()?;
+            let decl = OwnerRef::new(decl_id.cont_id, decl_id.value).display_signature(db).ok()?;
             Some(format!("{header} {decl}"))
         }
         DeclaratorParent::DeclarationId(parent) => {
             let declaration = container.declaration(parent);
-            let prefix = render_declaration_prefix(db, decl_id.cont_id.clone(), declaration)?;
-            let decl =
-                OwnerRef::new(decl_id.cont_id.clone(), decl_id.value).display_signature(db).ok()?;
-            let initializer = render_initializer(db, decl_id.clone()).unwrap_or_default();
+            let prefix = render_declaration_prefix(db, decl_id.cont_id, declaration)?;
+            let decl = OwnerRef::new(decl_id.cont_id, decl_id.value).display_signature(db).ok()?;
+            let initializer = render_initializer(db, decl_id).unwrap_or_default();
             Some(format!("{prefix} {decl}{initializer}"))
         }
         DeclaratorParent::StmtId(_) => {
-            let decl =
-                OwnerRef::new(decl_id.cont_id.clone(), decl_id.value).display_signature(db).ok()?;
+            let decl = OwnerRef::new(decl_id.cont_id, decl_id.value).display_signature(db).ok()?;
             let initializer = render_initializer(db, decl_id).unwrap_or_default();
             Some(format!("variable {decl}{initializer}"))
         }
@@ -643,11 +640,11 @@ fn render_initializer(db: &RootDb, decl_id: OwnerRef<DeclId>) -> Option<String> 
     let decl = container.declarator(decl_id.value);
     let init = decl
         .initializer
-        .map(|expr| OwnerRef::new(decl_id.cont_id.clone(), expr).display_source(db).ok())??;
+        .map(|expr| OwnerRef::new(decl_id.cont_id, expr).display_source(db).ok())??;
     let mut rendered = format!(" = {init}");
     if let Some(second) = decl
         .secondary_initializer
-        .and_then(|expr| OwnerRef::new(decl_id.cont_id.clone(), expr).display_source(db).ok())
+        .and_then(|expr| OwnerRef::new(decl_id.cont_id, expr).display_source(db).ok())
     {
         rendered.push(':');
         rendered.push_str(&second);

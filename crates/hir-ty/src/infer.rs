@@ -68,15 +68,15 @@ fn type_of_typedef_impl(db: &dyn TyDb, typedef: OwnerRef<TypedefId>) -> TyResult
 }
 
 fn type_of_decl_impl(db: &dyn TyDb, decl: OwnerRef<DeclId>) -> TyResult {
-    let Some(data_ty) = data_ty_of_decl(db, decl.clone()) else {
+    let Some(data_ty) = data_ty_of_decl(db, decl) else {
         return TyResult::new(Ty::Unknown);
     };
-    let owner = DefId::new(db, decl.clone());
-    let mut result = normalize_data_ty_with_owner(db, decl.cont_id.clone(), data_ty, Some(owner));
+    let owner = DefId::new(db, decl);
+    let mut result = normalize_data_ty_with_owner(db, decl.cont_id, data_ty, Some(owner));
     let data = decl.cont_id.data(db);
     result.ty = apply_unpacked_dimensions(
         db,
-        decl.cont_id.clone(),
+        decl.cont_id,
         result.ty,
         &data.declarator(decl.value).dimensions,
     );
@@ -239,7 +239,7 @@ fn type_of_expr_impl(db: &dyn TyDb, expr: OwnerRef<ExprId>) -> TyResult {
     match data.expr(expr.value) {
         Expr::Ident(ident) => type_of_path_resolution_impl(
             db,
-            resolve_name(db, expr.cont_id.into(), ident, NameContext::Value),
+            resolve_name(db, expr.cont_id, ident, NameContext::Value),
         ),
         Expr::Field { receiver, field } => {
             let Some(field) = field else {
@@ -273,7 +273,7 @@ fn normalize_data_ty_inner(
             BuiltinDataTy::Chandle => TyResult::new(Ty::Chandle),
             _ => TyResult::new(Ty::Builtin(BuiltinTy::Data { id: builtin, container })),
         },
-        DataTy::Struct(struct_id) => match struct_kind(db, struct_id.clone()) {
+        DataTy::Struct(struct_id) => match struct_kind(db, struct_id) {
             Some(StructKind::Union) => owner
                 .map(Ty::Union)
                 .map(TyResult::new)
@@ -304,7 +304,7 @@ fn type_of_named_data_ty(
         return TyResult::new(Ty::Unknown);
     };
 
-    let resolution = resolve_name(db, container.into(), ident, NameContext::Type);
+    let resolution = resolve_name(db, container, ident, NameContext::Type);
     let Some(def_id) = resolution.unique() else {
         return TyResult::new(Ty::Unknown);
     };
@@ -319,7 +319,7 @@ fn type_of_typedef_inner(
     typedef: OwnerRef<TypedefId>,
     seen: &mut FxHashSet<OwnerRef<TypedefId>>,
 ) -> TyResult {
-    if !seen.insert(typedef.clone()) {
+    if !seen.insert(typedef) {
         return TyResult {
             ty: Ty::Error,
             diagnostics: vec![TypeDiagnostic::TypedefCycle(typedef)],
@@ -332,9 +332,8 @@ fn type_of_typedef_inner(
         return TyResult::new(Ty::Unknown);
     };
 
-    let owner = DefId::new(db, typedef.clone());
-    let mut target =
-        normalize_data_ty_inner(db, typedef.cont_id.clone(), data_ty, Some(owner), seen);
+    let owner = DefId::new(db, typedef);
+    let mut target = normalize_data_ty_inner(db, typedef.cont_id, data_ty, Some(owner), seen);
     seen.remove(&typedef);
     let ty = if matches!(target.ty, Ty::Error) {
         Ty::Error
@@ -378,7 +377,7 @@ fn type_of_dimension_key(db: &dyn TyDb, container: &OwnerId, expr_id: ExprId) ->
     if let Some(ty) = builtin_dimension_key_ty(db, container, expr_id) {
         return ty;
     }
-    type_of_expr_impl(db, OwnerRef::new(container.clone(), expr_id)).ty
+    type_of_expr_impl(db, OwnerRef::new(*container, expr_id)).ty
 }
 
 fn builtin_dimension_key_ty(db: &dyn TyDb, container: &OwnerId, expr_id: ExprId) -> Option<Ty> {
@@ -411,10 +410,7 @@ fn builtin_type_name_ty(container: &OwnerId, ident: &Ident) -> Option<Ty> {
         },
         _ => return None,
     };
-    Some(Ty::Builtin(BuiltinTy::Data {
-        id: BuiltinDataTyId::new(ty),
-        container: container.clone(),
-    }))
+    Some(Ty::Builtin(BuiltinTy::Data { id: BuiltinDataTyId::new(ty), container: *container }))
 }
 
 pub(crate) fn data_ty_of_decl(db: &dyn TyDb, decl: OwnerRef<DeclId>) -> Option<DataTy> {
@@ -423,9 +419,7 @@ pub(crate) fn data_ty_of_decl(db: &dyn TyDb, decl: OwnerRef<DeclId>) -> Option<D
         DeclaratorParent::DeclarationId(declaration_id) => {
             Some(data.declaration(declaration_id).ty())
         }
-        DeclaratorParent::PortDeclId(port_decl_id) => {
-            port_decl_ty(db, decl.cont_id.clone(), port_decl_id)
-        }
+        DeclaratorParent::PortDeclId(port_decl_id) => port_decl_ty(db, decl.cont_id, port_decl_id),
         DeclaratorParent::StmtId(stmt_id) => {
             let StmtKind::For { inits: ForInit::Init(inits), .. } = &data.stmt(stmt_id).kind else {
                 return None;

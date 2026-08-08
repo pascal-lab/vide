@@ -378,12 +378,12 @@ fn resolve_hdl_rename_target(
             .ok_or(RenameError::NoDefFound)?
         {
             DefinitionClass::Definition(def) => {
-                targets.push(def.origins(sema.db), def.clone());
+                targets.push(def.origins(sema.db), def);
                 def
             }
             DefinitionClass::PortConnShorthand { port, local } => {
-                targets.push(local.origins(sema.db), local.clone());
-                targets.push(port.origins(sema.db), port.clone());
+                targets.push(local.origins(sema.db), local);
+                targets.push(port.origins(sema.db), port);
                 local
             }
         };
@@ -657,7 +657,7 @@ pub(crate) fn recursive_rename_closure_impl(
     targets.push(def.origins(db), def);
     let mut idx = 0;
     while idx < targets.len() {
-        let current = targets.get(idx).clone();
+        let current = *targets.get(idx);
         idx += 1;
         let scope = SearchScope::new(db, &current, config.clone());
         let refs = search_references(db, &current, scope);
@@ -666,7 +666,7 @@ pub(crate) fn recursive_rename_closure_impl(
         for toks in refs.values() {
             for token_ref in toks {
                 if let Some(paired) = token_ref.context().paired() {
-                    targets.push(paired.origins(db), paired.clone());
+                    targets.push(paired.origins(db), *paired);
                 }
             }
         }
@@ -689,7 +689,7 @@ fn recursive_rename_targets(
     for target in initial_targets {
         let closure = db.recursive_rename_closure(target, config.scope_visibility, single_file);
         for def in closure.iter() {
-            targets.push(def.origins(db), def.clone());
+            targets.push(def.origins(db), *def);
         }
     }
     let mut resolved_targets = Vec::new();

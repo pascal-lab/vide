@@ -65,19 +65,16 @@ impl DefinitionClass {
             return resolution;
         }
 
-        if let Some(resolution) =
-            resolve_instantiation_type_name(db, &sema, file_id, tp, container.clone())
+        if let Some(resolution) = resolve_instantiation_type_name(db, &sema, file_id, tp, container)
         {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_package_import_item(&sema, file_id, tp, container.clone())
-        {
+        if let Some(resolution) = resolve_package_import_item(&sema, file_id, tp, container) {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_package_scoped_name(&sema, file_id, tp, container.clone())
-        {
+        if let Some(resolution) = resolve_package_scoped_name(&sema, file_id, tp, container) {
             return resolution;
         }
 
@@ -123,13 +120,13 @@ fn combine_port_shorthand(
         (Resolution::Unresolved, Resolution::Unresolved) => Resolution::Unresolved,
         (Resolution::Unresolved, _) => local.map(DefinitionClass::Definition),
         (_, Resolution::Unresolved) => port.map(DefinitionClass::Definition),
-        _ => {
-            Resolution::from_candidates(port.into_candidates().into_iter().flat_map(|port| {
-                local.candidates().iter().cloned().map(move |local| {
-                    DefinitionClass::PortConnShorthand { port: port.clone(), local }
-                })
-            }))
-        }
+        _ => Resolution::from_candidates(port.into_candidates().into_iter().flat_map(|port| {
+            local
+                .candidates()
+                .iter()
+                .cloned()
+                .map(move |local| DefinitionClass::PortConnShorthand { port, local })
+        })),
     }
 }
 
@@ -329,16 +326,14 @@ fn resolve_instantiation_type_name(
                     }))
                 }
                 ModuleResolution::Unresolved => {
-                    nameres_ident(sema, file_id, tp, NameContext::Type, container.clone()).or_else(
-                        || {
-                            Resolution::from_candidates(
-                                nameres_ident(sema, file_id, tp, NameContext::Value, container)
-                                    .into_candidates()
-                                    .into_iter()
-                                    .filter(|def| def.kind(sema.db) == DefKind::Udp),
-                            )
-                        },
-                    )
+                    nameres_ident(sema, file_id, tp, NameContext::Type, container).or_else(|| {
+                        Resolution::from_candidates(
+                            nameres_ident(sema, file_id, tp, NameContext::Value, container)
+                                .into_candidates()
+                                .into_iter()
+                                .filter(|def| def.kind(sema.db) == DefKind::Udp),
+                        )
+                    })
                 }
             };
         return Some(resolution.map(DefinitionClass::Definition));

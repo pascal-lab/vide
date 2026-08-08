@@ -87,7 +87,7 @@ impl AstIdMap {
         for event in root.node_preorder() {
             match event {
                 syntax::WalkEvent::Enter(node) => {
-                    let path = next_path(&mut paths, &mut child_counts, node.kind());
+                    let path = next_path(&paths, &mut child_counts, node.kind());
                     let ptr = node.text_range().map(|_| SyntaxNodePtr::from_node(node));
                     candidates.push((path.clone(), ptr));
                     paths.push(path);
@@ -193,7 +193,7 @@ impl AstIdMap {
         for event in root.node_preorder() {
             match event {
                 syntax::WalkEvent::Enter(node) => {
-                    let path = next_path(&mut paths, &mut child_counts, node.kind());
+                    let path = next_path(&paths, &mut child_counts, node.kind());
                     if node == target {
                         return self.by_path.get(&path).copied();
                     }
