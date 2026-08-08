@@ -187,7 +187,7 @@ pub fn resolve_path(
 
 fn resolve_top_level_module_root(
     db: &dyn HirDefDb,
-    cont_id: OwnerId,
+    _cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
     has_child_segment: bool,
@@ -202,10 +202,11 @@ fn resolve_top_level_module_root(
     // a module definition as an explicit hierarchy root. This is not a single
     // segment value fallback: `top` alone remains a type-space module name.
     Resolution::from_candidates(
-        resolve_name(db, cont_id, ident, NameContext::Type)
+        db.unit_index()
+            .module_ids(ident)
             .into_candidates()
             .into_iter()
-            .filter(|def_id| def_id.kind(db).is_instantiable_def()),
+            .map(|owner| DefId::from_source(db, crate::symbol::DefOriginLoc::Module(owner))),
     )
 }
 
@@ -254,8 +255,29 @@ pub fn instance_target_def_id(
     let instance = module.get(instance_id);
     let instantiation = module.get(instance.parent);
     let module_name = instantiation.module_name.as_ref()?;
-    let target = resolve_name(db, module_id, module_name, NameContext::Type).unique()?;
-    target.kind(db).is_instantiable_def().then_some(target)
+    let target = db
+        .unit_index()
+        .instantiable_ids_in(module_id, module_name)
+        .unique()
+        .map(|owner| instantiable_def_id(db, owner))?;
+    Some(target)
+}
+
+fn instantiable_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
+    match owner.kind(db) {
+        crate::owner::OwnerKind::Module => {
+            DefId::from_source(db, crate::symbol::DefOriginLoc::Module(owner))
+        }
+        crate::owner::OwnerKind::Checker => DefId::from_source(
+            db,
+            owner.as_checker(db).expect("checker owner must have a definition"),
+        ),
+        crate::owner::OwnerKind::Covergroup => DefId::from_source(
+            db,
+            owner.as_covergroup(db).expect("covergroup owner must have a definition"),
+        ),
+        kind => panic!("non-instantiable owner kind: {kind:?}"),
+    }
 }
 
 fn resolve_imported_name(
@@ -481,8 +503,8 @@ endmodule
         );
 
         let top = db
-            .unit_scope()
-            .module_ids(&db, &ident("top"))
+            .unit_index()
+            .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
 
@@ -516,8 +538,8 @@ endmodule
 "#,
         );
         let top = db
-            .unit_scope()
-            .module_ids(&db, &ident("top"))
+            .unit_index()
+            .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
 
@@ -550,8 +572,8 @@ endmodule
 "#,
         );
         let top = db
-            .unit_scope()
-            .module_ids(&db, &ident("top"))
+            .unit_index()
+            .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
         let Resolution::Ambiguous(values) =
@@ -579,8 +601,8 @@ endmodule
 "#,
         );
         let top = db
-            .unit_scope()
-            .module_ids(&db, &ident("top"))
+            .unit_index()
+            .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
 
@@ -609,13 +631,13 @@ endmodule
 "#,
         );
         let top = db
-            .unit_scope()
-            .module_ids(&db, &ident("top"))
+            .unit_index()
+            .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
         let named = db
-            .unit_scope()
-            .package_ids(&db, &ident("named"))
+            .unit_index()
+            .package_ids(&ident("named"))
             .unique()
             .expect("named package should resolve uniquely");
         let expected = db
@@ -658,8 +680,8 @@ endmodule
 "#,
         );
         let top = db
-            .unit_scope()
-            .module_ids(&db, &ident("top"))
+            .unit_index()
+            .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
         let (resolved, trace) =
@@ -697,8 +719,8 @@ endmodule
         );
 
         let outer = db
-            .unit_scope()
-            .package_ids(&db, &ident("outer"))
+            .unit_index()
+            .package_ids(&ident("outer"))
             .unique()
             .expect("outer package should resolve uniquely");
         assert!(
@@ -710,8 +732,8 @@ endmodule
         );
 
         let top = db
-            .unit_scope()
-            .module_ids(&db, &ident("top"))
+            .unit_index()
+            .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
         assert!(
@@ -761,8 +783,8 @@ endmodule
         );
 
         let top = db
-            .unit_scope()
-            .module_ids(&db, &ident("top"))
+            .unit_index()
+            .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
 
@@ -796,8 +818,8 @@ endmodule
         );
 
         let top = db
-            .unit_scope()
-            .module_ids(&db, &ident("top"))
+            .unit_index()
+            .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
 
@@ -822,8 +844,8 @@ endmodule
         );
 
         let top = db
-            .unit_scope()
-            .module_ids(&db, &ident("top"))
+            .unit_index()
+            .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
 
@@ -850,8 +872,8 @@ endmodule
         );
 
         let top = db
-            .unit_scope()
-            .module_ids(&db, &ident("top"))
+            .unit_index()
+            .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
 
