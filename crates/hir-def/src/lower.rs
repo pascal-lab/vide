@@ -221,11 +221,14 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
     }
 
     /// Net kind for an implicit net declared at `offset`, honoring the
-    /// nearest preceding `` `default_nettype `` directive. `None` means
-    /// implicit nets are illegal at that point.
+    /// nearest preceding `` `default_nettype `` directive. `None` means the
+    /// nearest directive is `` `default_nettype none `` (implicit nets
+    /// illegal); without any directive the SV default `wire` applies.
     pub(crate) fn net_kind_at(&self, offset: TextSize) -> Option<NetKind> {
-        let index = self.default_nettype.partition_point(|(directive, _)| *directive <= offset);
-        index.checked_sub(1).and_then(|index| self.default_nettype[index].1)
+        match self.default_nettype.partition_point(|(directive, _)| *directive <= offset) {
+            0 => Some(NetKind::Wire),
+            index => self.default_nettype[index - 1].1,
+        }
     }
 
     pub(crate) fn owner_for_node(&self, node: SyntaxNode<'_>, kind: OwnerKind) -> Option<OwnerId> {
