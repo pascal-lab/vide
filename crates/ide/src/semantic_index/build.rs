@@ -728,6 +728,7 @@ pub(super) fn token_in_special_context(
         .is_some_and(|node| rightmost_name_token(node.type_()) == Some(tok))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_definition_token(
     db: &dyn WorkspaceSymbolIndexDb,
     definition: DefId,
