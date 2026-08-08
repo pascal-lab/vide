@@ -163,7 +163,9 @@ impl LowerGenerateBlockCtx<'_> {
             }
             DefParam(defparam) => self.lower_defparam(defparam).into(),
             PackageImportDeclaration(import_decl) => {
-                for import in lower_package_imports(import_decl, self.source_id(import_decl.syntax())) {
+                for import in
+                    lower_package_imports(import_decl, self.source_id(import_decl.syntax()))
+                {
                     self.store.data.package_imports.alloc(import);
                 }
                 return None;
@@ -353,7 +355,9 @@ impl LowerModuleCtx<'_> {
                 items.push(self.lower_defparam(defparam).into());
             }
             PackageImportDeclaration(import_decl) => {
-                for import in lower_package_imports(import_decl, self.source_id(import_decl.syntax())) {
+                for import in
+                    lower_package_imports(import_decl, self.source_id(import_decl.syntax()))
+                {
                     self.store.data.package_imports.alloc(import);
                 }
             }
@@ -423,7 +427,8 @@ pub(crate) fn lower_generate_owner(
 
     let mut body = Body::default();
     let mut source_map = BodySourceMap::default();
-    let mut lower_ctx = LoweringCtx::new_with_syntax(db, 
+    let mut lower_ctx = LoweringCtx::new_with_syntax(
+        db,
         owner,
         syntax,
         BodyStore { data: &mut body, sources: &mut source_map },

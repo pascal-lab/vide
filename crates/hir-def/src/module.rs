@@ -199,7 +199,9 @@ impl LowerModuleCtx<'_> {
 
                 // Imports
                 PackageImportDeclaration(import_decl) => {
-                    for import in lower_package_imports(import_decl, self.source_id(import_decl.syntax())) {
+                    for import in
+                        lower_package_imports(import_decl, self.source_id(import_decl.syntax()))
+                    {
                         self.store.data.package_imports.alloc(import);
                     }
                     continue;
@@ -443,7 +445,8 @@ pub(crate) fn lower_module_owner(
     };
     body.name = lower_ident_opt(ast_module.header().name());
 
-    let mut lower_ctx = LoweringCtx::new_with_syntax(db, 
+    let mut lower_ctx = LoweringCtx::new_with_syntax(
+        db,
         owner,
         syntax,
         BodyStore { data: &mut body, sources: &mut source_map },

@@ -18,19 +18,23 @@
 use la_arena::Arena;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
-use syntax::SyntaxTree;
+use syntax::{SyntaxKind, SyntaxTree};
 use triomphe::Arc;
 use utils::{
     get::GetRef,
     text_edit::{TextRange, TextSize},
 };
 
-use syntax::SyntaxKind;
-
 use crate::{
-    ast_id_map::SyntaxFileId, body::BodyItem, db::HirDefDb, has_source::HasSource, owner::OwnerId,
-    proc::Proc, source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
-    source_projection::SourceProjection, symbol::NameContext,
+    ast_id_map::SyntaxFileId,
+    body::BodyItem,
+    db::HirDefDb,
+    has_source::HasSource,
+    owner::OwnerId,
+    proc::Proc,
+    source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
+    source_projection::SourceProjection,
+    symbol::NameContext,
 };
 
 #[salsa::tracked(returns(clone))]
@@ -141,9 +145,9 @@ fn collect_import_conflicts(
         }
         reported.push(name.clone());
         let declared = scope.lookup(NameContext::Listing, &name).unique().is_some();
-        let other_package = named.iter().any(|other| {
-            other.name.as_ref() == Some(&name) && other.package != import.package
-        });
+        let other_package = named
+            .iter()
+            .any(|other| other.name.as_ref() == Some(&name) && other.package != import.package);
         let message = if declared {
             Some(format!(
                 "explicit import of '{name}' conflicts with a declaration in the same scope"
@@ -160,7 +164,9 @@ fn collect_import_conflicts(
         let origin = projection.origin(source);
         diagnostics.push(LoweringDiagnostic {
             kind: LoweringDiagnosticKind::InvalidSyntax,
-            syntax_kind: origin.and_then(|origin| origin.kind()).unwrap_or(SyntaxKind::PACKAGE_IMPORT_DECLARATION),
+            syntax_kind: origin
+                .and_then(|origin| origin.kind())
+                .unwrap_or(SyntaxKind::PACKAGE_IMPORT_DECLARATION),
             source: Some(source),
             range: origin.and_then(|origin| origin.full_range()),
             message: message.into(),
@@ -442,9 +448,7 @@ endmodule
         let db = db_with_files(text, None);
         let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
         assert!(
-            diagnostics
-                .iter()
-                .any(|diag| diag.message.contains("another explicit import")),
+            diagnostics.iter().any(|diag| diag.message.contains("another explicit import")),
             "explicit imports of one name from two packages must be diagnosed: {diagnostics:?}"
         );
     }
@@ -466,12 +470,11 @@ endmodule
         let db = db_with_files(text, None);
 
         let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
-        let unsupported =
-            diagnostics.iter().filter(|diag| diag.message == "unsupported statement").collect::<Vec<_>>();
-        assert!(
-            !unsupported.is_empty(),
-            "foreach statement must be diagnosed: {diagnostics:?}"
-        );
+        let unsupported = diagnostics
+            .iter()
+            .filter(|diag| diag.message == "unsupported statement")
+            .collect::<Vec<_>>();
+        assert!(!unsupported.is_empty(), "foreach statement must be diagnosed: {diagnostics:?}");
         assert!(
             unsupported.iter().all(|diag| diag.source.is_some()),
             "unsupported statement diagnostics must retain a source identity"

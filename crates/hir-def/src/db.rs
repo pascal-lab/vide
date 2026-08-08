@@ -1,10 +1,9 @@
 use std::ops::Deref;
 
-use utils::text_edit::TextSize;
-
 use base_db::salsa;
 use preproc_expand::{db::PreprocDb, file::HirFileId};
 use triomphe::Arc;
+use utils::text_edit::TextSize;
 
 use crate::{
     ast_id_map::{self, AstIdMap, SyntaxFileId},
