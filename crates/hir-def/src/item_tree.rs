@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use preproc_expand::file::HirFileId;
-use rustc_hash::FxHasher;
+use rustc_hash::{FxHashMap, FxHasher};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SyntaxElement, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, SyntaxTree, TokenKind,
@@ -144,6 +144,7 @@ pub struct ItemTree {
     file_id: HirFileId,
     owners: Arc<OwnerTable>,
     items: Vec<ItemTreeItem>,
+    by_id: FxHashMap<SourceAstId, usize>,
     signatures: Vec<Signature>,
 }
 
@@ -165,7 +166,7 @@ impl ItemTree {
     }
 
     pub fn item(&self, id: SourceAstId) -> Option<&ItemTreeItem> {
-        self.items.iter().find(|item| item.id == id)
+        self.by_id.get(&id).map(|index| &self.items[*index])
     }
 
     pub fn signature(&self, id: SignatureId) -> Option<&Signature> {
@@ -198,7 +199,8 @@ fn item_tree_input(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<ItemTree> {
     let source_text = file_id.as_file().map(|file_id| db.file_text(file_id));
     let owners = db.owner_table(file_id);
     let (items, signatures) = build_item_tree_data(&tree, &ast_ids, source_text.as_deref());
-    Arc::new(ItemTree { file_id, owners, items, signatures })
+    let by_id = items.iter().enumerate().map(|(index, item)| (item.id, index)).collect();
+    Arc::new(ItemTree { file_id, owners, items, by_id, signatures })
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
@@ -321,7 +323,8 @@ fn build_item_tree(
     source_text: Option<&str>,
 ) -> ItemTree {
     let (items, signatures) = build_item_tree_data(tree, ast_ids, source_text);
-    ItemTree { file_id, owners: Arc::new(OwnerTable::default()), items, signatures }
+    let by_id = items.iter().enumerate().map(|(index, item)| (item.id(), index)).collect();
+    ItemTree { file_id, owners: Arc::new(OwnerTable::default()), items, by_id, signatures }
 }
 fn lower_signature(function: ast::FunctionDeclaration<'_>, ast_ids: &AstIdMap) -> Signature {
     let prototype = function.prototype();

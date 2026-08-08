@@ -8,16 +8,15 @@
 //! when the offending syntax has no stable position in the file's display
 //! coordinates — e.g. syntax inside an included buffer. Those diagnostics
 //! cannot be published to an editor as-is, so the aggregate resolves a
-//! display range for them, in order:
+//! conservative display range for them, in order:
 //!
 //! 1. the explicit range, when the lowerer attached one;
-//! 2. the first root-buffer node of the reported [`SyntaxKind`], preferring
-//!    nodes inside the owning container;
+//! 2. the projected root-buffer range of the source identity;
 //! 3. a zero-width marker at the start of the owning container;
 //! 4. the file start, as a last resort.
 
 use la_arena::Arena;
-use syntax::{SyntaxKind, SyntaxTree, WalkEvent, has_text_range::HasTextRange};
+use syntax::SyntaxTree;
 use triomphe::Arc;
 use utils::{
     get::GetRef,
@@ -144,47 +143,28 @@ fn collect(
 ) {
     for diagnostic in diagnostics {
         let mut diagnostic = diagnostic.clone();
-        diagnostic.range = diagnostic
-            .source
-            .and_then(|source| projection.origin(source))
-            .and_then(|origin| origin.full_range())
-            .or_else(|| Some(resolve_range(tree, owner_range, &diagnostic)));
+        if diagnostic.range.is_none() {
+            diagnostic.range = diagnostic
+                .source
+                .and_then(|source| projection.origin(source))
+                .and_then(|origin| origin.full_range())
+                .or_else(|| Some(resolve_range(tree, owner_range, &diagnostic)));
+        }
         out.push(diagnostic);
     }
 }
 
-/// Resolves the display range of a lowering diagnostic (see module docs).
+/// Resolves a conservative display range without guessing from unrelated
+/// syntax of the same kind.
 fn resolve_range(
-    tree: &SyntaxTree,
+    _tree: &SyntaxTree,
     owner_range: Option<TextRange>,
     diagnostic: &LoweringDiagnostic,
 ) -> TextRange {
-    if let Some(range) = diagnostic.range {
-        return range;
-    }
-    if let Some(range) = find_kind_range(tree, diagnostic.syntax_kind, owner_range) {
-        return range;
-    }
-    owner_range.map_or(TextRange::empty(TextSize::new(0)), |range| TextRange::empty(range.start()))
-}
-
-/// First root-buffer node of `kind`, preferring nodes inside `owner_range`.
-fn find_kind_range(
-    tree: &SyntaxTree,
-    kind: SyntaxKind,
-    owner_range: Option<TextRange>,
-) -> Option<TextRange> {
-    let root = tree.root()?;
-    root.node_preorder().find_map(|event| {
-        let WalkEvent::Enter(node) = event else {
-            return None;
-        };
-        if node.kind() != kind {
-            return None;
-        }
-        let range = node.text_range()?;
-        owner_range.is_none_or(|owner| owner.contains_range(range)).then_some(range)
-    })
+    diagnostic
+        .range
+        .or_else(|| owner_range.map(|range| TextRange::empty(range.start())))
+        .unwrap_or_else(|| TextRange::empty(TextSize::new(0)))
 }
 
 #[cfg(test)]
@@ -413,7 +393,7 @@ endmodule
     }
 
     #[test]
-    fn range_resolution_finds_first_matching_node() {
+    fn range_resolution_uses_file_start_without_owner() {
         let text = "module m;\n  int x = '{default: 0};\nendmodule\n";
         let tree = SyntaxTree::from_text(text, "top.sv", "/repo/rtl/top.sv");
         let diagnostic = LoweringDiagnostic {
@@ -425,7 +405,7 @@ endmodule
         };
 
         let range = super::resolve_range(&tree, None, &diagnostic);
-        assert_eq!(range, range_of(text, "'{default: 0}"));
+        assert_eq!(range, TextRange::empty(TextSize::new(0)));
     }
 
     #[test]

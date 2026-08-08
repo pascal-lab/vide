@@ -7,6 +7,7 @@ use triomphe::Arc;
 use crate::{
     ast_id_map::{self, AstIdMap, SyntaxFileId},
     body::{self, Body},
+    def_id::{self, DefinitionTable},
     diagnostics,
     item_tree::{self, ItemTree, ItemTreeItem, Signature},
     nameres,
@@ -53,6 +54,10 @@ impl dyn HirDefDb + '_ {
 
     pub fn body(&self, owner: OwnerId) -> Arc<Body> {
         self.body_with_source_map(owner).data()
+    }
+
+    pub(crate) fn definition_table(&self, owner: OwnerId) -> Arc<DefinitionTable> {
+        def_id::definition_table(self, owner)
     }
 
     pub fn item_tree(&self, file_id: HirFileId) -> Arc<ItemTree> {
@@ -117,6 +122,7 @@ impl dyn HirDefDb + '_ {
 pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     ast_id_map::set_ast_id_map_lru_capacity(db, capacity);
     body::set_body_lru_capacity(db, capacity);
+    def_id::set_definition_table_lru_capacity(db, capacity);
     item_tree::set_item_tree_lru_capacity(db, capacity);
     owner::set_owner_table_lru_capacity(db, capacity);
     nameres::set_scope_lru_capacity(db, capacity);

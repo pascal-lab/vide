@@ -1,7 +1,7 @@
 use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::{
-    SyntaxTokenWithParent, TokenKind,
+    SyntaxTokenWithParent, SyntaxTree, TokenKind,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
@@ -18,7 +18,7 @@ use super::{
     owner::{OwnerId, OwnerKind},
     source_map::Lowered,
 };
-use crate::{Ident, lower_ident_opt};
+use crate::{Ident, ast_id_map::SourceAstId, lower_ident_opt};
 
 // slang AST survey:
 // - `CheckerDeclaration` owns assertion-item ports through
@@ -41,15 +41,19 @@ pub struct CheckerPort {
     pub name: Ident,
     pub dir: PortDirection,
     pub name_range: Option<TextRange>,
+    pub source: SourceAstId,
 }
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct CheckerPortId(pub u32);
 
-pub fn lower_checker_decl(checker: ast::CheckerDeclaration<'_>) -> CheckerDef {
+pub fn lower_checker_decl(
+    checker: ast::CheckerDeclaration<'_>,
+    ast_ids: &crate::ast_id_map::AstIdMap,
+    tree: &SyntaxTree,
+) -> CheckerDef {
     CheckerDef {
         name: lower_ident_opt(checker.name()),
-        ports: lower_checker_ports(checker),
+        ports: lower_checker_ports(checker, ast_ids, tree),
         declarations: SmallVec::new(),
     }
 }
@@ -59,13 +63,14 @@ impl<Store: CheckerStore> LoweringCtx<Store> {
         &mut self,
         checker_decl: ast::CheckerDeclaration<'_>,
     ) -> CheckerId {
-        let mut checker = lower_checker_decl(checker_decl);
+        let ast_ids = Arc::clone(&self.ast_ids);
+        let tree = self.tree.clone();
+        let mut checker = lower_checker_decl(checker_decl, &ast_ids, &tree);
         lower_checker_declarations(&mut checker, checker_decl, |member| match member {
             CheckerDeclarationMember::Data(data_decl) => self.lower_data_decl(data_decl),
             CheckerDeclarationMember::Net(net_decl) => self.lower_net_decl(net_decl),
         });
 
-        let _file_id = self.file_id;
         let (checkers, sources) = self.store.checkers();
         alloc_with_source(&self.ast_ids, &self.tree, checkers, sources, checker, checker_decl)
     }
@@ -99,7 +104,11 @@ pub(crate) fn lower_checker_owner(
     Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
 }
 
-fn lower_checker_ports(checker: ast::CheckerDeclaration<'_>) -> SmallVec<[CheckerPort; 4]> {
+fn lower_checker_ports(
+    checker: ast::CheckerDeclaration<'_>,
+    ast_ids: &crate::ast_id_map::AstIdMap,
+    tree: &SyntaxTree,
+) -> SmallVec<[CheckerPort; 4]> {
     let mut ports = SmallVec::new();
     let syntax = checker.syntax();
     let Some(port_list) = checker.port_list() else {
@@ -113,10 +122,14 @@ fn lower_checker_ports(checker: ast::CheckerDeclaration<'_>) -> SmallVec<[Checke
         let Some(name) = lower_ident_opt(port.name()) else {
             continue;
         };
+        let Some(source) = ast_ids.id_of_node_in_tree(tree, port.syntax()) else {
+            continue;
+        };
         ports.push(CheckerPort {
             name,
             dir: lower_checker_port_direction(port.direction()),
             name_range,
+            source,
         });
     }
 
