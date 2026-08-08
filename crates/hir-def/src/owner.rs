@@ -59,11 +59,7 @@ pub struct OwnerId {
 impl OwnerId {
     /// Lexical parent from the current structural owner graph.
     pub fn parent(self, db: &dyn HirDefDb) -> Option<Self> {
-        db.owner_table(self.file(db))
-            .owners()
-            .iter()
-            .find(|owner| owner.id == self)
-            .and_then(|owner| owner.parent)
+        db.owner_table(self.file(db)).owner(self).and_then(|owner| owner.parent)
     }
 
     /// Current name from the structural owner graph.
