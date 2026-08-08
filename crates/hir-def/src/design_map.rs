@@ -6,6 +6,7 @@
 //! package queries and lexical name resolution.
 
 use base_db::salsa;
+use preproc_expand::file::HirFileId;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use triomphe::Arc;
@@ -58,18 +59,20 @@ impl DesignMap {
 
 #[salsa::tracked(lru = 128, returns(clone))]
 pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
-    let unit_scope = db.unit_scope();
-    let mut packages = unit_scope
-        .iter_listing()
-        .flat_map(|(_, defs)| defs)
-        .filter_map(|def_id| {
-            (def_id.kind(db) == crate::symbol::DefKind::Package)
-                .then(|| def_id.primary_origin(db).as_module(db))
-                .flatten()
+    let mut packages = db
+        .files()
+        .iter()
+        .flat_map(|file_id| {
+            db.item_tree(HirFileId::File(*file_id))
+                .module_headers()
+                .filter(|header| header.kind() == crate::module::ModuleKind::Package)
+                .map(|header| header.owner())
+                .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
     packages.sort();
     packages.dedup();
+    let unit_scope = db.unit_scope();
 
     let mut exports = FxHashMap::default();
     for package in &packages {

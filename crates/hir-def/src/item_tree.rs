@@ -136,6 +136,36 @@ impl ItemTreeItem {
     }
 }
 
+/// A module declaration collected from the file-level structural summary.
+///
+/// It contains semantic header data and source identity, but no source range.
+/// Ranges belong to [`crate::source_projection::SourceProjection`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleHeader {
+    owner: OwnerId,
+    name: SmolStr,
+    kind: crate::module::ModuleKind,
+    source: SourceAstId,
+}
+
+impl ModuleHeader {
+    pub fn owner(&self) -> OwnerId {
+        self.owner
+    }
+
+    pub fn name(&self) -> &SmolStr {
+        &self.name
+    }
+
+    pub fn kind(&self) -> crate::module::ModuleKind {
+        self.kind
+    }
+
+    pub fn source(&self) -> SourceAstId {
+        self.source
+    }
+}
+
 /// File-level structural summary. It intentionally contains no source ranges
 /// or focus ranges; those belong to
 /// [`crate::source_projection::SourceProjection`].
@@ -153,12 +183,23 @@ impl ItemTree {
         self.file_id
     }
 
-    pub fn owners(&self) -> &OwnerTable {
-        &self.owners
-    }
-
     pub fn root_owner(&self) -> Option<OwnerId> {
         self.owners.file_owner()
+    }
+
+    /// Module and package headers in source order.
+    ///
+    /// This is the file-level declaration seam. Consumers that only need
+    /// headers must not enter a scope or body query to discover them.
+    pub fn module_headers(&self) -> impl Iterator<Item = ModuleHeader> + '_ {
+        self.owners.owners_of_kind(crate::owner::OwnerKind::Module).filter_map(|owner| {
+            owner.module_kind.map(|kind| ModuleHeader {
+                owner: owner.id,
+                name: owner.name.clone(),
+                kind,
+                source: owner.source,
+            })
+        })
     }
 
     pub fn items(&self) -> impl Iterator<Item = &ItemTreeItem> {
@@ -188,6 +229,7 @@ impl ItemTree {
         self.items.is_empty()
     }
 }
+
 /// Extracts position-free structural data from the live parse. This query may
 /// execute after any syntax change; equality backdating prevents body-only
 /// changes from invalidating [`item_tree`] and its consumers.

@@ -77,6 +77,10 @@ impl ModuleKind {
             ModuleKind::Module
         }
     }
+
+    pub fn is_instantiable(self) -> bool {
+        matches!(self, Self::Module | Self::Interface | Self::Program)
+    }
 }
 
 pub(crate) type LowerModuleCtx<'a> = LoweringCtx<BodyStore<'a>>;

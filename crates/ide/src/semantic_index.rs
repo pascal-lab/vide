@@ -1,7 +1,7 @@
 use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
-use hir_def::{Ident, container::InFile, def_id::DefId, owner::OwnerId};
+use hir_def::{Ident, container::InFile, def_id::DefId, item_tree::ModuleHeader, owner::OwnerId};
 use hir_ty::db::TyDb;
-use preproc_expand::db::PreprocDb;
+use preproc_expand::{db::PreprocDb, file::HirFileId};
 use rustc_hash::FxHashMap;
 use syntax::{
     SyntaxNodeExt, TokenKind, has_text_range::HasTextRange, ptr::SyntaxTokenPtr,
@@ -230,17 +230,24 @@ impl ModuleIndex {
 
 impl SemanticModuleDefinition {
     fn new(db: &dyn TyDb, module_id: OwnerId) -> Option<Self> {
-        let def = DefId::from_owner(db, module_id)?;
-        let name = def.name(db)?;
-        let InFile { file_id, value: name_range } = def.name_range(db)?;
-        let InFile { value: full_range, .. } = def.range(db)?;
+        let source_file = module_id.file(db);
+        let header = db
+            .item_tree(source_file)
+            .module_headers()
+            .find(|header| header.owner() == module_id)?;
+        Self::from_header(db, source_file, header)
+    }
+
+    fn from_header(db: &dyn TyDb, source_file: HirFileId, header: ModuleHeader) -> Option<Self> {
+        let origin = db.source_projection(source_file).origin(header.source())?;
+        let full_range = origin.full_range()?;
         let (file_id, name_range, full_range) =
-            nav_location(db, file_id, Some(name_range), full_range)?;
+            nav_location(db, source_file, origin.focus_range(), full_range)?;
 
         Some(Self {
-            module_id,
+            module_id: header.owner(),
             file_id,
-            name,
+            name: header.name().clone(),
             name_range: name_range.unwrap_or(full_range),
             full_range,
         })
