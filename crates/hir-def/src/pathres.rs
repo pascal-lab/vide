@@ -188,11 +188,12 @@ fn resolve_top_level_module_root(
     // IEEE 1800 hierarchical names can start at a top-level module instance.
     // Vide has module definitions in the type namespace and no separate
     // elaborated top-instance DefId yet, so a multi-segment value path may use
-    // a module definition as an explicit hierarchy root. This is not a single
-    // segment value fallback: `top` alone remains a type-space module name.
+    // a compilation-unit module definition as an explicit hierarchy root. This
+    // is not a single segment value fallback: `top` alone remains a type-space
+    // module name, and nested declarations never leak through the fallback.
     Resolution::from_candidates(
         db.unit_index()
-            .module_ids(ident)
+            .top_level_module_ids(ident)
             .into_candidates()
             .into_iter()
             .map(|owner| DefId::from_source(db, crate::symbol::DefOriginLoc::Module(owner))),
@@ -811,6 +812,33 @@ endmodule
             ),
             DefKind::Net
         );
+    }
+
+    #[test]
+    fn hierarchy_root_fallback_ignores_nested_modules() {
+        // Only compilation-unit module declarations may act as hierarchy
+        // roots; a module nested inside a generate block must not leak.
+        let db = db_with_root_text(
+            r#"
+module top;
+  generate
+    begin : g
+      module child;
+        wire sig;
+      endmodule
+    end
+  endgenerate
+endmodule
+"#,
+        );
+
+        let resolution = resolve_path(
+            &db,
+            db.owner_table(HirFileId::File(TOP)).file_owner().expect("file owner"),
+            &path(&["child", "sig"]),
+            NameContext::Value,
+        );
+        assert_eq!(resolution, Resolution::Unresolved);
     }
 
     #[test]
