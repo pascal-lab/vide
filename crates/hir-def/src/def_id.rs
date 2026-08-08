@@ -319,11 +319,12 @@ impl DefinitionRole {
     }
 }
 
-/// Stable ordinal allocated once while collecting definitions for one owner.
+/// Stable identity derived from the canonical source key, never collection
+/// order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct LocalDefId(u32);
+pub struct LocalDefId(DefinitionKey);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct DefinitionKey {
     source: SourceAstId,
     role: DefinitionRole,
@@ -337,7 +338,7 @@ struct DefinitionData {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct DefinitionTable {
-    definitions: Vec<DefinitionData>,
+    definitions: FxHashMap<LocalDefId, DefinitionData>,
     by_key: FxHashMap<DefinitionKey, LocalDefId>,
 }
 
@@ -349,8 +350,8 @@ impl DefinitionTable {
             "definition key inserted twice: {source:?} {:?}",
             key.role
         );
-        let local = LocalDefId(self.definitions.len() as u32);
-        self.definitions.push(DefinitionData { primary, additional: SmallVec::new() });
+        let local = LocalDefId(key);
+        self.definitions.insert(local, DefinitionData { primary, additional: SmallVec::new() });
         self.by_key.insert(key, local);
         local
     }
@@ -359,7 +360,11 @@ impl DefinitionTable {
         let key = DefinitionKey { source, role: DefinitionRole::of(&origin) };
         let previous = self.by_key.insert(key, local);
         assert!(previous.is_none(), "definition alias inserted twice");
-        self.definitions[local.0 as usize].additional.push(origin);
+        self.definitions
+            .get_mut(&local)
+            .expect("definition alias must target an existing definition")
+            .additional
+            .push(origin);
     }
 
     fn local_for(&self, source: SourceAstId, role: DefinitionRole) -> Option<LocalDefId> {
@@ -367,7 +372,7 @@ impl DefinitionTable {
     }
 
     fn get(&self, local: LocalDefId) -> Option<&DefinitionData> {
-        self.definitions.get(local.0 as usize)
+        self.definitions.get(&local)
     }
 }
 
