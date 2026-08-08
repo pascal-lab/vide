@@ -134,7 +134,13 @@ impl LowerModuleCtx<'_> {
                     self.bind_nonansi_declarations(decls);
                     id.into()
                 }
-                LocalVariableDeclaration(_) => continue,
+                unsupported @ LocalVariableDeclaration(_) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "local variable declarations are not lowered in module scope",
+                    );
+                    continue;
+                }
                 ParameterDeclarationStatement(param_decl) => self
                     .lower_param_decl_base_with_context(
                         param_decl.parameter(),
@@ -145,9 +151,13 @@ impl LowerModuleCtx<'_> {
                     .into(),
                 TypedefDeclaration(typedef_decl) => self.lower_typedef(typedef_decl).into(),
                 GenvarDeclaration(genvar_decl) => self.lower_genvar_decl(genvar_decl).into(),
-                NetTypeDeclaration(_)
+                unsupported @ (NetTypeDeclaration(_)
                 | ForwardTypedefDeclaration(_)
-                | UserDefinedNetDeclaration(_) => {
+                | UserDefinedNetDeclaration(_)) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "module declaration kind is not lowered",
+                    );
                     continue;
                 }
 
@@ -165,7 +175,13 @@ impl LowerModuleCtx<'_> {
                 // Subroutines
                 FunctionDeclaration(fn_decl) => match self.lower_subroutine_decl(fn_decl) {
                     Some(owner) => BodyItem::SubroutineOwner(owner),
-                    None => continue,
+                    None => {
+                        self.report_unsupported(
+                            fn_decl.syntax(),
+                            "function declaration could not be lowered",
+                        );
+                        continue;
+                    }
                 },
 
                 // Procedural blocks
@@ -184,10 +200,13 @@ impl LowerModuleCtx<'_> {
                 }
 
                 // Aggregates
-                ClassDeclaration(_) => continue,
-
-                // Nested modules/interfaces/programs
-                ModuleDeclaration(_) => continue,
+                unsupported @ (ClassDeclaration(_) | ModuleDeclaration(_)) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "nested module or class declarations are not lowered",
+                    );
+                    continue;
+                }
 
                 // Generate constructs
                 GenerateRegion(region) => self.lower_generate_region(region).into(),
@@ -196,7 +215,13 @@ impl LowerModuleCtx<'_> {
                 | gen_item @ CaseGenerate(_)
                 | gen_item @ LoopGenerate(_) => self.lower_direct_generate_region(gen_item).into(),
 
-                TimeUnitsDeclaration(_) | ClockingItem(_) => continue,
+                unsupported @ (TimeUnitsDeclaration(_) | ClockingItem(_)) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "module time or clocking item is not lowered",
+                    );
+                    continue;
+                }
                 DefaultClockingReference(reference) => {
                     self.lower_default_clocking_reference(reference);
                     continue;
@@ -209,10 +234,16 @@ impl LowerModuleCtx<'_> {
                 }
 
                 // Assertions and properties
-                PropertyDeclaration(_)
+                unsupported @ (PropertyDeclaration(_)
                 | SequenceDeclaration(_)
                 | ImmediateAssertionMember(_)
-                | ConcurrentAssertionMember(_) => continue,
+                | ConcurrentAssertionMember(_)) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "assertion member is not lowered",
+                    );
+                    continue;
+                }
 
                 // Coverage
                 CovergroupDeclaration(covergroup) => {
@@ -221,31 +252,49 @@ impl LowerModuleCtx<'_> {
                         .expect("every lowered covergroup must have a canonical owner");
                     BodyItem::CovergroupOwner(owner)
                 }
-                Coverpoint(_) | CoverCross(_) | CoverageBins(_) | BinsSelection(_)
-                | CoverageOption(_) => continue,
+                unsupported @ (Coverpoint(_) | CoverCross(_) | CoverageBins(_)
+                | BinsSelection(_) | CoverageOption(_)) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "coverage member is not lowered in module scope",
+                    );
+                    continue;
+                }
 
                 // Specify blocks
-                DefaultSkewItem(_) => continue,
+                unsupported @ DefaultSkewItem(_) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "default skew item is not lowered in module scope",
+                    );
+                    continue;
+                }
                 SpecifyBlock(specify) => self.lower_specify_block(specify).into(),
                 SpecparamDeclaration(specparam_decl) => {
                     self.lower_specparam_decl(specparam_decl).into()
                 }
 
-                // DPI and external
-                DPIImport(_)
+                unsupported @ (DPIImport(_)
                 | DPIExport(_)
                 | ExternInterfaceMethod(_)
                 | ExternModuleDecl(_)
-                | ExternUdpDecl(_) => continue,
-
-                // UDP
-                UdpDeclaration(_) => continue,
+                | ExternUdpDecl(_)
+                | UdpDeclaration(_)) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "external or UDP declaration is not lowered in module scope",
+                    );
+                    continue;
+                }
 
                 // Defparam
                 DefParam(defparam) => self.lower_defparam(defparam).into(),
 
                 // Net alias
-                NetAlias(_) => continue,
+                unsupported @ NetAlias(_) => {
+                    self.report_unsupported(unsupported.syntax(), "net alias is not lowered");
+                    continue;
+                }
 
                 // Modport
                 ModportDeclaration(modport) => {
@@ -255,14 +304,26 @@ impl LowerModuleCtx<'_> {
                     }
                     continue;
                 }
-                ModportClockingPort(_)
+                unsupported @ (ModportClockingPort(_)
                 | ModportSimplePortList(_)
-                | ModportSubroutinePortList(_) => continue,
+                | ModportSubroutinePortList(_)) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "modport port item is not lowered",
+                    );
+                    continue;
+                }
 
                 // Class members (shouldn't appear in module but handle anyway)
-                ClassPropertyDeclaration(_)
+                unsupported @ (ClassPropertyDeclaration(_)
                 | ClassMethodDeclaration(_)
-                | ClassMethodPrototype(_) => continue,
+                | ClassMethodPrototype(_)) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "class member is not lowered in module scope",
+                    );
+                    continue;
+                }
 
                 // Checker
                 CheckerDeclaration(decl) => {
@@ -271,38 +332,87 @@ impl LowerModuleCtx<'_> {
                         .expect("every lowered checker must have a canonical owner");
                     BodyItem::CheckerOwner(owner)
                 }
-                CheckerDataDeclaration(_) => continue,
+                unsupported @ CheckerDataDeclaration(_) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "checker data declaration is not lowered",
+                    );
+                    continue;
+                }
 
                 // Constraints
-                ConstraintDeclaration(_) | ConstraintPrototype(_) => continue,
+                unsupported @ (ConstraintDeclaration(_) | ConstraintPrototype(_)) => {
+                    self.report_unsupported(unsupported.syntax(), "constraint is not lowered");
+                    continue;
+                }
 
                 // Config
-                ConfigDeclaration(_) => continue,
+                unsupported @ ConfigDeclaration(_) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "config declaration is not lowered",
+                    );
+                    continue;
+                }
 
                 // Bind
-                BindDirective(_) => continue,
+                unsupported @ BindDirective(_) => {
+                    self.report_unsupported(unsupported.syntax(), "bind directive is not lowered");
+                    continue;
+                }
 
                 // Package exports
-                PackageExportDeclaration(_) | PackageExportAllDeclaration(_) => continue,
+                unsupported @ (PackageExportDeclaration(_) | PackageExportAllDeclaration(_)) => {
+                    self.report_unsupported(unsupported.syntax(), "package export is not lowered");
+                    continue;
+                }
 
                 // Library
-                LibraryDeclaration(_) | LibraryIncludeStatement(_) => continue,
+                unsupported @ (LibraryDeclaration(_) | LibraryIncludeStatement(_)) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "library declaration is not lowered",
+                    );
+                    continue;
+                }
 
                 // Let declaration
-                LetDeclaration(_) => continue,
+                unsupported @ LetDeclaration(_) => {
+                    self.report_unsupported(unsupported.syntax(), "let declaration is not lowered");
+                    continue;
+                }
 
                 // Default disable
-                DefaultDisableDeclaration(_) => continue,
+                unsupported @ DefaultDisableDeclaration(_) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "default disable declaration is not lowered",
+                    );
+                    continue;
+                }
 
                 // Elaboration system task
-                ElabSystemTask(_) => continue,
+                unsupported @ ElabSystemTask(_) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "elaboration system task is not lowered",
+                    );
+                    continue;
+                }
 
                 // Anonymous program
-                AnonymousProgram(_) => continue,
+                unsupported @ AnonymousProgram(_) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "anonymous program is not lowered",
+                    );
+                    continue;
+                }
 
-                // Unsupported member kinds do not contribute to this owner's
-                // structural HIR yet.
-                _ => continue,
+                unsupported => {
+                    self.report_unsupported(unsupported.syntax(), "module member is not lowered");
+                    continue;
+                }
             };
             self.store.data.items.push(idx.clone());
         }

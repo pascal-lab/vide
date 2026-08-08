@@ -3,7 +3,7 @@ use hir_def::{
     def_id::DefId,
     lower_ident_opt,
     owner::OwnerId,
-    symbol::{DefKind, DefOrigin, DefOriginLoc, NameContext, Resolution},
+    symbol::{DefKind, DefOrigin, NameContext, Resolution},
 };
 use hir_semantics::semantics::SemanticsImpl;
 use preproc_expand::file::HirFileId;
@@ -157,7 +157,10 @@ fn resolve_declaration_name(
         let resolution = sema
             .module_to_def(file_id, module)
             .map(|module_id| {
-                DefinitionClass::Definition(DefId::new(sema.db, DefOriginLoc::Module(module_id)))
+                DefinitionClass::Definition(
+                    DefId::from_owner(sema.db, module_id)
+                        .expect("module owner must have a definition"),
+                )
             })
             .map(Resolution::Unique)
             .unwrap_or(Resolution::Unresolved);
@@ -314,13 +317,17 @@ fn resolve_instantiation_type_name(
             match resolve_instantiation_target(db, file_id.expect_file(), instantiation) {
                 ModuleResolution::Unique(module_id)
                 | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
-                    Resolution::Unique(DefId::new(sema.db, DefOriginLoc::Module(module_id)))
+                    Resolution::Unique(
+                        DefId::from_owner(sema.db, module_id)
+                            .expect("module owner must have a definition"),
+                    )
                 }
-                ModuleResolution::Ambiguous { candidates, .. } => Resolution::from_candidates(
-                    candidates
-                        .into_iter()
-                        .map(|module_id| DefId::new(sema.db, DefOriginLoc::Module(module_id))),
-                ),
+                ModuleResolution::Ambiguous { candidates, .. } => {
+                    Resolution::from_candidates(candidates.into_iter().map(|module_id| {
+                        DefId::from_owner(sema.db, module_id)
+                            .expect("module owner must have a definition")
+                    }))
+                }
                 ModuleResolution::Unresolved => {
                     nameres_ident(sema, file_id, tp, NameContext::Type, container.clone()).or_else(
                         || {

@@ -979,6 +979,31 @@ endmodule
         assert_eq!(diagnostic.syntax_kind, syntax::SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION);
         assert!(diagnostic.range.is_some());
     }
+    #[test]
+    fn unsupported_module_member_is_reported_with_source() {
+        let db = db_with_root_text(
+            r#"
+module m;
+  property p;
+  endproperty
+endmodule
+"#,
+        );
+        let module_id = db
+            .unit_scope()
+            .module_ids(&db, &ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let diagnostics = db.body_with_source_map(module_id).diagnostics(&db);
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.message == "assertion member is not lowered")
+            .unwrap_or_else(|| {
+                panic!("unsupported module member should be diagnosed: {diagnostics:?}")
+            });
+        assert_eq!(diagnostic.kind, crate::source_map::LoweringDiagnosticKind::UnsupportedSyntax);
+        assert!(diagnostic.source.is_some(), "diagnostic must retain a source identity");
+    }
 
     #[test]
     fn unsupported_data_type_is_recoverable_and_diagnosed() {
@@ -1523,6 +1548,7 @@ endpackage
         );
 
         let before_body_edit = db.package_export_signature(package_id);
+        let before_design_map = db.design_map();
         db.set_file_text_with_durability(
             TOP,
             Arc::from(
@@ -1543,6 +1569,11 @@ endpackage
         assert_eq!(
             before_body_edit, after_body_edit,
             "function body edits should not change the package export signature"
+        );
+        let after_design_map = db.design_map();
+        assert_eq!(
+            before_design_map, after_design_map,
+            "function body edits should not change the design map"
         );
     }
 }

@@ -28,7 +28,6 @@ use hir_def::{
     region_tree::{RegionNode, RegionTreeIterator},
     source_map::{HirLookup, Lowered, NamedSourceLookup, SourceInfo, SourceLookup},
     stmt::{CaseItem, ForInit, StmtId, StmtKind},
-    symbol::{DefOrigin, DefOriginLoc},
     typedef::{Typedef, TypedefId},
 };
 use hir_ty::db::TyDb;
@@ -877,9 +876,7 @@ fn build_typedef<L>(
 #[inline]
 fn build_subroutine(db: &dyn TyDb, collector: &mut SymbolCollector, owner: OwnerId) {
     let hir = db.subroutine(owner);
-    let Some(src) =
-        DefOrigin::new(db, DefOriginLoc::Subroutine(owner)).source(db).map(|source| source.value)
-    else {
+    let Some(src) = owner.source(db).map(|source| source.value) else {
         return;
     };
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Fn);

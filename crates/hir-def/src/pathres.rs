@@ -24,16 +24,76 @@ use crate::{
 // handles the hierarchical dot/select shape only. Package/class `::` remains
 // outside this resolver until those constructs are lowered.
 
+/// Resolution phase recorded by [`resolve_name_with_trace`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ResolutionPhase {
+    Lexical,
+    NamedImport,
+    WildcardImport,
+    Unit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ResolutionTraceEntry {
+    pub phase: ResolutionPhase,
+    pub scope: Option<OwnerId>,
+    pub resolution: Resolution<DefId>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct ResolutionTrace {
+    entries: Vec<ResolutionTraceEntry>,
+}
+
+impl ResolutionTrace {
+    pub fn entries(&self) -> &[ResolutionTraceEntry] {
+        &self.entries
+    }
+}
+
 pub fn resolve_name(
     db: &dyn HirDefDb,
     cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
+    resolve_name_inner(db, cont_id, ident, ctx, None)
+}
+
+/// Resolve a name and retain the precedence decisions made by the resolver.
+///
+/// The normal [`resolve_name`] path remains allocation-free for trace data.
+/// Callers that need diagnostics or debugging can inspect each lexical,
+/// named-import, wildcard-import, and `$unit` decision through this seam.
+pub fn resolve_name_with_trace(
+    db: &dyn HirDefDb,
+    cont_id: OwnerId,
+    ident: &Ident,
+    ctx: NameContext,
+) -> (Resolution<DefId>, ResolutionTrace) {
+    let mut trace = ResolutionTrace::default();
+    let resolution = resolve_name_inner(db, cont_id, ident, ctx, Some(&mut trace));
+    (resolution, trace)
+}
+
+fn resolve_name_inner(
+    db: &dyn HirDefDb,
+    cont_id: OwnerId,
+    ident: &Ident,
+    ctx: NameContext,
+    mut trace: Option<&mut ResolutionTrace>,
+) -> Resolution<DefId> {
     let scopes = ScopeChain::from_inner(db, cont_id);
 
     for id in scopes.iter() {
         let resolution = db.scope_for(*id).lookup(ctx, ident);
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.entries.push(ResolutionTraceEntry {
+                phase: ResolutionPhase::Lexical,
+                scope: Some(*id),
+                resolution: resolution.clone(),
+            });
+        }
         if !resolution.is_unresolved() {
             return resolution;
         }
@@ -43,12 +103,20 @@ pub fn resolve_name(
     // declarations: visible declarations in the lexical chain win, then
     // package imports are considered, and `$unit` remains an explicit outer
     // scope. `NameContext` chooses the namespace bucket at every phase.
-    let imported = resolve_imported_name(db, &scopes, ident, ctx);
+    let imported = resolve_imported_name(db, &scopes, ident, ctx, trace.as_deref_mut());
     if !imported.is_unresolved() {
         return imported;
     }
 
-    db.unit_scope().lookup(ctx, ident)
+    let unit = db.unit_scope().lookup(ctx, ident);
+    if let Some(trace) = trace {
+        trace.entries.push(ResolutionTraceEntry {
+            phase: ResolutionPhase::Unit,
+            scope: None,
+            resolution: unit.clone(),
+        });
+    }
+    unit
 }
 
 /// A scope chain (innermost first) resolved once per container. The index
@@ -195,6 +263,7 @@ fn resolve_imported_name(
     scopes: &ScopeChain,
     ident: &Ident,
     ctx: NameContext,
+    mut trace: Option<&mut ResolutionTrace>,
 ) -> Resolution<DefId> {
     let design_map = db.design_map();
     let mut defs = SmallVec::<[DefId; 3]>::new();
@@ -202,16 +271,32 @@ fn resolve_imported_name(
     for scope_id in scopes.iter() {
         let scope = db.scope_for(scope_id.clone());
         collect_imports(db, &design_map, &scope, ident, ctx, true, &mut defs);
+        let resolution = Resolution::from_candidates(defs.iter().copied());
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.entries.push(ResolutionTraceEntry {
+                phase: ResolutionPhase::NamedImport,
+                scope: Some(*scope_id),
+                resolution: resolution.clone(),
+            });
+        }
         if !defs.is_empty() {
-            return Resolution::from_candidates(defs);
+            return resolution;
         }
     }
 
     for scope_id in scopes.iter() {
         let scope = db.scope_for(scope_id.clone());
         collect_imports(db, &design_map, &scope, ident, ctx, false, &mut defs);
+        let resolution = Resolution::from_candidates(defs.iter().copied());
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.entries.push(ResolutionTraceEntry {
+                phase: ResolutionPhase::WildcardImport,
+                scope: Some(*scope_id),
+                resolution: resolution.clone(),
+            });
+        }
         if !defs.is_empty() {
-            return Resolution::from_candidates(defs);
+            return resolution;
         }
     }
 
@@ -503,6 +588,90 @@ endmodule
             resolve_name(&db, top, &ident("only_left"), NameContext::Value).is_unresolved(),
             "a child member must not disambiguate its parent package"
         );
+    }
+
+    #[test]
+    fn resolution_trace_records_named_import_precedence() {
+        let db = db_with_root_text(
+            r#"
+package wildcard;
+  int value;
+endpackage
+
+package named;
+  int value;
+endpackage
+
+module top;
+  import wildcard::*;
+  import named::value;
+endmodule
+"#,
+        );
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+        let named = db
+            .unit_scope()
+            .package_ids(&db, &ident("named"))
+            .unique()
+            .expect("named package should resolve uniquely");
+        let expected = db
+            .package_export_scope(named)
+            .lookup(NameContext::Value, &ident("value"))
+            .unique()
+            .expect("named package value should resolve uniquely");
+
+        let (resolved, trace) =
+            resolve_name_with_trace(&db, top, &ident("value"), NameContext::Value);
+        assert_eq!(resolved, Resolution::Unique(expected));
+        assert!(trace.entries().iter().any(|entry| {
+            entry.phase == ResolutionPhase::NamedImport
+                && entry.resolution == Resolution::Unique(expected)
+        }));
+        assert!(
+            !trace.entries().iter().any(|entry| {
+                entry.phase == ResolutionPhase::WildcardImport && !entry.resolution.is_unresolved()
+            }),
+            "wildcard imports must not run after a named import resolves"
+        );
+    }
+
+    #[test]
+    fn named_imports_preserve_ambiguity() {
+        let db = db_with_root_text(
+            r#"
+package left;
+  int value;
+endpackage
+
+package right;
+  int value;
+endpackage
+
+module top;
+  import left::value;
+  import right::value;
+endmodule
+"#,
+        );
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+        let (resolved, trace) =
+            resolve_name_with_trace(&db, top, &ident("value"), NameContext::Value);
+        let Resolution::Ambiguous(candidates) = resolved else {
+            panic!("two named imports must remain ambiguous");
+        };
+        assert_eq!(candidates.len(), 2);
+        assert!(trace.entries().iter().any(|entry| {
+            entry.phase == ResolutionPhase::NamedImport
+                && matches!(entry.resolution, Resolution::Ambiguous(_))
+        }));
     }
 
     #[test]

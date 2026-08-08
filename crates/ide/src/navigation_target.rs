@@ -1,13 +1,14 @@
 use hir_def::{
     container::{InFile, OwnerRef},
+    def_id::DefId,
     expr::declarator::DeclId,
     file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
     has_source::HasSource,
     module::{instantiation::InstanceId, port::NonAnsiPortId},
-    owner::{OwnerId, OwnerKind},
+    owner::OwnerId,
     stmt::StmtId,
     subroutine::SubroutinePortId,
-    symbol::{DefOrigin, DefOriginLoc},
+    symbol::DefOrigin,
     typedef::TypedefId,
 };
 use hir_ty::db::TyDb;
@@ -56,17 +57,15 @@ impl ToNav for DefOrigin {
         Some(build(file_id, focus_range, full_range, name, kind, container_name))
     }
 }
+impl ToNav for DefId {
+    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
+        self.primary_origin(db).to_nav(db)
+    }
+}
 
 impl ToNav for OwnerId {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-        let origin = match self.kind(db) {
-            OwnerKind::Module => DefOriginLoc::Module(*self),
-            OwnerKind::GenerateBlock => DefOriginLoc::GenerateBlock(*self),
-            OwnerKind::Block => DefOriginLoc::Block(*self),
-            OwnerKind::Subroutine => DefOriginLoc::Subroutine(*self),
-            _ => return None,
-        };
-        DefOrigin::new(db, origin).to_nav(db)
+        DefId::from_owner(db, *self)?.to_nav(db)
     }
 }
 
@@ -75,7 +74,7 @@ macro_rules! impl_to_nav_via_origin {
         $(
             impl ToNav for $ty {
                 fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
-                    DefOrigin::new(db, DefOriginLoc::from(self.clone())).to_nav(db)
+                    DefId::from_source(db, self.clone()).to_nav(db)
                 }
             }
         )*

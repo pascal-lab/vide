@@ -1,5 +1,3 @@
-#[cfg(test)]
-use hir_def::symbol::DefOriginLoc;
 use hir_def::{container::InFile, def_id::DefId};
 use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
@@ -173,7 +171,8 @@ endmodule
         let hir_file =
             db.body_with_source_map(db.owner_table(hir_file_id).file_owner().expect("file owner"));
         let local_module_id = hir_file.module_owners().next().expect("macro-generated module");
-        let def = DefId::new(db, DefOriginLoc::Module(local_module_id));
+        let def =
+            DefId::from_owner(db, local_module_id).expect("module owner must have a definition");
 
         let highlights = highlight_refs(
             &Semantics::new(db),
