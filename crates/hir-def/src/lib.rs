@@ -19,6 +19,7 @@ pub mod covergroup;
 pub mod db;
 pub mod declaration;
 pub mod def_id;
+pub mod design_map;
 pub mod diagnostics;
 pub mod expr;
 pub mod file;

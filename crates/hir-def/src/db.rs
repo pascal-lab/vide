@@ -8,7 +8,7 @@ use crate::{
     ast_id_map::{self, AstIdMap, SyntaxFileId},
     body::{self, Body},
     def_id::{self, DefinitionTable},
-    diagnostics,
+    design_map, diagnostics,
     item_tree::{self, ItemTree, ItemTreeItem, Signature},
     nameres,
     owner::{self, OwnerId, OwnerTable},
@@ -110,11 +110,17 @@ impl dyn HirDefDb + '_ {
     }
 
     pub fn package_export_signature(&self, package_owner: OwnerId) -> Arc<NameScope> {
-        NameScope::package_export_signature(self, package_owner)
+        self.package_export_scope(package_owner)
     }
 
     pub fn package_export_scope(&self, package_owner: OwnerId) -> Arc<NameScope> {
-        NameScope::package_export_scope(self, package_owner)
+        self.design_map()
+            .package_export_scope(package_owner)
+            .expect("package owner must be present in the design map")
+    }
+
+    pub fn design_map(&self) -> Arc<crate::design_map::DesignMap> {
+        crate::design_map::design_map(self)
     }
 }
 
@@ -123,6 +129,7 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     ast_id_map::set_ast_id_map_lru_capacity(db, capacity);
     body::set_body_lru_capacity(db, capacity);
     def_id::set_definition_table_lru_capacity(db, capacity);
+    design_map::set_lru_capacity(db, capacity);
     item_tree::set_item_tree_lru_capacity(db, capacity);
     owner::set_owner_table_lru_capacity(db, capacity);
     nameres::set_scope_lru_capacity(db, capacity);
