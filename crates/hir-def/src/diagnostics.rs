@@ -421,6 +421,20 @@ endmodule
     }
 
     #[test]
+    fn default_nettype_none_diagnoses_bare_port_header() {
+        // A first port with only a direction has no previous header to
+        // inherit, so the default implicit-net header must also honor
+        // `default_nettype none`.
+        let text = "`default_nettype none\nmodule m(output a);\nendmodule\n";
+        let db = db_with_files(text, None);
+        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        assert!(
+            diagnostics.iter().any(|diag| diag.message.contains("default_nettype none")),
+            "bare output port under `default_nettype none` must be diagnosed: {diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn default_nettype_none_diagnoses_implicit_nets() {
         let text = "`default_nettype none\nmodule m(input a);\nendmodule\n";
         let db = db_with_files(text, None);
