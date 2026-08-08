@@ -355,6 +355,24 @@ endmodule
     }
 
     #[test]
+    fn unsupported_statement_is_reported() {
+        let text = "module m;\ninitial begin\n  foreach (arr[i]) x = 1;\nend\nendmodule\n";
+        let db = db_with_files(text, None);
+
+        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let unsupported =
+            diagnostics.iter().filter(|diag| diag.message == "unsupported statement").collect::<Vec<_>>();
+        assert!(
+            !unsupported.is_empty(),
+            "foreach statement must be diagnosed: {diagnostics:?}"
+        );
+        assert!(
+            unsupported.iter().all(|diag| diag.source.is_some()),
+            "unsupported statement diagnostics must retain a source identity"
+        );
+    }
+
+    #[test]
     fn include_buffer_diagnostic_falls_back_to_owner_range() {
         let text = "module m;\n`include \"defs.vh\"\nendmodule\n";
         let db = db_with_files(text, Some("struct { logic a; } value;\n"));
