@@ -6,7 +6,7 @@ use hir_def::{
     def_id::DefId,
     expr::{
         Arg, AssignOp, BinaryOp, Expr, ExprId, IncDecOp, Selector, StreamOp, UnaryOp,
-        data_ty::{BuiltinDataTy, DataTy, Dimension, IntKind, NamedDataTy, Real, VecKind},
+        data_ty::{BuiltinDataTy, DataTy, Dimension, IntKind, Real, TypeRef, VecKind},
         declarator::DeclId,
     },
     literal::Literal,
@@ -45,6 +45,15 @@ impl HirFormatter<'_> {
     pub fn write_char(&mut self, c: char) -> Result<(), HirDisplayError> {
         self.write_str(c.encode_utf8(&mut [0; 4]))
     }
+}
+fn fmt_type_ref(ty: &TypeRef, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
+    for (index, segment) in ty.segments().iter().enumerate() {
+        if index != 0 {
+            f.write_str("::")?;
+        }
+        f.write_str(segment)?;
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -293,10 +302,7 @@ impl HirDisplay for OwnerRef<DataTy> {
                 BuiltinDataTy::Chandle => f.write_str("chandle"),
                 BuiltinDataTy::Void => f.write_str("void"),
             },
-            DataTy::Named(named) => match named {
-                NamedDataTy::Ident(expr_id) => OwnerRef::new(self.cont_id, *expr_id).hir_fmt(f),
-                NamedDataTy::Field(expr_id) => OwnerRef::new(self.cont_id, *expr_id).hir_fmt(f),
-            },
+            DataTy::Named(named) => fmt_type_ref(named, f),
             DataTy::Enum => f.write_str("enum"),
             DataTy::Unsupported(kind) => {
                 write!(f.f, "<unsupported {kind:?}>")?;

@@ -5,12 +5,12 @@ use hir_def::{
     def_id::DefId,
     expr::{
         Expr, ExprId,
-        data_ty::{BuiltinDataTy, BuiltinDataTyId, DataTy, Dimension, IntKind, NamedDataTy},
+        data_ty::{BuiltinDataTy, BuiltinDataTyId, DataTy, Dimension, IntKind, TypeRef},
         declarator::{DeclId, DeclaratorParent},
     },
     module::port::PortDeclId,
     owner::OwnerId,
-    pathres::{instance_target_def_id, resolve_name},
+    pathres::{instance_target_def_id, resolve_name, resolve_path},
     stmt::{ForInit, StmtKind},
     subroutine::SubroutinePortId,
     symbol::{DefKind, NameContext, Resolution},
@@ -71,7 +71,7 @@ fn type_of_decl_impl(db: &dyn TyDb, decl: OwnerRef<DeclId>) -> TyResult {
     let Some(data_ty) = data_ty_of_decl(db, decl) else {
         return TyResult::new(Ty::Unknown);
     };
-    let owner = DefId::new(db, decl);
+    let owner = DefId::from_source(db, decl);
     let mut result = normalize_data_ty_with_owner(db, decl.cont_id, data_ty, Some(owner));
     let data = decl.cont_id.data(db);
     result.ty = apply_unpacked_dimensions(
@@ -293,18 +293,10 @@ fn normalize_data_ty_inner(
 fn type_of_named_data_ty(
     db: &dyn TyDb,
     container: OwnerId,
-    named: NamedDataTy,
+    named: TypeRef,
     seen: &mut FxHashSet<OwnerRef<TypedefId>>,
 ) -> TyResult {
-    let expr_id = match named {
-        NamedDataTy::Ident(expr_id) | NamedDataTy::Field(expr_id) => expr_id,
-    };
-    let data = container.data(db);
-    let Expr::Ident(ident) = data.expr(expr_id) else {
-        return TyResult::new(Ty::Unknown);
-    };
-
-    let resolution = resolve_name(db, container, ident, NameContext::Type);
+    let resolution = resolve_path(db, container, named.segments(), NameContext::Type);
     let Some(def_id) = resolution.unique() else {
         return TyResult::new(Ty::Unknown);
     };
@@ -332,7 +324,7 @@ fn type_of_typedef_inner(
         return TyResult::new(Ty::Unknown);
     };
 
-    let owner = DefId::new(db, typedef);
+    let owner = DefId::from_source(db, typedef);
     let mut target = normalize_data_ty_inner(db, typedef.cont_id, data_ty, Some(owner), seen);
     seen.remove(&typedef);
     let ty = if matches!(target.ty, Ty::Error) {
@@ -445,6 +437,6 @@ fn type_of_subroutine_port_impl(db: &dyn TyDb, port: OwnerRef<SubroutinePortId>)
     port_data
         .ty
         .clone()
-        .map(|ty| normalize_data_ty_with_owner(db, owner, ty, Some(DefId::new(db, port))))
+        .map(|ty| normalize_data_ty_with_owner(db, owner, ty, Some(DefId::from_source(db, port))))
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
 }

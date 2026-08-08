@@ -528,7 +528,7 @@ impl Ord for DefId {
 }
 
 impl DefId {
-    pub fn new(db: &dyn HirDefDb, loc: impl Into<DefOriginLoc>) -> Self {
+    fn intern(db: &dyn HirDefDb, loc: impl Into<DefOriginLoc>) -> Self {
         let loc = loc.into();
         let owner = loc.clone().owner(db);
         let source = loc
@@ -551,26 +551,27 @@ impl DefId {
     /// owners without a `DefId`.
     pub fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
         let origin = match owner.kind(db) {
-            OwnerKind::Module => DefOriginLoc::Module(owner),
-            OwnerKind::GenerateBlock => DefOriginLoc::GenerateBlock(owner),
-            OwnerKind::Block => DefOriginLoc::Block(owner),
-            OwnerKind::Subroutine => DefOriginLoc::Subroutine(owner),
-            OwnerKind::File
-            | OwnerKind::ProceduralBlock
-            | OwnerKind::Checker
-            | OwnerKind::Covergroup
-            | OwnerKind::ClockingBlock => return None,
-        };
-        Some(Self::new(db, origin))
+            OwnerKind::Module => Some(DefOriginLoc::Module(owner)),
+            OwnerKind::GenerateBlock => Some(DefOriginLoc::GenerateBlock(owner)),
+            OwnerKind::Block => Some(DefOriginLoc::Block(owner)),
+            OwnerKind::Subroutine => Some(DefOriginLoc::Subroutine(owner)),
+            OwnerKind::Checker => owner.as_checker(db).map(DefOriginLoc::Checker),
+            OwnerKind::Covergroup => owner.as_covergroup(db).map(DefOriginLoc::Covergroup),
+            OwnerKind::ClockingBlock => {
+                owner.as_clocking_block(db).map(DefOriginLoc::ClockingBlock)
+            }
+            OwnerKind::File | OwnerKind::ProceduralBlock => None,
+        }?;
+        Some(Self::from_source(db, origin))
     }
 
     /// Construct a canonical definition from a typed source representation.
     pub fn from_source(db: &dyn HirDefDb, source: impl Into<DefOriginLoc>) -> Self {
-        Self::new(db, source)
+        Self::intern(db, source)
     }
 
     pub fn from_origin(db: &dyn HirDefDb, origin: DefOrigin) -> Self {
-        Self::new(db, origin.loc(db).clone())
+        Self::intern(db, origin.loc(db).clone())
     }
 
     pub fn origins(&self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 3]> {

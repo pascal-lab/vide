@@ -29,7 +29,8 @@ pub(super) fn collect_port(
     }
 
     let db = sema.db;
-    let module_scope = db.scope_for(module_id);
+    let graph = db.scope_graph();
+    let module_scope = graph.scope(module_id);
     let module = db.body_with_source_map(module_id);
     let body = db.body_with_source_map(module_id);
 

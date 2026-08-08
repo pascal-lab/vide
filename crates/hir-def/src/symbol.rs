@@ -335,7 +335,7 @@ pub enum ScopeKind {
 /// `Resolution::Ambiguous` only when it has multiple distinct `DefId`s;
 /// multiple origins of one `DefId` are already merged by canonical identity.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct NameScope {
+pub struct ScopeData {
     types: FxHashMap<Ident, SmallVec<[DefId; 1]>>,
     values: FxHashMap<Ident, SmallVec<[DefId; 1]>>,
     assertions: FxHashMap<Ident, SmallVec<[DefId; 1]>>,
@@ -450,7 +450,7 @@ impl<T: Eq> Resolution<T> {
     }
 }
 
-impl NameScope {
+impl ScopeData {
     pub fn imports(&self) -> &[Import] {
         &self.imports
     }
@@ -463,7 +463,7 @@ impl NameScope {
         self.imports.push(import);
     }
 
-    pub(crate) fn extend_definitions_from(&mut self, other: &NameScope) {
+    pub(crate) fn extend_definitions_from(&mut self, other: &ScopeData) {
         for (ident, defs) in &other.types {
             for def_id in defs {
                 self.insert_type(ident, *def_id);

@@ -3,15 +3,18 @@ use smallvec::SmallVec;
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxToken, TokenKind,
     ast::{self, AstNode},
+    has_text_range::HasTextRange,
 };
 use triomphe::Arc;
+use utils::text_edit::TextRange;
 
 use super::{Expr, ExprId, Selector};
 use crate::{
+    Ident,
     aggregate::StructId,
     container::OwnerRef,
     lower::{LoweringCtx, LoweringStore},
-    lower_ident,
+    lower_ident, lower_ident_opt,
 };
 
 // slang exposes enum types directly as `DataType::EnumType`, while struct and
@@ -25,7 +28,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DataTy {
     Builtin(BuiltinDataTyId),
-    Named(NamedDataTy),
+    Named(TypeRef),
     Struct(OwnerRef<StructId>),
     Enum,
     Unsupported(SyntaxKind),
@@ -99,11 +102,52 @@ pub enum Dimension {
     Dynamic,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub enum NamedDataTy {
-    Ident(ExprId),
-    Field(ExprId),
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct TypeRef {
+    segments: SmallVec<[Ident; 2]>,
+    source_range: Option<TextRange>,
 }
+
+impl TypeRef {
+    pub(crate) fn new(segments: SmallVec<[Ident; 2]>, source_range: Option<TextRange>) -> Self {
+        Self { segments, source_range }
+    }
+
+    pub fn segments(&self) -> &[Ident] {
+        &self.segments
+    }
+
+    pub fn source_range(&self) -> Option<TextRange> {
+        self.source_range
+    }
+}
+
+fn lower_name_segments(name: ast::Name) -> SmallVec<[Ident; 2]> {
+    fn collect(name: ast::Name, segments: &mut SmallVec<[Ident; 2]>) {
+        match name {
+            ast::Name::IdentifierName(name) => {
+                if let Some(ident) = lower_ident_opt(name.identifier()) {
+                    segments.push(ident);
+                }
+            }
+            ast::Name::IdentifierSelectName(name) => {
+                if let Some(ident) = lower_ident_opt(name.identifier()) {
+                    segments.push(ident);
+                }
+            }
+            ast::Name::ScopedName(name) => {
+                collect(name.left(), segments);
+                collect(name.right(), segments);
+            }
+            _ => {}
+        }
+    }
+
+    let mut segments = SmallVec::new();
+    collect(name, &mut segments);
+    segments
+}
+
 impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_data_ty(&mut self, ty: ast::DataType) -> DataTy {
         use ast::DataType::*;
@@ -142,17 +186,9 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         }
     }
 
-    fn lower_named_ty(&mut self, ty: ast::NamedType) -> NamedDataTy {
-        let expr_id = ast::Expression::cast(ty.name().syntax())
-            .map(|expr| self.lower_expr(expr))
-            .unwrap_or_else(|| self.alloc_missing_expr());
-
-        use ast::Name::*;
-        match ty.name() {
-            IdentifierName(_) => NamedDataTy::Ident(expr_id),
-            ScopedName(_) => NamedDataTy::Field(expr_id),
-            _ => NamedDataTy::Ident(expr_id),
-        }
+    fn lower_named_ty(&mut self, ty: ast::NamedType) -> TypeRef {
+        let name = ty.name();
+        TypeRef::new(lower_name_segments(name), name.syntax().text_range())
     }
 
     fn lower_enum_type(&mut self, _enum_ty: ast::EnumType) -> DataTy {
