@@ -135,10 +135,13 @@ fn index_benchmarks_build_scales_with_file_size() {
 /// request of each navigation feature, and the incremental rebuild after a
 /// one-byte touch at the end of the file.
 ///
+/// Set `$VIDE_BENCH_PROBE` to a module identifier when the file does not use
+/// the fixture's default `array_0_ext` probe.
+///
 /// Run with:
 ///
 /// ```text
-/// VIDE_BENCH_FILE=~/Downloads/XS.v \
+/// VIDE_BENCH_FILE=~/Downloads/XS.v VIDE_BENCH_PROBE=top \
 ///   cargo test -p ide --release -- --ignored --nocapture index_benchmarks_real_file
 /// ```
 #[test]
@@ -179,14 +182,10 @@ fn index_benchmarks_real_file() {
         timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
     eprintln!("semantic index (cold, first build):           {semantic_cost:?}");
 
-    // Pick the first module declaration's name as the probe symbol.
-    let probe = "array_0_ext";
-    let probe_decl = "module array_0_ext";
+    let probe = std::env::var("VIDE_BENCH_PROBE").unwrap_or_else(|_| "array_0_ext".to_owned());
     let probe_offset = TextSize::from(
         u32::try_from(
-            text.find(probe_decl)
-                .map(|start| start + "module ".len())
-                .expect("probe module should exist"),
+            text.find(&probe).unwrap_or_else(|| panic!("probe module {probe:?} should exist")),
         )
         .unwrap(),
     );
@@ -221,7 +220,7 @@ fn index_benchmarks_real_file() {
         refs.map_or(0, |rs| rs.iter().map(|r| r.refs.values().map(Vec::len).sum::<usize>()).sum());
     eprintln!("find references (workspace):                  {refs_cost:?} ({ref_count} refs)");
 
-    let probe_range = TextRange::new(probe_offset, probe_offset + TextSize::of(probe));
+    let probe_range = TextRange::new(probe_offset, probe_offset + TextSize::of(&probe));
     let (incoming, incoming_cost) = timed(|| incoming_module_edges(db, file_id, probe_range));
     eprintln!(
         "call hierarchy incoming:                      {incoming_cost:?} ({} edges)",

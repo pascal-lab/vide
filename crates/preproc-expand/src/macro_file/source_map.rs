@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use ::preproc::source::{PreprocSourceId, SourceRange};
+use rustc_hash::FxHashMap;
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SourceBufferRange,
@@ -15,7 +16,7 @@ use super::{
     ExpandError, ExpandErrorKind, ExpandResult, MacroCallId, MacroCallLoc, SourceEmittedTokenId,
     SourceEmittedTokenRange,
 };
-use crate::source_db::PreprocSourceMap;
+use crate::source_db::{PreprocSourceMap, range_index::RangeIndex};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
     File { file: FileId, range: TextRange },
@@ -29,6 +30,7 @@ pub enum Origin {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExpansionSourceMap {
     origins: Vec<Option<OriginSlot>>,
+    source_ranges: FxHashMap<FileId, RangeIndex<usize>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,13 +88,17 @@ impl ExpansionSourceMap {
     }
 
     pub fn source_hits(&self, file: FileId, offset: TextSize) -> Vec<ExpansionSourceHit> {
-        self.origins
-            .iter()
-            .enumerate()
-            .filter_map(|(expanded_token_index, slot)| {
-                let slot = slot.as_ref()?;
+        let Some(ranges) = self.source_ranges.get(&file) else {
+            return Vec::new();
+        };
+        let mut expanded_token_indices = ranges.ids_at(offset);
+        expanded_token_indices.sort_unstable();
+        expanded_token_indices
+            .into_iter()
+            .filter_map(|expanded_token_index| {
+                let slot = self.origins.get(expanded_token_index)?.as_ref()?;
                 let source = slot.source?;
-                (source.file == file && source.range.contains(offset)).then(|| ExpansionSourceHit {
+                Some(ExpansionSourceHit {
                     emitted_token: slot.emitted_token,
                     expanded_token_index,
                     range: source.range,
@@ -132,8 +138,9 @@ impl ExpansionSourceMap {
         for raw in start..end {
             let emitted_token = SourceEmittedTokenId::new(raw);
             let Some(token) = trace.emitted_tokens.get(raw) else {
+                let source_ranges = source_ranges_for(&origins);
                 return source_map_error(
-                    Self { origins },
+                    Self { origins, source_ranges },
                     ExpansionSourceMapError::MissingTraceToken { token: emitted_token },
                 );
             };
@@ -145,7 +152,8 @@ impl ExpansionSourceMap {
                 Some(&operation_sources),
             ));
         }
-        ExpandResult::ok(Self { origins })
+        let source_ranges = source_ranges_for(&origins);
+        ExpandResult::ok(Self { origins, source_ranges })
     }
 
     #[cfg(test)]
@@ -154,24 +162,39 @@ impl ExpansionSourceMap {
         origins: impl IntoIterator<Item = &'a TokenOrigin>,
         source_map: &PreprocSourceMap,
     ) -> Self {
-        Self {
-            origins: origins
-                .into_iter()
-                .enumerate()
-                .map(|origin| {
-                    origin_slot_from_token_origin(
-                        model_file,
-                        SourceEmittedTokenId::new(origin.0),
-                        origin.1,
-                        source_map,
-                        None,
-                    )
-                })
-                .collect(),
-        }
+        let origins: Vec<_> = origins
+            .into_iter()
+            .enumerate()
+            .map(|origin| {
+                origin_slot_from_token_origin(
+                    model_file,
+                    SourceEmittedTokenId::new(origin.0),
+                    origin.1,
+                    source_map,
+                    None,
+                )
+            })
+            .collect();
+        let source_ranges = source_ranges_for(&origins);
+        Self { origins, source_ranges }
     }
 }
-
+fn source_ranges_for(origins: &[Option<OriginSlot>]) -> FxHashMap<FileId, RangeIndex<usize>> {
+    let mut source_ranges = FxHashMap::default();
+    for (expanded_token_index, slot) in origins.iter().enumerate() {
+        let Some(source) = slot.as_ref().and_then(|slot| slot.source) else {
+            continue;
+        };
+        source_ranges
+            .entry(source.file)
+            .or_insert_with(RangeIndex::default)
+            .push(source.range, expanded_token_index);
+    }
+    for ranges in source_ranges.values_mut() {
+        ranges.finish();
+    }
+    source_ranges
+}
 fn source_map_error(
     value: ExpansionSourceMap,
     error: ExpansionSourceMapError,

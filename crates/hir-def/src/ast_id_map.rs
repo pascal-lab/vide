@@ -61,11 +61,12 @@ impl StablePath {
 
 /// The node table behind [`SourceAstId`]. Unique root-buffer nodes retain an
 /// O(1) pointer; nodes with duplicate display pointers (macro expansion) are
-/// resolved by their structural path.
+/// resolved by their syntax-node identity and structural path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AstIdMap {
     nodes: FxHashMap<SourceAstId, SyntaxNodePtr>,
     by_ptr: FxHashMap<SyntaxNodePtr, SourceAstId>,
+    by_identity: FxHashMap<usize, SourceAstId>,
     by_path: FxHashMap<StablePath, SourceAstId>,
     paths: FxHashMap<SourceAstId, StablePath>,
 }
@@ -79,6 +80,7 @@ impl AstIdMap {
             return Self {
                 nodes: FxHashMap::default(),
                 by_ptr: FxHashMap::default(),
+                by_identity: FxHashMap::default(),
                 by_path: FxHashMap::default(),
                 paths: FxHashMap::default(),
             };
@@ -89,7 +91,7 @@ impl AstIdMap {
                 syntax::WalkEvent::Enter(node) => {
                     let path = next_path(&paths, &mut child_counts, node.kind());
                     let ptr = node.text_range().map(|_| SyntaxNodePtr::from_node(node));
-                    candidates.push((path.clone(), ptr));
+                    candidates.push((path.clone(), ptr, node.identity()));
                     paths.push(path);
                     child_counts.push(FxHashMap::default());
                 }
@@ -102,14 +104,15 @@ impl AstIdMap {
 
         let mut nodes = FxHashMap::default();
         let mut by_ptr = FxHashMap::default();
+        let mut by_identity = FxHashMap::default();
         let mut by_path = FxHashMap::default();
         let mut paths_by_id = FxHashMap::default();
         let mut ptr_counts = FxHashMap::<SyntaxNodePtr, u32>::default();
-        for ptr in candidates.iter().filter_map(|(_, ptr)| *ptr) {
+        for ptr in candidates.iter().filter_map(|(_, ptr, _)| *ptr) {
             *ptr_counts.entry(ptr).or_default() += 1;
         }
         let mut used = FxHashMap::<SourceAstId, StablePath>::default();
-        for (path, ptr) in candidates {
+        for (path, ptr, identity) in candidates {
             let mut salt = 0;
             let id = loop {
                 let id = if path.0.is_empty() { SourceAstId(0) } else { stable_id(&path, salt) };
@@ -121,13 +124,14 @@ impl AstIdMap {
             };
             used.insert(id, path.clone());
             paths_by_id.insert(id, path.clone());
+            by_identity.insert(identity, id);
             by_path.insert(path, id);
             if let Some(ptr) = ptr.filter(|ptr| ptr_counts.get(ptr) == Some(&1)) {
                 nodes.insert(id, ptr);
                 by_ptr.insert(ptr, id);
             }
         }
-        Self { nodes, by_ptr, by_path, paths: paths_by_id }
+        Self { nodes, by_ptr, by_identity, by_path, paths: paths_by_id }
     }
 
     pub fn len(&self) -> usize {
@@ -174,9 +178,11 @@ impl AstIdMap {
     }
 
     pub fn id_of_node(&self, node: SyntaxNode<'_>) -> Option<SourceAstId> {
-        node.text_range()
-            .map(|_| SyntaxNodePtr::from_node(node))
-            .and_then(|ptr| self.id_of_ptr(ptr))
+        self.by_identity.get(&node.identity()).copied().or_else(|| {
+            node.text_range()
+                .map(|_| SyntaxNodePtr::from_node(node))
+                .and_then(|ptr| self.id_of_ptr(ptr))
+        })
     }
 
     pub fn id_of_node_in_tree(
@@ -184,29 +190,12 @@ impl AstIdMap {
         tree: &SyntaxTree,
         target: SyntaxNode<'_>,
     ) -> Option<SourceAstId> {
-        if let Some(id) = self.id_of_node(target) {
-            return Some(id);
-        }
         let root = tree.root()?;
-        let mut paths: Vec<StablePath> = Vec::new();
-        let mut child_counts: Vec<FxHashMap<SyntaxKind, u32>> = Vec::new();
-        for event in root.node_preorder() {
-            match event {
-                syntax::WalkEvent::Enter(node) => {
-                    let path = next_path(&paths, &mut child_counts, node.kind());
-                    if node == target {
-                        return self.by_path.get(&path).copied();
-                    }
-                    paths.push(path);
-                    child_counts.push(FxHashMap::default());
-                }
-                syntax::WalkEvent::Leave(_) => {
-                    paths.pop();
-                    child_counts.pop();
-                }
-            }
+        let mut target_root = target;
+        while let Some(parent) = target_root.parent() {
+            target_root = parent;
         }
-        None
+        (target_root == root).then(|| self.by_identity.get(&target.identity()).copied()).flatten()
     }
 
     pub fn id_of_ptr(&self, ptr: SyntaxNodePtr) -> Option<SourceAstId> {
@@ -271,10 +260,11 @@ mod tests {
 
         let ids = collect_kind_ids(&map, &tree);
         let unique: HashSet<_> = ids.values().flatten().copied().collect();
-        assert_eq!(unique.len(), map.nodes.len());
+        assert_eq!(unique.len(), map.len());
         assert!(ids.contains_key(&SyntaxKind::MODULE_DECLARATION));
         for id in unique {
-            assert!(map.ptr(id).is_some(), "every AST id must have a pointer");
+            let node = map.node(id, &tree).expect("every AST id must resolve");
+            assert_eq!(map.id_of_node(node), Some(id));
         }
     }
 
