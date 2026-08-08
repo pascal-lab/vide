@@ -29,7 +29,8 @@ fn signature_help_reaches_forward_declared_functions() {
             },
         )))
         .unwrap();
-    let help: Option<lsp_types::SignatureHelp> = recv_response(&client, request_id, "signature_help");
+    let help: Option<lsp_types::SignatureHelp> =
+        recv_response(&client, request_id, "signature_help");
     let help = help.expect("signature help for forward-declared function call");
     assert!(
         help.signatures.iter().any(|signature| signature.label.contains("f")),
