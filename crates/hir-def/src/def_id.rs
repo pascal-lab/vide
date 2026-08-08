@@ -471,22 +471,22 @@ pub(crate) fn definition_table(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Definit
         for id in scope.declarators() {
             let source = sources.decl_srcs.hir_to_src(*id).expect("declarator source");
             let origin = DefOriginLoc::Decl(OwnerRef::new(owner, *id));
-            if let crate::module::port::Ports::NonAnsi { bindings, .. } = &body.ports {
-                if let Some(port) = bindings.decl_to_port.get(id).copied() {
-                    let port_source = match &sources.port_srcs {
-                        crate::module::port::PortSrcs::NonAnsi { ports, .. } => {
-                            ports.hir_to_src(port).expect("non-ANSI port source")
-                        }
-                        crate::module::port::PortSrcs::Ansi { .. } => {
-                            unreachable!("non-ANSI bindings require non-ANSI sources")
-                        }
-                    };
-                    let local = table
-                        .local_for(port_source, DefinitionRole::NonAnsiPort)
-                        .expect("non-ANSI port must be collected before declarations");
-                    table.alias(source, origin, local);
-                    continue;
-                }
+            if let crate::module::port::Ports::NonAnsi { bindings, .. } = &body.ports
+                && let Some(port) = bindings.decl_to_port.get(id).copied()
+            {
+                let port_source = match &sources.port_srcs {
+                    crate::module::port::PortSrcs::NonAnsi { ports, .. } => {
+                        ports.hir_to_src(port).expect("non-ANSI port source")
+                    }
+                    crate::module::port::PortSrcs::Ansi { .. } => {
+                        unreachable!("non-ANSI bindings require non-ANSI sources")
+                    }
+                };
+                let local = table
+                    .local_for(port_source, DefinitionRole::NonAnsiPort)
+                    .expect("non-ANSI port must be collected before declarations");
+                table.alias(source, origin, local);
+                continue;
             }
             table.insert(source, origin);
         }

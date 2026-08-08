@@ -224,7 +224,7 @@ pub(crate) fn search_references(
     if let Some(file_id) = scope.single_file_id() {
         db.unwind_if_revision_cancelled();
         let index = db.file_semantic_index(file_id);
-        let Some(group) = index.references_for_definition(def.clone()) else {
+        let Some(group) = index.references_for_definition(*def) else {
             return res;
         };
         for reference in group.references().iter() {
@@ -241,7 +241,7 @@ pub(crate) fn search_references(
     for source_root_id in scope.source_root_ids(db) {
         db.unwind_if_revision_cancelled();
         let index = source_root_semantic_index_for_root(db, source_root_id);
-        let Some(group) = index.references_for_definition(def.clone()) else {
+        let Some(group) = index.references_for_definition(*def) else {
             continue;
         };
 

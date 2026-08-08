@@ -54,12 +54,11 @@ pub(super) fn subroutine_to_def(
 }
 
 fn generate_owner_node(node: SyntaxNode<'_>) -> SyntaxNode<'_> {
-    if ast::GenerateBlock::can_cast(node.kind()) {
-        if let Some(parent) = node.parent() {
-            if ast::LoopGenerate::can_cast(parent.kind()) {
-                return parent;
-            }
-        }
+    if ast::GenerateBlock::can_cast(node.kind())
+        && let Some(parent) = node.parent()
+        && ast::LoopGenerate::can_cast(parent.kind())
+    {
+        return parent;
     }
     node
 }

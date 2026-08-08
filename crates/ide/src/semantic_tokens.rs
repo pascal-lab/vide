@@ -512,7 +512,7 @@ fn collect_ident_like(
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) -> Option<()> {
-    let res = sema.resolve_name(in_cont.cont_id.into(), &in_cont.value, NameContext::Value);
+    let res = sema.resolve_name(in_cont.cont_id, &in_cont.value, NameContext::Value);
     collect_resolved_path(sema, res, range, collector)
 }
 
@@ -526,7 +526,7 @@ fn collect_type_ident_like(
     let Expr::Ident(name) = expr else {
         return None;
     };
-    let res = sema.resolve_name(cont_id.into(), name, NameContext::Type);
+    let res = sema.resolve_name(cont_id, name, NameContext::Type);
     collect_resolved_path(sema, res, range, collector)
 }
 
@@ -599,7 +599,7 @@ fn collect_resolved_path(
         let module = db.body_with_source_map(owner);
         let body = module.data_ref();
         let origins = def_id.origins(db);
-        let (name, dir, ty) = resolve_port_metadata(db, &module, &body, &origins)?;
+        let (name, dir, ty) = resolve_port_metadata(db, &module, body, &origins)?;
         port::add_port_token(db, name, dir, ty, range, collector);
         return Some(());
     }

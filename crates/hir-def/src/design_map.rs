@@ -40,10 +40,10 @@ impl DesignMap {
         ident: &SmolStr,
         ctx: NameContext,
     ) -> Resolution<DefId> {
-        if let Some(imported_name) = &import.name {
-            if imported_name != ident {
-                return Resolution::Unresolved;
-            }
+        if let Some(imported_name) = &import.name
+            && imported_name != ident
+        {
+            return Resolution::Unresolved;
         }
 
         let packages = db.unit_scope().package_ids(db, &import.package);

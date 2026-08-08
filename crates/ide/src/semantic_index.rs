@@ -277,14 +277,13 @@ impl SemanticIndex {
             db.unwind_if_revision_cancelled();
             let file_index = db.file_semantic_index(file_id);
             for (definition, group) in &file_index.groups {
-                let builder =
-                    references_by_definition.entry(definition.clone()).or_insert_with(|| {
-                        SemanticReferenceGroupBuilder {
-                            name: group.name.clone(),
-                            definition_ranges: definition_ranges_for(db, definition.clone()),
-                            references: Vec::new(),
-                        }
-                    });
+                let builder = references_by_definition.entry(*definition).or_insert_with(|| {
+                    SemanticReferenceGroupBuilder {
+                        name: group.name.clone(),
+                        definition_ranges: definition_ranges_for(db, *definition),
+                        references: Vec::new(),
+                    }
+                });
                 builder.references.extend(group.references.iter().cloned());
             }
             for (caller, callee, edge) in &db.file_module_edges(file_id).edges {
@@ -587,17 +586,15 @@ endmodule
                 checked += 1;
                 let container = containers.container_for(&sema, hir_file_id, token.parent);
                 let chosen = if token_in_special_context(token) {
-                    DefinitionClass::resolve_in(db, hir_file_id, token, Some(container.clone()))
-                        .unique()
+                    DefinitionClass::resolve_in(db, hir_file_id, token, Some(container)).unique()
                 } else {
-                    let chain = chains.chain_for(db, container.clone());
+                    let chain = chains.chain_for(db, container);
                     sema.nameres_ident_in_scopes(token, NameContext::Value, &chain)
                         .map(DefinitionClass::Definition)
                         .unique()
                 };
                 let full =
-                    DefinitionClass::resolve_in(db, hir_file_id, token, Some(container.clone()))
-                        .unique();
+                    DefinitionClass::resolve_in(db, hir_file_id, token, Some(container)).unique();
                 assert_eq!(
                     chosen,
                     full,
@@ -687,7 +684,7 @@ endmodule
         let paired = paired.as_ref().expect("same-name conn should pair the local def");
         assert!(
             index
-                .references_for_definition(paired.clone())
+                .references_for_definition(*paired)
                 .expect("paired def should have a group")
                 .definition_ranges
                 .iter()
@@ -703,7 +700,7 @@ endmodule
         let paired = paired.as_ref().expect("same-name conn should pair the port def");
         assert!(
             index
-                .references_for_definition(paired.clone())
+                .references_for_definition(*paired)
                 .expect("paired def should have a group")
                 .definition_ranges
                 .iter()
@@ -741,7 +738,7 @@ endmodule
         let paired = paired.as_ref().expect("shorthand should pair the local def");
         assert!(
             index
-                .references_for_definition(paired.clone())
+                .references_for_definition(*paired)
                 .expect("paired def should have a group")
                 .definition_ranges
                 .iter()
@@ -756,7 +753,7 @@ endmodule
         let paired = paired.as_ref().expect("shorthand should pair the port def");
         assert!(
             index
-                .references_for_definition(paired.clone())
+                .references_for_definition(*paired)
                 .expect("paired def should have a group")
                 .definition_ranges
                 .iter()

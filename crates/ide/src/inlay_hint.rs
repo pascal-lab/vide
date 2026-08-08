@@ -318,10 +318,9 @@ fn collect_module_items(
 
     if collector.config.end_structure
         && let Some(name) = &module.name
+        && let Some(end_range) = module_end_range(db, module_id.file(db), module_src)
     {
-        if let Some(end_range) = module_end_range(db, module_id.file(db), module_src) {
-            collector.collect_module_end_hint(end_range, name);
-        }
+        collector.collect_module_end_hint(end_range, name);
     }
 }
 
@@ -415,6 +414,7 @@ fn process_instantiation(
     Some(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_connection_hint(
     db: &RootDb,
     module: &Lowered<Body>,

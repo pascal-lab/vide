@@ -61,7 +61,7 @@ fn complete_expression_impl(
     let mut current_module_id = None;
 
     if let Some(container_id) = container_id_at_offset(&sema, file_id, root, position.offset) {
-        current_module_id = module_id_for_container(db, container_id.clone());
+        current_module_id = module_id_for_container(db, container_id);
         for container_id in ScopeParent::start_from(db, container_id) {
             collect_container_names(db, container_id, &mut names);
         }

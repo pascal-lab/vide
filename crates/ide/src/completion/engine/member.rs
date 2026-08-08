@@ -124,7 +124,7 @@ fn members_for_expr(
 ) -> Option<Vec<Member>> {
     let expr_id = sema.resolve_expr(file_id, expr)?;
     let types = TypeSystem::new(db);
-    let mut members = types.members(&types.type_of_expr(expr_id.clone()));
+    let mut members = types.members(&types.type_of_expr(expr_id));
     if members.is_empty() {
         members = types.members(&types.type_of_resolution(sema.expr_to_def(expr_id)));
     }
