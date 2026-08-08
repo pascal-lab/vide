@@ -25,8 +25,47 @@ pub mod modport;
 pub mod port;
 pub mod specify;
 
+/// The declarator of the `idx`-th parameter-port position, aligned with the
+/// parameter list: a type parameter occupies a position without a declarator,
+/// so `None` means the position is a type parameter or out of range.
 pub fn param_port_id_by_idx(body: &Body, idx: usize) -> Option<DeclId> {
-    body.param_ports.clone()?.nth(idx)
+    let mut seen = 0usize;
+    for declaration in body.declarations.values() {
+        let Declaration::ParamDecl(param_decl) = declaration else { continue };
+        if !param_decl.is_port {
+            continue;
+        }
+        let decls = param_decl.decls.clone();
+        if decls.is_empty() {
+            // Type parameter: occupies a port position without a declarator.
+            if seen == idx {
+                return None;
+            }
+            seen += 1;
+        } else {
+            for decl_id in decls {
+                if seen == idx {
+                    return Some(decl_id);
+                }
+                seen += 1;
+            }
+        }
+    }
+    None
+}
+
+/// Number of parameter-port positions, including type parameters.
+pub fn param_port_count(body: &Body) -> usize {
+    body.declarations
+        .values()
+        .filter_map(|declaration| match declaration {
+            Declaration::ParamDecl(param_decl) if param_decl.is_port => {
+                let decls = param_decl.decls.clone();
+                Some(if decls.is_empty() { 1 } else { decls.len() })
+            }
+            _ => None,
+        })
+        .sum()
 }
 
 pub fn overridable_param_id_by_idx(body: &Body, idx: usize) -> Option<DeclId> {
