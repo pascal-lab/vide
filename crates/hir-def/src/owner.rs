@@ -94,6 +94,7 @@ impl Ord for OwnerId {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnerData {
     pub id: OwnerId,
+    pub source: SourceAstId,
     pub kind: OwnerKind,
     pub parent: Option<OwnerId>,
     pub name: SmolStr,
@@ -151,6 +152,7 @@ impl<'db> OwnerTableBuilder<'db> {
         let mut table = OwnerTable::default();
         table.owners.push(OwnerData {
             id: file_owner,
+            source: root_ast_id,
             kind: OwnerKind::File,
             parent: None,
             name: SmolStr::new_static(""),
@@ -172,6 +174,7 @@ impl<'db> OwnerTableBuilder<'db> {
             let index = self.table.owners.len();
             self.table.owners.push(OwnerData {
                 id: owner,
+                source: ast_id,
                 kind,
                 parent,
                 name: owner_name(node, kind),
