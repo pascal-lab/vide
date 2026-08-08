@@ -46,6 +46,8 @@ pub enum FoldKind {
     Stmt,
     Block,
     Subroutine,
+    Checker,
+    Covergroup,
     ArgList,
     Concat,
 }
@@ -111,8 +113,10 @@ impl FoldCollector for Vec<Fold> {
 }
 
 /// Collects folds that are purely syntactic: comment groups, multi-line
-/// argument lists and concatenations, and runs of consecutive package
-/// imports. Everything else is driven by the HIR source maps below.
+/// argument lists and concatenations, runs of consecutive package imports,
+/// and keyword-delimited blocks (`begin`/`end` of generate blocks,
+/// `checker`/`endchecker`, `covergroup`/`endgroup`). Everything else is
+/// driven by the HIR source maps below.
 fn collect_syntax_folds(
     db: &RootDb,
     file_id: HirFileId,
@@ -159,6 +163,16 @@ fn collect_syntax_folds(
             SyntaxKind::LOOP_GENERATE => {
                 if let Some(range) = node.text_range() {
                     folds.collect_fold(range, FoldKind::Generate, line_index);
+                }
+            }
+            SyntaxKind::CHECKER_DECLARATION => {
+                if let Some(range) = node.text_range() {
+                    folds.collect_fold(range, FoldKind::Checker, line_index);
+                }
+            }
+            SyntaxKind::COVERGROUP_DECLARATION => {
+                if let Some(range) = node.text_range() {
+                    folds.collect_fold(range, FoldKind::Covergroup, line_index);
                 }
             }
             _ => {}
@@ -619,6 +633,8 @@ mod tests {
             "stmt" => FoldKind::Stmt,
             "block" => FoldKind::Block,
             "subroutine" => FoldKind::Subroutine,
+            "checker" => FoldKind::Checker,
+            "covergroup" => FoldKind::Covergroup,
             "arglist" => FoldKind::ArgList,
             "concat" => FoldKind::Concat,
             other => panic!("unknown fold kind {other:?}"),
@@ -937,6 +953,28 @@ endmodule</fold>
             r#"<fold config>config cfg;
   design top;
 endconfig</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_checker() {
+        check_folds(
+            r#"<fold checker>checker c(input logic a);
+  logic x;
+endchecker</fold>
+"#,
+        );
+    }
+
+    #[test]
+    fn fold_covergroup() {
+        check_folds(
+            r#"<fold module>module m;
+<fold covergroup>covergroup cg @(posedge clk);
+  cp: coverpoint x;
+endgroup</fold>
+endmodule</fold>
 "#,
         );
     }
