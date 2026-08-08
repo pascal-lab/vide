@@ -5,12 +5,12 @@ use hir_def::{
     def_id::DefId,
     expr::data_ty::DataTy,
     owner::OwnerId,
-    symbol::{DefOriginLoc, NameScope, Resolution},
+    symbol::{NameScope, Resolution},
 };
 
 use crate::{
     db::TyDb,
-    infer::{data_ty_of_decl, normalize_data_ty, type_of_path_resolution_impl},
+    infer::{normalize_data_ty, type_of_path_resolution_impl},
     ty::{Ty, TyMember, TyResult},
 };
 
@@ -77,14 +77,7 @@ fn union_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
 }
 
 fn aggregate_struct_id_from_def(db: &dyn TyDb, def_id: DefId) -> Option<OwnerRef<StructId>> {
-    let data_ty = match def_id.primary_origin(db).loc(db) {
-        DefOriginLoc::Typedef(typedef) => {
-            typedef.cont_id.data(db).typedef(typedef.value).ty.clone()?
-        }
-        DefOriginLoc::Decl(decl) => data_ty_of_decl(db, decl.clone())?,
-        _ => return None,
-    };
-    match data_ty {
+    match def_id.data_type(db)? {
         DataTy::Struct(struct_id) => Some(struct_id),
         _ => None,
     }
@@ -93,28 +86,19 @@ fn aggregate_struct_id_from_def(db: &dyn TyDb, def_id: DefId) -> Option<OwnerRef
 fn struct_kind(db: &dyn TyDb, struct_id: OwnerRef<StructId>) -> StructKind {
     struct_id.cont_id.data(db).struct_def(struct_id.value).kind
 }
-
 fn module_members(db: &dyn TyDb, module_id: OwnerId) -> Vec<TyMember> {
-    let is_package = DefOriginLoc::Module(module_id).kind(db) == hir_def::symbol::DefKind::Package;
+    let is_package = module_id.module_kind(db) == Some(hir_def::module::ModuleKind::Package);
     let scope =
         if is_package { db.package_export_scope(module_id) } else { db.scope_for(module_id) };
     scope_members(db, &scope)
 }
 
 fn checker_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
-    let Some(checker_id) = def_id.primary_origin(db).as_checker(db) else {
-        return Vec::new();
-    };
-    let owner = DefOriginLoc::Checker(checker_id).owner(db);
-    scope_members(db, &db.scope_for(owner))
+    scope_members(db, &db.scope_for(def_id.container_id(db)))
 }
 
 fn covergroup_members(db: &dyn TyDb, def_id: DefId) -> Vec<TyMember> {
-    let Some(covergroup_id) = def_id.primary_origin(db).as_covergroup(db) else {
-        return Vec::new();
-    };
-    let owner = DefOriginLoc::Covergroup(covergroup_id).owner(db);
-    scope_members(db, &db.scope_for(owner))
+    scope_members(db, &db.scope_for(def_id.container_id(db)))
 }
 
 fn generate_block_members(db: &dyn TyDb, generate_block_owner: OwnerId) -> Vec<TyMember> {

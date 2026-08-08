@@ -14,11 +14,12 @@ use crate::{
     covergroup::{CoverpointDef, CoverpointId, CrossDef, CrossId},
     db::HirDefDb,
     declaration::Declaration,
-    expr::declarator::DeclaratorParent,
+    expr::{data_ty::DataTy, declarator::DeclaratorParent},
     module::ModuleKind,
     owner::{OwnerId, OwnerKind},
-    subroutine::SubroutinePortId,
-    symbol::{DefKind, DefOrigin, DefOriginLoc},
+    stmt::{ForInit, StmtKind},
+    subroutine::{SubroutineKind, SubroutinePortId},
+    symbol::{DefDisplayKind, DefKind, DefOrigin, DefOriginLoc},
 };
 
 fn clocking_signal_of(
@@ -397,6 +398,9 @@ pub(crate) fn definition_table(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Definit
         }
         OwnerKind::GenerateBlock => {
             table.insert(owner.ast_id(db), DefOriginLoc::GenerateBlock(owner));
+            for (id, source) in sources.instance_srcs.iter() {
+                table.insert(source, DefOriginLoc::Instance(OwnerRef::new(owner, id)));
+            }
         }
         OwnerKind::Block => {
             table.insert(owner.ast_id(db), DefOriginLoc::Block(owner));
@@ -540,6 +544,10 @@ impl DefId {
         Self(InternedDefId::new(db, owner, local))
     }
 
+    pub fn from_origin(db: &dyn HirDefDb, origin: DefOrigin) -> Self {
+        Self::new(db, origin.loc(db).clone())
+    }
+
     pub fn origins(&self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 3]> {
         let table = db.definition_table(self.0.owner(db));
         let data = table
@@ -608,6 +616,103 @@ impl DefId {
 
     pub fn name(&self, db: &dyn HirDefDb) -> Option<SmolStr> {
         self.primary_origin(db).name(db)
+    }
+
+    /// Owner in which this definition's declared type is evaluated.
+    ///
+    /// This keeps declaration-origin details behind the definition seam. It
+    /// intentionally mirrors the historical type-container rules: a
+    /// subroutine port resolves through its enclosing module, while ordinary
+    /// declarations and typedefs use their owning body.
+    pub fn type_container(&self, db: &dyn HirDefDb) -> Option<OwnerId> {
+        match self.declaration_origin(db).loc(db) {
+            DefOriginLoc::Decl(decl) => Some(decl.cont_id),
+            DefOriginLoc::Typedef(typedef) => Some(typedef.cont_id),
+            DefOriginLoc::SubroutinePort(port) => port.cont_id.parent(db),
+            _ => None,
+        }
+    }
+
+    /// Lowered data type of a declaration-backed definition.
+    pub fn data_type(&self, db: &dyn HirDefDb) -> Option<DataTy> {
+        match self.declaration_origin(db).loc(db) {
+            DefOriginLoc::Typedef(typedef) => {
+                typedef.cont_id.data(db).typedef(typedef.value).ty.clone()
+            }
+            DefOriginLoc::Decl(decl) => {
+                let body = decl.cont_id.data(db);
+                match body.declarator(decl.value).parent {
+                    DeclaratorParent::DeclarationId(parent) => Some(body.declaration(parent).ty()),
+                    DeclaratorParent::PortDeclId(port) => Some(body.ports.get(port).header.ty()),
+                    DeclaratorParent::StmtId(stmt) => {
+                        let StmtKind::For { inits: ForInit::Init(inits), .. } =
+                            &body.stmt(stmt).kind
+                        else {
+                            return None;
+                        };
+                        inits.iter().find_map(|(ty, candidate)| {
+                            (*candidate == decl.value).then(|| ty.clone()).flatten()
+                        })
+                    }
+                }
+            }
+            DefOriginLoc::SubroutinePort(port) => db
+                .subroutine(port.cont_id)
+                .ports
+                .get(port.value.0 as usize)
+                .and_then(|port| port.ty.clone()),
+            _ => None,
+        }
+    }
+
+    /// Presentation classification for editor-facing definition titles.
+    pub fn display_kind(&self, db: &dyn HirDefDb) -> Option<DefDisplayKind> {
+        let origin = self.declaration_origin(db);
+        match origin.loc(db) {
+            DefOriginLoc::Module(owner) => Some(DefDisplayKind::Module(owner.module_kind(db)?)),
+            DefOriginLoc::Config(_) => Some(DefDisplayKind::Config),
+            DefOriginLoc::Library(_) => Some(DefDisplayKind::Library),
+            DefOriginLoc::Udp(_) => Some(DefDisplayKind::Primitive),
+            DefOriginLoc::Block(_) => Some(DefDisplayKind::Block),
+            DefOriginLoc::GenerateBlock(_) => Some(DefDisplayKind::GenerateBlock),
+            DefOriginLoc::Subroutine(owner) => match db.subroutine(*owner).kind {
+                SubroutineKind::Task => Some(DefDisplayKind::Task),
+                SubroutineKind::Function { .. } => Some(DefDisplayKind::Function),
+            },
+            DefOriginLoc::SubroutinePort(_) | DefOriginLoc::NonAnsiPort(_) => {
+                Some(DefDisplayKind::Port)
+            }
+            DefOriginLoc::Decl(decl) => {
+                let container = decl.cont_id.data(db);
+                let declarator = container.declarator(decl.value);
+                match declarator.parent {
+                    DeclaratorParent::PortDeclId(_) => Some(DefDisplayKind::Port),
+                    DeclaratorParent::StmtId(_) => Some(DefDisplayKind::Variable),
+                    DeclaratorParent::DeclarationId(parent) => {
+                        match container.declaration(parent) {
+                            Declaration::ParamDecl(param) => (param.kind.keyword() == "localparam")
+                                .then_some(DefDisplayKind::Localparam)
+                                .or(Some(DefDisplayKind::Parameter)),
+                            Declaration::GenvarDecl(_) => Some(DefDisplayKind::Genvar),
+                            Declaration::SpecparamDecl(_) => Some(DefDisplayKind::Specparam),
+                            Declaration::DataDecl(_) | Declaration::NetDecl(_) => {
+                                Some(DefDisplayKind::Declaration)
+                            }
+                        }
+                    }
+                }
+            }
+            DefOriginLoc::Typedef(_) => Some(DefDisplayKind::Typedef),
+            DefOriginLoc::Instance(_) => Some(DefDisplayKind::Instance),
+            DefOriginLoc::Modport(_) => Some(DefDisplayKind::Modport),
+            DefOriginLoc::ClockingBlock(_) => Some(DefDisplayKind::ClockingBlock),
+            DefOriginLoc::Checker(_) => Some(DefDisplayKind::Checker),
+            DefOriginLoc::Covergroup(_) => Some(DefDisplayKind::Covergroup),
+            DefOriginLoc::Coverpoint(_) => Some(DefDisplayKind::Coverpoint),
+            DefOriginLoc::Cross(_) => Some(DefDisplayKind::Cross),
+            DefOriginLoc::Stmt(_) => Some(DefDisplayKind::Statement),
+            DefOriginLoc::ClockingSignal(_) | DefOriginLoc::CheckerPort(_) => None,
+        }
     }
 }
 fn definition_owner(db: &dyn HirDefDb, loc: &DefOriginLoc) -> OwnerId {

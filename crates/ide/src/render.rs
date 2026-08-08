@@ -17,7 +17,7 @@ use hir_def::{
     owner::OwnerId,
     region_tree::RegionParent,
     subroutine::{SubroutineKind, SubroutinePortId},
-    symbol::{DefOrigin, DefOriginLoc},
+    symbol::{DefDisplayKind, DefKind, DefOrigin},
 };
 use hir_semantics::semantics::Semantics;
 use hir_ty::display::HirDisplay;
@@ -138,7 +138,7 @@ pub(crate) fn render_definition(
     anchor_file_id: vfs::FileId,
 ) -> Markup {
     def.declaration_origins(sema.db).into_iter().fold(Markup::new(), |mut res, origin| {
-        let origin = render_def_origin(sema, &origin, anchor_file_id);
+        let origin = render_def_origin(sema, def, &origin, anchor_file_id);
 
         if !res.is_empty() && !origin.is_empty() {
             res.newline();
@@ -255,12 +255,13 @@ fn has_normal_path_component(path: &utils::paths::AbsPath) -> bool {
 
 fn render_def_origin(
     sema: &Semantics<RootDb>,
+    def: DefId,
     origin: &DefOrigin,
     anchor_file_id: vfs::FileId,
 ) -> Markup {
     let mut res = Markup::new();
 
-    if let Some(title) = render_definition_title(sema.db, origin) {
+    if let Some(title) = render_definition_title(sema.db, def) {
         res.title(&title);
     }
     if let Some(signature) = render_signature(sema, origin) {
@@ -280,73 +281,70 @@ fn render_def_origin(
     res
 }
 
-fn render_definition_title(db: &RootDb, origin: &DefOrigin) -> Option<String> {
-    let name = origin.name(db)?;
-    let kind = match origin.loc(db).clone() {
-        DefOriginLoc::Module(module_id) => match module_id.module_kind(db)? {
+fn render_definition_title(db: &RootDb, def: DefId) -> Option<String> {
+    let name = def.name(db)?;
+    let kind = match def.display_kind(db)? {
+        DefDisplayKind::Module(module_kind) => match module_kind {
             ModuleKind::Module => "Module",
             ModuleKind::Interface => "Interface",
             ModuleKind::Program => "Program",
             ModuleKind::Package => "Package",
         },
-        DefOriginLoc::Config(_) => "Config",
-        DefOriginLoc::Library(_) => "Library",
-        DefOriginLoc::Udp(_) => "Primitive",
-        DefOriginLoc::Block(_) => "Block",
-        DefOriginLoc::GenerateBlock(_) => "Generate block",
-        DefOriginLoc::Subroutine(owner) => match db.subroutine(owner).kind {
-            SubroutineKind::Task => "Task",
-            SubroutineKind::Function { .. } => "Function",
-        },
-        DefOriginLoc::SubroutinePort(_) | DefOriginLoc::NonAnsiPort(_) => "Port",
-        DefOriginLoc::Decl(decl_id) => render_decl_title_kind(db, decl_id)?,
-        DefOriginLoc::Typedef(_) => "Typedef",
-        DefOriginLoc::Instance(_) => "Instance",
-        DefOriginLoc::Modport(_) => "Modport",
-        DefOriginLoc::ClockingBlock(_) => "Clocking block",
-        DefOriginLoc::Checker(_) => "Checker",
-        DefOriginLoc::Covergroup(_) => "Covergroup",
-        DefOriginLoc::Coverpoint(_) => "Coverpoint",
-        DefOriginLoc::Cross(_) => "Cross",
-        DefOriginLoc::Stmt(_) => "Statement",
-        _ => return None,
+        DefDisplayKind::Config => "Config",
+        DefDisplayKind::Library => "Library",
+        DefDisplayKind::Primitive => "Primitive",
+        DefDisplayKind::Block => "Block",
+        DefDisplayKind::GenerateBlock => "Generate block",
+        DefDisplayKind::Task => "Task",
+        DefDisplayKind::Function => "Function",
+        DefDisplayKind::Port => "Port",
+        DefDisplayKind::Declaration => "Declaration",
+        DefDisplayKind::Variable => "Variable",
+        DefDisplayKind::Parameter => "Parameter",
+        DefDisplayKind::Localparam => "Localparam",
+        DefDisplayKind::Genvar => "Genvar",
+        DefDisplayKind::Specparam => "Specparam",
+        DefDisplayKind::Typedef => "Typedef",
+        DefDisplayKind::Instance => "Instance",
+        DefDisplayKind::Modport => "Modport",
+        DefDisplayKind::ClockingBlock => "Clocking block",
+        DefDisplayKind::Checker => "Checker",
+        DefDisplayKind::Covergroup => "Covergroup",
+        DefDisplayKind::Coverpoint => "Coverpoint",
+        DefDisplayKind::Cross => "Cross",
+        DefDisplayKind::Statement => "Statement",
     };
 
     Some(format!("{kind} {}", inline_code(name.as_str())))
 }
 
-fn render_decl_title_kind(db: &RootDb, decl_id: OwnerRef<DeclId>) -> Option<&'static str> {
-    let container = decl_id.cont_id.data(db);
-    let decl = container.declarator(decl_id.value);
-
-    Some(match decl.parent {
-        DeclaratorParent::PortDeclId(_) => "Port",
-        DeclaratorParent::DeclarationId(parent) => match container.declaration(parent) {
-            Declaration::ParamDecl(param_decl) => match param_decl.kind.keyword() {
-                "parameter" => "Parameter",
-                "localparam" => "Localparam",
-                _ => "Parameter",
-            },
-            Declaration::GenvarDecl(_) => "Genvar",
-            Declaration::SpecparamDecl(_) => "Specparam",
-            Declaration::DataDecl(_) | Declaration::NetDecl(_) => "Declaration",
-        },
-        DeclaratorParent::StmtId(_) => "Variable",
-    })
-}
-
 fn render_signature(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<String> {
     let db = sema.db;
-    match origin.loc(db).clone() {
-        DefOriginLoc::Module(module_id) => render_module_signature(db, module_id),
-        DefOriginLoc::Subroutine(subroutine_id) => render_subroutine_signature(db, subroutine_id),
-        DefOriginLoc::SubroutinePort(port_id) => render_subroutine_port_signature(db, port_id),
-        DefOriginLoc::NonAnsiPort(port_id) => render_non_ansi_port_signature(db, port_id),
-        DefOriginLoc::Decl(decl_id) => render_decl_signature(db, decl_id),
-        DefOriginLoc::Typedef(typedef) => typedef.display_signature(db).ok(),
-        DefOriginLoc::Instance(instance_id) => render_instance_signature(db, instance_id),
-        DefOriginLoc::ClockingBlock(clocking_block_id) => {
-            render_clocking_block_signature(db, clocking_block_id)
+    match origin.kind(db) {
+        DefKind::Module | DefKind::Interface | DefKind::Program | DefKind::Package => {
+            origin.as_module(db).and_then(|module_id| render_module_signature(db, module_id))
+        }
+        DefKind::Subroutine => {
+            origin.as_subroutine(db).and_then(|id| render_subroutine_signature(db, id))
+        }
+        DefKind::SubroutinePort => {
+            origin.as_subroutine_port(db).and_then(|id| render_subroutine_port_signature(db, id))
+        }
+        DefKind::NonAnsiPort => {
+            origin.as_non_ansi_port(db).and_then(|id| render_non_ansi_port_signature(db, id))
+        }
+        DefKind::Port
+        | DefKind::Net
+        | DefKind::Variable
+        | DefKind::Param
+        | DefKind::Genvar
+        | DefKind::Specparam => origin.as_decl(db).and_then(|id| render_decl_signature(db, id)),
+        DefKind::Typedef => origin.as_typedef(db).and_then(|id| id.display_signature(db).ok()),
+        DefKind::Instance => {
+            origin.as_instance(db).and_then(|id| render_instance_signature(db, id))
+        }
+        DefKind::ClockingBlock => {
+            origin.as_clocking_block(db).and_then(|id| render_clocking_block_signature(db, id))
         }
         _ => render_label_signature(db, origin),
     }
@@ -663,26 +661,21 @@ fn render_data_ty(db: &RootDb, container: hir_def::owner::OwnerId, ty: DataTy) -
 
 fn render_label_signature(db: &RootDb, origin: &DefOrigin) -> Option<String> {
     let name = origin.name(db)?;
-    let kind = match origin.loc(db).clone() {
-        DefOriginLoc::Config(_) => "config",
-        DefOriginLoc::Library(_) => "library",
-        DefOriginLoc::Udp(_) => "primitive",
-        DefOriginLoc::Block(_) => "block",
-        DefOriginLoc::GenerateBlock(_) => "generate",
-        DefOriginLoc::Instance(_) => "instance",
-        DefOriginLoc::Modport(_) => "modport",
-        DefOriginLoc::ClockingBlock(_) => "clocking",
-        DefOriginLoc::Checker(_) => "checker",
-        DefOriginLoc::Covergroup(_) => "covergroup",
-        DefOriginLoc::Coverpoint(_) => "coverpoint",
-        DefOriginLoc::Cross(_) => "cross",
-        DefOriginLoc::Stmt(_) => "statement",
-        DefOriginLoc::Typedef(_) => "typedef",
-        DefOriginLoc::Module(_)
-        | DefOriginLoc::Subroutine(_)
-        | DefOriginLoc::SubroutinePort(_)
-        | DefOriginLoc::NonAnsiPort(_)
-        | DefOriginLoc::Decl(_) => return None,
+    let kind = match origin.kind(db) {
+        DefKind::Config => "config",
+        DefKind::Library => "library",
+        DefKind::Udp => "primitive",
+        DefKind::Block => "block",
+        DefKind::GenerateBlock => "generate",
+        DefKind::Instance => "instance",
+        DefKind::Modport => "modport",
+        DefKind::ClockingBlock => "clocking",
+        DefKind::Checker => "checker",
+        DefKind::Covergroup => "covergroup",
+        DefKind::Coverpoint => "coverpoint",
+        DefKind::Cross => "cross",
+        DefKind::Stmt => "statement",
+        DefKind::Typedef => "typedef",
         _ => return None,
     };
     Some(format!("{kind} {name}"))

@@ -462,7 +462,7 @@ mod tests {
     use std::path::Path;
 
     use base_db::{change::Change, source_root::SourceRoot};
-    use hir_def::symbol::{DefKind, DefOriginLoc, Resolution};
+    use hir_def::symbol::{DefKind, Resolution};
     use smol_str::SmolStr;
     use syntax::{SyntaxNodeExt, ast};
     use utils::text_edit::TextSize;
@@ -659,11 +659,7 @@ mod tests {
         if def_id.kind(db) != kind {
             return None;
         }
-        match def_id.primary_origin(db).loc(db).clone() {
-            DefOriginLoc::Decl(decl_id) => Some(decl_id.cont_id),
-            DefOriginLoc::NonAnsiPort(nonansi_port_id) => Some(nonansi_port_id.cont_id),
-            _ => None,
-        }
+        Some(def_id.container_id(db))
     }
 
     fn format_module_resolution(

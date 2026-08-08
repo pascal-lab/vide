@@ -393,6 +393,7 @@ module top;
   generate
     if (1) begin : g
       wire gen_sig;
+      child gen_u();
     end
   endgenerate
 endmodule
@@ -412,6 +413,7 @@ endmodule
             DefKind::Variable
         );
         assert_eq!(resolved_kind(&db, top, &["g", "gen_sig"], NameContext::Value), DefKind::Net);
+        assert_eq!(resolved_kind(&db, top, &["g", "gen_u"], NameContext::Value), DefKind::Instance);
     }
 
     #[test]

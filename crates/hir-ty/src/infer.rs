@@ -48,7 +48,7 @@ fn normalize_data_ty_with_owner(
 
 #[salsa::tracked(returns(clone))]
 pub(crate) fn type_of_def_origin_query(db: &dyn TyDb, origin: hir_def::symbol::DefOrigin) -> Type {
-    let def_id = DefId::new(db, origin.loc(db).clone());
+    let def_id = DefId::from_origin(db, origin);
     type_of_def_id(db, def_id).into()
 }
 
