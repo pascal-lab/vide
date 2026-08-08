@@ -26,11 +26,15 @@ use utils::{
 };
 
 use crate::{
-    ast_id_map::SyntaxFileId,
+    Ident,
+    ast_id_map::{SourceAstId, SyntaxFileId},
     body::BodyItem,
+    container::InFile,
     db::HirDefDb,
+    expr::Expr,
     has_source::HasSource,
-    owner::OwnerId,
+    owner::{OwnerId, OwnerKind},
+    pathres::{NameRef, RefKind, before_reference, resolve_name_at, resolve_wildcard_at},
     proc::Proc,
     source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
     source_projection::SourceProjection,
@@ -55,12 +59,37 @@ pub(crate) fn file_lowering_diagnostics(
     collect(lowered_file.raw_diagnostics(), None, &tree, &projection, &mut diagnostics);
     collect_import_conflicts(db, file_owner, &projection, &mut diagnostics);
 
+    // Wildcard-activation conflicts need every name reference of the file;
+    // collect them once and reuse for each scope-bearing owner.
+    let mut references = Vec::new();
+    collect_ident_references(db, file_owner, &mut references);
+    let file_body = lowered_file.data_ref();
+    for owner in file_body.module_owners() {
+        let module = db.body_with_source_map(owner);
+        for (_, proc) in module.data_ref().procs.iter() {
+            let proc_body = db.body_with_source_map(proc.owner);
+            for (expr_id, expr) in proc_body.data_ref().exprs.iter() {
+            }
+        }
+    }
     for owner in file.subroutine_owners() {
         collect_subroutine(db, owner, &tree, &projection, &mut diagnostics);
     }
-
+    collect_wildcard_activation_conflicts(db, file_owner, &references, &projection, &mut diagnostics);
     for owner in file.module_owners() {
         collect_module(db, owner, &tree, &projection, &mut diagnostics);
+        collect_wildcard_activation_conflicts(db, owner, &references, &projection, &mut diagnostics);
+        let mut generate_owners = Vec::new();
+        collect_generate_owner_ids(db, owner, &mut generate_owners);
+        for generate_owner in generate_owners {
+            collect_wildcard_activation_conflicts(
+                db,
+                generate_owner,
+                &references,
+                &projection,
+                &mut diagnostics,
+            );
+        }
     }
 
     collect_proc_bodies(db, &file.procs, &tree, &projection, &mut diagnostics);
@@ -171,6 +200,121 @@ fn collect_import_conflicts(
             range: origin.and_then(|origin| origin.full_range()),
             message: message.into(),
         });
+    }
+}
+
+/// All name-reference points of one body, recursively: every `Expr::Ident`
+/// with its containing owner and source position.
+fn collect_ident_references(
+    db: &dyn HirDefDb,
+    owner: OwnerId,
+    references: &mut Vec<(OwnerId, Ident, InFile<SourceAstId>)>,
+) {
+    let lowered = db.body_with_source_map(owner);
+    let src_map = lowered.source_map();
+    for (expr_id, expr) in lowered.data_ref().exprs.iter() {
+        let Expr::Ident(name) = expr else { continue };
+        let Some(source) = src_map.expr_srcs.hir_to_src(expr_id) else { continue };
+        references.push((owner, name.clone(), InFile::new(owner.file(db), source)));
+    }
+    for (_, proc) in lowered.data_ref().procs.iter() {
+        collect_ident_references(db, proc.owner, references);
+    }
+    for subroutine_owner in lowered.data_ref().subroutine_owners() {
+        collect_ident_references(db, subroutine_owner, references);
+    }
+    for region_id in src_map.generate_region_srcs.iter().map(|(id, _)| id) {
+        for item in &lowered.data_ref().get(region_id).items {
+            if let BodyItem::GenerateBlockOwner(block_id) = item {
+                collect_ident_references(db, *block_id, references);
+            }
+        }
+    }
+    for item in &lowered.data_ref().items {
+        match item {
+            BodyItem::ModuleOwner(module_id) | BodyItem::GenerateBlockOwner(module_id) => {
+                collect_ident_references(db, *module_id, references);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Every generate-block owner nested below `owner`, recursively.
+fn collect_generate_owner_ids(db: &dyn HirDefDb, owner: OwnerId, out: &mut Vec<OwnerId>) {
+    let lowered = db.body_with_source_map(owner);
+    let src_map = lowered.source_map();
+    for region_id in src_map.generate_region_srcs.iter().map(|(id, _)| id) {
+        for item in &lowered.data_ref().get(region_id).items {
+            if let BodyItem::GenerateBlockOwner(block_id) = item {
+                out.push(*block_id);
+                collect_generate_owner_ids(db, *block_id, out);
+            }
+        }
+    }
+    for item in &lowered.data_ref().items {
+        if let BodyItem::GenerateBlockOwner(block_id) = item {
+            out.push(*block_id);
+            collect_generate_owner_ids(db, *block_id, out);
+        }
+    }
+}
+
+/// IEEE 1800-2017 26.3: once a reference makes a wildcard-imported symbol
+/// locally visible in a scope, any later declaration of the same name in that
+/// scope is illegal.
+fn collect_wildcard_activation_conflicts(
+    db: &dyn HirDefDb,
+    owner: OwnerId,
+    references: &[(OwnerId, Ident, InFile<SourceAstId>)],
+    projection: &SourceProjection,
+    diagnostics: &mut Vec<LoweringDiagnostic>,
+) {
+    let scope = db.scope(owner);
+    if !scope.imports().iter().any(|import| import.name.is_none()) {
+        return;
+    }
+    for (name, defs) in scope.iter_listing() {
+        for def_id in defs {
+            let Some(declaration_source) =
+                def_id.primary_origin(db).loc(db).clone().source_ast(db)
+            else {
+                continue;
+            };
+            let activated = references.iter().any(|(ref_owner, ref_name, ref_position)| {
+                if ref_name != name {
+                    return false;
+                }
+                let reference = NameRef { position: *ref_position, kind: RefKind::Value };
+                let resolved = [NameContext::Type, NameContext::Value].into_iter().any(|ctx| {
+                    let resolved = resolve_name_at(db, *ref_owner, name, ctx, Some(&reference));
+                    if resolved.is_unresolved() {
+                        return false;
+                    }
+                    let (wildcard, activated_scope) =
+                        resolve_wildcard_at(db, *ref_owner, name, ctx, Some(&reference));
+                    activated_scope == Some(owner) && resolved == wildcard
+                });
+                resolved && before_reference(db, *ref_position, &NameRef {
+                    position: declaration_source,
+                    kind: RefKind::Value,
+                })
+            });
+            if !activated {
+                continue;
+            }
+            let origin = projection.origin(declaration_source.value);
+            diagnostics.push(LoweringDiagnostic {
+                kind: LoweringDiagnosticKind::InvalidSyntax,
+                syntax_kind: origin.and_then(|origin| origin.kind()).unwrap_or(SyntaxKind::DATA_DECLARATION),
+                source: Some(declaration_source.value),
+                range: origin.and_then(|origin| origin.full_range()),
+                message: format!(
+                    "declaration of '{name}' conflicts with the name imported via wildcard import"
+                )
+                .into(),
+            });
+        }
     }
 }
 
@@ -442,6 +586,44 @@ endmodule
         assert!(
             diagnostics.iter().any(|diag| diag.message.contains("default_nettype none")),
             "implicit net under `default_nettype none` must be diagnosed: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn wildcard_activated_then_declared_is_illegal() {
+        // IEEE 1800-2017 26.3 Example 1: the reference activates p::x in the
+        // module scope (the later declaration is point-filtered), so the
+        // module's later declaration of x is illegal.
+        let text = "package p;\nint x;\nendpackage\nmodule m;\nimport p::*;\ninitial begin : blk\n  x = 1;\nend\nint x;\nendmodule\n";
+        let db = db_with_files(text, None);
+        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        assert!(
+            diagnostics.iter().any(|diag| diag.message.contains("conflicts with the name imported")),
+            "later declaration after wildcard activation must be diagnosed: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn wildcard_not_activated_by_later_declaration_is_legal() {
+        // The reference after the declaration binds to the declaration, so
+        // the wildcard import is never activated and everything is legal.
+        let text = "package p;\nint x;\nendpackage\nmodule m;\nimport p::*;\ninitial begin : blk\n  int x;\n  x = 1;\nend\nendmodule\n";
+        let db = db_with_files(text, None);
+        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        assert!(
+            !diagnostics.iter().any(|diag| diag.message.contains("conflicts with the name imported")),
+            "declaration before the reference never conflicts: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn wildcard_without_reference_is_legal() {
+        let text = "package p;\nint x;\nendpackage\nmodule m;\nimport p::*;\nint x;\nendmodule\n";
+        let db = db_with_files(text, None);
+        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        assert!(
+            !diagnostics.iter().any(|diag| diag.message.contains("conflicts with the name imported")),
+            "a wildcard import alone must not conflict: {diagnostics:?}"
         );
     }
 
