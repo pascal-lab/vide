@@ -121,7 +121,7 @@ impl dyn HirDefDb + '_ {
         self.package_exports(package_owner)
     }
 
-    pub(crate) fn package_exports(&self, package_owner: OwnerId) -> Arc<PackageExports> {
+    pub fn package_exports(&self, package_owner: OwnerId) -> Arc<PackageExports> {
         self.design_map()
             .package_exports(package_owner)
             .expect("package owner must be present in the design map")
