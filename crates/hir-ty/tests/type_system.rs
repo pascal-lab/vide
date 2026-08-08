@@ -115,7 +115,7 @@ fn ident(name: &str) -> Ident {
 }
 
 fn module_id(db: &TestDb, name: &str) -> OwnerId {
-    db.unit_scope().module_ids(db, &ident(name)).unique().expect("module should resolve uniquely")
+    db.unit_index().module_ids(&ident(name)).unique().expect("module should resolve uniquely")
 }
 
 fn type_of_name(db: &TestDb, module: OwnerId, name: &str, context: NameContext) -> Type {

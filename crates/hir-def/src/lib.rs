@@ -41,6 +41,7 @@ pub mod subroutine;
 pub mod symbol;
 pub mod ty;
 pub mod typedef;
+pub mod unit_index;
 
 pub(crate) macro impl_arena_getters(
     $container:ty;

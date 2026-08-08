@@ -18,6 +18,7 @@ use crate::{
     source_projection::{self, SourceProjection},
     subroutine::Subroutine,
     symbol::NameScope,
+    unit_index,
 };
 
 #[salsa::db]
@@ -101,6 +102,10 @@ impl dyn HirDefDb + '_ {
         NameScope::unit_scope(self)
     }
 
+    pub fn unit_index(&self) -> Arc<crate::unit_index::UnitIndex> {
+        unit_index::unit_index(self)
+    }
+
     pub fn subroutine(&self, owner: OwnerId) -> Arc<Subroutine> {
         debug_assert_eq!(owner.kind(self), crate::owner::OwnerKind::Subroutine);
         Arc::new(
@@ -134,6 +139,7 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     design_map::set_lru_capacity(db, capacity);
     item_tree::set_item_tree_lru_capacity(db, capacity);
     owner::set_owner_table_lru_capacity(db, capacity);
+    unit_index::set_lru_capacity(db, capacity);
     nameres::set_scope_lru_capacity(db, capacity);
     source_projection::set_source_projection_lru_capacity(db, capacity);
     crate::region_tree::set_region_tree_lru_capacity(db, capacity);

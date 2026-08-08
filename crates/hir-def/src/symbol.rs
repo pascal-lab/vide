@@ -545,42 +545,6 @@ impl NameScope {
             )
     }
 
-    pub fn module_ids(&self, db: &dyn HirDefDb, ident: &Ident) -> Resolution<OwnerId> {
-        let entries = self
-            .types
-            .get(ident)
-            .into_iter()
-            .flat_map(|defs| defs.iter())
-            .filter(|def_id| def_id.kind(db).is_instantiable_def())
-            .filter_map(|def_id| def_id.primary_origin(db).as_module(db));
-        Resolution::from_candidates(entries)
-    }
-
-    pub fn package_ids(&self, db: &dyn HirDefDb, ident: &Ident) -> Resolution<OwnerId> {
-        let entries = self
-            .types
-            .get(ident)
-            .into_iter()
-            .flat_map(|defs| defs.iter())
-            .filter(|def_id| def_id.kind(db) == DefKind::Package)
-            .filter_map(|def_id| def_id.primary_origin(db).as_module(db));
-        Resolution::from_candidates(entries)
-    }
-
-    pub fn module_names<'a>(
-        &'a self,
-        db: &'a dyn HirDefDb,
-    ) -> impl Iterator<Item = &'a Ident> + 'a {
-        self.types.iter().filter_map(move |(ident, defs)| {
-            defs.iter()
-                .any(|def_id| {
-                    def_id.kind(db).is_instantiable_def()
-                        && def_id.primary_origin(db).as_module(db).is_some()
-                })
-                .then_some(ident)
-        })
-    }
-
     pub fn typedef_names<'a>(
         &'a self,
         db: &'a dyn HirDefDb,

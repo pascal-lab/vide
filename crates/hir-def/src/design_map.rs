@@ -213,7 +213,7 @@ impl DesignMap {
             return Resolution::Unresolved;
         }
 
-        let packages = db.unit_scope().package_ids(db, &import.package);
+        let packages = db.unit_index().package_ids(&import.package);
         packages.and_then(|package| {
             let Some(exports) = self.package_exports.get(&package) else {
                 return Resolution::Unresolved;
@@ -238,7 +238,7 @@ pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
         .collect::<Vec<_>>();
     packages.sort();
     packages.dedup();
-    let unit_scope = db.unit_scope();
+    let unit_index = db.unit_index();
 
     let mut exports = FxHashMap::default();
     let mut imports = FxHashMap::default();
@@ -271,7 +271,7 @@ pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
                         for ctx in [NameContext::Type, NameContext::Value] {
                             let resolution = resolve_package_member(
                                 &exports,
-                                unit_scope.package_ids(db, &import.package),
+                                unit_index.package_ids(&import.package),
                                 imported_name,
                                 ctx,
                             );
@@ -280,12 +280,12 @@ pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
                     }
                     None => {
                         let names =
-                            imported_names(&exports, unit_scope.package_ids(db, &import.package));
+                            imported_names(&exports, unit_index.package_ids(&import.package));
                         for name in names {
                             for ctx in [NameContext::Type, NameContext::Value] {
                                 let resolution = resolve_package_member(
                                     &exports,
-                                    unit_scope.package_ids(db, &import.package),
+                                    unit_index.package_ids(&import.package),
                                     &name,
                                     ctx,
                                 );

@@ -609,8 +609,9 @@ endmodule
         assert!(shared_value_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Net));
         assert!(!shared_value_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Typedef));
 
-        let module_id = unit_scope
-            .module_ids(&db, &ident("m"))
+        let module_id = db
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         assert_eq!(module_id.file(&db), HirFileId::File(TOP));
@@ -715,8 +716,8 @@ endmodule
         assert!(candidates.iter().all(|def| def.origins(&db).len() == 1));
 
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let port = db
@@ -742,8 +743,8 @@ endmodule
 "#,
         );
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let module = db.body_with_source_map(module_id);
@@ -768,8 +769,8 @@ endmodule
 "#,
         );
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let module = db.body_with_source_map(module_id);
@@ -818,8 +819,8 @@ endmodule
 "#,
         );
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let before = db
@@ -853,8 +854,8 @@ endmodule
         );
 
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should still resolve uniquely");
         let after = db
@@ -877,8 +878,8 @@ endmodule
 "#,
         );
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let Resolution::Ambiguous(candidates) =
@@ -904,8 +905,8 @@ endmodule
 "#,
         );
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let Resolution::Ambiguous(candidates) =
@@ -929,8 +930,8 @@ endmodule
 "#,
         );
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let Resolution::Ambiguous(candidates) =
@@ -955,8 +956,8 @@ endmodule
         );
 
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let owner = module_id;
@@ -990,8 +991,8 @@ endmodule
 "#,
         );
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let diagnostics = db.body_with_source_map(module_id).diagnostics(&db);
@@ -1016,8 +1017,8 @@ endmodule
         );
 
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let owner = module_id;
@@ -1051,8 +1052,8 @@ endmodule
         );
 
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let module = db.body_with_source_map(module_id);
@@ -1095,8 +1096,8 @@ endmodule
         );
 
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let owner = module_id;
@@ -1128,8 +1129,8 @@ endmodule
         );
 
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let owner = module_id;
@@ -1169,8 +1170,8 @@ endmodule
         );
 
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let module = db.body_with_source_map(module_id);
@@ -1252,8 +1253,8 @@ endmodule
         );
 
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let module = db.body(module_id);
@@ -1286,8 +1287,8 @@ endmodule
         );
 
         let module_id = db
-            .unit_scope()
-            .module_ids(&db, &ident("m"))
+            .unit_index()
+            .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
         let module = db.body(module_id);
@@ -1379,9 +1380,9 @@ endmodule
 "#,
         );
 
-        let unit_scope = db.unit_scope();
-        let package_id = unit_scope
-            .package_ids(&db, &ident("pkg"))
+        let package_id = db
+            .unit_index()
+            .package_ids(&ident("pkg"))
             .unique()
             .expect("package should resolve uniquely");
         let package_exports = db.package_exports(package_id);
@@ -1405,8 +1406,8 @@ endmodule
         );
 
         let wildcard_importer = db
-            .unit_scope()
-            .module_ids(&db, &ident("wildcard_importer"))
+            .unit_index()
+            .module_ids(&ident("wildcard_importer"))
             .unique()
             .expect("wildcard importer should resolve uniquely");
         let wildcard_scope = db.scope_for(wildcard_importer);
@@ -1432,8 +1433,8 @@ endmodule
         assert!(!shadowed_v.iter().any(|def_id| def_id.kind(&db) == DefKind::Variable));
 
         let named_importer = db
-            .unit_scope()
-            .module_ids(&db, &ident("named_importer"))
+            .unit_index()
+            .module_ids(&ident("named_importer"))
             .unique()
             .expect("named importer should resolve uniquely");
         let named_scope = db.scope_for(named_importer);
@@ -1473,8 +1474,8 @@ endmodule
         );
 
         let package_id = db
-            .unit_scope()
-            .package_ids(&db, &ident("pkg"))
+            .unit_index()
+            .package_ids(&ident("pkg"))
             .unique()
             .expect("package should resolve uniquely");
         let package_f = resolve_name(&db, package_id, &ident("f"), NameContext::Value)
@@ -1488,8 +1489,8 @@ endmodule
         assert_eq!(package_subroutine.parent(&db), Some(package_id));
 
         let named_importer = db
-            .unit_scope()
-            .module_ids(&db, &ident("named_importer"))
+            .unit_index()
+            .module_ids(&ident("named_importer"))
             .unique()
             .expect("named importer should resolve uniquely");
         let named_import_f = resolve_name(&db, named_importer, &ident("f"), NameContext::Value)
@@ -1497,8 +1498,8 @@ endmodule
             .expect("named import should resolve package subroutine");
 
         let wildcard_importer = db
-            .unit_scope()
-            .module_ids(&db, &ident("wildcard_importer"))
+            .unit_index()
+            .module_ids(&ident("wildcard_importer"))
             .unique()
             .expect("wildcard importer should resolve uniquely");
         let wildcard_import_f =
@@ -1534,8 +1535,8 @@ endpackage
         );
 
         let package_id = db
-            .unit_scope()
-            .package_ids(&db, &ident("pkg"))
+            .unit_index()
+            .package_ids(&ident("pkg"))
             .unique()
             .expect("package should resolve uniquely");
 
