@@ -1,6 +1,54 @@
 use super::*;
 
 #[test]
+fn system_call_inlay_hints_annotate_arguments() {
+    let text = "module m;\ninitial begin\n  $display(\"x=%d\", x);\n  $readmemh(\"mem.hex\", mem);\nend\nendmodule\n";
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        &[("top.sv", text)],
+    );
+    let top_uri = uris[0].clone();
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let request_id = lsp_server::RequestId::from(2);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            InlayHintRequest::METHOD.to_string(),
+            InlayHintParams {
+                text_document: TextDocumentIdentifier { uri: top_uri },
+                range: Range::new(Position::new(0, 0), Position::new(5, 0)),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )))
+        .unwrap();
+    let hints: Option<Vec<lsp_types::InlayHint>> = recv_response(&client, request_id, "inlay_hint");
+    let hints = hints.expect("inlay hints for system calls");
+    let labels: Vec<String> = hints
+        .iter()
+        .map(|hint| match &hint.label {
+            lsp_types::InlayHintLabel::String(label) => label.clone(),
+            lsp_types::InlayHintLabel::LabelParts(parts) => {
+                parts.iter().map(|part| part.value.clone()).collect()
+            }
+        })
+        .collect();
+    // `endmodule : m` is the end-structure hint; the system call hints are
+    // the parameter labels.
+    let sys_labels: Vec<String> =
+        labels.iter().filter(|label| !label.starts_with(':')).cloned().collect();
+    assert_eq!(
+        sys_labels,
+        vec!["format:".to_string(), "file:".to_string(), "mem:".to_string()],
+        "fixed parameters must be annotated, variadic tail skipped: {labels:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn signature_help_reaches_forward_declared_functions() {
     // A call reference searches every scope to its end (26.3), so a function
     // declared after the call still provides signature help.

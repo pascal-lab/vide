@@ -41,6 +41,7 @@ pub struct InlayHintConfig {
     pub parameter_assignment: bool,
     pub macro_argument: bool,
     pub end_structure: bool,
+    pub system_call: bool,
 }
 
 impl InlayHintConfig {
@@ -55,6 +56,7 @@ pub enum InlayKind {
     Port,
     MacroArgument,
     EndStructure,
+    SystemCall,
 }
 
 #[derive(Debug)]
@@ -322,6 +324,55 @@ fn collect_module_items(
     {
         collector.collect_module_end_hint(end_range, name);
     }
+
+    if collector.config.system_call {
+        collect_system_call_hints(db, module_id, module_src, collector);
+    }
+}
+
+/// Inlay hints for system subroutine calls (`$display(...)`, `$readmemh(...)`,
+/// ...): each positional argument before the variadic tail is annotated with
+/// its parameter label from the bundled `system_signatures.toml` table.
+fn collect_system_call_hints(
+    db: &RootDb,
+    module_id: OwnerId,
+    module_src: SourceAstId,
+    collector: &mut InlayHintCollector,
+) -> Option<()> {
+    let file_id = module_id.file(db);
+    let tree = db.parse(file_id);
+    let module = ast::ModuleDeclaration::cast(db.ast_id_map(file_id).node(module_src, &tree)?)?;
+    for event in module.syntax().node_preorder() {
+        let syntax::WalkEvent::Enter(node) = event else { continue };
+        let Some(invocation) = ast::InvocationExpression::cast(node) else { continue };
+        let Some(name) = crate::signature_help::system_identifier_of(invocation.left()) else {
+            continue;
+        };
+        let Some(params) = crate::signature_help::system_signature(&name) else { continue };
+        let Some(args) = invocation.arguments() else { continue };
+        for (idx, argument) in args.parameters().children().enumerate() {
+            let Some(param) = params.get(idx) else { break };
+            if param == "..." {
+                continue;
+            }
+            let Some(range) = argument.syntax().text_range() else { continue };
+            if !collector.intersect(range) {
+                continue;
+            }
+            collector.collect_range_hint(
+                HintAnchor {
+                    range,
+                    position: range.start(),
+                    kind: InlayKind::SystemCall,
+                    padding_left: false,
+                    padding_right: true,
+                },
+                None,
+                format!("{param}:"),
+            );
+        }
+    }
+    Some(())
 }
 
 fn module_end_range(db: &RootDb, file_id: HirFileId, source: SourceAstId) -> Option<TextRange> {
@@ -516,6 +567,7 @@ mod tests {
             parameter_assignment: false,
             macro_argument: false,
             end_structure: false,
+            system_call: false,
         }
     }
 
@@ -525,6 +577,7 @@ mod tests {
             parameter_assignment: true,
             macro_argument: false,
             end_structure: false,
+            system_call: false,
         }
     }
 
@@ -534,6 +587,17 @@ mod tests {
             parameter_assignment: false,
             macro_argument: true,
             end_structure: false,
+            system_call: false,
+        }
+    }
+
+    fn system_call_config() -> InlayHintConfig {
+        InlayHintConfig {
+            port_connection: false,
+            parameter_assignment: false,
+            macro_argument: false,
+            end_structure: false,
+            system_call: true,
         }
     }
 
@@ -543,6 +607,7 @@ mod tests {
             parameter_assignment: false,
             macro_argument: false,
             end_structure: true,
+            system_call: false,
         }
     }
 
@@ -591,6 +656,7 @@ mod tests {
             "parameter" => parameter_config(),
             "macro_argument" => macro_argument_config(),
             "end_structure" => end_structure_config(),
+            "system_call" => system_call_config(),
             other => panic!("unknown config `{other}` in {}", path.display()),
         }
     }

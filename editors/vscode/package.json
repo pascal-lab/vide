@@ -273,6 +273,11 @@
           "default": true,
           "description": "%configuration.inlayHints.end.structure.enable.description%"
         },
+        "vide.inlayHints.systemCall.call.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.inlayHints.systemCall.call.enable.description%"
+        },
         "vide.lens.instantiations.enable": {
           "type": "boolean",
           "default": true,
