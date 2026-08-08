@@ -5,7 +5,7 @@ use hir_def::{
     def_id::DefId,
     expr::{Expr, ExprId},
     owner::OwnerId,
-    pathres::{resolve_child_name, resolve_name, resolve_path},
+    pathres::{resolve_child_name, resolve_name, resolve_name_at, resolve_path},
     symbol::{NameContext, Resolution},
 };
 
@@ -45,6 +45,15 @@ pub(super) fn name_to_def(
     name_ctx: NameContext,
 ) -> Resolution<DefId> {
     resolve_name(db, cont_id, &ident, name_ctx)
+}
+
+pub(super) fn name_to_def_at(
+    db: &dyn HirDefDb,
+    OwnerRef { cont_id, value: ident }: OwnerRef<Ident>,
+    name_ctx: NameContext,
+    reference: Option<&hir_def::pathres::NameRef>,
+) -> Resolution<DefId> {
+    resolve_name_at(db, cont_id, &ident, name_ctx, reference)
 }
 
 fn resolve_expr_path(

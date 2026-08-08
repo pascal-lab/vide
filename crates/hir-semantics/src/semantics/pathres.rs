@@ -1,14 +1,18 @@
 use hir_def::{
     Ident,
     container::{InFile, OwnerRef},
+    db::HirDefDb,
     def_id::DefId,
     lower_ident_opt,
     owner::OwnerId,
-    pathres::{ResolvedScopes, resolve_in_resolved_scopes},
+    pathres::{NameRef, RefKind, ResolvedScopes, resolve_in_resolved_scopes},
     symbol::{NameContext, Resolution},
 };
 use preproc_expand::file::HirFileId;
-use syntax::{SyntaxNode, SyntaxTokenWithParent};
+use syntax::{
+    SyntaxAncestors, SyntaxNode, SyntaxTokenWithParent,
+    ast::{self, AstNode},
+};
 
 use super::{SemanticsImpl, hir_to_def, source_to_def};
 
@@ -23,7 +27,13 @@ impl SemanticsImpl<'_> {
             return Resolution::Unresolved;
         };
         let container = source_to_def::find_container(self.db, InFile::new(file_id, parent));
-        hir_to_def::name_to_def(self.db, OwnerRef::new(container, ident), name_ctx)
+        let reference = token_reference(self.db, file_id, parent);
+        hir_to_def::name_to_def_at(
+            self.db,
+            OwnerRef::new(container, ident),
+            name_ctx,
+            reference.as_ref(),
+        )
     }
 
     /// Like [`nameres_ident`](Self::nameres_ident), but resolves inside a
@@ -33,15 +43,21 @@ impl SemanticsImpl<'_> {
     /// here; the result is identical to `nameres_ident`.
     pub fn nameres_ident_in(
         &self,
-        _file_id: HirFileId,
-        SyntaxTokenWithParent { tok, .. }: SyntaxTokenWithParent,
+        file_id: HirFileId,
+        SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
         name_ctx: NameContext,
         container: OwnerId,
     ) -> Resolution<DefId> {
         let Some(ident) = lower_ident_opt(Some(tok)) else {
             return Resolution::Unresolved;
         };
-        hir_to_def::name_to_def(self.db, OwnerRef::new(container, ident), name_ctx)
+        let reference = token_reference(self.db, file_id, parent);
+        hir_to_def::name_to_def_at(
+            self.db,
+            OwnerRef::new(container, ident),
+            name_ctx,
+            reference.as_ref(),
+        )
     }
 
     /// Like [`nameres_ident_in`](Self::nameres_ident_in), but looks up the
@@ -85,4 +101,22 @@ impl SemanticsImpl<'_> {
     ) -> Resolution<DefId> {
         hir_def::pathres::resolve_name_at(self.db, owner, ident, ctx, reference)
     }
+}
+
+/// Reference position and call-ness of a name token, for point-of-reference
+/// resolution (IEEE 1800-2017 26.3). Structured: a token whose parent is an
+/// expression is a reference (declaration names sit inside declarators), and
+/// a reference is a call when it is exactly the callee expression of the
+/// nearest invocation.
+fn token_reference(db: &dyn HirDefDb, file_id: HirFileId, parent: SyntaxNode<'_>) -> Option<NameRef> {
+    let expression = ast::Expression::cast(parent)?;
+    let node = expression.syntax();
+    let position = InFile::new(file_id, db.ast_id_map(file_id).id_of_node(node)?);
+    let kind = SyntaxAncestors::start_from(parent)
+        .find_map(ast::InvocationExpression::cast)
+        .map(|invocation| {
+            if invocation.left().syntax() == node { RefKind::Call } else { RefKind::Value }
+        })
+        .unwrap_or(RefKind::Value);
+    Some(NameRef { position, kind })
 }
