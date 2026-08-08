@@ -16,6 +16,8 @@
 //! 4. the file start, as a last resort.
 
 use la_arena::Arena;
+use smallvec::SmallVec;
+use smol_str::SmolStr;
 use syntax::SyntaxTree;
 use triomphe::Arc;
 use utils::{
@@ -23,9 +25,12 @@ use utils::{
     text_edit::{TextRange, TextSize},
 };
 
+use syntax::SyntaxKind;
+
 use crate::{
     ast_id_map::SyntaxFileId, body::BodyItem, db::HirDefDb, has_source::HasSource, owner::OwnerId,
-    proc::Proc, source_map::LoweringDiagnostic, source_projection::SourceProjection,
+    proc::Proc, source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
+    source_projection::SourceProjection, symbol::NameContext,
 };
 
 #[salsa::tracked(returns(clone))]
@@ -44,6 +49,7 @@ pub(crate) fn file_lowering_diagnostics(
     // File-level owners have no enclosing container; the whole file is the
     // search scope for range-less diagnostics.
     collect(lowered_file.raw_diagnostics(), None, &tree, &projection, &mut diagnostics);
+    collect_import_conflicts(db, file_owner, &projection, &mut diagnostics);
 
     for owner in file.subroutine_owners() {
         collect_subroutine(db, owner, &tree, &projection, &mut diagnostics);
@@ -67,6 +73,7 @@ fn collect_module(
     let lowered = db.body_with_source_map(owner);
     let owner_range = owner.source(db).map(|source| source.value.full_range());
     collect(lowered.raw_diagnostics(), owner_range, tree, projection, diagnostics);
+    collect_import_conflicts(db, owner, projection, diagnostics);
 
     let module = lowered.data_ref();
     let src_map = lowered.source_map();
@@ -95,6 +102,7 @@ fn collect_generate_block(
     let lowered = db.body_with_source_map(owner);
     let owner_range = owner.source(db).map(|source| source.value.full_range());
     collect(lowered.raw_diagnostics(), owner_range, tree, projection, diagnostics);
+    collect_import_conflicts(db, owner, projection, diagnostics);
 
     let block = lowered.data_ref();
     for owner in block.subroutine_owners() {
@@ -106,6 +114,58 @@ fn collect_generate_block(
         }
     }
     collect_proc_bodies(db, &block.procs, tree, projection, diagnostics);
+}
+
+fn collect_import_conflicts(
+    db: &dyn HirDefDb,
+    owner: OwnerId,
+    projection: &SourceProjection,
+    diagnostics: &mut Vec<LoweringDiagnostic>,
+) {
+    // IEEE 1800-2017 26.3: an explicit import is illegal if the imported
+    // identifier is declared in the same scope or explicitly imported from
+    // another package. These checks are scope-level; the wildcard-import
+    // conflict rules depend on the reference point and are checked by the
+    // position-aware resolver instead.
+    let scope = db.scope(owner);
+    let named = scope
+        .imports()
+        .iter()
+        .filter(|import| import.name.is_some())
+        .collect::<SmallVec<[&crate::symbol::Import; 4]>>();
+    let mut reported = SmallVec::<[SmolStr; 4]>::new();
+    for import in &named {
+        let name = import.name.clone().expect("named import");
+        if reported.contains(&name) {
+            continue;
+        }
+        reported.push(name.clone());
+        let declared = scope.lookup(NameContext::Listing, &name).unique().is_some();
+        let other_package = named.iter().any(|other| {
+            other.name.as_ref() == Some(&name) && other.package != import.package
+        });
+        let message = if declared {
+            Some(format!(
+                "explicit import of '{name}' conflicts with a declaration in the same scope"
+            ))
+        } else if other_package {
+            Some(format!(
+                "explicit import of '{name}' conflicts with another explicit import in the same scope"
+            ))
+        } else {
+            None
+        };
+        let Some(message) = message else { continue };
+        let Some(source) = import.source else { continue };
+        let origin = projection.origin(source);
+        diagnostics.push(LoweringDiagnostic {
+            kind: LoweringDiagnosticKind::InvalidSyntax,
+            syntax_kind: origin.and_then(|origin| origin.kind()).unwrap_or(SyntaxKind::PACKAGE_IMPORT_DECLARATION),
+            source: Some(source),
+            range: origin.and_then(|origin| origin.full_range()),
+            message: message.into(),
+        });
+    }
 }
 
 fn collect_subroutine(
@@ -355,6 +415,41 @@ endmodule
     }
 
     #[test]
+    fn explicit_import_conflicting_with_declaration_is_diagnosed() {
+        let text = "package p;\nint x;\nendpackage\nmodule m;\nint x;\nimport p::x;\nendmodule\n";
+        let db = db_with_files(text, None);
+        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        assert!(
+            diagnostics.iter().any(|diag| diag.message.contains("conflicts with a declaration")),
+            "explicit import of a declared name must be diagnosed: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn explicit_import_conflicting_across_packages_is_diagnosed() {
+        let text = "package p;\nint x;\nendpackage\npackage q;\nint x;\nendpackage\nmodule m;\nimport p::x;\nimport q::x;\nendmodule\n";
+        let db = db_with_files(text, None);
+        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diag| diag.message.contains("another explicit import")),
+            "explicit imports of one name from two packages must be diagnosed: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn legal_imports_produce_no_conflict_diagnostics() {
+        let text = "package p;\nint x;\nendpackage\npackage q;\nint y;\nendpackage\nmodule m;\nimport p::x;\nimport q::*;\nendmodule\n";
+        let db = db_with_files(text, None);
+        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        assert!(
+            !diagnostics.iter().any(|diag| diag.message.contains("conflicts")),
+            "legal imports must not conflict: {diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn unsupported_statement_is_reported() {
         let text = "module m;\ninitial begin\n  foreach (arr[i]) x = 1;\nend\nendmodule\n";
         let db = db_with_files(text, None);
@@ -404,7 +499,7 @@ endmodule
             syntax_kind: SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION,
             source: None,
             range: Some(explicit),
-            message: "unsupported expression",
+            message: "unsupported expression".into(),
         };
 
         assert_eq!(super::resolve_range(&tree, None, &diagnostic), explicit);
@@ -419,7 +514,7 @@ endmodule
             syntax_kind: SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION,
             source: None,
             range: None,
-            message: "unsupported expression",
+            message: "unsupported expression".into(),
         };
 
         let range = super::resolve_range(&tree, None, &diagnostic);
@@ -435,7 +530,7 @@ endmodule
             syntax_kind: SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION,
             source: None,
             range: None,
-            message: "unsupported expression",
+            message: "unsupported expression".into(),
         };
 
         // Restricting the search to module b (which has no such node) must
