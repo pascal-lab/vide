@@ -361,6 +361,9 @@ pub(crate) fn build_generate_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> N
     }
     insert_body_declarators(&mut scope, db, owner, body.data_ref(), owner);
     insert_body_typedefs(&mut scope, db, owner, body.data_ref(), owner);
+    for (instance_id, instance) in body.instances.iter() {
+        scope.insert_value_opt(&instance.name, def_id(db, OwnerRef::new(owner, instance_id)));
+    }
     for item in &body.items {
         if let crate::body::BodyItem::GenerateBlockOwner(child_owner) = item {
             let child = db.body(*child_owner);

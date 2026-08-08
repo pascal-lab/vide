@@ -12,7 +12,7 @@ use hir_def::{
     literal::Literal,
     module::port::{PortDirection, PortHeader},
     subroutine::SubroutinePortDir,
-    symbol::DefOriginLoc,
+    symbol::DefKind,
     ty::{NetKind, NetType},
     typedef::TypedefId,
 };
@@ -171,11 +171,10 @@ fn hir_fmt_def_backed_type(
     def: DefId,
 ) -> Result<(), HirDisplayError> {
     f.write_str(keyword)?;
-    if let DefOriginLoc::Typedef(typedef) = def.primary_origin(f.db).loc(f.db) {
-        let container = typedef.cont_id.data(f.db);
-        if let Some(name) = &container.typedef(typedef.value).name {
+    if def.kind(f.db) == DefKind::Typedef {
+        if let Some(name) = def.name(f.db) {
             f.write_str(" ")?;
-            f.write_str(name)?;
+            f.write_str(&name)?;
         }
     }
     Ok(())
@@ -199,12 +198,7 @@ fn ty_expr_container(db: &dyn crate::db::TyDb, ty: &Ty) -> Option<hir_def::owner
         Ty::Builtin(BuiltinTy::Data { container, .. }) => Some(container.clone()),
         Ty::Struct(struct_ref) => Some(struct_ref.cont_id.clone()),
         Ty::Alias { typedef, .. } => Some(typedef.cont_id.clone()),
-        Ty::Enum(def) | Ty::Union(def) => match def.primary_origin(db).loc(db) {
-            DefOriginLoc::Decl(decl) => Some(decl.cont_id.clone()),
-            DefOriginLoc::Typedef(typedef) => Some(typedef.cont_id.clone()),
-            DefOriginLoc::SubroutinePort(port) => Some(port.cont_id.parent(db)?),
-            _ => None,
-        },
+        Ty::Enum(def) | Ty::Union(def) => def.type_container(db),
         Ty::Queue { elem, .. } | Ty::Assoc { elem, .. } | Ty::Dynamic(elem) => {
             ty_expr_container(db, elem)
         }
