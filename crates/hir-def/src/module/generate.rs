@@ -13,7 +13,7 @@ use crate::{
     db::HirDefDb,
     expr::ExprId,
     lower::{BodyStore, LoweringCtx, LoweringSyntax},
-    lower_ident_opt,
+    lower_ident_opt, lower_package_imports,
     owner::{OwnerId, OwnerKind},
     source_map::Lowered,
 };
@@ -162,6 +162,12 @@ impl LowerGenerateBlockCtx<'_> {
                 return None;
             }
             DefParam(defparam) => self.lower_defparam(defparam).into(),
+            PackageImportDeclaration(import_decl) => {
+                for import in lower_package_imports(import_decl) {
+                    self.store.data.package_imports.alloc(import);
+                }
+                return None;
+            }
             EmptyMember(_) => return None,
             _ => return None,
         };
@@ -345,6 +351,11 @@ impl LowerModuleCtx<'_> {
             }
             DefParam(defparam) => {
                 items.push(self.lower_defparam(defparam).into());
+            }
+            PackageImportDeclaration(import_decl) => {
+                for import in lower_package_imports(import_decl) {
+                    self.store.data.package_imports.alloc(import);
+                }
             }
             _ => {}
         }

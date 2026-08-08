@@ -349,6 +349,9 @@ pub(crate) fn build_generate_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> S
     let mut scope = ScopeData::default();
     let body = db.body_with_source_map(owner);
     scope.insert_value_opt(&body.name, owner_def_id(db, owner));
+    for (_, import) in body.package_imports.iter() {
+        scope.insert_package_import(import);
+    }
     for subroutine_owner in body.subroutine_owners() {
         let subroutine = db.subroutine(subroutine_owner);
         scope.insert_value_opt(&subroutine.name, owner_def_id(db, subroutine_owner));

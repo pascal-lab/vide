@@ -455,11 +455,7 @@ impl ScopeData {
         &self.imports
     }
 
-    pub fn has_imports(&self) -> bool {
-        !self.imports.is_empty()
-    }
-
-    pub(crate) fn insert_import(&mut self, import: Import) {
+    pub fn insert_import(&mut self, import: Import) {
         self.imports.push(import);
     }
 
