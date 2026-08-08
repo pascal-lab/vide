@@ -1690,6 +1690,24 @@ endpackage
     }
 
     #[test]
+    fn param_port_index_aligns_with_type_parameter_positions() {
+        let db = db_with_root_text(
+            "module m #(parameter int A = 0, parameter type T = logic, parameter int B = 1) ();\nendmodule\n",
+        );
+        let module_id = db.unit_index().module_ids(&ident("m")).unique().expect("m");
+        let body = db.body(module_id);
+        assert_eq!(crate::module::param_port_count(&body), 3);
+        assert!(crate::module::param_port_id_by_idx(&body, 0).is_some(), "A");
+        assert_eq!(crate::module::param_port_id_by_idx(&body, 1), None, "T has no declarator");
+        assert!(crate::module::param_port_id_by_idx(&body, 2).is_some(), "B");
+        assert_eq!(crate::module::param_port_id_by_idx(&body, 3), None, "out of range");
+        // Ordinals stay aligned with the parameter list, not the declarators.
+        let a = crate::module::param_port_id_by_idx(&body, 0).expect("A");
+        let b = crate::module::param_port_id_by_idx(&body, 2).expect("B");
+        assert_ne!(a, b);
+    }
+
+    #[test]
     fn default_nettype_selects_implicit_port_net_kind() {
         let db = db_with_root_text("`default_nettype tri\nmodule m(input a);\nendmodule\n");
         let module_id = db.unit_index().module_ids(&ident("m")).unique().expect("m");

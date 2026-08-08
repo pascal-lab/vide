@@ -384,25 +384,23 @@ fn render_module_param_ports(db: &RootDb, module_id: OwnerId) -> Vec<String> {
     let body = db.body_with_source_map(module_id);
     let module_owner = module_id;
     let mut params = Vec::new();
-    let mut idx = 0;
-    while let Some(decl_id) = hir_def::module::param_port_id_by_idx(&module, idx) {
+    for idx in 0..hir_def::module::param_port_count(&module) {
+        let Some(decl_id) = hir_def::module::param_port_id_by_idx(&module, idx) else {
+            continue;
+        };
         let decl = &body.decls[decl_id];
         let DeclaratorParent::DeclarationId(parent) = decl.parent else {
-            idx += 1;
             continue;
         };
         let Some(prefix) = render_declaration_prefix(db, module_owner, &body.declarations[parent])
         else {
-            idx += 1;
             continue;
         };
         let Some(decl) = OwnerRef::new(module_owner, decl_id).display_signature(db).ok() else {
-            idx += 1;
             continue;
         };
         let init = render_initializer(db, OwnerRef::new(module_owner, decl_id)).unwrap_or_default();
         params.push(format!("{prefix} {decl}{init}"));
-        idx += 1;
     }
     params
 }
