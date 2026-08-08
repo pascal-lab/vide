@@ -1691,9 +1691,7 @@ endpackage
 
     #[test]
     fn default_nettype_selects_implicit_port_net_kind() {
-        let db = db_with_root_text(
-            "`default_nettype tri\nmodule m(input a);\nendmodule\n",
-        );
+        let db = db_with_root_text("`default_nettype tri\nmodule m(input a);\nendmodule\n");
         let module_id = db.unit_index().module_ids(&ident("m")).unique().expect("m");
         let body = db.body(module_id);
         let Ports::Ansi(port_decls) = &body.ports else {
@@ -1744,12 +1742,10 @@ endpackage
             panic!("module should have ANSI ports");
         };
         assert!(
-            port_decls
-                .values()
-                .any(|decl| decl.header
-                    == crate::module::port::PortHeader::Interface {
-                        dir: crate::module::port::PortDirection::default(),
-                    }),
+            port_decls.values().any(|decl| decl.header
+                == crate::module::port::PortHeader::Interface {
+                    dir: crate::module::port::PortDirection::default(),
+                }),
             "interface port must keep its own header instead of the previous one"
         );
     }

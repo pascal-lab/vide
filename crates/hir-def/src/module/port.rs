@@ -60,12 +60,21 @@ pub enum PortDirection {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum PortHeader {
-    Var { dir: PortDirection, var_kw: bool, ty: DataTy },
-    Net { dir: PortDirection, net_ty: NetType },
+    Var {
+        dir: PortDirection,
+        var_kw: bool,
+        ty: DataTy,
+    },
+    Net {
+        dir: PortDirection,
+        net_ty: NetType,
+    },
     /// A generic interface port (`interface.port_name`). The port direction is
     /// not part of the header syntax and is only inherited from a preceding
     /// interface header.
-    Interface { dir: PortDirection },
+    Interface {
+        dir: PortDirection,
+    },
 }
 
 impl PortHeader {
@@ -291,11 +300,8 @@ impl LowerModuleCtx<'_> {
                     ports[parent].decls = IdxRange::new_inclusive(decl_id..=decl_id);
                 }
                 ExplicitAnsiPort(port) => {
-                    let offset = port
-                        .syntax()
-                        .text_range()
-                        .map(|range| range.start())
-                        .unwrap_or_default();
+                    let offset =
+                        port.syntax().text_range().map(|range| range.start()).unwrap_or_default();
                     let current_header =
                         self.lower_explicit_ansi_header(port.direction(), header, offset);
                     if let Some(expr) = port.expr() {
@@ -501,8 +507,7 @@ impl LowerModuleCtx<'_> {
         let default_data_ty = DataTy::Builtin(BuiltinDataTyId::new(BuiltinDataTy::default()));
         let header_node = header.syntax();
         let header_offset = header_node.text_range().map(|range| range.start()).unwrap_or_default();
-        let prev_header =
-            prev_header.unwrap_or_else(|| self.default_port_header(header_offset));
+        let prev_header = prev_header.unwrap_or_else(|| self.default_port_header(header_offset));
 
         use ast::PortHeader::*;
         // A generic interface port carries no net/var header and no direction

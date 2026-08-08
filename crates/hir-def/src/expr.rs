@@ -374,10 +374,9 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             let mut expr = match base {
                 // `scope::member[sel]` keeps the scope receiver and applies
                 // the selectors to the member field.
-                Some(receiver) => Expr::Field {
-                    receiver,
-                    field: lower_ident_opt(ident_select.identifier()),
-                },
+                Some(receiver) => {
+                    Expr::Field { receiver, field: lower_ident_opt(ident_select.identifier()) }
+                }
                 None => {
                     lower_ident_opt(ident_select.identifier()).map_or(Expr::Missing, Expr::Ident)
                 }

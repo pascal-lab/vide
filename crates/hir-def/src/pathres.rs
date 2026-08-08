@@ -426,10 +426,8 @@ impl ImportCollector<'_> {
             {
                 continue;
             }
-            for def_id in self
-                .design_map
-                .resolve_import(self.db, import, ident, ctx)
-                .into_candidates()
+            for def_id in
+                self.design_map.resolve_import(self.db, import, ident, ctx).into_candidates()
             {
                 if !self.defs.contains(&def_id) {
                     self.defs.push(def_id);
@@ -1084,8 +1082,7 @@ endmodule
             }
         }
         let node = target.expect("node at marker");
-        let ast_id =
-            db.ast_id_map(file_id).id_of_node(node).expect("node must have an ast id");
+        let ast_id = db.ast_id_map(file_id).id_of_node(node).expect("node must have an ast id");
         NameRef { position: InFile::new(file_id, ast_id), kind }
     }
 

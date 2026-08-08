@@ -1,10 +1,9 @@
 use std::ops::Deref;
 
-pub(crate) use smol_str::SmolStr;
-
 use la_arena::{ArenaMap, Idx};
 use preproc_expand::file::HirFileId;
 use rustc_hash::FxHashMap;
+pub(crate) use smol_str::SmolStr;
 use syntax::{SyntaxKind, SyntaxTree, ast::AstNode};
 use triomphe::Arc;
 use utils::{
@@ -400,9 +399,8 @@ impl<Hir> Default for SourceMap<Hir> {
 
 #[cfg(test)]
 mod tests {
-    use smol_str::SmolStr;
 
-use la_arena::Arena;
+    use la_arena::Arena;
 
     use super::{SourceAstId, SourceMap};
 

@@ -249,7 +249,11 @@ pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
             db.body(*package)
                 .package_imports
                 .values()
-                .map(|import| Import { package: import.package.clone(), name: import.item.clone(), source: None })
+                .map(|import| Import {
+                    package: import.package.clone(),
+                    name: import.item.clone(),
+                    source: None,
+                })
                 .collect::<Vec<_>>(),
         );
     }
