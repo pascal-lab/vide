@@ -196,11 +196,12 @@ fn resolve_imported_name(
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
+    let design_map = db.design_map();
     let mut defs = SmallVec::<[DefId; 3]>::new();
 
     for scope_id in scopes.iter() {
         let scope = db.scope_for(scope_id.clone());
-        collect_imports(db, &scope, ident, ctx, true, &mut defs);
+        collect_imports(db, &design_map, &scope, ident, ctx, true, &mut defs);
         if !defs.is_empty() {
             return Resolution::from_candidates(defs);
         }
@@ -208,7 +209,7 @@ fn resolve_imported_name(
 
     for scope_id in scopes.iter() {
         let scope = db.scope_for(scope_id.clone());
-        collect_imports(db, &scope, ident, ctx, false, &mut defs);
+        collect_imports(db, &design_map, &scope, ident, ctx, false, &mut defs);
         if !defs.is_empty() {
             return Resolution::from_candidates(defs);
         }
@@ -219,6 +220,7 @@ fn resolve_imported_name(
 
 fn collect_imports(
     db: &dyn HirDefDb,
+    design_map: &crate::design_map::DesignMap,
     scope: &NameScope,
     ident: &Ident,
     ctx: NameContext,
@@ -226,17 +228,10 @@ fn collect_imports(
     defs: &mut SmallVec<[DefId; 3]>,
 ) {
     for import in scope.imports() {
-        match (&import.name, named_only) {
-            (Some(name), true) if name == ident => {}
-            (None, false) => {}
-            _ => continue,
+        if named_only != import.name.is_some() {
+            continue;
         }
-
-        let imported = db
-            .unit_scope()
-            .package_ids(db, &import.package)
-            .and_then(|package_id| db.package_export_scope(package_id).lookup(ctx, ident));
-        for def_id in imported.into_candidates() {
+        for def_id in design_map.resolve_import(db, import, ident, ctx).into_candidates() {
             if !defs.contains(&def_id) {
                 defs.push(def_id);
             }
@@ -507,6 +502,52 @@ endmodule
         assert!(
             resolve_name(&db, top, &ident("only_left"), NameContext::Value).is_unresolved(),
             "a child member must not disambiguate its parent package"
+        );
+    }
+
+    #[test]
+    fn nested_package_imports_reach_a_fixed_point() {
+        let db = db_with_root_text(
+            r#"
+package outer;
+  import middle::*;
+endpackage
+
+package middle;
+  import base::*;
+endpackage
+
+package base;
+  int value;
+endpackage
+
+module top;
+  import outer::*;
+endmodule
+"#,
+        );
+
+        let outer = db
+            .unit_scope()
+            .package_ids(&db, &ident("outer"))
+            .unique()
+            .expect("outer package should resolve uniquely");
+        assert!(
+            db.package_export_scope(outer)
+                .lookup(NameContext::Value, &ident("value"))
+                .unique()
+                .is_some(),
+            "nested package exports must be computed transitively"
+        );
+
+        let top = db
+            .unit_scope()
+            .module_ids(&db, &ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+        assert!(
+            resolve_name(&db, top, &ident("value"), NameContext::Value).unique().is_some(),
+            "lexical resolution must consume the canonical design map"
         );
     }
 

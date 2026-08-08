@@ -134,16 +134,6 @@ impl NameScope {
         Arc::new(scope)
     }
 
-    pub fn package_export_scope(db: &dyn HirDefDb, owner: OwnerId) -> Arc<NameScope> {
-        Self::package_export_signature(db, owner)
-    }
-
-    #[salsa::tracked(returns(clone))]
-    pub fn package_export_signature(db: &dyn HirDefDb, owner: OwnerId) -> Arc<NameScope> {
-        debug_assert_eq!(owner.kind(db), OwnerKind::Module);
-        Arc::new(build_module_scope(db, owner))
-    }
-
     pub fn non_ansi_port_decl_id_by_name(
         &self,
         db: &dyn HirDefDb,
