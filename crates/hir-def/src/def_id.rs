@@ -544,6 +544,31 @@ impl DefId {
         Self(InternedDefId::new(db, owner, local))
     }
 
+    /// Project a named structural owner into its canonical definition.
+    ///
+    /// The owner seam deliberately exposes only owner kinds that have a
+    /// language-level definition. Procedural owners and lexical scopes remain
+    /// owners without a `DefId`.
+    pub fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
+        let origin = match owner.kind(db) {
+            OwnerKind::Module => DefOriginLoc::Module(owner),
+            OwnerKind::GenerateBlock => DefOriginLoc::GenerateBlock(owner),
+            OwnerKind::Block => DefOriginLoc::Block(owner),
+            OwnerKind::Subroutine => DefOriginLoc::Subroutine(owner),
+            OwnerKind::File
+            | OwnerKind::ProceduralBlock
+            | OwnerKind::Checker
+            | OwnerKind::Covergroup
+            | OwnerKind::ClockingBlock => return None,
+        };
+        Some(Self::new(db, origin))
+    }
+
+    /// Construct a canonical definition from a typed source representation.
+    pub fn from_source(db: &dyn HirDefDb, source: impl Into<DefOriginLoc>) -> Self {
+        Self::new(db, source)
+    }
+
     pub fn from_origin(db: &dyn HirDefDb, origin: DefOrigin) -> Self {
         Self::new(db, origin.loc(db).clone())
     }
@@ -591,6 +616,14 @@ impl DefId {
         let mut origins = SmallVec::new();
         origins.push(primary_origin);
         origins
+    }
+
+    pub fn name_range(&self, db: &dyn HirDefDb) -> Option<InFile<utils::text_edit::TextRange>> {
+        self.primary_origin(db).name_range(db)
+    }
+
+    pub fn range(&self, db: &dyn HirDefDb) -> Option<InFile<utils::text_edit::TextRange>> {
+        self.primary_origin(db).range(db)
     }
 
     pub fn is_non_ansi_port(&self, db: &dyn HirDefDb) -> bool {

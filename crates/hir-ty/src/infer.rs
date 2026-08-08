@@ -163,7 +163,8 @@ pub(crate) fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
             .as_modport(db)
             .map(|modport| {
                 TyResult::new(Ty::VirtualInterface {
-                    def: DefId::new(db, hir_def::symbol::DefOriginLoc::Module(modport.cont_id)),
+                    def: DefId::from_owner(db, modport.cont_id)
+                        .expect("modport container must have a module definition"),
                     modport: Some(def_id),
                 })
             })

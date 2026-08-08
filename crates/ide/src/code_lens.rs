@@ -1,6 +1,4 @@
-use hir_def::{
-    body::Body, def_id::DefId, has_source::HasSource, source_map::Lowered, symbol::DefOriginLoc,
-};
+use hir_def::{body::Body, def_id::DefId, has_source::HasSource, source_map::Lowered};
 use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -82,7 +80,8 @@ pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLens
                 *data = Some(Vec::new());
                 return kind;
             };
-            let def = DefId::new(sema.db, DefOriginLoc::Module(module_id));
+            let def =
+                DefId::from_owner(sema.db, module_id).expect("module owner must have a definition");
 
             let ref_config =
                 ReferencesConfig::new(ScopeVisibility::Public, Some(SearchScope::all(sema.db)));
