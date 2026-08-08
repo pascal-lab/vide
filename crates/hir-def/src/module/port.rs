@@ -3,14 +3,10 @@ use la_arena::{Arena, Idx, IdxRange};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use syntax::{
-    SyntaxToken, TokenKind,
+    SyntaxNode, SyntaxToken, TokenKind,
     ast::{self, AstNode, PortExpression},
-    has_text_range::HasTextRange,
 };
-use utils::{
-    get::{Get, GetRef},
-    text_edit::TextSize,
-};
+use utils::get::{Get, GetRef};
 
 use crate::{
     Ident, alloc_with_source, alloc_with_source_entry,
@@ -24,7 +20,7 @@ use crate::{
     lower_ident_opt,
     module::LowerModuleCtx,
     source_map::SourceMap,
-    ty::{NetKind, NetType, lower_net_kind},
+    ty::{NetType, lower_net_kind},
 };
 
 // structure:
@@ -300,10 +296,8 @@ impl LowerModuleCtx<'_> {
                     ports[parent].decls = IdxRange::new_inclusive(decl_id..=decl_id);
                 }
                 ExplicitAnsiPort(port) => {
-                    let offset =
-                        port.syntax().text_range().map(|range| range.start()).unwrap_or_default();
                     let current_header =
-                        self.lower_explicit_ansi_header(port.direction(), header, offset);
+                        self.lower_explicit_ansi_header(port.direction(), header, port.syntax());
                     if let Some(expr) = port.expr() {
                         self.lower_expr(expr);
                     }
@@ -506,8 +500,7 @@ impl LowerModuleCtx<'_> {
     ) -> PortHeader {
         let default_data_ty = DataTy::Builtin(BuiltinDataTyId::new(BuiltinDataTy::default()));
         let header_node = header.syntax();
-        let header_offset = header_node.text_range().map(|range| range.start()).unwrap_or_default();
-        let prev_header = prev_header.unwrap_or_else(|| self.default_port_header(header_offset));
+        let prev_header = prev_header.unwrap_or_else(|| self.default_port_header(header_node));
 
         use ast::PortHeader::*;
         // A generic interface port carries no net/var header and no direction
@@ -569,10 +562,10 @@ impl LowerModuleCtx<'_> {
         &mut self,
         direction: Option<SyntaxToken>,
         prev_header: Option<PortHeader>,
-        offset: TextSize,
+        node: SyntaxNode<'_>,
     ) -> PortHeader {
         let dir = Self::lower_dir(direction);
-        let prev_header = prev_header.unwrap_or_else(|| self.default_port_header(offset));
+        let prev_header = prev_header.unwrap_or_else(|| self.default_port_header(node));
         let Some(dir) = dir else {
             return prev_header;
         };
@@ -584,9 +577,11 @@ impl LowerModuleCtx<'_> {
         }
     }
 
-    fn default_port_header(&mut self, offset: TextSize) -> PortHeader {
+    fn default_port_header(&mut self, node: SyntaxNode<'_>) -> PortHeader {
         let default_data_ty = DataTy::Builtin(BuiltinDataTyId::new(BuiltinDataTy::default()));
-        let kind = self.net_kind_at(offset).unwrap_or(NetKind::Wire);
+        // An implicit net under `default_nettype none` is illegal; the
+        // diagnostic is reported by `implicit_net_kind`.
+        let kind = self.implicit_net_kind(node);
         PortHeader::Net {
             dir: PortDirection::default(),
             net_ty: NetType { kind, ty: default_data_ty },
