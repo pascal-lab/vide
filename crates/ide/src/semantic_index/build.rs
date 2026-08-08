@@ -437,7 +437,7 @@ fn collect_token(
             let chain = chains.chain_for(db, container);
             let chain_cost = chain_start.elapsed();
             let class = sema
-                .nameres_ident_in_scopes(token, NameContext::Value, &chain)
+                .nameres_ident_in_scopes_at(file_id, token, NameContext::Value, &chain)
                 .map(DefinitionClass::Definition)
                 .unique();
             if trace.enabled {
@@ -642,7 +642,7 @@ fn reference_context(
                         // definition when plain value resolution matches it.
                         let chain = chains.chain_for(db, container);
                         let is_local = sema
-                            .nameres_ident_in_scopes(token, NameContext::Value, &chain)
+                            .nameres_ident_in_scopes(token, NameContext::Value, &chain, None)
                             .unique()
                             .is_some_and(|local| local == *def);
                         (if is_local { ConnSide::Local } else { ConnSide::Port }, None)
@@ -665,6 +665,7 @@ fn reference_context(
                             SyntaxTokenWithParent { parent: conn.syntax(), tok: ident },
                             NameContext::Value,
                             &chain,
+                            None,
                         )
                         .unique()
                     })

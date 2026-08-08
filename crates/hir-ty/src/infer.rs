@@ -10,7 +10,7 @@ use hir_def::{
     },
     module::port::PortDeclId,
     owner::OwnerId,
-    pathres::{instance_target_def_id, resolve_name, resolve_path},
+    pathres::{NameRef, RefKind, instance_target_def_id, resolve_name_at, resolve_path},
     stmt::{ForInit, StmtKind},
     subroutine::SubroutinePortId,
     symbol::{DefKind, NameContext, Resolution},
@@ -237,10 +237,15 @@ fn type_of_non_ansi_port(db: &dyn TyDb, def_id: DefId) -> TyResult {
 fn type_of_expr_impl(db: &dyn TyDb, expr: OwnerRef<ExprId>) -> TyResult {
     let data = expr.cont_id.data(db);
     match data.expr(expr.value) {
-        Expr::Ident(ident) => type_of_path_resolution_impl(
-            db,
-            resolve_name(db, expr.cont_id, ident, NameContext::Value),
-        ),
+        Expr::Ident(ident) => {
+            // Expression references resolve at their source position so a
+            // later declaration never shadows an import (26.3).
+            let reference = expr_reference(db, expr);
+            type_of_path_resolution_impl(
+                db,
+                resolve_name_at(db, expr.cont_id, ident, NameContext::Value, reference.as_ref()),
+            )
+        }
         Expr::Field { receiver, field } => {
             let Some(field) = field else {
                 return TyResult::new(Ty::Unknown);
@@ -257,6 +262,17 @@ fn type_of_expr_impl(db: &dyn TyDb, expr: OwnerRef<ExprId>) -> TyResult {
         Expr::Cast { ty, .. } => normalize_data_ty(db, expr.cont_id, ty.clone()),
         _ => TyResult::new(Ty::Unknown),
     }
+}
+
+/// Reference position of an expression, derived from its canonical source.
+fn expr_reference(db: &dyn TyDb, expr: OwnerRef<ExprId>) -> Option<NameRef> {
+    let file_id = expr.cont_id.file(db);
+    let source = db
+        .body_with_source_map(expr.cont_id)
+        .source_map()
+        .expr_srcs
+        .hir_to_src(expr.value)?;
+    Some(NameRef { position: hir_def::container::InFile::new(file_id, source), kind: RefKind::Value })
 }
 
 fn normalize_data_ty_inner(
