@@ -149,15 +149,14 @@ fn resolve_name_inner(
 ) -> Resolution<DefId> {
     let scopes = ScopeChain::from_inner(db, cont_id);
     let is_call = reference.is_some_and(|reference| reference.kind == RefKind::Call);
-    for (index, id) in scopes.iter().enumerate() {
-        let innermost = index == 0;
+    for id in scopes.iter() {
         let scope = db.scope(*id);
         let resolution = scope.lookup(ctx, ident);
-        // Declarations in the innermost scope are visible only before the
-        // reference, unless the reference is a function/task call, which
-        // searches to the end of that scope (IEEE 1800-2017 26.3).
-        let resolution = match (innermost, is_call, reference) {
-            (true, false, Some(reference)) => filter_resolution_at(db, resolution, reference),
+        // Declarations are visible only before the reference in every scope,
+        // unless the reference is a function/task call, which searches each
+        // scope to its end (IEEE 1800-2017 26.3).
+        let resolution = match (is_call, reference) {
+            (false, Some(reference)) => filter_resolution_at(db, resolution, reference),
             _ => resolution,
         };
         if let Some(trace) = trace.as_deref_mut() {
@@ -181,7 +180,7 @@ fn resolve_name_inner(
             ctx,
             *id,
             trace.as_deref_mut(),
-            AtFilter { reference, innermost },
+            AtFilter { reference },
         );
         if !imported.is_unresolved() {
             return imported;
@@ -231,12 +230,11 @@ pub fn resolve_in_resolved_scopes_at(
     reference: Option<&NameRef>,
 ) -> Resolution<DefId> {
     let is_call = reference.is_some_and(|reference| reference.kind == RefKind::Call);
-    for (index, scope_id) in resolved.scope_chain.iter().enumerate() {
-        let innermost = index == 0;
+    for scope_id in resolved.scope_chain.iter() {
         let scope = db.scope(*scope_id);
         let resolution = scope.lookup(ctx, ident);
-        let resolution = match (innermost, is_call, reference) {
-            (true, false, Some(reference)) => filter_resolution_at(db, resolution, reference),
+        let resolution = match (is_call, reference) {
+            (false, Some(reference)) => filter_resolution_at(db, resolution, reference),
             _ => resolution,
         };
         if !resolution.is_unresolved() {
@@ -249,7 +247,7 @@ pub fn resolve_in_resolved_scopes_at(
             ctx,
             *scope_id,
             None,
-            AtFilter { reference, innermost },
+            AtFilter { reference },
         );
         if !imported.is_unresolved() {
             return imported;
@@ -383,7 +381,6 @@ fn instantiable_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
 #[derive(Clone, Copy)]
 struct AtFilter<'a> {
     reference: Option<&'a NameRef>,
-    innermost: bool,
 }
 
 impl AtFilter<'_> {
@@ -391,10 +388,11 @@ impl AtFilter<'_> {
         self.reference.is_some_and(|reference| reference.kind == RefKind::Call)
     }
 
-    /// Explicit imports are locally visible only before the reference in the
-    /// innermost scope; calls search to its end.
+    /// Declarations and explicit imports are locally visible only before the
+    /// reference in every scope; function/task call references search every
+    /// scope to its end (IEEE 1800-2017 26.3, Examples 1/3).
     fn filter_named(&self) -> bool {
-        self.innermost && !self.is_call() && self.reference.is_some()
+        !self.is_call() && self.reference.is_some()
     }
 
     /// Wildcard imports count only before the reference in every scope.
@@ -1159,6 +1157,41 @@ endmodule
             resolve_name_at(&db, b, &ident("f"), NameContext::Value, Some(&reference))
                 .is_unresolved(),
             "the import follows the reference and must not bind"
+        );
+    }
+
+    #[test]
+    fn outer_scope_declarations_are_point_filtered() {
+        // IEEE 1800-2017 26.3 Example 1: a reference activates the wildcard
+        // import instead of a later declaration in an outer scope, so the
+        // later declaration is not locally visible at the reference.
+        let text = r#"
+package p;
+int x;
+endpackage
+module top;
+import p::*;
+if (1) begin : b
+  initial x = 1;
+end
+int x;
+endmodule
+"#;
+        let db = db_with_root_text(text);
+        let b = db
+            .owner_table(HirFileId::File(TOP))
+            .owners_of_kind(OwnerKind::GenerateBlock)
+            .find(|owner| owner.name.as_str() == "b")
+            .expect("generate block b")
+            .id;
+        let p = db.unit_index().package_ids(&ident("p")).unique().expect("p");
+        let p_x = resolve_name(&db, p, &ident("x"), NameContext::Value).unique().expect("p::x");
+
+        let reference = reference_at(&db, text, "x = 1", RefKind::Value);
+        assert_eq!(
+            resolve_name_at(&db, b, &ident("x"), NameContext::Value, Some(&reference)),
+            Resolution::Unique(p_x),
+            "the later outer declaration must not shadow the wildcard import"
         );
     }
 
