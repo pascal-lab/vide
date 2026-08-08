@@ -1,6 +1,8 @@
 use std::ops::Deref;
 
-pub(crate) use la_arena::{ArenaMap, Idx};
+pub(crate) use smol_str::SmolStr;
+
+use la_arena::{ArenaMap, Idx};
 use preproc_expand::file::HirFileId;
 use rustc_hash::FxHashMap;
 use syntax::{SyntaxKind, SyntaxTree, ast::AstNode};
@@ -28,7 +30,7 @@ pub struct LoweringDiagnostic {
     pub syntax_kind: SyntaxKind,
     pub source: Option<SourceAstId>,
     pub range: Option<TextRange>,
-    pub message: &'static str,
+    pub message: SmolStr,
 }
 
 /// Position-free HIR and its canonical source identities.
@@ -398,7 +400,9 @@ impl<Hir> Default for SourceMap<Hir> {
 
 #[cfg(test)]
 mod tests {
-    use la_arena::Arena;
+    use smol_str::SmolStr;
+
+use la_arena::Arena;
 
     use super::{SourceAstId, SourceMap};
 

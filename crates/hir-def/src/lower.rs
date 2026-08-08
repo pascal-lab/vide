@@ -282,7 +282,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             syntax_kind: node.kind(),
             source: Some(self.source_id(node)),
             range: None,
-            message,
+            message: message.into(),
         });
     }
 
@@ -292,7 +292,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             syntax_kind: node.kind(),
             source: Some(self.source_id(node)),
             range: None,
-            message,
+            message: message.into(),
         });
     }
 
@@ -304,7 +304,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
                 owner = ?self.owner,
                 syntax_kind = ?diagnostic.syntax_kind,
                 source = ?diagnostic.source,
-                message = diagnostic.message,
+                message = %diagnostic.message,
                 "HIR lowering diagnostic"
             );
         }
