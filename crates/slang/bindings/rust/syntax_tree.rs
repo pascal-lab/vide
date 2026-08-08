@@ -419,6 +419,63 @@ impl<'a> SyntaxNode<'a> {
     }
 }
 
+/// Depth-first iterator over every token of a subtree, including tokens in
+/// nested nodes. Unlike [`SyntaxNode::first_token`] it never panics on
+/// token-less subtrees.
+pub struct SyntaxTokens<'a> {
+    cursor: SyntaxCursor<'a>,
+    done: bool,
+}
+
+impl<'a> SyntaxTokens<'a> {
+    /// Move the cursor to the next token in preorder, descending into
+    /// children and skipping child-less nodes by climbing to the next
+    /// sibling at any depth. Returns false when the subtree is exhausted.
+    fn descend_to_token(cursor: &mut SyntaxCursor<'a>) -> bool {
+        loop {
+            while cursor.to_token().is_none() && cursor.goto_first_child() {}
+            if cursor.to_token().is_some() {
+                return true;
+            }
+            while !cursor.goto_next_sibling() {
+                if !cursor.goto_parent() {
+                    return false;
+                }
+            }
+        }
+    }
+}
+
+impl<'a> Iterator for SyntaxTokens<'a> {
+    type Item = SyntaxTokenWithParent<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+        let token = self.cursor.to_tok_with_parent().expect("cursor is at a token");
+        loop {
+            if self.cursor.goto_next_sibling() && Self::descend_to_token(&mut self.cursor) {
+                break;
+            }
+            if !self.cursor.goto_parent() {
+                self.done = true;
+                break;
+            }
+        }
+        Some(token)
+    }
+}
+
+impl SyntaxNode<'_> {
+    /// Depth-first preorder iterator over every token of this subtree.
+    pub fn tokens(&self) -> SyntaxTokens<'_> {
+        let mut cursor = SyntaxCursor::new(*self);
+        let done = !SyntaxTokens::descend_to_token(&mut cursor);
+        SyntaxTokens { cursor, done }
+    }
+}
+
 impl fmt::Debug for SyntaxNode<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SyntaxNode")
@@ -979,5 +1036,31 @@ impl Compilation {
             .into_iter()
             .map(SyntaxDiagnostic::from_raw)
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tokens_walk_the_whole_subtree_in_preorder() {
+        let tree = SyntaxTree::from_text("module m; wire a; endmodule", "test.sv", "");
+        let root = tree.root().unwrap();
+        let tokens: Vec<_> = root.tokens().map(|tok| tok.tok.value_text().to_string()).collect();
+        assert!(tokens.contains(&"module".to_string()));
+        assert!(tokens.contains(&"m".to_string()));
+        assert!(tokens.contains(&"wire".to_string()));
+        assert!(tokens.contains(&"a".to_string()));
+        assert!(tokens.contains(&"endmodule".to_string()));
+        assert_eq!(tokens.len(), root.tokens().count());
+    }
+
+    #[test]
+    fn tokens_iterate_even_without_leading_nodes() {
+        let tree = SyntaxTree::from_text("module m; endmodule", "test.sv", "");
+        let root = tree.root().unwrap();
+        let first = root.tokens().next().expect("module keyword token");
+        assert_eq!(first.tok.kind(), TokenKind::MODULE_KEYWORD);
     }
 }
