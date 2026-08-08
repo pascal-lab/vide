@@ -378,6 +378,15 @@ impl HirDisplay for OwnerRef<PortHeader> {
                 }
                 OwnerRef::new(*cont_id, ty.clone()).hir_fmt(f)
             }
+            PortHeader::Interface { dir } => {
+                match dir {
+                    PortDirection::Input => f.write_str("input ")?,
+                    PortDirection::Output => f.write_str("output ")?,
+                    PortDirection::Inout => f.write_str("inout ")?,
+                    PortDirection::Ref => f.write_str("ref ")?,
+                }
+                f.write_str("interface")
+            }
         }
     }
 }

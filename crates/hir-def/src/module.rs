@@ -33,7 +33,9 @@ pub fn overridable_param_id_by_idx(body: &Body, idx: usize) -> Option<DeclId> {
     body.declarations
         .values()
         .filter_map(|declaration| match declaration {
-            Declaration::ParamDecl(param_decl) if param_decl.kind.is_overridable() => {
+            Declaration::ParamDecl(param_decl)
+                if param_decl.kind.is_overridable() && param_decl.is_port =>
+            {
                 Some(param_decl.decls.clone())
             }
             _ => None,

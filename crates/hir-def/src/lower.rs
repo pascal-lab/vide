@@ -181,6 +181,9 @@ pub(crate) struct LoweringCtx<Store> {
     scope_stack: Vec<OwnerId>,
     pub(crate) store: Store,
     pub(crate) diagnostics: Vec<LoweringDiagnostic>,
+    /// Net kind for implicit nets. `` `default_nettype `` is consumed by the
+    /// slang preprocessor and never reaches this layer, so the SV default
+    /// (wire) is used unconditionally.
     pub(crate) default_net_type: NetKind,
 }
 

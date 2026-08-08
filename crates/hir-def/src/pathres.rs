@@ -273,7 +273,7 @@ fn resolve_scope_imports(
 
     collect_imports(db, &design_map, scope, ident, ctx, true, &mut defs);
     let named = Resolution::from_candidates(defs.iter().copied());
-    if let Some(trace) = trace.as_deref_mut() {
+    if let Some(trace) = trace.as_mut() {
         trace.entries.push(ResolutionTraceEntry {
             phase: ResolutionPhase::NamedImport,
             scope: Some(scope_id),
@@ -286,7 +286,7 @@ fn resolve_scope_imports(
 
     collect_imports(db, &design_map, scope, ident, ctx, false, &mut defs);
     let wildcard = Resolution::from_candidates(defs.iter().copied());
-    if let Some(trace) = trace.as_deref_mut() {
+    if let Some(trace) = trace.as_mut() {
         trace.entries.push(ResolutionTraceEntry {
             phase: ResolutionPhase::WildcardImport,
             scope: Some(scope_id),

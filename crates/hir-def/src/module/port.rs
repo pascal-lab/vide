@@ -58,12 +58,18 @@ pub enum PortDirection {
 pub enum PortHeader {
     Var { dir: PortDirection, var_kw: bool, ty: DataTy },
     Net { dir: PortDirection, net_ty: NetType },
+    /// A generic interface port (`interface.port_name`). The port direction is
+    /// not part of the header syntax and is only inherited from a preceding
+    /// interface header.
+    Interface { dir: PortDirection },
 }
 
 impl PortHeader {
     pub fn dir(&self) -> PortDirection {
         match self {
-            PortHeader::Var { dir, .. } | PortHeader::Net { dir, .. } => *dir,
+            PortHeader::Var { dir, .. }
+            | PortHeader::Net { dir, .. }
+            | PortHeader::Interface { dir } => *dir,
         }
     }
 
@@ -71,6 +77,11 @@ impl PortHeader {
         match self {
             PortHeader::Var { ty, .. } => ty.clone(),
             PortHeader::Net { net_ty: NetType { ty, .. }, .. } => ty.clone(),
+            // Interface ports carry no data type; report the default rather
+            // than the unrelated previous port header.
+            PortHeader::Interface { .. } => {
+                DataTy::Builtin(BuiltinDataTyId::new(BuiltinDataTy::default()))
+            }
         }
     }
 }
@@ -482,6 +493,15 @@ impl LowerModuleCtx<'_> {
         let prev_header = prev_header.unwrap_or_else(|| self.default_port_header());
 
         use ast::PortHeader::*;
+        // A generic interface port carries no net/var header and no direction
+        // syntax; only its direction inherits from a preceding interface port.
+        if let InterfacePortHeader(_) = header {
+            let dir = match prev_header {
+                PortHeader::Interface { dir } => dir,
+                _ => PortDirection::default(),
+            };
+            return PortHeader::Interface { dir };
+        }
         let (ast_dir, port_kind, ast_ty) = match header {
             VariablePortHeader(header) => {
                 let var_kw = header.var_keyword().map(|_| Either::Left(()));
@@ -492,7 +512,7 @@ impl LowerModuleCtx<'_> {
                 lower_net_kind(header.net_type()).map(Either::Right),
                 header.data_type(),
             ),
-            InterfacePortHeader(_header) => return prev_header,
+            InterfacePortHeader(_) => unreachable!("handled above"),
         };
 
         let ty_omitted = DataTy::is_ast_missing(ast_ty);
@@ -537,6 +557,7 @@ impl LowerModuleCtx<'_> {
         match prev_header {
             PortHeader::Var { var_kw, ty, .. } => PortHeader::Var { dir, var_kw, ty },
             PortHeader::Net { net_ty, .. } => PortHeader::Net { dir, net_ty },
+            PortHeader::Interface { .. } => PortHeader::Interface { dir },
         }
     }
 
