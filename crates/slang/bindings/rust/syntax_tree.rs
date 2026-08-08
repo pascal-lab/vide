@@ -357,6 +357,15 @@ impl<'a> SyntaxNode<'a> {
         SyntaxNode::from_raw_ptr(self._ptr.parent())
     }
 
+    /// Returns the identity of this syntax node within its owning syntax tree.
+    ///
+    /// Unlike a source/display pointer, this identity distinguishes nodes that
+    /// share the same source range in macro-expanded trees.
+    #[inline]
+    pub fn identity(&self) -> usize {
+        Pin::as_ref(&self._ptr).get_ref() as *const ffi::SyntaxNode as usize
+    }
+
     #[inline]
     pub fn child(&self, idx: usize) -> Option<SyntaxElement<'a>> {
         // TODO: we have to visit twice to get the child, this is not efficient

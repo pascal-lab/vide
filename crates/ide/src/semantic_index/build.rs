@@ -27,7 +27,7 @@ use crate::{
     module_resolution::resolve_hir_instantiation_target,
     references::{ReferenceCategory, search::resolve_source_range},
     semantic_target::{
-        SemanticTarget, TargetIntent, preproc::emit_token_index,
+        SemanticTarget, TargetIntent, preproc::emit_token_index, resolve_plain_syntax_target,
         resolve_semantic_target_with_emitted,
     },
 };
@@ -47,19 +47,24 @@ impl FileSemanticIndex {
         };
         let hir_file_id = HirFileId::from(file_id);
 
-        // Macro-emitted tokens share the call-site display range, so resolving
-        // them needs a tree walk indexed by trace id. Build it once per file
-        // and share it across every token resolution instead of re-walking the
-        // tree for each macro-region token.
-        let has_backtick = db.file_text(file_id).contains('`');
-        let emitted_index = has_backtick.then(|| emit_token_index(root));
+        // Macro-emitted tokens share the call-site display range. Ordinary
+        // source tokens carry a trace entry too, so presence is determined by
+        // directives, include edges, or non-source origins—not by trace size.
+        let has_preproc_tokens = tree.preprocessor_trace().is_some_and(|trace| {
+            !trace.include_edges.is_empty()
+                || trace.emitted_tokens.iter().any(|token| {
+                    !matches!(token.origin, syntax::preproc::TokenOrigin::Source { .. })
+                })
+        });
+        let emitted_index = has_preproc_tokens.then(|| emit_token_index(root));
 
         let sema = SemanticsImpl::new(db);
         let mut containers = ContainerCache::new();
         let mut chains = ScopeChainCache::new();
         let mut groups: FxHashMap<DefId, FileReferenceGroup> = FxHashMap::default();
+        let mut definition_ranges_by_def =
+            FxHashMap::<DefId, Vec<SemanticDefinitionRange>>::default();
         let mut trace = IndexBuildTrace::start();
-        // Port definitions of named port connections by name token range,
         // populated when the name token resolves (it precedes the data token
         // in source order) and read back when the data token is collected.
         let mut conn_port_by_name = FxHashMap::default();
@@ -86,14 +91,18 @@ impl FileSemanticIndex {
                     // and includes are indexed by their own indexes rather
                     // than as HDL references.
                     let (target_cost, target) = timed(|| {
-                        resolve_semantic_target_with_emitted(
-                            db,
-                            file_id,
-                            range.start(),
-                            Some(root),
-                            token_precedence,
-                            emitted_index.as_ref(),
-                        )
+                        if has_preproc_tokens {
+                            resolve_semantic_target_with_emitted(
+                                db,
+                                file_id,
+                                range.start(),
+                                Some(root),
+                                token_precedence,
+                                emitted_index.as_ref(),
+                            )
+                        } else {
+                            resolve_plain_syntax_target(root, range.start(), token_precedence)
+                        }
                         .unique_for_intent(TargetIntent::FindReferences)
                     });
                     trace.source_target += target_cost;
@@ -126,6 +135,7 @@ impl FileSemanticIndex {
                                 &mut conn_port_by_name,
                                 &text,
                                 &mut groups,
+                                &mut definition_ranges_by_def,
                                 &mut trace,
                             )
                         });
@@ -401,6 +411,7 @@ fn collect_token(
     conn_port_by_name: &mut FxHashMap<TextRange, DefId>,
     text: &str,
     groups: &mut FxHashMap<DefId, FileReferenceGroup>,
+    definition_ranges_by_def: &mut FxHashMap<DefId, Vec<SemanticDefinitionRange>>,
     trace: &mut IndexBuildTrace,
 ) {
     let Some(range) = token.text_range() else {
@@ -461,6 +472,7 @@ fn collect_token(
                 token,
                 &context,
                 groups,
+                definition_ranges_by_def,
             )
         }
         DefinitionClass::PortConnShorthand { port, local } => {
@@ -492,6 +504,7 @@ fn collect_token(
                 token,
                 &port_context,
                 groups,
+                definition_ranges_by_def,
             );
             collect_definition_token(
                 db,
@@ -501,6 +514,7 @@ fn collect_token(
                 token,
                 &local_context,
                 groups,
+                definition_ranges_by_def,
             );
         }
     });
@@ -722,12 +736,15 @@ fn collect_definition_token(
     token: SyntaxTokenWithParent<'_>,
     context: &ReferenceContext,
     groups: &mut FxHashMap<DefId, FileReferenceGroup>,
+    definition_ranges_by_def: &mut FxHashMap<DefId, Vec<SemanticDefinitionRange>>,
 ) {
     let origins = definition.origins(db);
     let Some(name) = origins.iter().find_map(|origin| origin.name(db)) else {
         return;
     };
-    let definition_ranges = definition_ranges_for(db, definition);
+    let definition_ranges = definition_ranges_by_def
+        .entry(definition)
+        .or_insert_with(|| definition_ranges_for(db, definition));
     let is_definition_site = definition_ranges.iter().any(|definition_range| {
         definition_range.file_id == file_id && definition_range.range == range
     });
@@ -755,7 +772,7 @@ fn collect_definition_token(
 }
 
 /// Definition name ranges of `definition` mapped to user-facing files, in
-/// origin order. Computed once per definition at merge time.
+/// origin order. File-level callers own memoization for this pure projection.
 pub(super) fn definition_ranges_for(
     db: &dyn WorkspaceSymbolIndexDb,
     definition: DefId,
