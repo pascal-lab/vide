@@ -73,4 +73,16 @@ impl SemanticsImpl<'_> {
     ) -> Resolution<DefId> {
         hir_def::pathres::resolve_name(self.db, owner, ident, ctx)
     }
+
+    /// Position-aware name resolution honoring the reference point (IEEE
+    /// 1800-2017 26.3); see [`hir_def::pathres::resolve_name_at`].
+    pub fn resolve_name_at(
+        &self,
+        owner: OwnerId,
+        ident: &Ident,
+        ctx: NameContext,
+        reference: Option<&hir_def::pathres::NameRef>,
+    ) -> Resolution<DefId> {
+        hir_def::pathres::resolve_name_at(self.db, owner, ident, ctx, reference)
+    }
 }
