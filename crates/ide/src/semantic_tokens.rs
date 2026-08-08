@@ -10,14 +10,16 @@ use hir_def::{
         data_ty::{DataTy, TypeRef},
         declarator::DeclaratorParent,
     },
+    container::InFile,
     has_source::HasSource,
     module::instantiation::{ParamAssign, ParamAssignId, PortConn, PortConnId},
     owner::OwnerId,
-    pathres::resolve_path,
+    pathres::{NameRef, RefKind, resolve_path},
     source_map::AstLookup,
     symbol::{DefKind, NameContext, Resolution},
 };
 use hir_semantics::semantics::Semantics;
+use rustc_hash::FxHashSet;
 use preproc_expand::{file::HirFileId, preproc::macro_references_in_range};
 use smol_str::SmolStr;
 use syntax::{
@@ -197,6 +199,15 @@ macro_rules! collect_container_body {
                 collect_ident_like(sema, name_in_cont, range, collector);
             };
 
+        // Call callees search every scope to its end (IEEE 1800-2017 26.3);
+        // ordinary references are resolved at their source position.
+        let mut call_callees = FxHashSet::default();
+        for (_, expr) in lowered.data_ref().exprs.iter() {
+            if let Expr::Call { callee, .. } = expr {
+                call_callees.insert(*callee);
+            }
+        }
+
         for (_, declaration) in lowered.data_ref().declarations.iter() {
             let DataTy::Named(type_ref) = declaration.ty() else {
                 continue;
@@ -239,7 +250,24 @@ macro_rules! collect_container_body {
                         continue;
                     };
                     check_range!(collector, range);
-                    collect_ident_like(&name, range, collector);
+                    let Some(source) = lowered.source_map().expr_srcs.hir_to_src(expr_id) else {
+                        continue;
+                    };
+                    let reference = NameRef {
+                        position: InFile::new(cont_id.file(db), source),
+                        kind: if call_callees.contains(&expr_id) {
+                            RefKind::Call
+                        } else {
+                            RefKind::Value
+                        },
+                    };
+                    let res = sema.resolve_name_at(
+                        cont_id.clone(),
+                        name,
+                        NameContext::Value,
+                        Some(&reference),
+                    );
+                    collect_resolved_path(sema, res, range, collector);
                 }
                 _ => {}
             }
