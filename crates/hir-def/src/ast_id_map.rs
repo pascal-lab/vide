@@ -61,7 +61,9 @@ impl StablePath {
 
 /// The node table behind [`SourceAstId`]. Unique root-buffer nodes retain an
 /// O(1) pointer; nodes with duplicate display pointers (macro expansion) are
-/// resolved by their syntax-node identity and structural path.
+/// resolved by their syntax-node identity and structural path. `by_preorder`
+/// records each id's depth-first preorder index so source positions can be
+/// compared within one revision without touching revision-local ranges.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AstIdMap {
     nodes: FxHashMap<SourceAstId, SyntaxNodePtr>,
@@ -69,6 +71,7 @@ pub struct AstIdMap {
     by_identity: FxHashMap<usize, SourceAstId>,
     by_path: FxHashMap<StablePath, SourceAstId>,
     paths: FxHashMap<SourceAstId, StablePath>,
+    by_preorder: FxHashMap<SourceAstId, u32>,
 }
 
 impl AstIdMap {
@@ -83,6 +86,7 @@ impl AstIdMap {
                 by_identity: FxHashMap::default(),
                 by_path: FxHashMap::default(),
                 paths: FxHashMap::default(),
+                by_preorder: FxHashMap::default(),
             };
         };
 
@@ -107,12 +111,13 @@ impl AstIdMap {
         let mut by_identity = FxHashMap::default();
         let mut by_path = FxHashMap::default();
         let mut paths_by_id = FxHashMap::default();
+        let mut by_preorder = FxHashMap::default();
         let mut ptr_counts = FxHashMap::<SyntaxNodePtr, u32>::default();
         for ptr in candidates.iter().filter_map(|(_, ptr, _)| *ptr) {
             *ptr_counts.entry(ptr).or_default() += 1;
         }
         let mut used = FxHashMap::<SourceAstId, StablePath>::default();
-        for (path, ptr, identity) in candidates {
+        for (preorder, (path, ptr, identity)) in candidates.into_iter().enumerate() {
             let mut salt = 0;
             let id = loop {
                 let id = if path.0.is_empty() { SourceAstId(0) } else { stable_id(&path, salt) };
@@ -126,12 +131,13 @@ impl AstIdMap {
             paths_by_id.insert(id, path.clone());
             by_identity.insert(identity, id);
             by_path.insert(path, id);
+            by_preorder.insert(id, preorder as u32);
             if let Some(ptr) = ptr.filter(|ptr| ptr_counts.get(ptr) == Some(&1)) {
                 nodes.insert(id, ptr);
                 by_ptr.insert(ptr, id);
             }
         }
-        Self { nodes, by_ptr, by_identity, by_path, paths: paths_by_id }
+        Self { nodes, by_ptr, by_identity, by_path, paths: paths_by_id, by_preorder }
     }
 
     pub fn len(&self) -> usize {
@@ -144,6 +150,13 @@ impl AstIdMap {
 
     pub fn ptr(&self, id: SourceAstId) -> Option<SyntaxNodePtr> {
         self.nodes.get(&id).copied()
+    }
+
+    /// Depth-first preorder index of a node within its file. Comparable only
+    /// within one revision; the stable path identity is the cross-revision
+    /// key while this ordinal orders nodes by source position.
+    pub fn preorder(&self, id: SourceAstId) -> Option<u32> {
+        self.by_preorder.get(&id).copied()
     }
 
     pub fn node<'tree>(
@@ -266,6 +279,29 @@ mod tests {
             let node = map.node(id, &tree).expect("every AST id must resolve");
             assert_eq!(map.id_of_node(node), Some(id));
         }
+    }
+
+    #[test]
+    fn preorder_ordinals_follow_source_order() {
+        let tree = parse("module m; wire a; wire b; endmodule\n");
+        let map = AstIdMap::from_source(&tree);
+        let root = tree.root().unwrap();
+        assert_eq!(map.preorder(SourceAstId(0)), Some(0));
+
+        let mut ordinals = Vec::new();
+        for event in root.node_preorder() {
+            let syntax::WalkEvent::Enter(node) = event else { continue };
+            let id = map.id_of_node(node).expect("every node has an id");
+            ordinals.push((map.preorder(id).expect("every id has a preorder"), id));
+        }
+        // Preorder ordinals are strictly increasing over a preorder walk.
+        let mut sorted = ordinals.clone();
+        sorted.sort_by_key(|(ordinal, _)| *ordinal);
+        assert_eq!(ordinals, sorted);
+        // The root's id is 0 with preorder 0; ids stay unique.
+        assert_eq!(ordinals[0], (0, SourceAstId(0)));
+        let unique: HashSet<_> = ordinals.iter().map(|(_, id)| *id).collect();
+        assert_eq!(unique.len(), ordinals.len());
     }
 
     #[test]
