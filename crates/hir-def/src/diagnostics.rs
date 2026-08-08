@@ -33,7 +33,7 @@ use crate::{
     db::HirDefDb,
     expr::Expr,
     has_source::HasSource,
-    owner::{OwnerId, OwnerKind},
+    owner::OwnerId,
     pathres::{NameRef, RefKind, before_reference, resolve_name_at, resolve_wildcard_at},
     proc::Proc,
     source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
@@ -63,15 +63,6 @@ pub(crate) fn file_lowering_diagnostics(
     // collect them once and reuse for each scope-bearing owner.
     let mut references = Vec::new();
     collect_ident_references(db, file_owner, &mut references);
-    let file_body = lowered_file.data_ref();
-    for owner in file_body.module_owners() {
-        let module = db.body_with_source_map(owner);
-        for (_, proc) in module.data_ref().procs.iter() {
-            let proc_body = db.body_with_source_map(proc.owner);
-            for (expr_id, expr) in proc_body.data_ref().exprs.iter() {
-            }
-        }
-    }
     for owner in file.subroutine_owners() {
         collect_subroutine(db, owner, &tree, &projection, &mut diagnostics);
     }
