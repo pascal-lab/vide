@@ -790,6 +790,119 @@ endmodule
     }
 
     #[test]
+    fn mutually_importing_packages_reach_a_fixed_point() {
+        let db = db_with_root_text(
+            r#"
+package p;
+import q::*;
+int x;
+endpackage
+package q;
+import p::*;
+int x;
+endpackage
+module top;
+import p::*;
+endmodule
+"#,
+        );
+        let p = db
+            .unit_index()
+            .package_ids(&ident("p"))
+            .unique()
+            .expect("p package should resolve uniquely");
+        let Resolution::Ambiguous(candidates) =
+            db.package_exports(p).lookup(NameContext::Value, &ident("x"))
+        else {
+            panic!("mutually exported x must remain ambiguous");
+        };
+        assert_eq!(candidates.len(), 2, "p::x and q::x must both be exported");
+
+        let top = db
+            .unit_index()
+            .module_ids(&ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+        let Resolution::Ambiguous(candidates) =
+            resolve_name(&db, top, &ident("x"), NameContext::Value)
+        else {
+            panic!("star import of mutually importing packages must stay ambiguous");
+        };
+        assert_eq!(candidates.len(), 2);
+    }
+
+    #[test]
+    fn star_import_closes_through_package_wildcards() {
+        let db = db_with_root_text(
+            r#"
+package base;
+int value;
+endpackage
+package middle;
+import base::*;
+endpackage
+module top;
+import middle::*;
+endmodule
+"#,
+        );
+        let base = db
+            .unit_index()
+            .package_ids(&ident("base"))
+            .unique()
+            .expect("base package should resolve uniquely");
+        let expected = db
+            .package_exports(base)
+            .lookup(NameContext::Value, &ident("value"))
+            .unique()
+            .expect("base::value");
+        let top = db
+            .unit_index()
+            .module_ids(&ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+        assert_eq!(
+            resolve_name(&db, top, &ident("value"), NameContext::Value),
+            Resolution::Unique(expected)
+        );
+    }
+
+    #[test]
+    fn def_id_survives_inserted_sibling_declaration() {
+        let mut db = db_with_root_text("module m;\nint b;\nendmodule\n");
+        let module_id = db
+            .unit_index()
+            .module_ids(&ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let before = db
+            .scope(module_id)
+            .lookup(NameContext::Value, &ident("b"))
+            .unique()
+            .expect("b should resolve uniquely");
+
+        // A net declaration does not change b's same-kind sibling occurrence,
+        // so its stable source identity and definition must not move.
+        db.set_file_text_with_durability(
+            TOP,
+            Arc::from("module m;\nwire w;\nint b;\nendmodule\n"),
+            Durability::LOW,
+        );
+
+        let module_id = db
+            .unit_index()
+            .module_ids(&ident("m"))
+            .unique()
+            .expect("module should still resolve uniquely");
+        let after = db
+            .scope(module_id)
+            .lookup(NameContext::Value, &ident("b"))
+            .unique()
+            .expect("b should still resolve uniquely");
+        assert_eq!(before, after);
+    }
+
+    #[test]
     fn resolve_path_treats_top_level_module_as_hierarchical_root() {
         let db = db_with_root_text(
             r#"
