@@ -1,6 +1,59 @@
 use super::*;
 
 #[test]
+fn goto_definition_prefers_activated_wildcard_import_over_later_declaration() {
+    // IEEE 1800-2017 26.3 Example 1: the reference activates p::x, so
+    // goto-definition must not jump to the later declaration of x.
+    let pull_caps = ClientCapabilities::default();
+    let temp_dir = TempDir::new("goto-wildcard-point");
+    let top_path = temp_dir.path().join("top.sv");
+    let top_text = "package p;\nint x;\nendpackage\nmodule top;\nimport p::*;\nif (1) begin : b\n  initial x = 1;\nend\nint x;\nendmodule\n";
+    fs::write(&top_path, top_text).unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let (client, server_thread) = spawn_test_workspace(root_path, pull_caps, UserConfig::default());
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    open_test_document(&client, top_uri.clone(), top_text);
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let definition_uris = request_goto_definition_uris(&client, top_uri.clone(), top_text, "x = 1", 2);
+    assert_eq!(definition_uris, vec![top_uri.clone()]);
+
+    // A scalar/array goto-definition response carries the target range;
+    // re-request and compare against the package declaration's range.
+    let request_id = lsp_server::RequestId::from(3);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            GotoDefinition::METHOD.to_string(),
+            GotoDefinitionParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: top_uri },
+                    position: position_of(top_text, "x = 1"),
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let definition: Option<GotoDefinitionResponse> = recv_response(&client, request_id, "definition");
+    let definition = definition.expect("definition response");
+    let range = match definition {
+        GotoDefinitionResponse::Scalar(location) => location.range,
+        GotoDefinitionResponse::Array(locations) => locations[0].range,
+        GotoDefinitionResponse::Link(_) => panic!("unexpected link response"),
+    };
+    assert_eq!(
+        range,
+        range_of(top_text, "x"),
+        "goto-definition must resolve the reference to p::x, not the later declaration"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn unconfigured_workspace_goto_definition_uses_indexed_unopened_files() {
     let pull_caps = ClientCapabilities {
         text_document: Some(TextDocumentClientCapabilities {
