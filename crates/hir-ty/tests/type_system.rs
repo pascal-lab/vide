@@ -11,6 +11,7 @@ use hir_def::{
     Ident,
     container::OwnerRef,
     db::HirDefDb,
+    expr::data_ty::{DataTy, TypePathKind},
     owner::OwnerId,
     pathres::{resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
@@ -213,6 +214,69 @@ endmodule
     assert_eq!(
         types.compatibility(&four_bits, &types.type_of_resolution(Resolution::Unresolved)),
         Compatibility::Unknown
+    );
+}
+
+#[test]
+fn qualified_type_paths_preserve_separator_and_source_projection() {
+    let db = db_with_root_text(
+        r#"
+package p;
+  typedef logic t;
+endpackage
+
+module m;
+  p::t value;
+endmodule
+"#,
+    );
+    let module = module_id(&db, "m");
+    let lowered = db.body_with_source_map(module);
+    let type_ref = lowered
+        .data_ref()
+        .declarations
+        .iter()
+        .find_map(|(_, declaration)| match declaration.ty() {
+            DataTy::Named(type_ref) => Some(type_ref),
+            _ => None,
+        })
+        .expect("the value declaration should retain its named type");
+
+    assert_eq!(type_ref.path_kind(), TypePathKind::Package);
+    assert_eq!(type_ref.segments(), &[ident("p"), ident("t")]);
+    assert_eq!(type_ref.segment_sources().len(), type_ref.segments().len());
+    let source = db
+        .source_projection(module.file(&db))
+        .origin(type_ref.source())
+        .expect("type path source identity must project to source data");
+    assert_eq!(source.file_id(), module.file(&db));
+    assert!(source.full_range().is_some());
+
+    let value = type_of_name(&db, module, "value", NameContext::Value);
+    assert!(
+        value.diagnostics().is_empty(),
+        "qualified type should resolve: {:?}",
+        value.diagnostics()
+    );
+}
+
+#[test]
+fn type_path_selectors_are_explicit_recovery() {
+    let db = db_with_root_text(
+        r#"
+module m;
+  typedef logic t;
+  t[0] value;
+endmodule
+"#,
+    );
+    let module = module_id(&db, "m");
+    let value = type_of_name(&db, module, "value", NameContext::Value);
+    assert_eq!(
+        value.diagnostics(),
+        &[hir_ty::TypeDiagnostic::InvalidTypePath(
+            hir_def::expr::data_ty::TypePathRecovery::Selectors
+        )]
     );
 }
 

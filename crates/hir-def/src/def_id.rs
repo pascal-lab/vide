@@ -319,15 +319,20 @@ impl DefinitionRole {
     }
 }
 
-/// Stable identity derived from the canonical source key, never collection
-/// order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Stable identity derived from semantic source order, never a vector ordinal.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LocalDefId(DefinitionKey);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct DefinitionKey {
-    source: SourceAstId,
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct DefinitionNameKey {
     role: DefinitionRole,
+    name: Option<SmolStr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct DefinitionKey {
+    name: DefinitionNameKey,
+    ordinal: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -339,27 +344,59 @@ struct DefinitionData {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct DefinitionTable {
     definitions: FxHashMap<LocalDefId, DefinitionData>,
-    by_key: FxHashMap<DefinitionKey, LocalDefId>,
+    by_source: FxHashMap<(SourceAstId, DefinitionRole), LocalDefId>,
+    next_ordinals: FxHashMap<DefinitionNameKey, u32>,
 }
 
 impl DefinitionTable {
-    fn insert(&mut self, source: SourceAstId, primary: DefOriginLoc) -> LocalDefId {
-        let key = DefinitionKey { source, role: DefinitionRole::of(&primary) };
+    fn allocate(
+        &mut self,
+        source: SourceAstId,
+        role: DefinitionRole,
+        name: Option<SmolStr>,
+    ) -> LocalDefId {
+        let source_key = (source, role);
         assert!(
-            !self.by_key.contains_key(&key),
-            "definition key inserted twice: {source:?} {:?}",
-            key.role
+            !self.by_source.contains_key(&source_key),
+            "definition source inserted twice: {source:?} {role:?}"
         );
+        let name_key = DefinitionNameKey { role, name };
+        let ordinal = self.next_ordinals.entry(name_key.clone()).or_default();
+        let key = DefinitionKey { name: name_key, ordinal: *ordinal };
+        *ordinal += 1;
         let local = LocalDefId(key);
-        self.definitions.insert(local, DefinitionData { primary, additional: SmallVec::new() });
-        self.by_key.insert(key, local);
+        self.by_source.insert(source_key, local.clone());
         local
     }
 
-    fn alias(&mut self, source: SourceAstId, origin: DefOriginLoc, local: LocalDefId) {
-        let key = DefinitionKey { source, role: DefinitionRole::of(&origin) };
-        let previous = self.by_key.insert(key, local);
-        assert!(previous.is_none(), "definition alias inserted twice");
+    fn insert(
+        &mut self,
+        db: &dyn HirDefDb,
+        source: SourceAstId,
+        primary: DefOriginLoc,
+    ) -> LocalDefId {
+        let local = self.allocate(source, DefinitionRole::of(&primary), primary.clone().name(db));
+        self.definitions
+            .insert(local.clone(), DefinitionData { primary, additional: SmallVec::new() });
+        local
+    }
+
+    fn alias(
+        &mut self,
+        db: &dyn HirDefDb,
+        source: SourceAstId,
+        origin: DefOriginLoc,
+        local: LocalDefId,
+    ) {
+        let role = DefinitionRole::of(&origin);
+        let source_key = (source, role);
+        assert!(
+            !self.by_source.contains_key(&source_key),
+            "definition source inserted twice: {source:?} {role:?}"
+        );
+        let name_key = DefinitionNameKey { role, name: origin.clone().name(db) };
+        *self.next_ordinals.entry(name_key).or_default() += 1;
+        self.by_source.insert(source_key, local.clone());
         self.definitions
             .get_mut(&local)
             .expect("definition alias must target an existing definition")
@@ -368,7 +405,7 @@ impl DefinitionTable {
     }
 
     fn local_for(&self, source: SourceAstId, role: DefinitionRole) -> Option<LocalDefId> {
-        self.by_key.get(&DefinitionKey { source, role }).copied()
+        self.by_source.get(&(source, role)).cloned()
     }
 
     fn get(&self, local: LocalDefId) -> Option<&DefinitionData> {
@@ -385,37 +422,38 @@ pub(crate) fn definition_table(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Definit
 
     match owner.kind(db) {
         OwnerKind::Module => {
-            table.insert(owner.ast_id(db), DefOriginLoc::Module(owner));
+            table.insert(db, owner.ast_id(db), DefOriginLoc::Module(owner));
             if let crate::module::port::PortSrcs::NonAnsi { ports, .. } = &sources.port_srcs {
                 for (port, source) in ports.iter() {
-                    table.insert(source, DefOriginLoc::NonAnsiPort(OwnerRef::new(owner, port)));
+                    table.insert(db, source, DefOriginLoc::NonAnsiPort(OwnerRef::new(owner, port)));
                 }
             }
             for (id, source) in sources.instance_srcs.iter() {
-                table.insert(source, DefOriginLoc::Instance(OwnerRef::new(owner, id)));
+                table.insert(db, source, DefOriginLoc::Instance(OwnerRef::new(owner, id)));
             }
             for (id, source) in sources.modport_srcs.iter() {
-                table.insert(source, DefOriginLoc::Modport(OwnerRef::new(owner, id)));
+                table.insert(db, source, DefOriginLoc::Modport(OwnerRef::new(owner, id)));
             }
             for (id, source) in sources.clocking_block_srcs.iter() {
-                table.insert(source, DefOriginLoc::ClockingBlock(OwnerRef::new(owner, id)));
+                table.insert(db, source, DefOriginLoc::ClockingBlock(OwnerRef::new(owner, id)));
             }
         }
         OwnerKind::GenerateBlock => {
-            table.insert(owner.ast_id(db), DefOriginLoc::GenerateBlock(owner));
+            table.insert(db, owner.ast_id(db), DefOriginLoc::GenerateBlock(owner));
             for (id, source) in sources.instance_srcs.iter() {
-                table.insert(source, DefOriginLoc::Instance(OwnerRef::new(owner, id)));
+                table.insert(db, source, DefOriginLoc::Instance(OwnerRef::new(owner, id)));
             }
         }
         OwnerKind::Block => {
-            table.insert(owner.ast_id(db), DefOriginLoc::Block(owner));
+            table.insert(db, owner.ast_id(db), DefOriginLoc::Block(owner));
         }
         OwnerKind::Subroutine => {
-            table.insert(owner.ast_id(db), DefOriginLoc::Subroutine(owner));
+            table.insert(db, owner.ast_id(db), DefOriginLoc::Subroutine(owner));
             let subroutine = db.subroutine(owner);
             for (index, port) in subroutine.ports.iter().enumerate() {
                 let port_id = SubroutinePortId(index as u32);
                 table.insert(
+                    db,
                     port.source,
                     DefOriginLoc::SubroutinePort(OwnerRef::new(owner, port_id)),
                 );
@@ -424,11 +462,15 @@ pub(crate) fn definition_table(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Definit
         OwnerKind::Checker => {
             let checker = owner.as_checker(db).expect("checker owner must contain a definition");
             let source = sources.checker_srcs.hir_to_src(checker.value).expect("checker source");
-            table.insert(source, DefOriginLoc::Checker(checker));
+            table.insert(db, source, DefOriginLoc::Checker(checker));
             let checker_data = GetRef::get(body, checker.value);
             for (index, port) in checker_data.ports.iter().enumerate() {
                 let port_id = CheckerPortId(index as u32);
-                table.insert(port.source, DefOriginLoc::CheckerPort(OwnerRef::new(owner, port_id)));
+                table.insert(
+                    db,
+                    port.source,
+                    DefOriginLoc::CheckerPort(OwnerRef::new(owner, port_id)),
+                );
             }
         }
         OwnerKind::Covergroup => {
@@ -436,12 +478,12 @@ pub(crate) fn definition_table(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Definit
                 owner.as_covergroup(db).expect("covergroup owner must contain a definition");
             let source =
                 sources.covergroup_srcs.hir_to_src(covergroup.value).expect("covergroup source");
-            table.insert(source, DefOriginLoc::Covergroup(covergroup));
+            table.insert(db, source, DefOriginLoc::Covergroup(covergroup));
             for (id, source) in sources.coverpoint_srcs.iter() {
-                table.insert(source, DefOriginLoc::Coverpoint(OwnerRef::new(owner, id)));
+                table.insert(db, source, DefOriginLoc::Coverpoint(OwnerRef::new(owner, id)));
             }
             for (id, source) in sources.cross_srcs.iter() {
-                table.insert(source, DefOriginLoc::Cross(OwnerRef::new(owner, id)));
+                table.insert(db, source, DefOriginLoc::Cross(OwnerRef::new(owner, id)));
             }
         }
         OwnerKind::ClockingBlock => {
@@ -449,11 +491,12 @@ pub(crate) fn definition_table(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Definit
                 owner.as_clocking_block(db).expect("clocking owner must contain a definition");
             let source =
                 sources.clocking_block_srcs.hir_to_src(clocking.value).expect("clocking source");
-            table.insert(source, DefOriginLoc::ClockingBlock(clocking));
+            table.insert(db, source, DefOriginLoc::ClockingBlock(clocking));
             let block = GetRef::get(body, clocking.value);
             for (index, signal) in block.signals.iter().enumerate() {
                 let signal_id = crate::module::clocking::ClockingSignalId(index as u32);
                 table.insert(
+                    db,
                     signal.source,
                     DefOriginLoc::ClockingSignal(OwnerRef::new(owner, signal_id)),
                 );
@@ -463,13 +506,13 @@ pub(crate) fn definition_table(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Definit
     }
 
     for (id, source) in sources.config_decl_srcs.iter() {
-        table.insert(source, DefOriginLoc::Config(InFile::new(owner.file(db), id)));
+        table.insert(db, source, DefOriginLoc::Config(InFile::new(owner.file(db), id)));
     }
     for (id, source) in sources.library_decl_srcs.iter() {
-        table.insert(source, DefOriginLoc::Library(InFile::new(owner.file(db), id)));
+        table.insert(db, source, DefOriginLoc::Library(InFile::new(owner.file(db), id)));
     }
     for (id, source) in sources.udp_decl_srcs.iter() {
-        table.insert(source, DefOriginLoc::Udp(InFile::new(owner.file(db), id)));
+        table.insert(db, source, DefOriginLoc::Udp(InFile::new(owner.file(db), id)));
     }
 
     if let Some(scope) = body.scope(owner) {
@@ -490,18 +533,18 @@ pub(crate) fn definition_table(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Definit
                 let local = table
                     .local_for(port_source, DefinitionRole::NonAnsiPort)
                     .expect("non-ANSI port must be collected before declarations");
-                table.alias(source, origin, local);
+                table.alias(db, source, origin, local);
                 continue;
             }
-            table.insert(source, origin);
+            table.insert(db, source, origin);
         }
         for id in scope.typedefs() {
             let source = sources.typedef_srcs.hir_to_src(*id).expect("typedef source");
-            table.insert(source, DefOriginLoc::Typedef(OwnerRef::new(owner, *id)));
+            table.insert(db, source, DefOriginLoc::Typedef(OwnerRef::new(owner, *id)));
         }
         for id in scope.statements() {
             let source = sources.stmt_srcs.hir_to_src(*id).expect("statement source");
-            table.insert(source, DefOriginLoc::Stmt(OwnerRef::new(owner, *id)));
+            table.insert(db, source, DefOriginLoc::Stmt(OwnerRef::new(owner, *id)));
         }
     }
 
@@ -512,7 +555,6 @@ pub(crate) fn definition_table(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Definit
 struct InternedDefId {
     #[returns(copy)]
     owner: OwnerId,
-    #[returns(copy)]
     local: LocalDefId,
 }
 
@@ -582,7 +624,7 @@ impl DefId {
     pub fn origins(&self, db: &dyn HirDefDb) -> SmallVec<[DefOrigin; 3]> {
         let table = db.definition_table(self.0.owner(db));
         let data = table
-            .get(self.0.local(db))
+            .get(self.0.local(db).clone())
             .expect("definition local id must project into its owner table");
         let mut origins = SmallVec::new();
         origins.push(DefOrigin::new(db, data.primary.clone()));
@@ -593,7 +635,7 @@ impl DefId {
     pub fn primary_origin(&self, db: &dyn HirDefDb) -> DefOrigin {
         let table = db.definition_table(self.0.owner(db));
         let data = table
-            .get(self.0.local(db))
+            .get(self.0.local(db).clone())
             .expect("definition local id must project into its owner table");
         DefOrigin::new(db, data.primary.clone())
     }
