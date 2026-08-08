@@ -147,13 +147,14 @@ document_symbols:
 semantic_token_classes:
   Instance SemaTokenModifier(0x0): 1
   Port(Others) SemaTokenModifier(0x0): 10
-folding_ranges: 7
+folding_ranges: 8
   Comment 0..116
   PortList 131..160
   Module 162..189
   PortList 202..243
   Module 245..411
   Generate 264..401
+  Generate 281..385
   Config 413..485
 
 ## lexical_preproc/macros_and_comments.v
@@ -169,9 +170,9 @@ semantic_token_classes:
   Macro SemaTokenModifier(REF): 2
   Port(Others) SemaTokenModifier(0x0): 4
 folding_ranges: 3
-  Region 149..239
   PortList 80..143
   Module 145..239
+  Region 149..239
 
 ## specify_timing/specify_and_timing_checks.v
 parse_diagnostics: []
