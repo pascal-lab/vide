@@ -93,8 +93,16 @@ impl dyn HirDefDb + '_ {
         diagnostics::file_lowering_diagnostics(self, self.syntax_file(file_id))
     }
 
-    pub fn scope_graph(&self) -> Arc<crate::scope::ScopeGraph> {
-        scope::scope_graph(self)
+    pub fn scope_graph(&self) -> crate::scope::ScopeGraph<'_> {
+        crate::scope::ScopeGraph::new(self)
+    }
+
+    pub fn scope(&self, owner: OwnerId) -> Arc<crate::symbol::ScopeData> {
+        crate::scope::scope_for(self, owner)
+    }
+
+    pub fn unit_scope(&self) -> Arc<crate::symbol::ScopeData> {
+        crate::scope::unit_scope(self)
     }
 
     pub fn unit_index(&self) -> Arc<crate::unit_index::UnitIndex> {
