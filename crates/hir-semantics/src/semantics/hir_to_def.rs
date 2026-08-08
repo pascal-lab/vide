@@ -5,7 +5,9 @@ use hir_def::{
     def_id::DefId,
     expr::{Expr, ExprId},
     owner::OwnerId,
-    pathres::{NameRef, RefKind, resolve_child_name, resolve_name, resolve_name_at, resolve_path_at},
+    pathres::{
+        NameRef, RefKind, resolve_child_name, resolve_name, resolve_name_at, resolve_path_at,
+    },
     symbol::{NameContext, Resolution},
 };
 
@@ -21,19 +23,23 @@ pub(super) fn expr_to_def(
             let Some(field) = field.as_ref() else {
                 return Resolution::Unresolved;
             };
-            resolve_expr_path(db, cont_id, expr_id, NameContext::Value, reference.as_ref())
-                .or_else(|| {
+            resolve_expr_path(db, cont_id, expr_id, NameContext::Value, reference.as_ref()).or_else(
+                || {
                     let receiver_res = expr_to_def(db, OwnerRef::new(cont_id, *receiver));
                     resolve_child_name(db, &receiver_res, field, NameContext::Value)
-                })
+                },
+            )
         }
         Expr::ElementSelect { receiver, .. } => {
             resolve_expr_path(db, cont_id, expr_id, NameContext::Value, reference.as_ref())
                 .or_else(|| expr_to_def(db, OwnerRef::new(cont_id, *receiver)))
         }
-        Expr::Ident(ident) => {
-            name_to_def_at(db, OwnerRef::new(cont_id, ident.clone()), NameContext::Value, reference.as_ref())
-        }
+        Expr::Ident(ident) => name_to_def_at(
+            db,
+            OwnerRef::new(cont_id, ident.clone()),
+            NameContext::Value,
+            reference.as_ref(),
+        ),
         _ => Resolution::Unresolved,
     };
 

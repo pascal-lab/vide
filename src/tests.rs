@@ -15,12 +15,12 @@ use lsp_types::{
     DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentSymbolParams,
     DocumentSymbolResponse, FileChangeType, FileEvent, FoldingRange, FoldingRangeParams,
     GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, Position, ProgressParams,
-    SignatureHelpParams,
     PublishDiagnosticsParams, Range, SemanticTokensParams, SemanticTokensResult,
-    TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
-    TextDocumentItem, TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier,
-    WorkDoneProgressParams, WorkspaceClientCapabilities, WorkspaceDiagnosticParams,
-    WorkspaceDiagnosticReportResult, WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    SignatureHelpParams, TextDocumentClientCapabilities, TextDocumentContentChangeEvent,
+    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Url,
+    VersionedTextDocumentIdentifier, WorkDoneProgressParams, WorkspaceClientCapabilities,
+    WorkspaceDiagnosticParams, WorkspaceDiagnosticReportResult, WorkspaceSymbolParams,
+    WorkspaceSymbolResponse,
     notification::{
         DidChangeConfiguration, DidChangeTextDocument, DidChangeWatchedFiles, DidOpenTextDocument,
         DidSaveTextDocument, Exit, Notification as _,
@@ -31,8 +31,7 @@ use lsp_types::{
         Completion as CompletionRequest, DocumentDiagnosticRequest, DocumentSymbolRequest,
         ExecuteCommand, FoldingRangeRequest, GotoDefinition, GotoTypeDefinition, HoverRequest,
         References, Request as _, SemanticTokensFullRequest, Shutdown, SignatureHelpRequest,
-        WorkspaceConfiguration,
-        WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
+        WorkspaceConfiguration, WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
     },
 };
 use serde::de::DeserializeOwned;
