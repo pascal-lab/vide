@@ -15,6 +15,7 @@ use lsp_types::{
     DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentSymbolParams,
     DocumentSymbolResponse, FileChangeType, FileEvent, FoldingRange, FoldingRangeParams,
     GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, Position, ProgressParams,
+    SignatureHelpParams,
     PublishDiagnosticsParams, Range, SemanticTokensParams, SemanticTokensResult,
     TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
     TextDocumentItem, TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier,
@@ -29,7 +30,8 @@ use lsp_types::{
         CodeActionRequest, CodeActionResolveRequest, CodeLensRequest, CodeLensResolve,
         Completion as CompletionRequest, DocumentDiagnosticRequest, DocumentSymbolRequest,
         ExecuteCommand, FoldingRangeRequest, GotoDefinition, GotoTypeDefinition, HoverRequest,
-        References, Request as _, SemanticTokensFullRequest, Shutdown, WorkspaceConfiguration,
+        References, Request as _, SemanticTokensFullRequest, Shutdown, SignatureHelpRequest,
+        WorkspaceConfiguration,
         WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
     },
 };

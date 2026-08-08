@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn signature_help_reaches_forward_declared_functions() {
+    // A call reference searches every scope to its end (26.3), so a function
+    // declared after the call still provides signature help.
+    let text = "module m;\nassign y = f(1);\nfunction int f(input int a);\nreturn a;\nendfunction\nendmodule\n";
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        &[("top.sv", text)],
+    );
+    let top_uri = uris[0].clone();
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let request_id = lsp_server::RequestId::from(2);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            SignatureHelpRequest::METHOD.to_string(),
+            SignatureHelpParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: top_uri },
+                    position: position_at_offset(text, text.find("f(1)").unwrap() + 2),
+                },
+                context: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )))
+        .unwrap();
+    let help: Option<lsp_types::SignatureHelp> = recv_response(&client, request_id, "signature_help");
+    let help = help.expect("signature help for forward-declared function call");
+    assert!(
+        help.signatures.iter().any(|signature| signature.label.contains("f")),
+        "forward-declared function must provide signature help: {help:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn goto_definition_prefers_activated_wildcard_import_over_later_declaration() {
     // IEEE 1800-2017 26.3 Example 1: the reference activates p::x, so
     // goto-definition must not jump to the later declaration of x.
