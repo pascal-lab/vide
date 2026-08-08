@@ -7,7 +7,7 @@ use crate::{
     db::HirDefDb,
     def_id::DefId,
     module::instantiation::InstanceId,
-    owner::OwnerId,
+    owner::{OwnerId, OwnerKind},
     symbol::{DefKind, NameContext, Resolution, ScopeData},
 };
 
@@ -250,6 +250,9 @@ pub fn instance_target_def_id(
 }
 
 fn instantiable_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
+    let is_instantiable = matches!(owner.kind(db), OwnerKind::Checker | OwnerKind::Covergroup)
+        || owner.module_kind(db).is_some_and(|kind| kind.is_instantiable());
+    assert!(is_instantiable, "owner must be an instantiable design unit: {owner:?}");
     DefId::from_owner(db, owner).expect("instantiable owner must have a definition")
 }
 fn resolve_imported_name(

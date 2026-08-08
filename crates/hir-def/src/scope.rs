@@ -36,28 +36,6 @@ fn owner_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
     DefId::from_owner(db, owner).expect("owner must have a named definition origin")
 }
 
-/// A database-bound view over independently memoized lexical scopes.
-///
-/// The view itself is not a Salsa query. `scope()` is keyed by one owner and
-/// `unit_scope()` is the only intentionally workspace-wide query.
-pub struct ScopeGraph<'db> {
-    db: &'db dyn HirDefDb,
-}
-
-impl<'db> ScopeGraph<'db> {
-    pub(crate) fn new(db: &'db dyn HirDefDb) -> Self {
-        Self { db }
-    }
-
-    pub fn scope(&self, owner: OwnerId) -> Arc<ScopeData> {
-        scope_for(self.db, owner)
-    }
-
-    pub fn unit_scope(&self) -> Arc<ScopeData> {
-        unit_scope(self.db)
-    }
-}
-
 /// Builds one lexical scope and invalidates only when that owner changes.
 #[salsa::tracked(lru = 128, returns(clone))]
 pub fn scope_for(db: &dyn HirDefDb, owner: OwnerId) -> Arc<ScopeData> {
@@ -77,7 +55,7 @@ pub fn unit_scope(db: &dyn HirDefDb) -> Arc<ScopeData> {
     Arc::new(unit)
 }
 
-pub(crate) fn set_scope_graph_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+pub(crate) fn set_scope_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     scope_for::set_lru_capacity(db, capacity);
     unit_scope::set_lru_capacity(db, capacity);
 }
@@ -618,8 +596,7 @@ endmodule
 "#,
         );
 
-        let graph = db.scope_graph();
-        let unit_scope = graph.unit_scope();
+        let unit_scope = db.unit_scope();
         assert!(
             unit_scope
                 .lookup(NameContext::Value, &ident("file_sig"))
@@ -643,7 +620,7 @@ endmodule
             .expect("module should resolve uniquely");
         assert_eq!(module_id.file(&db), HirFileId::File(TOP));
 
-        let module_scope = graph.scope(module_id);
+        let module_scope = db.scope(module_id);
         let port_def = module_scope
             .lookup(NameContext::Value, &ident("a"))
             .unique()
@@ -671,7 +648,7 @@ endmodule
         assert!(
             subroutine_id.source(&db).is_some_and(|source| source.value.focus_range().is_some())
         );
-        let subroutine_scope = graph.scope(subroutine_id);
+        let subroutine_scope = db.scope(subroutine_id);
         assert!(
             subroutine_scope
                 .lookup(NameContext::Value, &ident("p"))
@@ -693,8 +670,7 @@ endmodule
                 .is_some()
         );
         assert!(
-            db.scope_graph()
-                .scope(block_id)
+            db.scope(block_id)
                 .lookup(NameContext::Value, &ident("x"))
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::Variable)
@@ -711,8 +687,7 @@ endmodule
                 .is_some_and(|source| source.value.focus_range().is_some())
         );
         assert!(
-            db.scope_graph()
-                .scope(generate_block_id)
+            db.scope(generate_block_id)
                 .lookup(NameContext::Value, &ident("y"))
                 .iter()
                 .any(|def_id| def_id.kind(&db) == DefKind::Net)
@@ -737,8 +712,7 @@ endmodule
 "#,
         );
 
-        let duplicate =
-            db.scope_graph().unit_scope().lookup(NameContext::Value, &ident("duplicate"));
+        let duplicate = db.unit_scope().lookup(NameContext::Value, &ident("duplicate"));
         let crate::symbol::Resolution::Ambiguous(candidates) = duplicate else {
             panic!("same-name declarations should remain ambiguous");
         };
@@ -751,7 +725,6 @@ endmodule
             .unique()
             .expect("module should resolve uniquely");
         let port = db
-            .scope_graph()
             .scope(module_id)
             .lookup(NameContext::Value, &ident("a"))
             .unique()
@@ -855,7 +828,6 @@ endmodule
             .unique()
             .expect("module should resolve uniquely");
         let before = db
-            .scope_graph()
             .scope(module_id)
             .lookup(NameContext::Value, &ident("a"))
             .unique()
@@ -891,7 +863,6 @@ endmodule
             .unique()
             .expect("module should still resolve uniquely");
         let after = db
-            .scope_graph()
             .scope(module_id)
             .lookup(NameContext::Value, &ident("a"))
             .unique()
@@ -916,7 +887,7 @@ endmodule
             .unique()
             .expect("module should resolve uniquely");
         let Resolution::Ambiguous(candidates) =
-            db.scope_graph().scope(module_id).lookup(NameContext::Value, &ident("a"))
+            db.scope(module_id).lookup(NameContext::Value, &ident("a"))
         else {
             panic!("the port and parameter should remain separate definitions");
         };
@@ -943,7 +914,7 @@ endmodule
             .unique()
             .expect("module should resolve uniquely");
         let Resolution::Ambiguous(candidates) =
-            db.scope_graph().scope(module_id).lookup(NameContext::Value, &ident("a"))
+            db.scope(module_id).lookup(NameContext::Value, &ident("a"))
         else {
             panic!("duplicate labels should remain ambiguous");
         };
@@ -968,7 +939,7 @@ endmodule
             .unique()
             .expect("module should resolve uniquely");
         let Resolution::Ambiguous(candidates) =
-            db.scope_graph().scope(module_id).lookup(NameContext::Value, &ident("a"))
+            db.scope(module_id).lookup(NameContext::Value, &ident("a"))
         else {
             panic!("duplicate data declarations should remain ambiguous");
         };
@@ -1239,7 +1210,7 @@ endmodule
         assert_eq!(clocking_block.signals.len(), 1);
         assert_eq!(clocking_block.signals[0].name.as_str(), "a");
 
-        let defs = db.scope_graph().scope(module_id).lookup(NameContext::Value, &ident("cb"));
+        let defs = db.scope(module_id).lookup(NameContext::Value, &ident("cb"));
         assert!(defs.iter().any(|def_id| {
             def_id.kind(&db) == DefKind::ClockingBlock
                 && def_id
@@ -1263,8 +1234,7 @@ endmodule
 "#,
         );
 
-        let graph = db.scope_graph();
-        let checker_defs = graph.unit_scope().lookup(NameContext::Type, &ident("c"));
+        let checker_defs = db.unit_scope().lookup(NameContext::Type, &ident("c"));
         assert!(checker_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Checker));
         let checker_id = checker_defs
             .iter()
@@ -1272,7 +1242,7 @@ endmodule
             .find_map(|def_id| def_id.primary_origin(&db).as_checker(&db))
             .expect("checker definition should have a concrete id");
         let owner = DefOriginLoc::Checker(checker_id).owner(&db);
-        let checker_scope = graph.scope(owner);
+        let checker_scope = db.scope(owner);
         assert!(
             checker_scope
                 .lookup(NameContext::Value, &ident("clk"))
@@ -1349,8 +1319,7 @@ endmodule
         assert_eq!(covergroup_body.get(coverpoint_id).name.as_deref(), Some("cp"));
         assert_eq!(covergroup_body.get(cross_id).name.as_deref(), Some("cx"));
 
-        let graph = db.scope_graph();
-        let module_scope = graph.scope(module_id);
+        let module_scope = db.scope(module_id);
         let covergroup_defs = module_scope.lookup(NameContext::Type, &ident("cg"));
         assert!(covergroup_defs.iter().any(|def_id| {
             def_id.kind(&db) == DefKind::Covergroup
@@ -1360,7 +1329,7 @@ endmodule
                     .is_some_and(|id| id.cont_id == covergroup_owner && id.value == covergroup_id)
         }));
 
-        let covergroup_scope = graph.scope(covergroup_owner);
+        let covergroup_scope = db.scope(covergroup_owner);
         let scoped_coverpoint_defs = covergroup_scope.lookup(NameContext::Value, &ident("cp"));
         assert!(scoped_coverpoint_defs.iter().any(|def_id| {
             matches!(
@@ -1445,8 +1414,7 @@ endmodule
             .module_ids(&ident("wildcard_importer"))
             .unique()
             .expect("wildcard importer should resolve uniquely");
-        let graph = db.scope_graph();
-        let wildcard_scope = graph.scope(wildcard_importer);
+        let wildcard_scope = db.scope(wildcard_importer);
         assert!(
             wildcard_scope
                 .imports()
@@ -1473,7 +1441,7 @@ endmodule
             .module_ids(&ident("named_importer"))
             .unique()
             .expect("named importer should resolve uniquely");
-        let named_scope = graph.scope(named_importer);
+        let named_scope = db.scope(named_importer);
         assert!(named_scope.imports().iter().any(|import| {
             import.package == ident("pkg")
                 && import.name.as_ref().is_some_and(|name| name == "imported_v")
