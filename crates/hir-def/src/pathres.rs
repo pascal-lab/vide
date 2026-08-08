@@ -110,7 +110,7 @@ pub fn resolve_name_with_trace(
 /// Whether a source position precedes a reference position. Cross-file
 /// positions are unordered and therefore always visible (keeps multi-file
 /// resolution unchanged); ordinals are compared within the shared file map.
-fn before_reference(
+pub(crate) fn before_reference(
     db: &dyn HirDefDb,
     source: InFile<crate::ast_id_map::SourceAstId>,
     reference: &NameRef,
@@ -477,6 +477,38 @@ fn resolve_scope_imports(
         });
     }
     wildcard
+}
+
+/// Resolves `ident` through wildcard imports only, returning the scope whose
+/// wildcard import matched. Used to detect when a reference makes a wildcard
+/// import locally visible (IEEE 1800-2017 26.3).
+pub(crate) fn resolve_wildcard_at(
+    db: &dyn HirDefDb,
+    cont_id: OwnerId,
+    ident: &Ident,
+    ctx: NameContext,
+    reference: Option<&NameRef>,
+) -> (Resolution<DefId>, Option<OwnerId>) {
+    let scopes = ScopeChain::from_inner(db, cont_id);
+    let at = AtFilter { reference };
+    let design_map = db.design_map();
+    for scope_id in scopes.iter() {
+        let scope = db.scope(*scope_id);
+        let mut collector = ImportCollector {
+            db,
+            design_map: &design_map,
+            scope: scope.as_ref(),
+            defs: SmallVec::new(),
+            scope_file: scope_id.file(db),
+            at,
+        };
+        collector.collect(ident, ctx, false);
+        let wildcard = Resolution::from_candidates(collector.defs.iter().copied());
+        if !wildcard.is_unresolved() {
+            return (wildcard, Some(*scope_id));
+        }
+    }
+    (Resolution::Unresolved, None)
 }
 
 #[cfg(test)]
