@@ -3,14 +3,13 @@ use collector::SemaTokenCollectorTree;
 use hir_def::{
     Ident,
     body::BodyItem,
-    container::OwnerRef,
+    container::{InFile, OwnerRef},
     def_id::DefId,
     expr::{
         Expr, ExprId,
         data_ty::{DataTy, TypeRef},
         declarator::DeclaratorParent,
     },
-    container::InFile,
     has_source::HasSource,
     module::instantiation::{ParamAssign, ParamAssignId, PortConn, PortConnId},
     owner::OwnerId,
@@ -19,8 +18,8 @@ use hir_def::{
     symbol::{DefKind, NameContext, Resolution},
 };
 use hir_semantics::semantics::Semantics;
-use rustc_hash::FxHashSet;
 use preproc_expand::{file::HirFileId, preproc::macro_references_in_range};
+use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use syntax::{
     ast::{self, AstNode},

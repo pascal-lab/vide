@@ -208,7 +208,7 @@ fn configured_workspace_rename_keeps_later_declaration_untouched() {
         .unwrap();
     let references: Option<Vec<lsp_types::Location>> =
         recv_response(&client, ref_request_id, "references");
-    let reference_ranges: Vec<lsp_types::Range> =
+    let _reference_ranges: Vec<lsp_types::Range> =
         references.unwrap_or_default().into_iter().map(|location| location.range).collect();
 
     let edit = request_rename(&client, top_uri, top_text, "x = 1", "renamed", 3)
@@ -219,10 +219,12 @@ fn configured_workspace_rename_keeps_later_declaration_untouched() {
     };
     let edit_ranges: Vec<lsp_types::Range> = document_edits
         .iter()
-        .flat_map(|edit| edit.edits.iter().filter_map(|text_edit| match text_edit {
-            lsp_types::OneOf::Left(text_edit) => Some(text_edit.range),
-            lsp_types::OneOf::Right(_) => None,
-        }))
+        .flat_map(|edit| {
+            edit.edits.iter().filter_map(|text_edit| match text_edit {
+                lsp_types::OneOf::Left(text_edit) => Some(text_edit.range),
+                lsp_types::OneOf::Right(_) => None,
+            })
+        })
         .collect();
     // Package declaration, the import item, and the reference must all move.
     let expected = [
@@ -231,10 +233,7 @@ fn configured_workspace_rename_keeps_later_declaration_untouched() {
         lsp_types::Range::new(Position::new(6, 10), Position::new(6, 11)),
     ];
     for range in expected {
-        assert!(
-            edit_ranges.contains(&range),
-            "expected rename at {range:?}: {edit_ranges:?}"
-        );
+        assert!(edit_ranges.contains(&range), "expected rename at {range:?}: {edit_ranges:?}");
     }
     // The module's own later declaration of x stays untouched.
     let module_declaration_range = range_of(top_text, "end\nint x");

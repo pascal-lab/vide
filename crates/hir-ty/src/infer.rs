@@ -267,12 +267,12 @@ fn type_of_expr_impl(db: &dyn TyDb, expr: OwnerRef<ExprId>) -> TyResult {
 /// Reference position of an expression, derived from its canonical source.
 fn expr_reference(db: &dyn TyDb, expr: OwnerRef<ExprId>) -> Option<NameRef> {
     let file_id = expr.cont_id.file(db);
-    let source = db
-        .body_with_source_map(expr.cont_id)
-        .source_map()
-        .expr_srcs
-        .hir_to_src(expr.value)?;
-    Some(NameRef { position: hir_def::container::InFile::new(file_id, source), kind: RefKind::Value })
+    let source =
+        db.body_with_source_map(expr.cont_id).source_map().expr_srcs.hir_to_src(expr.value)?;
+    Some(NameRef {
+        position: hir_def::container::InFile::new(file_id, source),
+        kind: RefKind::Value,
+    })
 }
 
 fn normalize_data_ty_inner(
