@@ -1569,6 +1569,7 @@ std::shared_ptr<syntax::SyntaxTree> Compilation::parseSyntaxTreeFromText(
       std::move(includeBuffers),
       std::nullopt,
       true,
+      true,
       true);
 }
 
