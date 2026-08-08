@@ -369,9 +369,19 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         fn lower_ident_select(
             ctx: &mut LoweringCtx<impl LoweringStore>,
             ident_select: ast::IdentifierSelectName,
+            base: Option<ExprId>,
         ) -> Option<Expr> {
-            let mut expr =
-                lower_ident_opt(ident_select.identifier()).map_or(Expr::Missing, Expr::Ident);
+            let mut expr = match base {
+                // `scope::member[sel]` keeps the scope receiver and applies
+                // the selectors to the member field.
+                Some(receiver) => Expr::Field {
+                    receiver,
+                    field: lower_ident_opt(ident_select.identifier()),
+                },
+                None => {
+                    lower_ident_opt(ident_select.identifier()).map_or(Expr::Missing, Expr::Ident)
+                }
+            };
 
             let mut selectors = ident_select
                 .selectors()
@@ -402,7 +412,9 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             ast::Name::SystemName(ident) => {
                 Some(lower_ident_opt(ident.system_identifier()).map_or(Expr::Missing, Expr::Ident))
             }
-            ast::Name::IdentifierSelectName(ident_select) => lower_ident_select(self, ident_select),
+            ast::Name::IdentifierSelectName(ident_select) => {
+                lower_ident_select(self, ident_select, None)
+            }
             ast::Name::IdentifierName(ident) => {
                 Some(lower_ident_opt(ident.identifier()).map_or(Expr::Missing, Expr::Ident))
             }
@@ -416,7 +428,9 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
                         let field = lower_ident_opt(ident.identifier());
                         Some(Expr::Field { receiver, field })
                     }
-                    IdentifierSelectName(ident_select) => lower_ident_select(self, ident_select),
+                    IdentifierSelectName(ident_select) => {
+                        lower_ident_select(self, ident_select, Some(receiver))
+                    }
                     _ => Some(Expr::Missing),
                 }
             }

@@ -1684,4 +1684,59 @@ endpackage
             "function body edits should not change the design map"
         );
     }
+
+    #[test]
+    fn interface_port_header_is_not_previous_header() {
+        let db = db_with_root_text("module m(input logic a, interface.ifc);\nendmodule\n");
+        let module_id = db.unit_index().module_ids(&ident("m")).unique().expect("m");
+        let body = db.body(module_id);
+        let Ports::Ansi(port_decls) = &body.ports else {
+            panic!("module should have ANSI ports");
+        };
+        assert!(
+            port_decls
+                .values()
+                .any(|decl| decl.header
+                    == crate::module::port::PortHeader::Interface {
+                        dir: crate::module::port::PortDirection::default(),
+                    }),
+            "interface port must keep its own header instead of the previous one"
+        );
+    }
+
+    #[test]
+    fn scoped_select_keeps_scope_receiver() {
+        let db = db_with_root_text(
+            "package pkg;\nendpackage\nmodule m;\ninitial begin\nx = pkg::arr[0];\nend\nendmodule\n",
+        );
+        let module_id = db.unit_index().module_ids(&ident("m")).unique().expect("m");
+        let module = db.body_with_source_map(module_id);
+        let (_, proc) = module.procs.iter().next().expect("initial block");
+        let body = db.body_with_source_map(proc.owner);
+        let found = body.exprs.values().any(|expr| {
+            matches!(
+                expr,
+                crate::expr::Expr::ElementSelect { receiver, .. }
+                    if matches!(
+                        &body.exprs[*receiver],
+                        crate::expr::Expr::Field { field, .. } if field.as_deref() == Some("arr")
+                    )
+            )
+        });
+        assert!(found, "pkg::arr[0] must keep its scope receiver");
+    }
+
+    #[test]
+    fn overridable_param_index_skips_body_params() {
+        let db = db_with_root_text(
+            "module m #(parameter int A = 0, parameter int B = 1) ();\n  parameter int P = 2;\nendmodule\n",
+        );
+        let module_id = db.unit_index().module_ids(&ident("m")).unique().expect("m");
+        let body = db.body(module_id);
+        let a = crate::module::param_port_id_by_idx(&body, 0).expect("A");
+        let b = crate::module::param_port_id_by_idx(&body, 1).expect("B");
+        assert_eq!(crate::module::overridable_param_id_by_idx(&body, 0), Some(a));
+        assert_eq!(crate::module::overridable_param_id_by_idx(&body, 1), Some(b));
+        assert_eq!(crate::module::overridable_param_id_by_idx(&body, 2), None);
+    }
 }
