@@ -368,7 +368,7 @@ fn lowering_diagnostic(
         severity,
         message,
         message_key,
-        vec![("syntax_kind", syntax_kind), ("message", diag.message.to_owned())],
+        vec![("syntax_kind", syntax_kind), ("message", diag.message.to_string())],
     ))
 }
 
