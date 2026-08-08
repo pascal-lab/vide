@@ -147,7 +147,7 @@ impl LowerFileCtx<'_> {
                     None => continue,
                 },
                 PackageImportDeclaration(import_decl) => {
-                    for import in lower_package_imports(import_decl) {
+                    for import in lower_package_imports(import_decl, self.source_id(import_decl.syntax())) {
                         self.store.data.package_imports.alloc(import);
                     }
                     continue;

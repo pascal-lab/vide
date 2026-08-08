@@ -1,9 +1,10 @@
+use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
 use utils::get::GetRef;
 
 use crate::{
     Ident,
-    container::ScopeChain,
+    container::{InFile, ScopeChain},
     db::HirDefDb,
     def_id::DefId,
     module::instantiation::InstanceId,
@@ -50,13 +51,44 @@ impl ResolutionTrace {
     }
 }
 
+/// How a name reference is used; controls forward visibility per
+/// (function/task calls search to the end of their scope).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RefKind {
+    Value,
+    Call,
+}
+
+/// A name reference with its source position. Passing one enables the
+/// point-of-reference rules: declarations and explicit imports count only
+/// before the reference in the innermost scope, and wildcard imports count
+/// only before the reference in every scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NameRef {
+    pub position: InFile<crate::ast_id_map::SourceAstId>,
+    pub kind: RefKind,
+}
+
 pub fn resolve_name(
     db: &dyn HirDefDb,
     cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    resolve_name_inner(db, cont_id, ident, ctx, None)
+    resolve_name_at(db, cont_id, ident, ctx, None)
+}
+
+/// Resolve a name honoring the reference's source position. Without a
+/// reference every declaration and import in a scope is considered, which
+/// matches the position-less [`resolve_name`].
+pub fn resolve_name_at(
+    db: &dyn HirDefDb,
+    cont_id: OwnerId,
+    ident: &Ident,
+    ctx: NameContext,
+    reference: Option<&NameRef>,
+) -> Resolution<DefId> {
+    resolve_name_inner(db, cont_id, ident, ctx, None, reference)
 }
 
 /// Resolve a name and retain the precedence decisions made by the resolver.
@@ -71,8 +103,40 @@ pub fn resolve_name_with_trace(
     ctx: NameContext,
 ) -> (Resolution<DefId>, ResolutionTrace) {
     let mut trace = ResolutionTrace::default();
-    let resolution = resolve_name_inner(db, cont_id, ident, ctx, Some(&mut trace));
+    let resolution = resolve_name_inner(db, cont_id, ident, ctx, Some(&mut trace), None);
     (resolution, trace)
+}
+
+/// Whether a source position precedes a reference position. Cross-file
+/// positions are unordered and therefore always visible (keeps multi-file
+/// resolution unchanged); ordinals are compared within the shared file map.
+fn before_reference(
+    db: &dyn HirDefDb,
+    source: InFile<crate::ast_id_map::SourceAstId>,
+    reference: &NameRef,
+) -> bool {
+    if source.file_id != reference.position.file_id {
+        return true;
+    }
+    let map = db.ast_id_map(source.file_id);
+    match (map.preorder(source.value), map.preorder(reference.position.value)) {
+        (Some(ordinal), Some(reference_ordinal)) => ordinal < reference_ordinal,
+        _ => true,
+    }
+}
+
+/// Keep only definitions whose source precedes the reference point.
+fn filter_resolution_at(
+    db: &dyn HirDefDb,
+    resolution: Resolution<DefId>,
+    reference: &NameRef,
+) -> Resolution<DefId> {
+    Resolution::from_candidates(resolution.into_candidates().into_iter().filter(|def_id| {
+        match def_id.primary_origin(db).loc(db).clone().source_ast(db) {
+            Some(source) => before_reference(db, source, reference),
+            None => true,
+        }
+    }))
 }
 
 fn resolve_name_inner(
@@ -81,11 +145,21 @@ fn resolve_name_inner(
     ident: &Ident,
     ctx: NameContext,
     mut trace: Option<&mut ResolutionTrace>,
+    reference: Option<&NameRef>,
 ) -> Resolution<DefId> {
     let scopes = ScopeChain::from_inner(db, cont_id);
-    for id in scopes.iter() {
+    let is_call = reference.is_some_and(|reference| reference.kind == RefKind::Call);
+    for (index, id) in scopes.iter().enumerate() {
+        let innermost = index == 0;
         let scope = db.scope(*id);
         let resolution = scope.lookup(ctx, ident);
+        // Declarations in the innermost scope are visible only before the
+        // reference, unless the reference is a function/task call, which
+        // searches to the end of that scope (IEEE 1800-2017 26.3).
+        let resolution = match (innermost, is_call, reference) {
+            (true, false, Some(reference)) => filter_resolution_at(db, resolution, reference),
+            _ => resolution,
+        };
         if let Some(trace) = trace.as_deref_mut() {
             trace.entries.push(ResolutionTraceEntry {
                 phase: ResolutionPhase::Lexical,
@@ -100,8 +174,15 @@ fn resolve_name_inner(
         // Each scope is searched completely before the next outer scope:
         // declarations and explicit imports first, then wildcard imports of
         // this scope. `$unit` remains the final scope.
-        let imported =
-            resolve_scope_imports(db, scope.as_ref(), ident, ctx, *id, trace.as_deref_mut());
+        let imported = resolve_scope_imports(
+            db,
+            scope.as_ref(),
+            ident,
+            ctx,
+            *id,
+            trace.as_deref_mut(),
+            AtFilter { reference, innermost },
+        );
         if !imported.is_unresolved() {
             return imported;
         }
@@ -130,20 +211,46 @@ impl ResolvedScopes {
 }
 
 /// Resolves `ident` in a pre-resolved scope chain using the same per-scope
-/// search order as [`resolve_name`].
+/// search order as [`resolve_name_at`].
 pub fn resolve_in_resolved_scopes(
     db: &dyn HirDefDb,
     resolved: &ResolvedScopes,
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    for scope_id in resolved.scope_chain.iter() {
+    resolve_in_resolved_scopes_at(db, resolved, ident, ctx, None)
+}
+
+/// Position-aware variant of [`resolve_in_resolved_scopes`]; see
+/// [`resolve_name_at`] for the filtering rules.
+pub fn resolve_in_resolved_scopes_at(
+    db: &dyn HirDefDb,
+    resolved: &ResolvedScopes,
+    ident: &Ident,
+    ctx: NameContext,
+    reference: Option<&NameRef>,
+) -> Resolution<DefId> {
+    let is_call = reference.is_some_and(|reference| reference.kind == RefKind::Call);
+    for (index, scope_id) in resolved.scope_chain.iter().enumerate() {
+        let innermost = index == 0;
         let scope = db.scope(*scope_id);
         let resolution = scope.lookup(ctx, ident);
+        let resolution = match (innermost, is_call, reference) {
+            (true, false, Some(reference)) => filter_resolution_at(db, resolution, reference),
+            _ => resolution,
+        };
         if !resolution.is_unresolved() {
             return resolution;
         }
-        let imported = resolve_scope_imports(db, scope.as_ref(), ident, ctx, *scope_id, None);
+        let imported = resolve_scope_imports(
+            db,
+            scope.as_ref(),
+            ident,
+            ctx,
+            *scope_id,
+            None,
+            AtFilter { reference, innermost },
+        );
         if !imported.is_unresolved() {
             return imported;
         }
@@ -157,10 +264,22 @@ pub fn resolve_path(
     path: &[Ident],
     ctx: NameContext,
 ) -> Resolution<DefId> {
+    resolve_path_at(db, cont_id, path, ctx, None)
+}
+
+/// Position-aware variant of [`resolve_path`]; the first segment honors the
+/// reference position while member segments keep position-less lookup.
+pub fn resolve_path_at(
+    db: &dyn HirDefDb,
+    cont_id: OwnerId,
+    path: &[Ident],
+    ctx: NameContext,
+    reference: Option<&NameRef>,
+) -> Resolution<DefId> {
     let Some((first, rest)) = path.split_first() else {
         return Resolution::Unresolved;
     };
-    let mut current = resolve_name(db, cont_id, first, ctx)
+    let mut current = resolve_name_at(db, cont_id, first, ctx, reference)
         .or_else(|| resolve_top_level_module_root(db, cont_id, first, ctx, !rest.is_empty()));
 
     for (idx, segment) in rest.iter().enumerate() {
@@ -260,6 +379,66 @@ fn instantiable_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
     assert!(is_instantiable, "owner must be an instantiable design unit: {owner:?}");
     DefId::from_owner(db, owner).expect("instantiable owner must have a definition")
 }
+/// Point-of-reference filter for one name lookup (IEEE 1800-2017 26.3).
+#[derive(Clone, Copy)]
+struct AtFilter<'a> {
+    reference: Option<&'a NameRef>,
+    innermost: bool,
+}
+
+impl AtFilter<'_> {
+    fn is_call(&self) -> bool {
+        self.reference.is_some_and(|reference| reference.kind == RefKind::Call)
+    }
+
+    /// Explicit imports are locally visible only before the reference in the
+    /// innermost scope; calls search to its end.
+    fn filter_named(&self) -> bool {
+        self.innermost && !self.is_call() && self.reference.is_some()
+    }
+
+    /// Wildcard imports count only before the reference in every scope.
+    fn filter_wildcard(&self) -> bool {
+        self.reference.is_some()
+    }
+}
+
+/// Collects import candidates for one scope, applying the point filter.
+struct ImportCollector<'a> {
+    db: &'a dyn HirDefDb,
+    design_map: &'a crate::design_map::DesignMap,
+    scope: &'a ScopeData,
+    defs: SmallVec<[DefId; 3]>,
+    scope_file: HirFileId,
+    at: AtFilter<'a>,
+}
+
+impl ImportCollector<'_> {
+    fn collect(&mut self, ident: &Ident, ctx: NameContext, named_only: bool) {
+        let filter = if named_only { self.at.filter_named() } else { self.at.filter_wildcard() };
+        for import in self.scope.imports() {
+            if named_only != import.name.is_some() {
+                continue;
+            }
+            if filter
+                && let (Some(reference), Some(source)) = (self.at.reference, import.source)
+                && !before_reference(self.db, InFile::new(self.scope_file, source), reference)
+            {
+                continue;
+            }
+            for def_id in self
+                .design_map
+                .resolve_import(self.db, import, ident, ctx)
+                .into_candidates()
+            {
+                if !self.defs.contains(&def_id) {
+                    self.defs.push(def_id);
+                }
+            }
+        }
+    }
+}
+
 fn resolve_scope_imports(
     db: &dyn HirDefDb,
     scope: &ScopeData,
@@ -267,12 +446,20 @@ fn resolve_scope_imports(
     ctx: NameContext,
     scope_id: OwnerId,
     mut trace: Option<&mut ResolutionTrace>,
+    at: AtFilter<'_>,
 ) -> Resolution<DefId> {
     let design_map = db.design_map();
-    let mut defs = SmallVec::<[DefId; 3]>::new();
+    let mut collector = ImportCollector {
+        db,
+        design_map: &design_map,
+        scope,
+        defs: SmallVec::new(),
+        scope_file: scope_id.file(db),
+        at,
+    };
 
-    collect_imports(db, &design_map, scope, ident, ctx, true, &mut defs);
-    let named = Resolution::from_candidates(defs.iter().copied());
+    collector.collect(ident, ctx, true);
+    let named = Resolution::from_candidates(collector.defs.iter().copied());
     if let Some(trace) = trace.as_mut() {
         trace.entries.push(ResolutionTraceEntry {
             phase: ResolutionPhase::NamedImport,
@@ -284,8 +471,8 @@ fn resolve_scope_imports(
         return named;
     }
 
-    collect_imports(db, &design_map, scope, ident, ctx, false, &mut defs);
-    let wildcard = Resolution::from_candidates(defs.iter().copied());
+    collector.collect(ident, ctx, false);
+    let wildcard = Resolution::from_candidates(collector.defs.iter().copied());
     if let Some(trace) = trace.as_mut() {
         trace.entries.push(ResolutionTraceEntry {
             phase: ResolutionPhase::WildcardImport,
@@ -294,27 +481,6 @@ fn resolve_scope_imports(
         });
     }
     wildcard
-}
-
-fn collect_imports(
-    db: &dyn HirDefDb,
-    design_map: &crate::design_map::DesignMap,
-    scope: &ScopeData,
-    ident: &Ident,
-    ctx: NameContext,
-    named_only: bool,
-    defs: &mut SmallVec<[DefId; 3]>,
-) {
-    for import in scope.imports() {
-        if named_only != import.name.is_some() {
-            continue;
-        }
-        for def_id in design_map.resolve_import(db, import, ident, ctx).into_candidates() {
-            if !defs.contains(&def_id) {
-                defs.push(def_id);
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -331,6 +497,7 @@ mod tests {
     use preproc_expand::{db::PreprocDb, file::HirFileId};
     use rustc_hash::FxHashSet;
     use smol_str::SmolStr;
+    use syntax::has_text_range::HasTextRange;
     use triomphe::Arc;
     use utils::paths::{AbsPathBuf, Utf8PathBuf};
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
@@ -338,8 +505,9 @@ mod tests {
     use super::*;
     use crate::{
         Ident,
+        container::InFile,
         db::HirDefDb,
-        owner::OwnerId,
+        owner::{OwnerId, OwnerKind},
         symbol::{DefKind, NameContext},
     };
 
@@ -900,6 +1068,146 @@ endmodule
             .unique()
             .expect("b should still resolve uniquely");
         assert_eq!(before, after);
+    }
+    fn reference_at(db: &TestDb, text: &str, marker: &str, kind: RefKind) -> NameRef {
+        let file_id = HirFileId::File(TOP);
+        let tree = db.parse(file_id);
+        let offset: u32 =
+            u32::try_from(text.find(marker).expect("marker must exist")).expect("offset fits");
+        let root = tree.root().expect("root");
+        let mut target = None;
+        for event in root.node_preorder() {
+            let syntax::WalkEvent::Enter(node) = event else { continue };
+            let Some(range) = node.text_range() else { continue };
+            if u32::from(range.start()) <= offset && offset <= u32::from(range.end()) {
+                target = Some(node);
+            }
+        }
+        let node = target.expect("node at marker");
+        let ast_id =
+            db.ast_id_map(file_id).id_of_node(node).expect("node must have an ast id");
+        NameRef { position: InFile::new(file_id, ast_id), kind }
+    }
+
+    #[test]
+    fn position_resolves_example_4_wildcard_order() {
+        // IEEE 1800-2017 26.3 Example 4: only the wildcard import lexically
+        // preceding the reference is considered.
+        let text = r#"
+package p;
+function int f();
+return 1;
+endfunction
+endpackage
+package p2;
+function int f();
+return 1;
+endfunction
+endpackage
+module top;
+import p::*;
+int x;
+if (1) begin : b
+  initial x = f();
+end
+import p2::*;
+endmodule
+"#;
+        let db = db_with_root_text(text);
+        let b = db
+            .owner_table(HirFileId::File(TOP))
+            .owners_of_kind(OwnerKind::GenerateBlock)
+            .find(|owner| owner.name.as_str() == "b")
+            .expect("generate block b")
+            .id;
+        let p = db.unit_index().package_ids(&ident("p")).unique().expect("p");
+        let p_f = resolve_name(&db, p, &ident("f"), NameContext::Value).unique().expect("p::f");
+
+        let reference = reference_at(&db, text, "x = f()", RefKind::Call);
+        let resolved = resolve_name_at(&db, b, &ident("f"), NameContext::Value, Some(&reference));
+        assert_eq!(resolved, Resolution::Unique(p_f), "only the preceding wildcard may bind");
+
+        // Without a position both wildcards merge (the previous behavior).
+        let positionless = resolve_name(&db, b, &ident("f"), NameContext::Value);
+        assert!(matches!(positionless, Resolution::Ambiguous(_)));
+    }
+
+    #[test]
+    fn import_after_reference_is_ignored() {
+        // IEEE 1800-2017 26.3 Example 3: an import after the reference point
+        // does not bind the reference.
+        let text = r#"
+package p;
+function int f();
+return 1;
+endfunction
+endpackage
+module top;
+if (1) begin : b
+  initial x = f();
+  import p::*;
+end
+endmodule
+"#;
+        let db = db_with_root_text(text);
+        let b = db
+            .owner_table(HirFileId::File(TOP))
+            .owners_of_kind(OwnerKind::GenerateBlock)
+            .find(|owner| owner.name.as_str() == "b")
+            .expect("generate block b")
+            .id;
+
+        let reference = reference_at(&db, text, "x = f()", RefKind::Call);
+        assert!(
+            resolve_name_at(&db, b, &ident("f"), NameContext::Value, Some(&reference))
+                .is_unresolved(),
+            "the import follows the reference and must not bind"
+        );
+    }
+
+    #[test]
+    fn declaration_after_reference_is_not_visible() {
+        let text = "module m;\ninitial begin : blk\n  x = 1;\n  int x;\nend\nendmodule\n";
+        let db = db_with_root_text(text);
+        let blk = db
+            .owner_table(HirFileId::File(TOP))
+            .owners_of_kind(OwnerKind::Block)
+            .find(|owner| owner.name.as_str() == "blk")
+            .expect("block blk")
+            .id;
+
+        let reference = reference_at(&db, text, "x = 1", RefKind::Value);
+        assert!(
+            resolve_name_at(&db, blk, &ident("x"), NameContext::Value, Some(&reference))
+                .is_unresolved(),
+            "a declaration after the reference is not locally visible at the point"
+        );
+        assert!(
+            resolve_name(&db, blk, &ident("x"), NameContext::Value).unique().is_some(),
+            "position-less lookup keeps the declaration"
+        );
+    }
+
+    #[test]
+    fn call_reference_searches_to_scope_end() {
+        // A function/task call sees declarations to the end of the innermost
+        // scope (IEEE 1800-2017 26.3), unlike ordinary references.
+        let text =
+            "module m;\n  assign y = f();\n  function int f(); return 1; endfunction\nendmodule\n";
+        let db = db_with_root_text(text);
+        let m = db.unit_index().module_ids(&ident("m")).unique().expect("m");
+        let f = resolve_name(&db, m, &ident("f"), NameContext::Value).unique().expect("m::f");
+
+        let call = reference_at(&db, text, "y = f()", RefKind::Call);
+        assert_eq!(
+            resolve_name_at(&db, m, &ident("f"), NameContext::Value, Some(&call)),
+            Resolution::Unique(f)
+        );
+        let value = reference_at(&db, text, "y = f()", RefKind::Value);
+        assert!(
+            resolve_name_at(&db, m, &ident("f"), NameContext::Value, Some(&value)).is_unresolved(),
+            "ordinary references do not see the later declaration"
+        );
     }
 
     #[test]

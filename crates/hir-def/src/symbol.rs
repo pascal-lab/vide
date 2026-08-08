@@ -346,6 +346,8 @@ pub struct ScopeData {
 pub struct Import {
     pub package: Ident,
     pub name: Option<Ident>,
+    /// Source declaration of the import within its scope's file.
+    pub source: Option<crate::ast_id_map::SourceAstId>,
 }
 
 /// Namespace selected by a lookup.

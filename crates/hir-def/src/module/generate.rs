@@ -163,7 +163,7 @@ impl LowerGenerateBlockCtx<'_> {
             }
             DefParam(defparam) => self.lower_defparam(defparam).into(),
             PackageImportDeclaration(import_decl) => {
-                for import in lower_package_imports(import_decl) {
+                for import in lower_package_imports(import_decl, self.source_id(import_decl.syntax())) {
                     self.store.data.package_imports.alloc(import);
                 }
                 return None;
@@ -353,7 +353,7 @@ impl LowerModuleCtx<'_> {
                 items.push(self.lower_defparam(defparam).into());
             }
             PackageImportDeclaration(import_decl) => {
-                for import in lower_package_imports(import_decl) {
+                for import in lower_package_imports(import_decl, self.source_id(import_decl.syntax())) {
                     self.store.data.package_imports.alloc(import);
                 }
             }
