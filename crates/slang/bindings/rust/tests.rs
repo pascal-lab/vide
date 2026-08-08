@@ -734,6 +734,20 @@ fn parser_expected_syntax_reports_expression_positions() {
 }
 
 #[test]
+fn compilation_profile_parse_records_completion_expectations() {
+    let text = "mo\n";
+    let mut compilation = Compilation::new_with_top_modules(&[]);
+    let tree = compilation.parse_syntax_tree_from_text(
+        text,
+        "/broken.sv",
+        "/broken.sv",
+        &SyntaxTreeOptions::default(),
+    );
+    let expected = tree.expected_syntax_at(2);
+    assert!(!expected.is_empty(), "expected completion metadata, got {expected:?}");
+}
+
+#[test]
 fn directive_at_offset_reports_lexer_range_and_prefix() {
     let text = "`de/*cursor*/fine FOO 1\nmodule m; endmodule\n";
     let offset = text.find("/*cursor*/").unwrap();

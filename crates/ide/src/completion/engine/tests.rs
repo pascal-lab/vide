@@ -174,6 +174,11 @@ endmodule
     assert!(labels(&items).contains(&"same_width"));
     assert!(!labels(&items).contains(&"wrong_width"), "unexpected completion items: {items:?}");
 }
+#[test]
+fn completes_top_level_module_prefix() {
+    let items = completions_in_text("mo/*caret*/\n", None);
+    assert!(labels(&items).contains(&"module"), "module completion missing: {items:?}");
+}
 
 #[test]
 fn completion_fixtures() {

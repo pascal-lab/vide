@@ -1155,6 +1155,7 @@ fn diagnostic_option(diagnostic: &lsp_types::Diagnostic) -> Option<&str> {
 
 mod analysis;
 mod code_actions;
+mod completion;
 mod diagnostics;
 mod localization;
 mod navigation;
