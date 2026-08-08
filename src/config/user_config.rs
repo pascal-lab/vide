@@ -365,6 +365,7 @@ pub(crate) struct InlayHintsUserConfig {
     pub(crate) parameter: InlayHintsParameterUserConfig,
     pub(crate) r#macro: InlayHintsMacroUserConfig,
     pub(crate) end: InlayHintsEndUserConfig,
+    pub(crate) system_call: InlayHintsSystemCallUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
@@ -397,6 +398,14 @@ pub(crate) struct InlayHintsMacroUserConfig {
 #[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct InlayHintsEndUserConfig {
     pub(crate) structure: EnableUserConfig,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
+#[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
+pub(crate) struct InlayHintsSystemCallUserConfig {
+    pub(crate) call: EnableUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
@@ -1056,6 +1065,17 @@ const USER_CONFIG_SETTINGS: &[ConfigSettingMeta] = &[
         schema: ConfigSettingSchema::Boolean,
     },
     ConfigSettingMeta {
+        path: &["inlayHints", "systemCall", "call", "enable"],
+        vscode_key: "vide.inlayHints.systemCall.call.enable",
+        docs_group: "Annotations",
+        description_key: "configuration.inlayHints.systemCall.call.enable.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
         path: &["lens", "instantiations", "enable"],
         vscode_key: "vide.lens.instantiations.enable",
         docs_group: "Annotations",
@@ -1579,6 +1599,7 @@ impl Config {
             parameter_assignment: self.user_config.inlay_hints.parameter.assignment.enable,
             macro_argument: self.user_config.inlay_hints.r#macro.argument.enable,
             end_structure: self.user_config.inlay_hints.end.structure.enable,
+            system_call: self.user_config.inlay_hints.system_call.call.enable,
         }
     }
 

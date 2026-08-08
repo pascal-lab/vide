@@ -439,7 +439,7 @@ fn active_argument_at_offset(
 }
 
 /// The `$name` of a system subroutine call, when `expr` is a system name.
-fn system_identifier_of(expr: ast::Expression<'_>) -> Option<String> {
+pub(crate) fn system_identifier_of(expr: ast::Expression<'_>) -> Option<String> {
     match expr {
         ast::Expression::Name(ast::Name::SystemName(system)) => {
             system.system_identifier().map(|tok| tok.raw_text().to_string())
@@ -477,7 +477,7 @@ fn sig_help_for_system_call(
 
 /// Parameter labels for a system subroutine, from the bundled
 /// `system_signatures.toml` table. `...` marks variadic arguments.
-fn system_signature(name: &str) -> Option<&'static [String]> {
+pub(crate) fn system_signature(name: &str) -> Option<&'static [String]> {
     use std::sync::OnceLock;
 
     static TABLE: OnceLock<BTreeMap<String, SystemSignatureDef>> = OnceLock::new();

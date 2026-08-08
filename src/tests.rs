@@ -14,8 +14,8 @@ use lsp_types::{
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams,
     DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentSymbolParams,
     DocumentSymbolResponse, FileChangeType, FileEvent, FoldingRange, FoldingRangeParams,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, Position, ProgressParams,
-    PublishDiagnosticsParams, Range, SemanticTokensParams, SemanticTokensResult,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, InlayHintParams, Position,
+    ProgressParams, PublishDiagnosticsParams, Range, SemanticTokensParams, SemanticTokensResult,
     SignatureHelpParams, TextDocumentClientCapabilities, TextDocumentContentChangeEvent,
     TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Url,
     VersionedTextDocumentIdentifier, WorkDoneProgressParams, WorkspaceClientCapabilities,
@@ -30,8 +30,9 @@ use lsp_types::{
         CodeActionRequest, CodeActionResolveRequest, CodeLensRequest, CodeLensResolve,
         Completion as CompletionRequest, DocumentDiagnosticRequest, DocumentSymbolRequest,
         ExecuteCommand, FoldingRangeRequest, GotoDefinition, GotoTypeDefinition, HoverRequest,
-        References, Request as _, SemanticTokensFullRequest, Shutdown, SignatureHelpRequest,
-        WorkspaceConfiguration, WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
+        InlayHintRequest, References, Request as _, SemanticTokensFullRequest, Shutdown,
+        SignatureHelpRequest, WorkspaceConfiguration, WorkspaceDiagnosticRequest,
+        WorkspaceSymbolRequest,
     },
 };
 use serde::de::DeserializeOwned;

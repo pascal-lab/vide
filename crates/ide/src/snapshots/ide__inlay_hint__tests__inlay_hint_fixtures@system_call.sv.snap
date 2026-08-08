@@ -1,0 +1,8 @@
+---
+source: crates/ide/src/inlay_hint.rs
+expression: hint_snapshot(hints)
+input_file: crates/ide/src/inlay_hint/fixtures/system_call.sv
+---
+SystemCall @ 65 "format:" padding=(false, true) target=None edit=None
+SystemCall @ 91 "file:" padding=(false, true) target=None edit=None
+SystemCall @ 102 "mem:" padding=(false, true) target=None edit=None
