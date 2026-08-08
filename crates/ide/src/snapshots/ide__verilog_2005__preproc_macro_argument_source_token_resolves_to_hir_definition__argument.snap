@@ -5,7 +5,7 @@ expression: normalize_hover_snapshot(hover.info.as_str())
 Port `payload_i`
 
 ```systemverilog
-input wire logic payload_i
+input logic payload_i
 ```
 
 

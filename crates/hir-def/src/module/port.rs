@@ -543,7 +543,11 @@ impl LowerModuleCtx<'_> {
             Some(Either::Left(())) => PortHeader::Var { dir, var_kw: true, ty },
             Some(Either::Right(kind)) => PortHeader::Net { dir, net_ty: NetType { kind, ty } },
             None => {
-                if matches!(dir, PortDirection::Input | PortDirection::Inout)
+                // An input/inout port is an implicit net only when its type is
+                // implicit (no type and nothing inherited); an explicit data
+                // type (e.g. `input logic a`) makes it a variable port.
+                let implicit = ty_omitted && !all_omitted;
+                if (implicit && matches!(dir, PortDirection::Input | PortDirection::Inout))
                     || (matches!(dir, PortDirection::Output)
                         && matches!(ast_ty, ast::DataType::ImplicitType(_)))
                 {

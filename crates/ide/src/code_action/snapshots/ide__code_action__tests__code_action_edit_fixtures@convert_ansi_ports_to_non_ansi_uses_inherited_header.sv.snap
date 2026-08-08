@@ -5,6 +5,6 @@ input_file: crates/ide/src/code_action/fixtures/code_actions/convert_ansi_ports_
 ---
 module top(a, b);
     input a;
-    input wire logic b;
+    input logic b;
     assign b = a;
 endmodule
