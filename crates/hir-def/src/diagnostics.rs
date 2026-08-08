@@ -415,6 +415,17 @@ endmodule
     }
 
     #[test]
+    fn default_nettype_none_diagnoses_implicit_nets() {
+        let text = "`default_nettype none\nmodule m(input a);\nendmodule\n";
+        let db = db_with_files(text, None);
+        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        assert!(
+            diagnostics.iter().any(|diag| diag.message.contains("default_nettype none")),
+            "implicit net under `default_nettype none` must be diagnosed: {diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn explicit_import_conflicting_with_declaration_is_diagnosed() {
         let text = "package p;\nint x;\nendpackage\nmodule m;\nint x;\nimport p::x;\nendmodule\n";
         let db = db_with_files(text, None);

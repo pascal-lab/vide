@@ -434,7 +434,7 @@ fn body_input(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
         OwnerKind::Subroutine => lower_subroutine_body(db, owner),
         OwnerKind::Block => body_with_source_map(db, body_owner(db, owner)),
         OwnerKind::File => {
-            crate::file::lower_file_owner(owner, &LoweringSyntax::for_owner(db, owner))
+            crate::file::lower_file_owner(db, owner, &LoweringSyntax::for_owner(db, owner))
         }
         OwnerKind::Module => {
             crate::module::lower_module_owner(db, owner, &LoweringSyntax::for_owner(db, owner))

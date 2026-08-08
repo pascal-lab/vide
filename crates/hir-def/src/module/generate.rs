@@ -423,7 +423,7 @@ pub(crate) fn lower_generate_owner(
 
     let mut body = Body::default();
     let mut source_map = BodySourceMap::default();
-    let mut lower_ctx = LoweringCtx::new_with_syntax(
+    let mut lower_ctx = LoweringCtx::new_with_syntax(db, 
         owner,
         syntax,
         BodyStore { data: &mut body, sources: &mut source_map },

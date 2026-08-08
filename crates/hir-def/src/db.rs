@@ -1,5 +1,7 @@
 use std::ops::Deref;
 
+use utils::text_edit::TextSize;
+
 use base_db::salsa;
 use preproc_expand::{db::PreprocDb, file::HirFileId};
 use triomphe::Arc;
@@ -119,10 +121,18 @@ impl dyn HirDefDb + '_ {
         self.package_exports(package_owner)
     }
 
-    pub fn package_exports(&self, package_owner: OwnerId) -> Arc<PackageExports> {
+    pub(crate) fn package_exports(&self, package_owner: OwnerId) -> Arc<PackageExports> {
         self.design_map()
             .package_exports(package_owner)
             .expect("package owner must be present in the design map")
+    }
+
+    /// `` `default_nettype `` directives of a file, in source order.
+    pub(crate) fn default_nettype_directives(
+        &self,
+        file_id: HirFileId,
+    ) -> Arc<[(TextSize, Option<crate::ty::NetKind>)]> {
+        crate::ty::default_nettype_directives(self, self.syntax_file(file_id))
     }
 
     pub fn design_map(&self) -> Arc<crate::design_map::DesignMap> {
@@ -142,4 +152,5 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     scope::set_scope_lru_capacity(db, capacity);
     source_projection::set_source_projection_lru_capacity(db, capacity);
     crate::region_tree::set_region_tree_lru_capacity(db, capacity);
+    crate::ty::set_default_nettype_lru_capacity(db, capacity);
 }

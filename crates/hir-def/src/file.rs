@@ -13,6 +13,7 @@ use super::{
 };
 use crate::{
     body::{Body, BodyItem, BodySourceMap},
+    db::HirDefDb,
     lower_ident_opt,
     owner::{OwnerId, OwnerKind},
     source_map::Lowered,
@@ -189,6 +190,7 @@ impl LowerFileCtx<'_> {
 }
 
 pub(crate) fn lower_file_owner(
+    db: &dyn HirDefDb,
     owner: crate::owner::OwnerId,
     syntax: &LoweringSyntax,
 ) -> Arc<Lowered<Body>> {
@@ -197,6 +199,7 @@ pub(crate) fn lower_file_owner(
     let mut body = Body::default();
     let mut source_map = BodySourceMap::default();
     let mut lower_ctx = LoweringCtx::new_with_syntax(
+        db,
         owner,
         syntax,
         BodyStore { data: &mut body, sources: &mut source_map },

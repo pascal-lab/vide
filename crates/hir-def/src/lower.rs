@@ -1,7 +1,8 @@
 use la_arena::Arena;
 use preproc_expand::file::HirFileId;
-use syntax::{SyntaxNode, SyntaxTree};
+use syntax::{SyntaxNode, SyntaxTree, has_text_range::HasTextRange};
 use triomphe::Arc;
+use utils::text_edit::TextSize;
 
 use super::{
     body::{Body, BodySourceMap},
@@ -181,10 +182,9 @@ pub(crate) struct LoweringCtx<Store> {
     scope_stack: Vec<OwnerId>,
     pub(crate) store: Store,
     pub(crate) diagnostics: Vec<LoweringDiagnostic>,
-    /// Net kind for implicit nets. `` `default_nettype `` is consumed by the
-    /// slang preprocessor and never reaches this layer, so the SV default
-    /// (wire) is used unconditionally.
-    pub(crate) default_net_type: NetKind,
+    /// `` `default_nettype `` directives of this file, in source order;
+    /// `None` marks `` `default_nettype none `` (implicit nets illegal).
+    default_nettype: Arc<[(TextSize, Option<NetKind>)]>,
 }
 
 impl<Store: LoweringStore> LoweringCtx<Store> {
@@ -196,10 +196,15 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             db.ast_id_map(file_id),
             db.owner_table(file_id),
         );
-        Self::new_with_syntax(owner, &syntax, store)
+        Self::new_with_syntax(db, owner, &syntax, store)
     }
 
-    pub(crate) fn new_with_syntax(owner: OwnerId, syntax: &LoweringSyntax, store: Store) -> Self {
+    pub(crate) fn new_with_syntax(
+        db: &dyn HirDefDb,
+        owner: OwnerId,
+        syntax: &LoweringSyntax,
+        store: Store,
+    ) -> Self {
         let mut this = Self {
             file_id: syntax.file_id,
             owner,
@@ -209,10 +214,18 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             scope_stack: vec![owner],
             store,
             diagnostics: Vec::new(),
-            default_net_type: NetKind::Wire,
+            default_nettype: db.default_nettype_directives(syntax.file_id),
         };
         this.store.body().0.scope_graph.ensure_root(owner);
         this
+    }
+
+    /// Net kind for an implicit net declared at `offset`, honoring the
+    /// nearest preceding `` `default_nettype `` directive. `None` means
+    /// implicit nets are illegal at that point.
+    pub(crate) fn net_kind_at(&self, offset: TextSize) -> Option<NetKind> {
+        let index = self.default_nettype.partition_point(|(directive, _)| *directive <= offset);
+        index.checked_sub(1).and_then(|index| self.default_nettype[index].1)
     }
 
     pub(crate) fn owner_for_node(&self, node: SyntaxNode<'_>, kind: OwnerKind) -> Option<OwnerId> {
@@ -294,6 +307,21 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             range: None,
             message: message.into(),
         });
+    }
+
+    /// Net kind for an implicit net created at `node`, honoring the nearest
+    /// preceding `` `default_nettype `` directive. `` `default_nettype none ``
+    /// makes the implicit net illegal; the net is still lowered as `wire` so
+    /// the body stays consistent and the diagnostic carries the source.
+    pub(crate) fn implicit_net_kind(&mut self, node: SyntaxNode<'_>) -> NetKind {
+        let offset = node.text_range().map(|range| range.start()).unwrap_or_default();
+        match self.net_kind_at(offset) {
+            Some(kind) => kind,
+            None => {
+                self.report_invalid(node, "implicit net is illegal under `default_nettype none`");
+                NetKind::Wire
+            }
+        }
     }
 
     pub(crate) fn emit_diagnostics(&mut self) -> Vec<LoweringDiagnostic> {

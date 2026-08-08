@@ -443,7 +443,7 @@ pub(crate) fn lower_module_owner(
     };
     body.name = lower_ident_opt(ast_module.header().name());
 
-    let mut lower_ctx = LoweringCtx::new_with_syntax(
+    let mut lower_ctx = LoweringCtx::new_with_syntax(db, 
         owner,
         syntax,
         BodyStore { data: &mut body, sources: &mut source_map },
