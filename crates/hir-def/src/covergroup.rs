@@ -113,7 +113,7 @@ pub(crate) fn lower_covergroup_owner(
         return Arc::new(Lowered::new(file_id, body, source_map));
     };
 
-    let mut ctx = LoweringCtx::new_with_syntax(
+    let mut ctx = LoweringCtx::new_with_syntax(db, 
         owner,
         syntax,
         BodyStore { data: &mut body, sources: &mut source_map },

@@ -1690,6 +1690,52 @@ endpackage
     }
 
     #[test]
+    fn default_nettype_selects_implicit_port_net_kind() {
+        let db = db_with_root_text(
+            "`default_nettype tri\nmodule m(input a);\nendmodule\n",
+        );
+        let module_id = db.unit_index().module_ids(&ident("m")).unique().expect("m");
+        let body = db.body(module_id);
+        let Ports::Ansi(port_decls) = &body.ports else {
+            panic!("module should have ANSI ports");
+        };
+        let header = &port_decls.values().next().expect("port").header;
+        assert!(
+            matches!(
+                header,
+                crate::module::port::PortHeader::Net {
+                    net_ty: crate::ty::NetType { kind: crate::ty::NetKind::Tri, .. },
+                    ..
+                }
+            ),
+            "implicit port net must honor `default_nettype tri`: {header:?}"
+        );
+    }
+
+    #[test]
+    fn default_nettype_directive_switches_mid_file() {
+        let db = db_with_root_text(
+            "`default_nettype tri\nmodule a(input x);\nendmodule\n`default_nettype wire\nmodule b(input y);\nendmodule\n",
+        );
+        let kinds = ["a", "b"].map(|name| {
+            let module_id = db.unit_index().module_ids(&ident(name)).unique().expect(name);
+            let body = db.body(module_id);
+            let Ports::Ansi(port_decls) = &body.ports else {
+                panic!("module should have ANSI ports");
+            };
+            match &port_decls.values().next().expect("port").header {
+                crate::module::port::PortHeader::Net { net_ty, .. } => net_ty.kind,
+                _ => panic!("implicit net expected"),
+            }
+        });
+        assert_eq!(
+            kinds,
+            [crate::ty::NetKind::Tri, crate::ty::NetKind::Wire],
+            "each module honors the directive preceding it"
+        );
+    }
+
+    #[test]
     fn interface_port_header_is_not_previous_header() {
         let db = db_with_root_text("module m(input logic a, interface.ifc);\nendmodule\n");
         let module_id = db.unit_index().module_ids(&ident("m")).unique().expect("m");

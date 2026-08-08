@@ -5,8 +5,12 @@ use smallvec::SmallVec;
 use syntax::{
     SyntaxToken, TokenKind,
     ast::{self, AstNode, PortExpression},
+    has_text_range::HasTextRange,
 };
-use utils::get::{Get, GetRef};
+use utils::{
+    get::{Get, GetRef},
+    text_edit::TextSize,
+};
 
 use crate::{
     Ident, alloc_with_source, alloc_with_source_entry,
@@ -20,7 +24,7 @@ use crate::{
     lower_ident_opt,
     module::LowerModuleCtx,
     source_map::SourceMap,
-    ty::{NetType, lower_net_kind},
+    ty::{NetKind, NetType, lower_net_kind},
 };
 
 // structure:
@@ -271,8 +275,9 @@ impl LowerModuleCtx<'_> {
             use ast::Member::*;
             match port {
                 ImplicitAnsiPort(port) => {
-                    header = Some(self.lower_port_header(port.header(), header));
-                    let current_header = header.unwrap_or_else(|| self.default_port_header());
+                    // `header` carries the previous port header (None for the
+                    // first port); the lowerer resolves the default itself.
+                    let current_header = self.lower_port_header(port.header(), header);
                     header = Some(current_header.clone());
                     let parent = alloc_with_source(
                         &self.ast_ids,
@@ -286,11 +291,16 @@ impl LowerModuleCtx<'_> {
                     ports[parent].decls = IdxRange::new_inclusive(decl_id..=decl_id);
                 }
                 ExplicitAnsiPort(port) => {
-                    header = Some(self.lower_explicit_ansi_header(port.direction(), header));
+                    let offset = port
+                        .syntax()
+                        .text_range()
+                        .map(|range| range.start())
+                        .unwrap_or_default();
+                    let current_header =
+                        self.lower_explicit_ansi_header(port.direction(), header, offset);
                     if let Some(expr) = port.expr() {
                         self.lower_expr(expr);
                     }
-                    let current_header = header.unwrap_or_else(|| self.default_port_header());
                     header = Some(current_header.clone());
                     alloc_with_source(
                         &self.ast_ids,
@@ -489,8 +499,10 @@ impl LowerModuleCtx<'_> {
         prev_header: Option<PortHeader>,
     ) -> PortHeader {
         let default_data_ty = DataTy::Builtin(BuiltinDataTyId::new(BuiltinDataTy::default()));
-        let default_net_kind = self.default_net_type;
-        let prev_header = prev_header.unwrap_or_else(|| self.default_port_header());
+        let header_node = header.syntax();
+        let header_offset = header_node.text_range().map(|range| range.start()).unwrap_or_default();
+        let prev_header =
+            prev_header.unwrap_or_else(|| self.default_port_header(header_offset));
 
         use ast::PortHeader::*;
         // A generic interface port carries no net/var header and no direction
@@ -535,7 +547,8 @@ impl LowerModuleCtx<'_> {
                     || (matches!(dir, PortDirection::Output)
                         && matches!(ast_ty, ast::DataType::ImplicitType(_)))
                 {
-                    PortHeader::Net { dir, net_ty: NetType { kind: default_net_kind, ty } }
+                    let kind = self.implicit_net_kind(header_node);
+                    PortHeader::Net { dir, net_ty: NetType { kind, ty } }
                 } else {
                     PortHeader::Var { dir, var_kw: false, ty }
                 }
@@ -547,9 +560,10 @@ impl LowerModuleCtx<'_> {
         &mut self,
         direction: Option<SyntaxToken>,
         prev_header: Option<PortHeader>,
+        offset: TextSize,
     ) -> PortHeader {
         let dir = Self::lower_dir(direction);
-        let prev_header = prev_header.unwrap_or_else(|| self.default_port_header());
+        let prev_header = prev_header.unwrap_or_else(|| self.default_port_header(offset));
         let Some(dir) = dir else {
             return prev_header;
         };
@@ -561,12 +575,12 @@ impl LowerModuleCtx<'_> {
         }
     }
 
-    fn default_port_header(&mut self) -> PortHeader {
+    fn default_port_header(&mut self, offset: TextSize) -> PortHeader {
         let default_data_ty = DataTy::Builtin(BuiltinDataTyId::new(BuiltinDataTy::default()));
-        let default_net_kind = self.default_net_type;
+        let kind = self.net_kind_at(offset).unwrap_or(NetKind::Wire);
         PortHeader::Net {
             dir: PortDirection::default(),
-            net_ty: NetType { kind: default_net_kind, ty: default_data_ty },
+            net_ty: NetType { kind, ty: default_data_ty },
         }
     }
 

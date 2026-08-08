@@ -1,6 +1,10 @@
-use syntax::{SyntaxToken, TokenKind, ast};
+use base_db::salsa;
+use syntax::{SyntaxKind, SyntaxToken, TokenKind, ast};
+use triomphe::Arc;
+use utils::text_edit::TextSize;
 
 use super::expr::data_ty::DataTy;
+use crate::{ast_id_map::SyntaxFileId, db::HirDefDb};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct NetType {
@@ -39,6 +43,52 @@ pub(crate) fn lower_net_kind(tok: Option<SyntaxToken>) -> Option<NetKind> {
         _ => return None,
     };
     Some(kind)
+}
+
+/// `` `default_nettype `` directives of one file, in source order. `None`
+/// marks `` `default_nettype none ``: implicit nets are illegal after that
+/// point. The directive is consumed by the preprocessor but survives as a
+/// structured trivia node, so no text parsing is involved.
+#[salsa::tracked(lru = 128, returns(clone))]
+pub(crate) fn default_nettype_directives(
+    db: &dyn HirDefDb,
+    file: SyntaxFileId,
+) -> Arc<[(TextSize, Option<NetKind>)]> {
+    let file_id = file.hir_file(db);
+    let tree = db.parse(file_id);
+    let mut directives = Vec::new();
+    let Some(root) = tree.root() else {
+        return Arc::from(Vec::new());
+    };
+    for token in root.tokens() {
+        for trivia in token.tok.trivias() {
+            let Some(directive) = trivia.syntax() else { continue };
+            if directive.kind() != SyntaxKind::DEFAULT_NET_TYPE_DIRECTIVE {
+                continue;
+            }
+            // The directive node is trivia and has no root-buffer range, but
+            // its leading `` `default_nettype `` token does; that offset is
+            // where the directive takes effect.
+            let Some(offset) = directive
+                .child_token(0)
+                .and_then(|token| token.range())
+                .map(|range| TextSize::from(u32::try_from(range.start()).unwrap_or_default()))
+            else {
+                continue;
+            };
+            // `none` lexes as an unknown token or an identifier; both map to
+            // `None` through `lower_net_kind`, meaning implicit nets illegal.
+            let kind = directive.child_token(1).and_then(|tok| lower_net_kind(Some(tok)));
+            directives.push((offset, kind));
+        }
+    }
+    directives.sort_by_key(|(offset, _)| *offset);
+    directives.dedup_by_key(|(offset, _)| *offset);
+    Arc::from(directives)
+}
+
+pub(crate) fn set_default_nettype_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
+    default_nettype_directives::set_lru_capacity(db, capacity);
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
