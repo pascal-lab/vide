@@ -85,6 +85,9 @@ pub struct PackageImport {
     pub package: Ident,
     /// `None` represents `pkg::*`.
     pub item: Option<Ident>,
+    /// Source declaration of the import, used for point-of-reference
+    /// resolution.
+    pub source: Option<crate::ast_id_map::SourceAstId>,
 }
 
 #[inline]
@@ -107,6 +110,7 @@ pub(crate) fn lower_named_label_opt(label: Option<ast::NamedLabel>) -> Option<Id
 
 pub(crate) fn lower_package_imports(
     import_decl: ast::PackageImportDeclaration,
+    source: crate::ast_id_map::SourceAstId,
 ) -> Vec<PackageImport> {
     import_decl
         .items()
@@ -116,7 +120,7 @@ pub(crate) fn lower_package_imports(
             let item = item.item()?;
             let item =
                 (item.kind() != TokenKind::STAR).then(|| lower_ident_opt(Some(item))).flatten();
-            Some(PackageImport { package, item })
+            Some(PackageImport { package, item, source: Some(source) })
         })
         .collect()
 }

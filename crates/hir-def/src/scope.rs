@@ -155,7 +155,11 @@ impl ScopeData {
     }
 
     fn insert_package_import(&mut self, import: &PackageImport) {
-        self.insert_import(Import { package: import.package.clone(), name: import.item.clone() });
+        self.insert_import(Import {
+            package: import.package.clone(),
+            name: import.item.clone(),
+            source: import.source,
+        });
     }
 }
 
