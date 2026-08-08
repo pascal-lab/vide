@@ -6,7 +6,9 @@ use hir_def::{
     def_id::DefId,
     expr::{
         Arg, AssignOp, BinaryOp, Expr, ExprId, IncDecOp, Selector, StreamOp, UnaryOp,
-        data_ty::{BuiltinDataTy, DataTy, Dimension, IntKind, Real, TypeRef, VecKind},
+        data_ty::{
+            BuiltinDataTy, DataTy, Dimension, IntKind, Real, TypePathKind, TypeRef, VecKind,
+        },
         declarator::DeclId,
     },
     literal::Literal,
@@ -47,9 +49,17 @@ impl HirFormatter<'_> {
     }
 }
 fn fmt_type_ref(ty: &TypeRef, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
+    if ty.recovery().is_some() {
+        return f.write_str("<invalid type path>");
+    }
+    let separator = match ty.path_kind() {
+        TypePathKind::Unqualified => "",
+        TypePathKind::Package => "::",
+        TypePathKind::Hierarchical => ".",
+    };
     for (index, segment) in ty.segments().iter().enumerate() {
         if index != 0 {
-            f.write_str("::")?;
+            f.write_str(separator)?;
         }
         f.write_str(segment)?;
     }

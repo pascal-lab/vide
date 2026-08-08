@@ -201,7 +201,11 @@ macro_rules! collect_container_body {
             let DataTy::Named(type_ref) = declaration.ty() else {
                 continue;
             };
-            let Some(range) = type_ref.source_range() else {
+            let Some(range) = db
+                .source_projection(cont_id.file(db))
+                .origin(type_ref.source())
+                .and_then(|origin| origin.focus_or_full_range())
+            else {
                 continue;
             };
             check_range!(collector, range);
@@ -211,7 +215,11 @@ macro_rules! collect_container_body {
             let Some(DataTy::Named(type_ref)) = typedef.ty.clone() else {
                 continue;
             };
-            let Some(range) = type_ref.source_range() else {
+            let Some(range) = db
+                .source_projection(cont_id.file(db))
+                .origin(type_ref.source())
+                .and_then(|origin| origin.focus_or_full_range())
+            else {
                 continue;
             };
             check_range!(collector, range);
