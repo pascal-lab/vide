@@ -19,7 +19,7 @@ use crate::{
     expr::{
         Expr, ExprId,
         declarator::{DeclId, Declarator, empty_decls_range},
-        timing_control::EventExpr,
+        timing_control::{EventExpr, EventExprId},
     },
     file::{
         config::{ConfigDecl, ConfigDeclId},
@@ -697,8 +697,8 @@ crate::impl_arena_getters!(
     DeclarationId => declarations => Declaration,
     TypedefId => typedefs => Typedef,
     StructId => structs => StructDef,
-    crate::expr::ExprId => exprs => Expr,
-    crate::expr::timing_control::EventExprId => event_exprs => EventExpr,
+    ExprId => exprs => Expr,
+    EventExprId => event_exprs => EventExpr,
     DeclId => decls => Declarator,
     StmtId => stmts => Stmt,
     ProcId => procs => Proc,
@@ -722,63 +722,18 @@ crate::impl_arena_getters!(
     ParamAssignId => inst_param_assigns => ParamAssign,
     InstanceId => instances => Instance,
     PortConnId => inst_port_conns => PortConn,
+    NonAnsiPortId => ports => NonAnsiPort,
+    PortRefId => ports => PortRef,
+    PortDeclId => ports => PortDecl,
 );
-
-impl utils::get::GetRef<NonAnsiPortId> for Body {
-    type Output = NonAnsiPort;
-
-    fn get(&self, id: NonAnsiPortId) -> &Self::Output {
-        utils::get::GetRef::get(&self.ports, id)
-    }
-}
-
-impl utils::get::GetRef<PortRefId> for Body {
-    type Output = PortRef;
-
-    fn get(&self, id: PortRefId) -> &Self::Output {
-        utils::get::GetRef::get(&self.ports, id)
-    }
-}
-
-impl utils::get::GetRef<PortDeclId> for Body {
-    type Output = PortDecl;
-
-    fn get(&self, id: PortDeclId) -> &Self::Output {
-        utils::get::GetRef::get(&self.ports, id)
-    }
-}
-
-impl utils::get::Get<NonAnsiPortId> for BodySourceMap {
-    type Output = Option<crate::ast_id_map::SourceAstId>;
-
-    fn get(&self, id: NonAnsiPortId) -> Self::Output {
-        utils::get::Get::get(&self.port_srcs, id)
-    }
-}
-
-impl utils::get::Get<PortRefId> for BodySourceMap {
-    type Output = Option<crate::ast_id_map::SourceAstId>;
-
-    fn get(&self, id: PortRefId) -> Self::Output {
-        utils::get::Get::get(&self.port_srcs, id)
-    }
-}
-
-impl utils::get::Get<PortDeclId> for BodySourceMap {
-    type Output = Option<crate::ast_id_map::SourceAstId>;
-
-    fn get(&self, id: PortDeclId) -> Self::Output {
-        utils::get::Get::get(&self.port_srcs, id)
-    }
-}
 
 crate::impl_source_map_getters!(
     BodySourceMap;
     DeclarationId => declaration_srcs,
     TypedefId => typedef_srcs,
     StructId => struct_srcs,
-    crate::expr::ExprId => expr_srcs,
-    crate::expr::timing_control::EventExprId => event_expr_srcs,
+    ExprId => expr_srcs,
+    EventExprId => event_expr_srcs,
     DeclId => decl_srcs,
     StmtId => stmt_srcs,
     ProcId => proc_srcs,
@@ -801,4 +756,7 @@ crate::impl_source_map_getters!(
     ParamAssignId => inst_param_assign_srcs,
     InstanceId => instance_srcs,
     PortConnId => inst_port_conn_srcs,
+    NonAnsiPortId => port_srcs,
+    PortRefId => port_srcs,
+    PortDeclId => port_srcs,
 );
