@@ -3,7 +3,7 @@ use hir_def::{
     body::{Body, BodyItem},
     container::{InFile, OwnerRef},
     def_id::DefId,
-    expr::Expr,
+    expr::{Expr, ExprId, PropertyExpr, SequenceExpr},
     has_source::HasSource,
     module::{
         instantiation::{Instantiation, ParamAssign, PortConn, PortConnId},
@@ -409,7 +409,7 @@ fn process_instantiation(
                 let param_id = hir_def::module::overridable_param_id_by_idx(&target_body, id)?;
                 let param_def = DefId::from_source(db, OwnerRef::new(target_module_id, param_id));
                 let param_name = param_def.primary_origin(db).name(db)?;
-                check_or_throw!(!should_skip(module_body.get(*assign_expr), &param_name));
+                check_or_throw!(!is_same_named_expr(&module_body, *assign_expr, &param_name));
                 let target_range = param_def.primary_origin(db).range(db)?;
                 collector.collect_src_hint(
                     assign_src,
@@ -493,7 +493,7 @@ fn collect_connection_hint(
             collector.collect_src_hint(conn_src, Some(target_range), None, label, edit);
         }
         PortConn::Ordered(expr) => {
-            let same_name = should_skip(body.get(*expr), name);
+            let same_name = is_same_named_expr(body, *expr, name);
             let label = if same_name { arrow.to_string() } else { format!("{name} {arrow}") };
             let target_range = if same_name { None } else { Some(target_range) };
             let edit = if same_name { None } else { edits_for_conn(name, conn_src) };
@@ -526,11 +526,13 @@ fn edits_for_conn(param: &str, conn_src: SourceInfo) -> Option<TextEdit> {
     Some(builder.finish())
 }
 
-fn should_skip(expr: &Expr, name: &str) -> bool {
-    // TODO: handle more cases
-    #[allow(clippy::match_like_matches_macro)]
-    match expr {
-        Expr::Ident(ident) if ident == name => true,
+fn is_same_named_expr(body: &Lowered<Body>, expr: ExprId, name: &str) -> bool {
+    match body.get(expr) {
+        Expr::Ident(ident) => ident == name,
+        Expr::Property(PropertyExpr::Simple(inner)) => is_same_named_expr(body, *inner, name),
+        Expr::Sequence(SequenceExpr::Simple { expr: inner, repetition: None }) => {
+            is_same_named_expr(body, *inner, name)
+        }
         _ => false,
     }
 }
