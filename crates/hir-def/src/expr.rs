@@ -210,7 +210,7 @@ pub enum SequenceExpr {
     Simple { expr: ExprId, repetition: Option<SequenceRepetition> },
     Binary { left: ExprId, op: TokenKind, right: ExprId },
     Delayed { first: Option<ExprId>, elements: Box<[DelayedSequenceElement]> },
-    Event(ExprId),
+    Event(timing_control::EventExprId),
     Clocking { event: TimingControl, expr: ExprId },
     FirstMatch { expr: ExprId },
     Parenthesized { expr: ExprId, matches: Box<[ExprId]>, repetition: Option<SequenceRepetition> },
@@ -218,6 +218,7 @@ pub enum SequenceExpr {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum PropertyExpr {
+    Parenthesized { expr: ExprId, matches: Box<[ExprId]> },
     Simple(ExprId),
     Binary { left: ExprId, op: TokenKind, right: ExprId },
     Conditional { condition: ExprId, expr: ExprId, else_expr: Option<ExprId> },
@@ -362,6 +363,130 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         let source = self.source_id(expr.syntax());
         let (expressions, sources) = self.expressions();
         alloc_with_source_entry(expressions, sources, hir_expr, source)
+    }
+
+    fn alloc_lowered_expr(&mut self, expr: Expr, syntax: syntax::SyntaxNode<'_>) -> ExprId {
+        let source = self.source_id(syntax);
+        let (expressions, sources) = self.expressions();
+        alloc_with_source_entry(expressions, sources, expr, source)
+    }
+
+    pub(crate) fn lower_sequence_expr(&mut self, expr: ast::SequenceExpr) -> ExprId {
+        let lowered = match expr {
+            ast::SequenceExpr::SimpleSequenceExpr(expr) => SequenceExpr::Simple {
+                expr: self.lower_expr(expr.expr()),
+                repetition: expr
+                    .repetition()
+                    .map(|repetition| self.lower_sequence_repetition(repetition)),
+            },
+            ast::SequenceExpr::BinarySequenceExpr(expr) => SequenceExpr::Binary {
+                left: self.lower_sequence_expr(expr.left()),
+                op: expr.op().map(|token| token.kind()).unwrap_or(TokenKind::UNKNOWN),
+                right: self.lower_sequence_expr(expr.right()),
+            },
+            ast::SequenceExpr::DelayedSequenceExpr(expr) => SequenceExpr::Delayed {
+                first: expr.first().map(|first| self.lower_sequence_expr(first)),
+                elements: expr
+                    .elements()
+                    .children()
+                    .map(|element| DelayedSequenceElement {
+                        delay: element.delay_val().map(|delay| self.lower_expr(delay)),
+                        range: element.range().map(|range| self.lower_selector(range)),
+                        expr: self.lower_sequence_expr(element.expr()),
+                    })
+                    .collect(),
+            },
+            ast::SequenceExpr::EventExpression(expr) => {
+                SequenceExpr::Event(self.lower_event_expr(expr))
+            }
+            ast::SequenceExpr::ClockingSequenceExpr(expr) => SequenceExpr::Clocking {
+                event: self.lower_timing_control(expr.event()),
+                expr: self.lower_sequence_expr(expr.expr()),
+            },
+            ast::SequenceExpr::FirstMatchSequenceExpr(expr) => {
+                SequenceExpr::FirstMatch { expr: self.lower_sequence_expr(expr.expr()) }
+            }
+            ast::SequenceExpr::ParenthesizedSequenceExpr(expr) => SequenceExpr::Parenthesized {
+                expr: self.lower_sequence_expr(expr.expr()),
+                matches: expr
+                    .match_list()
+                    .map(|list| {
+                        list.items().children().map(|item| self.lower_property_expr(item)).collect()
+                    })
+                    .unwrap_or_default(),
+                repetition: expr
+                    .repetition()
+                    .map(|repetition| self.lower_sequence_repetition(repetition)),
+            },
+        };
+        self.alloc_lowered_expr(Expr::Sequence(lowered), expr.syntax())
+    }
+
+    fn lower_sequence_repetition(
+        &mut self,
+        repetition: ast::SequenceRepetition,
+    ) -> SequenceRepetition {
+        SequenceRepetition {
+            op: repetition.op().map(|token| token.kind()).unwrap_or(TokenKind::UNKNOWN),
+            selector: repetition.selector().map(|selector| self.lower_selector(selector)),
+        }
+    }
+
+    pub(crate) fn lower_property_expr(&mut self, expr: ast::PropertyExpr) -> ExprId {
+        let lowered = match expr {
+            ast::PropertyExpr::ParenthesizedPropertyExpr(expr) => PropertyExpr::Parenthesized {
+                expr: self.lower_property_expr(expr.expr()),
+                matches: expr
+                    .match_list()
+                    .map(|list| {
+                        list.items().children().map(|item| self.lower_property_expr(item)).collect()
+                    })
+                    .unwrap_or_default(),
+            },
+            ast::PropertyExpr::BinaryPropertyExpr(expr) => PropertyExpr::Binary {
+                left: self.lower_property_expr(expr.left()),
+                op: expr.op().map(|token| token.kind()).unwrap_or(TokenKind::UNKNOWN),
+                right: self.lower_property_expr(expr.right()),
+            },
+            ast::PropertyExpr::ConditionalPropertyExpr(expr) => PropertyExpr::Conditional {
+                condition: self.lower_expr(expr.condition()),
+                expr: self.lower_property_expr(expr.expr()),
+                else_expr: expr.else_clause().map(|clause| self.lower_property_expr(clause.expr())),
+            },
+            ast::PropertyExpr::UnarySelectPropertyExpr(expr) => PropertyExpr::UnarySelect {
+                op: expr.op().map(|token| token.kind()).unwrap_or(TokenKind::UNKNOWN),
+                selector: expr.selector().map(|selector| self.lower_selector(selector)),
+                expr: self.lower_property_expr(expr.expr()),
+            },
+            ast::PropertyExpr::ClockingPropertyExpr(expr) => PropertyExpr::Clocking {
+                event: self.lower_timing_control(expr.event()),
+                expr: expr.expr().map(|expr| self.lower_property_expr(expr)),
+            },
+            ast::PropertyExpr::SimplePropertyExpr(expr) => {
+                PropertyExpr::Simple(self.lower_sequence_expr(expr.expr()))
+            }
+            ast::PropertyExpr::UnaryPropertyExpr(expr) => PropertyExpr::Unary {
+                op: expr.op().map(|token| token.kind()).unwrap_or(TokenKind::UNKNOWN),
+                expr: self.lower_property_expr(expr.expr()),
+            },
+            ast::PropertyExpr::StrongWeakPropertyExpr(expr) => PropertyExpr::StrongWeak {
+                strong: expr
+                    .keyword()
+                    .map(|token| token.kind() == TokenKind::STRONG_KEYWORD)
+                    .unwrap_or(false),
+                expr: self.lower_sequence_expr(expr.expr()),
+            },
+            ast::PropertyExpr::AcceptOnPropertyExpr(expr) => PropertyExpr::AcceptOn {
+                condition: self.lower_expr(expr.condition()),
+                expr: self.lower_property_expr(expr.expr()),
+            },
+            ast::PropertyExpr::CasePropertyExpr(expr) => {
+                self.report_unsupported(expr.syntax(), "case property expressions are not lowered");
+                return self
+                    .alloc_lowered_expr(Expr::Unsupported(expr.syntax().kind()), expr.syntax());
+            }
+        };
+        self.alloc_lowered_expr(Expr::Property(lowered), expr.syntax())
     }
 
     fn lower_expr_inner(&mut self, expr: ast::Expression) -> Option<Expr> {
@@ -794,19 +919,5 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
 
     fn alloc_missing_expr(&mut self) -> ExprId {
         self.expressions().0.alloc(Expr::Missing)
-    }
-}
-
-impl<Store: LoweringStore> LoweringCtx<Store> {
-    pub(crate) fn lower_property_expr(&mut self, expr: ast::PropertyExpr) -> ExprId {
-        self.lower_property_expr_inner(expr).unwrap_or_else(|| self.alloc_missing_expr())
-    }
-
-    pub(crate) fn lower_property_expr_inner(&mut self, expr: ast::PropertyExpr) -> Option<ExprId> {
-        expr.as_simple_property_expr().and_then(|expr| self.lower_sequence_expr(expr.expr()))
-    }
-
-    pub(crate) fn lower_sequence_expr(&mut self, expr: ast::SequenceExpr) -> Option<ExprId> {
-        expr.as_simple_sequence_expr().map(|expr| self.lower_expr(expr.expr()))
     }
 }
