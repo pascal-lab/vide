@@ -185,6 +185,12 @@ pub struct AssignmentPatternItem {
     pub value: ExprId,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum InsideRange {
+    Expr(ExprId),
+    Range { left: ExprId, right: ExprId },
+}
+
 #[derive(Default, Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Expr {
     #[default]
@@ -200,6 +206,10 @@ pub enum Expr {
     AssignmentPattern {
         ty: Option<DataTy>,
         pattern: AssignmentPattern,
+    },
+    Inside {
+        expr: ExprId,
+        ranges: Box<[InsideRange]>,
     },
     Call {
         callee: ExprId,
@@ -327,8 +337,8 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             SignedCastExpression(expr) => self.lower_cast_signed_expr(expr),
             PostfixUnaryExpression(expr) => self.lower_postfix_unary_expr(expr),
             BadExpression(bad) => Some(Expr::Error(bad.syntax().kind())),
-            unsupported @ (InsideExpression(_)
-            | TimingControlExpression(_)
+            InsideExpression(expr) => self.lower_inside_expr(expr),
+            unsupported @ (TimingControlExpression(_)
             | ValueRangeExpression(_)
             | DataType(_)
             | TaggedUnionExpression(_)
@@ -392,6 +402,26 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
                 }
             }
         }
+    }
+
+    fn lower_inside_expr(&mut self, expr: ast::InsideExpression) -> Option<Expr> {
+        let value = self.lower_expr(expr.expr());
+        let ranges = expr
+            .ranges()
+            .value_ranges()
+            .children()
+            .map(|range| {
+                if let Some(range) = ast::ValueRangeExpression::cast(range.syntax()) {
+                    InsideRange::Range {
+                        left: self.lower_expr(range.left()),
+                        right: self.lower_expr(range.right()),
+                    }
+                } else {
+                    InsideRange::Expr(self.lower_expr(range))
+                }
+            })
+            .collect();
+        Some(Expr::Inside { expr: value, ranges })
     }
 
     fn lower_member_access_expr(&mut self, expr: ast::MemberAccessExpression) -> Option<Expr> {
