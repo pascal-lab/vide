@@ -27,6 +27,7 @@ use crate::{
     semantic_target::{
         SemanticTarget, SourceTarget, TargetIntent, TargetResolution, resolve_semantic_target,
     },
+    signature_help::{system_description, system_lrm, system_signature_definition},
 };
 
 mod include;
@@ -138,12 +139,34 @@ fn handle_literal(
     render::render_literal(literal)
 }
 
+fn handle_system_subroutine(tp: &SyntaxTokenWithParent<'_>) -> Option<Markup> {
+    let name = tp.tok.raw_text().to_string();
+    if tp.tok.kind() != TokenKind::SYSTEM_IDENTIFIER {
+        return None;
+    }
+
+    let definition = system_signature_definition(&name)?;
+    let mut res = Markup::new();
+    res.title(&format!("System {} {}", definition.kind, inline_code(&name)));
+    res.push_with_code_fence(&format!("{name}({})", definition.params.join(", ")));
+    if let Some(description) = system_description(&name) {
+        res.newline();
+        res.print(description);
+    }
+    if let Some(clause) = system_lrm(&name) {
+        res.metadata_line(&format!("IEEE 1800-2023 §{clause}"));
+    }
+    Some(res)
+}
+
 fn hover_for_token(
     sema: &Semantics<RootDb>,
     file_id: HirFileId,
     token: SyntaxTokenWithParent,
 ) -> Option<Markup> {
-    handle_literal(sema, file_id, token).or_else(|| handle_definition(sema, file_id, token))
+    handle_literal(sema, file_id, token)
+        .or_else(|| handle_system_subroutine(&token))
+        .or_else(|| handle_definition(sema, file_id, token))
 }
 
 fn merge_hover_results(markups: Vec<Markup>) -> Option<Markup> {

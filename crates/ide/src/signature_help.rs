@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::LazyLock};
 
 use hir_def::{
     container::OwnerRef,
@@ -475,27 +475,227 @@ fn sig_help_for_system_call(
     Some(res)
 }
 
+/// Parameter labels and compiler-facing kind for a built-in system subroutine.
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct SystemSignatureDef {
+    /// Read only by the slang-alignment test and system hover renderer.
+    pub(crate) kind: String,
+    pub(crate) params: Vec<String>,
+}
+
+pub(crate) fn system_signature_definition(name: &str) -> Option<&'static SystemSignatureDef> {
+    static TABLE: LazyLock<BTreeMap<String, SystemSignatureDef>> = LazyLock::new(|| {
+        toml::from_str(include_str!("system_signatures.toml"))
+            .expect("bundled system_signatures.toml must parse")
+    });
+    TABLE.get(name)
+}
+
+pub(crate) fn system_lrm(name: &str) -> Option<&'static str> {
+    static TABLE: LazyLock<BTreeMap<String, String>> = LazyLock::new(|| {
+        toml::from_str(include_str!("system_lrm.toml")).expect("bundled system_lrm.toml must parse")
+    });
+    TABLE.get(name).map(String::as_str)
+}
+
+/// Descriptions are short excerpts from IEEE 1800-2023. No prose is
+/// synthesized for vendor- or simulator-specific system subroutines.
+pub(crate) fn system_description(name: &str) -> Option<&'static str> {
+    let description = match name {
+        "$display" | "$displayb" | "$displayo" | "$displayh" | "$write" | "$writeb" | "$writeo"
+        | "$writeh" => {
+            "These are the main system task routines for displaying information. The two sets of tasks are identical except that $display automatically adds a newline character to the end of its output, whereas the $write task does not."
+        }
+        "$strobe" | "$strobeb" | "$strobeo" | "$strobeh" => {
+            "The system task $strobe provides the ability to display simulation data at a selected time."
+        }
+        "$monitor" | "$monitorb" | "$monitoro" | "$monitorh" => {
+            "The $monitor task provides the ability to monitor and display the values of any variables or expressions specified as arguments to the task."
+        }
+        "$monitoron" | "$monitoroff" => {
+            "The $monitoron and $monitoroff tasks control a monitor flag that enables and disables the monitoring."
+        }
+        "$fdisplay" | "$fdisplayb" | "$fdisplayh" | "$fdisplayo" | "$fwrite" | "$fwriteb"
+        | "$fwriteh" | "$fwriteo" | "$fstrobe" | "$fstrobeb" | "$fstrobeh" | "$fstrobeo"
+        | "$fmonitor" | "$fmonitorb" | "$fmonitorh" | "$fmonitoro" => {
+            "Each of the four formatted display tasks—$display, $write, $monitor, and $strobe—has a counterpart that writes to specific files as opposed to the standard output."
+        }
+        "$swrite" | "$swriteb" | "$swriteh" | "$swriteo" => {
+            "The $swrite family of tasks is based on the $fwrite family of tasks and accepts the same type of arguments as the tasks upon which it is based."
+        }
+        "$sformat" => {
+            "The system task $sformat is similar to the system task $swrite, with one major difference."
+        }
+        "$sformatf" => {
+            "The system function $sformatf behaves like $sformat except that the string result is passed back as the function result value for $sformatf, not placed in the first argument as for $sformat."
+        }
+        "$fopen" | "$fclose" | "$fflush" | "$feof" | "$ferror" | "$fgetc" | "$fgets" | "$fread"
+        | "$fscanf" | "$sscanf" | "$ungetc" | "$ftell" | "$fseek" | "$rewind" => {
+            "The system tasks and system functions for file-based operations are divided into the following categories."
+        }
+        "$readmemb" | "$readmemh" => {
+            "Two system tasks—$readmemb and $readmemh—read and load data from a specified text file into a specified memory array."
+        }
+        "$writememb" | "$writememh" => {
+            "The $writememb and $writememh tasks write memory contents to a file."
+        }
+        "$dumpfile" => "The $dumpfile task shall be used to specify the name of the VCD file.",
+        "$dumpvars" => {
+            "The $dumpvars task shall be used to list which variables to dump into the file specified by $dumpfile."
+        }
+        "$dumpall" => "The $dumpall task creates a checkpoint in the VCD file.",
+        "$dumpflush" => "The $dumpflush task controls when VCD output is written to the file.",
+        "$dumplimit" => "The $dumplimit task limits the size of the VCD file.",
+        "$dumpoff" | "$dumpon" => {
+            "The $dumpoff and $dumpon tasks control the interval during which value changes are dumped."
+        }
+        "$dumpports" | "$dumpportson" | "$dumpportsoff" | "$dumpportsall" | "$dumpportslimit"
+        | "$dumpportsflush" => {
+            "Several system tasks can be inserted in the source description to create and control the VCD file."
+        }
+        "$stop" => "The $stop system task causes simulation to be suspended.",
+        "$finish" => {
+            "The $finish system task causes the simulator to exit and pass control back to the host operating system."
+        }
+        "$exit" => {
+            "The $exit control task waits for all program blocks to complete, and then makes an implicit call to $finish."
+        }
+        "$time" => {
+            "The $time system function returns an integer that is a 64-bit time, scaled to the time unit of the module that invoked it."
+        }
+        "$stime" => {
+            "The $stime system function returns an unsigned integer that is a 32-bit time, scaled to the time unit of the module that invoked it."
+        }
+        "$realtime" => {
+            "The $realtime system function returns a real number time that, like $time, is scaled to the time unit of the module that invoked it."
+        }
+        "$timeunit" | "$timeprecision" => {
+            "The $timeunit and $timeprecision system functions return the time unit and time precision, respectively, for a particular design element."
+        }
+        "$printtimescale" => {
+            "The $printtimescale system task displays the time unit and precision for a particular design element."
+        }
+        "$timeformat" => {
+            "The $timeformat system task specifies how the %t format specification reports time information for the display and file output system tasks and system functions in 21.2 and 21.3."
+        }
+        "$rtoi" | "$itor" | "$realtobits" | "$bitstoreal" | "$shortrealtobits"
+        | "$bitstoshortreal" | "$signed" | "$unsigned" | "$cast" => {
+            "System functions are provided to convert values to and from real number values, and to convert values to signed or unsigned values."
+        }
+        "$typename" => {
+            "The $typename system function returns a string that represents the resolved type of its argument."
+        }
+        "$bits" => {
+            "The $bits system function returns the number of bits required to hold an expression as a bit stream."
+        }
+        "$isunbounded" => {
+            "The $isunbounded system function returns true (1'b1) if the argument is $."
+        }
+        "$low"
+        | "$high"
+        | "$left"
+        | "$right"
+        | "$increment"
+        | "$size"
+        | "$dimensions"
+        | "$unpacked_dimensions" => {
+            "SystemVerilog provides system functions to return information about a particular dimension of an array or integral data type."
+        }
+        "$clog2" => {
+            "The system function $clog2 shall return the ceiling of the log base 2 of the argument (the log rounded up to an integer value)."
+        }
+        "$ln" => "Natural logarithm.",
+        "$log10" => "Decimal logarithm.",
+        "$exp" => "Exponential.",
+        "$sqrt" => "Square root.",
+        "$pow" => "x.",
+        "$floor" => "Floor.",
+        "$ceil" => "Ceiling.",
+        "$sin" => "Sine.",
+        "$cos" => "Cosine.",
+        "$tan" => "Tangent.",
+        "$asin" => "Arc-sine.",
+        "$acos" => "Arc-cosine.",
+        "$atan" => "Arc-tangent.",
+        "$atan2" => "Arc-tangent of y/x.",
+        "$hypot" => "sqrt(x*x+y*y).",
+        "$sinh" => "Hyperbolic sine.",
+        "$cosh" => "Hyperbolic cosine.",
+        "$tanh" => "Hyperbolic tangent.",
+        "$asinh" => "Arc-hyperbolic sine.",
+        "$acosh" => "Arc-hyperbolic cosine.",
+        "$atanh" => "Arc-hyperbolic tangent.",
+        "$countbits" => {
+            "The function $countbits counts the number of bits that have a specific set of values (e.g., 0, 1, x, z) in a bit vector."
+        }
+        "$countones" | "$onehot" | "$onehot0" | "$isunknown" => {
+            "For convenience, the following related functions are also provided."
+        }
+        "$fatal" | "$error" | "$warning" | "$info" => {
+            "SystemVerilog provides special text messaging system tasks that can be used to flag various exception conditions."
+        }
+        "$assertcontrol" => {
+            "SystemVerilog provides the $assertcontrol system task to control the evaluation of assertions."
+        }
+        "$asserton"
+        | "$assertoff"
+        | "$assertkill"
+        | "$assertpasson"
+        | "$assertpassoff"
+        | "$assertfailon"
+        | "$assertfailoff"
+        | "$assertnonvacuouson"
+        | "$assertvacuousoff" => {
+            "The $asserton, $assertoff, and $assertkill system tasks are provided for convenience and backward compatibility."
+        }
+        "$sampled" | "$rose" | "$fell" | "$stable" | "$changed" | "$past" | "$past_gclk"
+        | "$rose_gclk" | "$fell_gclk" | "$stable_gclk" | "$changed_gclk" | "$future_gclk"
+        | "$rising_gclk" | "$falling_gclk" | "$steady_gclk" | "$changing_gclk" => {
+            "System functions based on sampled values and global clocking are provided to perform various temporal calculations."
+        }
+        "$coverage_control" | "$coverage_get_max" | "$coverage_get" | "$coverage_merge"
+        | "$coverage_save" => {
+            "SystemVerilog has several built-in system functions for obtaining test coverage information."
+        }
+        "$set_coverage_db_name" | "$load_coverage_db" | "$get_coverage" => {
+            "System tasks and system functions are also provided to help manage coverage data collection and reporting."
+        }
+        "$random" => {
+            "The system function $random provides a mechanism for generating random numbers."
+        }
+        "$urandom" | "$urandom_range" | "$dist_uniform" | "$dist_normal" | "$dist_exponential"
+        | "$dist_poisson" | "$dist_chi_square" | "$dist_t" | "$dist_erlang" => {
+            "Each of these functions returns a pseudo-random number whose characteristics are described by the function name."
+        }
+        "$q_initialize" | "$q_add" | "$q_remove" | "$q_full" | "$q_exam" => {
+            "This subclause describes a set of system tasks and system functions that manage queues."
+        }
+        "$async$and$array" | "$sync$and$array" | "$async$and$plane" | "$sync$and$plane"
+        | "$async$nand$array" | "$sync$nand$array" | "$sync$nand$plane" | "$async$nand$plane"
+        | "$async$or$array" | "$sync$or$array" | "$async$or$plane" | "$sync$or$plane"
+        | "$async$nor$array" | "$sync$nor$array" | "$async$nor$plane" | "$sync$nor$plane" => {
+            "The modeling of programmable logic array (PLA) devices is provided by a group of system tasks."
+        }
+        "$system" => {
+            "$system makes a call to the C function system(). The C function executes the argument passed to it as if the argument was executed from the terminal."
+        }
+        "$stacktrace" => {
+            "The $stacktrace system task can be used to retrieve the call stack from the context that is calling $stacktrace up to the top-level process."
+        }
+        "$global_clock" => {
+            "The $global_clock system function shall be used to explicitly refer to the event expression in the effective global clocking declaration."
+        }
+        "$inferred_clock" => "The $inferred_clock returns the inferred clocking event.",
+        "$inferred_disable" => "The $inferred_disable returns the inferred disable condition.",
+        _ => return None,
+    };
+    Some(description)
+}
+
 /// Parameter labels for a system subroutine, from the bundled
 /// `system_signatures.toml` table. `...` marks variadic arguments.
 pub(crate) fn system_signature(name: &str) -> Option<&'static [String]> {
-    use std::sync::OnceLock;
-
-    static TABLE: OnceLock<BTreeMap<String, SystemSignatureDef>> = OnceLock::new();
-    TABLE
-        .get_or_init(|| {
-            toml::from_str(include_str!("system_signatures.toml"))
-                .expect("bundled system_signatures.toml must parse")
-        })
-        .get(name)
-        .map(|def| def.params.as_slice())
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct SystemSignatureDef {
-    /// Read only by the slang-alignment test; the runtime path needs `params`.
-    #[allow(dead_code)]
-    kind: String,
-    params: Vec<String>,
+    system_signature_definition(name).map(|definition| definition.params.as_slice())
 }
 
 #[cfg(test)]
@@ -543,5 +743,14 @@ mod tests {
         let table = table();
         let names: BTreeSet<String> = table.keys().cloned().collect();
         assert_eq!(names.len(), table.len(), "duplicate names in system_signatures.toml");
+    }
+
+    #[test]
+    fn system_lrm_table_covers_every_signature() {
+        let signatures = table();
+        let lrm: BTreeMap<String, String> = toml::from_str(include_str!("system_lrm.toml"))
+            .expect("bundled system_lrm.toml must parse");
+        let missing: Vec<_> = signatures.keys().filter(|name| !lrm.contains_key(*name)).collect();
+        assert!(missing.is_empty(), "missing LRM references: {missing:?}");
     }
 }

@@ -128,11 +128,11 @@ params = ["fd"]
 
 ["$fgets"]
 kind = "function"
-params = ["str", "size", "fd"]
+params = ["str", "fd"]
 
 ["$fread"]
 kind = "function"
-params = ["mem", "fd"]
+params = ["mem", "fd", "start", "count"]
 
 ["$fscanf"]
 kind = "function"
@@ -256,15 +256,15 @@ params = []
 
 ["$finish"]
 kind = "task"
-params = ["depth"]
+params = ["finish_number"]
 
 ["$stop"]
 kind = "task"
-params = ["depth"]
+params = ["finish_number"]
 
 ["$fatal"]
 kind = "function"
-params = ["depth", "format", "..."]
+params = ["finish_number", "format", "..."]
 
 ["$error"]
 kind = "function"
@@ -292,19 +292,19 @@ params = []
 
 ["$printtimescale"]
 kind = "task"
-params = ["module"]
+params = ["hierarchical_identifier"]
 
 ["$timeformat"]
 kind = "task"
-params = ["unit", "precision", "suffix", "min_width"]
+params = ["units_number", "precision_number", "suffix_string", "minimum_field_width"]
 
 ["$value$plusargs"]
 kind = "function"
-params = ["format", "value"]
+params = ["user_string", "variable"]
 
 ["$test$plusargs"]
 kind = "function"
-params = ["format"]
+params = ["plusarg_string"]
 
 ["$system"]
 kind = "task"
@@ -328,27 +328,27 @@ params = ["expr"]
 
 ["$size"]
 kind = "function"
-params = ["expr"]
+params = ["expr", "dimension"]
 
 ["$left"]
 kind = "function"
-params = ["expr"]
+params = ["expr", "dimension"]
 
 ["$right"]
 kind = "function"
-params = ["expr"]
+params = ["expr", "dimension"]
 
 ["$low"]
 kind = "function"
-params = ["expr"]
+params = ["expr", "dimension"]
 
 ["$high"]
 kind = "function"
-params = ["expr"]
+params = ["expr", "dimension"]
 
 ["$increment"]
 kind = "function"
-params = ["expr"]
+params = ["expr", "dimension"]
 
 ["$dimensions"]
 kind = "function"
@@ -485,3 +485,432 @@ params = ["dest", "expr"]
 ["$typename"]
 kind = "function"
 params = ["expr"]
+
+["$realtobits"]
+kind = "function"
+params = ["expr"]
+
+["$bitstoreal"]
+kind = "function"
+params = ["expr"]
+
+["$shortrealtobits"]
+kind = "function"
+params = ["expr"]
+
+["$bitstoshortreal"]
+kind = "function"
+params = ["expr"]
+
+["$coverage_control"]
+kind = "function"
+params = ["control_constant", "coverage_type", "scope_def", "modules_or_instance"]
+
+["$coverage_get_max"]
+kind = "function"
+params = ["coverage_type", "scope_def", "modules_or_instance"]
+
+["$coverage_get"]
+kind = "function"
+params = ["coverage_type", "scope_def", "modules_or_instance"]
+
+["$coverage_merge"]
+kind = "function"
+params = ["coverage_type", "name"]
+
+["$coverage_save"]
+kind = "function"
+params = ["coverage_type", "name"]
+
+["$get_coverage"]
+kind = "function"
+params = []
+
+["$set_coverage_db_name"]
+kind = "function"
+params = ["name"]
+
+["$load_coverage_db"]
+kind = "function"
+params = ["name"]
+
+["$countbits"]
+kind = "function"
+params = ["expr", "control_bit", "..."]
+
+["$hypot"]
+kind = "function"
+params = ["x", "y"]
+
+["$global_clock"]
+kind = "function"
+params = []
+
+["$psprintf"]
+kind = "function"
+params = ["format", "..."]
+
+["$inferred_clock"]
+kind = "function"
+params = []
+
+["$inferred_disable"]
+kind = "function"
+params = []
+
+["$ftell"]
+kind = "function"
+params = ["fd"]
+
+["$fseek"]
+kind = "function"
+params = ["fd", "offset", "operation"]
+
+["$rewind"]
+kind = "function"
+params = ["fd"]
+
+["$rose"]
+kind = "function"
+params = ["expr", "clocking_event"]
+
+["$fell"]
+kind = "function"
+params = ["expr", "clocking_event"]
+
+["$stable"]
+kind = "function"
+params = ["expr", "clocking_event"]
+
+["$changed"]
+kind = "function"
+params = ["expr", "clocking_event"]
+
+["$past_gclk"]
+kind = "function"
+params = ["expr"]
+
+["$rose_gclk"]
+kind = "function"
+params = ["expr"]
+
+["$fell_gclk"]
+kind = "function"
+params = ["expr"]
+
+["$stable_gclk"]
+kind = "function"
+params = ["expr"]
+
+["$changed_gclk"]
+kind = "function"
+params = ["expr"]
+
+["$future_gclk"]
+kind = "function"
+params = ["expr"]
+
+["$rising_gclk"]
+kind = "function"
+params = ["expr"]
+
+["$falling_gclk"]
+kind = "function"
+params = ["expr"]
+
+["$steady_gclk"]
+kind = "function"
+params = ["expr"]
+
+["$changing_gclk"]
+kind = "function"
+params = ["expr"]
+
+["$sampled"]
+kind = "function"
+params = ["expr"]
+
+["$past"]
+kind = "function"
+params = ["expression1", "number_of_ticks", "expression2", "clocking_event"]
+
+["$stacktrace"]
+kind = "function"
+params = []
+
+["$countdrivers"]
+kind = "function"
+params = ["net", "net_is_forced", "number_of_01x_drivers", "number_of_0_drivers", "number_of_1_drivers", "number_of_x_drivers"]
+
+["$getpattern"]
+kind = "function"
+params = ["mem_element"]
+
+["$reset_count"]
+kind = "function"
+params = []
+
+["$reset_value"]
+kind = "function"
+params = []
+
+["$timeunit"]
+kind = "function"
+params = ["hierarchical_identifier"]
+
+["$timeprecision"]
+kind = "function"
+params = ["hierarchical_identifier"]
+
+["$scale"]
+kind = "function"
+params = ["hierarchical_name"]
+
+["$sdf_annotate"]
+kind = "task"
+params = ["sdf_file", "module_instance", "config_file", "log_file", "mtm_spec", "scale_factors", "scale_type"]
+
+["$dist_uniform"]
+kind = "function"
+params = ["seed", "start", "end"]
+
+["$dist_normal"]
+kind = "function"
+params = ["seed", "mean", "standard_deviation"]
+
+["$dist_exponential"]
+kind = "function"
+params = ["seed", "mean"]
+
+["$dist_poisson"]
+kind = "function"
+params = ["seed", "mean"]
+
+["$dist_chi_square"]
+kind = "function"
+params = ["seed", "degree_of_freedom"]
+
+["$dist_t"]
+kind = "function"
+params = ["seed", "degree_of_freedom"]
+
+["$dist_erlang"]
+kind = "function"
+params = ["seed", "k_stage", "mean"]
+
+["$static_assert"]
+kind = "task"
+params = ["condition", "message", "..."]
+
+["$assertcontrol"]
+kind = "task"
+params = ["control_type", "assertion_type", "directive_type", "levels", "scope_or_assertion", "..."]
+
+["$asserton"]
+kind = "task"
+params = ["levels", "scope_or_assertion", "..."]
+
+["$assertoff"]
+kind = "task"
+params = ["levels", "scope_or_assertion", "..."]
+
+["$assertkill"]
+kind = "task"
+params = ["levels", "scope_or_assertion", "..."]
+
+["$assertpasson"]
+kind = "task"
+params = ["levels", "scope_or_assertion", "..."]
+
+["$assertpassoff"]
+kind = "task"
+params = ["levels", "scope_or_assertion", "..."]
+
+["$assertfailon"]
+kind = "task"
+params = ["levels", "scope_or_assertion", "..."]
+
+["$assertfailoff"]
+kind = "task"
+params = ["levels", "scope_or_assertion", "..."]
+
+["$assertnonvacuouson"]
+kind = "task"
+params = ["levels", "scope_or_assertion", "..."]
+
+["$assertvacuousoff"]
+kind = "task"
+params = ["levels", "scope_or_assertion", "..."]
+
+
+["$dumpports"]
+kind = "task"
+params = ["scope_list", "filename"]
+
+["$showvars"]
+kind = "task"
+params = ["list_of_variables"]
+
+["$sreadmemb"]
+kind = "task"
+params = ["mem_name", "start_address", "finish_address", "string", "..."]
+
+["$sreadmemh"]
+kind = "task"
+params = ["mem_name", "start_address", "finish_address", "string", "..."]
+
+["$list"]
+kind = "task"
+params = ["hierarchical_name"]
+
+["$scope"]
+kind = "task"
+params = ["hierarchical_name"]
+
+["$exit"]
+kind = "task"
+params = []
+
+["$dumpportson"]
+kind = "task"
+params = ["filename"]
+
+["$dumpportsoff"]
+kind = "task"
+params = ["filename"]
+
+["$dumpportsall"]
+kind = "task"
+params = ["filename"]
+
+["$dumpportslimit"]
+kind = "task"
+params = ["filesize", "filename"]
+
+["$dumpportsflush"]
+kind = "task"
+params = ["filename"]
+
+["$input"]
+kind = "task"
+params = ["filename"]
+
+["$key"]
+kind = "task"
+params = ["filename"]
+
+["$nokey"]
+kind = "task"
+params = []
+
+["$log"]
+kind = "task"
+params = ["filename"]
+
+["$nolog"]
+kind = "task"
+params = []
+
+["$reset"]
+kind = "task"
+params = ["stop_value", "reset_value", "diagnostics_value"]
+
+["$save"]
+kind = "task"
+params = ["filename"]
+
+["$restart"]
+kind = "task"
+params = ["filename"]
+
+["$incsave"]
+kind = "task"
+params = ["filename"]
+
+["$showscopes"]
+kind = "task"
+params = ["n"]
+
+["$q_initialize"]
+kind = "task"
+params = ["q_id", "q_type", "max_length", "status"]
+
+["$q_add"]
+kind = "task"
+params = ["q_id", "job_id", "inform_id", "status"]
+
+["$q_remove"]
+kind = "task"
+params = ["q_id", "job_id", "inform_id", "status"]
+
+["$q_exam"]
+kind = "task"
+params = ["q_id", "q_stat_code", "q_stat_value", "status"]
+
+["$q_full"]
+kind = "function"
+params = ["q_id"]
+
+["$async$and$array"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$sync$and$array"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$async$and$plane"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$sync$and$plane"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$async$nand$array"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$sync$nand$array"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$async$nand$plane"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$sync$nand$plane"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$async$or$array"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$sync$or$array"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$async$or$plane"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$sync$or$plane"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$async$nor$array"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$sync$nor$array"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$async$nor$plane"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]
+
+["$sync$nor$plane"]
+kind = "task"
+params = ["memory", "input_terms", "output_terms"]

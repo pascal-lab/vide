@@ -3493,6 +3493,44 @@ endmodule
 }
 
 #[test]
+fn system_task_and_function_hover_uses_standard_metadata() {
+    let text = r#"
+module top;
+  initial begin
+    /*marker:task*/$display("value=%0d", 1);
+    int width;
+    width = /*marker:function*/$clog2(8);
+  end
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let task_hover = analysis
+        .hover(position(file_id, &markers, "task"))
+        .unwrap()
+        .expect("system task hover expected");
+    assert!(task_hover.info.as_str().contains("System task `$display`"));
+    assert!(task_hover.info.as_str().contains("$display(format, ...)"));
+    assert!(
+        task_hover
+            .info
+            .as_str()
+            .contains("These are the main system task routines for displaying information.")
+    );
+
+    let function_hover = analysis
+        .hover(position(file_id, &markers, "function"))
+        .unwrap()
+        .expect("system function hover expected");
+    assert!(function_hover.info.as_str().contains("System function `$clog2`"));
+    assert!(function_hover.info.as_str().contains("$clog2(value)"));
+    assert!(function_hover.info.as_str().contains(
+        "The system function $clog2 shall return the ceiling of the log base 2 of the argument"
+    ));
+}
+
+#[test]
 fn signature_help_is_none_for_unresolved_subroutine_call() {
     let text = r#"
 module top;
