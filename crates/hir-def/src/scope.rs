@@ -986,6 +986,47 @@ endmodule
             "supported assignment patterns must not emit diagnostics"
         );
     }
+
+    #[test]
+    fn common_rtl_statements_lower_to_structured_hir() {
+        let db = db_with_root_text(
+            r#"
+module m;
+  logic [3:0] arr [0:3];
+  logic x;
+  initial begin
+    foreach (arr[i]) x = x inside {[0:3]};
+    wait fork;
+    wait_order (x) x = 1;
+  end
+endmodule
+"#,
+        );
+        let module_id = db
+            .unit_index()
+            .module_ids(&ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let module = db.body_with_source_map(module_id);
+        let proc = module.procs.iter().next().expect("initial block should lower").1;
+        let body = db.body_with_source_map(proc.owner);
+
+        assert!(
+            body.stmts
+                .values()
+                .any(|stmt| matches!(stmt.kind, crate::stmt::StmtKind::Foreach { .. }))
+        );
+        assert!(
+            body.stmts.values().any(|stmt| matches!(stmt.kind, crate::stmt::StmtKind::WaitFork))
+        );
+        assert!(
+            body.stmts
+                .values()
+                .any(|stmt| matches!(stmt.kind, crate::stmt::StmtKind::WaitOrder { .. }))
+        );
+        assert!(body.exprs.values().any(|expr| matches!(expr, crate::expr::Expr::Inside { .. })));
+        assert!(body.diagnostics(&db).is_empty(), "supported RTL statements must not diagnose");
+    }
     #[test]
     fn unsupported_module_member_is_reported_with_source() {
         let db = db_with_root_text(
