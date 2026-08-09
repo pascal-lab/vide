@@ -82,7 +82,10 @@ impl LoweringCtx<BodyStore<'_>> {
                     );
                     covergroup.crosses.push(cross);
                 }
-                _ => {}
+                ast::Member::EmptyMember(_) => {}
+                unsupported => {
+                    self.report_unsupported(unsupported.syntax(), "unsupported covergroup member");
+                }
             }
         }
         alloc_with_source(

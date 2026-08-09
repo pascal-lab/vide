@@ -171,7 +171,10 @@ impl LowerGenerateBlockCtx<'_> {
                 return None;
             }
             EmptyMember(_) => return None,
-            _ => return None,
+            unsupported => {
+                self.report_unsupported(unsupported.syntax(), "unsupported generate member");
+                return None;
+            }
         };
 
         Some(item)
