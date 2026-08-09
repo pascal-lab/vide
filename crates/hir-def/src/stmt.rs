@@ -60,6 +60,11 @@ pub enum StmtKind {
         steps: SmallVec<[ExprId; 1]>,
         stmt: StmtId,
     },
+    Foreach {
+        array: ExprId,
+        variables: SmallVec<[ExprId; 2]>,
+        stmt: StmtId,
+    },
     Jump(JumpKind),
 
     Wait(WaitKind, StmtId),
@@ -177,9 +182,9 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             LoopStatement(stmt) => self.lower_loop_stmt(stmt),
             JumpStatement(stmt) => self.lower_jump_stmt(stmt),
             ForLoopStatement(stmt) => self.lower_for_loop_stmt(stmt, stmt_id),
+            ForeachLoopStatement(stmt) => self.lower_foreach_loop_stmt(stmt),
 
             BlockStatement(stmt) => self.lower_block_stmt(stmt),
-
             EmptyStatement(_) => StmtKind::Empty,
 
             unsupported @ (ConcurrentAssertionStatement(_)
@@ -190,7 +195,6 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             | WaitOrderStatement(_)
             | DisableForkStatement(_)
             | CheckerInstanceStatement(_)
-            | ForeachLoopStatement(_)
             | RandCaseStatement(_)) => {
                 self.report_unsupported(unsupported.syntax(), "unsupported statement");
                 StmtKind::Unsupported(unsupported.syntax().kind())
@@ -293,6 +297,22 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         let stmt = self.lower_stmt(stmt.statement());
 
         StmtKind::For { inits, stop, steps, stmt }
+    }
+
+    fn lower_foreach_loop_stmt(&mut self, stmt: ast::ForeachLoopStatement) -> StmtKind {
+        let loop_list = stmt.loop_list();
+        let array = ast::Expression::cast(loop_list.array_name().syntax())
+            .map(|expr| self.lower_expr(expr))
+            .unwrap_or_else(|| self.lower_expr_opt(None));
+        let variables = loop_list
+            .loop_variables()
+            .children()
+            .filter_map(|name| {
+                ast::Expression::cast(name.syntax()).map(|expr| self.lower_expr(expr))
+            })
+            .collect();
+        let stmt = self.lower_stmt(stmt.statement());
+        StmtKind::Foreach { array, variables, stmt }
     }
 
     fn lower_return_stmt(&mut self, stmt: ast::ReturnStatement) -> StmtKind {
