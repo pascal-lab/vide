@@ -2,8 +2,6 @@
 source: crates/ide/src/verilog_2005.rs
 expression: normalize_hover_snapshot(hover.info.as_str())
 ---
-Declaration `lane`
-
 ```systemverilog
 wire logic lane
 ```
@@ -11,4 +9,4 @@ wire logic lane
 
 ---
 
-in `top > g_loop` from [feature.v](<feature.v>) line 29
+in `top > g_loop` from [feature.v](<feature.v#L29>)

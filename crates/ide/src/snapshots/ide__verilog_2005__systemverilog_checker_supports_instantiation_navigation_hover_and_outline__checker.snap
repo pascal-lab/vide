@@ -2,8 +2,6 @@
 source: crates/ide/src/verilog_2005.rs
 expression: normalize_hover_snapshot(checker_hover.info.as_str())
 ---
-Checker `c`
-
 ```systemverilog
 checker c
 ```
@@ -11,4 +9,4 @@ checker c
 
 ---
 
-from [feature.v](<feature.v>) line 2
+from [feature.v](<feature.v#L2>)

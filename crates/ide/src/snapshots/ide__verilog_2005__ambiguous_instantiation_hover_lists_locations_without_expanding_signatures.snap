@@ -16,5 +16,5 @@ ambiguous reference, 2 candidates
 ---
 
 Candidates
-- [feature.v](<feature.v>) line 2
-- [feature.v](<feature.v>) line 5
+- [feature.v](<feature.v#L2>)
+- [feature.v](<feature.v#L5>)

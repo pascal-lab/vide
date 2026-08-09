@@ -2,8 +2,6 @@
 source: crates/ide/src/verilog_2005.rs
 expression: normalize_hover_snapshot(inst_module_hover.info.as_str())
 ---
-Module `child`
-
 ```systemverilog
 module child #(
     parameter logic WIDTH = 8
@@ -15,4 +13,4 @@ module child #(
 
 ---
 
-from [feature.v](<feature.v>) line 2
+from [feature.v](<feature.v#L2>)

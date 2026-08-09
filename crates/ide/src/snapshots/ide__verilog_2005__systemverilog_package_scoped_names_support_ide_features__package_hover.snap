@@ -2,8 +2,6 @@
 source: crates/ide/src/verilog_2005.rs
 expression: normalize_hover_snapshot(package_hover.info.as_str())
 ---
-Package `pkg`
-
 ```systemverilog
 package pkg ()
 ```
@@ -11,4 +9,4 @@ package pkg ()
 
 ---
 
-from [feature.v](<feature.v>) line 2
+from [feature.v](<feature.v#L2>)

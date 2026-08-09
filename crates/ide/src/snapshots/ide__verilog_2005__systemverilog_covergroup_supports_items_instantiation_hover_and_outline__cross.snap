@@ -2,8 +2,6 @@
 source: crates/ide/src/verilog_2005.rs
 expression: normalize_hover_snapshot(cross_hover.info.as_str())
 ---
-Cross `cx`
-
 ```systemverilog
 cross cx
 ```
@@ -11,4 +9,4 @@ cross cx
 
 ---
 
-in `top` from [feature.v](<feature.v>) line 5
+in `top` from [feature.v](<feature.v#L5>)

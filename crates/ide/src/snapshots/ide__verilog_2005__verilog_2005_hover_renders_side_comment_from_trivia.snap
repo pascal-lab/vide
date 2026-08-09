@@ -2,8 +2,6 @@
 source: crates/ide/src/verilog_2005.rs
 expression: normalize_hover_snapshot(hover.info.as_str())
 ---
-Declaration `sig`
-
 ```systemverilog
 wire logic sig
 ```
@@ -11,7 +9,7 @@ wire logic sig
 
 ---
 
-in `side_comment_ctx` from [feature.v](<feature.v>) line 3
+in `side_comment_ctx` from [feature.v](<feature.v#L3>)
 
 ---
 

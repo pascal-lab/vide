@@ -2,8 +2,6 @@
 source: crates/ide/src/verilog_2005.rs
 expression: normalize_hover_snapshot(hover.info.as_str())
 ---
-Module `child`
-
 ```systemverilog
 module child (
     input wire logic a,
@@ -14,4 +12,4 @@ module child (
 
 ---
 
-from [feature.v](<feature.v>) line 2
+from [feature.v](<feature.v#L2>)

@@ -2,8 +2,6 @@
 source: crates/ide/src/verilog_2005.rs
 expression: normalize_hover_snapshot(hover.info.as_str())
 ---
-Module `mux2X1`
-
 ```systemverilog
 module mux2X1 (
     in0,
@@ -16,4 +14,4 @@ module mux2X1 (
 
 ---
 
-from [feature.v](<feature.v>) line 2
+from [feature.v](<feature.v#L2>)

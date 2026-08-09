@@ -2,8 +2,6 @@
 source: crates/ide/src/verilog_2005.rs
 expression: normalize_hover_snapshot(hover.info.as_str())
 ---
-Primitive `udp_and`
-
 ```systemverilog
 primitive udp_and
 ```
@@ -11,4 +9,4 @@ primitive udp_and
 
 ---
 
-from [feature.v](<feature.v>) line 6
+from [feature.v](<feature.v#L6>)

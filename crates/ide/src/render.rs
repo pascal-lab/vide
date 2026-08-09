@@ -181,7 +181,7 @@ fn render_def_origin_location(
 ) -> Option<String> {
     let InFile { value: range, file_id } = origin.range(db)?;
     let (file_id, range) = resolve_source_range(db, file_id, range)?;
-    source_line_link(db, file_id, range.start(), anchor_file_id)
+    source_location_link(db, file_id, range.start(), anchor_file_id)
 }
 
 pub(crate) fn source_file_link(
@@ -189,13 +189,33 @@ pub(crate) fn source_file_link(
     file_id: vfs::FileId,
     anchor_file_id: vfs::FileId,
 ) -> Option<String> {
+    let (label, target) = source_file_link_parts(db, file_id, anchor_file_id)?;
+    Some(markdown_link(&label, &target))
+}
+
+pub(crate) fn source_location_link(
+    db: &RootDb,
+    file_id: vfs::FileId,
+    offset: utils::line_index::TextSize,
+    anchor_file_id: vfs::FileId,
+) -> Option<String> {
+    let line = db.line_index(file_id).try_line_col(offset)?.line + 1;
+    let (label, mut target) = source_file_link_parts(db, file_id, anchor_file_id)?;
+    target.push_str(&format!("#L{line}"));
+    Some(markdown_link(&label, &target))
+}
+
+fn source_file_link_parts(
+    db: &RootDb,
+    file_id: vfs::FileId,
+    anchor_file_id: vfs::FileId,
+) -> Option<(String, String)> {
     let label = source_file_label(db, file_id, anchor_file_id)?;
     let target = db
         .file_path(file_id)
         .map(|path| file_link_target(&path.to_string()))
         .unwrap_or_else(|| label.clone());
-
-    Some(markdown_link(&label, &target))
+    Some((label, target))
 }
 
 pub(crate) fn source_line_link(
@@ -260,12 +280,11 @@ fn render_def_origin(
     anchor_file_id: vfs::FileId,
 ) -> Markup {
     let mut res = Markup::new();
-
-    if let Some(title) = render_definition_title(sema.db, def) {
-        res.title(&title);
-    }
-    if let Some(signature) = render_signature(sema, origin) {
+    let signature = render_signature(sema, origin);
+    if let Some(signature) = signature {
         res.push_with_code_fence(&signature);
+    } else if let Some(title) = render_definition_title(sema.db, def) {
+        res.title(&title);
     }
 
     if let Some(metadata) = render_definition_metadata(sema, origin, anchor_file_id) {
