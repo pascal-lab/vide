@@ -143,12 +143,13 @@ impl InlayHintCollector {
         target_location: Option<InFile<TextRange>>,
         label: String,
         text_edit: Option<TextEdit>,
+        tooltip: Option<Markup>,
     ) {
         if !self.intersect(anchor.range) {
             return;
         }
 
-        let tooltip = target_location.as_ref().map(|_| Markup::new());
+        let tooltip = tooltip.or_else(|| target_location.as_ref().map(|_| Markup::new()));
 
         self.hints.push(InlayHint {
             label,
@@ -169,9 +170,10 @@ impl InlayHintCollector {
         position: Option<TextSize>,
         label: String,
         text_edit: Option<TextEdit>,
+        tooltip: Option<Markup>,
     ) {
         if let Some(anchor) = HintAnchor::from_src(src, position) {
-            self.collect_hint(anchor, target_location, label, text_edit);
+            self.collect_hint(anchor, target_location, label, text_edit, tooltip);
         }
     }
 
@@ -181,25 +183,11 @@ impl InlayHintCollector {
         target_location: Option<InFile<TextRange>>,
         label: String,
     ) {
-        if !self.intersect(anchor.range) {
-            return;
-        }
-
-        let tooltip = target_location.as_ref().map(|_| Markup::new());
-        self.hints.push(InlayHint {
-            label,
-            tooltip,
-            target_location,
-            padding_left: anchor.padding_left,
-            padding_right: anchor.padding_right,
-            position: anchor.position,
-            kind: anchor.kind,
-            text_edit: None,
-        });
+        self.collect_hint(anchor, target_location, label, None, None);
     }
 
     fn collect_module_end_hint(&mut self, end_range: TextRange, name: &str) {
-        self.collect_hint(HintAnchor::module_end(end_range), None, format!(": {name}"), None);
+        self.collect_hint(HintAnchor::module_end(end_range), None, format!(": {name}"), None, None);
     }
 
     fn into_hints(self) -> Vec<InlayHint> {
@@ -308,14 +296,7 @@ fn collect_module_items(
     let module = db.body_with_source_map(module_id);
 
     if collector.config.instantiation() {
-        for (instantiation_id, instantiation) in module.instantiations.iter() {
-            let Some(instantiation_src) = module.source_info(db, instantiation_id) else {
-                continue;
-            };
-            if collector.intersect(instantiation_src.full_range()) {
-                process_instantiation(db, module_id, &module, instantiation, collector);
-            }
-        }
+        collect_instantiations_in_body(db, module_id, &module, collector);
     }
 
     if collector.config.end_structure
@@ -327,6 +308,61 @@ fn collect_module_items(
 
     if collector.config.system_call {
         collect_system_call_hints(db, module_id, module_src, collector);
+    }
+}
+
+fn collect_instantiations_in_body(
+    db: &RootDb,
+    module_id: OwnerId,
+    body: &Lowered<Body>,
+    collector: &mut InlayHintCollector,
+) {
+    for item in &body.data_ref().items {
+        match item {
+            BodyItem::InstantiationId(instantiation_id) => {
+                let instantiation = body.get(*instantiation_id);
+                if let Some(range) = body.source_range(db, *instantiation_id)
+                    && collector.intersect(range)
+                {
+                    process_instantiation(db, module_id, body, instantiation, collector);
+                }
+            }
+            BodyItem::GenerateRegionId(region_id) => {
+                let region = body.get(*region_id);
+                for item in &region.items {
+                    collect_instantiation_item(db, module_id, body, item, collector);
+                }
+            }
+            BodyItem::GenerateBlockOwner(owner) => {
+                let generate_body = db.body_with_source_map(*owner);
+                collect_instantiations_in_body(db, module_id, &generate_body, collector);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_instantiation_item(
+    db: &RootDb,
+    module_id: OwnerId,
+    body: &Lowered<Body>,
+    item: &BodyItem,
+    collector: &mut InlayHintCollector,
+) {
+    match item {
+        BodyItem::InstantiationId(instantiation_id) => {
+            let instantiation = body.get(*instantiation_id);
+            if let Some(range) = body.source_range(db, *instantiation_id)
+                && collector.intersect(range)
+            {
+                process_instantiation(db, module_id, body, instantiation, collector);
+            }
+        }
+        BodyItem::GenerateBlockOwner(owner) => {
+            let generate_body = db.body_with_source_map(*owner);
+            collect_instantiations_in_body(db, module_id, &generate_body, collector);
+        }
+        _ => {}
     }
 }
 
@@ -388,7 +424,6 @@ fn process_instantiation(
     instantiation: &Instantiation,
     collector: &mut InlayHintCollector,
 ) -> Option<()> {
-    let module_body = db.body_with_source_map(module_id);
     let from_file = module_id.file(db).source_file_id(db)?;
     let target_module_id =
         resolve_module_name(db, from_file, instantiation.module_name.as_ref()?).unique()?;
@@ -409,7 +444,7 @@ fn process_instantiation(
                 let param_id = hir_def::module::overridable_param_id_by_idx(&target_body, id)?;
                 let param_def = DefId::from_source(db, OwnerRef::new(target_module_id, param_id));
                 let param_name = param_def.primary_origin(db).name(db)?;
-                check_or_throw!(!is_same_named_expr(&module_body, *assign_expr, &param_name));
+                check_or_throw!(!is_same_named_expr(module, *assign_expr, &param_name));
                 let target_range = param_def.primary_origin(db).range(db)?;
                 collector.collect_src_hint(
                     assign_src,
@@ -417,6 +452,7 @@ fn process_instantiation(
                     None,
                     format!("{param_name}:"),
                     edits_for_conn(&param_name, assign_src),
+                    None,
                 );
             };
         }
@@ -450,7 +486,7 @@ fn process_instantiation(
                     collect_connection_hint(
                         db,
                         module,
-                        &module_body,
+                        module,
                         conn_id,
                         name,
                         dir,
@@ -484,39 +520,61 @@ fn collect_connection_hint(
         PortDirection::Inout => "↔",
         PortDirection::Ref => "&",
     };
+    let tooltip = Some(port_connection_tooltip(name, port_dir));
 
     let conn_start = conn_src.full_range().start();
     match conn {
         PortConn::Empty => {
             let label = format!("{name} {arrow}");
             let edit = edits_for_conn(name, conn_src);
-            collector.collect_src_hint(conn_src, Some(target_range), None, label, edit);
+            collector.collect_src_hint(conn_src, Some(target_range), None, label, edit, tooltip);
         }
         PortConn::Ordered(expr) => {
             let same_name = is_same_named_expr(body, *expr, name);
             let label = if same_name { arrow.to_string() } else { format!("{name} {arrow}") };
-            let target_range = if same_name { None } else { Some(target_range) };
             let edit = if same_name { None } else { edits_for_conn(name, conn_src) };
             let position = body.source_range(db, *expr).map_or(conn_start, |range| range.start());
-            collector.collect_src_hint(conn_src, target_range, Some(position), label, edit);
+            collector.collect_src_hint(
+                conn_src,
+                Some(target_range),
+                Some(position),
+                label,
+                edit,
+                tooltip,
+            );
         }
         PortConn::Named(port_name, expr) => {
-            let (label, target_range) =
-                if port_name.as_ref().is_none_or(|port_name| port_name != name) {
-                    (format!("{name} {arrow}"), Some(target_range))
-                } else {
-                    (arrow.to_string(), None)
-                };
+            let same_name = port_name.as_ref().is_none_or(|port_name| port_name == name);
+            let label = if same_name { arrow.to_string() } else { format!("{name} {arrow}") };
             let position = expr
                 .and_then(|expr| body.source_range(db, expr).map(|range| range.start()))
                 .or_else(|| conn_src.focus_range().map(|range| range.start()))
                 .unwrap_or(conn_start);
-            collector.collect_src_hint(conn_src, target_range, Some(position), label, None);
+            collector.collect_src_hint(
+                conn_src,
+                Some(target_range),
+                Some(position),
+                label,
+                None,
+                tooltip,
+            );
         }
         PortConn::Wildcard => {}
     }
 
     Some(())
+}
+
+fn port_connection_tooltip(name: &str, direction: PortDirection) -> Markup {
+    let direction = match direction {
+        PortDirection::Input => "input",
+        PortDirection::Output => "output",
+        PortDirection::Inout => "inout",
+        PortDirection::Ref => "ref",
+    };
+    let mut tooltip = Markup::new();
+    tooltip.push_with_code_fence(&format!("{direction} {name}"));
+    tooltip
 }
 
 fn edits_for_conn(param: &str, conn_src: SourceInfo) -> Option<TextEdit> {
@@ -544,7 +602,7 @@ mod tests {
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
     use super::{InlayHintConfig, inlay_hint};
-    use crate::db::root_db::RootDb;
+    use crate::{db::root_db::RootDb, markup::Markup};
 
     fn db_with_file(text: &str) -> (RootDb, FileId) {
         let file_id = FileId::from_raw(0);
@@ -712,6 +770,43 @@ mod tests {
             ));
         }
         out
+    }
+
+    #[test]
+    fn same_name_port_arrow_is_navigable_and_describes_direction() {
+        let source = "module child(output instr_addr_o); endmodule\n\
+            module top; logic instr_addr_o; child u(instr_addr_o); endmodule\n";
+        let (db, file_id) = db_with_file(source);
+        let hints = inlay_hint(&db, file_id, TextRange::up_to(TextSize::of(source)), port_config());
+        let hint = hints.iter().find(|hint| hint.label == "→").expect("same-name port hint");
+
+        assert!(hint.target_location.is_some());
+        assert!(hint.text_edit.is_none());
+        assert_eq!(
+            hint.tooltip.as_ref().map(Markup::as_str),
+            Some("```systemverilog\noutput instr_addr_o\n```\n")
+        );
+    }
+    #[test]
+    fn port_hint_is_collected_inside_generate_block() {
+        let source = "module child (output instr_addr_o);\n\
+            endmodule\n\
+            module top;\n\
+            generate\n\
+            begin : g_top\n\
+                logic instr_addr_o;\n\
+                child u(instr_addr_o);\n\
+            end\n\
+            endgenerate\n\
+            endmodule\n";
+        let (db, file_id) = db_with_file(source);
+        let hints = inlay_hint(&db, file_id, TextRange::up_to(TextSize::of(source)), port_config());
+
+        assert!(
+            hints.iter().any(|hint| hint.label == "→"),
+            "expected a port-direction hint inside a generate block, got:\n{}",
+            hint_snapshot(hints)
+        );
     }
 
     #[test]
