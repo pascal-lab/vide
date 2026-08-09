@@ -10,6 +10,7 @@
 #![feature(decl_macro)]
 
 pub mod aggregate;
+pub mod assertion;
 pub mod ast_id_map;
 pub mod block;
 pub mod body;

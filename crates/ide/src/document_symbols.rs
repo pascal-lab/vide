@@ -3,6 +3,7 @@ use std::iter::Peekable;
 use hir_def::{
     DEFAULT_NAME,
     aggregate::{StructDef, StructId, StructKind},
+    assertion::{PropertyDef, PropertyId, SequenceDef, SequenceId},
     block::BlockItem,
     body::{Body, BodyItem},
     checker::{CheckerDef, CheckerId},
@@ -253,6 +254,12 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
             BodyItem::AssertionStmtId(_) => {}
             BodyItem::CheckerOwner(owner) => build_checker_owner(db, &mut collector, owner),
             BodyItem::CovergroupOwner(owner) => build_covergroup_owner(db, &mut collector, owner),
+            BodyItem::PropertyId(property_id) => {
+                build_property(db, &mut collector, property_id, body.as_ref())
+            }
+            BodyItem::SequenceId(sequence_id) => {
+                build_sequence(db, &mut collector, sequence_id, body.as_ref())
+            }
             BodyItem::UdpDeclId(udp_id) => {
                 build_udp_decl(db, &mut collector, udp_id, lowered.as_ref())
             }
@@ -391,6 +398,12 @@ fn collect_module_items(db: &dyn TyDb, owner: OwnerId, collector: &mut SymbolCol
             }
             BodyItem::CovergroupOwner(owner) => {
                 build_covergroup_owner(db, collector, owner);
+            }
+            BodyItem::PropertyId(property_id) => {
+                build_property(db, collector, property_id, body.as_ref());
+            }
+            BodyItem::SequenceId(sequence_id) => {
+                build_sequence(db, collector, sequence_id, body.as_ref());
             }
             BodyItem::StructId(struct_id) => build_struct(db, collector, struct_id, body.as_ref()),
             invalid @ (BodyItem::ModuleOwner(_)
@@ -659,9 +672,11 @@ fn build_generate_block_item<S>(
         | BodyItem::LibraryIncludeId(_)
         | BodyItem::CheckerOwner(_)
         | BodyItem::CovergroupOwner(_)
-        | BodyItem::GenerateRegionId(_)
+        | BodyItem::PropertyId(_)
+        | BodyItem::SequenceId(_)
         | BodyItem::SpecifyBlockId(_)
         | BodyItem::SpecifyItemId(_)
+        | BodyItem::GenerateRegionId(_)
         | BodyItem::PortDeclId(_)
         | BodyItem::ModportId(_)
         | BodyItem::ClockingBlockOwner(_)) => {
@@ -707,6 +722,37 @@ fn build_checker<L>(
     };
     collector.push_symbol(&checker.name, src);
     collector.pop();
+}
+#[inline]
+fn build_property<L>(
+    db: &dyn TyDb,
+    collector: &mut SymbolCollector,
+    property_id: PropertyId,
+    lowered: &L,
+) where
+    L: HirLookup<PropertyId, Hir = PropertyDef> + NamedSourceLookup<PropertyId>,
+{
+    let property = lowered.hir(property_id);
+    if let Some(src) = lowered.named_source_info(db, property_id) {
+        collector.push_symbol(&property.name, src);
+        collector.pop();
+    }
+}
+
+#[inline]
+fn build_sequence<L>(
+    db: &dyn TyDb,
+    collector: &mut SymbolCollector,
+    sequence_id: SequenceId,
+    lowered: &L,
+) where
+    L: HirLookup<SequenceId, Hir = SequenceDef> + NamedSourceLookup<SequenceId>,
+{
+    let sequence = lowered.hir(sequence_id);
+    if let Some(src) = lowered.named_source_info(db, sequence_id) {
+        collector.push_symbol(&sequence.name, src);
+        collector.pop();
+    }
 }
 
 #[inline]

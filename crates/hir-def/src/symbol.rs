@@ -4,6 +4,7 @@ use utils::impl_from;
 
 use crate::{
     Ident,
+    assertion::{PropertyId, SequenceId},
     checker::{CheckerId, CheckerPortId},
     container::{InFile, OwnerRef},
     covergroup::{CovergroupId, CoverpointId, CrossId},
@@ -54,6 +55,8 @@ pub enum DefOriginLoc {
     Checker(OwnerRef<CheckerId>),
     CheckerPort(OwnerRef<CheckerPortId>),
     Covergroup(OwnerRef<CovergroupId>),
+    Property(OwnerRef<PropertyId>),
+    Sequence(OwnerRef<SequenceId>),
     Coverpoint(OwnerRef<CoverpointId>),
     Cross(OwnerRef<CrossId>),
     Stmt(OwnerRef<StmtId>),
@@ -74,6 +77,8 @@ impl_from! { DefOriginLoc =>
     Checker(OwnerRef<CheckerId>),
     CheckerPort(OwnerRef<CheckerPortId>),
     Covergroup(OwnerRef<CovergroupId>),
+    Property(OwnerRef<PropertyId>),
+    Sequence(OwnerRef<SequenceId>),
     Coverpoint(OwnerRef<CoverpointId>),
     Cross(OwnerRef<CrossId>),
     Stmt(OwnerRef<StmtId>),
@@ -111,7 +116,7 @@ impl DefOriginLoc {
     trivial_kind! {
         Config, Library, Udp, Block, GenerateBlock, Subroutine, SubroutinePort, NonAnsiPort,
         Typedef, Instance, Modport, ClockingBlock, ClockingSignal, Checker, CheckerPort,
-        Covergroup, Coverpoint, Cross, Stmt,
+        Covergroup, Property, Sequence, Coverpoint, Cross, Stmt,
     }
 
     /// Canonical semantic owner of the containing scope.
@@ -142,7 +147,9 @@ impl DefOriginLoc {
             | DefOriginLoc::Typedef(OwnerRef { cont_id, .. })
             | DefOriginLoc::Stmt(OwnerRef { cont_id, .. })
             | DefOriginLoc::Checker(OwnerRef { cont_id, .. })
-            | DefOriginLoc::Covergroup(OwnerRef { cont_id, .. }) => *cont_id,
+            | DefOriginLoc::Covergroup(OwnerRef { cont_id, .. })
+            | DefOriginLoc::Property(OwnerRef { cont_id, .. })
+            | DefOriginLoc::Sequence(OwnerRef { cont_id, .. }) => *cont_id,
         }
     }
 }
@@ -184,6 +191,10 @@ impl DefOrigin {
 
     impl_origin_cast!(as_covergroup, Covergroup, OwnerRef<CovergroupId>);
 
+    impl_origin_cast!(as_property, Property, OwnerRef<PropertyId>);
+
+    impl_origin_cast!(as_sequence, Sequence, OwnerRef<SequenceId>);
+
     impl_origin_cast!(as_coverpoint, Coverpoint, OwnerRef<CoverpointId>);
 
     impl_origin_cast!(as_cross, Cross, OwnerRef<CrossId>);
@@ -216,7 +227,10 @@ pub enum DefDisplayKind {
     Modport,
     ClockingBlock,
     Checker,
+    CheckerPort,
     Covergroup,
+    Property,
+    Sequence,
     Coverpoint,
     Cross,
     Statement,
@@ -239,16 +253,18 @@ pub enum DefKind {
     Typedef,
     Net,
     Variable,
+    ClockingBlock,
+    ClockingSignal,
     Param,
     Port,
     Genvar,
     Specparam,
     Instance,
     Modport,
-    ClockingBlock,
-    ClockingSignal,
     Checker,
     CheckerPort,
+    Property,
+    Sequence,
     Covergroup,
     Coverpoint,
     Cross,
@@ -291,6 +307,8 @@ impl DefKind {
             | DefKind::ClockingBlock
             | DefKind::ClockingSignal
             | DefKind::Checker
+            | DefKind::Property
+            | DefKind::Sequence
             | DefKind::Covergroup
             | DefKind::Coverpoint
             | DefKind::Cross => SymbolKind::Unknown,
@@ -307,6 +325,7 @@ impl DefKind {
             | DefKind::Checker
             | DefKind::Covergroup
             | DefKind::Typedef => NameContext::Type,
+            DefKind::Property | DefKind::Sequence => NameContext::Assertion,
             _ => NameContext::Value,
         }
     }
@@ -351,14 +370,11 @@ pub struct Import {
 }
 
 /// Namespace selected by a lookup.
-///
-/// `Listing` is the explicit editor-facing union of type and value names.
-/// Assertion declarations remain in their own bucket and are not returned by
-/// `Listing` until assertion lookup is part of the public resolver contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NameContext {
     Type,
     Value,
+    Assertion,
     Listing,
 }
 
@@ -508,6 +524,9 @@ impl ScopeData {
             NameContext::Type => self.types.get(ident).map(SmallVec::as_slice).unwrap_or_default(),
             NameContext::Value => {
                 self.values.get(ident).map(SmallVec::as_slice).unwrap_or_default()
+            }
+            NameContext::Assertion => {
+                self.assertions.get(ident).map(SmallVec::as_slice).unwrap_or_default()
             }
             NameContext::Listing => return Resolution::from_candidates(self.lookup_listing(ident)),
         };

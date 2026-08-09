@@ -155,6 +155,8 @@ pub(crate) fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
                 | DefKind::ClockingSignal
                 | DefKind::CheckerPort
                 | DefKind::Coverpoint
+                | DefKind::Property
+                | DefKind::Sequence
                 | DefKind::Cross
                 | DefKind::Stmt => TyResult::new(Ty::Unknown),
             })
@@ -184,6 +186,8 @@ pub(crate) fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
         | DefKind::NonAnsiPort
         | DefKind::ClockingBlock
         | DefKind::ClockingSignal
+        | DefKind::Property
+        | DefKind::Sequence
         | DefKind::Coverpoint
         | DefKind::Cross
         | DefKind::Stmt => TyResult::new(Ty::Unknown),
@@ -225,6 +229,8 @@ fn type_of_non_ansi_port(db: &dyn TyDb, def_id: DefId) -> TyResult {
             | DefKind::ClockingSignal
             | DefKind::Checker
             | DefKind::CheckerPort
+            | DefKind::Property
+            | DefKind::Sequence
             | DefKind::Covergroup
             | DefKind::Coverpoint
             | DefKind::Cross

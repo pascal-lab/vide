@@ -159,6 +159,12 @@ impl DefOriginLoc {
             DefOriginLoc::Covergroup(OwnerRef { value, cont_id }) => {
                 GetRef::get(db.body(cont_id).as_ref(), value).name.clone()
             }
+            DefOriginLoc::Property(OwnerRef { value, cont_id }) => {
+                GetRef::get(db.body(cont_id).as_ref(), value).name.clone()
+            }
+            DefOriginLoc::Sequence(OwnerRef { value, cont_id }) => {
+                GetRef::get(db.body(cont_id).as_ref(), value).name.clone()
+            }
             DefOriginLoc::CheckerPort(port) => checker_port_of(db, port).map(|(port, _)| port.name),
             DefOriginLoc::Coverpoint(coverpoint) => {
                 coverpoint_of(db, coverpoint).and_then(|(coverpoint, _)| coverpoint.name)
@@ -222,6 +228,8 @@ impl DefOriginLoc {
             DefOriginLoc::Covergroup(OwnerRef { value, cont_id }) => {
                 owner_source(db, cont_id, value)
             }
+            DefOriginLoc::Property(OwnerRef { value, cont_id }) => owner_source(db, cont_id, value),
+            DefOriginLoc::Sequence(OwnerRef { value, cont_id }) => owner_source(db, cont_id, value),
             DefOriginLoc::CheckerPort(port) => {
                 let (port, file_id) = checker_port_of(db, port)?;
                 Some(InFile::new(file_id, port.source))
@@ -286,6 +294,8 @@ enum DefinitionRole {
     Checker,
     CheckerPort,
     Covergroup,
+    Property,
+    Sequence,
     Coverpoint,
     Cross,
     Stmt,
@@ -312,6 +322,8 @@ impl DefinitionRole {
             DefOriginLoc::Checker(_) => Self::Checker,
             DefOriginLoc::CheckerPort(_) => Self::CheckerPort,
             DefOriginLoc::Covergroup(_) => Self::Covergroup,
+            DefOriginLoc::Property(_) => Self::Property,
+            DefOriginLoc::Sequence(_) => Self::Sequence,
             DefOriginLoc::Coverpoint(_) => Self::Coverpoint,
             DefOriginLoc::Cross(_) => Self::Cross,
             DefOriginLoc::Stmt(_) => Self::Stmt,
@@ -513,6 +525,12 @@ pub(crate) fn definition_table(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Definit
     }
     for (id, source) in sources.udp_decl_srcs.iter() {
         table.insert(db, source, DefOriginLoc::Udp(InFile::new(owner.file(db), id)));
+    }
+    for (id, source) in sources.property_srcs.iter() {
+        table.insert(db, source, DefOriginLoc::Property(OwnerRef::new(owner, id)));
+    }
+    for (id, source) in sources.sequence_srcs.iter() {
+        table.insert(db, source, DefOriginLoc::Sequence(OwnerRef::new(owner, id)));
     }
 
     if let Some(scope) = body.scope(owner) {
@@ -789,6 +807,8 @@ impl DefId {
             DefOriginLoc::ClockingBlock(_) => Some(DefDisplayKind::ClockingBlock),
             DefOriginLoc::Checker(_) => Some(DefDisplayKind::Checker),
             DefOriginLoc::Covergroup(_) => Some(DefDisplayKind::Covergroup),
+            DefOriginLoc::Property(_) => Some(DefDisplayKind::Property),
+            DefOriginLoc::Sequence(_) => Some(DefDisplayKind::Sequence),
             DefOriginLoc::Coverpoint(_) => Some(DefDisplayKind::Coverpoint),
             DefOriginLoc::Cross(_) => Some(DefDisplayKind::Cross),
             DefOriginLoc::Stmt(_) => Some(DefDisplayKind::Statement),
@@ -816,6 +836,8 @@ fn definition_owner(db: &dyn HirDefDb, loc: &DefOriginLoc) -> OwnerId {
         DefOriginLoc::Checker(checker) => checker.cont_id,
         DefOriginLoc::CheckerPort(port) => port.cont_id,
         DefOriginLoc::Covergroup(covergroup) => covergroup.cont_id,
+        DefOriginLoc::Property(property) => property.cont_id,
+        DefOriginLoc::Sequence(sequence) => sequence.cont_id,
         DefOriginLoc::Coverpoint(coverpoint) => coverpoint.cont_id,
         DefOriginLoc::Cross(cross) => cross.cont_id,
         DefOriginLoc::Stmt(stmt) => stmt.cont_id,

@@ -281,20 +281,14 @@ impl LowerModuleCtx<'_> {
                     BodyItem::ClockingBlockOwner(owner)
                 }
 
-                unsupported @ (PropertyDeclaration(_) | SequenceDeclaration(_)) => {
-                    self.report_unsupported(
-                        unsupported.syntax(),
-                        "property or sequence declaration is not lowered",
-                    );
-                    continue;
-                }
+                PropertyDeclaration(declaration) => self.lower_property_decl(declaration).into(),
+                SequenceDeclaration(declaration) => self.lower_sequence_decl(declaration).into(),
                 ImmediateAssertionMember(assertion) => {
                     self.lower_immediate_assertion_member(assertion).into()
                 }
                 ConcurrentAssertionMember(assertion) => {
                     self.lower_concurrent_assertion_member(assertion).into()
                 }
-
                 // Coverage
                 CovergroupDeclaration(covergroup) => {
                     let owner = self

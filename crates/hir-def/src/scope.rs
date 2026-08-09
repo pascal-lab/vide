@@ -269,6 +269,18 @@ pub(crate) fn build_module_scope(db: &dyn HirDefDb, owner: OwnerId) -> ScopeData
                 let covergroup_data = body.get(covergroup.value);
                 scope.insert_type_opt(&covergroup_data.name, def_id(db, covergroup));
             }
+            crate::body::BodyItem::PropertyId(property_id) => {
+                let property = module.get(*property_id);
+                if let Some(name) = &property.name {
+                    scope.insert_assertion(name, def_id(db, OwnerRef::new(owner, *property_id)));
+                }
+            }
+            crate::body::BodyItem::SequenceId(sequence_id) => {
+                let sequence = module.get(*sequence_id);
+                if let Some(name) = &sequence.name {
+                    scope.insert_assertion(name, def_id(db, OwnerRef::new(owner, *sequence_id)));
+                }
+            }
             _ => {}
         }
     }
@@ -1104,12 +1116,16 @@ endmodule
     }
 
     #[test]
-    fn unsupported_module_member_is_reported_with_source() {
+    fn module_scope_exposes_property_and_sequence_declarations() {
         let db = db_with_root_text(
             r#"
-module m;
+module m(input logic x, y);
   property p;
+    x |-> y;
   endproperty
+  sequence s;
+    x ##1 y;
+  endsequence
 endmodule
 "#,
         );
@@ -1118,17 +1134,29 @@ endmodule
             .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
-        let diagnostics = db.body_with_source_map(module_id).diagnostics(&db);
-        let diagnostic = diagnostics
-            .iter()
-            .find(|diagnostic| {
-                diagnostic.message == "property or sequence declaration is not lowered"
-            })
-            .unwrap_or_else(|| {
-                panic!("unsupported module member should be diagnosed: {diagnostics:?}")
-            });
-        assert_eq!(diagnostic.kind, crate::source_map::LoweringDiagnosticKind::UnsupportedSyntax);
-        assert!(diagnostic.source.is_some(), "diagnostic must retain a source identity");
+        let module = db.body_with_source_map(module_id);
+        assert!(
+            module.items.iter().any(|item| matches!(item, crate::body::BodyItem::PropertyId(_)))
+        );
+        assert!(
+            module.items.iter().any(|item| matches!(item, crate::body::BodyItem::SequenceId(_)))
+        );
+
+        let scope = db.scope(module_id);
+        let property = scope
+            .lookup(NameContext::Assertion, &ident("p"))
+            .unique()
+            .expect("property should resolve in assertion namespace");
+        assert_eq!(property.kind(&db), DefKind::Property);
+        assert!(property.primary_origin(&db).source(&db).is_some());
+
+        let sequence = scope
+            .lookup(NameContext::Assertion, &ident("s"))
+            .unique()
+            .expect("sequence should resolve in assertion namespace");
+        assert_eq!(sequence.kind(&db), DefKind::Sequence);
+        assert!(sequence.primary_origin(&db).source(&db).is_some());
+        assert!(module.diagnostics(&db).is_empty(), "supported declarations must not diagnose");
     }
 
     #[test]

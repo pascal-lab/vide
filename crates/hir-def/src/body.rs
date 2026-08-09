@@ -1,4 +1,4 @@
-use la_arena::{Arena, Idx, IdxRange};
+use la_arena::{Arena, IdxRange};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use syntax::{
@@ -10,6 +10,7 @@ use triomphe::Arc;
 use crate::{
     PackageImport,
     aggregate::{StructDef, StructId, lower_struct_def},
+    assertion::{PropertyDef, PropertyId, SequenceDef, SequenceId},
     ast_id_map::SourceAstId,
     block::BlockItem,
     checker::{CheckerDef, CheckerId},
@@ -193,6 +194,8 @@ pub enum BodyItem {
     PortDeclId(PortDeclId),
     SubroutineOwner(OwnerId),
     ModportId(ModportId),
+    PropertyId(PropertyId),
+    SequenceId(SequenceId),
     AssertionStmtId(StmtId),
     ClockingBlockOwner(OwnerId),
 }
@@ -226,6 +229,8 @@ impl_body_item_from! {
     InstantiationId => InstantiationId,
     PortDeclId => PortDeclId,
     ModportId => ModportId,
+    PropertyId => PropertyId,
+    SequenceId => SequenceId,
     StmtId => AssertionStmtId,
 }
 
@@ -251,6 +256,8 @@ pub struct Body {
     pub library_includes: Arena<LibraryInclude>,
     pub checkers: Arena<CheckerDef>,
     pub covergroups: Arena<CovergroupDef>,
+    pub properties: Arena<PropertyDef>,
+    pub sequences: Arena<SequenceDef>,
     pub coverpoints: Arena<CoverpointDef>,
     pub crosses: Arena<CrossDef>,
     pub subroutine: Option<Subroutine>,
@@ -336,6 +343,8 @@ impl Body {
         self.library_includes.shrink_to_fit();
         self.checkers.shrink_to_fit();
         self.covergroups.shrink_to_fit();
+        self.properties.shrink_to_fit();
+        self.sequences.shrink_to_fit();
         self.coverpoints.shrink_to_fit();
         self.crosses.shrink_to_fit();
         self.package_imports.shrink_to_fit();
@@ -372,6 +381,8 @@ pub struct BodySourceMap {
     pub library_include_srcs: SourceMap<LibraryInclude>,
     pub checker_srcs: SourceMap<CheckerDef>,
     pub covergroup_srcs: SourceMap<CovergroupDef>,
+    pub property_srcs: SourceMap<PropertyDef>,
+    pub sequence_srcs: SourceMap<SequenceDef>,
     pub coverpoint_srcs: SourceMap<CoverpointDef>,
     pub cross_srcs: SourceMap<CrossDef>,
     pub port_srcs: PortSrcs,
@@ -409,6 +420,8 @@ impl BodySourceMap {
         self.library_include_srcs.shrink_to_fit();
         self.checker_srcs.shrink_to_fit();
         self.covergroup_srcs.shrink_to_fit();
+        self.property_srcs.shrink_to_fit();
+        self.sequence_srcs.shrink_to_fit();
         self.coverpoint_srcs.shrink_to_fit();
         self.cross_srcs.shrink_to_fit();
         self.port_srcs.shrink_to_fit();
@@ -574,7 +587,7 @@ impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
         typedef_id
     }
 
-    fn lower_body_local_variable_decl(
+    pub(crate) fn lower_body_local_variable_decl(
         &mut self,
         local_decl: ast::LocalVariableDeclaration,
     ) -> DeclarationId {
@@ -682,6 +695,8 @@ impl BodySourceMap {
             BodyItem::InstantiationId(id) => self.instantiation_srcs.hir_to_src(*id),
             BodyItem::PortDeclId(id) => utils::get::Get::get(&self.port_srcs, *id),
             BodyItem::ModportId(id) => self.modport_srcs.hir_to_src(*id),
+            BodyItem::PropertyId(id) => self.property_srcs.hir_to_src(*id),
+            BodyItem::SequenceId(id) => self.sequence_srcs.hir_to_src(*id),
             BodyItem::AssertionStmtId(id) => self.stmt_srcs.hir_to_src(*id),
         }
     }
@@ -717,10 +732,10 @@ crate::impl_arena_getters!(
     LibraryIncludeId => library_includes => LibraryInclude,
     CheckerId => checkers => CheckerDef,
     CovergroupId => covergroups => CovergroupDef,
+    PropertyId => properties => PropertyDef,
+    SequenceId => sequences => SequenceDef,
     CoverpointId => coverpoints => CoverpointDef,
     CrossId => crosses => CrossDef,
-    Idx<PackageImport> => package_imports => PackageImport,
-    ContAssignId => cont_assigns => ContAssign,
     DefParamId => defparams => DefParam,
     GenerateRegionId => generate_regions => GenerateRegion,
     SpecifyBlockId => specify_blocks => SpecifyBlock,
@@ -752,9 +767,10 @@ crate::impl_source_map_getters!(
     LibraryIncludeId => library_include_srcs,
     CheckerId => checker_srcs,
     CovergroupId => covergroup_srcs,
+    PropertyId => property_srcs,
+    SequenceId => sequence_srcs,
     CoverpointId => coverpoint_srcs,
     CrossId => cross_srcs,
-    ContAssignId => assign_srcs,
     DefParamId => defparam_srcs,
     GenerateRegionId => generate_region_srcs,
     SpecifyBlockId => specify_block_srcs,

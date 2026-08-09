@@ -33,6 +33,7 @@ use crate::{
 pub struct PackageExports {
     types: FxHashMap<SmolStr, SmallVec<[DefId; 1]>>,
     values: FxHashMap<SmolStr, SmallVec<[DefId; 1]>>,
+    assertions: FxHashMap<SmolStr, SmallVec<[DefId; 1]>>,
 }
 
 impl PackageExports {
@@ -41,6 +42,9 @@ impl PackageExports {
             NameContext::Type => self.types.get(ident).map(SmallVec::as_slice).unwrap_or_default(),
             NameContext::Value => {
                 self.values.get(ident).map(SmallVec::as_slice).unwrap_or_default()
+            }
+            NameContext::Assertion => {
+                self.assertions.get(ident).map(SmallVec::as_slice).unwrap_or_default()
             }
             NameContext::Listing => {
                 return Resolution::from_candidates(self.lookup_listing(ident));
@@ -57,6 +61,9 @@ impl PackageExports {
         if let Some(value_defs) = self.values.get(ident) {
             defs.extend(value_defs.iter().copied());
         }
+        if let Some(assertion_defs) = self.assertions.get(ident) {
+            defs.extend(assertion_defs.iter().copied());
+        }
         defs
     }
 
@@ -68,18 +75,36 @@ impl PackageExports {
                 if let Some(value_defs) = self.values.get(ident) {
                     defs.extend(value_defs.iter().copied());
                 }
+                if let Some(assertion_defs) = self.assertions.get(ident) {
+                    defs.extend(assertion_defs.iter().copied());
+                }
                 (ident, defs)
             })
+            .chain(self.values.iter().filter(|(ident, _)| !self.types.contains_key(*ident)).map(
+                |(ident, defs)| {
+                    let mut all = defs.iter().copied().collect::<SmallVec<[DefId; 1]>>();
+                    if let Some(assertion_defs) = self.assertions.get(ident) {
+                        all.extend(assertion_defs.iter().copied());
+                    }
+                    (ident, all)
+                },
+            ))
             .chain(
-                self.values
+                self.assertions
                     .iter()
-                    .filter(|(ident, _)| !self.types.contains_key(*ident))
+                    .filter(|(ident, _)| {
+                        !self.types.contains_key(*ident) && !self.values.contains_key(*ident)
+                    })
                     .map(|(ident, defs)| (ident, defs.iter().copied().collect())),
             )
     }
 
     fn insert_type(&mut self, ident: &Ident, def_id: DefId) {
         insert_binding(&mut self.types, ident, def_id);
+    }
+
+    fn insert_assertion(&mut self, ident: &Ident, def_id: DefId) {
+        insert_binding(&mut self.assertions, ident, def_id);
     }
 
     fn insert_value(&mut self, ident: &Ident, def_id: DefId) {
@@ -96,6 +121,7 @@ impl PackageExports {
             match ctx {
                 NameContext::Type => self.insert_type(ident, def_id),
                 NameContext::Value => self.insert_value(ident, def_id),
+                NameContext::Assertion => self.insert_assertion(ident, def_id),
                 NameContext::Listing => {
                     self.insert_type(ident, def_id);
                     self.insert_value(ident, def_id);
@@ -170,6 +196,24 @@ fn package_bindings(db: &dyn HirDefDb, package: OwnerId) -> PackageExports {
                 let name = body.get(origin.value).name.clone();
                 if let Some(name) = name {
                     exports.insert_type(&name, DefId::from_source(db, origin));
+                }
+            }
+            BodyItem::PropertyId(property_id) => {
+                let property = body.get(*property_id);
+                if let Some(name) = &property.name {
+                    exports.insert_assertion(
+                        name,
+                        DefId::from_source(db, OwnerRef::new(package, *property_id)),
+                    );
+                }
+            }
+            BodyItem::SequenceId(sequence_id) => {
+                let sequence = body.get(*sequence_id);
+                if let Some(name) = &sequence.name {
+                    exports.insert_assertion(
+                        name,
+                        DefId::from_source(db, OwnerRef::new(package, *sequence_id)),
+                    );
                 }
             }
             BodyItem::ClockingBlockOwner(owner) => {
