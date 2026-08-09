@@ -23,6 +23,21 @@ pub struct Stmt {
 
 pub type StmtId = Idx<Stmt>;
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum AssertionKind {
+    Assert,
+    Assume,
+    Cover,
+    Expect,
+    Restrict,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct AssertionAction {
+    pub pass: Option<StmtId>,
+    pub fail: Option<StmtId>,
+}
+
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub enum StmtKind {
     #[default]
@@ -59,6 +74,16 @@ pub enum StmtKind {
         stop: ExprId,
         steps: SmallVec<[ExprId; 1]>,
         stmt: StmtId,
+    },
+    ImmediateAssertion {
+        kind: AssertionKind,
+        condition: ExprId,
+        action: AssertionAction,
+    },
+    ConcurrentAssertion {
+        kind: AssertionKind,
+        property: ExprId,
+        action: AssertionAction,
     },
     Foreach {
         array: ExprId,
@@ -195,9 +220,9 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             BlockStatement(stmt) => self.lower_block_stmt(stmt),
             EmptyStatement(_) => StmtKind::Empty,
 
-            unsupported @ (ConcurrentAssertionStatement(_)
-            | ImmediateAssertionStatement(_)
-            | RandSequenceStatement(_)
+            ConcurrentAssertionStatement(stmt) => self.lower_concurrent_assertion_stmt(stmt),
+            ImmediateAssertionStatement(stmt) => self.lower_immediate_assertion_stmt(stmt),
+            unsupported @ (RandSequenceStatement(_)
             | VoidCastedCallStatement(_)
             | DisableForkStatement(_)
             | CheckerInstanceStatement(_)
@@ -319,6 +344,68 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             .collect();
         let stmt = self.lower_stmt(stmt.statement());
         StmtKind::Foreach { array, variables, stmt }
+    }
+
+    fn lower_immediate_assertion_stmt(
+        &mut self,
+        stmt: ast::ImmediateAssertionStatement,
+    ) -> StmtKind {
+        let kind = lower_assertion_kind(stmt.keyword());
+        let condition = self.lower_expr(stmt.expr().expression());
+        let action = self.lower_assertion_action(stmt.action());
+        StmtKind::ImmediateAssertion { kind, condition, action }
+    }
+
+    fn lower_concurrent_assertion_stmt(
+        &mut self,
+        stmt: ast::ConcurrentAssertionStatement,
+    ) -> StmtKind {
+        let kind = lower_assertion_kind(stmt.keyword());
+        let property = self.lower_property_expr(stmt.property_spec().expr());
+        let action = self.lower_assertion_action(stmt.action());
+        StmtKind::ConcurrentAssertion { kind, property, action }
+    }
+
+    fn lower_assertion_action(&mut self, action: ast::ActionBlock) -> AssertionAction {
+        let pass = action.statement().map(|stmt| self.lower_stmt(stmt));
+        let fail = action
+            .else_clause()
+            .and_then(|clause| ast::Statement::cast(clause.clause().syntax()))
+            .map(|stmt| self.lower_stmt(stmt));
+        AssertionAction { pass, fail }
+    }
+
+    pub(crate) fn lower_immediate_assertion_member(
+        &mut self,
+        member: ast::ImmediateAssertionMember,
+    ) -> StmtId {
+        let stmt = member.statement();
+        let kind = self.lower_immediate_assertion_stmt(stmt);
+        self.alloc_assertion_stmt(lower_named_label_opt(stmt.label()), kind, stmt.syntax())
+    }
+
+    pub(crate) fn lower_concurrent_assertion_member(
+        &mut self,
+        member: ast::ConcurrentAssertionMember,
+    ) -> StmtId {
+        let stmt = member.statement();
+        let kind = self.lower_concurrent_assertion_stmt(stmt);
+        self.alloc_assertion_stmt(lower_named_label_opt(stmt.label()), kind, stmt.syntax())
+    }
+
+    fn alloc_assertion_stmt(
+        &mut self,
+        label: Option<Ident>,
+        kind: StmtKind,
+        syntax: syntax::SyntaxNode<'_>,
+    ) -> StmtId {
+        let source = self.source_id(syntax);
+        let stmt_id = {
+            let (statements, sources) = self.statements();
+            crate::alloc_with_source_entry(statements, sources, Stmt { label, kind }, source)
+        };
+        self.record_body_statement(stmt_id);
+        stmt_id
     }
 
     fn lower_return_stmt(&mut self, stmt: ast::ReturnStatement) -> StmtKind {
@@ -471,5 +558,16 @@ fn lower_unique_or_priority(up: Option<SyntaxToken>) -> Option<UniquePriority> {
         TokenKind::PRIORITY_KEYWORD => Some(UniquePriority::Priority),
         TokenKind::UNKNOWN => None,
         _ => None,
+    }
+}
+
+fn lower_assertion_kind(keyword: Option<SyntaxToken>) -> AssertionKind {
+    match keyword.map(|token| token.kind()) {
+        Some(TokenKind::ASSERT_KEYWORD) => AssertionKind::Assert,
+        Some(TokenKind::ASSUME_KEYWORD) => AssertionKind::Assume,
+        Some(TokenKind::COVER_KEYWORD) => AssertionKind::Cover,
+        Some(TokenKind::EXPECT_KEYWORD) => AssertionKind::Expect,
+        Some(TokenKind::RESTRICT_KEYWORD) => AssertionKind::Restrict,
+        _ => AssertionKind::Assert,
     }
 }

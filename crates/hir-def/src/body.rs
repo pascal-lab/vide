@@ -193,6 +193,7 @@ pub enum BodyItem {
     PortDeclId(PortDeclId),
     SubroutineOwner(OwnerId),
     ModportId(ModportId),
+    AssertionStmtId(StmtId),
     ClockingBlockOwner(OwnerId),
 }
 
@@ -225,6 +226,7 @@ impl_body_item_from! {
     InstantiationId => InstantiationId,
     PortDeclId => PortDeclId,
     ModportId => ModportId,
+    StmtId => AssertionStmtId,
 }
 
 /// All position-free HIR owned by one canonical [`OwnerId`]. Nested lexical
@@ -680,6 +682,7 @@ impl BodySourceMap {
             BodyItem::InstantiationId(id) => self.instantiation_srcs.hir_to_src(*id),
             BodyItem::PortDeclId(id) => utils::get::Get::get(&self.port_srcs, *id),
             BodyItem::ModportId(id) => self.modport_srcs.hir_to_src(*id),
+            BodyItem::AssertionStmtId(id) => self.stmt_srcs.hir_to_src(*id),
         }
     }
 
