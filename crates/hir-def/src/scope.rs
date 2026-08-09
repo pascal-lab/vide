@@ -1121,7 +1121,9 @@ endmodule
         let diagnostics = db.body_with_source_map(module_id).diagnostics(&db);
         let diagnostic = diagnostics
             .iter()
-            .find(|diagnostic| diagnostic.message == "assertion member is not lowered")
+            .find(|diagnostic| {
+                diagnostic.message == "property or sequence declaration is not lowered"
+            })
             .unwrap_or_else(|| {
                 panic!("unsupported module member should be diagnosed: {diagnostics:?}")
             });
