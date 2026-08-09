@@ -5,7 +5,8 @@ use hir_def::{
     container::OwnerRef,
     def_id::DefId,
     expr::{
-        Arg, AssignOp, BinaryOp, Expr, ExprId, IncDecOp, Selector, StreamOp, UnaryOp,
+        Arg, AssignOp, AssignmentPattern, AssignmentPatternItem, BinaryOp, Expr, ExprId, IncDecOp,
+        InsideRange, Selector, StreamOp, UnaryOp,
         data_ty::{
             BuiltinDataTy, DataTy, Dimension, IntKind, Real, TypePathKind, TypeRef, VecKind,
         },
@@ -477,6 +478,88 @@ impl HirDisplay for OwnerRef<&Expr> {
             Expr::Unsupported(kind) => {
                 write!(f.f, "<unsupported {kind:?}>")?;
                 Ok(())
+            }
+            Expr::AssignmentPattern { ty, pattern } => {
+                if let Some(ty) = ty {
+                    self.with_value(ty.clone()).hir_fmt(f)?;
+                }
+                f.write_str("'")?;
+                match pattern {
+                    AssignmentPattern::Simple(items) => {
+                        f.write_str("{")?;
+                        let mut first = true;
+                        for expr in items.iter() {
+                            if !first {
+                                f.write_str(", ")?;
+                            }
+                            self.with_value(*expr).hir_fmt(f)?;
+                            first = false;
+                        }
+                        f.write_str("}")
+                    }
+                    AssignmentPattern::Structured(items) => {
+                        f.write_str("{")?;
+                        let mut first = true;
+                        for item in items.iter() {
+                            if !first {
+                                f.write_str(", ")?;
+                            }
+                            match item {
+                                AssignmentPatternItem::KeyValue { key, value } => {
+                                    self.with_value(*key).hir_fmt(f)?;
+                                    f.write_str(": ")?;
+                                    self.with_value(*value).hir_fmt(f)?;
+                                }
+                                AssignmentPatternItem::Default { value } => {
+                                    f.write_str("default: ")?;
+                                    self.with_value(*value).hir_fmt(f)?;
+                                }
+                            }
+                            first = false;
+                        }
+                        f.write_str("}")
+                    }
+                    AssignmentPattern::Replicated { count, items } => {
+                        self.with_value(*count).hir_fmt(f)?;
+                        f.write_str("'")?;
+                        f.write_str("{")?;
+                        let mut first = true;
+                        for expr in items.iter() {
+                            if !first {
+                                f.write_str(", ")?;
+                            }
+                            self.with_value(*expr).hir_fmt(f)?;
+                            first = false;
+                        }
+                        f.write_str("}}")
+                    }
+                }
+            }
+            Expr::Inside { expr, ranges } => {
+                self.with_value(*expr).hir_fmt(f)?;
+                f.write_str(" inside {")?;
+                let mut first = true;
+                for range in ranges.iter() {
+                    if !first {
+                        f.write_str(", ")?;
+                    }
+                    match range {
+                        InsideRange::Expr(expr) => self.with_value(*expr).hir_fmt(f)?,
+                        InsideRange::Range { left, right } => {
+                            f.write_str("[")?;
+                            self.with_value(*left).hir_fmt(f)?;
+                            f.write_str(":")?;
+                            self.with_value(*right).hir_fmt(f)?;
+                            f.write_str("]")?;
+                        }
+                    }
+                    first = false;
+                }
+                f.write_str("}")
+            }
+            Expr::TimingControl { expr, .. } => {
+                f.write_str("<timing-control> ")?;
+                self.with_value(*expr).hir_fmt(f)
             }
             Expr::Binary { op, lhs, rhs } => {
                 self.with_value(*lhs).hir_fmt(f)?;
