@@ -250,6 +250,7 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
                 build_library_decl(db, &mut collector, library_id, lowered.as_ref())
             }
             BodyItem::LibraryIncludeId(_) => {}
+            BodyItem::AssertionStmtId(_) => {}
             BodyItem::CheckerOwner(owner) => build_checker_owner(db, &mut collector, owner),
             BodyItem::CovergroupOwner(owner) => build_covergroup_owner(db, &mut collector, owner),
             BodyItem::UdpDeclId(udp_id) => {
@@ -384,6 +385,7 @@ fn collect_module_items(db: &dyn TyDb, owner: OwnerId, collector: &mut SymbolCol
             BodyItem::ClockingBlockOwner(owner) => {
                 build_clocking_block_owner(db, collector, owner);
             }
+            BodyItem::AssertionStmtId(_) => {}
             BodyItem::CheckerOwner(owner) => {
                 build_checker_owner(db, collector, owner);
             }
@@ -501,6 +503,15 @@ fn build_stmt(
                 build_stmt(db, collector, *else_stmt, lowered);
             }
         }
+        StmtKind::ImmediateAssertion { action, .. }
+        | StmtKind::ConcurrentAssertion { action, .. } => {
+            if let Some(pass) = action.pass {
+                build_stmt(db, collector, pass, lowered);
+            }
+            if let Some(fail) = action.fail {
+                build_stmt(db, collector, fail, lowered);
+            }
+        }
 
         StmtKind::Missing
         | StmtKind::Invalid
@@ -511,9 +522,8 @@ fn build_stmt(
         | StmtKind::EventTrigger(_)
         | StmtKind::ProcAssign(_)
         | StmtKind::WaitFork
-        | StmtKind::Disable(_) => {}
-
-        StmtKind::Block(_) => {}
+        | StmtKind::Disable(_)
+        | StmtKind::Block(_) => {}
     }
     collector.pop();
 }
@@ -641,6 +651,7 @@ fn build_generate_block_item<S>(
         BodyItem::StructId(struct_id) => {
             build_struct(db, collector, struct_id, body);
         }
+        BodyItem::AssertionStmtId(_) => {}
         invalid @ (BodyItem::ModuleOwner(_)
         | BodyItem::ConfigDeclId(_)
         | BodyItem::UdpDeclId(_)

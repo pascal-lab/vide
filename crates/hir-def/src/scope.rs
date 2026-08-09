@@ -1028,6 +1028,82 @@ endmodule
         assert!(body.diagnostics(&db).is_empty(), "supported RTL statements must not diagnose");
     }
     #[test]
+    fn assertion_statements_lower_with_actions() {
+        let db = db_with_root_text(
+            r#"
+module m;
+  logic clk, x, y;
+  always @(posedge clk) begin
+    assert (x) x = 1; else x = 0;
+    assert property (x |-> y) x = 1; else x = 0;
+  end
+endmodule
+"#,
+        );
+        let module_id = db
+            .unit_index()
+            .module_ids(&ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let module = db.body_with_source_map(module_id);
+        let proc = module.procs.iter().next().expect("always block should lower").1;
+        let body = db.body_with_source_map(proc.owner);
+        let assertions: Vec<_> = body
+            .stmts
+            .values()
+            .filter(|stmt| {
+                matches!(
+                    stmt.kind,
+                    crate::stmt::StmtKind::ImmediateAssertion { .. }
+                        | crate::stmt::StmtKind::ConcurrentAssertion { .. }
+                )
+            })
+            .collect();
+        assert_eq!(assertions.len(), 2);
+        assert!(assertions.iter().all(|stmt| match stmt.kind {
+            crate::stmt::StmtKind::ImmediateAssertion { action, .. }
+            | crate::stmt::StmtKind::ConcurrentAssertion { action, .. } =>
+                action.pass.is_some() && action.fail.is_some(),
+            _ => false,
+        }));
+        assert!(body.diagnostics(&db).is_empty(), "supported assertions must not diagnose");
+    }
+
+    #[test]
+    fn module_assertion_member_lowers_to_body_item() {
+        let db = db_with_root_text(
+            r#"
+module m;
+  logic x, y;
+  assert property (x |-> y);
+endmodule
+"#,
+        );
+        let module_id = db
+            .unit_index()
+            .module_ids(&ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let module = db.body_with_source_map(module_id);
+        assert!(
+            module
+                .items
+                .iter()
+                .any(|item| matches!(item, crate::body::BodyItem::AssertionStmtId(_)))
+        );
+        assert!(
+            module
+                .stmts
+                .values()
+                .any(|stmt| matches!(stmt.kind, crate::stmt::StmtKind::ConcurrentAssertion { .. }))
+        );
+        assert!(
+            module.diagnostics(&db).is_empty(),
+            "supported assertion members must not diagnose"
+        );
+    }
+
+    #[test]
     fn unsupported_module_member_is_reported_with_source() {
         let db = db_with_root_text(
             r#"

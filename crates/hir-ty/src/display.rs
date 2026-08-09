@@ -6,7 +6,7 @@ use hir_def::{
     def_id::DefId,
     expr::{
         Arg, AssignOp, AssignmentPattern, AssignmentPatternItem, BinaryOp, Expr, ExprId, IncDecOp,
-        InsideRange, Selector, StreamOp, UnaryOp,
+        InsideRange, PropertyExpr, Selector, SequenceExpr, SequenceRepetition, StreamOp, UnaryOp,
         data_ty::{
             BuiltinDataTy, DataTy, Dimension, IntKind, Real, TypePathKind, TypeRef, VecKind,
         },
@@ -467,6 +467,179 @@ impl HirDisplay for UnaryOp {
     }
 }
 
+fn fmt_selector(
+    owner: &OwnerRef<&Expr>,
+    f: &mut HirFormatter<'_>,
+    selector: Selector,
+) -> Result<(), HirDisplayError> {
+    match selector {
+        Selector::Bit(expr) => {
+            f.write_str("[")?;
+            owner.with_value(expr).hir_fmt(f)?;
+            f.write_str("]")
+        }
+        Selector::Range(left, right) => {
+            f.write_str("[")?;
+            owner.with_value(left).hir_fmt(f)?;
+            f.write_str(":")?;
+            owner.with_value(right).hir_fmt(f)?;
+            f.write_str("]")
+        }
+        Selector::Ascending(left, right) => {
+            f.write_str("[")?;
+            owner.with_value(left).hir_fmt(f)?;
+            f.write_str("+:")?;
+            owner.with_value(right).hir_fmt(f)?;
+            f.write_str("]")
+        }
+        Selector::Descending(left, right) => {
+            f.write_str("[")?;
+            owner.with_value(left).hir_fmt(f)?;
+            f.write_str("-:")?;
+            owner.with_value(right).hir_fmt(f)?;
+            f.write_str("]")
+        }
+    }
+}
+
+fn fmt_repetition(
+    owner: &OwnerRef<&Expr>,
+    f: &mut HirFormatter<'_>,
+    repetition: &SequenceRepetition,
+) -> Result<(), HirDisplayError> {
+    write!(f.f, " {:?}", repetition.op)?;
+    if let Some(selector) = repetition.selector {
+        fmt_selector(owner, f, selector)?;
+    }
+    Ok(())
+}
+
+fn fmt_sequence_expr(
+    owner: &OwnerRef<&Expr>,
+    f: &mut HirFormatter<'_>,
+    sequence: &SequenceExpr,
+) -> Result<(), HirDisplayError> {
+    match sequence {
+        SequenceExpr::Simple { expr, repetition } => {
+            owner.with_value(*expr).hir_fmt(f)?;
+            if let Some(repetition) = repetition {
+                fmt_repetition(owner, f, repetition)?;
+            }
+            Ok(())
+        }
+        SequenceExpr::Binary { left, op, right } => {
+            owner.with_value(*left).hir_fmt(f)?;
+            write!(f.f, " {op:?} ")?;
+            owner.with_value(*right).hir_fmt(f)
+        }
+        SequenceExpr::Delayed { first, elements } => {
+            if let Some(first) = first {
+                owner.with_value(*first).hir_fmt(f)?;
+            }
+            for element in elements.iter() {
+                f.write_str(" ##")?;
+                if let Some(delay) = element.delay {
+                    f.write_str(" ")?;
+                    owner.with_value(delay).hir_fmt(f)?;
+                }
+                if let Some(range) = element.range {
+                    fmt_selector(owner, f, range)?;
+                }
+                f.write_str(" ")?;
+                owner.with_value(element.expr).hir_fmt(f)?;
+            }
+            Ok(())
+        }
+        SequenceExpr::Event(_) => f.write_str("<event>"),
+        SequenceExpr::Clocking { expr, .. } => {
+            f.write_str("<clocking> ")?;
+            owner.with_value(*expr).hir_fmt(f)
+        }
+        SequenceExpr::FirstMatch { expr } => {
+            f.write_str("first_match(")?;
+            owner.with_value(*expr).hir_fmt(f)?;
+            f.write_str(")")
+        }
+        SequenceExpr::Parenthesized { expr, matches, repetition } => {
+            f.write_str("(")?;
+            owner.with_value(*expr).hir_fmt(f)?;
+            for matched in matches.iter() {
+                f.write_str(", ")?;
+                owner.with_value(*matched).hir_fmt(f)?;
+            }
+            f.write_str(")")?;
+            if let Some(repetition) = repetition {
+                fmt_repetition(owner, f, repetition)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn fmt_property_expr(
+    owner: &OwnerRef<&Expr>,
+    f: &mut HirFormatter<'_>,
+    property: &PropertyExpr,
+) -> Result<(), HirDisplayError> {
+    match property {
+        PropertyExpr::Parenthesized { expr, matches } => {
+            f.write_str("(")?;
+            owner.with_value(*expr).hir_fmt(f)?;
+            for matched in matches.iter() {
+                f.write_str(", ")?;
+                owner.with_value(*matched).hir_fmt(f)?;
+            }
+            f.write_str(")")
+        }
+        PropertyExpr::Simple(expr) => owner.with_value(*expr).hir_fmt(f),
+        PropertyExpr::Binary { left, op, right } => {
+            owner.with_value(*left).hir_fmt(f)?;
+            write!(f.f, " {op:?} ")?;
+            owner.with_value(*right).hir_fmt(f)
+        }
+        PropertyExpr::Conditional { condition, expr, else_expr } => {
+            owner.with_value(*condition).hir_fmt(f)?;
+            f.write_str(" ? ")?;
+            owner.with_value(*expr).hir_fmt(f)?;
+            if let Some(else_expr) = else_expr {
+                f.write_str(" : ")?;
+                owner.with_value(*else_expr).hir_fmt(f)?;
+            }
+            Ok(())
+        }
+        PropertyExpr::Unary { op, expr } => {
+            write!(f.f, "{op:?} ")?;
+            owner.with_value(*expr).hir_fmt(f)
+        }
+        PropertyExpr::UnarySelect { op, selector, expr } => {
+            write!(f.f, "{op:?} ")?;
+            if let Some(selector) = selector {
+                fmt_selector(owner, f, *selector)?;
+            }
+            owner.with_value(*expr).hir_fmt(f)
+        }
+        PropertyExpr::Clocking { expr, .. } => {
+            f.write_str("<clocking>")?;
+            if let Some(expr) = expr {
+                f.write_str(" ")?;
+                owner.with_value(*expr).hir_fmt(f)?;
+            }
+            Ok(())
+        }
+        PropertyExpr::StrongWeak { strong, expr } => {
+            f.write_str(if *strong { "strong(" } else { "weak(" })?;
+            owner.with_value(*expr).hir_fmt(f)?;
+            f.write_str(")")
+        }
+        PropertyExpr::AcceptOn { condition, expr } => {
+            f.write_str("accept_on(")?;
+            owner.with_value(*condition).hir_fmt(f)?;
+            f.write_str(") ")?;
+            owner.with_value(*expr).hir_fmt(f)
+        }
+    }
+}
+
 impl HirDisplay for OwnerRef<&Expr> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         match self.value {
@@ -709,6 +882,8 @@ impl HirDisplay for OwnerRef<&Expr> {
                 op.hir_fmt(f)?;
                 self.with_value(*expr).hir_fmt(f)
             }
+            Expr::Sequence(sequence) => fmt_sequence_expr(self, f, sequence),
+            Expr::Property(property) => fmt_property_expr(self, f, property),
         }
     }
 }
