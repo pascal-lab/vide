@@ -20,7 +20,6 @@ use hir_ty::{Compatibility, Type, TypeSystem, db::TyDb, display::HirDisplay};
 use preproc_expand::db::PreprocDb;
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
-use syntax::SyntaxKind;
 use triomphe::Arc;
 use utils::paths::{AbsPathBuf, Utf8PathBuf};
 use vfs::{AnchoredPath, FileId, FileSet, VfsPath};

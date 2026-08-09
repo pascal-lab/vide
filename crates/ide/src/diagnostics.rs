@@ -549,9 +549,9 @@ mod tests {
 
     use super::{
         AMBIGUOUS_MODULE_INSTANTIATION, DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH,
-        DIAGNOSTIC_LOWERING_INVALID_SYNTAX, DIAGNOSTIC_LOWERING_UNSUPPORTED_SYNTAX,
-        DiagnosticSource, DiagnosticTag, INACTIVE_PREPROCESSOR_BRANCH, LOWERING_INVALID_SYNTAX,
-        LOWERING_UNSUPPORTED_SYNTAX, compilation_profile_diagnostics, diagnostics,
+        DIAGNOSTIC_LOWERING_INVALID_SYNTAX, DiagnosticSource, DiagnosticTag,
+        INACTIVE_PREPROCESSOR_BRANCH, LOWERING_INVALID_SYNTAX, LOWERING_UNSUPPORTED_SYNTAX,
+        compilation_profile_diagnostics, diagnostics,
     };
     use crate::db::root_db::RootDb;
 
