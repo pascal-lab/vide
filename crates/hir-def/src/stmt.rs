@@ -68,6 +68,12 @@ pub enum StmtKind {
     Jump(JumpKind),
 
     Wait(WaitKind, StmtId),
+    WaitFork,
+    WaitOrder {
+        names: SmallVec<[ExprId; 2]>,
+        action: StmtId,
+        else_stmt: Option<StmtId>,
+    },
     Disable(DisableKind),
 }
 
@@ -171,6 +177,8 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             EventTriggerStatement(stmt) => self.lower_event_trigger_stmt(stmt),
 
             WaitStatement(stmt) => self.lower_wait_stmt(stmt),
+            WaitForkStatement(stmt) => self.lower_wait_fork_stmt(stmt),
+            WaitOrderStatement(stmt) => self.lower_wait_order_stmt(stmt),
             DisableStatement(stmt) => self.lower_disable_stmt(stmt),
 
             ConditionalStatement(stmt) => self.lower_cond_stmt(stmt),
@@ -190,9 +198,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             unsupported @ (ConcurrentAssertionStatement(_)
             | ImmediateAssertionStatement(_)
             | RandSequenceStatement(_)
-            | WaitForkStatement(_)
             | VoidCastedCallStatement(_)
-            | WaitOrderStatement(_)
             | DisableForkStatement(_)
             | CheckerInstanceStatement(_)
             | RandCaseStatement(_)) => {
@@ -334,6 +340,27 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         let expr = self.lower_expr(stmt.expr());
         let stmt = self.lower_stmt(stmt.statement());
         StmtKind::Wait(WaitKind::Wait(expr), stmt)
+    }
+
+    fn lower_wait_fork_stmt(&mut self, _stmt: ast::WaitForkStatement) -> StmtKind {
+        StmtKind::WaitFork
+    }
+
+    fn lower_wait_order_stmt(&mut self, stmt: ast::WaitOrderStatement) -> StmtKind {
+        let names = stmt
+            .names()
+            .children()
+            .filter_map(|name| {
+                ast::Expression::cast(name.syntax()).map(|expr| self.lower_expr(expr))
+            })
+            .collect();
+        let action = self.lower_stmt_opt(stmt.action().statement());
+        let else_stmt = stmt
+            .action()
+            .else_clause()
+            .and_then(|clause| ast::Statement::cast(clause.clause().syntax()))
+            .map(|stmt| self.lower_stmt(stmt));
+        StmtKind::WaitOrder { names, action, else_stmt }
     }
 
     fn lower_disable_stmt(&mut self, stmt: ast::DisableStatement) -> StmtKind {
