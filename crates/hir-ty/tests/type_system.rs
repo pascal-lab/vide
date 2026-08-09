@@ -281,7 +281,7 @@ endmodule
 }
 
 #[test]
-fn unsupported_data_type_preserves_type_diagnostic() {
+fn struct_data_type_has_no_type_diagnostic() {
     let db = db_with_root_text(
         r#"
 module m;
@@ -292,10 +292,7 @@ endmodule
     let module = module_id(&db, "m");
     let value = type_of_name(&db, module, "value", NameContext::Value);
 
-    assert_eq!(
-        value.diagnostics(),
-        &[hir_ty::TypeDiagnostic::UnsupportedDataType(SyntaxKind::STRUCT_TYPE)]
-    );
+    assert!(value.diagnostics().is_empty());
 }
 
 #[test]
