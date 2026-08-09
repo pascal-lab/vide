@@ -281,6 +281,63 @@ fn call_hierarchy_reports_module_instance_edges() {
 }
 
 #[test]
+fn include_file_macro_hits_resolve_across_models() {
+    // Issue #327: macro tokens in an include file belong to the including
+    // file's trace. The dedicated macro reference/definition/parameter paths
+    // iterate every context model, so all caret positions in the include
+    // file must resolve (this is the reachability proof for the reported
+    // cross-trace emitted-token gap).
+    let temp_dir = TempDir::new("include-macro-hit");
+    let rtl_dir = temp_dir.path().join("rtl");
+    fs::create_dir_all(&rtl_dir).unwrap();
+
+    let top_text = "`define WIDTH 32\n`include \"defs.vh\"\nmodule top;\n  assign y = `DOUBLE(`WIDTH);\nendmodule\n";
+    let other_text = "`define WIDTH 64\n`include \"defs.vh\"\nmodule other;\n  assign z = `DOUBLE(`WIDTH);\nendmodule\n";
+    let defs_text = "`define LOCAL 1\n`define DOUBLE(x) ((x)+(x))\nmodule defs_mod;\n  assign x = `WIDTH + `LOCAL;\nendmodule\n";
+    fs::write(
+        temp_dir.path().join("vide.toml"),
+        "top_modules = [\"top\"]\nsources = [\"rtl/*.sv\"]\ninclude_dirs = [\"rtl\"]\n",
+    )
+    .unwrap();
+    let top_path = rtl_dir.join("top.sv");
+    let other_path = rtl_dir.join("other.sv");
+    let defs_path = rtl_dir.join("defs.vh");
+    fs::write(&top_path, top_text).unwrap();
+    fs::write(&other_path, other_text).unwrap();
+    fs::write(&defs_path, defs_text).unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let (client, server_thread) =
+        spawn_test_workspace(root_path, ClientCapabilities::default(), UserConfig::default());
+    let defs_uri = to_proto::url_from_abs_path(defs_path.as_path()).unwrap();
+
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    open_test_document(&client, top_uri.clone(), top_text);
+    open_test_document(&client, defs_uri.clone(), defs_text);
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    // Same-file macro call in the including file: must resolve.
+    let same_file = request_hover(&client, top_uri.clone(), top_text, "`WIDTH)", 2);
+    assert!(same_file.is_some(), "same-file macro call must hover");
+    // Self-contained macro in the include file: must resolve within its own trace.
+    let self_contained = request_hover(&client, defs_uri.clone(), defs_text, "`LOCAL", 3);
+    assert!(self_contained.is_some(), "self-contained include macro must hover");
+    // Cross-file macro call in the include file: the issue scenario.
+    let cross_file = request_hover(&client, defs_uri.clone(), defs_text, "`WIDTH", 4);
+    assert!(cross_file.is_some(), "cross-file macro call in the include file must hover");
+    // Caret on a token inside a macro BODY defined in the include file.
+    let body_token = request_hover(&client, defs_uri.clone(), defs_text, "DOUBLE(x)", 5);
+    assert!(body_token.is_some(), "macro body token in the include file must hover");
+    // Two top files include the same header: multiple context models.
+    let other_uri = to_proto::url_from_abs_path(other_path.as_path()).unwrap();
+    open_test_document(&client, other_uri.clone(), other_text);
+    let multi_model = request_hover(&client, defs_uri.clone(), defs_text, "`WIDTH", 6);
+    assert!(multi_model.is_some(), "multi-model macro reference in the include file must hover");
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn include_expanded_parameter_decls_keep_module_navigation_available() {
     let temp_dir = TempDir::new("include-param-module-nav");
     let rtl_dir = temp_dir.path().join("rtl");

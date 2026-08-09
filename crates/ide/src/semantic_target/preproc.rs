@@ -232,13 +232,26 @@ fn syntax_tokens_for_macro_emitted_tokens<'tree>(
     };
 
     let mut tokens = Vec::new();
+    let mut missing = Vec::new();
     for hit in hits {
         let Some(emitted_token) = macro_emitted_token_for_hit(hit) else {
             continue;
         };
         if let Some(copies) = index.get(&emitted_token) {
             tokens.extend_from_slice(copies);
+        } else {
+            missing.push(emitted_token);
         }
+    }
+    if !missing.is_empty() {
+        // A macro-emitted hit whose trace id is absent from the lookup tree
+        // means the hit belongs to a different preprocessor trace (issue
+        // #327 cross-model scenario). Keep the miss visible instead of
+        // silently dropping it.
+        tracing::warn!(
+            missing = ?missing,
+            "macro-emitted token ids not found in the lookup tree"
+        );
     }
     (!tokens.is_empty()).then_some(tokens)
 }
