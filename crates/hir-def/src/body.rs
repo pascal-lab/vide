@@ -602,7 +602,10 @@ impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
                     None
                 },
                 ast::TypedefDeclaration[it] => { self.lower_body_typedef(it); None },
-                _ => continue,
+                _ => {
+                    self.report_unsupported(node.syntax(), "unsupported nested-block item");
+                    continue;
+                },
             };
             if let Some(item) = item {
                 self.push_body_item(item);
@@ -636,7 +639,10 @@ impl LoweringCtx<BodyStore<'_>> {
                     None
                 },
                 ast::TypedefDeclaration[it] => { self.lower_body_typedef(it); None },
-                _ => continue,
+                _ => {
+                    self.report_unsupported(syntax, "unsupported subroutine item");
+                    continue;
+                },
             };
             if let Some(body_item) = body_item {
                 self.push_body_item(body_item);

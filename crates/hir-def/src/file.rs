@@ -169,7 +169,13 @@ impl LowerFileCtx<'_> {
                         .expect("every lowered covergroup must have a canonical owner");
                     BodyItem::CovergroupOwner(owner)
                 }
-                _ => continue,
+                unsupported => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "unsupported compilation-unit member",
+                    );
+                    continue;
+                }
             };
             self.store.data.items.push(idx);
         }
@@ -184,7 +190,10 @@ impl LowerFileCtx<'_> {
                     self.lower_library_include(library_include).into()
                 }
                 EmptyMember(_) => continue,
-                _ => continue,
+                unsupported => {
+                    self.report_unsupported(unsupported.syntax(), "unsupported library-map member");
+                    continue;
+                }
             };
             self.store.data.items.push(idx);
         }
