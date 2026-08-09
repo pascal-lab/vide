@@ -1149,29 +1149,14 @@ mod tests {
     }
 
     #[test]
-    fn lowering_unsupported_syntax_reports_vide_warning() {
+    fn lowered_assignment_pattern_has_no_vide_warning() {
         let text = "module m;\n  int x = '{default: 0};\nendmodule\n";
         let db = db_with_files(&[("/top.sv", text)], false);
 
         let diagnostics = diagnostics(&db, FileId::from_raw(0));
-        let diagnostic = diagnostics
-            .iter()
-            .find(|diag| diag.name == LOWERING_UNSUPPORTED_SYNTAX.name)
-            .unwrap_or_else(|| panic!("expected unsupported syntax diagnostic: {diagnostics:?}"));
-
-        assert_eq!(diagnostic.source, DiagnosticSource::Vide);
-        assert_eq!(diagnostic.severity, syntax::DiagnosticSeverity::Warning);
-        assert_eq!(diagnostic.message_key, Some(DIAGNOSTIC_LOWERING_UNSUPPORTED_SYNTAX));
-        assert_eq!(diagnostic.range, range_of(text, "'{default: 0}"));
         assert!(
-            diagnostic.message.contains("AssignmentPatternExpression"),
-            "message should name the offending syntax kind: {}",
-            diagnostic.message
-        );
-        assert!(
-            diagnostic.message.contains("unsupported expression"),
-            "message should carry the lowering reason: {}",
-            diagnostic.message
+            !diagnostics.iter().any(|diag| diag.name == LOWERING_UNSUPPORTED_SYNTAX.name),
+            "supported assignment patterns must not produce lowering warnings: {diagnostics:?}"
         );
     }
 
