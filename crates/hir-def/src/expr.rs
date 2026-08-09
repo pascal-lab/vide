@@ -192,6 +192,42 @@ pub enum InsideRange {
     Range { left: ExprId, right: ExprId },
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct SequenceRepetition {
+    pub op: TokenKind,
+    pub selector: Option<Selector>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct DelayedSequenceElement {
+    pub delay: Option<ExprId>,
+    pub range: Option<Selector>,
+    pub expr: ExprId,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum SequenceExpr {
+    Simple { expr: ExprId, repetition: Option<SequenceRepetition> },
+    Binary { left: ExprId, op: TokenKind, right: ExprId },
+    Delayed { first: Option<ExprId>, elements: Box<[DelayedSequenceElement]> },
+    Event(ExprId),
+    Clocking { event: TimingControl, expr: ExprId },
+    FirstMatch { expr: ExprId },
+    Parenthesized { expr: ExprId, matches: Box<[ExprId]>, repetition: Option<SequenceRepetition> },
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum PropertyExpr {
+    Simple(ExprId),
+    Binary { left: ExprId, op: TokenKind, right: ExprId },
+    Conditional { condition: ExprId, expr: ExprId, else_expr: Option<ExprId> },
+    Unary { op: TokenKind, expr: ExprId },
+    UnarySelect { op: TokenKind, selector: Option<Selector>, expr: ExprId },
+    Clocking { event: TimingControl, expr: Option<ExprId> },
+    StrongWeak { strong: bool, expr: ExprId },
+    AcceptOn { condition: ExprId, expr: ExprId },
+}
+
 #[derive(Default, Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Expr {
     #[default]
@@ -216,6 +252,8 @@ pub enum Expr {
         control: TimingControl,
         expr: ExprId,
     },
+    Sequence(SequenceExpr),
+    Property(PropertyExpr),
     Call {
         callee: ExprId,
         args: Box<[Arg]>,
