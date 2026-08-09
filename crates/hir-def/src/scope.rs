@@ -957,7 +957,7 @@ endmodule
     }
 
     #[test]
-    fn valid_unlowered_expression_is_not_parser_missing() {
+    fn assignment_pattern_lowering_retains_source_without_diagnostic() {
         let db = db_with_root_text(
             r#"
 module m;
@@ -973,23 +973,18 @@ endmodule
             .expect("module should resolve uniquely");
         let owner = module_id;
         let module = db.body_with_source_map(owner);
-        let (expr_id, expr) =
-            module.exprs.iter().next().expect("initializer expression should lower");
+        let (expr_id, expr) = module
+            .exprs
+            .iter()
+            .find(|(_, expr)| matches!(expr, crate::expr::Expr::AssignmentPattern { .. }))
+            .expect("assignment pattern expression should lower");
 
-        assert_eq!(
-            expr,
-            &crate::expr::Expr::Unsupported(syntax::SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION),
-            "valid but unsupported syntax must carry an explicit diagnostic kind"
-        );
+        assert!(matches!(expr, crate::expr::Expr::AssignmentPattern { .. }));
+        assert!(module.source(expr_id).is_some(), "lowered expressions must retain their source");
         assert!(
-            module.source(expr_id).is_some(),
-            "valid but unsupported syntax must retain its source"
+            module.diagnostics(&db).is_empty(),
+            "supported assignment patterns must not emit diagnostics"
         );
-        assert_eq!(module.diagnostics(&db).len(), 1);
-        let diagnostic = &module.diagnostics(&db)[0];
-        assert_eq!(diagnostic.kind, crate::source_map::LoweringDiagnosticKind::UnsupportedSyntax);
-        assert_eq!(diagnostic.syntax_kind, syntax::SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION);
-        assert!(diagnostic.range.is_some());
     }
     #[test]
     fn unsupported_module_member_is_reported_with_source() {
@@ -1018,7 +1013,7 @@ endmodule
     }
 
     #[test]
-    fn unsupported_data_type_is_recoverable_and_diagnosed() {
+    fn struct_data_type_lowers_without_diagnostic() {
         let db = db_with_root_text(
             r#"
 module m;
@@ -1032,26 +1027,19 @@ endmodule
             .module_ids(&ident("m"))
             .unique()
             .expect("module should resolve uniquely");
-        let owner = module_id;
-        let module = db.body_with_source_map(owner);
+        let module = db.body_with_source_map(module_id);
         let declaration = module
             .declarations
             .values()
             .find(|declaration| matches!(declaration, crate::declaration::Declaration::DataDecl(_)))
             .expect("struct variable declaration should lower");
-        assert!(matches!(
-            declaration.ty(),
-            crate::expr::data_ty::DataTy::Unsupported(syntax::SyntaxKind::STRUCT_TYPE)
-        ));
+        assert!(matches!(declaration.ty(), crate::expr::data_ty::DataTy::Struct(_)));
         assert!(
-            module.diagnostics(&db).iter().any(|diagnostic| {
-                diagnostic.kind == crate::source_map::LoweringDiagnosticKind::UnsupportedSyntax
-                    && diagnostic.syntax_kind == syntax::SyntaxKind::STRUCT_TYPE
-                    && diagnostic.range.is_some()
-            }),
-            "unsupported data types must retain provenance in lowering diagnostics"
+            module.diagnostics(&db).is_empty(),
+            "supported struct types must not emit diagnostics"
         );
     }
+
     #[test]
     fn parser_missing_and_empty_statements_are_distinct() {
         let db = db_with_root_text(
@@ -1061,7 +1049,6 @@ module m;
 endmodule
 "#,
         );
-
         let module_id = db
             .unit_index()
             .module_ids(&ident("m"))

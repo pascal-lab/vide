@@ -181,9 +181,9 @@ pub enum AssignmentPattern {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct AssignmentPatternItem {
-    pub key: ExprId,
-    pub value: ExprId,
+pub enum AssignmentPatternItem {
+    KeyValue { key: ExprId, value: ExprId },
+    Default { value: ExprId },
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -393,9 +393,18 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
                     pattern
                         .items()
                         .children()
-                        .map(|item| AssignmentPatternItem {
-                            key: self.lower_expr(item.key()),
-                            value: self.lower_expr(item.expr()),
+                        .map(|item| {
+                            let value = self.lower_expr(item.expr());
+                            if item.key().syntax().kind()
+                                == SyntaxKind::DEFAULT_PATTERN_KEY_EXPRESSION
+                            {
+                                AssignmentPatternItem::Default { value }
+                            } else {
+                                AssignmentPatternItem::KeyValue {
+                                    key: self.lower_expr(item.key()),
+                                    value,
+                                }
+                            }
                         })
                         .collect(),
                 )

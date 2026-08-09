@@ -529,7 +529,7 @@ mod tests {
     }
 
     #[test]
-    fn file_lowering_diagnostics_flattens_all_owners() {
+    fn supported_constructs_produce_no_lowering_diagnostics() {
         let text = r#"
 module m;
   int x = '{default: 0};
@@ -545,29 +545,10 @@ endmodule
         let db = db_with_files(text, None);
 
         let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
-
-        let pattern_ranges = diagnostics
-            .iter()
-            .filter(|diag| diag.syntax_kind == SyntaxKind::ASSIGNMENT_PATTERN_EXPRESSION)
-            .map(|diag| diag.range.expect("range must be resolved"))
-            .collect::<FxHashSet<_>>();
-        assert_eq!(
-            pattern_ranges,
-            FxHashSet::from_iter([
-                range_of_nth(text, "'{default: 0}", 0),
-                range_of_nth(text, "'{default: 0}", 1),
-                range_of_nth(text, "'{default: 0}", 2),
-            ]),
-            "module, block, and subroutine expressions must all be reported: {diagnostics:?}"
+        assert!(
+            diagnostics.is_empty(),
+            "supported assignment patterns and struct types must not be diagnosed: {diagnostics:?}"
         );
-
-        let struct_range = diagnostics
-            .iter()
-            .find(|diag| diag.syntax_kind == SyntaxKind::STRUCT_TYPE)
-            .expect("struct data type should be diagnosed")
-            .range
-            .expect("range must be resolved");
-        assert_eq!(struct_range, range_of(text, "struct { logic a; }"));
     }
 
     #[test]
@@ -673,39 +654,27 @@ endmodule
     }
 
     #[test]
-    fn unsupported_statement_is_reported() {
+    fn foreach_statement_is_lowered_without_diagnostic() {
         let text = "module m;\ninitial begin\n  foreach (arr[i]) x = 1;\nend\nendmodule\n";
         let db = db_with_files(text, None);
 
         let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
-        let unsupported = diagnostics
-            .iter()
-            .filter(|diag| diag.message == "unsupported statement")
-            .collect::<Vec<_>>();
-        assert!(!unsupported.is_empty(), "foreach statement must be diagnosed: {diagnostics:?}");
         assert!(
-            unsupported.iter().all(|diag| diag.source.is_some()),
-            "unsupported statement diagnostics must retain a source identity"
+            !diagnostics.iter().any(|diag| diag.message == "unsupported statement"),
+            "lowered foreach statements must not be diagnosed: {diagnostics:?}"
         );
     }
 
     #[test]
-    fn include_buffer_diagnostic_falls_back_to_owner_range() {
+    fn include_buffer_struct_type_is_lowered_without_diagnostic() {
         let text = "module m;\n`include \"defs.vh\"\nendmodule\n";
         let db = db_with_files(text, Some("struct { logic a; } value;\n"));
 
         let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
-        let diagnostic = diagnostics
-            .iter()
-            .find(|diag| diag.syntax_kind == SyntaxKind::STRUCT_TYPE)
-            .unwrap_or_else(|| {
-                panic!("include-buffer struct type should be diagnosed: {diagnostics:?}")
-            });
-
-        // The struct lives in an included buffer and has no root-buffer range;
-        // the strategy falls back to a zero-width marker at the owner start.
-        let range = diagnostic.range.expect("range must be resolved");
-        assert_eq!(range, TextRange::empty(TextSize::new(0)));
+        assert!(
+            diagnostics.is_empty(),
+            "included struct types must be lowered without diagnostics: {diagnostics:?}"
+        );
     }
 
     #[test]
