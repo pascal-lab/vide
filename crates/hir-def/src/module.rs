@@ -164,6 +164,7 @@ impl LowerModuleCtx<'_> {
         for member in decl.members().children() {
             use ast::Member::*;
             let idx: BodyItem = match member {
+                EmptyMember(_) => continue,
                 // Assignments
                 ContinuousAssign(assign) => self.lower_continuous_assign(assign).into(),
 
@@ -455,9 +456,16 @@ impl LowerModuleCtx<'_> {
                     );
                     continue;
                 }
-
-                unsupported => {
-                    self.report_unsupported(unsupported.syntax(), "module member is not lowered");
+                // Specify members only belong inside a specify block.
+                unsupported @ (PathDeclaration(_)
+                | ConditionalPathDeclaration(_)
+                | IfNonePathDeclaration(_)
+                | PulseStyleDeclaration(_)
+                | SystemTimingCheck(_)) => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "specify item is not lowered in module scope",
+                    );
                     continue;
                 }
             };

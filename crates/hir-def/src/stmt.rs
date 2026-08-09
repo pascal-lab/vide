@@ -182,7 +182,16 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
 
             EmptyStatement(_) => StmtKind::Empty,
 
-            unsupported => {
+            unsupported @ (ConcurrentAssertionStatement(_)
+            | ImmediateAssertionStatement(_)
+            | RandSequenceStatement(_)
+            | WaitForkStatement(_)
+            | VoidCastedCallStatement(_)
+            | WaitOrderStatement(_)
+            | DisableForkStatement(_)
+            | CheckerInstanceStatement(_)
+            | ForeachLoopStatement(_)
+            | RandCaseStatement(_)) => {
                 self.report_unsupported(unsupported.syntax(), "unsupported statement");
                 StmtKind::Unsupported(unsupported.syntax().kind())
             }

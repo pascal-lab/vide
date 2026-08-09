@@ -310,7 +310,17 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             SignedCastExpression(expr) => self.lower_cast_signed_expr(expr),
             PostfixUnaryExpression(expr) => self.lower_postfix_unary_expr(expr),
             BadExpression(bad) => Some(Expr::Error(bad.syntax().kind())),
-            unsupported => Some(Expr::Unsupported(unsupported.syntax().kind())),
+            unsupported @ (DataType(_)
+            | TaggedUnionExpression(_)
+            | ValueRangeExpression(_)
+            | InsideExpression(_)
+            | NewArrayExpression(_)
+            | NewClassExpression(_)
+            | CopyClassExpression(_)
+            | SuperNewDefaultedArgsExpression(_)
+            | TimingControlExpression(_)
+            | ArrayOrRandomizeMethodExpression(_)
+            | ExpressionOrDist(_)) => Some(Expr::Unsupported(unsupported.syntax().kind())),
         }
     }
 
@@ -327,7 +337,9 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             StreamingConcatenationExpression(expr) => self.lower_stream_concat_expr(expr),
             ConcatenationExpression(expr) => self.lower_concat_expr(expr),
             ParenthesizedExpression(expr) => self.lower_expr_inner(expr.expression()),
-            unsupported => Some(Expr::Unsupported(unsupported.syntax().kind())),
+            unsupported @ (EmptyQueueExpression(_) | AssignmentPatternExpression(_)) => {
+                Some(Expr::Unsupported(unsupported.syntax().kind()))
+            }
         }
     }
 

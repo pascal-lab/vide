@@ -191,7 +191,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             VoidType(_) => Ok(BuiltinDataTy::Void),
             EventType(_) => Ok(BuiltinDataTy::Event),
             CHandleType(_) => Ok(BuiltinDataTy::Chandle),
-            unsupported => {
+            unsupported @ (PropertyType(_) | Untyped(_) | SequenceType(_)) => {
                 let kind = unsupported.syntax().kind();
                 self.report_unsupported(unsupported.syntax(), "unsupported keyword data type");
                 Err(kind)
