@@ -172,6 +172,19 @@ pub struct Assign {
     pub op: AssignOp,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum AssignmentPattern {
+    Simple(Box<[ExprId]>),
+    Structured(Box<[AssignmentPatternItem]>),
+    Replicated { count: ExprId, items: Box<[ExprId]> },
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct AssignmentPatternItem {
+    pub key: ExprId,
+    pub value: ExprId,
+}
+
 #[derive(Default, Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Expr {
     #[default]
@@ -183,6 +196,10 @@ pub enum Expr {
         op: BinaryOp,
         lhs: ExprId,
         rhs: ExprId,
+    },
+    AssignmentPattern {
+        ty: Option<DataTy>,
+        pattern: AssignmentPattern,
     },
     Call {
         callee: ExprId,
@@ -310,15 +327,15 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             SignedCastExpression(expr) => self.lower_cast_signed_expr(expr),
             PostfixUnaryExpression(expr) => self.lower_postfix_unary_expr(expr),
             BadExpression(bad) => Some(Expr::Error(bad.syntax().kind())),
-            unsupported @ (DataType(_)
-            | TaggedUnionExpression(_)
+            unsupported @ (InsideExpression(_)
+            | TimingControlExpression(_)
             | ValueRangeExpression(_)
-            | InsideExpression(_)
+            | DataType(_)
+            | TaggedUnionExpression(_)
             | NewArrayExpression(_)
             | NewClassExpression(_)
             | CopyClassExpression(_)
             | SuperNewDefaultedArgsExpression(_)
-            | TimingControlExpression(_)
             | ArrayOrRandomizeMethodExpression(_)
             | ExpressionOrDist(_)) => Some(Expr::Unsupported(unsupported.syntax().kind())),
         }
@@ -337,8 +354,42 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             StreamingConcatenationExpression(expr) => self.lower_stream_concat_expr(expr),
             ConcatenationExpression(expr) => self.lower_concat_expr(expr),
             ParenthesizedExpression(expr) => self.lower_expr_inner(expr.expression()),
-            unsupported @ (EmptyQueueExpression(_) | AssignmentPatternExpression(_)) => {
-                Some(Expr::Unsupported(unsupported.syntax().kind()))
+            AssignmentPatternExpression(expr) => self.lower_assignment_pattern_expr(expr),
+            EmptyQueueExpression(empty) => Some(Expr::Unsupported(empty.syntax().kind())),
+        }
+    }
+
+    fn lower_assignment_pattern_expr(
+        &mut self,
+        expr: ast::AssignmentPatternExpression,
+    ) -> Option<Expr> {
+        let ty = expr.type_().map(|ty| self.lower_data_ty(ty));
+        let pattern = self.lower_assignment_pattern(expr.pattern());
+        Some(Expr::AssignmentPattern { ty, pattern })
+    }
+
+    fn lower_assignment_pattern(&mut self, pattern: ast::AssignmentPattern) -> AssignmentPattern {
+        match pattern {
+            ast::AssignmentPattern::SimpleAssignmentPattern(pattern) => AssignmentPattern::Simple(
+                pattern.items().children().map(|expr| self.lower_expr(expr)).collect(),
+            ),
+            ast::AssignmentPattern::StructuredAssignmentPattern(pattern) => {
+                AssignmentPattern::Structured(
+                    pattern
+                        .items()
+                        .children()
+                        .map(|item| AssignmentPatternItem {
+                            key: self.lower_expr(item.key()),
+                            value: self.lower_expr(item.expr()),
+                        })
+                        .collect(),
+                )
+            }
+            ast::AssignmentPattern::ReplicatedAssignmentPattern(pattern) => {
+                AssignmentPattern::Replicated {
+                    count: self.lower_expr(pattern.count_expr()),
+                    items: pattern.items().children().map(|expr| self.lower_expr(expr)).collect(),
+                }
             }
         }
     }
