@@ -494,6 +494,13 @@ fn build_stmt(
             }
             build_stmt(db, collector, *stmt, lowered);
         }
+        StmtKind::Foreach { stmt, .. } => build_stmt(db, collector, *stmt, lowered),
+        StmtKind::WaitOrder { action, else_stmt, .. } => {
+            build_stmt(db, collector, *action, lowered);
+            if let Some(else_stmt) = else_stmt {
+                build_stmt(db, collector, *else_stmt, lowered);
+            }
+        }
 
         StmtKind::Missing
         | StmtKind::Invalid
@@ -503,6 +510,7 @@ fn build_stmt(
         | StmtKind::Jump(_)
         | StmtKind::EventTrigger(_)
         | StmtKind::ProcAssign(_)
+        | StmtKind::WaitFork
         | StmtKind::Disable(_) => {}
 
         StmtKind::Block(_) => {}
