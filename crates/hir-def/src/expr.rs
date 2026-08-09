@@ -5,6 +5,7 @@ use syntax::{
     SyntaxKind, TokenKind,
     ast::{self, AstNode},
 };
+use timing_control::TimingControl;
 
 use super::literal::{Literal, lower_literal};
 use crate::{
@@ -211,6 +212,10 @@ pub enum Expr {
         expr: ExprId,
         ranges: Box<[InsideRange]>,
     },
+    TimingControl {
+        control: TimingControl,
+        expr: ExprId,
+    },
     Call {
         callee: ExprId,
         args: Box<[Arg]>,
@@ -338,8 +343,8 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             PostfixUnaryExpression(expr) => self.lower_postfix_unary_expr(expr),
             BadExpression(bad) => Some(Expr::Error(bad.syntax().kind())),
             InsideExpression(expr) => self.lower_inside_expr(expr),
-            unsupported @ (TimingControlExpression(_)
-            | ValueRangeExpression(_)
+            TimingControlExpression(expr) => self.lower_timing_control_expr(expr),
+            unsupported @ (ValueRangeExpression(_)
             | DataType(_)
             | TaggedUnionExpression(_)
             | NewArrayExpression(_)
@@ -422,6 +427,13 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             })
             .collect();
         Some(Expr::Inside { expr: value, ranges })
+    }
+
+    fn lower_timing_control_expr(&mut self, expr: ast::TimingControlExpression) -> Option<Expr> {
+        Some(Expr::TimingControl {
+            control: self.lower_timing_control(expr.timing()),
+            expr: self.lower_expr(expr.expr()),
+        })
     }
 
     fn lower_member_access_expr(&mut self, expr: ast::MemberAccessExpression) -> Option<Expr> {
