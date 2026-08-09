@@ -173,7 +173,12 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             IntegerType(ty) => DataTy::Builtin(BuiltinDataTyId::new(self.lower_integer_type(ty))),
             ImplicitType(ty) => DataTy::Builtin(BuiltinDataTyId::new(self.lower_implicit_type(ty))),
             EnumType(enum_ty) => self.lower_enum_type(enum_ty),
-            unsupported @ (StructUnionType(_) | TypeReference(_) | VirtualInterfaceType(_)) => {
+            StructUnionType(struct_ty) => {
+                let container = self.current_owner();
+                let struct_id = self.lower_body_struct_type(struct_ty);
+                DataTy::Struct(OwnerRef::new(container, struct_id))
+            }
+            unsupported @ (TypeReference(_) | VirtualInterfaceType(_)) => {
                 let kind = unsupported.syntax().kind();
                 self.report_unsupported(unsupported.syntax(), "unsupported data type");
                 DataTy::Unsupported(kind)

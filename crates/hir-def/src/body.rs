@@ -535,7 +535,7 @@ fn empty_body(file_id: preproc_expand::file::HirFileId) -> Arc<Lowered<Body>> {
 }
 
 impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
-    fn lower_body_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
+    pub(crate) fn lower_body_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
         let container = self.current_owner();
         let struct_def = lower_struct_def(struct_ty, container, |ty| self.lower_data_ty(ty));
         let source = self.source_id(struct_ty.syntax());
