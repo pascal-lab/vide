@@ -260,7 +260,8 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
             | BodyItem::ConstraintDefId(_)
             | BodyItem::TimeUnitsDeclId(_)
             | BodyItem::DpiImportId(_)
-            | BodyItem::DpiExportId(_) => {}
+            | BodyItem::DpiExportId(_)
+            | BodyItem::ExternInterfaceMethodId(_) => {}
             BodyItem::CheckerOwner(owner) => build_checker_owner(db, &mut collector, owner),
             BodyItem::CovergroupOwner(owner) => build_covergroup_owner(db, &mut collector, owner),
             BodyItem::PropertyId(property_id) => {
@@ -407,7 +408,8 @@ fn collect_module_items(db: &dyn TyDb, owner: OwnerId, collector: &mut SymbolCol
             | BodyItem::ConstraintDefId(_)
             | BodyItem::TimeUnitsDeclId(_)
             | BodyItem::DpiImportId(_)
-            | BodyItem::DpiExportId(_) => {}
+            | BodyItem::DpiExportId(_)
+            | BodyItem::ExternInterfaceMethodId(_) => {}
             BodyItem::CheckerOwner(owner) => {
                 build_checker_owner(db, collector, owner);
             }
@@ -685,7 +687,8 @@ fn build_generate_block_item<S>(
         | BodyItem::ConstraintDefId(_)
         | BodyItem::TimeUnitsDeclId(_)
         | BodyItem::DpiImportId(_)
-        | BodyItem::DpiExportId(_) => {}
+        | BodyItem::DpiExportId(_)
+        | BodyItem::ExternInterfaceMethodId(_) => {}
         invalid @ (BodyItem::ModuleOwner(_)
         | BodyItem::ConfigDeclId(_)
         | BodyItem::UdpDeclId(_)

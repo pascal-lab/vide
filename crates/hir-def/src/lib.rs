@@ -26,6 +26,7 @@ pub mod design_map;
 pub mod diagnostics;
 pub mod dpi;
 pub mod expr;
+pub mod external;
 pub mod file;
 pub mod has_source;
 pub mod item_tree;

@@ -652,6 +652,10 @@ module unit_module;
   export "DPI-C" function unit_function;
   bind unit_module: unit_instance, unit_module.sub[1] unit_bound module_bind();
 endmodule
+interface unit_interface;
+  extern function void external_method(input int value);
+  extern forkjoin task external_task(input int value);
+endinterface
 config unit_config;
   design unit_module;
   default liblist work;
@@ -707,6 +711,20 @@ endconfig
         assert_eq!(module_body.time_units.len(), 2);
         assert_eq!(module_body.dpi_imports.len(), 1);
         assert_eq!(module_body.dpi_exports.len(), 1);
+        let interface = body
+            .module_owners()
+            .find(|owner| db.body(*owner).name.as_deref() == Some("unit_interface"))
+            .expect("interface owner should be lowered");
+        let interface_body = db.body(interface);
+        assert_eq!(interface_body.extern_interface_methods.len(), 2);
+        let mut methods = interface_body.extern_interface_methods.values();
+        let function = methods.next().expect("extern function should be lowered");
+        let task = methods.next().expect("extern task should be lowered");
+        assert_eq!(function.method.name.as_deref(), Some("external_method"));
+        assert!(!function.fork_join);
+        assert_eq!(function.method.ports.len(), 1);
+        assert_eq!(task.method.name.as_deref(), Some("external_task"));
+        assert!(task.fork_join);
         let mut module_time_units = module_body.time_units.values();
         let module_time_unit =
             module_time_units.next().expect("module time unit should be lowered");

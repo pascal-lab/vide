@@ -261,6 +261,12 @@ impl LowerModuleCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
+                ExternInterfaceMethod(declaration) => {
+                    match self.lower_extern_interface_method(declaration) {
+                        Some(id) => id.into(),
+                        None => continue,
+                    }
+                }
                 unsupported @ ModuleDeclaration(_) => {
                     self.report_unsupported(
                         unsupported.syntax(),
@@ -337,10 +343,7 @@ impl LowerModuleCtx<'_> {
                     self.lower_specparam_decl(specparam_decl).into()
                 }
 
-                unsupported @ (ExternInterfaceMethod(_)
-                | ExternModuleDecl(_)
-                | ExternUdpDecl(_)
-                | UdpDeclaration(_)) => {
+                unsupported @ (ExternModuleDecl(_) | ExternUdpDecl(_) | UdpDeclaration(_)) => {
                     self.report_unsupported(
                         unsupported.syntax(),
                         "external or UDP declaration is not lowered in module scope",
