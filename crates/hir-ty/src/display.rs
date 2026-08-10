@@ -856,6 +856,17 @@ impl HirDisplay for OwnerRef<&Expr> {
                 f.write_str(" ")?;
                 self.with_value(*expr).hir_fmt(f)
             }
+            Expr::NewArray { size, initializer } => {
+                f.write_str("new [")?;
+                self.with_value(*size).hir_fmt(f)?;
+                f.write_str("]")?;
+                if let Some(initializer) = initializer {
+                    f.write_str(" (")?;
+                    self.with_value(*initializer).hir_fmt(f)?;
+                    f.write_str(")")?;
+                }
+                Ok(())
+            }
             Expr::SuperNewDefaulted { callee } => {
                 self.with_value(*callee).hir_fmt(f)?;
                 f.write_str("(default)")

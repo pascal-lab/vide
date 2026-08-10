@@ -672,6 +672,8 @@ bind unit_module unit_checker::unit_checker unit_checker_bind();
 module unit_module;
   unit_class created = new(8);
   unit_class copied = new created;
+  unit_class created_array[] = new[3];
+  unit_class initialized_array[] = new[3](created);
   typedef struct module_forward;
   nettype logic module_nettype;
   module_nettype #2 module_signal;
@@ -914,6 +916,14 @@ endprogram
                 .values()
                 .any(|expr| matches!(expr, crate::expr::Expr::CopyClass { .. }))
         );
+        assert!(
+            module_body.exprs.values().any(|expr| {
+                matches!(expr, crate::expr::Expr::NewArray { initializer: None, .. })
+            })
+        );
+        assert!(module_body.exprs.values().any(|expr| {
+            matches!(expr, crate::expr::Expr::NewArray { initializer: Some(_), .. })
+        }));
         let class = body
             .classes
             .values()
