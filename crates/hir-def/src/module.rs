@@ -200,12 +200,11 @@ impl LowerModuleCtx<'_> {
                     self.bind_nonansi_declarations(decls);
                     id.into()
                 }
-                unsupported @ LocalVariableDeclaration(_) => {
-                    self.report_unsupported(
-                        unsupported.syntax(),
-                        "local variable declarations are not lowered in module scope",
-                    );
-                    continue;
+                LocalVariableDeclaration(local_decl) => {
+                    let id = self.lower_body_local_variable_decl(local_decl);
+                    let decls = self.store.data.declarations[id].decls();
+                    self.bind_nonansi_declarations(decls);
+                    id.into()
                 }
                 ParameterDeclarationStatement(param_decl) => self
                     .lower_param_decl_base_with_context(

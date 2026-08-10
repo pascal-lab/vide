@@ -133,6 +133,9 @@ impl LowerGenerateBlockCtx<'_> {
             UserDefinedNetDeclaration(net_decl) => {
                 BodyItem::DeclarationId(self.lower_user_defined_net_decl(net_decl)?)
             }
+            LocalVariableDeclaration(local_decl) => {
+                BodyItem::DeclarationId(self.lower_body_local_variable_decl(local_decl))
+            }
             ParameterDeclarationStatement(param_decl) => {
                 self.lower_param_decl_base(param_decl.parameter()).into()
             }
@@ -333,6 +336,9 @@ impl LowerModuleCtx<'_> {
                 if let Some(declaration) = self.lower_user_defined_net_decl(net_decl) {
                     items.push(declaration.into());
                 }
+            }
+            LocalVariableDeclaration(local_decl) => {
+                items.push(self.lower_body_local_variable_decl(local_decl).into());
             }
             EmptyMember(_) => {}
             GenvarDeclaration(genvar_decl) => {

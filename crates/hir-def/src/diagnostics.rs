@@ -662,6 +662,7 @@ module unit_module;
   nettype logic module_nettype;
   module_nettype #2 module_signal;
   alias module_signal = module_signal;
+  var logic module_variable;
   timeunit 10ns;
   timeprecision 1ps;
   import "DPI-C" function void module_import();
@@ -805,6 +806,15 @@ endconfig
         assert!(module_user_net.delay.is_some());
         assert_eq!(module_body.net_aliases.len(), 1);
         assert_eq!(module_body.net_aliases.values().next().unwrap().nets.len(), 2);
+        let module_variable = module_body
+            .declarations
+            .values()
+            .find_map(|declaration| match declaration {
+                Declaration::DataDecl(data) if data.var_kw => Some(data),
+                _ => None,
+            })
+            .expect("module local variable should be lowered");
+        assert_eq!(module_variable.decls.len(), 1);
         assert_eq!(module_body.time_units.len(), 2);
         assert_eq!(module_body.dpi_imports.len(), 1);
         assert_eq!(module_body.dpi_exports.len(), 1);
