@@ -230,6 +230,9 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
             BodyItem::ModuleOwner(owner) => {
                 collect_module_items(db, owner, &mut collector);
             }
+            BodyItem::AnonymousProgramOwner(owner) => {
+                collect_module_items(db, owner, &mut collector);
+            }
             BodyItem::ProcId(proc_id) => {
                 let proc = lowered.get(proc_id);
                 let body = db.body_with_source_map(proc.owner);
@@ -436,6 +439,7 @@ fn collect_module_items(db: &dyn TyDb, owner: OwnerId, collector: &mut SymbolCol
             }
             BodyItem::StructId(struct_id) => build_struct(db, collector, struct_id, body.as_ref()),
             invalid @ (BodyItem::ModuleOwner(_)
+            | BodyItem::AnonymousProgramOwner(_)
             | BodyItem::ConfigDeclId(_)
             | BodyItem::UdpDeclId(_)
             | BodyItem::LibraryDeclId(_)
@@ -708,6 +712,7 @@ fn build_generate_block_item<S>(
         | BodyItem::ElabSystemTaskId(_)
         | BodyItem::LetDeclId(_) => {}
         invalid @ (BodyItem::ModuleOwner(_)
+        | BodyItem::AnonymousProgramOwner(_)
         | BodyItem::ConfigDeclId(_)
         | BodyItem::UdpDeclId(_)
         | BodyItem::LibraryDeclId(_)

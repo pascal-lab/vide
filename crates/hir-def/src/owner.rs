@@ -37,6 +37,7 @@ use crate::{
 pub enum OwnerKind {
     File,
     Module,
+    AnonymousProgram,
     GenerateBlock,
     ProceduralBlock,
     Block,
@@ -253,6 +254,7 @@ fn intrinsic_owner_kind(node: SyntaxNode<'_>) -> Option<OwnerKind> {
         | SyntaxKind::INTERFACE_DECLARATION
         | SyntaxKind::PACKAGE_DECLARATION
         | SyntaxKind::PROGRAM_DECLARATION => Some(OwnerKind::Module),
+        SyntaxKind::ANONYMOUS_PROGRAM => Some(OwnerKind::AnonymousProgram),
         SyntaxKind::FUNCTION_DECLARATION | SyntaxKind::TASK_DECLARATION => {
             Some(OwnerKind::Subroutine)
         }
@@ -326,7 +328,7 @@ fn owner_name(node: SyntaxNode<'_>, kind: OwnerKind) -> SmolStr {
         OwnerKind::ClockingBlock => {
             ast::ClockingDeclaration::cast(node).and_then(|item| item.block_name())
         }
-        OwnerKind::File | OwnerKind::ProceduralBlock => None,
+        OwnerKind::File | OwnerKind::ProceduralBlock | OwnerKind::AnonymousProgram => None,
     };
     token.map(|token| token.value_text().to_smolstr()).unwrap_or_default()
 }

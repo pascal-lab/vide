@@ -138,6 +138,40 @@ impl LowerFileCtx<'_> {
         self.owner_for_node(func.syntax(), OwnerKind::Subroutine)
     }
 
+    fn lower_anonymous_program(&mut self, program: ast::AnonymousProgram<'_>) {
+        for member in program.members().children() {
+            use ast::Member::*;
+            let item = match member {
+                EmptyMember(_) => continue,
+                FunctionDeclaration(function) => {
+                    let Some(owner) = self.lower_subroutine_decl(function) else {
+                        self.report_invalid(
+                            function.syntax(),
+                            "anonymous program subroutine could not be lowered",
+                        );
+                        continue;
+                    };
+                    BodyItem::SubroutineOwner(owner)
+                }
+                ClassDeclaration(class) => self.lower_class_decl(class).into(),
+                CovergroupDeclaration(covergroup) => {
+                    let owner = self
+                        .owner_for_node(covergroup.syntax(), OwnerKind::Covergroup)
+                        .expect("every lowered covergroup must have a canonical owner");
+                    BodyItem::CovergroupOwner(owner)
+                }
+                unsupported => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "unsupported anonymous program member",
+                    );
+                    continue;
+                }
+            };
+            self.store.data.items.push(item);
+        }
+    }
+
     fn lower_config_decl(&mut self, config_decl: ast::ConfigDeclaration) -> ConfigDeclId {
         let rules = config_decl
             .rules()
@@ -252,6 +286,12 @@ impl LowerFileCtx<'_> {
                         .expect("every lowered module must have a canonical owner");
                     BodyItem::ModuleOwner(owner)
                 }
+                AnonymousProgram(program) => {
+                    let owner = self
+                        .owner_for_node(program.syntax(), OwnerKind::AnonymousProgram)
+                        .expect("every anonymous program must have a canonical owner");
+                    BodyItem::AnonymousProgramOwner(owner)
+                }
                 ProceduralBlock(proc) => self.lower_proc(proc).into(),
                 DataDeclaration(data_decl) => self.lower_data_decl(data_decl).into(),
                 NetDeclaration(net_decl) => self.lower_net_decl(net_decl).into(),
@@ -362,6 +402,35 @@ impl LowerFileCtx<'_> {
             self.store.data.items.push(idx);
         }
     }
+}
+
+pub(crate) fn lower_anonymous_program_owner(
+    db: &dyn HirDefDb,
+    owner: OwnerId,
+    syntax: &LoweringSyntax,
+) -> Arc<Lowered<Body>> {
+    debug_assert_eq!(owner.kind(db), OwnerKind::AnonymousProgram);
+    let file_id = syntax.file_id;
+    let mut body = Body::default();
+    let mut source_map = BodySourceMap::default();
+    let Some(program) =
+        syntax.ast_ids.node(owner.ast_id(db), &syntax.tree).and_then(ast::AnonymousProgram::cast)
+    else {
+        return Arc::new(Lowered::new(file_id, body, source_map));
+    };
+
+    let mut lower_ctx = LoweringCtx::new_with_syntax(
+        db,
+        owner,
+        syntax,
+        BodyStore { data: &mut body, sources: &mut source_map },
+    );
+    lower_ctx.lower_anonymous_program(program);
+    let diagnostics = lower_ctx.emit_diagnostics();
+    drop(lower_ctx);
+    body.shrink_to_fit();
+    source_map.shrink_to_fit();
+    Arc::new(Lowered::new_with_diagnostics(file_id, body, source_map, diagnostics))
 }
 
 pub(crate) fn lower_file_owner(

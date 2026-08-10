@@ -336,6 +336,7 @@ impl ScopeChainCache {
 /// would desynchronize enter/leave bookkeeping.
 fn is_container_node(node: &SyntaxNode<'_>) -> bool {
     ast::ModuleDeclaration::cast(*node).is_some()
+        || ast::AnonymousProgram::cast(*node).is_some()
         || ast::CheckerDeclaration::cast(*node).is_some()
         || ast::CovergroupDeclaration::cast(*node).is_some()
         || ast::ClockingDeclaration::cast(*node).is_some()
@@ -358,6 +359,8 @@ fn container_id_for_node<'tree>(
     }
     let kind = if ast::CheckerDeclaration::cast(node).is_some() {
         Some(OwnerKind::Checker)
+    } else if ast::AnonymousProgram::cast(node).is_some() {
+        Some(OwnerKind::AnonymousProgram)
     } else if ast::CovergroupDeclaration::cast(node).is_some() {
         Some(OwnerKind::Covergroup)
     } else if ast::ClockingDeclaration::cast(node).is_some() {

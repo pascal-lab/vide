@@ -190,6 +190,7 @@ impl BodyScopeGraph {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum BodyItem {
     ModuleOwner(OwnerId),
+    AnonymousProgramOwner(OwnerId),
     ProcId(ProcId),
     DeclarationId(DeclarationId),
     TypedefId(TypedefId),
@@ -564,6 +565,11 @@ fn body_input(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Lowered<Body>> {
         OwnerKind::Module => {
             crate::module::lower_module_owner(db, owner, &LoweringSyntax::for_owner(db, owner))
         }
+        OwnerKind::AnonymousProgram => crate::file::lower_anonymous_program_owner(
+            db,
+            owner,
+            &LoweringSyntax::for_owner(db, owner),
+        ),
         OwnerKind::GenerateBlock => crate::module::generate::lower_generate_owner(
             db,
             owner,
@@ -824,6 +830,7 @@ impl BodySourceMap {
     ) -> Option<crate::ast_id_map::SourceAstId> {
         match item {
             BodyItem::ModuleOwner(owner)
+            | BodyItem::AnonymousProgramOwner(owner)
             | BodyItem::GenerateBlockOwner(owner)
             | BodyItem::SubroutineOwner(owner)
             | BodyItem::CheckerOwner(owner)

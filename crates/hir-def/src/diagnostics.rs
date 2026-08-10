@@ -687,6 +687,10 @@ config unit_config;
   design unit_module;
   default liblist work;
 endconfig
+program;
+  task run(input int value);
+  endtask
+endprogram
 "#;
         let db = db_with_files(text, None);
         let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
@@ -893,6 +897,21 @@ endconfig
             .find(|class| class.name.as_deref() == Some("unit_class"))
             .expect("file-level class should be lowered");
         assert_eq!(class.members.len(), 2);
+        let anonymous_program = body
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::body::BodyItem::AnonymousProgramOwner(owner) => Some(*owner),
+                _ => None,
+            })
+            .expect("anonymous program owner should be lowered");
+        let anonymous_body = db.body(anonymous_program);
+        assert!(anonymous_body.name.is_none());
+        let subroutine_owner = anonymous_body
+            .subroutine_owners()
+            .next()
+            .expect("anonymous program task should be lowered");
+        assert_eq!(db.subroutine(subroutine_owner).name.as_deref(), Some("run"));
     }
 
     #[test]

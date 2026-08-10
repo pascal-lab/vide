@@ -493,6 +493,7 @@ fn collect_regions(db: &RootDb, file_id: HirFileId, folds: &mut Vec<Fold>, line_
             owner.kind,
             OwnerKind::File
                 | OwnerKind::Module
+                | OwnerKind::AnonymousProgram
                 | OwnerKind::GenerateBlock
                 | OwnerKind::ProceduralBlock
                 | OwnerKind::Block

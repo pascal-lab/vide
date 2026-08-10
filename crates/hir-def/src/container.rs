@@ -96,6 +96,7 @@ impl OwnerId {
                 ModuleKind::Program => ScopeKind::Program,
                 ModuleKind::Package => ScopeKind::Package,
             },
+            OwnerKind::AnonymousProgram => ScopeKind::Program,
             OwnerKind::GenerateBlock => ScopeKind::GenerateBlock,
             OwnerKind::ProceduralBlock => ScopeKind::ProceduralBlock,
             OwnerKind::Block => ScopeKind::Block,

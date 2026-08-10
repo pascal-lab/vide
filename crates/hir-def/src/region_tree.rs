@@ -363,6 +363,14 @@ fn collect_owner_regions(builder: &mut RegionTreeBuilder, root: SyntaxNode<'_>, 
                 builder.handle_node(member.syntax());
             }
         }
+        OwnerKind::AnonymousProgram => {
+            let Some(program) = ast::AnonymousProgram::cast(root) else {
+                return;
+            };
+            for member in program.members().children() {
+                builder.handle_node(member.syntax());
+            }
+        }
         OwnerKind::GenerateBlock => {
             if let Some(block) = ast::GenerateBlock::cast(root) {
                 for member in block.members().children() {

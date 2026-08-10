@@ -417,6 +417,7 @@ pub(crate) fn build_owner_scope(db: &dyn HirDefDb, owner: OwnerId) -> ScopeData 
     match owner.kind(db) {
         OwnerKind::File => build_file_scope(db, owner.file(db)),
         OwnerKind::Module => build_module_scope(db, owner),
+        OwnerKind::AnonymousProgram => build_module_scope(db, owner),
         OwnerKind::GenerateBlock => build_generate_block_scope(db, owner),
         OwnerKind::Block => build_block_scope(db, owner),
         OwnerKind::Subroutine => build_subroutine_scope(db, owner),

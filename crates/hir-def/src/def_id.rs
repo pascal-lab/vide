@@ -514,6 +514,7 @@ pub(crate) fn definition_table(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Definit
                 );
             }
         }
+        OwnerKind::AnonymousProgram => {}
         OwnerKind::File | OwnerKind::ProceduralBlock => {}
     }
 
@@ -625,6 +626,7 @@ impl DefId {
             OwnerKind::ClockingBlock => {
                 owner.as_clocking_block(db).map(DefOriginLoc::ClockingBlock)
             }
+            OwnerKind::AnonymousProgram => None,
             OwnerKind::File | OwnerKind::ProceduralBlock => None,
         }?;
         Some(Self::from_source(db, origin))

@@ -83,6 +83,9 @@ fn container_to_def(
     if let Some(module) = ast::ModuleDeclaration::cast(node) {
         return owner_for_node(db, file_id, module.syntax(), OwnerKind::Module);
     }
+    if ast::AnonymousProgram::cast(node).is_some() {
+        return owner_for_node(db, file_id, node, OwnerKind::AnonymousProgram);
+    }
     if ast::CheckerDeclaration::cast(node).is_some() {
         return owner_for_node(db, file_id, node, OwnerKind::Checker);
     }
