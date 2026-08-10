@@ -63,3 +63,26 @@ fn completion_returns_module_member_keyword() {
 
     shutdown_test_server(&client, server_thread);
 }
+
+#[test]
+fn manifest_completion_offers_schema_keys() {
+    let text = "sou\n";
+    let temp_dir = TempDir::new("manifest-completion");
+    let manifest_path = temp_dir.path().join("vide.toml");
+    fs::write(&manifest_path, text).unwrap();
+    let (client, server_thread) = spawn_test_workspace(
+        temp_dir.path().to_path_buf(),
+        ClientCapabilities::default(),
+        UserConfig::default(),
+    );
+    let uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
+    open_test_document(&client, uri.clone(), text);
+
+    let labels = request_completion_labels(&client, uri, text, "sou", 2);
+    assert!(
+        labels.iter().any(|label| label == "sources"),
+        "manifest key completion missing: {labels:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}

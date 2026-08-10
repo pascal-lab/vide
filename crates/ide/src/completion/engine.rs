@@ -33,6 +33,10 @@ pub fn completions(
     position: FilePosition,
     trigger: Option<TriggerChar>,
 ) -> Vec<CompletionItem> {
+    if matches!(db.file_kind(position.file_id), base_db::source_db::SourceFileKind::ProjectManifest)
+    {
+        return crate::manifest::completions(db, position);
+    }
     let ctx = completion_context(db, position, trigger);
     completions_with_context(db, position, &ctx)
 }

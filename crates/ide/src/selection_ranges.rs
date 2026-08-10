@@ -14,6 +14,9 @@ pub(crate) fn selection_ranges(
     db: &RootDb,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Vec<TextRange> {
+    if matches!(db.file_kind(file_id), base_db::source_db::SourceFileKind::ProjectManifest) {
+        return crate::manifest::selection_ranges(db, FilePosition { file_id, offset });
+    }
     let sema = Semantics::new(db);
     let parsed_file = sema.parse_file(file_id);
     let Some(root) = parsed_file.root() else {
