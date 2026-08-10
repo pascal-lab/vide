@@ -534,6 +534,11 @@ fn build_stmt(
                 build_stmt(db, collector, *stmt_id, lowered);
             }
         }
+        StmtKind::RandCase { items } => {
+            for item in items {
+                build_stmt(db, collector, item.clause, lowered);
+            }
+        }
         StmtKind::For { inits, stmt, .. } => {
             if let ForInit::Init(inits) = inits {
                 for (_, decl_id) in inits {

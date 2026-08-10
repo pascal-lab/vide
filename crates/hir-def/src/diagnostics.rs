@@ -679,6 +679,12 @@ module unit_module;
       end
     join_none
     disable fork;
+    randcase
+      1: begin
+      end
+      2: begin
+      end
+    endcase
   end
   unit_class created = new(8);
   unit_class copied = new created;
@@ -837,6 +843,15 @@ endprogram
                 .values()
                 .any(|stmt| { matches!(stmt.kind, crate::stmt::StmtKind::DisableFork) })
         );
+        assert!(initial_body.stmts.values().any(|stmt| {
+            matches!(
+                &stmt.kind,
+                crate::stmt::StmtKind::RandCase { items }
+                    if items.len() == 2
+                        && matches!(items[0], crate::stmt::RandCaseItem { .. })
+                        && matches!(items[1], crate::stmt::RandCaseItem { .. })
+            )
+        }));
         let module_forward = module_body
             .typedefs
             .values()
