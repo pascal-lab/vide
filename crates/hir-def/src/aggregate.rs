@@ -260,7 +260,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         &mut self,
         restriction: Option<ast::ForwardTypeRestriction<'_>>,
     ) -> Option<ClassTypeParameterRestriction> {
-        let Some(restriction) = restriction else { return None };
+        let restriction = restriction?;
         let first = restriction.keyword_1().map(|keyword| keyword.kind());
         let second = restriction.keyword_2().map(|keyword| keyword.kind());
         match (first, second) {

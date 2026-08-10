@@ -483,15 +483,14 @@ pub(crate) fn hover_target(db: &RootDb, target: ManifestTarget) -> Option<RangeI
             } else {
                 text.push_str(&format!("\n\nSystemVerilog module: `{}`", value.text));
             }
-        } else if matches!(info.key.as_str(), "libraries" | "include_dirs" | "sources") {
-            if target_for_path(db, info.file_id, &value.text).is_some()
-                && let Some(path) = manifest_path(db, info.file_id).and_then(|path| {
-                    path.parent()
-                        .map(|parent| parent.absolutize(utils::paths::Utf8Path::new(&value.text)))
-                })
-            {
-                text.push_str(&format!("\n\nResolved path: `{path}`"));
-            }
+        } else if matches!(info.key.as_str(), "libraries" | "include_dirs" | "sources")
+            && target_for_path(db, info.file_id, &value.text).is_some()
+            && let Some(path) = manifest_path(db, info.file_id).and_then(|path| {
+                path.parent()
+                    .map(|parent| parent.absolutize(utils::paths::Utf8Path::new(&value.text)))
+            })
+        {
+            text.push_str(&format!("\n\nResolved path: `{path}`"));
         }
     }
     Some(RangeInfo::new(range, Markup::from(text)))
@@ -528,7 +527,7 @@ pub(crate) fn workspace_symbols(
         .flat_map(|file_id| {
             let query = query.clone();
             document_symbols(db, file_id).into_iter().filter_map(move |symbol| {
-                (query.is_empty() || symbol.name.to_lowercase().contains(&query)).then(|| {
+                (query.is_empty() || symbol.name.to_lowercase().contains(&query)).then_some({
                     crate::workspace_symbols::WorkspaceSymbol {
                         file_id,
                         name: symbol.name,

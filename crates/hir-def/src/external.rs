@@ -41,6 +41,7 @@ pub struct ExternNonAnsiPort {
     pub references: SmallVec<[Ident; 2]>,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ExternModulePortList {
     Ansi(SmallVec<[ExternModulePort; 4]>),

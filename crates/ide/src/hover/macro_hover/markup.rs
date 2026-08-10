@@ -182,9 +182,7 @@ fn render_macro_definition_display(
     anchor_file_id: FileId,
     definition: &MacroDefinition,
 ) -> Option<()> {
-    let Some(line) = macro_definition_line(db, definition) else {
-        return None;
-    };
+    let line = macro_definition_line(db, definition)?;
     let Some(source) = macro_definition_source_fact(db, definition, anchor_file_id) else {
         tracing::error!(
             macro_name = %definition.name,
