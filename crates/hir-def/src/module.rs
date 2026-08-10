@@ -295,6 +295,10 @@ impl LowerModuleCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
+                ElabSystemTask(declaration) => match self.lower_elab_system_task(declaration) {
+                    Some(id) => id.into(),
+                    None => continue,
+                },
                 ExternModuleDecl(declaration) => match self.lower_extern_module_decl(declaration) {
                     Some(id) => id.into(),
                     None => continue,
@@ -470,15 +474,6 @@ impl LowerModuleCtx<'_> {
                     self.report_unsupported(
                         unsupported.syntax(),
                         "library declaration is not lowered",
-                    );
-                    continue;
-                }
-
-                // Elaboration system task
-                unsupported @ ElabSystemTask(_) => {
-                    self.report_unsupported(
-                        unsupported.syntax(),
-                        "elaboration system task is not lowered",
                     );
                     continue;
                 }

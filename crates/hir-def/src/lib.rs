@@ -25,6 +25,7 @@ pub mod def_id;
 pub mod design_map;
 pub mod diagnostics;
 pub mod dpi;
+pub mod elab_system_task;
 pub mod expr;
 pub mod external;
 pub mod file;

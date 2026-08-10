@@ -24,6 +24,7 @@ use crate::{
     db::HirDefDb,
     declaration::{DataDecl, Declaration, DeclarationId},
     dpi::{DpiExport, DpiExportId, DpiImport, DpiImportId},
+    elab_system_task::{ElabSystemTask, ElabSystemTaskId},
     expr::{
         Expr, ExprId,
         declarator::{DeclId, Declarator, empty_decls_range},
@@ -198,6 +199,7 @@ pub enum BodyItem {
     TimeUnitsDeclId(TimeUnitsDeclId),
     DpiImportId(DpiImportId),
     DpiExportId(DpiExportId),
+    ElabSystemTaskId(ElabSystemTaskId),
     ExternInterfaceMethodId(ExternInterfaceMethodId),
     ExternModuleDeclId(ExternModuleDeclId),
     ExternUdpDeclId(ExternUdpDeclId),
@@ -247,6 +249,7 @@ impl_body_item_from! {
     TimeUnitsDeclId => TimeUnitsDeclId,
     DpiImportId => DpiImportId,
     DpiExportId => DpiExportId,
+    ElabSystemTaskId => ElabSystemTaskId,
     ExternInterfaceMethodId => ExternInterfaceMethodId,
     ExternModuleDeclId => ExternModuleDeclId,
     ExternUdpDeclId => ExternUdpDeclId,
@@ -293,6 +296,7 @@ pub struct Body {
     pub time_units: Arena<TimeUnitsDecl>,
     pub dpi_imports: Arena<DpiImport>,
     pub dpi_exports: Arena<DpiExport>,
+    pub elab_system_tasks: Arena<ElabSystemTask>,
     pub extern_interface_methods: Arena<ExternInterfaceMethod>,
     pub extern_module_decls: Arena<ExternModuleDecl>,
     pub extern_udp_decls: Arena<ExternUdpDecl>,
@@ -399,6 +403,7 @@ impl Body {
         self.time_units.shrink_to_fit();
         self.dpi_imports.shrink_to_fit();
         self.dpi_exports.shrink_to_fit();
+        self.elab_system_tasks.shrink_to_fit();
         self.extern_interface_methods.shrink_to_fit();
         self.extern_module_decls.shrink_to_fit();
         self.extern_udp_decls.shrink_to_fit();
@@ -454,6 +459,7 @@ pub struct BodySourceMap {
     pub time_units_srcs: SourceMap<TimeUnitsDecl>,
     pub dpi_import_srcs: SourceMap<DpiImport>,
     pub dpi_export_srcs: SourceMap<DpiExport>,
+    pub elab_system_task_srcs: SourceMap<ElabSystemTask>,
     pub extern_interface_method_srcs: SourceMap<ExternInterfaceMethod>,
     pub extern_module_decl_srcs: SourceMap<ExternModuleDecl>,
     pub extern_udp_decl_srcs: SourceMap<ExternUdpDecl>,
@@ -512,6 +518,7 @@ impl BodySourceMap {
         self.time_units_srcs.shrink_to_fit();
         self.dpi_import_srcs.shrink_to_fit();
         self.dpi_export_srcs.shrink_to_fit();
+        self.elab_system_task_srcs.shrink_to_fit();
         self.extern_interface_method_srcs.shrink_to_fit();
         self.extern_module_decl_srcs.shrink_to_fit();
         self.extern_udp_decl_srcs.shrink_to_fit();
@@ -831,6 +838,7 @@ impl BodySourceMap {
             BodyItem::TimeUnitsDeclId(id) => self.time_units_srcs.hir_to_src(*id),
             BodyItem::DpiImportId(id) => self.dpi_import_srcs.hir_to_src(*id),
             BodyItem::DpiExportId(id) => self.dpi_export_srcs.hir_to_src(*id),
+            BodyItem::ElabSystemTaskId(id) => self.elab_system_task_srcs.hir_to_src(*id),
             BodyItem::ExternInterfaceMethodId(id) => {
                 self.extern_interface_method_srcs.hir_to_src(*id)
             }
@@ -882,6 +890,7 @@ crate::impl_arena_getters!(
     TimeUnitsDeclId => time_units => TimeUnitsDecl,
     DpiImportId => dpi_imports => DpiImport,
     DpiExportId => dpi_exports => DpiExport,
+    ElabSystemTaskId => elab_system_tasks => ElabSystemTask,
     ExternInterfaceMethodId => extern_interface_methods => ExternInterfaceMethod,
     ExternModuleDeclId => extern_module_decls => ExternModuleDecl,
     ExternUdpDeclId => extern_udp_decls => ExternUdpDecl,
@@ -946,6 +955,7 @@ crate::impl_source_map_getters!(
     TimeUnitsDeclId => time_units_srcs,
     DpiImportId => dpi_import_srcs,
     DpiExportId => dpi_export_srcs,
+    ElabSystemTaskId => elab_system_task_srcs,
     ExternInterfaceMethodId => extern_interface_method_srcs,
     ExternModuleDeclId => extern_module_decl_srcs,
     ExternUdpDeclId => extern_udp_decl_srcs,

@@ -665,6 +665,9 @@ module unit_module;
   var logic module_variable;
   let unit_let(input logic value) = value;
   default disable iff (1'b0);
+  $error(, "unit error");
+  $fatal(1, "unit fatal");
+  $static_assert(1'b1);
   timeunit 10ns;
   timeprecision 1ps;
   import "DPI-C" function void module_import();
@@ -832,6 +835,19 @@ endconfig
             module_body.default_disable.expect("default disable declaration should be lowered");
         assert!(module_source_map.source_map().default_disable_src.is_some());
         assert!(matches!(module_body.expr(default_disable), crate::expr::Expr::Literal(_)));
+        let mut elab_tasks = module_body.elab_system_tasks.values();
+        let error = elab_tasks.next().expect("$error should be lowered");
+        assert_eq!(error.kind, crate::elab_system_task::ElabSystemTaskKind::Error);
+        assert!(matches!(
+            error.arguments.as_slice(),
+            [crate::elab_system_task::ElabSystemTaskArgument::Empty, ..]
+        ));
+        let fatal = elab_tasks.next().expect("$fatal should be lowered");
+        assert_eq!(fatal.kind, crate::elab_system_task::ElabSystemTaskKind::Fatal);
+        assert_eq!(fatal.arguments.len(), 2);
+        let static_assert = elab_tasks.next().expect("$static_assert should be lowered");
+        assert_eq!(static_assert.kind, crate::elab_system_task::ElabSystemTaskKind::StaticAssert);
+        assert_eq!(static_assert.arguments.len(), 1);
         assert_eq!(module_body.time_units.len(), 2);
         assert_eq!(module_body.dpi_imports.len(), 1);
         assert_eq!(module_body.dpi_exports.len(), 1);
