@@ -126,14 +126,19 @@ pub type ClassId = Idx<ClassDef>;
 
 impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_class_decl(&mut self, class: ast::ClassDeclaration<'_>) -> ClassId {
-        let class_def = lower_class_def(class);
+        let container_id = self.current_owner();
+        let class_def = lower_class_def(class, container_id, |ty| self.lower_data_ty(ty));
         let source = self.source_id(class.syntax());
         let (body, sources) = self.store.body();
         alloc_with_source_entry(&mut body.classes, &mut sources.class_srcs, class_def, source)
     }
 }
 
-pub(crate) fn lower_class_def(class: ast::ClassDeclaration<'_>) -> ClassDef {
+pub(crate) fn lower_class_def(
+    class: ast::ClassDeclaration<'_>,
+    container_id: OwnerId,
+    mut lower_data_ty: impl FnMut(ast::DataType<'_>) -> DataTy,
+) -> ClassDef {
     let base_class_name = class
         .extends_clause()
         .and_then(|extends| extends.base_name().as_identifier_name())
@@ -151,7 +156,13 @@ pub(crate) fn lower_class_def(class: ast::ClassDeclaration<'_>) -> ClassDef {
                         .and_then(|decl| lower_ident_opt(decl.name())),
                     _ => None,
                 };
-                Some(ClassMember { name, kind: ClassMemberKind::Property, ty: None })
+                let ty = match property.declaration() {
+                    ast::Member::DataDeclaration(declaration) => {
+                        Some(OwnerRef::new(container_id, lower_data_ty(declaration.type_())))
+                    }
+                    _ => None,
+                };
+                Some(ClassMember { name, kind: ClassMemberKind::Property, ty })
             }
             ast::Member::ClassMethodDeclaration(method) => Some(ClassMember {
                 name: lower_ident_opt(method.declaration().name()),

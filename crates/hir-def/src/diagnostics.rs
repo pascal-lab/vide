@@ -897,6 +897,7 @@ endprogram
             .find(|class| class.name.as_deref() == Some("unit_class"))
             .expect("file-level class should be lowered");
         assert_eq!(class.members.len(), 2);
+        assert!(class.members[0].ty.is_some());
         let anonymous_program = body
             .items
             .iter()
