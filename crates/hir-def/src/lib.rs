@@ -15,6 +15,7 @@ pub mod ast_id_map;
 pub mod block;
 pub mod body;
 pub mod checker;
+pub mod constraint;
 pub mod container;
 pub mod covergroup;
 pub mod db;

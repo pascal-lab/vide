@@ -2,6 +2,7 @@ use std::fmt::{self, Debug};
 
 use hir_def::{
     aggregate::StructKind,
+    constraint::DistItem,
     container::OwnerRef,
     def_id::DefId,
     expr::{
@@ -757,6 +758,27 @@ impl HirDisplay for OwnerRef<&Expr> {
                         }
                     }
                     first = false;
+                }
+                f.write_str("}")
+            }
+            Expr::Dist { expr, distribution } => {
+                self.with_value(*expr).hir_fmt(f)?;
+                f.write_str(" dist {")?;
+                for (index, item) in distribution.items.iter().enumerate() {
+                    if index != 0 {
+                        f.write_str(", ")?;
+                    }
+                    match item {
+                        DistItem::Range { range, .. } => match range {
+                            InsideRange::Expr(expr) => self.with_value(*expr).hir_fmt(f)?,
+                            InsideRange::Range { left, right } => {
+                                self.with_value(*left).hir_fmt(f)?;
+                                f.write_str(":")?;
+                                self.with_value(*right).hir_fmt(f)?;
+                            }
+                        },
+                        DistItem::Default { .. } => f.write_str("default")?,
+                    }
                 }
                 f.write_str("}")
             }

@@ -14,6 +14,7 @@ use crate::{
     ast_id_map::SourceAstId,
     block::BlockItem,
     checker::{CheckerDef, CheckerId},
+    constraint::{Constraint, ConstraintDef, ConstraintDefId, ConstraintId},
     container::OwnerRef,
     covergroup::{CovergroupDef, CovergroupId, CoverpointDef, CoverpointId, CrossDef, CrossId},
     db::HirDefDb,
@@ -198,6 +199,7 @@ pub enum BodyItem {
     PropertyId(PropertyId),
     SequenceId(SequenceId),
     AssertionStmtId(StmtId),
+    ConstraintDefId(ConstraintDefId),
     ClockingBlockOwner(OwnerId),
 }
 
@@ -231,6 +233,7 @@ impl_body_item_from! {
     PortDeclId => PortDeclId,
     ModportId => ModportId,
     PropertyId => PropertyId,
+    ConstraintDefId => ConstraintDefId,
     SequenceId => SequenceId,
     StmtId => AssertionStmtId,
 }
@@ -246,6 +249,8 @@ pub struct Body {
     pub typedefs: Arena<Typedef>,
     pub enums: Arena<EnumDef>,
     pub structs: Arena<StructDef>,
+    pub constraints: Arena<Constraint>,
+    pub constraint_defs: Arena<ConstraintDef>,
     pub exprs: Arena<Expr>,
     pub event_exprs: Arena<EventExpr>,
     pub decls: Arena<Declarator>,
@@ -342,6 +347,8 @@ impl Body {
         self.structs.shrink_to_fit();
         self.exprs.shrink_to_fit();
         self.event_exprs.shrink_to_fit();
+        self.constraints.shrink_to_fit();
+        self.constraint_defs.shrink_to_fit();
         self.decls.shrink_to_fit();
         self.stmts.shrink_to_fit();
         self.procs.shrink_to_fit();
@@ -382,6 +389,8 @@ pub struct BodySourceMap {
     pub expr_srcs: SourceMap<Expr>,
     pub event_expr_srcs: SourceMap<EventExpr>,
     pub decl_srcs: SourceMap<Declarator>,
+    pub constraint_srcs: SourceMap<Constraint>,
+    pub constraint_def_srcs: SourceMap<ConstraintDef>,
     pub stmt_srcs: SourceMap<Stmt>,
     pub proc_srcs: SourceMap<Proc>,
     pub config_decl_srcs: SourceMap<ConfigDecl>,
@@ -424,6 +433,8 @@ impl BodySourceMap {
         self.decl_srcs.shrink_to_fit();
         self.stmt_srcs.shrink_to_fit();
         self.proc_srcs.shrink_to_fit();
+        self.constraint_srcs.shrink_to_fit();
+        self.constraint_def_srcs.shrink_to_fit();
         self.config_decl_srcs.shrink_to_fit();
         self.udp_decl_srcs.shrink_to_fit();
         self.library_decl_srcs.shrink_to_fit();
@@ -748,6 +759,7 @@ impl BodySourceMap {
             BodyItem::PropertyId(id) => self.property_srcs.hir_to_src(*id),
             BodyItem::SequenceId(id) => self.sequence_srcs.hir_to_src(*id),
             BodyItem::AssertionStmtId(id) => self.stmt_srcs.hir_to_src(*id),
+            BodyItem::ConstraintDefId(id) => self.constraint_def_srcs.hir_to_src(*id),
         }
     }
 
@@ -786,6 +798,8 @@ crate::impl_arena_getters!(
     PropertyId => properties => PropertyDef,
     SequenceId => sequences => SequenceDef,
     CoverpointId => coverpoints => CoverpointDef,
+    ConstraintId => constraints => Constraint,
+    ConstraintDefId => constraint_defs => ConstraintDef,
     CrossId => crosses => CrossDef,
     DefParamId => defparams => DefParam,
     GenerateRegionId => generate_regions => GenerateRegion,
@@ -821,6 +835,8 @@ crate::impl_source_map_getters!(
     CovergroupId => covergroup_srcs,
     PropertyId => property_srcs,
     SequenceId => sequence_srcs,
+    ConstraintId => constraint_srcs,
+    ConstraintDefId => constraint_def_srcs,
     CoverpointId => coverpoint_srcs,
     CrossId => cross_srcs,
     DefParamId => defparam_srcs,

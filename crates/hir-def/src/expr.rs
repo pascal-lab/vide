@@ -256,6 +256,10 @@ pub enum Expr {
         expr: ExprId,
         ranges: Box<[InsideRange]>,
     },
+    Dist {
+        expr: ExprId,
+        distribution: crate::constraint::DistConstraintList,
+    },
     TimingControl {
         control: TimingControl,
         expr: ExprId,
@@ -534,6 +538,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             BadExpression(bad) => Some(Expr::Error(bad.syntax().kind())),
             InsideExpression(expr) => self.lower_inside_expr(expr),
             TimingControlExpression(expr) => self.lower_timing_control_expr(expr),
+            ExpressionOrDist(expr) => self.lower_expression_or_dist(expr),
             unsupported @ (ValueRangeExpression(_)
             | DataType(_)
             | TaggedUnionExpression(_)
@@ -541,8 +546,9 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             | NewClassExpression(_)
             | CopyClassExpression(_)
             | SuperNewDefaultedArgsExpression(_)
-            | ArrayOrRandomizeMethodExpression(_)
-            | ExpressionOrDist(_)) => Some(Expr::Unsupported(unsupported.syntax().kind())),
+            | ArrayOrRandomizeMethodExpression(_)) => {
+                Some(Expr::Unsupported(unsupported.syntax().kind()))
+            }
         }
     }
 

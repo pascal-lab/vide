@@ -385,9 +385,9 @@ impl LowerModuleCtx<'_> {
                 }
 
                 // Constraints
-                unsupported @ (ConstraintDeclaration(_) | ConstraintPrototype(_)) => {
-                    self.report_unsupported(unsupported.syntax(), "constraint is not lowered");
-                    continue;
+                ConstraintDeclaration(decl) => BodyItem::from(self.lower_constraint_decl(decl)),
+                ConstraintPrototype(prototype) => {
+                    BodyItem::from(self.lower_constraint_prototype(prototype))
                 }
 
                 // Config

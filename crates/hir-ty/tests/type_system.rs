@@ -9,9 +9,13 @@ use base_db::{
 };
 use hir_def::{
     Ident,
+    constraint::Constraint,
     container::OwnerRef,
     db::HirDefDb,
-    expr::data_ty::{DataTy, TypePathKind},
+    expr::{
+        Expr,
+        data_ty::{DataTy, TypePathKind},
+    },
     owner::OwnerId,
     pathres::{resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
@@ -268,6 +272,38 @@ endmodule
     assert!(enum_def.members[0].initializer.is_some());
     assert!(enum_def.members[1].initializer.is_none());
     assert!(enum_def.members[2].initializer.is_some());
+}
+
+#[test]
+fn constraint_declaration_preserves_dist_and_nested_items() {
+    let db = db_with_root_text(
+        r#"
+module m;
+  logic x;
+  constraint c {
+    x dist { 1 := 2, default };
+    unique { x };
+  }
+endmodule
+"#,
+    );
+    let module = module_id(&db, "m");
+    let body = db.body(module);
+    let definition =
+        body.constraint_defs.values().next().expect("constraint declaration should be lowered");
+    assert_eq!(definition.name.as_deref(), Some("c"));
+    let Constraint::Block(items) = &body.constraints[definition.constraint] else {
+        panic!("constraint declaration should lower to a block");
+    };
+    assert_eq!(items.len(), 2);
+    let Constraint::Expression { expr, .. } = body.constraints[items[0]] else {
+        panic!("distribution item should lower as an expression constraint");
+    };
+    let Expr::Dist { distribution, .. } = &body.exprs[expr] else {
+        panic!("expression-or-dist should preserve its distribution");
+    };
+    assert_eq!(distribution.items.len(), 2);
+    assert!(matches!(body.constraints[items[items.len() - 1]], Constraint::Uniqueness { .. }));
 }
 
 #[test]
