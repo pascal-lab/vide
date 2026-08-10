@@ -219,6 +219,10 @@ pub(crate) fn owner_table(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerTab
                 _ => {}
             }
         }
+        // `elem_preorder` intentionally omits the synthetic leave event for
+        // its root. Stock slang v11 may return a single top-level declaration
+        // as the root, so close that node explicitly when it can own scope.
+        builder.leave(root);
     }
     Arc::new(builder.finish())
 }
