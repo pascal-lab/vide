@@ -122,7 +122,7 @@ pub(crate) fn prepare_rename(
         }
         RenameTarget::Macro(_) | RenameTarget::Manifest(_) => {}
     }
-    Ok(target.range(db))
+    target.range(db).ok_or(RenameError::NoRefFound)
 }
 
 pub(crate) fn rename(
@@ -271,10 +271,10 @@ enum RenameTarget {
 }
 
 impl RenameTarget {
-    fn range(&self, db: &RootDb) -> TextRange {
+    fn range(&self, db: &RootDb) -> Option<TextRange> {
         match self {
-            RenameTarget::Hdl(target) => target.range,
-            RenameTarget::Macro(target) => target.range,
+            RenameTarget::Hdl(target) => Some(target.range),
+            RenameTarget::Macro(target) => Some(target.range),
             RenameTarget::Manifest(target) => crate::manifest::target_range(db, *target),
         }
     }

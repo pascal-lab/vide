@@ -259,7 +259,7 @@ where
     {
         return TargetResolution::Resolved(TargetCandidate::new(
             SemanticTarget::Manifest(target),
-            manifest_capabilities(),
+            crate::manifest::target_capabilities(db, target),
         ));
     }
 
@@ -346,14 +346,6 @@ fn include_target_at(
 }
 
 pub(crate) fn source_capabilities() -> TargetCapability {
-    TargetCapability::DESCRIBE
-        | TargetCapability::NAVIGATE
-        | TargetCapability::REFERENCES
-        | TargetCapability::HIGHLIGHT
-        | TargetCapability::RENAME
-}
-
-fn manifest_capabilities() -> TargetCapability {
     TargetCapability::DESCRIBE
         | TargetCapability::NAVIGATE
         | TargetCapability::REFERENCES

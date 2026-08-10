@@ -617,7 +617,7 @@ endmodule
 }
 
 #[test]
-fn manifest_formatting_returns_a_document_edit() {
+fn manifest_formatting_does_not_guess_a_document_edit() {
     let temp_dir = TempDir::new("manifest-formatting");
     let manifest_text = "# project\ntop_modules=[\"top\"] # selected top\n";
     let manifest_path = temp_dir.path().join("vide.toml");
@@ -645,9 +645,7 @@ fn manifest_formatting_returns_a_document_edit() {
         )))
         .unwrap();
     let edits: Option<Vec<lsp_types::TextEdit>> = recv_response(&client, request_id, "formatting");
-    let edits = edits.expect("manifest formatting should return edits");
-    assert_eq!(edits.len(), 1, "manifest formatting should use one full-document edit");
-    assert_eq!(edits[0].new_text, "# project\ntop_modules = [\"top\"] # selected top\n");
+    assert!(edits.is_none(), "manifest formatting must not guess a rewrite: {edits:?}");
 
     shutdown_test_server(&client, server_thread);
 }

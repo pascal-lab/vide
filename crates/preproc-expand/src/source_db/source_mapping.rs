@@ -100,30 +100,71 @@ pub(crate) fn source_preproc_file_ids(
 ///
 /// `PredefineSource::range` deliberately covers the complete TOML string so
 /// the source-map verification can prove that the configured value still
-/// matches the manifest.  IDE macro operations need the narrower name span,
+/// matches the manifest. IDE macro operations need the narrower name span,
 /// though, otherwise renaming `FOO=1` would replace the value and the `=1`
-/// assignment as well.
+/// assignment as well. The returned range is available only when the source
+/// spelling has an unambiguous byte mapping and the name follows the manifest
+/// macro grammar.
+pub fn manifest_predefine_name_range_in_text(text: &str, range: TextRange) -> Option<TextRange> {
+    let start = usize::from(range.start());
+    let end = usize::from(range.end());
+    let source = toml_parser::Source::new(text);
+    let token = source.lex().find(|token| {
+        token.span() == toml_parser::Span::new_unchecked(start, end)
+            && matches!(
+                token.kind(),
+                toml_parser::lexer::TokenKind::LiteralString
+                    | toml_parser::lexer::TokenKind::BasicString
+            )
+    })?;
+    let raw = source.get(token.span())?;
+    let raw = toml_parser::Raw::new_unchecked(raw.as_str(), token.kind().encoding(), token.span());
+    let mut decoded = String::new();
+    let mut errors = Vec::new();
+    if raw.decode_scalar(&mut decoded, &mut errors) != toml_parser::decoder::ScalarKind::String
+        || !errors.is_empty()
+    {
+        return None;
+    }
+    let raw_content = text.get(start + 1..end.checked_sub(1)?)?;
+    if raw_content != decoded {
+        return None;
+    }
+    let name_len = manifest_macro_name_len(&decoded)?;
+    TextRange::new(
+        TextSize::from(u32::try_from(start.checked_add(1)?).ok()?),
+        TextSize::from(u32::try_from(start.checked_add(1)?.checked_add(name_len)?).ok()?),
+    )
+    .into()
+}
+
+fn manifest_macro_name_len(content: &str) -> Option<usize> {
+    let first = content.as_bytes().first().copied()?;
+    let name_len = if first == b'\\' {
+        let terminator = content[1..].find(char::is_whitespace)? + 1;
+        terminator + content[terminator..].chars().next()?.len_utf8()
+    } else if first.is_ascii_alphabetic() || first == b'_' {
+        content
+            .bytes()
+            .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$'))
+            .count()
+    } else {
+        return None;
+    };
+
+    let rest = &content[name_len..];
+    if rest.is_empty() || rest.starts_with('=') {
+        return Some(name_len);
+    }
+    None
+}
+
 pub(crate) fn manifest_predefine_name_range(
     db: &dyn PreprocDb,
     file_id: FileId,
     range: TextRange,
 ) -> Option<TextRange> {
-    let text = db.file_text(file_id);
-    let start = usize::from(range.start());
-    let end = usize::from(range.end());
-    let raw = text.get(start..end)?.trim();
-    let leading = text.get(start..end)?.len() - text.get(start..end)?.trim_start().len();
-    let content = raw.strip_prefix('"').or_else(|| raw.strip_prefix('\''))?;
-    let quote = raw.as_bytes().first().copied()?;
-    let content = content.strip_suffix(quote as char)?;
-    let name_len = content.find('=').unwrap_or(content.len());
-    let name_start = start + leading + 1;
-    let name_end = name_start.checked_add(name_len)?;
-    TextRange::new(
-        TextSize::from(u32::try_from(name_start).ok()?),
-        TextSize::from(u32::try_from(name_end).ok()?),
-    )
-    .into()
+    manifest_predefine_name_range_in_text(db.file_text(file_id).as_ref(), range)
 }
 
 pub fn preproc_virtual_predefines_path(profile_id: Option<CompilationProfileId>) -> VfsPath {
@@ -314,8 +355,7 @@ impl PredefineVirtualEntry {
 
 fn materialized_predefine_name(text: &str) -> Option<SmolStr> {
     let rest = text.trim_start().strip_prefix("`define")?.trim_start();
-    let name =
-        rest.split(|ch: char| ch.is_whitespace() || ch == '(').next().unwrap_or_default().trim();
+    let name = rest.split(|ch: char| ch.is_whitespace() || ch == '(').next()?.trim();
     let name = name.strip_prefix('`').unwrap_or(name);
     if name.is_empty() { None } else { Some(SmolStr::new(name)) }
 }
@@ -378,4 +418,35 @@ pub(in crate::source_db) fn unshift_text_size(
 ) -> Option<TextSize> {
     let offset = usize::from(offset).checked_sub(range_offset)?;
     Some(TextSize::from(u32::try_from(offset).ok()?))
+}
+
+#[cfg(test)]
+mod tests {
+    use utils::line_index::{TextRange, TextSize};
+
+    use super::manifest_predefine_name_range_in_text;
+
+    fn range(text: &str) -> TextRange {
+        TextRange::new(TextSize::default(), TextSize::of(text))
+    }
+
+    #[test]
+    fn macro_name_range_requires_manifest_macro_grammar() {
+        let text = "\"FEATURE=1\"";
+        assert_eq!(
+            manifest_predefine_name_range_in_text(text, range(text)),
+            Some(TextRange::new(TextSize::from(1), TextSize::from(8)))
+        );
+        assert_eq!(
+            manifest_predefine_name_range_in_text("\"FEATURE\"", range("\"FEATURE\"")),
+            Some(TextRange::new(TextSize::from(1), TextSize::from(8)))
+        );
+        assert_eq!(
+            manifest_predefine_name_range_in_text(
+                "\"FEATURE-NAME=1\"",
+                range("\"FEATURE-NAME=1\"")
+            ),
+            None
+        );
+    }
 }

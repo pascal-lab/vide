@@ -40,7 +40,7 @@ pub use self::{
     source_map::{
         PreprocManifestSource, PreprocSourceMap, PreprocSourceMapping, PreprocVirtualOrigin,
     },
-    source_mapping::preproc_virtual_predefines_path,
+    source_mapping::{manifest_predefine_name_range_in_text, preproc_virtual_predefines_path},
 };
 pub(super) use self::{
     context::{source_preproc_context_index_for_profile, source_preproc_contexts_for_file},

@@ -2,15 +2,18 @@
 //!
 //! Project manifests are deliberately not SystemVerilog parse units.  They
 //! still need source-aware editor features, though, so this module owns the
-//! small TOML model used by those features.  `toml_edit` is used instead of a
-//! deserialized config because its immutable document keeps byte spans for
-//! keys and values, including unsaved editor content.
+//! small TOML model used by those features.  `toml_parser` supplies syntax
+//! events and exact source spans; `toml_edit` supplies decoded logical values
+//! and exact value spans, including for unsaved editor content.
 
 use std::{collections::BTreeSet, ops::Range};
 
 use base_db::source_db::SourceDb;
+use hir_def::container::InFile;
+use preproc_expand::source_db::manifest_predefine_name_range_in_text;
 use syntax::DiagnosticSeverity;
-use toml_edit::{DocumentMut, ImDocument, Item, Value};
+use toml_edit::{ImDocument, Item, Value};
+use toml_parser::{Source, Span, lexer::TokenKind, parser::EventKind};
 use triomphe::Arc;
 use utils::{
     line_index::{TextRange, TextSize},
@@ -28,9 +31,9 @@ use crate::{
     folding_ranges::{Fold, FoldKind},
     markup::Markup,
     navigation_target::NavTarget,
-    references::{ReferenceCategory, References, ReferencesConfig, ReferencesStatus},
+    references::{ReferenceCategory, References, ReferencesConfig},
     semantic_tokens::{SemaToken, SemaTokenModifier, SemaTokenTag},
-    source_change::{SourceChange, SourceChangeBuilder},
+    source_change::SourceChange,
 };
 
 const MANIFEST_KEYS: &[(&str, &str)] = &[
@@ -46,7 +49,8 @@ const MANIFEST_KEYS: &[(&str, &str)] = &[
 pub(crate) struct ManifestValue {
     text: String,
     range: TextRange,
-    content_range: TextRange,
+    edit_range: Option<TextRange>,
+    semantic_range: Option<TextRange>,
     kind: ManifestValueKind,
 }
 
@@ -71,7 +75,6 @@ struct ManifestEntry {
 pub(crate) struct ManifestIndex {
     entries: Vec<ManifestEntry>,
     error: Option<ManifestParseError>,
-    formatted_text: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,19 +110,37 @@ fn text_range(range: Range<usize>) -> Option<TextRange> {
     ))
 }
 
-fn parse_document(text: &str) -> Result<(Vec<ManifestEntry>, DocumentMut), toml_edit::TomlError> {
-    let document = ImDocument::parse(text.to_owned())?;
-    let editable_document = document.clone().into_mut();
+fn parse_document(text: &str) -> Result<Vec<ManifestEntry>, ManifestParseError> {
+    let document = ImDocument::parse(text.to_owned()).map_err(|error| ManifestParseError {
+        range: error.span().and_then(text_range),
+        message: error.to_string(),
+    })?;
+    let key_ranges = parser_key_ranges(text)?;
     let mut entries = Vec::new();
+    let mut key_ranges = key_ranges.into_iter();
 
     for (key, item) in document.iter() {
+        if item.as_value().is_none() {
+            return Err(ManifestParseError {
+                range: item.span().and_then(text_range),
+                message: format!("nested TOML table `{key}` is not supported in vide.toml"),
+            });
+        }
         let Some(value_range) = item.span().and_then(text_range) else {
-            continue;
+            tracing::error!(key = %key, "toml_edit returned an entry without a source span");
+            return Err(ManifestParseError {
+                range: None,
+                message: format!("TOML entry `{key}` has no source span"),
+            });
         };
-        let key_range = key_range(text, value_range.start())
-            .unwrap_or_else(|| TextRange::empty(value_range.start()));
+        let Some(key_range) = key_ranges.next() else {
+            return Err(ManifestParseError {
+                range: Some(value_range),
+                message: format!("TOML parser returned no key span for `{key}`"),
+            });
+        };
         let full_range = TextRange::new(key_range.start(), value_range.end());
-        let values = item_values(text, item);
+        let values = item_values(text, key, item);
         entries.push(ManifestEntry {
             key: key.to_owned(),
             key_range,
@@ -129,35 +150,85 @@ fn parse_document(text: &str) -> Result<(Vec<ManifestEntry>, DocumentMut), toml_
         });
     }
 
+    if key_ranges.next().is_some() {
+        return Err(ManifestParseError {
+            range: None,
+            message: "TOML parser returned more key spans than toml_edit".to_owned(),
+        });
+    }
     entries.sort_by_key(|entry| entry.full_range.start());
-    Ok((entries, editable_document))
+    Ok(entries)
 }
 
-fn parse(text: &str) -> Result<Vec<ManifestEntry>, toml_edit::TomlError> {
-    parse_document(text).map(|(entries, _)| entries)
+#[derive(Debug, Default)]
+struct ManifestParserSyntax {
+    key_ranges: Vec<TextRange>,
+    incomplete_key_range: Option<TextRange>,
 }
 
-fn format_document(document: &mut DocumentMut) {
-    format_table(document.as_table_mut());
-}
+fn parser_syntax(text: &str) -> Result<(ManifestParserSyntax, bool), ManifestParseError> {
+    let source = Source::new(text);
+    let tokens = source.lex().into_vec();
+    let mut events = Vec::new();
+    let mut errors = Vec::new();
+    toml_parser::parser::parse_document(&tokens, &mut events, &mut errors);
 
-fn format_table(table: &mut toml_edit::Table) {
-    for (mut key, item) in table.iter_mut() {
-        // Keep the key prefix intact: it contains comments and the line break
-        // separating this entry from the previous one. Only normalize the
-        // whitespace immediately around the assignment operator.
-        key.leaf_decor_mut().set_suffix(" ");
-        match item {
-            Item::Value(value) => value.decor_mut().set_prefix(" "),
-            Item::Table(table) => format_table(table),
-            Item::ArrayOfTables(tables) => {
-                for table in tables.iter_mut() {
-                    format_table(table);
-                }
+    let mut syntax = ManifestParserSyntax::default();
+    let mut pending_key: Option<TextRange> = None;
+    let mut container_depth = 0usize;
+    for event in events {
+        match event.kind() {
+            EventKind::StdTableOpen
+            | EventKind::ArrayTableOpen
+            | EventKind::InlineTableOpen
+            | EventKind::ArrayOpen => container_depth += 1,
+            EventKind::StdTableClose
+            | EventKind::ArrayTableClose
+            | EventKind::InlineTableClose
+            | EventKind::ArrayClose => {
+                container_depth = container_depth.checked_sub(1).ok_or(ManifestParseError {
+                    range: Some(text_range_from_span(event.span())?),
+                    message: "TOML parser emitted an unmatched container close".to_owned(),
+                })?
             }
-            Item::None => {}
+            EventKind::SimpleKey if container_depth == 0 => {
+                let span = text_range_from_span(event.span())?;
+                pending_key = Some(match pending_key {
+                    Some(range) => TextRange::new(range.start(), span.end()),
+                    None => span,
+                });
+            }
+            EventKind::KeyValSep if container_depth == 0 => {
+                let range = pending_key.take().ok_or(ManifestParseError {
+                    range: Some(text_range_from_span(event.span())?),
+                    message: "TOML parser emitted a key/value separator without a key".to_owned(),
+                })?;
+                syntax.key_ranges.push(range);
+            }
+            EventKind::Newline => syntax.incomplete_key_range = pending_key.take(),
+            _ => {}
         }
     }
+    syntax.incomplete_key_range = pending_key.or(syntax.incomplete_key_range);
+    Ok((syntax, !errors.is_empty()))
+}
+
+fn parser_key_ranges(text: &str) -> Result<Vec<TextRange>, ManifestParseError> {
+    let (syntax, has_errors) = parser_syntax(text)?;
+    if has_errors {
+        return Err(ManifestParseError {
+            range: None,
+            message: "TOML parser rejected the document while producing source spans".to_owned(),
+        });
+    }
+    Ok(syntax.key_ranges)
+}
+
+fn text_range_from_span(span: Span) -> Result<TextRange, ManifestParseError> {
+    text_range(span.start()..span.end()).ok_or(ManifestParseError {
+        range: None,
+        message: "TOML parser returned a span outside the supported text range".to_owned(),
+    })
 }
 
 #[salsa::tracked(returns(clone))]
@@ -167,24 +238,14 @@ fn manifest_index(
 ) -> Arc<ManifestIndex> {
     let file_id = key.file_id(db);
     let text = db.file_text(file_id);
-    let (entries, error, formatted_text) = match parse_document(&text) {
-        Ok((entries, mut document)) => {
-            format_document(&mut document);
-            (entries, None, Some(document.to_string()))
-        }
+    let (entries, error) = match parse_document(&text) {
+        Ok(entries) => (entries, None),
         Err(error) => {
-            tracing::debug!(?file_id, error = %error, "vide.toml parsed with errors");
-            (
-                Vec::new(),
-                Some(ManifestParseError {
-                    range: error.span().and_then(text_range),
-                    message: error.to_string(),
-                }),
-                None,
-            )
+            tracing::debug!(?file_id, error = %error.message, "vide.toml parsed with errors");
+            (Vec::new(), Some(ManifestParseError { range: error.range, message: error.message }))
         }
     };
-    Arc::new(ManifestIndex { entries, error, formatted_text })
+    Arc::new(ManifestIndex { entries, error })
 }
 
 fn index_for(db: &dyn base_db::source_db::SourceDb, file_id: FileId) -> Option<Arc<ManifestIndex>> {
@@ -195,33 +256,20 @@ fn entries_for(db: &dyn SourceDb, file_id: FileId) -> Option<Vec<ManifestEntry>>
     Some(index_for(db, file_id)?.entries.clone())
 }
 
-fn key_range(text: &str, value_start: TextSize) -> Option<TextRange> {
-    let value_start: usize = value_start.into();
-    let line_start = text[..value_start].rfind('\n').map_or(0, |idx| idx + 1);
-    let line = &text[line_start..value_start];
-    let equals = line.rfind('=')?;
-    let key = line[..equals].trim();
-    if key.is_empty() {
-        return None;
-    }
-    let key_start = line_start + line[..equals].find(key)?;
-    text_range(key_start..key_start + key.len())
-}
-
-fn item_values(text: &str, item: &Item) -> Vec<ManifestValue> {
+fn item_values(text: &str, key: &str, item: &Item) -> Vec<ManifestValue> {
     if let Some(array) = item.as_array() {
-        return array.iter().filter_map(|value| manifest_value_value(text, value)).collect();
+        return array.iter().filter_map(|value| manifest_value_value(text, key, value)).collect();
     }
 
-    manifest_value(text, item).into_iter().collect()
+    manifest_value(text, key, item).into_iter().collect()
 }
 
-fn manifest_value(text: &str, item: &Item) -> Option<ManifestValue> {
+fn manifest_value(text: &str, key: &str, item: &Item) -> Option<ManifestValue> {
     let value = item.as_value()?;
-    manifest_value_value(text, value)
+    manifest_value_value(text, key, value)
 }
 
-fn manifest_value_value(text: &str, value: &Value) -> Option<ManifestValue> {
+fn manifest_value_value(text: &str, key: &str, value: &Value) -> Option<ManifestValue> {
     let range = value.span().and_then(text_range)?;
     let kind = if value.as_str().is_some() {
         ManifestValueKind::String
@@ -233,20 +281,17 @@ fn manifest_value_value(text: &str, value: &Value) -> Option<ManifestValue> {
         ManifestValueKind::Other
     };
     let raw = text.get(usize::from(range.start())..usize::from(range.end()))?;
-    let text_value = value.as_str().map(ToOwned::to_owned).unwrap_or_else(|| raw.trim().to_owned());
-    let content_range = string_content_range(raw, range.start()).unwrap_or(range);
-    Some(ManifestValue { text: text_value, range, content_range, kind })
-}
-
-fn string_content_range(raw: &str, base: TextSize) -> Option<TextRange> {
-    let leading = raw.len() - raw.trim_start().len();
-    let raw = raw.trim();
-    let quote = *raw.as_bytes().first()?;
-    if !matches!(quote, b'"' | b'\'') || raw.len() < 2 {
-        return None;
-    }
-    let end = raw.len() - 1;
-    text_range(usize::from(base) + leading + 1..usize::from(base) + leading + end)
+    let text_value = match value.as_str() {
+        Some(value) => value.to_owned(),
+        None => raw.to_owned(),
+    };
+    let edit_range = value.as_str().map(|_| range);
+    let semantic_range = if key == "defines" {
+        manifest_predefine_name_range_in_text(text, range)
+    } else {
+        Some(range)
+    };
+    Some(ManifestValue { text: text_value, range, edit_range, semantic_range, kind })
 }
 
 fn entry_at_index(
@@ -255,7 +300,10 @@ fn entry_at_index(
 ) -> Option<(usize, &ManifestEntry, Option<usize>, Option<&ManifestValue>)> {
     entries.iter().enumerate().find_map(|(entry_index, entry)| {
         if entry.key_range.contains(offset) || entry.value_range.contains(offset) {
-            let value_index = entry.values.iter().position(|value| value.range.contains(offset));
+            let value_index = entry
+                .values
+                .iter()
+                .position(|value| value.semantic_range.is_some_and(|range| range.contains(offset)));
             let value = value_index.and_then(|index| entry.values.get(index));
             return Some((entry_index, entry, value_index, value));
         }
@@ -277,8 +325,48 @@ pub(crate) fn target_at(
     offset: TextSize,
 ) -> Option<ManifestTarget> {
     let index = index_for(db, file_id)?;
-    let (entry_index, _, value_index, _) = entry_at_index(&index.entries, offset)?;
+    let (entry_index, entry, value_index, _) = entry_at_index(&index.entries, offset)?;
+    if value_index.is_none() && entry.value_range.contains(offset) {
+        return None;
+    }
     Some(ManifestTarget { file_id, entry_index, value_index })
+}
+
+pub(crate) fn target_capabilities(
+    db: &dyn SourceDb,
+    target: ManifestTarget,
+) -> crate::semantic_target::TargetCapability {
+    let Some(info) = target_info(db, target) else {
+        return crate::semantic_target::TargetCapability::empty();
+    };
+    let mut capabilities = crate::semantic_target::TargetCapability::DESCRIBE;
+    let Some(value) = info.selected_value else {
+        if info.key == "top_modules" && !info.values.is_empty() {
+            capabilities |= crate::semantic_target::TargetCapability::NAVIGATE;
+        }
+        return capabilities;
+    };
+    let Some(_) = value.semantic_range else {
+        return capabilities;
+    };
+
+    match info.key.as_str() {
+        "top_modules" => {
+            capabilities |= crate::semantic_target::TargetCapability::HIGHLIGHT;
+            capabilities |= crate::semantic_target::TargetCapability::NAVIGATE
+                | crate::semantic_target::TargetCapability::REFERENCES
+                | crate::semantic_target::TargetCapability::RENAME;
+        }
+        "defines" => {
+            capabilities |= crate::semantic_target::TargetCapability::NAVIGATE
+                | crate::semantic_target::TargetCapability::HIGHLIGHT;
+        }
+        "libraries" | "include_dirs" | "sources" => {
+            capabilities |= crate::semantic_target::TargetCapability::NAVIGATE;
+        }
+        _ => {}
+    }
+    capabilities
 }
 
 pub(crate) fn target_info(db: &dyn SourceDb, target: ManifestTarget) -> Option<ManifestTargetInfo> {
@@ -298,16 +386,8 @@ fn manifest_path(db: &RootDb, file_id: FileId) -> Option<utils::paths::AbsPathBu
 }
 
 fn target_for_path(db: &RootDb, manifest_file_id: FileId, path: &str) -> Option<FileId> {
-    if path.contains('*') || path.contains('?') || path.contains('[') {
-        return None;
-    }
     let root = manifest_path(db, manifest_file_id)?.parent()?.to_owned();
     let path = root.absolutize(utils::paths::Utf8Path::new(path));
-    let path = if std::fs::metadata(path.as_path()).is_ok_and(|metadata| metadata.is_dir()) {
-        path.join("vide.toml")
-    } else {
-        path
-    };
 
     db.files().iter().copied().find(|file_id| {
         db.file_path(*file_id).is_some_and(|candidate| candidate.as_path() == path.as_path())
@@ -341,30 +421,33 @@ pub(crate) fn definition_target(
     target: ManifestTarget,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let info = target_info(db, target)?;
-    let selected_values = info.selected_value.iter().collect::<Vec<_>>();
-    let values = if selected_values.is_empty() {
-        info.values.iter().collect::<Vec<_>>()
-    } else {
-        selected_values
+    let selected = info.selected_value.as_ref();
+    let values = match (info.key.as_str(), selected) {
+        ("top_modules", Some(value)) => vec![value],
+        ("top_modules", None) => info.values.iter().collect(),
+        _ => vec![selected?],
     };
     let targets = match info.key.as_str() {
-        "top_modules" => values.iter().flat_map(|value| module_targets(db, &value.text)).collect(),
-        "defines" => values
-            .iter()
-            .map(|value| NavTarget {
+        "top_modules" => {
+            Some(values.iter().flat_map(|value| module_targets(db, &value.text)).collect())
+        }
+        "defines" => {
+            let value = values[0];
+            let semantic_range = value.semantic_range?;
+            Some(vec![NavTarget {
                 file_id: info.file_id,
                 full_range: value.range,
-                focus_range: Some(value.content_range),
+                focus_range: Some(semantic_range),
                 name: Some(value.text.clone().into()),
                 kind: None,
                 container_name: Some(info.key.clone().into()),
                 description: Some("manifest macro definition".to_owned()),
-            })
-            .collect(),
-        "libraries" | "include_dirs" | "sources" => values
-            .iter()
-            .filter_map(|value| {
-                target_for_path(db, info.file_id, &value.text).map(|target_file_id| NavTarget {
+            }])
+        }
+        "libraries" | "include_dirs" | "sources" => {
+            let value = values[0];
+            target_for_path(db, info.file_id, &value.text).map(|target_file_id| {
+                vec![NavTarget {
                     file_id: target_file_id,
                     full_range: TextRange::empty(TextSize::default()),
                     focus_range: Some(TextRange::empty(TextSize::default())),
@@ -372,17 +455,16 @@ pub(crate) fn definition_target(
                     kind: None,
                     container_name: None,
                     description: db.file_path(target_file_id).map(|path| path.to_string()),
-                })
+                }]
             })
-            .collect(),
-        _ => Vec::new(),
+        }
+        _ => None,
+    }?;
+    let range = match selected {
+        Some(value) => value.semantic_range?,
+        None => info.key_range,
     };
-    (!targets.is_empty()).then(|| {
-        RangeInfo::new(
-            info.selected_value.as_ref().map_or(info.key_range, |value| value.range),
-            targets,
-        )
-    })
+    (!targets.is_empty()).then(|| RangeInfo::new(range, targets))
 }
 
 pub(crate) fn hover_target(db: &RootDb, target: ManifestTarget) -> Option<RangeInfo<Markup>> {
@@ -402,10 +484,12 @@ pub(crate) fn hover_target(db: &RootDb, target: ManifestTarget) -> Option<RangeI
                 text.push_str(&format!("\n\nSystemVerilog module: `{}`", value.text));
             }
         } else if matches!(info.key.as_str(), "libraries" | "include_dirs" | "sources") {
-            if let Some(path) = manifest_path(db, info.file_id).and_then(|path| {
-                path.parent()
-                    .map(|parent| parent.absolutize(utils::paths::Utf8Path::new(&value.text)))
-            }) {
+            if target_for_path(db, info.file_id, &value.text).is_some()
+                && let Some(path) = manifest_path(db, info.file_id).and_then(|path| {
+                    path.parent()
+                        .map(|parent| parent.absolutize(utils::paths::Utf8Path::new(&value.text)))
+                })
+            {
                 text.push_str(&format!("\n\nResolved path: `{path}`"));
             }
         }
@@ -464,6 +548,9 @@ pub(crate) fn highlights_target(
     target: ManifestTarget,
 ) -> Option<Vec<DocumentHighlight>> {
     let info = target_info(db, target)?;
+    if !matches!(info.key.as_str(), "top_modules" | "defines") {
+        return None;
+    }
     let selected = info.selected_value?.text;
     let ranges = info
         .values
@@ -483,78 +570,37 @@ pub(crate) fn references_target(
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
     let info = target_info(db, target)?;
-    let selected_values = info.selected_value.iter().collect::<Vec<_>>();
-    let values = if selected_values.is_empty() {
-        info.values.iter().collect::<Vec<_>>()
-    } else {
-        selected_values
-    };
-
-    if info.key == "top_modules" {
-        let mut module_references = Vec::new();
-        for value in &values {
-            for module in module_targets(db, &value.text) {
-                let Some(mut references) = crate::references::references(
-                    db,
-                    FilePosition {
-                        file_id: module.file_id,
-                        offset: module.focus_or_full_range().start(),
-                    },
-                    config.clone(),
-                ) else {
-                    continue;
-                };
-                for references in &mut references {
-                    references
-                        .refs
-                        .entry(info.file_id)
-                        .or_default()
-                        .push((value.content_range, ReferenceCategory::READ));
-                }
-                module_references.extend(references);
-            }
-        }
+    let selected = info.selected_value?;
+    if info.key != "top_modules" {
+        return None;
+    }
+    let modules = module_targets(db, &selected.text);
+    let [module] = modules.as_slice() else {
         tracing::debug!(
             ?info.file_id,
-            value_count = values.len(),
-            result_count = module_references.len(),
-            "vide.toml module references"
+            module = %selected.text,
+            "vide.toml module reference target is unresolved or ambiguous"
         );
-        if !module_references.is_empty() {
-            return Some(module_references);
-        }
+        return None;
+    };
+    let mut references = crate::references::references(
+        db,
+        FilePosition { file_id: module.file_id, offset: module.focus_or_full_range().start() },
+        config,
+    )?;
+    for references in &mut references {
+        references
+            .refs
+            .entry(info.file_id)
+            .or_default()
+            .push((selected.range, ReferenceCategory::READ));
     }
-
-    let selected = info.selected_value?;
-    let refs = info
-        .values
-        .iter()
-        .filter(|candidate| candidate.text == selected.text)
-        .map(|candidate| (candidate.range, ReferenceCategory::READ))
-        .collect::<Vec<_>>();
-    let mut refs_by_file = nohash_hasher::IntMap::default();
-    refs_by_file.insert(info.file_id, refs);
-    Some(vec![References {
-        def: Some(vec![NavTarget {
-            file_id: info.file_id,
-            full_range: selected.range,
-            focus_range: Some(selected.content_range),
-            name: Some(selected.text.clone().into()),
-            kind: None,
-            container_name: Some(info.key.into()),
-            description: Some("vide.toml value".to_owned()),
-        }]),
-        refs: refs_by_file,
-        status: ReferencesStatus::Complete,
-    }])
+    (!references.is_empty()).then_some(references)
 }
 
-pub(crate) fn target_range(db: &RootDb, target: ManifestTarget) -> TextRange {
+pub(crate) fn target_range(db: &RootDb, target: ManifestTarget) -> Option<TextRange> {
     target_info(db, target)
-        .and_then(|info| {
-            info.selected_value.map(|value| value.content_range).or(Some(info.key_range))
-        })
-        .unwrap_or_default()
+        .and_then(|info| info.selected_value.and_then(|value| value.semantic_range))
 }
 
 pub(crate) fn rename_target(
@@ -566,10 +612,9 @@ pub(crate) fn rename_target(
     let info = target_info(db, target).ok_or(crate::rename::RenameError::NoRefFound)?;
     let value = info.selected_value.ok_or(crate::rename::RenameError::NoRefFound)?;
     if info.key != "top_modules" {
-        let mut builder = SourceChangeBuilder::new(info.file_id);
-        builder.replace(value.content_range, new_name);
-        return Ok(builder.finish());
+        return Err(crate::rename::RenameError::NoRefFound);
     }
+    let edit_range = value.edit_range.ok_or(crate::rename::RenameError::NoRefFound)?;
 
     let modules = module_targets(db, &value.text);
     let [module] = modules.as_slice() else {
@@ -589,7 +634,7 @@ pub(crate) fn rename_target(
         new_name,
     )?;
     source_change
-        .insert_text_edit(info.file_id, TextEdit::replace(value.content_range, new_name.to_owned()))
+        .insert_text_edit(info.file_id, TextEdit::replace(edit_range, format!("\"{new_name}\"")))
         .map_err(|_| crate::rename::RenameError::OverlappingEdits)?;
     Ok(source_change)
 }
@@ -608,6 +653,13 @@ pub(crate) fn rename_module_references(
         return Ok(());
     };
     let old_name = module_origin.name(db).ok_or(crate::rename::RenameError::NoRefFound)?;
+    let Some(InFile { file_id: origin_file, value: origin_range }) = module_origin.name_range(db)
+    else {
+        return Err(crate::rename::RenameError::NoRefFound);
+    };
+    let Some(origin_file) = origin_file.as_file() else {
+        return Err(crate::rename::RenameError::NoRefFound);
+    };
 
     for manifest_file_id in db.files() {
         if !is_manifest(db, manifest_file_id) {
@@ -624,6 +676,18 @@ pub(crate) fn rename_module_references(
                 if value.text != old_name.as_str() {
                     continue;
                 }
+                let modules = module_targets(db, &value.text);
+                let [module] = modules.as_slice() else {
+                    tracing::debug!(
+                        ?manifest_file_id,
+                        module = %value.text,
+                        "skipping unresolved or ambiguous manifest module reference"
+                    );
+                    continue;
+                };
+                if module.file_id != origin_file || module.focus_or_full_range() != origin_range {
+                    continue;
+                }
                 if matches!(config.edit_scope(), crate::rename::RenameEditScope::SingleFile)
                     && manifest_file_id != request_file_id
                 {
@@ -632,7 +696,10 @@ pub(crate) fn rename_module_references(
                 source_change
                     .insert_text_edit(
                         manifest_file_id,
-                        TextEdit::replace(value.content_range, new_name.to_owned()),
+                        TextEdit::replace(
+                            value.edit_range.ok_or(crate::rename::RenameError::NoRefFound)?,
+                            format!("\"{new_name}\""),
+                        ),
                     )
                     .map_err(|_| crate::rename::RenameError::OverlappingEdits)?;
             }
@@ -673,49 +740,35 @@ pub(crate) fn semantic_tokens(
             tokens.push(SemaToken { range: value.range, tag, mods: SemaTokenModifier::empty() });
         }
     }
-    tokens.extend(comment_tokens(&db.file_text(file_id), range));
+    tokens.extend(parser_comment_tokens(&db.file_text(file_id), range));
     tokens.sort_by_key(|token| token.range.start());
     tokens
 }
 
-fn comment_tokens(text: &str, range: Option<TextRange>) -> Vec<SemaToken> {
-    let mut comments = Vec::new();
-    let mut in_basic = false;
-    let mut in_literal = false;
-    let mut comment_start = None;
-    for (offset, byte) in text.bytes().enumerate() {
-        match byte {
-            b'"' if !in_literal => in_basic = !in_basic,
-            b'\'' if !in_basic => in_literal = !in_literal,
-            b'#' if !in_basic && !in_literal => comment_start = Some(offset),
-            b'\n' => {
-                if let Some(start) = comment_start.take() {
-                    push_comment(&mut comments, start, offset, range);
-                }
+fn parser_comment_tokens(text: &str, range: Option<TextRange>) -> Vec<SemaToken> {
+    Source::new(text)
+        .lex()
+        .filter_map(|token| {
+            if token.kind() != TokenKind::Comment {
+                return None;
             }
-            _ => {}
-        }
-    }
-    if let Some(start) = comment_start {
-        push_comment(&mut comments, start, text.len(), range);
-    }
-    comments
-}
-
-fn push_comment(tokens: &mut Vec<SemaToken>, start: usize, end: usize, range: Option<TextRange>) {
-    let Some(comment_range) = text_range(start..end) else {
-        return;
-    };
-    if comment_range.is_empty()
-        || range.is_some_and(|requested| comment_range.intersect(requested).is_none())
-    {
-        return;
-    }
-    tokens.push(SemaToken {
-        range: comment_range,
-        tag: SemaTokenTag::TomlComment,
-        mods: SemaTokenModifier::empty(),
-    });
+            let span = token.span();
+            let Some(comment_range) = text_range(span.start()..span.end()) else {
+                tracing::error!(?span, "TOML parser returned an invalid comment span");
+                return None;
+            };
+            if comment_range.is_empty()
+                || range.is_some_and(|requested| comment_range.intersect(requested).is_none())
+            {
+                return None;
+            }
+            Some(SemaToken {
+                range: comment_range,
+                tag: SemaTokenTag::TomlComment,
+                mods: SemaTokenModifier::empty(),
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn completions(
@@ -723,39 +776,31 @@ pub(crate) fn completions(
     FilePosition { file_id, offset }: FilePosition,
 ) -> Vec<CompletionItem> {
     let text = db.file_text(file_id);
-    let offset_usize: usize = offset.into();
-    let word = word_at_offset(&text, offset_usize);
-    let entries = match parse(&text) {
+    let entries = match parse_document(&text) {
         Ok(entries) => entries,
-        Err(error) => {
-            tracing::debug!(?file_id, error = %error, "using schema completion recovery for invalid vide.toml");
-            Vec::new()
+        Err(_) => {
+            let Some(key_range) = parser_incomplete_key_range(&text, offset) else {
+                tracing::debug!(?file_id, "vide.toml completion has no parser key context");
+                return Vec::new();
+            };
+            return MANIFEST_KEYS
+                .iter()
+                .map(|(key, _)| {
+                    CompletionItem::new(
+                        (*key).to_owned(),
+                        CompletionItemKind::Keyword,
+                        Some(TextEditItem::replace(key_range, (*key).to_owned())),
+                        None,
+                        format!("0-{key}"),
+                    )
+                })
+                .collect();
         }
     };
-    let line_start = text[..offset_usize.min(text.len())].rfind('\n').map_or(0, |idx| idx + 1);
-    let before = &text[line_start..offset_usize.min(text.len())];
-    if !before.contains('=') {
-        let known = entries.iter().map(|entry| entry.key.as_str()).collect::<BTreeSet<_>>();
-        return MANIFEST_KEYS
-            .iter()
-            .filter(|(key, _)| !known.contains(key) && key.starts_with(&word.1))
-            .map(|(key, _)| {
-                CompletionItem::new(
-                    (*key).to_owned(),
-                    CompletionItemKind::Keyword,
-                    Some(TextEditItem::replace(word.0, (*key).to_owned())),
-                    None,
-                    format!("0-{key}"),
-                )
-            })
-            .collect();
-    }
-
-    let field = entries
-        .iter()
-        .find(|entry| entry.value_range.contains(offset) || before.contains(entry.key.as_str()))
-        .map(|entry| entry.key.as_str());
-    if field != Some("top_modules") {
+    let Some((_, entry, _, Some(value))) = entry_at_index(&entries, offset) else {
+        return Vec::new();
+    };
+    if entry.key != "top_modules" {
         return Vec::new();
     }
 
@@ -769,12 +814,11 @@ pub(crate) fn completions(
     }
     names
         .into_iter()
-        .filter(|name| name.starts_with(&word.1))
         .map(|name| {
             CompletionItem::new(
                 name.clone(),
                 CompletionItemKind::Text,
-                Some(TextEditItem::replace(word.0, name.clone())),
+                Some(TextEditItem::replace(value.range, format!("\"{name}\""))),
                 None,
                 format!("1-{name}"),
             )
@@ -782,22 +826,10 @@ pub(crate) fn completions(
         .collect()
 }
 
-fn word_at_offset(text: &str, offset: usize) -> (TextRange, String) {
-    let offset = offset.min(text.len());
-    let is_word = |byte: u8| {
-        byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'/' | b'-' | b'*' | b'?')
-    };
-    let mut start = offset;
-    while start > 0 && is_word(text.as_bytes()[start - 1]) {
-        start -= 1;
-    }
-    let mut end = offset;
-    while end < text.len() && is_word(text.as_bytes()[end]) {
-        end += 1;
-    }
-    let range =
-        text_range(start..end).unwrap_or_else(|| TextRange::empty(TextSize::from(offset as u32)));
-    (range, text[start..offset].to_owned())
+fn parser_incomplete_key_range(text: &str, offset: TextSize) -> Option<TextRange> {
+    let (syntax, _) = parser_syntax(text).ok()?;
+    let candidate = syntax.incomplete_key_range?;
+    candidate.contains(offset).then_some(candidate)
 }
 
 pub(crate) fn selection_ranges(
@@ -856,17 +888,8 @@ pub(crate) fn format(
     if let Some(error) = &index.error {
         anyhow::bail!(error.message.clone());
     }
-    let text = db.file_text(file_id);
-    let Some(formatted_text) = &index.formatted_text else {
-        anyhow::bail!("vide.toml formatter did not produce a document");
-    };
-    if formatted_text == text.as_ref() {
-        return Ok(None);
-    }
-    Ok(Some(utils::text_edit::TextEdit::replace(
-        TextRange::up_to(TextSize::of(text.as_ref())),
-        formatted_text.clone(),
-    )))
+    tracing::debug!(?file_id, "vide.toml formatting is unsupported without a TOML formatter");
+    Ok(None)
 }
 
 pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
@@ -874,8 +897,10 @@ pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
         return Vec::new();
     };
     let Some(error) = &index.error else { return Vec::new() };
-    let text = db.file_text(file_id);
-    let range = error.range.unwrap_or_else(|| TextRange::up_to(TextSize::of(text.as_ref())));
+    let Some(range) = error.range else {
+        tracing::error!(?file_id, message = %error.message, "TOML parser returned an error without a source range");
+        return Vec::new();
+    };
     vec![Diagnostic {
         file_id,
         code: 100,
@@ -901,29 +926,33 @@ mod tests {
     #[test]
     fn parse_keeps_key_and_array_item_ranges() {
         let text = "top_modules = [\"top\", \"child\"]\n";
-        let entries = parse(text).unwrap();
+        let entries = parse_document(text).unwrap();
         assert_eq!(entries[0].key, "top_modules");
+        assert_eq!(entries[0].key_range, TextRange::new(TextSize::default(), TextSize::from(11)));
         assert_eq!(
             &text[usize::from(entries[0].values[0].range.start())
                 ..usize::from(entries[0].values[0].range.end())],
             "\"top\""
         );
         assert_eq!(entries[0].values[0].text, "top");
-        assert_eq!(entries[0].values[0].content_range.len(), TextSize::from(3));
+        assert_eq!(
+            entries[0].values[0].edit_range,
+            Some(TextRange::new(TextSize::from(15), TextSize::from(20)))
+        );
     }
 
     #[test]
-    fn key_completion_range_is_the_current_word() {
-        let (range, prefix) = word_at_offset("sou", 3);
-        assert_eq!(prefix, "sou");
-        assert_eq!(range, TextRange::new(TextSize::from(0), TextSize::from(3)));
-    }
-
-    #[test]
-    fn formatting_normalizes_assignment_spacing_without_dropping_comments() {
-        let text = "# project\ntop_modules=[\"top\"] # selected top\n";
-        let (_, mut document) = parse_document(text).unwrap();
-        format_document(&mut document);
-        assert_eq!(document.to_string(), "# project\ntop_modules = [\"top\"] # selected top\n");
+    fn comment_tokens_come_from_toml_lexer() {
+        let text = "# real\ntop_modules = [\"# not a comment\"] # trailing\n";
+        let comments = parser_comment_tokens(text, None);
+        assert_eq!(comments.len(), 2);
+        assert_eq!(
+            &text[usize::from(comments[0].range.start())..usize::from(comments[0].range.end())],
+            "# real"
+        );
+        assert_eq!(
+            &text[usize::from(comments[1].range.start())..usize::from(comments[1].range.end())],
+            "# trailing"
+        );
     }
 }
