@@ -406,6 +406,7 @@ mod tests {
 
     use crate::{
         db::HirDefDb,
+        declaration::{Declaration, ParamDeclKind},
         source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
     };
 
@@ -617,6 +618,7 @@ endconfig
 int unit_data;
 wire unit_net;
 typedef int unit_type;
+parameter int unit_parameter = 1;
 function void unit_function();
 endfunction
 primitive unit_primitive (o, i);
@@ -641,6 +643,13 @@ endconfig
             diagnostics.is_empty(),
             "supported compilation-unit members must not be diagnosed: {diagnostics:?}"
         );
+        let file_owner = db.owner_table(HirFileId::File(TOP)).file_owner().unwrap();
+        let body = db.body(file_owner);
+        let parameter = body.declarations.values().find_map(|declaration| match declaration {
+            Declaration::ParamDecl(parameter) if !parameter.is_port => Some(parameter),
+            _ => None,
+        });
+        assert_eq!(parameter.map(|parameter| parameter.kind), Some(ParamDeclKind::Parameter));
     }
 
     #[test]

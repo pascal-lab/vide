@@ -212,6 +212,9 @@ impl LowerFileCtx<'_> {
                 NetDeclaration(net_decl) => self.lower_net_decl(net_decl).into(),
                 EmptyMember(_x) => continue,
                 TypedefDeclaration(typedef_decl) => self.lower_typedef(typedef_decl).into(),
+                ParameterDeclarationStatement(param_decl) => {
+                    self.lower_param_decl_base(param_decl.parameter()).into()
+                }
                 FunctionDeclaration(fn_decl) => match self.lower_subroutine_decl(fn_decl) {
                     Some(owner) => BodyItem::SubroutineOwner(owner),
                     None => continue,
