@@ -18,7 +18,8 @@ use crate::{
     alloc_with_source_entry,
     container::OwnerRef,
     lower::{LoweringCtx, LoweringStore},
-    owner::OwnerId,
+    owner::{OwnerId, OwnerKind},
+    subroutine::{Subroutine, lower_subroutine, lower_subroutine_prototype},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -113,6 +114,8 @@ pub struct ClassMember {
     pub name: Option<Ident>,
     pub kind: ClassMemberKind,
     pub ty: Option<OwnerRef<DataTy>>,
+    pub method: Option<Subroutine>,
+    pub owner: Option<OwnerId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,10 +130,81 @@ pub type ClassId = Idx<ClassDef>;
 impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_class_decl(&mut self, class: ast::ClassDeclaration<'_>) -> ClassId {
         let container_id = self.current_owner();
-        let class_def = lower_class_def(class, container_id, |ty| self.lower_data_ty(ty));
+        let mut class_def = lower_class_def(class, container_id, |ty| self.lower_data_ty(ty));
+        self.lower_class_methods(class, &mut class_def);
         let source = self.source_id(class.syntax());
         let (body, sources) = self.store.body();
         alloc_with_source_entry(&mut body.classes, &mut sources.class_srcs, class_def, source)
+    }
+
+    fn lower_class_methods(&mut self, class: ast::ClassDeclaration<'_>, class_def: &mut ClassDef) {
+        let ast_ids = self.ast_ids.clone();
+        let tree = self.tree.clone();
+        let mut member_index = 0;
+
+        for member in class.items().children() {
+            match member {
+                ast::Member::ClassPropertyDeclaration(_) => {
+                    member_index += 1;
+                }
+                ast::Member::ClassMethodDeclaration(method) => {
+                    let declaration = method.declaration();
+                    let lowered = lower_subroutine(
+                        &declaration,
+                        |ty| self.lower_data_ty(ty),
+                        &ast_ids,
+                        &tree,
+                    );
+                    let owner = self
+                        .owner_for_node(declaration.syntax(), OwnerKind::Subroutine)
+                        .expect("every class method declaration must have a canonical owner");
+                    if lowered.is_none() {
+                        self.report_invalid(
+                            method.syntax(),
+                            "class method has an invalid subroutine signature",
+                        );
+                    }
+                    let class_member = class_def
+                        .members
+                        .get_mut(member_index)
+                        .expect("class method must have a matching class member");
+                    class_member.method = lowered;
+                    class_member.owner = Some(owner);
+                    member_index += 1;
+                }
+                ast::Member::ClassMethodPrototype(method) => {
+                    let prototype = method.prototype();
+                    let is_task = match prototype.keyword().map(|keyword| keyword.kind()) {
+                        Some(TokenKind::TASK_KEYWORD) => Some(true),
+                        Some(TokenKind::FUNCTION_KEYWORD) => Some(false),
+                        _ => None,
+                    };
+                    let lowered = is_task.and_then(|is_task| {
+                        lower_subroutine_prototype(
+                            prototype,
+                            is_task,
+                            false,
+                            |ty| self.lower_data_ty(ty),
+                            &ast_ids,
+                            &tree,
+                        )
+                    });
+                    if lowered.is_none() {
+                        self.report_invalid(
+                            method.syntax(),
+                            "class method prototype has an invalid subroutine signature",
+                        );
+                    }
+                    let class_member = class_def
+                        .members
+                        .get_mut(member_index)
+                        .expect("class method prototype must have a matching class member");
+                    class_member.method = lowered;
+                    member_index += 1;
+                }
+                _ => {}
+            }
+        }
     }
 }
 
@@ -162,12 +236,20 @@ pub(crate) fn lower_class_def(
                     }
                     _ => None,
                 };
-                Some(ClassMember { name, kind: ClassMemberKind::Property, ty })
+                Some(ClassMember {
+                    name,
+                    kind: ClassMemberKind::Property,
+                    ty,
+                    method: None,
+                    owner: None,
+                })
             }
             ast::Member::ClassMethodDeclaration(method) => Some(ClassMember {
                 name: lower_ident_opt(method.declaration().name()),
                 kind: ClassMemberKind::Method,
                 ty: None,
+                method: None,
+                owner: None,
             }),
             ast::Member::ClassMethodPrototype(method) => Some(ClassMember {
                 name: method
@@ -177,6 +259,8 @@ pub(crate) fn lower_class_def(
                     .and_then(|name| lower_ident_opt(name.identifier())),
                 kind: ClassMemberKind::Method,
                 ty: None,
+                method: None,
+                owner: None,
             }),
             _ => None,
         })

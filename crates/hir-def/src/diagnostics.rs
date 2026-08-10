@@ -643,6 +643,7 @@ class unit_class;
   int value;
   function void method();
   endfunction
+  pure virtual function void prototype(input int value);
 endclass
 function void unit_function();
 endfunction
@@ -896,8 +897,11 @@ endprogram
             .values()
             .find(|class| class.name.as_deref() == Some("unit_class"))
             .expect("file-level class should be lowered");
-        assert_eq!(class.members.len(), 2);
+        assert_eq!(class.members.len(), 3);
         assert!(class.members[0].ty.is_some());
+        assert!(class.members[1].method.as_ref().is_some_and(|method| method.has_body));
+        assert!(class.members[1].owner.is_some());
+        assert!(class.members[2].method.as_ref().is_some_and(|method| !method.has_body));
         let anonymous_program = body
             .items
             .iter()
