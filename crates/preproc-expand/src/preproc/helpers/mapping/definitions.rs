@@ -15,7 +15,7 @@ pub(crate) fn map_macro_definition(
     {
         source = PreprocSourceMapping::RealFile(manifest_source.file_id);
         directive_range = manifest_source.range;
-        name_range = manifest_source.range;
+        name_range = manifest_source.name_range;
     }
     let params = definition
         .params

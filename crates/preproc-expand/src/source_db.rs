@@ -25,6 +25,7 @@ pub(crate) mod range_index;
 mod source_map;
 mod source_mapping;
 
+pub(crate) use self::source_mapping::manifest_predefine_name_range;
 #[cfg(not(test))]
 use self::source_mapping::source_preproc_file_ids;
 #[cfg(test)]

@@ -13,6 +13,10 @@ endmodule
         offset(manifest_text, "\"Z_FROM_MANIFEST=1\""),
         offset_after(manifest_text, "\"Z_FROM_MANIFEST=1\""),
     );
+    let manifest_name_range = TextRange::new(
+        offset(manifest_text, "Z_FROM_MANIFEST"),
+        offset_after(manifest_text, "Z_FROM_MANIFEST"),
+    );
     let other_range = TextRange::new(
         offset(manifest_text, "\"A_OTHER=2\""),
         offset_after(manifest_text, "\"A_OTHER=2\""),
@@ -36,7 +40,7 @@ endmodule
             .unwrap();
     assert!(
         resolution.definitions.iter().any(|definition| {
-            definition.file_id == MANIFEST && definition.name_range == manifest_range
+            definition.file_id == MANIFEST && definition.name_range == manifest_name_range
         }),
         "predefine reference should target the manifest source range: {resolution:?}"
     );
@@ -44,8 +48,8 @@ endmodule
     let definition = macro_definition_at(&db, MANIFEST, manifest_range.start()).unwrap().unwrap();
     assert_eq!(definition.file_id, MANIFEST);
     assert_eq!(definition.name.as_str(), "Z_FROM_MANIFEST");
-    assert_eq!(definition.name_range, manifest_range);
-    assert_eq!(text_at_range(manifest_text, definition.name_range), "\"Z_FROM_MANIFEST=1\"");
+    assert_eq!(definition.name_range, manifest_name_range);
+    assert_eq!(text_at_range(manifest_text, definition.name_range), "Z_FROM_MANIFEST");
 
     let references = macro_references(&db, MANIFEST, &definition).unwrap();
     assert!(
@@ -82,8 +86,10 @@ endmodule
     let definition = macro_definition_at(&db, MANIFEST, manifest_range.start()).unwrap().unwrap();
     assert_eq!(definition.file_id, MANIFEST);
     assert_eq!(definition.name.as_str(), "MSG");
-    assert_eq!(definition.name_range, manifest_range);
-    assert_eq!(text_at_range(manifest_text, definition.name_range), raw_define);
+    let name_range =
+        TextRange::new(offset(manifest_text, "MSG"), offset_after(manifest_text, "MSG"));
+    assert_eq!(definition.name_range, name_range);
+    assert_eq!(text_at_range(manifest_text, definition.name_range), "MSG");
 
     let references = macro_references(&db, MANIFEST, &definition).unwrap();
     assert!(

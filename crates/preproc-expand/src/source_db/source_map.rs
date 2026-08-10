@@ -30,6 +30,7 @@ pub enum PreprocSourceMapping {
 pub struct PreprocManifestSource {
     pub file_id: FileId,
     pub range: TextRange,
+    pub name_range: TextRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

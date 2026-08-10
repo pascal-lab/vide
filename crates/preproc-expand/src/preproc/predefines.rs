@@ -61,7 +61,8 @@ fn configured_predefine_definition_at(
 ) -> Option<MacroDefinition> {
     let definition =
         configured_predefine_definition(db, predefine, &predefine_name(predefine.as_str())?)?;
-    (definition.file_id == file_id && definition.name_range.contains(offset)).then_some(definition)
+    (definition.file_id == file_id && definition.source_range.contains(offset))
+        .then_some(definition)
 }
 
 fn configured_predefine_definition(
@@ -75,6 +76,7 @@ fn configured_predefine_definition(
     }
     let source = predefine.source.as_ref()?;
     let file_id = file_id_for_predefine_source_path(db, &source.path)?;
+    let name_range = crate::source_db::manifest_predefine_name_range(db, file_id, source.range)?;
     Some(MacroDefinition {
         id: MacroDefinitionId::ConfiguredPredefine { file_id, range: source.range },
         file_id,
@@ -83,7 +85,7 @@ fn configured_predefine_definition(
         body_tokens: Vec::new(),
         source_range: source.range,
         directive_range: source.range,
-        name_range: source.range,
+        name_range,
     })
 }
 

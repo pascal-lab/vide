@@ -96,6 +96,36 @@ pub(crate) fn source_preproc_file_ids(
     Ok(source_map)
 }
 
+/// Returns the editable macro-name span inside a manifest `defines` value.
+///
+/// `PredefineSource::range` deliberately covers the complete TOML string so
+/// the source-map verification can prove that the configured value still
+/// matches the manifest.  IDE macro operations need the narrower name span,
+/// though, otherwise renaming `FOO=1` would replace the value and the `=1`
+/// assignment as well.
+pub(crate) fn manifest_predefine_name_range(
+    db: &dyn PreprocDb,
+    file_id: FileId,
+    range: TextRange,
+) -> Option<TextRange> {
+    let text = db.file_text(file_id);
+    let start = usize::from(range.start());
+    let end = usize::from(range.end());
+    let raw = text.get(start..end)?.trim();
+    let leading = text.get(start..end)?.len() - text.get(start..end)?.trim_start().len();
+    let content = raw.strip_prefix('"').or_else(|| raw.strip_prefix('\''))?;
+    let quote = raw.as_bytes().first().copied()?;
+    let content = content.strip_suffix(quote as char)?;
+    let name_len = content.find('=').unwrap_or(content.len());
+    let name_start = start + leading + 1;
+    let name_end = name_start.checked_add(name_len)?;
+    TextRange::new(
+        TextSize::from(u32::try_from(name_start).ok()?),
+        TextSize::from(u32::try_from(name_end).ok()?),
+    )
+    .into()
+}
+
 pub fn preproc_virtual_predefines_path(profile_id: Option<CompilationProfileId>) -> VfsPath {
     VfsPath::new_virtual_path(format!(
         "/__vide/preproc/{}/predefines.sv",
@@ -276,7 +306,9 @@ impl PredefineVirtualEntry {
                 source: self.source,
             });
         }
-        Ok(Some(PreprocManifestSource { file_id, range: source.range }))
+        let name_range = manifest_predefine_name_range(db, file_id, source.range)
+            .ok_or(SourcePreprocUnavailable::UnverifiedPredefineSource { source: self.source })?;
+        Ok(Some(PreprocManifestSource { file_id, range: source.range, name_range }))
     }
 }
 
