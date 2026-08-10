@@ -156,6 +156,9 @@ impl VideDiagnosticDescriptor {
 }
 
 pub(crate) fn parse_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    if db.file_kind(file_id).is_project_manifest() {
+        return crate::manifest::diagnostics(db, file_id);
+    }
     db.parse_diagnostics(file_id)
         .iter()
         .map(|diag| slang_diagnostic(file_id, SlangDiagnosticSource::Parse, diag))

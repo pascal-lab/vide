@@ -42,10 +42,14 @@ fn render_declaration_target(
     let mut ranges = Vec::new();
     let mut navs = Vec::new();
     for target in targets {
-        let SemanticTarget::Source(target) = target else {
-            return None;
+        let target = match target {
+            SemanticTarget::Manifest(target) => crate::manifest::definition_target(db, target),
+            SemanticTarget::Source(target) => {
+                render_source_declaration_target(db, hir_file_id, sema, target)
+            }
+            SemanticTarget::PreprocMacro(_) | SemanticTarget::Include(_) => None,
         };
-        let target = render_source_declaration_target(db, hir_file_id, sema, target)?;
+        let target = target?;
         ranges.push(target.range);
         navs.extend(target.info);
     }

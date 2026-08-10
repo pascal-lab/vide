@@ -845,9 +845,13 @@ fn line_of_offset(text: &str, offset: TextSize) -> usize {
 pub(crate) fn format(
     db: &RootDb,
     file_id: FileId,
+    is_range_formatting: bool,
     cancellation: &utils::cancellation::CancellationToken,
 ) -> anyhow::Result<Option<utils::text_edit::TextEdit>> {
     cancellation.check()?;
+    if is_range_formatting {
+        return Ok(None);
+    }
     let index = index_for(db, file_id).ok_or_else(|| anyhow::anyhow!("not a vide.toml file"))?;
     if let Some(error) = &index.error {
         anyhow::bail!(error.message.clone());

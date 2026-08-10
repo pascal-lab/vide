@@ -617,6 +617,42 @@ endmodule
 }
 
 #[test]
+fn manifest_formatting_returns_a_document_edit() {
+    let temp_dir = TempDir::new("manifest-formatting");
+    let manifest_text = "# project\ntop_modules=[\"top\"] # selected top\n";
+    let manifest_path = temp_dir.path().join("vide.toml");
+    fs::write(&manifest_path, manifest_text).unwrap();
+
+    let (client, server_thread) = spawn_test_workspace(
+        temp_dir.path().to_path_buf(),
+        ClientCapabilities::default(),
+        UserConfig::default(),
+    );
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
+    open_test_document(&client, manifest_uri.clone(), manifest_text);
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            Formatting::METHOD.to_string(),
+            DocumentFormattingParams {
+                text_document: TextDocumentIdentifier { uri: manifest_uri },
+                options: lsp_types::FormattingOptions::default(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )))
+        .unwrap();
+    let edits: Option<Vec<lsp_types::TextEdit>> = recv_response(&client, request_id, "formatting");
+    let edits = edits.expect("manifest formatting should return edits");
+    assert_eq!(edits.len(), 1, "manifest formatting should use one full-document edit");
+    assert_eq!(edits[0].new_text, "# project\ntop_modules = [\"top\"] # selected top\n");
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn references_request_respects_include_declaration() {
     let temp_dir = TempDir::new("references-include-declaration");
     let rtl_dir = temp_dir.path().join("rtl");

@@ -63,7 +63,7 @@ pub(crate) fn format(
     cancellation: &CancellationToken,
 ) -> anyhow::Result<Option<TextEdit>> {
     if db.file_kind(file_id).is_project_manifest() {
-        return crate::manifest::format(db, file_id, cancellation);
+        return crate::manifest::format(db, file_id, line_range.is_some(), cancellation);
     }
     let text = db.file_text(file_id);
     format_inner(text.as_ref(), line_range, ending, config, cancellation)
