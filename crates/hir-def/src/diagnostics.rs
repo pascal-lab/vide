@@ -552,6 +552,26 @@ endmodule
     }
 
     #[test]
+    fn property_case_expression_is_lowered_without_diagnostic() {
+        let text = r#"
+module m(input logic x, y);
+  property p;
+    case (x)
+      1'b1: y;
+      default: 1'b0;
+    endcase
+  endproperty
+endmodule
+"#;
+        let db = db_with_files(text, None);
+        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        assert!(
+            !diagnostics.iter().any(|diag| diag.message == "unsupported expression"),
+            "property case expressions must be lowered: {diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn default_nettype_none_diagnoses_bare_port_header() {
         // A first port with only a direction has no previous header to
         // inherit, so the default implicit-net header must also honor

@@ -217,6 +217,12 @@ pub enum SequenceExpr {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum PropertyCaseItem {
+    Default { expr: ExprId },
+    Standard { expressions: Box<[ExprId]>, expr: ExprId },
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum PropertyExpr {
     Parenthesized { expr: ExprId, matches: Box<[ExprId]> },
     Simple(ExprId),
@@ -227,6 +233,7 @@ pub enum PropertyExpr {
     Clocking { event: TimingControl, expr: Option<ExprId> },
     StrongWeak { strong: bool, expr: ExprId },
     AcceptOn { condition: ExprId, expr: ExprId },
+    Case { expr: ExprId, items: Box<[PropertyCaseItem]> },
 }
 
 #[derive(Default, Debug, PartialEq, Eq, Clone, Hash)]
@@ -480,13 +487,33 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
                 condition: self.lower_expr(expr.condition()),
                 expr: self.lower_property_expr(expr.expr()),
             },
-            ast::PropertyExpr::CasePropertyExpr(expr) => {
-                self.report_unsupported(expr.syntax(), "case property expressions are not lowered");
-                return self
-                    .alloc_lowered_expr(Expr::Unsupported(expr.syntax().kind()), expr.syntax());
-            }
+            ast::PropertyExpr::CasePropertyExpr(expr) => PropertyExpr::Case {
+                expr: self.lower_expr(expr.expr()),
+                items: expr
+                    .items()
+                    .children()
+                    .map(|item| self.lower_property_case_item(item))
+                    .collect(),
+            },
         };
         self.alloc_lowered_expr(Expr::Property(lowered), expr.syntax())
+    }
+
+    fn lower_property_case_item(&mut self, item: ast::PropertyCaseItem) -> PropertyCaseItem {
+        use ast::PropertyCaseItem::*;
+        match item {
+            DefaultPropertyCaseItem(item) => {
+                PropertyCaseItem::Default { expr: self.lower_property_expr(item.expr()) }
+            }
+            StandardPropertyCaseItem(item) => PropertyCaseItem::Standard {
+                expressions: item
+                    .expressions()
+                    .children()
+                    .map(|expr| self.lower_expr(expr))
+                    .collect(),
+                expr: self.lower_property_expr(item.expr()),
+            },
+        }
     }
 
     fn lower_expr_inner(&mut self, expr: ast::Expression) -> Option<Expr> {
