@@ -640,7 +640,10 @@ extern module unit_external #(parameter int width = 8, parameter type data_t = l
   (input logic in_a, output logic out_b);
 extern primitive unit_external_primitive(output primitive_out, input primitive_in_a, primitive_in_b);
 class unit_class;
-  int value;
+  protected rand int value;
+  local static int hidden;
+  const int immutable = 1;
+  randc int cycle;
   function void method();
   endfunction
   pure virtual function void prototype(input int value);
@@ -899,13 +902,36 @@ endprogram
             .values()
             .find(|class| class.name.as_deref() == Some("unit_class"))
             .expect("file-level class should be lowered");
-        assert_eq!(class.members.len(), 5);
+        assert_eq!(class.members.len(), 8);
         assert!(class.members[0].ty.is_some());
-        assert!(class.members[1].method.as_ref().is_some_and(|method| method.has_body));
-        assert!(class.members[1].owner.is_some());
-        assert!(class.members[2].method.as_ref().is_some_and(|method| !method.has_body));
-        assert!(class.members[3].constraint.is_some());
-        assert!(class.members[4].constraint.is_some());
+        assert_eq!(
+            class.members[0].property_qualifiers,
+            Some(crate::aggregate::ClassPropertyQualifiers {
+                is_const: false,
+                is_static: false,
+                random: Some(crate::aggregate::ClassRandomQualifier::Rand),
+                visibility: crate::aggregate::ClassVisibility::Protected,
+            })
+        );
+        assert_eq!(
+            class.members[1].property_qualifiers.map(|qualifiers| (
+                qualifiers.is_const,
+                qualifiers.is_static,
+                qualifiers.random,
+                qualifiers.visibility,
+            )),
+            Some((false, true, None, crate::aggregate::ClassVisibility::Local))
+        );
+        assert!(class.members[2].property_qualifiers.is_some_and(|qualifiers| qualifiers.is_const));
+        assert_eq!(
+            class.members[3].property_qualifiers.and_then(|qualifiers| qualifiers.random),
+            Some(crate::aggregate::ClassRandomQualifier::RandC)
+        );
+        assert!(class.members[4].method.as_ref().is_some_and(|method| method.has_body));
+        assert!(class.members[4].owner.is_some());
+        assert!(class.members[5].method.as_ref().is_some_and(|method| !method.has_body));
+        assert!(class.members[6].constraint.is_some());
+        assert!(class.members[7].constraint.is_some());
         assert_eq!(body.constraint_defs.len(), 2);
         assert!(body.constraint_defs.values().any(|constraint| !constraint.prototype));
         assert!(body.constraint_defs.values().any(|constraint| constraint.prototype));

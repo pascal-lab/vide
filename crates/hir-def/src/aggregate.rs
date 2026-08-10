@@ -111,11 +111,33 @@ pub enum ClassMemberKind {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClassVisibility {
+    Public,
+    Protected,
+    Local,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClassRandomQualifier {
+    Rand,
+    RandC,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ClassPropertyQualifiers {
+    pub is_const: bool,
+    pub is_static: bool,
+    pub random: Option<ClassRandomQualifier>,
+    pub visibility: ClassVisibility,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassMember {
     pub name: Option<Ident>,
     pub kind: ClassMemberKind,
     pub ty: Option<OwnerRef<DataTy>>,
+    pub property_qualifiers: Option<ClassPropertyQualifiers>,
     pub method: Option<Subroutine>,
     pub constraint: Option<ConstraintDefId>,
     pub owner: Option<OwnerId>,
@@ -261,6 +283,7 @@ pub(crate) fn lower_class_def(
                     name,
                     kind: ClassMemberKind::Property,
                     ty,
+                    property_qualifiers: Some(lower_class_property_qualifiers(property)),
                     method: None,
                     constraint: None,
                     owner: None,
@@ -270,6 +293,7 @@ pub(crate) fn lower_class_def(
                 name: lower_ident_opt(method.declaration().name()),
                 kind: ClassMemberKind::Method,
                 ty: None,
+                property_qualifiers: None,
                 method: None,
                 constraint: None,
                 owner: None,
@@ -282,6 +306,7 @@ pub(crate) fn lower_class_def(
                     .and_then(|name| lower_ident_opt(name.identifier())),
                 kind: ClassMemberKind::Method,
                 ty: None,
+                property_qualifiers: None,
                 method: None,
                 constraint: None,
                 owner: None,
@@ -290,6 +315,7 @@ pub(crate) fn lower_class_def(
                 name: lower_constraint_name(constraint.name()),
                 kind: ClassMemberKind::Constraint,
                 ty: None,
+                property_qualifiers: None,
                 method: None,
                 constraint: None,
                 owner: None,
@@ -298,6 +324,7 @@ pub(crate) fn lower_class_def(
                 name: lower_constraint_name(prototype.name()),
                 kind: ClassMemberKind::Constraint,
                 ty: None,
+                property_qualifiers: None,
                 method: None,
                 constraint: None,
                 owner: None,
@@ -310,4 +337,27 @@ pub(crate) fn lower_class_def(
 
 fn lower_constraint_name(name: ast::Name<'_>) -> Option<Ident> {
     name.as_identifier_name().and_then(|name| lower_ident_opt(name.identifier()))
+}
+
+fn lower_class_property_qualifiers(
+    property: ast::ClassPropertyDeclaration<'_>,
+) -> ClassPropertyQualifiers {
+    let mut is_const = false;
+    let mut is_static = false;
+    let mut random = None;
+    let mut visibility = ClassVisibility::Public;
+
+    for qualifier in property.qualifiers().children() {
+        match qualifier.kind() {
+            TokenKind::CONST_KEYWORD => is_const = true,
+            TokenKind::STATIC_KEYWORD => is_static = true,
+            TokenKind::RAND_KEYWORD => random = Some(ClassRandomQualifier::Rand),
+            TokenKind::RAND_C_KEYWORD => random = Some(ClassRandomQualifier::RandC),
+            TokenKind::LOCAL_KEYWORD => visibility = ClassVisibility::Local,
+            TokenKind::PROTECTED_KEYWORD => visibility = ClassVisibility::Protected,
+            _ => {}
+        }
+    }
+
+    ClassPropertyQualifiers { is_const, is_static, random, visibility }
 }
