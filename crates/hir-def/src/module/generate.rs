@@ -130,6 +130,9 @@ impl LowerGenerateBlockCtx<'_> {
             ContinuousAssign(assign) => self.lower_continuous_assign(assign).into(),
             DataDeclaration(data_decl) => self.lower_data_decl(data_decl).into(),
             NetDeclaration(net_decl) => self.lower_net_decl(net_decl).into(),
+            UserDefinedNetDeclaration(net_decl) => {
+                BodyItem::DeclarationId(self.lower_user_defined_net_decl(net_decl)?)
+            }
             ParameterDeclarationStatement(param_decl) => {
                 self.lower_param_decl_base(param_decl.parameter()).into()
             }
@@ -325,6 +328,11 @@ impl LowerModuleCtx<'_> {
             NetDeclaration(net_decl) => {
                 items.push(self.lower_net_decl(net_decl).into());
             }
+            UserDefinedNetDeclaration(net_decl) => {
+                if let Some(declaration) = self.lower_user_defined_net_decl(net_decl) {
+                    items.push(declaration.into());
+                }
+            }
             EmptyMember(_) => {}
             GenvarDeclaration(genvar_decl) => {
                 items.push(self.lower_genvar_decl(genvar_decl).into());
@@ -334,6 +342,16 @@ impl LowerModuleCtx<'_> {
             }
             TypedefDeclaration(typedef_decl) => {
                 items.push(self.lower_typedef(typedef_decl).into());
+            }
+            ForwardTypedefDeclaration(typedef_decl) => {
+                if let Some(typedef) = self.lower_forward_typedef(typedef_decl) {
+                    items.push(typedef.into());
+                }
+            }
+            NetTypeDeclaration(declaration) => {
+                if let Some(net_type) = self.lower_net_type_decl(declaration) {
+                    items.push(net_type.into());
+                }
             }
             HierarchyInstantiation(instantiation) => {
                 items.push(self.lower_instantiation(instantiation).into());

@@ -1,9 +1,9 @@
 use la_arena::Idx;
-use syntax::{TokenKind, ast};
+use syntax::{TokenKind, ast, ast::AstNode};
 use utils::define_enum_deriving_from;
 
 use super::expr::{
-    data_ty::{BuiltinDataTy, BuiltinDataTyId, DataTy, IntKind},
+    data_ty::{BuiltinDataTy, BuiltinDataTyId, DataTy, IntKind, TypeRef},
     declarator::{DeclsRange, empty_decls_range},
     timing_control::DelayControl,
 };
@@ -190,6 +190,45 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         let decls = self.lower_declarators(net_decl.declarators(), parent.into());
         self.finish_declaration_decls(parent, decls);
         parent
+    }
+
+    pub(crate) fn lower_user_defined_net_decl(
+        &mut self,
+        net_decl: ast::UserDefinedNetDeclaration,
+    ) -> Option<DeclarationId> {
+        let Some(net_type) = net_decl.net_type() else {
+            self.report_invalid(
+                net_decl.syntax(),
+                "user-defined net declaration is missing its nettype name",
+            );
+            return None;
+        };
+        let Some(net_type) = crate::lower_ident_opt(Some(net_type)) else {
+            self.report_invalid(
+                net_decl.syntax(),
+                "user-defined net declaration has an invalid nettype name",
+            );
+            return None;
+        };
+        let source = self.source_id(net_decl.syntax());
+        let ty = DataTy::Named(TypeRef::single(net_type, source));
+        let delay = match self.lower_timing_control(net_decl.delay()) {
+            crate::expr::timing_control::TimingControl::DelayControl(delay) => Some(delay),
+            _ => {
+                self.report_unsupported(
+                    net_decl.delay().syntax(),
+                    "user-defined net declaration delay is not a delay control",
+                );
+                return None;
+            }
+        };
+        let parent = self.alloc_declaration(
+            NetDecl { ty, net_kind: None, delay, strength: None, decls: empty_decls_range() },
+            net_decl,
+        );
+        let decls = self.lower_declarators(net_decl.declarators(), parent.into());
+        self.finish_declaration_decls(parent, decls);
+        Some(parent)
     }
 
     pub(crate) fn lower_port_decl_as_data_decl(

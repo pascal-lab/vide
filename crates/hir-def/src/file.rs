@@ -255,6 +255,12 @@ impl LowerFileCtx<'_> {
                 ProceduralBlock(proc) => self.lower_proc(proc).into(),
                 DataDeclaration(data_decl) => self.lower_data_decl(data_decl).into(),
                 NetDeclaration(net_decl) => self.lower_net_decl(net_decl).into(),
+                UserDefinedNetDeclaration(net_decl) => {
+                    match self.lower_user_defined_net_decl(net_decl) {
+                        Some(id) => id.into(),
+                        None => continue,
+                    }
+                }
                 EmptyMember(_x) => continue,
                 TypedefDeclaration(typedef_decl) => self.lower_typedef(typedef_decl).into(),
                 ParameterDeclarationStatement(param_decl) => {

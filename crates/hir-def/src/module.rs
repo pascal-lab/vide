@@ -192,6 +192,14 @@ impl LowerModuleCtx<'_> {
                     self.bind_nonansi_declarations(decls);
                     id.into()
                 }
+                UserDefinedNetDeclaration(net_decl) => {
+                    let Some(id) = self.lower_user_defined_net_decl(net_decl) else {
+                        continue;
+                    };
+                    let decls = self.store.data.declarations[id].decls();
+                    self.bind_nonansi_declarations(decls);
+                    id.into()
+                }
                 unsupported @ LocalVariableDeclaration(_) => {
                     self.report_unsupported(
                         unsupported.syntax(),
@@ -214,13 +222,6 @@ impl LowerModuleCtx<'_> {
                         Some(id) => id.into(),
                         None => continue,
                     }
-                }
-                unsupported @ UserDefinedNetDeclaration(_) => {
-                    self.report_unsupported(
-                        unsupported.syntax(),
-                        "module declaration kind is not lowered",
-                    );
-                    continue;
                 }
 
                 // Instantiations

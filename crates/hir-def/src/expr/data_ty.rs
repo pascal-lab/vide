@@ -127,6 +127,16 @@ pub struct TypeRef {
 }
 
 impl TypeRef {
+    pub(crate) fn single(ident: Ident, source: SourceAstId) -> Self {
+        Self::new(
+            smallvec::smallvec![ident],
+            smallvec::smallvec![source],
+            TypePathKind::Unqualified,
+            source,
+            None,
+        )
+    }
+
     fn new(
         segments: SmallVec<[Ident; 2]>,
         segment_sources: SmallVec<[SourceAstId; 2]>,

@@ -409,6 +409,7 @@ mod tests {
         db::HirDefDb,
         declaration::{Declaration, ParamDeclKind},
         dpi::{DpiExportKind, DpiImportProperty, DpiSpec},
+        expr::data_ty::DataTy,
         external::{ExternModulePortList, ExternParameter},
         source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
         time_units::{TimeScaleMagnitude, TimeUnitsKind},
@@ -628,6 +629,7 @@ typedef enum unit_forward_enum;
 typedef union unit_forward_union;
 typedef interface class unit_forward_interface;
 nettype logic unit_nettype with unit_resolution;
+unit_nettype #1 unit_signal;
 parameter int unit_parameter = 1;
 timeunit 1ns / 1ps;
 import "DPI-C" context c_import = function int imported(input int a, output logic b);
@@ -658,6 +660,7 @@ bind unit_module unit_checker::unit_checker unit_checker_bind();
 module unit_module;
   typedef struct module_forward;
   nettype logic module_nettype;
+  module_nettype #2 module_signal;
   timeunit 10ns;
   timeprecision 1ps;
   import "DPI-C" function void module_import();
@@ -710,6 +713,18 @@ endconfig
             body.net_type_decls.values().next().expect("file nettype should be lowered");
         assert_eq!(file_net_type.name, "unit_nettype");
         assert_eq!(file_net_type.with_function.as_deref(), Some("unit_resolution"));
+        let file_user_net = body
+            .declarations
+            .values()
+            .find_map(|declaration| match declaration {
+                Declaration::NetDecl(net) if matches!(&net.ty, DataTy::Named(ty) if ty.segments() == ["unit_nettype"]) => {
+                    Some(net)
+                }
+                _ => None,
+            })
+            .expect("file user-defined net should be lowered");
+        assert!(file_user_net.net_kind.is_none());
+        assert!(file_user_net.delay.is_some());
         let time_units = body.time_units.values().next().expect("file time unit should be lowered");
         assert_eq!(time_units.kind, TimeUnitsKind::Unit);
         assert_eq!(time_units.value.unit, syntax::TimeUnit::Nanoseconds);
@@ -775,6 +790,18 @@ endconfig
         assert_eq!(module_forward.forward_kind, Some(ForwardTypedefKind::Struct));
         assert_eq!(module_body.net_type_decls.len(), 1);
         assert_eq!(module_body.net_type_decls.values().next().unwrap().name, "module_nettype");
+        let module_user_net = module_body
+            .declarations
+            .values()
+            .find_map(|declaration| match declaration {
+                Declaration::NetDecl(net) if matches!(&net.ty, DataTy::Named(ty) if ty.segments() == ["module_nettype"]) => {
+                    Some(net)
+                }
+                _ => None,
+            })
+            .expect("module user-defined net should be lowered");
+        assert!(module_user_net.net_kind.is_none());
+        assert!(module_user_net.delay.is_some());
         assert_eq!(module_body.time_units.len(), 2);
         assert_eq!(module_body.dpi_imports.len(), 1);
         assert_eq!(module_body.dpi_exports.len(), 1);
