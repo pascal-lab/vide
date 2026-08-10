@@ -1,6 +1,7 @@
 use super::{SourceBufferId, SourceBufferRange};
 use crate::{syntax::SyntaxKind, token::TokenKind};
 use crate::syntax::ffi;
+use tracing::warn;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Trace {
@@ -163,15 +164,25 @@ impl Trace {
             source_buffers: raw
                 .source_buffers
                 .into_iter()
-                .map(|buffer| SourceBufferId {
-                    path: buffer.path,
-                    text: Some(buffer.text),
-                    buffer_id: buffer.buffer_id,
-                    origin: match buffer.origin {
+                .filter_map(|buffer| {
+                    let origin = match buffer.origin {
                         0 => super::SourceBufferOrigin::Source,
                         1 => super::SourceBufferOrigin::Predefine,
-                        origin => panic!("unexpected Slang trace source buffer origin {origin}"),
-                    },
+                        origin => {
+                            warn!(
+                                buffer_id = buffer.buffer_id,
+                                origin,
+                                "Slang returned an unknown trace source buffer origin; dropping the buffer"
+                            );
+                            return None;
+                        }
+                    };
+                    Some(SourceBufferId {
+                        path: buffer.path,
+                        text: Some(buffer.text),
+                        buffer_id: buffer.buffer_id,
+                        origin,
+                    })
                 })
                 .collect(),
             events: raw.events.into_iter().map(Event::from_raw).collect(),
@@ -319,7 +330,13 @@ impl TokenOrigin {
                 argument_token_index: raw.has_argument_token_index.then_some(raw.argument_token_index),
             },
             TraceTokenOrigin::UNAVAILABLE => TokenOrigin::Unavailable,
-            kind => panic!("unexpected Slang trace token origin {kind}"),
+            kind => {
+                warn!(
+                    kind,
+                    "Slang returned an unknown trace token origin; treating it as unavailable"
+                );
+                TokenOrigin::Unavailable
+            }
         }
     }
 }

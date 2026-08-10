@@ -65,11 +65,19 @@ pub enum SyntaxKeywordContext {
 impl SyntaxDiagnostic {
     pub(crate) fn from_raw(raw: ffi::RawSyntaxDiagnostic) -> Self {
         let code = DiagCode::from_raw(raw.subsystem, raw.code);
+        let severity = DiagnosticSeverity::from_raw(raw.severity).unwrap_or_else(|| {
+            tracing::warn!(
+                raw = raw.severity,
+                code = raw.code,
+                subsystem = raw.subsystem,
+                "Slang returned an unknown diagnostic severity; treating it as fatal"
+            );
+            DiagnosticSeverity::Fatal
+        });
         Self {
             code: raw.code,
             subsystem: raw.subsystem,
-            severity: DiagnosticSeverity::from_raw(raw.severity)
-                .unwrap_or(DiagnosticSeverity::Fatal),
+            severity,
             message: raw.message,
             args: raw.args,
             name: raw.name,

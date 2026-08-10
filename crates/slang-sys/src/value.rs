@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::syntax::ffi;
+use tracing::warn;
 
 /// An owned four-state SystemVerilog integer value.
 ///
@@ -65,15 +66,18 @@ pub enum TimeUnit {
 }
 
 impl TimeUnit {
-    pub(crate) fn from_raw(raw: u8) -> Self {
+    pub(crate) fn from_raw(raw: u8) -> Option<Self> {
         match raw {
-            0 => Self::Seconds,
-            1 => Self::Milliseconds,
-            2 => Self::Microseconds,
-            3 => Self::Nanoseconds,
-            4 => Self::Picoseconds,
-            5 => Self::Femtoseconds,
-            _ => panic!("unknown Slang time unit value: {raw}"),
+            0 => Some(Self::Seconds),
+            1 => Some(Self::Milliseconds),
+            2 => Some(Self::Microseconds),
+            3 => Some(Self::Nanoseconds),
+            4 => Some(Self::Picoseconds),
+            5 => Some(Self::Femtoseconds),
+            raw => {
+                warn!(raw, "Slang returned an unknown time unit; dropping the value");
+                None
+            }
         }
     }
 }
@@ -102,13 +106,16 @@ pub enum Bit {
 impl Bit {
     pub fn bit(self) -> Self { self }
 
-    pub(crate) fn from_raw(raw: u8) -> Self {
+    pub(crate) fn from_raw(raw: u8) -> Option<Self> {
         match raw {
-            0 => Self::L,
-            1 => Self::H,
-            128 => Self::X,
-            64 => Self::Z,
-            _ => panic!("unknown Slang four-state bit value: {raw}"),
+            0 => Some(Self::L),
+            1 => Some(Self::H),
+            128 => Some(Self::X),
+            64 => Some(Self::Z),
+            raw => {
+                warn!(raw, "Slang returned an unknown four-state bit; dropping the value");
+                None
+            }
         }
     }
 }
@@ -121,5 +128,21 @@ impl fmt::Display for Bit {
             Self::X => "x",
             Self::Z => "z",
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Bit, TimeUnit};
+
+    #[test]
+    fn unknown_time_unit_is_reported_as_absent() {
+        assert_eq!(TimeUnit::from_raw(u8::MAX), None);
+    }
+
+    #[test]
+    fn unknown_bit_is_reported_as_absent() {
+        assert_eq!(Bit::from_raw(1), Some(Bit::H));
+        assert_eq!(Bit::from_raw(u8::MAX), None);
     }
 }

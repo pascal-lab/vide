@@ -199,9 +199,9 @@ namespace slang_sys::syntax::tree {
             case ::slang::SourceManager::BufferKind::Unknown:
             case ::slang::SourceManager::BufferKind::Macro:
             case ::slang::SourceManager::BufferKind::MacroArg:
-                throw std::logic_error("unexpected non-source Slang buffer in syntax tree");
+                return 2;
         }
-        throw std::logic_error("unhandled Slang source buffer kind");
+        return 2;
     }
 
     rust::Vec<RawExpectedSyntax> syntax_tree_expected_syntax_at(

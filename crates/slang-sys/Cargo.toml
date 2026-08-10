@@ -8,6 +8,7 @@ build = "build.rs"
 
 [dependencies]
 cxx = { version = "1.0.124", features = ["c++20"] }
+tracing.workspace = true
 
 [build-dependencies]
 cmake = "0.1.50"

@@ -1,6 +1,8 @@
 //! Untyped syntax tree node and token views.
 use std::{hash, ptr::NonNull};
 
+use tracing::warn;
+
 use super::{
     cursor::SyntaxCursor,
     element::SyntaxElement,
@@ -320,6 +322,7 @@ impl<'a> SyntaxToken<'a> {
     pub fn bits(self) -> Option<Bit> {
         (self.kind() == TokenKind::UNBASED_UNSIZED_LITERAL)
             .then(|| Bit::from_raw(unsafe { ffi::syntax_token_bit_value(self.raw.as_ptr()) }))
+            .flatten()
     }
 
     pub fn real(self) -> Option<f64> {
@@ -328,20 +331,26 @@ impl<'a> SyntaxToken<'a> {
     }
 
     pub fn base(self) -> Option<LiteralBase> {
-        (self.kind() == TokenKind::INTEGER_BASE).then(|| {
-            match unsafe { ffi::syntax_token_literal_base(self.raw.as_ptr()) } {
-                0 => LiteralBase::Bin,
-                1 => LiteralBase::Oct,
-                2 => LiteralBase::Dec,
-                3 => LiteralBase::Hex,
-                raw => panic!("unknown Slang literal base value: {raw}"),
+        if self.kind() != TokenKind::INTEGER_BASE {
+            return None;
+        }
+
+        match unsafe { ffi::syntax_token_literal_base(self.raw.as_ptr()) } {
+            0 => Some(LiteralBase::Bin),
+            1 => Some(LiteralBase::Oct),
+            2 => Some(LiteralBase::Dec),
+            3 => Some(LiteralBase::Hex),
+            raw => {
+                warn!(raw, "Slang returned an unknown integer literal base; dropping the value");
+                None
             }
-        })
+        }
     }
 
     pub fn time_unit(self) -> Option<TimeUnit> {
         (self.kind() == TokenKind::TIME_LITERAL)
             .then(|| TimeUnit::from_raw(unsafe { ffi::syntax_token_time_unit(self.raw.as_ptr()) }))
+            .flatten()
     }
 
     pub fn trivia_count(self) -> usize {

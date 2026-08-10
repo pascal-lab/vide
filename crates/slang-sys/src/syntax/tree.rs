@@ -1,6 +1,7 @@
 use std::fmt;
 
 use cxx::SharedPtr;
+use tracing::warn;
 
 use super::{
     ffi,
@@ -232,15 +233,25 @@ impl SyntaxTree {
         let root_buffer_id = ffi::syntax_tree_root_buffer_id(raw);
         let source_buffers = ffi::syntax_tree_buffer_ids(raw)
             .into_iter()
-            .map(|buffer_id| SourceBufferId {
-                path: ffi::syntax_tree_buffer_path(raw, buffer_id),
-                text: Some(ffi::syntax_tree_buffer_text(raw, buffer_id)),
-                buffer_id,
-                origin: match ffi::syntax_tree_buffer_origin(raw, buffer_id) {
+            .filter_map(|buffer_id| {
+                let origin = match ffi::syntax_tree_buffer_origin(raw, buffer_id) {
                     0 => SourceBufferOrigin::Source,
                     1 => SourceBufferOrigin::Predefine,
-                    origin => panic!("unexpected Slang source buffer origin {origin}"),
-                },
+                    origin => {
+                        warn!(
+                            buffer_id,
+                            origin,
+                            "Slang returned an unknown source buffer origin; dropping the buffer"
+                        );
+                        return None;
+                    }
+                };
+                Some(SourceBufferId {
+                    path: ffi::syntax_tree_buffer_path(raw, buffer_id),
+                    text: Some(ffi::syntax_tree_buffer_text(raw, buffer_id)),
+                    buffer_id,
+                    origin,
+                })
             })
             .collect();
         SyntaxTreeBufferIds { root_buffer_id, source_buffers }
@@ -250,38 +261,48 @@ impl SyntaxTree {
 impl ParserExpectedSyntax {
     fn from_raw(raw: ffi::RawExpectedSyntax) -> Self {
         let code = DiagCode::from_raw(raw.subsystem, raw.code);
-        let name = code
-            .info()
-            .unwrap_or_else(|| {
-                panic!(
-                    "Slang returned unknown expected syntax diagnostic {}:{}",
-                    raw.subsystem, raw.code
-                )
-            })
-            .name
-            .to_owned();
+        let name = code.info().map_or_else(
+            || {
+                warn!(
+                    subsystem = raw.subsystem,
+                    code = raw.code,
+                    "Slang returned an unknown expected syntax diagnostic"
+                );
+                format!("UnknownDiagnostic({}:{})", raw.subsystem, raw.code)
+            },
+            |info| info.name.to_owned(),
+        );
         Self {
             code: raw.code,
             subsystem: raw.subsystem,
             name,
             token_kind: crate::token::TokenKind::from_raw(raw.token_kind),
-            keyword_context: raw.has_keyword_context.then(|| match raw.keyword_context {
-                0 => SyntaxKeywordContext::CompilationUnitMember,
-                1 => SyntaxKeywordContext::LibraryMapMember,
-                2 => SyntaxKeywordContext::ModuleHeaderItem,
-                3 => SyntaxKeywordContext::ModuleMember,
-                4 => SyntaxKeywordContext::GenerateMember,
-                5 => SyntaxKeywordContext::SpecifyItem,
-                6 => SyntaxKeywordContext::ConfigHeaderItem,
-                7 => SyntaxKeywordContext::ConfigRule,
-                8 => SyntaxKeywordContext::BlockItem,
-                9 => SyntaxKeywordContext::Statement,
-                10 => SyntaxKeywordContext::ParameterPortListItem,
-                11 => SyntaxKeywordContext::AnsiPortItem,
-                12 => SyntaxKeywordContext::FunctionPortItem,
-                13 => SyntaxKeywordContext::GateType,
-                context => panic!("Slang returned unknown expected syntax context {context}"),
-            }),
+            keyword_context: raw
+                .has_keyword_context
+                .then(|| match raw.keyword_context {
+                    0 => Some(SyntaxKeywordContext::CompilationUnitMember),
+                    1 => Some(SyntaxKeywordContext::LibraryMapMember),
+                    2 => Some(SyntaxKeywordContext::ModuleHeaderItem),
+                    3 => Some(SyntaxKeywordContext::ModuleMember),
+                    4 => Some(SyntaxKeywordContext::GenerateMember),
+                    5 => Some(SyntaxKeywordContext::SpecifyItem),
+                    6 => Some(SyntaxKeywordContext::ConfigHeaderItem),
+                    7 => Some(SyntaxKeywordContext::ConfigRule),
+                    8 => Some(SyntaxKeywordContext::BlockItem),
+                    9 => Some(SyntaxKeywordContext::Statement),
+                    10 => Some(SyntaxKeywordContext::ParameterPortListItem),
+                    11 => Some(SyntaxKeywordContext::AnsiPortItem),
+                    12 => Some(SyntaxKeywordContext::FunctionPortItem),
+                    13 => Some(SyntaxKeywordContext::GateType),
+                    context => {
+                        warn!(
+                            context,
+                            "Slang returned an unknown expected syntax context; dropping the context"
+                        );
+                        None
+                    }
+                })
+                .flatten(),
             location: raw.has_location.then_some(raw.location),
             end: raw.has_end.then_some(raw.end),
         }
@@ -516,6 +537,11 @@ mod tests {
     }
 }
 
+// SAFETY: `SyntaxTree` owns the Slang syntax tree through a `cxx::SharedPtr`.
+// Slang keeps the source manager and syntax nodes alive behind that owner, and
+// every Rust view borrows this tree. The wrapper exposes only const access to
+// the tree after parsing; the mutable C++ calls are confined to construction
+// and trace collection before the tree is shared with callers.
 unsafe impl Send for SyntaxTree {}
 unsafe impl Sync for SyntaxTree {}
 
