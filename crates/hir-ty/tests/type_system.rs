@@ -11,6 +11,7 @@ use hir_def::{
     Ident,
     constraint::Constraint,
     container::OwnerRef,
+    covergroup::CoverageBinInitializer,
     db::HirDefDb,
     expr::{
         Expr,
@@ -322,6 +323,33 @@ endmodule
         types.display_source(&values).expect("wildcard array type should render"),
         "logic [*]"
     );
+}
+
+#[test]
+fn coverpoint_bins_preserve_sample_expression_and_ranges() {
+    let db = db_with_root_text(
+        r#"
+covergroup cg;
+  cp: coverpoint 1 {
+    bins low[2] = {[0:3]};
+  }
+endgroup
+module m;
+endmodule
+"#,
+    );
+    let module = module_id(&db, "m");
+    let covergroup = db
+        .unit_index()
+        .instantiable_ids_in(module, &ident("cg"))
+        .unique()
+        .expect("covergroup should be indexed");
+    let body = db.body(covergroup);
+    let definition = body.covergroups.values().next().expect("covergroup should lower");
+    let coverpoint = &body.coverpoints[definition.coverpoints[0]];
+    assert_eq!(coverpoint.bins.len(), 1);
+    assert!(matches!(coverpoint.bins[0].initializer, CoverageBinInitializer::Ranges { .. }));
+    assert!(coverpoint.bins[0].size.is_some());
 }
 #[test]
 fn qualified_type_paths_preserve_separator_and_source_projection() {
