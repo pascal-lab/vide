@@ -408,6 +408,7 @@ mod tests {
         db::HirDefDb,
         declaration::{Declaration, ParamDeclKind},
         source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
+        time_units::{TimeScaleMagnitude, TimeUnitsKind},
     };
 
     const TOP: FileId = FileId::from_raw(0);
@@ -619,6 +620,7 @@ int unit_data;
 wire unit_net;
 typedef int unit_type;
 parameter int unit_parameter = 1;
+timeunit 1ns / 1ps;
 class unit_class;
   int value;
   function void method();
@@ -636,6 +638,8 @@ endchecker
 covergroup unit_covergroup;
 endgroup
 module unit_module;
+  timeunit 10ns;
+  timeprecision 1ps;
 endmodule
 config unit_config;
   design unit_module;
@@ -655,12 +659,40 @@ endconfig
             _ => None,
         });
         assert_eq!(parameter.map(|parameter| parameter.kind), Some(ParamDeclKind::Parameter));
+        let time_units = body.time_units.values().next().expect("file time unit should be lowered");
+        assert_eq!(time_units.kind, TimeUnitsKind::Unit);
+        assert_eq!(time_units.value.unit, syntax::TimeUnit::Nanoseconds);
+        assert_eq!(time_units.value.magnitude, TimeScaleMagnitude::One);
+        assert_eq!(time_units.precision.unwrap().unit, syntax::TimeUnit::Picoseconds);
+        let module = body.module_owners().next().expect("module owner should be lowered");
+        let module_body = db.body(module);
+        assert_eq!(module_body.time_units.len(), 2);
+        let mut module_time_units = module_body.time_units.values();
+        let module_time_unit =
+            module_time_units.next().expect("module time unit should be lowered");
+        let module_time_precision =
+            module_time_units.next().expect("module time precision should be lowered");
+        assert_eq!(module_time_unit.kind, TimeUnitsKind::Unit);
+        assert_eq!(module_time_unit.value.magnitude, TimeScaleMagnitude::Ten);
+        assert_eq!(module_time_precision.kind, TimeUnitsKind::Precision);
         let class = body
             .classes
             .values()
             .find(|class| class.name.as_deref() == Some("unit_class"))
             .expect("file-level class should be lowered");
         assert_eq!(class.members.len(), 2);
+    }
+
+    #[test]
+    fn invalid_time_units_value_produces_lowering_diagnostic() {
+        let db = db_with_files("timeunit 2ns;\n", None);
+        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("invalid time scale value")),
+            "invalid time scale values must be diagnosed: {diagnostics:?}"
+        );
     }
 
     #[test]

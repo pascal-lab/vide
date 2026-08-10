@@ -54,6 +54,7 @@ use crate::{
     source_map::{Lowered, LoweredData, SourceMap},
     stmt::{Stmt, StmtId},
     subroutine::{Subroutine, lower_subroutine},
+    time_units::{TimeUnitsDecl, TimeUnitsDeclId},
     typedef::{Typedef, TypedefId, lower_typedef_data_ty},
 };
 
@@ -184,6 +185,7 @@ pub enum BodyItem {
     TypedefId(TypedefId),
     StructId(StructId),
     ClassId(ClassId),
+    TimeUnitsDeclId(TimeUnitsDeclId),
     ConfigDeclId(ConfigDeclId),
     UdpDeclId(UdpDeclId),
     LibraryDeclId(LibraryDeclId),
@@ -223,6 +225,7 @@ impl_body_item_from! {
     ProcId => ProcId,
     DeclarationId => DeclarationId,
     ClassId => ClassId,
+    TimeUnitsDeclId => TimeUnitsDeclId,
     TypedefId => TypedefId,
     StructId => StructId,
     ConfigDeclId => ConfigDeclId,
@@ -259,6 +262,7 @@ pub struct Body {
     pub exprs: Arena<Expr>,
     pub event_exprs: Arena<EventExpr>,
     pub classes: Arena<ClassDef>,
+    pub time_units: Arena<TimeUnitsDecl>,
     pub decls: Arena<Declarator>,
     pub stmts: Arena<Stmt>,
     pub root_stmt: Option<StmtId>,
@@ -354,6 +358,7 @@ impl Body {
         self.exprs.shrink_to_fit();
         self.event_exprs.shrink_to_fit();
         self.classes.shrink_to_fit();
+        self.time_units.shrink_to_fit();
         self.constraints.shrink_to_fit();
         self.constraint_defs.shrink_to_fit();
         self.decls.shrink_to_fit();
@@ -399,6 +404,7 @@ pub struct BodySourceMap {
     pub decl_srcs: SourceMap<Declarator>,
     pub constraint_srcs: SourceMap<Constraint>,
     pub class_srcs: SourceMap<ClassDef>,
+    pub time_units_srcs: SourceMap<TimeUnitsDecl>,
     pub constraint_def_srcs: SourceMap<ConstraintDef>,
     pub stmt_srcs: SourceMap<Stmt>,
     pub proc_srcs: SourceMap<Proc>,
@@ -446,6 +452,7 @@ impl BodySourceMap {
         self.constraint_def_srcs.shrink_to_fit();
         self.config_decl_srcs.shrink_to_fit();
         self.class_srcs.shrink_to_fit();
+        self.time_units_srcs.shrink_to_fit();
         self.udp_decl_srcs.shrink_to_fit();
         self.library_decl_srcs.shrink_to_fit();
         self.library_include_srcs.shrink_to_fit();
@@ -755,6 +762,7 @@ impl BodySourceMap {
             BodyItem::TypedefId(id) => self.typedef_srcs.hir_to_src(*id),
             BodyItem::StructId(id) => self.struct_srcs.hir_to_src(*id),
             BodyItem::ClassId(id) => self.class_srcs.hir_to_src(*id),
+            BodyItem::TimeUnitsDeclId(id) => self.time_units_srcs.hir_to_src(*id),
             BodyItem::ConfigDeclId(id) => self.config_decl_srcs.hir_to_src(*id),
             BodyItem::UdpDeclId(id) => self.udp_decl_srcs.hir_to_src(*id),
             BodyItem::LibraryDeclId(id) => self.library_decl_srcs.hir_to_src(*id),
@@ -794,6 +802,7 @@ crate::impl_arena_getters!(
     DeclarationId => declarations => Declaration,
     TypedefId => typedefs => Typedef,
     ClassId => classes => ClassDef,
+    TimeUnitsDeclId => time_units => TimeUnitsDecl,
     StructId => structs => StructDef,
     EnumId => enums => EnumDef,
     ExprId => exprs => Expr,
@@ -848,6 +857,7 @@ crate::impl_source_map_getters!(
     PropertyId => property_srcs,
     SequenceId => sequence_srcs,
     ClassId => class_srcs,
+    TimeUnitsDeclId => time_units_srcs,
     ConstraintId => constraint_srcs,
     ConstraintDefId => constraint_def_srcs,
     CoverpointId => coverpoint_srcs,

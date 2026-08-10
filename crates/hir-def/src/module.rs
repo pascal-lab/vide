@@ -264,7 +264,13 @@ impl LowerModuleCtx<'_> {
                 | gen_item @ CaseGenerate(_)
                 | gen_item @ LoopGenerate(_) => self.lower_direct_generate_region(gen_item).into(),
 
-                unsupported @ (TimeUnitsDeclaration(_) | ClockingItem(_)) => {
+                TimeUnitsDeclaration(declaration) => {
+                    match self.lower_time_units_decl(declaration) {
+                        Some(id) => id.into(),
+                        None => continue,
+                    }
+                }
+                unsupported @ ClockingItem(_) => {
                     self.report_unsupported(
                         unsupported.syntax(),
                         "module time or clocking item is not lowered",

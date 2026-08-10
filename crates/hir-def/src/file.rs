@@ -216,6 +216,12 @@ impl LowerFileCtx<'_> {
                     self.lower_param_decl_base(param_decl.parameter()).into()
                 }
                 ClassDeclaration(class) => self.lower_class_decl(class).into(),
+                TimeUnitsDeclaration(declaration) => {
+                    match self.lower_time_units_decl(declaration) {
+                        Some(id) => id.into(),
+                        None => continue,
+                    }
+                }
                 FunctionDeclaration(fn_decl) => match self.lower_subroutine_decl(fn_decl) {
                     Some(owner) => BodyItem::SubroutineOwner(owner),
                     None => continue,

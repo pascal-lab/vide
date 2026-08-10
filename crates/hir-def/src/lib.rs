@@ -40,6 +40,7 @@ pub mod source_projection;
 pub mod stmt;
 pub mod subroutine;
 pub mod symbol;
+pub mod time_units;
 pub mod ty;
 pub mod typedef;
 pub mod unit_index;
