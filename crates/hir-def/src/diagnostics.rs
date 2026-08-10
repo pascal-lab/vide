@@ -663,6 +663,7 @@ module unit_module;
   module_nettype #2 module_signal;
   alias module_signal = module_signal;
   var logic module_variable;
+  let unit_let(input logic value) = value;
   timeunit 10ns;
   timeprecision 1ps;
   import "DPI-C" function void module_import();
@@ -820,6 +821,11 @@ endconfig
             })
             .expect("module local variable should be lowered");
         assert_eq!(module_variable.decls.len(), 1);
+        let let_decl =
+            module_body.let_decls.values().next().expect("let declaration should be lowered");
+        assert_eq!(let_decl.name, "unit_let");
+        assert_eq!(let_decl.ports.len(), 1);
+        assert_eq!(let_decl.ports[0].name.as_deref(), Some("value"));
         assert_eq!(module_body.time_units.len(), 2);
         assert_eq!(module_body.dpi_imports.len(), 1);
         assert_eq!(module_body.dpi_exports.len(), 1);

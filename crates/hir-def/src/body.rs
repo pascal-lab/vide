@@ -38,6 +38,7 @@ use crate::{
         library::{LibraryDecl, LibraryDeclId, LibraryInclude, LibraryIncludeId},
         udp::{UdpDecl, UdpDeclId},
     },
+    let_decl::{LetDecl, LetDeclId},
     lower::{BodyStore, LoweringCtx, LoweringStore, LoweringSyntax},
     lower_ident_opt,
     module::{
@@ -202,6 +203,7 @@ pub enum BodyItem {
     ExternUdpDeclId(ExternUdpDeclId),
     NetTypeDeclId(NetTypeDeclId),
     NetAliasId(NetAliasId),
+    LetDeclId(LetDeclId),
     ConfigDeclId(ConfigDeclId),
     UdpDeclId(UdpDeclId),
     LibraryDeclId(LibraryDeclId),
@@ -250,6 +252,7 @@ impl_body_item_from! {
     ExternUdpDeclId => ExternUdpDeclId,
     NetTypeDeclId => NetTypeDeclId,
     NetAliasId => NetAliasId,
+    LetDeclId => LetDeclId,
     TypedefId => TypedefId,
     StructId => StructId,
     ConfigDeclId => ConfigDeclId,
@@ -295,6 +298,7 @@ pub struct Body {
     pub extern_udp_decls: Arena<ExternUdpDecl>,
     pub net_type_decls: Arena<NetTypeDecl>,
     pub net_aliases: Arena<NetAlias>,
+    pub let_decls: Arena<LetDecl>,
     pub decls: Arena<Declarator>,
     pub stmts: Arena<Stmt>,
     pub root_stmt: Option<StmtId>,
@@ -399,6 +403,7 @@ impl Body {
         self.extern_udp_decls.shrink_to_fit();
         self.net_type_decls.shrink_to_fit();
         self.net_aliases.shrink_to_fit();
+        self.let_decls.shrink_to_fit();
         self.constraints.shrink_to_fit();
         self.constraint_defs.shrink_to_fit();
         self.decls.shrink_to_fit();
@@ -453,6 +458,7 @@ pub struct BodySourceMap {
     pub extern_udp_decl_srcs: SourceMap<ExternUdpDecl>,
     pub net_type_decl_srcs: SourceMap<NetTypeDecl>,
     pub net_alias_srcs: SourceMap<NetAlias>,
+    pub let_decl_srcs: SourceMap<LetDecl>,
     pub constraint_def_srcs: SourceMap<ConstraintDef>,
     pub stmt_srcs: SourceMap<Stmt>,
     pub proc_srcs: SourceMap<Proc>,
@@ -509,6 +515,7 @@ impl BodySourceMap {
         self.extern_udp_decl_srcs.shrink_to_fit();
         self.net_type_decl_srcs.shrink_to_fit();
         self.net_alias_srcs.shrink_to_fit();
+        self.let_decl_srcs.shrink_to_fit();
         self.udp_decl_srcs.shrink_to_fit();
         self.library_decl_srcs.shrink_to_fit();
         self.library_include_srcs.shrink_to_fit();
@@ -829,6 +836,7 @@ impl BodySourceMap {
             BodyItem::ExternUdpDeclId(id) => self.extern_udp_decl_srcs.hir_to_src(*id),
             BodyItem::NetTypeDeclId(id) => self.net_type_decl_srcs.hir_to_src(*id),
             BodyItem::NetAliasId(id) => self.net_alias_srcs.hir_to_src(*id),
+            BodyItem::LetDeclId(id) => self.let_decl_srcs.hir_to_src(*id),
             BodyItem::ConfigDeclId(id) => self.config_decl_srcs.hir_to_src(*id),
             BodyItem::UdpDeclId(id) => self.udp_decl_srcs.hir_to_src(*id),
             BodyItem::LibraryDeclId(id) => self.library_decl_srcs.hir_to_src(*id),
@@ -877,6 +885,7 @@ crate::impl_arena_getters!(
     ExternUdpDeclId => extern_udp_decls => ExternUdpDecl,
     NetTypeDeclId => net_type_decls => NetTypeDecl,
     NetAliasId => net_aliases => NetAlias,
+    LetDeclId => let_decls => LetDecl,
     StructId => structs => StructDef,
     EnumId => enums => EnumDef,
     ExprId => exprs => Expr,
@@ -940,6 +949,7 @@ crate::impl_source_map_getters!(
     ExternUdpDeclId => extern_udp_decl_srcs,
     NetTypeDeclId => net_type_decl_srcs,
     NetAliasId => net_alias_srcs,
+    LetDeclId => let_decl_srcs,
     ConstraintId => constraint_srcs,
     ConstraintDefId => constraint_def_srcs,
     CoverpointId => coverpoint_srcs,

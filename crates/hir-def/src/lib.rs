@@ -30,6 +30,7 @@ pub mod external;
 pub mod file;
 pub mod has_source;
 pub mod item_tree;
+pub mod let_decl;
 pub mod literal;
 pub(crate) mod lower;
 pub mod module;

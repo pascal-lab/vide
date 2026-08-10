@@ -107,7 +107,7 @@ impl LoweringCtx<BodyStore<'_>> {
         )
     }
 
-    fn lower_assertion_port(&mut self, port: ast::AssertionItemPort) -> AssertionPort {
+    pub(crate) fn lower_assertion_port(&mut self, port: ast::AssertionItemPort) -> AssertionPort {
         AssertionPort {
             name: lower_ident_opt(port.name()),
             local: port.local().is_some(),

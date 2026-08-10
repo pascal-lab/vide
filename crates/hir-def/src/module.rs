@@ -291,6 +291,10 @@ impl LowerModuleCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
+                LetDeclaration(declaration) => match self.lower_let_decl(declaration) {
+                    Some(id) => id.into(),
+                    None => continue,
+                },
                 ExternModuleDecl(declaration) => match self.lower_extern_module_decl(declaration) {
                     Some(id) => id.into(),
                     None => continue,
@@ -467,11 +471,6 @@ impl LowerModuleCtx<'_> {
                 }
 
                 // Let declaration
-                unsupported @ LetDeclaration(_) => {
-                    self.report_unsupported(unsupported.syntax(), "let declaration is not lowered");
-                    continue;
-                }
-
                 // Default disable
                 unsupported @ DefaultDisableDeclaration(_) => {
                     self.report_unsupported(
