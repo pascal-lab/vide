@@ -979,6 +979,10 @@ endmodule
     let (manifest_text, manifest_markers) = strip_markers(marked_manifest_text);
     let manifest_range =
         marked_range(&manifest_markers, "def", TextSize::of("\"FROM_MANIFEST=1\""));
+    let manifest_name_range = TextRange::new(
+        manifest_range.start() + TextSize::from(1),
+        manifest_range.start() + TextSize::of("\"FROM_MANIFEST"),
+    );
 
     let top_file_id = FileId::from_raw(0);
     let manifest_file_id = FileId::from_raw(1);
@@ -1015,7 +1019,7 @@ endmodule
         .expect("manifest predefine navigation expected");
     assert!(
         nav.info.iter().any(|target| {
-            target.file_id == manifest_file_id && target.focus_range == Some(manifest_range)
+            target.file_id == manifest_file_id && target.focus_range == Some(manifest_name_range)
         }),
         "predefine usage should navigate to vide.toml define: {nav:?}"
     );
@@ -1026,7 +1030,7 @@ endmodule
         .expect("manifest predefine definition should be linkable");
     assert!(
         manifest_nav.info.iter().any(|target| {
-            target.file_id == manifest_file_id && target.focus_range == Some(manifest_range)
+            target.file_id == manifest_file_id && target.focus_range == Some(manifest_name_range)
         }),
         "manifest define should resolve to its own authoritative range: {manifest_nav:?}"
     );

@@ -216,6 +216,73 @@ fn type_definition_request_uses_module_definition_navigation() {
 }
 
 #[test]
+fn manifest_top_module_navigates_to_systemverilog_definition() {
+    let temp_dir = TempDir::new("manifest-navigation");
+    let manifest_text = "top_modules = [\"top\"]\nsources = [\"*.sv\"]\n";
+    let top_text = "module top;\nendmodule\n";
+    let manifest_path = temp_dir.path().join("vide.toml");
+    let top_path = temp_dir.path().join("top.sv");
+    fs::write(&manifest_path, manifest_text).unwrap();
+    fs::write(&top_path, top_text).unwrap();
+
+    let (client, server_thread) = spawn_test_workspace(
+        temp_dir.path().to_path_buf(),
+        ClientCapabilities::default(),
+        UserConfig::default(),
+    );
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    open_test_document(&client, manifest_uri.clone(), manifest_text);
+    open_test_document(&client, top_uri.clone(), top_text);
+    let _ = request_document_diagnostics(&client, manifest_uri.clone(), 1);
+
+    let definition_uris =
+        request_goto_definition_uris(&client, manifest_uri.clone(), manifest_text, "\"top\"", 2);
+    assert_eq!(definition_uris, vec![top_uri.clone()]);
+
+    let definition_uris =
+        request_goto_definition_uris(&client, manifest_uri, manifest_text, "top_modules", 2);
+    assert_eq!(definition_uris, vec![top_uri]);
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn manifest_top_module_reports_systemverilog_references() {
+    let temp_dir = TempDir::new("manifest-references");
+    let manifest_text = "top_modules = [\"child\"]\nsources = [\"*.sv\"]\n";
+    let child_text = "module child;\nendmodule\n";
+    let top_text = "module top;\n  child u_child();\nendmodule\n";
+    let manifest_path = temp_dir.path().join("vide.toml");
+    let child_path = temp_dir.path().join("child.sv");
+    let top_path = temp_dir.path().join("top.sv");
+    fs::write(&manifest_path, manifest_text).unwrap();
+    fs::write(&child_path, child_text).unwrap();
+    fs::write(&top_path, top_text).unwrap();
+
+    let (client, server_thread) = spawn_test_workspace(
+        temp_dir.path().to_path_buf(),
+        ClientCapabilities::default(),
+        UserConfig::default(),
+    );
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
+    let child_uri = to_proto::url_from_abs_path(child_path.as_path()).unwrap();
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    open_test_document(&client, manifest_uri.clone(), manifest_text);
+    open_test_document(&client, child_uri.clone(), child_text);
+    open_test_document(&client, top_uri.clone(), top_text);
+    let _ = request_document_diagnostics(&client, manifest_uri.clone(), 1);
+
+    let reference_uris =
+        request_reference_uris(&client, manifest_uri.clone(), manifest_text, "\"child\"", 2);
+    assert!(reference_uris.contains(&manifest_uri));
+    assert!(reference_uris.contains(&child_uri));
+    assert!(reference_uris.contains(&top_uri));
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn call_hierarchy_reports_module_instance_edges() {
     let temp_dir = TempDir::new("call-hierarchy-module-edges");
     let rtl_dir = temp_dir.path().join("rtl");
@@ -536,6 +603,14 @@ endmodule
     assert!(
         manifest_definition_uris.contains(&manifest_uri),
         "manifest define should be linkable to itself: {manifest_definition_uris:?}"
+    );
+
+    let manifest_reference_uris =
+        request_reference_uris(&client, manifest_uri.clone(), manifest_text, "FROM_MANIFEST=1", 6);
+    assert!(
+        manifest_reference_uris.contains(&manifest_uri)
+            && manifest_reference_uris.contains(&top_uri),
+        "manifest macro references should include the config and source use: {manifest_reference_uris:?}"
     );
 
     shutdown_test_server(&client, server_thread);
