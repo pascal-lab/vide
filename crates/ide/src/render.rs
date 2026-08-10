@@ -71,6 +71,9 @@ pub(crate) fn render_literal(literal: &Literal) -> Option<Markup> {
         Literal::UnbasedUnsized(bit) => {
             res.push_with_plain_fence(&format!("{bit}"));
         }
+        Literal::Null => {
+            res.push_with_plain_fence("null");
+        }
     };
 
     Some(res)

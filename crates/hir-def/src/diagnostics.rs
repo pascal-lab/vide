@@ -675,6 +675,7 @@ module unit_module;
   unit_class created_array[] = new[3];
   unit_class initialized_array[] = new[3](created);
   unit_class empty_array[] = {};
+  unit_class null_handle = null;
   typedef struct module_forward;
   nettype logic module_nettype;
   module_nettype #2 module_signal;
@@ -928,6 +929,9 @@ endprogram
         assert!(
             module_body.exprs.values().any(|expr| matches!(expr, crate::expr::Expr::EmptyQueue))
         );
+        assert!(module_body.exprs.values().any(|expr| {
+            matches!(expr, crate::expr::Expr::Literal(crate::literal::Literal::Null))
+        }));
         let class = body
             .classes
             .values()

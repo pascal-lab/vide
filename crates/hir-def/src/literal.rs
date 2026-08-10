@@ -9,6 +9,7 @@ pub enum Literal {
     Time { val: FloatTypeWrapper, unit: TimeUnit },
     Str(Box<str>),
     UnbasedUnsized(Bit),
+    Null,
 }
 
 #[derive(Default, Debug, Clone, Copy, Hash, Eq, PartialEq)]
@@ -79,9 +80,8 @@ pub(crate) fn lower_literal(literal: ast::LiteralExpression) -> Option<Literal> 
             let s = syntax_node.child_token(0)?.value_text().to_string();
             Some(Literal::Str(s.into_boxed_str()))
         }
-        NullLiteralExpression(_)
-        | WildcardLiteralExpression(_)
-        | DefaultPatternKeyExpression(_) => None,
+        NullLiteralExpression(_) => Some(Literal::Null),
+        WildcardLiteralExpression(_) | DefaultPatternKeyExpression(_) => None,
     }
 }
 
