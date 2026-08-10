@@ -288,6 +288,10 @@ impl LowerModuleCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
+                NetAlias(alias) => match self.lower_net_alias(alias) {
+                    Some(id) => id.into(),
+                    None => continue,
+                },
                 ExternModuleDecl(declaration) => match self.lower_extern_module_decl(declaration) {
                     Some(id) => id.into(),
                     None => continue,
@@ -380,11 +384,6 @@ impl LowerModuleCtx<'_> {
                 DefParam(defparam) => self.lower_defparam(defparam).into(),
 
                 // Net alias
-                unsupported @ NetAlias(_) => {
-                    self.report_unsupported(unsupported.syntax(), "net alias is not lowered");
-                    continue;
-                }
-
                 // Modport
                 ModportDeclaration(modport) => {
                     for modport_id in self.lower_modport_declaration(modport) {

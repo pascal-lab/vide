@@ -156,6 +156,7 @@ impl LowerGenerateBlockCtx<'_> {
             NetTypeDeclaration(declaration) => {
                 BodyItem::NetTypeDeclId(self.lower_net_type_decl(declaration)?)
             }
+            NetAlias(alias) => BodyItem::NetAliasId(self.lower_net_alias(alias)?),
             ProceduralBlock(proc) => self.lower_proc(proc).into(),
             GenerateBlock(block) => BodyItem::GenerateBlockOwner(
                 self.intern_generate_node(generate_block_source_node(block)),
@@ -351,6 +352,11 @@ impl LowerModuleCtx<'_> {
             NetTypeDeclaration(declaration) => {
                 if let Some(net_type) = self.lower_net_type_decl(declaration) {
                     items.push(net_type.into());
+                }
+            }
+            NetAlias(alias) => {
+                if let Some(net_alias) = self.lower_net_alias(alias) {
+                    items.push(net_alias.into());
                 }
             }
             HierarchyInstantiation(instantiation) => {

@@ -661,6 +661,7 @@ module unit_module;
   typedef struct module_forward;
   nettype logic module_nettype;
   module_nettype #2 module_signal;
+  alias module_signal = module_signal;
   timeunit 10ns;
   timeprecision 1ps;
   import "DPI-C" function void module_import();
@@ -802,6 +803,8 @@ endconfig
             .expect("module user-defined net should be lowered");
         assert!(module_user_net.net_kind.is_none());
         assert!(module_user_net.delay.is_some());
+        assert_eq!(module_body.net_aliases.len(), 1);
+        assert_eq!(module_body.net_aliases.values().next().unwrap().nets.len(), 2);
         assert_eq!(module_body.time_units.len(), 2);
         assert_eq!(module_body.dpi_imports.len(), 1);
         assert_eq!(module_body.dpi_exports.len(), 1);
