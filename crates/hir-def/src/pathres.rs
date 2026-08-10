@@ -944,10 +944,12 @@ endmodule
             r#"
 package outer;
   import middle::*;
+  export middle::*;
 endpackage
 
 package middle;
   import base::*;
+  export base::*;
 endpackage
 
 package base;
@@ -985,15 +987,68 @@ endmodule
     }
 
     #[test]
+    fn selective_and_export_all_package_exports_are_distinct() {
+        let db = db_with_root_text(
+            r#"
+package base;
+  int exported;
+  int private;
+endpackage
+package selective;
+  import base::*;
+  export base::exported;
+endpackage
+package all;
+  import base::*;
+  export *::*;
+endpackage
+module top;
+  import selective::*;
+  import all::*;
+endmodule
+"#,
+        );
+        let top = db
+            .unit_index()
+            .module_ids(&ident("top"))
+            .unique()
+            .expect("top module should resolve uniquely");
+        let selective = db
+            .unit_index()
+            .package_ids(&ident("selective"))
+            .unique()
+            .expect("selective package should resolve uniquely");
+        assert!(
+            db.package_exports(selective)
+                .lookup(NameContext::Value, &ident("exported"))
+                .unique()
+                .is_some(),
+            "selective export must expose the selected imported value"
+        );
+        assert!(
+            db.package_exports(selective)
+                .lookup(NameContext::Value, &ident("private"))
+                .is_unresolved(),
+            "selective export must not expose other wildcard-imported values"
+        );
+        assert!(
+            resolve_name(&db, top, &ident("private"), NameContext::Value).unique().is_some(),
+            "export-all must re-export wildcard-imported values"
+        );
+    }
+
+    #[test]
     fn mutually_importing_packages_reach_a_fixed_point() {
         let db = db_with_root_text(
             r#"
 package p;
 import q::*;
+export q::*;
 int x;
 endpackage
 package q;
 import p::*;
+export p::*;
 int x;
 endpackage
 module top;
@@ -1035,6 +1090,7 @@ int value;
 endpackage
 package middle;
 import base::*;
+export base::*;
 endpackage
 module top;
 import middle::*;

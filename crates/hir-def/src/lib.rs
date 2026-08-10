@@ -90,6 +90,37 @@ pub struct PackageImport {
     /// resolution.
     pub source: Option<crate::ast_id_map::SourceAstId>,
 }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PackageExport {
+    /// Re-export an explicitly imported item or all items from one package.
+    Package { package: Ident, item: Option<Ident>, source: Option<crate::ast_id_map::SourceAstId> },
+    /// Re-export every item imported into this package.
+    All { source: Option<crate::ast_id_map::SourceAstId> },
+}
+
+pub(crate) fn lower_package_exports(
+    export_decl: ast::PackageExportDeclaration,
+    source: crate::ast_id_map::SourceAstId,
+) -> Vec<PackageExport> {
+    export_decl
+        .items()
+        .children()
+        .filter_map(|item| {
+            let package = lower_ident_opt(item.package())?;
+            let item = item.item().and_then(|item| {
+                (item.kind() != TokenKind::STAR).then(|| lower_ident_opt(Some(item))).flatten()
+            });
+            Some(PackageExport::Package { package, item, source: Some(source) })
+        })
+        .collect()
+}
+
+pub(crate) fn lower_package_export_all(
+    _export_decl: ast::PackageExportAllDeclaration,
+    source: crate::ast_id_map::SourceAstId,
+) -> PackageExport {
+    PackageExport::All { source: Some(source) }
+}
 
 #[inline]
 pub fn lower_ident(ident: Option<SyntaxToken>) -> Option<Ident> {

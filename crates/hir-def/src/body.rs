@@ -8,7 +8,7 @@ use syntax::{
 use triomphe::Arc;
 
 use crate::{
-    PackageImport,
+    PackageExport, PackageImport,
     aggregate::{StructDef, StructId, lower_struct_def},
     assertion::{PropertyDef, PropertyId, SequenceDef, SequenceId},
     ast_id_map::SourceAstId,
@@ -262,6 +262,7 @@ pub struct Body {
     pub crosses: Arena<CrossDef>,
     pub subroutine: Option<Subroutine>,
     pub package_imports: Arena<PackageImport>,
+    pub package_exports: Arena<PackageExport>,
     pub param_ports: Option<IdxRange<Declarator>>,
     pub ports: Ports,
     pub cont_assigns: Arena<ContAssign>,
@@ -348,7 +349,7 @@ impl Body {
         self.coverpoints.shrink_to_fit();
         self.crosses.shrink_to_fit();
         self.package_imports.shrink_to_fit();
-        self.ports.shrink_to_fit();
+        self.package_exports.shrink_to_fit();
         self.cont_assigns.shrink_to_fit();
         self.defparams.shrink_to_fit();
         self.generate_regions.shrink_to_fit();

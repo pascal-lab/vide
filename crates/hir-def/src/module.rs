@@ -7,7 +7,7 @@ use super::{
     declaration::{Declaration, ParamDeclKind},
     expr::declarator::DeclId,
     lower::{BodyStore, LoweringCtx, LoweringSyntax},
-    lower_ident_opt, lower_package_imports,
+    lower_ident_opt, lower_package_export_all, lower_package_exports, lower_package_imports,
 };
 use crate::{
     body::{Body, BodyItem, BodySourceMap},
@@ -405,9 +405,18 @@ impl LowerModuleCtx<'_> {
                     continue;
                 }
 
-                // Package exports
-                unsupported @ (PackageExportDeclaration(_) | PackageExportAllDeclaration(_)) => {
-                    self.report_unsupported(unsupported.syntax(), "package export is not lowered");
+                PackageExportDeclaration(export_decl) => {
+                    for export in
+                        lower_package_exports(export_decl, self.source_id(export_decl.syntax()))
+                    {
+                        self.store.data.package_exports.alloc(export);
+                    }
+                    continue;
+                }
+                PackageExportAllDeclaration(export_decl) => {
+                    let export =
+                        lower_package_export_all(export_decl, self.source_id(export_decl.syntax()));
+                    self.store.data.package_exports.alloc(export);
                     continue;
                 }
 

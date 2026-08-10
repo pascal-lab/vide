@@ -14,7 +14,7 @@ use triomphe::Arc;
 use utils::get::GetRef;
 
 use crate::{
-    Ident,
+    Ident, PackageExport,
     body::BodyItem,
     container::OwnerRef,
     db::HirDefDb,
@@ -286,12 +286,13 @@ pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
 
     let mut exports = FxHashMap::default();
     let mut imports = FxHashMap::default();
+    let mut reexports = FxHashMap::default();
     for package in &packages {
+        let body = db.body(*package);
         exports.insert(*package, package_bindings(db, *package));
         imports.insert(
             *package,
-            db.body(*package)
-                .package_imports
+            body.package_imports
                 .values()
                 .map(|import| Import {
                     package: import.package.clone(),
@@ -300,6 +301,7 @@ pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
                 })
                 .collect::<Vec<_>>(),
         );
+        reexports.insert(*package, body.package_exports.values().cloned().collect::<Vec<_>>());
     }
 
     // Each iteration can only add definitions to an export namespace. The
@@ -313,32 +315,32 @@ pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
                 .expect("every package must have an initial export namespace")
                 .clone();
 
-            for import in imports.get(package).expect("every package has import edges") {
-                match &import.name {
-                    Some(imported_name) => {
-                        for ctx in [NameContext::Type, NameContext::Value] {
-                            let resolution = resolve_package_member(
-                                &exports,
-                                unit_index.package_ids(&import.package),
-                                imported_name,
-                                ctx,
-                            );
-                            next.insert_resolution(ctx, imported_name, resolution);
-                        }
+            let mut add_reexport = |source_package: &Ident, item: Option<&Ident>| {
+                let names = item.map(|item| vec![item.clone()]).unwrap_or_else(|| {
+                    imported_names(&exports, unit_index.package_ids(source_package))
+                });
+                for name in names {
+                    for ctx in [NameContext::Type, NameContext::Value, NameContext::Assertion] {
+                        let resolution = resolve_package_member(
+                            &exports,
+                            unit_index.package_ids(source_package),
+                            &name,
+                            ctx,
+                        );
+                        next.insert_resolution(ctx, &name, resolution);
                     }
-                    None => {
-                        let names =
-                            imported_names(&exports, unit_index.package_ids(&import.package));
-                        for name in names {
-                            for ctx in [NameContext::Type, NameContext::Value] {
-                                let resolution = resolve_package_member(
-                                    &exports,
-                                    unit_index.package_ids(&import.package),
-                                    &name,
-                                    ctx,
-                                );
-                                next.insert_resolution(ctx, &name, resolution);
-                            }
+                }
+            };
+
+            for export in reexports.get(package).expect("every package has export edges") {
+                match export {
+                    PackageExport::Package { package, item, .. } => {
+                        add_reexport(package, item.as_ref());
+                    }
+                    PackageExport::All { .. } => {
+                        for import in imports.get(package).expect("every package has import edges")
+                        {
+                            add_reexport(&import.package, None);
                         }
                     }
                 }
