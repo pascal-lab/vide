@@ -210,33 +210,38 @@ mod slang_ffi {
         unsafe fn syntax_node_range_with_context_valid(
             node: *const SyntaxNode,
             context: *const SyntaxNode,
+            owner: &SyntaxTree,
         ) -> bool;
         unsafe fn syntax_node_range_with_context_start_buffer_id(
             node: *const SyntaxNode,
             context: *const SyntaxNode,
+            owner: &SyntaxTree,
         ) -> u32;
         unsafe fn syntax_node_range_with_context_start_offset(
             node: *const SyntaxNode,
             context: *const SyntaxNode,
+            owner: &SyntaxTree,
         ) -> usize;
         unsafe fn syntax_node_range_with_context_end_buffer_id(
             node: *const SyntaxNode,
             context: *const SyntaxNode,
+            owner: &SyntaxTree,
         ) -> u32;
         unsafe fn syntax_node_range_with_context_end_offset(
             node: *const SyntaxNode,
             context: *const SyntaxNode,
+            owner: &SyntaxTree,
         ) -> usize;
         unsafe fn syntax_node_parent(node: *const SyntaxNode) -> *const SyntaxNode;
         unsafe fn syntax_node_child_count(node: *const SyntaxNode) -> usize;
-        unsafe fn syntax_node_list_child_count(node: *const SyntaxNode) -> usize;
-        unsafe fn syntax_node_list_child_size(node: *const SyntaxNode, index: usize) -> usize;
+        unsafe fn syntax_node_list_child_count(node: *mut SyntaxNode) -> usize;
+        unsafe fn syntax_node_list_child_size(node: *mut SyntaxNode, index: usize) -> usize;
         unsafe fn syntax_node_child_node(
             node: *const SyntaxNode,
             index: usize,
         ) -> *const SyntaxNode;
         unsafe fn syntax_node_child_token(
-            node: *const SyntaxNode,
+            node: *mut SyntaxNode,
             index: usize,
         ) -> *const SyntaxToken;
     }
@@ -254,22 +259,27 @@ mod slang_ffi {
         unsafe fn syntax_token_range_with_context_valid(
             token: *const SyntaxToken,
             context: *const SyntaxNode,
+            owner: &SyntaxTree,
         ) -> bool;
         unsafe fn syntax_token_range_with_context_start_buffer_id(
             token: *const SyntaxToken,
             context: *const SyntaxNode,
+            owner: &SyntaxTree,
         ) -> u32;
         unsafe fn syntax_token_range_with_context_start_offset(
             token: *const SyntaxToken,
             context: *const SyntaxNode,
+            owner: &SyntaxTree,
         ) -> usize;
         unsafe fn syntax_token_range_with_context_end_buffer_id(
             token: *const SyntaxToken,
             context: *const SyntaxNode,
+            owner: &SyntaxTree,
         ) -> u32;
         unsafe fn syntax_token_range_with_context_end_offset(
             token: *const SyntaxToken,
             context: *const SyntaxNode,
+            owner: &SyntaxTree,
         ) -> usize;
         unsafe fn syntax_token_value_text(token: *const SyntaxToken) -> String;
         unsafe fn syntax_token_raw_text(token: *const SyntaxToken) -> String;
@@ -281,10 +291,12 @@ mod slang_ffi {
         unsafe fn syntax_token_preprocessor_trace_emitted_token_index(
             token: *const SyntaxToken,
             context: *const SyntaxNode,
+            owner: &SyntaxTree,
         ) -> RawOptionalU32;
         unsafe fn syntax_token_preprocessor_trace_emitted_token(
             token: *const SyntaxToken,
             context: *const SyntaxNode,
+            owner: &SyntaxTree,
         ) -> RawTraceEmittedToken;
         unsafe fn syntax_token_trivia_count(token: *const SyntaxToken) -> usize;
         unsafe fn syntax_token_trivia(

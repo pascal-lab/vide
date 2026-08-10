@@ -94,30 +94,35 @@ namespace slang_sys::syntax {
         std::size_t syntax_node_range_end_offset(const SyntaxNode *node);
         bool syntax_node_range_with_context_valid(
             const SyntaxNode *node,
-            const SyntaxNode *context
+            const SyntaxNode *context,
+            const SyntaxTree &owner
         );
         uint32_t syntax_node_range_with_context_start_buffer_id(
             const SyntaxNode *node,
-            const SyntaxNode *context
+            const SyntaxNode *context,
+            const SyntaxTree &owner
         );
         std::size_t syntax_node_range_with_context_start_offset(
             const SyntaxNode *node,
-            const SyntaxNode *context
+            const SyntaxNode *context,
+            const SyntaxTree &owner
         );
         uint32_t syntax_node_range_with_context_end_buffer_id(
             const SyntaxNode *node,
-            const SyntaxNode *context
+            const SyntaxNode *context,
+            const SyntaxTree &owner
         );
         std::size_t syntax_node_range_with_context_end_offset(
             const SyntaxNode *node,
-            const SyntaxNode *context
+            const SyntaxNode *context,
+            const SyntaxTree &owner
         );
         const SyntaxNode *syntax_node_parent(const SyntaxNode *node);
         std::size_t syntax_node_child_count(const SyntaxNode *node);
-        std::size_t syntax_node_list_child_count(const SyntaxNode *node);
-        std::size_t syntax_node_list_child_size(const SyntaxNode *node, std::size_t index);
+        std::size_t syntax_node_list_child_count(SyntaxNode *node);
+        std::size_t syntax_node_list_child_size(SyntaxNode *node, std::size_t index);
         const SyntaxNode *syntax_node_child_node(const SyntaxNode *node, std::size_t index);
-        const SyntaxToken *syntax_node_child_token(const SyntaxNode *node, std::size_t index);
+        const SyntaxToken *syntax_node_child_token(SyntaxNode *node, std::size_t index);
     } // namespace node
 
     namespace token {
@@ -129,23 +134,28 @@ namespace slang_sys::syntax {
         std::size_t syntax_token_range_end_offset(const SyntaxToken *token);
         bool syntax_token_range_with_context_valid(
             const SyntaxToken *token,
-            const SyntaxNode *context
+            const SyntaxNode *context,
+            const SyntaxTree &owner
         );
         uint32_t syntax_token_range_with_context_start_buffer_id(
             const SyntaxToken *token,
-            const SyntaxNode *context
+            const SyntaxNode *context,
+            const SyntaxTree &owner
         );
         std::size_t syntax_token_range_with_context_start_offset(
             const SyntaxToken *token,
-            const SyntaxNode *context
+            const SyntaxNode *context,
+            const SyntaxTree &owner
         );
         uint32_t syntax_token_range_with_context_end_buffer_id(
             const SyntaxToken *token,
-            const SyntaxNode *context
+            const SyntaxNode *context,
+            const SyntaxTree &owner
         );
         std::size_t syntax_token_range_with_context_end_offset(
             const SyntaxToken *token,
-            const SyntaxNode *context
+            const SyntaxNode *context,
+            const SyntaxTree &owner
         );
         rust::String syntax_token_value_text(const SyntaxToken *token);
         rust::String syntax_token_raw_text(const SyntaxToken *token);
@@ -156,11 +166,13 @@ namespace slang_sys::syntax {
         uint8_t syntax_token_time_unit(const SyntaxToken *token);
         RawOptionalU32 syntax_token_preprocessor_trace_emitted_token_index(
             const SyntaxToken *token,
-            const SyntaxNode *context
+            const SyntaxNode *context,
+            const SyntaxTree &owner
         );
         RawTraceEmittedToken syntax_token_preprocessor_trace_emitted_token(
             const SyntaxToken *token,
-            const SyntaxNode *context
+            const SyntaxNode *context,
+            const SyntaxTree &owner
         );
         rust::Vec<rust::String> syntax_token_keyword_table_for_version(rust::Str version);
         uint16_t syntax_token_keyword_kind_for_version(rust::Str version, rust::Str text);

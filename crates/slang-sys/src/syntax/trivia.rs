@@ -1,4 +1,7 @@
-use std::{marker::PhantomData, ptr::NonNull};
+use std::{
+    hash::{Hash, Hasher},
+    ptr::NonNull,
+};
 
 use super::{
     ffi,
@@ -9,11 +12,26 @@ use crate::{source_buffer::SourceLocation, token::TriviaKind};
 
 /// Trivia attached to a syntax token, such as whitespace, comments, or
 /// directives.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 pub struct SyntaxTrivia<'a> {
     pub(crate) raw: NonNull<ffi::SyntaxTrivia>,
     raw_text: String,
-    pub(crate) _marker: PhantomData<&'a SyntaxTree>,
+    pub(crate) tree: &'a SyntaxTree,
+}
+
+impl PartialEq for SyntaxTrivia<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw == other.raw && self.raw_text == other.raw_text
+    }
+}
+
+impl Eq for SyntaxTrivia<'_> {}
+
+impl Hash for SyntaxTrivia<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.raw.hash(state);
+        self.raw_text.hash(state);
+    }
 }
 
 /// Source location for a piece of token trivia.
@@ -24,11 +42,11 @@ pub struct SyntaxTriviaLoc {
     pub end: usize,
 }
 
-impl SyntaxTrivia<'_> {
-    pub(crate) fn from_raw(raw: *const ffi::SyntaxTrivia) -> Self {
+impl<'a> SyntaxTrivia<'a> {
+    pub(crate) fn from_raw(raw: *const ffi::SyntaxTrivia, tree: &'a SyntaxTree) -> Self {
         let raw = NonNull::new(raw.cast_mut()).expect("slang returned null trivia pointer");
         let raw_text = unsafe { ffi::syntax_trivia_raw_text(raw.as_ptr()) };
-        Self { raw, raw_text, _marker: PhantomData }
+        Self { raw, raw_text, tree }
     }
 
     pub fn kind(&self) -> TriviaKind {
@@ -49,8 +67,11 @@ impl SyntaxTrivia<'_> {
         })
     }
 
-    pub fn syntax(&self) -> Option<SyntaxNode<'_>> {
-        SyntaxNode::from_nullable_raw(unsafe { ffi::syntax_trivia_syntax(self.raw.as_ptr()) })
+    pub fn syntax(&self) -> Option<SyntaxNode<'a>> {
+        SyntaxNode::from_nullable_raw(
+            unsafe { ffi::syntax_trivia_syntax(self.raw.as_ptr()) },
+            self.tree,
+        )
     }
 }
 

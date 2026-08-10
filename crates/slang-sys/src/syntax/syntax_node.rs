@@ -1,5 +1,5 @@
 //! Untyped syntax tree node and token views.
-use std::{hash, marker::PhantomData, ptr::NonNull};
+use std::{hash, ptr::NonNull};
 
 use super::{
     cursor::SyntaxCursor,
@@ -23,14 +23,14 @@ use crate::{
 #[derive(Clone, Copy, Debug)]
 pub struct SyntaxNode<'a> {
     pub(crate) raw: NonNull<ffi::SyntaxNode>,
-    pub(crate) _marker: PhantomData<&'a SyntaxTree>,
+    pub(crate) tree: &'a SyntaxTree,
 }
 
 /// An untyped Slang syntax token.
 #[derive(Clone, Copy, Debug)]
 pub struct SyntaxToken<'a> {
     pub(crate) raw: NonNull<ffi::SyntaxToken>,
-    pub(crate) _marker: PhantomData<&'a SyntaxTree>,
+    pub(crate) tree: &'a SyntaxTree,
 }
 
 /// A syntax token paired with its parent node.
@@ -43,8 +43,11 @@ pub struct SyntaxTokenWithParent<'a> {
 }
 
 impl<'a> SyntaxNode<'a> {
-    pub(crate) fn from_nullable_raw(raw: *const ffi::SyntaxNode) -> Option<SyntaxNode<'a>> {
-        NonNull::new(raw.cast_mut()).map(|raw| SyntaxNode { raw, _marker: PhantomData })
+    pub(crate) fn from_nullable_raw(
+        raw: *const ffi::SyntaxNode,
+        tree: &'a SyntaxTree,
+    ) -> Option<SyntaxNode<'a>> {
+        NonNull::new(raw.cast_mut()).map(|raw| SyntaxNode { raw, tree })
     }
 
     pub fn kind(self) -> SyntaxKind {
@@ -67,7 +70,11 @@ impl<'a> SyntaxNode<'a> {
 
     pub fn range_with_context(self, context: SyntaxNode<'a>) -> Option<SourceRange> {
         let valid = unsafe {
-            ffi::syntax_node_range_with_context_valid(self.raw.as_ptr(), context.raw.as_ptr())
+            ffi::syntax_node_range_with_context_valid(
+                self.raw.as_ptr(),
+                context.raw.as_ptr(),
+                context.tree.raw.as_ref().expect("syntax tree pointer is null"),
+            )
         };
         if !valid {
             return None;
@@ -78,31 +85,38 @@ impl<'a> SyntaxNode<'a> {
                 ffi::syntax_node_range_with_context_start_buffer_id(
                     self.raw.as_ptr(),
                     context.raw.as_ptr(),
+                    context.tree.raw.as_ref().expect("syntax tree pointer is null"),
                 )
             },
             unsafe {
                 ffi::syntax_node_range_with_context_start_offset(
                     self.raw.as_ptr(),
                     context.raw.as_ptr(),
+                    context.tree.raw.as_ref().expect("syntax tree pointer is null"),
                 )
             },
             unsafe {
                 ffi::syntax_node_range_with_context_end_buffer_id(
                     self.raw.as_ptr(),
                     context.raw.as_ptr(),
+                    context.tree.raw.as_ref().expect("syntax tree pointer is null"),
                 )
             },
             unsafe {
                 ffi::syntax_node_range_with_context_end_offset(
                     self.raw.as_ptr(),
                     context.raw.as_ptr(),
+                    context.tree.raw.as_ref().expect("syntax tree pointer is null"),
                 )
             },
         ))
     }
 
     pub fn parent(self) -> Option<SyntaxNode<'a>> {
-        SyntaxNode::from_nullable_raw(unsafe { ffi::syntax_node_parent(self.raw.as_ptr()) })
+        SyntaxNode::from_nullable_raw(
+            unsafe { ffi::syntax_node_parent(self.raw.as_ptr()) },
+            self.tree,
+        )
     }
 
     pub fn child_count(self) -> usize {
@@ -119,15 +133,17 @@ impl<'a> SyntaxNode<'a> {
     }
 
     pub fn child_node(self, index: usize) -> Option<SyntaxNode<'a>> {
-        SyntaxNode::from_nullable_raw(unsafe {
-            ffi::syntax_node_child_node(self.raw.as_ptr(), index)
-        })
+        SyntaxNode::from_nullable_raw(
+            unsafe { ffi::syntax_node_child_node(self.raw.as_ptr(), index) },
+            self.tree,
+        )
     }
 
     pub fn child_token(self, index: usize) -> Option<SyntaxToken<'a>> {
-        SyntaxToken::from_nullable_raw(unsafe {
-            ffi::syntax_node_child_token(self.raw.as_ptr(), index)
-        })
+        SyntaxToken::from_nullable_raw(
+            unsafe { ffi::syntax_node_child_token(self.raw.as_ptr(), index) },
+            self.tree,
+        )
         .filter(|tok| tok.kind() != TokenKind::UNKNOWN)
     }
 
@@ -219,8 +235,11 @@ impl<'a> SyntaxToken<'a> {
         SyntaxKind::from_raw(ffi::syntax_token_directive_kind(text))
     }
 
-    fn from_nullable_raw(raw: *const ffi::SyntaxToken) -> Option<SyntaxToken<'a>> {
-        NonNull::new(raw.cast_mut()).map(|raw| SyntaxToken { raw, _marker: PhantomData })
+    fn from_nullable_raw(
+        raw: *const ffi::SyntaxToken,
+        tree: &'a SyntaxTree,
+    ) -> Option<SyntaxToken<'a>> {
+        NonNull::new(raw.cast_mut()).map(|raw| SyntaxToken { raw, tree })
     }
 
     pub fn kind(self) -> TokenKind {
@@ -241,9 +260,13 @@ impl<'a> SyntaxToken<'a> {
         ))
     }
 
-    pub fn range_with_context(self, _context: SyntaxNode<'a>) -> Option<SourceRange> {
+    pub fn range_with_context(self, context: SyntaxNode<'a>) -> Option<SourceRange> {
         let valid = unsafe {
-            ffi::syntax_token_range_with_context_valid(self.raw.as_ptr(), _context.raw.as_ptr())
+            ffi::syntax_token_range_with_context_valid(
+                self.raw.as_ptr(),
+                context.raw.as_ptr(),
+                context.tree.raw.as_ref().expect("syntax tree pointer is null"),
+            )
         };
         if !valid {
             return None;
@@ -253,25 +276,29 @@ impl<'a> SyntaxToken<'a> {
             unsafe {
                 ffi::syntax_token_range_with_context_start_buffer_id(
                     self.raw.as_ptr(),
-                    _context.raw.as_ptr(),
+                    context.raw.as_ptr(),
+                    context.tree.raw.as_ref().expect("syntax tree pointer is null"),
                 )
             },
             unsafe {
                 ffi::syntax_token_range_with_context_start_offset(
                     self.raw.as_ptr(),
-                    _context.raw.as_ptr(),
+                    context.raw.as_ptr(),
+                    context.tree.raw.as_ref().expect("syntax tree pointer is null"),
                 )
             },
             unsafe {
                 ffi::syntax_token_range_with_context_end_buffer_id(
                     self.raw.as_ptr(),
-                    _context.raw.as_ptr(),
+                    context.raw.as_ptr(),
+                    context.tree.raw.as_ref().expect("syntax tree pointer is null"),
                 )
             },
             unsafe {
                 ffi::syntax_token_range_with_context_end_offset(
                     self.raw.as_ptr(),
-                    _context.raw.as_ptr(),
+                    context.raw.as_ptr(),
+                    context.tree.raw.as_ref().expect("syntax tree pointer is null"),
                 )
             },
         ))
@@ -301,14 +328,14 @@ impl<'a> SyntaxToken<'a> {
     }
 
     pub fn base(self) -> Option<LiteralBase> {
-        (self.kind() == TokenKind::INTEGER_BASE).then(|| match unsafe {
-            ffi::syntax_token_literal_base(self.raw.as_ptr())
-        } {
-            0 => LiteralBase::Bin,
-            1 => LiteralBase::Oct,
-            2 => LiteralBase::Dec,
-            3 => LiteralBase::Hex,
-            raw => panic!("unknown Slang literal base value: {raw}"),
+        (self.kind() == TokenKind::INTEGER_BASE).then(|| {
+            match unsafe { ffi::syntax_token_literal_base(self.raw.as_ptr()) } {
+                0 => LiteralBase::Bin,
+                1 => LiteralBase::Oct,
+                2 => LiteralBase::Dec,
+                3 => LiteralBase::Hex,
+                raw => panic!("unknown Slang literal base value: {raw}"),
+            }
         })
     }
 
@@ -326,7 +353,10 @@ impl<'a> SyntaxToken<'a> {
             return None;
         }
 
-        Some(SyntaxTrivia::from_raw(unsafe { ffi::syntax_token_trivia(self.raw.as_ptr(), idx) }))
+        Some(SyntaxTrivia::from_raw(
+            unsafe { ffi::syntax_token_trivia(self.raw.as_ptr(), idx) },
+            self.tree,
+        ))
     }
 
     pub fn trivias(self) -> SyntaxTriviaIter<'a> {
@@ -402,6 +432,7 @@ impl<'a> SyntaxTokenWithParent<'a> {
             ffi::syntax_token_preprocessor_trace_emitted_token_index(
                 self.tok.raw.as_ptr(),
                 self.parent.raw.as_ptr(),
+                self.parent.tree.raw.as_ref().expect("syntax tree pointer is null"),
             )
         };
         raw.has_value.then_some(raw.value)
@@ -412,6 +443,7 @@ impl<'a> SyntaxTokenWithParent<'a> {
             ffi::syntax_token_preprocessor_trace_emitted_token(
                 self.tok.raw.as_ptr(),
                 self.parent.raw.as_ptr(),
+                self.parent.tree.raw.as_ref().expect("syntax tree pointer is null"),
             )
         };
         assert!(
@@ -425,6 +457,11 @@ impl<'a> SyntaxTokenWithParent<'a> {
         self.preprocessor_trace_emitted_token().origin
     }
 
-    pub fn value_text(self) -> String { self.tok.value_text() }
-    pub fn raw_text(self) -> String { self.tok.raw_text() }
+    pub fn value_text(self) -> String {
+        self.tok.value_text()
+    }
+
+    pub fn raw_text(self) -> String {
+        self.tok.raw_text()
+    }
 }

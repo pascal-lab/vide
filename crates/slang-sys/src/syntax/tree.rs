@@ -2,12 +2,17 @@ use std::fmt;
 
 use cxx::SharedPtr;
 
-use super::{ffi, syntax_node::{SyntaxNode, SyntaxToken}};
-use crate::diagnostic::{
-    DiagCode, LexedTokenAtOffset, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxKeywordContext,
-    ffi as diagnostic_ffi,
+use super::{
+    ffi,
+    syntax_node::{SyntaxNode, SyntaxToken},
 };
-use crate::source_buffer::{SourceBufferId, SourceBufferOrigin, SyntaxTreeBufferIds};
+use crate::{
+    diagnostic::{
+        DiagCode, LexedTokenAtOffset, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxKeywordContext,
+        ffi as diagnostic_ffi,
+    },
+    source_buffer::{SourceBufferId, SourceBufferOrigin, SyntaxTreeBufferIds},
+};
 
 /// An owned Slang syntax tree.
 /// The tree owns the memory for nodes and tokens. Any `SyntaxNode` or
@@ -104,14 +109,14 @@ impl SyntaxTree {
     }
 
     pub fn from_library_map_text(text: &str, name: &str, path: &str) -> Self {
-        Self {
-            raw: ffi::parse_library_map_syntax_tree(text, name, path, false),
-        }
+        Self { raw: ffi::parse_library_map_syntax_tree(text, name, path, false) }
     }
 
     pub fn root(&self) -> Option<SyntaxNode<'_>> {
         let raw = ffi::syntax_tree_root(self.raw.as_ref()?);
-        Some(SyntaxNode::from_nullable_raw(raw).expect("Slang returned null syntax tree root"))
+        Some(
+            SyntaxNode::from_nullable_raw(raw, self).expect("Slang returned null syntax tree root"),
+        )
     }
 
     /// NOTE: This will only get diagnostics while parsing. For further
@@ -162,9 +167,7 @@ impl SyntaxTree {
         path: &str,
         offset: usize,
     ) -> Vec<ParserExpectedSyntax> {
-        let tree = Self {
-            raw: ffi::parse_library_map_syntax_tree(text, name, path, true),
-        };
+        let tree = Self { raw: ffi::parse_library_map_syntax_tree(text, name, path, true) };
         tree.expected_syntax_at(offset)
     }
 
@@ -249,7 +252,12 @@ impl ParserExpectedSyntax {
         let code = DiagCode::from_raw(raw.subsystem, raw.code);
         let name = code
             .info()
-            .unwrap_or_else(|| panic!("Slang returned unknown expected syntax diagnostic {}:{}", raw.subsystem, raw.code))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Slang returned unknown expected syntax diagnostic {}:{}",
+                    raw.subsystem, raw.code
+                )
+            })
             .name
             .to_owned();
         Self {
@@ -291,12 +299,17 @@ fn word_after_backtick_at_offset(text: &str, offset: usize) -> Option<(usize, us
     while index < bytes.len() {
         match state {
             LexState::Code => match bytes[index] {
-                b'"' => { state = LexState::String; index += 1; }
+                b'"' => {
+                    state = LexState::String;
+                    index += 1;
+                }
                 b'/' if bytes.get(index + 1) == Some(&b'/') => {
-                    state = LexState::LineComment; index += 2;
+                    state = LexState::LineComment;
+                    index += 2;
                 }
                 b'/' if bytes.get(index + 1) == Some(&b'*') => {
-                    state = LexState::BlockComment; index += 2;
+                    state = LexState::BlockComment;
+                    index += 2;
                 }
                 b'`' => {
                     let start = index + 1;
@@ -312,18 +325,28 @@ fn word_after_backtick_at_offset(text: &str, offset: usize) -> Option<(usize, us
                 _ => index += 1,
             },
             LexState::String => {
-                if bytes[index] == b'\\' { index = (index + 2).min(bytes.len()); }
-                else if bytes[index] == b'"' { state = LexState::Code; index += 1; }
-                else { index += 1; }
+                if bytes[index] == b'\\' {
+                    index = (index + 2).min(bytes.len());
+                } else if bytes[index] == b'"' {
+                    state = LexState::Code;
+                    index += 1;
+                } else {
+                    index += 1;
+                }
             }
             LexState::LineComment => {
-                if bytes[index] == b'\n' || bytes[index] == b'\r' { state = LexState::Code; }
+                if bytes[index] == b'\n' || bytes[index] == b'\r' {
+                    state = LexState::Code;
+                }
                 index += 1;
             }
             LexState::BlockComment => {
                 if bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/') {
-                    state = LexState::Code; index += 2;
-                } else { index += 1; }
+                    state = LexState::Code;
+                    index += 2;
+                } else {
+                    index += 1;
+                }
             }
         }
     }
@@ -331,7 +354,9 @@ fn word_after_backtick_at_offset(text: &str, offset: usize) -> Option<(usize, us
 }
 
 fn identifier_at_offset(text: &str, offset: usize) -> Option<(usize, usize, bool)> {
-    if offset > text.len() || !text.is_char_boundary(offset) { return None; }
+    if offset > text.len() || !text.is_char_boundary(offset) {
+        return None;
+    }
 
     let bytes = text.as_bytes();
     let mut index = 0;
@@ -339,12 +364,17 @@ fn identifier_at_offset(text: &str, offset: usize) -> Option<(usize, usize, bool
     while index < bytes.len() {
         match state {
             LexState::Code => match bytes[index] {
-                b'"' => { state = LexState::String; index += 1; }
+                b'"' => {
+                    state = LexState::String;
+                    index += 1;
+                }
                 b'/' if bytes.get(index + 1) == Some(&b'/') => {
-                    state = LexState::LineComment; index += 2;
+                    state = LexState::LineComment;
+                    index += 2;
                 }
                 b'/' if bytes.get(index + 1) == Some(&b'*') => {
-                    state = LexState::BlockComment; index += 2;
+                    state = LexState::BlockComment;
+                    index += 2;
                 }
                 byte if is_identifier_start(byte) => {
                     let start = index;
@@ -354,8 +384,8 @@ fn identifier_at_offset(text: &str, offset: usize) -> Option<(usize, usize, bool
                         index += 1;
                     }
                     let end = index;
-                    let at_end = offset == end &&
-                        bytes.get(offset).is_some_and(|byte| is_identifier_start(*byte));
+                    let at_end = offset == end
+                        && bytes.get(offset).is_some_and(|byte| is_identifier_start(*byte));
                     if start <= offset && offset <= end && !at_end {
                         return Some((start, end, system));
                     }
@@ -363,18 +393,28 @@ fn identifier_at_offset(text: &str, offset: usize) -> Option<(usize, usize, bool
                 _ => index += 1,
             },
             LexState::String => {
-                if bytes[index] == b'\\' { index = (index + 2).min(bytes.len()); }
-                else if bytes[index] == b'"' { state = LexState::Code; index += 1; }
-                else { index += 1; }
+                if bytes[index] == b'\\' {
+                    index = (index + 2).min(bytes.len());
+                } else if bytes[index] == b'"' {
+                    state = LexState::Code;
+                    index += 1;
+                } else {
+                    index += 1;
+                }
             }
             LexState::LineComment => {
-                if bytes[index] == b'\n' || bytes[index] == b'\r' { state = LexState::Code; }
+                if bytes[index] == b'\n' || bytes[index] == b'\r' {
+                    state = LexState::Code;
+                }
                 index += 1;
             }
             LexState::BlockComment => {
                 if bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/') {
-                    state = LexState::Code; index += 2;
-                } else { index += 1; }
+                    state = LexState::Code;
+                    index += 2;
+                } else {
+                    index += 1;
+                }
             }
         }
     }
@@ -390,7 +430,12 @@ fn is_identifier_continue(byte: u8) -> bool {
 }
 
 #[derive(Clone, Copy)]
-enum LexState { Code, String, LineComment, BlockComment }
+enum LexState {
+    Code,
+    String,
+    LineComment,
+    BlockComment,
+}
 
 #[cfg(test)]
 mod tests {
@@ -428,7 +473,9 @@ mod tests {
             ("module m; initial f(); endmodule", 20),
         ] {
             let values: Vec<_> = (0..=text.len())
-                .map(|offset| (offset, SyntaxTree::expected_syntax_at_offset(text, "test", "test.v", offset)))
+                .map(|offset| {
+                    (offset, SyntaxTree::expected_syntax_at_offset(text, "test", "test.v", offset))
+                })
                 .filter(|(_, values)| !values.is_empty())
                 .collect();
             eprintln!("{text:?} requested={offset} -> {values:?}");
@@ -479,7 +526,9 @@ impl fmt::Debug for SyntaxTree {
 }
 
 impl PartialEq for SyntaxTree {
-    fn eq(&self, other: &Self) -> bool { self.root() == other.root() }
+    fn eq(&self, other: &Self) -> bool {
+        self.root() == other.root()
+    }
 }
 
 impl Eq for SyntaxTree {}

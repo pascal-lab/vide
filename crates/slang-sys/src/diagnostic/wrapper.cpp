@@ -129,7 +129,7 @@ rust::Vec<RawSyntaxDiagnostic> diagnostics_to_rust(
     const ::slang::SourceManager& source_manager,
     rust::Vec<rust::String> warning_options
 ) {
-    slang::DiagnosticEngine engine(const_cast<slang::SourceManager&>(source_manager));
+    slang::DiagnosticEngine engine(source_manager);
     helper::apply_warning_options(engine, warning_options);
     rust::Vec<RawSyntaxDiagnostic> result;
     result.reserve(diagnostics.size());

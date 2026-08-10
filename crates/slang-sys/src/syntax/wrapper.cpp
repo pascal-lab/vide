@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <filesystem>
 #include <functional>
-#include <mutex>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -15,60 +14,6 @@
 #include <unordered_set>
 
 namespace slang_sys::syntax::helper {
-
-    // TODO: This map is just for backward compatibility. Once we update the slan-sys public
-    // API, we should remove this map and the associated functions.
-    static std::mutex syntax_tree_sessions_mutex;
-    static std::unordered_map<const SyntaxNode *, std::weak_ptr<SourceSession>>
-        syntax_tree_sessions; // root -> session
-    static std::unordered_map<const SyntaxNode *, const SyntaxTree *> syntax_trees;
-
-    static void register_syntax_tree_session(const SyntaxTree &tree) {
-        if (!tree.tree || !tree.session)
-            return;
-
-        std::lock_guard lock(syntax_tree_sessions_mutex);
-        syntax_tree_sessions.emplace(&tree.tree->root(), tree.session);
-        syntax_trees.emplace(&tree.tree->root(), &tree);
-    }
-
-    static void unregister_syntax_tree_session(const SyntaxTree &tree) {
-        if (!tree.tree)
-            return;
-
-        std::lock_guard lock(syntax_tree_sessions_mutex);
-        syntax_tree_sessions.erase(&tree.tree->root());
-        syntax_trees.erase(&tree.tree->root());
-    }
-
-    static std::shared_ptr<SourceSession> get_source_session(const SyntaxNode *node) {
-        if (!node)
-            return {};
-
-        const SyntaxNode *root = node;
-        while (root && root->parent.get())
-            root = root->parent.get();
-        if (!root)
-            return {};
-
-        std::lock_guard lock(syntax_tree_sessions_mutex);
-        auto it = syntax_tree_sessions.find(root);
-        if (it == syntax_tree_sessions.end())
-            return {};
-        return it->second.lock();
-    }
-
-    static const SyntaxTree *get_syntax_tree(const SyntaxNode *node) {
-        auto root = node;
-        while (root && root->parent.get())
-            root = root->parent.get();
-        if (!root)
-            return nullptr;
-
-        std::lock_guard lock(syntax_tree_sessions_mutex);
-        auto it = syntax_trees.find(root);
-        return it == syntax_trees.end() ? nullptr : it->second;
-    }
 
     static slang::SourceRange node_range(const SyntaxNode *node) {
         return node->sourceRange();
@@ -90,7 +35,8 @@ namespace slang_sys::syntax::helper {
 
     static slang::SourceRange map_range_with_context(
         slang::SourceRange range,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
         if (!context || !source_range_valid(range))
             return slang::SourceRange::NoLocation;
@@ -99,15 +45,14 @@ namespace slang_sys::syntax::helper {
         if (!root)
             return slang::SourceRange::NoLocation;
 
+        if (root != &owner.root())
+            throw std::invalid_argument("syntax context does not belong to its owner tree");
+
         auto root_range = root->sourceRange();
         if (!source_range_valid(root_range))
             return slang::SourceRange::NoLocation;
 
-        auto session = get_source_session(root);
-        if (!session)
-            return slang::SourceRange::NoLocation;
-
-        slang::DiagnosticEngine engine(session->source_manager);
+        slang::DiagnosticEngine engine(owner.session->source_manager);
         slang::SmallVector<slang::SourceRange> mapped;
         engine.mapSourceRanges(root_range.start(), std::span(&range, 1), mapped, false);
         if (mapped.empty())
@@ -117,16 +62,18 @@ namespace slang_sys::syntax::helper {
 
     static slang::SourceRange node_range_with_context(
         const SyntaxNode *node,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
-        return map_range_with_context(node_range(node), context);
+        return map_range_with_context(node_range(node), context, owner);
     }
 
     static slang::SourceRange token_range_with_context(
         const SyntaxToken *token,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
-        return map_range_with_context(token_range(token), context);
+        return map_range_with_context(token_range(token), context, owner);
     }
 
     static std::optional<slang::SourceLocation> explicit_location(const SyntaxTrivia *trivia) {
@@ -143,13 +90,9 @@ namespace slang_sys::syntax {
         std::shared_ptr<::slang::syntax::SyntaxTree> tree,
         std::shared_ptr<SourceSession> session
     )
-        : tree(std::move(tree)), session(std::move(session)) {
-        helper::register_syntax_tree_session(*this);
-    }
+        : tree(std::move(tree)), session(std::move(session)) {}
 
-    SyntaxTree::~SyntaxTree() {
-        helper::unregister_syntax_tree_session(*this);
-    }
+    SyntaxTree::~SyntaxTree() = default;
 
     const SyntaxNode &SyntaxTree::root() const {
         return tree->root();
@@ -396,7 +339,7 @@ namespace slang_sys::syntax::tree {
     }
 
     void collect_nodes(
-        const slang::syntax::SyntaxNode& node,
+        slang::syntax::SyntaxNode& node,
         std::vector<const slang::syntax::SyntaxNode*>& nodes,
         std::unordered_set<const slang::syntax::SyntaxNode*>& seen
     ) {
@@ -406,7 +349,7 @@ namespace slang_sys::syntax::tree {
         for (size_t i = 0; i < node.getChildCount(); i++) {
             if (auto child = node.childNode(i))
                 collect_nodes(*child, nodes, seen);
-            if (auto* token = const_cast<slang::syntax::SyntaxNode&>(node).childTokenPtr(i)) {
+            if (auto* token = node.childTokenPtr(i)) {
                 for (auto trivia : token->trivia()) {
                     if (auto* syntax = trivia.syntax())
                         collect_nodes(*syntax, nodes, seen);
@@ -416,13 +359,13 @@ namespace slang_sys::syntax::tree {
     }
 
     void collect_leaf_tokens(
-        const slang::syntax::SyntaxNode& node,
+        slang::syntax::SyntaxNode& node,
         std::vector<const slang::parsing::Token*>& tokens
     ) {
         for (size_t i = 0; i < node.getChildCount(); i++) {
             if (auto child = node.childNode(i))
                 collect_leaf_tokens(*child, tokens);
-            else if (auto token = const_cast<slang::syntax::SyntaxNode&>(node).childTokenPtr(i))
+            else if (auto token = node.childTokenPtr(i))
                 tokens.push_back(token);
         }
     }
@@ -653,7 +596,7 @@ namespace slang_sys::syntax::tree {
 
         std::vector<const slang::syntax::SyntaxNode*> nodes;
         std::unordered_set<const slang::syntax::SyntaxNode*> seen;
-        collect_nodes(tree.root(), nodes, seen);
+        collect_nodes(tree.tree->root(), nodes, seen);
 
         std::unordered_map<const slang::syntax::SyntaxNode*, uint32_t> event_ids;
         std::unordered_map<std::string, uint32_t> definitions;
@@ -738,7 +681,7 @@ namespace slang_sys::syntax::tree {
         }
 
         std::vector<const slang::parsing::Token*> tokens;
-        collect_leaf_tokens(tree.root(), tokens);
+        collect_leaf_tokens(tree.tree->root(), tokens);
         for (auto *token : tokens) {
             auto range = trace_range(token->range());
             if (!range.has_range)
@@ -754,16 +697,19 @@ namespace slang_sys::syntax::tree {
 
     RawTraceEmittedToken trace_emitted_token_for_target(
         const SyntaxToken *target,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
         auto root = helper::find_root(context);
-        auto owner = helper::get_syntax_tree(root);
-        if (!root || !owner)
+        if (!root)
             return empty_trace_emitted_token();
 
-        auto trace = syntax_tree_preprocessor_trace(*owner);
+        if (root != &owner.root())
+            throw std::invalid_argument("syntax context does not belong to its owner tree");
+
+        auto trace = syntax_tree_preprocessor_trace(owner);
         std::vector<const slang::parsing::Token*> tokens;
-        collect_leaf_tokens(*root, tokens);
+        collect_leaf_tokens(owner.tree->root(), tokens);
         size_t emitted_index = 0;
         for (auto *token : tokens) {
             if (!trace_range(token->range()).has_range)
@@ -806,36 +752,44 @@ namespace slang_sys::syntax::node {
         return helper::node_range(node).end().offset();
     }
 
-    bool syntax_node_range_with_context_valid(const SyntaxNode *node, const SyntaxNode *context) {
-        return helper::source_range_valid(helper::node_range_with_context(node, context));
+    bool syntax_node_range_with_context_valid(
+        const SyntaxNode *node,
+        const SyntaxNode *context,
+        const SyntaxTree &owner
+    ) {
+        return helper::source_range_valid(helper::node_range_with_context(node, context, owner));
     }
 
     uint32_t syntax_node_range_with_context_start_buffer_id(
         const SyntaxNode *node,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
-        return helper::node_range_with_context(node, context).start().buffer().getId();
+        return helper::node_range_with_context(node, context, owner).start().buffer().getId();
     }
 
     std::size_t syntax_node_range_with_context_start_offset(
         const SyntaxNode *node,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
-        return helper::node_range_with_context(node, context).start().offset();
+        return helper::node_range_with_context(node, context, owner).start().offset();
     }
 
     uint32_t syntax_node_range_with_context_end_buffer_id(
         const SyntaxNode *node,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
-        return helper::node_range_with_context(node, context).end().buffer().getId();
+        return helper::node_range_with_context(node, context, owner).end().buffer().getId();
     }
 
     std::size_t syntax_node_range_with_context_end_offset(
         const SyntaxNode *node,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
-        return helper::node_range_with_context(node, context).end().offset();
+        return helper::node_range_with_context(node, context, owner).end().offset();
     }
 
     const SyntaxNode *syntax_node_parent(const SyntaxNode *node) {
@@ -846,21 +800,15 @@ namespace slang_sys::syntax::node {
         return node->getChildCount();
     }
 
-    std::size_t syntax_node_list_child_count(const SyntaxNode *node) {
+    std::size_t syntax_node_list_child_count(SyntaxNode *node) {
         slang::SmallVector<slang::syntax::ListChildInfo, 2> info;
-        // TODO: const_cast is a hack because slang upstream API doesn't have a const version of
-        // getChildListInfo
-        //       Maybe we could add a const overload to the upstream.
-        getChildListInfo(*const_cast<SyntaxNode *>(node), info);
+        getChildListInfo(*node, info);
         return info.size();
     }
 
-    std::size_t syntax_node_list_child_size(const SyntaxNode *node, std::size_t index) {
+    std::size_t syntax_node_list_child_size(SyntaxNode *node, std::size_t index) {
         slang::SmallVector<slang::syntax::ListChildInfo, 2> info;
-        // TODO: const_cast is a hack because slang upstream API doesn't have a const version of
-        // getChildListInfo
-        //       Maybe we could add a const overload to the upstream.
-        getChildListInfo(*const_cast<SyntaxNode *>(node), info);
+        getChildListInfo(*node, info);
         return info[index].size;
     }
 
@@ -868,11 +816,8 @@ namespace slang_sys::syntax::node {
         return node->childNode(index);
     }
 
-    const SyntaxToken *syntax_node_child_token(const SyntaxNode *node, std::size_t index) {
-        // TODO: const_cast is a hack because slang upstream API doesn't have a const version of
-        // childTokenPtr
-        //       Maybe we could add a const overload to the upstream.
-        return const_cast<SyntaxNode *>(node)->childTokenPtr(index);
+    const SyntaxToken *syntax_node_child_token(SyntaxNode *node, std::size_t index) {
+        return node->childTokenPtr(index);
     }
 
 } // namespace slang_sys::syntax::node
@@ -905,37 +850,42 @@ namespace slang_sys::syntax::token {
 
     bool syntax_token_range_with_context_valid(
         const SyntaxToken *token,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
-        return helper::source_range_valid(helper::token_range_with_context(token, context));
+        return helper::source_range_valid(helper::token_range_with_context(token, context, owner));
     }
 
     uint32_t syntax_token_range_with_context_start_buffer_id(
         const SyntaxToken *token,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
-        return helper::token_range_with_context(token, context).start().buffer().getId();
+        return helper::token_range_with_context(token, context, owner).start().buffer().getId();
     }
 
     std::size_t syntax_token_range_with_context_start_offset(
         const SyntaxToken *token,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
-        return helper::token_range_with_context(token, context).start().offset();
+        return helper::token_range_with_context(token, context, owner).start().offset();
     }
 
     uint32_t syntax_token_range_with_context_end_buffer_id(
         const SyntaxToken *token,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
-        return helper::token_range_with_context(token, context).end().buffer().getId();
+        return helper::token_range_with_context(token, context, owner).end().buffer().getId();
     }
 
     std::size_t syntax_token_range_with_context_end_offset(
         const SyntaxToken *token,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
-        return helper::token_range_with_context(token, context).end().offset();
+        return helper::token_range_with_context(token, context, owner).end().offset();
     }
 
     rust::String syntax_token_value_text(const SyntaxToken *token) {
@@ -990,9 +940,10 @@ namespace slang_sys::syntax::token {
 
     RawOptionalU32 syntax_token_preprocessor_trace_emitted_token_index(
         const SyntaxToken *target,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
-        auto token = syntax_token_preprocessor_trace_emitted_token(target, context);
+        auto token = syntax_token_preprocessor_trace_emitted_token(target, context, owner);
         if (!token.has_emitted_token_index)
             return RawOptionalU32 { 0, false };
         return RawOptionalU32 { token.emitted_token_index, true };
@@ -1000,9 +951,10 @@ namespace slang_sys::syntax::token {
 
     RawTraceEmittedToken syntax_token_preprocessor_trace_emitted_token(
         const SyntaxToken *target,
-        const SyntaxNode *context
+        const SyntaxNode *context,
+        const SyntaxTree &owner
     ) {
-        return tree::trace_emitted_token_for_target(target, context);
+        return tree::trace_emitted_token_for_target(target, context, owner);
     }
 
     rust::Vec<rust::String> syntax_token_keyword_table_for_version(rust::Str version) {
