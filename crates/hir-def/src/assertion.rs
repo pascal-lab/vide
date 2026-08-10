@@ -107,6 +107,55 @@ impl LoweringCtx<BodyStore<'_>> {
         )
     }
 
+    pub(crate) fn lower_default_disable_declaration(
+        &mut self,
+        declaration: ast::DefaultDisableDeclaration<'_>,
+    ) {
+        if declaration.default_keyword().map(|token| token.kind())
+            != Some(TokenKind::DEFAULT_KEYWORD)
+        {
+            self.report_invalid(
+                declaration.syntax(),
+                "default disable declaration is missing its default keyword",
+            );
+            return;
+        }
+        if declaration.disable_keyword().map(|token| token.kind())
+            != Some(TokenKind::DISABLE_KEYWORD)
+        {
+            self.report_invalid(
+                declaration.syntax(),
+                "default disable declaration is missing its disable keyword",
+            );
+            return;
+        }
+        if declaration.iff_keyword().map(|token| token.kind()) != Some(TokenKind::IFF_KEYWORD) {
+            self.report_invalid(
+                declaration.syntax(),
+                "default disable declaration is missing its iff keyword",
+            );
+            return;
+        }
+
+        let has_default_disable = {
+            let (body, _) = self.store.body();
+            body.default_disable.is_some()
+        };
+        if has_default_disable {
+            self.report_invalid(
+                declaration.syntax(),
+                "scope has more than one default disable declaration",
+            );
+            return;
+        }
+
+        let expr = self.lower_expr(declaration.expr());
+        let source = self.source_id(declaration.syntax());
+        let (body, sources) = self.store.body();
+        body.default_disable = Some(expr);
+        sources.default_disable_src = Some(source);
+    }
+
     pub(crate) fn lower_assertion_port(&mut self, port: ast::AssertionItemPort) -> AssertionPort {
         AssertionPort {
             name: lower_ident_opt(port.name()),

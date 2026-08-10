@@ -331,6 +331,10 @@ impl LowerModuleCtx<'_> {
                     self.lower_default_clocking_reference(reference);
                     continue;
                 }
+                DefaultDisableDeclaration(declaration) => {
+                    self.lower_default_disable_declaration(declaration);
+                    continue;
+                }
                 ClockingDeclaration(clocking) => {
                     let owner = self
                         .owner_for_node(clocking.syntax(), OwnerKind::ClockingBlock)
@@ -466,16 +470,6 @@ impl LowerModuleCtx<'_> {
                     self.report_unsupported(
                         unsupported.syntax(),
                         "library declaration is not lowered",
-                    );
-                    continue;
-                }
-
-                // Let declaration
-                // Default disable
-                unsupported @ DefaultDisableDeclaration(_) => {
-                    self.report_unsupported(
-                        unsupported.syntax(),
-                        "default disable declaration is not lowered",
                     );
                     continue;
                 }

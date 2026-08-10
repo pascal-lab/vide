@@ -664,6 +664,7 @@ module unit_module;
   alias module_signal = module_signal;
   var logic module_variable;
   let unit_let(input logic value) = value;
+  default disable iff (1'b0);
   timeunit 10ns;
   timeprecision 1ps;
   import "DPI-C" function void module_import();
@@ -789,6 +790,7 @@ endconfig
         assert_eq!(hierarchy_bind.target.segments[0].name, "unit_module");
         let module = body.module_owners().next().expect("module owner should be lowered");
         let module_body = db.body(module);
+        let module_source_map = db.body_with_source_map(module);
         let module_forward = module_body
             .typedefs
             .values()
@@ -826,6 +828,10 @@ endconfig
         assert_eq!(let_decl.name, "unit_let");
         assert_eq!(let_decl.ports.len(), 1);
         assert_eq!(let_decl.ports[0].name.as_deref(), Some("value"));
+        let default_disable =
+            module_body.default_disable.expect("default disable declaration should be lowered");
+        assert!(module_source_map.source_map().default_disable_src.is_some());
+        assert!(matches!(module_body.expr(default_disable), crate::expr::Expr::Literal(_)));
         assert_eq!(module_body.time_units.len(), 2);
         assert_eq!(module_body.dpi_imports.len(), 1);
         assert_eq!(module_body.dpi_exports.len(), 1);
@@ -882,6 +888,21 @@ endconfig
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("invalid time scale value")),
             "invalid time scale values must be diagnosed: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn duplicate_default_disable_produces_lowering_diagnostic() {
+        let db = db_with_files(
+            "module m; default disable iff (1'b0); default disable iff (1'b1); endmodule\n",
+            None,
+        );
+        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("more than one default disable")),
+            "duplicate default disable declarations must be diagnosed: {diagnostics:?}"
         );
     }
 
