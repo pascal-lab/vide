@@ -697,7 +697,7 @@ impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
             crate::alloc_with_source_entry(
                 &mut body.typedefs,
                 &mut sources.typedef_srcs,
-                Typedef { name: lower_ident_opt(typedef.name()), ty: None },
+                Typedef { name: lower_ident_opt(typedef.name()), ty: None, forward_kind: None },
                 source,
             )
         };

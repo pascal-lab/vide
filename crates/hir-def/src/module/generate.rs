@@ -147,6 +147,9 @@ impl LowerGenerateBlockCtx<'_> {
             }
             DPIImport(declaration) => BodyItem::DpiImportId(self.lower_dpi_import(declaration)?),
             DPIExport(declaration) => BodyItem::DpiExportId(self.lower_dpi_export(declaration)?),
+            ForwardTypedefDeclaration(declaration) => {
+                BodyItem::TypedefId(self.lower_forward_typedef(declaration)?)
+            }
             NetTypeDeclaration(declaration) => {
                 BodyItem::NetTypeDeclId(self.lower_net_type_decl(declaration)?)
             }

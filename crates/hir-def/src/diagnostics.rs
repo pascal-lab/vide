@@ -412,6 +412,7 @@ mod tests {
         external::{ExternModulePortList, ExternParameter},
         source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
         time_units::{TimeScaleMagnitude, TimeUnitsKind},
+        typedef::ForwardTypedefKind,
     };
 
     const TOP: FileId = FileId::from_raw(0);
@@ -622,6 +623,10 @@ endconfig
 int unit_data;
 wire unit_net;
 typedef int unit_type;
+typedef class unit_forward;
+typedef enum unit_forward_enum;
+typedef union unit_forward_union;
+typedef interface class unit_forward_interface;
 nettype logic unit_nettype with unit_resolution;
 parameter int unit_parameter = 1;
 timeunit 1ns / 1ps;
@@ -651,6 +656,7 @@ endgroup
 bind unit_module unit_bound unit_bind();
 bind unit_module unit_checker::unit_checker unit_checker_bind();
 module unit_module;
+  typedef struct module_forward;
   nettype logic module_nettype;
   timeunit 10ns;
   timeprecision 1ps;
@@ -680,6 +686,25 @@ endconfig
             _ => None,
         });
         assert_eq!(parameter.map(|parameter| parameter.kind), Some(ParamDeclKind::Parameter));
+        let file_forward = body
+            .typedefs
+            .values()
+            .find(|typedef| typedef.name.as_deref() == Some("unit_forward"))
+            .expect("file forward typedef should be lowered");
+        assert_eq!(file_forward.ty, None);
+        assert_eq!(file_forward.forward_kind, Some(ForwardTypedefKind::Class));
+        for (name, kind) in [
+            ("unit_forward_enum", ForwardTypedefKind::Enum),
+            ("unit_forward_union", ForwardTypedefKind::Union),
+            ("unit_forward_interface", ForwardTypedefKind::InterfaceClass),
+        ] {
+            let forward = body
+                .typedefs
+                .values()
+                .find(|typedef| typedef.name.as_deref() == Some(name))
+                .expect("file forward typedef should be lowered");
+            assert_eq!(forward.forward_kind, Some(kind));
+        }
         assert_eq!(body.net_type_decls.len(), 1);
         let file_net_type =
             body.net_type_decls.values().next().expect("file nettype should be lowered");
@@ -741,6 +766,13 @@ endconfig
         assert_eq!(hierarchy_bind.target.segments[0].name, "unit_module");
         let module = body.module_owners().next().expect("module owner should be lowered");
         let module_body = db.body(module);
+        let module_forward = module_body
+            .typedefs
+            .values()
+            .find(|typedef| typedef.name.as_deref() == Some("module_forward"))
+            .expect("module forward typedef should be lowered");
+        assert_eq!(module_forward.ty, None);
+        assert_eq!(module_forward.forward_kind, Some(ForwardTypedefKind::Struct));
         assert_eq!(module_body.net_type_decls.len(), 1);
         assert_eq!(module_body.net_type_decls.values().next().unwrap().name, "module_nettype");
         assert_eq!(module_body.time_units.len(), 2);

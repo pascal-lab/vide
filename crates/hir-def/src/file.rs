@@ -18,7 +18,7 @@ use crate::{
     lower_ident_opt,
     owner::{OwnerId, OwnerKind},
     source_map::Lowered,
-    typedef::{Typedef, TypedefId, lower_typedef_data_ty},
+    typedef::{ForwardTypedefKind, Typedef, TypedefId, lower_typedef_data_ty},
 };
 
 pub mod config;
@@ -66,7 +66,7 @@ impl LowerFileCtx<'_> {
             &self.tree,
             &mut self.store.data.typedefs,
             &mut self.store.sources.typedef_srcs,
-            Typedef { name, ty: None },
+            Typedef { name, ty: None, forward_kind: None },
             typedef,
         );
         self.record_body_typedef(typedef_id);
@@ -83,6 +83,51 @@ impl LowerFileCtx<'_> {
         self.store.data.typedefs[typedef_id].ty = Some(lowered_ty);
 
         typedef_id
+    }
+
+    pub(crate) fn lower_forward_typedef(
+        &mut self,
+        typedef: ast::ForwardTypedefDeclaration,
+    ) -> Option<TypedefId> {
+        if typedef.typedef_keyword().map(|token| token.kind())
+            != Some(syntax::TokenKind::TYPEDEF_KEYWORD)
+        {
+            self.report_invalid(
+                typedef.syntax(),
+                "forward typedef declaration is missing its typedef keyword",
+            );
+            return None;
+        }
+        let Some(name) = lower_ident_opt(typedef.name()) else {
+            self.report_invalid(
+                typedef.syntax(),
+                "forward typedef declaration is missing its name",
+            );
+            return None;
+        };
+        let forward_kind = match typedef.type_restriction() {
+            None => ForwardTypedefKind::Unspecified,
+            Some(restriction) => {
+                let Some(kind) = ForwardTypedefKind::from_restriction(restriction) else {
+                    self.report_invalid(
+                        restriction.syntax(),
+                        "forward typedef declaration has an invalid type restriction",
+                    );
+                    return None;
+                };
+                kind
+            }
+        };
+        let typedef_id = alloc_with_source(
+            &self.ast_ids,
+            &self.tree,
+            &mut self.store.data.typedefs,
+            &mut self.store.sources.typedef_srcs,
+            Typedef { name: Some(name), ty: None, forward_kind: Some(forward_kind) },
+            typedef,
+        );
+        self.record_body_typedef(typedef_id);
+        Some(typedef_id)
     }
 
     pub(crate) fn lower_subroutine_decl(
@@ -236,6 +281,12 @@ impl LowerFileCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
+                ForwardTypedefDeclaration(declaration) => {
+                    match self.lower_forward_typedef(declaration) {
+                        Some(id) => id.into(),
+                        None => continue,
+                    }
+                }
                 NetTypeDeclaration(declaration) => match self.lower_net_type_decl(declaration) {
                     Some(id) => id.into(),
                     None => continue,

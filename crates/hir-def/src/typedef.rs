@@ -1,5 +1,5 @@
 use la_arena::Idx;
-use syntax::ast;
+use syntax::{TokenKind, ast};
 
 use super::{Ident, aggregate::StructId, expr::data_ty::DataTy};
 use crate::{container::OwnerRef, owner::OwnerId};
@@ -8,9 +8,38 @@ use crate::{container::OwnerRef, owner::OwnerId};
 pub struct Typedef {
     pub name: Option<Ident>,
     pub ty: Option<DataTy>,
+    pub forward_kind: Option<ForwardTypedefKind>,
 }
 
 pub type TypedefId = Idx<Typedef>;
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ForwardTypedefKind {
+    Unspecified,
+    Enum,
+    Struct,
+    Union,
+    Class,
+    InterfaceClass,
+}
+
+impl ForwardTypedefKind {
+    pub(crate) fn from_restriction(restriction: ast::ForwardTypeRestriction) -> Option<Self> {
+        match (
+            restriction.keyword_1().map(|token| token.kind()),
+            restriction.keyword_2().map(|token| token.kind()),
+        ) {
+            (Some(TokenKind::ENUM_KEYWORD), None) => Some(Self::Enum),
+            (Some(TokenKind::STRUCT_KEYWORD), None) => Some(Self::Struct),
+            (Some(TokenKind::UNION_KEYWORD), None) => Some(Self::Union),
+            (Some(TokenKind::CLASS_KEYWORD), None) => Some(Self::Class),
+            (Some(TokenKind::INTERFACE_KEYWORD), Some(TokenKind::CLASS_KEYWORD)) => {
+                Some(Self::InterfaceClass)
+            }
+            _ => None,
+        }
+    }
+}
 
 pub(crate) fn lower_typedef_data_ty<Ctx>(
     ctx: &mut Ctx,
