@@ -668,6 +668,8 @@ primitive unit_primitive (o, i);
 endprimitive
 checker unit_checker;
 endchecker
+checker unit_checker_with_port(input logic checker_clock);
+endchecker
 covergroup unit_covergroup;
 endgroup
 bind unit_module unit_bound unit_bind();
@@ -685,6 +687,7 @@ module unit_module;
       2: begin
       end
     endcase
+    unit_checker_with_port checker_instance(.checker_clock(1'b0));
   end
   unit_class created = new(8);
   unit_class copied = new created;
@@ -844,14 +847,32 @@ endprogram
                 .any(|stmt| { matches!(stmt.kind, crate::stmt::StmtKind::DisableFork) })
         );
         assert!(initial_body.stmts.values().any(|stmt| {
-            matches!(
-                &stmt.kind,
-                crate::stmt::StmtKind::RandCase { items }
-                    if items.len() == 2
-                        && matches!(items[0], crate::stmt::RandCaseItem { .. })
-                        && matches!(items[1], crate::stmt::RandCaseItem { .. })
-            )
+            let crate::stmt::StmtKind::RandCase { items } = &stmt.kind else {
+                return false;
+            };
+            items.len() == 2
+                && matches!(items[0], crate::stmt::RandCaseItem { .. })
+                && matches!(items[1], crate::stmt::RandCaseItem { .. })
         }));
+        let checker_instantiation = initial_body
+            .stmts
+            .values()
+            .find_map(|stmt| match stmt.kind {
+                crate::stmt::StmtKind::CheckerInstance(instantiation) => Some(instantiation),
+                _ => None,
+            })
+            .expect("checker instance statement should be lowered");
+        let checker_instantiation = &initial_body.instantiations[checker_instantiation];
+        assert_eq!(checker_instantiation.module_name.as_deref(), Some("unit_checker_with_port"));
+        assert_eq!(checker_instantiation.instances.len(), 1);
+        let checker_instance = &initial_body.instances[checker_instantiation.instances[0]];
+        assert_eq!(checker_instance.name.as_deref(), Some("checker_instance"));
+        assert_eq!(checker_instance.connections.len(), 1);
+        assert!(matches!(
+            &initial_body.inst_port_conns[checker_instance.connections[0]],
+            crate::module::instantiation::PortConn::Named(Some(name), Some(_))
+                if name == "checker_clock"
+        ));
         let module_forward = module_body
             .typedefs
             .values()

@@ -761,7 +761,9 @@ impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
         self.finish_declaration_decls(parent, decls);
         parent
     }
+}
 
+impl<Store: crate::lower::ModuleItemStore> LoweringCtx<Store> {
     pub(crate) fn lower_nested_block(&mut self, block: ast::BlockStatement, owner: OwnerId) {
         self.enter_body_scope(owner);
         for node in block.items().children() {

@@ -573,6 +573,7 @@ fn build_stmt(
         | StmtKind::Jump(_)
         | StmtKind::EventTrigger(_)
         | StmtKind::ProcAssign(_)
+        | StmtKind::CheckerInstance(_)
         | StmtKind::WaitFork
         | StmtKind::DisableFork
         | StmtKind::Disable(_)

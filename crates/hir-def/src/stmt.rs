@@ -8,7 +8,8 @@ use syntax::{
 use super::{
     Ident,
     expr::{ExprId, data_ty::DataTy, declarator::DeclId, timing_control::TimingControl},
-    lower::{LoweringCtx, LoweringStore},
+    lower::{LoweringCtx, ModuleItemStore},
+    module::instantiation::InstantiationId,
 };
 use crate::{
     lower_named_label_opt,
@@ -68,6 +69,7 @@ pub enum StmtKind {
     RandCase {
         items: SmallVec<[RandCaseItem; 5]>,
     },
+    CheckerInstance(InstantiationId),
 
     Forever(StmtId),
     DoWhile(StmtId, ExprId),
@@ -180,7 +182,7 @@ pub struct RandCaseItem {
     pub clause: StmtId,
 }
 
-impl<Store: LoweringStore> LoweringCtx<Store> {
+impl<Store: ModuleItemStore> LoweringCtx<Store> {
     pub(crate) fn lower_stmt_opt(&mut self, stmt: Option<ast::Statement>) -> StmtId {
         if let Some(stmt) = stmt { self.lower_stmt(stmt) } else { self.alloc_missing() }
     }
@@ -222,6 +224,9 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             ConditionalStatement(stmt) => self.lower_cond_stmt(stmt),
             CaseStatement(stmt) => self.lower_case_stmt(stmt),
             RandCaseStatement(stmt) => self.lower_rand_case_stmt(stmt),
+            CheckerInstanceStatement(stmt) => {
+                StmtKind::CheckerInstance(self.lower_checker_instantiation(stmt.instance()))
+            }
 
             ReturnStatement(stmt) => self.lower_return_stmt(stmt),
             DoWhileStatement(stmt) => self.lower_do_while_stmt(stmt),
@@ -236,7 +241,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
 
             ConcurrentAssertionStatement(stmt) => self.lower_concurrent_assertion_stmt(stmt),
             ImmediateAssertionStatement(stmt) => self.lower_immediate_assertion_stmt(stmt),
-            unsupported @ (RandSequenceStatement(_) | CheckerInstanceStatement(_)) => {
+            unsupported @ RandSequenceStatement(_) => {
                 self.report_unsupported(unsupported.syntax(), "unsupported statement");
                 StmtKind::Unsupported(unsupported.syntax().kind())
             }
