@@ -270,6 +270,10 @@ pub enum Expr {
         callee: ExprId,
         args: Box<[Arg]>,
     },
+    NewClass {
+        callee: ExprId,
+        args: Option<Box<[Arg]>>,
+    },
     Concat(Box<[ExprId]>),
     Cond {
         pred: ExprId,
@@ -539,11 +543,11 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             InsideExpression(expr) => self.lower_inside_expr(expr),
             TimingControlExpression(expr) => self.lower_timing_control_expr(expr),
             ExpressionOrDist(expr) => self.lower_expression_or_dist(expr),
+            NewClassExpression(expr) => self.lower_new_class_expr(expr),
             unsupported @ (ValueRangeExpression(_)
             | DataType(_)
             | TaggedUnionExpression(_)
             | NewArrayExpression(_)
-            | NewClassExpression(_)
             | CopyClassExpression(_)
             | SuperNewDefaultedArgsExpression(_)
             | ArrayOrRandomizeMethodExpression(_)) => {
@@ -907,6 +911,14 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         let args =
             expr.arguments()?.parameters().children().map(|arg| self.lower_argument(arg)).collect();
         Some(Expr::Call { callee, args })
+    }
+
+    fn lower_new_class_expr(&mut self, expr: ast::NewClassExpression) -> Option<Expr> {
+        let callee = self.lower_expr(ast::Expression::Name(expr.scoped_new()));
+        let args = expr
+            .arg_list()
+            .map(|list| list.parameters().children().map(|arg| self.lower_argument(arg)).collect());
+        Some(Expr::NewClass { callee, args })
     }
 
     fn lower_argument(&mut self, arg: ast::Argument) -> Arg {

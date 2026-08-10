@@ -821,6 +821,36 @@ impl HirDisplay for OwnerRef<&Expr> {
                 }
                 f.write_str(")")
             }
+            Expr::NewClass { callee, args } => {
+                self.with_value(*callee).hir_fmt(f)?;
+                if let Some(args) = args {
+                    f.write_str("(")?;
+                    let mut first = true;
+                    for arg in args.iter() {
+                        if !first {
+                            f.write_str(", ")?;
+                        }
+                        match arg {
+                            Arg::Named { name, expr } => {
+                                f.write_str(".")?;
+                                if let Some(name) = name {
+                                    f.write_str(name)?;
+                                }
+                                f.write_str("(")?;
+                                self.with_value(*expr).hir_fmt(f)?;
+                                f.write_str(")")?;
+                            }
+                            Arg::Ordered(expr) => {
+                                self.with_value(*expr).hir_fmt(f)?;
+                            }
+                            Arg::Empty => {}
+                        }
+                        first = false;
+                    }
+                    f.write_str(")")?;
+                }
+                Ok(())
+            }
             Expr::Concat(exprs) => {
                 f.write_str("{")?;
                 let mut first = true;
