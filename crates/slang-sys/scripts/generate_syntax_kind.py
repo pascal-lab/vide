@@ -77,7 +77,7 @@ def render_syntax_kind(kinds: list[str]) -> str:
         debug_arms.append(f'            Self::{const_name} => "{kind}",')
         all_values.append(f"Self::{const_name}")
 
-    return f"""#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+    return f"""#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SyntaxKind(u16);
 
 impl SyntaxKind {{
