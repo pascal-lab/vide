@@ -74,6 +74,9 @@ pub(crate) fn render_literal(literal: &Literal) -> Option<Markup> {
         Literal::Null => {
             res.push_with_plain_fence("null");
         }
+        Literal::Unbounded => {
+            res.push_with_plain_fence("$");
+        }
     };
 
     Some(res)

@@ -1034,6 +1034,7 @@ impl HirDisplay for Literal {
             Literal::Str(s) => f.write_str(s),
             Literal::UnbasedUnsized(bit) => f.write_str(&format!("{bit}")),
             Literal::Null => f.write_str("null"),
+            Literal::Unbounded => f.write_str("$"),
         }
     }
 }

@@ -649,7 +649,7 @@ virtual class unit_class #(parameter int width = 8, parameter type data_t = logi
     super.new(default);
   endfunction
   pure virtual function void prototype(input int value);
-  constraint bounds { value inside {[0:3]}; }
+  constraint bounds { value inside {[0:$]}; }
   constraint external;
 endclass
 interface class unit_interface_class;
@@ -931,6 +931,9 @@ endprogram
         );
         assert!(module_body.exprs.values().any(|expr| {
             matches!(expr, crate::expr::Expr::Literal(crate::literal::Literal::Null))
+        }));
+        assert!(body.exprs.values().any(|expr| {
+            matches!(expr, crate::expr::Expr::Literal(crate::literal::Literal::Unbounded))
         }));
         let class = body
             .classes

@@ -10,6 +10,7 @@ pub enum Literal {
     Str(Box<str>),
     UnbasedUnsized(Bit),
     Null,
+    Unbounded,
 }
 
 #[derive(Default, Debug, Clone, Copy, Hash, Eq, PartialEq)]
@@ -81,7 +82,8 @@ pub(crate) fn lower_literal(literal: ast::LiteralExpression) -> Option<Literal> 
             Some(Literal::Str(s.into_boxed_str()))
         }
         NullLiteralExpression(_) => Some(Literal::Null),
-        WildcardLiteralExpression(_) | DefaultPatternKeyExpression(_) => None,
+        WildcardLiteralExpression(_) => Some(Literal::Unbounded),
+        DefaultPatternKeyExpression(_) => None,
     }
 }
 
