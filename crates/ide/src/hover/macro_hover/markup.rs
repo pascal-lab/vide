@@ -53,33 +53,62 @@ fn macro_signature(definition: &MacroDefinition) -> String {
     signature
 }
 
-fn macro_definition_line(db: &RootDb, definition: &MacroDefinition) -> String {
-    source_macro_definition_text(db, definition)
-        .unwrap_or_else(|| fallback_macro_definition_line(definition))
-}
-
-fn source_macro_definition_text(db: &RootDb, definition: &MacroDefinition) -> Option<String> {
+fn macro_definition_line(db: &RootDb, definition: &MacroDefinition) -> Option<String> {
     let source = db.file_text(definition.file_id);
     let start = usize::from(definition.source_range.start());
     let end = usize::from(definition.source_range.end());
-    let raw = source.get(start..end)?;
-    raw.trim_start().starts_with("`define").then(|| macro_expansion_hover_text(raw))
+    let Some(raw) = source.get(start..end) else {
+        tracing::error!(
+            ?definition.source_range,
+            file_id = ?definition.file_id,
+            "macro definition source range is outside the source file"
+        );
+        return None;
+    };
+    if raw.trim_start().starts_with("`define") {
+        return Some(macro_expansion_hover_text(raw));
+    }
+    if db.file_kind(definition.file_id).is_project_manifest() {
+        if definition.params.is_some() {
+            tracing::error!(
+                macro_name = %definition.name,
+                "vide.toml macro definition unexpectedly has parameters"
+            );
+            return None;
+        }
+        let line = manifest_macro_definition_line(raw, definition);
+        if line.is_none() {
+            tracing::error!(
+                macro_name = %definition.name,
+                "vide.toml macro definition value cannot be rendered"
+            );
+        }
+        return line;
+    }
+    tracing::error!(
+        ?definition.source_range,
+        file_id = ?definition.file_id,
+        macro_name = %definition.name,
+        "macro definition source is neither SystemVerilog nor vide.toml"
+    );
+    None
 }
 
-fn fallback_macro_definition_line(definition: &MacroDefinition) -> String {
-    let mut line = String::from("`define ");
-    line.push_str(definition.name.as_str());
-    if let Some(params) = &definition.params {
-        line.push('(');
-        for (index, param) in params.iter().enumerate() {
-            if index > 0 {
-                line.push_str(", ");
-            }
-            line.push_str(param.name.as_deref().unwrap_or("<unnamed>"));
-        }
-        line.push(')');
+fn manifest_macro_definition_line(raw: &str, definition: &MacroDefinition) -> Option<String> {
+    let document = format!("value = {}", raw.trim());
+    let parsed = toml::from_str::<toml::Value>(&document).ok()?;
+    let value = parsed.get("value")?.as_str()?;
+    let body = if value == definition.name.as_str() {
+        "1"
+    } else {
+        value.strip_prefix(definition.name.as_str())?.strip_prefix('=')?
+    };
+    let mut line = format!("`define {}", definition.name);
+    if !body.is_empty() {
+        line.push(' ');
+        line.push_str(body);
     }
-    line
+    Some(line)
 }
 
 pub(super) fn macro_param_definition_markup(definition: &MacroParamDefinition) -> Markup {
@@ -116,7 +145,7 @@ pub(super) fn macro_definition_markup(
     db: &RootDb,
     anchor_file_id: FileId,
     definition: &MacroDefinition,
-) -> Markup {
+) -> Option<Markup> {
     macro_definitions_markup(db, anchor_file_id, std::slice::from_ref(definition))
 }
 
@@ -124,11 +153,11 @@ pub(super) fn macro_definitions_markup(
     db: &RootDb,
     anchor_file_id: FileId,
     definitions: &[MacroDefinition],
-) -> Markup {
+) -> Option<Markup> {
     let mut markup = Markup::new();
     if definitions.len() == 1 {
-        render_macro_definition_display(db, &mut markup, anchor_file_id, &definitions[0]);
-        return markup;
+        render_macro_definition_display(db, &mut markup, anchor_file_id, &definitions[0])?;
+        return Some(markup);
     }
 
     markup.title("Macro definitions");
@@ -144,7 +173,7 @@ pub(super) fn macro_definitions_markup(
             markup.print(&source);
         }
     }
-    markup
+    Some(markup)
 }
 
 fn render_macro_definition_display(
@@ -152,12 +181,22 @@ fn render_macro_definition_display(
     markup: &mut Markup,
     anchor_file_id: FileId,
     definition: &MacroDefinition,
-) {
+) -> Option<()> {
+    let Some(line) = macro_definition_line(db, definition) else {
+        return None;
+    };
+    let Some(source) = macro_definition_source_fact(db, definition, anchor_file_id) else {
+        tracing::error!(
+            macro_name = %definition.name,
+            file_id = ?definition.file_id,
+            "macro definition source location cannot be rendered"
+        );
+        return None;
+    };
     markup.title(&macro_title(definition.name.as_str()));
-    markup.push_with_code_fence(&macro_definition_line(db, definition));
-    let source = macro_definition_source_fact(db, definition, anchor_file_id)
-        .unwrap_or_else(|| "unavailable".to_string());
+    markup.push_with_code_fence(&line);
     markup.metadata_line(&format!("from {source}"));
+    Some(())
 }
 
 fn macro_definition_source_fact(

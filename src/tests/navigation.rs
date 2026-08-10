@@ -592,6 +592,10 @@ endmodule
         manifest_hover_text.contains("FROM_MANIFEST"),
         "manifest define hover should mention macro name: {manifest_hover_text}"
     );
+    assert!(
+        manifest_hover_text.contains("`define FROM_MANIFEST 1"),
+        "manifest define hover should include the configured macro value: {manifest_hover_text}"
+    );
 
     let manifest_definition_uris = request_goto_definition_uris(
         &client,

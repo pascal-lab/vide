@@ -25,19 +25,17 @@ pub(super) fn render_macro_hover_target(
             param_resolution.range,
             markup::macro_param_definitions_markup(&param_resolution.definitions),
         )),
-        PreprocMacroTarget::Definition(definition) => Some(RangeInfo::new(
-            definition.name_range,
-            markup::macro_definition_markup(db, file_id, &definition),
-        )),
+        PreprocMacroTarget::Definition(definition) => {
+            markup::macro_definition_markup(db, file_id, &definition)
+                .map(|markup| RangeInfo::new(definition.name_range, markup))
+        }
         PreprocMacroTarget::Reference(resolution) => {
             if resolution.definitions.is_empty() {
                 return expansion::expanded_macro_hover(db, file_id, offset, Some(&resolution));
             }
             expansion::expanded_macro_hover(db, file_id, offset, Some(&resolution)).or_else(|| {
-                Some(RangeInfo::new(
-                    resolution.range,
-                    markup::macro_definitions_markup(db, file_id, &resolution.definitions),
-                ))
+                markup::macro_definitions_markup(db, file_id, &resolution.definitions)
+                    .map(|markup| RangeInfo::new(resolution.range, markup))
             })
         }
     }
