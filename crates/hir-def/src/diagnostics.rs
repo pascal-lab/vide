@@ -639,7 +639,7 @@ export "DPI-C" task unit_task;
 extern module unit_external #(parameter int width = 8, parameter type data_t = logic)
   (input logic in_a, output logic out_b);
 extern primitive unit_external_primitive(output primitive_out, input primitive_in_a, primitive_in_b);
-class unit_class implements unit_interface;
+virtual class unit_class implements unit_interface;
   protected rand int value;
   local static int hidden;
   const int immutable = 1;
@@ -649,6 +649,10 @@ class unit_class implements unit_interface;
   pure virtual function void prototype(input int value);
   constraint bounds { value inside {[0:3]}; }
   constraint external;
+endclass
+interface class unit_interface_class;
+endclass
+class : final final_class;
 endclass
 function void unit_function();
 endfunction
@@ -902,6 +906,8 @@ endprogram
             .values()
             .find(|class| class.name.as_deref() == Some("unit_class"))
             .expect("file-level class should be lowered");
+        assert_eq!(class.kind, crate::aggregate::ClassKind::Virtual);
+        assert!(!class.is_final);
         assert_eq!(class.implemented_interfaces.as_slice(), ["unit_interface"]);
         assert_eq!(class.members.len(), 8);
         assert!(class.members[0].ty.is_some());
@@ -946,6 +952,19 @@ endprogram
         assert_eq!(body.constraint_defs.len(), 2);
         assert!(body.constraint_defs.values().any(|constraint| !constraint.prototype));
         assert!(body.constraint_defs.values().any(|constraint| constraint.prototype));
+        let interface_class = body
+            .classes
+            .values()
+            .find(|class| class.name.as_deref() == Some("unit_interface_class"))
+            .expect("interface class should be lowered");
+        assert_eq!(interface_class.kind, crate::aggregate::ClassKind::Interface);
+        let final_class = body
+            .classes
+            .values()
+            .find(|class| class.name.as_deref() == Some("final_class"))
+            .expect("final class should be lowered");
+        assert_eq!(final_class.kind, crate::aggregate::ClassKind::Class);
+        assert!(final_class.is_final);
         let anonymous_program = body
             .items
             .iter()

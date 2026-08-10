@@ -112,6 +112,13 @@ pub enum ClassMemberKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClassKind {
+    Class,
+    Virtual,
+    Interface,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClassVisibility {
     Public,
     Protected,
@@ -156,6 +163,8 @@ pub struct ClassMember {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassDef {
     pub name: Option<Ident>,
+    pub kind: ClassKind,
+    pub is_final: bool,
     pub base_class_name: Option<Ident>,
     pub implemented_interfaces: SmallVec<[Ident; 2]>,
     pub members: SmallVec<[ClassMember; 4]>,
@@ -267,6 +276,15 @@ pub(crate) fn lower_class_def(
     container_id: OwnerId,
     mut lower_data_ty: impl FnMut(ast::DataType<'_>) -> DataTy,
 ) -> ClassDef {
+    let kind = match class.virtual_or_interface().map(|token| token.kind()) {
+        Some(TokenKind::VIRTUAL_KEYWORD) => ClassKind::Virtual,
+        Some(TokenKind::INTERFACE_KEYWORD) => ClassKind::Interface,
+        _ => ClassKind::Class,
+    };
+    let is_final = class
+        .final_specifier()
+        .and_then(|specifier| specifier.keyword())
+        .is_some_and(|keyword| keyword.kind() == TokenKind::FINAL_KEYWORD);
     let base_class_name = class
         .extends_clause()
         .and_then(|extends| extends.base_name().as_identifier_name())
@@ -361,6 +379,8 @@ pub(crate) fn lower_class_def(
         .collect();
     ClassDef {
         name: lower_ident_opt(class.name()),
+        kind,
+        is_final,
         base_class_name,
         implemented_interfaces,
         members,
