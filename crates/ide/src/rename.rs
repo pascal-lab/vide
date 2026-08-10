@@ -55,6 +55,10 @@ impl RenameConfig {
         self
     }
 
+    pub(crate) fn edit_scope(&self) -> RenameEditScope {
+        self.edit_scope
+    }
+
     fn references_config(
         &self,
         db: &RootDb,
@@ -130,9 +134,21 @@ pub(crate) fn rename(
     let sema = Semantics::new(db);
     match resolve_rename_target(&sema, position)? {
         RenameTarget::Macro(target) => rename_macro(db, file_id, &config, target, new_name),
-        RenameTarget::Manifest(target) => crate::manifest::rename_target(db, target, new_name),
+        RenameTarget::Manifest(target) => {
+            crate::manifest::rename_target(db, target, &config, new_name)
+        }
         RenameTarget::Hdl(ResolvedRenameTarget { selected_def, .. }) => {
-            rename_definition(db, &sema, file_id, &config, &selected_def, new_name, None)
+            let mut source_change =
+                rename_definition(db, &sema, file_id, &config, &selected_def, new_name, None)?;
+            crate::manifest::rename_module_references(
+                db,
+                file_id,
+                &selected_def,
+                &config,
+                new_name,
+                &mut source_change,
+            )?;
+            Ok(source_change)
         }
     }
 }
@@ -172,7 +188,9 @@ pub(crate) fn expanded_rename(
         RenameTarget::Macro(target) => {
             rename_macro(db, position.file_id, &config, target, new_name)
         }
-        RenameTarget::Manifest(target) => crate::manifest::rename_target(db, target, new_name),
+        RenameTarget::Manifest(target) => {
+            crate::manifest::rename_target(db, target, &config, new_name)
+        }
         RenameTarget::Hdl(resolved) => {
             let targets =
                 recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?;

@@ -278,6 +278,103 @@ fn configured_workspace_rename_updates_cross_file_symbol() {
 }
 
 #[test]
+fn manifest_top_module_rename_updates_definition_and_references() {
+    let temp_dir = TempDir::new("manifest-top-module-rename");
+    let manifest_text = "top_modules = [\"child\"]\nsources = [\"*.sv\"]\n";
+    let child_text = "module child;\nendmodule\n";
+    let top_text = "module top;\n  child u();\nendmodule\n";
+    let manifest_path = temp_dir.path().join("vide.toml");
+    let child_path = temp_dir.path().join("child.sv");
+    let top_path = temp_dir.path().join("top.sv");
+    fs::write(&manifest_path, manifest_text).unwrap();
+    fs::write(&child_path, child_text).unwrap();
+    fs::write(&top_path, top_text).unwrap();
+
+    let (client, server_thread) = spawn_test_workspace(
+        temp_dir.path().to_path_buf(),
+        ClientCapabilities::default(),
+        UserConfig::default(),
+    );
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
+    let child_uri = to_proto::url_from_abs_path(child_path.as_path()).unwrap();
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    open_test_document(&client, manifest_uri.clone(), manifest_text);
+    open_test_document(&client, child_uri.clone(), child_text);
+    open_test_document(&client, top_uri.clone(), top_text);
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let edit = request_rename(
+        &client,
+        manifest_uri.clone(),
+        manifest_text,
+        "\"child\"",
+        "renamed_child",
+        2,
+    )
+    .expect("renaming a manifest top module should return an edit");
+    let Some(lsp_types::DocumentChanges::Edits(document_edits)) = edit.document_changes else {
+        panic!("manifest top-module rename should use document edits: {edit:?}");
+    };
+    assert!(
+        document_edits.iter().any(|edit| edit.text_document.uri == manifest_uri),
+        "rename should update vide.toml: {document_edits:?}"
+    );
+    assert!(
+        document_edits.iter().any(|edit| edit.text_document.uri == child_uri),
+        "rename should update the module definition: {document_edits:?}"
+    );
+    assert!(
+        document_edits.iter().any(|edit| edit.text_document.uri == top_uri),
+        "rename should update module references: {document_edits:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn source_module_rename_updates_manifest_top_module_reference() {
+    let temp_dir = TempDir::new("source-module-rename-manifest-reference");
+    let manifest_text = "top_modules = [\"child\"]\nsources = [\"*.sv\"]\n";
+    let child_text = "module child;\nendmodule\n";
+    let top_text = "module top;\n  child u();\nendmodule\n";
+    let manifest_path = temp_dir.path().join("vide.toml");
+    let child_path = temp_dir.path().join("child.sv");
+    let top_path = temp_dir.path().join("top.sv");
+    fs::write(&manifest_path, manifest_text).unwrap();
+    fs::write(&child_path, child_text).unwrap();
+    fs::write(&top_path, top_text).unwrap();
+
+    let (client, server_thread) = spawn_test_workspace(
+        temp_dir.path().to_path_buf(),
+        ClientCapabilities::default(),
+        UserConfig::default(),
+    );
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
+    let child_uri = to_proto::url_from_abs_path(child_path.as_path()).unwrap();
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    open_test_document(&client, manifest_uri.clone(), manifest_text);
+    open_test_document(&client, child_uri.clone(), child_text);
+    open_test_document(&client, top_uri.clone(), top_text);
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let edit = request_rename(&client, child_uri, child_text, "child", "renamed_child", 2)
+        .expect("renaming a source module should return an edit");
+    let Some(lsp_types::DocumentChanges::Edits(document_edits)) = edit.document_changes else {
+        panic!("source module rename should use document edits: {edit:?}");
+    };
+    assert!(
+        document_edits.iter().any(|edit| edit.text_document.uri == manifest_uri),
+        "rename should update the top_modules reference: {document_edits:?}"
+    );
+    assert!(
+        document_edits.iter().any(|edit| edit.text_document.uri == top_uri),
+        "rename should update source references: {document_edits:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn configured_workspace_expanded_rename_command_updates_chain() {
     let child_text = "module child(input a);\nendmodule\n";
     let top_text = "module top(input a);\n  child u(.a(a));\nendmodule\n";

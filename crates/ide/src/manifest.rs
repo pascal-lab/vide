@@ -10,11 +10,11 @@ use std::{collections::BTreeSet, ops::Range};
 
 use base_db::source_db::{SourceDb, SourceFileKind};
 use syntax::DiagnosticSeverity;
-use toml_edit::{ImDocument, Item, Value};
+use toml_edit::{DocumentMut, ImDocument, Item, Value};
 use triomphe::Arc;
 use utils::{
     line_index::{TextRange, TextSize},
-    text_edit::TextEditItem,
+    text_edit::{TextEdit, TextEditItem},
 };
 use vfs::FileId;
 
@@ -71,6 +71,7 @@ struct ManifestEntry {
 pub(crate) struct ManifestIndex {
     entries: Vec<ManifestEntry>,
     error: Option<ManifestParseError>,
+    formatted_text: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,8 +107,9 @@ fn text_range(range: Range<usize>) -> Option<TextRange> {
     ))
 }
 
-fn parse(text: &str) -> Result<Vec<ManifestEntry>, toml_edit::TomlError> {
-    let document = ImDocument::parse(text)?;
+fn parse_document(text: &str) -> Result<(Vec<ManifestEntry>, DocumentMut), toml_edit::TomlError> {
+    let document = ImDocument::parse(text.to_owned())?;
+    let editable_document = document.clone().into_mut();
     let mut entries = Vec::new();
 
     for (key, item) in document.iter() {
@@ -128,7 +130,34 @@ fn parse(text: &str) -> Result<Vec<ManifestEntry>, toml_edit::TomlError> {
     }
 
     entries.sort_by_key(|entry| entry.full_range.start());
-    Ok(entries)
+    Ok((entries, editable_document))
+}
+
+fn parse(text: &str) -> Result<Vec<ManifestEntry>, toml_edit::TomlError> {
+    parse_document(text).map(|(entries, _)| entries)
+}
+
+fn format_document(document: &mut DocumentMut) {
+    format_table(document.as_table_mut());
+}
+
+fn format_table(table: &mut toml_edit::Table) {
+    for (mut key, item) in table.iter_mut() {
+        // Keep the key prefix intact: it contains comments and the line break
+        // separating this entry from the previous one. Only normalize the
+        // whitespace immediately around the assignment operator.
+        key.leaf_decor_mut().set_suffix(" ");
+        match item {
+            Item::Value(value) => value.decor_mut().set_prefix(" "),
+            Item::Table(table) => format_table(table),
+            Item::ArrayOfTables(tables) => {
+                for table in tables.iter_mut() {
+                    format_table(table);
+                }
+            }
+            Item::None => {}
+        }
+    }
 }
 
 #[salsa::tracked(returns(clone))]
@@ -138,8 +167,11 @@ fn manifest_index(
 ) -> Arc<ManifestIndex> {
     let file_id = key.file_id(db);
     let text = db.file_text(file_id);
-    let (entries, error) = match parse(&text) {
-        Ok(entries) => (entries, None),
+    let (entries, error, formatted_text) = match parse_document(&text) {
+        Ok((entries, mut document)) => {
+            format_document(&mut document);
+            (entries, None, Some(document.to_string()))
+        }
         Err(error) => {
             tracing::debug!(?file_id, error = %error, "vide.toml parsed with errors");
             (
@@ -148,10 +180,11 @@ fn manifest_index(
                     range: error.span().and_then(text_range),
                     message: error.to_string(),
                 }),
+                None,
             )
         }
     };
-    Arc::new(ManifestIndex { entries, error })
+    Arc::new(ManifestIndex { entries, error, formatted_text })
 }
 
 fn index_for(db: &dyn base_db::source_db::SourceDb, file_id: FileId) -> Option<Arc<ManifestIndex>> {
@@ -527,13 +560,85 @@ pub(crate) fn target_range(db: &RootDb, target: ManifestTarget) -> TextRange {
 pub(crate) fn rename_target(
     db: &RootDb,
     target: ManifestTarget,
+    config: &crate::rename::RenameConfig,
     new_name: &str,
 ) -> Result<SourceChange, crate::rename::RenameError> {
     let info = target_info(db, target).ok_or(crate::rename::RenameError::NoRefFound)?;
     let value = info.selected_value.ok_or(crate::rename::RenameError::NoRefFound)?;
-    let mut builder = SourceChangeBuilder::new(info.file_id);
-    builder.replace(value.content_range, new_name);
-    Ok(builder.finish())
+    if info.key != "top_modules" {
+        let mut builder = SourceChangeBuilder::new(info.file_id);
+        builder.replace(value.content_range, new_name);
+        return Ok(builder.finish());
+    }
+
+    let modules = module_targets(db, &value.text);
+    let [module] = modules.as_slice() else {
+        tracing::debug!(
+            ?info.file_id,
+            module = %value.text,
+            candidate_count = modules.len(),
+            "cannot rename an ambiguous manifest top module"
+        );
+        return Err(crate::rename::RenameError::NoDefFound);
+    };
+
+    let mut source_change = crate::rename::rename(
+        db,
+        FilePosition { file_id: module.file_id, offset: module.focus_or_full_range().start() },
+        config.clone(),
+        new_name,
+    )?;
+    source_change
+        .insert_text_edit(info.file_id, TextEdit::replace(value.content_range, new_name.to_owned()))
+        .map_err(|_| crate::rename::RenameError::OverlappingEdits)?;
+    Ok(source_change)
+}
+
+pub(crate) fn rename_module_references(
+    db: &RootDb,
+    request_file_id: FileId,
+    def: &hir_def::def_id::DefId,
+    config: &crate::rename::RenameConfig,
+    new_name: &str,
+    source_change: &mut SourceChange,
+) -> Result<(), crate::rename::RenameError> {
+    let Some(module_origin) =
+        def.origins(db).into_iter().find(|origin| origin.as_module(db).is_some())
+    else {
+        return Ok(());
+    };
+    let old_name = module_origin.name(db).ok_or(crate::rename::RenameError::NoRefFound)?;
+
+    for manifest_file_id in db.files() {
+        if !is_manifest(db, manifest_file_id) {
+            continue;
+        }
+        let Some(entries) = entries_for(db, manifest_file_id) else {
+            continue;
+        };
+        for entry in entries {
+            if entry.key != "top_modules" {
+                continue;
+            }
+            for value in entry.values {
+                if value.text != old_name.as_str() {
+                    continue;
+                }
+                if matches!(config.edit_scope(), crate::rename::RenameEditScope::SingleFile)
+                    && manifest_file_id != request_file_id
+                {
+                    return Err(crate::rename::RenameError::ProjectScopeRequired);
+                }
+                source_change
+                    .insert_text_edit(
+                        manifest_file_id,
+                        TextEdit::replace(value.content_range, new_name.to_owned()),
+                    )
+                    .map_err(|_| crate::rename::RenameError::OverlappingEdits)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn semantic_tokens(
@@ -747,7 +852,17 @@ pub(crate) fn format(
     if let Some(error) = &index.error {
         anyhow::bail!(error.message.clone());
     }
-    Ok(None)
+    let text = db.file_text(file_id);
+    let Some(formatted_text) = &index.formatted_text else {
+        anyhow::bail!("vide.toml formatter did not produce a document");
+    };
+    if formatted_text == text.as_ref() {
+        return Ok(None);
+    }
+    Ok(Some(utils::text_edit::TextEdit::replace(
+        TextRange::up_to(TextSize::of(text.as_ref())),
+        formatted_text.clone(),
+    )))
 }
 
 pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
@@ -798,5 +913,13 @@ mod tests {
         let (range, prefix) = word_at_offset("sou", 3);
         assert_eq!(prefix, "sou");
         assert_eq!(range, TextRange::new(TextSize::from(0), TextSize::from(3)));
+    }
+
+    #[test]
+    fn formatting_normalizes_assignment_spacing_without_dropping_comments() {
+        let text = "# project\ntop_modules=[\"top\"] # selected top\n";
+        let (_, mut document) = parse_document(text).unwrap();
+        format_document(&mut document);
+        assert_eq!(document.to_string(), "# project\ntop_modules = [\"top\"] # selected top\n");
     }
 }
