@@ -619,6 +619,11 @@ int unit_data;
 wire unit_net;
 typedef int unit_type;
 parameter int unit_parameter = 1;
+class unit_class;
+  int value;
+  function void method();
+  endfunction
+endclass
 function void unit_function();
 endfunction
 primitive unit_primitive (o, i);
@@ -650,6 +655,12 @@ endconfig
             _ => None,
         });
         assert_eq!(parameter.map(|parameter| parameter.kind), Some(ParamDeclKind::Parameter));
+        let class = body
+            .classes
+            .values()
+            .find(|class| class.name.as_deref() == Some("unit_class"))
+            .expect("file-level class should be lowered");
+        assert_eq!(class.members.len(), 2);
     }
 
     #[test]

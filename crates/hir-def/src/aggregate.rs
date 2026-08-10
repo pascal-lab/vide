@@ -2,7 +2,7 @@ use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::{
     TokenKind,
-    ast::{self, StructUnionMember, StructUnionType},
+    ast::{self, AstNode, StructUnionMember, StructUnionType},
     has_name::HasName,
 };
 
@@ -14,7 +14,12 @@ use super::{
     },
     lower_ident_opt,
 };
-use crate::{container::OwnerRef, owner::OwnerId};
+use crate::{
+    alloc_with_source_entry,
+    container::OwnerRef,
+    lower::{LoweringCtx, LoweringStore},
+    owner::OwnerId,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StructKind {
@@ -118,6 +123,15 @@ pub struct ClassDef {
 }
 
 pub type ClassId = Idx<ClassDef>;
+
+impl<Store: LoweringStore> LoweringCtx<Store> {
+    pub(crate) fn lower_class_decl(&mut self, class: ast::ClassDeclaration<'_>) -> ClassId {
+        let class_def = lower_class_def(class);
+        let source = self.source_id(class.syntax());
+        let (body, sources) = self.store.body();
+        alloc_with_source_entry(&mut body.classes, &mut sources.class_srcs, class_def, source)
+    }
+}
 
 pub(crate) fn lower_class_def(class: ast::ClassDeclaration<'_>) -> ClassDef {
     let base_class_name = class

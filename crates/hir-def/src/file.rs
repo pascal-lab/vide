@@ -215,6 +215,7 @@ impl LowerFileCtx<'_> {
                 ParameterDeclarationStatement(param_decl) => {
                     self.lower_param_decl_base(param_decl.parameter()).into()
                 }
+                ClassDeclaration(class) => self.lower_class_decl(class).into(),
                 FunctionDeclaration(fn_decl) => match self.lower_subroutine_decl(fn_decl) {
                     Some(owner) => BodyItem::SubroutineOwner(owner),
                     None => continue,
