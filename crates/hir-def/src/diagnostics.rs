@@ -648,6 +648,7 @@ virtual class unit_class #(parameter int width = 8, parameter type data_t = logi
   randc int cycle;
   function void method();
     super.new(default);
+    this.randomize with (value) { value > 0; };
   endfunction
   pure virtual function void prototype(input int value);
   constraint bounds { value inside {[0:$]}; }
@@ -678,6 +679,8 @@ module unit_module;
   unit_class empty_array[] = {};
   unit_class null_handle = null;
   unit_tagged_union tagged_value = tagged foo 1;
+  int array_values [0:1];
+  int array_sum = array_values.sum with (item);
   typedef struct module_forward;
   nettype logic module_nettype;
   module_nettype #2 module_signal;
@@ -937,6 +940,16 @@ endprogram
         assert!(module_body.exprs.values().any(|expr| {
             matches!(expr, crate::expr::Expr::TaggedUnion { member: Some(member), expr: Some(_) } if member == "foo")
         }));
+        assert!(module_body.exprs.values().any(|expr| {
+            matches!(
+                expr,
+                crate::expr::Expr::ArrayOrRandomizeMethod {
+                    with_args: Some(args),
+                    constraints: None,
+                    ..
+                } if args.len() == 1
+            )
+        }));
         assert!(body.exprs.values().any(|expr| {
             matches!(expr, crate::expr::Expr::Literal(crate::literal::Literal::Unbounded))
         }));
@@ -1001,6 +1014,16 @@ endprogram
                 .values()
                 .any(|expr| matches!(expr, crate::expr::Expr::SuperNewDefaulted { .. }))
         );
+        assert!(method_body.exprs.values().any(|expr| {
+            matches!(
+                expr,
+                crate::expr::Expr::ArrayOrRandomizeMethod {
+                    with_args: Some(args),
+                    constraints: Some(_),
+                    ..
+                } if args.len() == 1
+            )
+        }));
         assert!(class.members[5].method.as_ref().is_some_and(|method| !method.has_body));
         assert_eq!(
             class.members[5].method_qualifiers,

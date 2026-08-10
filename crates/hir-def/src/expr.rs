@@ -283,6 +283,11 @@ pub enum Expr {
         initializer: Option<ExprId>,
     },
     EmptyQueue,
+    ArrayOrRandomizeMethod {
+        method: ExprId,
+        with_args: Option<Box<[ExprId]>>,
+        constraints: Option<crate::constraint::ConstraintId>,
+    },
     TaggedUnion {
         member: Option<Ident>,
         expr: Option<ExprId>,
@@ -562,11 +567,12 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             NewClassExpression(expr) => self.lower_new_class_expr(expr),
             CopyClassExpression(expr) => self.lower_copy_class_expr(expr),
             NewArrayExpression(expr) => self.lower_new_array_expr(expr),
+            ArrayOrRandomizeMethodExpression(expr) => {
+                self.lower_array_or_randomize_method_expr(expr)
+            }
             TaggedUnionExpression(expr) => self.lower_tagged_union_expr(expr),
             SuperNewDefaultedArgsExpression(expr) => self.lower_super_new_defaulted_expr(expr),
-            unsupported @ (ValueRangeExpression(_)
-            | DataType(_)
-            | ArrayOrRandomizeMethodExpression(_)) => {
+            unsupported @ (ValueRangeExpression(_) | DataType(_)) => {
                 Some(Expr::Unsupported(unsupported.syntax().kind()))
             }
         }
@@ -954,6 +960,19 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         let member = lower_ident_opt(expr.member());
         let value = expr.expr().map(|expr| self.lower_expr(expr));
         Some(Expr::TaggedUnion { member, expr: value })
+    }
+
+    fn lower_array_or_randomize_method_expr(
+        &mut self,
+        expr: ast::ArrayOrRandomizeMethodExpression,
+    ) -> Option<Expr> {
+        let method = self.lower_expr(expr.method());
+        let with_args = expr
+            .args()
+            .map(|args| args.expressions().children().map(|expr| self.lower_expr(expr)).collect());
+        let constraints =
+            expr.constraints().map(|constraints| self.lower_inline_constraint_block(constraints));
+        Some(Expr::ArrayOrRandomizeMethod { method, with_args, constraints })
     }
 
     fn lower_super_new_defaulted_expr(

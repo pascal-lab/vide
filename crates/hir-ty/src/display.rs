@@ -868,6 +868,23 @@ impl HirDisplay for OwnerRef<&Expr> {
                 Ok(())
             }
             Expr::EmptyQueue => f.write_str("{}"),
+            Expr::ArrayOrRandomizeMethod { method, with_args, constraints } => {
+                self.with_value(*method).hir_fmt(f)?;
+                if let Some(args) = with_args {
+                    f.write_str(" with (")?;
+                    for (index, arg) in args.iter().enumerate() {
+                        if index != 0 {
+                            f.write_str(", ")?;
+                        }
+                        self.with_value(*arg).hir_fmt(f)?;
+                    }
+                    f.write_str(")")?;
+                }
+                if constraints.is_some() {
+                    f.write_str(" { <constraint> }")?;
+                }
+                Ok(())
+            }
             Expr::TaggedUnion { member, expr } => {
                 f.write_str("tagged")?;
                 if let Some(member) = member {

@@ -170,6 +170,13 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         )
     }
 
+    pub(crate) fn lower_inline_constraint_block(
+        &mut self,
+        block: ast::ConstraintBlock,
+    ) -> ConstraintId {
+        self.lower_constraint_item(ast::ConstraintItem::ConstraintBlock(block))
+    }
+
     fn lower_constraint_item(&mut self, item: ast::ConstraintItem) -> ConstraintId {
         let constraint = match item {
             ast::ConstraintItem::ExpressionConstraint(item) => Constraint::Expression {
