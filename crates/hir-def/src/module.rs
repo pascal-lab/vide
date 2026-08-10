@@ -249,6 +249,10 @@ impl LowerModuleCtx<'_> {
 
                 // Aggregates
                 ClassDeclaration(class) => self.lower_class_decl(class).into(),
+                BindDirective(directive) => match self.lower_bind_directive(directive) {
+                    Some(id) => id.into(),
+                    None => continue,
+                },
                 unsupported @ ModuleDeclaration(_) => {
                     self.report_unsupported(
                         unsupported.syntax(),
@@ -403,12 +407,6 @@ impl LowerModuleCtx<'_> {
                         unsupported.syntax(),
                         "config declaration is not lowered",
                     );
-                    continue;
-                }
-
-                // Bind
-                unsupported @ BindDirective(_) => {
-                    self.report_unsupported(unsupported.syntax(), "bind directive is not lowered");
                     continue;
                 }
 

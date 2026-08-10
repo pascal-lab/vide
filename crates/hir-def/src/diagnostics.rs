@@ -405,6 +405,7 @@ mod tests {
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
     use crate::{
+        bind::{BindInstantiationKind, BindPathKind},
         db::HirDefDb,
         declaration::{Declaration, ParamDeclKind},
         source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
@@ -637,9 +638,12 @@ checker unit_checker;
 endchecker
 covergroup unit_covergroup;
 endgroup
+bind unit_module unit_bound unit_bind();
+bind unit_module unit_checker::unit_checker unit_checker_bind();
 module unit_module;
   timeunit 10ns;
   timeprecision 1ps;
+  bind unit_module: unit_instance, unit_module.sub[1] unit_bound module_bind();
 endmodule
 config unit_config;
   design unit_module;
@@ -664,6 +668,13 @@ endconfig
         assert_eq!(time_units.value.unit, syntax::TimeUnit::Nanoseconds);
         assert_eq!(time_units.value.magnitude, TimeScaleMagnitude::One);
         assert_eq!(time_units.precision.unwrap().unit, syntax::TimeUnit::Picoseconds);
+        assert_eq!(body.bind_directives.len(), 2);
+        let mut binds = body.bind_directives.values();
+        let hierarchy_bind = binds.next().expect("hierarchy bind should be lowered");
+        let checker_bind = binds.next().expect("checker bind should be lowered");
+        assert_eq!(hierarchy_bind.instantiation_kind, BindInstantiationKind::Hierarchy);
+        assert_eq!(checker_bind.instantiation_kind, BindInstantiationKind::Checker);
+        assert_eq!(hierarchy_bind.target.segments[0].name, "unit_module");
         let module = body.module_owners().next().expect("module owner should be lowered");
         let module_body = db.body(module);
         assert_eq!(module_body.time_units.len(), 2);
@@ -675,6 +686,11 @@ endconfig
         assert_eq!(module_time_unit.kind, TimeUnitsKind::Unit);
         assert_eq!(module_time_unit.value.magnitude, TimeScaleMagnitude::Ten);
         assert_eq!(module_time_precision.kind, TimeUnitsKind::Precision);
+        let module_bind =
+            module_body.bind_directives.values().next().expect("module bind should be lowered");
+        assert_eq!(module_bind.target_instances.len(), 2);
+        assert_eq!(module_bind.target_instances[1].kind, BindPathKind::Hierarchical);
+        assert_eq!(module_bind.target_instances[1].segments[1].selectors.len(), 1);
         let class = body
             .classes
             .values()

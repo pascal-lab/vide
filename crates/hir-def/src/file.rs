@@ -216,6 +216,10 @@ impl LowerFileCtx<'_> {
                     self.lower_param_decl_base(param_decl.parameter()).into()
                 }
                 ClassDeclaration(class) => self.lower_class_decl(class).into(),
+                BindDirective(directive) => match self.lower_bind_directive(directive) {
+                    Some(id) => id.into(),
+                    None => continue,
+                },
                 TimeUnitsDeclaration(declaration) => {
                     match self.lower_time_units_decl(declaration) {
                         Some(id) => id.into(),

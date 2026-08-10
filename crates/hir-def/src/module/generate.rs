@@ -142,6 +142,9 @@ impl LowerGenerateBlockCtx<'_> {
             FunctionDeclaration(fn_decl) => {
                 BodyItem::SubroutineOwner(self.lower_subroutine_decl(fn_decl)?)
             }
+            BindDirective(directive) => {
+                BodyItem::BindDirectiveId(self.lower_bind_directive(directive)?)
+            }
             ProceduralBlock(proc) => self.lower_proc(proc).into(),
             GenerateBlock(block) => BodyItem::GenerateBlockOwner(
                 self.intern_generate_node(generate_block_source_node(block)),
@@ -333,6 +336,11 @@ impl LowerModuleCtx<'_> {
             FunctionDeclaration(fn_decl) => {
                 if let Some(owner) = self.lower_subroutine_decl(fn_decl) {
                     items.push(BodyItem::SubroutineOwner(owner));
+                }
+            }
+            BindDirective(directive) => {
+                if let Some(bind) = self.lower_bind_directive(directive) {
+                    items.push(bind.into());
                 }
             }
             ProceduralBlock(proc) => {

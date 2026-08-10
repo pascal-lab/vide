@@ -12,6 +12,7 @@
 pub mod aggregate;
 pub mod assertion;
 pub mod ast_id_map;
+pub mod bind;
 pub mod block;
 pub mod body;
 pub mod checker;
