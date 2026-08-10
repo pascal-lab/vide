@@ -805,7 +805,7 @@ endmodule
         let (port_id, _) = ports.iter().next().expect("port should lower");
 
         let tree = db.parse(TOP.into());
-        let root = tree.root().expect("source should parse");
+        let root = tree.root();
         let unit = ast::CompilationUnit::cast(root).expect("root should be a compilation unit");
         let ast::Member::ModuleDeclaration(module_ast) =
             unit.members().children().next().expect("module should parse")

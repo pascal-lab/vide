@@ -377,7 +377,7 @@ mod tests {
             }
         };
 
-        let root = tree.root().unwrap();
+        let root = tree.root();
         detect_completion_context_with_source_text(
             root,
             TextSize::from(off as u32),

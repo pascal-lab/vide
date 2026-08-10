@@ -17,13 +17,13 @@ endmodule
         predefines: vec![String::from("CA_WIDTH=8")],
         ..SyntaxTreeOptions::default()
     };
-    let tree = SyntaxTree::from_text(
+    let tree = SyntaxTree::from_text_with_options(
         text,
         "sample/rtl/code_action_targets.v",
         "sample/rtl/code_action_targets.v",
         &options,
     );
-    let root = tree.root().unwrap();
+    let root = tree.root();
     let macro_start = text.find("`CA_WIDTH").unwrap();
     let offset = TextSize::from((macro_start + 1) as u32);
 

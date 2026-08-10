@@ -45,7 +45,7 @@ impl ParsedFile {
     }
 
     pub fn root(&self) -> Option<SyntaxNode<'_>> {
-        self.tree.root()
+        Some(self.tree.root())
     }
 
     pub fn compilation_unit(&self) -> Option<ast::CompilationUnit<'_>> {

@@ -274,9 +274,7 @@ pub(crate) fn build_source_projection(
     ast_ids: &AstIdMap,
 ) -> crate::source_projection::SourceProjection {
     let mut origins = rustc_hash::FxHashMap::default();
-    let Some(root) = tree.root() else {
-        return crate::source_projection::SourceProjection::new(origins);
-    };
+    let root = tree.root();
     for event in root.node_preorder() {
         let syntax::WalkEvent::Enter(node) = event else {
             continue;
@@ -308,49 +306,48 @@ fn build_item_tree_data(
     let mut signatures = Vec::new();
     let mut parents = Vec::new();
     let mut body_depth = 0usize;
-    if let Some(root) = tree.root() {
-        for event in root.elem_preorder() {
-            match event {
-                WalkEvent::Enter(SyntaxElement::Node(node)) => {
-                    let ast_id = ast_ids
-                        .id_of_node_in_tree(tree, node)
-                        .expect("every syntax node has an AST identity");
+    let root = tree.root();
+    for event in root.elem_preorder() {
+        match event {
+            WalkEvent::Enter(SyntaxElement::Node(node)) => {
+                let ast_id = ast_ids
+                    .id_of_node_in_tree(tree, node)
+                    .expect("every syntax node has an AST identity");
 
-                    if body_depth == 0 && ast::Member::can_cast(node.kind()) {
-                        let (name, _) = item_name(node);
-                        let header_range = item_header_range(node);
-                        let header_fingerprint =
-                            fingerprint(node.kind(), name.as_ref(), header_range, source_text);
-                        let signature = ast::FunctionDeclaration::cast(node).map(|function| {
-                            let id = SignatureId::from_raw(signatures.len() as u32);
-                            signatures.push(lower_signature(function, ast_ids));
-                            id
-                        });
+                if body_depth == 0 && ast::Member::can_cast(node.kind()) {
+                    let (name, _) = item_name(node);
+                    let header_range = item_header_range(node);
+                    let header_fingerprint =
+                        fingerprint(node.kind(), name.as_ref(), header_range, source_text);
+                    let signature = ast::FunctionDeclaration::cast(node).map(|function| {
+                        let id = SignatureId::from_raw(signatures.len() as u32);
+                        signatures.push(lower_signature(function, ast_ids));
+                        id
+                    });
 
-                        items.push(ItemTreeItem {
-                            id: ast_id,
-                            parent: parents.last().copied(),
-                            kind: node.kind(),
-                            name,
-                            signature,
-                            header_fingerprint,
-                        });
-                        parents.push(ast_id);
-                    }
-                    if is_body_boundary(node) {
-                        body_depth += 1;
-                    }
+                    items.push(ItemTreeItem {
+                        id: ast_id,
+                        parent: parents.last().copied(),
+                        kind: node.kind(),
+                        name,
+                        signature,
+                        header_fingerprint,
+                    });
+                    parents.push(ast_id);
                 }
-                WalkEvent::Leave(SyntaxElement::Node(node)) => {
-                    if is_body_boundary(node) {
-                        body_depth -= 1;
-                    }
-                    if body_depth == 0 && ast::Member::can_cast(node.kind()) {
-                        parents.pop().expect("item parent stack is balanced");
-                    }
+                if is_body_boundary(node) {
+                    body_depth += 1;
                 }
-                _ => {}
             }
+            WalkEvent::Leave(SyntaxElement::Node(node)) => {
+                if is_body_boundary(node) {
+                    body_depth -= 1;
+                }
+                if body_depth == 0 && ast::Member::can_cast(node.kind()) {
+                    parents.pop().expect("item parent stack is balanced");
+                }
+            }
+            _ => {}
         }
     }
     debug_assert!(parents.is_empty());
@@ -586,7 +583,7 @@ mod tests {
         let projection = build_source_projection(file_id, &tree, &ast_ids);
 
         let mut names = FxHashMap::default();
-        let root = tree.root().expect("source should parse");
+        let root = tree.root();
         for event in root.node_preorder() {
             let syntax::WalkEvent::Enter(node) = event else {
                 continue;

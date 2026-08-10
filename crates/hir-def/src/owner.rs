@@ -202,28 +202,26 @@ pub(crate) fn owner_table(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerTab
     let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
     let ast_ids = crate::ast_id_map::ast_id_map(db, file);
-    let root_ast_id =
-        tree.root().and_then(|root| ast_ids.id_of_node(root)).unwrap_or(SourceAstId::from_raw(0));
+    let root = tree.root();
+    let root_ast_id = ast_ids.id_of_node(root).unwrap_or(SourceAstId::from_raw(0));
     let mut builder = OwnerTableBuilder::new(db, file_id, root_ast_id);
-    if let Some(root) = tree.root() {
-        for event in root.elem_preorder() {
-            match event {
-                WalkEvent::Enter(SyntaxElement::Node(node)) => {
-                    let ast_id =
-                        ast_ids.id_of_node(node).expect("every syntax node has a source identity");
-                    builder.enter(node, ast_id);
-                }
-                WalkEvent::Leave(SyntaxElement::Node(node)) => {
-                    builder.leave(node);
-                }
-                _ => {}
+    for event in root.elem_preorder() {
+        match event {
+            WalkEvent::Enter(SyntaxElement::Node(node)) => {
+                let ast_id =
+                    ast_ids.id_of_node(node).expect("every syntax node has a source identity");
+                builder.enter(node, ast_id);
             }
+            WalkEvent::Leave(SyntaxElement::Node(node)) => {
+                builder.leave(node);
+            }
+            _ => {}
         }
-        // `elem_preorder` intentionally omits the synthetic leave event for
-        // its root. Stock slang v11 may return a single top-level declaration
-        // as the root, so close that node explicitly when it can own scope.
-        builder.leave(root);
     }
+    // `elem_preorder` intentionally omits the synthetic leave event for
+    // its root. Stock slang v11 may return a single top-level declaration
+    // as the root, so close that node explicitly when it can own scope.
+    builder.leave(root);
     Arc::new(builder.finish())
 }
 

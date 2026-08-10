@@ -448,18 +448,13 @@ pub(crate) fn lower_file_owner(
         syntax,
         BodyStore { data: &mut body, sources: &mut source_map },
     );
-    match tree.root() {
-        Some(root) if ast::CompilationUnit::can_cast(root.kind()) => {
-            if let Some(root) = ast::CompilationUnit::cast(root) {
-                lower_ctx.lower_file(root);
-            }
-        }
-        Some(root) if ast::LibraryMap::can_cast(root.kind()) => {
-            if let Some(root) = ast::LibraryMap::cast(root) {
-                lower_ctx.lower_library_map(root);
-            }
-        }
-        _ => {}
+    let root = tree.root();
+    if ast::CompilationUnit::can_cast(root.kind()) {
+        let root = ast::CompilationUnit::cast(root).expect("compilation unit kind must cast");
+        lower_ctx.lower_file(root);
+    } else if ast::LibraryMap::can_cast(root.kind()) {
+        let root = ast::LibraryMap::cast(root).expect("library map kind must cast");
+        lower_ctx.lower_library_map(root);
     }
 
     let diagnostics = lower_ctx.emit_diagnostics();

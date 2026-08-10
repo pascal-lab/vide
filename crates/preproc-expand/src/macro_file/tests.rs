@@ -255,7 +255,7 @@ fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
     assert!(expansion.value.text.contains("from_macro"));
     assert!(matches!(expansion.value.source_map.map_up(0), Some(Origin::MacroBody { .. })));
     let parse = db.parse(HirFileId::Macro(macro_file));
-    let root = parse.root().expect("macro expansion should parse to a syntax root");
+    let root = parse.root();
     let unit =
         CompilationUnit::cast(root).expect("macro expansion root should be a compilation unit");
     let mut modules = unit.members().children().filter_map(Member::as_module_declaration);

@@ -55,7 +55,7 @@ fn source_token_target_is_complete_and_source_origin() {
 fn source_token_range_mismatch_uses_original_syntax_hit() {
     let (tree, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 2);
-    let root = tree.root().expect("test source should parse");
+    let root = tree.root();
     let file_id = FileId::from_raw(0);
     let origin_range = TextRange::new(
         parser_range.start() + TextSize::from(1),
@@ -93,7 +93,7 @@ endmodule
         "sample/rtl/top.sv",
         &SyntaxTreeOptions::default(),
     );
-    let root = parsed.tree.root().expect("test source should parse");
+    let root = parsed.tree.root();
     let token = root
         .elem_preorder()
         .filter_map(|event| match event {
@@ -151,7 +151,7 @@ endmodule
         "sample/rtl/top.sv",
         &SyntaxTreeOptions::default(),
     );
-    let root = parsed.tree.root().expect("test source should parse");
+    let root = parsed.tree.root();
     let trace = parsed.preprocessor_trace.expect("trace should be collected");
     let emitted_payloads = trace
         .emitted_tokens
@@ -211,7 +211,7 @@ endmodule
         "sample/rtl/top.sv",
         &SyntaxTreeOptions::default(),
     );
-    let root = parsed.tree.root().expect("test source should parse");
+    let root = parsed.tree.root();
     let token = root
         .elem_preorder()
         .filter_map(|event| match event {
@@ -264,7 +264,7 @@ endmodule
         "sample/rtl/top.sv",
         &SyntaxTreeOptions::default(),
     );
-    let root = parsed.tree.root().expect("test source should parse");
+    let root = parsed.tree.root();
     let trace = parsed.preprocessor_trace.expect("trace should be collected");
     let emitted_payloads = trace
         .emitted_tokens
@@ -300,7 +300,7 @@ endmodule
 fn preproc_owned_unresolved_does_not_use_normal_syntax_fallback() {
     let (tree, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
-    let root = tree.root().expect("test source should parse");
+    let root = tree.root();
     assert!(
         normal_syntax_source_target_at_offset(root, offset, &test_precedence).is_some(),
         "test setup must have an ordinary syntax token that fallback could have selected"
@@ -315,7 +315,7 @@ fn preproc_owned_unresolved_does_not_use_normal_syntax_fallback() {
 fn normal_syntax_path_still_selects_non_preproc_offsets() {
     let (tree, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
-    let root = tree.root().expect("test source should parse");
+    let root = tree.root();
     let Some(selection) = normal_syntax_source_target_at_offset(root, offset, &test_precedence)
     else {
         panic!("normal syntax token expected");
@@ -329,7 +329,7 @@ fn normal_syntax_path_still_selects_non_preproc_offsets() {
 fn same_origin_hits_resolve_without_ambiguity() {
     let (tree, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
-    let root = tree.root().expect("test source should parse");
+    let root = tree.root();
     let file_id = FileId::from_raw(0);
     let hits =
         vec![test_source_hit(file_id, parser_range, 0), test_source_hit(file_id, parser_range, 1)];
@@ -350,7 +350,7 @@ fn same_origin_hits_resolve_without_ambiguity() {
 fn reports_ambiguous_preproc_hits_for_conflicting_targets() {
     let (tree, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 2);
-    let root = tree.root().expect("test source should parse");
+    let root = tree.root();
     let file_id = FileId::from_raw(0);
     let first = TextRange::new(parser_range.start(), parser_range.start() + TextSize::from(4));
     let second = TextRange::new(parser_range.start() + TextSize::from(1), parser_range.end());

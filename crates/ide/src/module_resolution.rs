@@ -624,7 +624,7 @@ mod tests {
             Query::NamedPort => {
                 let offset = fixture.offset.expect("named_port query requires /*caret*/");
                 let tree = db.parse_src_for_compilation(fixture.focus);
-                let root = tree.root().expect("test source should parse");
+                let root = tree.root();
                 let port_conn = root
                     .find_node_at_offset::<ast::NamedPortConnection>(offset)
                     .expect("named port connection should parse at /*caret*/");
@@ -640,7 +640,7 @@ mod tests {
             Query::NamedParam => {
                 let offset = fixture.offset.expect("named_param query requires /*caret*/");
                 let tree = db.parse_src_for_compilation(fixture.focus);
-                let root = tree.root().expect("test source should parse");
+                let root = tree.root();
                 let param_assign = root
                     .find_node_at_offset::<ast::NamedParamAssignment>(offset)
                     .expect("named parameter assignment should parse at /*caret*/");

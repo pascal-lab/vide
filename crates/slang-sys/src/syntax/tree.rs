@@ -113,11 +113,10 @@ impl SyntaxTree {
         Self { raw: ffi::parse_library_map_syntax_tree(text, name, path, false) }
     }
 
-    pub fn root(&self) -> Option<SyntaxNode<'_>> {
-        let raw = ffi::syntax_tree_root(self.raw.as_ref()?);
-        Some(
-            SyntaxNode::from_nullable_raw(raw, self).expect("Slang returned null syntax tree root"),
-        )
+    pub fn root(&self) -> SyntaxNode<'_> {
+        let raw =
+            ffi::syntax_tree_root(self.raw.as_ref().expect("Slang returned a null syntax tree"));
+        SyntaxNode::from_nullable_raw(raw, self).expect("Slang returned null syntax tree root")
     }
 
     /// NOTE: This will only get diagnostics while parsing. For further

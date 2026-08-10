@@ -42,9 +42,7 @@ impl FileSemanticIndex {
 
     pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
         let tree = db.parse(file_id.into());
-        let Some(root) = tree.root() else {
-            return Self::default();
-        };
+        let root = tree.root();
         let hir_file_id = HirFileId::from(file_id);
 
         // Macro-emitted tokens share the call-site display range. Ordinary

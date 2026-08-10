@@ -124,9 +124,7 @@ fn collect_syntax_folds(
     folds: &mut Vec<Fold>,
 ) {
     let tree = db.parse(file_id);
-    let Some(root) = tree.root() else {
-        return;
-    };
+    let root = tree.root();
 
     let mut import_ranges = Vec::new();
     let mut stack = vec![root];

@@ -38,7 +38,7 @@ impl SyntaxNodePtr {
 
     #[inline]
     pub fn to_node<'a>(&self, tree: &'a SyntaxTree) -> Option<SyntaxNode<'a>> {
-        let root_node = tree.root()?;
+        let root_node = tree.root();
         let mut node = root_node.elem_at_exact_range(self.range)?.as_node()?;
         // SyntaxList wrappers may share a range with their semantic child.
         // Descend only through same-range wrappers; never scan the whole tree.
@@ -107,7 +107,7 @@ impl SyntaxTokenPtr {
     }
 
     pub fn to_token<'a>(&self, tree: &'a SyntaxTree) -> Option<SyntaxTokenWithParent<'a>> {
-        tree.root()?.token_at_offset(self.range.start()).find(|token| {
+        tree.root().token_at_offset(self.range.start()).find(|token| {
             token.kind() == self.kind && token.text_range().is_some_and(|range| range == self.range)
         })
     }
@@ -171,14 +171,13 @@ mod tests {
         std::fs::write(include_rel, "typedef logic cwd_include_t;\n").expect("include fixture");
 
         let text = format!("`include \"{include_rel}\"\nmodule top;\nendmodule\n");
-        let tree =
-            SyntaxTree::from_text_with_options(
-                &text,
-                "",
-                "",
-                &SyntaxTreeOptions::without_include_expansion(),
-            );
-        let root = tree.root().expect("root syntax node");
+        let tree = SyntaxTree::from_text_with_options(
+            &text,
+            "",
+            "",
+            &SyntaxTreeOptions::without_include_expansion(),
+        );
+        let root = tree.root();
         let unit = ast::CompilationUnit::cast(root).expect("compilation unit");
         let mut saw_root_module = false;
 

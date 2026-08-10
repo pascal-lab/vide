@@ -386,7 +386,7 @@ fn instantiation_name_range(
     instantiation_range: TextRange,
 ) -> Option<TextRange> {
     let tree = db.parse_src_for_compilation(file_id);
-    let root = tree.root()?;
+    let root = tree.root();
     let mut offset = instantiation_range.start();
 
     while offset < instantiation_range.end() {
@@ -495,7 +495,7 @@ endmodule
         let db = host.raw_db();
         let hir_file_id = HirFileId::from(file_id);
         let tree = db.parse(hir_file_id);
-        let root = tree.root().expect("test source should parse");
+        let root = tree.root();
         let macro_modules = root
             .elem_preorder()
             .filter_map(|event| match event {
@@ -580,7 +580,7 @@ endmodule
         let db = host.raw_db();
         let hir_file_id = HirFileId::from(file_id);
         let tree = db.parse(hir_file_id);
-        let root = tree.root().expect("test source should parse");
+        let root = tree.root();
         let sema = SemanticsImpl::new(db);
         let mut containers = ContainerCache::new();
         let mut chains = ScopeChainCache::new();
@@ -786,7 +786,7 @@ endmodule
         let (host, file_id, _clean, markers) = setup_marked(text);
         let db = host.raw_db();
         let tree = db.parse(HirFileId::from(file_id));
-        let root = tree.root().expect("test source should parse");
+        let root = tree.root();
         let emitted = emit_token_index(root);
         for marker in ["param", "body"] {
             let target = resolve_semantic_target_with_emitted(

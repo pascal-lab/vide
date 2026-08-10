@@ -57,9 +57,7 @@ pub(crate) fn default_nettype_directives(
     let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
     let mut directives = Vec::new();
-    let Some(root) = tree.root() else {
-        return Arc::from(Vec::new());
-    };
+    let root = tree.root();
     for token in root.tokens() {
         for trivia in token.tok.trivias() {
             let Some(directive) = trivia.syntax() else { continue };

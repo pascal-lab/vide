@@ -79,16 +79,7 @@ impl AstIdMap {
         let mut candidates = Vec::new();
         let mut paths: Vec<StablePath> = Vec::new();
         let mut child_counts: Vec<FxHashMap<SyntaxKind, u32>> = Vec::new();
-        let Some(root) = tree.root() else {
-            return Self {
-                nodes: FxHashMap::default(),
-                by_ptr: FxHashMap::default(),
-                by_identity: FxHashMap::default(),
-                by_path: FxHashMap::default(),
-                paths: FxHashMap::default(),
-                by_preorder: FxHashMap::default(),
-            };
-        };
+        let root = tree.root();
 
         for event in root.node_preorder() {
             match event {
@@ -168,7 +159,7 @@ impl AstIdMap {
             return Some(node);
         }
         let target_path = self.paths.get(&id)?;
-        let root = tree.root()?;
+        let root = tree.root();
         let mut paths: Vec<StablePath> = Vec::new();
         let mut child_counts: Vec<FxHashMap<SyntaxKind, u32>> = Vec::new();
         for event in root.node_preorder() {
@@ -203,7 +194,7 @@ impl AstIdMap {
         tree: &SyntaxTree,
         target: SyntaxNode<'_>,
     ) -> Option<SourceAstId> {
-        let root = tree.root()?;
+        let root = tree.root();
         let mut target_root = target;
         while let Some(parent) = target_root.parent() {
             target_root = parent;
@@ -268,7 +259,7 @@ mod tests {
     fn stable_ids_are_unique_and_round_trip() {
         let tree = parse("module m; wire a; wire b; endmodule\n");
         let map = AstIdMap::from_source(&tree);
-        let root = tree.root().unwrap();
+        let root = tree.root();
         assert_eq!(map.id_of_node(root), Some(SourceAstId(0)));
 
         let ids = collect_kind_ids(&map, &tree);
@@ -285,7 +276,7 @@ mod tests {
     fn preorder_ordinals_follow_source_order() {
         let tree = parse("module m; wire a; wire b; endmodule\n");
         let map = AstIdMap::from_source(&tree);
-        let root = tree.root().unwrap();
+        let root = tree.root();
         assert_eq!(map.preorder(SourceAstId(0)), Some(0));
 
         let mut ordinals = Vec::new();
@@ -353,7 +344,7 @@ mod tests {
     fn id_of_ptr_roundtrips() {
         let tree = parse("module m; endmodule\n");
         let map = AstIdMap::from_source(&tree);
-        let root = tree.root().unwrap();
+        let root = tree.root();
         let id = map.id_of_node(root).expect("root must be numbered");
         assert_eq!(map.ptr(id), Some(SyntaxNodePtr::from_node(root)));
         assert_eq!(map.id_of_ptr(SyntaxNodePtr::from_node(root)), Some(id));
@@ -364,7 +355,7 @@ mod tests {
         tree: &SyntaxTree,
     ) -> HashMap<SyntaxKind, Vec<SourceAstId>> {
         let mut out = HashMap::new();
-        for event in tree.root().unwrap().node_preorder() {
+        for event in tree.root().node_preorder() {
             if let syntax::WalkEvent::Enter(node) = event
                 && let Some(id) = map.id_of_node(node)
             {

@@ -1157,7 +1157,7 @@ endmodule
         let tree = db.parse(file_id);
         let offset: u32 =
             u32::try_from(text.find(marker).expect("marker must exist")).expect("offset fits");
-        let root = tree.root().expect("root");
+        let root = tree.root();
         let mut target = None;
         for event in root.node_preorder() {
             let syntax::WalkEvent::Enter(node) = event else { continue };

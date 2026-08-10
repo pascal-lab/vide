@@ -40,7 +40,7 @@ endmodule
             "parser_demo.sv",
             &Default::default(),
         );
-        let root = tree.root().expect("expected syntax root");
+        let root = tree.root();
         assert_eq!(root.kind(), SyntaxKind::MODULE_DECLARATION);
     }
 
@@ -52,7 +52,7 @@ endmodule
             "accessor_demo.sv",
             &Default::default(),
         );
-        let root = tree.root().expect("expected syntax root");
+        let root = tree.root();
         let module = ast::ModuleDeclaration::cast(root).expect("expected module declaration");
 
         let header = module.header();
@@ -73,15 +73,14 @@ module demo(input wire a, output wire b);
     assign b = a;
 endmodule
 "#;
-        let tree =
-            SyntaxTree::from_text_with_options(
-                source,
-                "aligned_demo",
-                "aligned_demo.sv",
-                &Default::default(),
-            );
-        let module = ast::ModuleDeclaration::cast(tree.root().expect("expected root"))
-            .expect("expected module declaration");
+        let tree = SyntaxTree::from_text_with_options(
+            source,
+            "aligned_demo",
+            "aligned_demo.sv",
+            &Default::default(),
+        );
+        let module =
+            ast::ModuleDeclaration::cast(tree.root()).expect("expected module declaration");
 
         let header = module.header();
         assert!(header.parameters().is_none());
@@ -141,15 +140,14 @@ endmodule
     #[test]
     fn syntax_tree_root_range_and_first_token_are_byte_stable() {
         let source = "module demo; endmodule";
-        let tree =
-            SyntaxTree::from_text_with_options(
-                source,
-                "range_demo",
-                "range_demo.sv",
-                &Default::default(),
-            );
+        let tree = SyntaxTree::from_text_with_options(
+            source,
+            "range_demo",
+            "range_demo.sv",
+            &Default::default(),
+        );
 
-        let root = tree.root().expect("expected syntax root");
+        let root = tree.root();
         let range = root.range().expect("expected root range");
         assert_eq!(range.start(), 0);
         assert_eq!(range.end(), source.len());
@@ -164,15 +162,14 @@ endmodule
     #[test]
     fn syntax_trivia_and_preorder_walk_expose_the_expected_shape() {
         let source = "// lead comment\nmodule demo; endmodule";
-        let tree =
-            SyntaxTree::from_text_with_options(
-                source,
-                "trivia_demo",
-                "trivia_demo.sv",
-                &Default::default(),
-            );
+        let tree = SyntaxTree::from_text_with_options(
+            source,
+            "trivia_demo",
+            "trivia_demo.sv",
+            &Default::default(),
+        );
 
-        let root = tree.root().expect("expected syntax root");
+        let root = tree.root();
         let first = root.first_token().expect("expected first token");
         let trivias: Vec<_> = first.trivias().collect();
         assert!(
@@ -194,15 +191,14 @@ endmodule
     #[test]
     fn syntax_node_children_and_elements_report_parent_kind_and_range() {
         let source = "module demo; assign x = y; endmodule";
-        let tree =
-            SyntaxTree::from_text_with_options(
-                source,
-                "element_demo",
-                "element_demo.sv",
-                &Default::default(),
-            );
+        let tree = SyntaxTree::from_text_with_options(
+            source,
+            "element_demo",
+            "element_demo.sv",
+            &Default::default(),
+        );
 
-        let root = tree.root().expect("expected syntax root");
+        let root = tree.root();
         assert_eq!(root.kind(), SyntaxKind::MODULE_DECLARATION);
         assert!(root.parent().is_none());
         assert!(root.child_count() > 0);
@@ -228,15 +224,14 @@ endmodule
     #[test]
     fn syntax_cursor_moves_between_root_and_children() {
         let source = "module demo; assign x = y; endmodule";
-        let tree =
-            SyntaxTree::from_text_with_options(
-                source,
-                "cursor_demo",
-                "cursor_demo.sv",
-                &Default::default(),
-            );
+        let tree = SyntaxTree::from_text_with_options(
+            source,
+            "cursor_demo",
+            "cursor_demo.sv",
+            &Default::default(),
+        );
 
-        let root = tree.root().expect("expected syntax root");
+        let root = tree.root();
         let mut cursor = root.walk();
         assert!(cursor.is_root());
         assert_eq!(cursor.to_node(), Some(root));
@@ -265,7 +260,7 @@ endmodule
             &Default::default(),
         );
 
-        let root = tree.root().expect("expected syntax root");
+        let root = tree.root();
         let events: Vec<_> = root.elem_preorder().collect();
 
         assert!(matches!(

@@ -921,7 +921,7 @@ mod tests {
         let profile = db.parsed_profile(None);
         assert_eq!(profile.units.len(), 1);
         let tree = profile.units[0].1.syntax_tree.clone();
-        let root = tree.root().expect("compilation parse should have a root");
+        let root = tree.root();
         assert!(root.children().next().is_some());
     }
 
