@@ -369,6 +369,7 @@ impl Body {
         self.sequences.shrink_to_fit();
         self.coverpoints.shrink_to_fit();
         self.crosses.shrink_to_fit();
+        self.ports.shrink_to_fit();
         self.package_imports.shrink_to_fit();
         self.package_exports.shrink_to_fit();
         self.cont_assigns.shrink_to_fit();
