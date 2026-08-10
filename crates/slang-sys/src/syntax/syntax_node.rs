@@ -11,7 +11,12 @@ use super::{
     trivia::{SyntaxTrivia, SyntaxTriviaIter, SyntaxTriviaLoc},
     walk::{SyntaxElemPreorder, SyntaxNodePreorder},
 };
-use crate::{source_buffer::SourceRange, token::TokenKind};
+use crate::{
+    preproc::{EmittedToken, TokenOrigin},
+    source_buffer::SourceRange,
+    token::{LiteralBase, TokenKind},
+    value::{Bit, SVInt, TimeUnit},
+};
 
 /// An untyped Slang syntax node.
 /// Downcast this into an `ast::AstNode` to use generated typed accessors.
@@ -170,6 +175,17 @@ impl<'a> SyntaxNode<'a> {
     pub fn elem_preorder(self) -> SyntaxElemPreorder<'a> {
         SyntaxElemPreorder::new(self)
     }
+
+    pub fn tokens(self) -> impl Iterator<Item = SyntaxTokenWithParent<'a>> {
+        self.elem_preorder().filter_map(|event| match event {
+            super::walk::WalkEvent::Enter(SyntaxElement::Token(token)) => Some(token),
+            _ => None,
+        })
+    }
+
+    pub fn identity(self) -> usize {
+        self.raw.as_ptr() as usize
+    }
 }
 
 impl PartialEq for SyntaxNode<'_> {
@@ -187,6 +203,22 @@ impl hash::Hash for SyntaxNode<'_> {
 }
 
 impl<'a> SyntaxToken<'a> {
+    pub fn keyword_table_for_version(version: &str) -> Vec<String> {
+        ffi::syntax_token_keyword_table_for_version(version)
+    }
+
+    pub fn keyword_kind_for_version(version: &str, text: &str) -> TokenKind {
+        TokenKind::from_raw(ffi::syntax_token_keyword_kind_for_version(version, text))
+    }
+
+    pub fn directive_text(kind: SyntaxKind) -> String {
+        ffi::syntax_token_directive_text(kind.as_u16())
+    }
+
+    pub(crate) fn directive_kind(text: &str) -> SyntaxKind {
+        SyntaxKind::from_raw(ffi::syntax_token_directive_kind(text))
+    }
+
     fn from_nullable_raw(raw: *const ffi::SyntaxToken) -> Option<SyntaxToken<'a>> {
         NonNull::new(raw.cast_mut()).map(|raw| SyntaxToken { raw, _marker: PhantomData })
     }
@@ -247,6 +279,42 @@ impl<'a> SyntaxToken<'a> {
 
     pub fn value_text(self) -> String {
         unsafe { ffi::syntax_token_value_text(self.raw.as_ptr()) }
+    }
+
+    pub fn raw_text(self) -> String {
+        unsafe { ffi::syntax_token_raw_text(self.raw.as_ptr()) }
+    }
+
+    pub fn int(self) -> Option<SVInt> {
+        (self.kind() == TokenKind::INTEGER_LITERAL)
+            .then(|| SVInt::from_raw(unsafe { ffi::syntax_token_int_value(self.raw.as_ptr()) }))
+    }
+
+    pub fn bits(self) -> Option<Bit> {
+        (self.kind() == TokenKind::UNBASED_UNSIZED_LITERAL)
+            .then(|| Bit::from_raw(unsafe { ffi::syntax_token_bit_value(self.raw.as_ptr()) }))
+    }
+
+    pub fn real(self) -> Option<f64> {
+        matches!(self.kind(), TokenKind::REAL_LITERAL | TokenKind::TIME_LITERAL)
+            .then(|| unsafe { ffi::syntax_token_real_value(self.raw.as_ptr()) })
+    }
+
+    pub fn base(self) -> Option<LiteralBase> {
+        (self.kind() == TokenKind::INTEGER_BASE).then(|| match unsafe {
+            ffi::syntax_token_literal_base(self.raw.as_ptr())
+        } {
+            0 => LiteralBase::Bin,
+            1 => LiteralBase::Oct,
+            2 => LiteralBase::Dec,
+            3 => LiteralBase::Hex,
+            raw => panic!("unknown Slang literal base value: {raw}"),
+        })
+    }
+
+    pub fn time_unit(self) -> Option<TimeUnit> {
+        (self.kind() == TokenKind::TIME_LITERAL)
+            .then(|| TimeUnit::from_raw(unsafe { ffi::syntax_token_time_unit(self.raw.as_ptr()) }))
     }
 
     pub fn trivia_count(self) -> usize {
@@ -328,4 +396,35 @@ impl<'a> SyntaxTokenWithParent<'a> {
     ) -> impl ChildrenIter<(SyntaxTriviaLoc, SyntaxTrivia<'a>)> + use<'a> {
         self.tok.trivias_with_loc()
     }
+
+    pub fn preprocessor_trace_emitted_token_index(self) -> Option<u32> {
+        let raw = unsafe {
+            ffi::syntax_token_preprocessor_trace_emitted_token_index(
+                self.tok.raw.as_ptr(),
+                self.parent.raw.as_ptr(),
+            )
+        };
+        raw.has_value.then_some(raw.value)
+    }
+
+    pub fn preprocessor_trace_emitted_token(self) -> EmittedToken {
+        let raw = unsafe {
+            ffi::syntax_token_preprocessor_trace_emitted_token(
+                self.tok.raw.as_ptr(),
+                self.parent.raw.as_ptr(),
+            )
+        };
+        assert!(
+            raw.has_emitted_token_index,
+            "Slang token is not present in its syntax tree preprocessor trace"
+        );
+        EmittedToken::from_raw(raw)
+    }
+
+    pub fn preprocessor_trace_origin(self) -> TokenOrigin {
+        self.preprocessor_trace_emitted_token().origin
+    }
+
+    pub fn value_text(self) -> String { self.tok.value_text() }
+    pub fn raw_text(self) -> String { self.tok.raw_text() }
 }

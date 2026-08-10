@@ -30,6 +30,7 @@ pub struct ParserExpectedSyntax {
     pub token_kind: TokenKind,
     pub keyword_context: Option<SyntaxKeywordContext>,
     pub location: Option<usize>,
+    pub end: Option<usize>,
 }
 
 /// Token or directive lexed at a source offset.
@@ -43,20 +44,22 @@ pub struct LexedTokenAtOffset {
 
 /// Context in which a SystemVerilog keyword is valid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum SyntaxKeywordContext {
+    CompilationUnitMember,
+    LibraryMapMember,
+    ModuleHeaderItem,
+    ModuleMember,
+    GenerateMember,
+    SpecifyItem,
+    ConfigHeaderItem,
+    ConfigRule,
+    BlockItem,
     Statement,
-    Module,
-    Checker,
-    Primitive,
-    Interface,
-    Package,
-    Program,
-    Class,
-    ClockingBlock,
-    Covergroup,
-    Property,
-    Sequence,
-    Config,
+    ParameterPortListItem,
+    AnsiPortItem,
+    FunctionPortItem,
+    GateType,
 }
 
 impl SyntaxDiagnostic {
@@ -121,7 +124,7 @@ mod tests {
 
     #[test]
     fn syntax_tree_diagnostics_map_location_metadata() {
-        let tree = SyntaxTree::from_text(
+        let tree = SyntaxTree::from_text_with_options(
             r#"module demo; string s = "\q"; endmodule"#,
             "warning_demo",
             "warning_demo.sv",

@@ -172,7 +172,12 @@ mod tests {
 
         let text = format!("`include \"{include_rel}\"\nmodule top;\nendmodule\n");
         let tree =
-            SyntaxTree::from_text(&text, "", "", &SyntaxTreeOptions::without_include_expansion());
+            SyntaxTree::from_text_with_options(
+                &text,
+                "",
+                "",
+                &SyntaxTreeOptions::without_include_expansion(),
+            );
         let root = tree.root().expect("root syntax node");
         let unit = ast::CompilationUnit::cast(root).expect("compilation unit");
         let mut saw_root_module = false;

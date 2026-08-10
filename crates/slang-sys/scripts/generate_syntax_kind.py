@@ -83,6 +83,10 @@ pub struct SyntaxKind(u16);
 impl SyntaxKind {{
 {chr(10).join(constants)}
 
+    pub const SYNTAX_LIST: Self = Self(u16::MAX - 2);
+    pub const TOKEN_LIST: Self = Self(u16::MAX - 1);
+    pub const SEPARATED_LIST: Self = Self(u16::MAX);
+
     pub const ALL: &'static [Self] = &[{", ".join(all_values)}];
 
     #[inline]
@@ -102,7 +106,7 @@ impl SyntaxKind {{
 
     #[inline]
     pub const fn is_list(self) -> bool {{
-        false
+        matches!(self, Self::SYNTAX_LIST | Self::TOKEN_LIST | Self::SEPARATED_LIST)
     }}
 
     #[inline]

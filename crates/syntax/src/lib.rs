@@ -7,8 +7,29 @@ pub mod has_text_range;
 mod macros;
 pub mod ptr;
 pub mod slang_ext;
+
+/// Compatibility namespace for extension traits and token metadata.
+pub mod token {
+    pub use slang_sys::token::*;
+    pub use crate::slang_ext::token::*;
+}
+
+/// Compatibility namespace for trivia extension traits.
+pub mod trivia {
+    pub use slang_sys::token::TriviaKind;
+    pub use crate::slang_ext::trivia::*;
+}
+
+pub type Trivia<'a> = SyntaxTrivia<'a>;
+pub use slang_ext::ast_ext;
+
+pub use slang_ext::{
+    AstNodeExt, NamedConnectionDotZoneExt, SyntaxCursorExt, SyntaxNodeExt, SyntaxTokenExt,
+    SyntaxTokenWithParentExt, TokenAtOffset, TokenKindExt, TriviaExt, TriviaKindExt, pair_token,
+};
 // Re-export slang-sys APIs
 pub use slang_sys::{
+    compilation::Compilation,
     diagnostic::{
         DiagnosticSeverity, LexedTokenAtOffset, ParserExpectedSyntax, SyntaxDiagnostic,
         SyntaxKeywordContext,
@@ -20,5 +41,17 @@ pub use slang_sys::{
         SyntaxNodePreorder, SyntaxToken, SyntaxTokenWithParent, SyntaxTree, SyntaxTreeBuffer,
         SyntaxTreeOptions, SyntaxTrivia, SyntaxTriviaLoc, WalkEvent, ast,
     },
-    token::{TokenKind, TriviaKind},
+    token::{LiteralBase, TokenKind, TriviaKind},
+    Bit, SVInt, TimeUnit,
+    SemanticFacts, SyntaxFacts,
 };
+
+pub use slang_sys::{
+    ActualArgument, Event, EventId, MacroCallId, MacroDefinitionId, MacroExpansionId, MacroParam,
+    SourceBufferId, SourceBufferOrigin, SourceBufferRange, SyntaxTreeBufferIds, Token, TokenOrigin,
+    Trace,
+};
+
+pub mod preproc {
+    pub use slang_sys::preproc::*;
+}

@@ -11,11 +11,20 @@ const SCRIPTS_DIR: &str = "./scripts";
 /// This will influence clangd's include path.
 const BUILD_DIR: &str = "slang-sys";
 /// FFI files from src directory.
-const FFI_FILES: &[&str] = &["diagnostic/ffi.rs", "syntax/ffi.rs"];
+const FFI_FILES: &[&str] = &["compilation/ffi.rs", "diagnostic/ffi.rs", "syntax/ffi.rs"];
 /// CPP wrapper headers from src directory.
-const WRAPPER_HEADERS: &[&str] = &["wrapper.h", "diagnostic/wrapper.h", "syntax/wrapper.h"];
+const WRAPPER_HEADERS: &[&str] = &[
+    "wrapper.h",
+    "compilation/wrapper.h",
+    "diagnostic/wrapper.h",
+    "syntax/wrapper.h",
+];
 /// CPP wrapper files from src directory.
-const WRAPPER_FILES: &[&str] = &["diagnostic/wrapper.cpp", "syntax/wrapper.cpp"];
+const WRAPPER_FILES: &[&str] = &[
+    "compilation/wrapper.cpp",
+    "diagnostic/wrapper.cpp",
+    "syntax/wrapper.cpp",
+];
 
 fn main() {
     // Prepare environment

@@ -117,16 +117,25 @@ namespace slang_sys::diagnostic::tree {
     ) {
         auto &inner = *tree.tree;
         auto &diags = inner.diagnostics();
-        slang::DiagnosticEngine engine(tree.session->source_manager);
-        helper::apply_warning_options(engine, warning_options);
-        rust::Vec<::slang_sys::diagnostic::RawSyntaxDiagnostic> rust_diags;
-        rust_diags.reserve(diags.size());
-        for (const auto &diag : diags) {
-            rust_diags.emplace_back(
-                helper::to_rust_syntax_diagnostic(diag, engine, tree.session->source_manager)
-            );
-        }
-        return rust_diags;
+        return diagnostics_to_rust(diags, tree.session->source_manager, std::move(warning_options));
     }
 
 } // namespace slang_sys::diagnostic::tree
+
+namespace slang_sys::diagnostic {
+
+rust::Vec<RawSyntaxDiagnostic> diagnostics_to_rust(
+    const ::slang::Diagnostics& diagnostics,
+    const ::slang::SourceManager& source_manager,
+    rust::Vec<rust::String> warning_options
+) {
+    slang::DiagnosticEngine engine(const_cast<slang::SourceManager&>(source_manager));
+    helper::apply_warning_options(engine, warning_options);
+    rust::Vec<RawSyntaxDiagnostic> result;
+    result.reserve(diagnostics.size());
+    for (const auto& diag : diagnostics)
+        result.emplace_back(helper::to_rust_syntax_diagnostic(diag, engine, source_manager));
+    return result;
+}
+
+} // namespace slang_sys::diagnostic

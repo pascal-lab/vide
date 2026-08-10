@@ -43,6 +43,10 @@ impl<'a> SyntaxElement<'a> {
         }
     }
 
+    pub fn as_tok_with_parent(self) -> Option<SyntaxTokenWithParent<'a>> {
+        self.as_token()
+    }
+
     pub fn parent(self) -> Option<SyntaxNode<'a>> {
         match self {
             Self::Node(node) => node.parent(),

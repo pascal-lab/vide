@@ -7,6 +7,11 @@ mod slang_trivia_kind {
 pub use slang_token_kind::*;
 pub use slang_trivia_kind::*;
 
+impl TokenKind {
+    pub const HIGH_Z0_KEYWORD: Self = Self::HIGH_Z_0_KEYWORD;
+    pub const HIGH_Z1_KEYWORD: Self = Self::HIGH_Z_1_KEYWORD;
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LiteralBase {
     Bin,

@@ -31,6 +31,10 @@ impl<'a> SyntaxCursor<'a> {
         self.to_tok_with_parent().map(|tok| tok.tok)
     }
 
+    pub fn idx(&self) -> Option<usize> {
+        self.path.last().map(|(_, index)| *index)
+    }
+
     pub fn is_root(&self) -> bool {
         self.path.is_empty()
     }

@@ -1,3 +1,32 @@
+use std::ops::Range;
+
+/// A source buffer known to Slang while parsing a syntax tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceBufferId {
+    pub path: String,
+    pub text: Option<String>,
+    pub buffer_id: u32,
+    pub origin: SourceBufferOrigin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceBufferOrigin {
+    Source,
+    Predefine,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceBufferRange {
+    pub buffer_id: u32,
+    pub range: Range<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyntaxTreeBufferIds {
+    pub root_buffer_id: u32,
+    pub source_buffers: Vec<SourceBufferId>,
+}
+
 /// A source location inside a Slang source buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SourceLocation {

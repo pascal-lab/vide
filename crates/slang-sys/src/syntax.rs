@@ -34,7 +34,7 @@ begin
 end
 endmodule
         "#;
-        let tree = SyntaxTree::from_text(
+        let tree = SyntaxTree::from_text_with_options(
             test_verilog_code,
             "parser_demo",
             "parser_demo.sv",
@@ -46,7 +46,7 @@ endmodule
 
     #[test]
     fn syntax_tree_and_generated_accessors_work() {
-        let tree = SyntaxTree::from_text(
+        let tree = SyntaxTree::from_text_with_options(
             "module demo; endmodule",
             "accessor_demo",
             "accessor_demo.sv",
@@ -74,7 +74,12 @@ module demo(input wire a, output wire b);
 endmodule
 "#;
         let tree =
-            SyntaxTree::from_text(source, "aligned_demo", "aligned_demo.sv", &Default::default());
+            SyntaxTree::from_text_with_options(
+                source,
+                "aligned_demo",
+                "aligned_demo.sv",
+                &Default::default(),
+            );
         let module = ast::ModuleDeclaration::cast(tree.root().expect("expected root"))
             .expect("expected module declaration");
 
@@ -117,7 +122,7 @@ endmodule
 
     #[test]
     fn syntax_tree_diagnostics_are_owned_rust_values() {
-        let tree = SyntaxTree::from_text(
+        let tree = SyntaxTree::from_text_with_options(
             "module A( input a; endmodule",
             "diagnostic_demo",
             "",
@@ -137,7 +142,12 @@ endmodule
     fn syntax_tree_root_range_and_first_token_are_byte_stable() {
         let source = "module demo; endmodule";
         let tree =
-            SyntaxTree::from_text(source, "range_demo", "range_demo.sv", &Default::default());
+            SyntaxTree::from_text_with_options(
+                source,
+                "range_demo",
+                "range_demo.sv",
+                &Default::default(),
+            );
 
         let root = tree.root().expect("expected syntax root");
         let range = root.range().expect("expected root range");
@@ -155,7 +165,12 @@ endmodule
     fn syntax_trivia_and_preorder_walk_expose_the_expected_shape() {
         let source = "// lead comment\nmodule demo; endmodule";
         let tree =
-            SyntaxTree::from_text(source, "trivia_demo", "trivia_demo.sv", &Default::default());
+            SyntaxTree::from_text_with_options(
+                source,
+                "trivia_demo",
+                "trivia_demo.sv",
+                &Default::default(),
+            );
 
         let root = tree.root().expect("expected syntax root");
         let first = root.first_token().expect("expected first token");
@@ -180,7 +195,12 @@ endmodule
     fn syntax_node_children_and_elements_report_parent_kind_and_range() {
         let source = "module demo; assign x = y; endmodule";
         let tree =
-            SyntaxTree::from_text(source, "element_demo", "element_demo.sv", &Default::default());
+            SyntaxTree::from_text_with_options(
+                source,
+                "element_demo",
+                "element_demo.sv",
+                &Default::default(),
+            );
 
         let root = tree.root().expect("expected syntax root");
         assert_eq!(root.kind(), SyntaxKind::MODULE_DECLARATION);
@@ -209,7 +229,12 @@ endmodule
     fn syntax_cursor_moves_between_root_and_children() {
         let source = "module demo; assign x = y; endmodule";
         let tree =
-            SyntaxTree::from_text(source, "cursor_demo", "cursor_demo.sv", &Default::default());
+            SyntaxTree::from_text_with_options(
+                source,
+                "cursor_demo",
+                "cursor_demo.sv",
+                &Default::default(),
+            );
 
         let root = tree.root().expect("expected syntax root");
         let mut cursor = root.walk();
@@ -233,7 +258,12 @@ endmodule
     #[test]
     fn syntax_element_preorder_visits_nodes_and_tokens() {
         let source = "module demo; endmodule";
-        let tree = SyntaxTree::from_text(source, "walk_demo", "walk_demo.sv", &Default::default());
+        let tree = SyntaxTree::from_text_with_options(
+            source,
+            "walk_demo",
+            "walk_demo.sv",
+            &Default::default(),
+        );
 
         let root = tree.root().expect("expected syntax root");
         let events: Vec<_> = root.elem_preorder().collect();
