@@ -46,7 +46,7 @@ pub type StructId = Idx<StructDef>;
 pub(crate) fn lower_struct_def(
     struct_ty: StructUnionType,
     container_id: OwnerId,
-    mut lower_member: impl FnMut(StructUnionMember) -> SmallVec<[StructMember; 4]>,
+    lower_member: impl FnMut(StructUnionMember) -> SmallVec<[StructMember; 4]>,
 ) -> StructDef {
     let kind = match struct_ty {
         StructUnionType::StructType(_) => StructKind::Struct,
@@ -67,7 +67,7 @@ pub(crate) fn lower_struct_def(
     let members = struct_ty
         .members()
         .children()
-        .flat_map(|member| lower_member(member))
+        .flat_map(lower_member)
         .map(|mut member| {
             if let Some(ty) = member.ty.as_mut() {
                 ty.cont_id = container_id;
