@@ -205,6 +205,9 @@ pub(crate) fn inlay_hint(
     range: TextRange,
     config: InlayHintConfig,
 ) -> Vec<InlayHint> {
+    if db.file_kind(file_id).is_project_manifest() {
+        return Vec::new();
+    }
     let _span = tracing::debug_span!("ide.inlay_hint", ?file_id, ?range).entered();
     let file_id = HirFileId::File(file_id);
     let file = db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"));

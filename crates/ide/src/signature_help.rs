@@ -66,6 +66,9 @@ pub(crate) fn signature_help(
     FilePosition { file_id, offset }: FilePosition,
     config: SignatureHelpConfig,
 ) -> Option<SignatureHelp> {
+    if db.file_kind(file_id).is_project_manifest() {
+        return None;
+    }
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);

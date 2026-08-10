@@ -10,6 +10,10 @@ pub enum SourceFileKind {
 }
 
 impl SourceFileKind {
+    pub fn is_project_manifest(self) -> bool {
+        matches!(self, Self::ProjectManifest)
+    }
+
     pub fn from_path(path: &VfsPath) -> Self {
         match path.name_and_extension() {
             Some((name, Some(ext))) if name == "vide" && ext.eq_ignore_ascii_case("toml") => {
@@ -62,6 +66,7 @@ mod tests {
         let kind = SourceFileKind::from_path(&VfsPath::new_virtual_path("/root/vide.toml".into()));
 
         assert_eq!(kind, SourceFileKind::ProjectManifest);
+        assert!(kind.is_project_manifest());
         assert!(!kind.is_slang_parse_unit());
     }
 }

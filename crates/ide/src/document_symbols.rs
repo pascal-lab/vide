@@ -200,7 +200,7 @@ impl AddRegionSymbol for Peekable<RegionTreeIterator<'_>> {
 // TODO: add ty info in detail
 pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSymbol> {
     let _span = tracing::debug_span!("ide.document_symbols", ?file_id).entered();
-    if matches!(db.file_kind(file_id), base_db::source_db::SourceFileKind::ProjectManifest) {
+    if db.file_kind(file_id).is_project_manifest() {
         return crate::manifest::document_symbols(db, file_id);
     }
     let file_id = HirFileId::File(file_id);

@@ -254,7 +254,7 @@ where
         return TargetResolution::from_preproc_macro(target);
     }
 
-    if matches!(db.file_kind(file_id), base_db::source_db::SourceFileKind::ProjectManifest)
+    if db.file_kind(file_id).is_project_manifest()
         && let Some(target) = crate::manifest::target_at(db, file_id, offset)
     {
         return TargetResolution::Resolved(TargetCandidate::new(

@@ -31,6 +31,9 @@ pub enum CodeLensKind {
 }
 
 pub(crate) fn code_lens(db: &RootDb, config: CodeLensConfig, file_id: FileId) -> Vec<CodeLens> {
+    if db.file_kind(file_id).is_project_manifest() {
+        return Vec::new();
+    }
     let file_id = HirFileId::File(file_id);
     let hir_file =
         db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"));

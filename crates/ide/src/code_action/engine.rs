@@ -12,6 +12,9 @@ pub(crate) fn code_action(
     diagnostics: &[Diagnostic],
     resolve_strategy: CodeActionResolveStrategy,
 ) -> Vec<CodeAction> {
+    if db.file_kind(file_id).is_project_manifest() {
+        return Vec::new();
+    }
     let sema = Semantics::new(db);
     let Some(ctx) = CodeActionCtx::new(&sema, file_id, range, diagnostics) else {
         return Vec::new();

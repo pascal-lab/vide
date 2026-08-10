@@ -141,7 +141,7 @@ pub(crate) fn semantic_tokens(
     range: Option<TextRange>,
 ) -> Vec<SemaToken> {
     let _span = tracing::debug_span!("ide.semantic_tokens", ?file_id, ?range).entered();
-    if matches!(db.file_kind(file_id), base_db::source_db::SourceFileKind::ProjectManifest) {
+    if db.file_kind(file_id).is_project_manifest() {
         return crate::manifest::semantic_tokens(db, file_id, range);
     }
     let sema = Semantics::new(db);

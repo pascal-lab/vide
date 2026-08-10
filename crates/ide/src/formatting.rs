@@ -62,7 +62,7 @@ pub(crate) fn format(
     config: FmtConfig,
     cancellation: &CancellationToken,
 ) -> anyhow::Result<Option<TextEdit>> {
-    if matches!(db.file_kind(file_id), base_db::source_db::SourceFileKind::ProjectManifest) {
+    if db.file_kind(file_id).is_project_manifest() {
         return crate::manifest::format(db, file_id, cancellation);
     }
     let text = db.file_text(file_id);
@@ -176,7 +176,7 @@ pub fn format_on_type(
     cancellation: &CancellationToken,
 ) -> anyhow::Result<Option<TextEdit>> {
     cancellation.check()?;
-    if matches!(db.file_kind(file_id), base_db::source_db::SourceFileKind::ProjectManifest) {
+    if db.file_kind(file_id).is_project_manifest() {
         return Ok(None);
     }
     if ch.as_str() != "\n" {

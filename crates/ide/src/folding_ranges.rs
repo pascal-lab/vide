@@ -275,7 +275,7 @@ fn collect_item_groups(
 }
 
 pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
-    if matches!(db.file_kind(file_id), base_db::source_db::SourceFileKind::ProjectManifest) {
+    if db.file_kind(file_id).is_project_manifest() {
         return crate::manifest::folding_ranges(db, file_id);
     }
     let line_index = db.line_index(file_id);

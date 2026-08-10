@@ -8,7 +8,7 @@
 
 use std::{collections::BTreeSet, ops::Range};
 
-use base_db::source_db::{SourceDb, SourceFileKind};
+use base_db::source_db::SourceDb;
 use syntax::DiagnosticSeverity;
 use toml_edit::{DocumentMut, ImDocument, Item, Value};
 use triomphe::Arc;
@@ -97,7 +97,7 @@ pub(crate) struct ManifestTargetInfo {
 }
 
 fn is_manifest(db: &dyn SourceDb, file_id: FileId) -> bool {
-    matches!(db.file_kind(file_id), SourceFileKind::ProjectManifest)
+    db.file_kind(file_id).is_project_manifest()
 }
 
 fn text_range(range: Range<usize>) -> Option<TextRange> {

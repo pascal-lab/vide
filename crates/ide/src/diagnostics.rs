@@ -193,7 +193,7 @@ fn compilation_profile_file_ids(db: &RootDb, profile_id: CompilationProfileId) -
 }
 
 fn syntax_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
-    if matches!(db.file_kind(file_id), base_db::source_db::SourceFileKind::ProjectManifest) {
+    if db.file_kind(file_id).is_project_manifest() {
         return crate::manifest::diagnostics(db, file_id);
     }
     let mut diagnostics = parse_diagnostics(db, file_id);
