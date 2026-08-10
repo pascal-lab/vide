@@ -132,12 +132,22 @@ pub struct ClassPropertyQualifiers {
     pub visibility: ClassVisibility,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ClassMethodQualifiers {
+    pub is_pure: bool,
+    pub is_virtual: bool,
+    pub is_extern: bool,
+    pub is_static: bool,
+    pub visibility: ClassVisibility,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassMember {
     pub name: Option<Ident>,
     pub kind: ClassMemberKind,
     pub ty: Option<OwnerRef<DataTy>>,
     pub property_qualifiers: Option<ClassPropertyQualifiers>,
+    pub method_qualifiers: Option<ClassMethodQualifiers>,
     pub method: Option<Subroutine>,
     pub constraint: Option<ConstraintDefId>,
     pub owner: Option<OwnerId>,
@@ -284,6 +294,7 @@ pub(crate) fn lower_class_def(
                     kind: ClassMemberKind::Property,
                     ty,
                     property_qualifiers: Some(lower_class_property_qualifiers(property)),
+                    method_qualifiers: None,
                     method: None,
                     constraint: None,
                     owner: None,
@@ -294,6 +305,7 @@ pub(crate) fn lower_class_def(
                 kind: ClassMemberKind::Method,
                 ty: None,
                 property_qualifiers: None,
+                method_qualifiers: Some(lower_class_method_qualifiers(method.qualifiers())),
                 method: None,
                 constraint: None,
                 owner: None,
@@ -307,6 +319,7 @@ pub(crate) fn lower_class_def(
                 kind: ClassMemberKind::Method,
                 ty: None,
                 property_qualifiers: None,
+                method_qualifiers: Some(lower_class_method_qualifiers(method.qualifiers())),
                 method: None,
                 constraint: None,
                 owner: None,
@@ -316,6 +329,7 @@ pub(crate) fn lower_class_def(
                 kind: ClassMemberKind::Constraint,
                 ty: None,
                 property_qualifiers: None,
+                method_qualifiers: None,
                 method: None,
                 constraint: None,
                 owner: None,
@@ -325,6 +339,7 @@ pub(crate) fn lower_class_def(
                 kind: ClassMemberKind::Constraint,
                 ty: None,
                 property_qualifiers: None,
+                method_qualifiers: None,
                 method: None,
                 constraint: None,
                 owner: None,
@@ -360,4 +375,26 @@ fn lower_class_property_qualifiers(
     }
 
     ClassPropertyQualifiers { is_const, is_static, random, visibility }
+}
+
+fn lower_class_method_qualifiers(qualifiers: ast::TokenList<'_>) -> ClassMethodQualifiers {
+    let mut is_pure = false;
+    let mut is_virtual = false;
+    let mut is_extern = false;
+    let mut is_static = false;
+    let mut visibility = ClassVisibility::Public;
+
+    for qualifier in qualifiers.children() {
+        match qualifier.kind() {
+            TokenKind::PURE_KEYWORD => is_pure = true,
+            TokenKind::VIRTUAL_KEYWORD => is_virtual = true,
+            TokenKind::EXTERN_KEYWORD => is_extern = true,
+            TokenKind::STATIC_KEYWORD => is_static = true,
+            TokenKind::LOCAL_KEYWORD => visibility = ClassVisibility::Local,
+            TokenKind::PROTECTED_KEYWORD => visibility = ClassVisibility::Protected,
+            _ => {}
+        }
+    }
+
+    ClassMethodQualifiers { is_pure, is_virtual, is_extern, is_static, visibility }
 }

@@ -930,6 +930,16 @@ endprogram
         assert!(class.members[4].method.as_ref().is_some_and(|method| method.has_body));
         assert!(class.members[4].owner.is_some());
         assert!(class.members[5].method.as_ref().is_some_and(|method| !method.has_body));
+        assert_eq!(
+            class.members[5].method_qualifiers,
+            Some(crate::aggregate::ClassMethodQualifiers {
+                is_pure: true,
+                is_virtual: true,
+                is_extern: false,
+                is_static: false,
+                visibility: crate::aggregate::ClassVisibility::Public,
+            })
+        );
         assert!(class.members[6].constraint.is_some());
         assert!(class.members[7].constraint.is_some());
         assert_eq!(body.constraint_defs.len(), 2);
