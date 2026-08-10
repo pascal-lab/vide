@@ -851,6 +851,11 @@ impl HirDisplay for OwnerRef<&Expr> {
                 }
                 Ok(())
             }
+            Expr::CopyClass { callee, expr } => {
+                self.with_value(*callee).hir_fmt(f)?;
+                f.write_str(" ")?;
+                self.with_value(*expr).hir_fmt(f)
+            }
             Expr::Concat(exprs) => {
                 f.write_str("{")?;
                 let mut first = true;

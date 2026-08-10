@@ -670,6 +670,7 @@ bind unit_module unit_bound unit_bind();
 bind unit_module unit_checker::unit_checker unit_checker_bind();
 module unit_module;
   unit_class created = new(8);
+  unit_class copied = new created;
   typedef struct module_forward;
   nettype logic module_nettype;
   module_nettype #2 module_signal;
@@ -906,6 +907,12 @@ endprogram
         assert!(module_body.exprs.values().any(|expr| {
             matches!(expr, crate::expr::Expr::NewClass { args: Some(args), .. } if args.len() == 1)
         }));
+        assert!(
+            module_body
+                .exprs
+                .values()
+                .any(|expr| matches!(expr, crate::expr::Expr::CopyClass { .. }))
+        );
         let class = body
             .classes
             .values()
