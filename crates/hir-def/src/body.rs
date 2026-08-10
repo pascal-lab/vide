@@ -55,6 +55,7 @@ use crate::{
         },
         specify::{SpecifyBlock, SpecifyBlockId, SpecifyItem, SpecifyItemId},
     },
+    net_type_decl::{NetTypeDecl, NetTypeDeclId},
     owner::{OwnerId, OwnerKind},
     proc::{Proc, ProcId},
     source_map::{Lowered, LoweredData, SourceMap},
@@ -198,6 +199,7 @@ pub enum BodyItem {
     ExternInterfaceMethodId(ExternInterfaceMethodId),
     ExternModuleDeclId(ExternModuleDeclId),
     ExternUdpDeclId(ExternUdpDeclId),
+    NetTypeDeclId(NetTypeDeclId),
     ConfigDeclId(ConfigDeclId),
     UdpDeclId(UdpDeclId),
     LibraryDeclId(LibraryDeclId),
@@ -244,6 +246,7 @@ impl_body_item_from! {
     ExternInterfaceMethodId => ExternInterfaceMethodId,
     ExternModuleDeclId => ExternModuleDeclId,
     ExternUdpDeclId => ExternUdpDeclId,
+    NetTypeDeclId => NetTypeDeclId,
     TypedefId => TypedefId,
     StructId => StructId,
     ConfigDeclId => ConfigDeclId,
@@ -287,6 +290,7 @@ pub struct Body {
     pub extern_interface_methods: Arena<ExternInterfaceMethod>,
     pub extern_module_decls: Arena<ExternModuleDecl>,
     pub extern_udp_decls: Arena<ExternUdpDecl>,
+    pub net_type_decls: Arena<NetTypeDecl>,
     pub decls: Arena<Declarator>,
     pub stmts: Arena<Stmt>,
     pub root_stmt: Option<StmtId>,
@@ -389,6 +393,7 @@ impl Body {
         self.extern_interface_methods.shrink_to_fit();
         self.extern_module_decls.shrink_to_fit();
         self.extern_udp_decls.shrink_to_fit();
+        self.net_type_decls.shrink_to_fit();
         self.constraints.shrink_to_fit();
         self.constraint_defs.shrink_to_fit();
         self.decls.shrink_to_fit();
@@ -441,6 +446,7 @@ pub struct BodySourceMap {
     pub extern_interface_method_srcs: SourceMap<ExternInterfaceMethod>,
     pub extern_module_decl_srcs: SourceMap<ExternModuleDecl>,
     pub extern_udp_decl_srcs: SourceMap<ExternUdpDecl>,
+    pub net_type_decl_srcs: SourceMap<NetTypeDecl>,
     pub constraint_def_srcs: SourceMap<ConstraintDef>,
     pub stmt_srcs: SourceMap<Stmt>,
     pub proc_srcs: SourceMap<Proc>,
@@ -495,6 +501,7 @@ impl BodySourceMap {
         self.extern_interface_method_srcs.shrink_to_fit();
         self.extern_module_decl_srcs.shrink_to_fit();
         self.extern_udp_decl_srcs.shrink_to_fit();
+        self.net_type_decl_srcs.shrink_to_fit();
         self.udp_decl_srcs.shrink_to_fit();
         self.library_decl_srcs.shrink_to_fit();
         self.library_include_srcs.shrink_to_fit();
@@ -813,6 +820,7 @@ impl BodySourceMap {
             }
             BodyItem::ExternModuleDeclId(id) => self.extern_module_decl_srcs.hir_to_src(*id),
             BodyItem::ExternUdpDeclId(id) => self.extern_udp_decl_srcs.hir_to_src(*id),
+            BodyItem::NetTypeDeclId(id) => self.net_type_decl_srcs.hir_to_src(*id),
             BodyItem::ConfigDeclId(id) => self.config_decl_srcs.hir_to_src(*id),
             BodyItem::UdpDeclId(id) => self.udp_decl_srcs.hir_to_src(*id),
             BodyItem::LibraryDeclId(id) => self.library_decl_srcs.hir_to_src(*id),
@@ -859,6 +867,7 @@ crate::impl_arena_getters!(
     ExternInterfaceMethodId => extern_interface_methods => ExternInterfaceMethod,
     ExternModuleDeclId => extern_module_decls => ExternModuleDecl,
     ExternUdpDeclId => extern_udp_decls => ExternUdpDecl,
+    NetTypeDeclId => net_type_decls => NetTypeDecl,
     StructId => structs => StructDef,
     EnumId => enums => EnumDef,
     ExprId => exprs => Expr,
@@ -920,6 +929,7 @@ crate::impl_source_map_getters!(
     ExternInterfaceMethodId => extern_interface_method_srcs,
     ExternModuleDeclId => extern_module_decl_srcs,
     ExternUdpDeclId => extern_udp_decl_srcs,
+    NetTypeDeclId => net_type_decl_srcs,
     ConstraintId => constraint_srcs,
     ConstraintDefId => constraint_def_srcs,
     CoverpointId => coverpoint_srcs,

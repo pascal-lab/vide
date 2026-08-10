@@ -147,6 +147,9 @@ impl LowerGenerateBlockCtx<'_> {
             }
             DPIImport(declaration) => BodyItem::DpiImportId(self.lower_dpi_import(declaration)?),
             DPIExport(declaration) => BodyItem::DpiExportId(self.lower_dpi_export(declaration)?),
+            NetTypeDeclaration(declaration) => {
+                BodyItem::NetTypeDeclId(self.lower_net_type_decl(declaration)?)
+            }
             ProceduralBlock(proc) => self.lower_proc(proc).into(),
             GenerateBlock(block) => BodyItem::GenerateBlockOwner(
                 self.intern_generate_node(generate_block_source_node(block)),

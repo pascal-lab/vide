@@ -33,6 +33,7 @@ pub mod item_tree;
 pub mod literal;
 pub(crate) mod lower;
 pub mod module;
+pub mod net_type_decl;
 pub mod owner;
 pub mod pathres;
 pub mod proc;

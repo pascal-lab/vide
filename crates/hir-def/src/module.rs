@@ -209,9 +209,7 @@ impl LowerModuleCtx<'_> {
                     .into(),
                 TypedefDeclaration(typedef_decl) => self.lower_typedef(typedef_decl).into(),
                 GenvarDeclaration(genvar_decl) => self.lower_genvar_decl(genvar_decl).into(),
-                unsupported @ (NetTypeDeclaration(_)
-                | ForwardTypedefDeclaration(_)
-                | UserDefinedNetDeclaration(_)) => {
+                unsupported @ (ForwardTypedefDeclaration(_) | UserDefinedNetDeclaration(_)) => {
                     self.report_unsupported(
                         unsupported.syntax(),
                         "module declaration kind is not lowered",
@@ -279,6 +277,10 @@ impl LowerModuleCtx<'_> {
                         None => continue,
                     }
                 }
+                NetTypeDeclaration(declaration) => match self.lower_net_type_decl(declaration) {
+                    Some(id) => id.into(),
+                    None => continue,
+                },
                 ExternModuleDecl(declaration) => match self.lower_extern_module_decl(declaration) {
                     Some(id) => id.into(),
                     None => continue,

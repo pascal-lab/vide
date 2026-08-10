@@ -622,6 +622,7 @@ endconfig
 int unit_data;
 wire unit_net;
 typedef int unit_type;
+nettype logic unit_nettype with unit_resolution;
 parameter int unit_parameter = 1;
 timeunit 1ns / 1ps;
 import "DPI-C" context c_import = function int imported(input int a, output logic b);
@@ -650,6 +651,7 @@ endgroup
 bind unit_module unit_bound unit_bind();
 bind unit_module unit_checker::unit_checker unit_checker_bind();
 module unit_module;
+  nettype logic module_nettype;
   timeunit 10ns;
   timeprecision 1ps;
   import "DPI-C" function void module_import();
@@ -678,6 +680,11 @@ endconfig
             _ => None,
         });
         assert_eq!(parameter.map(|parameter| parameter.kind), Some(ParamDeclKind::Parameter));
+        assert_eq!(body.net_type_decls.len(), 1);
+        let file_net_type =
+            body.net_type_decls.values().next().expect("file nettype should be lowered");
+        assert_eq!(file_net_type.name, "unit_nettype");
+        assert_eq!(file_net_type.with_function.as_deref(), Some("unit_resolution"));
         let time_units = body.time_units.values().next().expect("file time unit should be lowered");
         assert_eq!(time_units.kind, TimeUnitsKind::Unit);
         assert_eq!(time_units.value.unit, syntax::TimeUnit::Nanoseconds);
@@ -734,6 +741,8 @@ endconfig
         assert_eq!(hierarchy_bind.target.segments[0].name, "unit_module");
         let module = body.module_owners().next().expect("module owner should be lowered");
         let module_body = db.body(module);
+        assert_eq!(module_body.net_type_decls.len(), 1);
+        assert_eq!(module_body.net_type_decls.values().next().unwrap().name, "module_nettype");
         assert_eq!(module_body.time_units.len(), 2);
         assert_eq!(module_body.dpi_imports.len(), 1);
         assert_eq!(module_body.dpi_exports.len(), 1);
