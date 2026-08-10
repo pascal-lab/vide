@@ -314,12 +314,6 @@ impl HirDisplay for OwnerRef<DataTy> {
                 BuiltinDataTy::Chandle => f.write_str("chandle"),
                 BuiltinDataTy::Void => f.write_str("void"),
             },
-            DataTy::Named(named) => fmt_type_ref(named, f),
-            DataTy::Enum => f.write_str("enum"),
-            DataTy::Unsupported(kind) => {
-                write!(f.f, "<unsupported {kind:?}>")?;
-                Ok(())
-            }
             DataTy::Struct(struct_ref) => {
                 let cont = struct_ref.cont_id.data(f.db);
                 let def = cont.struct_def(struct_ref.value);
@@ -332,6 +326,12 @@ impl HirDisplay for OwnerRef<DataTy> {
                     f.write_str(" ")?;
                     f.write_str(name.as_str())?;
                 }
+                Ok(())
+            }
+            DataTy::Named(named) => fmt_type_ref(named, f),
+            DataTy::Enum(_) => f.write_str("enum"),
+            DataTy::Unsupported(kind) => {
+                write!(f.f, "<unsupported {kind:?}>")?;
                 Ok(())
             }
         }

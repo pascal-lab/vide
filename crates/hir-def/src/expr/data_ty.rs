@@ -9,7 +9,7 @@ use triomphe::Arc;
 use super::{Expr, ExprId, Selector};
 use crate::{
     Ident,
-    aggregate::StructId,
+    aggregate::{EnumId, StructId},
     ast_id_map::SourceAstId,
     container::OwnerRef,
     lower::{LoweringCtx, LoweringStore},
@@ -29,7 +29,7 @@ pub enum DataTy {
     Builtin(BuiltinDataTyId),
     Named(TypeRef),
     Struct(OwnerRef<StructId>),
-    Enum,
+    Enum(OwnerRef<EnumId>),
     Unsupported(SyntaxKind),
 }
 
@@ -314,8 +314,10 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         }
     }
 
-    fn lower_enum_type(&mut self, _enum_ty: ast::EnumType) -> DataTy {
-        DataTy::Enum
+    fn lower_enum_type(&mut self, enum_ty: ast::EnumType) -> DataTy {
+        let container = self.current_owner();
+        let enum_id = self.lower_body_enum_type(enum_ty);
+        DataTy::Enum(OwnerRef::new(container, enum_id))
     }
 
     fn lower_integer_type(&mut self, ty: ast::IntegerType) -> BuiltinDataTy {

@@ -303,7 +303,7 @@ fn normalize_data_ty_inner(
             Some(StructKind::Struct) | None => TyResult::new(Ty::Struct(struct_id)),
         },
         DataTy::Named(named) => type_of_named_data_ty(db, container, named, seen),
-        DataTy::Enum => {
+        DataTy::Enum(_) => {
             owner.map(Ty::Enum).map(TyResult::new).unwrap_or_else(|| TyResult::new(Ty::Unknown))
         }
         DataTy::Unsupported(kind) => {

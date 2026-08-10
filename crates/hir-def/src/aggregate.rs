@@ -78,6 +78,22 @@ pub(crate) fn lower_struct_def(
     StructDef { kind, name: None, packed, signing, tagged, members }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumMember {
+    pub name: Option<Ident>,
+    pub initializer: Option<ExprId>,
+    pub dimensions: SmallVec<[Option<Dimension>; 2]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumDef {
+    pub base_ty: Option<DataTy>,
+    pub members: SmallVec<[EnumMember; 8]>,
+    pub dimensions: SmallVec<[Option<Dimension>; 2]>,
+}
+
+pub type EnumId = Idx<EnumDef>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClassMemberKind {
     Property,

@@ -245,6 +245,31 @@ endmodule
 }
 
 #[test]
+fn enum_definition_preserves_base_members_and_initializers() {
+    let db = db_with_root_text(
+        r#"
+module m;
+  typedef enum logic [1:0] {
+    Idle = 2'd0,
+    Busy,
+    Error = 2'd3
+  } state_t;
+endmodule
+"#,
+    );
+    let module = module_id(&db, "m");
+    let body = db.body(module);
+    let enum_def = body.enums.values().next().expect("enum definition should be lowered");
+    assert!(enum_def.base_ty.is_some(), "enum base type must be retained");
+    assert_eq!(
+        enum_def.members.iter().map(|member| member.name.as_deref()).collect::<Vec<_>>(),
+        [Some("Idle"), Some("Busy"), Some("Error")]
+    );
+    assert!(enum_def.members[0].initializer.is_some());
+    assert!(enum_def.members[1].initializer.is_none());
+    assert!(enum_def.members[2].initializer.is_some());
+}
+#[test]
 fn qualified_type_paths_preserve_separator_and_source_projection() {
     let db = db_with_root_text(
         r#"

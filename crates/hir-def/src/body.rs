@@ -9,7 +9,7 @@ use triomphe::Arc;
 
 use crate::{
     PackageExport, PackageImport,
-    aggregate::{StructDef, StructId, StructMember, lower_struct_def},
+    aggregate::{EnumDef, EnumId, EnumMember, StructDef, StructId, StructMember, lower_struct_def},
     assertion::{PropertyDef, PropertyId, SequenceDef, SequenceId},
     ast_id_map::SourceAstId,
     block::BlockItem,
@@ -244,6 +244,7 @@ pub struct Body {
     pub scope_graph: BodyScopeGraph,
     pub declarations: Arena<Declaration>,
     pub typedefs: Arena<Typedef>,
+    pub enums: Arena<EnumDef>,
     pub structs: Arena<StructDef>,
     pub exprs: Arena<Expr>,
     pub event_exprs: Arena<EventExpr>,
@@ -312,6 +313,10 @@ impl Body {
         &self.structs[id]
     }
 
+    pub fn enum_def(&self, id: EnumId) -> &EnumDef {
+        &self.enums[id]
+    }
+
     pub fn expr(&self, id: ExprId) -> &Expr {
         &self.exprs[id]
     }
@@ -332,6 +337,7 @@ impl Body {
         self.items.shrink_to_fit();
         self.scope_graph.shrink_to_fit();
         self.declarations.shrink_to_fit();
+        self.enums.shrink_to_fit();
         self.typedefs.shrink_to_fit();
         self.structs.shrink_to_fit();
         self.exprs.shrink_to_fit();
@@ -372,6 +378,7 @@ pub struct BodySourceMap {
     pub declaration_srcs: SourceMap<Declaration>,
     pub typedef_srcs: SourceMap<Typedef>,
     pub struct_srcs: SourceMap<StructDef>,
+    pub enum_srcs: SourceMap<EnumDef>,
     pub expr_srcs: SourceMap<Expr>,
     pub event_expr_srcs: SourceMap<EventExpr>,
     pub decl_srcs: SourceMap<Declarator>,
@@ -411,6 +418,7 @@ impl BodySourceMap {
         self.declaration_srcs.shrink_to_fit();
         self.typedef_srcs.shrink_to_fit();
         self.struct_srcs.shrink_to_fit();
+        self.enum_srcs.shrink_to_fit();
         self.expr_srcs.shrink_to_fit();
         self.event_expr_srcs.shrink_to_fit();
         self.decl_srcs.shrink_to_fit();
@@ -582,6 +590,29 @@ impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
         )
     }
 
+    pub(crate) fn lower_body_enum_type(&mut self, enum_ty: ast::EnumType) -> EnumId {
+        let base_ty = enum_ty.base_type().map(|ty| self.lower_data_ty(ty));
+        let members = enum_ty
+            .members()
+            .children()
+            .map(|declarator| EnumMember {
+                name: lower_ident_opt(declarator.name()),
+                initializer: declarator.initializer().map(|init| self.lower_expr(init.expr())),
+                dimensions: declarator
+                    .dimensions()
+                    .children()
+                    .map(|dim| self.lower_dimension(dim))
+                    .collect(),
+            })
+            .collect();
+        let dimensions =
+            enum_ty.dimensions().children().map(|dim| self.lower_dimension(dim)).collect();
+        let enum_def = EnumDef { base_ty, members, dimensions };
+        let source = self.source_id(enum_ty.syntax());
+        let (body, sources) = self.store.body();
+        crate::alloc_with_source_entry(&mut body.enums, &mut sources.enum_srcs, enum_def, source)
+    }
+
     fn lower_body_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
         let source = self.source_id(typedef.syntax());
         let typedef_id = {
@@ -740,6 +771,7 @@ crate::impl_arena_getters!(
     DeclarationId => declarations => Declaration,
     TypedefId => typedefs => Typedef,
     StructId => structs => StructDef,
+    EnumId => enums => EnumDef,
     ExprId => exprs => Expr,
     EventExprId => event_exprs => EventExpr,
     DeclId => decls => Declarator,
@@ -775,6 +807,7 @@ crate::impl_source_map_getters!(
     DeclarationId => declaration_srcs,
     TypedefId => typedef_srcs,
     StructId => struct_srcs,
+    EnumId => enum_srcs,
     ExprId => expr_srcs,
     EventExprId => event_expr_srcs,
     DeclId => decl_srcs,
