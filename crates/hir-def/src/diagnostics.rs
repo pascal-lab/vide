@@ -649,6 +649,7 @@ virtual class unit_class #(parameter int width = 8, parameter type data_t = logi
   function void method();
     super.new(default);
     this.randomize with (value) { value > 0; };
+    void'(unit_function());
   endfunction
   pure virtual function void prototype(input int value);
   constraint bounds { value inside {[0:$]}; }
@@ -1024,6 +1025,12 @@ endprogram
                 } if args.len() == 1
             )
         }));
+        assert!(
+            method_body
+                .stmts
+                .values()
+                .any(|stmt| { matches!(stmt.kind, crate::stmt::StmtKind::VoidCastedCall(_)) })
+        );
         assert!(class.members[5].method.as_ref().is_some_and(|method| !method.has_body));
         assert_eq!(
             class.members[5].method_qualifiers,

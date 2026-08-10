@@ -47,6 +47,7 @@ pub enum StmtKind {
     Empty,
 
     Expr(ExprId),
+    VoidCastedCall(ExprId),
     TimingCtrl(TimingControl, StmtId),
     ProcAssign(ProcAssignKind),
     EventTrigger(EventTrigger),
@@ -196,6 +197,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         use ast::Statement::*;
         match stmt {
             ExpressionStatement(stmt) => self.lower_expr_stmt(stmt),
+            VoidCastedCallStatement(stmt) => StmtKind::VoidCastedCall(self.lower_expr(stmt.expr())),
             TimingControlStatement(stmt) => self.lower_timing_ctrl_stmt(stmt),
             ProceduralAssignStatement(stmt) => self.lower_assign_stmt(stmt),
             ProceduralDeassignStatement(stmt) => self.lower_deassign_stmt(stmt),
@@ -223,7 +225,6 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             ConcurrentAssertionStatement(stmt) => self.lower_concurrent_assertion_stmt(stmt),
             ImmediateAssertionStatement(stmt) => self.lower_immediate_assertion_stmt(stmt),
             unsupported @ (RandSequenceStatement(_)
-            | VoidCastedCallStatement(_)
             | DisableForkStatement(_)
             | CheckerInstanceStatement(_)
             | RandCaseStatement(_)) => {

@@ -564,6 +564,7 @@ fn build_stmt(
         | StmtKind::Unsupported(_)
         | StmtKind::Empty
         | StmtKind::Expr(_)
+        | StmtKind::VoidCastedCall(_)
         | StmtKind::Jump(_)
         | StmtKind::EventTrigger(_)
         | StmtKind::ProcAssign(_)
