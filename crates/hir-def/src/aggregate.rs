@@ -2,7 +2,8 @@ use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::{
     TokenKind,
-    ast::{StructUnionMember, StructUnionType},
+    ast::{self, StructUnionMember, StructUnionType},
+    has_name::HasName,
 };
 
 use super::{
@@ -117,3 +118,43 @@ pub struct ClassDef {
 }
 
 pub type ClassId = Idx<ClassDef>;
+
+pub(crate) fn lower_class_def(class: ast::ClassDeclaration<'_>) -> ClassDef {
+    let base_class_name = class
+        .extends_clause()
+        .and_then(|extends| extends.base_name().as_identifier_name())
+        .and_then(|name| lower_ident_opt(name.identifier()));
+    let members = class
+        .items()
+        .children()
+        .filter_map(|member| match member {
+            ast::Member::ClassPropertyDeclaration(property) => {
+                let name = match property.declaration() {
+                    ast::Member::DataDeclaration(declaration) => declaration
+                        .declarators()
+                        .children()
+                        .next()
+                        .and_then(|decl| lower_ident_opt(decl.name())),
+                    _ => None,
+                };
+                Some(ClassMember { name, kind: ClassMemberKind::Property, ty: None })
+            }
+            ast::Member::ClassMethodDeclaration(method) => Some(ClassMember {
+                name: lower_ident_opt(method.declaration().name()),
+                kind: ClassMemberKind::Method,
+                ty: None,
+            }),
+            ast::Member::ClassMethodPrototype(method) => Some(ClassMember {
+                name: method
+                    .prototype()
+                    .name()
+                    .as_identifier_name()
+                    .and_then(|name| lower_ident_opt(name.identifier())),
+                kind: ClassMemberKind::Method,
+                ty: None,
+            }),
+            _ => None,
+        })
+        .collect();
+    ClassDef { name: lower_ident_opt(class.name()), base_class_name, members }
+}

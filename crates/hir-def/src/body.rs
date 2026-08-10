@@ -9,7 +9,10 @@ use triomphe::Arc;
 
 use crate::{
     PackageExport, PackageImport,
-    aggregate::{EnumDef, EnumId, EnumMember, StructDef, StructId, StructMember, lower_struct_def},
+    aggregate::{
+        ClassDef, ClassId, EnumDef, EnumId, EnumMember, StructDef, StructId, StructMember,
+        lower_struct_def,
+    },
     assertion::{PropertyDef, PropertyId, SequenceDef, SequenceId},
     ast_id_map::SourceAstId,
     block::BlockItem,
@@ -180,6 +183,7 @@ pub enum BodyItem {
     DeclarationId(DeclarationId),
     TypedefId(TypedefId),
     StructId(StructId),
+    ClassId(ClassId),
     ConfigDeclId(ConfigDeclId),
     UdpDeclId(UdpDeclId),
     LibraryDeclId(LibraryDeclId),
@@ -218,6 +222,7 @@ macro_rules! impl_body_item_from {
 impl_body_item_from! {
     ProcId => ProcId,
     DeclarationId => DeclarationId,
+    ClassId => ClassId,
     TypedefId => TypedefId,
     StructId => StructId,
     ConfigDeclId => ConfigDeclId,
@@ -253,6 +258,7 @@ pub struct Body {
     pub constraint_defs: Arena<ConstraintDef>,
     pub exprs: Arena<Expr>,
     pub event_exprs: Arena<EventExpr>,
+    pub classes: Arena<ClassDef>,
     pub decls: Arena<Declarator>,
     pub stmts: Arena<Stmt>,
     pub root_stmt: Option<StmtId>,
@@ -347,6 +353,7 @@ impl Body {
         self.structs.shrink_to_fit();
         self.exprs.shrink_to_fit();
         self.event_exprs.shrink_to_fit();
+        self.classes.shrink_to_fit();
         self.constraints.shrink_to_fit();
         self.constraint_defs.shrink_to_fit();
         self.decls.shrink_to_fit();
@@ -390,6 +397,7 @@ pub struct BodySourceMap {
     pub event_expr_srcs: SourceMap<EventExpr>,
     pub decl_srcs: SourceMap<Declarator>,
     pub constraint_srcs: SourceMap<Constraint>,
+    pub class_srcs: SourceMap<ClassDef>,
     pub constraint_def_srcs: SourceMap<ConstraintDef>,
     pub stmt_srcs: SourceMap<Stmt>,
     pub proc_srcs: SourceMap<Proc>,
@@ -436,6 +444,7 @@ impl BodySourceMap {
         self.constraint_srcs.shrink_to_fit();
         self.constraint_def_srcs.shrink_to_fit();
         self.config_decl_srcs.shrink_to_fit();
+        self.class_srcs.shrink_to_fit();
         self.udp_decl_srcs.shrink_to_fit();
         self.library_decl_srcs.shrink_to_fit();
         self.library_include_srcs.shrink_to_fit();
@@ -744,6 +753,7 @@ impl BodySourceMap {
             BodyItem::DeclarationId(id) => self.declaration_srcs.hir_to_src(*id),
             BodyItem::TypedefId(id) => self.typedef_srcs.hir_to_src(*id),
             BodyItem::StructId(id) => self.struct_srcs.hir_to_src(*id),
+            BodyItem::ClassId(id) => self.class_srcs.hir_to_src(*id),
             BodyItem::ConfigDeclId(id) => self.config_decl_srcs.hir_to_src(*id),
             BodyItem::UdpDeclId(id) => self.udp_decl_srcs.hir_to_src(*id),
             BodyItem::LibraryDeclId(id) => self.library_decl_srcs.hir_to_src(*id),
@@ -782,6 +792,7 @@ crate::impl_arena_getters!(
     Body;
     DeclarationId => declarations => Declaration,
     TypedefId => typedefs => Typedef,
+    ClassId => classes => ClassDef,
     StructId => structs => StructDef,
     EnumId => enums => EnumDef,
     ExprId => exprs => Expr,
@@ -835,6 +846,7 @@ crate::impl_source_map_getters!(
     CovergroupId => covergroup_srcs,
     PropertyId => property_srcs,
     SequenceId => sequence_srcs,
+    ClassId => class_srcs,
     ConstraintId => constraint_srcs,
     ConstraintDefId => constraint_def_srcs,
     CoverpointId => coverpoint_srcs,

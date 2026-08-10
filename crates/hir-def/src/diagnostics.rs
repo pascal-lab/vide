@@ -586,6 +586,32 @@ endmodule
     }
 
     #[test]
+    fn file_declarations_preserve_config_and_udp_structure() {
+        let text = r#"
+primitive p (o, i);
+  table
+    0 : 0 : 0;
+  endtable
+endprimitive
+module m;
+endmodule
+config c;
+  design m;
+  default liblist work;
+endconfig
+"#;
+        let db = db_with_files(text, None);
+        let body = db.body(db.owner_table(HirFileId::File(TOP)).file_owner().unwrap());
+        let udp = body.udp_decls.values().next().expect("UDP should be lowered");
+        assert_eq!(udp.name.as_deref(), Some("p"));
+        assert_eq!(udp.ports.len(), 2);
+        assert_eq!(udp.entries.len(), 1);
+        let config = body.config_decls.values().next().expect("config should be lowered");
+        assert_eq!(config.name.as_deref(), Some("c"));
+        assert_eq!(config.rules.len(), 1);
+    }
+
+    #[test]
     fn default_nettype_none_diagnoses_implicit_nets() {
         let text = "`default_nettype none\nmodule m(input a);\nendmodule\n";
         let db = db_with_files(text, None);

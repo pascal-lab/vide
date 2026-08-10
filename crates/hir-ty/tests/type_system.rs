@@ -9,6 +9,7 @@ use base_db::{
 };
 use hir_def::{
     Ident,
+    aggregate::ClassMemberKind,
     constraint::Constraint,
     container::OwnerRef,
     covergroup::CoverageBinInitializer,
@@ -350,6 +351,29 @@ endmodule
     assert_eq!(coverpoint.bins.len(), 1);
     assert!(matches!(coverpoint.bins[0].initializer, CoverageBinInitializer::Ranges { .. }));
     assert!(coverpoint.bins[0].size.is_some());
+}
+
+#[test]
+fn class_declaration_preserves_base_and_member_kinds() {
+    let db = db_with_root_text(
+        r#"
+module m;
+  class C extends Base;
+    int value;
+    function void tick();
+    endfunction
+  endclass
+endmodule
+"#,
+    );
+    let module = module_id(&db, "m");
+    let body = db.body(module);
+    let class = body.classes.values().next().expect("class declaration should lower");
+    assert_eq!(class.name.as_deref(), Some("C"));
+    assert_eq!(class.base_class_name.as_deref(), Some("Base"));
+    assert_eq!(class.members.len(), 2);
+    assert_eq!(class.members[0].kind, ClassMemberKind::Property);
+    assert_eq!(class.members[1].kind, ClassMemberKind::Method);
 }
 #[test]
 fn qualified_type_paths_preserve_separator_and_source_projection() {

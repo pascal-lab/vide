@@ -4,9 +4,10 @@ use syntax::ast::{self, AstNode, PortList};
 use triomphe::Arc;
 
 use super::{
+    aggregate::lower_class_def,
     declaration::{Declaration, ParamDeclKind},
     expr::declarator::DeclId,
-    lower::{BodyStore, LoweringCtx, LoweringSyntax},
+    lower::{BodyStore, LoweringCtx, LoweringStore, LoweringSyntax},
     lower_ident_opt, lower_package_export_all, lower_package_exports, lower_package_imports,
 };
 use crate::{
@@ -248,10 +249,22 @@ impl LowerModuleCtx<'_> {
                 }
 
                 // Aggregates
-                unsupported @ (ClassDeclaration(_) | ModuleDeclaration(_)) => {
+                ClassDeclaration(class) => {
+                    let class_def = lower_class_def(class);
+                    let source = self.source_id(class.syntax());
+                    let (body, sources) = self.store.body();
+                    crate::alloc_with_source_entry(
+                        &mut body.classes,
+                        &mut sources.class_srcs,
+                        class_def,
+                        source,
+                    )
+                    .into()
+                }
+                unsupported @ ModuleDeclaration(_) => {
                     self.report_unsupported(
                         unsupported.syntax(),
-                        "nested module or class declarations are not lowered",
+                        "nested module declarations are not lowered",
                     );
                     continue;
                 }

@@ -1,9 +1,9 @@
-use config::{ConfigDecl, ConfigDeclId};
+use config::{ConfigDecl, ConfigDeclId, ConfigRule};
 use library::{LibraryDecl, LibraryDeclId, LibraryInclude, LibraryIncludeId};
 pub use preproc_expand::file::HirFileId;
 use syntax::ast::{self, AstNode};
 use triomphe::Arc;
-use udp::{UdpDecl, UdpDeclId};
+use udp::{UdpDecl, UdpDeclId, UdpEntry, UdpInitialValue};
 
 use super::{
     aggregate::{StructId, StructMember, lower_struct_def},
@@ -94,40 +94,89 @@ impl LowerFileCtx<'_> {
     }
 
     fn lower_config_decl(&mut self, config_decl: ast::ConfigDeclaration) -> ConfigDeclId {
-        let name = lower_ident_opt(config_decl.name());
-
+        let rules = config_decl
+            .rules()
+            .children()
+            .map(|rule| ConfigRule { kind: rule.syntax().kind() })
+            .collect();
+        let top_cells = config_decl
+            .top_cells()
+            .children()
+            .filter_map(|cell| cell.cell().and_then(|name| crate::lower_ident_opt(Some(name))))
+            .collect();
         alloc_with_source(
             &self.ast_ids,
             &self.tree,
             &mut self.store.data.config_decls,
             &mut self.store.sources.config_decl_srcs,
-            ConfigDecl { name },
+            ConfigDecl { name: lower_ident_opt(config_decl.name()), top_cells, rules },
             config_decl,
         )
     }
 
     fn lower_udp_decl(&mut self, udp_decl: ast::UdpDeclaration) -> UdpDeclId {
-        let name = lower_ident_opt(udp_decl.name());
-
+        let ports = match udp_decl.port_list() {
+            ast::UdpPortList::AnsiUdpPortList(list) => list
+                .ports()
+                .children()
+                .flat_map(|port| match port {
+                    ast::UdpPortDecl::UdpOutputPortDecl(port) => {
+                        vec![port.name()]
+                    }
+                    ast::UdpPortDecl::UdpInputPortDecl(port) => {
+                        port.names().children().map(|name| name.identifier()).collect()
+                    }
+                })
+                .filter_map(crate::lower_ident_opt)
+                .collect(),
+            ast::UdpPortList::NonAnsiUdpPortList(list) => list
+                .ports()
+                .children()
+                .filter_map(|name| crate::lower_ident_opt(name.identifier()))
+                .collect(),
+            ast::UdpPortList::WildcardUdpPortList(_) => smallvec::SmallVec::new(),
+        };
+        let body = udp_decl.body();
+        let initial = body
+            .initial_stmt()
+            .map(|stmt| UdpInitialValue { name: crate::lower_ident_opt(stmt.name()) });
+        let entries = body
+            .entries()
+            .children()
+            .map(|entry| UdpEntry {
+                input_kinds: entry.inputs().children().map(|field| field.syntax().kind()).collect(),
+                current: entry.current().map(|field| field.syntax().kind()),
+                next: entry.next().map(|field| field.syntax().kind()),
+            })
+            .collect();
         alloc_with_source(
             &self.ast_ids,
             &self.tree,
             &mut self.store.data.udp_decls,
             &mut self.store.sources.udp_decl_srcs,
-            UdpDecl { name },
+            UdpDecl { name: lower_ident_opt(udp_decl.name()), ports, initial, entries },
             udp_decl,
         )
     }
 
     fn lower_library_decl(&mut self, library_decl: ast::LibraryDeclaration) -> LibraryDeclId {
-        let name = lower_ident_opt(library_decl.name());
-
+        let file_paths = library_decl
+            .file_paths()
+            .children()
+            .filter_map(|path| crate::lower_ident_opt(path.path()))
+            .collect();
+        let include_dirs = library_decl
+            .inc_dir_clause()
+            .into_iter()
+            .flat_map(|clause| clause.file_paths().children().collect::<Vec<_>>())
+            .filter_map(|path| crate::lower_ident_opt(path.path()))
+            .collect();
         alloc_with_source(
             &self.ast_ids,
             &self.tree,
             &mut self.store.data.library_decls,
             &mut self.store.sources.library_decl_srcs,
-            LibraryDecl { name },
+            LibraryDecl { name: lower_ident_opt(library_decl.name()), file_paths, include_dirs },
             library_decl,
         )
     }
@@ -141,7 +190,9 @@ impl LowerFileCtx<'_> {
             &self.tree,
             &mut self.store.data.library_includes,
             &mut self.store.sources.library_include_srcs,
-            LibraryInclude,
+            LibraryInclude {
+                file_path: crate::lower_ident_opt(library_include.file_path().path()),
+            },
             library_include,
         )
     }
