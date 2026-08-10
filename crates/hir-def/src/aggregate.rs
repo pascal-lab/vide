@@ -157,6 +157,7 @@ pub struct ClassMember {
 pub struct ClassDef {
     pub name: Option<Ident>,
     pub base_class_name: Option<Ident>,
+    pub implemented_interfaces: SmallVec<[Ident; 2]>,
     pub members: SmallVec<[ClassMember; 4]>,
 }
 
@@ -270,6 +271,17 @@ pub(crate) fn lower_class_def(
         .extends_clause()
         .and_then(|extends| extends.base_name().as_identifier_name())
         .and_then(|name| lower_ident_opt(name.identifier()));
+    let implemented_interfaces = class
+        .implements_clause()
+        .map(|implements| {
+            implements
+                .interfaces()
+                .children()
+                .filter_map(|name| name.as_identifier_name())
+                .filter_map(|name| lower_ident_opt(name.identifier()))
+                .collect()
+        })
+        .unwrap_or_default();
     let members = class
         .items()
         .children()
@@ -347,7 +359,12 @@ pub(crate) fn lower_class_def(
             _ => None,
         })
         .collect();
-    ClassDef { name: lower_ident_opt(class.name()), base_class_name, members }
+    ClassDef {
+        name: lower_ident_opt(class.name()),
+        base_class_name,
+        implemented_interfaces,
+        members,
+    }
 }
 
 fn lower_constraint_name(name: ast::Name<'_>) -> Option<Ident> {
