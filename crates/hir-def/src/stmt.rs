@@ -95,6 +95,7 @@ pub enum StmtKind {
 
     Wait(WaitKind, StmtId),
     WaitFork,
+    DisableFork,
     WaitOrder {
         names: SmallVec<[ExprId; 2]>,
         action: StmtId,
@@ -205,6 +206,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
 
             WaitStatement(stmt) => self.lower_wait_stmt(stmt),
             WaitForkStatement(stmt) => self.lower_wait_fork_stmt(stmt),
+            DisableForkStatement(_) => StmtKind::DisableFork,
             WaitOrderStatement(stmt) => self.lower_wait_order_stmt(stmt),
             DisableStatement(stmt) => self.lower_disable_stmt(stmt),
 
@@ -225,7 +227,6 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             ConcurrentAssertionStatement(stmt) => self.lower_concurrent_assertion_stmt(stmt),
             ImmediateAssertionStatement(stmt) => self.lower_immediate_assertion_stmt(stmt),
             unsupported @ (RandSequenceStatement(_)
-            | DisableForkStatement(_)
             | CheckerInstanceStatement(_)
             | RandCaseStatement(_)) => {
                 self.report_unsupported(unsupported.syntax(), "unsupported statement");

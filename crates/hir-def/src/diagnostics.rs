@@ -673,6 +673,13 @@ endgroup
 bind unit_module unit_bound unit_bind();
 bind unit_module unit_checker::unit_checker unit_checker_bind();
 module unit_module;
+  initial begin
+    fork
+      begin
+      end
+    join_none
+    disable fork;
+  end
   unit_class created = new(8);
   unit_class copied = new created;
   unit_class created_array[] = new[3];
@@ -822,6 +829,14 @@ endprogram
         let module = body.module_owners().next().expect("module owner should be lowered");
         let module_body = db.body(module);
         let module_source_map = db.body_with_source_map(module);
+        let initial = module_body.procs.values().next().expect("initial block should be lowered");
+        let initial_body = db.body(initial.owner);
+        assert!(
+            initial_body
+                .stmts
+                .values()
+                .any(|stmt| { matches!(stmt.kind, crate::stmt::StmtKind::DisableFork) })
+        );
         let module_forward = module_body
             .typedefs
             .values()

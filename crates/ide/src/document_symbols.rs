@@ -569,6 +569,7 @@ fn build_stmt(
         | StmtKind::EventTrigger(_)
         | StmtKind::ProcAssign(_)
         | StmtKind::WaitFork
+        | StmtKind::DisableFork
         | StmtKind::Disable(_)
         | StmtKind::Block(_) => {}
     }
