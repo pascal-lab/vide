@@ -269,6 +269,24 @@ endmodule
     assert!(enum_def.members[1].initializer.is_none());
     assert!(enum_def.members[2].initializer.is_some());
 }
+
+#[test]
+fn wildcard_dimension_is_preserved_as_associative_array() {
+    let db = db_with_root_text(
+        r#"
+module m;
+  logic values[*];
+endmodule
+"#,
+    );
+    let module = module_id(&db, "m");
+    let types = TypeSystem::new(&db);
+    let values = type_of_name(&db, module, "values", NameContext::Value);
+    assert_eq!(
+        types.display_source(&values).expect("wildcard array type should render"),
+        "logic [*]"
+    );
+}
 #[test]
 fn qualified_type_paths_preserve_separator_and_source_projection() {
     let db = db_with_root_text(

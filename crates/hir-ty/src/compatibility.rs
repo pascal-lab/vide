@@ -91,7 +91,10 @@ pub(crate) fn packed_bit_width(db: &dyn TyDb, ty: &Ty) -> Option<u64> {
                             i128::abs(left - right).checked_add(1)?
                         }
                         Dimension::Size(size) => eval_const_i128(db, container, size)?,
-                        Dimension::Queue(_) | Dimension::Assoc(_) | Dimension::Dynamic => {
+                        Dimension::Queue(_)
+                        | Dimension::Assoc(_)
+                        | Dimension::Wildcard
+                        | Dimension::Dynamic => {
                             return None;
                         }
                     };

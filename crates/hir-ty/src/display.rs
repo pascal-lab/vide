@@ -125,7 +125,11 @@ impl HirDisplay for Ty {
             Ty::Assoc { key, elem } => {
                 elem.hir_fmt(f)?;
                 f.write_str(" [")?;
-                key.hir_fmt(f)?;
+                if matches!(key.as_ref(), Ty::Unknown) {
+                    f.write_str("*")?;
+                } else {
+                    key.hir_fmt(f)?;
+                }
                 f.write_str("]")
             }
             Ty::Dynamic(elem) => {
@@ -978,6 +982,7 @@ impl HirDisplay for OwnerRef<Dimension> {
                 }
             }
             Dimension::Assoc(key) => self.with_value(key).hir_fmt(f)?,
+            Dimension::Wildcard => f.write_str("*")?,
             Dimension::Dynamic => {}
         }
         f.write_char(']')

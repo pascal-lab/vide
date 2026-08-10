@@ -380,6 +380,7 @@ pub(crate) fn apply_unpacked_dimensions(
                 key: Box::new(type_of_dimension_key(db, &container, *key)),
                 elem: Box::new(ty),
             },
+            Dimension::Wildcard => Ty::Assoc { key: Box::new(Ty::Unknown), elem: Box::new(ty) },
             Dimension::Dynamic => Ty::Dynamic(Box::new(ty)),
             Dimension::Size(key) if builtin_dimension_key_ty(db, &container, *key).is_some() => {
                 Ty::Assoc {

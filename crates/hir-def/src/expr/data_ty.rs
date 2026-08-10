@@ -92,12 +92,13 @@ pub enum Real {
     RealTime,
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum Dimension {
     Range(ExprId, ExprId),
     Size(ExprId),
     Queue(Option<ExprId>),
     Assoc(ExprId),
+    Wildcard,
     Dynamic,
 }
 
@@ -371,7 +372,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             Some(QueueDimensionSpecifier(spec)) => Some(Dimension::Queue(
                 spec.max_size_clause().map(|clause| self.lower_expr(clause.expr())),
             )),
-            Some(WildcardDimensionSpecifier(_)) => None,
+            Some(WildcardDimensionSpecifier(_)) => Some(Dimension::Wildcard),
         }
     }
 
