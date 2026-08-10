@@ -16,6 +16,7 @@ use super::{
 };
 use crate::{
     alloc_with_source_entry,
+    constraint::ConstraintDefId,
     container::OwnerRef,
     lower::{LoweringCtx, LoweringStore},
     owner::{OwnerId, OwnerKind},
@@ -105,6 +106,7 @@ pub type EnumId = Idx<EnumDef>;
 pub enum ClassMemberKind {
     Property,
     Method,
+    Constraint,
     Typedef,
     Unknown,
 }
@@ -115,6 +117,7 @@ pub struct ClassMember {
     pub kind: ClassMemberKind,
     pub ty: Option<OwnerRef<DataTy>>,
     pub method: Option<Subroutine>,
+    pub constraint: Option<ConstraintDefId>,
     pub owner: Option<OwnerId>,
 }
 
@@ -131,13 +134,13 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_class_decl(&mut self, class: ast::ClassDeclaration<'_>) -> ClassId {
         let container_id = self.current_owner();
         let mut class_def = lower_class_def(class, container_id, |ty| self.lower_data_ty(ty));
-        self.lower_class_methods(class, &mut class_def);
+        self.lower_class_members(class, &mut class_def);
         let source = self.source_id(class.syntax());
         let (body, sources) = self.store.body();
         alloc_with_source_entry(&mut body.classes, &mut sources.class_srcs, class_def, source)
     }
 
-    fn lower_class_methods(&mut self, class: ast::ClassDeclaration<'_>, class_def: &mut ClassDef) {
+    fn lower_class_members(&mut self, class: ast::ClassDeclaration<'_>, class_def: &mut ClassDef) {
         let ast_ids = self.ast_ids.clone();
         let tree = self.tree.clone();
         let mut member_index = 0;
@@ -202,6 +205,24 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
                     class_member.method = lowered;
                     member_index += 1;
                 }
+                ast::Member::ConstraintDeclaration(constraint) => {
+                    let constraint_id = self.lower_constraint_decl(constraint);
+                    let class_member = class_def
+                        .members
+                        .get_mut(member_index)
+                        .expect("class constraint must have a matching class member");
+                    class_member.constraint = Some(constraint_id);
+                    member_index += 1;
+                }
+                ast::Member::ConstraintPrototype(prototype) => {
+                    let constraint_id = self.lower_constraint_prototype(prototype);
+                    let class_member = class_def
+                        .members
+                        .get_mut(member_index)
+                        .expect("class constraint prototype must have a matching class member");
+                    class_member.constraint = Some(constraint_id);
+                    member_index += 1;
+                }
                 _ => {}
             }
         }
@@ -241,6 +262,7 @@ pub(crate) fn lower_class_def(
                     kind: ClassMemberKind::Property,
                     ty,
                     method: None,
+                    constraint: None,
                     owner: None,
                 })
             }
@@ -249,6 +271,7 @@ pub(crate) fn lower_class_def(
                 kind: ClassMemberKind::Method,
                 ty: None,
                 method: None,
+                constraint: None,
                 owner: None,
             }),
             ast::Member::ClassMethodPrototype(method) => Some(ClassMember {
@@ -260,10 +283,31 @@ pub(crate) fn lower_class_def(
                 kind: ClassMemberKind::Method,
                 ty: None,
                 method: None,
+                constraint: None,
+                owner: None,
+            }),
+            ast::Member::ConstraintDeclaration(constraint) => Some(ClassMember {
+                name: lower_constraint_name(constraint.name()),
+                kind: ClassMemberKind::Constraint,
+                ty: None,
+                method: None,
+                constraint: None,
+                owner: None,
+            }),
+            ast::Member::ConstraintPrototype(prototype) => Some(ClassMember {
+                name: lower_constraint_name(prototype.name()),
+                kind: ClassMemberKind::Constraint,
+                ty: None,
+                method: None,
+                constraint: None,
                 owner: None,
             }),
             _ => None,
         })
         .collect();
     ClassDef { name: lower_ident_opt(class.name()), base_class_name, members }
+}
+
+fn lower_constraint_name(name: ast::Name<'_>) -> Option<Ident> {
+    name.as_identifier_name().and_then(|name| lower_ident_opt(name.identifier()))
 }

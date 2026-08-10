@@ -644,6 +644,8 @@ class unit_class;
   function void method();
   endfunction
   pure virtual function void prototype(input int value);
+  constraint bounds { value inside {[0:3]}; }
+  constraint external;
 endclass
 function void unit_function();
 endfunction
@@ -897,11 +899,16 @@ endprogram
             .values()
             .find(|class| class.name.as_deref() == Some("unit_class"))
             .expect("file-level class should be lowered");
-        assert_eq!(class.members.len(), 3);
+        assert_eq!(class.members.len(), 5);
         assert!(class.members[0].ty.is_some());
         assert!(class.members[1].method.as_ref().is_some_and(|method| method.has_body));
         assert!(class.members[1].owner.is_some());
         assert!(class.members[2].method.as_ref().is_some_and(|method| !method.has_body));
+        assert!(class.members[3].constraint.is_some());
+        assert!(class.members[4].constraint.is_some());
+        assert_eq!(body.constraint_defs.len(), 2);
+        assert!(body.constraint_defs.values().any(|constraint| !constraint.prototype));
+        assert!(body.constraint_defs.values().any(|constraint| constraint.prototype));
         let anonymous_program = body
             .items
             .iter()
