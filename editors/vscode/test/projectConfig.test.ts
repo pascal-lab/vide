@@ -5,6 +5,7 @@ import * as path from 'node:path';
 
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
+  PROJECT_CONFIG_FILE_GLOB,
   PROJECT_CONFIG_SCHEMA_PATH,
   PROJECT_CONFIG_SCHEMA_URL,
   PROJECT_CONFIG_SCHEMA_VERSION,
@@ -16,6 +17,7 @@ import {
 
 test('uses the Vide project config file name', () => {
   assert.equal(PROJECT_CONFIG_FILE_NAME, 'vide.toml');
+  assert.equal(PROJECT_CONFIG_FILE_GLOB, '**/vide.toml');
 });
 
 test('resolves project config paths under workspace roots', () => {
@@ -30,6 +32,14 @@ test('resolves project config paths under workspace roots', () => {
 test('recognizes project config file names', () => {
   assert.equal(isProjectConfigFileName('vide.toml'), true);
   assert.equal(isProjectConfigFileName('other.toml'), false);
+});
+
+test('activates the extension for project manifests', () => {
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'),
+  ) as { activationEvents?: string[] };
+
+  assert.ok(packageJson.activationEvents?.includes('workspaceContains:**/vide.toml'));
 });
 
 test('recognizes Verilog and SystemVerilog source file names', () => {

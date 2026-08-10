@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import type { WorkerWorkspaceFile } from "./shared/types";
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
+  PROJECT_CONFIG_FILE_GLOB,
   PROJECT_CONFIG_FILE_NAME,
   PROJECT_SOURCE_FILE_GLOB,
   isProjectConfigFileName,
@@ -29,7 +30,7 @@ export async function buildBrowserWorkspaceSnapshot(
   for (const [index, folder] of workspaceFolders.entries()) {
     for (const pattern of [
       PROJECT_SOURCE_FILE_GLOB,
-      `**/${PROJECT_CONFIG_FILE_NAME}`,
+      PROJECT_CONFIG_FILE_GLOB,
     ]) {
       const matches = await vscode.workspace.findFiles(
         new vscode.RelativePattern(folder, pattern),

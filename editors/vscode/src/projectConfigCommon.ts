@@ -12,6 +12,7 @@ export {
 
 export const PROJECT_CONFIG_FILE_NAME = "vide.toml";
 export const PROJECT_CONFIG_FILE_NAMES = [PROJECT_CONFIG_FILE_NAME] as const;
+export const PROJECT_CONFIG_FILE_GLOB = `**/${PROJECT_CONFIG_FILE_NAME}`;
 export const PROJECT_SOURCE_FILE_EXTENSIONS = [
   ".v",
   ".sv",

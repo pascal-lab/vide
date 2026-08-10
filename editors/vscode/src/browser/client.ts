@@ -10,6 +10,7 @@ import {
 } from "vscode-languageclient/browser";
 
 import { videInitializationOptions } from "./shared/initialization-options";
+import { videDocumentSelector } from "./shared/document-selector";
 import type {
   LspTraceEntry,
   WorkerRequest,
@@ -127,8 +128,7 @@ export class VideBrowserClient {
   private clientOptions(): LanguageClientOptions {
     return {
       documentSelector: [
-        { language: "verilog" },
-        { language: "systemverilog" },
+        ...videDocumentSelector(this.snapshot.rootUri),
       ],
       workspaceFolder: {
         index: 0,
