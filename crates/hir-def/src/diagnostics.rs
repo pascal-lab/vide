@@ -612,6 +612,38 @@ endconfig
     }
 
     #[test]
+    fn supported_compilation_unit_members_produce_no_lowering_diagnostics() {
+        let text = r#"
+int unit_data;
+wire unit_net;
+typedef int unit_type;
+function void unit_function();
+endfunction
+primitive unit_primitive (o, i);
+  table
+    0 : 0 : 0;
+  endtable
+endprimitive
+checker unit_checker;
+endchecker
+covergroup unit_covergroup;
+endgroup
+module unit_module;
+endmodule
+config unit_config;
+  design unit_module;
+  default liblist work;
+endconfig
+"#;
+        let db = db_with_files(text, None);
+        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        assert!(
+            diagnostics.is_empty(),
+            "supported compilation-unit members must not be diagnosed: {diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn default_nettype_none_diagnoses_implicit_nets() {
         let text = "`default_nettype none\nmodule m(input a);\nendmodule\n";
         let db = db_with_files(text, None);
