@@ -24,6 +24,7 @@ pub mod declaration;
 pub mod def_id;
 pub mod design_map;
 pub mod diagnostics;
+pub mod dpi;
 pub mod expr;
 pub mod file;
 pub mod has_source;

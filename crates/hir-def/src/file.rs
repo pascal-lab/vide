@@ -220,6 +220,14 @@ impl LowerFileCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
+                DPIImport(declaration) => match self.lower_dpi_import(declaration) {
+                    Some(id) => id.into(),
+                    None => continue,
+                },
+                DPIExport(declaration) => match self.lower_dpi_export(declaration) {
+                    Some(id) => id.into(),
+                    None => continue,
+                },
                 TimeUnitsDeclaration(declaration) => {
                     match self.lower_time_units_decl(declaration) {
                         Some(id) => id.into(),

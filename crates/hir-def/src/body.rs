@@ -23,6 +23,7 @@ use crate::{
     covergroup::{CovergroupDef, CovergroupId, CoverpointDef, CoverpointId, CrossDef, CrossId},
     db::HirDefDb,
     declaration::{DataDecl, Declaration, DeclarationId},
+    dpi::{DpiExport, DpiExportId, DpiImport, DpiImportId},
     expr::{
         Expr, ExprId,
         declarator::{DeclId, Declarator, empty_decls_range},
@@ -188,6 +189,8 @@ pub enum BodyItem {
     ClassId(ClassId),
     BindDirectiveId(BindDirectiveId),
     TimeUnitsDeclId(TimeUnitsDeclId),
+    DpiImportId(DpiImportId),
+    DpiExportId(DpiExportId),
     ConfigDeclId(ConfigDeclId),
     UdpDeclId(UdpDeclId),
     LibraryDeclId(LibraryDeclId),
@@ -229,6 +232,8 @@ impl_body_item_from! {
     ClassId => ClassId,
     BindDirectiveId => BindDirectiveId,
     TimeUnitsDeclId => TimeUnitsDeclId,
+    DpiImportId => DpiImportId,
+    DpiExportId => DpiExportId,
     TypedefId => TypedefId,
     StructId => StructId,
     ConfigDeclId => ConfigDeclId,
@@ -267,6 +272,8 @@ pub struct Body {
     pub classes: Arena<ClassDef>,
     pub bind_directives: Arena<BindDirective>,
     pub time_units: Arena<TimeUnitsDecl>,
+    pub dpi_imports: Arena<DpiImport>,
+    pub dpi_exports: Arena<DpiExport>,
     pub decls: Arena<Declarator>,
     pub stmts: Arena<Stmt>,
     pub root_stmt: Option<StmtId>,
@@ -364,6 +371,8 @@ impl Body {
         self.classes.shrink_to_fit();
         self.bind_directives.shrink_to_fit();
         self.time_units.shrink_to_fit();
+        self.dpi_imports.shrink_to_fit();
+        self.dpi_exports.shrink_to_fit();
         self.constraints.shrink_to_fit();
         self.constraint_defs.shrink_to_fit();
         self.decls.shrink_to_fit();
@@ -411,6 +420,8 @@ pub struct BodySourceMap {
     pub class_srcs: SourceMap<ClassDef>,
     pub bind_directive_srcs: SourceMap<BindDirective>,
     pub time_units_srcs: SourceMap<TimeUnitsDecl>,
+    pub dpi_import_srcs: SourceMap<DpiImport>,
+    pub dpi_export_srcs: SourceMap<DpiExport>,
     pub constraint_def_srcs: SourceMap<ConstraintDef>,
     pub stmt_srcs: SourceMap<Stmt>,
     pub proc_srcs: SourceMap<Proc>,
@@ -460,6 +471,8 @@ impl BodySourceMap {
         self.class_srcs.shrink_to_fit();
         self.bind_directive_srcs.shrink_to_fit();
         self.time_units_srcs.shrink_to_fit();
+        self.dpi_import_srcs.shrink_to_fit();
+        self.dpi_export_srcs.shrink_to_fit();
         self.udp_decl_srcs.shrink_to_fit();
         self.library_decl_srcs.shrink_to_fit();
         self.library_include_srcs.shrink_to_fit();
@@ -771,6 +784,8 @@ impl BodySourceMap {
             BodyItem::ClassId(id) => self.class_srcs.hir_to_src(*id),
             BodyItem::BindDirectiveId(id) => self.bind_directive_srcs.hir_to_src(*id),
             BodyItem::TimeUnitsDeclId(id) => self.time_units_srcs.hir_to_src(*id),
+            BodyItem::DpiImportId(id) => self.dpi_import_srcs.hir_to_src(*id),
+            BodyItem::DpiExportId(id) => self.dpi_export_srcs.hir_to_src(*id),
             BodyItem::ConfigDeclId(id) => self.config_decl_srcs.hir_to_src(*id),
             BodyItem::UdpDeclId(id) => self.udp_decl_srcs.hir_to_src(*id),
             BodyItem::LibraryDeclId(id) => self.library_decl_srcs.hir_to_src(*id),
@@ -812,6 +827,8 @@ crate::impl_arena_getters!(
     ClassId => classes => ClassDef,
     BindDirectiveId => bind_directives => BindDirective,
     TimeUnitsDeclId => time_units => TimeUnitsDecl,
+    DpiImportId => dpi_imports => DpiImport,
+    DpiExportId => dpi_exports => DpiExport,
     StructId => structs => StructDef,
     EnumId => enums => EnumDef,
     ExprId => exprs => Expr,
@@ -868,6 +885,8 @@ crate::impl_source_map_getters!(
     ClassId => class_srcs,
     BindDirectiveId => bind_directive_srcs,
     TimeUnitsDeclId => time_units_srcs,
+    DpiImportId => dpi_import_srcs,
+    DpiExportId => dpi_export_srcs,
     ConstraintId => constraint_srcs,
     ConstraintDefId => constraint_def_srcs,
     CoverpointId => coverpoint_srcs,

@@ -253,6 +253,14 @@ impl LowerModuleCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
+                DPIImport(declaration) => match self.lower_dpi_import(declaration) {
+                    Some(id) => id.into(),
+                    None => continue,
+                },
+                DPIExport(declaration) => match self.lower_dpi_export(declaration) {
+                    Some(id) => id.into(),
+                    None => continue,
+                },
                 unsupported @ ModuleDeclaration(_) => {
                     self.report_unsupported(
                         unsupported.syntax(),
@@ -329,9 +337,7 @@ impl LowerModuleCtx<'_> {
                     self.lower_specparam_decl(specparam_decl).into()
                 }
 
-                unsupported @ (DPIImport(_)
-                | DPIExport(_)
-                | ExternInterfaceMethod(_)
+                unsupported @ (ExternInterfaceMethod(_)
                 | ExternModuleDecl(_)
                 | ExternUdpDecl(_)
                 | UdpDeclaration(_)) => {

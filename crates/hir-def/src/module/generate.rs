@@ -145,6 +145,8 @@ impl LowerGenerateBlockCtx<'_> {
             BindDirective(directive) => {
                 BodyItem::BindDirectiveId(self.lower_bind_directive(directive)?)
             }
+            DPIImport(declaration) => BodyItem::DpiImportId(self.lower_dpi_import(declaration)?),
+            DPIExport(declaration) => BodyItem::DpiExportId(self.lower_dpi_export(declaration)?),
             ProceduralBlock(proc) => self.lower_proc(proc).into(),
             GenerateBlock(block) => BodyItem::GenerateBlockOwner(
                 self.intern_generate_node(generate_block_source_node(block)),

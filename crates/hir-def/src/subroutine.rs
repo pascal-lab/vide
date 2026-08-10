@@ -58,14 +58,29 @@ pub enum SubroutinePortDir {
 
 pub fn lower_subroutine(
     func: &ast::FunctionDeclaration,
+    lower_ty: impl FnMut(ast::DataType) -> DataTy,
+    ast_ids: &AstIdMap,
+    tree: &SyntaxTree,
+) -> Option<Subroutine> {
+    lower_subroutine_prototype(
+        func.prototype(),
+        func.as_task_declaration().is_some(),
+        func.end().is_some(),
+        lower_ty,
+        ast_ids,
+        tree,
+    )
+}
+
+pub(crate) fn lower_subroutine_prototype(
+    prototype: ast::FunctionPrototype,
+    is_task: bool,
+    has_body: bool,
     mut lower_ty: impl FnMut(ast::DataType) -> DataTy,
     ast_ids: &AstIdMap,
     tree: &SyntaxTree,
 ) -> Option<Subroutine> {
-    let prototype = func.prototype();
     let name = lower_name(prototype.name())?;
-
-    let is_task = func.as_task_declaration().is_some();
 
     let mut ports = SmallVec::<[SubroutinePort; 4]>::new();
     if let Some(port_list) = prototype.port_list() {
@@ -99,7 +114,7 @@ pub fn lower_subroutine(
         SubroutineKind::Function { return_ty: Some(ret_ty) }
     };
 
-    Some(Subroutine { name: Some(name), kind, ports, has_body: func.end().is_some() })
+    Some(Subroutine { name: Some(name), kind, ports, has_body })
 }
 
 fn lower_name(name: ast::Name) -> Option<Ident> {

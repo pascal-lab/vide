@@ -408,6 +408,7 @@ mod tests {
         bind::{BindInstantiationKind, BindPathKind},
         db::HirDefDb,
         declaration::{Declaration, ParamDeclKind},
+        dpi::{DpiExportKind, DpiImportProperty, DpiSpec},
         source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
         time_units::{TimeScaleMagnitude, TimeUnitsKind},
     };
@@ -622,6 +623,10 @@ wire unit_net;
 typedef int unit_type;
 parameter int unit_parameter = 1;
 timeunit 1ns / 1ps;
+import "DPI-C" context c_import = function int imported(input int a, output logic b);
+import "DPI" pure function void pure_import(input int value);
+export "DPI-C" c_export = function unit_function;
+export "DPI-C" task unit_task;
 class unit_class;
   int value;
   function void method();
@@ -643,6 +648,8 @@ bind unit_module unit_checker::unit_checker unit_checker_bind();
 module unit_module;
   timeunit 10ns;
   timeprecision 1ps;
+  import "DPI-C" function void module_import();
+  export "DPI-C" function unit_function;
   bind unit_module: unit_instance, unit_module.sub[1] unit_bound module_bind();
 endmodule
 config unit_config;
@@ -669,6 +676,26 @@ endconfig
         assert_eq!(time_units.value.magnitude, TimeScaleMagnitude::One);
         assert_eq!(time_units.precision.unwrap().unit, syntax::TimeUnit::Picoseconds);
         assert_eq!(body.bind_directives.len(), 2);
+        assert_eq!(body.dpi_imports.len(), 2);
+        assert_eq!(body.dpi_exports.len(), 2);
+        let mut dpi_imports = body.dpi_imports.values();
+        let context_import = dpi_imports.next().expect("context DPI import should be lowered");
+        let pure_import = dpi_imports.next().expect("pure DPI import should be lowered");
+        assert_eq!(context_import.spec, DpiSpec::DpiC);
+        assert_eq!(context_import.property, Some(DpiImportProperty::Context));
+        assert_eq!(context_import.c_identifier.as_deref(), Some("c_import"));
+        assert_eq!(context_import.method.name.as_deref(), Some("imported"));
+        assert_eq!(context_import.method.ports.len(), 2);
+        assert_eq!(pure_import.spec, DpiSpec::Dpi);
+        assert_eq!(pure_import.property, Some(DpiImportProperty::Pure));
+        let mut dpi_exports = body.dpi_exports.values();
+        let function_export = dpi_exports.next().expect("function DPI export should be lowered");
+        let task_export = dpi_exports.next().expect("task DPI export should be lowered");
+        assert_eq!(function_export.kind, DpiExportKind::Function);
+        assert_eq!(function_export.c_identifier.as_deref(), Some("c_export"));
+        assert_eq!(function_export.name, "unit_function");
+        assert_eq!(task_export.kind, DpiExportKind::Task);
+        assert_eq!(task_export.name, "unit_task");
         let mut binds = body.bind_directives.values();
         let hierarchy_bind = binds.next().expect("hierarchy bind should be lowered");
         let checker_bind = binds.next().expect("checker bind should be lowered");
@@ -678,6 +705,8 @@ endconfig
         let module = body.module_owners().next().expect("module owner should be lowered");
         let module_body = db.body(module);
         assert_eq!(module_body.time_units.len(), 2);
+        assert_eq!(module_body.dpi_imports.len(), 1);
+        assert_eq!(module_body.dpi_exports.len(), 1);
         let mut module_time_units = module_body.time_units.values();
         let module_time_unit =
             module_time_units.next().expect("module time unit should be lowered");
