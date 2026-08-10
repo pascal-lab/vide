@@ -639,7 +639,8 @@ export "DPI-C" task unit_task;
 extern module unit_external #(parameter int width = 8, parameter type data_t = logic)
   (input logic in_a, output logic out_b);
 extern primitive unit_external_primitive(output primitive_out, input primitive_in_a, primitive_in_b);
-virtual class unit_class implements unit_interface;
+virtual class unit_class #(parameter int width = 8, parameter type data_t = logic)
+  implements unit_interface;
   protected rand int value;
   local static int hidden;
   const int immutable = 1;
@@ -908,6 +909,25 @@ endprogram
             .expect("file-level class should be lowered");
         assert_eq!(class.kind, crate::aggregate::ClassKind::Virtual);
         assert!(!class.is_final);
+        assert_eq!(class.parameters.len(), 2);
+        assert!(matches!(
+            &class.parameters[0],
+            crate::aggregate::ClassParameter::Value {
+                name: Some(name),
+                default: Some(_),
+                is_local: false,
+                ..
+            } if name == "width"
+        ));
+        assert!(matches!(
+            &class.parameters[1],
+            crate::aggregate::ClassParameter::Type {
+                name: Some(name),
+                default: Some(_),
+                restriction: None,
+                is_local: false,
+            } if name == "data_t"
+        ));
         assert_eq!(class.implemented_interfaces.as_slice(), ["unit_interface"]);
         assert_eq!(class.members.len(), 8);
         assert!(class.members[0].ty.is_some());

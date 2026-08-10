@@ -148,6 +148,31 @@ pub struct ClassMethodQualifiers {
     pub visibility: ClassVisibility,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClassTypeParameterRestriction {
+    Enum,
+    Struct,
+    Union,
+    Class,
+    InterfaceClass,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ClassParameter {
+    Value {
+        name: Option<Ident>,
+        ty: DataTy,
+        default: Option<ExprId>,
+        is_local: bool,
+    },
+    Type {
+        name: Option<Ident>,
+        default: Option<DataTy>,
+        restriction: Option<ClassTypeParameterRestriction>,
+        is_local: bool,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassMember {
     pub name: Option<Ident>,
@@ -165,6 +190,7 @@ pub struct ClassDef {
     pub name: Option<Ident>,
     pub kind: ClassKind,
     pub is_final: bool,
+    pub parameters: SmallVec<[ClassParameter; 4]>,
     pub base_class_name: Option<Ident>,
     pub implemented_interfaces: SmallVec<[Ident; 2]>,
     pub members: SmallVec<[ClassMember; 4]>,
@@ -176,10 +202,83 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_class_decl(&mut self, class: ast::ClassDeclaration<'_>) -> ClassId {
         let container_id = self.current_owner();
         let mut class_def = lower_class_def(class, container_id, |ty| self.lower_data_ty(ty));
+        self.lower_class_parameters(class, &mut class_def);
         self.lower_class_members(class, &mut class_def);
         let source = self.source_id(class.syntax());
         let (body, sources) = self.store.body();
         alloc_with_source_entry(&mut body.classes, &mut sources.class_srcs, class_def, source)
+    }
+
+    fn lower_class_parameters(
+        &mut self,
+        class: ast::ClassDeclaration<'_>,
+        class_def: &mut ClassDef,
+    ) {
+        let Some(parameters) = class.parameters() else { return };
+        let mut inherited_local = false;
+
+        for parameter in parameters.declarations().children() {
+            match parameter {
+                ast::ParameterDeclarationBase::ParameterDeclaration(parameter) => {
+                    if let Some(keyword) = parameter.keyword() {
+                        inherited_local = keyword.kind() == TokenKind::LOCAL_PARAM_KEYWORD;
+                    }
+                    let ty = self.lower_data_ty(parameter.type_());
+                    for declarator in parameter.declarators().children() {
+                        class_def.parameters.push(ClassParameter::Value {
+                            name: lower_ident_opt(declarator.name()),
+                            ty: ty.clone(),
+                            default: declarator
+                                .initializer()
+                                .map(|initializer| self.lower_expr(initializer.expr())),
+                            is_local: inherited_local,
+                        });
+                    }
+                }
+                ast::ParameterDeclarationBase::TypeParameterDeclaration(parameter) => {
+                    if let Some(keyword) = parameter.keyword() {
+                        inherited_local = keyword.kind() == TokenKind::LOCAL_PARAM_KEYWORD;
+                    }
+                    let restriction =
+                        self.lower_class_type_parameter_restriction(parameter.type_restriction());
+                    for declarator in parameter.declarators().children() {
+                        class_def.parameters.push(ClassParameter::Type {
+                            name: lower_ident_opt(declarator.name()),
+                            default: declarator
+                                .assignment()
+                                .map(|assignment| self.lower_data_ty(assignment.type_())),
+                            restriction,
+                            is_local: inherited_local,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    fn lower_class_type_parameter_restriction(
+        &mut self,
+        restriction: Option<ast::ForwardTypeRestriction<'_>>,
+    ) -> Option<ClassTypeParameterRestriction> {
+        let Some(restriction) = restriction else { return None };
+        let first = restriction.keyword_1().map(|keyword| keyword.kind());
+        let second = restriction.keyword_2().map(|keyword| keyword.kind());
+        match (first, second) {
+            (Some(TokenKind::ENUM_KEYWORD), None) => Some(ClassTypeParameterRestriction::Enum),
+            (Some(TokenKind::STRUCT_KEYWORD), None) => Some(ClassTypeParameterRestriction::Struct),
+            (Some(TokenKind::UNION_KEYWORD), None) => Some(ClassTypeParameterRestriction::Union),
+            (Some(TokenKind::CLASS_KEYWORD), None) => Some(ClassTypeParameterRestriction::Class),
+            (Some(TokenKind::INTERFACE_KEYWORD), Some(TokenKind::CLASS_KEYWORD)) => {
+                Some(ClassTypeParameterRestriction::InterfaceClass)
+            }
+            _ => {
+                self.report_invalid(
+                    restriction.syntax(),
+                    "class type parameter has an invalid type restriction",
+                );
+                None
+            }
+        }
     }
 
     fn lower_class_members(&mut self, class: ast::ClassDeclaration<'_>, class_def: &mut ClassDef) {
@@ -381,6 +480,7 @@ pub(crate) fn lower_class_def(
         name: lower_ident_opt(class.name()),
         kind,
         is_final,
+        parameters: SmallVec::new(),
         base_class_name,
         implemented_interfaces,
         members,
