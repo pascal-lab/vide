@@ -868,6 +868,18 @@ impl HirDisplay for OwnerRef<&Expr> {
                 Ok(())
             }
             Expr::EmptyQueue => f.write_str("{}"),
+            Expr::TaggedUnion { member, expr } => {
+                f.write_str("tagged")?;
+                if let Some(member) = member {
+                    f.write_str(" ")?;
+                    f.write_str(member)?;
+                }
+                if let Some(expr) = expr {
+                    f.write_str(" ")?;
+                    self.with_value(*expr).hir_fmt(f)?;
+                }
+                Ok(())
+            }
             Expr::SuperNewDefaulted { callee } => {
                 self.with_value(*callee).hir_fmt(f)?;
                 f.write_str("(default)")

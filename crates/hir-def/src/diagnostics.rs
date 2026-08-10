@@ -628,6 +628,7 @@ typedef class unit_forward;
 typedef enum unit_forward_enum;
 typedef union unit_forward_union;
 typedef interface class unit_forward_interface;
+typedef union tagged { int foo; } unit_tagged_union;
 nettype logic unit_nettype with unit_resolution;
 unit_nettype #1 unit_signal;
 parameter int unit_parameter = 1;
@@ -676,6 +677,7 @@ module unit_module;
   unit_class initialized_array[] = new[3](created);
   unit_class empty_array[] = {};
   unit_class null_handle = null;
+  unit_tagged_union tagged_value = tagged foo 1;
   typedef struct module_forward;
   nettype logic module_nettype;
   module_nettype #2 module_signal;
@@ -931,6 +933,9 @@ endprogram
         );
         assert!(module_body.exprs.values().any(|expr| {
             matches!(expr, crate::expr::Expr::Literal(crate::literal::Literal::Null))
+        }));
+        assert!(module_body.exprs.values().any(|expr| {
+            matches!(expr, crate::expr::Expr::TaggedUnion { member: Some(member), expr: Some(_) } if member == "foo")
         }));
         assert!(body.exprs.values().any(|expr| {
             matches!(expr, crate::expr::Expr::Literal(crate::literal::Literal::Unbounded))

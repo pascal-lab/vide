@@ -283,6 +283,10 @@ pub enum Expr {
         initializer: Option<ExprId>,
     },
     EmptyQueue,
+    TaggedUnion {
+        member: Option<Ident>,
+        expr: Option<ExprId>,
+    },
     SuperNewDefaulted {
         callee: ExprId,
     },
@@ -558,10 +562,10 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             NewClassExpression(expr) => self.lower_new_class_expr(expr),
             CopyClassExpression(expr) => self.lower_copy_class_expr(expr),
             NewArrayExpression(expr) => self.lower_new_array_expr(expr),
+            TaggedUnionExpression(expr) => self.lower_tagged_union_expr(expr),
             SuperNewDefaultedArgsExpression(expr) => self.lower_super_new_defaulted_expr(expr),
             unsupported @ (ValueRangeExpression(_)
             | DataType(_)
-            | TaggedUnionExpression(_)
             | ArrayOrRandomizeMethodExpression(_)) => {
                 Some(Expr::Unsupported(unsupported.syntax().kind()))
             }
@@ -944,6 +948,12 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         let initializer =
             expr.initializer().map(|initializer| self.lower_expr(initializer.expression()));
         Some(Expr::NewArray { size, initializer })
+    }
+
+    fn lower_tagged_union_expr(&mut self, expr: ast::TaggedUnionExpression) -> Option<Expr> {
+        let member = lower_ident_opt(expr.member());
+        let value = expr.expr().map(|expr| self.lower_expr(expr));
+        Some(Expr::TaggedUnion { member, expr: value })
     }
 
     fn lower_super_new_defaulted_expr(
