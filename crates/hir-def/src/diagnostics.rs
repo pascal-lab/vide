@@ -670,6 +670,11 @@ module unit_module;
   bind unit_module: unit_instance, unit_module.sub[1] unit_bound module_bind();
 endmodule
 interface unit_interface;
+  logic unit_clock;
+  clocking unit_clocking @(posedge unit_clock);
+    input unit_clock;
+  endclocking
+  modport unit_modport(input unit_clock, clocking unit_clocking);
   extern function void external_method(input int value);
   extern forkjoin task external_task(input int value);
 endinterface
@@ -823,6 +828,15 @@ endconfig
             .find(|owner| db.body(*owner).name.as_deref() == Some("unit_interface"))
             .expect("interface owner should be lowered");
         let interface_body = db.body(interface);
+        let modport = interface_body
+            .modports
+            .values()
+            .find(|modport| modport.name.as_deref() == Some("unit_modport"))
+            .expect("interface modport should be lowered");
+        assert_eq!(modport.ports.len(), 2);
+        assert!(modport.ports.iter().any(|port| {
+            matches!(port.kind, crate::module::modport::ModportPortKind::Clocking)
+        }));
         assert_eq!(interface_body.extern_interface_methods.len(), 2);
         let mut methods = interface_body.extern_interface_methods.values();
         let function = methods.next().expect("extern function should be lowered");

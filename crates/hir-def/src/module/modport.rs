@@ -1,6 +1,6 @@
 use la_arena::Idx;
 use smallvec::SmallVec;
-use syntax::{SyntaxToken, TokenKind, ast};
+use syntax::{SyntaxToken, TokenKind, ast, ast::AstNode};
 
 use super::{LowerModuleCtx, port::PortDirection};
 use crate::{Ident, alloc_with_source, lower_ident_opt};
@@ -16,7 +16,14 @@ pub type ModportId = Idx<ModportDef>;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ModportPort {
     pub name: Ident,
-    pub dir: PortDirection,
+    pub kind: ModportPortKind,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ModportPortKind {
+    Simple { dir: PortDirection },
+    Subroutine { dir: PortDirection },
+    Clocking,
 }
 
 impl LowerModuleCtx<'_> {
@@ -27,7 +34,7 @@ impl LowerModuleCtx<'_> {
         let mut lowered = SmallVec::new();
         for item in modport.items().children() {
             let name = lower_ident_opt(item.name());
-            let ports = lower_modport_ports(item);
+            let ports = self.lower_modport_ports(item);
             let _file_id = self.file_id;
             let (modports, sources) =
                 (&mut self.store.data.modports, &mut self.store.sources.modport_srcs);
@@ -45,34 +52,54 @@ impl LowerModuleCtx<'_> {
     }
 }
 
-fn lower_modport_ports(item: ast::ModportItem<'_>) -> SmallVec<[ModportPort; 4]> {
-    let mut ports = SmallVec::new();
+impl LowerModuleCtx<'_> {
+    fn lower_modport_ports(&mut self, item: ast::ModportItem<'_>) -> SmallVec<[ModportPort; 4]> {
+        let mut ports = SmallVec::new();
 
-    // slang models a modport item as named entries whose `ports()` members are
-    // simple or subroutine port lists; each list then owns its inner ports.
-    for member in item.ports().ports().children() {
-        match member {
-            ast::Member::ModportSimplePortList(port_list) => {
-                let dir = lower_modport_dir(port_list.direction()).unwrap_or_default();
-                for port in port_list.ports().children() {
-                    if let Some(name) = lower_modport_port_name(port) {
-                        ports.push(ModportPort { name, dir });
+        // slang models a modport item as named entries whose `ports()` members are
+        // simple or subroutine port lists; each list then owns its inner ports.
+        for member in item.ports().ports().children() {
+            match member {
+                ast::Member::ModportSimplePortList(port_list) => {
+                    let dir = lower_modport_dir(port_list.direction()).unwrap_or_default();
+                    for port in port_list.ports().children() {
+                        if let Some(name) = lower_modport_port_name(port) {
+                            ports.push(ModportPort { name, kind: ModportPortKind::Simple { dir } });
+                        }
                     }
                 }
-            }
-            ast::Member::ModportSubroutinePortList(port_list) => {
-                let dir = lower_modport_subroutine_dir(port_list.import_export());
-                for port in port_list.ports().children() {
-                    if let Some(name) = lower_modport_port_name(port) {
-                        ports.push(ModportPort { name, dir });
+                ast::Member::ModportSubroutinePortList(port_list) => {
+                    let dir = lower_modport_subroutine_dir(port_list.import_export());
+                    for port in port_list.ports().children() {
+                        if let Some(name) = lower_modport_port_name(port) {
+                            ports.push(ModportPort {
+                                name,
+                                kind: ModportPortKind::Subroutine { dir },
+                            });
+                        }
                     }
                 }
+                ast::Member::ModportClockingPort(port) => {
+                    let Some(name) = lower_ident_opt(port.name()) else {
+                        self.report_invalid(
+                            port.syntax(),
+                            "modport clocking port is missing its clocking block name",
+                        );
+                        continue;
+                    };
+                    ports.push(ModportPort { name, kind: ModportPortKind::Clocking });
+                }
+                unsupported => {
+                    self.report_unsupported(
+                        unsupported.syntax(),
+                        "modport port member is not lowered",
+                    );
+                }
             }
-            _ => {}
         }
-    }
 
-    ports
+        ports
+    }
 }
 
 fn lower_modport_port_name(port: ast::ModportPort<'_>) -> Option<Ident> {
