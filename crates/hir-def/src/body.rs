@@ -29,7 +29,9 @@ use crate::{
         declarator::{DeclId, Declarator, empty_decls_range},
         timing_control::{EventExpr, EventExprId},
     },
-    external::{ExternInterfaceMethod, ExternInterfaceMethodId},
+    external::{
+        ExternInterfaceMethod, ExternInterfaceMethodId, ExternModuleDecl, ExternModuleDeclId,
+    },
     file::{
         config::{ConfigDecl, ConfigDeclId},
         library::{LibraryDecl, LibraryDeclId, LibraryInclude, LibraryIncludeId},
@@ -193,6 +195,7 @@ pub enum BodyItem {
     DpiImportId(DpiImportId),
     DpiExportId(DpiExportId),
     ExternInterfaceMethodId(ExternInterfaceMethodId),
+    ExternModuleDeclId(ExternModuleDeclId),
     ConfigDeclId(ConfigDeclId),
     UdpDeclId(UdpDeclId),
     LibraryDeclId(LibraryDeclId),
@@ -237,6 +240,7 @@ impl_body_item_from! {
     DpiImportId => DpiImportId,
     DpiExportId => DpiExportId,
     ExternInterfaceMethodId => ExternInterfaceMethodId,
+    ExternModuleDeclId => ExternModuleDeclId,
     TypedefId => TypedefId,
     StructId => StructId,
     ConfigDeclId => ConfigDeclId,
@@ -278,6 +282,7 @@ pub struct Body {
     pub dpi_imports: Arena<DpiImport>,
     pub dpi_exports: Arena<DpiExport>,
     pub extern_interface_methods: Arena<ExternInterfaceMethod>,
+    pub extern_module_decls: Arena<ExternModuleDecl>,
     pub decls: Arena<Declarator>,
     pub stmts: Arena<Stmt>,
     pub root_stmt: Option<StmtId>,
@@ -378,6 +383,7 @@ impl Body {
         self.dpi_imports.shrink_to_fit();
         self.dpi_exports.shrink_to_fit();
         self.extern_interface_methods.shrink_to_fit();
+        self.extern_module_decls.shrink_to_fit();
         self.constraints.shrink_to_fit();
         self.constraint_defs.shrink_to_fit();
         self.decls.shrink_to_fit();
@@ -428,6 +434,7 @@ pub struct BodySourceMap {
     pub dpi_import_srcs: SourceMap<DpiImport>,
     pub dpi_export_srcs: SourceMap<DpiExport>,
     pub extern_interface_method_srcs: SourceMap<ExternInterfaceMethod>,
+    pub extern_module_decl_srcs: SourceMap<ExternModuleDecl>,
     pub constraint_def_srcs: SourceMap<ConstraintDef>,
     pub stmt_srcs: SourceMap<Stmt>,
     pub proc_srcs: SourceMap<Proc>,
@@ -480,6 +487,7 @@ impl BodySourceMap {
         self.dpi_import_srcs.shrink_to_fit();
         self.dpi_export_srcs.shrink_to_fit();
         self.extern_interface_method_srcs.shrink_to_fit();
+        self.extern_module_decl_srcs.shrink_to_fit();
         self.udp_decl_srcs.shrink_to_fit();
         self.library_decl_srcs.shrink_to_fit();
         self.library_include_srcs.shrink_to_fit();
@@ -796,6 +804,7 @@ impl BodySourceMap {
             BodyItem::ExternInterfaceMethodId(id) => {
                 self.extern_interface_method_srcs.hir_to_src(*id)
             }
+            BodyItem::ExternModuleDeclId(id) => self.extern_module_decl_srcs.hir_to_src(*id),
             BodyItem::ConfigDeclId(id) => self.config_decl_srcs.hir_to_src(*id),
             BodyItem::UdpDeclId(id) => self.udp_decl_srcs.hir_to_src(*id),
             BodyItem::LibraryDeclId(id) => self.library_decl_srcs.hir_to_src(*id),
@@ -840,6 +849,7 @@ crate::impl_arena_getters!(
     DpiImportId => dpi_imports => DpiImport,
     DpiExportId => dpi_exports => DpiExport,
     ExternInterfaceMethodId => extern_interface_methods => ExternInterfaceMethod,
+    ExternModuleDeclId => extern_module_decls => ExternModuleDecl,
     StructId => structs => StructDef,
     EnumId => enums => EnumDef,
     ExprId => exprs => Expr,
@@ -899,6 +909,7 @@ crate::impl_source_map_getters!(
     DpiImportId => dpi_import_srcs,
     DpiExportId => dpi_export_srcs,
     ExternInterfaceMethodId => extern_interface_method_srcs,
+    ExternModuleDeclId => extern_module_decl_srcs,
     ConstraintId => constraint_srcs,
     ConstraintDefId => constraint_def_srcs,
     CoverpointId => coverpoint_srcs,

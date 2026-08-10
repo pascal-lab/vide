@@ -107,6 +107,18 @@ pub enum ModuleKind {
 }
 
 impl ModuleKind {
+    pub fn from_header(header: ast::ModuleHeader) -> Self {
+        if header.as_package_header().is_some() {
+            ModuleKind::Package
+        } else if header.as_interface_header().is_some() {
+            ModuleKind::Interface
+        } else if header.as_program_header().is_some() {
+            ModuleKind::Program
+        } else {
+            ModuleKind::Module
+        }
+    }
+
     pub fn from_ast(decl: ast::ModuleDeclaration) -> Self {
         if decl.as_package_declaration().is_some() {
             ModuleKind::Package
@@ -267,6 +279,10 @@ impl LowerModuleCtx<'_> {
                         None => continue,
                     }
                 }
+                ExternModuleDecl(declaration) => match self.lower_extern_module_decl(declaration) {
+                    Some(id) => id.into(),
+                    None => continue,
+                },
                 unsupported @ ModuleDeclaration(_) => {
                     self.report_unsupported(
                         unsupported.syntax(),
@@ -343,7 +359,7 @@ impl LowerModuleCtx<'_> {
                     self.lower_specparam_decl(specparam_decl).into()
                 }
 
-                unsupported @ (ExternModuleDecl(_) | ExternUdpDecl(_) | UdpDeclaration(_)) => {
+                unsupported @ (ExternUdpDecl(_) | UdpDeclaration(_)) => {
                     self.report_unsupported(
                         unsupported.syntax(),
                         "external or UDP declaration is not lowered in module scope",

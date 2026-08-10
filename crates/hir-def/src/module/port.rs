@@ -493,7 +493,7 @@ impl LowerModuleCtx<'_> {
 
     // Port header may inherit properties from the previous port header, so we
     // need to keep track of the previous port header.
-    fn lower_port_header(
+    pub(crate) fn lower_port_header(
         &mut self,
         header: ast::PortHeader,
         prev_header: Option<PortHeader>,
@@ -558,7 +558,7 @@ impl LowerModuleCtx<'_> {
         }
     }
 
-    fn lower_explicit_ansi_header(
+    pub(crate) fn lower_explicit_ansi_header(
         &mut self,
         direction: Option<SyntaxToken>,
         prev_header: Option<PortHeader>,
