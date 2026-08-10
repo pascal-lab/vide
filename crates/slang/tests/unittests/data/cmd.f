@@ -1,2 +1,0 @@
---compat vcs
--v test.sv

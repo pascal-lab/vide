@@ -1,9 +1,0 @@
-Unknown
-Whitespace
-EndOfLine
-LineComment
-BlockComment
-DisabledText
-SkippedTokens
-SkippedSyntax
-Directive

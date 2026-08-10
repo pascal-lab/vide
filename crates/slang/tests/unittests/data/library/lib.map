@@ -1,3 +1,0 @@
-include ../system/system.map;
-
-library libfoo libmod.??, *.sv -incdir ../nested;
