@@ -6,13 +6,14 @@ use triomphe::Arc;
 use udp::{UdpDecl, UdpDeclId};
 
 use super::{
-    aggregate::{StructId, lower_struct_def},
+    aggregate::{StructId, StructMember, lower_struct_def},
     alloc_with_source,
     lower::{BodyStore, LoweringCtx, LoweringSyntax},
     lower_package_imports,
 };
 use crate::{
     body::{Body, BodyItem, BodySourceMap},
+    container::OwnerRef,
     db::HirDefDb,
     lower_ident_opt,
     owner::{OwnerId, OwnerKind},
@@ -29,7 +30,24 @@ pub(crate) type LowerFileCtx<'a> = LoweringCtx<BodyStore<'a>>;
 impl LowerFileCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
         let container_id = self.current_owner();
-        let struct_def = lower_struct_def(struct_ty, container_id, |ty| self.lower_data_ty(ty));
+        let struct_def = lower_struct_def(struct_ty, container_id, |member| {
+            let member_ty = self.lower_data_ty(member.type_());
+            member
+                .declarators()
+                .children()
+                .map(|declarator| StructMember {
+                    name: lower_ident_opt(declarator.name()),
+                    ty: Some(OwnerRef::new(container_id, member_ty.clone())),
+                    dimensions: declarator
+                        .dimensions()
+                        .children()
+                        .map(|dim| self.lower_dimension(dim))
+                        .collect(),
+                    initializer: declarator.initializer().map(|init| self.lower_expr(init.expr())),
+                    random: member.random_qualifier().is_some(),
+                })
+                .collect()
+        });
 
         alloc_with_source(
             &self.ast_ids,

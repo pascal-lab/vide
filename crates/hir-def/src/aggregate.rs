@@ -2,10 +2,17 @@ use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::{
     TokenKind,
-    ast::{DataType, StructUnionType},
+    ast::{StructUnionMember, StructUnionType},
 };
 
-use super::{Ident, expr::data_ty::DataTy, lower_ident_opt};
+use super::{
+    Ident,
+    expr::{
+        ExprId,
+        data_ty::{DataTy, Dimension},
+    },
+    lower_ident_opt,
+};
 use crate::{container::OwnerRef, owner::OwnerId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -18,6 +25,9 @@ pub enum StructKind {
 pub struct StructMember {
     pub name: Option<Ident>,
     pub ty: Option<OwnerRef<DataTy>>,
+    pub dimensions: SmallVec<[Option<Dimension>; 2]>,
+    pub initializer: Option<ExprId>,
+    pub random: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,7 +45,7 @@ pub type StructId = Idx<StructDef>;
 pub(crate) fn lower_struct_def(
     struct_ty: StructUnionType,
     container_id: OwnerId,
-    mut lower_data_ty: impl FnMut(DataType) -> DataTy,
+    mut lower_member: impl FnMut(StructUnionMember) -> SmallVec<[StructMember; 4]>,
 ) -> StructDef {
     let kind = match struct_ty {
         StructUnionType::StructType(_) => StructKind::Struct,
@@ -53,15 +63,17 @@ pub(crate) fn lower_struct_def(
         _ => None,
     });
 
-    let mut members = SmallVec::<[StructMember; 4]>::new();
-    for member in struct_ty.members().children() {
-        let member_ty = lower_data_ty(member.type_());
-        for declarator in member.declarators().children() {
-            let name = lower_ident_opt(declarator.name());
-            let ty = OwnerRef::new(container_id, member_ty.clone());
-            members.push(StructMember { name, ty: Some(ty) });
-        }
-    }
+    let members = struct_ty
+        .members()
+        .children()
+        .flat_map(|member| lower_member(member))
+        .map(|mut member| {
+            if let Some(ty) = member.ty.as_mut() {
+                ty.cont_id = container_id;
+            }
+            member
+        })
+        .collect();
 
     StructDef { kind, name: None, packed, signing, tagged, members }
 }

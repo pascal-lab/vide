@@ -9,11 +9,12 @@ use triomphe::Arc;
 
 use crate::{
     PackageExport, PackageImport,
-    aggregate::{StructDef, StructId, lower_struct_def},
+    aggregate::{StructDef, StructId, StructMember, lower_struct_def},
     assertion::{PropertyDef, PropertyId, SequenceDef, SequenceId},
     ast_id_map::SourceAstId,
     block::BlockItem,
     checker::{CheckerDef, CheckerId},
+    container::OwnerRef,
     covergroup::{CovergroupDef, CovergroupId, CoverpointDef, CoverpointId, CrossDef, CrossId},
     db::HirDefDb,
     declaration::{DataDecl, Declaration, DeclarationId},
@@ -553,7 +554,24 @@ fn empty_body(file_id: preproc_expand::file::HirFileId) -> Arc<Lowered<Body>> {
 impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
     pub(crate) fn lower_body_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
         let container = self.current_owner();
-        let struct_def = lower_struct_def(struct_ty, container, |ty| self.lower_data_ty(ty));
+        let struct_def = lower_struct_def(struct_ty, container, |member| {
+            let member_ty = self.lower_data_ty(member.type_());
+            member
+                .declarators()
+                .children()
+                .map(|declarator| StructMember {
+                    name: lower_ident_opt(declarator.name()),
+                    ty: Some(OwnerRef::new(container, member_ty.clone())),
+                    dimensions: declarator
+                        .dimensions()
+                        .children()
+                        .map(|dim| self.lower_dimension(dim))
+                        .collect(),
+                    initializer: declarator.initializer().map(|init| self.lower_expr(init.expr())),
+                    random: member.random_qualifier().is_some(),
+                })
+                .collect()
+        });
         let source = self.source_id(struct_ty.syntax());
         let (body, sources) = self.store.body();
         crate::alloc_with_source_entry(

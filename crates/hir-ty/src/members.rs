@@ -10,7 +10,7 @@ use hir_def::{
 
 use crate::{
     db::TyDb,
-    infer::{normalize_data_ty, type_of_path_resolution_impl},
+    infer::{apply_unpacked_dimensions, normalize_data_ty, type_of_path_resolution_impl},
     ty::{Ty, TyMember, TyResult},
 };
 
@@ -60,7 +60,10 @@ fn struct_members(db: &dyn TyDb, struct_id: OwnerRef<StructId>) -> Vec<TyMember>
             let ty = member
                 .ty
                 .as_ref()
-                .map(|ty| normalize_data_ty(db, ty.cont_id, ty.value.clone()).ty)
+                .map(|ty| {
+                    let normalized = normalize_data_ty(db, ty.cont_id, ty.value.clone()).ty;
+                    apply_unpacked_dimensions(db, ty.cont_id, normalized, &member.dimensions)
+                })
                 .unwrap_or(Ty::Unknown);
             Some(TyMember { name, ty })
         })

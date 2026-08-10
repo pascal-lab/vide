@@ -367,7 +367,7 @@ fn struct_kind(db: &dyn TyDb, struct_id: OwnerRef<StructId>) -> Option<StructKin
     Some(struct_id.cont_id.data(db).struct_def(struct_id.value).kind)
 }
 
-fn apply_unpacked_dimensions(
+pub(crate) fn apply_unpacked_dimensions(
     db: &dyn TyDb,
     container: OwnerId,
     mut ty: Ty,

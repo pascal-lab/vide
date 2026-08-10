@@ -217,6 +217,34 @@ endmodule
 }
 
 #[test]
+fn struct_member_dimensions_are_part_of_member_type() {
+    let db = db_with_root_text(
+        r#"
+module m;
+  typedef struct {
+    logic data[];
+    int initialized = 1;
+    rand logic random_value;
+  } payload_t;
+  payload_t payload;
+endmodule
+"#,
+    );
+    let module = module_id(&db, "m");
+    let types = TypeSystem::new(&db);
+    let payload = type_of_name(&db, module, "payload", NameContext::Value);
+    let members = types.members(&payload);
+    assert_eq!(
+        members.iter().map(|member| member.name().as_str()).collect::<Vec<_>>(),
+        ["data", "initialized", "random_value"]
+    );
+    assert_eq!(
+        types.display_source(members[0].ty()).expect("member type should render"),
+        "logic []"
+    );
+}
+
+#[test]
 fn qualified_type_paths_preserve_separator_and_source_projection() {
     let db = db_with_root_text(
         r#"

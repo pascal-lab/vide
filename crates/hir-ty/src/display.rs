@@ -6,7 +6,8 @@ use hir_def::{
     def_id::DefId,
     expr::{
         Arg, AssignOp, AssignmentPattern, AssignmentPatternItem, BinaryOp, Expr, ExprId, IncDecOp,
-        InsideRange, PropertyExpr, Selector, SequenceExpr, SequenceRepetition, StreamOp, UnaryOp,
+        InsideRange, PropertyCaseItem, PropertyExpr, Selector, SequenceExpr, SequenceRepetition,
+        StreamOp, UnaryOp,
         data_ty::{
             BuiltinDataTy, DataTy, Dimension, IntKind, Real, TypePathKind, TypeRef, VecKind,
         },
@@ -636,6 +637,31 @@ fn fmt_property_expr(
             owner.with_value(*condition).hir_fmt(f)?;
             f.write_str(") ")?;
             owner.with_value(*expr).hir_fmt(f)
+        }
+        PropertyExpr::Case { expr, items } => {
+            f.write_str("case (")?;
+            owner.with_value(*expr).hir_fmt(f)?;
+            f.write_str(") ")?;
+            for item in items {
+                match item {
+                    PropertyCaseItem::Default { expr } => {
+                        f.write_str("default: ")?;
+                        owner.with_value(*expr).hir_fmt(f)?;
+                    }
+                    PropertyCaseItem::Standard { expressions, expr } => {
+                        for (index, expression) in expressions.iter().enumerate() {
+                            if index != 0 {
+                                f.write_str(", ")?;
+                            }
+                            owner.with_value(*expression).hir_fmt(f)?;
+                        }
+                        f.write_str(": ")?;
+                        owner.with_value(*expr).hir_fmt(f)?;
+                    }
+                }
+                f.write_str("; ")?;
+            }
+            f.write_str("endcase")
         }
     }
 }
