@@ -751,6 +751,12 @@ pub(crate) fn semantic_tokens(
             SemaTokenTag::Instance => sema_token_types::INSTANCE,
             SemaTokenTag::Macro => sema_token_types::MACRO,
             SemaTokenTag::Type => sema_token_types::TYPE_ALIAS,
+            SemaTokenTag::TomlKey => sema_token_types::PROPERTY,
+            SemaTokenTag::TomlString => sema_token_types::STRING,
+            SemaTokenTag::TomlNumber => sema_token_types::NUMBER,
+            SemaTokenTag::TomlBoolean => sema_token_types::KEYWORD,
+            SemaTokenTag::TomlValue => sema_token_types::GENERIC,
+            SemaTokenTag::TomlComment => sema_token_types::COMMENT,
             SemaTokenTag::None => sema_token_types::GENERIC,
         };
         // Prefer standard tokens where we have an explicit fallback, otherwise

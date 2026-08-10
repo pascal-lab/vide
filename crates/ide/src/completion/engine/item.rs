@@ -19,7 +19,7 @@ pub enum CompletionItemKind {
 }
 
 impl CompletionItem {
-    pub(super) fn new(
+    pub fn new(
         label: String,
         kind: CompletionItemKind,
         edit: Option<TextEditItem>,

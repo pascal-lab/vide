@@ -59,7 +59,7 @@ pub struct Fold {
 }
 
 impl Fold {
-    fn new(range: TextRange, kind: FoldKind) -> Self {
+    pub(crate) fn new(range: TextRange, kind: FoldKind) -> Self {
         Self { range, kind }
     }
 
@@ -275,6 +275,9 @@ fn collect_item_groups(
 }
 
 pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId) -> Vec<Fold> {
+    if matches!(db.file_kind(file_id), base_db::source_db::SourceFileKind::ProjectManifest) {
+        return crate::manifest::folding_ranges(db, file_id);
+    }
     let line_index = db.line_index(file_id);
     let line_index = line_index.as_ref();
 

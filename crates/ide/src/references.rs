@@ -107,6 +107,7 @@ fn render_references_target(
             render_preproc_references_target(db, file_id, target, &config)
         }
         SemanticTarget::Include(_) => None,
+        SemanticTarget::Manifest(target) => crate::manifest::references_target(db, target, config),
         SemanticTarget::Source(target) => {
             render_source_references_target(sema, file_id, target, config)
         }

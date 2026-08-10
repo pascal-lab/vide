@@ -75,6 +75,7 @@ fn render_hover_target(
                 render_macro_hover_target(db, file_id, offset, target)
             }
             SemanticTarget::Include(includes) => render_include_hover(db, includes),
+            SemanticTarget::Manifest(target) => crate::manifest::hover_target(db, target),
             SemanticTarget::Source(target) => {
                 has_source_target = true;
                 hover_for_source_target(sema, file_id.into(), target)

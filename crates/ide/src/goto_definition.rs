@@ -49,6 +49,7 @@ fn render_definition_target(
         let target = match target {
             SemanticTarget::PreprocMacro(target) => render_preproc_definition_target(target),
             SemanticTarget::Include(includes) => render_include_definition_target(db, includes),
+            SemanticTarget::Manifest(target) => crate::manifest::definition_target(db, target),
             SemanticTarget::Source(target) => {
                 render_source_definition_target(db, file_id, sema, target)
             }

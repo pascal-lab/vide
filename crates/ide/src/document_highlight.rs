@@ -36,8 +36,12 @@ pub(crate) fn document_highlight(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
-    let SemanticTarget::Source(target) = target.unique_for_intent(TargetIntent::Highlight)? else {
-        return None;
+    let target = target.unique_for_intent(TargetIntent::Highlight)?;
+    let SemanticTarget::Source(target) = target else {
+        return match target {
+            SemanticTarget::Manifest(target) => crate::manifest::highlights_target(db, target),
+            _ => None,
+        };
     };
     let tokens = target.into_tokens();
     let highlights = tokens

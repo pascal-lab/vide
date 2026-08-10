@@ -68,6 +68,12 @@ pub enum SemaTokenTag {
     Instance,
     Macro,
     Type,
+    TomlKey,
+    TomlString,
+    TomlNumber,
+    TomlBoolean,
+    TomlValue,
+    TomlComment,
     None,
 }
 
@@ -135,6 +141,9 @@ pub(crate) fn semantic_tokens(
     range: Option<TextRange>,
 ) -> Vec<SemaToken> {
     let _span = tracing::debug_span!("ide.semantic_tokens", ?file_id, ?range).entered();
+    if matches!(db.file_kind(file_id), base_db::source_db::SourceFileKind::ProjectManifest) {
+        return crate::manifest::semantic_tokens(db, file_id, range);
+    }
     let sema = Semantics::new(db);
     let parsed_file = sema.parse_file(file_id);
     let Some(root) = parsed_file.root() else {

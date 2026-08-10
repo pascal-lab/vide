@@ -116,9 +116,9 @@ pub(crate) fn prepare_rename(
         RenameTarget::Hdl(target) => {
             let _ = config.references_config(db, &target.selected_def, file_id)?;
         }
-        RenameTarget::Macro(_) => {}
+        RenameTarget::Macro(_) | RenameTarget::Manifest(_) => {}
     }
-    Ok(target.range())
+    Ok(target.range(db))
 }
 
 pub(crate) fn rename(
@@ -130,6 +130,7 @@ pub(crate) fn rename(
     let sema = Semantics::new(db);
     match resolve_rename_target(&sema, position)? {
         RenameTarget::Macro(target) => rename_macro(db, file_id, &config, target, new_name),
+        RenameTarget::Manifest(target) => crate::manifest::rename_target(db, target, new_name),
         RenameTarget::Hdl(ResolvedRenameTarget { selected_def, .. }) => {
             rename_definition(db, &sema, file_id, &config, &selected_def, new_name, None)
         }
@@ -146,6 +147,9 @@ pub(crate) fn rename_expansion_info(
         RenameTarget::Macro(_) => {
             // Recursive rename follows same-name port connections; macros have
             // no such semantics.
+            return Ok(RecursiveRenameInfo { additional_symbols: 0 });
+        }
+        RenameTarget::Manifest(_) => {
             return Ok(RecursiveRenameInfo { additional_symbols: 0 });
         }
         RenameTarget::Hdl(target) => target,
@@ -168,6 +172,7 @@ pub(crate) fn expanded_rename(
         RenameTarget::Macro(target) => {
             rename_macro(db, position.file_id, &config, target, new_name)
         }
+        RenameTarget::Manifest(target) => crate::manifest::rename_target(db, target, new_name),
         RenameTarget::Hdl(resolved) => {
             let targets =
                 recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?;
@@ -210,6 +215,7 @@ pub(crate) fn rename_conflict_info(
         // The preproc model has no name-scope query for macros yet; report no
         // collisions for macro renames.
         RenameTarget::Macro(_) => return Ok(RenameCollisionInfo { conflicts: 0 }),
+        RenameTarget::Manifest(_) => return Ok(RenameCollisionInfo { conflicts: 0 }),
         RenameTarget::Hdl(target) => target,
     };
     let targets: Vec<DefId> = if recursive {
@@ -243,13 +249,15 @@ pub(crate) fn rename_conflict_info(
 enum RenameTarget {
     Hdl(ResolvedRenameTarget),
     Macro(ResolvedMacroTarget),
+    Manifest(crate::manifest::ManifestTarget),
 }
 
 impl RenameTarget {
-    fn range(&self) -> TextRange {
+    fn range(&self, db: &RootDb) -> TextRange {
         match self {
             RenameTarget::Hdl(target) => target.range,
             RenameTarget::Macro(target) => target.range,
+            RenameTarget::Manifest(target) => crate::manifest::target_range(db, *target),
         }
     }
 }
@@ -310,6 +318,7 @@ fn resolve_rename_target(
     match target.unique_for_intent(TargetIntent::Rename).ok_or(RenameError::NoRefFound)? {
         SemanticTarget::PreprocMacro(target) => resolve_macro_rename_target(target),
         SemanticTarget::Include(_) => Err(RenameError::NoRefFound),
+        SemanticTarget::Manifest(target) => Ok(RenameTarget::Manifest(target)),
         SemanticTarget::Source(target) => {
             resolve_hdl_rename_target(sema, hir_file_id, target).map(RenameTarget::Hdl)
         }

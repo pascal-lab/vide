@@ -104,6 +104,7 @@ tempfile = "3.27.0"
 text-size = "1.1.1"
 thiserror = "2.0.0"
 toml = "0.9.8"
+toml_edit = "0.22.27"
 tracing = "0.1.37"
 triomphe = "0.1.9"
 winapi = { version = "0.3.9", features = ["processthreadsapi"] }

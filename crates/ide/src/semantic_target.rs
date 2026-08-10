@@ -147,6 +147,7 @@ pub(crate) enum SemanticTarget<'tree> {
     Source(SourceTarget<'tree>),
     PreprocMacro(PreprocMacroTarget),
     Include(Vec<IncludeDirective>),
+    Manifest(crate::manifest::ManifestTarget),
 }
 
 /// The syntax tokens a caret offset resolves to, with the display range they
@@ -253,6 +254,15 @@ where
         return TargetResolution::from_preproc_macro(target);
     }
 
+    if matches!(db.file_kind(file_id), base_db::source_db::SourceFileKind::ProjectManifest)
+        && let Some(target) = crate::manifest::target_at(db, file_id, offset)
+    {
+        return TargetResolution::Resolved(TargetCandidate::new(
+            SemanticTarget::Manifest(target),
+            manifest_capabilities(),
+        ));
+    }
+
     if let Some(includes) = include_target_at(db, file_id, offset) {
         return TargetResolution::from_include(includes).unwrap_or(TargetResolution::Unresolved);
     }
@@ -336,6 +346,14 @@ fn include_target_at(
 }
 
 pub(crate) fn source_capabilities() -> TargetCapability {
+    TargetCapability::DESCRIBE
+        | TargetCapability::NAVIGATE
+        | TargetCapability::REFERENCES
+        | TargetCapability::HIGHLIGHT
+        | TargetCapability::RENAME
+}
+
+fn manifest_capabilities() -> TargetCapability {
     TargetCapability::DESCRIBE
         | TargetCapability::NAVIGATE
         | TargetCapability::REFERENCES
