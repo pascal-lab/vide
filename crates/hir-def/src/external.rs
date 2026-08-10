@@ -58,7 +58,87 @@ pub struct ExternModuleDecl {
 
 pub type ExternModuleDeclId = Idx<ExternModuleDecl>;
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct ExternUdpDecl {
+    pub name: Ident,
+    pub ports: SmallVec<[Ident; 4]>,
+}
+
+pub type ExternUdpDeclId = Idx<ExternUdpDecl>;
+
 impl LoweringCtx<BodyStore<'_>> {
+    pub(crate) fn lower_extern_udp_decl(
+        &mut self,
+        declaration: ast::ExternUdpDecl,
+    ) -> Option<ExternUdpDeclId> {
+        if declaration.primitive().map(|token| token.kind()) != Some(TokenKind::PRIMITIVE_KEYWORD) {
+            self.report_invalid(
+                declaration.syntax(),
+                "extern UDP declaration is missing its primitive keyword",
+            );
+            return None;
+        }
+        let Some(name) = lower_ident_opt(declaration.name()) else {
+            self.report_invalid(declaration.syntax(), "extern UDP declaration is missing its name");
+            return None;
+        };
+        let mut ports = SmallVec::new();
+        match declaration.port_list() {
+            ast::UdpPortList::AnsiUdpPortList(port_list) => {
+                for port in port_list.ports().children() {
+                    match port {
+                        ast::UdpPortDecl::UdpOutputPortDecl(port) => {
+                            let Some(name) = lower_ident_opt(port.name()) else {
+                                self.report_invalid(
+                                    port.syntax(),
+                                    "extern UDP output port is missing its name",
+                                );
+                                return None;
+                            };
+                            ports.push(name);
+                        }
+                        ast::UdpPortDecl::UdpInputPortDecl(port) => {
+                            for name in port.names().children() {
+                                let Some(name) = lower_ident_opt(name.identifier()) else {
+                                    self.report_invalid(
+                                        name.syntax(),
+                                        "extern UDP input port is missing its name",
+                                    );
+                                    return None;
+                                };
+                                ports.push(name);
+                            }
+                        }
+                    }
+                }
+            }
+            ast::UdpPortList::NonAnsiUdpPortList(port_list) => {
+                for name in port_list.ports().children() {
+                    let Some(name) = lower_ident_opt(name.identifier()) else {
+                        self.report_invalid(name.syntax(), "extern UDP port is missing its name");
+                        return None;
+                    };
+                    ports.push(name);
+                }
+            }
+            ast::UdpPortList::WildcardUdpPortList(port_list) => {
+                self.report_invalid(
+                    port_list.syntax(),
+                    "extern UDP declaration cannot use a wildcard port list",
+                );
+                return None;
+            }
+        }
+        let source = self.source_id(declaration.syntax());
+        let (body, sources) = self.store.body();
+        Some(alloc_with_source_entry(
+            &mut body.extern_udp_decls,
+            &mut sources.extern_udp_decl_srcs,
+            ExternUdpDecl { name, ports },
+            source,
+        ))
+    }
+
     pub(crate) fn lower_extern_module_decl(
         &mut self,
         declaration: ast::ExternModuleDecl,

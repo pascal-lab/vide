@@ -630,6 +630,7 @@ export "DPI-C" c_export = function unit_function;
 export "DPI-C" task unit_task;
 extern module unit_external #(parameter int width = 8, parameter type data_t = logic)
   (input logic in_a, output logic out_b);
+extern primitive unit_external_primitive(output primitive_out, input primitive_in_a, primitive_in_b);
 class unit_class;
   int value;
   function void method();
@@ -709,6 +710,14 @@ endconfig
         assert_eq!(ports.len(), 2);
         assert_eq!(ports[0].name.as_deref(), Some("in_a"));
         assert_eq!(ports[1].name.as_deref(), Some("out_b"));
+        assert_eq!(body.extern_udp_decls.len(), 1);
+        let external_udp =
+            body.extern_udp_decls.values().next().expect("extern UDP should be lowered");
+        assert_eq!(external_udp.name, "unit_external_primitive");
+        assert_eq!(
+            external_udp.ports.as_slice(),
+            ["primitive_out", "primitive_in_a", "primitive_in_b"]
+        );
         let mut dpi_exports = body.dpi_exports.values();
         let function_export = dpi_exports.next().expect("function DPI export should be lowered");
         let task_export = dpi_exports.next().expect("task DPI export should be lowered");

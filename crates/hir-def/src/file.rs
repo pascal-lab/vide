@@ -232,6 +232,10 @@ impl LowerFileCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
+                ExternUdpDecl(declaration) => match self.lower_extern_udp_decl(declaration) {
+                    Some(id) => id.into(),
+                    None => continue,
+                },
                 TimeUnitsDeclaration(declaration) => {
                     match self.lower_time_units_decl(declaration) {
                         Some(id) => id.into(),
