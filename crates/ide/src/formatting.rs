@@ -204,7 +204,7 @@ pub fn format_on_type(
             && let Some((range, trivia)) = trivias.get(idx)
             && trivia.kind().is_bc()
         {
-            return format_in_bc(*trivia, range.start(), offset);
+            return format_in_bc(trivia.clone(), range.start(), offset);
         }
 
         if let Some(edits) = format_in_lc(&trivias, idx.unwrap_or(trivias.len()), offset) {

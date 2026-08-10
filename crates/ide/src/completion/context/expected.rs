@@ -92,14 +92,14 @@ fn expectation_after_dot(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectat
 
     let prev = caret.root.token_before_offset(offset)?;
     (prev.kind() == syntax::Token![.])
-        .then_some(token_expectation(ExpectedSyntax::MemberName, *prev))
+        .then_some(token_expectation(ExpectedSyntax::MemberName, prev.tok))
 }
 
 fn expectation_after_scope_resolution(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
     let offset = caret.offset;
     let prev = caret.root.token_before_offset(offset)?;
     if prev.kind() == syntax::Token![::] {
-        return Some(token_expectation(ExpectedSyntax::MemberName, *prev));
+        return Some(token_expectation(ExpectedSyntax::MemberName, prev.tok));
     }
 
     let replacement_start = caret.replacement_and_prefix().0.start();
@@ -159,7 +159,7 @@ fn expectation_after_hash(caret: &CaretSnapshot<'_>) -> Option<CompletionExpecta
 fn expectation_after_at(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
     let prev = caret.root.token_before_offset(caret.offset)?;
     (prev.kind() == syntax::Token![@])
-        .then_some(token_expectation(ExpectedSyntax::EventControl { wrap_in_parens: true }, *prev))
+        .then_some(token_expectation(ExpectedSyntax::EventControl { wrap_in_parens: true }, prev.tok))
 }
 
 fn expectation_in_named_conn_expr(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {

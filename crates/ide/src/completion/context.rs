@@ -179,17 +179,6 @@ fn detect_completion_context_impl(
         };
     }
 
-    if lex != LexContext::Code {
-        return CompletionContext {
-            replacement,
-            prefix,
-            trigger,
-            lex,
-            expectations: SmallVec::new(),
-            in_decl_name: false,
-        };
-    }
-
     if let Some(word) = directive_word {
         replacement = word.replacement;
         prefix = word.prefix;
@@ -197,10 +186,21 @@ fn detect_completion_context_impl(
             replacement,
             prefix,
             trigger,
-            lex,
+            lex: LexContext::Code,
             expectations: smallvec![CompletionExpectation {
                 syntax: ExpectedSyntax::DirectiveName,
             }],
+            in_decl_name: false,
+        };
+    }
+
+    if lex != LexContext::Code {
+        return CompletionContext {
+            replacement,
+            prefix,
+            trigger,
+            lex,
+            expectations: SmallVec::new(),
             in_decl_name: false,
         };
     }
