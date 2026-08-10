@@ -856,6 +856,10 @@ impl HirDisplay for OwnerRef<&Expr> {
                 f.write_str(" ")?;
                 self.with_value(*expr).hir_fmt(f)
             }
+            Expr::SuperNewDefaulted { callee } => {
+                self.with_value(*callee).hir_fmt(f)?;
+                f.write_str("(default)")
+            }
             Expr::Concat(exprs) => {
                 f.write_str("{")?;
                 let mut first = true;

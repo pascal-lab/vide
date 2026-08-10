@@ -646,6 +646,7 @@ virtual class unit_class #(parameter int width = 8, parameter type data_t = logi
   const int immutable = 1;
   randc int cycle;
   function void method();
+    super.new(default);
   endfunction
   pure virtual function void prototype(input int value);
   constraint bounds { value inside {[0:3]}; }
@@ -966,7 +967,14 @@ endprogram
             Some(crate::aggregate::ClassRandomQualifier::RandC)
         );
         assert!(class.members[4].method.as_ref().is_some_and(|method| method.has_body));
-        assert!(class.members[4].owner.is_some());
+        let method_owner = class.members[4].owner.expect("class method owner should be lowered");
+        let method_body = db.body(method_owner);
+        assert!(
+            method_body
+                .exprs
+                .values()
+                .any(|expr| matches!(expr, crate::expr::Expr::SuperNewDefaulted { .. }))
+        );
         assert!(class.members[5].method.as_ref().is_some_and(|method| !method.has_body));
         assert_eq!(
             class.members[5].method_qualifiers,

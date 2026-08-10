@@ -278,6 +278,9 @@ pub enum Expr {
         callee: ExprId,
         expr: ExprId,
     },
+    SuperNewDefaulted {
+        callee: ExprId,
+    },
     Concat(Box<[ExprId]>),
     Cond {
         pred: ExprId,
@@ -549,11 +552,11 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             ExpressionOrDist(expr) => self.lower_expression_or_dist(expr),
             NewClassExpression(expr) => self.lower_new_class_expr(expr),
             CopyClassExpression(expr) => self.lower_copy_class_expr(expr),
+            SuperNewDefaultedArgsExpression(expr) => self.lower_super_new_defaulted_expr(expr),
             unsupported @ (ValueRangeExpression(_)
             | DataType(_)
             | TaggedUnionExpression(_)
             | NewArrayExpression(_)
-            | SuperNewDefaultedArgsExpression(_)
             | ArrayOrRandomizeMethodExpression(_)) => {
                 Some(Expr::Unsupported(unsupported.syntax().kind()))
             }
@@ -929,6 +932,14 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
         let callee = self.lower_expr(ast::Expression::Name(expr.scoped_new()));
         let value = self.lower_expr(expr.expr());
         Some(Expr::CopyClass { callee, expr: value })
+    }
+
+    fn lower_super_new_defaulted_expr(
+        &mut self,
+        expr: ast::SuperNewDefaultedArgsExpression,
+    ) -> Option<Expr> {
+        let callee = self.lower_expr(ast::Expression::Name(expr.scoped_new()));
+        Some(Expr::SuperNewDefaulted { callee })
     }
 
     fn lower_argument(&mut self, arg: ast::Argument) -> Arg {
