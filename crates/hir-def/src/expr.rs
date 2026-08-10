@@ -282,6 +282,7 @@ pub enum Expr {
         size: ExprId,
         initializer: Option<ExprId>,
     },
+    EmptyQueue,
     SuperNewDefaulted {
         callee: ExprId,
     },
@@ -581,7 +582,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             ConcatenationExpression(expr) => self.lower_concat_expr(expr),
             ParenthesizedExpression(expr) => self.lower_expr_inner(expr.expression()),
             AssignmentPatternExpression(expr) => self.lower_assignment_pattern_expr(expr),
-            EmptyQueueExpression(empty) => Some(Expr::Unsupported(empty.syntax().kind())),
+            EmptyQueueExpression(_) => Some(Expr::EmptyQueue),
         }
     }
 

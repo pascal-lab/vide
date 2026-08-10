@@ -867,6 +867,7 @@ impl HirDisplay for OwnerRef<&Expr> {
                 }
                 Ok(())
             }
+            Expr::EmptyQueue => f.write_str("{}"),
             Expr::SuperNewDefaulted { callee } => {
                 self.with_value(*callee).hir_fmt(f)?;
                 f.write_str("(default)")

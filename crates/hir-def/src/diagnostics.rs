@@ -674,6 +674,7 @@ module unit_module;
   unit_class copied = new created;
   unit_class created_array[] = new[3];
   unit_class initialized_array[] = new[3](created);
+  unit_class empty_array[] = {};
   typedef struct module_forward;
   nettype logic module_nettype;
   module_nettype #2 module_signal;
@@ -924,6 +925,9 @@ endprogram
         assert!(module_body.exprs.values().any(|expr| {
             matches!(expr, crate::expr::Expr::NewArray { initializer: Some(_), .. })
         }));
+        assert!(
+            module_body.exprs.values().any(|expr| matches!(expr, crate::expr::Expr::EmptyQueue))
+        );
         let class = body
             .classes
             .values()
