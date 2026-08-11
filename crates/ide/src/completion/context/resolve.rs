@@ -151,16 +151,16 @@ fn push_unique(
 
 #[cfg(test)]
 mod tests {
-    use syntax::{ParserExpectedSyntax, TokenKind};
+    use syntax::{DiagCode, ParserExpectedSyntax, TokenKind};
 
     use super::*;
     use crate::completion::context::parser;
 
-    fn parser_item(name: &str) -> ParserExpectedSyntax {
+    fn parser_item(code: DiagCode) -> ParserExpectedSyntax {
         ParserExpectedSyntax {
-            code: 0,
-            subsystem: 0,
-            name: name.to_owned(),
+            code: code.code_raw(),
+            subsystem: code.subsystem_raw(),
+            name: code.info().expect("test diagnostic should have metadata").name.to_owned(),
             token_kind: TokenKind::UNKNOWN,
             keyword_context: None,
             location: None,
@@ -179,7 +179,10 @@ mod tests {
     #[test]
     fn dot_trigger_selects_port_connection_name_from_parser_port_connection() {
         assert_eq!(
-            first_syntax(vec![parser_item("ExpectedPortConnection")], Some(TriggerChar::Dot)),
+            first_syntax(
+                vec![parser_item(DiagCode::EXPECTED_PORT_CONNECTION)],
+                Some(TriggerChar::Dot),
+            ),
             Some(ExpectedSyntax::PortConnectionName)
         );
     }
@@ -187,7 +190,7 @@ mod tests {
     #[test]
     fn dot_trigger_leaves_argument_expr_alone() {
         assert_eq!(
-            first_syntax(vec![parser_item("ExpectedArgument")], Some(TriggerChar::Dot)),
+            first_syntax(vec![parser_item(DiagCode::EXPECTED_ARGUMENT)], Some(TriggerChar::Dot)),
             Some(ExpectedSyntax::ArgumentExpr)
         );
     }

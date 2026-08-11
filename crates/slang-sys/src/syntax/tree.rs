@@ -294,6 +294,10 @@ impl SyntaxTree {
 }
 
 impl ParserExpectedSyntax {
+    pub fn diagnostic_code(&self) -> DiagCode {
+        DiagCode::from_raw(self.subsystem, self.code)
+    }
+
     fn from_raw(raw: ffi::RawExpectedSyntax) -> Self {
         let code = DiagCode::from_raw(raw.subsystem, raw.code);
         let name = code.info().map_or_else(

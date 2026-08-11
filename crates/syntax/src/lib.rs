@@ -38,7 +38,7 @@ pub use slang_sys::{
     Bit, SVInt, SemanticFacts, SyntaxFacts, TimeUnit,
     compilation::Compilation,
     diagnostic::{
-        DiagnosticSeverity, LexedTokenAtOffset, ParserExpectedSyntax, SyntaxDiagnostic,
+        DiagCode, DiagnosticSeverity, LexedTokenAtOffset, ParserExpectedSyntax, SyntaxDiagnostic,
         SyntaxKeywordContext,
     },
     source_buffer::{SourceLocation, SourceRange},

@@ -1,5 +1,7 @@
 use smallvec::{SmallVec, smallvec};
-use syntax::{ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxTree, TokenKind};
+use syntax::{
+    DiagCode, ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxTree, TokenKind,
+};
 use utils::line_index::TextSize;
 
 use super::{CompletionExpectation, ExpectedSyntax};
@@ -49,7 +51,7 @@ pub(super) fn expectations(items: Option<&[ParserExpectedSyntax]>) -> ParserExpe
 
     if let Some(items) = items {
         for item in items {
-            has_non_ansi_port |= item.name == "ExpectedNonAnsiPort";
+            has_non_ansi_port |= item.diagnostic_code() == DiagCode::EXPECTED_NON_ANSI_PORT;
             has_decl_name |= is_decl_name_expectation(item);
             for expectation in map_item(item) {
                 push_unique(&mut expectations, expectation);
@@ -63,29 +65,29 @@ pub(super) fn expectations(items: Option<&[ParserExpectedSyntax]>) -> ParserExpe
 }
 
 fn map_item(item: &ParserExpectedSyntax) -> SmallVec<[CompletionExpectation; 3]> {
-    match item.name.as_str() {
-        "ExpectedParameterPort" => {
+    match item.diagnostic_code() {
+        code if code == DiagCode::EXPECTED_PARAMETER_PORT => {
             smallvec![CompletionExpectation { syntax: ExpectedSyntax::ParameterPortListItem }]
         }
-        "ExpectedNonAnsiPort" => {
+        code if code == DiagCode::EXPECTED_NON_ANSI_PORT => {
             smallvec![CompletionExpectation { syntax: ExpectedSyntax::NonAnsiPortName }]
         }
-        "ExpectedAnsiPort" => {
+        code if code == DiagCode::EXPECTED_ANSI_PORT => {
             smallvec![CompletionExpectation { syntax: ExpectedSyntax::AnsiPortItem }]
         }
-        "ExpectedFunctionPort" => {
+        code if code == DiagCode::EXPECTED_FUNCTION_PORT => {
             smallvec![CompletionExpectation { syntax: ExpectedSyntax::FunctionPortItem }]
         }
-        "ExpectedPortConnection" => {
+        code if code == DiagCode::EXPECTED_PORT_CONNECTION => {
             smallvec![CompletionExpectation { syntax: ExpectedSyntax::PortConnection }]
         }
-        "ExpectedArgument" => {
+        code if code == DiagCode::EXPECTED_ARGUMENT => {
             smallvec![CompletionExpectation { syntax: ExpectedSyntax::ArgumentExpr }]
         }
-        "ExpectedExpression" => {
+        code if code == DiagCode::EXPECTED_EXPRESSION => {
             smallvec![CompletionExpectation { syntax: ExpectedSyntax::Expression }]
         }
-        "ExpectedStatement" => {
+        code if code == DiagCode::EXPECTED_STATEMENT => {
             let mut expectations = SmallVec::new();
             if let Some(context) = item.keyword_context {
                 expectations
@@ -105,9 +107,12 @@ fn map_item(item: &ParserExpectedSyntax) -> SmallVec<[CompletionExpectation; 3]>
 
 fn is_decl_name_expectation(item: &ParserExpectedSyntax) -> bool {
     matches!(
-        item.name.as_str(),
-        "ExpectedIdentifier" | "ExpectedDeclarator" | "ExpectedSubroutineName"
-    ) || (item.name == "ExpectedToken" && item.token_kind == TokenKind::IDENTIFIER)
+        item.diagnostic_code(),
+        DiagCode::EXPECTED_IDENTIFIER
+            | DiagCode::EXPECTED_DECLARATOR
+            | DiagCode::EXPECTED_SUBROUTINE_NAME
+    ) || (item.diagnostic_code() == DiagCode::EXPECTED_TOKEN
+        && item.token_kind == TokenKind::IDENTIFIER)
 }
 
 fn normalize_config_phase(expectations: &mut SmallVec<[CompletionExpectation; 4]>) {
