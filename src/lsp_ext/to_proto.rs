@@ -255,28 +255,40 @@ fn diagnostic_is_unnecessary(diag: &ide_diagnostics::Diagnostic) -> bool {
 pub(crate) fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
     use lsp_types::SymbolKind as LspSymbolKind;
     match symbol_kind {
-        SymbolKind::Module => LspSymbolKind::MODULE,
-        SymbolKind::Config => LspSymbolKind::NAMESPACE,
-        SymbolKind::Primitive => LspSymbolKind::OBJECT,
-        SymbolKind::NonAnsiPortLabel => LspSymbolKind::FIELD,
-        SymbolKind::PortDecl => LspSymbolKind::FIELD,
-        SymbolKind::ParamDecl => LspSymbolKind::TYPE_PARAMETER,
-        SymbolKind::NetDecl => LspSymbolKind::PROPERTY,
-        SymbolKind::DataDecl => LspSymbolKind::VARIABLE,
-        SymbolKind::Genvar => LspSymbolKind::VARIABLE,
-        SymbolKind::Specparam => LspSymbolKind::TYPE_PARAMETER,
-        SymbolKind::Typedef => LspSymbolKind::TYPE_PARAMETER,
-        SymbolKind::Struct => LspSymbolKind::STRUCT,
-        SymbolKind::Instance => LspSymbolKind::OBJECT,
-        SymbolKind::Block => LspSymbolKind::NAMESPACE,
-        SymbolKind::Stmt => LspSymbolKind::NAMESPACE,
-        SymbolKind::Fn => LspSymbolKind::FUNCTION,
-        SymbolKind::Generate => LspSymbolKind::NAMESPACE,
-        SymbolKind::Specify => LspSymbolKind::NAMESPACE,
+        SymbolKind::Module | SymbolKind::Package | SymbolKind::Program => LspSymbolKind::MODULE,
         SymbolKind::Interface => LspSymbolKind::INTERFACE,
-        SymbolKind::Library => LspSymbolKind::NAMESPACE,
-        SymbolKind::Region => LspSymbolKind::NAMESPACE,
-        SymbolKind::Unknown => LspSymbolKind::NAMESPACE,
+        SymbolKind::Udp | SymbolKind::Primitive | SymbolKind::Instance => LspSymbolKind::OBJECT,
+        SymbolKind::NonAnsiPort
+        | SymbolKind::NonAnsiPortLabel
+        | SymbolKind::Port
+        | SymbolKind::PortDecl
+        | SymbolKind::SubroutinePort
+        | SymbolKind::CheckerPort => LspSymbolKind::FIELD,
+        SymbolKind::Param | SymbolKind::ParamDecl | SymbolKind::Specparam | SymbolKind::Typedef => {
+            LspSymbolKind::TYPE_PARAMETER
+        }
+        SymbolKind::Net | SymbolKind::NetDecl => LspSymbolKind::PROPERTY,
+        SymbolKind::Variable | SymbolKind::DataDecl | SymbolKind::Genvar => LspSymbolKind::VARIABLE,
+        SymbolKind::Struct => LspSymbolKind::STRUCT,
+        SymbolKind::Subroutine | SymbolKind::Fn => LspSymbolKind::FUNCTION,
+        SymbolKind::Config
+        | SymbolKind::Library
+        | SymbolKind::Block
+        | SymbolKind::GenerateBlock
+        | SymbolKind::Modport
+        | SymbolKind::ClockingBlock
+        | SymbolKind::ClockingSignal
+        | SymbolKind::Checker
+        | SymbolKind::Property
+        | SymbolKind::Sequence
+        | SymbolKind::Covergroup
+        | SymbolKind::Coverpoint
+        | SymbolKind::Cross
+        | SymbolKind::Stmt
+        | SymbolKind::Generate
+        | SymbolKind::Specify
+        | SymbolKind::Region
+        | SymbolKind::Unknown => LspSymbolKind::NAMESPACE,
     }
 }
 
