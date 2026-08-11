@@ -236,6 +236,18 @@ pub enum DefKind {
     Coverpoint,
     Cross,
     Stmt,
+    Primitive,
+    NonAnsiPortLabel,
+    PortDecl,
+    ParamDecl,
+    NetDecl,
+    DataDecl,
+    Struct,
+    Generate,
+    Fn,
+    Specify,
+    Region,
+    Unknown,
 }
 
 impl DefKind {
@@ -250,36 +262,61 @@ impl DefKind {
         )
     }
 
-    pub fn symbol_kind(self) -> SymbolKind {
+    pub fn symbol_kind(self) -> Self {
         match self {
-            DefKind::Module | DefKind::Package | DefKind::Program => SymbolKind::Module,
-            DefKind::Interface => SymbolKind::Interface,
-            DefKind::Udp => SymbolKind::Primitive,
-            DefKind::Config => SymbolKind::Config,
-            DefKind::Library => SymbolKind::Library,
-            DefKind::Block => SymbolKind::Block,
-            DefKind::GenerateBlock => SymbolKind::Generate,
-            DefKind::Subroutine => SymbolKind::Fn,
-            DefKind::NonAnsiPort => SymbolKind::NonAnsiPortLabel,
-            DefKind::SubroutinePort | DefKind::Port => SymbolKind::PortDecl,
-            DefKind::CheckerPort => SymbolKind::PortDecl,
-            DefKind::Typedef => SymbolKind::Typedef,
-            DefKind::Net => SymbolKind::NetDecl,
-            DefKind::Variable => SymbolKind::DataDecl,
-            DefKind::Param => SymbolKind::ParamDecl,
-            DefKind::Genvar => SymbolKind::Genvar,
-            DefKind::Specparam => SymbolKind::Specparam,
-            DefKind::Instance => SymbolKind::Instance,
-            DefKind::Modport
-            | DefKind::ClockingBlock
-            | DefKind::ClockingSignal
-            | DefKind::Checker
-            | DefKind::Property
-            | DefKind::Sequence
-            | DefKind::Covergroup
-            | DefKind::Coverpoint
-            | DefKind::Cross => SymbolKind::Unknown,
-            DefKind::Stmt => SymbolKind::Stmt,
+            Self::Module | Self::Package | Self::Program => Self::Module,
+            Self::Interface => Self::Interface,
+            Self::Udp => Self::Primitive,
+            Self::Config => Self::Config,
+            Self::Library => Self::Library,
+            Self::Block => Self::Block,
+            Self::GenerateBlock => Self::Generate,
+            Self::Subroutine => Self::Fn,
+            Self::NonAnsiPort => Self::NonAnsiPortLabel,
+            Self::SubroutinePort | Self::Port => Self::PortDecl,
+            Self::CheckerPort => Self::PortDecl,
+            Self::Typedef => Self::Typedef,
+            Self::Net => Self::NetDecl,
+            Self::Variable => Self::DataDecl,
+            Self::Param => Self::ParamDecl,
+            Self::Genvar => Self::Genvar,
+            Self::Specparam => Self::Specparam,
+            Self::Instance => Self::Instance,
+            Self::Modport
+            | Self::ClockingBlock
+            | Self::ClockingSignal
+            | Self::Checker
+            | Self::Property
+            | Self::Sequence
+            | Self::Covergroup
+            | Self::Coverpoint
+            | Self::Cross => Self::Unknown,
+            Self::Stmt => Self::Stmt,
+            kind => kind,
+        }
+    }
+
+    pub fn from_syntax_kind(kind: SyntaxKind) -> Self {
+        match_ast_kind! { kind,
+            ast::ModuleDeclaration where kind == SyntaxKind::MODULE_DECLARATION => Self::Module,
+            ast::ConfigDeclaration => Self::Config,
+            ast::UdpDeclaration => Self::Primitive,
+            ast::NonAnsiPort => Self::NonAnsiPortLabel,
+            ast::PortDeclaration => Self::PortDecl,
+            ast::ParameterDeclaration => Self::ParamDecl,
+            ast::NetDeclaration => Self::NetDecl,
+            ast::DataDeclaration => Self::DataDecl,
+            ast::GenvarDeclaration => Self::Genvar,
+            ast::LibraryDeclaration => Self::Library,
+            ast::SpecparamDeclaration => Self::Specparam,
+            ast::TypedefDeclaration => Self::Typedef,
+            ast::Declarator => Self::DataDecl,
+            ast::HierarchicalInstance => Self::Instance,
+            ast::BlockStatement => Self::Block,
+            ast::Statement => Self::Stmt,
+            ast::FunctionDeclaration => Self::Fn,
+            ast::SpecifyBlock => Self::Specify,
+            _ => Self::Unknown,
         }
     }
 
@@ -548,57 +585,6 @@ impl ScopeData {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum SymbolKind {
-    Module,
-    Config,
-    Primitive,
-    NonAnsiPortLabel,
-    PortDecl,
-    ParamDecl,
-    NetDecl,
-    DataDecl,
-    Genvar,
-    Specparam,
-    Typedef,
-    Struct,
-    Instance,
-    Block,
-    Stmt,
-    Fn,
-    Generate,
-    Specify,
-    Interface,
-    Library,
-    Region,
-    Unknown,
-}
-
-impl SymbolKind {
-    pub fn from_syntax_kind(kind: SyntaxKind) -> Self {
-        match_ast_kind! { kind,
-            ast::ModuleDeclaration where kind == SyntaxKind::MODULE_DECLARATION => Self::Module,
-            ast::ConfigDeclaration => Self::Config,
-            ast::UdpDeclaration => Self::Primitive,
-            ast::NonAnsiPort => Self::NonAnsiPortLabel,
-            ast::PortDeclaration => Self::PortDecl,
-            ast::ParameterDeclaration => Self::ParamDecl,
-            ast::NetDeclaration => Self::NetDecl,
-            ast::DataDeclaration => Self::DataDecl,
-            ast::GenvarDeclaration => Self::Genvar,
-            ast::LibraryDeclaration => Self::Library,
-            ast::SpecparamDeclaration => Self::Specparam,
-            ast::TypedefDeclaration => Self::Typedef,
-            ast::Declarator => Self::DataDecl,
-            ast::HierarchicalInstance => Self::Instance,
-            ast::BlockStatement => Self::Block,
-            ast::Statement => Self::Stmt,
-            ast::FunctionDeclaration => Self::Fn,
-            ast::SpecifyBlock => Self::Specify,
-            _ => Self::Unknown,
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

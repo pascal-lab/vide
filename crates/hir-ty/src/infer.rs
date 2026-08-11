@@ -159,6 +159,20 @@ pub(crate) fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
                 | DefKind::Sequence
                 | DefKind::Cross
                 | DefKind::Stmt => TyResult::new(Ty::Unknown),
+                DefKind::Primitive
+                | DefKind::NonAnsiPortLabel
+                | DefKind::PortDecl
+                | DefKind::ParamDecl
+                | DefKind::NetDecl
+                | DefKind::DataDecl
+                | DefKind::Struct
+                | DefKind::Generate
+                | DefKind::Fn
+                | DefKind::Specify
+                | DefKind::Region
+                | DefKind::Unknown => {
+                    unreachable!("editor-only definition kind reached instance type inference")
+                }
             })
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Modport => origin
@@ -191,6 +205,20 @@ pub(crate) fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
         | DefKind::Coverpoint
         | DefKind::Cross
         | DefKind::Stmt => TyResult::new(Ty::Unknown),
+        DefKind::Primitive
+        | DefKind::NonAnsiPortLabel
+        | DefKind::PortDecl
+        | DefKind::ParamDecl
+        | DefKind::NetDecl
+        | DefKind::DataDecl
+        | DefKind::Struct
+        | DefKind::Generate
+        | DefKind::Fn
+        | DefKind::Specify
+        | DefKind::Region
+        | DefKind::Unknown => {
+            unreachable!("editor-only definition kind reached type inference")
+        }
     }
 }
 fn type_of_non_ansi_port(db: &dyn TyDb, def_id: DefId) -> TyResult {
@@ -235,6 +263,20 @@ fn type_of_non_ansi_port(db: &dyn TyDb, def_id: DefId) -> TyResult {
             | DefKind::Coverpoint
             | DefKind::Cross
             | DefKind::Stmt => {}
+            DefKind::Primitive
+            | DefKind::NonAnsiPortLabel
+            | DefKind::PortDecl
+            | DefKind::ParamDecl
+            | DefKind::NetDecl
+            | DefKind::DataDecl
+            | DefKind::Struct
+            | DefKind::Generate
+            | DefKind::Fn
+            | DefKind::Specify
+            | DefKind::Region
+            | DefKind::Unknown => {
+                unreachable!("editor-only definition kind reached origin type inference")
+            }
         }
     }
     port_ty.unwrap_or_else(|| TyResult::new(Ty::Unknown))
