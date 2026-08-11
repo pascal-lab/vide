@@ -165,6 +165,11 @@ endmodule
             TextSize::from(call_start as u32),
             TextSize::from((call_start + "`DECL".len()) as u32),
         );
+        let reference_start = clean_text.find("generated u").expect("module reference");
+        let reference_range = TextRange::new(
+            TextSize::from(reference_start as u32),
+            TextSize::from((reference_start + "generated".len()) as u32),
+        );
         let (host, position) = setup(text);
         let db = host.raw_db();
         let macro_file =
@@ -189,7 +194,11 @@ endmodule
         let mut ranges =
             highlights.into_iter().map(|highlight| highlight.range).collect::<Vec<_>>();
         ranges.sort_unstable_by_key(|range| (range.start(), range.end()));
-        assert_eq!(ranges, vec![call_range], "highlights must contain only source-document ranges");
+        assert_eq!(
+            ranges,
+            vec![call_range, reference_range],
+            "highlights must contain only source-document ranges"
+        );
     }
 
     fn fixtures_dir() -> PathBuf {

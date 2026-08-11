@@ -197,7 +197,7 @@ impl SyntaxTree {
     ) -> Vec<ParserExpectedSyntax> {
         let mut options = options.clone();
         options.collect_expected_syntax = true;
-        let tree = Self::from_text_with_options(text, name, path, &options);
+        let tree = Self::from_file_in_memory_with_options(text, name, path, &options);
         tree.expected_syntax_at(offset)
     }
 

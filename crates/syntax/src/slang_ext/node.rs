@@ -87,6 +87,46 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
     }
 
     fn token_at_offset(&self, offset: TextSize) -> TokenAtOffset<'a> {
+        if self.range().is_some_and(|range| range.is_single_buffer()) {
+            let Some(range) = self.text_range() else {
+                return TokenAtOffset::None;
+            };
+            if range.is_empty() || !range.contains(offset) {
+                return TokenAtOffset::None;
+            }
+
+            let mut cursor = self.walk();
+            let left = cursor
+                .goto_last_tok_before(offset)
+                .then(|| cursor.to_tok_with_parent())
+                .flatten();
+            let left_range = left.and_then(|left| left.text_range());
+            if left_range.is_some_and(|range| range.contains(offset))
+                && let Some(left) = left
+            {
+                return TokenAtOffset::Single(left);
+            }
+            let left_ok = left_range.map(|range| range.end() == offset).unwrap_or(false);
+
+            cursor.reset_to_root();
+            let right = cursor
+                .goto_first_tok_after(offset)
+                .then(|| cursor.to_tok_with_parent())
+                .flatten();
+            let right_range = right.and_then(|right| right.text_range());
+            let right_ok = right_range.map(|range| range.contains(offset)).unwrap_or(false);
+
+            return match (left_ok, right_ok) {
+                (true, true) => match (left, right) {
+                    (Some(left), Some(right)) => TokenAtOffset::Between(left, right),
+                    _ => TokenAtOffset::None,
+                },
+                (true, false) => left.map_or(TokenAtOffset::None, TokenAtOffset::Single),
+                (false, true) => right.map_or(TokenAtOffset::None, TokenAtOffset::Single),
+                (false, false) => TokenAtOffset::None,
+            };
+        }
+
         // Raw Slang offsets are only comparable within one source buffer. An
         // include-expanded tree interleaves macro/include buffers with the
         // user's file, so locate tokens in display coordinates instead of
@@ -146,6 +186,20 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
     }
 
     fn token_after_or_at_offset(&self, offset: TextSize) -> Option<SyntaxTokenWithParent<'a>> {
+        if self.range().is_some_and(|range| range.is_single_buffer()) {
+            if let Some(tok) = self.token_at_offset(offset).left_biased()
+                && tok.text_range().is_some_and(|range| range.contains(offset))
+            {
+                return Some(tok);
+            }
+
+            let mut cursor = self.walk();
+            if !cursor.goto_first_tok_after_or_last(offset) {
+                return None;
+            }
+            return cursor.to_tok_with_parent();
+        }
+
         self.tokens().find(|token| {
             token.text_range().is_some_and(|range| {
                 !range.is_empty() && (range.contains(offset) || range.start() >= offset)
@@ -154,6 +208,14 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
     }
 
     fn token_before_offset(&self, offset: TextSize) -> Option<SyntaxTokenWithParent<'a>> {
+        if self.range().is_some_and(|range| range.is_single_buffer()) {
+            let mut cursor = self.walk();
+            if !cursor.goto_last_tok_before(offset) {
+                return None;
+            }
+            return cursor.to_tok_with_parent();
+        }
+
         self.tokens()
             .filter(|token| {
                 token.text_range().is_some_and(|range| {
