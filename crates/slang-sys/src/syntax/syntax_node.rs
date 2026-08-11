@@ -56,6 +56,15 @@ impl<'a> SyntaxNode<'a> {
         SyntaxKind::from_raw(unsafe { ffi::syntax_node_kind(self.raw.as_ptr()) })
     }
 
+    /// The source buffer that owns this syntax tree's user-visible offsets.
+    ///
+    /// An include-expanded tree's structural range can begin in an emitted
+    /// macro buffer and end in the source file, so its range is not a reliable
+    /// way to identify the display buffer.
+    pub fn root_buffer_id(self) -> u32 {
+        self.tree.buffer_id()
+    }
+
     pub fn range(self) -> Option<SourceRange> {
         let valid = unsafe { ffi::syntax_node_range_valid(self.raw.as_ptr()) };
         if !valid {

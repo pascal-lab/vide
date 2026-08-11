@@ -1,7 +1,7 @@
 use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
 use hir_def::{Ident, container::InFile, def_id::DefId, item_tree::ModuleHeader, owner::OwnerId};
 use hir_ty::db::TyDb;
-use preproc_expand::{db::PreprocDb, file::HirFileId};
+use preproc_expand::{db::PreprocDb, file::HirFileId, macro_file::macro_files_for_file};
 use rustc_hash::FxHashMap;
 use syntax::{
     SyntaxNodeExt, TokenKind, has_text_range::HasTextRange, ptr::SyntaxTokenPtr,
@@ -188,9 +188,24 @@ impl ModuleIndex {
         let mut modules_by_name: FxHashMap<Ident, Vec<SemanticModuleDefinition>> =
             FxHashMap::default();
 
+        let mut hir_files = Vec::new();
         for file_id in source_root.iter() {
-            for module in db.file_module_index(file_id).modules.iter() {
-                modules_by_name.entry(module.name.clone()).or_default().push(module.clone());
+            hir_files.push(HirFileId::File(file_id));
+            hir_files.extend(macro_files_for_file(db, file_id).into_iter().map(HirFileId::Macro));
+        }
+        hir_files.sort_unstable();
+        hir_files.dedup();
+
+        for hir_file_id in hir_files {
+            let item_tree = db.item_tree(hir_file_id);
+            for header in
+                item_tree.module_headers().filter(|header| header.kind().is_instantiable())
+            {
+                let Some(module) = SemanticModuleDefinition::from_header(db, hir_file_id, header)
+                else {
+                    continue;
+                };
+                modules_by_name.entry(module.name.clone()).or_default().push(module);
             }
         }
 

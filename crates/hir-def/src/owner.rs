@@ -203,10 +203,9 @@ pub(crate) fn owner_table(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerTab
     let tree = db.parse(file_id);
     let ast_ids = crate::ast_id_map::ast_id_map(db, file);
     let root = tree.root();
-    assert_eq!(
-        root.kind(),
-        SyntaxKind::COMPILATION_UNIT,
-        "owner table requires a compilation-unit syntax root"
+    assert!(
+        matches!(root.kind(), SyntaxKind::COMPILATION_UNIT | SyntaxKind::LIBRARY_MAP),
+        "owner table requires a compilation-unit or library-map syntax root"
     );
     let root_ast_id = ast_ids.id_of_node(root).unwrap_or(SourceAstId::from_raw(0));
     let mut builder = OwnerTableBuilder::new(db, file_id, root_ast_id);

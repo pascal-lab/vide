@@ -196,10 +196,7 @@ impl<'a> SyntaxTokenExt<'a> for SyntaxToken<'a> {
         &self,
         root: SyntaxNode<'a>,
     ) -> impl ChildrenIter<(TextRange, SyntaxTrivia<'a>)> + use<'a> {
-        let Some(root_range) = root.range().filter(|range| range.is_single_buffer()) else {
-            return Either::Left(std::iter::empty());
-        };
-        let root_buffer_id = root_range.start_buffer_id();
+        let root_buffer_id = root.root_buffer_id();
 
         let trivias = self
             .trivias_with_loc()
@@ -212,7 +209,7 @@ impl<'a> SyntaxTokenExt<'a> for SyntaxToken<'a> {
                 Some((TextRange::new(TextSize::new(start), TextSize::new(end)), trivia))
             })
             .collect::<Vec<_>>();
-        Either::Right(trivias.into_iter())
+        trivias.into_iter()
     }
 }
 

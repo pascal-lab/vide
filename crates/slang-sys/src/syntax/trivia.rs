@@ -50,7 +50,22 @@ impl<'a> SyntaxTrivia<'a> {
     }
 
     pub fn kind(&self) -> TriviaKind {
-        TriviaKind::from_raw(unsafe { ffi::syntax_trivia_kind(self.raw.as_ptr()) })
+        let kind = TriviaKind::from_raw(unsafe { ffi::syntax_trivia_kind(self.raw.as_ptr()) });
+        if !kind.is_unknown() {
+            return kind;
+        }
+
+        // Slang can expose an implicit source trivia with an Unknown kind
+        // while retaining its raw text. Preserve the useful lexical contract
+        // at this boundary instead of making every consumer special-case it.
+        let raw = self.get_raw_text();
+        if !raw.is_empty() && raw.bytes().any(|byte| matches!(byte, b'\r' | b'\n')) {
+            return TriviaKind::END_OF_LINE;
+        }
+        if !raw.is_empty() && raw.chars().all(char::is_whitespace) {
+            return TriviaKind::WHITESPACE;
+        }
+        kind
     }
 
     pub fn get_raw_text(&self) -> &str {

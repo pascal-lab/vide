@@ -11,11 +11,8 @@ pub(crate) trait SourceRangeExt {
 impl SourceRangeExt for SourceRange {
     #[inline]
     fn to_text_range_in_root(self, root: SyntaxNode<'_>) -> Option<TextRange> {
-        let root_range = root.range()?;
-        if !root_range.is_single_buffer()
-            || self.start_buffer_id() != root_range.start_buffer_id()
-            || self.end_buffer_id() != root_range.start_buffer_id()
-        {
+        let root_buffer_id = root.root_buffer_id();
+        if self.start_buffer_id() != root_buffer_id || self.end_buffer_id() != root_buffer_id {
             return None;
         }
 
@@ -62,7 +59,7 @@ impl HasTextRange for SyntaxNode<'_> {
     #[inline]
     fn text_range(&self) -> Option<TextRange> {
         let root = root_node(*self);
-        self.range_with_context(root)?.to_text_range_in_root(root)
+        self.range_with_context(root).or_else(|| self.range())?.to_text_range_in_root(root)
     }
 }
 
@@ -77,7 +74,7 @@ impl HasTextRange for LocatedSyntaxToken<'_> {
     #[inline]
     fn text_range(&self) -> Option<TextRange> {
         let root = root_node(self.parent);
-        self.range()?.to_text_range_in_root(root)
+        self.range().or_else(|| self.tok.range())?.to_text_range_in_root(root)
     }
 }
 

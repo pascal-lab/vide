@@ -141,12 +141,7 @@ pub fn macro_files_at_offset(
     file_id: FileId,
     offset: TextSize,
 ) -> Vec<MacroFileId> {
-    let mut model_file_ids = vec![file_id];
-    for model_file_id in &db.source_preproc_contexts_for_file(file_id).model_file_ids {
-        if !model_file_ids.contains(model_file_id) {
-            model_file_ids.push(*model_file_id);
-        }
-    }
+    let model_file_ids = relevant_model_files(db, file_id);
 
     let mut macro_files = Vec::new();
     for model_file in model_file_ids {
@@ -175,6 +170,53 @@ pub fn macro_files_at_offset(
         }
     }
     macro_files
+}
+
+/// Returns every macro expansion whose invocation is mapped to `file_id`.
+///
+/// Workspace indexes need definitions emitted by macros even when the query
+/// position is an ordinary HDL reference elsewhere in the file. Building
+/// this set from the preprocessor model keeps macro-generated design units in
+/// the same module index as source-written units without inventing a second
+/// name-resolution path.
+pub fn macro_files_for_file(db: &dyn PreprocDb, file_id: FileId) -> Vec<MacroFileId> {
+    let mut macro_files = Vec::new();
+    for model_file in relevant_model_files(db, file_id) {
+        let mapped = db.source_preproc_model(model_file);
+        let Ok(mapped) = mapped.as_ref() else {
+            continue;
+        };
+        let parsed = db.parsed_compilation_unit(model_file);
+        if parsed.preprocessor_trace.is_none() {
+            continue;
+        }
+        for call in mapped.model.macro_calls().iter() {
+            if mapped.source_map.file_id(call.call_range.source).ok() != Some(file_id) {
+                continue;
+            }
+            let Some(trace_call) = call.trace_call else {
+                continue;
+            };
+            if db.trace_index(model_file).emitted_range_for_call(trace_call).is_none() {
+                continue;
+            }
+            let macro_file = MacroFileId(MacroCallLoc { model_file, trace_call });
+            if !macro_files.contains(&macro_file) {
+                macro_files.push(macro_file);
+            }
+        }
+    }
+    macro_files
+}
+
+fn relevant_model_files(db: &dyn PreprocDb, file_id: FileId) -> Vec<FileId> {
+    let mut model_file_ids = vec![file_id];
+    for model_file_id in &db.source_preproc_contexts_for_file(file_id).model_file_ids {
+        if !model_file_ids.contains(model_file_id) {
+            model_file_ids.push(*model_file_id);
+        }
+    }
+    model_file_ids
 }
 
 pub fn macro_file_call_site(
@@ -257,7 +299,11 @@ fn macro_expansion(db: &dyn PreprocDb, macro_file: MacroFileId) -> ExpandResult<
             ExpandErrorKind::ExpansionUnavailable,
         );
     };
-    let text = expansion_text_for_range(trace, emitted_range);
+    let text = if emitted_range.len == 0 {
+        expansion_text_for_empty_call(trace, call_loc.trace_call)
+    } else {
+        expansion_text_for_range(trace, emitted_range)
+    };
     let source_map = ExpansionSourceMap::from_trace_range(
         call_loc.model_file,
         trace,
@@ -479,4 +525,49 @@ fn expansion_text_for_range(
         text.push_str(token_data.display_text.as_str());
     }
     ExpandResult::ok(text)
+}
+
+fn expansion_text_for_empty_call(
+    trace: &Trace,
+    trace_call: TraceMacroCallId,
+) -> ExpandResult<String> {
+    let Some(event) = trace.events.iter().find(|event| event.macro_call_id == Some(trace_call))
+    else {
+        return ExpandResult::new(
+            String::new(),
+            ExpandError::new(ExpandErrorKind::MissingTraceCall { trace_call }),
+        );
+    };
+
+    let body_tokens = if event.body_tokens.is_empty() {
+        event
+            .macro_definition_id
+            .and_then(|definition_id| {
+                trace.events.iter().find(|candidate| {
+                    candidate.macro_call_id.is_none()
+                        && candidate.macro_definition_id == Some(definition_id)
+                        && !candidate.body_tokens.is_empty()
+                })
+            })
+            .map_or(event.body_tokens.as_slice(), |definition| definition.body_tokens.as_slice())
+    } else {
+        event.body_tokens.as_slice()
+    };
+    let Some(first) = body_tokens.first() else {
+        return ExpandResult::ok(String::new());
+    };
+    let Some(last) = body_tokens.last() else {
+        unreachable!("event body token list became empty after first-token check");
+    };
+    if let (Some(first_range), Some(last_range)) = (&first.range, &last.range)
+        && first_range.buffer_id == last_range.buffer_id
+        && let Some(buffer) =
+            trace.source_buffers.iter().find(|buffer| buffer.buffer_id == first_range.buffer_id)
+        && let Some(text) = buffer.text.as_deref()
+        && let Some(body) = text.get(first_range.range.start..last_range.range.end)
+    {
+        return ExpandResult::ok(body.to_owned());
+    }
+
+    ExpandResult::ok(body_tokens.iter().map(|token| token.raw_text.as_str()).collect())
 }

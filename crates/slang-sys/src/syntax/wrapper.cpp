@@ -24,7 +24,8 @@ namespace slang_sys::syntax::helper {
     }
 
     static bool source_range_valid(slang::SourceRange range) {
-        return range.start().valid() && range.end().valid();
+        return range != slang::SourceRange::NoLocation && range.start().valid() &&
+               range.end().valid();
     }
 
     static const SyntaxNode *find_root(const SyntaxNode *node) {

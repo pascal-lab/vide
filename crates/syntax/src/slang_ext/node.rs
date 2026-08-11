@@ -87,29 +87,34 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
     }
 
     fn token_at_offset(&self, offset: TextSize) -> TokenAtOffset<'a> {
-        let Some(range) = self.text_range() else {
-            return TokenAtOffset::None;
-        };
-        if range.is_empty() || !(range.contains(offset)) {
-            return TokenAtOffset::None;
+        // Raw Slang offsets are only comparable within one source buffer. An
+        // include-expanded tree interleaves macro/include buffers with the
+        // user's file, so locate tokens in display coordinates instead of
+        // ordering raw buffer offsets in a cursor.
+        let mut left = None;
+        let mut right = None;
+        for token in self.tokens() {
+            let Some(range) = token.text_range() else {
+                continue;
+            };
+            if range.is_empty() {
+                continue;
+            }
+            if range.contains(offset) {
+                if range.start() != offset {
+                    return TokenAtOffset::Single(token);
+                }
+                right.get_or_insert(token);
+            }
+            if range.end() == offset {
+                left = Some(token);
+            }
+            if range.start() == offset {
+                right.get_or_insert(token);
+            }
         }
-
-        let mut cursor = self.walk();
-        let left =
-            cursor.goto_last_tok_before(offset).then(|| cursor.to_tok_with_parent()).flatten();
-        let left_range = left.and_then(|left| left.text_range());
-        if left_range.is_some_and(|range| range.contains(offset))
-            && let Some(left) = left
-        {
-            return TokenAtOffset::Single(left);
-        }
-        let left_ok = left_range.map(|range| range.end() == offset).unwrap_or(false);
-
-        cursor.reset_to_root();
-        let right =
-            cursor.goto_first_tok_after(offset).then(|| cursor.to_tok_with_parent()).flatten();
-        let right_range = right.and_then(|right| right.text_range());
-        let right_ok = right_range.map(|range| range.contains(offset)).unwrap_or(false);
+        let left_ok = left.is_some();
+        let right_ok = right.is_some();
 
         match (left_ok, right_ok) {
             (true, true) => match (left, right) {
@@ -128,10 +133,10 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
             return at;
         }
 
-        let Some(range) = self.text_range() else {
+        let Some(range) = self.range() else {
             return TokenAtOffset::None;
         };
-        if offset != range.end() {
+        if range.is_single_buffer() && usize::from(offset) != range.end() {
             return TokenAtOffset::None;
         }
 
@@ -141,25 +146,23 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
     }
 
     fn token_after_or_at_offset(&self, offset: TextSize) -> Option<SyntaxTokenWithParent<'a>> {
-        if let Some(tok) = self.token_at_offset(offset).left_biased()
-            && tok.text_range().is_some_and(|r| r.contains(offset))
-        {
-            return Some(tok);
-        }
-
-        let mut cursor = self.walk();
-        if !cursor.goto_first_tok_after_or_last(offset) {
-            return None;
-        }
-        cursor.to_tok_with_parent()
+        self.tokens().find(|token| {
+            token.text_range().is_some_and(|range| {
+                !range.is_empty() && (range.contains(offset) || range.start() >= offset)
+            })
+        })
     }
 
     fn token_before_offset(&self, offset: TextSize) -> Option<SyntaxTokenWithParent<'a>> {
-        let mut cursor = self.walk();
-        if !cursor.goto_last_tok_before(offset) {
-            return None;
-        }
-        cursor.to_tok_with_parent()
+        self.tokens()
+            .filter(|token| {
+                token.text_range().is_some_and(|range| {
+                    !range.is_empty()
+                        && ((range.start() < offset && range.end() > offset)
+                            || range.end() <= offset)
+                })
+            })
+            .last()
     }
 
     fn trivia_kind_at_offset(&self, offset: TextSize) -> Option<TriviaKind> {
@@ -274,10 +277,13 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         &self,
         offset: TextSize,
     ) -> Either<TokenAtOffset<'a>, SyntaxNode<'a>> {
-        let Some(range) = self.text_range() else {
+        let Some(range) = self.range() else {
             return Either::Left(TokenAtOffset::None);
         };
-        if range.is_empty() || !(range.contains(offset)) {
+        if range.is_single_buffer()
+            && (range.start() == range.end()
+                || !(range.start() <= usize::from(offset) && usize::from(offset) < range.end()))
+        {
             return Either::Left(TokenAtOffset::None);
         }
 
