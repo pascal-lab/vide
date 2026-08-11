@@ -272,11 +272,41 @@ pub fn macro_file_call_site(
 ) -> Option<MacroFileCallSite> {
     let call_loc = macro_file.0;
     let mapped = db.source_preproc_model(call_loc.model_file);
-    let mapped = mapped.as_ref().as_ref().ok()?;
-    let call = source_call_for_trace_call(&mapped.model, call_loc.trace_call)?;
+    let mapped = match mapped.as_ref().as_ref() {
+        Ok(mapped) => mapped,
+        Err(error) => {
+            tracing::warn!(
+                ?macro_file,
+                ?error,
+                "macro call site unavailable for preprocessor model"
+            );
+            return None;
+        }
+    };
+    let Some(call) = source_call_for_trace_call(&mapped.model, call_loc.trace_call) else {
+        tracing::warn!(
+            ?macro_file,
+            "macro call site has no source call for its Slang trace identity"
+        );
+        return None;
+    };
+    let call_file_id = match mapped.source_map.file_id(call.call_range.source) {
+        Ok(file_id) => file_id,
+        Err(error) => {
+            tracing::warn!(?macro_file, ?error, "macro call site source file mapping failed");
+            return None;
+        }
+    };
+    let call_range = match mapped.source_map.map_range(call.call_range) {
+        Ok(range) => range,
+        Err(error) => {
+            tracing::warn!(?macro_file, ?error, "macro call site range mapping failed");
+            return None;
+        }
+    };
     Some(MacroFileCallSite {
-        call_file_id: mapped.source_map.file_id(call.call_range.source).ok()?,
-        call_range: mapped.source_map.map_range(call.call_range).ok()?,
+        call_file_id,
+        call_range,
     })
 }
 
@@ -287,13 +317,36 @@ pub fn macro_file_expansion(
     let call_site = macro_file_call_site(db, macro_file)?;
     let call_loc = macro_file.0;
     let mapped = db.source_preproc_model(call_loc.model_file);
-    let mapped = mapped.as_ref().as_ref().ok()?;
-    let call = source_call_for_trace_call(&mapped.model, call_loc.trace_call)?;
+    let mapped = match mapped.as_ref().as_ref() {
+        Ok(mapped) => mapped,
+        Err(error) => {
+            tracing::warn!(
+                ?macro_file,
+                ?error,
+                "macro expansion metadata unavailable for preprocessor model"
+            );
+            return None;
+        }
+    };
+    let Some(call) = source_call_for_trace_call(&mapped.model, call_loc.trace_call) else {
+        tracing::warn!(?macro_file, "macro expansion has no source call for its trace identity");
+        return None;
+    };
     let parsed = db.parsed_compilation_unit(call_loc.model_file);
-    let trace = parsed.preprocessor_trace.as_ref()?;
-    let emitted_range =
-        db.trace_index(call_loc.model_file).emitted_range_for_call(call_loc.trace_call)?;
-    let definition = expansion_definition(mapped, call, trace, emitted_range)?;
+    let Some(trace) = parsed.preprocessor_trace.as_ref() else {
+        tracing::warn!(?macro_file, "macro expansion has no preprocessor trace");
+        return None;
+    };
+    let Some(emitted_range) =
+        db.trace_index(call_loc.model_file).emitted_range_for_call(call_loc.trace_call)
+    else {
+        tracing::warn!(?macro_file, "macro expansion has no emitted-token range");
+        return None;
+    };
+    let Some(definition) = expansion_definition(mapped, call, trace, emitted_range) else {
+        tracing::warn!(?macro_file, "macro expansion has no source or builtin definition");
+        return None;
+    };
     Some(MacroFileExpansion {
         call_file_id: call_site.call_file_id,
         call_range: call_site.call_range,
