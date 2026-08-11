@@ -417,7 +417,15 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
                         continue;
                     }
                 }
-                Err(_) => continue,
+                Err(error) => {
+                    tracing::warn!(
+                        ?file_id,
+                        ?range,
+                        ?error,
+                        "skipping macro-generated instantiation diagnostic"
+                    );
+                    continue;
+                }
             }
 
             match resolve_module_name(db, file_id, module_name) {
