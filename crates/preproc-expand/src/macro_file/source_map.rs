@@ -328,11 +328,7 @@ fn source_location(
             return None;
         }
         Err(error) => {
-            tracing::warn!(
-                ?source_range,
-                ?error,
-                "dropping unmapped macro expansion origin"
-            );
+            tracing::warn!(?source_range, ?error, "dropping unmapped macro expansion origin");
             return None;
         }
     };

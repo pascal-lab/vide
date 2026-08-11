@@ -278,7 +278,11 @@ fn mapped_file_range(
         Ok(file_id) => file_id,
         Err(SourcePreprocQueryError::DisplayOnlyVirtualSource { .. }) => return None,
         Err(error) => {
-            tracing::warn!(?source_range, ?error, "dropping preprocessor index range without a file");
+            tracing::warn!(
+                ?source_range,
+                ?error,
+                "dropping preprocessor index range without a file"
+            );
             return None;
         }
     };

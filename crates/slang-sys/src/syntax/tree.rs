@@ -553,9 +553,8 @@ mod tests {
         let text = "module m; always begin begin end endmodule";
         let options =
             SyntaxTreeOptions { collect_expected_syntax: true, ..SyntaxTreeOptions::default() };
-        let tree = SyntaxTree::from_file_in_memory_with_options(
-            text, "source", "source.sv", &options,
-        );
+        let tree =
+            SyntaxTree::from_file_in_memory_with_options(text, "source", "source.sv", &options);
         let expected = tree.expected_syntax_at(28);
         assert_eq!(expected.len(), 2);
         assert!(expected.iter().all(|item| item.name == "ExpectedStatement"));

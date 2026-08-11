@@ -167,11 +167,7 @@ impl SyntaxDiagnostic {
                     macro_name: expansion.macro_name,
                 })
                 .collect(),
-            include_stack: raw
-                .include_stack
-                .into_iter()
-                .filter_map(raw_location)
-                .collect(),
+            include_stack: raw.include_stack.into_iter().filter_map(raw_location).collect(),
             diagnostic_id: raw.diagnostic_id,
             parent_diagnostic_id: (raw.parent_diagnostic_id != 0)
                 .then_some(raw.parent_diagnostic_id),
@@ -312,8 +308,10 @@ mod tests {
             .iter()
             .find(|diagnostic| diagnostic.parent_diagnostic_id.is_some())
             .expect("expected a diagnostic note");
-        assert!(diagnostics.iter().any(|diagnostic| {
-            Some(diagnostic.diagnostic_id) == note.parent_diagnostic_id
-        }));
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| { Some(diagnostic.diagnostic_id) == note.parent_diagnostic_id })
+        );
     }
 }

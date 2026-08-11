@@ -257,11 +257,7 @@ fn trace_macro_argument_origin_indices_are_exact() {
     assert!(trace.emitted_tokens.iter().any(|token| {
         matches!(
             token.origin,
-            TokenOrigin::MacroArgument {
-                argument_index: 1,
-                argument_token_index: 0,
-                ..
-            }
+            TokenOrigin::MacroArgument { argument_index: 1, argument_token_index: 0, .. }
         )
     }));
 }

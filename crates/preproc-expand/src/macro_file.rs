@@ -344,10 +344,7 @@ pub fn macro_file_call_site(
             return None;
         }
     };
-    Some(MacroFileCallSite {
-        call_file_id,
-        call_range,
-    })
+    Some(MacroFileCallSite { call_file_id, call_range })
 }
 
 pub fn macro_file_expansion(

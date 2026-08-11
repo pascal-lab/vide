@@ -389,6 +389,51 @@ impl TokenOrigin {
     }
 }
 
+impl MacroParam {
+    fn from_raw(raw: ffi::RawTraceMacroParam) -> Self {
+        Self {
+            name: token_from_raw(raw.name),
+            default_tokens: raw
+                .has_default
+                .then(|| raw.default_tokens.into_iter().filter_map(token_from_raw).collect()),
+            range: range_from_raw(raw.range),
+        }
+    }
+}
+
+impl ActualArgument {
+    fn from_raw(raw: ffi::RawTraceActualArgument) -> Self {
+        Self {
+            tokens: raw.tokens.into_iter().filter_map(token_from_raw).collect(),
+            range: range_from_raw(raw.range),
+        }
+    }
+}
+
+fn optional_id<T>(has_id: bool, id: u32, make: fn(u32) -> T) -> Option<T> {
+    has_id.then(|| make(id))
+}
+
+fn range_from_raw(raw: ffi::RawTraceSourceRange) -> Option<SourceBufferRange> {
+    raw.has_range.then_some(SourceBufferRange {
+        buffer_id: raw.buffer_id,
+        range: raw.range_start..raw.range_end,
+    })
+}
+
+fn range_required(raw: ffi::RawTraceSourceRange) -> SourceBufferRange {
+    range_from_raw(raw).expect("Slang trace origin is missing a source range")
+}
+
+fn token_from_raw(raw: ffi::RawTraceToken) -> Option<Token> {
+    raw.has_token.then_some(Token {
+        raw_text: raw.raw_text,
+        value_text: raw.value_text,
+        token_kind: TokenKind::from_raw(raw.token_kind),
+        range: range_from_raw(raw.range),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -469,49 +514,4 @@ mod tests {
         let origin = TokenOrigin::from_raw(predefine);
         assert!(matches!(origin, TokenOrigin::Predefine { argument_token_range: Some(_), .. }));
     }
-}
-
-impl MacroParam {
-    fn from_raw(raw: ffi::RawTraceMacroParam) -> Self {
-        Self {
-            name: token_from_raw(raw.name),
-            default_tokens: raw
-                .has_default
-                .then(|| raw.default_tokens.into_iter().filter_map(token_from_raw).collect()),
-            range: range_from_raw(raw.range),
-        }
-    }
-}
-
-impl ActualArgument {
-    fn from_raw(raw: ffi::RawTraceActualArgument) -> Self {
-        Self {
-            tokens: raw.tokens.into_iter().filter_map(token_from_raw).collect(),
-            range: range_from_raw(raw.range),
-        }
-    }
-}
-
-fn optional_id<T>(has_id: bool, id: u32, make: fn(u32) -> T) -> Option<T> {
-    has_id.then(|| make(id))
-}
-
-fn range_from_raw(raw: ffi::RawTraceSourceRange) -> Option<SourceBufferRange> {
-    raw.has_range.then_some(SourceBufferRange {
-        buffer_id: raw.buffer_id,
-        range: raw.range_start..raw.range_end,
-    })
-}
-
-fn range_required(raw: ffi::RawTraceSourceRange) -> SourceBufferRange {
-    range_from_raw(raw).expect("Slang trace origin is missing a source range")
-}
-
-fn token_from_raw(raw: ffi::RawTraceToken) -> Option<Token> {
-    raw.has_token.then_some(Token {
-        raw_text: raw.raw_text,
-        value_text: raw.value_text,
-        token_kind: TokenKind::from_raw(raw.token_kind),
-        range: range_from_raw(raw.range),
-    })
 }

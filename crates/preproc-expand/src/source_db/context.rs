@@ -147,26 +147,24 @@ pub(crate) fn source_preproc_context_index_for_profile(
         }
         let mapped = db.source_preproc_model(model_file_id);
         match mapped.as_ref() {
-            Ok(mapped) => {
-                match preproc_context_file_ids(mapped, model_file_id) {
-                    Ok(file_ids) => {
-                        for file_id in file_ids {
-                            if file_id == model_file_id {
-                                continue;
-                            }
-                            contexts_by_file.entry(file_id).or_default().push_unique(model_file_id);
+            Ok(mapped) => match preproc_context_file_ids(mapped, model_file_id) {
+                Ok(file_ids) => {
+                    for file_id in file_ids {
+                        if file_id == model_file_id {
+                            continue;
                         }
-                    }
-                    Err(error) => {
-                        tracing::warn!(
-                            ?model_file_id,
-                            ?error,
-                            "failed to index source preprocessor context"
-                        );
-                        skipped_models += 1;
+                        contexts_by_file.entry(file_id).or_default().push_unique(model_file_id);
                     }
                 }
-            }
+                Err(error) => {
+                    tracing::warn!(
+                        ?model_file_id,
+                        ?error,
+                        "failed to index source preprocessor context"
+                    );
+                    skipped_models += 1;
+                }
+            },
             Err(error) => {
                 tracing::warn!(
                     ?model_file_id,
