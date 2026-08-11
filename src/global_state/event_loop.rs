@@ -144,6 +144,16 @@ impl GlobalState {
     }
 
     fn next_event(&self, cli_inbox: &Receiver<Message>) -> Option<Event> {
+        // Background state transitions must not wait behind an unbounded stream
+        // of client requests. In particular, readiness messages need to commit
+        // the VFS snapshot before pull-diagnostic retries can make progress.
+        if let Ok(vfs_message) = self.workspace.vfs_loader.receiver.try_recv() {
+            return Some(Event::Vfs(vfs_message));
+        }
+        if let Ok(task) = self.tasks.task_pool.receiver.try_recv() {
+            return Some(Event::Task(task));
+        }
+
         select! {
             recv(cli_inbox) -> cli_msg => cli_msg.ok().map(Event::Lsp),
             recv(self.tasks.task_pool.receiver) -> task => task.ok().map(Event::Task),
