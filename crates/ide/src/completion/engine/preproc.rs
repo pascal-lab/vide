@@ -33,7 +33,19 @@ pub(super) fn complete_directives(
         items.push(CompletionCandidate::keyword(kw.clone(), ctx.replacement));
     }
 
-    for name in visible_macro_names_at(db, position.file_id, position.offset).unwrap_or_default() {
+    let macro_names = match visible_macro_names_at(db, position.file_id, position.offset) {
+        Ok(names) => names,
+        Err(error) => {
+            tracing::warn!(
+                ?error,
+                file_id = ?position.file_id,
+                offset = ?position.offset,
+                "preprocessor macro completion unavailable"
+            );
+            Vec::new()
+        }
+    };
+    for name in macro_names {
         if name.starts_with(&ctx.prefix) {
             items.push(CompletionCandidate::text(name.to_string(), ctx.replacement));
         }

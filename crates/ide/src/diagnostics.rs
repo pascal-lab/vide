@@ -452,8 +452,18 @@ fn inactive_preprocessor_branch_diagnostics(db: &RootDb, file_id: FileId) -> Vec
         return Vec::new();
     }
 
-    preproc_expand::preproc::inactive_branches(db, file_id)
-        .unwrap_or_default()
+    let branches = match preproc_expand::preproc::inactive_branches(db, file_id) {
+        Ok(branches) => branches,
+        Err(error) => {
+            tracing::warn!(
+                ?error,
+                ?file_id,
+                "inactive preprocessor branch diagnostics unavailable"
+            );
+            return Vec::new();
+        }
+    };
+    branches
         .iter()
         .map(|branch| {
             INACTIVE_PREPROCESSOR_BRANCH.diagnostic_with_tags(
