@@ -16,7 +16,7 @@ pub fn macro_references_in_range(
         }
         Ok(())
     });
-    query.finish_empty(!references.is_empty())?;
+    query.finish()?;
 
     Ok(references.into_vec())
 }
@@ -71,7 +71,7 @@ pub fn macro_reference_definitions_at(
     });
 
     let Some(range) = query_range else {
-        query.finish_empty(false)?;
+        query.finish()?;
         return Ok(None);
     };
 

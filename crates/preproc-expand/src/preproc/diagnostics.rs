@@ -41,7 +41,7 @@ pub fn diagnostic_target_for_range(
     if covered {
         return Ok(DiagnosticTargetResult::covered(None));
     }
-    query.finish_empty(false)?;
+    query.finish()?;
 
     Ok(DiagnosticTargetResult::uncovered())
 }

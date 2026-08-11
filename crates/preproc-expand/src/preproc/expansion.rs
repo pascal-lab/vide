@@ -36,7 +36,7 @@ pub fn macro_call_resolutions_in_range(
         }
         Ok(())
     });
-    query.finish_empty(!resolutions.is_empty())?;
+    query.finish()?;
 
     Ok(resolutions.into_vec())
 }

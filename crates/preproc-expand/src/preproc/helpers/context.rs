@@ -69,9 +69,9 @@ pub(in crate::preproc) fn record_first_error(
 }
 
 /// Iterates the model files covering a query file, collecting per-model errors
-/// into a first-error slot. The caller's `f` may use `?` freely: the error is
-/// recorded and iteration continues with the next model, matching the
-/// per-context degradation semantics of preproc queries.
+/// into a first-error slot. The caller's `f` may use `?` freely: iteration
+/// continues so all valid contexts can be inspected, but the error is surfaced
+/// by [`ContextQuery::finish`] and never converted into a partial success.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::preproc) struct ContextQuery {
     file_id: FileId,
@@ -108,26 +108,25 @@ impl ContextQuery {
         }
     }
 
-    /// Applies the empty-result error policy: recorded errors surface only
-    /// when the query produced no results.
-    pub(in crate::preproc) fn finish_empty(self, has_result: bool) -> PreprocResult<()> {
-        if has_result {
-            if let Some(error) = self.first_error.as_ref() {
-                tracing::warn!(
-                    ?self.file_id,
-                    ?error,
-                    "preprocessor query returned partial results after a context failure"
-                );
-            } else if let Some(error) = self.contexts.partial_error() {
-                tracing::warn!(
-                    ?self.file_id,
-                    ?error,
-                    "preprocessor query returned results from a partial context index"
-                );
-            }
-            return Ok(());
+    /// Fails closed when any relevant context could not be queried.
+    pub(in crate::preproc) fn finish(self) -> PreprocResult<()> {
+        if let Some(error) = self.first_error {
+            tracing::warn!(
+                ?self.file_id,
+                ?error,
+                "preprocessor query failed in one of its contexts"
+            );
+            return Err(error);
         }
-        finish_empty_single_query(&self.contexts, self.first_error)
+        if let Some(error) = self.contexts.partial_error() {
+            tracing::warn!(
+                ?self.file_id,
+                ?error,
+                "preprocessor query uses a partial context index"
+            );
+            return Err(error);
+        }
+        Ok(())
     }
 }
 

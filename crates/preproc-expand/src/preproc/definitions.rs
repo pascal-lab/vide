@@ -19,7 +19,7 @@ pub fn visible_macros_at(
         }
         Ok(())
     });
-    query.finish_empty(!definitions.is_empty())?;
+    query.finish()?;
 
     Ok(definitions.into_vec())
 }
@@ -74,7 +74,7 @@ pub fn macro_definition_at(
         return Ok(Some(definition));
     }
 
-    query.finish_empty(false)?;
+    query.finish()?;
 
     Ok(None)
 }
@@ -118,7 +118,7 @@ pub fn macro_param_definitions_at(
         }
         Ok(())
     });
-    query.finish_empty(!definitions.is_empty())?;
+    query.finish()?;
 
     Ok(definitions.into_vec())
 }
@@ -177,7 +177,7 @@ pub fn macro_param_reference_definitions_at(
     });
 
     let Some(range) = query_range else {
-        query.finish_empty(false)?;
+        query.finish()?;
         return Ok(None);
     };
 

@@ -17,7 +17,7 @@ pub fn inactive_branches(
         }
         Ok(())
     });
-    query.finish_empty(!branches.is_empty())?;
+    query.finish()?;
 
     Ok(branches.into_vec())
 }

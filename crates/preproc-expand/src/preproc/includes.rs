@@ -43,7 +43,7 @@ pub fn include_directives_at(
         }
         Ok(())
     });
-    query.finish_empty(!directives.is_empty())?;
+    query.finish()?;
 
     Ok(directives.into_vec())
 }
