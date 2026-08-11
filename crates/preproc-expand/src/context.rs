@@ -90,12 +90,17 @@ pub(crate) fn file_macro_coverage_query(db: &dyn PreprocDb, file_id: FileId) -> 
                     ?error,
                     "macro coverage unavailable for preprocessor model"
                 );
-                continue;
+                return Arc::new(MacroCoverage::default());
             }
         };
         let parsed = db.parsed_compilation_unit(model_file);
         if parsed.preprocessor_trace.is_none() {
-            continue;
+            tracing::warn!(
+                ?file_id,
+                ?model_file,
+                "macro coverage unavailable without a preprocessor trace"
+            );
+            return Arc::new(MacroCoverage::default());
         }
         let trace_index = db.trace_index(model_file);
         for call in mapped.model.macro_calls().iter() {
@@ -114,7 +119,7 @@ pub(crate) fn file_macro_coverage_query(db: &dyn PreprocDb, file_id: FileId) -> 
                         ?error,
                         "macro coverage call source mapping unavailable"
                     );
-                    continue;
+                    return Arc::new(MacroCoverage::default());
                 }
             };
             if call_file != file_id {
@@ -129,7 +134,7 @@ pub(crate) fn file_macro_coverage_query(db: &dyn PreprocDb, file_id: FileId) -> 
                         ?error,
                         "macro coverage call range mapping unavailable"
                     );
-                    continue;
+                    return Arc::new(MacroCoverage::default());
                 }
             };
             let macro_file = MacroFileId(MacroCallLoc { model_file, trace_call });

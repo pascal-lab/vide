@@ -157,12 +157,17 @@ pub fn macro_files_at_offset(
                     ?error,
                     "macro expansion candidates unavailable for preprocessor model"
                 );
-                continue;
+                return Vec::new();
             }
         };
         let parsed = db.parsed_compilation_unit(model_file);
         if parsed.preprocessor_trace.is_none() {
-            continue;
+            tracing::warn!(
+                ?file_id,
+                ?model_file,
+                "macro expansion candidates unavailable without a preprocessor trace"
+            );
+            return Vec::new();
         }
         for call in mapped.macro_call_ids_at(file_id, offset) {
             let Some(source_call) = mapped.model.macro_calls().get(call) else {
@@ -206,12 +211,17 @@ pub fn macro_files_for_file(db: &dyn PreprocDb, file_id: FileId) -> Vec<MacroFil
                     ?error,
                     "macro file index unavailable for preprocessor model"
                 );
-                continue;
+                return Vec::new();
             }
         };
         let parsed = db.parsed_compilation_unit(model_file);
         if parsed.preprocessor_trace.is_none() {
-            continue;
+            tracing::warn!(
+                ?file_id,
+                ?model_file,
+                "macro file index unavailable without a preprocessor trace"
+            );
+            return Vec::new();
         }
         for call in mapped.model.macro_calls().iter() {
             let call_file = match mapped.source_map.file_id(call.call_range.source) {
@@ -223,7 +233,7 @@ pub fn macro_files_for_file(db: &dyn PreprocDb, file_id: FileId) -> Vec<MacroFil
                         ?error,
                         "macro call source mapping unavailable"
                     );
-                    continue;
+                    return Vec::new();
                 }
             };
             if call_file != file_id {
