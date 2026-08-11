@@ -1,4 +1,7 @@
-use std::fmt;
+use std::{
+    fmt,
+    sync::{Arc, OnceLock},
+};
 
 use cxx::SharedPtr;
 use tracing::warn;
@@ -21,6 +24,7 @@ use crate::{
 #[derive(Clone)]
 pub struct SyntaxTree {
     pub(crate) raw: SharedPtr<ffi::SyntaxTree>,
+    preprocessor_trace_cache: Arc<OnceLock<crate::preproc::Trace>>,
 }
 
 #[derive(Debug, Clone)]
@@ -66,7 +70,7 @@ impl SyntaxTreeOptions {
 
 impl SyntaxTree {
     pub(crate) fn from_raw(raw: SharedPtr<ffi::SyntaxTree>) -> Self {
-        Self { raw }
+        Self { raw, preprocessor_trace_cache: Arc::new(OnceLock::new()) }
     }
 
     pub(crate) fn into_raw(self) -> SharedPtr<ffi::SyntaxTree> {
@@ -94,20 +98,18 @@ impl SyntaxTree {
         options: &SyntaxTreeOptions,
         guess: bool,
     ) -> Self {
-        Self {
-            raw: ffi::parse_syntax_tree(
-                text,
-                name,
-                path,
-                options.predefines.clone(),
-                options.include_paths.clone(),
-                options.include_buffers.iter().map(|buffer| buffer.path.clone()).collect(),
-                options.include_buffers.iter().map(|buffer| buffer.text.clone()).collect(),
-                options.expand_includes,
-                guess,
-                options.collect_expected_syntax,
-            ),
-        }
+        Self::from_raw(ffi::parse_syntax_tree(
+            text,
+            name,
+            path,
+            options.predefines.clone(),
+            options.include_paths.clone(),
+            options.include_buffers.iter().map(|buffer| buffer.path.clone()).collect(),
+            options.include_buffers.iter().map(|buffer| buffer.text.clone()).collect(),
+            options.expand_includes,
+            guess,
+            options.collect_expected_syntax,
+        ))
     }
 
     /// Parse source as a compilation unit without constructing a guessed root.
@@ -151,7 +153,7 @@ impl SyntaxTree {
     }
 
     pub fn from_library_map_text(text: &str, name: &str, path: &str) -> Self {
-        Self { raw: ffi::parse_library_map_syntax_tree(text, name, path, false) }
+        Self::from_raw(ffi::parse_library_map_syntax_tree(text, name, path, false))
     }
 
     pub fn root(&self) -> SyntaxNode<'_> {
@@ -208,7 +210,7 @@ impl SyntaxTree {
         path: &str,
         offset: usize,
     ) -> Vec<ParserExpectedSyntax> {
-        let tree = Self { raw: ffi::parse_library_map_syntax_tree(text, name, path, true) };
+        let tree = Self::from_raw(ffi::parse_library_map_syntax_tree(text, name, path, true));
         tree.expected_syntax_at(offset)
     }
 
@@ -255,9 +257,15 @@ impl SyntaxTree {
     }
 
     pub fn preprocessor_trace(&self) -> Option<crate::preproc::Trace> {
-        Some(crate::preproc::Trace::from_raw(ffi::syntax_tree_preprocessor_trace(
-            self.raw.as_ref().expect("Slang returned a null syntax tree"),
-        )))
+        Some(
+            self.preprocessor_trace_cache
+                .get_or_init(|| {
+                    crate::preproc::Trace::from_raw(ffi::syntax_tree_preprocessor_trace(
+                        self.raw.as_ref().expect("Slang returned a null syntax tree"),
+                    ))
+                })
+                .clone(),
+        )
     }
 
     fn build_preprocessor_trace(&self) -> crate::preproc::Trace {
