@@ -68,10 +68,6 @@ impl SourceRange {
         }
     }
 
-    pub(crate) fn from_locations(start: SourceLocation, end: SourceLocation) -> Self {
-        Self { start, end }
-    }
-
     pub fn start(self) -> usize {
         self.start.offset
     }

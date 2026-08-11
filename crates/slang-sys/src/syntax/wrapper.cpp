@@ -474,18 +474,6 @@ namespace slang_sys::syntax::tree {
         }
     }
 
-    void collect_leaf_tokens(
-        slang::syntax::SyntaxNode& node,
-        std::vector<const slang::parsing::Token*>& tokens
-    ) {
-        for (size_t i = 0; i < node.getChildCount(); i++) {
-            if (auto child = node.childNode(i))
-                collect_leaf_tokens(*child, tokens);
-            else if (auto token = node.childTokenPtr(i))
-                tokens.push_back(token);
-        }
-    }
-
     void append_leaf_trace_tokens(
         const slang::syntax::SyntaxNode& node,
         rust::Vec<RawTraceToken>& target
@@ -1033,10 +1021,11 @@ namespace slang_sys::syntax::tree {
         return result;
     }
 
-    RawTraceEmittedToken trace_emitted_token_for_target(
+    std::optional<uint32_t> trace_emitted_token_index_for_target(
         const SyntaxToken *target,
         const SyntaxNode *context,
-        const SyntaxTree &owner
+        const SyntaxTree &owner,
+        const RawTrace &trace
     ) {
         auto root = helper::find_root(context);
         if (!root)
@@ -1045,9 +1034,6 @@ namespace slang_sys::syntax::tree {
         if (root != &owner.root())
             throw std::invalid_argument("syntax context does not belong to its owner tree");
 
-        auto trace = syntax_tree_preprocessor_trace(owner);
-        std::vector<const slang::parsing::Token*> tokens;
-        collect_leaf_tokens(owner.tree->root(), tokens);
         std::vector<slang::parsing::Token> emitted_tokens;
         for (auto token : owner.tree->getEmittedTokens()) {
             if (trace_range(token.range()).has_range)
@@ -1055,23 +1041,36 @@ namespace slang_sys::syntax::tree {
         }
         if (emitted_tokens.size() != trace.emitted_tokens.size())
             throw std::logic_error("Slang trace token sequence is inconsistent");
-        size_t emitted_index = 0;
-        for (auto *token : tokens) {
-            if (!trace_range(token->range()).has_range)
-                continue;
+        // Recovery and macro splicing can leave syntax-tree tokens that were
+        // never emitted by the preprocessor. Only the requested target needs
+        // an emitted identity; the two sequences are not required to be
+        // positionally isomorphic.
+        auto match = std::find(emitted_tokens.begin(), emitted_tokens.end(), *target);
+        if (match == emitted_tokens.end())
+            return std::nullopt;
+        return static_cast<uint32_t>(match - emitted_tokens.begin());
+    }
 
-            auto match = std::find(
-                emitted_tokens.begin() + std::min(emitted_index, emitted_tokens.size()),
-                emitted_tokens.end(), *token);
-            if (match == emitted_tokens.end())
-                throw std::logic_error("Slang syntax token is absent from emitted token stream");
-
-            auto index = static_cast<size_t>(match - emitted_tokens.begin());
-            if (token == target)
-                return trace.emitted_tokens[index];
-            emitted_index = index + 1;
+    RawTraceEmittedToken trace_emitted_token_for_target(
+        const SyntaxToken *target,
+        const SyntaxNode *context,
+        const SyntaxTree &owner
+    ) {
+        auto trace = syntax_tree_preprocessor_trace(owner);
+        auto index = trace_emitted_token_index_for_target(target, context, owner, trace);
+        if (!index) {
+            auto raw = target->rawText();
+            auto range = trace_range(target->range());
+            throw std::logic_error(
+                "Slang target token is absent from emitted token stream: raw='" +
+                std::string(raw.data(), raw.size()) + "' kind=" +
+                std::to_string(static_cast<uint16_t>(target->kind)) + " range=" +
+                std::to_string(range.buffer_id) + ":" +
+                std::to_string(range.range_start) + "-" +
+                std::to_string(range.range_end)
+            );
         }
-        throw std::logic_error("Slang syntax token is absent from syntax tree");
+        return trace.emitted_tokens[*index];
     }
 
 } // namespace slang_sys::syntax::tree
@@ -1251,7 +1250,7 @@ namespace slang_sys::syntax::token {
     RawSVInt syntax_token_int_value(const SyntaxToken *token) {
         auto value = token->intValue();
         auto base_text = [&](slang::LiteralBase base) {
-            auto text = value.toString(base);
+            auto text = value.toString(base, false);
             return rust::String(text.data(), text.size());
         };
         RawSVInt result {
@@ -1293,10 +1292,11 @@ namespace slang_sys::syntax::token {
         const SyntaxNode *context,
         const SyntaxTree &owner
     ) {
-        auto token = syntax_token_preprocessor_trace_emitted_token(target, context, owner);
-        if (!token.has_emitted_token_index)
+        auto trace = tree::syntax_tree_preprocessor_trace(owner);
+        auto index = tree::trace_emitted_token_index_for_target(target, context, owner, trace);
+        if (!index)
             return RawOptionalU32 { 0, false };
-        return RawOptionalU32 { token.emitted_token_index, true };
+        return RawOptionalU32 { *index, true };
     }
 
     RawTraceEmittedToken syntax_token_preprocessor_trace_emitted_token(

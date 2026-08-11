@@ -1,4 +1,5 @@
 use super::*;
+use syntax::preproc::MacroOrigin;
 
 #[test]
 fn source_model_resolves_conditional_tokens_to_visible_defines() {
@@ -103,6 +104,7 @@ fn source_model_fails_closed_when_directive_event_range_is_missing() {
             event_id: EventId(0),
             kind: SyntaxKind::DEFINE_DIRECTIVE,
             range: None,
+            macro_origin: MacroOrigin::Source,
             macro_definition_id: None,
             macro_call_id: None,
             macro_expansion_id: None,

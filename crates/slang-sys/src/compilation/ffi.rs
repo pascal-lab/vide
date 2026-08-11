@@ -3,8 +3,12 @@
 
 pub(crate) use slang_ffi::*;
 
+// These names are consumed by the cxx bridge DSL rather than Rust items.
+#[allow(unused_imports)]
 use std::pin::Pin;
 
+// These names are consumed by the cxx bridge DSL rather than Rust items.
+#[allow(unused_imports)]
 use cxx::{SharedPtr, UniquePtr};
 
 #[cxx::bridge(namespace = "slang_sys::compilation")]
@@ -48,7 +52,10 @@ mod slang_ffi {
             name: &str,
             path: &str,
         ) -> SharedPtr<SyntaxTree>;
-        fn add_syntax_tree(compilation: Pin<&mut Compilation>, tree: SharedPtr<SyntaxTree>);
+        fn add_syntax_tree(
+            compilation: Pin<&mut Compilation>,
+            tree: SharedPtr<SyntaxTree>,
+        );
         fn parse_diagnostics(
             compilation: &Compilation,
             warning_options: Vec<String>,
