@@ -33,25 +33,25 @@ pub enum SourcePreprocContextStatus {
 fn preproc_context_file_ids(
     mapped: &MappedSourcePreprocModel,
     model_file_id: FileId,
-) -> Vec<FileId> {
+) -> Result<Vec<FileId>, SourcePreprocQueryError> {
     let mut file_ids = UniqVec::<FileId, FileId>::default();
     file_ids.push_unique(model_file_id);
 
     for definition in mapped.model.macro_definitions().iter() {
-        collect_context_source_range(mapped, definition.directive_range, &mut file_ids);
-        collect_context_source_range(mapped, definition.name_range, &mut file_ids);
+        collect_context_source_range(mapped, definition.directive_range, &mut file_ids)?;
+        collect_context_source_range(mapped, definition.name_range, &mut file_ids)?;
         if let Some(params) = &definition.params {
             for param in params {
                 if let Some(range) = param.name_range {
-                    collect_context_source_range(mapped, range, &mut file_ids);
+                    collect_context_source_range(mapped, range, &mut file_ids)?;
                 }
                 if let Some(range) = param.range {
-                    collect_context_source_range(mapped, range, &mut file_ids);
+                    collect_context_source_range(mapped, range, &mut file_ids)?;
                 }
                 if let Some(default) = &param.default {
                     for token in default {
                         if let Some(range) = token.range {
-                            collect_context_source_range(mapped, range, &mut file_ids);
+                            collect_context_source_range(mapped, range, &mut file_ids)?;
                         }
                     }
                 }
@@ -59,68 +59,73 @@ fn preproc_context_file_ids(
         }
         for token in &definition.body_tokens {
             if let Some(range) = token.range {
-                collect_context_source_range(mapped, range, &mut file_ids);
+                collect_context_source_range(mapped, range, &mut file_ids)?;
             }
         }
     }
 
     for reference in mapped.model.macro_references().iter() {
-        collect_context_source_range(mapped, reference.directive_range, &mut file_ids);
-        collect_context_source_range(mapped, reference.name_range, &mut file_ids);
+        collect_context_source_range(mapped, reference.directive_range, &mut file_ids)?;
+        collect_context_source_range(mapped, reference.name_range, &mut file_ids)?;
     }
 
     for call in mapped.model.macro_calls().iter() {
-        collect_context_source_range(mapped, call.call_range, &mut file_ids);
+        collect_context_source_range(mapped, call.call_range, &mut file_ids)?;
         for argument in &call.arguments {
             if let Some(range) = argument.argument_range {
-                collect_context_source_range(mapped, range, &mut file_ids);
+                collect_context_source_range(mapped, range, &mut file_ids)?;
             }
             for token in &argument.tokens {
                 if let Some(range) = token.range {
-                    collect_context_source_range(mapped, range, &mut file_ids);
+                    collect_context_source_range(mapped, range, &mut file_ids)?;
                 }
             }
         }
     }
 
     for include in mapped.model.include_graph().directives() {
-        collect_context_source_range(mapped, include.directive_range, &mut file_ids);
+        collect_context_source_range(mapped, include.directive_range, &mut file_ids)?;
         if let Some(range) = include.target_range {
-            collect_context_source_range(mapped, range, &mut file_ids);
+            collect_context_source_range(mapped, range, &mut file_ids)?;
         }
         if let Some(source) = include.resolved_source {
-            collect_context_source(mapped, source, &mut file_ids);
+            collect_context_source(mapped, source, &mut file_ids)?;
         }
     }
 
     for range in mapped.model.inactive_ranges() {
-        collect_context_source_range(mapped, *range, &mut file_ids);
+        collect_context_source_range(mapped, *range, &mut file_ids)?;
     }
 
     let mut file_ids = file_ids.into_vec();
     file_ids.sort();
-    file_ids
+    Ok(file_ids)
 }
 
 fn collect_context_source_range(
     mapped: &MappedSourcePreprocModel,
     range: SourceRange,
     file_ids: &mut UniqVec<FileId, FileId>,
-) {
-    collect_context_source(mapped, range.source, file_ids);
+) -> Result<(), SourcePreprocQueryError> {
+    collect_context_source(mapped, range.source, file_ids)
 }
 
 fn collect_context_source(
     mapped: &MappedSourcePreprocModel,
     source: PreprocSourceId,
     file_ids: &mut UniqVec<FileId, FileId>,
-) {
-    if let Ok(file_id) = mapped.source_map.file_id(source) {
-        file_ids.push_unique(file_id);
+) -> Result<(), SourcePreprocQueryError> {
+    match mapped.source_map.file_id(source) {
+        Ok(file_id) => {
+            file_ids.push_unique(file_id);
+        }
+        Err(SourcePreprocQueryError::DisplayOnlyVirtualSource { .. }) => {}
+        Err(error) => return Err(error),
     }
     if let Some(manifest_source) = mapped.source_map.predefine_manifest_source(source) {
         file_ids.push_unique(manifest_source.file_id);
     }
+    Ok(())
 }
 
 #[salsa::tracked(returns(clone))]
@@ -143,11 +148,23 @@ pub(crate) fn source_preproc_context_index_for_profile(
         let mapped = db.source_preproc_model(model_file_id);
         match mapped.as_ref() {
             Ok(mapped) => {
-                for file_id in preproc_context_file_ids(mapped, model_file_id) {
-                    if file_id == model_file_id {
-                        continue;
+                match preproc_context_file_ids(mapped, model_file_id) {
+                    Ok(file_ids) => {
+                        for file_id in file_ids {
+                            if file_id == model_file_id {
+                                continue;
+                            }
+                            contexts_by_file.entry(file_id).or_default().push_unique(model_file_id);
+                        }
                     }
-                    contexts_by_file.entry(file_id).or_default().push_unique(model_file_id);
+                    Err(error) => {
+                        tracing::warn!(
+                            ?model_file_id,
+                            ?error,
+                            "failed to index source preprocessor context"
+                        );
+                        skipped_models += 1;
+                    }
                 }
             }
             Err(_) => skipped_models += 1,
