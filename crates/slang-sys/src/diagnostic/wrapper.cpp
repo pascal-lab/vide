@@ -1,5 +1,6 @@
 #include "diagnostic/wrapper.h"
 
+#include <algorithm>
 #include <optional>
 #include <span>
 #include <string>
@@ -10,20 +11,44 @@
 #include "slang-sys/src/diagnostic/ffi.rs.h"
 
 namespace slang_sys::diagnostic::helper {
-    static std::optional<slang::SourceRange> map_source_range_to_context(
+    static std::optional<slang::SourceRange> map_source_ranges_to_context(
         const slang::DiagnosticEngine &engine,
         slang::SourceLocation context,
-        slang::SourceRange range
+        std::span<const slang::SourceRange> ranges
     ) {
-        if (range == ::slang::SourceRange::NoLocation)
+        if (ranges.empty())
             return std::nullopt;
 
         slang::SmallVector<slang::SourceRange> mapped;
-        engine.mapSourceRanges(context, std::span(&range, 1), mapped, false);
+        engine.mapSourceRanges(context, ranges, mapped, false);
         if (mapped.empty())
             return std::nullopt;
 
-        return mapped.front();
+        auto total = mapped.front();
+        const auto buffer_id = total.start().buffer().getId();
+        if (total.end().buffer().getId() != buffer_id)
+            return std::nullopt;
+
+        for (const auto &range : mapped) {
+            if (range.start().buffer().getId() != buffer_id ||
+                range.end().buffer().getId() != buffer_id) {
+                // The Rust diagnostic model has one primary range and one
+                // source buffer. Do not guess when Slang maps related ranges
+                // across buffers; the server reports this as unsupported too.
+                return std::nullopt;
+            }
+            total.start() = std::min(total.start(), range.start());
+            total.end() = std::max(total.end(), range.end());
+        }
+
+        if (context.valid()) {
+            if (context.buffer().getId() != buffer_id)
+                return std::nullopt;
+            total.start() = std::min(total.start(), context);
+            total.end() = std::max(total.end(), context);
+        }
+
+        return total;
     }
 
     static ::slang::Diagnostics apply_warning_options(
@@ -74,10 +99,11 @@ namespace slang_sys::diagnostic::helper {
         rust_diag.has_buffer_id = false;
         rust_diag.file_name = rust::String();
 
-        if (!diag.ranges.empty() && diag.ranges.front() != ::slang::SourceRange::NoLocation &&
-            diag.location.valid()) {
-            auto location = source_manager.getFullyExpandedLoc(diag.location);
-            auto range = map_source_range_to_context(engine, location, diag.ranges.front());
+        if (!diag.ranges.empty()) {
+            auto location = diag.location.valid()
+                ? source_manager.getFullyExpandedLoc(diag.location)
+                : ::slang::SourceLocation::NoLocation;
+            auto range = map_source_ranges_to_context(engine, location, diag.ranges);
             if (range) {
                 rust_diag.primary_range_start = range->start().offset();
                 rust_diag.primary_range_end = range->end().offset();
