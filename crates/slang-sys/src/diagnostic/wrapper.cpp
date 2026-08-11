@@ -3,8 +3,6 @@
 #include <optional>
 #include <span>
 #include <string>
-#include <type_traits>
-#include <variant>
 
 #include "slang/diagnostics/Diagnostics.h"
 #include "slang/text/SourceManager.h"
@@ -38,25 +36,18 @@ namespace slang_sys::diagnostic::helper {
         return engine.setWarningOptions(options);
     }
 
-    static rust::Vec<rust::String> diagnostic_args(const ::slang::Diagnostic &diag) {
+    static rust::Vec<rust::String> diagnostic_args(
+        const ::slang::Diagnostic &diag,
+        const ::slang::DiagnosticEngine &engine
+    ) {
         rust::Vec<rust::String> result;
+        result.reserve(diag.args.size());
         for (const auto &arg : diag.args) {
-            std::visit(
-                [&](auto &&value) {
-                    using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, std::string>)
-                        result.emplace_back(rust::String(value));
-                    else if constexpr (std::is_same_v<T, int64_t> || std::is_same_v<T, uint64_t>)
-                        result.emplace_back(rust::String(std::to_string(value)));
-                    else if constexpr (std::is_same_v<T, char>)
-                        result.emplace_back(rust::String(std::string(1, value)));
-                    else if constexpr (std::is_same_v<T, slang::ConstantValue>)
-                        result.emplace_back(rust::String(value.toString()));
-                    else
-                        result.emplace_back(rust::String());
-                },
-                arg
-            );
+            // Use Slang's formatter for every variant, including custom
+            // argument types. An empty string would silently corrupt the
+            // Rust-side diagnostic arguments when a new Slang argument type
+            // is introduced or a formatter is missing.
+            result.emplace_back(rust::String(engine.formatArg(arg)));
         }
         return result;
     }
@@ -71,7 +62,7 @@ namespace slang_sys::diagnostic::helper {
         rust_diag.subsystem = static_cast<uint16_t>(diag.code.getSubsystem());
         rust_diag.severity = static_cast<uint8_t>(engine.getSeverity(diag.code, diag.location));
         rust_diag.message = rust::String(engine.formatMessage(diag));
-        rust_diag.args = diagnostic_args(diag);
+        rust_diag.args = diagnostic_args(diag, engine);
         rust_diag.name = rust::String(std::string(slang::toString(diag.code)));
         rust_diag.option_name = rust::String(std::string(engine.getOptionName(diag.code)));
         rust_diag.primary_range_start = 0;
