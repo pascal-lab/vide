@@ -80,10 +80,6 @@ impl SyntaxTree {
         Self { raw, preprocessor_trace_cache: Arc::new(OnceLock::new()) }
     }
 
-    pub(crate) fn into_raw(self) -> SharedPtr<ffi::SyntaxTree> {
-        self.raw
-    }
-
     pub fn from_text(text: &str, name: &str, path: &str) -> Self {
         Self::from_text_with_options(text, name, path, &SyntaxTreeOptions::default())
     }

@@ -28,8 +28,8 @@ impl Compilation {
         Self { raw: ffi::new_compilation(top_modules.to_vec()) }
     }
 
-    pub fn add_syntax_tree(&mut self, tree: SyntaxTree) {
-        ffi::add_syntax_tree(self.raw_pin(), tree.into_raw());
+    pub fn add_syntax_tree(&mut self, tree: &SyntaxTree) {
+        ffi::add_syntax_tree(self.raw_pin(), tree.raw.clone());
     }
 
     pub fn parse_syntax_tree_from_text(
@@ -129,7 +129,7 @@ mod tests {
         let original = tree.clone();
 
         let mut compilation = Compilation::new();
-        compilation.add_syntax_tree(tree);
+        compilation.add_syntax_tree(&tree);
 
         assert_eq!(original.root().kind(), SyntaxKind::COMPILATION_UNIT);
     }

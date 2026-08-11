@@ -603,7 +603,7 @@ fn compilation_profile_diagnostics(
     let path_file_ids = path_file_ids(db);
 
     for (file_id, parsed_unit, buffer_ids) in parsed_profile.units.iter() {
-        compilation.add_syntax_tree(parsed_unit.syntax_tree.clone());
+        compilation.add_syntax_tree(&parsed_unit.syntax_tree);
         let buffer_ids_for_map = buffer_ids.clone();
         insert_buffer_file_ids(&mut buffer_file_ids, &path_file_ids, buffer_ids_for_map, *file_id);
     }
