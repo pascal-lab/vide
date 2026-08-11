@@ -318,28 +318,14 @@ impl ParserExpectedSyntax {
             token_kind: crate::token::TokenKind::from_raw(raw.token_kind),
             keyword_context: raw
                 .has_keyword_context
-                .then(|| match raw.keyword_context {
-                    0 => Some(SyntaxKeywordContext::CompilationUnitMember),
-                    1 => Some(SyntaxKeywordContext::LibraryMapMember),
-                    2 => Some(SyntaxKeywordContext::ModuleHeaderItem),
-                    3 => Some(SyntaxKeywordContext::ModuleMember),
-                    4 => Some(SyntaxKeywordContext::GenerateMember),
-                    5 => Some(SyntaxKeywordContext::SpecifyItem),
-                    6 => Some(SyntaxKeywordContext::ConfigHeaderItem),
-                    7 => Some(SyntaxKeywordContext::ConfigRule),
-                    8 => Some(SyntaxKeywordContext::BlockItem),
-                    9 => Some(SyntaxKeywordContext::Statement),
-                    10 => Some(SyntaxKeywordContext::ParameterPortListItem),
-                    11 => Some(SyntaxKeywordContext::AnsiPortItem),
-                    12 => Some(SyntaxKeywordContext::FunctionPortItem),
-                    13 => Some(SyntaxKeywordContext::GateType),
-                    context => {
-                        warn!(
-                            context,
-                            "Slang returned an unknown expected syntax context; dropping the context"
-                        );
-                        None
-                    }
+                .then(|| {
+                    SyntaxKeywordContext::from_raw(raw.keyword_context).or_else(|| {
+                    warn!(
+                        context = raw.keyword_context,
+                        "Slang returned an unknown expected syntax context; dropping the context"
+                    );
+                    None
+                })
                 })
                 .flatten(),
             location: raw.has_location.then_some(raw.location),

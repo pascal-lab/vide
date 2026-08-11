@@ -62,6 +62,29 @@ pub enum SyntaxKeywordContext {
     GateType,
 }
 
+impl SyntaxKeywordContext {
+    pub(crate) fn from_raw(raw: u8) -> Option<Self> {
+        [
+            Self::CompilationUnitMember,
+            Self::LibraryMapMember,
+            Self::ModuleHeaderItem,
+            Self::ModuleMember,
+            Self::GenerateMember,
+            Self::SpecifyItem,
+            Self::ConfigHeaderItem,
+            Self::ConfigRule,
+            Self::BlockItem,
+            Self::Statement,
+            Self::ParameterPortListItem,
+            Self::AnsiPortItem,
+            Self::FunctionPortItem,
+            Self::GateType,
+        ]
+        .into_iter()
+        .find(|context| *context as u8 == raw)
+    }
+}
+
 impl SyntaxDiagnostic {
     pub(crate) fn from_raw(raw: ffi::RawSyntaxDiagnostic) -> Self {
         let code = DiagCode::from_raw(raw.subsystem, raw.code);
