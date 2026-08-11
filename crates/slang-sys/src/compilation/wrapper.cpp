@@ -74,6 +74,22 @@ std::shared_ptr<syntax::SyntaxTree> parse_library_map_syntax_tree_from_text(
 }
 
 void add_syntax_tree(Compilation& compilation, std::shared_ptr<syntax::SyntaxTree> tree) {
+    if (!tree || !tree->tree || !tree->session)
+        throw std::invalid_argument("syntax tree and source session must be valid");
+
+    auto *source_manager = compilation.inner->getSourceManager();
+    if (source_manager && source_manager != &tree->session->source_manager)
+        throw std::logic_error(
+            "all syntax trees added to a compilation must share one source session"
+        );
+
+    // Slang keeps references to the tree's SourceManager after addSyntaxTree
+    // returns. Make the compilation own that session when the first externally
+    // parsed tree is attached, so dropping the Rust SyntaxTree wrapper cannot
+    // leave Slang with a dangling source manager.
+    if (!source_manager)
+        compilation.session = tree->session;
+
     compilation.inner->addSyntaxTree(tree->tree);
 }
 

@@ -133,4 +133,15 @@ mod tests {
 
         assert_eq!(original.root().kind(), SyntaxKind::COMPILATION_UNIT);
     }
+
+    #[test]
+    fn compilation_keeps_an_attached_tree_source_session_alive() {
+        let tree =
+            SyntaxTree::from_file_in_memory("module demo; endmodule\n", "source", "source.sv");
+        let mut compilation = Compilation::new();
+        compilation.add_syntax_tree(&tree);
+        drop(tree);
+
+        assert!(compilation.parse_diagnostics_with_options(&[]).is_empty());
+    }
 }
