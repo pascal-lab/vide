@@ -457,7 +457,17 @@ fn expansion_definition(
     let reference = mapped.model.macro_references().get(call.reference)?;
     if let SourceMacroResolution::Resolved { definition, .. } = &reference.resolution {
         let definition = mapped.model.macro_definitions().get(*definition)?;
-        return map_macro_definition(mapped, definition).ok().map(MacroExpansionDefinition::Source);
+        return match map_macro_definition(mapped, definition) {
+            Ok(definition) => Some(MacroExpansionDefinition::Source(definition)),
+            Err(error) => {
+                tracing::warn!(
+                    event_id = definition.event_id.raw(),
+                    ?error,
+                    "macro expansion source definition mapping failed"
+                );
+                None
+            }
+        };
     }
 
     // Builtin intrinsics have no source definition; identify them by the
