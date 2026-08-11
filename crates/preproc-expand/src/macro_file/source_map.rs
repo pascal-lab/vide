@@ -322,8 +322,30 @@ fn source_location(
     token_range: &SourceBufferRange,
 ) -> Option<OriginSource> {
     let source_range = source_range_from_trace(token_range)?;
-    let range = source_map.map_range(source_range).ok()?;
-    let file = source_map.file_id(source_range.source).ok()?;
+    let range = match source_map.map_range(source_range) {
+        Ok(range) => range,
+        Err(crate::source_db::SourcePreprocQueryError::DisplayOnlyVirtualSource { .. }) => {
+            return None;
+        }
+        Err(error) => {
+            tracing::warn!(
+                ?source_range,
+                ?error,
+                "dropping unmapped macro expansion origin"
+            );
+            return None;
+        }
+    };
+    let file = match source_map.file_id(source_range.source) {
+        Ok(file) => file,
+        Err(crate::source_db::SourcePreprocQueryError::DisplayOnlyVirtualSource { .. }) => {
+            return None;
+        }
+        Err(error) => {
+            tracing::warn!(?source_range, ?error, "dropping macro expansion origin without a file");
+            return None;
+        }
+    };
     Some(OriginSource { file, range })
 }
 
