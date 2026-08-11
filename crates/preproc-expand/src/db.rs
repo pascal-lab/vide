@@ -532,7 +532,17 @@ impl dyn PreprocDb + '_ {
 fn parse(db: &dyn PreprocDb, file_id: HirFileId) -> SyntaxTree {
     match file_id {
         HirFileId::File(file_id) => db.parse_src_for_compilation(file_id),
-        HirFileId::Macro(macro_file) => db.macro_expansion(macro_file).value.parse.clone(),
+        HirFileId::Macro(macro_file) => {
+            let expansion = db.macro_expansion(macro_file);
+            if let Some(error) = &expansion.err {
+                tracing::warn!(
+                    ?macro_file,
+                    ?error,
+                    "macro HIR parse is based on a partial expansion"
+                );
+            }
+            expansion.value.parse.clone()
+        }
     }
 }
 

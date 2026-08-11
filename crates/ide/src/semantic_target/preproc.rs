@@ -12,6 +12,7 @@ use preproc_expand::{
 };
 use rustc_hash::FxHashMap;
 use syntax::{SyntaxElement, SyntaxNode, SyntaxTokenWithParent, TokenKind, WalkEvent};
+use tracing::warn;
 use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
@@ -105,6 +106,9 @@ fn preproc_hits_at_offset(
     let mut hits = Vec::new();
     for macro_file in macro_files {
         let expansion = db.macro_expansion(*macro_file);
+        if let Some(error) = &expansion.err {
+            warn!(?macro_file, ?error, "macro source map is partial during target resolution");
+        }
         for source_hit in expansion.value.source_map.source_hits(file_id, offset) {
             let Some(hit) = preproc_hit_for_source_hit(source_hit) else {
                 continue;

@@ -67,6 +67,9 @@ pub(super) fn expanded_macro_hover(
                 return None;
             }
             let expansion = db.macro_expansion(macro_file);
+            if let Some(error) = &expansion.err {
+                warn!(?macro_file, ?error, "macro hover expansion is partial");
+            }
             Some(ExpandedMacro { metadata, text: expansion.value.text.clone() })
         })
         .collect::<Vec<_>>();
