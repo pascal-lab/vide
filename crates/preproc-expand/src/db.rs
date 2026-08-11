@@ -838,6 +838,7 @@ mod tests {
 
     const TOP: FileId = FileId::from_raw(0);
     const MANIFEST: FileId = FileId::from_raw(1);
+    const INCLUDED: FileId = FileId::from_raw(2);
     const ROOT: SourceRootId = SourceRootId(0);
 
     #[salsa::db]
@@ -901,6 +902,44 @@ mod tests {
             Arc::from("module top; endmodule\n"),
             Durability::LOW,
         );
+        db
+    }
+
+    fn db_with_macro_included_root() -> TestDb {
+        let top_path = abs_path("rtl/top.v");
+        let included_path = abs_path("rtl/included.sv");
+        let mut file_set = FileSet::default();
+        file_set.insert(TOP, VfsPath::from(top_path.clone()));
+        file_set.insert(INCLUDED, VfsPath::from(included_path.clone()));
+        let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP, INCLUDED]);
+        let mut files = FxHashSet::default();
+        files.insert(TOP);
+        files.insert(INCLUDED);
+
+        let mut db = TestDb::default();
+        db.set_files_with_durability(files, Durability::HIGH);
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig::default()),
+            Durability::LOW,
+        );
+        db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
+        for (file_id, path, text) in [
+            (
+                TOP,
+                top_path,
+                "`define FILE \"included.sv\"\n`include `FILE\nmodule top; endmodule\n",
+            ),
+            (INCLUDED, included_path, "module included; endmodule\n"),
+        ] {
+            db.set_source_root_id_with_durability(file_id, ROOT, Durability::LOW);
+            db.set_file_path_with_durability(file_id, Some(path), Durability::LOW);
+            db.set_file_kind_with_durability(
+                file_id,
+                SourceFileKind::SystemVerilog,
+                Durability::LOW,
+            );
+            db.set_file_text_with_durability(file_id, Arc::from(text), Durability::LOW);
+        }
         db
     }
 
@@ -985,6 +1024,23 @@ mod tests {
         let tree = db.parsed_profile(None).units[0].1.syntax_tree.clone();
         assert!(tree.expected_syntax_at(28).is_empty());
         assert!(!db.parser_expected_syntax(TOP, TextSize::from(28)).is_empty());
+    }
+
+    #[test]
+    fn profile_registers_root_buffers_before_macro_include_resolution() {
+        let db = db_with_macro_included_root();
+        let profile = db.parsed_profile(None);
+        let top = profile
+            .units
+            .iter()
+            .find(|(file_id, _, _)| *file_id == TOP)
+            .expect("top root should be in the profile");
+        let trace = top.1.preprocessor_trace.as_ref().expect("top root should have a trace");
+
+        assert!(trace.source_buffers.iter().any(|buffer| {
+            buffer.path == "/repo/rtl/included.sv"
+                && buffer.text.as_deref() == Some("module included; endmodule\n")
+        }));
     }
 
     #[test]
