@@ -41,13 +41,6 @@ namespace slang_sys::diagnostic::helper {
             total.end() = std::max(total.end(), range.end());
         }
 
-        if (context.valid()) {
-            if (context.buffer().getId() != buffer_id)
-                return std::nullopt;
-            total.start() = std::min(total.start(), context);
-            total.end() = std::max(total.end(), context);
-        }
-
         return total;
     }
 
