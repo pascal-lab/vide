@@ -25,6 +25,7 @@ use syntax::{
     ast::{self, AstNode},
     has_text_range::{HasTextRange, HasTextRangeIn},
 };
+use tracing::warn;
 use utils::text_edit::TextRange;
 use vfs::FileId;
 
@@ -173,8 +174,12 @@ fn collect_preproc_macro_references(
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) {
-    let Ok(references) = macro_references_in_range(db, file_id, range) else {
-        return;
+    let references = match macro_references_in_range(db, file_id, range) {
+        Ok(references) => references,
+        Err(error) => {
+            warn!(?file_id, ?range, ?error, "semantic macro tokens unavailable");
+            return;
+        }
     };
 
     for reference in references {

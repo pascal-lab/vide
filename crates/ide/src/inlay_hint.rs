@@ -22,6 +22,7 @@ use syntax::{
     has_text_range::HasTextRange,
     match_ast_kind,
 };
+use tracing::warn;
 use utils::{
     check_or_throw,
     text_edit::{TextEdit, TextRange, TextSize},
@@ -253,8 +254,12 @@ fn collect_macro_argument_hints(
     range: TextRange,
     collector: &mut InlayHintCollector,
 ) {
-    let Ok(resolutions) = macro_call_resolutions_in_range(db, file_id, range) else {
-        return;
+    let resolutions = match macro_call_resolutions_in_range(db, file_id, range) {
+        Ok(resolutions) => resolutions,
+        Err(error) => {
+            warn!(?file_id, ?range, ?error, "macro argument inlay hints unavailable");
+            return;
+        }
     };
 
     for resolution in resolutions {
