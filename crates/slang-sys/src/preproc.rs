@@ -350,7 +350,8 @@ impl TokenOrigin {
                 call_range: range_required(raw.call_range),
                 body_token_range: range_required(raw.body_token_range),
                 argument_token_range: raw
-                    .has_argument_token_index
+                    .argument_token_range
+                    .has_range
                     .then(|| range_required(raw.argument_token_range)),
             },
             TraceTokenOrigin::BUILTIN => TokenOrigin::Builtin {
@@ -423,6 +424,50 @@ mod tests {
 
         let origin = TokenOrigin::from_raw(raw);
         assert!(matches!(origin, TokenOrigin::TokenPaste { body_token_index: None, .. }));
+
+        let mut predefine = ffi::RawTraceTokenOrigin {
+            kind: TraceTokenOrigin::PREDEFINE,
+            macro_name: "FEATURE".to_owned(),
+            macro_call_id: 1,
+            has_macro_call_id: true,
+            macro_definition_id: 0,
+            has_macro_definition_id: false,
+            macro_expansion_id: 2,
+            has_macro_expansion_id: true,
+            parent_macro_expansion_id: 0,
+            has_parent_macro_expansion_id: false,
+            body_token_index: 0,
+            has_body_token_index: true,
+            argument_index: 0,
+            has_argument_index: true,
+            argument_token_index: 0,
+            has_argument_token_index: true,
+            token_range: empty_range(),
+            call_range: ffi::RawTraceSourceRange {
+                buffer_id: 0,
+                range_start: 0,
+                range_end: 1,
+                has_range: true,
+            },
+            body_token_range: ffi::RawTraceSourceRange {
+                buffer_id: 0,
+                range_start: 0,
+                range_end: 1,
+                has_range: true,
+            },
+            argument_token_range: empty_range(),
+        };
+        let origin = TokenOrigin::from_raw(predefine.clone());
+        assert!(matches!(origin, TokenOrigin::Predefine { argument_token_range: None, .. }));
+
+        predefine.argument_token_range = ffi::RawTraceSourceRange {
+            buffer_id: 0,
+            range_start: 1,
+            range_end: 2,
+            has_range: true,
+        };
+        let origin = TokenOrigin::from_raw(predefine);
+        assert!(matches!(origin, TokenOrigin::Predefine { argument_token_range: Some(_), .. }));
     }
 }
 
