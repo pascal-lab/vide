@@ -228,6 +228,26 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
 }
 
 #[test]
+fn trace_macro_argument_origin_indices_are_exact() {
+    let db = db_with_root_text(
+        "`define PICK(a, b) b\nmodule top; wire x = `PICK(first, second); endmodule\n",
+    );
+    let parsed = db.parsed_compilation_unit(TOP);
+    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+
+    assert!(trace.emitted_tokens.iter().any(|token| {
+        matches!(
+            token.origin,
+            TokenOrigin::MacroArgument {
+                argument_index: 1,
+                argument_token_index: 0,
+                ..
+            }
+        )
+    }));
+}
+
+#[test]
 fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
     let root_text = "`define DECL module from_macro; endmodule\n`DECL\n";
     let db = db_with_root_text(root_text);

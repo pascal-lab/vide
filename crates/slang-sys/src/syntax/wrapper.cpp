@@ -704,6 +704,7 @@ namespace slang_sys::syntax::tree {
                 );
             }
             if (source_manager.isMacroArgLoc(location)) {
+                auto token_origin = token.macroOrigin();
                 switch (call_origin->second) {
                     case slang::parsing::MacroUsageOrigin::Source:
                         origin.kind = 3;
@@ -721,13 +722,22 @@ namespace slang_sys::syntax::tree {
                 origin.argument_token_range = original_range;
                 origin.body_token_range = trace_range(source_manager.getFullyOriginalRange(
                     source_manager.getExpansionRange(location)));
-                origin.has_body_token_index = origin.body_token_range.has_range;
-                origin.has_argument_index = origin.argument_token_range.has_range;
-                origin.has_argument_token_index = origin.argument_token_range.has_range;
-                origin.body_token_index = 0;
-                origin.argument_index = 0;
-                origin.argument_token_index = 0;
+                origin.body_token_index = token_origin.bodyTokenIndex;
+                origin.has_body_token_index = token_origin.hasBodyTokenIndex;
+                origin.argument_index = token_origin.argumentIndex;
+                origin.has_argument_index = token_origin.hasArgumentIndex;
+                origin.argument_token_index = token_origin.argumentTokenIndex;
+                origin.has_argument_token_index = token_origin.hasArgumentTokenIndex;
+                if (macro_operation == slang::parsing::Token::MacroOperation::None &&
+                    call_origin->second == slang::parsing::MacroUsageOrigin::Source &&
+                    (!origin.has_body_token_index || !origin.has_argument_index ||
+                     !origin.has_argument_token_index))
+                    throw std::logic_error(
+                        "Slang source macro argument has incomplete token origin metadata: " +
+                        std::to_string(call->call_id)
+                    );
             } else {
+                auto token_origin = token.macroOrigin();
                 switch (call_origin->second) {
                     case slang::parsing::MacroUsageOrigin::Source:
                         origin.kind = 2;
@@ -743,8 +753,15 @@ namespace slang_sys::syntax::tree {
                         throw std::logic_error("Slang macro body has unknown macro origin");
                 }
                 origin.body_token_range = original_range;
-                origin.has_body_token_index = origin.body_token_range.has_range;
-                origin.body_token_index = 0;
+                origin.body_token_index = token_origin.bodyTokenIndex;
+                origin.has_body_token_index = token_origin.hasBodyTokenIndex;
+                if (macro_operation == slang::parsing::Token::MacroOperation::None &&
+                    call_origin->second == slang::parsing::MacroUsageOrigin::Source &&
+                    !origin.has_body_token_index)
+                    throw std::logic_error(
+                        "Slang source macro body has no token origin metadata: " +
+                        std::to_string(call->call_id)
+                    );
             }
             if (macro_operation == slang::parsing::Token::MacroOperation::TokenPaste)
                 origin.kind = 5;
