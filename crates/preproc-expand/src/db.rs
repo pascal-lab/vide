@@ -85,7 +85,8 @@ pub struct CompilationProfileDiagnostics {
 
 fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentity {
     let path = compilation_plan::source_buffer_path(db, file_id).to_string();
-    let name = path.clone();
+    let name =
+        db.file_path(file_id).map(|path| path.to_string()).unwrap_or_else(|| "source".to_owned());
     SourceFileIdentity { name, path }
 }
 
