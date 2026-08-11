@@ -9,6 +9,7 @@ use syntax::{
     ast::{self, AstNode},
     has_name::HasName,
     has_text_range::HasTextRange,
+    match_ast,
 };
 use triomphe::Arc;
 use utils::text_edit::TextRange;
@@ -413,40 +414,140 @@ fn signature_port_direction(kind: Option<TokenKind>) -> SignaturePortDirection {
     }
 }
 
+trait ItemName<'a> {
+    fn item_name(&self) -> Option<SyntaxToken<'a>>;
+}
+
+macro_rules! impl_has_name_item {
+    ($($ty:ident),+ $(,)?) => {
+        $(
+            impl<'a> ItemName<'a> for ast::$ty<'a> {
+                fn item_name(&self) -> Option<SyntaxToken<'a>> {
+                    HasName::name(self)
+                }
+            }
+        )+
+    };
+}
+
+impl_has_name_item!(
+    ModuleDeclaration,
+    FunctionDeclaration,
+    ConfigDeclaration,
+    UdpDeclaration,
+    LibraryDeclaration,
+    GenerateBlock,
+    BlockStatement,
+    NonAnsiPort,
+    PortReference,
+    Declarator,
+    IdentifierName,
+    SpecparamDeclarator,
+    ParamAssignment,
+    PortConnection,
+    HierarchicalInstance,
+    Statement,
+);
+
+impl<'a> ItemName<'a> for ast::LoopGenerate<'a> {
+    fn item_name(&self) -> Option<SyntaxToken<'a>> {
+        self.block().as_generate_block().and_then(|block| block.item_name())
+    }
+}
+
+impl<'a> ItemName<'a> for ast::ImplicitAnsiPort<'a> {
+    fn item_name(&self) -> Option<SyntaxToken<'a>> {
+        self.declarator().name()
+    }
+}
+
+impl<'a> ItemName<'a> for ast::ExplicitAnsiPort<'a> {
+    fn item_name(&self) -> Option<SyntaxToken<'a>> {
+        self.name()
+    }
+}
+
+impl<'a> ItemName<'a> for ast::ModportItem<'a> {
+    fn item_name(&self) -> Option<SyntaxToken<'a>> {
+        self.name()
+    }
+}
+
+impl<'a> ItemName<'a> for ast::ClockingDeclaration<'a> {
+    fn item_name(&self) -> Option<SyntaxToken<'a>> {
+        self.block_name()
+    }
+}
+
+impl<'a> ItemName<'a> for ast::DefaultClockingReference<'a> {
+    fn item_name(&self) -> Option<SyntaxToken<'a>> {
+        self.name()
+    }
+}
+
+impl<'a> ItemName<'a> for ast::Coverpoint<'a> {
+    fn item_name(&self) -> Option<SyntaxToken<'a>> {
+        self.label()?.name()
+    }
+}
+
+impl<'a> ItemName<'a> for ast::CoverCross<'a> {
+    fn item_name(&self) -> Option<SyntaxToken<'a>> {
+        self.label()?.name()
+    }
+}
+
+macro_rules! impl_direct_item_name {
+    ($($ty:ident),+ $(,)?) => {
+        $(
+            impl<'a> ItemName<'a> for ast::$ty<'a> {
+                fn item_name(&self) -> Option<SyntaxToken<'a>> {
+                    self.name()
+                }
+            }
+        )+
+    };
+}
+
+impl_direct_item_name!(
+    ClassDeclaration,
+    CheckerDeclaration,
+    CovergroupDeclaration,
+    TypedefDeclaration,
+);
+
 fn item_name(node: SyntaxNode<'_>) -> (Option<SmolStr>, Option<TextRange>) {
-    let token = ast::ModuleDeclaration::cast(node)
-        .and_then(|item| HasName::name(&item))
-        .or_else(|| ast::FunctionDeclaration::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::ConfigDeclaration::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::UdpDeclaration::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::LibraryDeclaration::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::GenerateBlock::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| {
-            ast::LoopGenerate::cast(node)
-                .and_then(|item| item.block().as_generate_block())
-                .and_then(crate::module::generate::generate_block_name)
-        })
-        .or_else(|| ast::BlockStatement::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::NonAnsiPort::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::PortReference::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::Declarator::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::IdentifierName::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::SpecparamDeclarator::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::ParamAssignment::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::PortConnection::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::HierarchicalInstance::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::Statement::cast(node).and_then(|item| HasName::name(&item)))
-        .or_else(|| ast::ImplicitAnsiPort::cast(node).and_then(|item| item.declarator().name()))
-        .or_else(|| ast::ExplicitAnsiPort::cast(node).and_then(|item| item.name()))
-        .or_else(|| ast::ModportItem::cast(node).and_then(|item| item.name()))
-        .or_else(|| ast::ClockingDeclaration::cast(node).and_then(|item| item.block_name()))
-        .or_else(|| ast::DefaultClockingReference::cast(node).and_then(|item| item.name()))
-        .or_else(|| ast::Coverpoint::cast(node).and_then(|item| item.label()?.name()))
-        .or_else(|| ast::CoverCross::cast(node).and_then(|item| item.label()?.name()))
-        .or_else(|| ast::ClassDeclaration::cast(node).and_then(|item| item.name()))
-        .or_else(|| ast::CheckerDeclaration::cast(node).and_then(|item| item.name()))
-        .or_else(|| ast::CovergroupDeclaration::cast(node).and_then(|item| item.name()))
-        .or_else(|| ast::TypedefDeclaration::cast(node).and_then(|item| item.name()));
+    let token = match_ast! { node,
+        ast::ModuleDeclaration[item] => item.item_name(),
+        ast::FunctionDeclaration[item] => item.item_name(),
+        ast::ConfigDeclaration[item] => item.item_name(),
+        ast::UdpDeclaration[item] => item.item_name(),
+        ast::LibraryDeclaration[item] => item.item_name(),
+        ast::GenerateBlock[item] => item.item_name(),
+        ast::LoopGenerate[item] => item.item_name(),
+        ast::BlockStatement[item] => item.item_name(),
+        ast::NonAnsiPort[item] => item.item_name(),
+        ast::PortReference[item] => item.item_name(),
+        ast::Declarator[item] => item.item_name(),
+        ast::IdentifierName[item] => item.item_name(),
+        ast::SpecparamDeclarator[item] => item.item_name(),
+        ast::ParamAssignment[item] => item.item_name(),
+        ast::PortConnection[item] => item.item_name(),
+        ast::HierarchicalInstance[item] => item.item_name(),
+        ast::Statement[item] => item.item_name(),
+        ast::ImplicitAnsiPort[item] => item.item_name(),
+        ast::ExplicitAnsiPort[item] => item.item_name(),
+        ast::ModportItem[item] => item.item_name(),
+        ast::ClockingDeclaration[item] => item.item_name(),
+        ast::DefaultClockingReference[item] => item.item_name(),
+        ast::Coverpoint[item] => item.item_name(),
+        ast::CoverCross[item] => item.item_name(),
+        ast::ClassDeclaration[item] => item.item_name(),
+        ast::CheckerDeclaration[item] => item.item_name(),
+        ast::CovergroupDeclaration[item] => item.item_name(),
+        ast::TypedefDeclaration[item] => item.item_name(),
+        _ => None,
+    };
 
     if let Some(token) = token {
         return token_data(node, token);
