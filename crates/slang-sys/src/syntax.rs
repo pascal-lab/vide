@@ -68,6 +68,29 @@ endmodule
     }
 
     #[test]
+    fn predefine_source_buffers_use_logical_api_origin() {
+        let options = SyntaxTreeOptions {
+            predefines: vec!["FEATURE=1".to_owned()],
+            ..SyntaxTreeOptions::default()
+        };
+        let parsed = SyntaxTree::from_file_in_memory_with_options_and_trace(
+            "module m; wire x = `FEATURE; endmodule\n",
+            "source",
+            "source.sv",
+            &options,
+        );
+        let trace = parsed.preprocessor_trace.expect("trace should be collected");
+        let predefine = trace
+            .source_buffers
+            .iter()
+            .find(|buffer| {
+                buffer.text.as_deref().is_some_and(|text| text.contains("`define FEATURE"))
+            })
+            .expect("predefine backing buffer should be recorded");
+        assert_eq!(predefine.origin, crate::source_buffer::SourceBufferOrigin::Predefine);
+    }
+
+    #[test]
     fn syntax_tree_and_generated_accessors_work() {
         let tree = SyntaxTree::from_text_with_options(
             "module demo; endmodule",

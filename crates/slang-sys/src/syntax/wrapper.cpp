@@ -1021,7 +1021,13 @@ namespace slang_sys::syntax::tree {
             auto full_path = tree.session->source_manager.getFullPath(buffer);
             auto path = full_path.empty() ? std::string(raw_path) : full_path.string();
             auto text = tree.session->source_manager.getSourceText(buffer);
-            auto origin = static_cast<uint8_t>(raw_path == "<api>" ? 1 : 0);
+            // Preprocessor::predefine uses an unnamed backing buffer and a
+            // line directive for its logical `<api>` source name. The raw
+            // buffer name is therefore `<unnamed_bufferN>`; classify using
+            // Slang's logical file-name lookup instead of the raw path.
+            auto logical_path = tree.session->source_manager.getFileName(
+                slang::SourceLocation(buffer, 0));
+            auto origin = static_cast<uint8_t>(logical_path == "<api>" ? 1 : 0);
             result.source_buffers.emplace_back(RawTraceSourceBuffer {
                 rust::String(path.data(), path.size()),
                 rust::String(text.data(), text.size()),
