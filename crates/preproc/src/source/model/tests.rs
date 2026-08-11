@@ -18,9 +18,7 @@ fn preprocessor_trace(
     path: &str,
     options: &SyntaxTreeOptions,
 ) -> Trace {
-    SyntaxTree::from_text_with_options_and_trace(root_text, name, path, options)
-        .preprocessor_trace
-        .expect("parse-derived trace should be present when requested")
+    SyntaxTree::from_text_with_options_and_trace(root_text, name, path, options).preprocessor_trace
 }
 
 fn source_model(
