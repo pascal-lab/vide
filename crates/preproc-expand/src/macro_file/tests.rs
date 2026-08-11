@@ -228,6 +228,25 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
 }
 
 #[test]
+fn expansion_source_map_drops_unmapped_macro_ranges() {
+    let source_map = PreprocSourceMap::default();
+    let origin = TokenOrigin::MacroBody {
+        macro_name: "BODY".to_owned(),
+        call_id: TraceMacroCallId(11),
+        definition_id: MacroDefinitionId(12),
+        expansion_id: MacroExpansionId(13),
+        parent_expansion_id: None,
+        body_token_index: 0,
+        call_range: range(7, 10..15),
+        body_token_range: range(7, 20..24),
+    };
+
+    let expansion = ExpansionSourceMap::from_token_origins(TOP, [&origin], &source_map);
+
+    assert_eq!(expansion.map_up(0), None);
+}
+
+#[test]
 fn trace_macro_argument_origin_indices_are_exact() {
     let db = db_with_root_text(
         "`define PICK(a, b) b\nmodule top; wire x = `PICK(first, second); endmodule\n",
