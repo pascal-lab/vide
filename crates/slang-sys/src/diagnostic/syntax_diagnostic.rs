@@ -152,4 +152,24 @@ mod tests {
         assert!(diagnostic.location.is_some(), "expected diagnostic location");
         assert!(!diagnostic.message.is_empty(), "expected formatted diagnostic message");
     }
+
+    #[test]
+    fn syntax_tree_diagnostics_apply_source_pragma_mappings() {
+        let tree = SyntaxTree::from_text_with_options(
+            "`pragma diagnostic ignore=\"unknown-escape-code\"\nmodule warning_demo; string s = \"\\q\"; endmodule",
+            "pragma_demo",
+            "pragma_demo.sv",
+            &Default::default(),
+        );
+
+        let diagnostic = tree
+            .diagnostics(&[])
+            .into_iter()
+            .find(|diag| {
+                DiagCode::from_raw(diag.subsystem, diag.code) == DiagCode::UNKNOWN_ESCAPE_CODE
+            })
+            .expect("expected unknown escape code diagnostic");
+
+        assert_eq!(diagnostic.severity, DiagnosticSeverity::Ignored);
+    }
 }

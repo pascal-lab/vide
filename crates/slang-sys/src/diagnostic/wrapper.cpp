@@ -28,13 +28,14 @@ namespace slang_sys::diagnostic::helper {
         return mapped.front();
     }
 
-    static void apply_warning_options(
+    static ::slang::Diagnostics apply_warning_options(
         slang::DiagnosticEngine &engine,
         const rust::Vec<rust::String> &warning_options
     ) {
         auto options = slang_sys::helper::to_std_strings(warning_options);
-        if (!options.empty())
-            (void)engine.setWarningOptions(options);
+        if (options.empty())
+            return {};
+        return engine.setWarningOptions(options);
     }
 
     static rust::Vec<rust::String> diagnostic_args(const ::slang::Diagnostic &diag) {
@@ -130,9 +131,14 @@ rust::Vec<RawSyntaxDiagnostic> diagnostics_to_rust(
     rust::Vec<rust::String> warning_options
 ) {
     slang::DiagnosticEngine engine(source_manager);
-    helper::apply_warning_options(engine, warning_options);
+    auto option_diagnostics = helper::apply_warning_options(engine, warning_options);
+    auto pragma_diagnostics = engine.setMappingsFromPragmas();
     rust::Vec<RawSyntaxDiagnostic> result;
-    result.reserve(diagnostics.size());
+    result.reserve(option_diagnostics.size() + pragma_diagnostics.size() + diagnostics.size());
+    for (const auto &diag : option_diagnostics)
+        result.emplace_back(helper::to_rust_syntax_diagnostic(diag, engine, source_manager));
+    for (const auto &diag : pragma_diagnostics)
+        result.emplace_back(helper::to_rust_syntax_diagnostic(diag, engine, source_manager));
     for (const auto& diag : diagnostics)
         result.emplace_back(helper::to_rust_syntax_diagnostic(diag, engine, source_manager));
     return result;
