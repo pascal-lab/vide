@@ -167,7 +167,14 @@ pub(crate) fn source_preproc_context_index_for_profile(
                     }
                 }
             }
-            Err(_) => skipped_models += 1,
+            Err(error) => {
+                tracing::warn!(
+                    ?model_file_id,
+                    ?error,
+                    "failed to load source preprocessor model for context index"
+                );
+                skipped_models += 1;
+            }
         }
     }
 
