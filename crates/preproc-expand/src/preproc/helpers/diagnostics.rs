@@ -81,7 +81,16 @@ fn diagnostic_target_for_token(
             let (source, range) = match source_range_from_trace(argument_token_range) {
                 Some(range) => match map_source_mapping_range(mapped, range) {
                     Ok(mapped) => mapped,
-                    Err(_) => return Ok(TokenDiagnosticTarget::Blocked),
+                    Err(error) => {
+                        tracing::warn!(
+                            ?model_file,
+                            ?call_id,
+                            ?argument_index,
+                            ?error,
+                            "macro argument diagnostic target mapping failed"
+                        );
+                        return Ok(TokenDiagnosticTarget::Blocked);
+                    }
                 },
                 None => return Ok(TokenDiagnosticTarget::Blocked),
             };
