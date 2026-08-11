@@ -1,6 +1,6 @@
 use base_db::{
     project::{CompilationProfileId, ProjectConfig},
-    source_db::{SourceFileKind, SourceRootDb},
+    source_db::{SourceDb, SourceFileKind, SourceRootDb},
     source_root::SourceRootId,
 };
 use preproc::source::{
@@ -124,6 +124,19 @@ pub fn compilation_source_buffers_for_plan(
     include_buffers_for_plan_with_roots(db, plan, true)
 }
 
+/// Return the stable path Slang should use for a source file buffer.
+///
+/// Test fixtures and editor-only files can have no filesystem path. They still
+/// need a non-empty identity because `SourceManager::assignText` and
+/// `SyntaxTree::fromBuffer` are path keyed. Keep those identities deterministic
+/// within the database snapshot instead of falling back to an empty path.
+pub fn source_buffer_path(db: &dyn SourceDb, file_id: FileId) -> AbsPathBuf {
+    db.file_path(file_id).unwrap_or_else(|| {
+        AbsPathBuf::try_from(format!("/__vide_virtual__/{}", file_id.index()).as_str())
+            .expect("synthetic source buffer path must be absolute and UTF-8")
+    })
+}
+
 fn include_buffers_for_plan_with_roots(
     db: &dyn SourceRootDb,
     plan: &CompilationPlan,
@@ -156,10 +169,7 @@ fn include_buffers_for_plan_with_roots(
             continue;
         }
 
-        let Some(path) = db.file_path(file_id) else {
-            continue;
-        };
-
+        let path = source_buffer_path(db, file_id);
         if !seen_files.insert_path(&path) {
             continue;
         }

@@ -41,11 +41,9 @@ pub struct SyntaxTreeOptions {
     pub include_buffers: Vec<SyntaxTreeBuffer>,
     pub expand_includes: bool,
     pub collect_expected_syntax: bool,
-    /// Restrict parser expectation collection to one cursor offset.
-    ///
-    /// This is used by one-shot completion parses. Authoritative parses should
-    /// leave it unset and opt into `collect_expected_syntax` instead, so the
-    /// resulting tree can answer expectation queries at every offset.
+    /// Restrict parser expectation collection to one cursor offset. This keeps
+    /// completion metadata local to a single query instead of attaching every
+    /// recovery window to an authoritative syntax tree.
     pub expected_syntax_offset: Option<usize>,
 }
 

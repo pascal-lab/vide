@@ -84,8 +84,8 @@ pub struct CompilationProfileDiagnostics {
 }
 
 fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentity {
-    let path = db.file_path(file_id).map(|path| path.to_string()).unwrap_or_default();
-    let name = if path.is_empty() { "source".to_owned() } else { path.clone() };
+    let path = compilation_plan::source_buffer_path(db, file_id).to_string();
+    let name = path.clone();
     SourceFileIdentity { name, path }
 }
 
@@ -95,9 +95,8 @@ pub(crate) fn path_file_ids(db: &dyn SourceRootDb) -> PathIdentityIndex<FileId> 
         if db.file_is_project_ignored(file_id) {
             continue;
         }
-        if let Some(path) = db.file_path(file_id) {
-            index.insert_path(&path, file_id);
-        }
+        let path = compilation_plan::source_buffer_path(db, file_id);
+        index.insert_path(&path, file_id);
     }
     index
 }
@@ -134,8 +133,6 @@ pub(crate) fn syntax_tree_options_for_file(
         predefines: context.predefines.to_vec(),
         include_paths: context.include_dirs.iter().map(ToString::to_string).collect(),
         include_buffers,
-        // One authoritative parse must serve completion at any caret offset.
-        collect_expected_syntax: true,
         ..syntax::SyntaxTreeOptions::default()
     }
 }
@@ -145,18 +142,34 @@ fn syntax_tree_options_for_profile(context: &CompilationContext) -> syntax::Synt
         predefines: context.predefines.to_vec(),
         include_paths: context.include_dirs.iter().map(ToString::to_string).collect(),
         include_buffers: Vec::new(),
-        // One authoritative parse must serve completion at any caret offset.
-        collect_expected_syntax: true,
         ..syntax::SyntaxTreeOptions::default()
     }
 }
 
 fn syntax_tree_options_for_library_map() -> syntax::SyntaxTreeOptions {
+    syntax::SyntaxTreeOptions::default()
+}
+
+fn syntax_tree_options_for_parser_cursor(
+    db: &dyn PreprocDb,
+    file_id: FileId,
+) -> syntax::SyntaxTreeOptions {
+    let profile_id = db.file_compilation_profile(file_id);
+    let context = db.compilation_context_for_file(file_id);
+    let identity = source_file_identity(db, file_id);
+    let include_buffers = if db.file_kind(file_id).is_semantic_compilation_unit() {
+        let plan = db.compilation_plan_for_profile(profile_id);
+        compilation_plan::compilation_source_buffers_for_plan(db, &plan)
+    } else {
+        db.include_buffers_for_profile(profile_id).as_ref().clone()
+    };
     syntax::SyntaxTreeOptions {
-        // Library-map parsing does not consume SystemVerilog preprocessor
-        // options, but authoritative profile parses still collect Slang's
-        // expectation metadata for the completion query.
-        collect_expected_syntax: true,
+        predefines: context.predefines.to_vec(),
+        include_paths: context.include_dirs.iter().map(ToString::to_string).collect(),
+        include_buffers: include_buffers
+            .into_iter()
+            .filter(|buffer| buffer.path != identity.path)
+            .collect(),
         ..syntax::SyntaxTreeOptions::default()
     }
 }
@@ -309,11 +322,13 @@ pub fn set_parse_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
     parse_src_for_compilation::set_lru_capacity(db, capacity);
 }
 
-/// Parser expectations whose recorded source window covers `offset`.
+/// Parser expectations at one cursor offset.
 ///
-/// The authoritative parse records all expectation sites (with their source
-/// windows) when `collect_expected_syntax` is enabled, so this query is a
-/// cheap in-tree lookup: no re-parse happens per caret offset.
+/// Expectations are completion-only metadata. Keep them out of authoritative
+/// compilation trees and ask Slang for a cursor-scoped parse when completion
+/// needs them. The fallback receives the same profile buffers and options as
+/// the authoritative parse, so an unsaved include cannot silently come from
+/// disk.
 #[salsa::tracked(returns(clone))]
 fn parser_expected_syntax(
     db: &dyn PreprocDb,
@@ -338,9 +353,16 @@ fn parser_expected_syntax(
         ));
     }
 
-    Arc::from(
-        db.parsed_compilation_unit(file_id).syntax_tree.expected_syntax_at(usize::from(offset)),
-    )
+    let text = db.file_text(file_id);
+    let identity = source_file_identity(db, file_id);
+    let options = syntax_tree_options_for_parser_cursor(db, file_id);
+    Arc::from(SyntaxTree::expected_syntax_at_offset_with_options(
+        &text,
+        &identity.name,
+        &identity.path,
+        usize::from(offset),
+        &options,
+    ))
 }
 
 fn slang_warning_options(config: &DiagnosticsConfig) -> Vec<String> {
@@ -951,6 +973,18 @@ mod tests {
         let tree = profile.units[0].1.syntax_tree.clone();
         let root = tree.root();
         assert!(root.children().next().is_some());
+    }
+
+    #[test]
+    fn parser_expectations_are_cursor_scoped_outside_authoritative_tree() {
+        let mut db = db_with_root_file();
+        let text = "module top; always begin begin end endmodule\n";
+        db.set_file_text_with_durability(TOP, Arc::from(text), Durability::LOW);
+        db.set_project_config_with_durability(Arc::new(ProjectConfig::default()), Durability::LOW);
+
+        let tree = db.parsed_profile(None).units[0].1.syntax_tree.clone();
+        assert!(tree.expected_syntax_at(28).is_empty());
+        assert!(!db.parser_expected_syntax(TOP, TextSize::from(28)).is_empty());
     }
 
     #[test]
