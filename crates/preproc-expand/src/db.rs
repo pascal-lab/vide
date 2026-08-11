@@ -339,6 +339,14 @@ fn parser_expected_syntax(
     )
 }
 
+fn slang_warning_options(config: &DiagnosticsConfig) -> Vec<String> {
+    match &config.slang.warnings {
+        Some(options) if options.is_empty() => vec!["none".to_owned()],
+        Some(options) => options.clone(),
+        None => Vec::new(),
+    }
+}
+
 #[salsa::tracked(returns(clone))]
 fn parse_diagnostics(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<[SyntaxDiagnostic]> {
     let file_id = key.file_id(db);
@@ -355,7 +363,7 @@ fn parse_diagnostics(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<[Synta
     let root_buffer_id = tree.buffer_id();
     let raw_diagnostics = {
         let _span = tracing::info_span!("slang.parse.raw_diagnostics", ?file_id).entered();
-        tree.diagnostics_with_options(&config.slang.warnings)
+        tree.diagnostics_with_options(&slang_warning_options(&config))
     };
     let raw_diagnostic_count = raw_diagnostics.len();
     let mut non_root_buffer_count = 0usize;
@@ -620,7 +628,7 @@ fn compilation_diagnostics_from_compilation(
     if config.parse.enabled {
         let raw_diagnostics = {
             let _span = tracing::info_span!("slang.semantic.parse_diagnostics").entered();
-            compilation.parse_diagnostics_with_options(&config.slang.warnings)
+            compilation.parse_diagnostics_with_options(&slang_warning_options(config))
         };
         let raw_diagnostic_count = raw_diagnostics.len();
         let mut unmapped_buffer_count = 0usize;
@@ -666,7 +674,7 @@ fn compilation_diagnostics_from_compilation(
     if config.semantic.enabled {
         let raw_semantic_diagnostics = {
             let _span = tracing::info_span!("slang.semantic.raw_diagnostics").entered();
-            compilation.semantic_diagnostics_with_options(&config.slang.warnings)
+            compilation.semantic_diagnostics_with_options(&slang_warning_options(config))
         };
         let raw_semantic_diagnostic_count = raw_semantic_diagnostics.len();
         let mut unmapped_semantic_buffer_count = 0usize;

@@ -20,7 +20,10 @@ pub struct DiagnosticPhaseConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SlangDiagnosticsConfig {
-    pub warnings: Vec<String>,
+    /// `None` keeps Slang's native warning defaults. `Some` passes an
+    /// explicit warning option list, including an empty list which disables
+    /// all warnings.
+    pub warnings: Option<Vec<String>>,
     pub rules: Vec<DiagnosticRule>,
 }
 
@@ -61,7 +64,7 @@ impl Default for DiagnosticsConfig {
             enabled: true,
             parse: DiagnosticPhaseConfig { enabled: true },
             semantic: DiagnosticPhaseConfig { enabled: true },
-            slang: SlangDiagnosticsConfig { warnings: Vec::new(), rules: Vec::new() },
+            slang: SlangDiagnosticsConfig { warnings: None, rules: Vec::new() },
         }
     }
 }
@@ -129,7 +132,7 @@ mod tests {
     fn applies_source_rule() {
         let config = DiagnosticsConfig {
             slang: SlangDiagnosticsConfig {
-                warnings: Vec::new(),
+                warnings: None,
                 rules: vec![DiagnosticRule {
                     selector: DiagnosticSelector::Source(DiagnosticSource::Parse),
                     severity: DiagnosticRuleSeverity::Ignore,

@@ -1486,7 +1486,7 @@ impl UserConfig {
             parse: DiagnosticPhaseConfig { enabled: self.diagnostics.parse.enable },
             semantic: DiagnosticPhaseConfig { enabled: self.diagnostics.semantic.enable },
             slang: SlangDiagnosticsConfig {
-                warnings: self.diagnostics.slang.warnings.clone(),
+                warnings: Some(self.diagnostics.slang.warnings.clone()),
                 rules: self
                     .diagnostics
                     .slang
@@ -1633,7 +1633,12 @@ fn check_default() {
     assert_eq!(user_cfg, UserConfig::default());
     assert_eq!(
         user_cfg.diagnostics_config().slang.warnings,
-        ["width-expand", "width-trunc", "port-width-expand", "port-width-trunc"]
+        Some(vec![
+            "width-expand".to_owned(),
+            "width-trunc".to_owned(),
+            "port-width-expand".to_owned(),
+            "port-width-trunc".to_owned(),
+        ])
     );
 }
 
@@ -1685,7 +1690,7 @@ fn parses_nested_diagnostics_config() {
     assert_eq!(user_cfg.diagnostics.update, DiagnosticsUpdateUserConfig::OnType);
     assert!(config.parse.enabled);
     assert!(!config.semantic.enabled);
-    assert_eq!(config.slang.warnings, ["default", "no-unused"]);
+    assert_eq!(config.slang.warnings, Some(vec!["default".to_owned(), "no-unused".to_owned()]));
     assert_eq!(config.slang.rules.len(), 2);
 }
 
@@ -1702,7 +1707,7 @@ fn explicit_empty_slang_warnings_override_defaults() {
     let user_cfg = UserConfig::from_json(json, &mut errors);
     assert!(errors.is_empty(), "{errors:?}");
 
-    assert!(user_cfg.diagnostics_config().slang.warnings.is_empty());
+    assert_eq!(user_cfg.diagnostics_config().slang.warnings, Some(Vec::new()));
 }
 
 #[test]
