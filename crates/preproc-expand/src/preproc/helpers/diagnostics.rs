@@ -75,6 +75,9 @@ fn diagnostic_target_for_token(
             })
         }
         TokenOrigin::MacroArgument { call_id, argument_index, argument_token_range, .. } => {
+            let Ok(arg_index) = usize::try_from(*argument_index) else {
+                return Ok(TokenDiagnosticTarget::Blocked);
+            };
             let (source, range) = match source_range_from_trace(argument_token_range) {
                 Some(range) => match map_source_mapping_range(mapped, range) {
                     Ok(mapped) => mapped,
@@ -86,7 +89,7 @@ fn diagnostic_target_for_token(
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::MacroArg {
                     call: hir_macro_call(model_file, *call_id),
-                    arg_index: usize::try_from(*argument_index).ok().unwrap_or_default(),
+                    arg_index,
                     arg_range: range,
                 },
                 file_id,
