@@ -171,13 +171,31 @@ pub fn macro_files_at_offset(
         }
         for call in mapped.macro_call_ids_at(file_id, offset) {
             let Some(source_call) = mapped.model.macro_calls().get(call) else {
-                continue;
+                tracing::warn!(
+                    ?file_id,
+                    ?model_file,
+                    ?call,
+                    "macro expansion index references a missing call"
+                );
+                return Vec::new();
             };
             let Some(trace_call) = source_call.trace_call else {
-                continue;
+                tracing::warn!(
+                    ?file_id,
+                    ?model_file,
+                    ?call,
+                    "macro call has no Slang trace identity"
+                );
+                return Vec::new();
             };
             if db.trace_index(model_file).emitted_range_for_call(trace_call).is_none() {
-                continue;
+                tracing::warn!(
+                    ?file_id,
+                    ?model_file,
+                    ?trace_call,
+                    "macro call has no Slang emitted-token range"
+                );
+                return Vec::new();
             }
             let macro_file = MacroFileId(MacroCallLoc { model_file, trace_call });
             if !macro_files.contains(&macro_file) {
@@ -240,10 +258,22 @@ pub fn macro_files_for_file(db: &dyn PreprocDb, file_id: FileId) -> Vec<MacroFil
                 continue;
             }
             let Some(trace_call) = call.trace_call else {
-                continue;
+                tracing::warn!(
+                    ?file_id,
+                    ?model_file,
+                    call_id = call.id.raw(),
+                    "macro call has no Slang trace identity"
+                );
+                return Vec::new();
             };
             if db.trace_index(model_file).emitted_range_for_call(trace_call).is_none() {
-                continue;
+                tracing::warn!(
+                    ?file_id,
+                    ?model_file,
+                    ?trace_call,
+                    "macro call has no Slang emitted-token range"
+                );
+                return Vec::new();
             }
             let macro_file = MacroFileId(MacroCallLoc { model_file, trace_call });
             if !macro_files.contains(&macro_file) {

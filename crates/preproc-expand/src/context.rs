@@ -105,10 +105,22 @@ pub(crate) fn file_macro_coverage_query(db: &dyn PreprocDb, file_id: FileId) -> 
         let trace_index = db.trace_index(model_file);
         for call in mapped.model.macro_calls().iter() {
             let Some(trace_call) = call.trace_call else {
-                continue;
+                tracing::warn!(
+                    ?file_id,
+                    ?model_file,
+                    call_id = call.id.raw(),
+                    "macro coverage call has no Slang trace identity"
+                );
+                return Arc::new(MacroCoverage::default());
             };
             if trace_index.emitted_range_for_call(trace_call).is_none() {
-                continue;
+                tracing::warn!(
+                    ?file_id,
+                    ?model_file,
+                    ?trace_call,
+                    "macro coverage call has no Slang emitted-token range"
+                );
+                return Arc::new(MacroCoverage::default());
             }
             let call_file = match mapped.source_map.file_id(call.call_range.source) {
                 Ok(call_file) => call_file,
