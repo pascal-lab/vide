@@ -5,7 +5,7 @@ use base_db::{
     source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
 use hir_def::source_map::{LoweringDiagnostic, LoweringDiagnosticKind};
-use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
+use syntax::{DiagCode, DiagnosticSeverity, SyntaxDiagnostic};
 use utils::text_edit::{TextRange, TextSize};
 use vfs::FileId;
 
@@ -68,7 +68,8 @@ impl Diagnostic {
     /// wrong token, so when upgrading slang, re-check that `args[0]` is still
     /// the expected token (covered by the `insert_expected_token` tests).
     pub(crate) fn expected_token(&self) -> Option<&str> {
-        (self.source == DiagnosticSource::SlangParse && self.name == "ExpectedToken")
+        (self.source == DiagnosticSource::SlangParse
+            && DiagCode::from_raw(self.subsystem, self.code) == DiagCode::EXPECTED_TOKEN)
             .then(|| self.args.first())
             .flatten()
             .map(String::as_str)

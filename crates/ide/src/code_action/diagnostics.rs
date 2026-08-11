@@ -1,3 +1,5 @@
+use syntax::DiagCode;
+
 use crate::diagnostics::{Diagnostic, DiagnosticSource};
 
 /// The kind of diagnostic repair a code action satisfies. Matching lives in
@@ -19,50 +21,53 @@ pub enum RepairKind {
 impl RepairKind {
     /// Returns whether `diag` is the diagnostic this repair satisfies.
     ///
-    /// The matchers encode identity fields of slang's diagnostics — the
-    /// traits (`option_name`) and numeric codes (`subsystem`/`code`) below
-    /// come from the slang version vide is built against and may drift when
-    /// slang changes its diagnostic schema. Keeping the matching here, next
-    /// to a `#[cfg(test)]` table that pins every `RepairKind`, makes a slang
-    /// upgrade that renumbers/renames a diagnostic fail loudly in tests
-    /// rather than silently detaching a quick fix. The `MissingConnection`
-    /// arm is deliberately double-keyed (by `option_name` **or** by
-    /// subsystem/code) so it keeps working even when one of the two encodings
-    /// changes.
+    /// The matchers use generated Slang diagnostic codes. Their symbolic
+    /// names are regenerated from the pinned Slang descriptors, so a Slang
+    /// upgrade cannot silently leave a quick fix coupled to a stale display
+    /// string or v7 numeric id.
     pub fn matches(self, diag: &Diagnostic) -> bool {
         match self {
             RepairKind::MissingConnection => {
                 diag.source == DiagnosticSource::SlangSemantic
-                    && (matches!(
-                        diag.option_name.as_deref(),
-                        Some("unconnected-port" | "unconnected-unnamed-port")
-                    ) || (diag.subsystem == 2 && matches!(diag.code, 260 | 261)))
+                    && matches!(
+                        DiagCode::from_raw(diag.subsystem, diag.code),
+                        DiagCode::UNCONNECTED_IN_OUT_PORT
+                            | DiagCode::UNCONNECTED_INPUT_PORT
+                            | DiagCode::UNCONNECTED_OUTPUT_PORT
+                    )
             }
             RepairKind::MissingParameter => {
-                diag.source == DiagnosticSource::SlangSemantic && diag.name == "ParamHasNoValue"
+                diag.source == DiagnosticSource::SlangSemantic
+                    && DiagCode::from_raw(diag.subsystem, diag.code) == DiagCode::PARAM_HAS_NO_VALUE
             }
             RepairKind::ConvertOrderedPorts => {
                 diag.source == DiagnosticSource::SlangSemantic
-                    && diag.name == "MixingOrderedAndNamedPorts"
+                    && DiagCode::from_raw(diag.subsystem, diag.code)
+                        == DiagCode::MIXING_ORDERED_AND_NAMED_PORTS
             }
             RepairKind::ConvertOrderedParams => {
                 diag.source == DiagnosticSource::SlangSemantic
-                    && diag.name == "MixingOrderedAndNamedParams"
+                    && DiagCode::from_raw(diag.subsystem, diag.code)
+                        == DiagCode::MIXING_ORDERED_AND_NAMED_PARAMS
             }
             RepairKind::RemoveEmptyPortConnections => {
                 diag.source == DiagnosticSource::SlangSemantic
-                    && diag.name == "MixingOrderedAndNamedPorts"
+                    && DiagCode::from_raw(diag.subsystem, diag.code)
+                        == DiagCode::MIXING_ORDERED_AND_NAMED_PORTS
             }
             RepairKind::AddImplicitNamedPortParens => {
                 diag.source == DiagnosticSource::SlangSemantic
-                    && diag.name == "ImplicitNamedPortNotFound"
+                    && DiagCode::from_raw(diag.subsystem, diag.code)
+                        == DiagCode::IMPLICIT_NAMED_PORT_NOT_FOUND
             }
             RepairKind::AddInstanceParens => {
                 diag.source == DiagnosticSource::SlangSemantic
-                    && diag.name == "InstanceMissingParens"
+                    && DiagCode::from_raw(diag.subsystem, diag.code)
+                        == DiagCode::INSTANCE_MISSING_PARENS
             }
             RepairKind::InsertExpectedToken => {
-                diag.source == DiagnosticSource::SlangParse && diag.name == "ExpectedToken"
+                diag.source == DiagnosticSource::SlangParse
+                    && DiagCode::from_raw(diag.subsystem, diag.code) == DiagCode::EXPECTED_TOKEN
             }
         }
     }
@@ -70,19 +75,19 @@ impl RepairKind {
 
 #[cfg(test)]
 mod tests {
-    use syntax::DiagnosticSeverity;
+    use syntax::{DiagCode, DiagnosticSeverity};
     use utils::text_edit::{TextRange, TextSize};
     use vfs::FileId;
 
     use super::RepairKind;
     use crate::diagnostics::{Diagnostic, DiagnosticSource};
 
-    fn diagnostic(name: &str, subsystem: u16, code: u16, option_name: Option<&str>) -> Diagnostic {
+    fn diagnostic(code: DiagCode, option_name: Option<&str>) -> Diagnostic {
         Diagnostic {
             file_id: FileId::from_raw(0),
-            code,
-            subsystem,
-            name: name.to_owned(),
+            code: code.code_raw(),
+            subsystem: code.subsystem_raw(),
+            name: code.info().expect("test diagnostic should have metadata").name.to_owned(),
             option_name: option_name.map(ToOwned::to_owned),
             groups: Vec::new(),
             source: DiagnosticSource::SlangSemantic,
@@ -101,37 +106,40 @@ mod tests {
         let cases = [
             (
                 RepairKind::MissingConnection,
-                diagnostic("UnconnectedNamedPort", 2, 260, Some("unconnected-port")),
+                diagnostic(DiagCode::UNCONNECTED_INPUT_PORT, Some("unconnected-input-port")),
             ),
-            (RepairKind::MissingConnection, diagnostic("UnconnectedNamedPort", 2, 261, None)),
-            (RepairKind::MissingParameter, diagnostic("ParamHasNoValue", 2, 29, None)),
-            (RepairKind::ConvertOrderedPorts, diagnostic("MixingOrderedAndNamedPorts", 2, 0, None)),
+            (RepairKind::MissingConnection, diagnostic(DiagCode::UNCONNECTED_OUTPUT_PORT, None)),
+            (RepairKind::MissingParameter, diagnostic(DiagCode::PARAM_HAS_NO_VALUE, None)),
+            (
+                RepairKind::ConvertOrderedPorts,
+                diagnostic(DiagCode::MIXING_ORDERED_AND_NAMED_PORTS, None),
+            ),
             (
                 RepairKind::ConvertOrderedParams,
-                diagnostic("MixingOrderedAndNamedParams", 2, 0, None),
+                diagnostic(DiagCode::MIXING_ORDERED_AND_NAMED_PARAMS, None),
             ),
             (
                 RepairKind::RemoveEmptyPortConnections,
-                diagnostic("MixingOrderedAndNamedPorts", 2, 0, None),
+                diagnostic(DiagCode::MIXING_ORDERED_AND_NAMED_PORTS, None),
             ),
             (
                 RepairKind::AddImplicitNamedPortParens,
-                diagnostic("ImplicitNamedPortNotFound", 2, 0, None),
+                diagnostic(DiagCode::IMPLICIT_NAMED_PORT_NOT_FOUND, None),
             ),
-            (RepairKind::AddInstanceParens, diagnostic("InstanceMissingParens", 2, 0, None)),
+            (RepairKind::AddInstanceParens, diagnostic(DiagCode::INSTANCE_MISSING_PARENS, None)),
         ];
 
         for (repair, diag) in cases {
             assert!(repair.matches(&diag), "{repair:?} should match {:?}", diag.name);
         }
 
-        let unrelated = diagnostic("MixingOrderedAndNamedPorts", 2, 0, None);
+        let unrelated = diagnostic(DiagCode::MIXING_ORDERED_AND_NAMED_PORTS, None);
         assert!(!RepairKind::MissingParameter.matches(&unrelated));
     }
 
     #[test]
     fn repair_kind_matches_parse_expected_token() {
-        let mut diag = diagnostic("ExpectedToken", 1, 116, None);
+        let mut diag = diagnostic(DiagCode::EXPECTED_TOKEN, None);
         diag.source = DiagnosticSource::SlangParse;
         diag.args = vec![";".to_owned()];
 

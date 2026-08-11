@@ -224,42 +224,56 @@ fn text_with_selection_range(text: &str) -> (String, TextRange) {
 
 fn diagnostic_for_repair(repair: RepairKind, range: TextRange) -> crate::diagnostics::Diagnostic {
     use crate::diagnostics::{Diagnostic, DiagnosticSource};
-    let (source, name, option_name, subsystem, code, args) = match repair {
+    let (source, code, option_name, args) = match repair {
         RepairKind::MissingConnection => (
             DiagnosticSource::SlangSemantic,
-            "UnconnectedNamedPort",
+            syntax::DiagCode::UNCONNECTED_INPUT_PORT,
             Some("unconnected-port"),
-            2,
-            260,
             Vec::new(),
         ),
-        RepairKind::MissingParameter => {
-            (DiagnosticSource::SlangSemantic, "ParamHasNoValue", None, 2, 29, Vec::new())
-        }
-        RepairKind::ConvertOrderedPorts => {
-            (DiagnosticSource::SlangSemantic, "MixingOrderedAndNamedPorts", None, 2, 0, Vec::new())
-        }
-        RepairKind::ConvertOrderedParams => {
-            (DiagnosticSource::SlangSemantic, "MixingOrderedAndNamedParams", None, 2, 0, Vec::new())
-        }
-        RepairKind::RemoveEmptyPortConnections => {
-            (DiagnosticSource::SlangSemantic, "MixingOrderedAndNamedPorts", None, 2, 0, Vec::new())
-        }
-        RepairKind::AddImplicitNamedPortParens => {
-            (DiagnosticSource::SlangSemantic, "ImplicitNamedPortNotFound", None, 2, 0, Vec::new())
-        }
-        RepairKind::AddInstanceParens => {
-            (DiagnosticSource::SlangSemantic, "InstanceMissingParens", None, 2, 0, Vec::new())
-        }
-        RepairKind::InsertExpectedToken => {
-            (DiagnosticSource::SlangParse, "ExpectedToken", None, 1, 0, vec![";".to_owned()])
-        }
+        RepairKind::MissingParameter => (
+            DiagnosticSource::SlangSemantic,
+            syntax::DiagCode::PARAM_HAS_NO_VALUE,
+            None,
+            Vec::new(),
+        ),
+        RepairKind::ConvertOrderedPorts | RepairKind::RemoveEmptyPortConnections => (
+            DiagnosticSource::SlangSemantic,
+            syntax::DiagCode::MIXING_ORDERED_AND_NAMED_PORTS,
+            None,
+            Vec::new(),
+        ),
+        RepairKind::ConvertOrderedParams => (
+            DiagnosticSource::SlangSemantic,
+            syntax::DiagCode::MIXING_ORDERED_AND_NAMED_PARAMS,
+            None,
+            Vec::new(),
+        ),
+        RepairKind::AddImplicitNamedPortParens => (
+            DiagnosticSource::SlangSemantic,
+            syntax::DiagCode::IMPLICIT_NAMED_PORT_NOT_FOUND,
+            None,
+            Vec::new(),
+        ),
+        RepairKind::AddInstanceParens => (
+            DiagnosticSource::SlangSemantic,
+            syntax::DiagCode::INSTANCE_MISSING_PARENS,
+            None,
+            Vec::new(),
+        ),
+        RepairKind::InsertExpectedToken => (
+            DiagnosticSource::SlangParse,
+            syntax::DiagCode::EXPECTED_TOKEN,
+            None,
+            vec![";".to_owned()],
+        ),
     };
+    let info = code.info().expect("test diagnostic should have metadata");
     Diagnostic {
         file_id: FileId::from_raw(0),
-        code,
-        subsystem,
-        name: name.to_owned(),
+        code: code.code_raw(),
+        subsystem: code.subsystem_raw(),
+        name: info.name.to_owned(),
         option_name: option_name.map(ToOwned::to_owned),
         groups: Vec::new(),
         source,
