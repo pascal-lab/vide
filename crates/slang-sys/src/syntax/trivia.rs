@@ -1,7 +1,4 @@
-use std::{
-    hash::{Hash, Hasher},
-    ptr::NonNull,
-};
+use std::hash::{Hash, Hasher};
 
 use super::{
     ffi,
@@ -14,14 +11,15 @@ use crate::{source_buffer::SourceLocation, token::TriviaKind};
 /// directives.
 #[derive(Clone, Debug)]
 pub struct SyntaxTrivia<'a> {
-    pub(crate) raw: NonNull<ffi::SyntaxTrivia>,
+    pub(crate) token: SyntaxToken<'a>,
+    pub(crate) index: usize,
     raw_text: String,
     pub(crate) tree: &'a SyntaxTree,
 }
 
 impl PartialEq for SyntaxTrivia<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.raw == other.raw && self.raw_text == other.raw_text
+        self.token == other.token && self.index == other.index && self.raw_text == other.raw_text
     }
 }
 
@@ -29,7 +27,8 @@ impl Eq for SyntaxTrivia<'_> {}
 
 impl Hash for SyntaxTrivia<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.raw.hash(state);
+        self.token.hash(state);
+        self.index.hash(state);
         self.raw_text.hash(state);
     }
 }
@@ -43,29 +42,16 @@ pub struct SyntaxTriviaLoc {
 }
 
 impl<'a> SyntaxTrivia<'a> {
-    pub(crate) fn from_raw(raw: *const ffi::SyntaxTrivia, tree: &'a SyntaxTree) -> Self {
-        let raw = NonNull::new(raw.cast_mut()).expect("slang returned null trivia pointer");
-        let raw_text = unsafe { ffi::syntax_trivia_raw_text(raw.as_ptr()) };
-        Self { raw, raw_text, tree }
+    pub(crate) fn from_token(token: SyntaxToken<'a>, index: usize) -> Self {
+        assert!(index < token.trivia_count(), "trivia index should be in bounds");
+        let raw_text = unsafe { ffi::syntax_trivia_raw_text(token.raw.as_ptr(), index) };
+        Self { token, index, raw_text, tree: token.tree }
     }
 
     pub fn kind(&self) -> TriviaKind {
-        let kind = TriviaKind::from_raw(unsafe { ffi::syntax_trivia_kind(self.raw.as_ptr()) });
-        if !kind.is_unknown() {
-            return kind;
-        }
-
-        // Slang can expose an implicit source trivia with an Unknown kind
-        // while retaining its raw text. Preserve the useful lexical contract
-        // at this boundary instead of making every consumer special-case it.
-        let raw = self.get_raw_text();
-        if !raw.is_empty() && raw.bytes().any(|byte| matches!(byte, b'\r' | b'\n')) {
-            return TriviaKind::END_OF_LINE;
-        }
-        if !raw.is_empty() && raw.chars().all(char::is_whitespace) {
-            return TriviaKind::WHITESPACE;
-        }
-        kind
+        TriviaKind::from_raw(unsafe {
+            ffi::syntax_trivia_kind(self.token.raw.as_ptr(), self.index)
+        })
     }
 
     pub fn get_raw_text(&self) -> &str {
@@ -73,18 +59,27 @@ impl<'a> SyntaxTrivia<'a> {
     }
 
     pub(crate) fn explicit_location(&self) -> Option<SourceLocation> {
-        let valid = unsafe { ffi::syntax_trivia_explicit_location_valid(self.raw.as_ptr()) };
+        let valid = unsafe {
+            ffi::syntax_trivia_explicit_location_valid(self.token.raw.as_ptr(), self.index)
+        };
         valid.then(|| {
             SourceLocation::from_parts(
-                unsafe { ffi::syntax_trivia_explicit_location_buffer_id(self.raw.as_ptr()) },
-                unsafe { ffi::syntax_trivia_explicit_location_offset(self.raw.as_ptr()) },
+                unsafe {
+                    ffi::syntax_trivia_explicit_location_buffer_id(
+                        self.token.raw.as_ptr(),
+                        self.index,
+                    )
+                },
+                unsafe {
+                    ffi::syntax_trivia_explicit_location_offset(self.token.raw.as_ptr(), self.index)
+                },
             )
         })
     }
 
     pub fn syntax(&self) -> Option<SyntaxNode<'a>> {
         SyntaxNode::from_nullable_raw(
-            unsafe { ffi::syntax_trivia_syntax(self.raw.as_ptr()) },
+            unsafe { ffi::syntax_trivia_syntax(self.token.raw.as_ptr(), self.index) },
             self.tree,
         )
     }

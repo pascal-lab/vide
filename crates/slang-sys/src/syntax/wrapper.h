@@ -204,7 +204,6 @@ namespace slang_sys::syntax {
         uint16_t syntax_token_directive_kind(rust::Str text);
         rust::String syntax_token_directive_text(uint16_t kind);
         std::size_t syntax_token_trivia_count(const SyntaxToken *token);
-        const SyntaxTrivia *syntax_token_trivia(const SyntaxToken *token, std::size_t index);
     } // namespace token
 
     namespace facts {
@@ -242,12 +241,18 @@ namespace slang_sys::syntax {
     } // namespace facts
 
     namespace trivia {
-        uint8_t syntax_trivia_kind(const SyntaxTrivia *trivia);
-        rust::String syntax_trivia_raw_text(const SyntaxTrivia *trivia);
-        const SyntaxNode *syntax_trivia_syntax(const SyntaxTrivia *trivia);
-        bool syntax_trivia_explicit_location_valid(const SyntaxTrivia *trivia);
-        uint32_t syntax_trivia_explicit_location_buffer_id(const SyntaxTrivia *trivia);
-        std::size_t syntax_trivia_explicit_location_offset(const SyntaxTrivia *trivia);
+        uint8_t syntax_trivia_kind(const SyntaxToken *token, std::size_t index);
+        rust::String syntax_trivia_raw_text(const SyntaxToken *token, std::size_t index);
+        const SyntaxNode *syntax_trivia_syntax(const SyntaxToken *token, std::size_t index);
+        bool syntax_trivia_explicit_location_valid(const SyntaxToken *token, std::size_t index);
+        uint32_t syntax_trivia_explicit_location_buffer_id(
+            const SyntaxToken *token,
+            std::size_t index
+        );
+        std::size_t syntax_trivia_explicit_location_offset(
+            const SyntaxToken *token,
+            std::size_t index
+        );
     } // namespace trivia
 
 } // namespace slang_sys::syntax

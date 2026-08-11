@@ -77,8 +77,15 @@ namespace slang_sys::syntax::helper {
         return map_range_with_context(token_range(token), context, owner);
     }
 
-    static std::optional<slang::SourceLocation> explicit_location(const SyntaxTrivia *trivia) {
-        return trivia->getExplicitLocation();
+    static SyntaxTrivia trivia_at(const SyntaxToken *token, std::size_t index) {
+        auto trivia = token->trivia();
+        if (index >= trivia.size())
+            throw std::out_of_range("Slang token trivia index is out of bounds");
+        return trivia[index];
+    }
+
+    static std::optional<slang::SourceLocation> explicit_location(const SyntaxTrivia &trivia) {
+        return trivia.getExplicitLocation();
     }
 
 } // namespace slang_sys::syntax::helper
@@ -1317,13 +1324,6 @@ namespace slang_sys::syntax::token {
         return token->trivia().size();
     }
 
-    const SyntaxTrivia *syntax_token_trivia(const SyntaxToken *token, std::size_t index) {
-        auto trivia = token->trivia();
-        if (index >= trivia.size())
-            return nullptr;
-        return &trivia[index];
-    }
-
 } // namespace slang_sys::syntax::token
 
 namespace slang_sys::syntax::facts {
@@ -1637,30 +1637,36 @@ bool is_allowed_in_package(uint16_t kind) {
 
 namespace slang_sys::syntax::trivia {
 
-    uint8_t syntax_trivia_kind(const SyntaxTrivia *trivia) {
-        return static_cast<uint8_t>(trivia->kind);
+    uint8_t syntax_trivia_kind(const SyntaxToken *token, std::size_t index) {
+        return static_cast<uint8_t>(helper::trivia_at(token, index).kind);
     }
 
-    rust::String syntax_trivia_raw_text(const SyntaxTrivia *trivia) {
-        auto text = trivia->getRawText();
+    rust::String syntax_trivia_raw_text(const SyntaxToken *token, std::size_t index) {
+        auto text = helper::trivia_at(token, index).getRawText();
         return rust::String(text.data(), text.size());
     }
 
-    const SyntaxNode *syntax_trivia_syntax(const SyntaxTrivia *trivia) {
-        return trivia->syntax();
+    const SyntaxNode *syntax_trivia_syntax(const SyntaxToken *token, std::size_t index) {
+        return helper::trivia_at(token, index).syntax();
     }
 
-    bool syntax_trivia_explicit_location_valid(const SyntaxTrivia *trivia) {
-        auto loc = helper::explicit_location(trivia);
+    bool syntax_trivia_explicit_location_valid(const SyntaxToken *token, std::size_t index) {
+        auto loc = helper::explicit_location(helper::trivia_at(token, index));
         return loc.has_value() && loc->valid();
     }
 
-    uint32_t syntax_trivia_explicit_location_buffer_id(const SyntaxTrivia *trivia) {
-        return helper::explicit_location(trivia)->buffer().getId();
+    uint32_t syntax_trivia_explicit_location_buffer_id(
+        const SyntaxToken *token,
+        std::size_t index
+    ) {
+        return helper::explicit_location(helper::trivia_at(token, index))->buffer().getId();
     }
 
-    std::size_t syntax_trivia_explicit_location_offset(const SyntaxTrivia *trivia) {
-        return helper::explicit_location(trivia)->offset();
+    std::size_t syntax_trivia_explicit_location_offset(
+        const SyntaxToken *token,
+        std::size_t index
+    ) {
+        return helper::explicit_location(helper::trivia_at(token, index))->offset();
     }
 
 } // namespace slang_sys::syntax::trivia

@@ -371,10 +371,7 @@ impl<'a> SyntaxToken<'a> {
             return None;
         }
 
-        Some(SyntaxTrivia::from_raw(
-            unsafe { ffi::syntax_token_trivia(self.raw.as_ptr(), idx) },
-            self.tree,
-        ))
+        Some(SyntaxTrivia::from_token(self, idx))
     }
 
     pub fn trivias(self) -> SyntaxTriviaIter<'a> {

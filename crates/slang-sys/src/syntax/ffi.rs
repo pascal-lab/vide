@@ -161,7 +161,6 @@ mod slang_ffi {
         type SyntaxTree;
         type SyntaxNode;
         type SyntaxToken;
-        type SyntaxTrivia;
     }
 
     #[namespace = "slang_sys::syntax::tree"]
@@ -297,22 +296,30 @@ mod slang_ffi {
             owner: &SyntaxTree,
         ) -> RawTraceEmittedToken;
         unsafe fn syntax_token_trivia_count(token: *const SyntaxToken) -> usize;
-        unsafe fn syntax_token_trivia(
-            token: *const SyntaxToken,
-            index: usize,
-        ) -> *const SyntaxTrivia;
     }
 
     #[namespace = "slang_sys::syntax::trivia"]
     unsafe extern "C++" {
         include!("syntax/wrapper.h");
 
-        unsafe fn syntax_trivia_kind(trivia: *const SyntaxTrivia) -> u8;
-        unsafe fn syntax_trivia_raw_text(trivia: *const SyntaxTrivia) -> String;
-        unsafe fn syntax_trivia_syntax(trivia: *const SyntaxTrivia) -> *const SyntaxNode;
-        unsafe fn syntax_trivia_explicit_location_valid(trivia: *const SyntaxTrivia) -> bool;
-        unsafe fn syntax_trivia_explicit_location_buffer_id(trivia: *const SyntaxTrivia) -> u32;
-        unsafe fn syntax_trivia_explicit_location_offset(trivia: *const SyntaxTrivia) -> usize;
+        unsafe fn syntax_trivia_kind(token: *const SyntaxToken, index: usize) -> u8;
+        unsafe fn syntax_trivia_raw_text(token: *const SyntaxToken, index: usize) -> String;
+        unsafe fn syntax_trivia_syntax(
+            token: *const SyntaxToken,
+            index: usize,
+        ) -> *const SyntaxNode;
+        unsafe fn syntax_trivia_explicit_location_valid(
+            token: *const SyntaxToken,
+            index: usize,
+        ) -> bool;
+        unsafe fn syntax_trivia_explicit_location_buffer_id(
+            token: *const SyntaxToken,
+            index: usize,
+        ) -> u32;
+        unsafe fn syntax_trivia_explicit_location_offset(
+            token: *const SyntaxToken,
+            index: usize,
+        ) -> usize;
     }
 
     #[namespace = "slang_sys::syntax::token"]

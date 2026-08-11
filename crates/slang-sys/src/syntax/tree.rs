@@ -502,7 +502,10 @@ impl Eq for SyntaxTree {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{syntax::SyntaxKind, token::TokenKind};
+    use crate::{
+        syntax::SyntaxKind,
+        token::{TokenKind, TriviaKind},
+    };
 
     #[test]
     fn parser_metadata_is_authoritative() {
@@ -511,6 +514,22 @@ mod tests {
         let text = text.replace("<caret>", "");
         let expected = SyntaxTree::expected_syntax_at_offset(&text, "source", "", offset);
         assert!(expected.iter().any(|item| item.name == "ExpectedStatement"));
+    }
+
+    #[test]
+    fn inline_trivia_is_read_without_borrowing_a_temporary_view() {
+        let tree =
+            SyntaxTree::from_file_in_memory("module m; wire a; endmodule", "source", "source.sv");
+        let trivia = tree
+            .root()
+            .tokens()
+            .flat_map(|token| token.tok.trivias())
+            .find(|trivia| trivia.get_raw_text() == " ")
+            .expect("source should contain a whitespace trivia");
+
+        assert_eq!(trivia.kind(), TriviaKind::WHITESPACE);
+        assert_eq!(trivia.get_raw_text(), " ");
+        assert_eq!(trivia.kind(), TriviaKind::WHITESPACE);
     }
 
     #[test]
