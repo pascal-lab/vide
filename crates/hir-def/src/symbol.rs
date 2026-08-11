@@ -202,40 +202,6 @@ impl DefOrigin {
     impl_origin_cast!(as_stmt, Stmt, OwnerRef<StmtId>);
 }
 
-/// Presentation metadata for a definition. The origin representation stays
-/// inside `hir-def`; consumers render this semantic classification instead of
-/// matching source-origin variants.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum DefDisplayKind {
-    Module(crate::module::ModuleKind),
-    Config,
-    Library,
-    Primitive,
-    Block,
-    GenerateBlock,
-    Task,
-    Function,
-    Port,
-    Declaration,
-    Variable,
-    Parameter,
-    Localparam,
-    Genvar,
-    Specparam,
-    Typedef,
-    Instance,
-    Modport,
-    ClockingBlock,
-    Checker,
-    CheckerPort,
-    Covergroup,
-    Property,
-    Sequence,
-    Coverpoint,
-    Cross,
-    Statement,
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DefKind {
     Module,

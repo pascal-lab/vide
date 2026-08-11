@@ -19,7 +19,7 @@ use crate::{
     owner::{OwnerId, OwnerKind},
     stmt::{ForInit, StmtKind},
     subroutine::{SubroutineKind, SubroutinePortId},
-    symbol::{DefDisplayKind, DefKind, DefOrigin, DefOriginLoc},
+    symbol::{DefKind, DefOrigin, DefOriginLoc},
 };
 
 fn clocking_signal_of(
@@ -710,53 +710,56 @@ impl DefId {
     }
 
     /// Presentation classification for editor-facing definition titles.
-    pub fn display_kind(&self, db: &dyn HirDefDb) -> Option<DefDisplayKind> {
+    pub fn display_label(&self, db: &dyn HirDefDb) -> Option<&'static str> {
         let origin = self.declaration_origin(db);
         match origin.loc(db) {
-            DefOriginLoc::Module(owner) => Some(DefDisplayKind::Module(owner.module_kind(db)?)),
-            DefOriginLoc::Config(_) => Some(DefDisplayKind::Config),
-            DefOriginLoc::Library(_) => Some(DefDisplayKind::Library),
-            DefOriginLoc::Udp(_) => Some(DefDisplayKind::Primitive),
-            DefOriginLoc::Block(_) => Some(DefDisplayKind::Block),
-            DefOriginLoc::GenerateBlock(_) => Some(DefDisplayKind::GenerateBlock),
+            DefOriginLoc::Module(owner) => Some(match owner.module_kind(db)? {
+                ModuleKind::Module => "Module",
+                ModuleKind::Interface => "Interface",
+                ModuleKind::Program => "Program",
+                ModuleKind::Package => "Package",
+            }),
+            DefOriginLoc::Config(_) => Some("Config"),
+            DefOriginLoc::Library(_) => Some("Library"),
+            DefOriginLoc::Udp(_) => Some("Primitive"),
+            DefOriginLoc::Block(_) => Some("Block"),
+            DefOriginLoc::GenerateBlock(_) => Some("Generate block"),
             DefOriginLoc::Subroutine(owner) => match db.subroutine(*owner).kind {
-                SubroutineKind::Task => Some(DefDisplayKind::Task),
-                SubroutineKind::Function { .. } => Some(DefDisplayKind::Function),
+                SubroutineKind::Task => Some("Task"),
+                SubroutineKind::Function { .. } => Some("Function"),
             },
-            DefOriginLoc::SubroutinePort(_) | DefOriginLoc::NonAnsiPort(_) => {
-                Some(DefDisplayKind::Port)
-            }
+            DefOriginLoc::SubroutinePort(_) | DefOriginLoc::NonAnsiPort(_) => Some("Port"),
             DefOriginLoc::Decl(decl) => {
                 let container = decl.cont_id.data(db);
                 let declarator = container.declarator(decl.value);
                 match declarator.parent {
-                    DeclaratorParent::PortDeclId(_) => Some(DefDisplayKind::Port),
-                    DeclaratorParent::StmtId(_) => Some(DefDisplayKind::Variable),
+                    DeclaratorParent::PortDeclId(_) => Some("Port"),
+                    DeclaratorParent::StmtId(_) => Some("Variable"),
                     DeclaratorParent::DeclarationId(parent) => {
                         match container.declaration(parent) {
                             Declaration::ParamDecl(param) => (param.kind.keyword() == "localparam")
-                                .then_some(DefDisplayKind::Localparam)
-                                .or(Some(DefDisplayKind::Parameter)),
-                            Declaration::GenvarDecl(_) => Some(DefDisplayKind::Genvar),
-                            Declaration::SpecparamDecl(_) => Some(DefDisplayKind::Specparam),
+                                .then_some("Localparam")
+                                .or(Some("Parameter")),
+                            Declaration::GenvarDecl(_) => Some("Genvar"),
+                            Declaration::SpecparamDecl(_) => Some("Specparam"),
                             Declaration::DataDecl(_) | Declaration::NetDecl(_) => {
-                                Some(DefDisplayKind::Declaration)
+                                Some("Declaration")
                             }
                         }
                     }
                 }
             }
-            DefOriginLoc::Typedef(_) => Some(DefDisplayKind::Typedef),
-            DefOriginLoc::Instance(_) => Some(DefDisplayKind::Instance),
-            DefOriginLoc::Modport(_) => Some(DefDisplayKind::Modport),
-            DefOriginLoc::ClockingBlock(_) => Some(DefDisplayKind::ClockingBlock),
-            DefOriginLoc::Checker(_) => Some(DefDisplayKind::Checker),
-            DefOriginLoc::Covergroup(_) => Some(DefDisplayKind::Covergroup),
-            DefOriginLoc::Property(_) => Some(DefDisplayKind::Property),
-            DefOriginLoc::Sequence(_) => Some(DefDisplayKind::Sequence),
-            DefOriginLoc::Coverpoint(_) => Some(DefDisplayKind::Coverpoint),
-            DefOriginLoc::Cross(_) => Some(DefDisplayKind::Cross),
-            DefOriginLoc::Stmt(_) => Some(DefDisplayKind::Statement),
+            DefOriginLoc::Typedef(_) => Some("Typedef"),
+            DefOriginLoc::Instance(_) => Some("Instance"),
+            DefOriginLoc::Modport(_) => Some("Modport"),
+            DefOriginLoc::ClockingBlock(_) => Some("Clocking block"),
+            DefOriginLoc::Checker(_) => Some("Checker"),
+            DefOriginLoc::Covergroup(_) => Some("Covergroup"),
+            DefOriginLoc::Property(_) => Some("Property"),
+            DefOriginLoc::Sequence(_) => Some("Sequence"),
+            DefOriginLoc::Coverpoint(_) => Some("Coverpoint"),
+            DefOriginLoc::Cross(_) => Some("Cross"),
+            DefOriginLoc::Stmt(_) => Some("Statement"),
             DefOriginLoc::ClockingSignal(_) | DefOriginLoc::CheckerPort(_) => None,
         }
     }

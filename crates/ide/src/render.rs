@@ -17,7 +17,7 @@ use hir_def::{
     owner::OwnerId,
     region_tree::RegionParent,
     subroutine::{SubroutineKind, SubroutinePortId},
-    symbol::{DefDisplayKind, DefKind, DefOrigin},
+    symbol::{DefKind, DefOrigin},
 };
 use hir_semantics::semantics::Semantics;
 use hir_ty::display::HirDisplay;
@@ -308,40 +308,7 @@ fn render_def_origin(
 
 fn render_definition_title(db: &RootDb, def: DefId) -> Option<String> {
     let name = def.name(db)?;
-    let kind = match def.display_kind(db)? {
-        DefDisplayKind::Module(module_kind) => match module_kind {
-            ModuleKind::Module => "Module",
-            ModuleKind::Interface => "Interface",
-            ModuleKind::Program => "Program",
-            ModuleKind::Package => "Package",
-        },
-        DefDisplayKind::Config => "Config",
-        DefDisplayKind::Library => "Library",
-        DefDisplayKind::Primitive => "Primitive",
-        DefDisplayKind::Block => "Block",
-        DefDisplayKind::GenerateBlock => "Generate block",
-        DefDisplayKind::Task => "Task",
-        DefDisplayKind::Function => "Function",
-        DefDisplayKind::Port => "Port",
-        DefDisplayKind::Declaration => "Declaration",
-        DefDisplayKind::Variable => "Variable",
-        DefDisplayKind::Parameter => "Parameter",
-        DefDisplayKind::Localparam => "Localparam",
-        DefDisplayKind::Genvar => "Genvar",
-        DefDisplayKind::Specparam => "Specparam",
-        DefDisplayKind::Typedef => "Typedef",
-        DefDisplayKind::Instance => "Instance",
-        DefDisplayKind::Modport => "Modport",
-        DefDisplayKind::ClockingBlock => "Clocking block",
-        DefDisplayKind::Checker => "Checker",
-        DefDisplayKind::CheckerPort => "Checker port",
-        DefDisplayKind::Covergroup => "Covergroup",
-        DefDisplayKind::Property => "Property",
-        DefDisplayKind::Sequence => "Sequence",
-        DefDisplayKind::Coverpoint => "Coverpoint",
-        DefDisplayKind::Cross => "Cross",
-        DefDisplayKind::Statement => "Statement",
-    };
+    let kind = def.display_label(db)?;
 
     Some(format!("{kind} {}", inline_code(name.as_str())))
 }
