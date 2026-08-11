@@ -9,7 +9,7 @@ use preproc::source::{
 use rustc_hash::FxHashSet;
 use syntax::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
 use utils::{
-    path_identity::{PathIdentityIndex, PathIdentitySet},
+    path_identity::PathIdentityIndex,
     paths::{AbsPathBuf, Utf8Path},
 };
 use vfs::FileId;
@@ -147,7 +147,7 @@ fn include_buffers_for_plan_with_roots(
     } else {
         FxHashSet::default()
     };
-    let mut seen_files = PathIdentitySet::default();
+    let mut seen_files = PathIdentityIndex::default();
     let mut seen_buffer_paths = FxHashSet::default();
     let mut buffers = Vec::new();
 
@@ -170,9 +170,16 @@ fn include_buffers_for_plan_with_roots(
         }
 
         let path = source_buffer_path(db, file_id);
-        if !seen_files.insert_path(&path) {
+        if let Some(existing_file_id) = seen_files.get_path(&path) {
+            if db.file_text(existing_file_id) != db.file_text(file_id) {
+                panic!(
+                    "source buffer path has conflicting texts: {} ({existing_file_id:?}, {file_id:?})",
+                    path
+                );
+            }
             continue;
         }
+        seen_files.insert_path(&path, file_id);
 
         let path = path.to_string();
         if seen_buffer_paths.insert(path.clone()) {
