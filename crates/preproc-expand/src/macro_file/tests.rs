@@ -172,7 +172,7 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
             definition_id: Some(MacroDefinitionId(32)),
             expansion_id: MacroExpansionId(33),
             parent_expansion_id: None,
-            body_token_index: 0,
+            body_token_index: Some(0),
             argument_index: None,
             argument_token_index: None,
         },

@@ -167,7 +167,7 @@ pub enum TokenOrigin {
         definition_id: Option<MacroDefinitionId>,
         expansion_id: MacroExpansionId,
         parent_expansion_id: Option<MacroExpansionId>,
-        body_token_index: u32,
+        body_token_index: Option<u32>,
         argument_index: Option<u32>,
         argument_token_index: Option<u32>,
     },
@@ -176,7 +176,7 @@ pub enum TokenOrigin {
         definition_id: Option<MacroDefinitionId>,
         expansion_id: MacroExpansionId,
         parent_expansion_id: Option<MacroExpansionId>,
-        body_token_index: u32,
+        body_token_index: Option<u32>,
         argument_index: Option<u32>,
         argument_token_index: Option<u32>,
     },
@@ -364,7 +364,7 @@ impl TokenOrigin {
                 definition_id,
                 expansion_id: expansion_id.expect("Slang token paste origin has no expansion id"),
                 parent_expansion_id,
-                body_token_index: raw.body_token_index,
+                body_token_index: raw.has_body_token_index.then_some(raw.body_token_index),
                 argument_index: raw.has_argument_index.then_some(raw.argument_index),
                 argument_token_index: raw
                     .has_argument_token_index
@@ -376,7 +376,7 @@ impl TokenOrigin {
                 expansion_id: expansion_id
                     .expect("Slang stringification origin has no expansion id"),
                 parent_expansion_id,
-                body_token_index: raw.body_token_index,
+                body_token_index: raw.has_body_token_index.then_some(raw.body_token_index),
                 argument_index: raw.has_argument_index.then_some(raw.argument_index),
                 argument_token_index: raw
                     .has_argument_token_index
@@ -385,6 +385,44 @@ impl TokenOrigin {
             TraceTokenOrigin::UNAVAILABLE => TokenOrigin::Unavailable,
             kind => panic!("Slang returned an unknown trace token origin: {kind}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_range() -> ffi::RawTraceSourceRange {
+        ffi::RawTraceSourceRange { buffer_id: 0, range_start: 0, range_end: 0, has_range: false }
+    }
+
+    #[test]
+    fn operation_origins_preserve_missing_body_indices() {
+        let raw = ffi::RawTraceTokenOrigin {
+            kind: TraceTokenOrigin::TOKEN_PASTE,
+            macro_name: String::new(),
+            macro_call_id: 1,
+            has_macro_call_id: true,
+            macro_definition_id: 0,
+            has_macro_definition_id: false,
+            macro_expansion_id: 2,
+            has_macro_expansion_id: true,
+            parent_macro_expansion_id: 0,
+            has_parent_macro_expansion_id: false,
+            body_token_index: 0,
+            has_body_token_index: false,
+            argument_index: 0,
+            has_argument_index: false,
+            argument_token_index: 0,
+            has_argument_token_index: false,
+            token_range: empty_range(),
+            call_range: empty_range(),
+            body_token_range: empty_range(),
+            argument_token_range: empty_range(),
+        };
+
+        let origin = TokenOrigin::from_raw(raw);
+        assert!(matches!(origin, TokenOrigin::TokenPaste { body_token_index: None, .. }));
     }
 }
 
