@@ -74,13 +74,18 @@ pub(in crate::preproc) fn record_first_error(
 /// per-context degradation semantics of preproc queries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::preproc) struct ContextQuery {
+    file_id: FileId,
     contexts: SourcePreprocQueryContexts,
     first_error: Option<PreprocError>,
 }
 
 impl ContextQuery {
     pub(in crate::preproc) fn new(db: &dyn PreprocDb, file_id: FileId) -> Self {
-        Self { contexts: source_preproc_single_query_contexts(db, file_id), first_error: None }
+        Self {
+            file_id,
+            contexts: source_preproc_single_query_contexts(db, file_id),
+            first_error: None,
+        }
     }
 
     pub(in crate::preproc) fn for_each_model(
@@ -107,6 +112,19 @@ impl ContextQuery {
     /// when the query produced no results.
     pub(in crate::preproc) fn finish_empty(self, has_result: bool) -> PreprocResult<()> {
         if has_result {
+            if let Some(error) = self.first_error.as_ref() {
+                tracing::warn!(
+                    ?self.file_id,
+                    ?error,
+                    "preprocessor query returned partial results after a context failure"
+                );
+            } else if let Some(error) = self.contexts.partial_error() {
+                tracing::warn!(
+                    ?self.file_id,
+                    ?error,
+                    "preprocessor query returned results from a partial context index"
+                );
+            }
             return Ok(());
         }
         finish_empty_single_query(&self.contexts, self.first_error)
