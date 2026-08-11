@@ -2,7 +2,6 @@ use std::fmt;
 
 use cxx::SharedPtr;
 use tracing::warn;
-
 use super::{
     ffi,
     syntax_node::{SyntaxNode, SyntaxToken},
@@ -12,7 +11,7 @@ use crate::{
         DiagCode, LexedTokenAtOffset, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxKeywordContext,
         ffi as diagnostic_ffi,
     },
-    source_buffer::{SourceBufferId, SourceBufferOrigin, SyntaxTreeBufferIds},
+    source_buffer::SyntaxTreeBufferIds,
 };
 
 /// An owned Slang syntax tree.
@@ -269,32 +268,11 @@ impl SyntaxTree {
     }
 
     pub fn buffer_ids(&self) -> SyntaxTreeBufferIds {
-        let raw = self.raw.as_ref().expect("null Slang syntax tree");
-        let root_buffer_id = ffi::syntax_tree_root_buffer_id(raw);
-        let source_buffers = ffi::syntax_tree_buffer_ids(raw)
-            .into_iter()
-            .filter_map(|buffer_id| {
-                let origin = match ffi::syntax_tree_buffer_origin(raw, buffer_id) {
-                    0 => SourceBufferOrigin::Source,
-                    1 => SourceBufferOrigin::Predefine,
-                    origin => {
-                        warn!(
-                            buffer_id,
-                            origin,
-                            "Slang returned an unknown source buffer origin; dropping the buffer"
-                        );
-                        return None;
-                    }
-                };
-                Some(SourceBufferId {
-                    path: ffi::syntax_tree_buffer_path(raw, buffer_id),
-                    text: Some(ffi::syntax_tree_buffer_text(raw, buffer_id)),
-                    buffer_id,
-                    origin,
-                })
-            })
-            .collect();
-        SyntaxTreeBufferIds { root_buffer_id, source_buffers }
+        let trace = self.preprocessor_trace().expect("Slang trace collection returned no trace");
+        SyntaxTreeBufferIds {
+            root_buffer_id: trace.root_buffer_id,
+            source_buffers: trace.source_buffers,
+        }
     }
 }
 

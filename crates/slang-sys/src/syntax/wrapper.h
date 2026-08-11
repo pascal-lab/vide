@@ -89,11 +89,7 @@ namespace slang_sys::syntax {
             bool collect_expected_syntax
         );
         const SyntaxNode *syntax_tree_root(const SyntaxTree &tree);
-        rust::Vec<uint32_t> syntax_tree_buffer_ids(const SyntaxTree &tree);
         uint32_t syntax_tree_root_buffer_id(const SyntaxTree &tree);
-        rust::String syntax_tree_buffer_path(const SyntaxTree &tree, uint32_t buffer_id);
-        rust::String syntax_tree_buffer_text(const SyntaxTree &tree, uint32_t buffer_id);
-        uint8_t syntax_tree_buffer_origin(const SyntaxTree &tree, uint32_t buffer_id);
         rust::Vec<RawExpectedSyntax> syntax_tree_expected_syntax_at(
             const SyntaxTree &tree,
             std::size_t offset

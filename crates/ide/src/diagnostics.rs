@@ -860,7 +860,7 @@ mod tests {
         let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
         assert!(
-            diagnostics.iter().any(|diag| diag.message.contains("port 'b' has no connection")),
+            diagnostics.iter().any(|diag| diag.message.contains("input port 'b' has no connection")),
             "expected semantic diagnostic from module declared in another file: {diagnostics:?}"
         );
         assert!(
@@ -985,7 +985,7 @@ mod tests {
         ));
         change.add_changed_file(ChangedFile::create(
             FileId::from_raw(1),
-            "logic value = missing_name;\n",
+            "logic value;\nlogic value;\n",
         ));
         change.set_roots(vec![SourceRoot::new_local(file_set)]);
         change.set_project_config(Arc::new(ProjectConfig::new(
@@ -1004,7 +1004,7 @@ mod tests {
         let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
         assert!(
-            diagnostics.iter().any(|diag| diag.message.contains("missing_name")),
+            diagnostics.iter().any(|diag| diag.message.contains("redefinition of 'value'")),
             "expected semantic diagnostic in included header: {diagnostics:?}"
         );
         assert!(
@@ -1020,8 +1020,8 @@ mod tests {
         let pkg_path = root.join("a_pkg.sv");
         let frag_path = root.join("z_frag.sv");
         let pkg_text = "module pkg_mod;\n`include \"z_frag.sv\"\nendmodule\n";
-        let disk_frag_text = "logic value = 1'b0;\n";
-        let vfs_frag_text = "logic value = missing_name;\n";
+        let disk_frag_text = "logic value;\n";
+        let vfs_frag_text = "logic value;\nlogic value;\n";
         std::fs::write(&pkg_path, pkg_text).unwrap();
         std::fs::write(&frag_path, disk_frag_text).unwrap();
 
@@ -1054,7 +1054,7 @@ mod tests {
             diagnostics
                 .iter()
                 .any(|diag| diag.file_id == FileId::from_raw(1)
-                    && diag.message.contains("missing_name")),
+                    && diag.message.contains("redefinition of 'value'")),
             "included .sv should use VFS text and receive mapped diagnostics: {diagnostics:?}"
         );
     }
@@ -1072,8 +1072,8 @@ mod tests {
         let leaf_path = include_root.join("leaf.sv");
         let top_text = "module top;\n`include \"mid.sv\"\nendmodule\n";
         let mid_text = "`include \"leaf.sv\"\n";
-        let disk_leaf_text = "logic value = 1'b0;\n";
-        let vfs_leaf_text = "logic value = missing_name;\n";
+        let disk_leaf_text = "logic value;\n";
+        let vfs_leaf_text = "logic value;\nlogic value;\n";
         std::fs::write(&top_path, top_text).unwrap();
         std::fs::write(&mid_path, mid_text).unwrap();
         std::fs::write(&leaf_path, disk_leaf_text).unwrap();
@@ -1117,7 +1117,7 @@ mod tests {
             diagnostics
                 .iter()
                 .any(|diag| diag.file_id == FileId::from_raw(2)
-                    && diag.message.contains("missing_name")),
+                    && diag.message.contains("redefinition of 'value'")),
             "transitively included .sv should use VFS text: {diagnostics:?}"
         );
     }

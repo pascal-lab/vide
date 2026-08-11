@@ -218,48 +218,8 @@ namespace slang_sys::syntax::tree {
         return &tree.root();
     }
 
-    rust::Vec<uint32_t> syntax_tree_buffer_ids(const SyntaxTree &tree) {
-        rust::Vec<uint32_t> result;
-        for (auto buffer : tree.tree->getSourceBufferIds())
-            result.push_back(buffer.getId());
-        return result;
-    }
-
     uint32_t syntax_tree_root_buffer_id(const SyntaxTree &tree) {
         return tree.root_buffer_id;
-    }
-
-    rust::String syntax_tree_buffer_path(const SyntaxTree &tree, uint32_t buffer_id) {
-        auto buffer = ::slang::BufferID(buffer_id, "");
-        auto path = tree.session->source_manager.getFullPath(buffer);
-        if (!path.empty())
-            return rust::String(path.string());
-        auto name = tree.session->source_manager.getRawFileName(buffer);
-        return rust::String(name.data(), name.size());
-    }
-
-    rust::String syntax_tree_buffer_text(const SyntaxTree &tree, uint32_t buffer_id) {
-        auto text = tree.session->source_manager.getSourceText(::slang::BufferID(buffer_id, ""));
-        return rust::String(text.data(), text.size());
-    }
-
-    uint8_t syntax_tree_buffer_origin(const SyntaxTree &tree, uint32_t buffer_id) {
-        auto kind = tree.session->source_manager.getBufferKind(::slang::BufferID(buffer_id, ""));
-        auto path = tree.session->source_manager.getRawFileName(::slang::BufferID(buffer_id, ""));
-        if (path == "<api>")
-            return 1;
-        switch (kind) {
-            case ::slang::SourceManager::BufferKind::DesignFile:
-            case ::slang::SourceManager::BufferKind::LibraryFile:
-            case ::slang::SourceManager::BufferKind::LibraryMap:
-            case ::slang::SourceManager::BufferKind::IncludeFile:
-                return 0;
-            case ::slang::SourceManager::BufferKind::Unknown:
-            case ::slang::SourceManager::BufferKind::Macro:
-            case ::slang::SourceManager::BufferKind::MacroArg:
-                return 2;
-        }
-        return 2;
     }
 
     rust::Vec<RawExpectedSyntax> syntax_tree_expected_syntax_at(

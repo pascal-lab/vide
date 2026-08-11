@@ -181,11 +181,7 @@ mod slang_ffi {
             collect_expected_syntax: bool,
         ) -> SharedPtr<SyntaxTree>;
         fn syntax_tree_root(tree: &SyntaxTree) -> *const SyntaxNode;
-        fn syntax_tree_buffer_ids(tree: &SyntaxTree) -> Vec<u32>;
         fn syntax_tree_root_buffer_id(tree: &SyntaxTree) -> u32;
-        fn syntax_tree_buffer_path(tree: &SyntaxTree, buffer_id: u32) -> String;
-        fn syntax_tree_buffer_text(tree: &SyntaxTree, buffer_id: u32) -> String;
-        fn syntax_tree_buffer_origin(tree: &SyntaxTree, buffer_id: u32) -> u8;
         fn syntax_tree_expected_syntax_at(
             tree: &SyntaxTree,
             offset: usize,
