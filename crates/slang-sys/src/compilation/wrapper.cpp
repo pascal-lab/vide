@@ -97,9 +97,13 @@ rust::Vec<diagnostic::RawSyntaxDiagnostic> parse_diagnostics(
     const Compilation& compilation,
     rust::Vec<rust::String> warning_options
 ) {
+    auto *source_manager = compilation.inner->getSourceManager();
+    if (!source_manager)
+        return {};
+
     return diagnostic::diagnostics_to_rust(
         compilation.inner->getParseDiagnostics(),
-        *compilation.inner->getSourceManager(),
+        *source_manager,
         std::move(warning_options)
     );
 }
@@ -108,9 +112,13 @@ rust::Vec<diagnostic::RawSyntaxDiagnostic> semantic_diagnostics(
     const Compilation& compilation,
     rust::Vec<rust::String> warning_options
 ) {
+    auto *source_manager = compilation.inner->getSourceManager();
+    if (!source_manager)
+        return {};
+
     return diagnostic::diagnostics_to_rust(
         compilation.inner->getSemanticDiagnostics(),
-        *compilation.inner->getSourceManager(),
+        *source_manager,
         std::move(warning_options)
     );
 }

@@ -144,4 +144,12 @@ mod tests {
 
         assert!(compilation.parse_diagnostics_with_options(&[]).is_empty());
     }
+
+    #[test]
+    fn empty_compilation_has_no_diagnostics() {
+        let compilation = Compilation::new();
+
+        assert!(compilation.parse_diagnostics_with_options(&[]).is_empty());
+        assert!(compilation.semantic_diagnostics_with_options(&[]).is_empty());
+    }
 }
