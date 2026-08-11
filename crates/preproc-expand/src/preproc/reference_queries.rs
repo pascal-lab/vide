@@ -69,9 +69,9 @@ pub fn macro_reference_definitions_at(
         }
         Ok(())
     });
+    query.finish()?;
 
     let Some(range) = query_range else {
-        query.finish()?;
         return Ok(None);
     };
 

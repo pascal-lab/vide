@@ -28,6 +28,7 @@ pub fn diagnostic_target_for_range(
         }
         Ok(())
     });
+    query.finish()?;
 
     if ambiguous_targets > 0 {
         return Ok(DiagnosticTargetResult::covered(None));
@@ -41,7 +42,5 @@ pub fn diagnostic_target_for_range(
     if covered {
         return Ok(DiagnosticTargetResult::covered(None));
     }
-    query.finish()?;
-
     Ok(DiagnosticTargetResult::uncovered())
 }

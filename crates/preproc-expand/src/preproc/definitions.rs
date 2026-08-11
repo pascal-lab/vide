@@ -60,6 +60,7 @@ pub fn macro_definition_at(
         }
         Ok(())
     });
+    query.finish()?;
 
     if first.is_some() {
         return Ok(first);
@@ -73,8 +74,6 @@ pub fn macro_definition_at(
     {
         return Ok(Some(definition));
     }
-
-    query.finish()?;
 
     Ok(None)
 }
@@ -175,9 +174,9 @@ pub fn macro_param_reference_definitions_at(
         }
         Ok(())
     });
+    query.finish()?;
 
     let Some(range) = query_range else {
-        query.finish()?;
         return Ok(None);
     };
 
