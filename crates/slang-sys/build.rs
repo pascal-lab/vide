@@ -2,11 +2,14 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     process::Command,
+    time::{Duration, Instant},
 };
 
 const SLANG_SOURCE_DIR: &str = "../../third_party/slang";
 const SLANG_SYS_SOURCE_DIR: &str = "./src";
 const SCRIPTS_DIR: &str = "./scripts";
+const USE_SCCACHE_CMAKE_ENV: &str = "VIDE_USE_SCCACHE_CMAKE";
+const SCCACHE_PATH_ENV: &str = "SCCACHE_PATH";
 /// Build directory from cargo target directory.
 /// This will influence clangd's include path.
 const BUILD_DIR: &str = "slang-sys";
@@ -20,27 +23,42 @@ const WRAPPER_FILES: &[&str] =
     &["compilation/wrapper.cpp", "diagnostic/wrapper.cpp", "syntax/wrapper.cpp"];
 
 fn main() {
+    let total_started = Instant::now();
+
     // Prepare environment
     let slang_dir = env_detection::find_slang_dir();
     let source_dir = PathBuf::from(SLANG_SYS_SOURCE_DIR);
     let scripts_dir = PathBuf::from(SCRIPTS_DIR);
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is not set"));
     let debug = cfg!(debug_assertions);
+    setup_rerun_triggers(&slang_dir, &source_dir, &scripts_dir);
 
     // Build
+    let started = Instant::now();
     generate_rust_defs(&slang_dir, &out_dir, &scripts_dir);
+    log_phase("generate-rust-defs", started.elapsed());
+
+    let started = Instant::now();
     let install_dir = build_slang(&slang_dir, debug);
+    log_phase("build-slang", started.elapsed());
+
+    let started = Instant::now();
     build_cxx_bridge(&slang_dir, &install_dir, &source_dir, &out_dir, debug);
+    log_phase("build-cxx-bridge", started.elapsed());
 
     // Setup cargo configuration
     setup_linking(&install_dir, debug);
-    setup_rerun_triggers(&slang_dir, &source_dir, &scripts_dir);
+    log_phase("total", total_started.elapsed());
+}
+
+fn log_phase(phase: &str, elapsed: Duration) {
+    eprintln!("slang-sys-build phase={phase} elapsed_ms={}", elapsed.as_millis());
 }
 
 mod env_detection {
-    use std::{env, path::PathBuf};
+    use std::{env, ffi::OsString, path::PathBuf};
 
-    use super::{BUILD_DIR, SLANG_SOURCE_DIR};
+    use super::{BUILD_DIR, SCCACHE_PATH_ENV, SLANG_SOURCE_DIR, USE_SCCACHE_CMAKE_ENV};
 
     pub fn find_slang_dir() -> PathBuf {
         let slang_source_dir = PathBuf::from(SLANG_SOURCE_DIR);
@@ -79,6 +97,30 @@ mod env_detection {
 
     pub fn find_python() -> PathBuf {
         env::var_os("PYTHON").map(PathBuf::from).unwrap_or_else(|| "python3".into())
+    }
+
+    pub fn cmake_sccache_launcher() -> Option<PathBuf> {
+        let value = env::var_os(USE_SCCACHE_CMAKE_ENV)?;
+        if !parse_enabled_flag(USE_SCCACHE_CMAKE_ENV, &value) {
+            return None;
+        }
+
+        let requested = env::var_os(SCCACHE_PATH_ENV).unwrap_or_else(|| OsString::from("sccache"));
+        Some(which::which(&requested).unwrap_or_else(|error| {
+            panic!(
+                "{USE_SCCACHE_CMAKE_ENV} enables the CMake sccache launcher, but {requested:?} \
+                 could not be executed: {error}. Install sccache or set {SCCACHE_PATH_ENV} to its \
+                 executable path"
+            )
+        }))
+    }
+
+    fn parse_enabled_flag(name: &str, value: &OsString) -> bool {
+        match value.to_string_lossy().trim().to_ascii_lowercase().as_str() {
+            "" | "1" | "true" | "yes" | "on" => true,
+            "0" | "false" | "no" | "off" => false,
+            _ => panic!("{name} must be one of 1/true/yes/on or 0/false/no/off, got {value:?}"),
+        }
     }
 
     pub fn cargo_manifest_dir() -> PathBuf {
@@ -150,6 +192,19 @@ fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
     let cmake_profile = if debug { "Debug" } else { "Release" };
     let cmake_out_dir = env_detection::build_dir().join(cmake_profile.to_ascii_lowercase());
     let emscripten = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("emscripten");
+    let sccache = env_detection::cmake_sccache_launcher();
+
+    eprintln!(
+        "slang-sys-build target={} cmake_profile={cmake_profile} generator={} sccache={}",
+        env::var("TARGET").as_deref().unwrap_or("<unknown>"),
+        env::var("CMAKE_GENERATOR").as_deref().unwrap_or("<cmake-default>"),
+        sccache.as_deref().map_or_else(|| "disabled".into(), |path| path.display().to_string()),
+    );
+    if sccache.is_some() && env::var_os("SCCACHE_BASEDIRS").is_none() {
+        eprintln!(
+            "slang-sys-build note=SCCACHE_BASEDIRS-is-unset; cross-worktree cache hits may be reduced"
+        );
+    }
 
     // Configure CMake build
     let config = &mut cmake::Config::new(slang_dir);
@@ -192,7 +247,10 @@ fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
         }
     }
 
-    // TODO: Port cmake sccache launcher
+    let launcher = sccache.as_deref().map_or_else(|| "".into(), Path::to_string_lossy);
+    config
+        .define("CMAKE_C_COMPILER_LAUNCHER", launcher.as_ref())
+        .define("CMAKE_CXX_COMPILER_LAUNCHER", launcher.as_ref());
 
     if let Some(linker_flags) = env_detection::target_linker_flags() {
         config
@@ -316,5 +374,8 @@ fn setup_rerun_triggers(slang_dir: &Path, source_dir: &Path, scripts_dir: &Path)
 
     for path in watch {
         println!("cargo:rerun-if-changed={}", path);
+    }
+    for name in [USE_SCCACHE_CMAKE_ENV, SCCACHE_PATH_ENV] {
+        println!("cargo:rerun-if-env-changed={name}");
     }
 }

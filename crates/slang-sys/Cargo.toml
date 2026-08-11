@@ -13,3 +13,4 @@ tracing.workspace = true
 [build-dependencies]
 cmake = "0.1.50"
 cxx-build = "1.0.124"
+which = "8.0.5"
