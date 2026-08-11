@@ -347,9 +347,7 @@ impl<Store: ModuleItemStore> LoweringCtx<Store> {
 
     fn lower_foreach_loop_stmt(&mut self, stmt: ast::ForeachLoopStatement) -> StmtKind {
         let loop_list = stmt.loop_list();
-        let array = ast::Expression::cast(loop_list.array_name().syntax())
-            .map(|expr| self.lower_expr(expr))
-            .unwrap_or_else(|| self.lower_expr_opt(None));
+        let array = self.lower_expr(loop_list.array_name());
         let variables = loop_list
             .loop_variables()
             .children()

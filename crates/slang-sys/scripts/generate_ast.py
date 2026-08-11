@@ -154,13 +154,6 @@ def load_types(path: Path) -> tuple[dict[str, TypeInfo], dict[str, str]]:
 
         if current_type is not None:
             raw_ty, member_name = line.split()
-            # The old Rust facade was generated from the two local grammar
-            # corrections carried by this repository. Keep those corrections
-            # at the generator boundary while consuming upstream v11 syntax.txt.
-            if current_type == "ForeachLoopList" and member_name == "arrayName":
-                raw_ty = "Name"
-            elif current_type == "CoverCross" and member_name == "items":
-                raw_ty = "separated_list<IdentifierName>"
             current_members.append(parse_member(raw_ty, member_name))
             continue
 

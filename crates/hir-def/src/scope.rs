@@ -1040,6 +1040,59 @@ endmodule
         assert!(body.exprs.values().any(|expr| matches!(expr, crate::expr::Expr::Inside { .. })));
         assert!(body.diagnostics(&db).is_empty(), "supported RTL statements must not diagnose");
     }
+
+    #[test]
+    fn v11_expression_foreach_and_hierarchical_cross_lower() {
+        let db = db_with_root_text(
+            r#"
+module m(input logic clk, input logic a);
+  logic [3:0] da2 [0:3];
+  initial begin
+    foreach (m::self().da2[i]) da2[i] = a;
+  end
+  covergroup cg @(posedge clk);
+    cp: coverpoint a;
+    cx: cross m::cp, cp;
+  endgroup
+endmodule
+"#,
+        );
+
+        let module_id = db
+            .unit_index()
+            .module_ids(&ident("m"))
+            .unique()
+            .expect("module should resolve uniquely");
+        let module = db.body_with_source_map(module_id);
+        let proc = module.procs.iter().next().expect("initial block should lower").1;
+        let body = db.body_with_source_map(proc.owner);
+        assert!(
+            body.stmts
+                .values()
+                .any(|stmt| matches!(stmt.kind, crate::stmt::StmtKind::Foreach { .. }))
+        );
+        assert!(body.diagnostics(&db).is_empty(), "v11 foreach expression must lower cleanly");
+
+        let covergroup_owner = module
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::body::BodyItem::CovergroupOwner(owner) => Some(*owner),
+                _ => None,
+            })
+            .expect("covergroup owner should lower");
+        let covergroup_body = db.body_with_source_map(covergroup_owner);
+        let covergroup = covergroup_body
+            .data_ref()
+            .covergroups
+            .values()
+            .next()
+            .expect("covergroup definition should lower");
+        assert_eq!(covergroup.crosses.len(), 1);
+        let cross = covergroup_body.get(covergroup.crosses[0]);
+        assert_eq!(cross.items.len(), 2);
+    }
+
     #[test]
     fn assertion_statements_lower_with_actions() {
         let db = db_with_root_text(

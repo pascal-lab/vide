@@ -174,7 +174,7 @@ impl LoweringCtx<BodyStore<'_>> {
             items: cross
                 .items()
                 .children()
-                .map(|name| self.lower_expr(ast::Expression::Name(ast::Name::IdentifierName(name))))
+                .map(|name| self.lower_expr(ast::Expression::Name(name)))
                 .collect(),
             iff: cross.iff().map(|iff| self.lower_expr(iff.expr())),
             options: SmallVec::new(),

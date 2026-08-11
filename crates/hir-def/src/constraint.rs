@@ -205,7 +205,7 @@ impl<Store: LoweringStore> LoweringCtx<Store> {
             ast::ConstraintItem::LoopConstraint(item) => {
                 let list = item.loop_list();
                 Constraint::Loop {
-                    array: self.lower_expr(ast::Expression::Name(list.array_name())),
+                    array: self.lower_expr(list.array_name()),
                     variables: list
                         .loop_variables()
                         .children()
