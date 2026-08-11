@@ -158,26 +158,24 @@ fn syntax_tree_options_for_profile(
 fn parsed_compilation_unit(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> ParsedCompilationUnit {
     let file_id = key.file_id(db);
     let profile_id = db.file_compilation_profile(file_id);
-    if let Some(profile_id) = profile_id {
-        let plan = db.compilation_plan_for_profile(Some(profile_id));
-        if plan.roots.contains(&file_id) {
-            let parsed_profile = db.parsed_profile(Some(profile_id));
-            let Some((_, parsed, _)) =
-                parsed_profile.units.iter().find(|(root_file_id, _, _)| *root_file_id == file_id)
-            else {
-                panic!(
-                    "profile root {file_id:?} is missing from authoritative parse for profile {profile_id:?}"
-                );
-            };
-            tracing::debug!(
-                ?profile_id,
-                ?file_id,
-                root_count = plan.roots.len(),
-                parse_mode = "authoritative",
-                "reusing profile root syntax tree"
+    let plan = db.compilation_plan_for_profile(profile_id);
+    if plan.roots.contains(&file_id) {
+        let parsed_profile = db.parsed_profile(profile_id);
+        let Some((_, parsed, _)) =
+            parsed_profile.units.iter().find(|(root_file_id, _, _)| *root_file_id == file_id)
+        else {
+            panic!(
+                "compilation root {file_id:?} is missing from authoritative parse for profile {profile_id:?}"
             );
-            return parsed.clone();
-        }
+        };
+        tracing::debug!(
+            ?profile_id,
+            ?file_id,
+            root_count = plan.roots.len(),
+            parse_mode = "authoritative",
+            "reusing profile root syntax tree"
+        );
+        return parsed.clone();
     }
 
     let _span = tracing::info_span!(
@@ -937,6 +935,17 @@ mod tests {
         let tree = profile.units[0].1.syntax_tree.clone();
         let root = tree.root();
         assert!(root.children().next().is_some());
+    }
+
+    #[test]
+    fn root_scoped_compilation_units_reuse_the_authoritative_parse() {
+        let mut db = db_with_root_file();
+        db.set_project_config_with_durability(Arc::new(ProjectConfig::default()), Durability::LOW);
+
+        let profile_tree = db.parsed_profile(None).units[0].1.syntax_tree.clone();
+        let compilation_tree = db.parsed_compilation_unit(TOP).syntax_tree;
+
+        assert_eq!(profile_tree, compilation_tree);
     }
 
     #[test]
