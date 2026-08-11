@@ -266,8 +266,22 @@ fn mapped_file_range(
     source_map: &PreprocSourceMap,
     source_range: SourceRange,
 ) -> Option<(FileId, TextRange)> {
-    let range = source_map.map_range(source_range).ok()?;
-    let file_id = source_map.file_id(source_range.source).ok()?;
+    let range = match source_map.map_range(source_range) {
+        Ok(range) => range,
+        Err(SourcePreprocQueryError::DisplayOnlyVirtualSource { .. }) => return None,
+        Err(error) => {
+            tracing::warn!(?source_range, ?error, "dropping unmapped preprocessor index range");
+            return None;
+        }
+    };
+    let file_id = match source_map.file_id(source_range.source) {
+        Ok(file_id) => file_id,
+        Err(SourcePreprocQueryError::DisplayOnlyVirtualSource { .. }) => return None,
+        Err(error) => {
+            tracing::warn!(?source_range, ?error, "dropping preprocessor index range without a file");
+            return None;
+        }
+    };
     Some((file_id, range))
 }
 
