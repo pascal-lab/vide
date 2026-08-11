@@ -96,14 +96,32 @@ namespace slang_sys::syntax {
         source_manager.setDisableProximatePaths(true);
     }
 
-    void SourceSession::assign_include_buffer(std::string path, std::string text) {
-        auto [it, inserted] = include_buffers.emplace(path, text);
+    void SourceSession::assign_source_buffer(std::string path, std::string text) {
+        if (path.empty())
+            throw std::invalid_argument("source buffer path must not be empty");
+
+        auto [it, inserted] = buffers.emplace(path, text);
         if (!inserted) {
             if (it->second != text)
-                throw std::logic_error("include buffer path was assigned conflicting text");
+                throw std::logic_error("source buffer path was assigned conflicting text");
             return;
         }
-        source_manager.assignText(it->first, it->second);
+        auto source_buffer = source_manager.assignText(it->first, it->second);
+        if (!source_buffer)
+            throw std::logic_error("Slang failed to assign source buffer");
+        source_buffers.emplace(it->first, source_buffer);
+    }
+
+    void SourceSession::assign_include_buffer(std::string path, std::string text) {
+        assign_source_buffer(std::move(path), std::move(text));
+    }
+
+    slang::SourceBuffer SourceSession::source_buffer(std::string_view path) const {
+        auto it = source_buffers.find(std::string(path));
+        if (it == source_buffers.end())
+            throw std::logic_error(
+                "source buffer was not registered: " + std::string(path));
+        return it->second;
     }
 
     SyntaxTree::SyntaxTree(
@@ -121,6 +139,57 @@ namespace slang_sys::syntax {
 } // namespace slang_sys::syntax
 
 namespace slang_sys::syntax::tree {
+
+    namespace {
+
+    slang::Bag make_syntax_options(
+        const rust::Vec<rust::String>& predefines,
+        const rust::Vec<rust::String>& include_paths,
+        bool expand_includes,
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
+    ) {
+        slang::Bag options;
+        auto &pp_options = options.insertOrGet<slang::parsing::PreprocessorOptions>();
+        for (const auto &predefine : predefines)
+            pp_options.predefines.emplace_back(std::string(predefine));
+        for (const auto &include_path : include_paths)
+            pp_options.additionalIncludePaths.emplace_back(
+                std::filesystem::path(std::string(include_path))
+            );
+        if (!expand_includes)
+            pp_options.maxIncludeDepth = 0;
+
+        if (has_expected_syntax_offset || collect_expected_syntax) {
+            auto &expected_options = options.insertOrGet<slang::parsing::ExpectedSyntaxOptions>();
+            if (has_expected_syntax_offset)
+                expected_options.cursorOffset = expected_syntax_offset;
+            else
+                expected_options.recordAll = true;
+        }
+        return options;
+    }
+
+    std::shared_ptr<SyntaxTree> wrap_syntax_tree(
+        std::shared_ptr<::slang::syntax::SyntaxTree> tree,
+        std::shared_ptr<SourceSession> session,
+        std::string_view failure_message
+    ) {
+        if (!tree)
+            throw std::logic_error(std::string(failure_message));
+        auto source_buffers = tree->getSourceBufferIds();
+        if (source_buffers.empty())
+            throw std::logic_error("Slang syntax tree has no root source buffer");
+        auto root_buffer_id = source_buffers.front().getId();
+        auto result = std::make_shared<SyntaxTree>(
+            std::move(tree), std::move(session), root_buffer_id);
+        if (!result->tree)
+            throw std::logic_error("Slang syntax wrapper lost its syntax tree");
+        return result;
+    }
+
+    } // namespace
 
     std::shared_ptr<SyntaxTree> parse_syntax_tree(
         rust::Str text,
@@ -176,24 +245,14 @@ namespace slang_sys::syntax::tree {
         if (include_buffer_paths.size() != include_buffer_texts.size())
             throw std::invalid_argument("include buffer paths and texts must have equal lengths");
 
-        slang::Bag options;
-        auto &pp_options = options.insertOrGet<slang::parsing::PreprocessorOptions>();
-        for (const auto &predefine : predefines)
-            pp_options.predefines.emplace_back(std::string(predefine));
-        for (const auto &include_path : include_paths)
-            pp_options.additionalIncludePaths.emplace_back(
-                std::filesystem::path(std::string(include_path))
-            );
-        if (!expand_includes)
-            pp_options.maxIncludeDepth = 0;
-
-        if (has_expected_syntax_offset || collect_expected_syntax) {
-            auto &expected_options = options.insertOrGet<slang::parsing::ExpectedSyntaxOptions>();
-            if (has_expected_syntax_offset)
-                expected_options.cursorOffset = expected_syntax_offset;
-            else
-                expected_options.recordAll = true;
-        }
+        auto options = make_syntax_options(
+            predefines,
+            include_paths,
+            expand_includes,
+            collect_expected_syntax,
+            expected_syntax_offset,
+            has_expected_syntax_offset
+        );
 
         for (std::size_t i = 0; i < include_buffer_paths.size(); i++) {
             session->assign_include_buffer(
@@ -220,17 +279,38 @@ namespace slang_sys::syntax::tree {
                 options
             );
         }
-        if (!tree)
-            throw std::logic_error("Slang failed to create syntax tree");
-        auto source_buffers = tree->getSourceBufferIds();
-        if (source_buffers.empty())
-            throw std::logic_error("Slang syntax tree has no root source buffer");
-        auto root_buffer_id = source_buffers.front().getId();
-        auto result = std::make_shared<SyntaxTree>(
-            std::move(tree), std::move(session), root_buffer_id);
-        if (!result->tree)
-            throw std::logic_error("Slang syntax wrapper lost its syntax tree");
-        return result;
+        return wrap_syntax_tree(std::move(tree), std::move(session), "Slang failed to create syntax tree");
+    }
+
+    std::shared_ptr<SyntaxTree> parse_syntax_tree_from_buffer_with_session(
+        const std::shared_ptr<SourceSession>& session,
+        rust::Str name,
+        rust::Str path,
+        rust::Vec<rust::String> predefines,
+        rust::Vec<rust::String> include_paths,
+        bool expand_includes,
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
+    ) {
+        auto tree_name = std::string_view(name.data(), name.size());
+        auto tree_path = std::string_view(path.data(), path.size());
+        auto buffer = session->source_buffer(tree_path);
+        auto options = make_syntax_options(
+            predefines,
+            include_paths,
+            expand_includes,
+            collect_expected_syntax,
+            expected_syntax_offset,
+            has_expected_syntax_offset
+        );
+        if (!tree_name.empty())
+            session->source_manager.addLineDirective(
+                slang::SourceLocation(buffer.id, 0), 2, tree_name, 0);
+        auto tree = ::slang::syntax::SyntaxTree::fromBuffer(
+            buffer, session->source_manager, options);
+        return wrap_syntax_tree(
+            std::move(tree), std::move(session), "Slang failed to create syntax tree from buffer");
     }
 
     const SyntaxNode *syntax_tree_root(const SyntaxTree &tree) {
@@ -343,14 +423,42 @@ namespace slang_sys::syntax::tree {
             tree_path,
             options
         );
-        if (!tree)
-            throw std::logic_error("Slang failed to create library map syntax tree");
-        auto source_buffers = tree->getSourceBufferIds();
-        if (source_buffers.empty())
-            throw std::logic_error("Slang library map tree has no root source buffer");
-        auto root_buffer_id = source_buffers.front().getId();
-        return std::make_shared<SyntaxTree>(
-            std::move(tree), std::move(session), root_buffer_id);
+        return wrap_syntax_tree(
+            std::move(tree),
+            std::move(session),
+            "Slang failed to create library map syntax tree"
+        );
+    }
+
+    std::shared_ptr<SyntaxTree> parse_library_map_syntax_tree_from_buffer_with_session(
+        const std::shared_ptr<SourceSession>& session,
+        rust::Str name,
+        rust::Str path,
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
+    ) {
+        auto tree_name = std::string_view(name.data(), name.size());
+        auto tree_path = std::string_view(path.data(), path.size());
+        auto buffer = session->source_buffer(tree_path);
+        slang::Bag options;
+        if (has_expected_syntax_offset || collect_expected_syntax) {
+            auto &expected_options = options.insertOrGet<slang::parsing::ExpectedSyntaxOptions>();
+            if (has_expected_syntax_offset)
+                expected_options.cursorOffset = expected_syntax_offset;
+            else
+                expected_options.recordAll = true;
+        }
+        if (!tree_name.empty())
+            session->source_manager.addLineDirective(
+                slang::SourceLocation(buffer.id, 0), 2, tree_name, 0);
+        auto tree = ::slang::syntax::SyntaxTree::fromLibraryMapBuffer(
+            buffer, session->source_manager, options);
+        return wrap_syntax_tree(
+            std::move(tree),
+            std::move(session),
+            "Slang failed to create library map syntax tree from buffer"
+        );
     }
 
     namespace {

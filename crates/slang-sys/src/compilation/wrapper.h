@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -32,11 +33,30 @@ std::shared_ptr<syntax::SyntaxTree> parse_syntax_tree_from_text(
     rust::Str path,
     ParseSyntaxTreeOptions options
 );
+void register_source_buffers(
+    Compilation& compilation,
+    rust::Vec<rust::String> paths,
+    rust::Vec<rust::String> texts
+);
+std::shared_ptr<syntax::SyntaxTree> parse_syntax_tree_from_buffer(
+    Compilation& compilation,
+    rust::Str name,
+    rust::Str path,
+    ParseSyntaxTreeOptions options
+);
 std::shared_ptr<syntax::SyntaxTree> parse_library_map_syntax_tree_from_text(
     Compilation& compilation,
     rust::Str text,
     rust::Str name,
     rust::Str path
+);
+std::shared_ptr<syntax::SyntaxTree> parse_library_map_syntax_tree_from_buffer(
+    Compilation& compilation,
+    rust::Str name,
+    rust::Str path,
+    bool collect_expected_syntax,
+    std::size_t expected_syntax_offset,
+    bool has_expected_syntax_offset
 );
 void add_syntax_tree(Compilation& compilation, std::shared_ptr<syntax::SyntaxTree> tree);
 rust::Vec<diagnostic::RawSyntaxDiagnostic> parse_diagnostics(

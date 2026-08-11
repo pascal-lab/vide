@@ -4,6 +4,8 @@
 #include "slang/ast/SystemSubroutine.h"
 #include "slang/parsing/KnownSystemName.h"
 
+#include <stdexcept>
+
 namespace slang_sys::compilation {
 
 namespace {
@@ -61,6 +63,48 @@ std::shared_ptr<syntax::SyntaxTree> parse_syntax_tree_from_text(
     return tree;
 }
 
+void register_source_buffers(
+    Compilation& compilation,
+    rust::Vec<rust::String> paths,
+    rust::Vec<rust::String> texts
+) {
+    if (paths.size() != texts.size())
+        throw std::invalid_argument("source buffer paths and texts must have equal lengths");
+
+    for (std::size_t i = 0; i < paths.size(); i++) {
+        compilation.session->assign_source_buffer(
+            std::string(paths[i].data(), paths[i].size()),
+            std::string(texts[i].data(), texts[i].size())
+        );
+    }
+}
+
+std::shared_ptr<syntax::SyntaxTree> parse_syntax_tree_from_buffer(
+    Compilation& compilation,
+    rust::Str name,
+    rust::Str path,
+    ParseSyntaxTreeOptions options
+) {
+    if (!options.include_buffer_paths.empty() || !options.include_buffer_texts.empty())
+        throw std::invalid_argument(
+            "buffer parsing requires source buffers to be registered on the compilation"
+        );
+
+    auto tree = syntax::tree::parse_syntax_tree_from_buffer_with_session(
+        compilation.session,
+        name,
+        path,
+        std::move(options.predefines),
+        std::move(options.include_paths),
+        options.expand_includes,
+        options.collect_expected_syntax,
+        options.expected_syntax_offset,
+        options.has_expected_syntax_offset
+    );
+    compilation.inner->addSyntaxTree(tree->tree);
+    return tree;
+}
+
 std::shared_ptr<syntax::SyntaxTree> parse_library_map_syntax_tree_from_text(
     Compilation& compilation,
     rust::Str text,
@@ -69,6 +113,26 @@ std::shared_ptr<syntax::SyntaxTree> parse_library_map_syntax_tree_from_text(
 ) {
     auto tree = syntax::tree::parse_library_map_syntax_tree_with_session(
         compilation.session, text, name, path, false, 0, false);
+    compilation.inner->addSyntaxTree(tree->tree);
+    return tree;
+}
+
+std::shared_ptr<syntax::SyntaxTree> parse_library_map_syntax_tree_from_buffer(
+    Compilation& compilation,
+    rust::Str name,
+    rust::Str path,
+    bool collect_expected_syntax,
+    std::size_t expected_syntax_offset,
+    bool has_expected_syntax_offset
+) {
+    auto tree = syntax::tree::parse_library_map_syntax_tree_from_buffer_with_session(
+        compilation.session,
+        name,
+        path,
+        collect_expected_syntax,
+        expected_syntax_offset,
+        has_expected_syntax_offset
+    );
     compilation.inner->addSyntaxTree(tree->tree);
     return tree;
 }

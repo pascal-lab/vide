@@ -140,15 +140,22 @@ pub(crate) fn syntax_tree_options_for_file(
     }
 }
 
-fn syntax_tree_options_for_profile(
-    context: &CompilationContext,
-    include_buffers: Vec<SyntaxTreeBuffer>,
-) -> syntax::SyntaxTreeOptions {
+fn syntax_tree_options_for_profile(context: &CompilationContext) -> syntax::SyntaxTreeOptions {
     syntax::SyntaxTreeOptions {
         predefines: context.predefines.to_vec(),
         include_paths: context.include_dirs.iter().map(ToString::to_string).collect(),
-        include_buffers,
+        include_buffers: Vec::new(),
         // One authoritative parse must serve completion at any caret offset.
+        collect_expected_syntax: true,
+        ..syntax::SyntaxTreeOptions::default()
+    }
+}
+
+fn syntax_tree_options_for_library_map() -> syntax::SyntaxTreeOptions {
+    syntax::SyntaxTreeOptions {
+        // Library-map parsing does not consume SystemVerilog preprocessor
+        // options, but authoritative profile parses still collect Slang's
+        // expectation metadata for the completion query.
         collect_expected_syntax: true,
         ..syntax::SyntaxTreeOptions::default()
     }
@@ -230,7 +237,7 @@ fn parsed_profile(db: &dyn PreprocDb, key: PreprocProfileQueryKey) -> Arc<Parsed
     let profile_id = key.profile_id(db);
     let context = db.compilation_context(profile_id);
     let plan = db.compilation_plan_for_profile(profile_id);
-    let include_buffers = compilation_plan::include_buffers_for_plan(db, &plan);
+    let source_buffers = compilation_plan::compilation_source_buffers_for_plan(db, &plan);
     let root_count = plan.roots.len();
     let _span = tracing::info_span!(
         "slang.profile_parse",
@@ -241,30 +248,29 @@ fn parsed_profile(db: &dyn PreprocDb, key: PreprocProfileQueryKey) -> Arc<Parsed
     .entered();
 
     let mut session = Compilation::new_with_top_modules(&context.top_modules);
+    session.register_source_buffers(&source_buffers);
     let mut units = Vec::with_capacity(root_count);
     for file_id in plan.roots.iter().copied() {
-        let text = db.file_text(file_id);
         let identity = source_file_identity(db, file_id);
         let (syntax_tree, preprocessor_trace) = match db.file_kind(file_id) {
             SourceFileKind::SystemVerilog => {
-                let options = syntax_tree_options_for_profile(&context, include_buffers.clone());
-                let syntax_tree = session.parse_syntax_tree_from_text(
-                    &text,
-                    &identity.name,
-                    &identity.path,
-                    &options,
-                );
+                let options = syntax_tree_options_for_profile(&context);
+                let syntax_tree =
+                    session.parse_syntax_tree_from_buffer(&identity.name, &identity.path, &options);
                 let preprocessor_trace = Some(syntax_tree.preprocessor_trace());
                 (syntax_tree, preprocessor_trace)
             }
-            SourceFileKind::LibraryMap => (
-                session.parse_library_map_syntax_tree_from_text(
-                    &text,
-                    &identity.name,
-                    &identity.path,
-                ),
-                None,
-            ),
+            SourceFileKind::LibraryMap => {
+                let options = syntax_tree_options_for_library_map();
+                (
+                    session.parse_library_map_syntax_tree_from_buffer(
+                        &identity.name,
+                        &identity.path,
+                        &options,
+                    ),
+                    None,
+                )
+            }
             SourceFileKind::IncludeHeader | SourceFileKind::ProjectManifest => {
                 panic!("non-compilation unit {file_id:?} appeared in profile roots")
             }

@@ -145,7 +145,10 @@ fn include_buffers_for_plan_with_roots(
 
         let include_header_in_include_path = plan.is_include_header_in_include_paths(db, file_id);
         let semantic_root = root_files.contains(&file_id)
-            && matches!(db.file_kind(file_id), SourceFileKind::SystemVerilog);
+            && matches!(
+                db.file_kind(file_id),
+                SourceFileKind::SystemVerilog | SourceFileKind::LibraryMap
+            );
         if !semantic_root
             && !include_header_in_include_path
             && !plan.include_only.contains(&file_id)

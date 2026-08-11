@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 #include "cxx.h"
@@ -40,9 +41,12 @@ namespace slang_sys::syntax {
 
         SourceSession();
         void assign_include_buffer(std::string path, std::string text);
+        void assign_source_buffer(std::string path, std::string text);
+        slang::SourceBuffer source_buffer(std::string_view path) const;
 
       private:
-        std::unordered_map<std::string, std::string> include_buffers;
+        std::unordered_map<std::string, std::string> buffers;
+        std::unordered_map<std::string, slang::SourceBuffer> source_buffers;
     };
 
     // TODO: Maybe we should expose this data structure to the rust side, rather
@@ -74,6 +78,17 @@ namespace slang_sys::syntax {
             rust::Vec<rust::String> include_buffer_texts,
             bool expand_includes,
             bool guess,
+            bool collect_expected_syntax,
+            std::size_t expected_syntax_offset,
+            bool has_expected_syntax_offset
+        );
+        std::shared_ptr<SyntaxTree> parse_syntax_tree_from_buffer_with_session(
+            const std::shared_ptr<SourceSession>& session,
+            rust::Str name,
+            rust::Str path,
+            rust::Vec<rust::String> predefines,
+            rust::Vec<rust::String> include_paths,
+            bool expand_includes,
             bool collect_expected_syntax,
             std::size_t expected_syntax_offset,
             bool has_expected_syntax_offset
@@ -110,6 +125,14 @@ namespace slang_sys::syntax {
         std::shared_ptr<SyntaxTree> parse_library_map_syntax_tree_with_session(
             const std::shared_ptr<SourceSession>& session,
             rust::Str text,
+            rust::Str name,
+            rust::Str path,
+            bool collect_expected_syntax,
+            std::size_t expected_syntax_offset,
+            bool has_expected_syntax_offset
+        );
+        std::shared_ptr<SyntaxTree> parse_library_map_syntax_tree_from_buffer_with_session(
+            const std::shared_ptr<SourceSession>& session,
             rust::Str name,
             rust::Str path,
             bool collect_expected_syntax,

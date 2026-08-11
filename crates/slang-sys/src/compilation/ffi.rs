@@ -52,11 +52,30 @@ mod slang_ffi {
             path: &str,
             options: ParseSyntaxTreeOptions,
         ) -> SharedPtr<SyntaxTree>;
+        fn register_source_buffers(
+            compilation: Pin<&mut Compilation>,
+            paths: Vec<String>,
+            texts: Vec<String>,
+        );
+        fn parse_syntax_tree_from_buffer(
+            compilation: Pin<&mut Compilation>,
+            name: &str,
+            path: &str,
+            options: ParseSyntaxTreeOptions,
+        ) -> SharedPtr<SyntaxTree>;
         fn parse_library_map_syntax_tree_from_text(
             compilation: Pin<&mut Compilation>,
             text: &str,
             name: &str,
             path: &str,
+        ) -> SharedPtr<SyntaxTree>;
+        fn parse_library_map_syntax_tree_from_buffer(
+            compilation: Pin<&mut Compilation>,
+            name: &str,
+            path: &str,
+            collect_expected_syntax: bool,
+            expected_syntax_offset: usize,
+            has_expected_syntax_offset: bool,
         ) -> SharedPtr<SyntaxTree>;
         fn add_syntax_tree(compilation: Pin<&mut Compilation>, tree: SharedPtr<SyntaxTree>);
         fn parse_diagnostics(
