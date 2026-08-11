@@ -77,6 +77,11 @@
           "structure": {
             "enable": true
           }
+        },
+        "system_call": {
+          "call": {
+            "enable": true
+          }
         }
       }
     },
@@ -365,6 +370,14 @@
               "enable": true
             }
           }
+        },
+        "system_call": {
+          "$ref": "#/$defs/InlayHintsSystemCallUserConfig",
+          "default": {
+            "call": {
+              "enable": true
+            }
+          }
         }
       },
       "additionalProperties": false
@@ -419,6 +432,18 @@
       "type": "object",
       "properties": {
         "structure": {
+          "$ref": "#/$defs/EnableUserConfig",
+          "default": {
+            "enable": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "InlayHintsSystemCallUserConfig": {
+      "type": "object",
+      "properties": {
+        "call": {
           "$ref": "#/$defs/EnableUserConfig",
           "default": {
             "enable": true
