@@ -13,6 +13,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "slang/parsing/ExpectedSyntax.h"
+
 namespace slang_sys::syntax::helper {
 
     static slang::SourceRange node_range(const SyntaxNode *node) {
@@ -1602,30 +1604,51 @@ uint16_t get_config_rule_kind(uint16_t kind) {
 }
 
 static bool is_keyword_candidate(uint8_t context, TokenKind kind) {
-    auto allowed = [&](bool (*predicate)(SyntaxKind)) {
-        for (auto syntax_kind : slang::syntax::SyntaxKind_traits::values)
-            if (predicate(syntax_kind) && is_possible_member_kind(static_cast<uint16_t>(kind), static_cast<uint16_t>(syntax_kind)))
-                return true;
-        return false;
-    };
-    switch (context) {
-        case 0: return allowed(slang::syntax::SyntaxFacts::isAllowedInCompilationUnit);
-        case 1: return get_library_map_member_kind(static_cast<uint16_t>(kind)) != static_cast<uint16_t>(SyntaxKind::Unknown);
-        case 2:
-        case 11: return slang::syntax::SyntaxFacts::isPossibleAnsiPort(kind);
-        case 3: return allowed(slang::syntax::SyntaxFacts::isAllowedInModule);
-        case 4: return allowed(slang::syntax::SyntaxFacts::isAllowedInGenerate);
-        case 5: return get_specify_item_kind(static_cast<uint16_t>(kind)) != static_cast<uint16_t>(SyntaxKind::Unknown);
-        case 6: return get_config_header_item_kind(static_cast<uint16_t>(kind)) != static_cast<uint16_t>(SyntaxKind::Unknown);
-        case 7: return get_config_rule_kind(static_cast<uint16_t>(kind)) != static_cast<uint16_t>(SyntaxKind::Unknown);
-        case 8: return get_block_item_declaration_kind(static_cast<uint16_t>(kind)) != static_cast<uint16_t>(SyntaxKind::Unknown) ||
+    using KeywordContext = slang::syntax::SyntaxKeywordContext;
+        auto allowed = [&](bool (*predicate)(SyntaxKind)) {
+            for (auto syntax_kind : slang::syntax::SyntaxKind_traits::values)
+                if (predicate(syntax_kind) &&
+                    is_possible_member_kind(
+                        static_cast<uint16_t>(kind), static_cast<uint16_t>(syntax_kind)))
+                    return true;
+            return false;
+        };
+        switch (context) {
+            case static_cast<uint8_t>(KeywordContext::CompilationUnitMember):
+                return allowed(slang::syntax::SyntaxFacts::isAllowedInCompilationUnit);
+            case static_cast<uint8_t>(KeywordContext::LibraryMapMember):
+                return get_library_map_member_kind(static_cast<uint16_t>(kind)) !=
+                       static_cast<uint16_t>(SyntaxKind::Unknown);
+            case static_cast<uint8_t>(KeywordContext::ModuleHeaderItem):
+            case static_cast<uint8_t>(KeywordContext::AnsiPortItem):
+                return slang::syntax::SyntaxFacts::isPossibleAnsiPort(kind);
+            case static_cast<uint8_t>(KeywordContext::ModuleMember):
+                return allowed(slang::syntax::SyntaxFacts::isAllowedInModule);
+            case static_cast<uint8_t>(KeywordContext::GenerateMember):
+                return allowed(slang::syntax::SyntaxFacts::isAllowedInGenerate);
+            case static_cast<uint8_t>(KeywordContext::SpecifyItem):
+                return get_specify_item_kind(static_cast<uint16_t>(kind)) !=
+                       static_cast<uint16_t>(SyntaxKind::Unknown);
+            case static_cast<uint8_t>(KeywordContext::ConfigHeaderItem):
+                return get_config_header_item_kind(static_cast<uint16_t>(kind)) !=
+                       static_cast<uint16_t>(SyntaxKind::Unknown);
+            case static_cast<uint8_t>(KeywordContext::ConfigRule):
+                return get_config_rule_kind(static_cast<uint16_t>(kind)) !=
+                       static_cast<uint16_t>(SyntaxKind::Unknown);
+            case static_cast<uint8_t>(KeywordContext::BlockItem):
+                return get_block_item_declaration_kind(static_cast<uint16_t>(kind)) !=
+                           static_cast<uint16_t>(SyntaxKind::Unknown) ||
                        slang::syntax::SyntaxFacts::isPossibleStatement(kind);
-        case 9: return slang::syntax::SyntaxFacts::isPossibleStatement(kind);
-        case 10: return slang::syntax::SyntaxFacts::isPossibleParameter(kind);
-        case 12: return slang::syntax::SyntaxFacts::isPossibleFunctionPort(kind);
-        case 13: return slang::syntax::SyntaxFacts::isGateType(kind);
-        default: return false;
-    }
+            case static_cast<uint8_t>(KeywordContext::Statement):
+                return slang::syntax::SyntaxFacts::isPossibleStatement(kind);
+            case static_cast<uint8_t>(KeywordContext::ParameterPortListItem):
+                return slang::syntax::SyntaxFacts::isPossibleParameter(kind);
+            case static_cast<uint8_t>(KeywordContext::FunctionPortItem):
+                return slang::syntax::SyntaxFacts::isPossibleFunctionPort(kind);
+            case static_cast<uint8_t>(KeywordContext::GateType):
+                return slang::syntax::SyntaxFacts::isGateType(kind);
+            default: return false;
+        }
 }
 
 rust::Vec<rust::String> keyword_candidates_for_context(rust::Str version, uint8_t context) {
