@@ -81,8 +81,17 @@ pub(crate) fn file_macro_coverage_query(db: &dyn PreprocDb, file_id: FileId) -> 
     let mut coverage = MacroCoverage::default();
     for model_file in model_file_ids {
         let model = db.source_preproc_model(model_file);
-        let Ok(mapped) = model.as_ref().as_ref() else {
-            continue;
+        let mapped = match model.as_ref().as_ref() {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                tracing::warn!(
+                    ?file_id,
+                    ?model_file,
+                    ?error,
+                    "macro coverage unavailable for preprocessor model"
+                );
+                continue;
+            }
         };
         let parsed = db.parsed_compilation_unit(model_file);
         if parsed.preprocessor_trace.is_none() {
@@ -96,14 +105,32 @@ pub(crate) fn file_macro_coverage_query(db: &dyn PreprocDb, file_id: FileId) -> 
             if trace_index.emitted_range_for_call(trace_call).is_none() {
                 continue;
             }
-            let Ok(call_file) = mapped.source_map.file_id(call.call_range.source) else {
-                continue;
+            let call_file = match mapped.source_map.file_id(call.call_range.source) {
+                Ok(call_file) => call_file,
+                Err(error) => {
+                    tracing::warn!(
+                        ?file_id,
+                        ?model_file,
+                        ?error,
+                        "macro coverage call source mapping unavailable"
+                    );
+                    continue;
+                }
             };
             if call_file != file_id {
                 continue;
             }
-            let Ok(range) = mapped.source_map.map_range(call.call_range) else {
-                continue;
+            let range = match mapped.source_map.map_range(call.call_range) {
+                Ok(range) => range,
+                Err(error) => {
+                    tracing::warn!(
+                        ?file_id,
+                        ?model_file,
+                        ?error,
+                        "macro coverage call range mapping unavailable"
+                    );
+                    continue;
+                }
             };
             let macro_file = MacroFileId(MacroCallLoc { model_file, trace_call });
             coverage.push(range, macro_file);

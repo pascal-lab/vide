@@ -148,8 +148,17 @@ pub fn macro_files_at_offset(
     let mut macro_files = Vec::new();
     for model_file in model_file_ids {
         let mapped = db.source_preproc_model(model_file);
-        let Ok(mapped) = mapped.as_ref() else {
-            continue;
+        let mapped = match mapped.as_ref() {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                tracing::warn!(
+                    ?file_id,
+                    ?model_file,
+                    ?error,
+                    "macro expansion candidates unavailable for preprocessor model"
+                );
+                continue;
+            }
         };
         let parsed = db.parsed_compilation_unit(model_file);
         if parsed.preprocessor_trace.is_none() {
@@ -188,15 +197,36 @@ pub fn macro_files_for_file(db: &dyn PreprocDb, file_id: FileId) -> Vec<MacroFil
     let mut macro_files = Vec::new();
     for model_file in model_file_ids {
         let mapped = db.source_preproc_model(model_file);
-        let Ok(mapped) = mapped.as_ref() else {
-            continue;
+        let mapped = match mapped.as_ref() {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                tracing::warn!(
+                    ?file_id,
+                    ?model_file,
+                    ?error,
+                    "macro file index unavailable for preprocessor model"
+                );
+                continue;
+            }
         };
         let parsed = db.parsed_compilation_unit(model_file);
         if parsed.preprocessor_trace.is_none() {
             continue;
         }
         for call in mapped.model.macro_calls().iter() {
-            if mapped.source_map.file_id(call.call_range.source).ok() != Some(file_id) {
+            let call_file = match mapped.source_map.file_id(call.call_range.source) {
+                Ok(call_file) => call_file,
+                Err(error) => {
+                    tracing::warn!(
+                        ?file_id,
+                        ?model_file,
+                        ?error,
+                        "macro call source mapping unavailable"
+                    );
+                    continue;
+                }
+            };
+            if call_file != file_id {
                 continue;
             }
             let Some(trace_call) = call.trace_call else {
