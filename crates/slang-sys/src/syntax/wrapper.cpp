@@ -1046,7 +1046,7 @@ namespace slang_sys::syntax::tree {
         const SyntaxToken *target,
         const SyntaxNode *context,
         const SyntaxTree &owner,
-        const RawTrace &trace
+        const RawTrace *trace
     ) {
         auto root = helper::find_root(context);
         if (!root)
@@ -1055,21 +1055,22 @@ namespace slang_sys::syntax::tree {
         if (root != &owner.root())
             throw std::invalid_argument("syntax context does not belong to its owner tree");
 
-        std::vector<slang::parsing::Token> emitted_tokens;
+        std::optional<uint32_t> match;
+        uint32_t emitted_index = 0;
         for (auto token : owner.tree->getEmittedTokens()) {
-            if (trace_range(token.range()).has_range)
-                emitted_tokens.push_back(token);
+            if (!trace_range(token.range()).has_range)
+                continue;
+            if (!match && token == *target)
+                match = emitted_index;
+            emitted_index++;
         }
-        if (emitted_tokens.size() != trace.emitted_tokens.size())
+        if (trace && emitted_index != trace->emitted_tokens.size())
             throw std::logic_error("Slang trace token sequence is inconsistent");
         // Recovery and macro splicing can leave syntax-tree tokens that were
         // never emitted by the preprocessor. Only the requested target needs
         // an emitted identity; the two sequences are not required to be
         // positionally isomorphic.
-        auto match = std::find(emitted_tokens.begin(), emitted_tokens.end(), *target);
-        if (match == emitted_tokens.end())
-            return std::nullopt;
-        return static_cast<uint32_t>(match - emitted_tokens.begin());
+        return match;
     }
 
     RawTraceEmittedToken trace_emitted_token_for_target(
@@ -1078,7 +1079,7 @@ namespace slang_sys::syntax::tree {
         const SyntaxTree &owner
     ) {
         auto trace = syntax_tree_preprocessor_trace(owner);
-        auto index = trace_emitted_token_index_for_target(target, context, owner, trace);
+        auto index = trace_emitted_token_index_for_target(target, context, owner, &trace);
         if (!index) {
             auto raw = target->rawText();
             auto range = trace_range(target->range());
@@ -1313,8 +1314,10 @@ namespace slang_sys::syntax::token {
         const SyntaxNode *context,
         const SyntaxTree &owner
     ) {
-        auto trace = tree::syntax_tree_preprocessor_trace(owner);
-        auto index = tree::trace_emitted_token_index_for_target(target, context, owner, trace);
+        // Index lookup is used for every semantic token. It only needs the
+        // emitted stream, so do not rebuild the full macro trace here; the
+        // origin-returning API below performs the complete trace validation.
+        auto index = tree::trace_emitted_token_index_for_target(target, context, owner, nullptr);
         if (!index)
             return RawOptionalU32 { 0, false };
         return RawOptionalU32 { *index, true };
