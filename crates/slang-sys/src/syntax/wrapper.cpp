@@ -268,7 +268,12 @@ namespace slang_sys::syntax::tree {
                            existing.has_keyword_context == expected.keywordContext.has_value() &&
                            (!expected.keywordContext ||
                             existing.keyword_context ==
-                                static_cast<uint8_t>(*expected.keywordContext));
+                                static_cast<uint8_t>(*expected.keywordContext)) &&
+                           existing.has_location &&
+                           existing.location == expected.location.offset() &&
+                           existing.has_end && existing.end == expected.end &&
+                           existing.has_buffer_id &&
+                           existing.buffer_id == expected.location.buffer().getId();
                 });
             if (duplicate)
                 continue;
