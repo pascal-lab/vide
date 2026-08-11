@@ -49,7 +49,7 @@ impl ToNav for DefOrigin {
         let full_range = source.full_range();
         let focus_range = source.focus_range();
         let name = self.name(db);
-        let kind = self.kind(db).symbol_kind().into();
+        let kind = self.kind(db).symbol_kind();
         let container_name = self.container_id(db).name(db);
 
         let (file_id, focus_range, full_range) =

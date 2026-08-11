@@ -1,5 +1,6 @@
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
+use syntax::{SyntaxKind, ast, match_ast_kind};
 use utils::impl_from;
 
 use crate::{
@@ -571,6 +572,32 @@ pub enum SymbolKind {
     Library,
     Region,
     Unknown,
+}
+
+impl SymbolKind {
+    pub fn from_syntax_kind(kind: SyntaxKind) -> Self {
+        match_ast_kind! { kind,
+            ast::ModuleDeclaration where kind == SyntaxKind::MODULE_DECLARATION => Self::Module,
+            ast::ConfigDeclaration => Self::Config,
+            ast::UdpDeclaration => Self::Primitive,
+            ast::NonAnsiPort => Self::NonAnsiPortLabel,
+            ast::PortDeclaration => Self::PortDecl,
+            ast::ParameterDeclaration => Self::ParamDecl,
+            ast::NetDeclaration => Self::NetDecl,
+            ast::DataDeclaration => Self::DataDecl,
+            ast::GenvarDeclaration => Self::Genvar,
+            ast::LibraryDeclaration => Self::Library,
+            ast::SpecparamDeclaration => Self::Specparam,
+            ast::TypedefDeclaration => Self::Typedef,
+            ast::Declarator => Self::DataDecl,
+            ast::HierarchicalInstance => Self::Instance,
+            ast::BlockStatement => Self::Block,
+            ast::Statement => Self::Stmt,
+            ast::FunctionDeclaration => Self::Fn,
+            ast::SpecifyBlock => Self::Specify,
+            _ => Self::Unknown,
+        }
+    }
 }
 
 #[cfg(test)]
