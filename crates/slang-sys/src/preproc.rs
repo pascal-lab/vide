@@ -1,6 +1,8 @@
 use super::{SourceBufferId, SourceBufferRange};
-use crate::{syntax::SyntaxKind, token::TokenKind};
-use crate::syntax::ffi;
+use crate::{
+    syntax::{SyntaxKind, ffi},
+    token::TokenKind,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Trace {
@@ -104,19 +106,21 @@ pub struct TraceTokenOrigin {
 }
 
 impl TraceTokenOrigin {
-    pub const UNAVAILABLE: u8 = 0;
-    pub const SOURCE: u8 = 1;
-    pub const MACRO_BODY: u8 = 2;
-    pub const MACRO_ARGUMENT: u8 = 3;
     pub const BUILTIN: u8 = 4;
+    pub const MACRO_ARGUMENT: u8 = 3;
+    pub const MACRO_BODY: u8 = 2;
     pub const PREDEFINE: u8 = 7;
-    pub const TOKEN_PASTE: u8 = 5;
+    pub const SOURCE: u8 = 1;
     pub const STRINGIFICATION: u8 = 6;
+    pub const TOKEN_PASTE: u8 = 5;
+    pub const UNAVAILABLE: u8 = 0;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenOrigin {
-    Source { token_range: SourceBufferRange },
+    Source {
+        token_range: SourceBufferRange,
+    },
     MacroBody {
         macro_name: String,
         call_id: MacroCallId,
@@ -186,20 +190,20 @@ impl Trace {
             source_buffers: raw
                 .source_buffers
                 .into_iter()
-                .filter_map(|buffer| {
+                .map(|buffer| {
                     let origin = match buffer.origin {
                         0 => super::SourceBufferOrigin::Source,
                         1 => super::SourceBufferOrigin::Predefine,
-                        origin => panic!(
-                            "Slang returned an unknown trace source buffer origin: {origin}"
-                        ),
+                        origin => {
+                            panic!("Slang returned an unknown trace source buffer origin: {origin}")
+                        }
                     };
-                    Some(SourceBufferId {
+                    SourceBufferId {
                         path: buffer.path,
                         text: Some(buffer.text),
                         buffer_id: buffer.buffer_id,
                         origin,
-                    })
+                    }
                 })
                 .collect(),
             events: raw.events.into_iter().map(Event::from_raw).collect(),
@@ -211,11 +215,7 @@ impl Trace {
                     included_buffer_id: edge.included_buffer_id,
                 })
                 .collect(),
-            emitted_tokens: raw
-                .emitted_tokens
-                .into_iter()
-                .map(EmittedToken::from_raw)
-                .collect(),
+            emitted_tokens: raw.emitted_tokens.into_iter().map(EmittedToken::from_raw).collect(),
         }
     }
 }
@@ -227,9 +227,17 @@ impl Event {
             kind: SyntaxKind::from_raw(raw.kind),
             range: range_from_raw(raw.range),
             macro_origin: MacroOrigin::from_raw(raw.macro_origin),
-            macro_definition_id: optional_id(raw.has_macro_definition_id, raw.macro_definition_id, MacroDefinitionId),
+            macro_definition_id: optional_id(
+                raw.has_macro_definition_id,
+                raw.macro_definition_id,
+                MacroDefinitionId,
+            ),
             macro_call_id: optional_id(raw.has_macro_call_id, raw.macro_call_id, MacroCallId),
-            macro_expansion_id: optional_id(raw.has_macro_expansion_id, raw.macro_expansion_id, MacroExpansionId),
+            macro_expansion_id: optional_id(
+                raw.has_macro_expansion_id,
+                raw.macro_expansion_id,
+                MacroExpansionId,
+            ),
             parent_macro_expansion_id: optional_id(
                 raw.has_parent_macro_expansion_id,
                 raw.parent_macro_expansion_id,
@@ -242,11 +250,7 @@ impl Event {
             arguments: raw.arguments.into_iter().map(ActualArgument::from_raw).collect(),
             body_tokens: raw.body_tokens.into_iter().filter_map(token_from_raw).collect(),
             expr_tokens: raw.expr_tokens.into_iter().filter_map(token_from_raw).collect(),
-            disabled_ranges: raw
-                .disabled_ranges
-                .into_iter()
-                .filter_map(range_from_raw)
-                .collect(),
+            disabled_ranges: raw.disabled_ranges.into_iter().filter_map(range_from_raw).collect(),
         }
     }
 }
@@ -280,25 +284,19 @@ impl EmittedToken {
 impl TokenOrigin {
     fn from_raw(raw: ffi::RawTraceTokenOrigin) -> Self {
         let call_id = optional_id(raw.has_macro_call_id, raw.macro_call_id, MacroCallId);
-        let definition_id = optional_id(
-            raw.has_macro_definition_id,
-            raw.macro_definition_id,
-            MacroDefinitionId,
-        );
-        let expansion_id = optional_id(
-            raw.has_macro_expansion_id,
-            raw.macro_expansion_id,
-            MacroExpansionId,
-        );
+        let definition_id =
+            optional_id(raw.has_macro_definition_id, raw.macro_definition_id, MacroDefinitionId);
+        let expansion_id =
+            optional_id(raw.has_macro_expansion_id, raw.macro_expansion_id, MacroExpansionId);
         let parent_expansion_id = optional_id(
             raw.has_parent_macro_expansion_id,
             raw.parent_macro_expansion_id,
             MacroExpansionId,
         );
         match raw.kind {
-            TraceTokenOrigin::SOURCE => TokenOrigin::Source {
-                token_range: range_required(raw.token_range),
-            },
+            TraceTokenOrigin::SOURCE => {
+                TokenOrigin::Source { token_range: range_required(raw.token_range) }
+            }
             TraceTokenOrigin::MACRO_BODY => TokenOrigin::MacroBody {
                 macro_name: raw.macro_name,
                 call_id: call_id.expect("Slang macro body origin has no call id"),
@@ -317,7 +315,8 @@ impl TokenOrigin {
                 call_id: call_id.expect("Slang macro argument origin has no call id"),
                 definition_id: definition_id
                     .expect("Slang macro argument origin has no definition id"),
-                expansion_id: expansion_id.expect("Slang macro argument origin has no expansion id"),
+                expansion_id: expansion_id
+                    .expect("Slang macro argument origin has no expansion id"),
                 parent_expansion_id,
                 body_token_index: raw
                     .has_body_token_index
@@ -367,16 +366,21 @@ impl TokenOrigin {
                 parent_expansion_id,
                 body_token_index: raw.body_token_index,
                 argument_index: raw.has_argument_index.then_some(raw.argument_index),
-                argument_token_index: raw.has_argument_token_index.then_some(raw.argument_token_index),
+                argument_token_index: raw
+                    .has_argument_token_index
+                    .then_some(raw.argument_token_index),
             },
             TraceTokenOrigin::STRINGIFICATION => TokenOrigin::Stringify {
                 call_id: call_id.expect("Slang stringification origin has no call id"),
                 definition_id,
-                expansion_id: expansion_id.expect("Slang stringification origin has no expansion id"),
+                expansion_id: expansion_id
+                    .expect("Slang stringification origin has no expansion id"),
                 parent_expansion_id,
                 body_token_index: raw.body_token_index,
                 argument_index: raw.has_argument_index.then_some(raw.argument_index),
-                argument_token_index: raw.has_argument_token_index.then_some(raw.argument_token_index),
+                argument_token_index: raw
+                    .has_argument_token_index
+                    .then_some(raw.argument_token_index),
             },
             TraceTokenOrigin::UNAVAILABLE => TokenOrigin::Unavailable,
             kind => panic!("Slang returned an unknown trace token origin: {kind}"),
@@ -388,9 +392,9 @@ impl MacroParam {
     fn from_raw(raw: ffi::RawTraceMacroParam) -> Self {
         Self {
             name: token_from_raw(raw.name),
-            default_tokens: raw.has_default.then(|| {
-                raw.default_tokens.into_iter().filter_map(token_from_raw).collect()
-            }),
+            default_tokens: raw
+                .has_default
+                .then(|| raw.default_tokens.into_iter().filter_map(token_from_raw).collect()),
             range: range_from_raw(raw.range),
         }
     }

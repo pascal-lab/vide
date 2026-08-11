@@ -860,7 +860,9 @@ mod tests {
         let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
         assert!(
-            diagnostics.iter().any(|diag| diag.message.contains("input port 'b' has no connection")),
+            diagnostics
+                .iter()
+                .any(|diag| diag.message.contains("input port 'b' has no connection")),
             "expected semantic diagnostic from module declared in another file: {diagnostics:?}"
         );
         assert!(
@@ -1051,10 +1053,8 @@ mod tests {
         let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
         assert!(
-            diagnostics
-                .iter()
-                .any(|diag| diag.file_id == FileId::from_raw(1)
-                    && diag.message.contains("redefinition of 'value'")),
+            diagnostics.iter().any(|diag| diag.file_id == FileId::from_raw(1)
+                && diag.message.contains("redefinition of 'value'")),
             "included .sv should use VFS text and receive mapped diagnostics: {diagnostics:?}"
         );
     }
@@ -1114,10 +1114,8 @@ mod tests {
         let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
         assert!(
-            diagnostics
-                .iter()
-                .any(|diag| diag.file_id == FileId::from_raw(2)
-                    && diag.message.contains("redefinition of 'value'")),
+            diagnostics.iter().any(|diag| diag.file_id == FileId::from_raw(2)
+                && diag.message.contains("redefinition of 'value'")),
             "transitively included .sv should use VFS text: {diagnostics:?}"
         );
     }

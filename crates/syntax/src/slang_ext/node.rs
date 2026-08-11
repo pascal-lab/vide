@@ -96,10 +96,8 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
             }
 
             let mut cursor = self.walk();
-            let left = cursor
-                .goto_last_tok_before(offset)
-                .then(|| cursor.to_tok_with_parent())
-                .flatten();
+            let left =
+                cursor.goto_last_tok_before(offset).then(|| cursor.to_tok_with_parent()).flatten();
             let left_range = left.and_then(|left| left.text_range());
             if left_range.is_some_and(|range| range.contains(offset))
                 && let Some(left) = left
@@ -109,10 +107,8 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
             let left_ok = left_range.map(|range| range.end() == offset).unwrap_or(false);
 
             cursor.reset_to_root();
-            let right = cursor
-                .goto_first_tok_after(offset)
-                .then(|| cursor.to_tok_with_parent())
-                .flatten();
+            let right =
+                cursor.goto_first_tok_after(offset).then(|| cursor.to_tok_with_parent()).flatten();
             let right_range = right.and_then(|right| right.text_range());
             let right_ok = right_range.map(|range| range.contains(offset)).unwrap_or(false);
 

@@ -1,5 +1,6 @@
-use super::*;
 use syntax::preproc::MacroOrigin;
+
+use super::*;
 
 #[test]
 fn source_model_resolves_conditional_tokens_to_visible_defines() {

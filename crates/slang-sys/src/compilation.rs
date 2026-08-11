@@ -44,12 +44,22 @@ impl Compilation {
             text,
             name,
             path,
-            options.predefines.clone(),
-            options.include_paths.clone(),
-            options.include_buffers.iter().map(|buffer| buffer.path.clone()).collect(),
-            options.include_buffers.iter().map(|buffer| buffer.text.clone()).collect(),
-            options.expand_includes,
-            options.collect_expected_syntax,
+            ffi::ParseSyntaxTreeOptions {
+                predefines: options.predefines.clone(),
+                include_paths: options.include_paths.clone(),
+                include_buffer_paths: options
+                    .include_buffers
+                    .iter()
+                    .map(|buffer| buffer.path.clone())
+                    .collect(),
+                include_buffer_texts: options
+                    .include_buffers
+                    .iter()
+                    .map(|buffer| buffer.text.clone())
+                    .collect(),
+                expand_includes: options.expand_includes,
+                collect_expected_syntax: options.collect_expected_syntax,
+            },
         ))
     }
 
@@ -60,7 +70,10 @@ impl Compilation {
         path: &str,
     ) -> SyntaxTree {
         SyntaxTree::from_raw(ffi::parse_library_map_syntax_tree_from_text(
-            self.raw_pin(), text, name, path,
+            self.raw_pin(),
+            text,
+            name,
+            path,
         ))
     }
 

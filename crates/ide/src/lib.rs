@@ -5,8 +5,8 @@ pub use base_db::{
     Cancelled,
     analysis_snapshot::{AnalysisSnapshotId, CompilationContext},
 };
+pub use hir_def::symbol::DefKind;
 pub use range::{ErasedFileAstId, FilePosition, FileRange, RangeInfo};
-pub use hir_def::symbol::DefKind as SymbolKind;
 pub type Cancellable<T> = Result<T, Cancelled>;
 
 pub mod analysis;

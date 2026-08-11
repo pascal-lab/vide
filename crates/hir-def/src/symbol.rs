@@ -585,7 +585,6 @@ impl ScopeData {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::Resolution;

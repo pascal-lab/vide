@@ -62,7 +62,7 @@ impl<'a> SyntaxCursor<'a> {
         let Some(node) = self.to_node() else {
             return false;
         };
-        let Some((index, child)) = node.children_with_idx().last() else {
+        let Some((index, child)) = node.children_with_idx().next_back() else {
             return false;
         };
         self.path.push((node, index));

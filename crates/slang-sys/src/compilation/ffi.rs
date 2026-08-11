@@ -1,8 +1,6 @@
 #![allow(non_snake_case)]
 #![allow(clippy::module_inception)]
 
-pub(crate) use slang_ffi::*;
-
 // These names are consumed by the cxx bridge DSL rather than Rust items.
 #[allow(unused_imports)]
 use std::pin::Pin;
@@ -10,9 +8,20 @@ use std::pin::Pin;
 // These names are consumed by the cxx bridge DSL rather than Rust items.
 #[allow(unused_imports)]
 use cxx::{SharedPtr, UniquePtr};
+pub(crate) use slang_ffi::*;
 
 #[cxx::bridge(namespace = "slang_sys::compilation")]
 mod slang_ffi {
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct ParseSyntaxTreeOptions {
+        predefines: Vec<String>,
+        include_paths: Vec<String>,
+        include_buffer_paths: Vec<String>,
+        include_buffer_texts: Vec<String>,
+        expand_includes: bool,
+        collect_expected_syntax: bool,
+    }
+
     #[namespace = "slang_sys::syntax"]
     unsafe extern "C++" {
         include!("syntax/wrapper.h");
@@ -39,12 +48,7 @@ mod slang_ffi {
             text: &str,
             name: &str,
             path: &str,
-            predefines: Vec<String>,
-            include_paths: Vec<String>,
-            include_buffer_paths: Vec<String>,
-            include_buffer_texts: Vec<String>,
-            expand_includes: bool,
-            collect_expected_syntax: bool,
+            options: ParseSyntaxTreeOptions,
         ) -> SharedPtr<SyntaxTree>;
         fn parse_library_map_syntax_tree_from_text(
             compilation: Pin<&mut Compilation>,
@@ -52,10 +56,7 @@ mod slang_ffi {
             name: &str,
             path: &str,
         ) -> SharedPtr<SyntaxTree>;
-        fn add_syntax_tree(
-            compilation: Pin<&mut Compilation>,
-            tree: SharedPtr<SyntaxTree>,
-        );
+        fn add_syntax_tree(compilation: Pin<&mut Compilation>, tree: SharedPtr<SyntaxTree>);
         fn parse_diagnostics(
             compilation: &Compilation,
             warning_options: Vec<String>,

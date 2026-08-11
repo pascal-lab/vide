@@ -2,6 +2,7 @@ use std::fmt;
 
 use cxx::SharedPtr;
 use tracing::warn;
+
 use super::{
     ffi,
     syntax_node::{SyntaxNode, SyntaxToken},
@@ -465,7 +466,7 @@ fn is_identifier_start(byte: u8) -> bool {
 }
 
 fn is_identifier_continue(byte: u8) -> bool {
-    is_identifier_start(byte) || matches!(byte, b'0'..=b'9')
+    is_identifier_start(byte) || byte.is_ascii_digit()
 }
 
 #[derive(Clone, Copy)]
@@ -475,6 +476,28 @@ enum LexState {
     LineComment,
     BlockComment,
 }
+
+// SAFETY: `SyntaxTree` owns the Slang syntax tree through a `cxx::SharedPtr`.
+// Slang keeps the source manager and syntax nodes alive behind that owner, and
+// every Rust view borrows this tree. The wrapper exposes only const access to
+// the tree after parsing; the mutable C++ calls are confined to construction
+// and trace collection before the tree is shared with callers.
+unsafe impl Send for SyntaxTree {}
+unsafe impl Sync for SyntaxTree {}
+
+impl fmt::Debug for SyntaxTree {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SyntaxTree").finish()
+    }
+}
+
+impl PartialEq for SyntaxTree {
+    fn eq(&self, other: &Self) -> bool {
+        self.root() == other.root()
+    }
+}
+
+impl Eq for SyntaxTree {}
 
 #[cfg(test)]
 mod tests {
@@ -492,8 +515,8 @@ mod tests {
 
     #[test]
     fn parser_metadata_survives_named_source() {
-        let mut options = SyntaxTreeOptions::default();
-        options.collect_expected_syntax = true;
+        let options =
+            SyntaxTreeOptions { collect_expected_syntax: true, ..SyntaxTreeOptions::default() };
         let tree = SyntaxTree::from_text_with_options(
             "module demo; initial begin  end endmodule",
             "source",
@@ -506,7 +529,7 @@ mod tests {
 
     #[test]
     fn inspect_completion_fixture_expectations() {
-        for (text, offset) in [
+        for (text, _offset) in [
             ("module m; endmodule\n", 21),
             ("module m(input a,\n  \n); endmodule\n", 20),
             ("module m; initial f(); endmodule", 20),
@@ -517,7 +540,7 @@ mod tests {
                 })
                 .filter(|(_, values)| !values.is_empty())
                 .collect();
-            eprintln!("{text:?} requested={offset} -> {values:?}");
+            eprintln!("{text:?} -> {values:?}");
         }
     }
 
@@ -554,25 +577,3 @@ mod tests {
         assert_eq!(SyntaxTree::token_word_at_offset("\"value\"", "source", "", 4), None);
     }
 }
-
-// SAFETY: `SyntaxTree` owns the Slang syntax tree through a `cxx::SharedPtr`.
-// Slang keeps the source manager and syntax nodes alive behind that owner, and
-// every Rust view borrows this tree. The wrapper exposes only const access to
-// the tree after parsing; the mutable C++ calls are confined to construction
-// and trace collection before the tree is shared with callers.
-unsafe impl Send for SyntaxTree {}
-unsafe impl Sync for SyntaxTree {}
-
-impl fmt::Debug for SyntaxTree {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SyntaxTree").finish()
-    }
-}
-
-impl PartialEq for SyntaxTree {
-    fn eq(&self, other: &Self) -> bool {
-        self.root() == other.root()
-    }
-}
-
-impl Eq for SyntaxTree {}

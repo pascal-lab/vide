@@ -120,7 +120,7 @@ fn collapsible_named_port_connection_range(
         }
         _ => return None,
     };
-    if actual.value_text().to_string() != port_name {
+    if actual.value_text() != port_name {
         return None;
     }
 

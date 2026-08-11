@@ -1,5 +1,5 @@
 use ide::{
-    FileRange, SymbolKind, navigation_target::NavTarget, references::References,
+    DefKind, FileRange, navigation_target::NavTarget, references::References,
     semantic_index::ModuleCallItem,
 };
 use itertools::Itertools;
@@ -209,7 +209,7 @@ fn call_hierarchy_item_for_module(
     let line_info = snap.line_info(module.file_id)?;
     Ok(lsp_types::CallHierarchyItem {
         name: module.name.clone(),
-        kind: to_proto::symbol_kind(SymbolKind::Module),
+        kind: to_proto::symbol_kind(DefKind::Module),
         tags: None,
         detail: None,
         uri,
@@ -219,8 +219,8 @@ fn call_hierarchy_item_for_module(
     })
 }
 
-fn is_call_hierarchy_kind(kind: SymbolKind) -> bool {
-    matches!(kind, SymbolKind::Module)
+fn is_call_hierarchy_kind(kind: DefKind) -> bool {
+    matches!(kind, DefKind::Module)
 }
 
 fn push_call_range(

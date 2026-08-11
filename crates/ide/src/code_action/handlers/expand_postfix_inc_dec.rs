@@ -324,7 +324,7 @@ fn assignment_expr(ctx: &CodeActionCtx) -> Option<AssignmentIncDec> {
     if !has_discarded_value_context(expr.syntax()) {
         return None;
     }
-    if expr.operator_token()?.value_text().to_string() != "=" {
+    if expr.operator_token()?.value_text() != "=" {
         return None;
     }
 

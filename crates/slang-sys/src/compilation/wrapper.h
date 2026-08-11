@@ -13,6 +13,8 @@
 
 namespace slang_sys::compilation {
 
+struct ParseSyntaxTreeOptions;
+
 class Compilation {
   public:
     explicit Compilation(std::vector<std::string> top_modules);
@@ -28,12 +30,7 @@ std::shared_ptr<syntax::SyntaxTree> parse_syntax_tree_from_text(
     rust::Str text,
     rust::Str name,
     rust::Str path,
-    rust::Vec<rust::String> predefines,
-    rust::Vec<rust::String> include_paths,
-    rust::Vec<rust::String> include_buffer_paths,
-    rust::Vec<rust::String> include_buffer_texts,
-    bool expand_includes,
-    bool collect_expected_syntax
+    ParseSyntaxTreeOptions options
 );
 std::shared_ptr<syntax::SyntaxTree> parse_library_map_syntax_tree_from_text(
     Compilation& compilation,

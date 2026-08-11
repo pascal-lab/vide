@@ -158,8 +158,10 @@ fn expectation_after_hash(caret: &CaretSnapshot<'_>) -> Option<CompletionExpecta
 
 fn expectation_after_at(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
     let prev = caret.root.token_before_offset(caret.offset)?;
-    (prev.kind() == syntax::Token![@])
-        .then_some(token_expectation(ExpectedSyntax::EventControl { wrap_in_parens: true }, prev.tok))
+    (prev.kind() == syntax::Token![@]).then_some(token_expectation(
+        ExpectedSyntax::EventControl { wrap_in_parens: true },
+        prev.tok,
+    ))
 }
 
 fn expectation_in_named_conn_expr(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {

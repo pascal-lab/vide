@@ -18,7 +18,7 @@ use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
-use crate::{SymbolKind, db::root_db::RootDb};
+use crate::{DefKind, db::root_db::RootDb};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NavTarget {
@@ -27,7 +27,7 @@ pub struct NavTarget {
     pub focus_range: Option<TextRange>,
 
     pub name: Option<SmolStr>,
-    pub kind: Option<SymbolKind>,
+    pub kind: Option<DefKind>,
     pub container_name: Option<SmolStr>,
     // TODO: how to represent this?
     pub description: Option<String>,
@@ -117,7 +117,7 @@ fn build(
     focus_range: Option<TextRange>,
     full_range: TextRange,
     name: Option<SmolStr>,
-    kind: SymbolKind,
+    kind: DefKind,
     container_name: Option<SmolStr>,
 ) -> NavTarget {
     let kind = Some(kind);

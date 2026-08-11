@@ -62,7 +62,7 @@ fn expand_compound(collector: &mut CodeActionCollector, ctx: &CodeActionCtx) -> 
 
 fn collapse_compound(collector: &mut CodeActionCollector, ctx: &CodeActionCtx) -> Option<()> {
     let expr = ctx.find_node_at_offset::<ast::BinaryExpression>()?;
-    if expr.operator_token()?.value_text().to_string() != "=" {
+    if expr.operator_token()?.value_text() != "=" {
         return None;
     }
 

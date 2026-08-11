@@ -22,7 +22,7 @@ use utils::{
 use vfs::FileId;
 
 use crate::{
-    FilePosition, RangeInfo, SymbolKind,
+    DefKind, FilePosition, RangeInfo,
     completion::{CompletionItem, CompletionItemKind},
     db::{SourceFileQueryKey, root_db::RootDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb},
     diagnostics::{Diagnostic, DiagnosticSource},
@@ -400,7 +400,7 @@ fn module_targets(db: &RootDb, name: &str) -> Vec<NavTarget> {
         .iter()
         .copied()
         .flat_map(|file_id| db.file_workspace_symbols(file_id).iter().cloned().collect::<Vec<_>>())
-        .filter(|symbol| symbol.kind == SymbolKind::Module && symbol.name == name)
+        .filter(|symbol| symbol.kind == DefKind::Module && symbol.name == name)
         .map(|symbol| NavTarget {
             file_id: symbol.file_id,
             full_range: symbol.full_range,
@@ -506,7 +506,7 @@ pub(crate) fn document_symbols(db: &dyn SourceDb, file_id: FileId) -> Vec<Docume
             name: entry.key,
             focus_range: entry.key_range,
             full_range: entry.full_range,
-            kind: SymbolKind::Config,
+            kind: DefKind::Config,
             detail: None,
             container_name: None,
             children: Vec::new(),
@@ -806,7 +806,7 @@ pub(crate) fn completions(
     let mut names = BTreeSet::new();
     for candidate in db.files().iter().copied() {
         for symbol in db.file_workspace_symbols(candidate).iter() {
-            if symbol.kind == SymbolKind::Module {
+            if symbol.kind == DefKind::Module {
                 names.insert(symbol.name.clone());
             }
         }

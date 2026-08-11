@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use anyhow::{Context, Error};
 use hir_def::container::InFile;
 use ide::{
-    FilePosition, FileRange, SymbolKind,
+    DefKind, FilePosition, FileRange,
     code_action::{CodeAction, CodeActionKind},
     code_lens::{CodeLens, CodeLensKind},
     diagnostics as ide_diagnostics,
@@ -252,43 +252,43 @@ fn diagnostic_is_unnecessary(diag: &ide_diagnostics::Diagnostic) -> bool {
     diag.tags.contains(&ide_diagnostics::DiagnosticTag::Unnecessary)
 }
 
-pub(crate) fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
+pub(crate) fn symbol_kind(symbol_kind: DefKind) -> lsp_types::SymbolKind {
     use lsp_types::SymbolKind as LspSymbolKind;
     match symbol_kind {
-        SymbolKind::Module | SymbolKind::Package | SymbolKind::Program => LspSymbolKind::MODULE,
-        SymbolKind::Interface => LspSymbolKind::INTERFACE,
-        SymbolKind::Udp | SymbolKind::Primitive | SymbolKind::Instance => LspSymbolKind::OBJECT,
-        SymbolKind::NonAnsiPort
-        | SymbolKind::NonAnsiPortLabel
-        | SymbolKind::Port
-        | SymbolKind::PortDecl
-        | SymbolKind::SubroutinePort
-        | SymbolKind::CheckerPort => LspSymbolKind::FIELD,
-        SymbolKind::Param | SymbolKind::ParamDecl | SymbolKind::Specparam | SymbolKind::Typedef => {
+        DefKind::Module | DefKind::Package | DefKind::Program => LspSymbolKind::MODULE,
+        DefKind::Interface => LspSymbolKind::INTERFACE,
+        DefKind::Udp | DefKind::Primitive | DefKind::Instance => LspSymbolKind::OBJECT,
+        DefKind::NonAnsiPort
+        | DefKind::NonAnsiPortLabel
+        | DefKind::Port
+        | DefKind::PortDecl
+        | DefKind::SubroutinePort
+        | DefKind::CheckerPort => LspSymbolKind::FIELD,
+        DefKind::Param | DefKind::ParamDecl | DefKind::Specparam | DefKind::Typedef => {
             LspSymbolKind::TYPE_PARAMETER
         }
-        SymbolKind::Net | SymbolKind::NetDecl => LspSymbolKind::PROPERTY,
-        SymbolKind::Variable | SymbolKind::DataDecl | SymbolKind::Genvar => LspSymbolKind::VARIABLE,
-        SymbolKind::Struct => LspSymbolKind::STRUCT,
-        SymbolKind::Subroutine | SymbolKind::Fn => LspSymbolKind::FUNCTION,
-        SymbolKind::Config
-        | SymbolKind::Library
-        | SymbolKind::Block
-        | SymbolKind::GenerateBlock
-        | SymbolKind::Modport
-        | SymbolKind::ClockingBlock
-        | SymbolKind::ClockingSignal
-        | SymbolKind::Checker
-        | SymbolKind::Property
-        | SymbolKind::Sequence
-        | SymbolKind::Covergroup
-        | SymbolKind::Coverpoint
-        | SymbolKind::Cross
-        | SymbolKind::Stmt
-        | SymbolKind::Generate
-        | SymbolKind::Specify
-        | SymbolKind::Region
-        | SymbolKind::Unknown => LspSymbolKind::NAMESPACE,
+        DefKind::Net | DefKind::NetDecl => LspSymbolKind::PROPERTY,
+        DefKind::Variable | DefKind::DataDecl | DefKind::Genvar => LspSymbolKind::VARIABLE,
+        DefKind::Struct => LspSymbolKind::STRUCT,
+        DefKind::Subroutine | DefKind::Fn => LspSymbolKind::FUNCTION,
+        DefKind::Config
+        | DefKind::Library
+        | DefKind::Block
+        | DefKind::GenerateBlock
+        | DefKind::Modport
+        | DefKind::ClockingBlock
+        | DefKind::ClockingSignal
+        | DefKind::Checker
+        | DefKind::Property
+        | DefKind::Sequence
+        | DefKind::Covergroup
+        | DefKind::Coverpoint
+        | DefKind::Cross
+        | DefKind::Stmt
+        | DefKind::Generate
+        | DefKind::Specify
+        | DefKind::Region
+        | DefKind::Unknown => LspSymbolKind::NAMESPACE,
     }
 }
 

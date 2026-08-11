@@ -1,4 +1,5 @@
 #include "compilation/wrapper.h"
+#include "slang-sys/src/compilation/ffi.rs.h"
 
 #include "slang/ast/SystemSubroutine.h"
 #include "slang/parsing/KnownSystemName.h"
@@ -39,25 +40,20 @@ std::shared_ptr<syntax::SyntaxTree> parse_syntax_tree_from_text(
     rust::Str text,
     rust::Str name,
     rust::Str path,
-    rust::Vec<rust::String> predefines,
-    rust::Vec<rust::String> include_paths,
-    rust::Vec<rust::String> include_buffer_paths,
-    rust::Vec<rust::String> include_buffer_texts,
-    bool expand_includes,
-    bool collect_expected_syntax
+    ParseSyntaxTreeOptions options
 ) {
     auto tree = syntax::tree::parse_syntax_tree_with_session(
         compilation.session,
         text,
         name,
         path,
-        std::move(predefines),
-        std::move(include_paths),
-        std::move(include_buffer_paths),
-        std::move(include_buffer_texts),
-        expand_includes,
+        std::move(options.predefines),
+        std::move(options.include_paths),
+        std::move(options.include_buffer_paths),
+        std::move(options.include_buffer_texts),
+        options.expand_includes,
         false,
-        collect_expected_syntax
+        options.collect_expected_syntax
     );
     compilation.inner->addSyntaxTree(tree->tree);
     return tree;

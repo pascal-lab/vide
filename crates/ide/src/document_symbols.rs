@@ -38,14 +38,14 @@ use syntax::WalkEvent;
 use utils::line_index::TextRange;
 use vfs::FileId;
 
-use crate::SymbolKind;
+use crate::DefKind;
 
 #[derive(Debug, Clone)]
 pub struct DocumentSymbol {
     pub name: String,
     pub focus_range: TextRange,
     pub full_range: TextRange,
-    pub kind: SymbolKind,
+    pub kind: DefKind,
     pub detail: Option<String>,
     pub container_name: Option<String>,
     pub children: Vec<DocumentSymbol>,
@@ -81,7 +81,7 @@ impl SymbolCollector {
             name: name.as_ref().unwrap_or(&DEFAULT_NAME).to_string(),
             focus_range: src.focus_or_full_range(),
             full_range: src.full_range(),
-            kind: SymbolKind::from_syntax_kind(
+            kind: DefKind::from_syntax_kind(
                 src.kind().expect("mapped source should retain its syntax kind"),
             ),
             detail: None,
@@ -95,7 +95,7 @@ impl SymbolCollector {
         &mut self,
         name: &Option<SmolStr>,
         src: SourceInfo,
-        kind: SymbolKind,
+        kind: DefKind,
     ) {
         self.push_symbol(name, src);
         if let Some(symbol) = self.stack.last_mut() {
@@ -124,7 +124,7 @@ impl SymbolCollector {
             name: region.name().to_string(),
             focus_range: region.focus_range(),
             full_range: region.range,
-            kind: SymbolKind::Region,
+            kind: DefKind::Region,
             detail: None,
             container_name,
             children: Vec::new(),
@@ -138,9 +138,7 @@ impl SymbolCollector {
             return;
         };
 
-        if (sym.kind == SymbolKind::Block
-            || sym.kind == SymbolKind::Stmt
-            || sym.kind == SymbolKind::Region)
+        if (sym.kind == DefKind::Block || sym.kind == DefKind::Stmt || sym.kind == DefKind::Region)
             && sym.name == DEFAULT_NAME
             && sym.children.is_empty()
         {
@@ -324,7 +322,7 @@ fn collect_module_items(db: &dyn TyDb, owner: OwnerId, collector: &mut SymbolCol
             if let Some(src) = body.source_info(db, decl_id) {
                 regions.add_region_symbol(src.full_range(), collector);
             }
-            build_decl(db, collector, decl_id, SymbolKind::ParamDecl, body.as_ref());
+            build_decl(db, collector, decl_id, DefKind::ParamDecl, body.as_ref());
         }
     }
 
@@ -343,7 +341,7 @@ fn collect_module_items(db: &dyn TyDb, owner: OwnerId, collector: &mut SymbolCol
                 if let Some(src) = lowered.source_info(db, port_id) {
                     regions.add_region_symbol(src.full_range(), collector);
                 }
-                build_decls(db, collector, &port_decl.decls, SymbolKind::PortDecl, body.as_ref());
+                build_decls(db, collector, &port_decl.decls, DefKind::PortDecl, body.as_ref());
             }
         }
     }
@@ -378,7 +376,7 @@ fn collect_module_items(db: &dyn TyDb, owner: OwnerId, collector: &mut SymbolCol
             }
             BodyItem::PortDeclId(port_decl) => {
                 let port_decl = lowered.get(port_decl);
-                build_decls(db, collector, &port_decl.decls, SymbolKind::PortDecl, body.as_ref())
+                build_decls(db, collector, &port_decl.decls, DefKind::PortDecl, body.as_ref())
             }
             BodyItem::ContAssignId(_) => {}
             BodyItem::DefParamId(_) => {}
@@ -542,7 +540,7 @@ fn build_stmt(
         StmtKind::For { inits, stmt, .. } => {
             if let ForInit::Init(inits) = inits {
                 for (_, decl_id) in inits {
-                    build_decl(db, collector, *decl_id, SymbolKind::DataDecl, lowered);
+                    build_decl(db, collector, *decl_id, DefKind::DataDecl, lowered);
                 }
             }
             build_stmt(db, collector, *stmt, lowered);
@@ -601,9 +599,7 @@ fn build_declaration<L>(
         db,
         collector,
         &declaration.decls(),
-        SymbolKind::from_syntax_kind(
-            src.kind().expect("mapped source should retain its syntax kind"),
-        ),
+        DefKind::from_syntax_kind(src.kind().expect("mapped source should retain its syntax kind")),
         lowered,
     );
 }
@@ -628,7 +624,7 @@ fn build_generate_region<S>(
         return;
     };
     let name = Some(SmolStr::new_static("generate"));
-    collector.push_symbol_with_kind(&name, src, SymbolKind::Generate);
+    collector.push_symbol_with_kind(&name, src, DefKind::Generate);
     for item in hir.items.iter() {
         build_generate_block_item(db, collector, item.clone(), structure, body);
     }
@@ -649,7 +645,7 @@ fn build_generate_block(
     let generate_block = lowered.data_ref();
     let name = generate_block.name.clone();
 
-    collector.push_symbol_with_kind(&name, generate_block_src, SymbolKind::Generate);
+    collector.push_symbol_with_kind(&name, generate_block_src, DefKind::Generate);
     for item in &generate_block.items {
         build_generate_block_item(db, collector, item.clone(), lowered.as_ref(), body.as_ref());
     }
@@ -900,7 +896,7 @@ where
     };
 
     let name = hir.name.clone().or_else(|| Some(struct_kind_name(hir.kind)));
-    collector.push_symbol_with_kind(&name, src, SymbolKind::Struct);
+    collector.push_symbol_with_kind(&name, src, DefKind::Struct);
     collector.pop();
 }
 
@@ -927,7 +923,7 @@ fn build_specify_block<S>(
         return;
     };
     let name = Some(SmolStr::new_static("specify"));
-    collector.push_symbol_with_kind(&name, src, SymbolKind::Specify);
+    collector.push_symbol_with_kind(&name, src, DefKind::Specify);
     for item in hir.items.iter() {
         match *item {
             SpecifyBlockItem::DeclarationId(declaration_id) => {
@@ -944,7 +940,7 @@ fn build_decls<L>(
     db: &dyn TyDb,
     collector: &mut SymbolCollector,
     decls: &DeclsRange,
-    kind: SymbolKind,
+    kind: DefKind,
     lowered: &L,
 ) where
     L: HirLookup<DeclId, Hir = Declarator> + NamedSourceLookup<DeclId>,
@@ -959,7 +955,7 @@ fn build_decl<L>(
     db: &dyn TyDb,
     collector: &mut SymbolCollector,
     decl: DeclId,
-    kind: SymbolKind,
+    kind: DefKind,
     lowered: &L,
 ) where
     L: HirLookup<DeclId, Hir = Declarator> + NamedSourceLookup<DeclId>,
@@ -986,8 +982,8 @@ fn build_typedef<L>(
         return;
     };
     let kind = match hir.ty {
-        Some(hir_def::expr::data_ty::DataTy::Struct(_)) => SymbolKind::Struct,
-        _ => SymbolKind::Typedef,
+        Some(hir_def::expr::data_ty::DataTy::Struct(_)) => DefKind::Struct,
+        _ => DefKind::Typedef,
     };
     collector.push_symbol_with_kind(&hir.name, src, kind);
     collector.pop();
@@ -999,7 +995,7 @@ fn build_subroutine(db: &dyn TyDb, collector: &mut SymbolCollector, owner: Owner
     let Some(src) = owner.source(db).map(|source| source.value) else {
         return;
     };
-    collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Fn);
+    collector.push_symbol_with_kind(&hir.name, src, DefKind::Fn);
     collector.pop();
 }
 
@@ -1016,7 +1012,7 @@ fn build_config_decl<L>(
     let Some(src) = lowered.named_source_info(db, config_id) else {
         return;
     };
-    collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Config);
+    collector.push_symbol_with_kind(&hir.name, src, DefKind::Config);
     collector.pop();
 }
 
@@ -1029,7 +1025,7 @@ where
     let Some(src) = lowered.named_source_info(db, udp_id) else {
         return;
     };
-    collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Primitive);
+    collector.push_symbol_with_kind(&hir.name, src, DefKind::Primitive);
     collector.pop();
 }
 
@@ -1046,6 +1042,6 @@ fn build_library_decl<L>(
     let Some(src) = lowered.named_source_info(db, library_id) else {
         return;
     };
-    collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Library);
+    collector.push_symbol_with_kind(&hir.name, src, DefKind::Library);
     collector.pop();
 }

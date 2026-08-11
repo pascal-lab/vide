@@ -23,7 +23,7 @@ use utils::{
 use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
 use crate::{
-    FilePosition, ScopeVisibility, SymbolKind,
+    DefKind, FilePosition, ScopeVisibility,
     analysis_host::AnalysisHost,
     completion::{CompletionItem, CompletionItemKind, context::TriggerChar},
     db::root_db::RootDb,
@@ -2893,7 +2893,7 @@ endmodule
         "program instantiation should navigate to the program declaration: {nav:?}"
     );
     assert!(
-        nav.info.iter().all(|target| target.kind == Some(SymbolKind::Module)),
+        nav.info.iter().all(|target| target.kind == Some(DefKind::Module)),
         "program navigation targets should retain module symbol metadata: {nav:?}"
     );
 
@@ -2944,7 +2944,7 @@ endmodule
         .expect("package definition expected");
     assert!(
         package_nav.info.iter().any(|target| {
-            target.focus_range == Some(package_def_range) && target.kind == Some(SymbolKind::Module)
+            target.focus_range == Some(package_def_range) && target.kind == Some(DefKind::Module)
         }),
         "package navigation target should retain module symbol metadata: {package_nav:?}"
     );

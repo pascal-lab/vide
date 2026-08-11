@@ -8,7 +8,7 @@ use utils::line_index::TextRange;
 use vfs::FileId;
 
 use crate::{
-    SymbolKind,
+    DefKind,
     db::{
         root_db::RootDb,
         workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_symbol_index_for_root},
@@ -24,7 +24,7 @@ pub struct WorkspaceSymbol {
     pub name: String,
     pub focus_range: TextRange,
     pub full_range: TextRange,
-    pub kind: SymbolKind,
+    pub kind: DefKind,
     pub container_name: Option<String>,
 }
 
@@ -375,7 +375,7 @@ mod tests {
             name: name.to_owned(),
             focus_range: TextRange::empty(0.into()),
             full_range: TextRange::empty(0.into()),
-            kind: SymbolKind::Module,
+            kind: DefKind::Module,
             container_name: container_name.map(str::to_owned),
         }
     }

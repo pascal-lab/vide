@@ -1,7 +1,8 @@
 use std::fmt;
 
-use crate::syntax::ffi;
 use tracing::warn;
+
+use crate::syntax::ffi;
 
 /// An owned four-state SystemVerilog integer value.
 ///
@@ -34,11 +35,25 @@ impl SVInt {
         }
     }
 
-    pub fn is_signed(&self) -> bool { self.is_signed }
-    pub fn has_unknown(&self) -> bool { self.has_unknown }
-    pub fn get_bit_width(&self) -> usize { self.bit_width }
-    pub fn is_single_word(&self) -> bool { self.single_word.is_some() }
-    pub fn get_single_word(&self) -> Option<u64> { self.single_word }
+    pub fn is_signed(&self) -> bool {
+        self.is_signed
+    }
+
+    pub fn has_unknown(&self) -> bool {
+        self.has_unknown
+    }
+
+    pub fn get_bit_width(&self) -> usize {
+        self.bit_width
+    }
+
+    pub fn is_single_word(&self) -> bool {
+        self.single_word.is_some()
+    }
+
+    pub fn get_single_word(&self) -> Option<u64> {
+        self.single_word
+    }
 
     pub fn serialize(&self, base: usize) -> String {
         match base {
@@ -52,7 +67,9 @@ impl SVInt {
 }
 
 impl fmt::Display for SVInt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.decimal) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.decimal)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -104,7 +121,9 @@ pub enum Bit {
 }
 
 impl Bit {
-    pub fn bit(self) -> Self { self }
+    pub fn bit(self) -> Self {
+        self
+    }
 
     pub(crate) fn from_raw(raw: u8) -> Option<Self> {
         match raw {
