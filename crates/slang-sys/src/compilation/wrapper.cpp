@@ -53,7 +53,9 @@ std::shared_ptr<syntax::SyntaxTree> parse_syntax_tree_from_text(
         std::move(options.include_buffer_texts),
         options.expand_includes,
         false,
-        options.collect_expected_syntax
+        options.collect_expected_syntax,
+        options.expected_syntax_offset,
+        options.has_expected_syntax_offset
     );
     compilation.inner->addSyntaxTree(tree->tree);
     return tree;
@@ -66,7 +68,7 @@ std::shared_ptr<syntax::SyntaxTree> parse_library_map_syntax_tree_from_text(
     rust::Str path
 ) {
     auto tree = syntax::tree::parse_library_map_syntax_tree_with_session(
-        compilation.session, text, name, path, false);
+        compilation.session, text, name, path, false, 0, false);
     compilation.inner->addSyntaxTree(tree->tree);
     return tree;
 }

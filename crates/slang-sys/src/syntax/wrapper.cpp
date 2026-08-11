@@ -130,7 +130,9 @@ namespace slang_sys::syntax::tree {
         rust::Vec<rust::String> include_buffer_texts,
         bool expand_includes,
         bool guess,
-        bool collect_expected_syntax
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
     ) {
         return parse_syntax_tree_with_session(
             std::make_shared<SourceSession>(),
@@ -143,7 +145,9 @@ namespace slang_sys::syntax::tree {
             std::move(include_buffer_texts),
             expand_includes,
             guess,
-            collect_expected_syntax
+            collect_expected_syntax,
+            expected_syntax_offset,
+            has_expected_syntax_offset
         );
     }
 
@@ -158,7 +162,9 @@ namespace slang_sys::syntax::tree {
         rust::Vec<rust::String> include_buffer_texts,
         bool expand_includes,
         bool guess,
-        bool collect_expected_syntax
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
     ) {
         auto source_storage = std::string(text.data(), text.size());
         auto source = std::string_view(source_storage);
@@ -179,9 +185,12 @@ namespace slang_sys::syntax::tree {
         if (!expand_includes)
             pp_options.maxIncludeDepth = 0;
 
-        if (collect_expected_syntax) {
+        if (has_expected_syntax_offset || collect_expected_syntax) {
             auto &expected_options = options.insertOrGet<slang::parsing::ExpectedSyntaxOptions>();
-            expected_options.recordAll = true;
+            if (has_expected_syntax_offset)
+                expected_options.cursorOffset = expected_syntax_offset;
+            else
+                expected_options.recordAll = true;
         }
 
         for (std::size_t i = 0; i < include_buffer_paths.size(); i++) {
@@ -285,10 +294,19 @@ namespace slang_sys::syntax::tree {
         rust::Str text,
         rust::Str name,
         rust::Str path,
-        bool collect_expected_syntax
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
     ) {
         return parse_library_map_syntax_tree_with_session(
-            std::make_shared<SourceSession>(), text, name, path, collect_expected_syntax);
+            std::make_shared<SourceSession>(),
+            text,
+            name,
+            path,
+            collect_expected_syntax,
+            expected_syntax_offset,
+            has_expected_syntax_offset
+        );
     }
 
     std::shared_ptr<SyntaxTree> parse_library_map_syntax_tree_with_session(
@@ -296,15 +314,20 @@ namespace slang_sys::syntax::tree {
         rust::Str text,
         rust::Str name,
         rust::Str path,
-        bool collect_expected_syntax
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
     ) {
         auto source = std::string_view(text.data(), text.size());
         auto tree_name = std::string_view(name.data(), name.size());
         auto tree_path = std::string_view(path.data(), path.size());
         slang::Bag options;
-        if (collect_expected_syntax) {
+        if (has_expected_syntax_offset || collect_expected_syntax) {
             auto &expected_options = options.insertOrGet<slang::parsing::ExpectedSyntaxOptions>();
-            expected_options.recordAll = true;
+            if (has_expected_syntax_offset)
+                expected_options.cursorOffset = expected_syntax_offset;
+            else
+                expected_options.recordAll = true;
         }
         auto tree = ::slang::syntax::SyntaxTree::fromLibraryMapText(
             source,

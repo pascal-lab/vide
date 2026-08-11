@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -73,7 +74,9 @@ namespace slang_sys::syntax {
             rust::Vec<rust::String> include_buffer_texts,
             bool expand_includes,
             bool guess,
-            bool collect_expected_syntax
+            bool collect_expected_syntax,
+            std::size_t expected_syntax_offset,
+            bool has_expected_syntax_offset
         );
         std::shared_ptr<SyntaxTree> parse_syntax_tree_with_session(
             const std::shared_ptr<SourceSession>& session,
@@ -86,7 +89,9 @@ namespace slang_sys::syntax {
             rust::Vec<rust::String> include_buffer_texts,
             bool expand_includes,
             bool guess,
-            bool collect_expected_syntax
+            bool collect_expected_syntax,
+            std::size_t expected_syntax_offset,
+            bool has_expected_syntax_offset
         );
         const SyntaxNode *syntax_tree_root(const SyntaxTree &tree);
         uint32_t syntax_tree_root_buffer_id(const SyntaxTree &tree);
@@ -98,14 +103,18 @@ namespace slang_sys::syntax {
             rust::Str text,
             rust::Str name,
             rust::Str path,
-            bool collect_expected_syntax
+            bool collect_expected_syntax,
+            std::size_t expected_syntax_offset,
+            bool has_expected_syntax_offset
         );
         std::shared_ptr<SyntaxTree> parse_library_map_syntax_tree_with_session(
             const std::shared_ptr<SourceSession>& session,
             rust::Str text,
             rust::Str name,
             rust::Str path,
-            bool collect_expected_syntax
+            bool collect_expected_syntax,
+            std::size_t expected_syntax_offset,
+            bool has_expected_syntax_offset
         );
         RawTrace syntax_tree_preprocessor_trace(const SyntaxTree &tree);
     } // namespace tree

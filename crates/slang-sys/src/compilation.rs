@@ -59,6 +59,8 @@ impl Compilation {
                     .collect(),
                 expand_includes: options.expand_includes,
                 collect_expected_syntax: options.collect_expected_syntax,
+                expected_syntax_offset: options.expected_syntax_offset.unwrap_or_default(),
+                has_expected_syntax_offset: options.expected_syntax_offset.is_some(),
             },
         ))
     }

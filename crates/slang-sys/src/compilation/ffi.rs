@@ -20,6 +20,8 @@ mod slang_ffi {
         include_buffer_texts: Vec<String>,
         expand_includes: bool,
         collect_expected_syntax: bool,
+        expected_syntax_offset: usize,
+        has_expected_syntax_offset: bool,
     }
 
     #[namespace = "slang_sys::syntax"]

@@ -178,6 +178,8 @@ mod slang_ffi {
             expand_includes: bool,
             guess: bool,
             collect_expected_syntax: bool,
+            expected_syntax_offset: usize,
+            has_expected_syntax_offset: bool,
         ) -> SharedPtr<SyntaxTree>;
         fn syntax_tree_root(tree: &SyntaxTree) -> *const SyntaxNode;
         fn syntax_tree_root_buffer_id(tree: &SyntaxTree) -> u32;
@@ -190,6 +192,8 @@ mod slang_ffi {
             name: &str,
             path: &str,
             collect_expected_syntax: bool,
+            expected_syntax_offset: usize,
+            has_expected_syntax_offset: bool,
         ) -> SharedPtr<SyntaxTree>;
         fn syntax_tree_preprocessor_trace(tree: &SyntaxTree) -> RawTrace;
     }

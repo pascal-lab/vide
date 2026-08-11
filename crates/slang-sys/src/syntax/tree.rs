@@ -41,6 +41,12 @@ pub struct SyntaxTreeOptions {
     pub include_buffers: Vec<SyntaxTreeBuffer>,
     pub expand_includes: bool,
     pub collect_expected_syntax: bool,
+    /// Restrict parser expectation collection to one cursor offset.
+    ///
+    /// This is used by one-shot completion parses. Authoritative parses should
+    /// leave it unset and opt into `collect_expected_syntax` instead, so the
+    /// resulting tree can answer expectation queries at every offset.
+    pub expected_syntax_offset: Option<usize>,
 }
 
 /// In-memory source buffer that can be used for include resolution.
@@ -58,6 +64,7 @@ impl Default for SyntaxTreeOptions {
             include_buffers: Vec::new(),
             expand_includes: true,
             collect_expected_syntax: false,
+            expected_syntax_offset: None,
         }
     }
 }
@@ -109,6 +116,8 @@ impl SyntaxTree {
             options.expand_includes,
             guess,
             options.collect_expected_syntax,
+            options.expected_syntax_offset.unwrap_or_default(),
+            options.expected_syntax_offset.is_some(),
         ))
     }
 
@@ -153,7 +162,7 @@ impl SyntaxTree {
     }
 
     pub fn from_library_map_text(text: &str, name: &str, path: &str) -> Self {
-        Self::from_raw(ffi::parse_library_map_syntax_tree(text, name, path, false))
+        Self::from_raw(ffi::parse_library_map_syntax_tree(text, name, path, false, 0, false))
     }
 
     pub fn root(&self) -> SyntaxNode<'_> {
@@ -199,7 +208,8 @@ impl SyntaxTree {
         options: &SyntaxTreeOptions,
     ) -> Vec<ParserExpectedSyntax> {
         let mut options = options.clone();
-        options.collect_expected_syntax = true;
+        options.collect_expected_syntax = false;
+        options.expected_syntax_offset = Some(offset);
         let tree = Self::from_file_in_memory_with_options(text, name, path, &options);
         tree.expected_syntax_at(offset)
     }
@@ -210,7 +220,9 @@ impl SyntaxTree {
         path: &str,
         offset: usize,
     ) -> Vec<ParserExpectedSyntax> {
-        let tree = Self::from_raw(ffi::parse_library_map_syntax_tree(text, name, path, true));
+        let tree = Self::from_raw(ffi::parse_library_map_syntax_tree(
+            text, name, path, false, offset, true,
+        ));
         tree.expected_syntax_at(offset)
     }
 
