@@ -88,7 +88,7 @@ namespace slang_sys::diagnostic::helper {
         slang::SourceLocation context,
         std::span<const slang::SourceRange> ranges
     ) {
-        if (ranges.empty())
+        if (!context.valid() || ranges.empty())
             return std::nullopt;
 
         slang::SmallVector<slang::SourceRange> mapped;

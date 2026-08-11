@@ -267,6 +267,17 @@ mod tests {
     }
 
     #[test]
+    fn syntax_tree_diagnostics_report_unknown_warning_options() {
+        let tree = SyntaxTree::from_text("module warning_demo; endmodule", "warning", "warning.sv");
+        let diagnostics = tree.diagnostics(&["definitely-not-a-warning".to_owned()]);
+
+        assert!(
+            diagnostics.iter().any(|diagnostic| diagnostic.message.contains("warning")),
+            "expected unknown warning option diagnostic, got {diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn syntax_tree_diagnostics_preserve_reported_macro_expansions() {
         let tree = SyntaxTree::from_text(
             "`define BAD (1 + )\nmodule demo; localparam int value = `BAD; endmodule",
