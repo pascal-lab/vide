@@ -1,7 +1,6 @@
 use super::{SourceBufferId, SourceBufferRange};
 use crate::{syntax::SyntaxKind, token::TokenKind};
 use crate::syntax::ffi;
-use tracing::warn;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Trace {
@@ -32,6 +31,7 @@ pub struct Event {
     pub event_id: EventId,
     pub kind: SyntaxKind,
     pub range: Option<SourceBufferRange>,
+    pub macro_origin: MacroOrigin,
     pub macro_definition_id: Option<MacroDefinitionId>,
     pub macro_call_id: Option<MacroCallId>,
     pub macro_expansion_id: Option<MacroExpansionId>,
@@ -44,6 +44,15 @@ pub struct Event {
     pub body_tokens: Vec<Token>,
     pub expr_tokens: Vec<Token>,
     pub disabled_ranges: Vec<SourceBufferRange>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacroOrigin {
+    Unknown,
+    Source,
+    Predefine,
+    BuiltIn,
+    Intrinsic,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +109,7 @@ impl TraceTokenOrigin {
     pub const MACRO_BODY: u8 = 2;
     pub const MACRO_ARGUMENT: u8 = 3;
     pub const BUILTIN: u8 = 4;
+    pub const PREDEFINE: u8 = 7;
     pub const TOKEN_PASTE: u8 = 5;
     pub const STRINGIFICATION: u8 = 6;
 }
@@ -130,6 +140,18 @@ pub enum TokenOrigin {
         body_token_range: SourceBufferRange,
         argument_token_range: SourceBufferRange,
     },
+    Predefine {
+        macro_name: String,
+        call_id: MacroCallId,
+        expansion_id: MacroExpansionId,
+        parent_expansion_id: Option<MacroExpansionId>,
+        body_token_index: u32,
+        argument_index: Option<u32>,
+        argument_token_index: Option<u32>,
+        call_range: SourceBufferRange,
+        body_token_range: SourceBufferRange,
+        argument_token_range: Option<SourceBufferRange>,
+    },
     Builtin {
         name: String,
         call_id: MacroCallId,
@@ -138,7 +160,7 @@ pub enum TokenOrigin {
     },
     TokenPaste {
         call_id: MacroCallId,
-        definition_id: MacroDefinitionId,
+        definition_id: Option<MacroDefinitionId>,
         expansion_id: MacroExpansionId,
         parent_expansion_id: Option<MacroExpansionId>,
         body_token_index: u32,
@@ -147,7 +169,7 @@ pub enum TokenOrigin {
     },
     Stringify {
         call_id: MacroCallId,
-        definition_id: MacroDefinitionId,
+        definition_id: Option<MacroDefinitionId>,
         expansion_id: MacroExpansionId,
         parent_expansion_id: Option<MacroExpansionId>,
         body_token_index: u32,
@@ -168,14 +190,9 @@ impl Trace {
                     let origin = match buffer.origin {
                         0 => super::SourceBufferOrigin::Source,
                         1 => super::SourceBufferOrigin::Predefine,
-                        origin => {
-                            warn!(
-                                buffer_id = buffer.buffer_id,
-                                origin,
-                                "Slang returned an unknown trace source buffer origin; dropping the buffer"
-                            );
-                            return None;
-                        }
+                        origin => panic!(
+                            "Slang returned an unknown trace source buffer origin: {origin}"
+                        ),
                     };
                     Some(SourceBufferId {
                         path: buffer.path,
@@ -209,6 +226,7 @@ impl Event {
             event_id: EventId(raw.event_id),
             kind: SyntaxKind::from_raw(raw.kind),
             range: range_from_raw(raw.range),
+            macro_origin: MacroOrigin::from_raw(raw.macro_origin),
             macro_definition_id: optional_id(raw.has_macro_definition_id, raw.macro_definition_id, MacroDefinitionId),
             macro_call_id: optional_id(raw.has_macro_call_id, raw.macro_call_id, MacroCallId),
             macro_expansion_id: optional_id(raw.has_macro_expansion_id, raw.macro_expansion_id, MacroExpansionId),
@@ -229,6 +247,19 @@ impl Event {
                 .into_iter()
                 .filter_map(range_from_raw)
                 .collect(),
+        }
+    }
+}
+
+impl MacroOrigin {
+    fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => Self::Unknown,
+            1 => Self::Source,
+            2 => Self::Predefine,
+            3 => Self::BuiltIn,
+            4 => Self::Intrinsic,
+            raw => panic!("Slang returned an unknown macro origin: {raw}"),
         }
     }
 }
@@ -304,6 +335,25 @@ impl TokenOrigin {
                 body_token_range: range_required(raw.body_token_range),
                 argument_token_range: range_required(raw.argument_token_range),
             },
+            TraceTokenOrigin::PREDEFINE => TokenOrigin::Predefine {
+                macro_name: raw.macro_name,
+                call_id: call_id.expect("Slang predefine origin has no call id"),
+                expansion_id: expansion_id.expect("Slang predefine origin has no expansion id"),
+                parent_expansion_id,
+                body_token_index: raw
+                    .has_body_token_index
+                    .then_some(raw.body_token_index)
+                    .expect("Slang predefine origin has no body token index"),
+                argument_index: raw.has_argument_index.then_some(raw.argument_index),
+                argument_token_index: raw
+                    .has_argument_token_index
+                    .then_some(raw.argument_token_index),
+                call_range: range_required(raw.call_range),
+                body_token_range: range_required(raw.body_token_range),
+                argument_token_range: raw
+                    .has_argument_token_index
+                    .then(|| range_required(raw.argument_token_range)),
+            },
             TraceTokenOrigin::BUILTIN => TokenOrigin::Builtin {
                 name: raw.macro_name,
                 call_id: call_id.expect("Slang builtin origin has no call id"),
@@ -312,7 +362,7 @@ impl TokenOrigin {
             },
             TraceTokenOrigin::TOKEN_PASTE => TokenOrigin::TokenPaste {
                 call_id: call_id.expect("Slang token paste origin has no call id"),
-                definition_id: definition_id.expect("Slang token paste origin has no definition id"),
+                definition_id,
                 expansion_id: expansion_id.expect("Slang token paste origin has no expansion id"),
                 parent_expansion_id,
                 body_token_index: raw.body_token_index,
@@ -321,8 +371,7 @@ impl TokenOrigin {
             },
             TraceTokenOrigin::STRINGIFICATION => TokenOrigin::Stringify {
                 call_id: call_id.expect("Slang stringification origin has no call id"),
-                definition_id: definition_id
-                    .expect("Slang stringification origin has no definition id"),
+                definition_id,
                 expansion_id: expansion_id.expect("Slang stringification origin has no expansion id"),
                 parent_expansion_id,
                 body_token_index: raw.body_token_index,
@@ -330,13 +379,7 @@ impl TokenOrigin {
                 argument_token_index: raw.has_argument_token_index.then_some(raw.argument_token_index),
             },
             TraceTokenOrigin::UNAVAILABLE => TokenOrigin::Unavailable,
-            kind => {
-                warn!(
-                    kind,
-                    "Slang returned an unknown trace token origin; treating it as unavailable"
-                );
-                TokenOrigin::Unavailable
-            }
+            kind => panic!("Slang returned an unknown trace token origin: {kind}"),
         }
     }
 }

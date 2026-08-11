@@ -308,6 +308,11 @@ fn build_item_tree_data(
     let mut parents = Vec::new();
     let mut body_depth = 0usize;
     let root = tree.root();
+    assert_eq!(
+        root.kind(),
+        syntax::SyntaxKind::COMPILATION_UNIT,
+        "item tree requires a compilation-unit syntax root"
+    );
     for event in root.elem_preorder() {
         match event {
             WalkEvent::Enter(SyntaxElement::Node(node)) => {
@@ -602,7 +607,7 @@ mod tests {
     use crate::source_projection::SourceProjection;
 
     fn parse(text: &str) -> SyntaxTree {
-        SyntaxTree::from_text(text, "test.sv", "test.sv")
+        SyntaxTree::from_file_in_memory(text, "test.sv", "test.sv")
     }
 
     fn build(file_id: HirFileId, text: &str) -> ItemTree {

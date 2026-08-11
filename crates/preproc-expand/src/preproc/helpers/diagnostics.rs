@@ -93,6 +93,7 @@ fn diagnostic_target_for_token(
                 range,
             })
         }
+        TokenOrigin::Predefine { .. } => TokenDiagnosticTarget::Skip,
         TokenOrigin::TokenPaste { .. } => TokenDiagnosticTarget::Blocked,
         TokenOrigin::Stringify { .. } => TokenDiagnosticTarget::Blocked,
         TokenOrigin::Builtin { name, call_id, .. } if !name.is_empty() => {

@@ -96,3 +96,26 @@ impl Compilation {
         self.raw.as_mut().expect("Slang compilation unexpectedly null")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::syntax::SyntaxKind;
+
+    #[test]
+    fn adding_a_cloned_tree_does_not_invalidate_the_original() {
+        let mut parser = Compilation::new();
+        let tree = parser.parse_syntax_tree_from_text(
+            "module demo; endmodule",
+            "source",
+            "source.sv",
+            &SyntaxTreeOptions::default(),
+        );
+        let original = tree.clone();
+
+        let mut compilation = Compilation::new();
+        compilation.add_syntax_tree(tree);
+
+        assert_eq!(original.root().kind(), SyntaxKind::COMPILATION_UNIT);
+    }
+}

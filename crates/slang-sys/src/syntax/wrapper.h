@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
+#include <unordered_map>
 
 #include "cxx.h"
 
@@ -36,6 +38,10 @@ namespace slang_sys::syntax {
         slang::SourceManager source_manager;
 
         SourceSession();
+        void assign_include_buffer(std::string path, std::string text);
+
+      private:
+        std::unordered_map<std::string, std::string> include_buffers;
     };
 
     // TODO: Maybe we should expose this data structure to the rust side, rather
@@ -44,10 +50,12 @@ namespace slang_sys::syntax {
       public:
         std::shared_ptr<::slang::syntax::SyntaxTree> tree;
         std::shared_ptr<SourceSession> session;
+        uint32_t root_buffer_id;
 
         SyntaxTree(
             std::shared_ptr<::slang::syntax::SyntaxTree> tree,
-            std::shared_ptr<SourceSession> session
+            std::shared_ptr<SourceSession> session,
+            uint32_t root_buffer_id
         );
         ~SyntaxTree();
 
@@ -64,6 +72,20 @@ namespace slang_sys::syntax {
             rust::Vec<rust::String> include_buffer_paths,
             rust::Vec<rust::String> include_buffer_texts,
             bool expand_includes,
+            bool guess,
+            bool collect_expected_syntax
+        );
+        std::shared_ptr<SyntaxTree> parse_syntax_tree_with_session(
+            const std::shared_ptr<SourceSession>& session,
+            rust::Str text,
+            rust::Str name,
+            rust::Str path,
+            rust::Vec<rust::String> predefines,
+            rust::Vec<rust::String> include_paths,
+            rust::Vec<rust::String> include_buffer_paths,
+            rust::Vec<rust::String> include_buffer_texts,
+            bool expand_includes,
+            bool guess,
             bool collect_expected_syntax
         );
         const SyntaxNode *syntax_tree_root(const SyntaxTree &tree);
@@ -77,6 +99,13 @@ namespace slang_sys::syntax {
             std::size_t offset
         );
         std::shared_ptr<SyntaxTree> parse_library_map_syntax_tree(
+            rust::Str text,
+            rust::Str name,
+            rust::Str path,
+            bool collect_expected_syntax
+        );
+        std::shared_ptr<SyntaxTree> parse_library_map_syntax_tree_with_session(
+            const std::shared_ptr<SourceSession>& session,
             rust::Str text,
             rust::Str name,
             rust::Str path,

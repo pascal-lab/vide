@@ -18,6 +18,7 @@ class Compilation {
     explicit Compilation(std::vector<std::string> top_modules);
 
     std::vector<std::string> top_modules;
+    std::shared_ptr<syntax::SourceSession> session;
     std::unique_ptr<::slang::ast::Compilation> inner;
 };
 

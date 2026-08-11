@@ -322,7 +322,7 @@ fn literal_include_targets(
         predefines: predefines.to_vec(),
         ..SyntaxTreeOptions::without_include_expansion()
     };
-    let parsed = SyntaxTree::from_text_with_options_and_trace(
+    let parsed = SyntaxTree::from_file_in_memory_with_options_and_trace(
         &db.file_text(file_id),
         &name,
         &path,

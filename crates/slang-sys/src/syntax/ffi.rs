@@ -52,6 +52,7 @@ mod slang_ffi {
         event_id: u32,
         kind: u16,
         range: RawTraceSourceRange,
+        macro_origin: u8,
         macro_definition_id: u32,
         has_macro_definition_id: bool,
         macro_call_id: u32,
@@ -176,6 +177,7 @@ mod slang_ffi {
             include_buffer_paths: Vec<String>,
             include_buffer_texts: Vec<String>,
             expand_includes: bool,
+            guess: bool,
             collect_expected_syntax: bool,
         ) -> SharedPtr<SyntaxTree>;
         fn syntax_tree_root(tree: &SyntaxTree) -> *const SyntaxNode;

@@ -83,6 +83,17 @@ impl SyntaxTree {
         path: &str,
         options: &SyntaxTreeOptions,
     ) -> Self {
+        Self::parse_with_options(text, name, path, options, true)
+    }
+
+    /// Parse source using an explicit Slang root mode.
+    fn parse_with_options(
+        text: &str,
+        name: &str,
+        path: &str,
+        options: &SyntaxTreeOptions,
+        guess: bool,
+    ) -> Self {
         Self {
             raw: ffi::parse_syntax_tree(
                 text,
@@ -93,9 +104,39 @@ impl SyntaxTree {
                 options.include_buffers.iter().map(|buffer| buffer.path.clone()).collect(),
                 options.include_buffers.iter().map(|buffer| buffer.text.clone()).collect(),
                 options.expand_includes,
+                guess,
                 options.collect_expected_syntax,
             ),
         }
+    }
+
+    /// Parse source as a compilation unit without constructing a guessed root.
+    pub fn from_file_in_memory(text: &str, name: &str, path: &str) -> Self {
+        Self::from_file_in_memory_with_options(text, name, path, &SyntaxTreeOptions::default())
+    }
+
+    /// Parse source as a compilation unit, preserving the file-root contract
+    /// required by HIR and semantic indexing.
+    pub fn from_file_in_memory_with_options(
+        text: &str,
+        name: &str,
+        path: &str,
+        options: &SyntaxTreeOptions,
+    ) -> Self {
+        Self::parse_with_options(text, name, path, options, false)
+    }
+
+    /// Parse source as a compilation unit, preserving the file-root contract
+    /// required by HIR and semantic indexing.
+    pub fn from_file_in_memory_with_options_and_trace(
+        text: &str,
+        name: &str,
+        path: &str,
+        options: &SyntaxTreeOptions,
+    ) -> SyntaxTreeWithTrace {
+        let tree = Self::from_file_in_memory_with_options(text, name, path, options);
+        let preprocessor_trace = Some(tree.build_preprocessor_trace());
+        SyntaxTreeWithTrace { tree, preprocessor_trace }
     }
 
     pub fn from_text_with_options_and_trace(

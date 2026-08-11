@@ -36,9 +36,20 @@ pub(super) fn configured_predefine_definitions_at(
 ) -> PreprocResult<Vec<MacroDefinition>> {
     let mut definitions = UniqVec::<MacroDefinition, MacroDefinitionKey>::default();
     let contexts = source_preproc_single_query_contexts(db, file_id);
-    for context_file_id in contexts.model_file_ids.iter().copied() {
-        let profile_id = db.file_compilation_profile(context_file_id);
-        let project_preprocess = db.project_config().preprocess_for_profile(profile_id);
+    let mut profile_ids = UniqVec::<CompilationProfileId, CompilationProfileId>::default();
+    if contexts.model_file_ids.is_empty() {
+        if let Some(profile_id) = db.file_compilation_profile(file_id) {
+            profile_ids.push_unique(profile_id);
+        }
+    } else {
+        for context_file_id in contexts.model_file_ids.iter().copied() {
+            if let Some(profile_id) = db.file_compilation_profile(context_file_id) {
+                profile_ids.push_unique(profile_id);
+            }
+        }
+    }
+    for profile_id in profile_ids.into_vec() {
+        let project_preprocess = db.project_config().preprocess_for_profile(Some(profile_id));
         for predefine in &project_preprocess.predefines {
             if let Some(definition) =
                 configured_predefine_definition_at(db, predefine, file_id, offset)

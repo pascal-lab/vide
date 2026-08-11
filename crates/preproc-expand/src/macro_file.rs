@@ -288,7 +288,7 @@ fn expansion_info(
     source_map: ExpansionSourceMap,
     err: Option<ExpandError>,
 ) -> ExpandResult<ExpansionInfo> {
-    let parse = SyntaxTree::from_text(&text, "macro-expansion", "");
+    let parse = SyntaxTree::from_file_in_memory(&text, "macro-expansion", "");
     ExpandResult { value: ExpansionInfo { text, parse, source_map }, err }
 }
 
@@ -417,6 +417,7 @@ fn token_origin_expansion(origin: &TokenOrigin) -> Option<MacroExpansionId> {
     match origin {
         TokenOrigin::MacroBody { expansion_id, .. }
         | TokenOrigin::MacroArgument { expansion_id, .. }
+        | TokenOrigin::Predefine { expansion_id, .. }
         | TokenOrigin::Builtin { expansion_id, .. }
         | TokenOrigin::TokenPaste { expansion_id, .. }
         | TokenOrigin::Stringify { expansion_id, .. } => Some(*expansion_id),
@@ -428,6 +429,7 @@ fn token_origin_parent_expansion(origin: &TokenOrigin) -> Option<MacroExpansionI
     match origin {
         TokenOrigin::MacroBody { parent_expansion_id, .. }
         | TokenOrigin::MacroArgument { parent_expansion_id, .. }
+        | TokenOrigin::Predefine { parent_expansion_id, .. }
         | TokenOrigin::Builtin { parent_expansion_id, .. }
         | TokenOrigin::TokenPaste { parent_expansion_id, .. }
         | TokenOrigin::Stringify { parent_expansion_id, .. } => *parent_expansion_id,

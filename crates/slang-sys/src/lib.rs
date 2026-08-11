@@ -8,7 +8,7 @@ pub mod token;
 pub mod value;
 
 pub use preproc::{ActualArgument, Event, EventId, MacroCallId, MacroDefinitionId, MacroExpansionId,
-                  MacroParam, Token, TokenOrigin, Trace};
+                  MacroOrigin, MacroParam, Token, TokenOrigin, Trace};
 pub use facts::{SemanticFacts, SyntaxFacts};
 pub use source_buffer::{SourceBufferId, SourceBufferOrigin, SourceBufferRange, SyntaxTreeBufferIds};
 pub use token::LiteralBase;

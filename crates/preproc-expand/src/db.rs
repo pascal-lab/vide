@@ -123,7 +123,13 @@ pub(crate) fn syntax_tree_options_for_file(
     let _span = tracing::info_span!("slang.syntax_tree_options.file", ?file_id).entered();
     let profile_id = db.file_compilation_profile(file_id);
     let context = db.compilation_context_for_file(file_id);
-    let include_buffers = db.include_buffers_for_profile(profile_id).as_ref().clone();
+    let identity = source_file_identity(db, file_id);
+    let include_buffers = db
+        .include_buffers_for_profile(profile_id)
+        .iter()
+        .filter(|buffer| buffer.path != identity.path)
+        .cloned()
+        .collect();
     syntax::SyntaxTreeOptions {
         predefines: context.predefines.to_vec(),
         include_paths: context.include_dirs.iter().map(ToString::to_string).collect(),
@@ -199,7 +205,7 @@ fn parsed_compilation_unit(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Pars
                 include_buffer_count
             )
             .entered();
-            let parsed = SyntaxTree::from_text_with_options_and_trace(
+            let parsed = SyntaxTree::from_file_in_memory_with_options_and_trace(
                 &text,
                 &identity.name,
                 &identity.path,

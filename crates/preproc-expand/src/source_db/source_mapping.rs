@@ -117,8 +117,9 @@ pub fn manifest_predefine_name_range_in_text(text: &str, range: TextRange) -> Op
                     | toml_parser::lexer::TokenKind::BasicString
             )
     })?;
-    let raw = source.get(token.span())?;
-    let raw = toml_parser::Raw::new_unchecked(raw.as_str(), token.kind().encoding(), token.span());
+    let raw_text = source.get(token.span())?;
+    let raw =
+        toml_parser::Raw::new_unchecked(raw_text.as_str(), token.kind().encoding(), token.span());
     let mut decoded = String::new();
     let mut errors = Vec::new();
     if raw.decode_scalar(&mut decoded, &mut errors) != toml_parser::decoder::ScalarKind::String
@@ -127,15 +128,41 @@ pub fn manifest_predefine_name_range_in_text(text: &str, range: TextRange) -> Op
         return None;
     }
     let raw_content = text.get(start + 1..end.checked_sub(1)?)?;
-    if raw_content != decoded {
-        return None;
-    }
     let name_len = manifest_macro_name_len(&decoded)?;
-    TextRange::new(
+    let decoded_name = decoded.get(..name_len)?;
+    let quote = raw_text.as_str().get(..1)?;
+    let raw_name_len = raw_content
+        .char_indices()
+        .map(|(index, _)| index)
+        .chain(std::iter::once(raw_content.len()))
+        .find(|&candidate_end| {
+            let remainder = &raw_content[candidate_end..];
+            if !remainder.is_empty() && !remainder.starts_with('=') {
+                return false;
+            }
+
+            let mut candidate = String::with_capacity(candidate_end + 2);
+            candidate.push_str(quote);
+            candidate.push_str(&raw_content[..candidate_end]);
+            candidate.push_str(quote);
+            let candidate_span = toml_parser::Span::new_unchecked(0, candidate.len());
+            let candidate_raw = toml_parser::Raw::new_unchecked(
+                &candidate,
+                token.kind().encoding(),
+                candidate_span,
+            );
+            let mut candidate_decoded = String::new();
+            let mut candidate_errors = Vec::new();
+            candidate_raw.decode_scalar(&mut candidate_decoded, &mut candidate_errors)
+                == toml_parser::decoder::ScalarKind::String
+                && candidate_errors.is_empty()
+                && candidate_decoded == decoded_name
+        })?;
+
+    Some(TextRange::new(
         TextSize::from(u32::try_from(start.checked_add(1)?).ok()?),
-        TextSize::from(u32::try_from(start.checked_add(1)?.checked_add(name_len)?).ok()?),
-    )
-    .into()
+        TextSize::from(u32::try_from(start.checked_add(1)?.checked_add(raw_name_len)?).ok()?),
+    ))
 }
 
 fn manifest_macro_name_len(content: &str) -> Option<usize> {
@@ -447,6 +474,13 @@ mod tests {
                 range("\"FEATURE-NAME=1\"")
             ),
             None
+        );
+        assert_eq!(
+            manifest_predefine_name_range_in_text(
+                r#""FEATURE=\"hello\"""#,
+                range(r#""FEATURE=\"hello\"""#)
+            ),
+            Some(TextRange::new(TextSize::from(1), TextSize::from(8)))
         );
     }
 }

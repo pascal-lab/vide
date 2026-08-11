@@ -45,6 +45,29 @@ endmodule
     }
 
     #[test]
+    fn file_parse_preserves_compilation_unit_root() {
+        let tree = SyntaxTree::from_file_in_memory("module demo; endmodule", "source", "source.sv");
+
+        assert_eq!(tree.root().kind(), SyntaxKind::COMPILATION_UNIT);
+    }
+
+    #[test]
+    fn source_buffer_identity_does_not_follow_macro_expansion_root() {
+        let source = "`define DECL module generated; endmodule\n`DECL\n";
+        let parsed = SyntaxTree::from_file_in_memory_with_options_and_trace(
+            source,
+            "source",
+            "source.sv",
+            &Default::default(),
+        );
+        let trace = parsed.preprocessor_trace.expect("trace should be collected");
+
+        assert_eq!(parsed.tree.buffer_id(), trace.root_buffer_id);
+        assert_eq!(trace.source_buffers.len(), 1);
+        assert_eq!(trace.source_buffers[0].buffer_id, trace.root_buffer_id);
+    }
+
+    #[test]
     fn syntax_tree_and_generated_accessors_work() {
         let tree = SyntaxTree::from_text_with_options(
             "module demo; endmodule",

@@ -264,6 +264,7 @@ impl Origin {
                 arg_index: usize::try_from(*argument_index).ok()?,
                 arg_range: mapped_or_raw_range(source_map, argument_token_range)?,
             },
+            TokenOrigin::Predefine { .. } => return None,
             TokenOrigin::TokenPaste { call_id, .. } => {
                 Origin::TokenPaste { call: macro_call_id(model_file, *call_id) }
             }
@@ -295,6 +296,7 @@ fn origin_slot_from_token_origin(
         TokenOrigin::MacroArgument { argument_token_range, .. } => {
             source_location(source_map, argument_token_range)
         }
+        TokenOrigin::Predefine { .. } => None,
         TokenOrigin::TokenPaste { call_id, argument_index, argument_token_index, .. }
         | TokenOrigin::Stringify { call_id, argument_index, argument_token_index, .. } => {
             operation_sources.and_then(|sources| {

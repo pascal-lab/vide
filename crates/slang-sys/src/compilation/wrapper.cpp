@@ -27,6 +27,7 @@ std::vector<std::string> to_std_strings(const rust::Vec<rust::String>& values) {
 
 Compilation::Compilation(std::vector<std::string> top_modules) :
     top_modules(std::move(top_modules)),
+    session(std::make_shared<syntax::SourceSession>()),
     inner(std::make_unique<::slang::ast::Compilation>(make_options(this->top_modules))) {}
 
 std::unique_ptr<Compilation> new_compilation(rust::Vec<rust::String> top_modules) {
@@ -45,7 +46,8 @@ std::shared_ptr<syntax::SyntaxTree> parse_syntax_tree_from_text(
     bool expand_includes,
     bool collect_expected_syntax
 ) {
-    auto tree = syntax::tree::parse_syntax_tree(
+    auto tree = syntax::tree::parse_syntax_tree_with_session(
+        compilation.session,
         text,
         name,
         path,
@@ -54,6 +56,7 @@ std::shared_ptr<syntax::SyntaxTree> parse_syntax_tree_from_text(
         std::move(include_buffer_paths),
         std::move(include_buffer_texts),
         expand_includes,
+        false,
         collect_expected_syntax
     );
     compilation.inner->addSyntaxTree(tree->tree);
@@ -66,13 +69,14 @@ std::shared_ptr<syntax::SyntaxTree> parse_library_map_syntax_tree_from_text(
     rust::Str name,
     rust::Str path
 ) {
-    auto tree = syntax::tree::parse_library_map_syntax_tree(text, name, path, false);
+    auto tree = syntax::tree::parse_library_map_syntax_tree_with_session(
+        compilation.session, text, name, path, false);
     compilation.inner->addSyntaxTree(tree->tree);
     return tree;
 }
 
 void add_syntax_tree(Compilation& compilation, std::shared_ptr<syntax::SyntaxTree> tree) {
-    compilation.inner->addSyntaxTree(std::move(tree->tree));
+    compilation.inner->addSyntaxTree(tree->tree);
 }
 
 rust::Vec<diagnostic::RawSyntaxDiagnostic> parse_diagnostics(
