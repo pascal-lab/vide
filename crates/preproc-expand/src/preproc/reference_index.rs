@@ -78,9 +78,7 @@ pub fn macro_param_references(
         }
     }
 
-    if references.is_empty()
-        && let Some(error) = first_error
-    {
+    if let Some(error) = first_error {
         return Err(error);
     }
 
