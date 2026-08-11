@@ -1292,6 +1292,11 @@ endmodule
             location: None,
             buffer_id: None,
             file_name: None,
+            ranges: Vec::new(),
+            expansion_locations: Vec::new(),
+            include_stack: Vec::new(),
+            diagnostic_id: 1,
+            parent_diagnostic_id: None,
         };
 
         assert!(to_text_range(&diagnostic).is_none());

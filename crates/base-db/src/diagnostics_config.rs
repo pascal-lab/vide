@@ -155,6 +155,11 @@ mod tests {
             location: None,
             buffer_id: None,
             file_name: None,
+            ranges: Vec::new(),
+            expansion_locations: Vec::new(),
+            include_stack: Vec::new(),
+            diagnostic_id: 1,
+            parent_diagnostic_id: None,
         };
 
         assert!(config.apply_rules(DiagnosticSource::Parse, diag.clone()).is_none());

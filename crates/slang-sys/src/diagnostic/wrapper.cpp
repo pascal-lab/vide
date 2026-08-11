@@ -1,16 +1,88 @@
 #include "diagnostic/wrapper.h"
 
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
+#include "slang/diagnostics/DiagnosticClient.h"
+#include "slang/diagnostics/DiagnosticEngine.h"
 #include "slang/diagnostics/Diagnostics.h"
 #include "slang/text/SourceManager.h"
 
 #include "slang-sys/src/diagnostic/ffi.rs.h"
 
 namespace slang_sys::diagnostic::helper {
+    static ::slang_sys::diagnostic::RawDiagnosticLocation raw_location(
+        ::slang::SourceLocation location,
+        const ::slang::SourceManager &source_manager
+    ) {
+        ::slang_sys::diagnostic::RawDiagnosticLocation result;
+        result.offset = 0;
+        result.buffer_id = 0;
+        result.has_location = false;
+        result.file_name = rust::String();
+        if (!location.valid())
+            return result;
+
+        result.offset = location.offset();
+        result.buffer_id = location.buffer().getId();
+        result.has_location = true;
+        const auto &full_path = source_manager.getFullPath(location.buffer());
+        if (!full_path.empty())
+            result.file_name = rust::String(full_path.string());
+        else {
+            const auto raw_name = source_manager.getRawFileName(location.buffer());
+            result.file_name = rust::String(raw_name.data(), raw_name.size());
+        }
+        return result;
+    }
+
+    static ::slang_sys::diagnostic::RawDiagnosticRange raw_range(
+        ::slang::SourceRange range
+    ) {
+        ::slang_sys::diagnostic::RawDiagnosticRange result;
+        result.start = 0;
+        result.end = 0;
+        result.start_buffer_id = 0;
+        result.end_buffer_id = 0;
+        result.has_range = false;
+        if (range == ::slang::SourceRange::NoLocation || !range.start().valid() ||
+            !range.end().valid())
+            return result;
+
+        result.start = range.start().offset();
+        result.end = range.end().offset();
+        result.start_buffer_id = range.start().buffer().getId();
+        result.end_buffer_id = range.end().buffer().getId();
+        result.has_range = true;
+        return result;
+    }
+
+    static rust::Vec<::slang_sys::diagnostic::RawDiagnosticRange> mapped_ranges(
+        const slang::DiagnosticEngine &engine,
+        slang::SourceLocation context,
+        std::span<const slang::SourceRange> ranges
+    ) {
+        slang::SmallVector<slang::SourceRange> mapped;
+        if (context.valid())
+            engine.mapSourceRanges(context, ranges, mapped, false);
+        else
+            mapped.insert(mapped.end(), ranges.begin(), ranges.end());
+
+        rust::Vec<::slang_sys::diagnostic::RawDiagnosticRange> result;
+        result.reserve(mapped.size());
+        for (const auto &range : mapped) {
+            auto raw = raw_range(range);
+            if (raw.has_range)
+                result.emplace_back(std::move(raw));
+        }
+        return result;
+    }
+
     static std::optional<slang::SourceRange> map_source_ranges_to_context(
         const slang::DiagnosticEngine &engine,
         slang::SourceLocation context,
@@ -70,16 +142,21 @@ namespace slang_sys::diagnostic::helper {
         return result;
     }
 
-    static ::slang_sys::diagnostic::RawSyntaxDiagnostic to_rust_syntax_diagnostic(
-        const ::slang::Diagnostic &diag,
-        slang::DiagnosticEngine &engine,
-        const slang::SourceManager &source_manager
+    static ::slang_sys::diagnostic::RawSyntaxDiagnostic to_rust_reported_diagnostic(
+        const ::slang::ReportedDiagnostic &reported,
+        const slang::DiagnosticEngine &engine,
+        const slang::SourceManager &source_manager,
+        std::span<const slang::SourceLocation> include_stack,
+        uint32_t diagnostic_id,
+        uint32_t parent_diagnostic_id
     ) {
         ::slang_sys::diagnostic::RawSyntaxDiagnostic rust_diag;
+        const auto &diag = reported.originalDiagnostic;
         rust_diag.code = diag.code.getCode();
         rust_diag.subsystem = static_cast<uint16_t>(diag.code.getSubsystem());
-        rust_diag.severity = static_cast<uint8_t>(engine.getSeverity(diag.code, diag.location));
-        rust_diag.message = rust::String(engine.formatMessage(diag));
+        rust_diag.severity = static_cast<uint8_t>(reported.severity);
+        rust_diag.message = rust::String(
+            reported.formattedMessage.data(), reported.formattedMessage.size());
         rust_diag.args = diagnostic_args(diag, engine);
         rust_diag.name = rust::String(std::string(slang::toString(diag.code)));
         rust_diag.option_name = rust::String(std::string(engine.getOptionName(diag.code)));
@@ -91,12 +168,16 @@ namespace slang_sys::diagnostic::helper {
         rust_diag.buffer_id = 0;
         rust_diag.has_buffer_id = false;
         rust_diag.file_name = rust::String();
+        rust_diag.ranges = mapped_ranges(engine, reported.location, reported.ranges);
+        rust_diag.expansion_locations = rust::Vec<
+            ::slang_sys::diagnostic::RawDiagnosticExpansion>();
+        rust_diag.include_stack = rust::Vec<::slang_sys::diagnostic::RawDiagnosticLocation>();
+        rust_diag.diagnostic_id = diagnostic_id;
+        rust_diag.parent_diagnostic_id = parent_diagnostic_id;
 
-        if (!diag.ranges.empty()) {
-            auto location = diag.location.valid()
-                ? source_manager.getFullyExpandedLoc(diag.location)
-                : ::slang::SourceLocation::NoLocation;
-            auto range = map_source_ranges_to_context(engine, location, diag.ranges);
+        if (!reported.ranges.empty()) {
+            auto range = map_source_ranges_to_context(
+                engine, reported.location, reported.ranges);
             if (range) {
                 rust_diag.primary_range_start = range->start().offset();
                 rust_diag.primary_range_end = range->end().offset();
@@ -104,8 +185,8 @@ namespace slang_sys::diagnostic::helper {
             }
         }
 
-        if (diag.location.valid()) {
-            auto location = source_manager.getFullyExpandedLoc(diag.location);
+        if (reported.location.valid()) {
+            auto location = reported.location;
             rust_diag.location = location.offset();
             rust_diag.has_location = true;
             rust_diag.buffer_id = location.buffer().getId();
@@ -115,10 +196,90 @@ namespace slang_sys::diagnostic::helper {
                 rust_diag.file_name = rust::String(full_path.string());
         }
 
+        for (const auto &location : reported.expansionLocs) {
+            const auto macro_name = source_manager.getMacroName(location);
+            rust_diag.expansion_locations.emplace_back(
+                ::slang_sys::diagnostic::RawDiagnosticExpansion {
+                    raw_location(location, source_manager),
+                    raw_location(source_manager.getFullyOriginalLoc(location), source_manager),
+                    rust::String(macro_name.data(), macro_name.size()),
+                }
+            );
+        }
+        for (const auto &location : include_stack)
+            rust_diag.include_stack.emplace_back(raw_location(location, source_manager));
+
         return rust_diag;
     }
 
 } // namespace slang_sys::diagnostic::helper
+
+namespace slang_sys::diagnostic {
+
+class CollectingDiagnosticClient final : public ::slang::DiagnosticClient {
+  public:
+    void report(const ::slang::ReportedDiagnostic &reported) override {
+        const auto *diagnostic = &reported.originalDiagnostic;
+        auto id = diagnostic_ids.find(diagnostic);
+        uint32_t diagnostic_id;
+        uint32_t parent_diagnostic_id = 0;
+        if (id == diagnostic_ids.end()) {
+            diagnostic_id = next_diagnostic_id++;
+            diagnostic_ids.emplace(diagnostic, diagnostic_id);
+        } else {
+            diagnostic_id = id->second;
+            auto parent = parent_ids.find(diagnostic);
+            if (parent != parent_ids.end())
+                parent_diagnostic_id = parent->second;
+        }
+
+        reserve_note_ids(diagnostic->notes, diagnostic_id);
+
+        slang::SmallVector<slang::SourceLocation> include_stack;
+        if (reported.shouldShowIncludeStack && reported.location.valid())
+            getIncludeStack(reported.location.buffer(), include_stack);
+
+        diagnostics.emplace_back(helper::to_rust_reported_diagnostic(
+            reported,
+            *engine,
+            *sourceManager,
+            include_stack,
+            diagnostic_id,
+            parent_diagnostic_id
+        ));
+    }
+
+    rust::Vec<RawSyntaxDiagnostic> take() {
+        rust::Vec<RawSyntaxDiagnostic> result;
+        result.reserve(diagnostics.size());
+        for (auto &diagnostic : diagnostics)
+            result.emplace_back(std::move(diagnostic));
+        return result;
+    }
+
+  private:
+    void reserve_note_ids(
+        const std::vector<::slang::Diagnostic> &notes,
+        uint32_t parent_diagnostic_id
+    ) {
+        for (const auto &note : notes) {
+            const auto *diagnostic = &note;
+            if (diagnostic_ids.contains(diagnostic))
+                continue;
+            const auto diagnostic_id = next_diagnostic_id++;
+            diagnostic_ids.emplace(diagnostic, diagnostic_id);
+            parent_ids.emplace(diagnostic, parent_diagnostic_id);
+            reserve_note_ids(note.notes, diagnostic_id);
+        }
+    }
+
+    std::vector<RawSyntaxDiagnostic> diagnostics;
+    std::unordered_map<const ::slang::Diagnostic *, uint32_t> diagnostic_ids;
+    std::unordered_map<const ::slang::Diagnostic *, uint32_t> parent_ids;
+    uint32_t next_diagnostic_id = 1;
+};
+
+} // namespace slang_sys::diagnostic
 
 namespace slang_sys::diagnostic::tree {
 
@@ -141,17 +302,14 @@ rust::Vec<RawSyntaxDiagnostic> diagnostics_to_rust(
     rust::Vec<rust::String> warning_options
 ) {
     slang::DiagnosticEngine engine(source_manager);
+    auto client = std::make_shared<CollectingDiagnosticClient>();
+    engine.addClient(client);
     auto option_diagnostics = helper::apply_warning_options(engine, warning_options);
     auto pragma_diagnostics = engine.setMappingsFromPragmas();
-    rust::Vec<RawSyntaxDiagnostic> result;
-    result.reserve(option_diagnostics.size() + pragma_diagnostics.size() + diagnostics.size());
-    for (const auto &diag : option_diagnostics)
-        result.emplace_back(helper::to_rust_syntax_diagnostic(diag, engine, source_manager));
-    for (const auto &diag : pragma_diagnostics)
-        result.emplace_back(helper::to_rust_syntax_diagnostic(diag, engine, source_manager));
-    for (const auto& diag : diagnostics)
-        result.emplace_back(helper::to_rust_syntax_diagnostic(diag, engine, source_manager));
-    return result;
+    engine.issue(option_diagnostics);
+    engine.issue(pragma_diagnostics);
+    engine.issue(diagnostics);
+    return client->take();
 }
 
 } // namespace slang_sys::diagnostic

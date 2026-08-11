@@ -19,6 +19,41 @@ pub struct SyntaxDiagnostic {
     pub location: Option<usize>,
     pub buffer_id: Option<u32>,
     pub file_name: Option<String>,
+    /// All ranges after Slang has mapped them into the reported context.
+    ///
+    /// `primary_range` is the single range currently consumed by the IDE
+    /// model. These ranges retain cross-buffer information for consumers that
+    /// need the full Slang report.
+    pub ranges: Vec<SyntaxDiagnosticRange>,
+    /// Macro expansion locations captured by `ReportedDiagnostic`.
+    pub expansion_locations: Vec<SyntaxDiagnosticExpansion>,
+    /// Include locations Slang marked for include-stack reporting.
+    pub include_stack: Vec<SyntaxDiagnosticLocation>,
+    /// Stable IDs assigned while a C++ diagnostic client collects reports.
+    pub diagnostic_id: u32,
+    pub parent_diagnostic_id: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyntaxDiagnosticLocation {
+    pub offset: usize,
+    pub buffer_id: u32,
+    pub file_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyntaxDiagnosticRange {
+    pub start: usize,
+    pub end: usize,
+    pub start_buffer_id: u32,
+    pub end_buffer_id: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyntaxDiagnosticExpansion {
+    pub location: Option<SyntaxDiagnosticLocation>,
+    pub original_location: Option<SyntaxDiagnosticLocation>,
+    pub macro_name: String,
 }
 
 /// Parser completion candidate reported by Slang at a cursor location.
@@ -112,8 +147,44 @@ impl SyntaxDiagnostic {
             location: raw.has_location.then_some(raw.location),
             buffer_id: raw.has_buffer_id.then_some(raw.buffer_id),
             file_name: (!raw.file_name.is_empty()).then_some(raw.file_name),
+            ranges: raw
+                .ranges
+                .into_iter()
+                .filter(|range| range.has_range)
+                .map(|range| SyntaxDiagnosticRange {
+                    start: range.start,
+                    end: range.end,
+                    start_buffer_id: range.start_buffer_id,
+                    end_buffer_id: range.end_buffer_id,
+                })
+                .collect(),
+            expansion_locations: raw
+                .expansion_locations
+                .into_iter()
+                .map(|expansion| SyntaxDiagnosticExpansion {
+                    location: raw_location(expansion.location),
+                    original_location: raw_location(expansion.original_location),
+                    macro_name: expansion.macro_name,
+                })
+                .collect(),
+            include_stack: raw
+                .include_stack
+                .into_iter()
+                .filter_map(raw_location)
+                .collect(),
+            diagnostic_id: raw.diagnostic_id,
+            parent_diagnostic_id: (raw.parent_diagnostic_id != 0)
+                .then_some(raw.parent_diagnostic_id),
         }
     }
+}
+
+fn raw_location(raw: ffi::RawDiagnosticLocation) -> Option<SyntaxDiagnosticLocation> {
+    raw.has_location.then(|| SyntaxDiagnosticLocation {
+        offset: raw.offset,
+        buffer_id: raw.buffer_id,
+        file_name: (!raw.file_name.is_empty()).then_some(raw.file_name),
+    })
 }
 
 fn find_diagnostic_groups(code: DiagCode) -> Vec<String> {
@@ -148,6 +219,11 @@ mod tests {
             buffer_id: 0,
             has_buffer_id: false,
             file_name: String::new(),
+            ranges: Vec::new(),
+            expansion_locations: Vec::new(),
+            include_stack: Vec::new(),
+            diagnostic_id: 1,
+            parent_diagnostic_id: 0,
         });
 
         assert!(diagnostic.groups.contains(&"default".to_owned()));
@@ -185,14 +261,48 @@ mod tests {
             &Default::default(),
         );
 
+        assert!(!tree.diagnostics(&[]).into_iter().any(|diag| {
+            DiagCode::from_raw(diag.subsystem, diag.code) == DiagCode::UNKNOWN_ESCAPE_CODE
+        }));
+    }
+
+    #[test]
+    fn syntax_tree_diagnostics_preserve_reported_macro_expansions() {
+        let tree = SyntaxTree::from_text(
+            "`define BAD (1 + )\nmodule demo; localparam int value = `BAD; endmodule",
+            "macro_report",
+            "macro_report.sv",
+        );
+
         let diagnostic = tree
             .diagnostics(&[])
             .into_iter()
-            .find(|diag| {
-                DiagCode::from_raw(diag.subsystem, diag.code) == DiagCode::UNKNOWN_ESCAPE_CODE
-            })
-            .expect("expected unknown escape code diagnostic");
+            .find(|diagnostic| !diagnostic.expansion_locations.is_empty())
+            .expect("expected a diagnostic with a macro expansion chain");
+        assert!(diagnostic.diagnostic_id != 0);
+        assert!(diagnostic.expansion_locations.iter().any(|expansion| {
+            expansion.macro_name == "BAD"
+                && expansion.original_location.as_ref().is_some_and(|location| {
+                    location.file_name.as_deref() == Some("macro_report.sv")
+                })
+        }));
+    }
 
-        assert_eq!(diagnostic.severity, DiagnosticSeverity::Ignored);
+    #[test]
+    fn syntax_tree_diagnostics_preserve_note_parent_relationships() {
+        let tree = SyntaxTree::from_text(
+            "module demo; always_comb begin case (1) default: ; default: ; endcase end endmodule",
+            "note_report",
+            "note_report.sv",
+        );
+
+        let diagnostics = tree.diagnostics(&[]);
+        let note = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.parent_diagnostic_id.is_some())
+            .expect("expected a diagnostic note");
+        assert!(diagnostics.iter().any(|diagnostic| {
+            Some(diagnostic.diagnostic_id) == note.parent_diagnostic_id
+        }));
     }
 }
