@@ -2,6 +2,7 @@ use preproc_expand::{
     macro_file::{MacroFileExpansion, macro_file_expansion, macro_files_at_offset},
     preproc::{MacroReferenceDefinitions, macro_reference_definitions_at},
 };
+use tracing::warn;
 use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
@@ -38,13 +39,17 @@ pub(super) fn expanded_macro_hover(
             .map(|reference| (reference.file_id, reference.range))
             .collect::<Vec<_>>()
     } else {
-        macro_reference_definitions_at(db, file_id, offset)
-            .ok()
-            .flatten()?
-            .references
-            .into_iter()
-            .map(|reference| (reference.file_id, reference.range))
-            .collect::<Vec<_>>()
+        match macro_reference_definitions_at(db, file_id, offset) {
+            Ok(Some(definitions)) => definitions.references,
+            Ok(None) => return None,
+            Err(error) => {
+                warn!(?file_id, ?offset, ?error, "failed to resolve macro hover references");
+                return None;
+            }
+        }
+        .into_iter()
+        .map(|reference| (reference.file_id, reference.range))
+        .collect::<Vec<_>>()
     };
     if reference_ranges.is_empty() {
         return None;

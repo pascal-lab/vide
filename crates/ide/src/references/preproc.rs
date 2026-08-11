@@ -3,6 +3,7 @@ use preproc_expand::preproc::{
     MacroDefinition, MacroParamDefinition, MacroReferenceIndexStatus, macro_param_references,
     macro_references,
 };
+use tracing::warn;
 use vfs::FileId;
 
 use super::{
@@ -56,29 +57,36 @@ fn macro_param_references_for_definition(
     definition: MacroParamDefinition,
     config: &ReferencesConfig,
 ) -> Option<References> {
-    let refs = macro_param_references(db, file_id, &definition)
-        .ok()?
-        .references
-        .into_iter()
-        .filter(|usage| {
-            config.search_scope.as_ref().is_none_or(|scope| {
-                scope.range_for_file(usage.file_id).is_some_and(|range| {
-                    range.is_none_or(|range| range.intersect(usage.range).is_some())
-                })
+    let refs = match macro_param_references(db, file_id, &definition) {
+        Ok(refs) => refs,
+        Err(error) => {
+            warn!(
+                ?file_id,
+                macro_name = %definition.macro_definition.name,
+                ?error,
+                "failed to resolve preprocessor macro parameter references"
+            );
+            return None;
+        }
+    }
+    .references
+    .into_iter()
+    .filter(|usage| {
+        config.search_scope.as_ref().is_none_or(|scope| {
+            scope.range_for_file(usage.file_id).is_some_and(|range| {
+                range.is_none_or(|range| range.intersect(usage.range).is_some())
             })
         })
-        .into_group_map_by(|usage| usage.file_id)
-        .into_iter()
-        .map(|(file_id, usages)| {
-            (
-                file_id,
-                usages
-                    .into_iter()
-                    .map(|usage| (usage.range, ReferenceCategory::empty()))
-                    .collect_vec(),
-            )
-        })
-        .collect();
+    })
+    .into_group_map_by(|usage| usage.file_id)
+    .into_iter()
+    .map(|(file_id, usages)| {
+        (
+            file_id,
+            usages.into_iter().map(|usage| (usage.range, ReferenceCategory::empty())).collect_vec(),
+        )
+    })
+    .collect();
     Some(References {
         def: Some(vec![macro_param_nav_target(definition)]),
         refs,
@@ -92,7 +100,18 @@ fn macro_references_for_definition(
     definition: MacroDefinition,
     config: &ReferencesConfig,
 ) -> Option<References> {
-    let references = macro_references(db, file_id, &definition).ok()?;
+    let references = match macro_references(db, file_id, &definition) {
+        Ok(references) => references,
+        Err(error) => {
+            warn!(
+                ?file_id,
+                macro_name = %definition.name,
+                ?error,
+                "failed to resolve preprocessor macro references"
+            );
+            return None;
+        }
+    };
     let status = references_status_from_macro_index(references.status);
     let refs = references
         .references

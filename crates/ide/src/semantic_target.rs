@@ -24,6 +24,7 @@ use preproc_expand::{
 use syntax::{
     SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, has_text_range::HasTextRange,
 };
+use tracing::warn;
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
@@ -315,22 +316,34 @@ fn preproc_macro_target_at(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<PreprocMacroTarget> {
-    if let Ok(Some(definition)) = macro_param_definition_at(db, file_id, offset) {
-        return Some(PreprocMacroTarget::ParamDefinition(definition));
+    match macro_param_definition_at(db, file_id, offset) {
+        Ok(Some(definition)) => return Some(PreprocMacroTarget::ParamDefinition(definition)),
+        Ok(None) => {}
+        Err(error) => {
+            warn!(?file_id, ?offset, ?error, "failed to resolve macro parameter definition")
+        }
     }
 
-    if let Ok(Some(resolution)) = macro_param_reference_definitions_at(db, file_id, offset)
-        && !resolution.definitions.is_empty()
-    {
-        return Some(PreprocMacroTarget::ParamReference(resolution));
+    match macro_param_reference_definitions_at(db, file_id, offset) {
+        Ok(Some(resolution)) if !resolution.definitions.is_empty() => {
+            return Some(PreprocMacroTarget::ParamReference(resolution));
+        }
+        Ok(_) => {}
+        Err(error) => {
+            warn!(?file_id, ?offset, ?error, "failed to resolve macro parameter references")
+        }
     }
 
-    if let Ok(Some(definition)) = macro_definition_at(db, file_id, offset) {
-        return Some(PreprocMacroTarget::Definition(definition));
+    match macro_definition_at(db, file_id, offset) {
+        Ok(Some(definition)) => return Some(PreprocMacroTarget::Definition(definition)),
+        Ok(None) => {}
+        Err(error) => warn!(?file_id, ?offset, ?error, "failed to resolve macro definition"),
     }
 
-    if let Ok(Some(resolution)) = macro_reference_definitions_at(db, file_id, offset) {
-        return Some(PreprocMacroTarget::Reference(resolution));
+    match macro_reference_definitions_at(db, file_id, offset) {
+        Ok(Some(resolution)) => return Some(PreprocMacroTarget::Reference(resolution)),
+        Ok(None) => {}
+        Err(error) => warn!(?file_id, ?offset, ?error, "failed to resolve macro references"),
     }
 
     None
@@ -341,7 +354,13 @@ fn include_target_at(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<Vec<IncludeDirective>> {
-    let includes = include_directives_at(db, file_id, offset).ok()?;
+    let includes = match include_directives_at(db, file_id, offset) {
+        Ok(includes) => includes,
+        Err(error) => {
+            warn!(?file_id, ?offset, ?error, "failed to resolve include directive");
+            return None;
+        }
+    };
     (!includes.is_empty()).then_some(includes)
 }
 
