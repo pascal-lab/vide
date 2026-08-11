@@ -274,70 +274,13 @@ impl DefOrigin {
         self.loc(db).clone().range(db)
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-enum DefinitionRole {
-    Module,
-    Config,
-    Library,
-    Udp,
-    Block,
-    GenerateBlock,
-    Subroutine,
-    SubroutinePort,
-    NonAnsiPort,
-    Decl,
-    Typedef,
-    Instance,
-    Modport,
-    ClockingBlock,
-    ClockingSignal,
-    Checker,
-    CheckerPort,
-    Covergroup,
-    Property,
-    Sequence,
-    Coverpoint,
-    Cross,
-    Stmt,
-}
-
-impl DefinitionRole {
-    fn of(loc: &DefOriginLoc) -> Self {
-        match loc {
-            DefOriginLoc::Module(_) => Self::Module,
-            DefOriginLoc::Config(_) => Self::Config,
-            DefOriginLoc::Library(_) => Self::Library,
-            DefOriginLoc::Udp(_) => Self::Udp,
-            DefOriginLoc::Block(_) => Self::Block,
-            DefOriginLoc::GenerateBlock(_) => Self::GenerateBlock,
-            DefOriginLoc::Subroutine(_) => Self::Subroutine,
-            DefOriginLoc::SubroutinePort(_) => Self::SubroutinePort,
-            DefOriginLoc::NonAnsiPort(_) => Self::NonAnsiPort,
-            DefOriginLoc::Decl(_) => Self::Decl,
-            DefOriginLoc::Typedef(_) => Self::Typedef,
-            DefOriginLoc::Instance(_) => Self::Instance,
-            DefOriginLoc::Modport(_) => Self::Modport,
-            DefOriginLoc::ClockingBlock(_) => Self::ClockingBlock,
-            DefOriginLoc::ClockingSignal(_) => Self::ClockingSignal,
-            DefOriginLoc::Checker(_) => Self::Checker,
-            DefOriginLoc::CheckerPort(_) => Self::CheckerPort,
-            DefOriginLoc::Covergroup(_) => Self::Covergroup,
-            DefOriginLoc::Property(_) => Self::Property,
-            DefOriginLoc::Sequence(_) => Self::Sequence,
-            DefOriginLoc::Coverpoint(_) => Self::Coverpoint,
-            DefOriginLoc::Cross(_) => Self::Cross,
-            DefOriginLoc::Stmt(_) => Self::Stmt,
-        }
-    }
-}
-
 /// Stable identity derived from semantic source order, never a vector ordinal.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LocalDefId(DefinitionKey);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct DefinitionNameKey {
-    role: DefinitionRole,
+    kind: DefKind,
     name: Option<SmolStr>,
 }
 
@@ -356,7 +299,7 @@ struct DefinitionData {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct DefinitionTable {
     definitions: FxHashMap<LocalDefId, DefinitionData>,
-    by_source: FxHashMap<(SourceAstId, DefinitionRole), LocalDefId>,
+    by_source: FxHashMap<(SourceAstId, DefKind), LocalDefId>,
     next_ordinals: FxHashMap<DefinitionNameKey, u32>,
 }
 
@@ -364,15 +307,15 @@ impl DefinitionTable {
     fn allocate(
         &mut self,
         source: SourceAstId,
-        role: DefinitionRole,
+        kind: DefKind,
         name: Option<SmolStr>,
     ) -> LocalDefId {
-        let source_key = (source, role);
+        let source_key = (source, kind);
         assert!(
             !self.by_source.contains_key(&source_key),
-            "definition source inserted twice: {source:?} {role:?}"
+            "definition source inserted twice: {source:?} {kind:?}"
         );
-        let name_key = DefinitionNameKey { role, name };
+        let name_key = DefinitionNameKey { kind, name };
         let ordinal = self.next_ordinals.entry(name_key.clone()).or_default();
         let key = DefinitionKey { name: name_key, ordinal: *ordinal };
         *ordinal += 1;
@@ -387,7 +330,7 @@ impl DefinitionTable {
         source: SourceAstId,
         primary: DefOriginLoc,
     ) -> LocalDefId {
-        let local = self.allocate(source, DefinitionRole::of(&primary), primary.clone().name(db));
+        let local = self.allocate(source, primary.clone().kind(db), primary.clone().name(db));
         self.definitions
             .insert(local.clone(), DefinitionData { primary, additional: SmallVec::new() });
         local
@@ -400,13 +343,13 @@ impl DefinitionTable {
         origin: DefOriginLoc,
         local: LocalDefId,
     ) {
-        let role = DefinitionRole::of(&origin);
-        let source_key = (source, role);
+        let kind = origin.clone().kind(db);
+        let source_key = (source, kind);
         assert!(
             !self.by_source.contains_key(&source_key),
-            "definition source inserted twice: {source:?} {role:?}"
+            "definition source inserted twice: {source:?} {kind:?}"
         );
-        let name_key = DefinitionNameKey { role, name: origin.clone().name(db) };
+        let name_key = DefinitionNameKey { kind, name: origin.clone().name(db) };
         *self.next_ordinals.entry(name_key).or_default() += 1;
         self.by_source.insert(source_key, local.clone());
         self.definitions
@@ -416,8 +359,8 @@ impl DefinitionTable {
             .push(origin);
     }
 
-    fn local_for(&self, source: SourceAstId, role: DefinitionRole) -> Option<LocalDefId> {
-        self.by_source.get(&(source, role)).cloned()
+    fn local_for(&self, source: SourceAstId, kind: DefKind) -> Option<LocalDefId> {
+        self.by_source.get(&(source, kind)).cloned()
     }
 
     fn get(&self, local: LocalDefId) -> Option<&DefinitionData> {
@@ -550,7 +493,7 @@ pub(crate) fn definition_table(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Definit
                     }
                 };
                 let local = table
-                    .local_for(port_source, DefinitionRole::NonAnsiPort)
+                    .local_for(port_source, DefKind::NonAnsiPort)
                     .expect("non-ANSI port must be collected before declarations");
                 table.alias(db, source, origin, local);
                 continue;
@@ -602,10 +545,10 @@ impl DefId {
             .source_ast(db)
             .expect("every semantic definition must have a source AST identity")
             .value;
-        let role = DefinitionRole::of(&loc);
+        let kind = loc.clone().kind(db);
         let local = db
             .definition_table(owner)
-            .local_for(source, role)
+            .local_for(source, kind)
             .expect("definition origin must be collected by its owner");
         Self(InternedDefId::new(db, owner, local))
     }
