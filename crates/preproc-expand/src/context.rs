@@ -59,8 +59,20 @@ pub fn macro_context_at(db: &dyn PreprocDb, file_id: FileId, offset: TextSize) -
 }
 
 pub(crate) fn file_macro_coverage_query(db: &dyn PreprocDb, file_id: FileId) -> Arc<MacroCoverage> {
+    let contexts = db.source_preproc_contexts_for_file(file_id);
+    if let crate::source_db::SourcePreprocContextStatus::Partial { skipped_models } =
+        contexts.status
+    {
+        tracing::warn!(
+            ?file_id,
+            skipped_models,
+            "macro coverage unavailable because preprocessor contexts are partial"
+        );
+        return Arc::new(MacroCoverage::default());
+    }
+
     let mut model_file_ids = vec![file_id];
-    for model_file_id in &db.source_preproc_contexts_for_file(file_id).model_file_ids {
+    for model_file_id in &contexts.model_file_ids {
         if !model_file_ids.contains(model_file_id) {
             model_file_ids.push(*model_file_id);
         }

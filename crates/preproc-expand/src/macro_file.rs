@@ -141,7 +141,9 @@ pub fn macro_files_at_offset(
     file_id: FileId,
     offset: TextSize,
 ) -> Vec<MacroFileId> {
-    let model_file_ids = relevant_model_files(db, file_id);
+    let Some(model_file_ids) = relevant_model_files(db, file_id) else {
+        return Vec::new();
+    };
 
     let mut macro_files = Vec::new();
     for model_file in model_file_ids {
@@ -180,8 +182,11 @@ pub fn macro_files_at_offset(
 /// the same module index as source-written units without inventing a second
 /// name-resolution path.
 pub fn macro_files_for_file(db: &dyn PreprocDb, file_id: FileId) -> Vec<MacroFileId> {
+    let Some(model_file_ids) = relevant_model_files(db, file_id) else {
+        return Vec::new();
+    };
     let mut macro_files = Vec::new();
-    for model_file in relevant_model_files(db, file_id) {
+    for model_file in model_file_ids {
         let mapped = db.source_preproc_model(model_file);
         let Ok(mapped) = mapped.as_ref() else {
             continue;
@@ -209,14 +214,26 @@ pub fn macro_files_for_file(db: &dyn PreprocDb, file_id: FileId) -> Vec<MacroFil
     macro_files
 }
 
-fn relevant_model_files(db: &dyn PreprocDb, file_id: FileId) -> Vec<FileId> {
+fn relevant_model_files(db: &dyn PreprocDb, file_id: FileId) -> Option<Vec<FileId>> {
+    let contexts = db.source_preproc_contexts_for_file(file_id);
+    if let crate::source_db::SourcePreprocContextStatus::Partial { skipped_models } =
+        contexts.status
+    {
+        tracing::warn!(
+            ?file_id,
+            skipped_models,
+            "macro expansion query unavailable because preprocessor contexts are partial"
+        );
+        return None;
+    }
+
     let mut model_file_ids = vec![file_id];
-    for model_file_id in &db.source_preproc_contexts_for_file(file_id).model_file_ids {
+    for model_file_id in &contexts.model_file_ids {
         if !model_file_ids.contains(model_file_id) {
             model_file_ids.push(*model_file_id);
         }
     }
-    model_file_ids
+    Some(model_file_ids)
 }
 
 pub fn macro_file_call_site(
