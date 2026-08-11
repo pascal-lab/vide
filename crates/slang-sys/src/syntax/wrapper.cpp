@@ -1021,6 +1021,11 @@ namespace slang_sys::syntax::tree {
             auto full_path = tree.session->source_manager.getFullPath(buffer);
             auto path = full_path.empty() ? std::string(raw_path) : full_path.string();
             auto text = tree.session->source_manager.getSourceText(buffer);
+            // SourceManager stores an internal NUL terminator in every
+            // buffer. It is not part of the source text exposed to Rust;
+            // retaining it breaks predefine verification and range lengths.
+            if (!text.empty() && text.back() == '\0')
+                text.remove_suffix(1);
             // Preprocessor::predefine uses an unnamed backing buffer and a
             // line directive for its logical `<api>` source name. The raw
             // buffer name is therefore `<unnamed_bufferN>`; classify using

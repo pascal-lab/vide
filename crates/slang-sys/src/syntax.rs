@@ -87,6 +87,7 @@ endmodule
                 buffer.text.as_deref().is_some_and(|text| text.contains("`define FEATURE"))
             })
             .expect("predefine backing buffer should be recorded");
+        assert_eq!(predefine.text.as_deref(), Some("`define FEATURE 1\n"));
         assert_eq!(predefine.origin, crate::source_buffer::SourceBufferOrigin::Predefine);
     }
 
