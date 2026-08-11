@@ -162,14 +162,14 @@ pub(crate) fn parse_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic>
     }
     db.parse_diagnostics(file_id)
         .iter()
-        .map(|diag| slang_diagnostic(file_id, SlangDiagnosticSource::Parse, diag))
+        .filter_map(|diag| slang_diagnostic(file_id, SlangDiagnosticSource::Parse, diag))
         .collect()
 }
 
 pub(crate) fn compilation_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     db.file_compilation_diagnostics(file_id)
         .iter()
-        .map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
+        .filter_map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
         .collect()
 }
 
@@ -181,7 +181,7 @@ pub(crate) fn compilation_profile_diagnostics(
         .compilation_profile_diagnostics(profile_id)
         .diagnostics
         .iter()
-        .map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
+        .filter_map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
         .collect::<Vec<_>>();
 
     diagnostics.extend(
@@ -209,8 +209,9 @@ fn slang_diagnostic(
     file_id: FileId,
     source: SlangDiagnosticSource,
     diag: &SyntaxDiagnostic,
-) -> Diagnostic {
-    Diagnostic {
+) -> Option<Diagnostic> {
+    let range = to_text_range(diag)?;
+    Some(Diagnostic {
         file_id,
         code: diag.code,
         subsystem: diag.subsystem,
@@ -221,14 +222,14 @@ fn slang_diagnostic(
             SlangDiagnosticSource::Parse => DiagnosticSource::SlangParse,
             SlangDiagnosticSource::Semantic => DiagnosticSource::SlangSemantic,
         },
-        range: to_text_range(diag),
+        range,
         severity: diag.severity,
         message: diag.message.clone(),
         args: diag.args.clone(),
         message_key: None,
         message_args: Vec::new(),
         tags: Vec::new(),
-    }
+    })
 }
 
 pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
@@ -330,7 +331,8 @@ impl VideDiagnosticProvider for LoweringSyntaxDiagnostics {
 }
 
 fn lowering_syntax_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
-    let parse_ranges = db.parse_diagnostics(file_id).iter().map(to_text_range).collect::<Vec<_>>();
+    let parse_ranges =
+        db.parse_diagnostics(file_id).iter().filter_map(to_text_range).collect::<Vec<_>>();
 
     db.file_lowering_diagnostics(file_id.into())
         .iter()
@@ -517,20 +519,27 @@ fn ambiguous_module_instantiation_diagnostic(
     }
 }
 
-fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
-    fn to_text_size(value: usize) -> TextSize {
-        let raw = u32::try_from(value).unwrap_or(u32::MAX);
-        TextSize::new(raw)
+fn to_text_range(diag: &SyntaxDiagnostic) -> Option<TextRange> {
+    fn to_text_size(value: usize) -> Option<TextSize> {
+        Some(TextSize::new(u32::try_from(value).ok()?))
     }
 
     if let Some(range) = diag.primary_range.as_ref() {
-        TextRange::new(to_text_size(range.start), to_text_size(range.end))
+        let start = to_text_size(range.start)?;
+        let end = to_text_size(range.end)?;
+        return (start <= end).then(|| TextRange::new(start, end));
     } else if let Some(offset) = diag.location {
-        let pos = to_text_size(offset);
-        TextRange::new(pos, pos)
-    } else {
-        TextRange::empty(TextSize::new(0))
+        let pos = to_text_size(offset)?;
+        return Some(TextRange::empty(pos));
     }
+
+    tracing::debug!(
+        code = diag.code,
+        subsystem = diag.subsystem,
+        name = %diag.name,
+        "dropping Slang diagnostic without a source location"
+    );
+    None
 }
 
 #[cfg(test)]
@@ -558,7 +567,8 @@ mod tests {
         AMBIGUOUS_MODULE_INSTANTIATION, DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH,
         DIAGNOSTIC_LOWERING_INVALID_SYNTAX, DiagnosticSource, DiagnosticTag,
         INACTIVE_PREPROCESSOR_BRANCH, LOWERING_INVALID_SYNTAX, LOWERING_UNSUPPORTED_SYNTAX,
-        compilation_profile_diagnostics, diagnostics,
+        SlangDiagnosticSource, SyntaxDiagnostic, compilation_profile_diagnostics, diagnostics,
+        slang_diagnostic, to_text_range,
     };
     use crate::db::root_db::RootDb;
 
@@ -1247,5 +1257,29 @@ endmodule
             .unwrap();
         }
         insta::assert_snapshot!("lowering_diagnostics_lsp_snapshot", report);
+    }
+
+    #[test]
+    fn unlocated_slang_diagnostics_are_not_published_at_file_start() {
+        let diagnostic = SyntaxDiagnostic {
+            code: 1,
+            subsystem: 5,
+            severity: syntax::DiagnosticSeverity::Error,
+            message: "global diagnostic".to_owned(),
+            args: Vec::new(),
+            name: "GlobalDiagnostic".to_owned(),
+            option_name: None,
+            groups: Vec::new(),
+            primary_range: None,
+            location: None,
+            buffer_id: None,
+            file_name: None,
+        };
+
+        assert!(to_text_range(&diagnostic).is_none());
+        assert!(
+            slang_diagnostic(FileId::from_raw(0), SlangDiagnosticSource::Parse, &diagnostic)
+                .is_none()
+        );
     }
 }
