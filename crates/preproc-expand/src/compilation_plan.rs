@@ -36,7 +36,6 @@ pub struct IncludeScanIssue {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IncludeScanIssueReason {
-    TraceUnavailable,
     Model(SourcePreprocError),
 }
 
@@ -328,9 +327,7 @@ fn literal_include_targets(
         &path,
         &options,
     );
-    let Some(trace) = parsed.preprocessor_trace else {
-        return Err(IncludeScanIssue { file_id, reason: IncludeScanIssueReason::TraceUnavailable });
-    };
+    let trace = parsed.preprocessor_trace;
     let model = SourcePreprocModel::from_trace(trace)
         .map_err(|err| IncludeScanIssue { file_id, reason: IncludeScanIssueReason::Model(err) })?;
     Ok(model.include_graph().directives().to_vec())

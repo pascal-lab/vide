@@ -60,7 +60,7 @@ endmodule
             "source.sv",
             &Default::default(),
         );
-        let trace = parsed.preprocessor_trace.expect("trace should be collected");
+        let trace = parsed.preprocessor_trace;
 
         assert_eq!(parsed.tree.buffer_id(), trace.root_buffer_id);
         assert_eq!(trace.source_buffers.len(), 1);
@@ -79,7 +79,7 @@ endmodule
             "source.sv",
             &options,
         );
-        let trace = parsed.preprocessor_trace.expect("trace should be collected");
+        let trace = parsed.preprocessor_trace;
         let predefine = trace
             .source_buffers
             .iter()

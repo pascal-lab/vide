@@ -152,7 +152,7 @@ endmodule
         &SyntaxTreeOptions::default(),
     );
     let root = parsed.tree.root();
-    let trace = parsed.preprocessor_trace.expect("trace should be collected");
+    let trace = parsed.preprocessor_trace;
     let emitted_payloads = trace
         .emitted_tokens
         .iter()
@@ -265,7 +265,7 @@ endmodule
         &SyntaxTreeOptions::default(),
     );
     let root = parsed.tree.root();
-    let trace = parsed.preprocessor_trace.expect("trace should be collected");
+    let trace = parsed.preprocessor_trace;
     let emitted_payloads = trace
         .emitted_tokens
         .iter()

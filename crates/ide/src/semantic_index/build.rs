@@ -48,12 +48,13 @@ impl FileSemanticIndex {
         // Macro-emitted tokens share the call-site display range. Ordinary
         // source tokens carry a trace entry too, so presence is determined by
         // directives, include edges, or non-source origins—not by trace size.
-        let has_preproc_tokens = tree.preprocessor_trace().is_some_and(|trace| {
+        let has_preproc_tokens = {
+            let trace = tree.preprocessor_trace();
             !trace.include_edges.is_empty()
                 || trace.emitted_tokens.iter().any(|token| {
                     !matches!(token.origin, syntax::preproc::TokenOrigin::Source { .. })
                 })
-        });
+        };
         let emitted_index = has_preproc_tokens.then(|| emit_token_index(root));
 
         let sema = SemanticsImpl::new(db);

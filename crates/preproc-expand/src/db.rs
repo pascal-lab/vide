@@ -211,7 +211,7 @@ fn parsed_compilation_unit(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Pars
             );
             ParsedCompilationUnit {
                 syntax_tree: parsed.tree,
-                preprocessor_trace: parsed.preprocessor_trace,
+                preprocessor_trace: Some(parsed.preprocessor_trace),
             }
         }
         SourceFileKind::LibraryMap => ParsedCompilationUnit {
@@ -254,7 +254,7 @@ fn parsed_profile(db: &dyn PreprocDb, key: PreprocProfileQueryKey) -> Arc<Parsed
                     &identity.path,
                     &options,
                 );
-                let preprocessor_trace = syntax_tree.preprocessor_trace();
+                let preprocessor_trace = Some(syntax_tree.preprocessor_trace());
                 (syntax_tree, preprocessor_trace)
             }
             SourceFileKind::LibraryMap => (

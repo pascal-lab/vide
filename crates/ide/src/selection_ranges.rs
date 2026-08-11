@@ -64,15 +64,14 @@ pub(crate) fn selection_ranges(
             // disabled code is absent from the tree entirely, so recover their
             // ranges from the preprocessor trace.
             let mut hit = false;
-            if let Some(regions) = trace_regions(db, file_id) {
-                if let Some(range) = regions.directive_at(offset) {
-                    push_distinct(&mut res, range);
-                    hit = true;
-                }
-                if let Some(range) = regions.disabled_at(offset) {
-                    push_distinct(&mut res, range);
-                    hit = true;
-                }
+            let regions = trace_regions(db, file_id);
+            if let Some(range) = regions.directive_at(offset) {
+                push_distinct(&mut res, range);
+                hit = true;
+            }
+            if let Some(range) = regions.disabled_at(offset) {
+                push_distinct(&mut res, range);
+                hit = true;
             }
             if !hit && res.len() == 1 {
                 return res;
@@ -139,8 +138,8 @@ impl DirectiveRegions {
     }
 }
 
-fn trace_regions(db: &RootDb, file_id: FileId) -> Option<DirectiveRegions> {
-    let trace = db.parse(HirFileId::File(file_id)).preprocessor_trace()?;
+fn trace_regions(db: &RootDb, file_id: FileId) -> DirectiveRegions {
+    let trace = db.parse(HirFileId::File(file_id)).preprocessor_trace();
     let root_buffer_id = trace.root_buffer_id;
 
     let mut regions = DirectiveRegions { directives: Vec::new(), disabled: Vec::new() };
@@ -163,7 +162,7 @@ fn trace_regions(db: &RootDb, file_id: FileId) -> Option<DirectiveRegions> {
             }
         }
     }
-    Some(regions)
+    regions
 }
 
 fn push_range(ranges: &mut Vec<TextRange>, range: &std::ops::Range<usize>) {

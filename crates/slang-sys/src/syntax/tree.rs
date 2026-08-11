@@ -30,7 +30,7 @@ pub struct SyntaxTree {
 #[derive(Debug, Clone)]
 pub struct SyntaxTreeWithTrace {
     pub tree: SyntaxTree,
-    pub preprocessor_trace: Option<crate::preproc::Trace>,
+    pub preprocessor_trace: crate::preproc::Trace,
 }
 
 /// Parser options for creating a syntax tree.
@@ -142,7 +142,7 @@ impl SyntaxTree {
         options: &SyntaxTreeOptions,
     ) -> SyntaxTreeWithTrace {
         let tree = Self::from_file_in_memory_with_options(text, name, path, options);
-        let preprocessor_trace = Some(tree.build_preprocessor_trace());
+        let preprocessor_trace = tree.build_preprocessor_trace();
         SyntaxTreeWithTrace { tree, preprocessor_trace }
     }
 
@@ -153,7 +153,7 @@ impl SyntaxTree {
         options: &SyntaxTreeOptions,
     ) -> SyntaxTreeWithTrace {
         let tree = Self::from_text_with_options(text, name, path, options);
-        let preprocessor_trace = Some(tree.build_preprocessor_trace());
+        let preprocessor_trace = tree.build_preprocessor_trace();
         SyntaxTreeWithTrace { tree, preprocessor_trace }
     }
 
@@ -264,20 +264,18 @@ impl SyntaxTree {
             .collect()
     }
 
-    pub fn preprocessor_trace(&self) -> Option<crate::preproc::Trace> {
-        Some(
-            self.preprocessor_trace_cache
-                .get_or_init(|| {
-                    crate::preproc::Trace::from_raw(ffi::syntax_tree_preprocessor_trace(
-                        self.raw.as_ref().expect("Slang returned a null syntax tree"),
-                    ))
-                })
-                .clone(),
-        )
+    pub fn preprocessor_trace(&self) -> crate::preproc::Trace {
+        self.preprocessor_trace_cache
+            .get_or_init(|| {
+                crate::preproc::Trace::from_raw(ffi::syntax_tree_preprocessor_trace(
+                    self.raw.as_ref().expect("Slang returned a null syntax tree"),
+                ))
+            })
+            .clone()
     }
 
     fn build_preprocessor_trace(&self) -> crate::preproc::Trace {
-        self.preprocessor_trace().expect("Slang trace collection returned no trace")
+        self.preprocessor_trace()
     }
 
     pub fn buffer_id(&self) -> u32 {
@@ -285,7 +283,7 @@ impl SyntaxTree {
     }
 
     pub fn buffer_ids(&self) -> SyntaxTreeBufferIds {
-        let trace = self.preprocessor_trace().expect("Slang trace collection returned no trace");
+        let trace = self.preprocessor_trace();
         SyntaxTreeBufferIds {
             root_buffer_id: trace.root_buffer_id,
             source_buffers: trace.source_buffers,
