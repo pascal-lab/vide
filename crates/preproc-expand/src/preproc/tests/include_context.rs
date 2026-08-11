@@ -28,11 +28,10 @@ endmodule
 "#;
     let mut db = db_with_files(root_text, "`define OTHER_WIDTH 8\n");
 
-    assert!(
-        macro_reference_definitions_at(&db, TOP, offset(root_text, "HEADER_WIDTH"))
-            .unwrap()
-            .is_none()
-    );
+    let definitions = macro_reference_definitions_at(&db, TOP, offset(root_text, "HEADER_WIDTH"))
+        .unwrap()
+        .unwrap();
+    assert!(definitions.definitions.is_empty());
 
     db.set_file_text_with_durability(
         HEADER,

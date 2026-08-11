@@ -171,7 +171,7 @@ mod tests {
         std::fs::write(include_rel, "typedef logic cwd_include_t;\n").expect("include fixture");
 
         let text = format!("`include \"{include_rel}\"\nmodule top;\nendmodule\n");
-        let tree = SyntaxTree::from_text_with_options(
+        let tree = SyntaxTree::from_file_in_memory_with_options(
             &text,
             "",
             "",
