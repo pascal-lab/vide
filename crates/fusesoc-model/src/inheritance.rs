@@ -31,7 +31,6 @@ use serde_yaml_ng::Value;
 /// Therefore this module is currently a no-op passthrough; we rely on the YAML
 /// library's built-in merge key support.  This is documented here so future
 /// maintainers know the design decision.
-
 /// Merge `parent` into `child` with FuseSoC semantics.
 ///
 /// - For maps: recursively merge keys; child wins on scalar conflicts.

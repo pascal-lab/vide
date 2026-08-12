@@ -113,6 +113,22 @@ impl CoreIndex {
         matching.into_iter().max_by_key(|c| c.vlnv.version.clone())
     }
 
+    /// Return all VLNVs in the index.
+    pub fn all_vlnvs(&self) -> Vec<Vlnv> {
+        self.cores.values().flat_map(|v| v.iter().map(|c| c.vlnv.clone())).collect()
+    }
+
+    /// Return the dependency strings of a given VLNV (from its `default`
+    /// target filesets).
+    pub fn dependencies_of(&self, vlnv: &Vlnv) -> Vec<String> {
+        let req =
+            VlnvRequirement { relation: crate::vlnv::VersionRelation::Equal, vlnv: vlnv.clone() };
+        let Some(core) = self.find(&req) else {
+            return Vec::new();
+        };
+        collect_dependencies(&core.core, "default")
+    }
+
     /// Resolve the full dependency graph for a top-level core and target.
     ///
     /// The `top_vlnv` identifies the root core.  Dependencies are resolved

@@ -19,7 +19,12 @@ impl GlobalState {
         let state = if !errors.is_empty() {
             ProjectStatusState::Error
         } else if self.config_state.config.project_manifests.iter().any(|manifest| {
-            matches!(manifest, ProjectManifest::Toml(_) | ProjectManifest::FuseSocCore(_))
+            matches!(
+                manifest,
+                ProjectManifest::Toml(_)
+                    | ProjectManifest::FuseSocCore(_)
+                    | ProjectManifest::FuseSocCoreDir(_)
+            )
         }) {
             ProjectStatusState::Loaded
         } else {
@@ -47,6 +52,11 @@ impl GlobalState {
                     }
                 }
                 ProjectManifest::FuseSocCore(path) => {
+                    if let Some(uri) = url_from_path(path.as_path()) {
+                        manifest_uris.push(uri);
+                    }
+                }
+                ProjectManifest::FuseSocCoreDir(path) => {
                     if let Some(uri) = url_from_path(path.as_path()) {
                         manifest_uris.push(uri);
                     }

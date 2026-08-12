@@ -33,8 +33,11 @@ impl ProjectManifestFileName {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum ProjectManifest {
     Toml(AbsPathBuf),
-    /// A FuseSoC CAPI2 `.core` file found in the workspace root.
+    /// A FuseSoC CAPI2 `.core` file explicitly selected.
     FuseSocCore(AbsPathBuf),
+    /// A directory containing multiple FuseSoC `.core` files.  The loader
+    /// will scan all of them and select the root core automatically.
+    FuseSocCoreDir(AbsPathBuf),
     UnconfiguredRoot(AbsPathBuf),
 }
 
@@ -86,8 +89,16 @@ impl ProjectManifest {
         }
 
         // No vide.toml — look for a single .core file in the workspace root.
-        if let Some(core_path) = find_single_core_file(path) {
-            return Self::from_fusesoc_core(&core_path);
+        // No vide.toml — look for .core files in the workspace root.
+        let core_files = find_core_files(path);
+        match core_files.len() {
+            0 => {}
+            1 => return Self::from_fusesoc_core(&core_files[0]),
+            _ => {
+                // Multiple .core files — the loader will scan all and select
+                // the root core automatically.
+                return Ok(Self::FuseSocCoreDir(path.clone()));
+            }
         }
 
         Ok(Self::UnconfiguredRoot(path.clone()))
@@ -137,11 +148,12 @@ impl ProjectManifest {
     }
 }
 
-/// Find a single `.core` file directly in `dir`.  Returns `None` if there
-/// are zero or multiple `.core` files (ambiguous).
-fn find_single_core_file(dir: &AbsPathBuf) -> Option<AbsPathBuf> {
-    let entries = fs::read_dir(dir.as_path()).ok()?;
-    let mut core_files: Vec<AbsPathBuf> = Vec::new();
+/// Find all `.core` files directly in `dir` (non-recursive).
+fn find_core_files(dir: &AbsPathBuf) -> Vec<AbsPathBuf> {
+    let Ok(entries) = fs::read_dir(dir.as_path()) else {
+        return Vec::new();
+    };
+    let mut core_files = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_file()
@@ -151,10 +163,8 @@ fn find_single_core_file(dir: &AbsPathBuf) -> Option<AbsPathBuf> {
             core_files.push(abs);
         }
     }
-    match core_files.len() {
-        1 => Some(core_files.into_iter().next().unwrap()),
-        _ => None,
-    }
+    core_files.sort();
+    core_files
 }
 
 #[cfg(test)]
@@ -236,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn from_path_rejects_ambiguous_multiple_core_files() {
+    fn from_path_discovers_multiple_core_files_as_dir() {
         let root = TestDir::new("fusesoc-ambiguous-cores");
         fs::write(root.join("a.core"), "CAPI=2:\nname: v:l:a:1.0\n").unwrap();
         fs::write(root.join("b.core"), "CAPI=2:\nname: v:l:b:1.0\n").unwrap();
@@ -244,8 +254,8 @@ mod tests {
         let root_abs = root.path().to_path_buf();
         let manifest = ProjectManifest::from_path(&root_abs).unwrap();
 
-        // Multiple cores is ambiguous — falls back to unconfigured root.
-        assert_eq!(manifest, ProjectManifest::UnconfiguredRoot(root_abs));
+        // Multiple cores — loads as FuseSocCoreDir for auto-selection.
+        assert_eq!(manifest, ProjectManifest::FuseSocCoreDir(root_abs));
     }
 
     #[test]
