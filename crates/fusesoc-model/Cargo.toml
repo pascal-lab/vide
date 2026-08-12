@@ -1,0 +1,21 @@
+[package]
+name = "fusesoc-model"
+version = "0.0.0"
+description = "Read-only loader for FuseSoC CAPI2 .core files"
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+itertools.workspace = true
+rustc-hash.workspace = true
+serde.workspace = true
+serde_yaml_ng = "0.10"
+indexmap = { version = "2", features = ["serde"] }
+smol_str.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+utils = { workspace = true, features = ["camino_serde1"] }
+
+[dev-dependencies]
+insta = { workspace = true, features = ["json"] }
+utils = { workspace = true, features = ["camino_serde1", "test-support"] }
