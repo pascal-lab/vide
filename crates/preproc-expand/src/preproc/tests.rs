@@ -147,8 +147,9 @@ fn db_with_entries_and_predefine_entries(
 }
 
 fn abs_path(path: &str) -> AbsPathBuf {
-    let prefix = if cfg!(windows) { "C:/repo" } else { "/repo" };
-    AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}/{path}")))
+    let prefix = if cfg!(windows) { "C:\\repo" } else { "/repo" };
+    let sep = if cfg!(windows) { "\\" } else { "/" };
+    AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}{sep}{path}")))
 }
 
 fn offset(text: &str, needle: &str) -> TextSize {

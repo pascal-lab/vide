@@ -940,8 +940,9 @@ mod tests {
     }
 
     fn abs_path(path: &str) -> AbsPathBuf {
-        let prefix = if cfg!(windows) { "C:/repo" } else { "/repo" };
-        AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}/{path}")))
+        let prefix = if cfg!(windows) { "C:\\repo" } else { "/repo" };
+        let sep = if cfg!(windows) { "\\" } else { "/" };
+        AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}{sep}{path}")))
     }
 
     fn offset(text: &str, needle: &str) -> TextSize {
@@ -1004,7 +1005,7 @@ mod tests {
         let trace = top.1.preprocessor_trace.as_ref().expect("top root should have a trace");
 
         assert!(trace.source_buffers.iter().any(|buffer| {
-            buffer.path == "/repo/rtl/included.sv"
+            abs_path("rtl/included.sv") == buffer.path
                 && buffer.text.as_deref() == Some("module included; endmodule\n")
         }));
     }
