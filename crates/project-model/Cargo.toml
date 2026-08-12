@@ -11,6 +11,7 @@ manifest-schema = ["dep:schemars", "dep:serde_json"]
 [dependencies]
 vfs.workspace = true
 anyhow.workspace = true
+fusesoc-model = { path = "../fusesoc-model" }
 const_format.workspace = true
 itertools.workspace = true
 regex.workspace = true
@@ -23,6 +24,7 @@ triomphe.workspace = true
 utils = { workspace = true, features = ["camino_serde1"] }
 workspace-model.workspace = true
 schemars = { version = "1.2.1", features = ["preserve_order"], optional = true }
+tracing.workspace = true
 
 [dev-dependencies]
 utils = { workspace = true, features = ["camino_serde1", "test-support"] }

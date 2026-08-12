@@ -237,6 +237,17 @@ impl GlobalState {
                     .iter()
                     .map(move |file_name| client_watch_glob(root, file_name))
             })
+            .chain(
+                self.config_state
+                    .config
+                    .workspace_roots
+                    .iter()
+                    .flat_map(|root| {
+                        project_manifest::FUSESOC_CORE_EXTENSIONS
+                            .iter()
+                            .map(move |ext| client_watch_glob(root, &format!("*.{ext}")))
+                    }),
+            )
             .collect_vec();
         globs.extend(
             self.workspace
@@ -343,6 +354,9 @@ pub(crate) fn should_refresh_for_change(path: &AbsPath, has_structure_change: bo
     };
 
     if project_manifest::is_manifest_file_name(file_name) {
+        return true;
+    }
+    if file_name.ends_with(".core") {
         return true;
     }
 

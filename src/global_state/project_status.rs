@@ -23,7 +23,7 @@ impl GlobalState {
             .config
             .project_manifests
             .iter()
-            .any(|manifest| matches!(manifest, ProjectManifest::Toml(_)))
+            .any(|manifest| matches!(manifest, ProjectManifest::Toml(_) | ProjectManifest::FuseSocCore(_)))
         {
             ProjectStatusState::Loaded
         } else {
@@ -46,6 +46,11 @@ impl GlobalState {
         for manifest in &self.config_state.config.project_manifests {
             match manifest {
                 ProjectManifest::Toml(path) => {
+                    if let Some(uri) = url_from_path(path.as_path()) {
+                        manifest_uris.push(uri);
+                    }
+                }
+                ProjectManifest::FuseSocCore(path) => {
                     if let Some(uri) = url_from_path(path.as_path()) {
                         manifest_uris.push(uri);
                     }

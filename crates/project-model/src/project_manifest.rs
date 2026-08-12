@@ -6,6 +6,7 @@ use utils::paths::AbsPathBuf;
 
 pub const MANIFEST_FILE_NAME: &str = formatcp!("vide.toml");
 pub const MANIFEST_FILE_NAMES: [&str; 1] = [MANIFEST_FILE_NAME];
+pub const FUSESOC_CORE_EXTENSIONS: [&str; 1] = ["core"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum ProjectManifestFileName {
@@ -32,6 +33,8 @@ impl ProjectManifestFileName {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum ProjectManifest {
     Toml(AbsPathBuf),
+    /// A FuseSoC CAPI2 `.core` file found in the workspace root.
+    FuseSocCore(AbsPathBuf),
     UnconfiguredRoot(AbsPathBuf),
 }
 
@@ -60,6 +63,9 @@ impl ProjectManifest {
         if is_manifest_file_name(path.file_name().unwrap_or_default()) {
             return Self::from_toml(path);
         }
+        if path.extension().is_some_and(|ext| ext == "core") {
+            return Self::from_fusesoc_core(path);
+        }
 
         let metadata =
             fs::metadata(path).with_context(|| format!("project path does not exist: {path}"))?;
@@ -79,6 +85,11 @@ impl ProjectManifest {
             }
         }
 
+        // No vide.toml — look for a single .core file in the workspace root.
+        if let Some(core_path) = find_single_core_file(path) {
+            return Self::from_fusesoc_core(&core_path);
+        }
+
         Ok(Self::UnconfiguredRoot(path.clone()))
     }
 
@@ -87,7 +98,7 @@ impl ProjectManifest {
             ProjectManifest::Toml(path) => {
                 path.file_name().and_then(ProjectManifestFileName::from_file_name)
             }
-            ProjectManifest::UnconfiguredRoot(_) => None,
+            ProjectManifest::FuseSocCore(_) | ProjectManifest::UnconfiguredRoot(_) => None,
         }
     }
 
@@ -107,6 +118,39 @@ impl ProjectManifest {
         }
 
         Ok(ProjectManifest::Toml(path.clone()))
+    }
+
+    fn from_fusesoc_core(path: &AbsPathBuf) -> anyhow::Result<Self> {
+        if path.parent().is_none() {
+            bail!("bad .core path: {path}");
+        }
+
+        let metadata = fs::metadata(path)
+            .with_context(|| format!("project .core path does not exist: {path}"))?;
+        if !metadata.is_file() {
+ bail!("project .core path is not a file: {path}");
+        }
+
+        Ok(ProjectManifest::FuseSocCore(path.clone()))
+    }
+}
+
+/// Find a single `.core` file directly in `dir`.  Returns `None` if there
+/// are zero or multiple `.core` files (ambiguous).
+fn find_single_core_file(dir: &AbsPathBuf) -> Option<AbsPathBuf> {
+    let entries = fs::read_dir(dir.as_path()).ok()?;
+    let mut core_files: Vec<AbsPathBuf> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() && path.extension().is_some_and(|ext| ext == "core") {
+            if let Some(abs) = utils::paths::abs_path_buf_from_path_buf(path) {
+                core_files.push(abs);
+            }
+        }
+    }
+    match core_files.len() {
+        1 => Some(core_files.into_iter().next().unwrap()),
+        _ => None,
     }
 }
 
@@ -174,5 +218,53 @@ mod tests {
         let error = ProjectManifest::from_path(&file).unwrap_err();
 
         assert!(error.to_string().contains("must be a directory"));
+    }
+
+    #[test]
+    fn from_path_discovers_single_core_file() {
+        let root = TestDir::new("fusesoc-single-core");
+        let core_path = root.join("top.core");
+        fs::write(&core_path, "CAPI=2:\nname: v:l:top:1.0\n").unwrap();
+
+        let root_abs = root.path().to_path_buf();
+        let manifest = ProjectManifest::from_path(&root_abs).unwrap();
+
+        assert_eq!(manifest, ProjectManifest::FuseSocCore(core_path));
+    }
+
+    #[test]
+    fn from_path_rejects_ambiguous_multiple_core_files() {
+        let root = TestDir::new("fusesoc-ambiguous-cores");
+        fs::write(root.join("a.core"), "CAPI=2:\nname: v:l:a:1.0\n").unwrap();
+        fs::write(root.join("b.core"), "CAPI=2:\nname: v:l:b:1.0\n").unwrap();
+
+        let root_abs = root.path().to_path_buf();
+        let manifest = ProjectManifest::from_path(&root_abs).unwrap();
+
+        // Multiple cores is ambiguous — falls back to unconfigured root.
+        assert_eq!(manifest, ProjectManifest::UnconfiguredRoot(root_abs));
+    }
+
+    #[test]
+    fn from_path_prefers_vide_toml_over_core() {
+        let root = TestDir::new("fusesoc-and-toml");
+        fs::write(root.join("top.core"), "CAPI=2:\nname: v:l:top:1.0\n").unwrap();
+        let toml_path = root.join(MANIFEST_FILE_NAME);
+        fs::write(&toml_path, r#"top_modules = ["top"]"#).unwrap();
+
+        let root_abs = root.path().to_path_buf();
+        let manifest = ProjectManifest::from_path(&root_abs).unwrap();
+
+        assert_eq!(manifest, ProjectManifest::Toml(toml_path));
+    }
+
+    #[test]
+    fn from_path_accepts_core_file_directly() {
+        let root = TestDir::new("fusesoc-direct");
+        let core_path = root.join("top.core");
+        fs::write(&core_path, "CAPI=2:\nname: v:l:top:1.0\n").unwrap();
+
+        let manifest = ProjectManifest::from_path(&core_path).unwrap();
+        assert_eq!(manifest, ProjectManifest::FuseSocCore(core_path));
     }
 }

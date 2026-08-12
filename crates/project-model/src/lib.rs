@@ -174,6 +174,9 @@ impl Workspace {
 
                 Self::from_toml(toml_workspace, is_lib)
             }
+            ProjectManifest::FuseSocCore(core_path) => {
+                Self::from_fusesoc_core(core_path, is_lib)
+            }
             ProjectManifest::UnconfiguredRoot(path) => {
                 Ok(Self::from_unconfigured_root(path, is_lib))
             }
@@ -239,6 +242,123 @@ impl Workspace {
             .then(|| semantic_profile(top_modules, macro_defs, include_dirs, Some(manifest_path)));
 
         Ok(Self { workspace_root, library_paths, kind, roots, semantic_profile })
+    }
+
+    fn from_fusesoc_core(core_path: &AbsPathBuf, is_lib: bool) -> anyhow::Result<Self> {
+        use fusesoc_model::{resolve, project, vlnv};
+        use crate::macro_def::{MacroAtom, MacroDef, MacroDefSource};
+        use utils::line_index::{TextRange, TextSize};
+
+        let workspace_root = core_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .context("FuseSoC .core path has no parent")?;
+
+        // Load the .core file.
+        let core = fusesoc_model::load_core_file(core_path)
+            .context("failed to parse FuseSoC .core file")?;
+        let top_vlnv = vlnv::Vlnv::parse(&core.name)
+            .map_err(|e| anyhow::anyhow!("invalid VLNV in .core: {e}"))?;
+
+        // Build core index from the workspace root and resolve dependencies.
+        let (index, parse_errors) = resolve::CoreIndex::from_roots(&[workspace_root.clone()]);
+        let graph = index.resolve(&top_vlnv, "default");
+        let resolution_errors: Vec<String> = parse_errors
+            .iter()
+            .map(|e| e.to_string())
+            .chain(graph.errors.iter().map(|e| e.to_string()))
+            .collect();
+        if !resolution_errors.is_empty() {
+            tracing::warn!("FuseSoC resolution errors: {resolution_errors:?}");
+        }
+
+        // Expand into a flat project.
+        let resolved = project::expand(&graph);
+
+        let kind = WorkspaceKind::from_is_lib(is_lib);
+
+        // Collect all source file paths from the resolved project.
+        let source_files: Vec<AbsPathBuf> = resolved
+            .files
+            .iter()
+            .filter(|f| !f.is_include_file)
+            .map(|f| f.path.clone())
+            .collect();
+
+        // Include files still need to be in the VFS, but as headers.
+        let include_files: Vec<AbsPathBuf> = resolved
+            .files
+            .iter()
+            .filter(|f| f.is_include_file)
+            .map(|f| f.path.clone())
+            .collect();
+
+        let include_dirs = resolved.include_dirs;
+
+        // Build source matchers from the source files.
+        let all_files: Vec<AbsPathBuf> = source_files
+            .iter()
+            .chain(include_files.iter())
+            .cloned()
+            .collect();
+        let source = PathMatcher::all_under_roots(all_files.clone());
+
+        // Build defines as predefines for the semantic profile.
+        let predefine_strings: Vec<String> = resolved
+            .defines
+            .iter()
+            .map(|(k, v)| if v.is_empty() { k.clone() } else { format!("{k}={v}") })
+            .collect();
+
+        // Build MacroDef from FuseSoC defines (no source ranges available).
+        let mut macros: FxHashSet<MacroAtom> = FxHashSet::default();
+        let mut sources: Vec<MacroDefSource> = Vec::new();
+        let zero_range = TextRange::new(TextSize::from(0), TextSize::from(0));
+        for s in &predefine_strings {
+            let atom = if let Some((key, value)) = s.split_once('=') {
+                MacroAtom::KeyValue { key: key.into(), value: value.into() }
+            } else {
+                MacroAtom::Flag(s.into())
+            };
+            macros.insert(atom.clone());
+            sources.push(MacroDefSource { atom, range: zero_range });
+        }
+        let macro_defs = MacroDef { macros, sources };
+
+        let root_parts = WorkspaceRootParts {
+            source: source.clone(),
+            source_directories: source,
+            source_files: all_files,
+            extra_files: vec![core_path.clone()],
+            include_dirs: include_dirs.clone(),
+            exclude_prefixes: Vec::new(),
+            exclude_globs: None,
+        };
+
+        let roots = workspace_roots(
+            kind,
+            &ManifestSourcePolicy::Explicit(vec![]),
+            true,
+            root_parts,
+        );
+
+        let semantic_profile = roots
+            .iter()
+            .any(WorkspaceRoot::contributes_semantic_profile)
+            .then(|| semantic_profile(
+                resolved.top_modules,
+                macro_defs,
+                include_dirs,
+                Some(core_path.clone()),
+            ));
+
+        Ok(Self {
+            workspace_root,
+            library_paths: Vec::new(),
+            kind,
+            roots,
+            semantic_profile,
+        })
     }
 
     fn from_unconfigured_root(path: &AbsPathBuf, is_lib: bool) -> Self {
@@ -623,7 +743,9 @@ struct ProjectManifestIdentitySet {
 impl ProjectManifestIdentitySet {
     fn insert(&mut self, manifest: &ProjectManifest) -> bool {
         let path = match manifest {
-            ProjectManifest::Toml(path) | ProjectManifest::UnconfiguredRoot(path) => path,
+            ProjectManifest::Toml(path)
+            | ProjectManifest::FuseSocCore(path)
+            | ProjectManifest::UnconfiguredRoot(path) => path,
         };
         self.paths.insert_path(path.as_path())
     }
