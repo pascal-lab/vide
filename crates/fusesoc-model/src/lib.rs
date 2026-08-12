@@ -15,7 +15,7 @@
 //! 1. `CAPI=2:` preamble stripping
 //! 2. YAML deserialization into a typed [`raw`] model
 //! 3. CAPI2 conditional expression parsing and evaluation ([`expr`])
-//! 4. YAML inheritance (`<<`) merge with FuseSoC semantics ([`inheritance`])
+//! 4. YAML merge key (`<<`) resolution via `serde_yaml_ng::Value::apply_merge`
 //! 5. `*_append` normalization and file attribute inheritance ([`normalize`])
 //! 6. VLNV parsing and version relations ([`vlnv`])
 //! 7. Local-only dependency resolution ([`resolve`])
@@ -25,7 +25,6 @@
 //! source files, include directories, defines, and top-level modules.
 
 pub mod expr;
-pub mod inheritance;
 pub mod normalize;
 pub mod project;
 pub mod raw;
@@ -62,7 +61,12 @@ pub enum CoreError {
 pub fn load_core_file(path: &utils::paths::AbsPathBuf) -> Result<raw::Core, CoreError> {
     let text = std::fs::read_to_string(path.as_path()).map_err(|e| CoreError::Io(e.to_string()))?;
     let stripped = strip_preamble(&text)?;
-    let core: raw::Core = serde_yaml_ng::from_str(stripped)?;
+    // `serde_yaml_ng` does NOT resolve YAML merge keys (`<<`) during
+    // deserialization; `apply_merge` must be called explicitly.  Without it,
+    // `<<` reaches the typed model and trips `deny_unknown_fields`.
+    let mut value: serde_yaml_ng::Value = serde_yaml_ng::from_str(stripped)?;
+    value.apply_merge()?;
+    let core: raw::Core = serde_yaml_ng::from_value(value)?;
     Ok(core)
 }
 
@@ -114,5 +118,47 @@ mod tests {
     fn handles_empty_body() {
         let text = "CAPI=2:\n";
         assert_eq!(strip_preamble(text).unwrap(), "");
+    }
+
+    #[test]
+    fn resolves_yaml_merge_keys() {
+        let text = "\
+CAPI=2:
+name: test:core:1.0.0
+filesets:
+  rtl:
+    files: [a.v]
+    file_type: verilogSource
+targets:
+  default: &default
+    filesets: [rtl]
+    toplevel: top
+  sim:
+    <<: *default
+    description: simulate
+    filesets_append: [tb]
+    tools:
+      icarus:
+        iverilog_options: [-g2012]
+";
+        let core =
+            load_core_file(&utils::paths::AbsPathBuf::assert(write_core_to_temp(text))).unwrap();
+        let sim = &core.targets["sim"];
+        // Merge key pulled in the anchor's fields.
+        assert_eq!(sim.filesets, vec!["rtl"]);
+        assert_eq!(sim.toplevel, vec!["top"]);
+        // Child fields still present.
+        assert_eq!(sim.description, "simulate");
+        assert_eq!(sim.filesets_append, vec!["tb"]);
+        // Opaque tools config preserved.
+        assert!(sim.tools.as_ref().unwrap().contains_key("icarus"));
+    }
+
+    fn write_core_to_temp(text: &str) -> utils::paths::Utf8PathBuf {
+        let dir = std::env::temp_dir().join(format!("vide-fusesoc-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test.core");
+        std::fs::write(&path, text).unwrap();
+        utils::paths::Utf8PathBuf::from_path_buf(path).unwrap()
     }
 }

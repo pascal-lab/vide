@@ -14,11 +14,21 @@ fn loads_darkriscv_core_file() {
     let dir = fixture_dir("darkriscv");
     let core_path = dir.join("darkriscv.core");
     let core = load_core_file(&core_path).unwrap();
-    assert_eq!(core.name, "darklife:darkriscv:darkriscv:1.0");
+    assert_eq!(core.name, "darklife:darkriscv:darksocv:1.0.0");
     assert!(core.filesets.contains_key("rtl"));
     assert!(core.filesets.contains_key("tb"));
     assert!(core.targets.contains_key("default"));
     assert!(core.targets.contains_key("sim"));
+    // The real core uses a YAML merge key (`<<: *default`) in the sim target;
+    // it must be resolved before typed deserialization.
+    let sim = core.targets.get("sim").unwrap();
+    assert_eq!(sim.filesets, vec!["rtl"]);
+    assert_eq!(sim.toplevel, vec!["darksimv"]);
+    // `tools:` is null in the real core; the tool names land at target level
+    // and are preserved as unknown keys.
+    assert!(sim.tools.is_none());
+    assert!(sim.unknown.contains_key("icarus"));
+    assert!(sim.unknown.contains_key("modelsim"));
 }
 
 #[test]
@@ -36,15 +46,15 @@ fn darkriscv_default_target_expands_correctly() {
 
     // Verify fileset expansion.
     let rtl_fs = core.filesets.get("rtl").unwrap();
-    assert_eq!(rtl_fs.files.len(), 2);
-    assert_eq!(rtl_fs.files[0].path(), "rtl/darksocv.v");
+    assert_eq!(rtl_fs.files.len(), 5);
+    assert_eq!(rtl_fs.files[0].path(), "rtl/config.vh");
 
     // Verify include file detection.
-    let include_entry = &rtl_fs.files[1];
+    let include_entry = &rtl_fs.files[0];
     assert_eq!(include_entry.path(), "rtl/config.vh");
     let attrs = include_entry.attributes().unwrap();
     assert!(attrs.is_include_file);
-    assert_eq!(attrs.include_path.as_deref(), Some("rtl"));
+    assert_eq!(attrs.include_path, None);
 
     // Verify file_type inheritance.
     assert_eq!(
@@ -61,7 +71,7 @@ fn darkriscv_resolves_to_resolved_project() {
     let (index, parse_errors) = resolve::CoreIndex::from_roots(std::slice::from_ref(&dir));
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
 
-    let top_vlnv = vlnv::Vlnv::parse("darklife:darkriscv:darkriscv:1.0").unwrap();
+    let top_vlnv = vlnv::Vlnv::parse("darklife:darkriscv:darksocv:1.0.0").unwrap();
     let graph = index.resolve(&top_vlnv, "default");
     assert!(graph.errors.is_empty(), "{:?}", graph.errors);
     assert_eq!(graph.cores.len(), 1);
@@ -70,8 +80,9 @@ fn darkriscv_resolves_to_resolved_project() {
     let resolved = project::expand(&graph, "default");
     assert_eq!(resolved.top_modules, vec!["darksocv"]);
 
-    // Should have 2 source files (darksocv.v + config.vh).
-    assert_eq!(resolved.files.len(), 2);
+    // Should have 5 source files (config.vh, darkriscv.v, darksocv.v,
+    // darkuart.v, darksocv.mem).
+    assert_eq!(resolved.files.len(), 5);
 
     // darksocv.v is a regular source file.
     let darksocv =
@@ -100,12 +111,12 @@ fn darkriscv_sim_target_has_different_toplevel() {
     let (index, parse_errors) = resolve::CoreIndex::from_roots(std::slice::from_ref(&dir));
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
 
-    let top_vlnv = vlnv::Vlnv::parse("darklife:darkriscv:darkriscv:1.0").unwrap();
+    let top_vlnv = vlnv::Vlnv::parse("darklife:darkriscv:darksocv:1.0.0").unwrap();
     let graph = index.resolve(&top_vlnv, "sim");
     assert!(graph.errors.is_empty(), "{:?}", graph.errors);
 
     let resolved = project::expand(&graph, "sim");
     assert_eq!(resolved.top_modules, vec!["darksimv"]);
-    // sim target includes both rtl and tb filesets → 3 files.
-    assert_eq!(resolved.files.len(), 3);
+    // sim target includes both rtl and tb filesets → 6 files.
+    assert_eq!(resolved.files.len(), 6);
 }

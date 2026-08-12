@@ -129,7 +129,6 @@ pub enum FileDefineValue {
 
 /// A build target.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Target {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_tool: Option<String>,
@@ -151,6 +150,17 @@ pub struct Target {
     pub vpi: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<String>,
+    /// Per-tool configuration (e.g. `icarus: {iverilog_options: [...]}`).
+    /// Vide does not execute tools, so the values are preserved opaquely.
+    /// `Option` because real-world cores write `tools:` with a null value
+    /// (a FuseSoC quirk that the official parser tolerates).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<IndexMap<String, serde_yaml_ng::Value>>,
+    /// Unknown keys (e.g. tool names written at target level, as in
+    /// darkriscv's `sim` target).  Preserved so they can be detected and
+    /// reported rather than silently dropped.
+    #[serde(flatten)]
+    pub unknown: IndexMap<String, serde_yaml_ng::Value>,
     /// Toplevel can be a single string or a list.
     #[serde(
         default,
