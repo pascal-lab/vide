@@ -273,7 +273,7 @@ impl Workspace {
         }
 
         // Expand into a flat project.
-        let resolved = project::expand(&graph);
+        let resolved = project::expand(&graph, "default");
 
         let kind = WorkspaceKind::from_is_lib(is_lib);
 

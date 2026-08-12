@@ -1,0 +1,29 @@
+CAPI=2:
+name: darklife:darkriscv:darkriscv:1.0
+description: A tiny RISC-V CPU
+license: MIT
+
+filesets:
+  rtl:
+    files:
+      - rtl/darksocv.v
+      - rtl/config.vh:
+          is_include_file: true
+          include_path: rtl
+    file_type: verilogSource
+  tb:
+    files:
+      - sim/darksimv.v
+    file_type: verilogSource
+
+targets:
+  default:
+    filesets:
+      - rtl
+    toplevel: darksocv
+  sim:
+    filesets:
+      - rtl
+      - tb
+    toplevel: darksimv
+    default_tool: icarus

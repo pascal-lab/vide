@@ -47,7 +47,7 @@ pub struct ResolvedCore {
 /// Only Verilog/SystemVerilog source files are included.  Files with other
 /// types (constraints, memory init, etc.) are skipped — Vide is a language
 /// server, not a build tool.
-pub fn expand(graph: &ResolvedGraph) -> ResolvedProject {
+pub fn expand(graph: &ResolvedGraph, top_target: &str) -> ResolvedProject {
     let mut files = Vec::new();
     let mut include_dirs = Vec::new();
     let mut defines = Vec::new();
@@ -58,24 +58,16 @@ pub fn expand(graph: &ResolvedGraph) -> ResolvedProject {
     for gc in graph.cores.iter().rev() {
         let core = &gc.core;
         let core_root = &gc.core_root;
-        let target = if graph.cores.first().map(|c| c.vlnv.vlnv()) == Some(gc.vlnv.vlnv()) {
-            // Top-level core uses the selected target (passed in).
-            // For now, the resolver already used the right target per core.
-            // The top core's target is the one requested; deps use "default".
-            // Since resolve() stores cores in order, the first is top-level.
-            // We need to know which target was used.  For simplicity, the
-            // resolve() already normalized filesets for each core's target.
-            "default"
-        } else {
-            "default"
-        };
+        // Top-level core uses the requested target; dependencies use "default".
+        let is_top = graph.cores.first().map(|c| c.vlnv.vlnv()) == Some(gc.vlnv.vlnv());
+        let target = if is_top { top_target } else { "default" };
 
         let Some(tgt) = core.targets.get(target) else {
             continue;
         };
 
         // Top-level modules.
-        if graph.cores.first().map(|c| c.vlnv.vlnv()) == Some(gc.vlnv.vlnv()) {
+        if is_top {
             top_modules.extend(tgt.top_modules());
         }
 
