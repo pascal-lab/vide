@@ -1,129 +1,72 @@
 name: CI
 
 on:
+  pull_request:
+  merge_group:
   push:
     branches: [master]
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: ["**"]
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
-  pull-requests: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
-env:
-  EMSDK_VERSION: 5.0.2
-
 jobs:
-  changes:
-    name: Detect changes
-    runs-on: ubuntu-latest
-    outputs:
-      plan: ${{ steps.plan.outputs.result }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Detect changed paths
-        id: filter
-        if: github.event_name != 'workflow_dispatch'
-        uses: dorny/paths-filter@v4
-        with:
-          filters: .github/ci-modules.yml
-      - name: Plan CI jobs
-        id: plan
-        uses: actions/github-script@v9
-        env:
-          FILTER_RUST: ${{ steps.filter.outputs.rust }}
-          FILTER_VSCODE: ${{ steps.filter.outputs.vscode }}
-          FILTER_PACKAGE: ${{ steps.filter.outputs.package }}
-        with:
-          retries: 3
-          result-encoding: string
-          script: |
-            const { pathToFileURL } = await import('node:url');
-            const scriptUrl = pathToFileURL(`${process.env.GITHUB_WORKSPACE}/.github/scripts/ci-plan.mjs`);
-            const { planCi } = await import(scriptUrl.href);
-            const plan = await planCi({
-              github,
-              context,
-              core,
-              filters: {
-                rust: process.env.FILTER_RUST === 'true',
-                vscode: process.env.FILTER_VSCODE === 'true',
-                package: process.env.FILTER_PACKAGE === 'true',
-              },
-            });
-            return JSON.stringify(plan);
-
   rust-lint:
     name: Rust Linting
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).run_rust_lint == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Install Rust
+      - name: Setup Rust
         uses: ./.github/actions/setup-rust
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
         with:
           cmake-launcher: "true"
-      - name: Rust Cache
+      - name: Rust cache
         uses: Swatinem/rust-cache@v2
-        continue-on-error: true
         with:
-          shared-key: rust-${{ runner.os }}
-          key: workspace-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
+          shared-key: ci-rust-lint
           cache-workspace-crates: true
-          cache-on-failure: true
-      - name: Format Check
+      - name: Format check
         run: cargo fmt --all -- --check
-      - name: Config Artifact Check
+      - name: Generated configuration check
         run: cargo xtask check-config-artifacts
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
   rust-test:
     name: Rust Tests (${{ matrix.os }})
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).run_rust_test == true
     runs-on: ${{ matrix.os }}
     strategy:
-      matrix: ${{ fromJSON(needs.changes.outputs.plan).rust_test_matrix }}
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Install Rust
+      - name: Setup Rust
         uses: ./.github/actions/setup-rust
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
         with:
           cmake-launcher: "true"
-      - name: Rust Cache
+      - name: Rust cache
         uses: Swatinem/rust-cache@v2
-        continue-on-error: true
         with:
-          shared-key: rust-${{ runner.os }}
-          key: workspace-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
+          shared-key: ci-rust-test-${{ runner.os }}
           cache-workspace-crates: true
-          cache-on-failure: true
       - name: Test
         run: cargo test --workspace
 
   vscode-extension:
     name: VS Code Checks
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).run_vscode_extension == true
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -145,8 +88,6 @@ jobs:
 
   vscode-web-smoke:
     name: VS Code Web Smoke
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).run_vscode_web_smoke == true
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -155,41 +96,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Restore Vide LSP WASM cache
-        id: vide-lsp-wasm-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: crates/vide-lsp-wasm/dist
-          key: vide-lsp-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
-      - name: Verify cached Vide LSP WASM
-        if: steps.vide-lsp-wasm-cache.outputs.cache-hit == 'true'
-        working-directory: ${{ github.workspace }}
-        run: |
-          test -s crates/vide-lsp-wasm/dist/vide-lsp.js
-          test -s crates/vide-lsp-wasm/dist/vide-core.js
-          test -s crates/vide-lsp-wasm/dist/vide-core.wasm
-      - name: Install Rust
-        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
-        uses: ./.github/actions/setup-rust
-      - name: Setup sccache
-        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
-        uses: ./.github/actions/setup-sccache
-        with:
-          cmake-launcher: "true"
-      - name: Rust Cache
-        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
-        uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          shared-key: vscode-web-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}
-          key: wasm-src-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
-          cache-workspace-crates: true
-          cache-on-failure: true
-      - name: Install Emscripten SDK
-        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
-        uses: ./.github/actions/setup-emscripten
-        with:
-          version: ${{ env.EMSDK_VERSION }}
+      - name: Prepare Vide LSP WASM
+        uses: ./.github/actions/prepare-vide-lsp-wasm
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -198,7 +106,7 @@ jobs:
           cache-dependency-path: |
             editors/vscode/package-lock.json
             editors/vscode/test-web/package-lock.json
-      - name: Install dependencies
+      - name: Install extension dependencies
         run: npm ci
       - name: Install web smoke dependencies
         working-directory: editors/vscode/test-web
@@ -208,11 +116,9 @@ jobs:
         working-directory: editors/vscode/test-web
         shell: bash
         run: |
+          set -euo pipefail
           vscode_commit="$(node -p "require('./package.json').config.vscodeWebCommit")"
-          if [[ ! "${vscode_commit}" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::test-web/package.json config.vscodeWebCommit must be a 40-character lowercase Git commit"
-            exit 1
-          fi
+          [[ "${vscode_commit}" =~ ^[0-9a-f]{40}$ ]]
           echo "commit=${vscode_commit}" >> "${GITHUB_OUTPUT}"
           echo "folder=vscode-web-stable-${vscode_commit}" >> "${GITHUB_OUTPUT}"
       - name: Restore VS Code Web cache
@@ -226,6 +132,7 @@ jobs:
           VSCODE_WEB_COMMIT: ${{ steps.vscode-web-version.outputs.commit }}
           VSCODE_WEB_FOLDER: ${{ steps.vscode-web-version.outputs.folder }}
         run: |
+          set -euo pipefail
           vscode_dir=".vscode-test-web/${VSCODE_WEB_FOLDER}"
           if [ ! -f "${vscode_dir}/version" ]; then
             archive="${RUNNER_TEMP}/vscode-web.tar.gz"
@@ -237,29 +144,16 @@ jobs:
             tar -xzf "${archive}" --strip-components=1 -C "${vscode_dir}"
             printf '%s' "${VSCODE_WEB_FOLDER}" > "${vscode_dir}/version"
           fi
-      - name: Build Vide LSP WASM
-        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
-        working-directory: ${{ github.workspace }}
-        run: |
-          source "${EMSDK}/emsdk_env.sh"
-          node crates/vide-lsp-wasm/scripts/build.mjs
-      - name: Save Vide LSP WASM cache
-        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        continue-on-error: true
-        with:
-          path: crates/vide-lsp-wasm/dist
-          key: ${{ steps.vide-lsp-wasm-cache.outputs.cache-primary-key }}
       - name: Web smoke test
         run: npm run test:web
 
-  dev-artifacts:
-    name: Dev Artifacts
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).run_dev_artifacts == true
-    uses: ./.github/workflows/build-artifacts.yml
-    with:
-      plan: '{"announcement_is_prerelease":true}'
-      build-kind: nightly
-      cargo-profile: debug
-      vsix-profile: debug
+  conclusion:
+    name: CI Success
+    needs: [rust-lint, rust-test, vscode-extension, vscode-web-smoke]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required jobs
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq --exit-status 'all(.result == "success")' <<< "${RESULTS}"

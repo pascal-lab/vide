@@ -1,0 +1,22 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-artifacts.yml
+    with:
+      source-ref: ${{ github.sha }}
+      channel: nightly
+      cargo-profile: debug
+      vsix-profile: debug

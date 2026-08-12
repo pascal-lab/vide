@@ -1,0 +1,45 @@
+name: Prepare Vide LSP WASM
+description: Restore or build the pinned Vide LSP WebAssembly bundle.
+
+runs:
+  using: composite
+  steps:
+    - name: Cache Vide LSP WASM
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: crates/vide-lsp-wasm/dist
+        key: vide-lsp-wasm-${{ runner.os }}-emsdk-5.0.2-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', '.github/actions/prepare-vide-lsp-wasm/**', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**', '.github/actions/setup-sccache/**') }}
+
+    - name: Setup Rust
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: ./.github/actions/setup-rust
+
+    - name: Setup sccache
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: ./.github/actions/setup-sccache
+      with:
+        cmake-launcher: "true"
+
+    - name: Install Emscripten SDK
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: ./.github/actions/setup-emscripten
+      with:
+        version: 5.0.2
+
+    - name: Build Vide LSP WASM
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        source "${EMSDK}/emsdk_env.sh"
+        node crates/vide-lsp-wasm/scripts/build.mjs
+
+    - name: Verify Vide LSP WASM
+      shell: bash
+      run: |
+        set -euo pipefail
+        test -s crates/vide-lsp-wasm/dist/vide-lsp.js
+        test -s crates/vide-lsp-wasm/dist/vide-core.js
+        test -s crates/vide-lsp-wasm/dist/vide-core.wasm
+

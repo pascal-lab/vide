@@ -1,0 +1,62 @@
+name: Publish production docs
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+    secrets:
+      endpoint:
+        required: true
+      accessKeyId:
+        required: true
+      accessKeySecret:
+        required: true
+      bucketName:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish production documentation
+    runs-on: ubuntu-latest
+    environment:
+      name: docs
+      url: https://vide.pascal-lab.net
+    env:
+      ASTRO_SITE: https://vide.pascal-lab.net
+      ASTRO_BASE: /
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          submodules: recursive
+      - name: Prepare Vide LSP WASM
+        uses: ./.github/actions/prepare-vide-lsp-wasm
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - name: Install website dependencies
+        working-directory: website
+        run: |
+          npm ci
+          node ../.github/scripts/install-native-optionals.mjs
+      - name: Build production documentation
+        working-directory: website
+        run: npm run build
+      - name: Setup ossutil
+        uses: ./.github/actions/setup-ossutil
+        with:
+          endpoint: ${{ secrets.endpoint }}
+          access-key-id: ${{ secrets.accessKeyId }}
+          access-key-secret: ${{ secrets.accessKeySecret }}
+      - name: Deploy production documentation
+        env:
+          BUCKET: ${{ secrets.bucketName }}
+        run: ossutil sync website/site/dist/ "oss://${BUCKET}/" --delete --exclude 'preview/*' --exclude 'staging/*' -f --disable-ignore-error

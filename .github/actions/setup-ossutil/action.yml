@@ -1,0 +1,42 @@
+name: Setup ossutil
+description: Install and configure the pinned Aliyun OSS CLI.
+
+inputs:
+  endpoint:
+    required: true
+    description: Aliyun OSS endpoint.
+  access-key-id:
+    required: true
+    description: Aliyun OSS access key ID.
+  access-key-secret:
+    required: true
+    description: Aliyun OSS access key secret.
+
+runs:
+  using: composite
+  steps:
+    - name: Install ossutil
+      shell: bash
+      env:
+        OSS_ENDPOINT: ${{ inputs.endpoint }}
+        OSS_ACCESS_KEY_ID: ${{ inputs.access-key-id }}
+        OSS_ACCESS_KEY_SECRET: ${{ inputs.access-key-secret }}
+      run: |
+        set -euo pipefail
+        version=1.7.18
+        install_dir="${RUNNER_TEMP}/ossutil"
+        archive="${RUNNER_TEMP}/ossutil.zip"
+        mkdir -p "${install_dir}"
+        curl --fail --location --silent --show-error \
+          "https://github.com/aliyun/ossutil/releases/download/v${version}/ossutil-v${version}-linux-amd64.zip" \
+          --output "${archive}"
+        unzip -q -o "${archive}" -d "${install_dir}"
+        ossutil_bin="${install_dir}/ossutil-v${version}-linux-amd64/ossutil"
+        chmod +x "${ossutil_bin}"
+        dirname "${ossutil_bin}" >> "${GITHUB_PATH}"
+        "${ossutil_bin}" --version
+        "${ossutil_bin}" config \
+          -e "${OSS_ENDPOINT}" \
+          -i "${OSS_ACCESS_KEY_ID}" \
+          -k "${OSS_ACCESS_KEY_SECRET}" \
+          -L CH

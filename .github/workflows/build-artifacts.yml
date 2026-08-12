@@ -3,13 +3,12 @@ name: Build artifacts
 on:
   workflow_call:
     inputs:
-      plan:
-        required: false
+      source-ref:
+        required: true
         type: string
-      build-kind:
-        required: false
+      channel:
+        required: true
         type: string
-        default: ""
       cargo-profile:
         required: false
         type: string
@@ -22,12 +21,9 @@ on:
 permissions:
   contents: read
 
-env:
-  EMSDK_VERSION: 5.0.2
-
 jobs:
   native:
-    name: ${{ matrix.rust-target }}
+    name: Build ${{ matrix.rust-target }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -35,32 +31,26 @@ jobs:
         include:
           - os: ubuntu-22.04
             rust-target: x86_64-unknown-linux-gnu
-            rustup-target: x86_64-unknown-linux-gnu
             vsix-target: linux-x64
             zigbuild: true
           - os: ubuntu-22.04
             rust-target: aarch64-unknown-linux-gnu
-            rustup-target: aarch64-unknown-linux-gnu
             vsix-target: linux-arm64
             zigbuild: true
           - os: ubuntu-22.04
             rust-target: x86_64-unknown-linux-musl
-            rustup-target: x86_64-unknown-linux-musl
             vsix-target: alpine-x64
             zigbuild: true
           - os: ubuntu-22.04
             rust-target: aarch64-unknown-linux-musl
-            rustup-target: aarch64-unknown-linux-musl
             vsix-target: alpine-arm64
             zigbuild: true
           - os: macos-15
             rust-target: aarch64-apple-darwin
-            rustup-target: aarch64-apple-darwin
             vsix-target: darwin-arm64
             zigbuild: false
           - os: windows-latest
             rust-target: x86_64-pc-windows-msvc
-            rustup-target: x86_64-pc-windows-msvc
             vsix-target: win32-x64
             zigbuild: false
     env:
@@ -69,111 +59,95 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source-ref }}
           submodules: recursive
-
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
-          targets: ${{ matrix.rustup-target }}
-
+          targets: ${{ matrix.rust-target }}
       - name: Setup cargo-zigbuild
         if: matrix.zigbuild
-        shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --user --upgrade pip
           python3 -m pip install --user cargo-zigbuild
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
         with:
           cmake-launcher: "true"
-
-      - name: Rust Cache
+      - name: Rust cache
         uses: Swatinem/rust-cache@v2
-        continue-on-error: true
         with:
-          shared-key: release-${{ runner.os }}-${{ matrix.rust-target }}
-          key: native-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**', 'scripts/build-artifact.sh') }}
+          shared-key: artifacts-${{ runner.os }}-${{ matrix.rust-target }}-${{ inputs.cargo-profile }}
           cache-workspace-crates: true
-          cache-on-failure: true
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
-
-      - name: Install JS dependencies
+      - name: Install extension dependencies
         working-directory: editors/vscode
         run: npm ci
-
-      - name: Set VSIX build metadata
+      - name: Set extension metadata
         shell: bash
+        env:
+          CHANNEL: ${{ inputs.channel }}
         run: |
-          echo "VIDE_EXTENSION_BUILD_KIND=${{ inputs.build-kind || (inputs.plan && fromJson(inputs.plan).announcement_is_prerelease && 'beta' || 'stable') }}" >> "$GITHUB_ENV"
-          echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
-          echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
-
-      - name: Build binary archive and stage VSIX server
-        shell: bash
+          set -euo pipefail
+          {
+            echo "VIDE_EXTENSION_BUILD_KIND=${CHANNEL}"
+            echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short HEAD)"
+            echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')"
+          } >> "${GITHUB_ENV}"
+      - name: Build binary archive and stage extension server
         run: scripts/build-artifact.sh "${{ matrix.rust-target }}" "${{ matrix.vsix-target }}" "${{ inputs.cargo-profile }}"
-
       - name: Build VSIX
         working-directory: editors/vscode
-        run: npm run package:vsix -- --target ${{ matrix.vsix-target }} --profile ${{ inputs.vsix-profile }} --server=prebuilt
-
-      - name: Upload cargo-dist artifacts
+        run: npm run package:vsix -- --target "${{ matrix.vsix-target }}" --profile "${{ inputs.vsix-profile }}" --server=prebuilt
+      - name: Upload binary archive
         uses: actions/upload-artifact@v4
         with:
-          name: artifacts-${{ matrix.rust-target }}
-          path: |
-            target/distrib/vide-${{ matrix.rust-target }}${{ inputs.cargo-profile == 'debug' && '-debug' || '' }}.*
+          name: binary-${{ matrix.rust-target }}
+          path: target/distrib/vide-${{ matrix.rust-target }}${{ inputs.cargo-profile == 'debug' && '-debug' || '' }}.*
           if-no-files-found: error
-
-      - name: Upload VSIX artifact
+      - name: Upload VSIX
         uses: actions/upload-artifact@v4
         with:
           name: vsix-${{ matrix.vsix-target }}
           path: editors/vscode/vide-vscode-${{ matrix.vsix-target }}${{ inputs.vsix-profile == 'debug' && '-debug' || '' }}.vsix
           if-no-files-found: error
 
-  source-and-checksums:
-    name: source tarball and unified checksums
-    runs-on: ubuntu-latest
+  source:
+    name: Build source archive and checksums
     needs: native
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source-ref }}
           fetch-depth: 0
           submodules: recursive
-
-      - name: Download binary artifacts
+      - name: Download binary archives
         uses: actions/download-artifact@v4
         with:
-          pattern: artifacts-*
+          pattern: binary-*
           path: target/distrib
           merge-multiple: true
-
-      - name: Build source tarball and unified checksum manifest
-        shell: bash
+      - name: Build source archive and checksum manifest
         run: |
           set -euo pipefail
           mkdir -p target/distrib
-          git archive --format=tar.gz --prefix=vide-source/ HEAD > target/distrib/source.tar.gz
+          python3 scripts/source-archive.py target/distrib/source.tar.gz
           (
             cd target/distrib
             sha256sum source.tar.gz > source.tar.gz.sha256
-            cat *.sha256 | sort -k2 > sha256.sum
-            ls -lh
+            cat ./*.sha256 | sort -k2 > sha256.sum
           )
-
-      - name: Upload source and checksum artifacts
+      - name: Upload source archive and checksums
         uses: actions/upload-artifact@v4
         with:
-          name: artifacts-source
+          name: source-and-checksums
           path: |
             target/distrib/source.tar.gz
             target/distrib/source.tar.gz.sha256
@@ -181,7 +155,7 @@ jobs:
           if-no-files-found: error
 
   web:
-    name: web VSIX
+    name: Build web VSIX
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -189,71 +163,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source-ref }}
           submodules: recursive
-
-      - name: Restore Vide LSP WASM cache
-        id: vide-lsp-wasm-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: crates/vide-lsp-wasm/dist
-          key: vide-lsp-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
-
-      - name: Setup Rust
-        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
-        uses: ./.github/actions/setup-rust
-
-      - name: Setup sccache
-        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
-        uses: ./.github/actions/setup-sccache
-        with:
-          cmake-launcher: "true"
-
-      - name: Install Emscripten SDK
-        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
-        uses: ./.github/actions/setup-emscripten
-        with:
-          version: ${{ env.EMSDK_VERSION }}
-
+      - name: Prepare Vide LSP WASM
+        uses: ./.github/actions/prepare-vide-lsp-wasm
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
-
-      - name: Install JS dependencies
+      - name: Install extension dependencies
         run: npm ci
-
-      - name: Build Vide LSP WASM
-        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
-        working-directory: ${{ github.workspace }}
-        run: |
-          source "${EMSDK}/emsdk_env.sh"
-          node crates/vide-lsp-wasm/scripts/build.mjs
-
-      - name: Save Vide LSP WASM cache
-        if: steps.vide-lsp-wasm-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        continue-on-error: true
-        with:
-          path: crates/vide-lsp-wasm/dist
-          key: ${{ steps.vide-lsp-wasm-cache.outputs.cache-primary-key }}
-
-      - name: Set VSIX build metadata
+      - name: Set extension metadata
         working-directory: .
         shell: bash
+        env:
+          CHANNEL: ${{ inputs.channel }}
         run: |
-          echo "VIDE_EXTENSION_BUILD_KIND=${{ inputs.build-kind || (inputs.plan && fromJson(inputs.plan).announcement_is_prerelease && 'beta' || 'stable') }}" >> "$GITHUB_ENV"
-          echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
-          echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
-
-      - name: Compile web extension
-        run: npm run compile:web
-
+          set -euo pipefail
+          {
+            echo "VIDE_EXTENSION_BUILD_KIND=${CHANNEL}"
+            echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short HEAD)"
+            echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')"
+          } >> "${GITHUB_ENV}"
       - name: Build web VSIX
-        run: npx tsx scripts/package.ts --target web --profile ${{ inputs.vsix-profile }}
-
-      - name: Upload web VSIX artifact
+        run: npm run package:vsix:web -- --profile "${{ inputs.vsix-profile }}"
+      - name: Upload web VSIX
         uses: actions/upload-artifact@v4
         with:
           name: vsix-web
