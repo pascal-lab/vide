@@ -27,8 +27,7 @@ use utils::{
     cancellation::{CancellationError, CancellationToken},
     line_index::{LineCol, TextRange, TextSize},
     path_identity::PathIdentityIndex,
-    paths::{AbsPath, AbsPathBuf},
-    paths::try_abs_path_buf_from_path_buf,
+    paths::{AbsPath, try_abs_path_buf_from_path_buf},
     process::{configure_process_tree, wait_with_cancellation},
     thread::ThreadIntent,
 };

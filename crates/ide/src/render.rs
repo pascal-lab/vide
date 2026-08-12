@@ -1,4 +1,4 @@
-use base_db::source_db::{SourceDb, SourceRootDb};
+use base_db::source_db::SourceRootDb;
 use hir_def::{
     container::{InFile, OwnerRef, ScopeParent},
     declaration::Declaration,
@@ -244,9 +244,7 @@ fn source_file_label(
     }
 
     let source_root = db.source_root(db.source_root_id(file_id));
-    source_root
-        .path_for_file(&file_id)
-        .map(|path| display_project_path(path.to_string()))
+    source_root.path_for_file(&file_id).map(|path| display_project_path(path.to_string()))
 }
 
 fn relative_source_file_label(

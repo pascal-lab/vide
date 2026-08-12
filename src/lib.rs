@@ -9,7 +9,7 @@ use lsp_server::Connection;
 use lsp_types::{MessageType, ShowMessageParams};
 use utils::{
     json::from_json,
-    paths::{AbsPathBuf, abs_path_buf_from_path_buf, patch_path_prefix, try_abs_path_buf_from_path_buf},
+    paths::{abs_path_buf_from_path_buf, patch_path_prefix, try_abs_path_buf_from_path_buf},
 };
 
 use crate::{

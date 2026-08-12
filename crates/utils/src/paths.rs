@@ -10,13 +10,13 @@
 //
 // The only additions below are:
 //   * `abs_path_buf_from_path_buf` — fallible `PathBuf` → `AbsPathBuf` helper
-//     used by VFS file walks and path canonicalization. The orphan rule
-//     blocks a `TryFrom<PathBuf>` impl on the upstream type, so we expose a
-//     free function instead.
+//     used by VFS file walks and path canonicalization. The orphan rule blocks
+//     a `TryFrom<PathBuf>` impl on the upstream type, so we expose a free
+//     function instead.
 //   * `patch_path_prefix` / `sort_and_remove_subfolders` — Vide-specific
 //     helpers with no upstream equivalent.
 
-use std::path::{PathBuf};
+use std::path::PathBuf;
 
 pub use camino::{self, *};
 pub use ra_ap_paths::{AbsPath, AbsPathBuf, RelPath, RelPathBuf};
@@ -25,9 +25,7 @@ pub use ra_ap_paths::{AbsPath, AbsPathBuf, RelPath, RelPathBuf};
 ///
 /// Returns `None` if `path` is not absolute or not valid UTF-8.
 pub fn abs_path_buf_from_path_buf(path: PathBuf) -> Option<AbsPathBuf> {
-    Utf8PathBuf::from_path_buf(path)
-        .ok()
-        .and_then(|p| AbsPathBuf::try_from(p).ok())
+    Utf8PathBuf::from_path_buf(path).ok().and_then(|p| AbsPathBuf::try_from(p).ok())
 }
 
 /// Fallibly convert a `PathBuf` to an `AbsPathBuf`, returning the original

@@ -89,7 +89,6 @@ pub trait SourceDb: salsa::Database + FileLoader + fmt::Debug {
         source_file(self, file_id).kind(self).0
     }
 
-
     fn files(&self) -> FxHashSet<FileId> {
         let registry = SourceFiles::get(self);
         registry.files(self).keys().copied().map(FileId::from_raw).collect()
@@ -124,18 +123,13 @@ pub trait SourceDb: salsa::Database + FileLoader + fmt::Debug {
             .to(SourceFileKindValue(kind));
     }
 
-
     fn set_files_with_durability(&mut self, files: FxHashSet<FileId>, durability: Durability) {
         let registry = ensure_source_files(self);
         let mut file_inputs = registry.files(self).clone();
         file_inputs.retain(|file_id, _| files.contains(&FileId::from_raw(*file_id)));
         for file_id in files.iter().copied() {
             file_inputs.entry(file_id.index()).or_insert_with(|| {
-                SourceFile::new(
-                    self,
-                    Arc::from(""),
-                    SourceFileKindValue(SourceFileKind::default()),
-                )
+                SourceFile::new(self, Arc::from(""), SourceFileKindValue(SourceFileKind::default()))
             });
         }
         registry.set_files(self).with_durability(durability).to(file_inputs);
@@ -257,8 +251,7 @@ fn source_file_mut<Db: SourceDb + ?Sized>(db: &mut Db, file_id: FileId) -> Sourc
         return file;
     }
 
-    let file =
-        SourceFile::new(db, Arc::from(""), SourceFileKindValue(SourceFileKind::default()));
+    let file = SourceFile::new(db, Arc::from(""), SourceFileKindValue(SourceFileKind::default()));
     let mut files = registry.files(db).clone();
     files.insert(file_id.index(), file);
     registry.set_files(db).to(files);

@@ -960,7 +960,7 @@ mod tests {
             Durability::LOW,
         );
         db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
-         for (file_id, _path, kind, text) in [
+        for (file_id, _path, kind, text) in [
             (TOP, top_path, SourceFileKind::SystemVerilog, "module top; endmodule\n"),
             (MANIFEST, manifest_path, SourceFileKind::ProjectManifest, manifest_text),
         ] {
@@ -1102,7 +1102,7 @@ mod tests {
             Durability::LOW,
         );
         db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
-         for (file_id, _path, kind, text) in [
+        for (file_id, _path, kind, text) in [
             (TOP, top_path, SourceFileKind::SystemVerilog, "module top; endmodule\n"),
             (MANIFEST, manifest_path, SourceFileKind::ProjectManifest, "defines = [\"M=1\"]\n"),
         ] {

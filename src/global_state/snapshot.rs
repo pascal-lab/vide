@@ -11,8 +11,7 @@ use triomphe::Arc;
 use utils::{
     cancellation::CancellationToken,
     lines::{LineEnding, LineInfo},
-    paths::AbsPathBuf,
-    paths::abs_path_buf_from_path_buf,
+    paths::{AbsPathBuf, abs_path_buf_from_path_buf},
 };
 use vfs::{FileId, Vfs, VfsPath};
 

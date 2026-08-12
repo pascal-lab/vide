@@ -1,4 +1,3 @@
-use base_db::source_db::SourceDb;
 use hir_def::container::InFile;
 use hir_semantics::semantics::Semantics;
 use itertools::Itertools;
