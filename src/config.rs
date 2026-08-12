@@ -12,7 +12,7 @@ use utils::{
     paths::{AbsPath, AbsPathBuf},
 };
 
-use self::user_config::{FilesWatcherDef, UserConfig};
+use self::user_config::{FilesWatcherDef, UserConfig, diagnostics_config};
 use crate::{
     Opt,
     i18n::{I18n, keys},
@@ -100,7 +100,7 @@ impl Config {
         _snippets: Vec<Snippet>,
     ) -> Self {
         let project_manifests = Self::project_manifests(&workspace_roots);
-        let diagnostics_config = user_config.diagnostics_config().with_fresh_revision();
+        let diagnostics_config = diagnostics_config(&user_config).with_fresh_revision();
         Config {
             opt,
             workspace_roots,
@@ -127,7 +127,7 @@ impl Config {
     }
 
     fn updated_diagnostics_config(&self, user_config: &UserConfig) -> DiagnosticsConfig {
-        let mut next = user_config.diagnostics_config();
+        let mut next = diagnostics_config(user_config);
         if next.has_same_settings(&self.diagnostics_config) {
             next.revision = self.diagnostics_config.revision;
             next

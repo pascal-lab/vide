@@ -377,7 +377,7 @@ fn generated_manifest_schema_text() -> Result<String> {
 }
 
 fn user_config_schema_text() -> Result<String> {
-    let schema = vide::generated_user_config_schema();
+    let schema = user_config::generated_user_config_schema();
     Ok(format!("{}\n", serde_json::to_string_pretty(&schema)?))
 }
 
@@ -395,7 +395,7 @@ fn generated_vscode_schema_constants_text() -> Result<String> {
 }
 
 fn generated_vscode_configuration_text() -> String {
-    vide::generated_vscode_configuration_typescript()
+    user_config::generated_vscode_configuration_typescript()
 }
 
 fn generated_vscode_package_text(workspace_root: &Path) -> Result<String> {
@@ -414,7 +414,7 @@ fn patch_vscode_package_properties(package: &mut serde_json::Value) -> Result<()
     };
 
     properties.retain(|key, _| !is_generated_vscode_setting(key));
-    properties.extend(vide::generated_vscode_package_properties());
+    properties.extend(user_config::generated_vscode_package_properties());
     Ok(())
 }
 

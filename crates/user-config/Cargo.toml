@@ -1,0 +1,12 @@
+[package]
+name = "user-config"
+version = "0.0.0"
+description = "Vide user configuration model and generated editor artifacts"
+publish = false
+edition.workspace = true
+
+[dependencies]
+camino = { workspace = true, features = ["serde1"] }
+schemars = { version = "1.2.1", features = ["preserve_order"] }
+serde.workspace = true
+serde_json.workspace = true
