@@ -10,7 +10,7 @@ use rustc_hash::FxHashSet;
 use syntax::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
 use utils::{
     path_identity::PathIdentityIndex,
-    paths::{AbsPathBuf, Utf8Path},
+    paths::{AbsPathBuf, Utf8Path, Utf8PathBuf},
 };
 use vfs::FileId;
 
@@ -131,10 +131,17 @@ pub fn compilation_source_buffers_for_plan(
 /// `SyntaxTree::fromBuffer` are path keyed. Keep those identities deterministic
 /// within the database snapshot instead of falling back to an empty path.
 pub fn source_buffer_path(db: &dyn SourceDb, file_id: FileId) -> AbsPathBuf {
-    db.file_path(file_id).unwrap_or_else(|| {
-        AbsPathBuf::try_from(format!("/__vide_virtual__/{}", file_id.index()).as_str())
-            .expect("synthetic source buffer path must be absolute and UTF-8")
-    })
+    db.file_path(file_id).unwrap_or_else(|| synthetic_source_buffer_path(file_id))
+}
+
+fn synthetic_source_buffer_path(file_id: FileId) -> AbsPathBuf {
+    let root = if cfg!(windows) {
+        Utf8PathBuf::from(r"C:\__vide_virtual__")
+    } else {
+        Utf8PathBuf::from("/__vide_virtual__")
+    };
+    AbsPathBuf::try_from(root.join(file_id.index().to_string()))
+        .expect("synthetic source buffer path must be absolute and UTF-8")
 }
 
 fn include_buffers_for_plan_with_roots(
@@ -380,4 +387,17 @@ fn resolve_include_target(
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn synthetic_source_buffer_paths_are_absolute() {
+        let path = synthetic_source_buffer_path(FileId::from_raw(0));
+
+        assert!(path.as_path().is_absolute());
+        assert!(path.ends_with(utils::paths::RelPath::new_unchecked(Utf8Path::new("0"))));
+    }
 }
