@@ -18,13 +18,9 @@ impl GlobalState {
     pub(crate) fn send_project_status_for_result(&self, workspace_count: usize, errors: &[String]) {
         let state = if !errors.is_empty() {
             ProjectStatusState::Error
-        } else if self
-            .config_state
-            .config
-            .project_manifests
-            .iter()
-            .any(|manifest| matches!(manifest, ProjectManifest::Toml(_) | ProjectManifest::FuseSocCore(_)))
-        {
+        } else if self.config_state.config.project_manifests.iter().any(|manifest| {
+            matches!(manifest, ProjectManifest::Toml(_) | ProjectManifest::FuseSocCore(_))
+        }) {
             ProjectStatusState::Loaded
         } else {
             ProjectStatusState::NoManifest

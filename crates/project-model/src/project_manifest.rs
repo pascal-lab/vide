@@ -98,7 +98,9 @@ impl ProjectManifest {
             ProjectManifest::Toml(path) => {
                 path.file_name().and_then(ProjectManifestFileName::from_file_name)
             }
-            ProjectManifest::FuseSocCore(_) | ProjectManifest::UnconfiguredRoot(_) => None,
+            ProjectManifest::FuseSocCore(_)
+            | ProjectManifest::FuseSocCoreDir(_)
+            | ProjectManifest::UnconfiguredRoot(_) => None,
         }
     }
 
@@ -128,7 +130,7 @@ impl ProjectManifest {
         let metadata = fs::metadata(path)
             .with_context(|| format!("project .core path does not exist: {path}"))?;
         if !metadata.is_file() {
- bail!("project .core path is not a file: {path}");
+            bail!("project .core path is not a file: {path}");
         }
 
         Ok(ProjectManifest::FuseSocCore(path.clone()))
@@ -142,10 +144,12 @@ fn find_single_core_file(dir: &AbsPathBuf) -> Option<AbsPathBuf> {
     let mut core_files: Vec<AbsPathBuf> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_file() && path.extension().is_some_and(|ext| ext == "core")
-            && let Some(abs) = utils::paths::abs_path_buf_from_path_buf(path) {
-                core_files.push(abs);
-            }
+        if path.is_file()
+            && path.extension().is_some_and(|ext| ext == "core")
+            && let Some(abs) = utils::paths::abs_path_buf_from_path_buf(path)
+        {
+            core_files.push(abs);
+        }
     }
     match core_files.len() {
         1 => Some(core_files.into_iter().next().unwrap()),

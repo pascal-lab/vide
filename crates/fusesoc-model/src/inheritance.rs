@@ -35,7 +35,8 @@ use serde_yaml_ng::Value;
 /// Merge `parent` into `child` with FuseSoC semantics.
 ///
 /// - For maps: recursively merge keys; child wins on scalar conflicts.
-/// - For lists: child replaces parent (FuseSoC does not concatenate plain lists).
+/// - For lists: child replaces parent (FuseSoC does not concatenate plain
+///   lists).
 /// - For scalars: child replaces parent.
 pub fn merge(parent: &Value, child: &Value) -> Value {
     match (parent, child) {
@@ -59,15 +60,14 @@ pub fn merge(parent: &Value, child: &Value) -> Value {
 ///
 /// Each subsequent value merges into the accumulated result.
 pub fn merge_all(values: &[Value]) -> Value {
-    values
-        .iter()
-        .fold(Value::Null, |acc, v| merge(&acc, v))
+    values.iter().fold(Value::Null, |acc, v| merge(&acc, v))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_yaml_ng::Value;
+
+    use super::*;
 
     fn yaml(s: &str) -> Value {
         serde_yaml_ng::from_str(s).unwrap()

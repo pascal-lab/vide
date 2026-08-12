@@ -24,11 +24,7 @@ pub enum ExprPart {
     /// A literal word.
     Word(String),
     /// A conditional: `flag ? (body)` or `!flag ? (body)`.
-    Conditional {
-        negated: bool,
-        flag: String,
-        body: Vec<ExprPart>,
-    },
+    Conditional { negated: bool, flag: String, body: Vec<ExprPart> },
 }
 
 /// A set of active flags (from target flags, tool selection, etc.).
@@ -90,7 +86,8 @@ pub fn has_conditionals(input: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Character classes allowed in a "word".
-const WORD_CHARS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:`<>[].[]_-,=~/^+\"$";
+const WORD_CHARS: &str =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:`<>[].[]_-,=~/^+\"$";
 
 #[derive(Debug)]
 pub struct ExprParseError {
@@ -114,11 +111,7 @@ struct ExprParser<'a> {
 
 impl<'a> ExprParser<'a> {
     fn new(input: &'a str) -> Self {
-        Self {
-            chars: input.chars().collect(),
-            pos: 0,
-            _input: input,
-        }
+        Self { chars: input.chars().collect(), pos: 0, _input: input }
     }
 
     fn at_end(&self) -> bool {
@@ -146,10 +139,7 @@ impl<'a> ExprParser<'a> {
     }
 
     fn error(&self, msg: impl Into<String>) -> ExprParseError {
-        ExprParseError {
-            message: msg.into(),
-            position: self.pos,
-        }
+        ExprParseError { message: msg.into(), position: self.pos }
     }
 
     fn parse_exprs(&mut self) -> Result<Vec<ExprPart>, ExprParseError> {
@@ -251,7 +241,8 @@ impl<'a> ExprParser<'a> {
         s
     }
 
-    /// Read a word stopping at whitespace or '?' (for conditional flag reading).
+    /// Read a word stopping at whitespace or '?' (for conditional flag
+    /// reading).
     fn read_word_until_cond_or_ws(&mut self) -> String {
         let mut s = String::new();
         while let Some(c) = self.peek() {

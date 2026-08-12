@@ -74,29 +74,20 @@ fn darkriscv_resolves_to_resolved_project() {
     assert_eq!(resolved.files.len(), 2);
 
     // darksocv.v is a regular source file.
-    let darksocv = resolved.files.iter().find(|f| {
-        f.path
-            .file_name()
-            .is_some_and(|n| n == "darksocv.v")
-    });
+    let darksocv =
+        resolved.files.iter().find(|f| f.path.file_name().is_some_and(|n| n == "darksocv.v"));
     assert!(darksocv.is_some(), "darksocv.v should be in resolved files");
     assert!(!darksocv.unwrap().is_include_file);
 
     // config.vh is an include file.
-    let config = resolved.files.iter().find(|f| {
-        f.path
-            .file_name()
-            .is_some_and(|n| n == "config.vh")
-    });
+    let config =
+        resolved.files.iter().find(|f| f.path.file_name().is_some_and(|n| n == "config.vh"));
     assert!(config.is_some(), "config.vh should be in resolved files");
     assert!(config.unwrap().is_include_file);
 
     // Include dir should be rtl/.
     assert!(
-        resolved
-            .include_dirs
-            .iter()
-            .any(|d| d.file_name().is_some_and(|n| n == "rtl")),
+        resolved.include_dirs.iter().any(|d| d.file_name().is_some_and(|n| n == "rtl")),
         "include_dirs should contain rtl/, got {:?}",
         resolved.include_dirs
     );

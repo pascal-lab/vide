@@ -46,10 +46,7 @@ pub struct Core {
 #[serde(untagged)]
 pub enum License {
     Spdx(String),
-    Custom {
-        name: String,
-        text: String,
-    },
+    Custom { name: String, text: String },
 }
 
 /// A fileset — a named group of files with optional dependencies.
@@ -155,7 +152,11 @@ pub struct Target {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<String>,
     /// Toplevel can be a single string or a list.
-    #[serde(default, skip_serializing_if = "Vec::is_empty", deserialize_with = "deserialize_toplevel")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "deserialize_toplevel"
+    )]
     pub toplevel: Vec<String>,
 }
 
@@ -165,7 +166,7 @@ impl Target {
         self.toplevel.clone()
     }
 }
- 
+
 /// Deserialize a toplevel field that may be a string or a list of strings.
 fn deserialize_toplevel<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
@@ -176,17 +177,16 @@ where
     match value {
         None => Ok(Vec::new()),
         Some(serde_yaml_ng::Value::String(s)) => Ok(vec![s]),
-        Some(serde_yaml_ng::Value::Sequence(seq)) => {
-            seq.into_iter()
-                .map(|v| {
-                    if let serde_yaml_ng::Value::String(s) = v {
-                        Ok(s)
-                    } else {
-                        Err(serde::de::Error::custom("toplevel list items must be strings"))
-                    }
-                })
-                .collect()
-        }
+        Some(serde_yaml_ng::Value::Sequence(seq)) => seq
+            .into_iter()
+            .map(|v| {
+                if let serde_yaml_ng::Value::String(s) = v {
+                    Ok(s)
+                } else {
+                    Err(serde::de::Error::custom("toplevel list items must be strings"))
+                }
+            })
+            .collect(),
         Some(_) => Err(serde::de::Error::custom("toplevel must be a string or list of strings")),
     }
 }

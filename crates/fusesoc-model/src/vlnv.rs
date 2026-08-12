@@ -127,8 +127,7 @@ impl VlnvRequirement {
         match self.relation {
             VersionRelation::Any => true,
             VersionRelation::Equal => {
-                candidate.version == self.vlnv.version
-                    && candidate.revision == self.vlnv.revision
+                candidate.version == self.vlnv.version && candidate.revision == self.vlnv.revision
             }
             VersionRelation::GreaterEqual => cmp != Ordering::Less,
             VersionRelation::Greater => cmp == Ordering::Greater,

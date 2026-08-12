@@ -6,10 +6,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::normalize::normalize_core;
-
-use crate::raw::Core;
-use crate::vlnv::{Vlnv, VlnvRequirement};
+use crate::{
+    normalize::normalize_core,
+    raw::Core,
+    vlnv::{Vlnv, VlnvRequirement},
+};
 
 /// An index of locally available cores, keyed by VLN (vendor:library:name).
 pub struct CoreIndex {
@@ -42,18 +43,11 @@ pub enum ResolutionError {
     /// A required dependency was not found among local cores.
     MissingDependency(VlnvRequirement),
     /// A dependency has an unsupported feature (generators, providers, etc.).
-    Unsupported {
-        vlnv: Vlnv,
-        feature: String,
-        detail: String,
-    },
+    Unsupported { vlnv: Vlnv, feature: String, detail: String },
     /// A dependency cycle was detected.
     Cycle(Vec<String>),
     /// Failed to parse a `.core` file.
-    ParseError {
-        path: utils::paths::AbsPathBuf,
-        error: String,
-    },
+    ParseError { path: utils::paths::AbsPathBuf, error: String },
 }
 
 impl std::fmt::Display for ResolutionError {
@@ -124,11 +118,7 @@ impl CoreIndex {
     /// The `top_vlnv` identifies the root core.  Dependencies are resolved
     /// transitively via fileset `depend` entries.  Dependency cores use their
     /// `default` target.
-    pub fn resolve(
-        &self,
-        top_vlnv: &Vlnv,
-        target: &str,
-    ) -> ResolvedGraph {
+    pub fn resolve(&self, top_vlnv: &Vlnv, target: &str) -> ResolvedGraph {
         let mut errors = Vec::new();
         let mut visited: HashSet<String> = HashSet::new();
         let mut order: Vec<ResolvedGraphCore> = Vec::new();
@@ -215,7 +205,10 @@ impl CoreIndex {
                     errors.push(ResolutionError::Unsupported {
                         vlnv: vlnv.clone(),
                         feature: "generator".to_string(),
-                        detail: format!("target `{target}` invokes generator `{gen_name}` ({})", gen_def.generator),
+                        detail: format!(
+                            "target `{target}` invokes generator `{gen_name}` ({})",
+                            gen_def.generator
+                        ),
                     });
                 }
             }
@@ -225,24 +218,25 @@ impl CoreIndex {
                     || !hooks.post_build.is_empty()
                     || !hooks.pre_run.is_empty()
                     || !hooks.post_run.is_empty())
-                {
-                    errors.push(ResolutionError::Unsupported {
-                        vlnv: vlnv.clone(),
-                        feature: "hooks".to_string(),
-                        detail: format!("target `{target}` defines build hooks"),
-                    });
-                }
+            {
+                errors.push(ResolutionError::Unsupported {
+                    vlnv: vlnv.clone(),
+                    feature: "hooks".to_string(),
+                    detail: format!("target `{target}` defines build hooks"),
+                });
+            }
         }
 
         // Check for provider — means the core needs to be fetched.
         if let Some(provider) = &core.provider
-            && !matches!(provider.name, crate::raw::ProviderKind::Local) {
-                errors.push(ResolutionError::Unsupported {
-                    vlnv: vlnv.clone(),
-                    feature: "provider".to_string(),
-                    detail: format!("core uses provider `{}`", provider_name_str(&provider.name)),
-                });
-            }
+            && !matches!(provider.name, crate::raw::ProviderKind::Local)
+        {
+            errors.push(ResolutionError::Unsupported {
+                vlnv: vlnv.clone(),
+                feature: "provider".to_string(),
+                detail: format!("core uses provider `{}`", provider_name_str(&provider.name)),
+            });
+        }
     }
 }
 
@@ -279,7 +273,10 @@ fn walk_core_files(dir: &utils::paths::AbsPathBuf) -> Vec<utils::paths::AbsPathB
     results
 }
 
-fn walk_core_files_inner(dir: &utils::paths::AbsPathBuf, results: &mut Vec<utils::paths::AbsPathBuf>) {
+fn walk_core_files_inner(
+    dir: &utils::paths::AbsPathBuf,
+    results: &mut Vec<utils::paths::AbsPathBuf>,
+) {
     let Ok(entries) = std::fs::read_dir(dir.as_path()) else {
         return;
     };
@@ -295,9 +292,10 @@ fn walk_core_files_inner(dir: &utils::paths::AbsPathBuf, results: &mut Vec<utils
                 walk_core_files_inner(&abs, results);
             }
         } else if path.extension().is_some_and(|ext| ext == "core")
-            && let Some(abs) = utils::paths::abs_path_buf_from_path_buf(path) {
-                results.push(abs);
-            }
+            && let Some(abs) = utils::paths::abs_path_buf_from_path_buf(path)
+        {
+            results.push(abs);
+        }
     }
 }
 
@@ -309,8 +307,9 @@ fn load_and_index(path: &utils::paths::AbsPathBuf) -> anyhow::Result<(Vlnv, Core
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use utils::test_support::TestDir;
+
+    use super::*;
 
     fn write_core(dir: &TestDir, name: &str, content: &str) {
         dir.write(format!("{name}.core"), content);
@@ -369,9 +368,8 @@ mod tests {
         let (index, _) = CoreIndex::from_roots(&[dir.path().to_path_buf()]);
         let top_vlnv = Vlnv::parse("v:l:top:1.0").unwrap();
         let graph = index.resolve(&top_vlnv, "default");
-        assert!(graph
-            .errors
-            .iter()
-            .any(|e| matches!(e, ResolutionError::Unsupported { feature, .. } if feature == "generator")));
+        assert!(graph.errors.iter().any(
+            |e| matches!(e, ResolutionError::Unsupported { feature, .. } if feature == "generator")
+        ));
     }
 }

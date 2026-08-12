@@ -32,9 +32,11 @@ pub mod raw;
 pub mod resolve;
 pub mod vlnv;
 
-pub use project::{ResolvedFile, ResolvedProject, ResolvedCore};
-pub use raw::{Core, Fileset, FileEntry, FileAttributes, Target, Parameter, Provider, ProviderKind};
-pub use vlnv::{Vlnv, VlnvRequirement, VersionRelation};
+pub use project::{ResolvedCore, ResolvedFile, ResolvedProject};
+pub use raw::{
+    Core, FileAttributes, FileEntry, Fileset, Parameter, Provider, ProviderKind, Target,
+};
+pub use vlnv::{VersionRelation, Vlnv, VlnvRequirement};
 
 /// Errors produced while loading a `.core` file.
 #[derive(Debug, thiserror::Error)]
@@ -58,8 +60,7 @@ pub enum CoreError {
 /// Read a `.core` file from disk, strip the preamble, parse YAML, and return
 /// the raw [`Core`] model.
 pub fn load_core_file(path: &utils::paths::AbsPathBuf) -> Result<raw::Core, CoreError> {
-    let text = std::fs::read_to_string(path.as_path())
-        .map_err(|e| CoreError::Io(e.to_string()))?;
+    let text = std::fs::read_to_string(path.as_path()).map_err(|e| CoreError::Io(e.to_string()))?;
     let stripped = strip_preamble(&text)?;
     let core: raw::Core = serde_yaml_ng::from_str(stripped)?;
     Ok(core)

@@ -3,11 +3,9 @@
 //! This is the neutral, tool-agnostic output that `project-model` can adapt
 //! into `Workspace` and `CompilationProfile`.
 
-use crate::normalize::effective_defines;
-use crate::raw::Fileset;
-use crate::resolve::ResolvedGraph;
-use crate::vlnv::Vlnv;
 use utils::paths::AbsPathBuf;
+
+use crate::{normalize::effective_defines, raw::Fileset, resolve::ResolvedGraph, vlnv::Vlnv};
 
 /// A fully resolved project — flat file list, include dirs, defines, tops.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,23 +77,14 @@ pub fn expand(graph: &ResolvedGraph, top_target: &str) -> ResolvedProject {
             expand_fileset(fs, core_root, &mut files, &mut include_dirs, &mut defines);
         }
 
-        cores.push(ResolvedCore {
-            vlnv: gc.vlnv.clone(),
-            core_root: gc.core_root.clone(),
-        });
+        cores.push(ResolvedCore { vlnv: gc.vlnv.clone(), core_root: gc.core_root.clone() });
     }
 
     // Deduplicate include dirs.
     include_dirs.sort();
     include_dirs.dedup();
 
-    ResolvedProject {
-        files,
-        include_dirs,
-        defines,
-        top_modules,
-        cores,
-    }
+    ResolvedProject { files, include_dirs, defines, top_modules, cores }
 }
 
 /// Expand a single fileset into files, include dirs, and defines.
@@ -124,16 +113,15 @@ fn expand_fileset(
 
         let is_include_file = attrs.map(|a| a.is_include_file).unwrap_or(false);
 
-        let include_path = attrs
-            .and_then(|a| {
-                if let Some(ip) = &a.include_path {
-                    Some(core_root.join(ip))
-                } else if a.is_include_file {
-                    abs_path.as_path().parent().map(|p| p.to_path_buf())
-                } else {
-                    None
-                }
-            });
+        let include_path = attrs.and_then(|a| {
+            if let Some(ip) = &a.include_path {
+                Some(core_root.join(ip))
+            } else if a.is_include_file {
+                abs_path.as_path().parent().map(|p| p.to_path_buf())
+            } else {
+                None
+            }
+        });
 
         if let Some(ip) = &include_path {
             include_dirs.push(ip.clone());

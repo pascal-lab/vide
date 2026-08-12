@@ -237,17 +237,11 @@ impl GlobalState {
                     .iter()
                     .map(move |file_name| client_watch_glob(root, file_name))
             })
-            .chain(
-                self.config_state
-                    .config
-                    .workspace_roots
+            .chain(self.config_state.config.workspace_roots.iter().flat_map(|root| {
+                project_manifest::FUSESOC_CORE_EXTENSIONS
                     .iter()
-                    .flat_map(|root| {
-                        project_manifest::FUSESOC_CORE_EXTENSIONS
-                            .iter()
-                            .map(move |ext| client_watch_glob(root, &format!("*.{ext}")))
-                    }),
-            )
+                    .map(move |ext| client_watch_glob(root, &format!("*.{ext}")))
+            }))
             .collect_vec();
         globs.extend(
             self.workspace

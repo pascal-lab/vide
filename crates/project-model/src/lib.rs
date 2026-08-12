@@ -174,9 +174,7 @@ impl Workspace {
 
                 Self::from_toml(toml_workspace, is_lib)
             }
-            ProjectManifest::FuseSocCore(core_path) => {
-                Self::from_fusesoc_core(core_path, is_lib)
-            }
+            ProjectManifest::FuseSocCore(core_path) => Self::from_fusesoc_core(core_path, is_lib),
             ProjectManifest::UnconfiguredRoot(path) => {
                 Ok(Self::from_unconfigured_root(path, is_lib))
             }
@@ -245,9 +243,10 @@ impl Workspace {
     }
 
     fn from_fusesoc_core(core_path: &AbsPathBuf, is_lib: bool) -> anyhow::Result<Self> {
-        use fusesoc_model::{resolve, project, vlnv};
-        use crate::macro_def::{MacroAtom, MacroDef, MacroDefSource};
+        use fusesoc_model::{project, resolve, vlnv};
         use utils::line_index::{TextRange, TextSize};
+
+        use crate::macro_def::{MacroAtom, MacroDef, MacroDefSource};
 
         let workspace_root = core_path
             .parent()
@@ -261,7 +260,8 @@ impl Workspace {
             .map_err(|e| anyhow::anyhow!("invalid VLNV in .core: {e}"))?;
 
         // Build core index from the workspace root and resolve dependencies.
-        let (index, parse_errors) = resolve::CoreIndex::from_roots(std::slice::from_ref(&workspace_root));
+        let (index, parse_errors) =
+            resolve::CoreIndex::from_roots(std::slice::from_ref(&workspace_root));
         let graph = index.resolve(&top_vlnv, "default");
         let resolution_errors: Vec<String> = parse_errors
             .iter()
@@ -278,29 +278,18 @@ impl Workspace {
         let kind = WorkspaceKind::from_is_lib(is_lib);
 
         // Collect all source file paths from the resolved project.
-        let source_files: Vec<AbsPathBuf> = resolved
-            .files
-            .iter()
-            .filter(|f| !f.is_include_file)
-            .map(|f| f.path.clone())
-            .collect();
+        let source_files: Vec<AbsPathBuf> =
+            resolved.files.iter().filter(|f| !f.is_include_file).map(|f| f.path.clone()).collect();
 
         // Include files still need to be in the VFS, but as headers.
-        let include_files: Vec<AbsPathBuf> = resolved
-            .files
-            .iter()
-            .filter(|f| f.is_include_file)
-            .map(|f| f.path.clone())
-            .collect();
+        let include_files: Vec<AbsPathBuf> =
+            resolved.files.iter().filter(|f| f.is_include_file).map(|f| f.path.clone()).collect();
 
         let include_dirs = resolved.include_dirs;
 
         // Build source matchers from the source files.
-        let all_files: Vec<AbsPathBuf> = source_files
-            .iter()
-            .chain(include_files.iter())
-            .cloned()
-            .collect();
+        let all_files: Vec<AbsPathBuf> =
+            source_files.iter().chain(include_files.iter()).cloned().collect();
         let source = PathMatcher::all_under_roots(all_files.clone());
 
         // Build defines as predefines for the semantic profile.
@@ -335,30 +324,20 @@ impl Workspace {
             exclude_globs: None,
         };
 
-        let roots = workspace_roots(
-            kind,
-            &ManifestSourcePolicy::Explicit(vec![]),
-            true,
-            root_parts,
-        );
+        let roots =
+            workspace_roots(kind, &ManifestSourcePolicy::Explicit(vec![]), true, root_parts);
 
-        let semantic_profile = roots
-            .iter()
-            .any(WorkspaceRoot::contributes_semantic_profile)
-            .then(|| semantic_profile(
-                resolved.top_modules,
-                macro_defs,
-                include_dirs,
-                Some(core_path.clone()),
-            ));
+        let semantic_profile =
+            roots.iter().any(WorkspaceRoot::contributes_semantic_profile).then(|| {
+                semantic_profile(
+                    resolved.top_modules,
+                    macro_defs,
+                    include_dirs,
+                    Some(core_path.clone()),
+                )
+            });
 
-        Ok(Self {
-            workspace_root,
-            library_paths: Vec::new(),
-            kind,
-            roots,
-            semantic_profile,
-        })
+        Ok(Self { workspace_root, library_paths: Vec::new(), kind, roots, semantic_profile })
     }
 
     fn from_unconfigured_root(path: &AbsPathBuf, is_lib: bool) -> Self {

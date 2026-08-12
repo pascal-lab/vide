@@ -34,23 +34,24 @@ fn normalize_fileset(fs: &mut Fileset) {
     // Resolve file attribute inheritance: file-level overrides fileset defaults.
     for entry in &mut fs.files {
         if let FileEntry::WithAttributes(map) = entry
-            && let Some((_path, attrs)) = map.iter_mut().next() {
-                // Inherit file_type from fileset if not set on file.
-                if attrs.file_type.is_none() {
-                    attrs.file_type = fs.file_type.clone();
-                }
-                // Inherit logical_name from fileset if not set on file.
-                if attrs.logical_name.is_none() {
-                    attrs.logical_name = fs.logical_name.clone();
-                }
-                // Append fileset tags to file tags (file tags come first per
-                // FuseSoC spec: "Appends the tags set on the containing fileset").
-                if !fs.tags.is_empty() {
-                    let mut combined = attrs.tags.clone();
-                    combined.extend(fs.tags.iter().cloned());
-                    attrs.tags = combined;
-                }
+            && let Some((_path, attrs)) = map.iter_mut().next()
+        {
+            // Inherit file_type from fileset if not set on file.
+            if attrs.file_type.is_none() {
+                attrs.file_type = fs.file_type.clone();
             }
+            // Inherit logical_name from fileset if not set on file.
+            if attrs.logical_name.is_none() {
+                attrs.logical_name = fs.logical_name.clone();
+            }
+            // Append fileset tags to file tags (file tags come first per
+            // FuseSoC spec: "Appends the tags set on the containing fileset").
+            if !fs.tags.is_empty() {
+                let mut combined = attrs.tags.clone();
+                combined.extend(fs.tags.iter().cloned());
+                attrs.tags = combined;
+            }
+        }
     }
 }
 
@@ -65,10 +66,7 @@ fn normalize_target(target: &mut Target) {
 /// Get the effective file type for a file entry, falling back to the fileset
 /// default.
 pub fn effective_file_type(entry: &FileEntry, fs: &Fileset) -> Option<String> {
-    entry
-        .attributes()
-        .and_then(|a| a.file_type.clone())
-        .or_else(|| fs.file_type.clone())
+    entry.attributes().and_then(|a| a.file_type.clone()).or_else(|| fs.file_type.clone())
 }
 
 /// Get the effective include path for a file entry.
@@ -99,9 +97,7 @@ pub fn effective_defines(entry: &FileEntry) -> Vec<(String, String)> {
     let Some(defs) = &attrs.define else {
         return Vec::new();
     };
-    defs.iter()
-        .map(|(k, v)| (k.clone(), format_define_value(v)))
-        .collect()
+    defs.iter().map(|(k, v)| (k.clone(), format_define_value(v))).collect()
 }
 
 fn format_define_value(v: &crate::raw::FileDefineValue) -> String {
@@ -121,9 +117,10 @@ pub fn is_verilog_file_type(file_type: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use indexmap::indexmap;
+
     use super::*;
     use crate::raw::{FileAttributes, FileEntry};
-    use indexmap::indexmap;
 
     #[test]
     fn merges_files_append() {
