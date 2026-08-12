@@ -169,7 +169,7 @@ fn canonical_path(path: impl AsRef<Path>) -> Option<AbsPathBuf> {
     // `dunce` wraps `std::fs::canonicalize` but smooths over Windows
     // extended-length path spelling. It is still only an optional, OS-proven
     // spelling; file identity checks use a value key derived from metadata.
-    dunce::canonicalize(path).ok().and_then(|path| AbsPathBuf::try_from(path).ok())
+    dunce::canonicalize(path).ok().and_then(crate::paths::abs_path_buf_from_path_buf)
 }
 
 #[cfg(unix)]

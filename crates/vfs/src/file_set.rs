@@ -152,13 +152,13 @@ fn collect_files_under(root: &AbsPathBuf, out: &mut Vec<AbsPathBuf>) {
             continue;
         };
         if file_type.is_dir() {
-            if let Ok(dir) = AbsPathBuf::try_from(path) {
+            if let Some(dir) = utils::paths::abs_path_buf_from_path_buf(path) {
                 collect_files_under(&dir, out);
             }
             continue;
         }
         if file_type.is_file()
-            && let Ok(file) = AbsPathBuf::try_from(path)
+            && let Some(file) = utils::paths::abs_path_buf_from_path_buf(path)
         {
             out.push(file);
         }

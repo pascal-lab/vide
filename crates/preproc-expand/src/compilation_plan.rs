@@ -397,7 +397,7 @@ mod tests {
     fn synthetic_source_buffer_paths_are_absolute() {
         let path = synthetic_source_buffer_path(FileId::from_raw(0));
 
-        assert!(path.as_path().is_absolute());
+        assert!(Utf8Path::new(path.as_str()).is_absolute());
         assert!(path.ends_with(utils::paths::RelPath::new_unchecked(Utf8Path::new("0"))));
     }
 }

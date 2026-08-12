@@ -28,6 +28,7 @@ use utils::{
     line_index::{LineCol, TextRange, TextSize},
     path_identity::PathIdentityIndex,
     paths::{AbsPath, AbsPathBuf},
+    paths::try_abs_path_buf_from_path_buf,
     process::{configure_process_tree, wait_with_cancellation},
     thread::ThreadIntent,
 };
@@ -793,7 +794,7 @@ fn qihe_project_manifest_file_name(
     manifests: &[ProjectManifest],
     cwd: &Path,
 ) -> Result<Option<ProjectManifestFileName>> {
-    let cwd = AbsPathBuf::try_from(cwd.to_path_buf()).map_err(|path| {
+    let cwd = try_abs_path_buf_from_path_buf(cwd.to_path_buf()).map_err(|path| {
         anyhow!("Qihe working directory must be an absolute UTF-8 path: {}", path.display())
     })?;
 

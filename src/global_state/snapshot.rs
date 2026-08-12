@@ -12,6 +12,7 @@ use utils::{
     cancellation::CancellationToken,
     lines::{LineEnding, LineInfo},
     paths::AbsPathBuf,
+    paths::abs_path_buf_from_path_buf,
 };
 use vfs::{FileId, Vfs, VfsPath};
 
@@ -116,7 +117,7 @@ impl GlobalStateSnapshot {
     }
 
     pub(crate) fn file_id_for_path(&self, path: &Path) -> Option<FileId> {
-        let path = VfsPath::from(AbsPathBuf::try_from(path.to_path_buf()).ok()?);
+        let path = VfsPath::from(abs_path_buf_from_path_buf(path.to_path_buf())?);
         self.vfs_read().file_id(&path).map(|(file_id, _)| file_id)
     }
 

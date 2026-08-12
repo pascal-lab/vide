@@ -272,7 +272,7 @@ fn relative_source_file_label(
 
     target_path
         .strip_prefix(common_dir.as_path())
-        .map(|path| display_project_path(path.as_ref().display().to_string()))
+        .map(|path| display_project_path(path.as_str().to_string()))
 }
 
 fn has_normal_path_component(path: &utils::paths::AbsPath) -> bool {

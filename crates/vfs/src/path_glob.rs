@@ -32,7 +32,7 @@ impl PathGlobMatcher {
             return false;
         };
 
-        let relative = relative.as_ref().to_string_lossy().replace('\\', "/");
+        let relative = relative.as_str().replace('\\', "/");
         self.matcher.is_match(relative.as_str())
     }
 

@@ -2,7 +2,7 @@ use ide::{FilePosition, FileRange, code_lens::CodeLensKind};
 use utils::{
     line_index::{LineCol, TextRange, TextSize, WideLineCol},
     lines::{LineInfo, PositionEncoding},
-    paths::AbsPathBuf,
+    paths::{AbsPathBuf, try_abs_path_buf_from_path_buf},
 };
 use vfs::{FileId, VfsPath};
 
@@ -11,14 +11,14 @@ use crate::global_state::snapshot::GlobalStateSnapshot;
 
 pub(crate) fn vfs_path(url: &lsp_types::Url) -> anyhow::Result<vfs::VfsPath> {
     let path = url.to_file_path().map_err(|()| anyhow::format_err!("url is not a file"))?;
-    let path = AbsPathBuf::try_from(path)
+    let path = try_abs_path_buf_from_path_buf(path)
         .map_err(|path| anyhow::format_err!("file url path is not absolute UTF-8: {path:?}"))?;
     Ok(VfsPath::from(path))
 }
 
 pub(crate) fn abs_path(url: &lsp_types::Url) -> anyhow::Result<AbsPathBuf> {
     let path = url.to_file_path().map_err(|()| anyhow::format_err!("url is not a file"))?;
-    AbsPathBuf::try_from(path)
+    try_abs_path_buf_from_path_buf(path)
         .map_err(|path| anyhow::format_err!("file url path is not absolute UTF-8: {path:?}"))
 }
 

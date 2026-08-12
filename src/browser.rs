@@ -183,7 +183,7 @@ fn default_root() -> AbsPathBuf {
 
 fn abs_path_from_url(url: &Url) -> Option<AbsPathBuf> {
     if let Ok(path) = url.to_file_path() {
-        return AbsPathBuf::try_from(path).ok();
+        return utils::paths::abs_path_buf_from_path_buf(path);
     }
 
     let path = url.path();

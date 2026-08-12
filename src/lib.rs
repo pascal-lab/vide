@@ -9,7 +9,7 @@ use lsp_server::Connection;
 use lsp_types::{MessageType, ShowMessageParams};
 use utils::{
     json::from_json,
-    paths::{AbsPathBuf, patch_path_prefix},
+    paths::{AbsPathBuf, abs_path_buf_from_path_buf, patch_path_prefix, try_abs_path_buf_from_path_buf},
 };
 
 use crate::{
@@ -82,10 +82,10 @@ pub fn run_server(opt: Opt) -> anyhow::Result<()> {
     let root_path = match root_uri
         .and_then(|uri| uri.to_file_path().ok())
         .map(patch_path_prefix)
-        .and_then(|path| AbsPathBuf::try_from(path).ok())
+        .and_then(abs_path_buf_from_path_buf)
     {
         Some(path) => path,
-        None => AbsPathBuf::try_from(env::current_dir()?).map_err(|path| {
+        None => try_abs_path_buf_from_path_buf(env::current_dir()?).map_err(|path| {
             anyhow::format_err!(
                 "current directory is not an absolute UTF-8 path: {}",
                 path.display()
@@ -99,7 +99,7 @@ pub fn run_server(opt: Opt) -> anyhow::Result<()> {
                 .into_iter()
                 .filter_map(|folder| folder.uri.to_file_path().ok())
                 .map(patch_path_prefix)
-                .filter_map(|path| AbsPathBuf::try_from(path).ok())
+                .filter_map(abs_path_buf_from_path_buf)
                 .collect_vec()
         })
         .filter(|folders| !folders.is_empty())

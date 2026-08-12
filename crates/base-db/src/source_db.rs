@@ -93,7 +93,7 @@ pub trait SourceDb: salsa::Database + FileLoader + fmt::Debug {
 
     fn file_path(&self, file_id: FileId) -> Option<utils::paths::AbsPathBuf> {
         source_file(self, file_id).path(self).map(|path| {
-            utils::paths::AbsPathBuf::try_from(path)
+            utils::paths::abs_path_buf_from_path_buf(path)
                 .expect("source file path must be absolute and UTF-8")
         })
     }
