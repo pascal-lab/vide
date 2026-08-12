@@ -58,7 +58,7 @@ fn darkriscv_resolves_to_resolved_project() {
     let dir = fixture_dir("darkriscv");
 
     // Build index and resolve.
-    let (index, parse_errors) = resolve::CoreIndex::from_roots(&[dir.clone()]);
+    let (index, parse_errors) = resolve::CoreIndex::from_roots(std::slice::from_ref(&dir));
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
 
     let top_vlnv = vlnv::Vlnv::parse("darklife:darkriscv:darkriscv:1.0").unwrap();
@@ -106,7 +106,7 @@ fn darkriscv_resolves_to_resolved_project() {
 fn darkriscv_sim_target_has_different_toplevel() {
     let dir = fixture_dir("darkriscv");
 
-    let (index, parse_errors) = resolve::CoreIndex::from_roots(&[dir.clone()]);
+    let (index, parse_errors) = resolve::CoreIndex::from_roots(std::slice::from_ref(&dir));
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
 
     let top_vlnv = vlnv::Vlnv::parse("darklife:darkriscv:darkriscv:1.0").unwrap();

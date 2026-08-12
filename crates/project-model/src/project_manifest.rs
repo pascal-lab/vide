@@ -142,11 +142,10 @@ fn find_single_core_file(dir: &AbsPathBuf) -> Option<AbsPathBuf> {
     let mut core_files: Vec<AbsPathBuf> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_file() && path.extension().is_some_and(|ext| ext == "core") {
-            if let Some(abs) = utils::paths::abs_path_buf_from_path_buf(path) {
+        if path.is_file() && path.extension().is_some_and(|ext| ext == "core")
+            && let Some(abs) = utils::paths::abs_path_buf_from_path_buf(path) {
                 core_files.push(abs);
             }
-        }
     }
     match core_files.len() {
         1 => Some(core_files.into_iter().next().unwrap()),

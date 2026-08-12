@@ -220,11 +220,11 @@ impl CoreIndex {
                 }
             }
             // Check if the target uses hooks.
-            if let Some(hooks) = &tgt.hooks {
-                if !hooks.pre_build.is_empty()
+            if let Some(hooks) = &tgt.hooks
+                && (!hooks.pre_build.is_empty()
                     || !hooks.post_build.is_empty()
                     || !hooks.pre_run.is_empty()
-                    || !hooks.post_run.is_empty()
+                    || !hooks.post_run.is_empty())
                 {
                     errors.push(ResolutionError::Unsupported {
                         vlnv: vlnv.clone(),
@@ -232,19 +232,17 @@ impl CoreIndex {
                         detail: format!("target `{target}` defines build hooks"),
                     });
                 }
-            }
         }
 
         // Check for provider — means the core needs to be fetched.
-        if let Some(provider) = &core.provider {
-            if !matches!(provider.name, crate::raw::ProviderKind::Local) {
+        if let Some(provider) = &core.provider
+            && !matches!(provider.name, crate::raw::ProviderKind::Local) {
                 errors.push(ResolutionError::Unsupported {
                     vlnv: vlnv.clone(),
                     feature: "provider".to_string(),
                     detail: format!("core uses provider `{}`", provider_name_str(&provider.name)),
                 });
             }
-        }
     }
 }
 
@@ -296,11 +294,10 @@ fn walk_core_files_inner(dir: &utils::paths::AbsPathBuf, results: &mut Vec<utils
                 }
                 walk_core_files_inner(&abs, results);
             }
-        } else if path.extension().is_some_and(|ext| ext == "core") {
-            if let Some(abs) = utils::paths::abs_path_buf_from_path_buf(path) {
+        } else if path.extension().is_some_and(|ext| ext == "core")
+            && let Some(abs) = utils::paths::abs_path_buf_from_path_buf(path) {
                 results.push(abs);
             }
-        }
     }
 }
 
@@ -316,7 +313,7 @@ mod tests {
     use utils::test_support::TestDir;
 
     fn write_core(dir: &TestDir, name: &str, content: &str) {
-        dir.write(&format!("{name}.core"), content);
+        dir.write(format!("{name}.core"), content);
     }
 
     #[test]

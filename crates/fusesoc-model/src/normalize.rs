@@ -22,19 +22,19 @@ pub fn normalize_core(core: &mut Core) {
 fn normalize_fileset(fs: &mut Fileset) {
     // Merge files_append into files.
     if !fs.files_append.is_empty() {
-        fs.files.extend(fs.files_append.drain(..));
+        fs.files.append(&mut fs.files_append);
         fs.files_append.clear();
     }
     // Merge depend_append into depend.
     if !fs.depend_append.is_empty() {
-        fs.depend.extend(fs.depend_append.drain(..));
+        fs.depend.append(&mut fs.depend_append);
         fs.depend_append.clear();
     }
 
     // Resolve file attribute inheritance: file-level overrides fileset defaults.
     for entry in &mut fs.files {
-        if let FileEntry::WithAttributes(map) = entry {
-            if let Some((_path, attrs)) = map.iter_mut().next() {
+        if let FileEntry::WithAttributes(map) = entry
+            && let Some((_path, attrs)) = map.iter_mut().next() {
                 // Inherit file_type from fileset if not set on file.
                 if attrs.file_type.is_none() {
                     attrs.file_type = fs.file_type.clone();
@@ -51,14 +51,13 @@ fn normalize_fileset(fs: &mut Fileset) {
                     attrs.tags = combined;
                 }
             }
-        }
     }
 }
 
 /// Merge `*_append` for a target.
 fn normalize_target(target: &mut Target) {
     if !target.filesets_append.is_empty() {
-        target.filesets.extend(target.filesets_append.drain(..));
+        target.filesets.append(&mut target.filesets_append);
         target.filesets_append.clear();
     }
 }

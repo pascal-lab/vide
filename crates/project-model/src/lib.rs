@@ -261,7 +261,7 @@ impl Workspace {
             .map_err(|e| anyhow::anyhow!("invalid VLNV in .core: {e}"))?;
 
         // Build core index from the workspace root and resolve dependencies.
-        let (index, parse_errors) = resolve::CoreIndex::from_roots(&[workspace_root.clone()]);
+        let (index, parse_errors) = resolve::CoreIndex::from_roots(std::slice::from_ref(&workspace_root));
         let graph = index.resolve(&top_vlnv, "default");
         let resolution_errors: Vec<String> = parse_errors
             .iter()
