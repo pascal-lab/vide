@@ -101,6 +101,7 @@ jobs:
             echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')"
           } >> "${GITHUB_ENV}"
       - name: Build binary archive and stage extension server
+        shell: bash
         run: scripts/build-artifact.sh "${{ matrix.rust-target }}" "${{ matrix.vsix-target }}" "${{ inputs.cargo-profile }}"
       - name: Build VSIX
         working-directory: editors/vscode
