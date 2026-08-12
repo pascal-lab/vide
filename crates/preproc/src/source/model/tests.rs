@@ -9,8 +9,9 @@ use utils::line_index::{TextRange, TextSize};
 use super::*;
 
 const ROOT_PATH: &str = "sample/rtl/top.sv";
-const HEADER_PATH: &str = "sample/include/defs.vh";
-const INCLUDE_DIR: &str = "sample/include";
+const HEADER_PATH: &str =
+    if cfg!(windows) { "sample\\include\\defs.vh" } else { "sample/include/defs.vh" };
+const INCLUDE_DIR: &str = if cfg!(windows) { "sample\\include" } else { "sample/include" };
 
 fn preprocessor_trace(
     root_text: &str,

@@ -59,7 +59,8 @@ fn source_model_nested_include_resolution_carries_definition_chain() {
 logic [`LEAF_WIDTH-1:0] data;
 "#;
     let header_text = "`include \"leaf.vh\"\n";
-    let leaf_path = "sample/include/leaf.vh";
+    let leaf_path =
+        if cfg!(windows) { "sample\\include\\leaf.vh" } else { "sample/include/leaf.vh" };
     let options = SyntaxTreeOptions {
         include_paths: vec![INCLUDE_DIR.to_owned()],
         include_buffers: vec![
