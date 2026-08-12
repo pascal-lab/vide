@@ -24,7 +24,7 @@ use vfs::FileId;
 use crate::{
     DefKind, FilePosition, RangeInfo,
     completion::{CompletionItem, CompletionItemKind},
-    db::{SourceFileQueryKey, root_db::RootDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb},
+    db::{root_db::RootDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb},
     diagnostics::{Diagnostic, DiagnosticSource},
     document_highlight::DocumentHighlight,
     document_symbols::DocumentSymbol,
@@ -231,12 +231,10 @@ fn text_range_from_span(span: Span) -> Result<TextRange, ManifestParseError> {
     })
 }
 
-#[salsa::tracked(returns(clone))]
 fn manifest_index(
     db: &dyn base_db::source_db::SourceDb,
-    key: SourceFileQueryKey,
+    file_id: FileId,
 ) -> Arc<ManifestIndex> {
-    let file_id = key.file_id(db);
     let text = db.file_text(file_id);
     let (entries, error) = match parse_document(&text) {
         Ok(entries) => (entries, None),
@@ -249,7 +247,7 @@ fn manifest_index(
 }
 
 fn index_for(db: &dyn base_db::source_db::SourceDb, file_id: FileId) -> Option<Arc<ManifestIndex>> {
-    is_manifest(db, file_id).then(|| manifest_index(db, SourceFileQueryKey::new(db, file_id)))
+    is_manifest(db, file_id).then(|| manifest_index(db, file_id))
 }
 
 fn entries_for(db: &dyn SourceDb, file_id: FileId) -> Option<Vec<ManifestEntry>> {

@@ -41,7 +41,6 @@ use crate::{
     symbol::NameContext,
 };
 
-#[salsa::tracked(returns(clone))]
 pub(crate) fn file_lowering_diagnostics(
     db: &dyn HirDefDb,
     file: SyntaxFileId,

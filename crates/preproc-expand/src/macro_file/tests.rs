@@ -129,8 +129,8 @@ fn text_range(start: u32, end: u32) -> TextRange {
     TextRange::new(TextSize::from(start), TextSize::from(end))
 }
 
-fn test_macro_call(_db: &TestDb, trace_call: TraceMacroCallId) -> MacroCallId {
-    MacroCallId(MacroCallLoc { model_file: TOP, trace_call })
+fn test_macro_call(db: &TestDb, trace_call: TraceMacroCallId) -> MacroCallId {
+    MacroCallId::new(db, MacroCallLoc { model_file: TOP, trace_call })
 }
 
 #[test]
@@ -178,7 +178,7 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
         TokenOrigin::Unavailable,
     ];
 
-    let source_map = ExpansionSourceMap::from_token_origins(TOP, &origins, &preproc_source_map);
+    let source_map = ExpansionSourceMap::from_token_origins(&db, TOP, &origins, &preproc_source_map);
 
     assert_eq!(source_map.map_up(0), Some(Origin::File { file: TOP, range: text_range(1, 4) }));
     assert_eq!(
@@ -229,6 +229,7 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
 #[test]
 fn expansion_source_map_drops_unmapped_macro_ranges() {
     let source_map = PreprocSourceMap::default();
+    let db = db_with_root_text("");
     let origin = TokenOrigin::MacroBody {
         macro_name: "BODY".to_owned(),
         call_id: TraceMacroCallId(11),
@@ -240,7 +241,7 @@ fn expansion_source_map_drops_unmapped_macro_ranges() {
         body_token_range: range(7, 20..24),
     };
 
-    let expansion = ExpansionSourceMap::from_token_origins(TOP, [&origin], &source_map);
+    let expansion = ExpansionSourceMap::from_token_origins(&db, TOP, [&origin], &source_map);
 
     assert_eq!(expansion.map_up(0), None);
 }
@@ -279,7 +280,7 @@ fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
         })
         .expect("macro call should be recorded");
 
-    let macro_file = MacroFileId(MacroCallLoc {
+    let macro_file = MacroFileId::new(&db, MacroCallLoc {
         model_file: TOP,
         trace_call: call.trace_call.expect("macro call should carry slang trace identity"),
     });
@@ -329,7 +330,7 @@ fn macro_files_at_offset_returns_available_expansions() {
     let macro_files = macro_files_at_offset(&db, TOP, offset(root_text, "`DECL"));
 
     assert_eq!(macro_files.len(), 1);
-    let macro_call_loc = macro_files[0].0;
+    let macro_call_loc = macro_files[0].loc(&db);
     assert_eq!(macro_call_loc.model_file, TOP);
     let expansion = db.macro_expansion(macro_files[0]);
     assert!(expansion.value.text.contains("from_macro"));
@@ -339,7 +340,7 @@ fn macro_files_at_offset_returns_available_expansions() {
 fn macro_expansion_reports_missing_trace_call() {
     let db = db_with_root_text("`define EMPTY\n`EMPTY\n");
     let trace_call = TraceMacroCallId(u32::MAX);
-    let macro_file = MacroFileId(MacroCallLoc { model_file: TOP, trace_call });
+    let macro_file = MacroFileId::new(&db, MacroCallLoc { model_file: TOP, trace_call });
 
     let expansion = db.macro_expansion(macro_file);
 
@@ -355,7 +356,7 @@ fn macro_expansion_reports_preproc_model_failure() {
     let mut db = db_with_root_text("`define EMPTY\n`EMPTY\n");
     db.set_file_kind_with_durability(TOP, SourceFileKind::LibraryMap, Durability::LOW);
     let trace_call = TraceMacroCallId(0);
-    let macro_file = MacroFileId(MacroCallLoc { model_file: TOP, trace_call });
+    let macro_file = MacroFileId::new(&db, MacroCallLoc { model_file: TOP, trace_call });
 
     let expansion = db.macro_expansion(macro_file);
 
@@ -394,6 +395,7 @@ fn expansion_source_map_reports_missing_trace_token() {
     let missing = SourceEmittedTokenId::new(trace.emitted_tokens.len());
 
     let expansion = ExpansionSourceMap::from_trace_range(
+        &db,
         TOP,
         trace,
         &mapped.source_map,
@@ -444,6 +446,7 @@ fn expansion_source_map_validates_zero_length_range_start() {
     let valid_start = SourceEmittedTokenId::new(table_len);
 
     let valid = ExpansionSourceMap::from_trace_range(
+        &db,
         TOP,
         trace,
         &mapped.source_map,
@@ -454,6 +457,7 @@ fn expansion_source_map_validates_zero_length_range_start() {
 
     let invalid_start = SourceEmittedTokenId::new(table_len + 1);
     let invalid = ExpansionSourceMap::from_trace_range(
+        &db,
         TOP,
         trace,
         &mapped.source_map,
@@ -482,6 +486,7 @@ fn expansion_source_map_preserves_valid_prefix_before_missing_trace_token() {
     let missing = SourceEmittedTokenId::new(table_len);
 
     let expansion = ExpansionSourceMap::from_trace_range(
+        &db,
         TOP,
         trace,
         &mapped.source_map,
@@ -506,6 +511,7 @@ fn expansion_info_preserves_source_map_when_text_extraction_fails() {
     let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
     assert!(!trace.emitted_tokens.is_empty(), "fixture should emit at least one token");
     let source_map = ExpansionSourceMap::from_trace_range(
+        &db,
         TOP,
         trace,
         &mapped.source_map,

@@ -1,9 +1,8 @@
 use base_db::{salsa, source_db::SourceDb};
+use super::SourceFileQueryKey;
 use triomphe::Arc;
 use utils::line_index::LineIndex;
 use vfs::FileId;
-
-use super::SourceFileQueryKey;
 
 #[salsa::db]
 pub trait LineIndexDb: SourceDb {
@@ -15,8 +14,9 @@ pub trait LineIndexDb: SourceDb {
     }
 }
 
-#[salsa::tracked(returns(clone))]
+#[salsa::tracked(lru = 256, returns(clone))]
 fn line_index(db: &dyn LineIndexDb, key: SourceFileQueryKey) -> Arc<LineIndex> {
-    let text = db.file_text(key.file_id(db));
+    let file_id = key.file_id(db);
+    let text = db.file_text(file_id);
     Arc::new(LineIndex::new(&text))
 }

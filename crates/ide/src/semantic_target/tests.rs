@@ -409,7 +409,7 @@ fn test_source_hit(file_id: FileId, range: TextRange, emitted_token: usize) -> P
 }
 
 fn macro_arg_origin_from_token_origin(
-    _db: &RootDb,
+    db: &RootDb,
     model_file: FileId,
     origin: &TokenOrigin,
 ) -> Origin {
@@ -418,10 +418,13 @@ fn macro_arg_origin_from_token_origin(
         panic!("macro argument origin expected");
     };
     Origin::MacroArg {
-        call: preproc_expand::macro_file::MacroCallId(preproc_expand::macro_file::MacroCallLoc {
-            model_file,
-            trace_call: *call_id,
-        }),
+        call: preproc_expand::macro_file::MacroCallId::new(
+            db,
+            preproc_expand::macro_file::MacroCallLoc {
+                model_file,
+                trace_call: *call_id,
+            },
+        ),
         arg_index: usize::try_from(*argument_index).unwrap(),
         arg_range: TextRange::new(
             TextSize::from(u32::try_from(argument_token_range.range.start).unwrap()),

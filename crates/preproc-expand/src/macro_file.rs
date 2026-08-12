@@ -11,8 +11,10 @@ use triomphe::Arc;
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
+use base_db::salsa;
+
 use crate::{
-    db::{MacroFileQueryKey, PreprocDb, PreprocFileQueryKey},
+    db::PreprocDb,
     preproc::{MacroDefinition, map_macro_definition},
     source_db::{MappedSourcePreprocModel, SourcePreprocQueryError},
 };
@@ -53,11 +55,41 @@ pub struct MacroCallLoc {
     pub trace_call: TraceMacroCallId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct MacroCallId(pub MacroCallLoc);
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub struct MacroCallId {
+    #[returns(copy)]
+    pub loc: MacroCallLoc,
+}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct MacroFileId(pub MacroCallLoc);
+impl PartialOrd for MacroCallId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for MacroCallId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        salsa::plumbing::AsId::as_id(self).cmp(&salsa::plumbing::AsId::as_id(other))
+    }
+}
+
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub struct MacroFileId {
+    #[returns(copy)]
+    pub loc: MacroCallLoc,
+}
+
+impl PartialOrd for MacroFileId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for MacroFileId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        salsa::plumbing::AsId::as_id(self).cmp(&salsa::plumbing::AsId::as_id(other))
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpansionInfo {
@@ -197,7 +229,7 @@ pub fn macro_files_at_offset(
                 );
                 return Vec::new();
             }
-            let macro_file = MacroFileId(MacroCallLoc { model_file, trace_call });
+            let macro_file = MacroFileId::new(db, MacroCallLoc { model_file, trace_call });
             if !macro_files.contains(&macro_file) {
                 macro_files.push(macro_file);
             }
@@ -275,7 +307,7 @@ pub fn macro_files_for_file(db: &dyn PreprocDb, file_id: FileId) -> Vec<MacroFil
                 );
                 return Vec::new();
             }
-            let macro_file = MacroFileId(MacroCallLoc { model_file, trace_call });
+            let macro_file = MacroFileId::new(db, MacroCallLoc { model_file, trace_call });
             if !macro_files.contains(&macro_file) {
                 macro_files.push(macro_file);
             }
@@ -310,7 +342,7 @@ pub fn macro_file_call_site(
     db: &dyn PreprocDb,
     macro_file: MacroFileId,
 ) -> Option<MacroFileCallSite> {
-    let call_loc = macro_file.0;
+    let call_loc = macro_file.loc(db);
     let mapped = db.source_preproc_model(call_loc.model_file);
     let mapped = match mapped.as_ref().as_ref() {
         Ok(mapped) => mapped,
@@ -352,7 +384,7 @@ pub fn macro_file_expansion(
     macro_file: MacroFileId,
 ) -> Option<MacroFileExpansion> {
     let call_site = macro_file_call_site(db, macro_file)?;
-    let call_loc = macro_file.0;
+    let call_loc = macro_file.loc(db);
     let mapped = db.source_preproc_model(call_loc.model_file);
     let mapped = match mapped.as_ref().as_ref() {
         Ok(mapped) => mapped,
@@ -391,16 +423,16 @@ pub fn macro_file_expansion(
     })
 }
 
-#[salsa::tracked(returns(clone))]
+#[salsa::tracked(lru = 128, returns(clone))]
 pub(crate) fn macro_expansion_query(
     db: &dyn PreprocDb,
-    key: MacroFileQueryKey,
+    macro_file: MacroFileId,
 ) -> Arc<ExpandResult<ExpansionInfo>> {
-    Arc::new(macro_expansion(db, key.macro_file(db)))
+    Arc::new(macro_expansion(db, macro_file))
 }
 
 fn macro_expansion(db: &dyn PreprocDb, macro_file: MacroFileId) -> ExpandResult<ExpansionInfo> {
-    let call_loc = macro_file.0;
+    let call_loc = macro_file.loc(db);
     let mapped = db.source_preproc_model(call_loc.model_file);
     let mapped = match mapped.as_ref() {
         Ok(mapped) => mapped,
@@ -442,6 +474,7 @@ fn macro_expansion(db: &dyn PreprocDb, macro_file: MacroFileId) -> ExpandResult<
         expansion_text_for_range(trace, emitted_range)
     };
     let source_map = ExpansionSourceMap::from_trace_range(
+        db,
         call_loc.model_file,
         trace,
         &mapped.source_map,
@@ -583,8 +616,9 @@ impl TraceIndex {
 }
 
 #[salsa::tracked(returns(clone), lru = 128)]
-pub(crate) fn trace_index_query(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<TraceIndex> {
-    let parsed = db.parsed_compilation_unit(key.file_id(db));
+pub(crate) fn trace_index_query(db: &dyn PreprocDb, key: crate::db::PreprocFileQueryKey) -> Arc<TraceIndex> {
+    let model_file = key.file_id(db);
+    let parsed = db.parsed_compilation_unit(model_file);
     match parsed.preprocessor_trace.as_ref() {
         Some(trace) => Arc::new(TraceIndex::new(trace)),
         None => Arc::new(TraceIndex::default()),

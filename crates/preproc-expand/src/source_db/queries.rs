@@ -73,10 +73,10 @@ pub fn workspace_preproc_model_file_ids(
     file_ids
 }
 
-#[salsa::tracked(returns(clone))]
+#[salsa::tracked(lru = 128, returns(clone))]
 pub(crate) fn source_preproc_model(
     db: &dyn PreprocDb,
-    key: PreprocFileQueryKey,
+    key: crate::db::PreprocFileQueryKey,
 ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>> {
     let file_id = key.file_id(db);
     let file_kind = db.file_kind(file_id);

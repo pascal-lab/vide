@@ -149,7 +149,7 @@ pub(crate) fn file_macro_coverage_query(db: &dyn PreprocDb, file_id: FileId) -> 
                     return Arc::new(MacroCoverage::default());
                 }
             };
-            let macro_file = MacroFileId(MacroCallLoc { model_file, trace_call });
+            let macro_file = MacroFileId::new(db, MacroCallLoc { model_file, trace_call });
             coverage.push(range, macro_file);
         }
     }
