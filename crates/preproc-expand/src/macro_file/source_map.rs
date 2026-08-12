@@ -319,7 +319,11 @@ fn origin_slot_from_token_origin(
     Some(OriginSlot { emitted_token, origin: mapped_origin, source })
 }
 
-fn macro_call_id(db: &dyn crate::db::PreprocDb, model_file: FileId, trace_call: TraceMacroCallId) -> MacroCallId {
+fn macro_call_id(
+    db: &dyn crate::db::PreprocDb,
+    model_file: FileId,
+    trace_call: TraceMacroCallId,
+) -> MacroCallId {
     MacroCallId::new(db, MacroCallLoc { model_file, trace_call })
 }
 

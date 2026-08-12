@@ -231,10 +231,7 @@ fn text_range_from_span(span: Span) -> Result<TextRange, ManifestParseError> {
     })
 }
 
-fn manifest_index(
-    db: &dyn base_db::source_db::SourceDb,
-    file_id: FileId,
-) -> Arc<ManifestIndex> {
+fn manifest_index(db: &dyn base_db::source_db::SourceDb, file_id: FileId) -> Arc<ManifestIndex> {
     let text = db.file_text(file_id);
     let (entries, error) = match parse_document(&text) {
         Ok(entries) => (entries, None),

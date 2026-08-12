@@ -178,7 +178,8 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
         TokenOrigin::Unavailable,
     ];
 
-    let source_map = ExpansionSourceMap::from_token_origins(&db, TOP, &origins, &preproc_source_map);
+    let source_map =
+        ExpansionSourceMap::from_token_origins(&db, TOP, &origins, &preproc_source_map);
 
     assert_eq!(source_map.map_up(0), Some(Origin::File { file: TOP, range: text_range(1, 4) }));
     assert_eq!(
@@ -280,10 +281,13 @@ fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
         })
         .expect("macro call should be recorded");
 
-    let macro_file = MacroFileId::new(&db, MacroCallLoc {
-        model_file: TOP,
-        trace_call: call.trace_call.expect("macro call should carry slang trace identity"),
-    });
+    let macro_file = MacroFileId::new(
+        &db,
+        MacroCallLoc {
+            model_file: TOP,
+            trace_call: call.trace_call.expect("macro call should carry slang trace identity"),
+        },
+    );
     let expansion = db.macro_expansion(macro_file);
 
     assert!(expansion.value.text.contains("module"));

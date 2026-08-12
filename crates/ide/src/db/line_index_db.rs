@@ -1,8 +1,9 @@
 use base_db::{salsa, source_db::SourceDb};
-use super::SourceFileQueryKey;
 use triomphe::Arc;
 use utils::line_index::LineIndex;
 use vfs::FileId;
+
+use super::SourceFileQueryKey;
 
 #[salsa::db]
 pub trait LineIndexDb: SourceDb {

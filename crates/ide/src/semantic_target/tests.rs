@@ -420,10 +420,7 @@ fn macro_arg_origin_from_token_origin(
     Origin::MacroArg {
         call: preproc_expand::macro_file::MacroCallId::new(
             db,
-            preproc_expand::macro_file::MacroCallLoc {
-                model_file,
-                trace_call: *call_id,
-            },
+            preproc_expand::macro_file::MacroCallLoc { model_file, trace_call: *call_id },
         ),
         arg_index: usize::try_from(*argument_index).unwrap(),
         arg_range: TextRange::new(

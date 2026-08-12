@@ -131,24 +131,15 @@ pub(crate) fn source_root_semantic_index_for_root(
     db.source_root_semantic_index(source_root_id)
 }
 
-fn file_module_index(
-    db: &dyn WorkspaceSymbolIndexDb,
-    file_id: FileId,
-) -> Arc<FileModuleIndex> {
+fn file_module_index(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Arc<FileModuleIndex> {
     Arc::new(crate::semantic_index::FileModuleIndex::for_file(db, file_id))
 }
 
-fn file_module_edges(
-    db: &dyn WorkspaceSymbolIndexDb,
-    file_id: FileId,
-) -> Arc<FileModuleEdges> {
+fn file_module_edges(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Arc<FileModuleEdges> {
     Arc::new(crate::semantic_index::FileModuleEdges::for_file(db, file_id))
 }
 
-fn file_semantic_index(
-    db: &dyn WorkspaceSymbolIndexDb,
-    file_id: FileId,
-) -> Arc<FileSemanticIndex> {
+fn file_semantic_index(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Arc<FileSemanticIndex> {
     Arc::new(crate::semantic_index::FileSemanticIndex::for_file(db, file_id))
 }
 

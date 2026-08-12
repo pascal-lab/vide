@@ -27,7 +27,14 @@ pub(in crate::preproc) fn diagnostic_target_for_call(
     let Some(emitted_range) = db.trace_index(model_file).emitted_range_for_call(trace_call) else {
         return Ok(None);
     };
-    diagnostic_target_for_source_expansion(db, model_file, mapped, source_call, trace, emitted_range)
+    diagnostic_target_for_source_expansion(
+        db,
+        model_file,
+        mapped,
+        source_call,
+        trace,
+        emitted_range,
+    )
 }
 
 enum TokenDiagnosticTarget {
@@ -172,6 +179,10 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
     Ok(None)
 }
 
-fn hir_macro_call(db: &dyn crate::db::PreprocDb, model_file: FileId, trace_call: TraceMacroCallId) -> MacroCallId {
+fn hir_macro_call(
+    db: &dyn crate::db::PreprocDb,
+    model_file: FileId,
+    trace_call: TraceMacroCallId,
+) -> MacroCallId {
     MacroCallId::new(db, MacroCallLoc { model_file, trace_call })
 }

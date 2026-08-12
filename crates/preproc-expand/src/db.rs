@@ -572,7 +572,10 @@ fn compilation_plan_for_profile(
     Arc::new(CompilationPlan::for_profile(db, profile_id))
 }
 
-fn compilation_context(db: &dyn PreprocDb, profile_id: Option<CompilationProfileId>) -> Arc<CompilationContext> {
+fn compilation_context(
+    db: &dyn PreprocDb,
+    profile_id: Option<CompilationProfileId>,
+) -> Arc<CompilationContext> {
     let plan = db.compilation_plan_for_profile(profile_id);
     let library_maps = plan
         .roots
@@ -590,10 +593,7 @@ fn compilation_context(db: &dyn PreprocDb, profile_id: Option<CompilationProfile
     ))
 }
 
-fn compilation_context_for_file(
-    db: &dyn PreprocDb,
-    file_id: FileId,
-) -> Arc<CompilationContext> {
+fn compilation_context_for_file(db: &dyn PreprocDb, file_id: FileId) -> Arc<CompilationContext> {
     let profile_id = db.file_compilation_profile(file_id);
     db.compilation_context(profile_id)
 }
@@ -602,8 +602,7 @@ fn compilation_profile_diagnostics(
     db: &dyn PreprocDb,
     profile_id: Option<CompilationProfileId>,
 ) -> Arc<CompilationProfileDiagnostics> {
-    let profile_id =
-        profile_id.expect("compilation diagnostics require a concrete profile");
+    let profile_id = profile_id.expect("compilation diagnostics require a concrete profile");
     let config = db.diagnostics_config();
     let _span =
         tracing::info_span!("slang.profile_compilation", ?profile_id, parse_mode = "authoritative")

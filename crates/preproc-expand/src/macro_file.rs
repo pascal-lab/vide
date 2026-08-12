@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use ::preproc::source::{SourceMacroCall, SourceMacroResolution, SourcePreprocModel};
+use base_db::salsa;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use syntax::{
@@ -10,8 +11,6 @@ use syntax::{
 use triomphe::Arc;
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
-
-use base_db::salsa;
 
 use crate::{
     db::PreprocDb,
@@ -616,7 +615,10 @@ impl TraceIndex {
 }
 
 #[salsa::tracked(returns(clone), lru = 128)]
-pub(crate) fn trace_index_query(db: &dyn PreprocDb, key: crate::db::PreprocFileQueryKey) -> Arc<TraceIndex> {
+pub(crate) fn trace_index_query(
+    db: &dyn PreprocDb,
+    key: crate::db::PreprocFileQueryKey,
+) -> Arc<TraceIndex> {
     let model_file = key.file_id(db);
     let parsed = db.parsed_compilation_unit(model_file);
     match parsed.preprocessor_trace.as_ref() {
