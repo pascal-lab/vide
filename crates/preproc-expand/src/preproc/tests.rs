@@ -135,7 +135,6 @@ fn db_with_entries_and_predefine_entries(
         let path = abs_path(path);
         let vfs_path = VfsPath::from(path.clone());
         db.set_source_root_id_with_durability(*file_id, ROOT, Durability::LOW);
-        db.set_file_path_with_durability(*file_id, Some(path), Durability::LOW);
         db.set_file_kind_with_durability(
             *file_id,
             SourceFileKind::from_path(&vfs_path),

@@ -503,13 +503,10 @@ mod tests {
         );
         db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
         db.set_source_root_id_with_durability(TOP, ROOT, Durability::LOW);
-        db.set_file_path_with_durability(TOP, Some(top_path), Durability::LOW);
         db.set_file_kind_with_durability(TOP, SourceFileKind::SystemVerilog, Durability::LOW);
         db.set_file_text_with_durability(TOP, Arc::from(root_text), Durability::LOW);
         if let Some(header_text) = header_text {
-            let header_path = root_path.join("defs.vh");
             db.set_source_root_id_with_durability(HEADER, ROOT, Durability::LOW);
-            db.set_file_path_with_durability(HEADER, Some(header_path), Durability::LOW);
             db.set_file_kind_with_durability(
                 HEADER,
                 SourceFileKind::IncludeHeader,

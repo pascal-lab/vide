@@ -247,7 +247,6 @@ fn source_file_label(
     source_root
         .path_for_file(&file_id)
         .map(|path| display_project_path(path.to_string()))
-        .or_else(|| db.file_path(file_id).map(|path| display_project_path(path.to_string())))
 }
 
 fn relative_source_file_label(

@@ -249,7 +249,6 @@ mod tests {
         );
         db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
         db.set_source_root_id_with_durability(TOP, ROOT, Durability::LOW);
-        db.set_file_path_with_durability(TOP, Some(top_path), Durability::LOW);
         db.set_file_kind_with_durability(
             TOP,
             base_db::source_db::SourceFileKind::SystemVerilog,

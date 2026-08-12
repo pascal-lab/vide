@@ -1,4 +1,4 @@
-use std::{fmt, path::PathBuf};
+use std::fmt;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use salsa::{Durability, Setter};
@@ -51,8 +51,6 @@ struct SourceFile {
     text: Arc<str>,
     #[returns(copy)]
     kind: SourceFileKindValue,
-    #[returns(clone)]
-    path: Option<PathBuf>,
 }
 
 #[salsa::input(singleton)]
@@ -91,12 +89,6 @@ pub trait SourceDb: salsa::Database + FileLoader + fmt::Debug {
         source_file(self, file_id).kind(self).0
     }
 
-    fn file_path(&self, file_id: FileId) -> Option<utils::paths::AbsPathBuf> {
-        source_file(self, file_id).path(self).map(|path| {
-            utils::paths::abs_path_buf_from_path_buf(path)
-                .expect("source file path must be absolute and UTF-8")
-        })
-    }
 
     fn files(&self) -> FxHashSet<FileId> {
         let registry = SourceFiles::get(self);
@@ -132,17 +124,6 @@ pub trait SourceDb: salsa::Database + FileLoader + fmt::Debug {
             .to(SourceFileKindValue(kind));
     }
 
-    fn set_file_path_with_durability(
-        &mut self,
-        file_id: FileId,
-        path: Option<utils::paths::AbsPathBuf>,
-        durability: Durability,
-    ) {
-        source_file_mut(self, file_id)
-            .set_path(self)
-            .with_durability(durability)
-            .to(path.map(Into::into));
-    }
 
     fn set_files_with_durability(&mut self, files: FxHashSet<FileId>, durability: Durability) {
         let registry = ensure_source_files(self);
@@ -154,7 +135,6 @@ pub trait SourceDb: salsa::Database + FileLoader + fmt::Debug {
                     self,
                     Arc::from(""),
                     SourceFileKindValue(SourceFileKind::default()),
-                    None,
                 )
             });
         }
@@ -203,6 +183,18 @@ pub trait SourceRootDb: SourceDb {
             .unwrap_or_else(|| panic!("missing source root {id:?}"))
             .0
             .clone()
+    }
+
+    /// Return the absolute filesystem path for `file_id`, if any.
+    ///
+    /// Delegates to the VFS `FileSet` via `SourceRoot::path_for_file`, which is
+    /// the authoritative source of path identity. Unlike the previous salsa
+    /// `SourceFile.path` field, this never stores a redundant `PathBuf` copy
+    /// and never needs a runtime `PathBuf → AbsPathBuf` conversion.
+    fn file_path(&self, file_id: FileId) -> Option<utils::paths::AbsPathBuf> {
+        let root_id = self.source_root_id(file_id);
+        let root = self.source_root(root_id);
+        root.path_for_file(&file_id)?.as_abs_path().map(ToOwned::to_owned)
     }
 
     fn set_source_root_id_with_durability(
@@ -266,7 +258,7 @@ fn source_file_mut<Db: SourceDb + ?Sized>(db: &mut Db, file_id: FileId) -> Sourc
     }
 
     let file =
-        SourceFile::new(db, Arc::from(""), SourceFileKindValue(SourceFileKind::default()), None);
+        SourceFile::new(db, Arc::from(""), SourceFileKindValue(SourceFileKind::default()));
     let mut files = registry.files(db).clone();
     files.insert(file_id.index(), file);
     registry.set_files(db).to(files);

@@ -1,6 +1,6 @@
 use base_db::{
     project::{CompilationProfileId, ProjectConfig},
-    source_db::{SourceDb, SourceFileKind, SourceRootDb},
+    source_db::{SourceFileKind, SourceRootDb},
     source_root::SourceRootId,
 };
 use preproc::source::{
@@ -130,7 +130,7 @@ pub fn compilation_source_buffers_for_plan(
 /// need a non-empty identity because `SourceManager::assignText` and
 /// `SyntaxTree::fromBuffer` are path keyed. Keep those identities deterministic
 /// within the database snapshot instead of falling back to an empty path.
-pub fn source_buffer_path(db: &dyn SourceDb, file_id: FileId) -> AbsPathBuf {
+pub fn source_buffer_path(db: &dyn SourceRootDb, file_id: FileId) -> AbsPathBuf {
     db.file_path(file_id).unwrap_or_else(|| synthetic_source_buffer_path(file_id))
 }
 

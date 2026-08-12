@@ -43,12 +43,8 @@ impl Change {
                 let durability = durability(&root);
                 for file_id in root.iter() {
                     let kind = root.file_kind(&file_id);
-                    let path = root
-                        .path_for_file(&file_id)
-                        .and_then(|path| path.as_abs_path().map(ToOwned::to_owned));
                     db.set_source_root_id_with_durability(file_id, root_id, durability);
                     db.set_file_kind_with_durability(file_id, kind, durability);
-                    db.set_file_path_with_durability(file_id, path, durability);
                 }
                 db.set_source_root_with_durability(root_id, Arc::new(root), durability);
             }
@@ -62,9 +58,6 @@ impl Change {
             let source_root = db.source_root(source_root_id);
             let durability = durability(&source_root);
             let kind = source_root.file_kind(&file_id);
-            let path = source_root
-                .path_for_file(&file_id)
-                .and_then(|path| path.as_abs_path().map(ToOwned::to_owned));
 
             match &changed_file.change {
                 VfsChange::Create(_, _) => {
@@ -79,7 +72,6 @@ impl Change {
 
             let text = changed_file.text().unwrap_or_else(|| Arc::from(""));
             db.set_file_kind_with_durability(file_id, kind, durability);
-            db.set_file_path_with_durability(file_id, path, durability);
             db.set_file_text_with_durability(file_id, text, durability);
         }
 

@@ -2,7 +2,7 @@ use base_db::{
     analysis_snapshot::CompilationContext,
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
     project::CompilationProfileId,
-    source_db::{SourceDb, SourceFileKind, SourceRootDb},
+    source_db::{SourceFileKind, SourceRootDb},
     source_root::SourceRootId,
 };
 use rustc_hash::FxHashMap;
@@ -83,7 +83,7 @@ pub struct CompilationProfileDiagnostics {
     pub diagnostics: Arc<[CompilationDiagnostic]>,
 }
 
-fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentity {
+fn source_file_identity(db: &dyn SourceRootDb, file_id: FileId) -> SourceFileIdentity {
     let path = compilation_plan::source_buffer_path(db, file_id).to_string();
     let name =
         db.file_path(file_id).map(|path| path.to_string()).unwrap_or_else(|| "source".to_owned());
@@ -896,7 +896,6 @@ mod tests {
         );
         db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
         db.set_source_root_id_with_durability(TOP, ROOT, Durability::LOW);
-        db.set_file_path_with_durability(TOP, Some(top_path), Durability::LOW);
         db.set_file_kind_with_durability(TOP, SourceFileKind::SystemVerilog, Durability::LOW);
         db.set_file_text_with_durability(
             TOP,
@@ -924,7 +923,7 @@ mod tests {
             Durability::LOW,
         );
         db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
-        for (file_id, path, text) in [
+        for (file_id, _path, text) in [
             (
                 TOP,
                 top_path,
@@ -933,7 +932,6 @@ mod tests {
             (INCLUDED, included_path, "module included; endmodule\n"),
         ] {
             db.set_source_root_id_with_durability(file_id, ROOT, Durability::LOW);
-            db.set_file_path_with_durability(file_id, Some(path), Durability::LOW);
             db.set_file_kind_with_durability(
                 file_id,
                 SourceFileKind::SystemVerilog,
@@ -962,12 +960,11 @@ mod tests {
             Durability::LOW,
         );
         db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
-        for (file_id, path, kind, text) in [
+         for (file_id, _path, kind, text) in [
             (TOP, top_path, SourceFileKind::SystemVerilog, "module top; endmodule\n"),
             (MANIFEST, manifest_path, SourceFileKind::ProjectManifest, manifest_text),
         ] {
             db.set_source_root_id_with_durability(file_id, ROOT, Durability::LOW);
-            db.set_file_path_with_durability(file_id, Some(path), Durability::LOW);
             db.set_file_kind_with_durability(file_id, kind, Durability::LOW);
             db.set_file_text_with_durability(file_id, Arc::from(text), Durability::LOW);
         }
@@ -1105,12 +1102,11 @@ mod tests {
             Durability::LOW,
         );
         db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
-        for (file_id, path, kind, text) in [
+         for (file_id, _path, kind, text) in [
             (TOP, top_path, SourceFileKind::SystemVerilog, "module top; endmodule\n"),
             (MANIFEST, manifest_path, SourceFileKind::ProjectManifest, "defines = [\"M=1\"]\n"),
         ] {
             db.set_source_root_id_with_durability(file_id, ROOT, Durability::LOW);
-            db.set_file_path_with_durability(file_id, Some(path), Durability::LOW);
             db.set_file_kind_with_durability(file_id, kind, Durability::LOW);
             db.set_file_text_with_durability(file_id, Arc::from(text), Durability::LOW);
         }
