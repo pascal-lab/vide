@@ -183,6 +183,15 @@ export const USER_CONFIG_SETTINGS = [
 		defaultValue: true,
 	},
 	{
+		path: ["inlayHints","systemCall","call","enable"],
+		vscodeKey: "vide.inlayHints.systemCall.call.enable",
+		vscodeSection: "inlayHints.systemCall.call.enable",
+		docsGroup: "Annotations",
+		descriptionKey: "configuration.inlayHints.systemCall.call.enable.description",
+		markdownDescriptionKey: null,
+		defaultValue: true,
+	},
+	{
 		path: ["lens","instantiations","enable"],
 		vscodeKey: "vide.lens.instantiations.enable",
 		vscodeSection: "lens.instantiations.enable",

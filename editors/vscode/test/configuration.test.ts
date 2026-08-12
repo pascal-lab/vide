@@ -101,6 +101,7 @@ test('contributes settings for the complete Vide user configuration surface', ()
     'vide.inlayHints.parameter.assignment.enable',
     'vide.inlayHints.macro.argument.enable',
     'vide.inlayHints.end.structure.enable',
+    'vide.inlayHints.systemCall.call.enable',
     'vide.lens.instantiations.enable',
     'vide.semantic.tokens.port.clk.rst.enable',
     'vide.semantic.tokens.port.input.output.enable',
