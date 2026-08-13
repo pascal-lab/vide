@@ -143,6 +143,7 @@ pub enum CodeActionResolveError {
 
 pub const RUN_QIHE_ANALYSIS_COMMAND: &str = "vide.server.runQiheAnalysis";
 pub const RELOAD_WORKSPACE_COMMAND: &str = "vide.server.reloadWorkspace";
+pub const SELECT_FUSESOC_CORE_COMMAND: &str = "vide.server.selectFuseSocCore";
 pub const RENAME_EXPANSION_INFO_COMMAND: &str = "vide.server.renameExpansionInfo";
 pub const EXPANDED_RENAME_COMMAND: &str = "vide.server.expandedRename";
 pub const RENAME_CONFLICT_INFO_COMMAND: &str = "vide.server.renameConflictInfo";
@@ -226,6 +227,7 @@ impl Notification for QiheLogNotification {
 pub enum ProjectStatusState {
     Loading,
     Loaded,
+    SelectionRequired,
     #[serde(rename = "none")]
     NoManifest,
     Error,
@@ -241,6 +243,22 @@ pub struct ProjectStatusParams {
     pub errors: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fusesoc_core_selections: Vec<FuseSocCoreSelection>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FuseSocCoreSelection {
+    pub workspace_uri: lsp_types::Url,
+    pub core_uris: Vec<lsp_types::Url>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectFuseSocCoreParams {
+    pub workspace_uri: lsp_types::Url,
+    pub core_uri: lsp_types::Url,
 }
 
 pub enum ProjectStatusNotification {}

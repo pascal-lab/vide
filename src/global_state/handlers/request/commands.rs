@@ -1,4 +1,4 @@
-﻿use serde::de::DeserializeOwned;
+use serde::de::DeserializeOwned;
 
 use crate::{
     i18n::keys,
@@ -7,7 +7,8 @@ use crate::{
             EXPANDED_RENAME_COMMAND, ExpandedRenameParams, RELOAD_WORKSPACE_COMMAND,
             RENAME_CONFLICT_INFO_COMMAND, RENAME_EXPANSION_INFO_COMMAND, RUN_QIHE_ANALYSIS_COMMAND,
             RenameConflictInfoParams, RenameConflictInfoResult, RenameExpansionInfoParams,
-            RenameExpansionInfoResult, RunQiheAnalysisParams,
+            RenameExpansionInfoResult, RunQiheAnalysisParams, SELECT_FUSESOC_CORE_COMMAND,
+            SelectFuseSocCoreParams,
         },
         from_proto, to_proto,
     },
@@ -28,6 +29,34 @@ fn handle_reload_workspace_command(
     let config = triomphe::Arc::make_mut(&mut state.config_state.config);
     config.refresh_project_manifests();
     state.request_workspace_reload("workspace reload command");
+    Ok(None)
+}
+
+fn handle_select_fusesoc_core_command(
+    state: &mut crate::global_state::GlobalState,
+    params: lsp_types::ExecuteCommandParams,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    let params = extract_execute_arg::<SelectFuseSocCoreParams>(state, &params)?;
+    let workspace_root = from_proto::abs_path(&params.workspace_uri)?;
+    anyhow::ensure!(
+        state.config_state.config.workspace_roots.iter().any(|root| root == &workspace_root),
+        "FuseSoC workspace root is not an open workspace: {workspace_root}"
+    );
+    let core_path = from_proto::abs_path(&params.core_uri)?;
+    let manifest_path = project_model::project_manifest::persist_fusesoc_core_selection(
+        &workspace_root,
+        &core_path,
+    )?;
+
+    tracing::info!(
+        workspace_root = %workspace_root,
+        core_path = %core_path,
+        manifest_path = %manifest_path,
+        "persisted FuseSoC root core selection"
+    );
+    let config = triomphe::Arc::make_mut(&mut state.config_state.config);
+    config.refresh_project_manifests();
+    state.request_workspace_reload("FuseSoC root core selected");
     Ok(None)
 }
 
@@ -99,6 +128,7 @@ pub(crate) fn handle_execute_command(
     match params.command.as_str() {
         RUN_QIHE_ANALYSIS_COMMAND => handle_qihe_analysis_command(state, params),
         RELOAD_WORKSPACE_COMMAND => handle_reload_workspace_command(state),
+        SELECT_FUSESOC_CORE_COMMAND => handle_select_fusesoc_core_command(state, params),
         RENAME_EXPANSION_INFO_COMMAND => handle_rename_expansion_info_command(state, params),
         EXPANDED_RENAME_COMMAND => handle_expanded_rename_command(state, params),
         RENAME_CONFLICT_INFO_COMMAND => handle_rename_conflict_info_command(state, params),

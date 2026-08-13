@@ -2,6 +2,7 @@ use std::{collections::BTreeSet, fs, io::ErrorKind};
 
 use anyhow::{Context, bail};
 use const_format::formatcp;
+use toml_edit::{DocumentMut, Item, Table, value};
 use utils::paths::AbsPathBuf;
 
 pub const MANIFEST_FILE_NAME: &str = formatcp!("vide.toml");
@@ -35,14 +36,59 @@ pub enum ProjectManifest {
     Toml(AbsPathBuf),
     /// A FuseSoC CAPI2 `.core` file explicitly selected.
     FuseSocCore(AbsPathBuf),
-    /// A directory containing multiple FuseSoC `.core` files. The loader
-    /// rejects this until the root core is selected in `vide.toml`.
+    /// A directory containing multiple FuseSoC `.core` files. The client
+    /// should ask the user to select one before reloading the project.
     FuseSocCoreDir(AbsPathBuf),
     UnconfiguredRoot(AbsPathBuf),
 }
 
 pub fn is_manifest_file_name(file_name: &str) -> bool {
     ProjectManifestFileName::from_file_name(file_name).is_some()
+}
+
+/// Return the candidate root cores directly under a workspace directory.
+pub fn fusesoc_core_candidates(dir: &AbsPathBuf) -> Vec<AbsPathBuf> {
+    find_core_files(dir)
+}
+
+/// Persist a user-selected FuseSoC root core in the workspace manifest.
+///
+/// The selected file must be one of the direct `.core` candidates discovered
+/// for the workspace. Existing TOML is edited structurally so comments and
+/// unrelated project settings remain intact.
+pub fn persist_fusesoc_core_selection(
+    workspace_root: &AbsPathBuf,
+    core_path: &AbsPathBuf,
+) -> anyhow::Result<AbsPathBuf> {
+    anyhow::ensure!(
+        fusesoc_core_candidates(workspace_root).iter().any(|candidate| candidate == core_path),
+        "selected FuseSoC core is not a direct .core candidate in {workspace_root}: {core_path}"
+    );
+
+    let relative_core_path = core_path
+        .as_path()
+        .strip_prefix(workspace_root.as_path())
+        .with_context(|| format!("FuseSoC core is outside workspace root: {core_path}"))?
+        .as_str()
+        .to_owned();
+    let manifest_path = workspace_root.join(MANIFEST_FILE_NAME);
+    let mut document = match fs::read_to_string(&manifest_path) {
+        Ok(text) => text
+            .parse::<DocumentMut>()
+            .with_context(|| format!("failed to parse {manifest_path}"))?,
+        Err(error) if error.kind() == ErrorKind::NotFound => DocumentMut::new(),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {manifest_path}"));
+        }
+    };
+
+    let fusesoc = document.entry("fusesoc").or_insert(Item::Table(Table::new()));
+    let fusesoc = fusesoc.as_table_mut().context("vide.toml [fusesoc] must be a standard table")?;
+    fusesoc["core"] = value(relative_core_path);
+
+    fs::write(&manifest_path, document.to_string())
+        .with_context(|| format!("failed to write {manifest_path}"))?;
+    Ok(manifest_path)
 }
 
 impl ProjectManifest {
@@ -172,7 +218,10 @@ mod tests {
 
     use utils::test_support::TestDir;
 
-    use super::{MANIFEST_FILE_NAME, ProjectManifest, ProjectManifestFileName};
+    use super::{
+        MANIFEST_FILE_NAME, ProjectManifest, ProjectManifestFileName,
+        persist_fusesoc_core_selection,
+    };
 
     #[test]
     fn from_path_does_not_use_parent_manifest() {
@@ -253,9 +302,26 @@ mod tests {
         let root_abs = root.path().to_path_buf();
         let manifest = ProjectManifest::from_path(&root_abs).unwrap();
 
-        // Multiple cores — the workspace loader requires an explicit root
-        // selection in vide.toml.
+        // Multiple cores — the client will ask the user to select the root.
         assert_eq!(manifest, ProjectManifest::FuseSocCoreDir(root_abs));
+    }
+
+    #[test]
+    fn persists_selected_core_in_vide_toml() {
+        let root = TestDir::new("fusesoc-persist-selection");
+        let core_path = root.join("top.core");
+        fs::write(&core_path, "CAPI=2:\nname: v:l:top:1.0\n").unwrap();
+        fs::write(root.join(MANIFEST_FILE_NAME), "sources = []\n").unwrap();
+
+        persist_fusesoc_core_selection(&root.path().to_path_buf(), &core_path).unwrap();
+
+        let manifest = fs::read_to_string(root.join(MANIFEST_FILE_NAME)).unwrap();
+        assert!(manifest.contains("[fusesoc]\ncore = \"top.core\""));
+        let workspace = super::super::toml_workspace::TomlWorkspace::load_from_file(
+            &root.join(MANIFEST_FILE_NAME),
+        )
+        .unwrap();
+        assert_eq!(workspace.fusesoc.unwrap().core, "top.core");
     }
 
     #[test]

@@ -1,9 +1,11 @@
 use lsp_types::Url;
-use project_model::project_manifest::ProjectManifest;
+use project_model::project_manifest::{ProjectManifest, fusesoc_core_candidates};
 use utils::paths::AbsPath;
 
 use super::GlobalState;
-use crate::lsp_ext::ext::{ProjectStatusNotification, ProjectStatusParams, ProjectStatusState};
+use crate::lsp_ext::ext::{
+    FuseSocCoreSelection, ProjectStatusNotification, ProjectStatusParams, ProjectStatusState,
+};
 
 impl GlobalState {
     pub(crate) fn send_loading_project_status(&self, cause: String) {
@@ -12,11 +14,15 @@ impl GlobalState {
             self.workspace.workspaces.len(),
             Vec::new(),
             Some(cause),
+            Vec::new(),
         );
     }
 
     pub(crate) fn send_project_status_for_result(&self, workspace_count: usize, errors: &[String]) {
-        let state = if !errors.is_empty() {
+        let fusesoc_core_selections = self.fusesoc_core_selections();
+        let state = if !fusesoc_core_selections.is_empty() {
+            ProjectStatusState::SelectionRequired
+        } else if !errors.is_empty() {
             ProjectStatusState::Error
         } else if self.config_state.config.project_manifests.iter().any(|manifest| {
             matches!(
@@ -31,7 +37,13 @@ impl GlobalState {
             ProjectStatusState::NoManifest
         };
 
-        self.send_project_status(state, workspace_count, errors.to_vec(), None);
+        self.send_project_status(
+            state,
+            workspace_count,
+            errors.to_vec(),
+            None,
+            fusesoc_core_selections,
+        );
     }
 
     fn send_project_status(
@@ -40,6 +52,7 @@ impl GlobalState {
         workspace_count: usize,
         errors: Vec<String>,
         message: Option<String>,
+        fusesoc_core_selections: Vec<FuseSocCoreSelection>,
     ) {
         let mut manifest_uris = Vec::new();
         let mut unconfigured_root_uris = Vec::new();
@@ -76,7 +89,28 @@ impl GlobalState {
             workspace_count,
             errors,
             message,
+            fusesoc_core_selections,
         });
+    }
+
+    fn fusesoc_core_selections(&self) -> Vec<FuseSocCoreSelection> {
+        self.config_state
+            .config
+            .project_manifests
+            .iter()
+            .filter_map(|manifest| {
+                let ProjectManifest::FuseSocCoreDir(workspace_root) = manifest else {
+                    return None;
+                };
+                let workspace_uri = url_from_path(workspace_root.as_path())?;
+                let core_uris = fusesoc_core_candidates(workspace_root)
+                    .into_iter()
+                    .filter_map(|path| url_from_path(path.as_path()))
+                    .collect();
+                Some(FuseSocCoreSelection { workspace_uri, core_uris })
+            })
+            .filter(|selection| !selection.core_uris.is_empty())
+            .collect()
     }
 }
 
@@ -86,6 +120,8 @@ fn url_from_path(path: &AbsPath) -> Option<Url> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use lsp_server::{Connection, Message, Notification as LspNotification};
     use lsp_types::notification::Notification as _;
     use project_model::project_manifest::MANIFEST_FILE_NAME;
@@ -164,5 +200,21 @@ mod tests {
         assert!(matches!(status.state, ProjectStatusState::Loaded));
         assert_eq!(status.manifest_uris.len(), 1);
         assert!(status.unconfigured_root_uris.is_empty());
+        assert!(status.fusesoc_core_selections.is_empty());
+    }
+
+    #[test]
+    fn project_status_reports_fusesoc_core_candidates() {
+        let dir = TestDir::new("project-status-fusesoc-selection");
+        fs::write(dir.join("a.core"), "CAPI=2:\nname: v:l:a:1.0\n").unwrap();
+        fs::write(dir.join("b.core"), "CAPI=2:\nname: v:l:b:1.0\n").unwrap();
+        let (state, client) = test_state_with_root(dir.path().to_path_buf());
+
+        state.send_project_status_for_result(0, &["multiple FuseSoC cores".to_owned()]);
+
+        let status = project_status_notification(&client);
+        assert!(matches!(status.state, ProjectStatusState::SelectionRequired));
+        assert_eq!(status.fusesoc_core_selections.len(), 1);
+        assert_eq!(status.fusesoc_core_selections[0].core_uris.len(), 2);
     }
 }

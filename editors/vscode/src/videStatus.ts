@@ -8,6 +8,7 @@ import {
   type LanguageStatusPresentation,
   type ProjectStatus,
   type ProjectStatusMessages,
+  type FuseSocCoreSelection,
   type ServerStatus,
   type ServerStatusMessages,
   type VideStatusMessages,
@@ -19,10 +20,12 @@ export const reloadWorkspaceCommand = 'vide.reloadWorkspace';
 export const showOutputCommand = 'vide.showOutput';
 export const showStatusCommand = 'vide.showStatus';
 export const reloadWorkspaceRequest = 'vide.server.reloadWorkspace';
+export const selectFuseSocCoreRequest = 'vide.server.selectFuseSocCore';
 export const projectStatusNotification = 'vide/projectStatus';
 
 export interface VideStatusActions {
   createManifest: (rootUris: readonly string[]) => Promise<void>;
+  selectFuseSocCore?: (workspaceUri: string, coreUri: string) => Promise<void>;
   profileDiagnostics?: () => Promise<void>;
   reloadProject: () => Promise<void>;
   restartServer: () => Promise<void>;
@@ -35,6 +38,7 @@ export class VideStatusController implements vscode.Disposable {
   private projectStatus = initialProjectStatus();
   private serverStatus: ServerStatus = 'stopped';
   private serverDetail: string | undefined;
+  private readonly pendingCoreSelections = new Set<string>();
 
   constructor(private readonly actions: VideStatusActions) {
     this.item = vscode.window.createStatusBarItem(
@@ -66,6 +70,9 @@ export class VideStatusController implements vscode.Disposable {
   updateProjectStatus(status: ProjectStatus): void {
     this.projectStatus = status;
     this.update();
+    if (status.fusesocCoreSelections && status.fusesocCoreSelections.length > 0) {
+      void this.promptForFuseSocCoreSelections(status.fusesocCoreSelections);
+    }
   }
 
   updateServerStatus(status: ServerStatus, detail?: string): void {
@@ -102,6 +109,9 @@ export class VideStatusController implements vscode.Disposable {
         break;
       case 'createManifest':
         await this.actions.createManifest(status.unconfiguredRootUris);
+        break;
+      case 'selectFuseSocCore':
+        await this.promptForFuseSocCoreSelections(status.fusesocCoreSelections ?? []);
         break;
       case 'profileDiagnostics':
         await this.actions.profileDiagnostics?.();
@@ -144,6 +154,16 @@ export class VideStatusController implements vscode.Disposable {
         label: vscode.l10n.t('$(error) Project Configuration Error'),
         description: status.errors[0],
         action: 'showOutput',
+      });
+    }
+
+    if ((status.fusesocCoreSelections?.length ?? 0) > 0) {
+      items.push({
+        label: vscode.l10n.t('$(list-selection) Select FuseSoC Root Core'),
+        description: vscode.l10n.t(
+          'Choose the root core before loading the FuseSoC project',
+        ),
+        action: 'selectFuseSocCore',
       });
     }
 
@@ -197,12 +217,62 @@ export class VideStatusController implements vscode.Disposable {
 
     return items;
   }
+
+  private async promptForFuseSocCoreSelections(
+    selections: readonly FuseSocCoreSelection[],
+  ): Promise<void> {
+    const action = this.actions.selectFuseSocCore;
+    if (!action) {
+      this.actions.log(
+        '[ERROR] FuseSoC core selection was requested but this client does not support it.',
+      );
+      return;
+    }
+
+    for (const selection of selections) {
+      const key = `${selection.workspaceUri}\0${selection.coreUris.join('\0')}`;
+      if (this.pendingCoreSelections.has(key)) {
+        continue;
+      }
+      this.pendingCoreSelections.add(key);
+
+      try {
+        const selected = await vscode.window.showQuickPick(
+          selection.coreUris.map((uri) => ({
+            label: baseName(uriDisplayPath(uri)),
+            description: uriDisplayPath(uri),
+            uri,
+          })),
+          {
+            title: vscode.l10n.t('Select FuseSoC Root Core'),
+            placeHolder: vscode.l10n.t(
+              'Multiple .core files were found; choose the project root core',
+            ),
+          },
+        );
+        if (!selected) {
+          return;
+        }
+        await action(selection.workspaceUri, selected.uri);
+      } catch (error) {
+        const message = vscode.l10n.t(
+          'Failed to persist the FuseSoC root core: {0}',
+          error instanceof Error ? error.message : String(error),
+        );
+        this.actions.log(`[ERROR] ${message}`);
+        void vscode.window.showErrorMessage(message);
+      } finally {
+        this.pendingCoreSelections.delete(key);
+      }
+    }
+  }
 }
 
 type VideStatusQuickPickItem = vscode.QuickPickItem & {
   action:
     | 'openManifest'
     | 'createManifest'
+    | 'selectFuseSocCore'
     | 'profileDiagnostics'
     | 'reloadProject'
     | 'restartServer'
@@ -262,6 +332,7 @@ function localizedProjectStatusMessages(): ProjectStatusMessages {
     loadedOneManifestDetail: vscode.l10n.t('Project manifest loaded'),
     loadedManyManifestsDetail: (count) =>
       vscode.l10n.t('{0} project manifests loaded', count),
+    selectionRequiredDetail: vscode.l10n.t('Select the FuseSoC root core'),
     noManifestDetail: vscode.l10n.t('No project manifest'),
     errorDetail: vscode.l10n.t('Project configuration failed'),
   };

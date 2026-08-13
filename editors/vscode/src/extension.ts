@@ -28,6 +28,7 @@ import {
   projectStatusNotification,
   reloadWorkspaceCommand,
   reloadWorkspaceRequest,
+  selectFuseSocCoreRequest,
   showOutputCommand,
   showStatusCommand,
   VideStatusController,
@@ -917,6 +918,17 @@ async function reloadWorkspace(): Promise<void> {
   }
 }
 
+async function selectFuseSocCore(workspaceUri: string, coreUri: string): Promise<void> {
+  if (!client) {
+    throw new Error(vscode.l10n.t('Vide language server is not running.'));
+  }
+
+  await client.sendRequest('workspace/executeCommand', {
+    command: selectFuseSocCoreRequest,
+    arguments: [{ workspaceUri, coreUri }],
+  });
+}
+
 async function runQiheAnalysis(resource: unknown): Promise<void> {
   const targetUri = qiheAnalysisTargetUri(resource);
   if (!targetUri) {
@@ -991,6 +1003,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const profileTraceEnabled = isProfileTraceEnabled(context);
   videStatusController = new VideStatusController({
     createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
+    selectFuseSocCore,
     profileDiagnostics: profileTraceEnabled
       ? async () => {
           await vscode.commands.executeCommand(profileDiagnosticsCommand);

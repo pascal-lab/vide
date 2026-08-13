@@ -20,6 +20,7 @@ serde.workspace = true
 serde_json = { workspace = true, optional = true }
 smol_str.workspace = true
 toml = "0.8.8"
+toml_edit.workspace = true
 triomphe.workspace = true
 utils = { workspace = true, features = ["camino_serde1"] }
 workspace-model.workspace = true
