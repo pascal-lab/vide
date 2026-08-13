@@ -112,9 +112,12 @@
           "type": "string"
         },
         "target": {
-          "description": "Target name to select. Defaults to \"default\".",
-          "type": "string",
-          "default": "default"
+          "description": "Target name to select. This must be explicitly selected.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         },
         "flags": {
           "description": "Use-flags for CAPI2 conditional expression evaluation.",

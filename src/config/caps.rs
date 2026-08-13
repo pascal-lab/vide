@@ -15,8 +15,9 @@ use utils::{line_index::WideEncoding, lines::PositionEncoding};
 use crate::{
     config::Config,
     lsp_ext::ext::{
-        self, EXPANDED_RENAME_COMMAND, RELOAD_WORKSPACE_COMMAND, RENAME_CONFLICT_INFO_COMMAND,
-        RENAME_EXPANSION_INFO_COMMAND, RUN_QIHE_ANALYSIS_COMMAND,
+        self, EXPANDED_RENAME_COMMAND, LIST_FUSESOC_TARGETS_COMMAND, RELOAD_WORKSPACE_COMMAND,
+        RENAME_CONFLICT_INFO_COMMAND, RENAME_EXPANSION_INFO_COMMAND, RUN_QIHE_ANALYSIS_COMMAND,
+        SELECT_FUSESOC_PROJECT_COMMAND,
     },
 };
 
@@ -320,6 +321,8 @@ impl Config {
                 commands: vec![
                     RUN_QIHE_ANALYSIS_COMMAND.to_string(),
                     RELOAD_WORKSPACE_COMMAND.to_string(),
+                    LIST_FUSESOC_TARGETS_COMMAND.to_string(),
+                    SELECT_FUSESOC_PROJECT_COMMAND.to_string(),
                     RENAME_EXPANSION_INFO_COMMAND.to_string(),
                     EXPANDED_RENAME_COMMAND.to_string(),
                     RENAME_CONFLICT_INFO_COMMAND.to_string(),

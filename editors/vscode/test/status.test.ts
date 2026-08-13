@@ -93,7 +93,7 @@ test('maps project status to language status presentations', () => {
     getProjectStatusPresentation({ ...baseStatus, state: 'selectionRequired' }),
     {
       text: 'Vide',
-      detail: 'Select the FuseSoC root core',
+      detail: 'Select the FuseSoC project core and target',
       severity: 'warning',
       busy: false,
     },

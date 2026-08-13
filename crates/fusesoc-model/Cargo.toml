@@ -11,3 +11,4 @@ thiserror.workspace = true
 tracing.workspace = true
 tempfile.workspace = true
 utils = { workspace = true, features = ["camino_serde1"] }
+saphyr.workspace = true

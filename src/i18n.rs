@@ -71,6 +71,10 @@ pub(crate) mod keys {
 
     pub(crate) const CODE_LENS_INSTANCES_ONE: &str = "code_lens.instances_one";
     pub(crate) const CODE_LENS_INSTANCES_MANY: &str = "code_lens.instances_many";
+    pub(crate) const CODE_LENS_FUSESOC_USE_CORE: &str = "code_lens.fusesoc_use_core";
+    pub(crate) const CODE_LENS_FUSESOC_USE_TARGET: &str = "code_lens.fusesoc_use_target";
+    pub(crate) const CODE_LENS_FUSESOC_CONFIGURE_PROJECT: &str =
+        "code_lens.fusesoc_configure_project";
 
     pub(crate) const CODE_ACTION_ADD_MISSING_CONNECTIONS: &str =
         "code_action.add_missing_connections";

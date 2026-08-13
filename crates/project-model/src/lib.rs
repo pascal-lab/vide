@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use anyhow::{Context, bail};
 use itertools::Itertools;
 use rustc_hash::{FxHashMap, FxHashSet};
+pub use toml_workspace::TomlWorkspace;
 #[cfg(feature = "manifest-schema")]
 pub use toml_workspace::{
     TOML_MANIFEST_SCHEMA_PATH, TOML_MANIFEST_SCHEMA_URL, TOML_MANIFEST_SCHEMA_VERSION,
@@ -23,9 +24,7 @@ use workspace_model::{
     source_root::{SourceRootConfig, SourceRootId, SourceRootRole},
 };
 
-use crate::{
-    macro_def::MacroDef, project_manifest::ProjectManifest, toml_workspace::TomlWorkspace,
-};
+use crate::{macro_def::MacroDef, project_manifest::ProjectManifest};
 
 const DEFAULT_INDEX_SOURCE_PATTERNS: &[&str] = &["**"];
 
@@ -258,7 +257,9 @@ impl Workspace {
         flags: Option<&[String]>,
         is_lib: bool,
     ) -> anyhow::Result<Self> {
-        let target = target.unwrap_or("default");
+        let target = target.context(format!(
+            "FuseSoC target must be explicitly selected for root core {core_path}"
+        ))?;
         let workspace_root = core_path
             .parent()
             .map(|p| p.to_path_buf())
@@ -275,24 +276,22 @@ impl Workspace {
         cfg: &crate::toml_workspace::FuseSocTomlConfig,
         is_lib: bool,
     ) -> anyhow::Result<Self> {
+        let target = cfg.target.as_deref().context(format!(
+            "FuseSoC target must be explicitly selected in {}/vide.toml",
+            workspace_root
+        ))?;
         // The `core` field can be a file name or a VLNV.  Try file name first.
         let core_path = workspace_root.join(&cfg.core);
         if std::fs::metadata(core_path.as_path()).is_ok() {
-            return Self::from_fusesoc_core(
-                &core_path,
-                Some(&cfg.target),
-                Some(&cfg.flags),
-                is_lib,
-            );
+            return Self::from_fusesoc_core(&core_path, Some(target), Some(&cfg.flags), is_lib);
         }
 
         // Not a file — treat as a VLNV and let FuseSoC resolve libraries and
         // dependencies through its own CLI.
-        let resolved =
-            fusesoc_model::cli::load_vlnv(workspace_root, &cfg.core, &cfg.target, &cfg.flags)
-                .with_context(|| {
-                    format!("failed to load FuseSoC VLNV `{}` through the CLI", cfg.core)
-                })?;
+        let resolved = fusesoc_model::cli::load_vlnv(workspace_root, &cfg.core, target, &cfg.flags)
+            .with_context(|| {
+                format!("failed to load FuseSoC VLNV `{}` through the CLI", cfg.core)
+            })?;
         let core_path = resolved
             .cores
             .first()
@@ -1802,6 +1801,28 @@ libraries = ["../pkg"]
             errors[0].to_string().contains("fusesoc"),
             "expected a fusesoc-related error, got: {errors:?}"
         );
+    }
+
+    #[test]
+    fn fusesoc_config_missing_target_is_rejected() {
+        let root = TestDir::new("project-model-fusesoc-missing-target");
+        fs::write(
+            root.join("top.core"),
+            "CAPI=2:\nname: v:l:top:1.0\ntargets:\n  lint:\n    filesets: []\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            "[fusesoc]\ncore = \"top.core\"\n",
+        )
+        .unwrap();
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+
+        assert!(model.workspaces.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert!(format!("{:#}", errors[0]).contains("target must be explicitly selected"));
     }
 
     #[test]

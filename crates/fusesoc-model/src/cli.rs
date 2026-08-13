@@ -7,6 +7,7 @@
 
 use std::{collections::BTreeMap, fs, process::Command};
 
+use saphyr::{LoadableYamlNode, MarkedYaml};
 use serde::Deserialize;
 use serde_yaml_ng::Value;
 use utils::paths::{AbsPath, AbsPathBuf, Utf8PathBuf};
@@ -39,8 +40,8 @@ pub enum CliError {
     CoreName { path: AbsPathBuf, detail: String },
     #[error("failed to read FuseSoC core {path}: {source}")]
     ReadCore { path: AbsPathBuf, source: std::io::Error },
-    #[error("failed to parse FuseSoC core identity in {path}: {source}")]
-    ParseCore { path: AbsPathBuf, source: serde_yaml_ng::Error },
+    #[error("failed to parse FuseSoC core in {path}: {detail}")]
+    ParseCore { path: AbsPathBuf, detail: String },
 }
 
 #[derive(Debug, Deserialize)]
@@ -82,9 +83,16 @@ struct EdamCore {
     core_file: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct CoreIdentity {
-    name: String,
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreTargetInfo {
+    pub name: String,
+    pub description: Option<String>,
+    pub default_tool: Option<String>,
+    pub flow: Option<String>,
+    pub has_toplevel: bool,
+    #[serde(skip_serializing)]
+    pub source_line: u32,
 }
 
 /// Load a core file through the FuseSoC CLI.
@@ -107,6 +115,112 @@ pub fn load_core(
 fn read_core_name(core_path: &AbsPathBuf) -> Result<String, CliError> {
     let text = fs::read_to_string(core_path.as_path())
         .map_err(|source| CliError::ReadCore { path: core_path.clone(), source })?;
+    let document = parse_core_document(core_path, &text)?;
+    let name =
+        document.data.as_mapping_get("name").and_then(|name| name.data.as_str()).ok_or_else(
+            || CliError::CoreName {
+                path: core_path.clone(),
+                detail: "name is missing or not a string".to_owned(),
+            },
+        )?;
+    if name.is_empty() {
+        return Err(CliError::CoreName {
+            path: core_path.clone(),
+            detail: "name is empty".to_owned(),
+        });
+    }
+    Ok(name.to_owned())
+}
+
+/// Read the target metadata needed by the project-selection UX.
+///
+/// This intentionally only reads the target names and display metadata. FuseSoC
+/// remains authoritative for dependency resolution and EDAM generation.
+pub fn read_core_targets(core_path: &AbsPathBuf) -> Result<Vec<CoreTargetInfo>, CliError> {
+    let text = fs::read_to_string(core_path.as_path())
+        .map_err(|source| CliError::ReadCore { path: core_path.clone(), source })?;
+    read_core_targets_from_text(core_path, &text)
+}
+
+/// Read target metadata from an already-loaded core buffer.
+pub fn read_core_targets_from_text(
+    core_path: &AbsPathBuf,
+    text: &str,
+) -> Result<Vec<CoreTargetInfo>, CliError> {
+    let document = parse_core_document(core_path, text)?;
+    let Some(targets) = document.data.as_mapping_get("targets") else {
+        return Ok(Vec::new());
+    };
+    let Some(targets) = targets.data.as_mapping() else {
+        return Err(CliError::ParseCore {
+            path: core_path.clone(),
+            detail: "targets is not a mapping".to_owned(),
+        });
+    };
+
+    targets
+        .iter()
+        .map(|(name, target)| {
+            let source_line =
+                u32::try_from(name.span.start.line()).map_err(|_| CliError::ParseCore {
+                    path: core_path.clone(),
+                    detail: "target source line is too large".to_owned(),
+                })?;
+            let name = name.data.as_str().ok_or_else(|| CliError::ParseCore {
+                path: core_path.clone(),
+                detail: "target name is not a string".to_owned(),
+            })?;
+            target.data.as_mapping().ok_or_else(|| CliError::ParseCore {
+                path: core_path.clone(),
+                detail: format!("target `{name}` is not a mapping"),
+            })?;
+            Ok(CoreTargetInfo {
+                name: name.to_owned(),
+                description: yaml_string_field(target, "description", core_path)?,
+                default_tool: yaml_string_field(target, "default_tool", core_path)?,
+                flow: yaml_string_field(target, "flow", core_path)?,
+                has_toplevel: target.data.as_mapping_get("toplevel").is_some(),
+                source_line,
+            })
+        })
+        .collect()
+}
+
+fn yaml_string_field(
+    node: &MarkedYaml<'_>,
+    field: &'static str,
+    core_path: &AbsPathBuf,
+) -> Result<Option<String>, CliError> {
+    node.data
+        .as_mapping_get(field)
+        .map(|value| {
+            value.data.as_str().map(str::to_owned).ok_or_else(|| CliError::ParseCore {
+                path: core_path.clone(),
+                detail: format!("field `{field}` is not a string"),
+            })
+        })
+        .transpose()
+}
+
+fn parse_core_document<'a>(
+    core_path: &AbsPathBuf,
+    text: &'a str,
+) -> Result<MarkedYaml<'a>, CliError> {
+    let body = core_body(core_path, text)?;
+    let documents = MarkedYaml::load_from_str(body).map_err(|source| CliError::ParseCore {
+        path: core_path.clone(),
+        detail: source.to_string(),
+    })?;
+    let [document] = documents.as_slice() else {
+        return Err(CliError::ParseCore {
+            path: core_path.clone(),
+            detail: format!("expected one YAML document, got {}", documents.len()),
+        });
+    };
+    Ok(document.clone())
+}
+
+fn core_body<'a>(core_path: &AbsPathBuf, text: &'a str) -> Result<&'a str, CliError> {
     let (first, body) = text.split_once('\n').ok_or_else(|| CliError::CoreName {
         path: core_path.clone(),
         detail: "missing CAPI=2 preamble".to_owned(),
@@ -117,15 +231,7 @@ fn read_core_name(core_path: &AbsPathBuf) -> Result<String, CliError> {
             detail: format!("expected CAPI=2 preamble, got `{first}`"),
         });
     }
-    let identity: CoreIdentity = serde_yaml_ng::from_str(body)
-        .map_err(|source| CliError::ParseCore { path: core_path.clone(), source })?;
-    if identity.name.is_empty() {
-        return Err(CliError::CoreName {
-            path: core_path.clone(),
-            detail: "name is empty".to_owned(),
-        });
-    }
-    Ok(identity.name)
+    Ok(body)
 }
 
 /// Load a VLNV through the FuseSoC CLI.
@@ -368,5 +474,28 @@ cores:
         assert_eq!(project.include_dirs, [root.join("include")]);
         assert!(project.defines.contains(&("WIDTH".to_owned(), "32".to_owned())));
         assert_eq!(project.cores[0].core_file, root.join("top.core"));
+    }
+
+    #[test]
+    fn reads_core_target_metadata_without_resolving_dependencies() {
+        let root = tempfile::tempdir().unwrap();
+        let root = utils::paths::abs_path_buf_from_path_buf(root.path().to_path_buf()).unwrap();
+        let core_path = root.join("top.core");
+        fs::write(
+            core_path.as_path(),
+            "CAPI=2:\nname: v:l:top:1.0\ntargets:\n  default:\n    filesets: [rtl]\n  lint:\n    description: Run static checks\n    default_tool: verilator\n    toplevel: top\n",
+        )
+        .unwrap();
+
+        let targets = read_core_targets(&core_path).unwrap();
+
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].name, "default");
+        assert!(!targets[0].has_toplevel);
+        assert_eq!(targets[0].source_line, 3);
+        assert_eq!(targets[1].name, "lint");
+        assert_eq!(targets[1].default_tool.as_deref(), Some("verilator"));
+        assert!(targets[1].has_toplevel);
+        assert_eq!(targets[1].source_line, 5);
     }
 }

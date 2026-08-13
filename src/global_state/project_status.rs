@@ -1,5 +1,8 @@
 use lsp_types::Url;
-use project_model::project_manifest::{ProjectManifest, fusesoc_core_candidates};
+use project_model::{
+    TomlWorkspace,
+    project_manifest::{ProjectManifest, fusesoc_core_candidates},
+};
 use utils::paths::AbsPath;
 
 use super::GlobalState;
@@ -98,20 +101,52 @@ impl GlobalState {
             .config
             .project_manifests
             .iter()
-            .filter_map(|manifest| {
-                let ProjectManifest::FuseSocCoreDir(workspace_root) = manifest else {
-                    return None;
-                };
-                let workspace_uri = url_from_path(workspace_root.as_path())?;
-                let core_uris = fusesoc_core_candidates(workspace_root)
-                    .into_iter()
-                    .filter_map(|path| url_from_path(path.as_path()))
-                    .collect();
-                Some(FuseSocCoreSelection { workspace_uri, core_uris })
+            .filter_map(|manifest| match manifest {
+                ProjectManifest::FuseSocCoreDir(workspace_root) => selection_for_core_paths(
+                    workspace_root,
+                    fusesoc_core_candidates(workspace_root),
+                ),
+                ProjectManifest::FuseSocCore(core_path) => {
+                    let workspace_root = core_path.parent()?.to_path_buf();
+                    selection_for_core_paths(&workspace_root, vec![core_path.clone()])
+                }
+                ProjectManifest::Toml(manifest_path) => {
+                    let toml = match TomlWorkspace::load_from_file(manifest_path) {
+                        Ok(toml) => toml,
+                        Err(error) => {
+                            tracing::warn!(
+                                manifest_path = %manifest_path,
+                                error = %error,
+                                "failed to inspect FuseSoC selection in vide.toml"
+                            );
+                            return None;
+                        }
+                    };
+                    let fusesoc = toml.fusesoc?;
+                    if fusesoc.target.is_some() {
+                        return None;
+                    }
+                    let core_path = toml.workspace_root.join(fusesoc.core);
+                    std::fs::metadata(core_path.as_path())
+                        .is_ok_and(|metadata| metadata.is_file())
+                        .then(|| selection_for_core_paths(&toml.workspace_root, vec![core_path]))
+                        .flatten()
+                }
+                ProjectManifest::UnconfiguredRoot(_) => None,
             })
             .filter(|selection| !selection.core_uris.is_empty())
             .collect()
     }
+}
+
+fn selection_for_core_paths(
+    workspace_root: &utils::paths::AbsPathBuf,
+    core_paths: Vec<utils::paths::AbsPathBuf>,
+) -> Option<FuseSocCoreSelection> {
+    let workspace_uri = url_from_path(workspace_root.as_path())?;
+    let core_uris =
+        core_paths.into_iter().filter_map(|path| url_from_path(path.as_path())).collect();
+    Some(FuseSocCoreSelection { workspace_uri, core_uris })
 }
 
 fn url_from_path(path: &AbsPath) -> Option<Url> {

@@ -20,7 +20,8 @@ export const reloadWorkspaceCommand = 'vide.reloadWorkspace';
 export const showOutputCommand = 'vide.showOutput';
 export const showStatusCommand = 'vide.showStatus';
 export const reloadWorkspaceRequest = 'vide.server.reloadWorkspace';
-export const selectFuseSocCoreRequest = 'vide.server.selectFuseSocCore';
+export const selectFuseSocProjectRequest = 'vide.server.selectFuseSocProject';
+export const listFuseSocTargetsRequest = 'vide.server.listFuseSocTargets';
 export const projectStatusNotification = 'vide/projectStatus';
 
 export interface VideStatusActions {
@@ -70,7 +71,7 @@ export class VideStatusController implements vscode.Disposable {
   updateProjectStatus(status: ProjectStatus): void {
     this.projectStatus = status;
     this.update();
-    if (status.fusesocCoreSelections && status.fusesocCoreSelections.length > 0) {
+    if (status.fusesocCoreSelections?.some((selection) => selection.coreUris.length > 1)) {
       void this.promptForFuseSocCoreSelections(status.fusesocCoreSelections);
     }
   }
@@ -157,7 +158,7 @@ export class VideStatusController implements vscode.Disposable {
       });
     }
 
-    if ((status.fusesocCoreSelections?.length ?? 0) > 0) {
+    if (status.fusesocCoreSelections?.some((selection) => selection.coreUris.length > 1)) {
       items.push({
         label: vscode.l10n.t('$(list-selection) Select FuseSoC Root Core'),
         description: vscode.l10n.t(
@@ -237,23 +238,29 @@ export class VideStatusController implements vscode.Disposable {
       this.pendingCoreSelections.add(key);
 
       try {
-        const selected = await vscode.window.showQuickPick(
-          selection.coreUris.map((uri) => ({
-            label: baseName(uriDisplayPath(uri)),
-            description: uriDisplayPath(uri),
-            uri,
-          })),
-          {
-            title: vscode.l10n.t('Select FuseSoC Root Core'),
-            placeHolder: vscode.l10n.t(
-              'Multiple .core files were found; choose the project root core',
-            ),
-          },
-        );
-        if (!selected) {
-          return;
+        let coreUri: string | undefined;
+        if (selection.coreUris.length === 1) {
+          coreUri = selection.coreUris[0];
+        } else {
+          const selected = await vscode.window.showQuickPick(
+            selection.coreUris.map((uri) => ({
+              label: baseName(uriDisplayPath(uri)),
+              description: uriDisplayPath(uri),
+              uri,
+            })),
+            {
+              title: vscode.l10n.t('Select FuseSoC Root Core'),
+              placeHolder: vscode.l10n.t(
+                'Multiple .core files were found; choose the project root core',
+              ),
+            },
+          );
+          if (!selected) {
+            return;
+          }
+          coreUri = selected.uri;
         }
-        await action(selection.workspaceUri, selected.uri);
+        await action(selection.workspaceUri, coreUri);
       } catch (error) {
         const message = vscode.l10n.t(
           'Failed to persist the FuseSoC root core: {0}',
@@ -332,7 +339,7 @@ function localizedProjectStatusMessages(): ProjectStatusMessages {
     loadedOneManifestDetail: vscode.l10n.t('Project manifest loaded'),
     loadedManyManifestsDetail: (count) =>
       vscode.l10n.t('{0} project manifests loaded', count),
-    selectionRequiredDetail: vscode.l10n.t('Select the FuseSoC root core'),
+    selectionRequiredDetail: vscode.l10n.t('Select the FuseSoC project core and target'),
     noManifestDetail: vscode.l10n.t('No project manifest'),
     errorDetail: vscode.l10n.t('Project configuration failed'),
   };

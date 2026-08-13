@@ -4,11 +4,11 @@ use crate::{
     i18n::keys,
     lsp_ext::{
         ext::{
-            EXPANDED_RENAME_COMMAND, ExpandedRenameParams, RELOAD_WORKSPACE_COMMAND,
-            RENAME_CONFLICT_INFO_COMMAND, RENAME_EXPANSION_INFO_COMMAND, RUN_QIHE_ANALYSIS_COMMAND,
-            RenameConflictInfoParams, RenameConflictInfoResult, RenameExpansionInfoParams,
-            RenameExpansionInfoResult, RunQiheAnalysisParams, SELECT_FUSESOC_CORE_COMMAND,
-            SelectFuseSocCoreParams,
+            EXPANDED_RENAME_COMMAND, ExpandedRenameParams, LIST_FUSESOC_TARGETS_COMMAND,
+            ListFuseSocTargetsParams, RELOAD_WORKSPACE_COMMAND, RENAME_CONFLICT_INFO_COMMAND,
+            RENAME_EXPANSION_INFO_COMMAND, RUN_QIHE_ANALYSIS_COMMAND, RenameConflictInfoParams,
+            RenameConflictInfoResult, RenameExpansionInfoParams, RenameExpansionInfoResult,
+            RunQiheAnalysisParams, SELECT_FUSESOC_PROJECT_COMMAND, SelectFuseSocProjectParams,
         },
         from_proto, to_proto,
     },
@@ -32,32 +32,61 @@ fn handle_reload_workspace_command(
     Ok(None)
 }
 
-fn handle_select_fusesoc_core_command(
+fn validate_fusesoc_selection_workspace(
     state: &mut crate::global_state::GlobalState,
-    params: lsp_types::ExecuteCommandParams,
-) -> anyhow::Result<Option<serde_json::Value>> {
-    let params = extract_execute_arg::<SelectFuseSocCoreParams>(state, &params)?;
-    let workspace_root = from_proto::abs_path(&params.workspace_uri)?;
+    workspace_uri: &lsp_types::Url,
+    core_uri: &lsp_types::Url,
+) -> anyhow::Result<(utils::paths::AbsPathBuf, utils::paths::AbsPathBuf)> {
+    let workspace_root = from_proto::abs_path(workspace_uri)?;
     anyhow::ensure!(
         state.config_state.config.workspace_roots.iter().any(|root| root == &workspace_root),
         "FuseSoC workspace root is not an open workspace: {workspace_root}"
     );
-    let core_path = from_proto::abs_path(&params.core_uri)?;
-    let manifest_path = project_model::project_manifest::persist_fusesoc_core_selection(
+    let core_path = from_proto::abs_path(core_uri)?;
+    anyhow::ensure!(
+        project_model::project_manifest::fusesoc_core_candidates(&workspace_root)
+            .iter()
+            .any(|candidate| candidate == &core_path),
+        "selected FuseSoC core is not a direct .core candidate in {workspace_root}: {core_path}"
+    );
+    Ok((workspace_root, core_path))
+}
+
+fn handle_select_fusesoc_project_command(
+    state: &mut crate::global_state::GlobalState,
+    params: lsp_types::ExecuteCommandParams,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    let params = extract_execute_arg::<SelectFuseSocProjectParams>(state, &params)?;
+    let (workspace_root, core_path) =
+        validate_fusesoc_selection_workspace(state, &params.workspace_uri, &params.core_uri)?;
+    let manifest_path = project_model::project_manifest::persist_fusesoc_selection(
         &workspace_root,
         &core_path,
+        params.target.as_deref(),
     )?;
 
     tracing::info!(
         workspace_root = %workspace_root,
         core_path = %core_path,
+        target = ?params.target,
         manifest_path = %manifest_path,
-        "persisted FuseSoC root core selection"
+        "persisted FuseSoC project selection"
     );
     let config = triomphe::Arc::make_mut(&mut state.config_state.config);
     config.refresh_project_manifests();
     state.request_workspace_reload("FuseSoC root core selected");
     Ok(None)
+}
+
+fn handle_list_fusesoc_targets_command(
+    state: &mut crate::global_state::GlobalState,
+    params: lsp_types::ExecuteCommandParams,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    let params = extract_execute_arg::<ListFuseSocTargetsParams>(state, &params)?;
+    let (_, core_path) =
+        validate_fusesoc_selection_workspace(state, &params.workspace_uri, &params.core_uri)?;
+    let targets = fusesoc_model::cli::read_core_targets(&core_path)?;
+    Ok(Some(serde_json::to_value(targets)?))
 }
 
 fn handle_rename_expansion_info_command(
@@ -128,7 +157,8 @@ pub(crate) fn handle_execute_command(
     match params.command.as_str() {
         RUN_QIHE_ANALYSIS_COMMAND => handle_qihe_analysis_command(state, params),
         RELOAD_WORKSPACE_COMMAND => handle_reload_workspace_command(state),
-        SELECT_FUSESOC_CORE_COMMAND => handle_select_fusesoc_core_command(state, params),
+        LIST_FUSESOC_TARGETS_COMMAND => handle_list_fusesoc_targets_command(state, params),
+        SELECT_FUSESOC_PROJECT_COMMAND => handle_select_fusesoc_project_command(state, params),
         RENAME_EXPANSION_INFO_COMMAND => handle_rename_expansion_info_command(state, params),
         EXPANDED_RENAME_COMMAND => handle_expanded_rename_command(state, params),
         RENAME_CONFLICT_INFO_COMMAND => handle_rename_conflict_info_command(state, params),

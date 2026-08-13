@@ -140,13 +140,13 @@ pub struct FuseSocTomlConfig {
         schemars(description = "Core file name (relative to workspace root) or VLNV string")
     )]
     pub core: String,
-    /// Target name to select. Defaults to "default".
+    /// Target name to select. Vide requires this to be explicitly selected.
     #[cfg_attr(
         feature = "manifest-schema",
-        schemars(description = "Target name to select. Defaults to \"default\".")
+        schemars(description = "Target name to select. This must be explicitly selected.")
     )]
-    #[serde(default = "default_target")]
-    pub target: String,
+    #[serde(default)]
+    pub target: Option<String>,
     /// Use-flags for CAPI2 conditional expression evaluation.
     #[cfg_attr(
         feature = "manifest-schema",
@@ -154,10 +154,6 @@ pub struct FuseSocTomlConfig {
     )]
     #[serde(default)]
     pub flags: Vec<String>,
-}
-
-fn default_target() -> String {
-    "default".to_string()
 }
 
 #[cfg(feature = "manifest-schema")]

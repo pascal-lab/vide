@@ -60,10 +60,25 @@ pub fn persist_fusesoc_core_selection(
     workspace_root: &AbsPathBuf,
     core_path: &AbsPathBuf,
 ) -> anyhow::Result<AbsPathBuf> {
+    persist_fusesoc_selection(workspace_root, core_path, None)
+}
+
+/// Persist a user-selected FuseSoC root core and optional target.
+///
+/// A core-only selection is an intentionally incomplete intermediate state;
+/// loading requires a subsequent explicit target selection.
+pub fn persist_fusesoc_selection(
+    workspace_root: &AbsPathBuf,
+    core_path: &AbsPathBuf,
+    target: Option<&str>,
+) -> anyhow::Result<AbsPathBuf> {
     anyhow::ensure!(
         fusesoc_core_candidates(workspace_root).iter().any(|candidate| candidate == core_path),
         "selected FuseSoC core is not a direct .core candidate in {workspace_root}: {core_path}"
     );
+    if let Some(target) = target {
+        anyhow::ensure!(!target.is_empty(), "selected FuseSoC target must not be empty");
+    }
 
     let relative_core_path = core_path
         .as_path()
@@ -85,6 +100,9 @@ pub fn persist_fusesoc_core_selection(
     let fusesoc = document.entry("fusesoc").or_insert(Item::Table(Table::new()));
     let fusesoc = fusesoc.as_table_mut().context("vide.toml [fusesoc] must be a standard table")?;
     fusesoc["core"] = value(relative_core_path);
+    if let Some(target) = target {
+        fusesoc["target"] = value(target);
+    }
 
     fs::write(&manifest_path, document.to_string())
         .with_context(|| format!("failed to write {manifest_path}"))?;
@@ -219,8 +237,7 @@ mod tests {
     use utils::test_support::TestDir;
 
     use super::{
-        MANIFEST_FILE_NAME, ProjectManifest, ProjectManifestFileName,
-        persist_fusesoc_core_selection,
+        MANIFEST_FILE_NAME, ProjectManifest, ProjectManifestFileName, persist_fusesoc_selection,
     };
 
     #[test]
@@ -307,21 +324,15 @@ mod tests {
     }
 
     #[test]
-    fn persists_selected_core_in_vide_toml() {
-        let root = TestDir::new("fusesoc-persist-selection");
+    fn persists_selected_core_and_target_in_vide_toml() {
+        let root = TestDir::new("fusesoc-persist-core-target");
         let core_path = root.join("top.core");
         fs::write(&core_path, "CAPI=2:\nname: v:l:top:1.0\n").unwrap();
-        fs::write(root.join(MANIFEST_FILE_NAME), "sources = []\n").unwrap();
 
-        persist_fusesoc_core_selection(&root.path().to_path_buf(), &core_path).unwrap();
+        persist_fusesoc_selection(&root.path().to_path_buf(), &core_path, Some("lint")).unwrap();
 
         let manifest = fs::read_to_string(root.join(MANIFEST_FILE_NAME)).unwrap();
-        assert!(manifest.contains("[fusesoc]\ncore = \"top.core\""));
-        let workspace = super::super::toml_workspace::TomlWorkspace::load_from_file(
-            &root.join(MANIFEST_FILE_NAME),
-        )
-        .unwrap();
-        assert_eq!(workspace.fusesoc.unwrap().core, "top.core");
+        assert!(manifest.contains("[fusesoc]\ncore = \"top.core\"\ntarget = \"lint\""));
     }
 
     #[test]

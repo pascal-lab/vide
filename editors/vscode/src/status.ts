@@ -170,7 +170,7 @@ export const defaultProjectStatusMessages: ProjectStatusMessages = {
   loadingDetail: 'Loading project configuration',
   loadedOneManifestDetail: 'Project manifest loaded',
   loadedManyManifestsDetail: (count) => `${count} project manifests loaded`,
-  selectionRequiredDetail: 'Select the FuseSoC root core',
+  selectionRequiredDetail: 'Select the FuseSoC project core and target',
   noManifestDetail: 'No project manifest',
   errorDetail: 'Project configuration failed',
 };

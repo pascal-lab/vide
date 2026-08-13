@@ -26,9 +26,10 @@ import {
 import { registerQiheOptionsCommand } from './qiheOptions';
 import {
   projectStatusNotification,
+  listFuseSocTargetsRequest,
   reloadWorkspaceCommand,
   reloadWorkspaceRequest,
-  selectFuseSocCoreRequest,
+  selectFuseSocProjectRequest,
   showOutputCommand,
   showStatusCommand,
   VideStatusController,
@@ -47,6 +48,7 @@ const showServerVersionCommand = 'vide.showServerVersion';
 const showQiheOutputCommand = 'vide.showQiheOutput';
 const runQiheAnalysisCommand = 'vide.runQiheAnalysis';
 const runQiheAnalysisRequest = 'vide.server.runQiheAnalysis';
+const selectFuseSocProjectCommand = 'vide.selectFuseSocProject';
 const renameExpansionInfoRequest = 'vide.server.renameExpansionInfo';
 const expandedRenameRequest = 'vide.server.expandedRename';
 const renameConflictInfoRequest = 'vide.server.renameConflictInfo';
@@ -918,15 +920,108 @@ async function reloadWorkspace(): Promise<void> {
   }
 }
 
+interface FuseSocProjectCommandArgs {
+  workspaceUri: string;
+  coreUri?: string;
+  target?: string;
+}
+
+interface FuseSocTargetInfo {
+  name: string;
+  description?: string;
+  defaultTool?: string;
+  flow?: string;
+  hasToplevel: boolean;
+}
+
 async function selectFuseSocCore(workspaceUri: string, coreUri: string): Promise<void> {
+  await selectFuseSocProject({ workspaceUri, coreUri });
+}
+
+async function selectFuseSocProject(args: FuseSocProjectCommandArgs): Promise<void> {
   if (!client) {
     throw new Error(vscode.l10n.t('Vide language server is not running.'));
   }
 
+  const selectingCore = !args.coreUri;
+  let coreUri = args.coreUri;
+  if (!coreUri) {
+    const workspace = vscode.Uri.parse(args.workspaceUri);
+    const entries = await vscode.workspace.fs.readDirectory(workspace);
+    const candidates = entries
+      .filter(
+        ([name, type]) =>
+          type === vscode.FileType.File && path.extname(name).toLowerCase() === '.core',
+      )
+      .map(([name]) => vscode.Uri.joinPath(workspace, name).toString())
+      .sort();
+    if (candidates.length === 0) {
+      throw new Error(vscode.l10n.t('No FuseSoC .core files were found in the workspace.'));
+    }
+    if (candidates.length === 1) {
+      coreUri = candidates[0];
+    } else {
+      const selected = await vscode.window.showQuickPick(
+        candidates.map((uri) => ({
+          label: path.basename(vscode.Uri.parse(uri).fsPath),
+          description: vscode.Uri.parse(uri).fsPath,
+          uri,
+        })),
+        {
+          title: vscode.l10n.t('Select FuseSoC Root Core'),
+          placeHolder: vscode.l10n.t(
+            'Multiple .core files were found; choose the project root core',
+          ),
+        },
+      );
+      if (!selected) {
+        return;
+      }
+      coreUri = selected.uri;
+    }
+  }
+
+  let target = args.target;
+  if (selectingCore && !target) {
+    const targets = await client.sendRequest<FuseSocTargetInfo[]>('workspace/executeCommand', {
+      command: listFuseSocTargetsRequest,
+      arguments: [{ workspaceUri: args.workspaceUri, coreUri }],
+    });
+    if (targets.length === 0) {
+      throw new Error(vscode.l10n.t('The selected FuseSoC core does not define any targets.'));
+    }
+    const selectedTarget = await vscode.window.showQuickPick(
+      targets.map((item) => ({
+        label: item.name,
+        description: targetDescription(item),
+        target: item.name,
+      })),
+      {
+        title: vscode.l10n.t('Select FuseSoC Target'),
+        placeHolder: vscode.l10n.t('Choose the target to use for this Vide project'),
+      },
+    );
+    if (!selectedTarget) {
+      return;
+    }
+    target = selectedTarget.target;
+  }
+
   await client.sendRequest('workspace/executeCommand', {
-    command: selectFuseSocCoreRequest,
-    arguments: [{ workspaceUri, coreUri }],
+    command: selectFuseSocProjectRequest,
+    arguments: [{ workspaceUri: args.workspaceUri, coreUri, target }],
   });
+}
+
+function targetDescription(target: FuseSocTargetInfo): string {
+  return [
+    target.description,
+    target.flow ? `flow: ${target.flow}` : undefined,
+    target.defaultTool ? `tool: ${target.defaultTool}` : undefined,
+    target.hasToplevel ? undefined : 'no toplevel',
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(' · ');
 }
 
 async function runQiheAnalysis(resource: unknown): Promise<void> {
@@ -1052,6 +1147,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
   context.subscriptions.push(showVersionRegistration);
+
+  const selectFuseSocProjectRegistration = vscode.commands.registerCommand(
+    selectFuseSocProjectCommand,
+    async (args: unknown) => {
+      if (!args || typeof args !== 'object') {
+        throw new Error('FuseSoC project selection command requires an object argument.');
+      }
+      await selectFuseSocProject(args as FuseSocProjectCommandArgs);
+    },
+  );
+  context.subscriptions.push(selectFuseSocProjectRegistration);
 
   const runQiheRegistration = vscode.commands.registerCommand(
     runQiheAnalysisCommand,

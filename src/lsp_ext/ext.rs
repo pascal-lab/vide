@@ -143,7 +143,9 @@ pub enum CodeActionResolveError {
 
 pub const RUN_QIHE_ANALYSIS_COMMAND: &str = "vide.server.runQiheAnalysis";
 pub const RELOAD_WORKSPACE_COMMAND: &str = "vide.server.reloadWorkspace";
-pub const SELECT_FUSESOC_CORE_COMMAND: &str = "vide.server.selectFuseSocCore";
+pub const SELECT_FUSESOC_PROJECT_COMMAND: &str = "vide.server.selectFuseSocProject";
+pub const LIST_FUSESOC_TARGETS_COMMAND: &str = "vide.server.listFuseSocTargets";
+pub const SELECT_FUSESOC_PROJECT_CLIENT_COMMAND: &str = "vide.selectFuseSocProject";
 pub const RENAME_EXPANSION_INFO_COMMAND: &str = "vide.server.renameExpansionInfo";
 pub const EXPANDED_RENAME_COMMAND: &str = "vide.server.expandedRename";
 pub const RENAME_CONFLICT_INFO_COMMAND: &str = "vide.server.renameConflictInfo";
@@ -256,7 +258,16 @@ pub struct FuseSocCoreSelection {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SelectFuseSocCoreParams {
+pub struct SelectFuseSocProjectParams {
+    pub workspace_uri: lsp_types::Url,
+    pub core_uri: lsp_types::Url,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListFuseSocTargetsParams {
     pub workspace_uri: lsp_types::Url,
     pub core_uri: lsp_types::Url,
 }

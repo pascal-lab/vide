@@ -1,6 +1,43 @@
 use super::*;
 
 #[test]
+fn fusesoc_core_code_lenses_select_core_and_target_separately() {
+    let temp_dir = TempDir::new("fusesoc-code-lenses");
+    let core_text = "CAPI=2:\nname: v:l:top:1.0\n\nfilesets:\n  rtl:\n    files: [top.sv]\n    file_type: systemVerilogSource\n\ntargets:\n  default:\n    filesets: [rtl]\n  lint:\n    default_tool: verilator\n    filesets: [rtl]\n    toplevel: top\n";
+    fs::write(temp_dir.path().join("top.core"), core_text).unwrap();
+    fs::write(temp_dir.path().join("top.sv"), "module top; endmodule\n").unwrap();
+    fs::write(
+        temp_dir.path().join("vide.toml"),
+        "[fusesoc]\ncore = \"top.core\"\ntarget = \"lint\"\n",
+    )
+    .unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let (client, server_thread) =
+        spawn_test_workspace(root_path, ClientCapabilities::default(), UserConfig::default());
+    let core_uri = to_proto::url_from_abs_path(temp_dir.path().join("top.core").as_path()).unwrap();
+    open_test_document(&client, core_uri.clone(), core_text);
+
+    let lenses = request_code_lenses(&client, core_uri, 1);
+    let titles = lenses
+        .iter()
+        .filter_map(|lens| lens.command.as_ref().map(|command| command.title.clone()))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        titles,
+        vec![
+            "Use this core for Vide".to_owned(),
+            "Use target 'default' for Vide".to_owned(),
+            "Use target 'lint' for Vide".to_owned(),
+        ]
+    );
+    assert!(lenses.iter().all(|lens| lens.data.is_none()));
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn system_call_inlay_hints_annotate_arguments() {
     let text = "module m;\ninitial begin\n  $display(\"x=%d\", x);\n  $readmemh(\"mem.hex\", mem);\nend\nendmodule\n";
     let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
