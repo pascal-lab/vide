@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_yaml_ng::Value;
 use utils::paths::{AbsPath, AbsPathBuf, Utf8PathBuf};
 
-use crate::{ResolvedCore, ResolvedFile, ResolvedProject, Vlnv, load_core_file};
+use crate::{ResolvedCore, ResolvedFile, ResolvedProject};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CliError {
@@ -37,6 +37,10 @@ pub enum CliError {
     InvalidField { field: &'static str, detail: String },
     #[error("invalid FuseSoC core name in {path}: {detail}")]
     CoreName { path: AbsPathBuf, detail: String },
+    #[error("failed to read FuseSoC core {path}: {source}")]
+    ReadCore { path: AbsPathBuf, source: std::io::Error },
+    #[error("failed to parse FuseSoC core identity in {path}: {source}")]
+    ParseCore { path: AbsPathBuf, source: serde_yaml_ng::Error },
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,26 +82,50 @@ struct EdamCore {
     core_file: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct CoreIdentity {
+    name: String,
+}
+
 /// Load a core file through the FuseSoC CLI.
 pub fn load_core(
     core_path: &AbsPathBuf,
     target: &str,
     flags: &[String],
 ) -> Result<ResolvedProject, CliError> {
-    let core = load_core_file(core_path).map_err(|error| CliError::CoreName {
-        path: core_path.clone(),
-        detail: error.to_string(),
-    })?;
-    let vlnv = Vlnv::parse(&core.name).map_err(|error| CliError::CoreName {
-        path: core_path.clone(),
-        detail: error.to_string(),
-    })?;
+    let core_name = read_core_name(core_path)?;
     let workspace_root = core_path.parent().ok_or_else(|| CliError::CoreName {
         path: core_path.clone(),
         detail: "core path has no parent".to_owned(),
     })?;
 
-    load_vlnv(workspace_root, &vlnv.vlnv(), target, flags)
+    load_vlnv(workspace_root, &core_name, target, flags)
+}
+
+/// Read only the identity needed to invoke the CLI. FuseSoC remains
+/// authoritative for all actual CAPI2 parsing and project expansion.
+fn read_core_name(core_path: &AbsPathBuf) -> Result<String, CliError> {
+    let text = fs::read_to_string(core_path.as_path())
+        .map_err(|source| CliError::ReadCore { path: core_path.clone(), source })?;
+    let (first, body) = text.split_once('\n').ok_or_else(|| CliError::CoreName {
+        path: core_path.clone(),
+        detail: "missing CAPI=2 preamble".to_owned(),
+    })?;
+    if first.trim() != "CAPI=2:" {
+        return Err(CliError::CoreName {
+            path: core_path.clone(),
+            detail: format!("expected CAPI=2 preamble, got `{first}`"),
+        });
+    }
+    let identity: CoreIdentity = serde_yaml_ng::from_str(body)
+        .map_err(|source| CliError::ParseCore { path: core_path.clone(), source })?;
+    if identity.name.is_empty() {
+        return Err(CliError::CoreName {
+            path: core_path.clone(),
+            detail: "name is empty".to_owned(),
+        });
+    }
+    Ok(identity.name)
 }
 
 /// Load a VLNV through the FuseSoC CLI.
@@ -253,16 +281,12 @@ fn project_from_edam(edam_path: &AbsPathBuf, edam: Edam) -> Result<ResolvedProje
         .cores
         .into_iter()
         .map(|(name, core)| {
-            let vlnv = Vlnv::parse(&name).map_err(|error| CliError::InvalidField {
-                field: "cores",
-                detail: format!("invalid VLNV `{name}`: {error}"),
-            })?;
             let core_file = resolve_path(work_root, &core.core_file, "cores[].core_file")?;
             let core_root = core_file.parent().ok_or(CliError::InvalidField {
                 field: "cores[].core_file",
                 detail: format!("core file has no parent: {core_file}"),
             })?;
-            Ok(ResolvedCore { vlnv, core_root: core_root.to_path_buf(), core_file })
+            Ok(ResolvedCore { name, core_root: core_root.to_path_buf(), core_file })
         })
         .collect::<Result<Vec<_>, CliError>>()?;
 

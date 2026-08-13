@@ -35,8 +35,8 @@ pub enum ProjectManifest {
     Toml(AbsPathBuf),
     /// A FuseSoC CAPI2 `.core` file explicitly selected.
     FuseSocCore(AbsPathBuf),
-    /// A directory containing multiple FuseSoC `.core` files.  The loader
-    /// will scan all of them and select the root core automatically.
+    /// A directory containing multiple FuseSoC `.core` files. The loader
+    /// rejects this until the root core is selected in `vide.toml`.
     FuseSocCoreDir(AbsPathBuf),
     UnconfiguredRoot(AbsPathBuf),
 }
@@ -88,15 +88,14 @@ impl ProjectManifest {
             }
         }
 
-        // No vide.toml — look for a single .core file in the workspace root.
         // No vide.toml — look for .core files in the workspace root.
         let core_files = find_core_files(path);
         match core_files.len() {
             0 => {}
             1 => return Self::from_fusesoc_core(&core_files[0]),
             _ => {
-                // Multiple .core files — the loader will scan all and select
-                // the root core automatically.
+                // Multiple cores require an explicit root selection in
+                // vide.toml; preserve the directory for an actionable error.
                 return Ok(Self::FuseSocCoreDir(path.clone()));
             }
         }
@@ -254,7 +253,8 @@ mod tests {
         let root_abs = root.path().to_path_buf();
         let manifest = ProjectManifest::from_path(&root_abs).unwrap();
 
-        // Multiple cores — loads as FuseSocCoreDir for auto-selection.
+        // Multiple cores — the workspace loader requires an explicit root
+        // selection in vide.toml.
         assert_eq!(manifest, ProjectManifest::FuseSocCoreDir(root_abs));
     }
 

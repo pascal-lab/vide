@@ -258,105 +258,15 @@ impl Workspace {
         flags: Option<&[String]>,
         is_lib: bool,
     ) -> anyhow::Result<Self> {
-        use fusesoc_model::{project, resolve, vlnv};
-        use utils::line_index::{TextRange, TextSize};
-
-        use crate::macro_def::{MacroAtom, MacroDef, MacroDefSource};
-
         let target = target.unwrap_or("default");
-        let _flags_set: fusesoc_model::expr::FlagDefs =
-            flags.map(|f| f.iter().cloned().collect()).unwrap_or_default();
-
         let workspace_root = core_path
             .parent()
             .map(|p| p.to_path_buf())
             .context("FuseSoC .core path has no parent")?;
+        let resolved = fusesoc_model::cli::load_core(core_path, target, flags.unwrap_or(&[]))
+            .with_context(|| format!("failed to load FuseSoC core through the CLI: {core_path}"))?;
 
-        // Load the .core file.
-        let core = fusesoc_model::load_core_file(core_path)
-            .context("failed to parse FuseSoC .core file")?;
-        let top_vlnv = vlnv::Vlnv::parse(&core.name)
-            .map_err(|e| anyhow::anyhow!("invalid VLNV in .core: {e}"))?;
-
-        // Build core index from the workspace root and resolve dependencies.
-        let (index, parse_errors) =
-            resolve::CoreIndex::from_roots(std::slice::from_ref(&workspace_root));
-        let graph = index.resolve(&top_vlnv, target);
-        let resolution_errors: Vec<String> = parse_errors
-            .iter()
-            .map(|e| e.to_string())
-            .chain(graph.errors.iter().map(|e| e.to_string()))
-            .collect();
-        if !resolution_errors.is_empty() {
-            tracing::warn!("FuseSoC resolution errors: {resolution_errors:?}");
-        }
-
-        // Expand into a flat project.
-        let resolved = project::expand(&graph, target);
-
-        let kind = WorkspaceKind::from_is_lib(is_lib);
-
-        // Collect all source file paths from the resolved project.
-        let source_files: Vec<AbsPathBuf> =
-            resolved.files.iter().filter(|f| !f.is_include_file).map(|f| f.path.clone()).collect();
-
-        // Include files still need to be in the VFS, but as headers.
-        let include_files: Vec<AbsPathBuf> =
-            resolved.files.iter().filter(|f| f.is_include_file).map(|f| f.path.clone()).collect();
-
-        let include_dirs = resolved.include_dirs;
-
-        // Build source matchers from the source files.
-        let all_files: Vec<AbsPathBuf> =
-            source_files.iter().chain(include_files.iter()).cloned().collect();
-        let source = PathMatcher::all_under_roots(all_files.clone());
-
-        // Build defines as predefines for the semantic profile.
-        let predefine_strings: Vec<String> = resolved
-            .defines
-            .iter()
-            .map(|(k, v)| if v.is_empty() { k.clone() } else { format!("{k}={v}") })
-            .collect();
-
-        // Build MacroDef from FuseSoC defines (no source ranges available).
-        let mut macros: FxHashSet<MacroAtom> = FxHashSet::default();
-        let mut sources: Vec<MacroDefSource> = Vec::new();
-        let zero_range = TextRange::new(TextSize::from(0), TextSize::from(0));
-        for s in &predefine_strings {
-            let atom = if let Some((key, value)) = s.split_once('=') {
-                MacroAtom::KeyValue { key: key.into(), value: value.into() }
-            } else {
-                MacroAtom::Flag(s.into())
-            };
-            macros.insert(atom.clone());
-            sources.push(MacroDefSource { atom, range: zero_range });
-        }
-        let macro_defs = MacroDef { macros, sources };
-
-        let root_parts = WorkspaceRootParts {
-            source: source.clone(),
-            source_directories: source,
-            source_files: all_files,
-            extra_files: vec![core_path.clone()],
-            include_dirs: include_dirs.clone(),
-            exclude_prefixes: Vec::new(),
-            exclude_globs: None,
-        };
-
-        let roots =
-            workspace_roots(kind, &ManifestSourcePolicy::Explicit(vec![]), true, root_parts);
-
-        let semantic_profile =
-            roots.iter().any(WorkspaceRoot::contributes_semantic_profile).then(|| {
-                semantic_profile(
-                    resolved.top_modules,
-                    macro_defs,
-                    include_dirs,
-                    Some(core_path.clone()),
-                )
-            });
-
-        Ok(Self { workspace_root, library_paths: Vec::new(), kind, roots, semantic_profile })
+        Self::from_fusesoc_resolved(&workspace_root, core_path, &resolved, is_lib)
     }
 
     /// Load a FuseSoC project from a `[fusesoc]` section in vide.toml.
@@ -376,62 +286,36 @@ impl Workspace {
             );
         }
 
-        // Not a file — treat as VLNV and search the workspace root.
-        let (index, parse_errors) =
-            fusesoc_model::resolve::CoreIndex::from_roots(std::slice::from_ref(workspace_root));
-        if !parse_errors.is_empty() {
-            tracing::warn!("FuseSoC parse errors: {parse_errors:?}");
-        }
-
-        let top_vlnv = fusesoc_model::vlnv::Vlnv::parse(&cfg.core)
-            .map_err(|e| anyhow::anyhow!("invalid VLNV `{}`: {e}", cfg.core))?;
-        let graph = index.resolve(&top_vlnv, &cfg.target);
-        let resolved = fusesoc_model::project::expand(&graph, &cfg.target);
-
-        // Find the core file path from the resolved graph.
-        let core_path = graph
+        // Not a file — treat as a VLNV and let FuseSoC resolve libraries and
+        // dependencies through its own CLI.
+        let resolved =
+            fusesoc_model::cli::load_vlnv(workspace_root, &cfg.core, &cfg.target, &cfg.flags)
+                .with_context(|| {
+                    format!("failed to load FuseSoC VLNV `{}` through the CLI", cfg.core)
+                })?;
+        let core_path = resolved
             .cores
             .first()
-            .map(|c| c.core_root.join(format!("{}.core", c.vlnv.name)))
-            .unwrap_or_else(|| workspace_root.clone());
+            .map(|core| core.core_file.clone())
+            .context("FuseSoC CLI EDAM did not identify the root core file")?;
 
         Self::from_fusesoc_resolved(workspace_root, &core_path, &resolved, is_lib)
     }
 
-    /// Load a FuseSoC project from a directory with multiple `.core` files.
-    /// Scans all cores and auto-selects the root (the one no other core
-    /// depends on, or the first if ambiguous).
+    /// Refuse to guess the root when a directory contains multiple cores.
+    /// The user must select it in `[fusesoc] core` in `vide.toml`.
     fn from_fusesoc_core_dir(dir: &AbsPathBuf, is_lib: bool) -> anyhow::Result<Self> {
-        use fusesoc_model::{project, resolve, vlnv};
-
-        // Build core index from the directory.
-        let (index, parse_errors) = resolve::CoreIndex::from_roots(std::slice::from_ref(dir));
-        if !parse_errors.is_empty() {
-            tracing::warn!("FuseSoC parse errors: {parse_errors:?}");
-        }
-
-        // Auto-select the root core: find a core that no other local core
-        // depends on.  If ambiguous, use the first alphabetically.
-        let all_vlnvs: Vec<vlnv::Vlnv> = index.all_vlnvs().into_iter().collect();
-        let root_vlnv = auto_select_root_core(&index, &all_vlnvs)
-            .ok_or_else(|| anyhow::anyhow!("no FuseSoC cores found in {dir}"))?;
-
-        let graph = index.resolve(&root_vlnv, "default");
-        if !graph.errors.is_empty() {
-            tracing::warn!("FuseSoC resolution errors: {:?}", graph.errors);
-        }
-
-        let resolved = project::expand(&graph, "default");
-        let core_path = dir.join(format!("{}.core", root_vlnv.name));
-
-        Self::from_fusesoc_resolved(dir, &core_path, &resolved, is_lib)
+        let _ = is_lib;
+        anyhow::bail!(
+            "multiple FuseSoC .core files found in {dir}; select the root core explicitly with [fusesoc]\ncore = \"path/to/top.core\"\n in vide.toml"
+        )
     }
 
     /// Build a Workspace from a resolved FuseSoC project.
     fn from_fusesoc_resolved(
         workspace_root: &AbsPathBuf,
         core_path: &AbsPathBuf,
-        resolved: &fusesoc_model::project::ResolvedProject,
+        resolved: &fusesoc_model::ResolvedProject,
         is_lib: bool,
     ) -> anyhow::Result<Self> {
         use utils::line_index::{TextRange, TextSize};
@@ -566,41 +450,6 @@ fn semantic_profile(
             predefines: macro_defs.to_predefines(manifest_path.as_ref()),
             include_dirs,
         },
-    }
-}
-
-/// Auto-select the root core from a set of VLNVs: the core that no other
-/// local core depends on.  If ambiguous, return the first alphabetically.
-fn auto_select_root_core(
-    index: &fusesoc_model::resolve::CoreIndex,
-    vlnvs: &[fusesoc_model::vlnv::Vlnv],
-) -> Option<fusesoc_model::vlnv::Vlnv> {
-    use std::collections::HashSet;
-
-    // Collect all VLNVs that are depended upon by another core.
-    let mut depended_upon: HashSet<String> = HashSet::new();
-    for vlnv in vlnvs {
-        for dep_str in index.dependencies_of(vlnv) {
-            if let Ok(req) = fusesoc_model::vlnv::VlnvRequirement::parse(&dep_str) {
-                depended_upon.insert(req.vlnv.vln());
-            }
-        }
-    }
-
-    // Root candidates: VLNVs that are NOT depended upon by any other core.
-    let roots: Vec<_> = vlnvs.iter().filter(|v| !depended_upon.contains(&v.vln())).collect();
-
-    match roots.len() {
-        0 => {
-            // All cores are depended upon — likely a cycle.  Fall back to
-            // the first alphabetically.
-            vlnvs.iter().min_by_key(|v| v.vlnv()).cloned()
-        }
-        1 => Some(roots[0].clone()),
-        _ => {
-            // Multiple roots — pick the first alphabetically by VLNV.
-            roots.into_iter().min_by_key(|v| v.vlnv()).cloned()
-        }
     }
 }
 
@@ -1909,7 +1758,7 @@ libraries = ["../pkg"]
         fs::create_dir_all(root.join("rtl")).unwrap();
         fs::write(
             root.join("top.core"),
-            "CAPI=2:\nname: v:l:top:1.0\n\nfilesets:\n  rtl:\n    files: [rtl/top.sv : {file_type: systemVerilogSource}]\n\ntargets:\n  fpga:\n    filesets: [rtl]\n    toplevel: top\n",
+            "CAPI=2:\nname: v:l:top:1.0\n\nfilesets:\n  rtl:\n    files: [rtl/top.sv : {file_type: systemVerilogSource}]\n\ntargets:\n  fpga:\n    default_tool: icarus\n    filesets: [rtl]\n    toplevel: top\n",
         )
         .unwrap();
         fs::write(root.join("rtl/top.sv"), "module top; endmodule\n").unwrap();
@@ -1953,5 +1802,26 @@ libraries = ["../pkg"]
             errors[0].to_string().contains("fusesoc"),
             "expected a fusesoc-related error, got: {errors:?}"
         );
+    }
+
+    #[test]
+    fn fusesoc_multiple_cores_require_explicit_root() {
+        let root = TestDir::new("project-model-fusesoc-multiple-cores");
+        for name in ["a", "b"] {
+            fs::write(
+                root.join(format!("{name}.core")),
+                format!("CAPI=2:\nname: v:l:{name}:1.0\n"),
+            )
+            .unwrap();
+        }
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+
+        assert!(model.workspaces.is_empty());
+        assert_eq!(errors.len(), 1);
+        let error = format!("{:#}", errors[0]);
+        assert!(error.contains("select the root core explicitly"), "unexpected error: {error}");
+        assert!(error.contains("[fusesoc]"));
     }
 }
