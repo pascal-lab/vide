@@ -24,6 +24,7 @@
 //! The output [`ResolvedProject`] is a flat, tool-agnostic description of
 //! source files, include directories, defines, and top-level modules.
 
+pub mod cli;
 pub mod expr;
 pub mod normalize;
 pub mod project;

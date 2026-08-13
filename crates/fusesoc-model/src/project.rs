@@ -38,6 +38,7 @@ pub struct ResolvedFile {
 pub struct ResolvedCore {
     pub vlnv: Vlnv,
     pub core_root: AbsPathBuf,
+    pub core_file: AbsPathBuf,
 }
 
 /// Expand a resolved dependency graph into a flat project.
@@ -77,7 +78,11 @@ pub fn expand(graph: &ResolvedGraph, top_target: &str) -> ResolvedProject {
             expand_fileset(fs, core_root, &mut files, &mut include_dirs, &mut defines);
         }
 
-        cores.push(ResolvedCore { vlnv: gc.vlnv.clone(), core_root: gc.core_root.clone() });
+        cores.push(ResolvedCore {
+            vlnv: gc.vlnv.clone(),
+            core_root: gc.core_root.clone(),
+            core_file: gc.core_root.join(format!("{}.core", gc.vlnv.name)),
+        });
     }
 
     // Deduplicate include dirs.

@@ -14,6 +14,7 @@ indexmap = { version = "2", features = ["serde"] }
 smol_str.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+tempfile.workspace = true
 utils = { workspace = true, features = ["camino_serde1"] }
 
 [dev-dependencies]
