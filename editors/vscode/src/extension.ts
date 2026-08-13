@@ -17,6 +17,7 @@ import { profileDiagnosticsCommand, registerProfilingCommand } from './profiling
 import { serverInitializationOptions } from './initializationOptions';
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
+  FUSE_SOC_CORE_FILE_GLOB,
   PROJECT_CONFIG_FILE_GLOB,
   PROJECT_CONFIG_FILE_NAMES,
   PROJECT_CONFIG_FILE_NAME,
@@ -794,6 +795,7 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
       { scheme: 'file', language: 'verilog' },
       { scheme: 'file', language: 'systemverilog' },
       { scheme: 'file', pattern: PROJECT_CONFIG_FILE_GLOB },
+      { scheme: 'file', pattern: FUSE_SOC_CORE_FILE_GLOB },
     ],
     synchronize: {
       configurationSection: ['vide'],

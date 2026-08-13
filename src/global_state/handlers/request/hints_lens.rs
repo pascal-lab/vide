@@ -41,6 +41,7 @@ pub(crate) fn handle_code_lens(
     let line_info = snap.line_info(file_id)?;
 
     if let Some(lenses) = fusesoc_code_lenses(&snap, file_id, &line_info)? {
+        tracing::debug!(lens_count = lenses.len(), "provided FuseSoC code lenses");
         return Ok(Some(lenses));
     }
 
