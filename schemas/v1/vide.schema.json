@@ -87,10 +87,50 @@
           "**/*_bb.v"
         ]
       ]
+    },
+    "fusesoc": {
+      "description": "FuseSoC CAPI2 integration.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FuseSocTomlConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "additionalProperties": false,
   "x-tombi-table-keys-order": "schema",
+  "$defs": {
+    "FuseSocTomlConfig": {
+      "description": "Configuration for FuseSoC .core loading from a vide.toml `[fusesoc]`\nsection.",
+      "type": "object",
+      "properties": {
+        "core": {
+          "description": "Core file name (relative to workspace root) or VLNV string",
+          "type": "string"
+        },
+        "target": {
+          "description": "Target name to select. Defaults to \"default\".",
+          "type": "string",
+          "default": "default"
+        },
+        "flags": {
+          "description": "Use-flags for CAPI2 conditional expression evaluation.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "core"
+      ]
+    }
+  },
   "x-vide-manifest-names": {
     "primary": "vide.toml"
   }
