@@ -1902,4 +1902,56 @@ libraries = ["../pkg"]
         let app_profile = project_config.profile(app_profile_id).unwrap();
         assert_eq!(app_profile.source_roots, vec![SourceRootId(0), SourceRootId(1)]);
     }
+
+    #[test]
+    fn fusesoc_config_loads_core_with_explicit_target() {
+        let root = TestDir::new("project-model-fusesoc-config");
+        fs::create_dir_all(root.join("rtl")).unwrap();
+        fs::write(
+            root.join("top.core"),
+            "CAPI=2:\nname: v:l:top:1.0\n\nfilesets:\n  rtl:\n    files: [rtl/top.sv : {file_type: systemVerilogSource}]\n\ntargets:\n  fpga:\n    filesets: [rtl]\n    toplevel: top\n",
+        )
+        .unwrap();
+        fs::write(root.join("rtl/top.sv"), "module top; endmodule\n").unwrap();
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            "[fusesoc]\ncore = \"top.core\"\ntarget = \"fpga\"\n",
+        )
+        .unwrap();
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert_eq!(model.workspaces.len(), 1);
+        let workspace = &model.workspaces[0];
+        assert_eq!(workspace.root(), &root.path().to_path_buf());
+        assert!(workspace.roots().iter().any(|root| {
+            root.source_files.iter().any(|file| file.as_path().to_string().ends_with("rtl/top.sv"))
+        }));
+        assert_eq!(
+            workspace.semantic_profile().map(|profile| profile.top_modules.clone()),
+            Some(vec!["top".to_owned()])
+        );
+    }
+
+    #[test]
+    fn fusesoc_config_missing_core_is_rejected() {
+        let root = TestDir::new("project-model-fusesoc-missing-core");
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            "[fusesoc]\ntarget = \"fpga\"\n",
+        )
+        .unwrap();
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+
+        assert!(model.workspaces.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0].to_string().contains("fusesoc"),
+            "expected a fusesoc-related error, got: {errors:?}"
+        );
+    }
 }
