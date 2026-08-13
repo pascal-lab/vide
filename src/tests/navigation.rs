@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn fusesoc_core_code_lenses_select_core_and_target_separately() {
+fn fusesoc_core_code_lenses_select_core_and_target_together() {
     let temp_dir = TempDir::new("fusesoc-code-lenses");
     let core_text = "CAPI=2:\nname: v:l:top:1.0\n\nfilesets:\n  rtl:\n    files: [top.sv]\n    file_type: systemVerilogSource\n\ntargets:\n  default:\n    filesets: [rtl]\n  lint:\n    default_tool: verilator\n    filesets: [rtl]\n    toplevel: top\n";
     fs::write(temp_dir.path().join("top.core"), core_text).unwrap();
@@ -26,11 +26,7 @@ fn fusesoc_core_code_lenses_select_core_and_target_separately() {
 
     assert_eq!(
         titles,
-        vec![
-            "Use this core for Vide".to_owned(),
-            "Use target 'default' for Vide".to_owned(),
-            "Use target 'lint' for Vide".to_owned(),
-        ]
+        vec!["Use target 'default' for Vide".to_owned(), "Use target 'lint' for Vide".to_owned(),]
     );
     assert!(lenses.iter().all(|lens| lens.data.is_none()));
 

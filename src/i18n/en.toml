@@ -39,7 +39,6 @@ unsupported_syntax = "unsupported syntax '{syntax_kind}': {message}"
 [code_lens]
 instances_one = "{count} instance"
 instances_many = "{count} instances"
-fusesoc_use_core = "Use this core for Vide"
 fusesoc_use_target = "Use target '{target}' for Vide"
 fusesoc_configure_project = "Configure FuseSoC project"
 

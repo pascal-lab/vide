@@ -121,19 +121,6 @@ fn fusesoc_core_code_lenses(
     }
 
     let mut lenses = Vec::new();
-    if let Some(range) = line_info.index.range_for_line(0) {
-        lenses.push(lsp_types::CodeLens {
-            range: to_proto::range(line_info, range),
-            command: Some(fusesoc_command(
-                snap.config.i18n.text(keys::CODE_LENS_FUSESOC_USE_CORE).to_owned(),
-                workspace_uri.clone(),
-                Some(core_uri.clone()),
-                None,
-            )),
-            data: None,
-        });
-    }
-
     let targets = fusesoc_model::cli::read_core_targets_from_text(core_path, text)?;
     for target in targets {
         let line = target.source_line;

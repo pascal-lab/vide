@@ -39,7 +39,6 @@ unsupported_syntax = "暂不支持的语法 '{syntax_kind}'：{message}"
 [code_lens]
 instances_one = "{count} 个实例"
 instances_many = "{count} 个实例"
-fusesoc_use_core = "将此 core 用作 Vide 项目"
 fusesoc_use_target = "将 target '{target}' 用作 Vide 项目"
 fusesoc_configure_project = "配置 FuseSoC 项目"
 

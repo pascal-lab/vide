@@ -936,16 +936,11 @@ interface FuseSocTargetInfo {
   hasToplevel: boolean;
 }
 
-async function selectFuseSocCore(workspaceUri: string, coreUri: string): Promise<void> {
-  await selectFuseSocProject({ workspaceUri, coreUri });
-}
-
 async function selectFuseSocProject(args: FuseSocProjectCommandArgs): Promise<void> {
   if (!client) {
     throw new Error(vscode.l10n.t('Vide language server is not running.'));
   }
 
-  const selectingCore = !args.coreUri;
   let coreUri = args.coreUri;
   if (!coreUri) {
     const workspace = vscode.Uri.parse(args.workspaceUri);
@@ -984,7 +979,7 @@ async function selectFuseSocProject(args: FuseSocProjectCommandArgs): Promise<vo
   }
 
   let target = args.target;
-  if (selectingCore && !target) {
+  if (!target) {
     const targets = await client.sendRequest<FuseSocTargetInfo[]>('workspace/executeCommand', {
       command: listFuseSocTargetsRequest,
       arguments: [{ workspaceUri: args.workspaceUri, coreUri }],
@@ -1100,7 +1095,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const profileTraceEnabled = isProfileTraceEnabled(context);
   videStatusController = new VideStatusController({
     createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
-    selectFuseSocCore,
+    selectFuseSocProject: (workspaceUri) => selectFuseSocProject({ workspaceUri }),
     profileDiagnostics: profileTraceEnabled
       ? async () => {
           await vscode.commands.executeCommand(profileDiagnosticsCommand);
