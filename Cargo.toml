@@ -11,7 +11,26 @@ readme = "README.md"
 description = "Language server for Verilog and System-Verilog"
 
 [workspace]
-members = [".", "crates/*", "xtask"]
+members = [
+  ".",
+  "crates/base-db",
+  "crates/hir-def",
+  "crates/hir-semantics",
+  "crates/hir-ty",
+  "crates/ide",
+  "crates/preproc",
+  "crates/preproc-expand",
+  "crates/project-model",
+  "crates/slang-sys",
+  "crates/syntax",
+  "crates/user-config",
+  "crates/utils",
+  "crates/vfs",
+  "crates/vide-lsp-runtime",
+  "crates/vide-lsp-wasm",
+  "crates/workspace-model",
+  "xtask",
+]
 
 [workspace.package]
 edition = "2024"
@@ -47,7 +66,11 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 toml.workspace = true
-tracing-subscriber = { version = "0.3.17", default-features = false, features = ["registry", "fmt", "tracing-log",] }
+tracing-subscriber = { version = "0.3.17", default-features = false, features = [
+  "registry",
+  "fmt",
+  "tracing-log",
+] }
 tracing-chrome = { version = "0.7.2", optional = true }
 tracing.workspace = true
 triomphe.workspace = true
