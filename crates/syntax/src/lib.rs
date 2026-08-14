@@ -25,7 +25,7 @@ pub mod trivia {
 pub type Trivia<'a> = SyntaxTrivia<'a>;
 pub use slang_ext::{
     AstNodeExt, SyntaxCursorExt, SyntaxNodeExt, SyntaxTokenExt, SyntaxTokenWithParentExt,
-    TokenAtOffset, TokenKindExt, TriviaExt, TriviaKindExt, ast_ext, pair_token,
+    TokenAtOffset, TokenKindExt, TriviaExt, TriviaKindExt, pair_token,
 };
 pub use slang_sys::{
     ActualArgument, Event, EventId, MacroCallId, MacroDefinitionId, MacroExpansionId, MacroParam,

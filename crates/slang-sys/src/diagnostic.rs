@@ -10,7 +10,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generated_diagnostic_metadata_matches_slang_definitions() {
+    fn generated_binding_diagnostic_metadata_matches_slang_definitions() {
         let expected_expression = DiagCode::EXPECTED_EXPRESSION.info().unwrap();
         assert_eq!(expected_expression.name, "ExpectedExpression");
         assert_eq!(expected_expression.subsystem, DiagSubsystem::General);

@@ -35,6 +35,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Generated configuration check
         run: cargo xtask check-config-artifacts
+      - name: Generated Slang binding check
+        run: cargo test -p slang-sys generated_binding_
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 

@@ -92,7 +92,7 @@ endmodule
     }
 
     #[test]
-    fn syntax_tree_and_generated_accessors_work() {
+    fn generated_binding_ast_accessors_match_slang_parser() {
         let tree = SyntaxTree::from_text_with_options(
             "module demo; endmodule",
             "accessor_demo",

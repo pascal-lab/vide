@@ -1,9 +1,9 @@
 use syntax::{
     SyntaxAncestors, SyntaxKeywordContext, SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent,
     ast::{self, AstNode},
-    ast_ext::NamedConnectionDotZoneExt,
     has_text_range::{HasTextRange, HasTextRangeIn},
 };
+use utils::line_index::TextSize;
 
 use super::{CompletionExpectation, ExpectedSyntax, caret::CaretSnapshot, util::in_parens};
 use crate::completion::syntax_keywords;
@@ -79,13 +79,25 @@ fn expectation_after_dot(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectat
     let offset = caret.offset;
 
     if let Some(named) = caret.root.find_node_at_offset::<ast::NamedPortConnection<'_>>(offset)
-        && named.dot_name_zone_contains(offset)
+        && named_connection_dot_zone_contains(
+            offset,
+            named.syntax(),
+            named.dot(),
+            named.name(),
+            named.open_paren(),
+        )
     {
         return Some(node_expectation(ExpectedSyntax::PortConnectionName, named.syntax()));
     }
 
     if let Some(named) = caret.root.find_node_at_offset::<ast::NamedParamAssignment<'_>>(offset)
-        && named.dot_name_zone_contains(offset)
+        && named_connection_dot_zone_contains(
+            offset,
+            named.syntax(),
+            named.dot(),
+            named.name(),
+            named.open_paren(),
+        )
     {
         return Some(node_expectation(ExpectedSyntax::ParameterAssignmentName, named.syntax()));
     }
@@ -93,6 +105,26 @@ fn expectation_after_dot(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectat
     let prev = caret.root.token_before_offset(offset)?;
     (prev.kind() == syntax::Token![.])
         .then_some(token_expectation(ExpectedSyntax::MemberName, prev.tok))
+}
+
+fn named_connection_dot_zone_contains(
+    offset: TextSize,
+    context: syntax::SyntaxNode<'_>,
+    dot: Option<SyntaxToken<'_>>,
+    name: Option<SyntaxToken<'_>>,
+    open_paren: Option<SyntaxToken<'_>>,
+) -> bool {
+    let text_range = |token: SyntaxToken<'_>| token.text_range_in(context);
+    let Some(dot_range) = dot.and_then(text_range) else {
+        return false;
+    };
+    let zone_end = open_paren
+        .and_then(text_range)
+        .map(|range| range.start())
+        .or_else(|| name.and_then(text_range).map(|range| range.end()))
+        .unwrap_or_else(|| dot_range.end());
+
+    offset >= dot_range.end() && offset <= zone_end
 }
 
 fn expectation_after_scope_resolution(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {

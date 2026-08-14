@@ -197,7 +197,7 @@ mod tests {
     use crate::syntax::SyntaxTree;
 
     #[test]
-    fn raw_diagnostic_groups_are_derived_from_generated_metadata() {
+    fn generated_binding_diagnostic_groups_drive_raw_diagnostics() {
         let code = DiagCode::UNKNOWN_ESCAPE_CODE;
         let diagnostic = SyntaxDiagnostic::from_raw(ffi::RawSyntaxDiagnostic {
             code: code.code_raw(),

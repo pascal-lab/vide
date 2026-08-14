@@ -4,7 +4,7 @@ use slang_sys::{
         ChildrenIter, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, SyntaxTrivia,
         ast::{self, AstNode},
     },
-    token::{LiteralBase, TokenKind},
+    token::TokenKind,
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -104,29 +104,6 @@ fn is_word_like_value_text(text: &str) -> bool {
     }
 }
 
-pub fn integer_literal_base_specifier_candidates() -> Vec<String> {
-    literal_bases()
-        .into_iter()
-        .flat_map(|base| {
-            let specifier = integer_literal_base_specifier(base);
-            [specifier.to_owned(), format!("s{specifier}")]
-        })
-        .collect()
-}
-
-fn literal_bases() -> [LiteralBase; 4] {
-    [LiteralBase::Bin, LiteralBase::Oct, LiteralBase::Dec, LiteralBase::Hex]
-}
-
-fn integer_literal_base_specifier(base: LiteralBase) -> &'static str {
-    match base {
-        LiteralBase::Bin => "b",
-        LiteralBase::Oct => "o",
-        LiteralBase::Dec => "d",
-        LiteralBase::Hex => "h",
-    }
-}
-
 /// [`Either::Left`] represents the beg-token, and [`Either::Right`] represents
 /// the end-token.
 pub fn pair_token(
@@ -210,18 +187,5 @@ impl<'a> SyntaxTokenExt<'a> for SyntaxToken<'a> {
             })
             .collect::<Vec<_>>();
         trivias.into_iter()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn integer_literal_base_specifier_candidates_follow_slang_literal_bases() {
-        let mut candidates = integer_literal_base_specifier_candidates();
-        candidates.sort();
-
-        assert_eq!(candidates, ["b", "d", "h", "o", "sb", "sd", "sh", "so"]);
     }
 }
