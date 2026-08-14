@@ -12,9 +12,11 @@ use base_db::{
 };
 use rustc_hash::FxHashSet;
 use syntax::{
-    SourceBufferRange,
     ast::{AstNode, CompilationUnit, Member},
-    preproc::{MacroCallId as TraceMacroCallId, MacroDefinitionId, MacroExpansionId, TokenOrigin},
+    preproc::{
+        MacroCallId as TraceMacroCallId, MacroDefinitionId, MacroExpansionId, SourceBufferRange,
+        TokenOrigin,
+    },
 };
 use triomphe::Arc;
 use utils::{

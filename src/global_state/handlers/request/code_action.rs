@@ -189,7 +189,7 @@ pub(crate) fn handle_code_action_resolve(
 #[cfg(test)]
 mod tests {
     use lsp_types::{Diagnostic as LspDiagnostic, NumberOrString, Position, Range};
-    use syntax::DiagnosticSeverity;
+    use syntax::diagnostics::DiagnosticSeverity;
     use triomphe::Arc;
     use utils::{
         line_index::{LineIndex, TextRange, TextSize},

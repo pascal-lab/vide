@@ -27,20 +27,10 @@ pub use slang_ext::{
     AstNodeExt, SyntaxCursorExt, SyntaxNodeExt, SyntaxTokenExt, SyntaxTokenWithParentExt,
     TokenAtOffset, TokenKindExt, TriviaExt, TriviaKindExt, pair_token,
 };
-pub use slang_sys::{
-    ActualArgument, Event, EventId, MacroCallId, MacroDefinitionId, MacroExpansionId, MacroParam,
-    SourceBufferId, SourceBufferOrigin, SourceBufferRange, SyntaxTreeBufferIds, Token, TokenOrigin,
-    Trace,
-};
 // Re-export slang-sys APIs
 pub use slang_sys::{
     Bit, SVInt, SemanticFacts, SyntaxFacts, TimeUnit,
     compilation::Compilation,
-    diagnostic::{
-        DiagCode, DiagnosticSeverity, LexedTokenAtOffset, ParserExpectedSyntax, SyntaxDiagnostic,
-        SyntaxDiagnosticExpansion, SyntaxDiagnosticLocation, SyntaxDiagnosticRange,
-        SyntaxKeywordContext,
-    },
     source_buffer::{SourceLocation, SourceRange},
     syntax::{
         ChildrenIter, SyntaxAncestors, SyntaxChildren, SyntaxCursor, SyntaxElemPreorder,
@@ -51,6 +41,15 @@ pub use slang_sys::{
     token::{LiteralBase, TokenKind, TriviaKind},
 };
 
+pub mod diagnostics {
+    pub use slang_sys::diagnostic::*;
+}
+
 pub mod preproc {
-    pub use slang_sys::preproc::*;
+    pub use slang_sys::{
+        preproc::*,
+        source_buffer::{
+            SourceBufferId, SourceBufferOrigin, SourceBufferRange, SyntaxTreeBufferIds,
+        },
+    };
 }

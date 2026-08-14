@@ -1,6 +1,7 @@
 use syntax::{
-    SyntaxAncestors, SyntaxKeywordContext, SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent,
+    SyntaxAncestors, SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent,
     ast::{self, AstNode},
+    diagnostics::SyntaxKeywordContext,
     has_text_range::{HasTextRange, HasTextRangeIn},
 };
 use utils::line_index::TextSize;

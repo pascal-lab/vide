@@ -7,8 +7,9 @@ use base_db::{
 };
 use rustc_hash::FxHashMap;
 use syntax::{
-    Compilation, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer,
-    SyntaxTreeBufferIds, preproc::Trace,
+    Compilation, SyntaxTree, SyntaxTreeBuffer,
+    diagnostics::{ParserExpectedSyntax, SyntaxDiagnostic},
+    preproc::{SyntaxTreeBufferIds, Trace},
 };
 use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
@@ -791,7 +792,10 @@ mod tests {
         source_root::SourceRoot,
     };
     use rustc_hash::FxHashSet;
-    use syntax::{SourceBufferId, SourceBufferOrigin, SyntaxTreeOptions, preproc::Trace};
+    use syntax::{
+        SyntaxTreeOptions,
+        preproc::{SourceBufferId, SourceBufferOrigin, Trace},
+    };
     use utils::{
         line_index::TextRange,
         paths::{AbsPathBuf, Utf8PathBuf},

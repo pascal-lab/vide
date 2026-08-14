@@ -1,8 +1,9 @@
 use smol_str::SmolStr;
 use syntax::{
-    SourceBufferId, SourceBufferOrigin, SourceBufferRange, SyntaxKind, SyntaxTree,
-    SyntaxTreeBuffer, SyntaxTreeOptions, TokenKind,
-    preproc::{Event, EventId, Token, Trace},
+    SyntaxKind, SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions, TokenKind,
+    preproc::{
+        Event, EventId, SourceBufferId, SourceBufferOrigin, SourceBufferRange, Token, Trace,
+    },
 };
 use utils::line_index::{TextRange, TextSize};
 

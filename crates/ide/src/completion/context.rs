@@ -12,7 +12,8 @@ use base_db::source_db::SourceDb;
 use hir_semantics::semantics::Semantics;
 use smallvec::{SmallVec, smallvec};
 use syntax::{
-    ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxNodeExt,
+    SyntaxNode, SyntaxNodeExt,
+    diagnostics::{ParserExpectedSyntax, SyntaxKeywordContext},
     has_text_range::HasTextRange,
 };
 use utils::line_index::{TextRange, TextSize};

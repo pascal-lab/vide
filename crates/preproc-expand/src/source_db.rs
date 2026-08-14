@@ -5,7 +5,10 @@ use ::preproc::source::{
 use base_db::{project::CompilationProfileId, source_db::SourceFileKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
-use syntax::{SourceBufferOrigin, SyntaxTreeOptions, preproc::Trace};
+use syntax::{
+    SyntaxTreeOptions,
+    preproc::{SourceBufferOrigin, Trace},
+};
 use triomphe::Arc;
 use utils::{
     line_index::{TextRange, TextSize},

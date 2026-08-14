@@ -3,11 +3,9 @@ use std::collections::BTreeMap;
 use ::preproc::source::{PreprocSourceId, SourceRange};
 use rustc_hash::FxHashMap;
 use smol_str::{SmolStr, ToSmolStr};
-use syntax::{
-    SourceBufferRange,
-    preproc::{
-        ActualArgument, MacroCallId as TraceMacroCallId, MacroDefinitionId, TokenOrigin, Trace,
-    },
+use syntax::preproc::{
+    ActualArgument, MacroCallId as TraceMacroCallId, MacroDefinitionId, SourceBufferRange,
+    TokenOrigin, Trace,
 };
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;

@@ -5,7 +5,7 @@ use base_db::{
     source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
 use hir_def::source_map::{LoweringDiagnostic, LoweringDiagnosticKind};
-use syntax::{DiagCode, DiagnosticSeverity, SyntaxDiagnostic};
+use syntax::diagnostics::{DiagCode, DiagnosticSeverity, SyntaxDiagnostic};
 use utils::text_edit::{TextRange, TextSize};
 use vfs::FileId;
 
@@ -679,7 +679,7 @@ mod tests {
             diagnostics.iter().any(|diag| {
                 diag.source == DiagnosticSource::Vide
                     && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
-                    && diag.severity == syntax::DiagnosticSeverity::Note
+                    && diag.severity == syntax::diagnostics::DiagnosticSeverity::Note
                     && diag.message.contains("matches 2 module definitions")
             }),
             "expected vide ambiguous module information: {diagnostics:?}"
@@ -723,7 +723,7 @@ mod tests {
             diagnostics.iter().any(|diag| {
                 diag.source == DiagnosticSource::Vide
                     && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
-                    && diag.severity == syntax::DiagnosticSeverity::Warning
+                    && diag.severity == syntax::diagnostics::DiagnosticSeverity::Warning
                     && diag.message.contains("matches 2 module definitions")
             }),
             "expected strict ambiguity warning: {diagnostics:?}"
@@ -840,7 +840,7 @@ mod tests {
             .find(|diag| diag.name == INACTIVE_PREPROCESSOR_BRANCH.name)
             .expect("expected inactive preprocessor branch diagnostic");
 
-        assert_eq!(inactive.severity, syntax::DiagnosticSeverity::Note);
+        assert_eq!(inactive.severity, syntax::diagnostics::DiagnosticSeverity::Note);
         assert_eq!(inactive.tags, vec![DiagnosticTag::Unnecessary]);
         assert_eq!(inactive.message_key, Some(DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH));
         assert_eq!(inactive.range, range_of(text, "logic if_body;"));
@@ -1235,7 +1235,7 @@ mod tests {
             });
 
         assert_eq!(diagnostic.source, DiagnosticSource::Vide);
-        assert_eq!(diagnostic.severity, syntax::DiagnosticSeverity::Note);
+        assert_eq!(diagnostic.severity, syntax::diagnostics::DiagnosticSeverity::Note);
         assert_eq!(diagnostic.message_key, Some(DIAGNOSTIC_LOWERING_INVALID_SYNTAX));
         assert_eq!(diagnostic.range, range_of(INVALID_ITERATION_TEXT, "2"));
     }
@@ -1282,7 +1282,7 @@ endmodule
         let diagnostic = SyntaxDiagnostic {
             code: 1,
             subsystem: 5,
-            severity: syntax::DiagnosticSeverity::Error,
+            severity: syntax::diagnostics::DiagnosticSeverity::Error,
             message: "global diagnostic".to_owned(),
             args: Vec::new(),
             name: "GlobalDiagnostic".to_owned(),

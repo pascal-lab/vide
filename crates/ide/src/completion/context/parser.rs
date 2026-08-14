@@ -1,6 +1,7 @@
 use smallvec::{SmallVec, smallvec};
 use syntax::{
-    DiagCode, ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxTree, TokenKind,
+    SyntaxNode, SyntaxTree, TokenKind,
+    diagnostics::{DiagCode, ParserExpectedSyntax, SyntaxKeywordContext},
 };
 use utils::line_index::TextSize;
 

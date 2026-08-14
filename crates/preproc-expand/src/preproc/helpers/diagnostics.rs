@@ -1,7 +1,4 @@
-use syntax::{
-    Trace,
-    preproc::{MacroCallId as TraceMacroCallId, TokenOrigin},
-};
+use syntax::preproc::{MacroCallId as TraceMacroCallId, SourceBufferRange, TokenOrigin, Trace};
 
 use super::*;
 use crate::{
@@ -132,7 +129,7 @@ fn diagnostic_target_for_token(
     })
 }
 
-fn source_range_from_trace(range: &syntax::SourceBufferRange) -> Option<SourceRange> {
+fn source_range_from_trace(range: &SourceBufferRange) -> Option<SourceRange> {
     Some(SourceRange {
         source: PreprocSourceId::from(range.buffer_id),
         range: TextRange::new(

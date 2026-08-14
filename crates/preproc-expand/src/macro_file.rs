@@ -5,8 +5,8 @@ use base_db::salsa;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use syntax::{
-    SyntaxTree, Trace,
-    preproc::{MacroCallId as TraceMacroCallId, MacroExpansionId, TokenOrigin},
+    SyntaxTree,
+    preproc::{MacroCallId as TraceMacroCallId, MacroExpansionId, TokenOrigin, Trace},
 };
 use triomphe::Arc;
 use utils::line_index::{TextRange, TextSize};
@@ -531,7 +531,7 @@ fn expansion_definition(
 
     // Builtin intrinsics have no source definition; identify them by the
     // origin of the tokens they emit.
-    let mut builtin_names = Vec::new();
+    let mut builtin_names = Vec::<String>::new();
     for raw in emitted_range.start.raw()..emitted_range.start.raw() + emitted_range.len {
         let Some(token) = trace.emitted_tokens.get(raw) else {
             continue;
@@ -540,7 +540,7 @@ fn expansion_definition(
             && !name.is_empty()
             && !builtin_names.contains(name)
         {
-            builtin_names.push(name.clone());
+            builtin_names.push(name.to_owned());
         }
     }
     match builtin_names.as_slice() {

@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use syntax::DiagnosticSeverity;
+use syntax::diagnostics::{DiagnosticSeverity, SyntaxDiagnostic};
 
 static NEXT_CONFIG_REVISION: AtomicU64 = AtomicU64::new(1);
 
@@ -85,8 +85,8 @@ impl DiagnosticsConfig {
     pub fn apply_rules(
         &self,
         source: DiagnosticSource,
-        mut diag: syntax::SyntaxDiagnostic,
-    ) -> Option<syntax::SyntaxDiagnostic> {
+        mut diag: SyntaxDiagnostic,
+    ) -> Option<SyntaxDiagnostic> {
         if !self.enabled {
             return None;
         }
@@ -110,7 +110,7 @@ impl DiagnosticsConfig {
 }
 
 impl DiagnosticRule {
-    fn matches(&self, source: DiagnosticSource, diag: &syntax::SyntaxDiagnostic) -> bool {
+    fn matches(&self, source: DiagnosticSource, diag: &SyntaxDiagnostic) -> bool {
         match &self.selector {
             DiagnosticSelector::Code { subsystem, code } => {
                 diag.subsystem == *subsystem && diag.code == *code
@@ -124,7 +124,7 @@ impl DiagnosticRule {
 
 #[cfg(test)]
 mod tests {
-    use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
+    use syntax::diagnostics::{DiagnosticSeverity, SyntaxDiagnostic};
 
     use super::*;
 

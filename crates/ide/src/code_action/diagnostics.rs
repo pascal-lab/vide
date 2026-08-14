@@ -1,4 +1,4 @@
-use syntax::DiagCode;
+use syntax::diagnostics::DiagCode;
 
 use crate::diagnostics::{Diagnostic, DiagnosticSource};
 
@@ -75,7 +75,7 @@ impl RepairKind {
 
 #[cfg(test)]
 mod tests {
-    use syntax::{DiagCode, DiagnosticSeverity};
+    use syntax::diagnostics::{DiagCode, DiagnosticSeverity};
     use utils::text_edit::{TextRange, TextSize};
     use vfs::FileId;
 

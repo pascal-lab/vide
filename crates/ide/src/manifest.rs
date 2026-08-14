@@ -11,7 +11,7 @@ use std::{collections::BTreeSet, ops::Range};
 use base_db::source_db::SourceDb;
 use hir_def::container::InFile;
 use preproc_expand::source_db::manifest_predefine_name_range_in_text;
-use syntax::DiagnosticSeverity;
+use syntax::diagnostics::DiagnosticSeverity;
 use toml_edit::{ImDocument, Item, Value};
 use toml_parser::{Source, Span, lexer::TokenKind, parser::EventKind};
 use triomphe::Arc;

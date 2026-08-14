@@ -1,5 +1,5 @@
 use smallvec::{SmallVec, smallvec};
-use syntax::SyntaxKeywordContext;
+use syntax::diagnostics::SyntaxKeywordContext;
 
 use super::context::{CompletionContext, ExpectedSyntax, LexContext, TriggerChar};
 

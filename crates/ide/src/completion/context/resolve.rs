@@ -1,5 +1,5 @@
 use smallvec::SmallVec;
-use syntax::SyntaxKeywordContext;
+use syntax::diagnostics::SyntaxKeywordContext;
 
 use super::{CompletionExpectation, ExpectedSyntax, TriggerChar, parser::ParserExpectations};
 use crate::completion::{request::PortListKind, syntax_keywords};
@@ -151,7 +151,10 @@ fn push_unique(
 
 #[cfg(test)]
 mod tests {
-    use syntax::{DiagCode, ParserExpectedSyntax, TokenKind};
+    use syntax::{
+        TokenKind,
+        diagnostics::{DiagCode, ParserExpectedSyntax},
+    };
 
     use super::*;
     use crate::completion::context::parser;

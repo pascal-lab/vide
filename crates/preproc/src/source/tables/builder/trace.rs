@@ -2,8 +2,10 @@ use std::collections::BTreeMap;
 
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    SourceBufferOrigin, SourceBufferRange, SyntaxKind, Trace,
-    preproc::{ActualArgument, Event, MacroParam, Token},
+    SyntaxKind,
+    preproc::{
+        ActualArgument, Event, MacroParam, SourceBufferOrigin, SourceBufferRange, Token, Trace,
+    },
 };
 use utils::line_index::{TextRange, TextSize};
 

@@ -20,7 +20,7 @@ use ide::{
     source_change::SourceChange,
 };
 use itertools::Itertools;
-use syntax::DiagnosticSeverity as SlangDiagnosticSeverity;
+use syntax::diagnostics::DiagnosticSeverity as SlangDiagnosticSeverity;
 use utils::{
     cancellation::CancellationError,
     line_index::{LineCol, LineIndex, TextRange, TextSize},
@@ -1032,7 +1032,7 @@ mod tests {
     use ide::diagnostics::{
         Diagnostic as IdeDiagnostic, DiagnosticSource as IdeDiagnosticSource, DiagnosticTag,
     };
-    use syntax::DiagnosticSeverity;
+    use syntax::diagnostics::DiagnosticSeverity;
     use triomphe::Arc;
     use utils::{
         line_index::{LineIndex, TextRange, TextSize},
