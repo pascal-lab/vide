@@ -10,6 +10,7 @@ const SLANG_SYS_SOURCE_DIR: &str = "./src";
 const SCRIPTS_DIR: &str = "./scripts";
 const USE_SCCACHE_CMAKE_ENV: &str = "VIDE_USE_SCCACHE_CMAKE";
 const SCCACHE_PATH_ENV: &str = "SCCACHE_PATH";
+const VERBOSE_BUILD_ENV: &str = "VIDE_SLANG_BUILD_VERBOSE";
 /// Build directory root from cargo target directory.
 ///
 /// The concrete CMake directory is qualified by target and profile below.
@@ -61,7 +62,9 @@ fn log_phase(phase: &str, elapsed: Duration) {
 mod env_detection {
     use std::{env, ffi::OsString, path::PathBuf};
 
-    use super::{BUILD_DIR, SCCACHE_PATH_ENV, SLANG_SOURCE_DIR, USE_SCCACHE_CMAKE_ENV};
+    use super::{
+        BUILD_DIR, SCCACHE_PATH_ENV, SLANG_SOURCE_DIR, USE_SCCACHE_CMAKE_ENV, VERBOSE_BUILD_ENV,
+    };
 
     pub fn find_slang_dir() -> PathBuf {
         let slang_source_dir = PathBuf::from(SLANG_SOURCE_DIR);
@@ -101,6 +104,11 @@ mod env_detection {
 
     pub fn find_python() -> PathBuf {
         env::var_os("PYTHON").map(PathBuf::from).unwrap_or_else(|| "python3".into())
+    }
+
+    pub fn verbose_build() -> bool {
+        env::var_os(VERBOSE_BUILD_ENV)
+            .is_some_and(|value| parse_enabled_flag(VERBOSE_BUILD_ENV, &value))
     }
 
     pub fn cmake_compiler_launcher() -> Option<PathBuf> {
@@ -209,6 +217,7 @@ fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
     let cmake_out_dir = env_detection::build_dir().join(cmake_profile.to_ascii_lowercase());
     let emscripten = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("emscripten");
     let compiler_launcher = env_detection::cmake_compiler_launcher();
+    let verbose = env_detection::verbose_build();
     let rustc_wrapper = env::var_os("RUSTC_WRAPPER")
         .filter(|wrapper| !wrapper.is_empty())
         .map(|wrapper| wrapper.to_string_lossy().into_owned())
@@ -216,7 +225,7 @@ fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
 
     eprintln!(
         "slang-sys-build target={} cmake_profile={cmake_profile} build_dir={} generator={} \
-         cmake_launcher={} bridge_wrapper={}",
+         cmake_launcher={} bridge_wrapper={} verbose={verbose}",
         env::var("TARGET").as_deref().unwrap_or("<unknown>"),
         cmake_out_dir.display(),
         env::var("CMAKE_GENERATOR").as_deref().unwrap_or("<cmake-default>"),
@@ -238,10 +247,7 @@ fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
         .define("FETCHCONTENT_TRY_FIND_PACKAGE_MODE", "NEVER")
         .define("CMAKE_EXPORT_COMPILE_COMMANDS", "ON")
         .profile(cmake_profile)
-        .define("CMAKE_VERBOSE_MAKEFILE", "ON");
-    if let Ok(jobs) = env::var("NUM_JOBS") {
-        config.env("CMAKE_BUILD_PARALLEL_LEVEL", jobs);
-    }
+        .define("CMAKE_VERBOSE_MAKEFILE", if verbose { "ON" } else { "OFF" });
     // Build flags <https://sv-lang.com/building.html#build-options>
     config
         .define("SLANG_MASTER_PROJECT", "OFF")
@@ -400,7 +406,7 @@ fn setup_rerun_triggers(slang_dir: &Path, source_dir: &Path, scripts_dir: &Path)
     for path in watch {
         println!("cargo:rerun-if-changed={}", path);
     }
-    for name in [USE_SCCACHE_CMAKE_ENV, SCCACHE_PATH_ENV] {
+    for name in [USE_SCCACHE_CMAKE_ENV, SCCACHE_PATH_ENV, VERBOSE_BUILD_ENV] {
         println!("cargo:rerun-if-env-changed={name}");
     }
     println!("cargo:rerun-if-env-changed=RUSTC_WRAPPER");
