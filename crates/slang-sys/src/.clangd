@@ -6,12 +6,10 @@ CompileFlags:
     - -I..
     - -I../../../third_party/slang/include
     - -I../../../third_party/slang/external
-    - -I../../../target/slang-sys/debug/include
-    - -I../../../target/slang-sys/cxx/include
+    - -I../../../target/slang-sys/clangd/include
     - -I../../../../third_party/slang/include
     - -I../../../../third_party/slang/external
-    - -I../../../../target/slang-sys/debug/include
-    - -I../../../../target/slang-sys/cxx/include
+    - -I../../../../target/slang-sys/clangd/include
     - -include
     - cstdlib
     - -DSLANG_BOOST_SINGLE_HEADER

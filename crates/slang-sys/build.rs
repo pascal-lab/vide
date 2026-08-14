@@ -90,6 +90,11 @@ mod env_detection {
     }
 
     pub fn build_dir() -> PathBuf {
+        let target = env::var("TARGET").expect("TARGET is not set");
+        build_root().join(target)
+    }
+
+    pub fn build_root() -> PathBuf {
         let workspace_target_dir =
             env::var_os("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|| {
                 PathBuf::from(
@@ -98,8 +103,42 @@ mod env_detection {
                 .join("../..")
                 .join("target")
             });
-        let target = env::var("TARGET").expect("TARGET is not set");
-        workspace_target_dir.join(BUILD_DIR).join(target)
+        workspace_target_dir.join(BUILD_DIR)
+    }
+
+    pub fn cmake_cache_key() -> String {
+        let mut entries = env::vars_os()
+            .filter(|(name, _)| {
+                let name = name.to_string_lossy();
+                name == "CC"
+                    || name == "CXX"
+                    || name == "CMAKE_GENERATOR"
+                    || name == "CMAKE_TOOLCHAIN_FILE"
+                    || name == "EMSCRIPTEN_CMAKE_TOOLCHAIN_FILE"
+                    || name == "TARGET_LDFLAGS"
+                    || name.starts_with("CC_")
+                    || name.starts_with("CXX_")
+                    || name.starts_with("CMAKE_GENERATOR_")
+                    || name.starts_with("CMAKE_TOOLCHAIN_FILE_")
+                    || name.starts_with("HOST_CC")
+                    || name.starts_with("HOST_CXX")
+                    || name.starts_with("HOST_CMAKE_GENERATOR")
+                    || name.starts_with("HOST_CMAKE_TOOLCHAIN_FILE")
+            })
+            .collect::<Vec<_>>();
+        entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+
+        // Stable FNV-1a: this key is a cache namespace, not a security boundary.
+        let mut hash = 0xcbf29ce484222325u64;
+        for (name, value) in entries {
+            for byte in
+                name.as_encoded_bytes().iter().chain([0].iter()).chain(value.as_encoded_bytes())
+            {
+                hash ^= u64::from(*byte);
+                hash = hash.wrapping_mul(0x100000001b3);
+            }
+        }
+        format!("{hash:016x}")
     }
 
     pub fn find_python() -> PathBuf {
@@ -214,7 +253,9 @@ fn generate_rust_defs(slang_dir: &Path, out_dir: &Path, scripts_dir: &Path) {
 
 fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
     let cmake_profile = if debug { "Debug" } else { "Release" };
-    let cmake_out_dir = env_detection::build_dir().join(cmake_profile.to_ascii_lowercase());
+    let cmake_out_dir = env_detection::build_dir()
+        .join(env_detection::cmake_cache_key())
+        .join(cmake_profile.to_ascii_lowercase());
     let emscripten = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("emscripten");
     let compiler_launcher = env_detection::cmake_compiler_launcher();
     let verbose = env_detection::verbose_build();
@@ -321,7 +362,7 @@ fn build_cxx_bridge(
         .parent()
         .expect("DEP_CXXBRIDGE1_HEADER should point to a header under an include directory")
         .to_path_buf();
-    let clangd_include_dir = env_detection::build_dir().join("cxx").join("include");
+    let clangd_include_dir = env_detection::build_root().join("clangd").join("include");
     fs::create_dir_all(&clangd_include_dir).expect("failed to create clangd cxx include directory");
     fs::copy(cxx_header, clangd_include_dir.join("cxx.h"))
         .expect("failed to copy cxx.h for clangd");
@@ -350,10 +391,11 @@ fn build_cxx_bridge(
         build.define("SLANG_DEBUG", None);
     }
     build.compile("slang_sys_bridge");
-    copy_cxxbridge_headers_for_clangd(&out_dir.join("cxxbridge/include"), &clangd_include_dir);
+    copy_headers_recursively(&out_dir.join("cxxbridge/include"), &clangd_include_dir);
+    copy_headers_recursively(&install_dir.join("include"), &clangd_include_dir);
 }
 
-fn copy_cxxbridge_headers_for_clangd(from: &Path, to: &Path) {
+fn copy_headers_recursively(from: &Path, to: &Path) {
     if !from.is_dir() {
         return;
     }
@@ -364,7 +406,7 @@ fn copy_cxxbridge_headers_for_clangd(from: &Path, to: &Path) {
         let destination = to.join(entry.file_name());
         if source.is_dir() {
             fs::create_dir_all(&destination).expect("failed to create clangd include directory");
-            copy_cxxbridge_headers_for_clangd(&source, &destination);
+            copy_headers_recursively(&source, &destination);
         } else {
             fs::copy(&source, &destination).expect("failed to copy cxxbridge header for clangd");
         }
