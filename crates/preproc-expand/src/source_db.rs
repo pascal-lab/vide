@@ -17,7 +17,7 @@ use utils::{
 };
 use vfs::{FileId, VfsPath};
 
-use crate::db::{PreprocDb, path_file_ids, syntax_tree_options_for_file};
+use crate::db::{PreprocDb, syntax_tree_options_for_file};
 
 mod context;
 mod queries;

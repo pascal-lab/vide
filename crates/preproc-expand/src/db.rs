@@ -50,6 +50,13 @@ pub(crate) struct PreprocProfileQueryKey {
     pub profile_id: Option<CompilationProfileId>,
 }
 
+/// Singleton key for the workspace-global path index (one per database).
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub(crate) struct WorkspacePathIndexKey {
+    #[returns(copy)]
+    pub unit: (),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompilationDiagnostic {
     /// File attribution after mapping slang source buffers back to VFS files.
@@ -84,7 +91,9 @@ fn source_file_identity(db: &dyn SourceRootDb, file_id: FileId) -> SourceFileIde
     SourceFileIdentity { name, path }
 }
 
-pub(crate) fn path_file_ids(db: &dyn SourceRootDb) -> PathIdentityIndex<FileId> {
+/// Workspace-global path-spelling → [`FileId`] index, memoized per revision.
+#[salsa::tracked(returns(clone))]
+fn path_file_ids(db: &dyn PreprocDb, _key: WorkspacePathIndexKey) -> PathIdentityIndex<FileId> {
     let mut index = PathIdentityIndex::default();
     for file_id in db.files().iter().copied() {
         if db.file_is_project_ignored(file_id) {
@@ -482,6 +491,10 @@ impl dyn PreprocDb + '_ {
         parsed_compilation_unit(self, PreprocFileQueryKey::new(self, file_id))
     }
 
+    pub fn path_file_ids(&self) -> PathIdentityIndex<FileId> {
+        path_file_ids(self, WorkspacePathIndexKey::new(self, ()))
+    }
+
     pub fn parsed_profile(&self, profile_id: Option<CompilationProfileId>) -> Arc<ParsedProfile> {
         parsed_profile(self, PreprocProfileQueryKey::new(self, profile_id))
     }
@@ -617,7 +630,7 @@ fn compilation_profile_diagnostics(
     let parsed_profile = db.parsed_profile(Some(profile_id));
     let mut compilation = Compilation::new_with_top_modules(&context.top_modules);
     let mut buffer_file_ids = FxHashMap::default();
-    let path_file_ids = path_file_ids(db);
+    let path_file_ids = db.path_file_ids();
 
     for (file_id, parsed_unit, buffer_ids) in parsed_profile.units.iter() {
         compilation.add_syntax_tree(&parsed_unit.syntax_tree);

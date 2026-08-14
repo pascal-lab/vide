@@ -11,7 +11,7 @@ pub(crate) fn source_preproc_file_ids(
     preprocess: &PreprocessConfig,
 ) -> Result<PreprocSourceMap, SourcePreprocQueryError> {
     let mut source_map = PreprocSourceMap::default();
-    let path_file_ids = path_file_ids(db);
+    let path_file_ids = db.path_file_ids();
     let root_source = PreprocSourceId::from(trace.root_buffer_id);
     source_map.insert_real_file(root_source, file_id, db.file_text(file_id).len());
     let include_buffer_texts = include_buffer_texts_by_path(options);
