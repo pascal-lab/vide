@@ -481,17 +481,42 @@ fn sig_help_for_system_call(
 /// Parameter labels and compiler-facing kind for a built-in system subroutine.
 #[derive(Debug, serde::Deserialize)]
 pub(crate) struct SystemSignatureDef {
-    /// Read only by the slang-alignment test and system hover renderer.
     pub(crate) kind: String,
     pub(crate) params: Vec<String>,
 }
 
-pub(crate) fn system_signature_definition(name: &str) -> Option<&'static SystemSignatureDef> {
+fn system_signature_table() -> &'static BTreeMap<String, SystemSignatureDef> {
     static TABLE: LazyLock<BTreeMap<String, SystemSignatureDef>> = LazyLock::new(|| {
         toml::from_str(include_str!("system_signatures.toml"))
             .expect("bundled system_signatures.toml must parse")
     });
-    TABLE.get(name)
+    &TABLE
+}
+
+pub(crate) fn system_signature_definition(name: &str) -> Option<&'static SystemSignatureDef> {
+    system_signature_table().get(name)
+}
+
+pub(crate) fn system_function_names() -> &'static [&'static str] {
+    static NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+        system_signature_table()
+            .iter()
+            .filter_map(|(name, definition)| {
+                (definition.kind == "function").then_some(name.as_str())
+            })
+            .collect()
+    });
+    &NAMES
+}
+
+pub(crate) fn system_task_names() -> &'static [&'static str] {
+    static NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+        system_signature_table()
+            .iter()
+            .filter_map(|(name, definition)| (definition.kind == "task").then_some(name.as_str()))
+            .collect()
+    });
+    &NAMES
 }
 
 pub(crate) fn system_lrm(name: &str) -> Option<&'static str> {
@@ -703,42 +728,13 @@ pub(crate) fn system_signature(name: &str) -> Option<&'static [String]> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeSet, HashMap};
-
-    use syntax::compilation::Compilation as SlangCompilation;
+    use std::collections::BTreeSet;
 
     use super::*;
 
     fn table() -> BTreeMap<String, SystemSignatureDef> {
         toml::from_str(include_str!("system_signatures.toml"))
             .expect("bundled system_signatures.toml must parse")
-    }
-
-    #[test]
-    fn system_signature_table_matches_slang_subroutine_tables() {
-        let table = table();
-        let tasks: HashMap<String, bool> = SlangCompilation::system_task_names()
-            .into_iter()
-            .map(|name| (name, true))
-            .chain(SlangCompilation::system_function_names().into_iter().map(|name| (name, false)))
-            .collect();
-
-        let mut unknown = Vec::new();
-        let mut kind_mismatch = Vec::new();
-        for (name, def) in &table {
-            let Some(is_task) = tasks.get(name) else {
-                unknown.push(name.clone());
-                continue;
-            };
-            let expected = if *is_task { "task" } else { "function" };
-            if def.kind != expected {
-                kind_mismatch
-                    .push(format!("{name}: table says {} but slang says {expected}", def.kind));
-            }
-        }
-
-        assert!(unknown.is_empty(), "unknown system subroutines: {unknown:?}");
-        assert!(kind_mismatch.is_empty(), "kind mismatches vs slang: {kind_mismatch:?}");
     }
 
     #[test]

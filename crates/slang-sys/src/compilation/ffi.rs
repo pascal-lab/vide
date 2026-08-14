@@ -86,7 +86,6 @@ mod slang_ffi {
             compilation: &Compilation,
             warning_options: Vec<String>,
         ) -> Vec<RawSyntaxDiagnostic>;
-        fn system_function_names() -> Vec<String>;
-        fn system_task_names() -> Vec<String>;
+
     }
 }

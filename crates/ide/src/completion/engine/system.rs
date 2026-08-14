@@ -1,9 +1,8 @@
-use std::sync::OnceLock;
-
-use syntax::compilation::Compilation as SlangCompilation;
-
 use super::candidate::CompletionCandidate;
-use crate::completion::context::CompletionContext;
+use crate::{
+    completion::context::CompletionContext,
+    signature_help::{system_function_names, system_task_names},
+};
 
 pub(super) fn complete_system_tasks(
     prefix: &str,
@@ -22,7 +21,7 @@ pub(super) fn complete_system_functions(
 fn collect_system_subroutines(
     prefix: &str,
     ctx: &CompletionContext,
-    names: &[String],
+    names: &[&str],
 ) -> Vec<CompletionCandidate> {
     if !prefix.starts_with('$') {
         return Vec::new();
@@ -34,21 +33,11 @@ fn collect_system_subroutines(
         .map(|name| {
             let snippet_name = name.replacen('$', r"\$", 1);
             CompletionCandidate::semantic_snippet(
-                name.clone(),
+                (*name).to_owned(),
                 ctx.replacement,
                 format!("{name}()"),
                 format!("{snippet_name}(${{1:args}})"),
             )
         })
         .collect()
-}
-
-fn system_function_names() -> &'static [String] {
-    static SYSTEM_FUNCTION_NAMES: OnceLock<Vec<String>> = OnceLock::new();
-    SYSTEM_FUNCTION_NAMES.get_or_init(SlangCompilation::system_function_names)
-}
-
-fn system_task_names() -> &'static [String] {
-    static SYSTEM_TASK_NAMES: OnceLock<Vec<String>> = OnceLock::new();
-    SYSTEM_TASK_NAMES.get_or_init(SlangCompilation::system_task_names)
 }

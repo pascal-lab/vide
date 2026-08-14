@@ -132,14 +132,6 @@ impl Compilation {
             .collect()
     }
 
-    pub fn system_function_names() -> Vec<String> {
-        ffi::system_function_names()
-    }
-
-    pub fn system_task_names() -> Vec<String> {
-        ffi::system_task_names()
-    }
-
     fn raw_pin(&mut self) -> Pin<&mut ffi::Compilation> {
         self.raw.as_mut().expect("Slang compilation unexpectedly null")
     }

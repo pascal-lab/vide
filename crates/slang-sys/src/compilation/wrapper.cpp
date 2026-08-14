@@ -1,9 +1,6 @@
 #include "compilation/wrapper.h"
 #include "slang-sys/src/compilation/ffi.rs.h"
 
-#include "slang/ast/SystemSubroutine.h"
-#include "slang/parsing/KnownSystemName.h"
-
 #include <stdexcept>
 
 namespace slang_sys::compilation {
@@ -185,30 +182,6 @@ rust::Vec<diagnostic::RawSyntaxDiagnostic> semantic_diagnostics(
         *source_manager,
         std::move(warning_options)
     );
-}
-
-template<bool Tasks>
-rust::Vec<rust::String> system_names() {
-    ::slang::ast::Compilation compilation;
-    rust::Vec<rust::String> result;
-    for (auto known_name : ::slang::parsing::KnownSystemName_traits::values) {
-        auto* subroutine = compilation.getSystemSubroutine(known_name);
-        if (!subroutine)
-            continue;
-        const bool is_task = subroutine->kind == ::slang::ast::SubroutineKind::Task;
-        if (is_task != Tasks)
-            continue;
-        result.emplace_back(rust::String(subroutine->name));
-    }
-    return result;
-}
-
-rust::Vec<rust::String> system_function_names() {
-    return system_names<false>();
-}
-
-rust::Vec<rust::String> system_task_names() {
-    return system_names<true>();
 }
 
 } // namespace slang_sys::compilation

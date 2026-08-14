@@ -67,7 +67,4 @@ rust::Vec<diagnostic::RawSyntaxDiagnostic> semantic_diagnostics(
     const Compilation& compilation,
     rust::Vec<rust::String> warning_options
 );
-rust::Vec<rust::String> system_function_names();
-rust::Vec<rust::String> system_task_names();
-
 } // namespace slang_sys::compilation
