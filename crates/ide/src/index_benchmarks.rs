@@ -18,12 +18,22 @@
 
 use std::{
     fs,
+    path::PathBuf,
     time::{Duration, Instant},
 };
 
-use base_db::{change::Change, source_db::SourceRootDb, source_root::SourceRoot};
-use utils::line_index::{TextRange, TextSize};
-use vfs::{ChangedFile, FileId, FileSet, VfsPath};
+use base_db::{
+    change::Change,
+    project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+    source_db::SourceRootDb,
+    source_root::{SourceRoot, SourceRootId},
+};
+use triomphe::Arc;
+use utils::{
+    line_index::{TextRange, TextSize},
+    paths::abs_path_buf_from_path_buf,
+};
+use vfs::{AbsPathBuf, ChangedFile, FileId, FileSet, PathMatcher, VfsPath};
 
 use crate::{
     FilePosition, ScopeVisibility,
@@ -311,4 +321,133 @@ fn index_benchmarks_rebuild_after_single_file_change() {
     let (_, lower_bound) =
         timed(|| std::hint::black_box(source_root_semantic_index_for_root(single_db, single_root)));
     println!("lower bound (indexing only the small file alone): {lower_bound:?}");
+}
+
+/// Load a real SystemVerilog project directory into a fresh [`AnalysisHost`].
+///
+/// Every source file under `root` (`.v/.sv/.vh/.svh/.svi/.map`) is discovered,
+/// read, and registered in a single local [`SourceRoot`]. `root` doubles as the
+/// only include directory so relative `` `include `` directives resolve.
+///
+/// Returns the host, the loaded [`FileId`]s, total bytes, and total newlines.
+///
+/// `.map` library-map files are excluded from the indexed source set: they
+/// parse to a `LibraryMap` syntax root, which the item-tree path behind the
+/// semantic index does not accept (it requires a compilation unit).
+///
+/// NOTE: this simplified walk does not exclude `.git`/`target`/`build`. That is
+/// fine for clean fixture dirs (e.g. slang's `tests/unittests/data`); for large
+/// real repos the server's `get_workspace_folder` exclude policy should be
+/// reused instead.
+fn host_with_project(root: &AbsPathBuf) -> (AnalysisHost, Vec<FileId>, usize, usize) {
+    let files = PathMatcher::all_under_roots(vec![root.clone()])
+        .collect_matching_files(vfs::loader::SOURCE_FILE_EXTENSIONS)
+        .into_iter()
+        .filter(|path| {
+            !path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("map"))
+        })
+        .collect::<Vec<_>>();
+
+    let mut file_set = FileSet::default();
+    let mut changed_files = Vec::with_capacity(files.len());
+    let mut file_ids = Vec::with_capacity(files.len());
+    let mut total_bytes = 0usize;
+    let mut total_lines = 0usize;
+
+    for (idx, path) in files.into_iter().enumerate() {
+        let Ok(text) = fs::read_to_string(path.as_path()) else {
+            continue;
+        };
+        total_bytes += text.len();
+        total_lines += text.bytes().filter(|byte| *byte == b'\n').count();
+        let file_id = FileId::from_raw(u32::try_from(idx).expect("bench file index fits u32"));
+        file_set.insert(file_id, VfsPath::from(path));
+        changed_files.push(ChangedFile::create(file_id, text.as_str()));
+        file_ids.push(file_id);
+    }
+
+    let mut change = Change::new();
+    change.set_roots(vec![SourceRoot::new_local(file_set)]);
+    change.set_project_config(Arc::new(ProjectConfig::new(
+        vec![Some(CompilationProfileId(0))],
+        vec![CompilationProfile {
+            source_roots: vec![SourceRootId(0)],
+            top_modules: Vec::new(),
+            preprocess: PreprocessConfig {
+                include_dirs: vec![root.clone()],
+                ..PreprocessConfig::default()
+            },
+        }],
+    )));
+    for changed_file in changed_files {
+        change.add_changed_file(changed_file);
+    }
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+    (host, file_ids, total_bytes, total_lines)
+}
+
+/// Real multi-file project benchmark: loads `$VIDE_BENCH_PROJECT` as one source
+/// root and times cold load, cold parse, module index, semantic index, and the
+/// semantic-index rebuild after touching one file.
+///
+/// Run with:
+///
+/// ```text
+/// VIDE_BENCH_PROJECT=third_party/slang/tests/unittests/data \
+///   cargo test -p ide --release -- --ignored --nocapture index_benchmarks_real_project
+/// ```
+#[test]
+#[ignore]
+fn index_benchmarks_real_project() {
+    let Some(raw) = std::env::var_os("VIDE_BENCH_PROJECT") else {
+        println!("VIDE_BENCH_PROJECT not set; skipping real-project benchmark");
+        return;
+    };
+    let Some(root) = abs_path_buf_from_path_buf(PathBuf::from(raw)) else {
+        println!("VIDE_BENCH_PROJECT must be an absolute UTF-8 path");
+        return;
+    };
+
+    eprintln!("\n== B6: real multi-file project ({root}) ==");
+
+    let ((mut host, file_ids, total_bytes, total_lines), load_cost) =
+        timed(|| host_with_project(&root));
+    if file_ids.is_empty() {
+        println!("no SystemVerilog source files found under {root}");
+        return;
+    }
+    let file_count = file_ids.len();
+    let db = host.raw_db();
+    let root_id = db.source_root_id(file_ids[0]);
+
+    eprintln!("files: {file_count}, bytes: {total_bytes}, lines: {total_lines}");
+    eprintln!("cold load (discover + read + register):           {load_cost:?}");
+
+    let (_, parse_cost) = timed(|| {
+        for &file_id in &file_ids {
+            std::hint::black_box(db.parse(file_id.into()));
+        }
+    });
+    eprintln!("cold parse (all {file_count} files):                  {parse_cost:?}");
+
+    let (_, module_cost) =
+        timed(|| std::hint::black_box(source_root_module_index_for_root(db, root_id)));
+    eprintln!("module index:                                      {module_cost:?}");
+
+    let (_, semantic_cost) =
+        timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
+    eprintln!("semantic index (cold, first build):               {semantic_cost:?}");
+
+    // Incremental: touch one file, then rebuild the semantic index.
+    let touch_file = file_ids[0];
+    let touched_text = format!("{} // bench-touch\n", db.file_text(touch_file));
+    let mut touch = Change::new();
+    touch.add_changed_file(ChangedFile::create(touch_file, touched_text.as_str()));
+    host.apply_change(touch);
+    let db = host.raw_db();
+    let (_, rebuild_cost) =
+        timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
+    eprintln!("semantic index (rebuild after touching one file): {rebuild_cost:?}");
 }
