@@ -78,7 +78,12 @@ impl RootDb {
     }
 }
 
-pub const DEFAULT_PARSE_LRU_CAP: usize = 128;
+/// Default memo capacity for per-file parse/HIR queries. Salsa revalidation
+/// recomputes evicted memos after a revision bump, so a capacity below the
+/// project's per-file working set turns incremental rebuilds into repeated
+/// re-parse/re-lower work. 1024 covers small-to-medium projects without
+/// pinning an unbounded number of parse trees.
+pub const DEFAULT_PARSE_LRU_CAP: usize = 1024;
 impl RootDb {}
 
 // RootDb is the concrete IDE database; expose the workspace query surface

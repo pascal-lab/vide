@@ -430,6 +430,10 @@ pub(crate) fn macro_expansion_query(
     Arc::new(macro_expansion(db, macro_file))
 }
 
+pub(crate) fn set_macro_expansion_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
+    macro_expansion_query::set_lru_capacity(db, capacity);
+}
+
 fn macro_expansion(db: &dyn PreprocDb, macro_file: MacroFileId) -> ExpandResult<ExpansionInfo> {
     let call_loc = macro_file.loc(db);
     let mapped = db.source_preproc_model(call_loc.model_file);
@@ -625,6 +629,10 @@ pub(crate) fn trace_index_query(
         Some(trace) => Arc::new(TraceIndex::new(trace)),
         None => Arc::new(TraceIndex::default()),
     }
+}
+
+pub(crate) fn set_trace_index_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
+    trace_index_query::set_lru_capacity(db, capacity);
 }
 
 /// Parent-expansion links. Slang records them on each emitted token's origin

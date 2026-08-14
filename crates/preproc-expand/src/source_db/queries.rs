@@ -103,3 +103,7 @@ pub(crate) fn source_preproc_model(
 
     Arc::new(Ok(MappedSourcePreprocModel::new(model, source_map)))
 }
+
+pub(crate) fn set_source_preproc_model_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
+    source_preproc_model::set_lru_capacity(db, capacity);
+}

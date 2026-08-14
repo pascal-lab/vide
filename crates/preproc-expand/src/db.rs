@@ -325,6 +325,10 @@ fn parse_src_for_compilation(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Sy
 pub fn set_parse_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
     parsed_profile::set_lru_capacity(db, capacity);
     parse_src_for_compilation::set_lru_capacity(db, capacity);
+    parsed_compilation_unit::set_lru_capacity(db, capacity);
+    crate::source_db::set_source_preproc_model_lru_capacity(db, capacity);
+    crate::macro_file::set_macro_expansion_lru_capacity(db, capacity);
+    crate::macro_file::set_trace_index_lru_capacity(db, capacity);
 }
 
 /// Parser expectations at one cursor offset.

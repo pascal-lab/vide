@@ -42,6 +42,7 @@ pub use self::{
     },
     source_mapping::{manifest_predefine_name_range_in_text, preproc_virtual_predefines_path},
 };
+pub(crate) use self::queries::set_source_preproc_model_lru_capacity;
 pub(super) use self::{
     context::{source_preproc_context_index_for_profile, source_preproc_contexts_for_file},
     queries::source_preproc_model,
