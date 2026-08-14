@@ -620,9 +620,23 @@ namespace slang_sys::syntax::tree {
         const slang::syntax::MacroActualArgumentSyntax& argument,
         const slang::SourceManager& source_manager
     ) {
+        std::optional<slang::SourceRange> combined;
+        for (auto token : argument.tokens) {
+            auto range = source_manager.getFullyOriginalRange(token.range());
+            if (range == slang::SourceRange::NoLocation || !range.start().valid() ||
+                !range.end().valid())
+                continue;
+            if (!combined)
+                combined = range;
+            else if (combined->start().buffer() == range.start().buffer())
+                *combined = slang::SourceRange(
+                    std::min(combined->start(), range.start()),
+                    std::max(combined->end(), range.end())
+                );
+        }
         RawTraceActualArgument result {
             rust::Vec<RawTraceToken>(),
-            trace_range(source_manager.getFullyOriginalRange(argument.sourceRange()))
+            combined ? trace_range(*combined) : empty_trace_range()
         };
         for (auto token : argument.tokens)
             result.tokens.emplace_back(trace_token_with_original_range(token, source_manager));
