@@ -705,7 +705,7 @@ pub(crate) fn system_signature(name: &str) -> Option<&'static [String]> {
 mod tests {
     use std::collections::{BTreeSet, HashMap};
 
-    use syntax::Compilation as SlangCompilation;
+    use syntax::compilation::Compilation as SlangCompilation;
 
     use super::*;
 

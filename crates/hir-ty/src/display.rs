@@ -21,7 +21,7 @@ use hir_def::{
     ty::{NetKind, NetType},
     typedef::TypedefId,
 };
-use syntax::TimeUnit;
+use syntax::value::TimeUnit;
 use triomphe::Arc;
 
 use crate::{

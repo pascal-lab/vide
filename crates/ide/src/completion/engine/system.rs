@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use syntax::Compilation as SlangCompilation;
+use syntax::compilation::Compilation as SlangCompilation;
 
 use super::candidate::CompletionCandidate;
 use crate::completion::context::CompletionContext;

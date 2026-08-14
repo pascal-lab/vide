@@ -23,10 +23,11 @@ use hir_semantics::semantics::Semantics;
 use hir_ty::display::HirDisplay;
 use itertools::Itertools;
 use syntax::{
-    SVInt, SyntaxCursorExt, SyntaxNodeExt,
+    SyntaxCursorExt, SyntaxNodeExt,
     has_text_range::HasTextRange,
     token::SyntaxTokenWithParentExt,
     trivia::{TriviaExt, TriviaKindExt},
+    value::SVInt,
 };
 
 use crate::{

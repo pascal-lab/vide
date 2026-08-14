@@ -1,5 +1,5 @@
 use la_arena::Idx;
-use syntax::{SyntaxToken, TimeUnit, TokenKind, ast, ast::AstNode};
+use syntax::{SyntaxToken, TokenKind, ast, ast::AstNode, value::TimeUnit};
 
 use crate::{
     alloc_with_source_entry,

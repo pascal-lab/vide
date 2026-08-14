@@ -8,18 +8,18 @@ mod macros;
 pub mod ptr;
 mod slang_ext;
 
-/// Compatibility namespace for extension traits and token metadata.
 pub mod token {
-    pub use slang_sys::token::*;
+    pub use slang_sys::token::{TokenKind, TriviaKind};
 
-    pub use crate::slang_ext::token::*;
+    pub use crate::slang_ext::token::{
+        SyntaxTokenExt, SyntaxTokenWithParentExt, TokenKindExt, pair_token,
+    };
 }
 
-/// Compatibility namespace for trivia extension traits.
 pub mod trivia {
     pub use slang_sys::token::TriviaKind;
 
-    pub use crate::slang_ext::trivia::*;
+    pub use crate::slang_ext::trivia::{TriviaExt, TriviaKindExt};
 }
 
 pub type Trivia<'a> = SyntaxTrivia<'a>;
@@ -27,19 +27,31 @@ pub use slang_ext::{
     AstNodeExt, SyntaxCursorExt, SyntaxNodeExt, SyntaxTokenExt, SyntaxTokenWithParentExt,
     TokenAtOffset, TokenKindExt, TriviaExt, TriviaKindExt, pair_token,
 };
-// Re-export slang-sys APIs
 pub use slang_sys::{
-    Bit, SVInt, SemanticFacts, SyntaxFacts, TimeUnit,
-    compilation::Compilation,
-    source_buffer::{SourceLocation, SourceRange},
     syntax::{
         ChildrenIter, SyntaxAncestors, SyntaxChildren, SyntaxCursor, SyntaxElemPreorder,
         SyntaxElement, SyntaxElementKind, SyntaxIdxChildren, SyntaxKind, SyntaxNode,
         SyntaxNodePreorder, SyntaxToken, SyntaxTokenWithParent, SyntaxTree, SyntaxTreeBuffer,
         SyntaxTreeOptions, SyntaxTrivia, SyntaxTriviaLoc, WalkEvent, ast,
     },
-    token::{LiteralBase, TokenKind, TriviaKind},
+    token::{TokenKind, TriviaKind},
 };
+
+pub mod compilation {
+    pub use slang_sys::compilation::Compilation;
+}
+
+pub mod facts {
+    pub use slang_sys::{SemanticFacts, SyntaxFacts};
+}
+
+pub mod source {
+    pub use slang_sys::source_buffer::{SourceLocation, SourceRange};
+}
+
+pub mod value {
+    pub use slang_sys::{Bit, LiteralBase, SVInt, TimeUnit};
+}
 
 pub mod diagnostics {
     pub use slang_sys::diagnostic::*;

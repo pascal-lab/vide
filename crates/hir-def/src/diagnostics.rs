@@ -779,9 +779,9 @@ endprogram
         assert!(file_user_net.delay.is_some());
         let time_units = body.time_units.values().next().expect("file time unit should be lowered");
         assert_eq!(time_units.kind, TimeUnitsKind::Unit);
-        assert_eq!(time_units.value.unit, syntax::TimeUnit::Nanoseconds);
+        assert_eq!(time_units.value.unit, syntax::value::TimeUnit::Nanoseconds);
         assert_eq!(time_units.value.magnitude, TimeScaleMagnitude::One);
-        assert_eq!(time_units.precision.unwrap().unit, syntax::TimeUnit::Picoseconds);
+        assert_eq!(time_units.precision.unwrap().unit, syntax::value::TimeUnit::Picoseconds);
         assert_eq!(body.bind_directives.len(), 2);
         assert_eq!(body.dpi_imports.len(), 2);
         assert_eq!(body.dpi_exports.len(), 2);

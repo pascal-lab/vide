@@ -1,7 +1,9 @@
 use std::sync::OnceLock;
 
 use syntax::{
-    SemanticFacts, SyntaxFacts, SyntaxToken, TokenKind, diagnostics::SyntaxKeywordContext,
+    SyntaxToken, TokenKind,
+    diagnostics::SyntaxKeywordContext,
+    facts::{SemanticFacts, SyntaxFacts},
 };
 
 use crate::completion::request::PortListKind;

@@ -1,6 +1,9 @@
 use std::fmt;
 
-use syntax::{Bit, SVInt, TimeUnit, ast};
+use syntax::{
+    ast,
+    value::{Bit, SVInt, TimeUnit},
+};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum Literal {

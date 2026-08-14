@@ -1,7 +1,7 @@
 use syntax::{
-    LiteralBase, SVInt,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
+    value::{LiteralBase, SVInt},
 };
 use utils::text_edit::TextRange;
 

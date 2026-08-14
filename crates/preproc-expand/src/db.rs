@@ -7,7 +7,8 @@ use base_db::{
 };
 use rustc_hash::FxHashMap;
 use syntax::{
-    Compilation, SyntaxTree, SyntaxTreeBuffer,
+    SyntaxTree, SyntaxTreeBuffer,
+    compilation::Compilation,
     diagnostics::{ParserExpectedSyntax, SyntaxDiagnostic},
     preproc::{SyntaxTreeBufferIds, Trace},
 };
