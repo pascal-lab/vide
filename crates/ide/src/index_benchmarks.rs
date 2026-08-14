@@ -331,22 +331,13 @@ fn index_benchmarks_rebuild_after_single_file_change() {
 ///
 /// Returns the host, the loaded [`FileId`]s, total bytes, and total newlines.
 ///
-/// `.map` library-map files are excluded from the indexed source set: they
-/// parse to a `LibraryMap` syntax root, which the item-tree path behind the
-/// semantic index does not accept (it requires a compilation unit).
-///
 /// NOTE: this simplified walk does not exclude `.git`/`target`/`build`. That is
 /// fine for clean fixture dirs (e.g. slang's `tests/unittests/data`); for large
 /// real repos the server's `get_workspace_folder` exclude policy should be
 /// reused instead.
 fn host_with_project(root: &AbsPathBuf) -> (AnalysisHost, Vec<FileId>, usize, usize) {
     let files = PathMatcher::all_under_roots(vec![root.clone()])
-        .collect_matching_files(vfs::loader::SOURCE_FILE_EXTENSIONS)
-        .into_iter()
-        .filter(|path| {
-            !path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("map"))
-        })
-        .collect::<Vec<_>>();
+        .collect_matching_files(vfs::loader::SOURCE_FILE_EXTENSIONS);
 
     let mut file_set = FileSet::default();
     let mut changed_files = Vec::with_capacity(files.len());
@@ -450,4 +441,128 @@ fn index_benchmarks_real_project() {
     let (_, rebuild_cost) =
         timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
     eprintln!("semantic index (rebuild after touching one file): {rebuild_cost:?}");
+}
+
+/// Debug instrumentation for the module-index build path: decomposes the
+/// per-file costs into parse, macro-file discovery, AST id map, owner table,
+/// and the item-tree residual.
+///
+/// Each query is timed after its inputs are warm, so the numbers are the
+/// *incremental* cost of that query, not cold wall-clock.
+///
+/// Run with:
+///
+/// ```text
+/// VIDE_BENCH_PROJECT=third_party/slang/tests/unittests/data \
+///   cargo test -p ide --release --lib -- --ignored --nocapture index_benchmarks_module_index_profile
+/// ```
+#[test]
+#[ignore]
+fn index_benchmarks_module_index_profile() {
+    use hir_def::db::HirDefDb;
+    use preproc_expand::{db::PreprocDb, file::HirFileId, macro_file::macro_files_for_file};
+
+    let Some(raw) = std::env::var_os("VIDE_BENCH_PROJECT") else {
+        println!("VIDE_BENCH_PROJECT not set; skipping module-index profile");
+        return;
+    };
+    let Some(root) = abs_path_buf_from_path_buf(PathBuf::from(raw)) else {
+        println!("VIDE_BENCH_PROJECT must be an absolute UTF-8 path");
+        return;
+    };
+    let (host, file_ids, _, _) = host_with_project(&root);
+    if file_ids.is_empty() {
+        println!("no SystemVerilog source files found under {root}");
+        return;
+    }
+    let db = host.raw_db();
+
+    let mut parse_cost = Duration::ZERO;
+    let mut macro_cost = Duration::ZERO;
+    let mut ast_id_cost = Duration::ZERO;
+    let mut owner_cost = Duration::ZERO;
+    let mut item_tree_cost = Duration::ZERO;
+
+    // Cold parse first; every query below reuses the parse cache.
+    for &file_id in &file_ids {
+        let (_, cost) = timed(|| std::hint::black_box(db.parse(file_id.into())));
+        parse_cost += cost;
+    }
+    for &file_id in &file_ids {
+        let (_, cost) = timed(|| macro_files_for_file(db, file_id));
+        macro_cost += cost;
+    }
+    for &file_id in &file_ids {
+        let hir_file_id = HirFileId::File(file_id);
+        let (_, cost) = timed(|| std::hint::black_box(db.ast_id_map(hir_file_id)));
+        ast_id_cost += cost;
+    }
+    for &file_id in &file_ids {
+        let hir_file_id = HirFileId::File(file_id);
+        let (_, cost) = timed(|| std::hint::black_box(db.owner_table(hir_file_id)));
+        owner_cost += cost;
+    }
+    for &file_id in &file_ids {
+        let hir_file_id = HirFileId::File(file_id);
+        let (_, cost) = timed(|| std::hint::black_box(db.item_tree(hir_file_id)));
+        item_tree_cost += cost;
+    }
+
+    eprintln!("\n== module-index profile ({root}) ==");
+    eprintln!("files: {}", file_ids.len());
+    eprintln!("parse (cold):        {parse_cost:?}");
+    eprintln!("macro_files_for_file:{macro_cost:?}");
+    eprintln!("ast_id_map:          {ast_id_cost:?}");
+    eprintln!("owner_table:         {owner_cost:?}");
+    eprintln!("item_tree (residual):{item_tree_cost:?}");
+
+    // Isolate the full-profile slang compilation (`parsed_profile`): cold
+    // first call vs a warm second call in a fresh host.
+    {
+        let (host, ids, _, _) = host_with_project(&root);
+        let db = host.raw_db();
+        let (_, cold) = timed(|| std::hint::black_box(db.parsed_compilation_unit(ids[0])));
+        eprintln!("parsed_compilation_unit (cold): {cold:?}");
+        let warm = ids.get(1).copied().map(|file_id| {
+            let (_, cost) = timed(|| std::hint::black_box(db.parsed_compilation_unit(file_id)));
+            cost
+        });
+        if let Some(warm) = warm {
+            eprintln!("parsed_compilation_unit (warm): {warm:?}");
+        }
+    }
+
+    // The remaining macro_files_for_file sub-queries, each cold in a fresh
+    // host so no earlier measurement warms them.
+    {
+        let (host, ids, _, _) = host_with_project(&root);
+        let db = host.raw_db();
+        let mut cost = Duration::ZERO;
+        for &file_id in &ids {
+            let (_, c) =
+                timed(|| std::hint::black_box(db.source_preproc_contexts_for_file(file_id)));
+            cost += c;
+        }
+        eprintln!("source_preproc_contexts_for_file: {cost:?}");
+    }
+    {
+        let (host, ids, _, _) = host_with_project(&root);
+        let db = host.raw_db();
+        let mut cost = Duration::ZERO;
+        for &file_id in &ids {
+            let (_, c) = timed(|| std::hint::black_box(db.source_preproc_model(file_id)));
+            cost += c;
+        }
+        eprintln!("source_preproc_model: {cost:?}");
+    }
+    {
+        let (host, ids, _, _) = host_with_project(&root);
+        let db = host.raw_db();
+        let mut cost = Duration::ZERO;
+        for &file_id in &ids {
+            let (_, c) = timed(|| std::hint::black_box(db.trace_index(file_id)));
+            cost += c;
+        }
+        eprintln!("trace_index: {cost:?}");
+    }
 }
