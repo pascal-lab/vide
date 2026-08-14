@@ -308,11 +308,12 @@ fn build_item_tree_data(
     let mut parents = Vec::new();
     let mut body_depth = 0usize;
     let root = tree.root();
-    assert_eq!(
-        root.kind(),
-        syntax::SyntaxKind::COMPILATION_UNIT,
-        "item tree requires a compilation-unit syntax root"
-    );
+    if root.kind() != syntax::SyntaxKind::COMPILATION_UNIT {
+        // Library-map and other non-compilation-unit syntax roots have no
+        // compilation-unit members, so they contribute no item-tree items.
+        // Their declarations are lowered via `lower_library_map` instead.
+        return (Vec::new(), Vec::new());
+    }
     for event in root.elem_preorder() {
         match event {
             WalkEvent::Enter(SyntaxElement::Node(node)) => {
@@ -646,6 +647,16 @@ mod tests {
 
         assert_eq!(before_function.header_fingerprint(), after_function.header_fingerprint());
         assert_eq!(before_function.parent(), after_function.parent());
+    }
+
+    #[test]
+    fn item_tree_builds_empty_for_library_map() {
+        let text = "library foo \"dir/*.sv\";\n";
+        let file_id = HirFileId::File(FileId::from_raw(0));
+        let tree = SyntaxTree::from_library_map_text(text, "test.map", "test.map");
+        let ast_ids = AstIdMap::from_source(&tree);
+        let item_tree = build_item_tree(file_id, &tree, &ast_ids, Some(text));
+        assert_eq!(item_tree.len(), 0, "library-map files contribute no item-tree items");
     }
 
     #[test]
