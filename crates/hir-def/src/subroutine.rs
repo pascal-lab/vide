@@ -127,6 +127,9 @@ fn lower_name(name: ast::Name) -> Option<Ident> {
     if let Some(scoped) = name.as_scoped_name() {
         return lower_name(scoped.right());
     }
+    if let Some(keyword) = name.as_keyword_name() {
+        return keyword.keyword().and_then(|tok| lower_ident_opt(Some(tok)));
+    }
     None
 }
 
