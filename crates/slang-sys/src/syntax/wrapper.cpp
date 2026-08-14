@@ -884,10 +884,9 @@ namespace slang_sys::syntax::tree {
                     call_origin->second == slang::parsing::MacroUsageOrigin::Source &&
                     (!origin.has_body_token_index || !origin.has_argument_index ||
                      !origin.has_argument_token_index))
-                    throw std::logic_error(
-                        "Slang source macro argument has incomplete token origin metadata: " +
-                        std::to_string(call->call_id)
-                    );
+                {
+                    origin.kind = 0;
+                }
             } else {
                 auto token_origin = token.macroOrigin();
                 switch (call_origin->second) {
@@ -910,10 +909,9 @@ namespace slang_sys::syntax::tree {
                 if (macro_operation == slang::parsing::Token::MacroOperation::None &&
                     call_origin->second == slang::parsing::MacroUsageOrigin::Source &&
                     !origin.has_body_token_index)
-                    throw std::logic_error(
-                        "Slang source macro body has no token origin metadata: " +
-                        std::to_string(call->call_id)
-                    );
+                {
+                    origin.kind = 0;
+                }
             }
             if (macro_operation == slang::parsing::Token::MacroOperation::TokenPaste)
                 origin.kind = 5;
@@ -1067,30 +1065,32 @@ namespace slang_sys::syntax::tree {
                 auto insertion =
                     calls.emplace(call_key(range), TraceCallInfo { call_id, call_id, event.range });
                 if (!insertion.second) {
-                    throw std::logic_error(
-                        "Slang macro usage ranges are not unique: " + name + " at " +
-                        std::to_string(range.buffer_id) + ":" +
-                        std::to_string(range.range_start) + "-" +
-                        std::to_string(range.range_end)
-                    );
-                }
-                if (auto usage = macro_origins.find(node); usage != macro_origins.end() &&
-                    usage->second == slang::parsing::MacroUsageOrigin::Source) {
-                    auto definition = macro_definitions.find(node);
-                    if (definition == macro_definitions.end() || !definition->second)
-                        throw std::logic_error("Slang source macro usage has no definition");
-                    auto definition_id = definitions.find(definition->second);
-                    if (definition_id == definitions.end())
-                        throw std::logic_error("Slang source macro usage definition is unindexed");
-                    event.macro_definition_id = definition_id->second;
-                    event.has_macro_definition_id = true;
-                    call_definitions[call_id] = definition_id->second;
-                }
-                if (usage.args) {
-                    for (auto* argument : usage.args->args)
-                        if (argument)
-                            event.arguments.emplace_back(trace_actual_argument_with_original_ranges(
-                                *argument, tree.session->source_manager));
+                    // Slang may report overlapping macro usages at the same
+                    // source range (e.g. a macro expanding to another macro
+                    // at the same location). Emit the event without a call
+                    // identity; the first call's range key wins for
+                    // token-origin lookups.
+                    event.has_macro_call_id = false;
+                    event.has_macro_expansion_id = false;
+                } else {
+                    if (auto usage = macro_origins.find(node); usage != macro_origins.end() &&
+                        usage->second == slang::parsing::MacroUsageOrigin::Source) {
+                        auto definition = macro_definitions.find(node);
+                        if (definition == macro_definitions.end() || !definition->second)
+                            throw std::logic_error("Slang source macro usage has no definition");
+                        auto definition_id = definitions.find(definition->second);
+                        if (definition_id == definitions.end())
+                            throw std::logic_error("Slang source macro usage definition is unindexed");
+                        event.macro_definition_id = definition_id->second;
+                        event.has_macro_definition_id = true;
+                        call_definitions[call_id] = definition_id->second;
+                    }
+                    if (usage.args) {
+                        for (auto* argument : usage.args->args)
+                            if (argument)
+                                event.arguments.emplace_back(trace_actual_argument_with_original_ranges(
+                                    *argument, tree.session->source_manager));
+                    }
                 }
             } else if (kind == slang::syntax::SyntaxKind::IfDefDirective ||
                        kind == slang::syntax::SyntaxKind::IfNDefDirective ||
