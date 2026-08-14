@@ -621,20 +621,11 @@ fn workspace_diagnostics_compute_profile_owner_once_across_source_roots() {
     let top_path = app_rtl.join("top.sv");
     fs::write(&top_path, "module top;\n  logic sig;\n  child u(.a(sig));\nendmodule\n").unwrap();
 
-    let opt = Opt {
-        process_name: "vide-test".to_string(),
-        log: "error".to_string(),
-        log_filename: None,
-        profile_trace: None,
-    };
-    let config = config::Config::new(
-        opt,
+    let config = test_server_config_with_roots(
         temp_dir.path().to_path_buf(),
-        pull_caps,
         vec![app_dir],
-        I18n::default(),
+        pull_caps,
         UserConfig::default(),
-        Vec::new(),
     );
     let (server, client) = Connection::memory();
     let server_thread = spawn_default_test_server(config, server);
@@ -708,21 +699,7 @@ fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
     fs::write(&top_path, top_text).unwrap();
 
     let root_path = temp_dir.path().to_path_buf();
-    let opt = Opt {
-        process_name: "vide-test".to_string(),
-        log: "error".to_string(),
-        log_filename: None,
-        profile_trace: None,
-    };
-    let config = config::Config::new(
-        opt,
-        root_path.clone(),
-        pull_caps,
-        vec![root_path],
-        I18n::default(),
-        UserConfig::default(),
-        Vec::new(),
-    );
+    let config = test_server_config(root_path, pull_caps, UserConfig::default());
 
     let (server, client) = Connection::memory();
     let server_thread = spawn_default_test_server(config, server);
@@ -801,20 +778,11 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
     let root_path = temp_dir.path().to_path_buf();
     let app_root = app_dir.clone();
     let package_root = package_dir.clone();
-    let opt = Opt {
-        process_name: "vide-test".to_string(),
-        log: "error".to_string(),
-        log_filename: None,
-        profile_trace: None,
-    };
-    let config = config::Config::new(
-        opt,
+    let config = test_server_config_with_roots(
         root_path.clone(),
-        pull_caps,
         vec![app_root, package_root],
-        I18n::default(),
+        pull_caps,
         UserConfig::default(),
-        Vec::new(),
     );
 
     let (server, client) = Connection::memory();
@@ -900,21 +868,7 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
     fs::write(&top_path, top_text).unwrap();
 
     let root_path = temp_dir.path().to_path_buf();
-    let opt = Opt {
-        process_name: "vide-test".to_string(),
-        log: "error".to_string(),
-        log_filename: None,
-        profile_trace: None,
-    };
-    let config = config::Config::new(
-        opt,
-        root_path.clone(),
-        pull_caps,
-        vec![root_path],
-        I18n::default(),
-        UserConfig::default(),
-        Vec::new(),
-    );
+    let config = test_server_config(root_path, pull_caps, UserConfig::default());
 
     let (server, client) = Connection::memory();
     let server_thread = spawn_default_test_server(config, server);
@@ -988,21 +942,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
     fs::write(&top_path, "module top;\nendmodule\n").unwrap();
 
     let root_path = temp_dir.path().to_path_buf();
-    let opt = Opt {
-        process_name: "vide-test".to_string(),
-        log: "error".to_string(),
-        log_filename: None,
-        profile_trace: None,
-    };
-    let config = config::Config::new(
-        opt,
-        root_path.clone(),
-        pull_caps,
-        vec![root_path],
-        I18n::default(),
-        UserConfig::default(),
-        Vec::new(),
-    );
+    let config = test_server_config(root_path, pull_caps, UserConfig::default());
 
     let (server, client) = Connection::memory();
     let server_thread = spawn_default_test_server(config, server);
@@ -1097,21 +1037,7 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
     fs::write(&top_path, top_text).unwrap();
 
     let root_path = temp_dir.path().to_path_buf();
-    let opt = Opt {
-        process_name: "vide-test".to_string(),
-        log: "error".to_string(),
-        log_filename: None,
-        profile_trace: None,
-    };
-    let config = config::Config::new(
-        opt,
-        root_path.clone(),
-        pull_caps,
-        vec![root_path],
-        I18n::default(),
-        UserConfig::default(),
-        Vec::new(),
-    );
+    let config = test_server_config(root_path, pull_caps, UserConfig::default());
 
     let (server, client) = Connection::memory();
     let server_thread = spawn_default_test_server(config, server);
@@ -1196,21 +1122,7 @@ fn deleted_workspace_file_requests_diagnostic_refresh() {
     fs::write(&broken_path, "module broken(;\nendmodule\n").unwrap();
 
     let root_path = temp_dir.path().to_path_buf();
-    let opt = Opt {
-        process_name: "vide-test".to_string(),
-        log: "error".to_string(),
-        log_filename: None,
-        profile_trace: None,
-    };
-    let config = config::Config::new(
-        opt,
-        root_path.clone(),
-        pull_caps,
-        vec![root_path],
-        I18n::default(),
-        UserConfig::default(),
-        Vec::new(),
-    );
+    let config = test_server_config(root_path, pull_caps, UserConfig::default());
 
     let (server, client) = Connection::memory();
     let server_thread = spawn_default_test_server(config, server);

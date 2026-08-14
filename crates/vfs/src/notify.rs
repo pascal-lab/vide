@@ -4,16 +4,31 @@ use std::{
     fs,
     path::{Component, Path},
     sync::atomic::AtomicUsize,
+    time::Duration,
 };
 
 use crossbeam_channel::{Receiver, Sender, select, unbounded};
-use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher, event::AccessKind};
+use notify::{Config, EventKind, RecursiveMode, Watcher, event::AccessKind};
 use rayon::iter::{IndexedParallelIterator as _, IntoParallelIterator as _, ParallelIterator};
 use rustc_hash::FxHashSet;
 use utils::paths::{AbsPath, AbsPathBuf, Utf8PathBuf};
 use walkdir::WalkDir;
 
 use crate::loader::{self, LoadingProgress};
+
+// FSEvents watcher registration can block while starting or stopping its
+// CFRunLoop, which must never hold workspace readiness hostage. PollWatcher has
+// bounded setup and shutdown behavior and preserves recursive change detection
+// on macOS.
+#[cfg(target_os = "macos")]
+type BackendWatcher = notify::PollWatcher;
+#[cfg(not(target_os = "macos"))]
+type BackendWatcher = notify::RecommendedWatcher;
+
+#[cfg(target_os = "macos")]
+const WATCHER_BACKEND: &str = "poll";
+#[cfg(not(target_os = "macos"))]
+const WATCHER_BACKEND: &str = "recommended";
 
 #[derive(Debug)]
 pub struct NotifyHandle {
@@ -60,7 +75,7 @@ struct NotifyActor {
     watched_dir_entries: Vec<loader::Directories>,
     seen_paths: FxHashSet<AbsPathBuf>,
     // Drop order is significant.
-    watcher: Option<(RecommendedWatcher, Receiver<NotifyEvent>)>,
+    watcher: Option<(BackendWatcher, Receiver<NotifyEvent>)>,
 }
 
 #[derive(Debug)]
@@ -100,15 +115,25 @@ impl NotifyActor {
                         self.watcher = None;
                         if !config.watch.is_empty() {
                             let (watcher_sender, watcher_receiver) = unbounded();
-                            let watcher = log_notify_error(RecommendedWatcher::new(
+                            let watcher_config =
+                                Config::default().with_poll_interval(Duration::from_secs(1));
+                            let watcher = BackendWatcher::new(
                                 move |event| {
-                                    // we don't care about the error. If sending fails that usually
-                                    // means we were dropped, so unwrapping will just add to the
-                                    // panic noise.
+                                    // A disconnected receiver means the actor was dropped. Do not
+                                    // panic in the platform callback because that only obscures the
+                                    // shutdown cause.
                                     _ = watcher_sender.send(event);
                                 },
-                                Config::default(),
-                            ));
+                                watcher_config,
+                            )
+                            .map_err(|error| {
+                                tracing::error!(
+                                    %error,
+                                    backend = WATCHER_BACKEND,
+                                    "failed to create file watcher"
+                                );
+                            })
+                            .ok();
                             self.watcher = watcher.map(|it| (it, watcher_receiver));
                         }
 
@@ -192,11 +217,17 @@ impl NotifyActor {
                     }
                 },
                 Event::NotifyEvent(event) => {
-                    if let Some(event) = log_notify_error(event)
-                        && let EventKind::Create(_)
-                        | EventKind::Modify(_)
-                        | EventKind::Remove(_)
-                        | EventKind::Access(AccessKind::Open(_)) = event.kind
+                    let event = match event {
+                        Ok(event) => event,
+                        Err(error) => {
+                            tracing::error!(%error, backend = WATCHER_BACKEND, "file watcher error");
+                            continue;
+                        }
+                    };
+                    if let EventKind::Create(_)
+                    | EventKind::Modify(_)
+                    | EventKind::Remove(_)
+                    | EventKind::Access(AccessKind::Open(_)) = event.kind
                     {
                         let abs_paths: Vec<AbsPathBuf> = event
                             .paths
@@ -352,8 +383,15 @@ impl NotifyActor {
     }
 
     fn watch(&mut self, path: &Path) {
-        if let Some((watcher, _)) = &mut self.watcher {
-            log_notify_error(watcher.watch(path, RecursiveMode::Recursive));
+        if let Some((watcher, _)) = &mut self.watcher
+            && let Err(error) = watcher.watch(path, RecursiveMode::Recursive)
+        {
+            tracing::error!(
+                %error,
+                path = %path.display(),
+                backend = WATCHER_BACKEND,
+                "failed to register file watcher path"
+            );
         }
     }
 
@@ -365,10 +403,6 @@ impl NotifyActor {
 
 fn read(path: &AbsPath) -> Option<Vec<u8>> {
     std::fs::read(path).ok()
-}
-
-fn log_notify_error<T>(res: notify::Result<T>) -> Option<T> {
-    res.map_err(|err| tracing::warn!("notify error: {}", err)).ok()
 }
 
 /// Is `path` a symlink to a parent directory?
@@ -387,4 +421,68 @@ fn path_might_be_cyclic(path: &Path) -> bool {
         destination.components().all(|c| matches!(c, Component::CurDir | Component::ParentDir));
 
     is_relative_parent || path.starts_with(destination)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use crossbeam_channel::unbounded;
+    use tempfile::tempdir;
+    use utils::paths::{AbsPathBuf, Utf8PathBuf};
+
+    use super::NotifyHandle;
+    use crate::loader::{self, Handle as _, LoadingProgress};
+
+    #[test]
+    fn watcher_setup_finishes_loading() {
+        let temp_dir = tempdir().unwrap();
+        std::fs::write(temp_dir.path().join("top.sv"), "module top; endmodule\n").unwrap();
+        let root = AbsPathBuf::try_from(
+            Utf8PathBuf::from_path_buf(temp_dir.path().to_path_buf()).unwrap(),
+        )
+        .unwrap();
+        let directories = loader::Directories {
+            extensions: vec!["sv".to_owned()],
+            include: vec![root],
+            exclude: Vec::new(),
+        };
+
+        let config = loader::Config {
+            version: 7,
+            load: vec![loader::Entry::Directories(directories)],
+            watch: vec![0],
+        };
+
+        let (sender, receiver) = unbounded();
+        let mut handle = NotifyHandle::spawn(sender);
+        handle.set_config(config);
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut loaded_batches = 0;
+        let mut journal = Vec::new();
+        loop {
+            let message = receiver.recv_deadline(deadline).unwrap_or_else(|error| {
+                panic!(
+                    "VFS configuration did not finish before the deadline: {error}; events: {journal:#?}"
+                )
+            });
+            journal.push(format!("{message:?}"));
+            match message {
+                loader::Message::Loaded { .. } => loaded_batches += 1,
+                loader::Message::Progress {
+                    config_version: 7,
+                    n_done: LoadingProgress::Finished,
+                    ..
+                } => break,
+                _ => {}
+            }
+        }
+
+        assert_eq!(loaded_batches, 1);
+
+        // The previous macOS FSEvents watcher could wait indefinitely for its run loop
+        // when this handle was dropped.
+        drop(handle);
+    }
 }

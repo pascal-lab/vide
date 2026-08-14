@@ -99,7 +99,8 @@ mod tests {
             I18n::default(),
             UserConfig::default(),
             Vec::new(),
-        );
+        )
+        .with_main_loop_threads_num(1);
 
         let (server, client) = Connection::memory();
         (GlobalState::new(server.sender, config, lsp_types::TraceValue::Off), client)

@@ -84,6 +84,7 @@ pub struct Config {
     pub(crate) user_config: UserConfig,
     diagnostics_config: DiagnosticsConfig,
     pub(crate) project_manifests: Vec<ProjectManifest>,
+    main_loop_threads_num: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -110,7 +111,15 @@ impl Config {
             user_config,
             diagnostics_config,
             project_manifests,
+            main_loop_threads_num: num_cpus::get_physical(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_main_loop_threads_num(mut self, threads: usize) -> Self {
+        assert!(threads > 0, "the main loop worker count must be greater than zero");
+        self.main_loop_threads_num = threads;
+        self
     }
 
     pub(crate) fn update(&mut self, json: serde_json::Value) -> Result<(), ConfigError> {
@@ -167,7 +176,7 @@ impl Config {
     }
 
     pub fn main_loop_threads_num(&self) -> usize {
-        num_cpus::get_physical()
+        self.main_loop_threads_num
     }
 
     pub fn files(&self) -> FilesConfig {

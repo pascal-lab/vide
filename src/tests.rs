@@ -31,8 +31,8 @@ use lsp_types::{
         Completion as CompletionRequest, DocumentDiagnosticRequest, DocumentSymbolRequest,
         ExecuteCommand, FoldingRangeRequest, Formatting, GotoDefinition, GotoTypeDefinition,
         HoverRequest, InlayHintRequest, References, Request as _, SemanticTokensFullRequest,
-        Shutdown, SignatureHelpRequest, WorkspaceConfiguration, WorkspaceDiagnosticRequest,
-        WorkspaceSymbolRequest,
+        Shutdown, SignatureHelpRequest, UnregisterCapability, WorkspaceConfiguration,
+        WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
     },
 };
 use serde::de::DeserializeOwned;
@@ -92,6 +92,7 @@ fn handle_test_server_request(client: &Connection, request: Request, context: &s
     if request.method == lsp_types::request::WorkDoneProgressCreate::METHOD
         || request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD
         || request.method == lsp_types::request::RegisterCapability::METHOD
+        || request.method == UnregisterCapability::METHOD
     {
         client
             .sender
@@ -121,11 +122,48 @@ fn test_server_config(
     client_caps: ClientCapabilities,
     user_config: UserConfig,
 ) -> config::Config {
-    test_server_config_with_i18n(root_path, client_caps, user_config, I18n::default())
+    test_server_config_with_roots_and_i18n(
+        root_path.clone(),
+        vec![root_path],
+        client_caps,
+        user_config,
+        I18n::default(),
+    )
 }
 
 fn test_server_config_with_i18n(
     root_path: AbsPathBuf,
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    i18n: I18n,
+) -> config::Config {
+    test_server_config_with_roots_and_i18n(
+        root_path.clone(),
+        vec![root_path],
+        client_caps,
+        user_config,
+        i18n,
+    )
+}
+
+fn test_server_config_with_roots(
+    root_path: AbsPathBuf,
+    workspace_roots: Vec<AbsPathBuf>,
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+) -> config::Config {
+    test_server_config_with_roots_and_i18n(
+        root_path,
+        workspace_roots,
+        client_caps,
+        user_config,
+        I18n::default(),
+    )
+}
+
+fn test_server_config_with_roots_and_i18n(
+    root_path: AbsPathBuf,
+    workspace_roots: Vec<AbsPathBuf>,
     mut client_caps: ClientCapabilities,
     user_config: UserConfig,
     i18n: I18n,
@@ -137,15 +175,8 @@ fn test_server_config_with_i18n(
         log_filename: None,
         profile_trace: None,
     };
-    config::Config::new(
-        opt,
-        root_path.clone(),
-        client_caps,
-        vec![root_path],
-        i18n,
-        user_config,
-        Vec::new(),
-    )
+    config::Config::new(opt, root_path, client_caps, workspace_roots, i18n, user_config, Vec::new())
+        .with_main_loop_threads_num(1)
 }
 
 fn spawn_test_workspace(

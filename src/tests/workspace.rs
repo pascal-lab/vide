@@ -16,21 +16,7 @@ fn project_manifest_is_not_diagnosed_as_systemverilog() {
     fs::create_dir_all(temp_dir.path().join("rtl")).unwrap();
 
     let root_path = temp_dir.path().to_path_buf();
-    let opt = Opt {
-        process_name: "vide-test".to_string(),
-        log: "error".to_string(),
-        log_filename: None,
-        profile_trace: None,
-    };
-    let config = config::Config::new(
-        opt,
-        root_path.clone(),
-        pull_caps,
-        vec![root_path],
-        I18n::default(),
-        UserConfig::default(),
-        Vec::new(),
-    );
+    let config = test_server_config(root_path, pull_caps, UserConfig::default());
 
     let (server, client) = Connection::memory();
     let server_thread = spawn_default_test_server(config, server);
