@@ -10,8 +10,11 @@ const SLANG_SYS_SOURCE_DIR: &str = "./src";
 const SCRIPTS_DIR: &str = "./scripts";
 const USE_SCCACHE_CMAKE_ENV: &str = "VIDE_USE_SCCACHE_CMAKE";
 const SCCACHE_PATH_ENV: &str = "SCCACHE_PATH";
-/// Build directory from cargo target directory.
-/// This will influence clangd's include path.
+/// Build directory root from cargo target directory.
+///
+/// The concrete CMake directory is qualified by target and profile below.
+/// CMake caches compiler and toolchain detection, so sharing one directory
+/// across target triples is incorrect even when the Rust profile is equal.
 const BUILD_DIR: &str = "slang-sys";
 /// FFI files from src directory.
 const FFI_FILES: &[&str] = &["compilation/ffi.rs", "diagnostic/ffi.rs", "syntax/ffi.rs"];
@@ -92,27 +95,40 @@ mod env_detection {
                 .join("../..")
                 .join("target")
             });
-        workspace_target_dir.join(BUILD_DIR)
+        let target = env::var("TARGET").expect("TARGET is not set");
+        workspace_target_dir.join(BUILD_DIR).join(target)
     }
 
     pub fn find_python() -> PathBuf {
         env::var_os("PYTHON").map(PathBuf::from).unwrap_or_else(|| "python3".into())
     }
 
-    pub fn cmake_sccache_launcher() -> Option<PathBuf> {
-        let value = env::var_os(USE_SCCACHE_CMAKE_ENV)?;
-        if !parse_enabled_flag(USE_SCCACHE_CMAKE_ENV, &value) {
-            return None;
+    pub fn cmake_compiler_launcher() -> Option<PathBuf> {
+        if let Some(value) = env::var_os(USE_SCCACHE_CMAKE_ENV) {
+            if !parse_enabled_flag(USE_SCCACHE_CMAKE_ENV, &value) {
+                return None;
+            }
+
+            let requested =
+                env::var_os(SCCACHE_PATH_ENV).unwrap_or_else(|| OsString::from("sccache"));
+            return Some(resolve_launcher(&requested));
         }
 
-        let requested = env::var_os(SCCACHE_PATH_ENV).unwrap_or_else(|| OsString::from("sccache"));
-        Some(which::which(&requested).unwrap_or_else(|error| {
+        let wrapper = env::var_os("RUSTC_WRAPPER").filter(|wrapper| !wrapper.is_empty())?;
+        let wrapper_path = PathBuf::from(&wrapper);
+        let stem = wrapper_path.file_stem()?.to_str()?.to_owned();
+        ["sccache", "cachepot", "buildcache", "kache"]
+            .contains(&stem.as_str())
+            .then(|| resolve_launcher(&wrapper))
+    }
+
+    fn resolve_launcher(requested: &OsString) -> PathBuf {
+        which::which(requested).unwrap_or_else(|error| {
             panic!(
-                "{USE_SCCACHE_CMAKE_ENV} enables the CMake sccache launcher, but {requested:?} \
-                 could not be executed: {error}. Install sccache or set {SCCACHE_PATH_ENV} to its \
-                 executable path"
+                "CMake compiler caching requested launcher {requested:?}, but it could not be \
+                 executed: {error}. Install it or set {SCCACHE_PATH_ENV} to its executable path"
             )
-        }))
+        })
     }
 
     fn parse_enabled_flag(name: &str, value: &OsString) -> bool {
@@ -192,15 +208,24 @@ fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
     let cmake_profile = if debug { "Debug" } else { "Release" };
     let cmake_out_dir = env_detection::build_dir().join(cmake_profile.to_ascii_lowercase());
     let emscripten = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("emscripten");
-    let sccache = env_detection::cmake_sccache_launcher();
+    let compiler_launcher = env_detection::cmake_compiler_launcher();
+    let rustc_wrapper = env::var_os("RUSTC_WRAPPER")
+        .filter(|wrapper| !wrapper.is_empty())
+        .map(|wrapper| wrapper.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "disabled".into());
 
     eprintln!(
-        "slang-sys-build target={} cmake_profile={cmake_profile} generator={} sccache={}",
+        "slang-sys-build target={} cmake_profile={cmake_profile} build_dir={} generator={} \
+         cmake_launcher={} bridge_wrapper={}",
         env::var("TARGET").as_deref().unwrap_or("<unknown>"),
+        cmake_out_dir.display(),
         env::var("CMAKE_GENERATOR").as_deref().unwrap_or("<cmake-default>"),
-        sccache.as_deref().map_or_else(|| "disabled".into(), |path| path.display().to_string()),
+        compiler_launcher
+            .as_deref()
+            .map_or_else(|| "disabled".into(), |path| path.display().to_string()),
+        rustc_wrapper,
     );
-    if sccache.is_some() && env::var_os("SCCACHE_BASEDIRS").is_none() {
+    if compiler_launcher.is_some() && env::var_os("SCCACHE_BASEDIRS").is_none() {
         eprintln!(
             "slang-sys-build note=SCCACHE_BASEDIRS-is-unset; cross-worktree cache hits may be reduced"
         );
@@ -247,7 +272,7 @@ fn build_slang(slang_dir: &Path, debug: bool) -> PathBuf {
         }
     }
 
-    let launcher = sccache.as_deref().map_or_else(|| "".into(), Path::to_string_lossy);
+    let launcher = compiler_launcher.as_deref().map_or_else(|| "".into(), Path::to_string_lossy);
     config
         .define("CMAKE_C_COMPILER_LAUNCHER", launcher.as_ref())
         .define("CMAKE_CXX_COMPILER_LAUNCHER", launcher.as_ref());
@@ -378,4 +403,5 @@ fn setup_rerun_triggers(slang_dir: &Path, source_dir: &Path, scripts_dir: &Path)
     for name in [USE_SCCACHE_CMAKE_ENV, SCCACHE_PATH_ENV] {
         println!("cargo:rerun-if-env-changed={name}");
     }
+    println!("cargo:rerun-if-env-changed=RUSTC_WRAPPER");
 }

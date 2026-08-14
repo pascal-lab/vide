@@ -26,8 +26,6 @@ jobs:
         uses: ./.github/actions/setup-rust
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
-        with:
-          cmake-launcher: "true"
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -55,8 +53,6 @@ jobs:
         uses: ./.github/actions/setup-rust
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
-        with:
-          cmake-launcher: "true"
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:

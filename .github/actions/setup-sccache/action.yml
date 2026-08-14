@@ -1,11 +1,5 @@
 name: Setup sccache
-description: Configure sccache for Rust and optional CMake builds.
-
-inputs:
-  cmake-launcher:
-    description: Also let crates that drive CMake use sccache as the C/C++ compiler launcher.
-    required: false
-    default: "false"
+description: Configure sccache for Rust and native C/C++ build scripts.
 
 runs:
   using: composite
@@ -21,6 +15,3 @@ runs:
         echo "SCCACHE_BASEDIRS=${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
         echo "RUSTC_WRAPPER=sccache" >> "${GITHUB_ENV}"
         echo "CARGO_INCREMENTAL=0" >> "${GITHUB_ENV}"
-        if [ "${{ inputs.cmake-launcher }}" = "true" ]; then
-          echo "VIDE_USE_SCCACHE_CMAKE=1" >> "${GITHUB_ENV}"
-        fi

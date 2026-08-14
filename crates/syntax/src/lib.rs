@@ -6,7 +6,7 @@ pub mod has_name;
 pub mod has_text_range;
 mod macros;
 pub mod ptr;
-pub mod slang_ext;
+mod slang_ext;
 
 /// Compatibility namespace for extension traits and token metadata.
 pub mod token {
@@ -24,9 +24,8 @@ pub mod trivia {
 
 pub type Trivia<'a> = SyntaxTrivia<'a>;
 pub use slang_ext::{
-    AstNodeExt, NamedConnectionDotZoneExt, SyntaxCursorExt, SyntaxNodeExt, SyntaxTokenExt,
-    SyntaxTokenWithParentExt, TokenAtOffset, TokenKindExt, TriviaExt, TriviaKindExt, ast_ext,
-    pair_token,
+    AstNodeExt, SyntaxCursorExt, SyntaxNodeExt, SyntaxTokenExt, SyntaxTokenWithParentExt,
+    TokenAtOffset, TokenKindExt, TriviaExt, TriviaKindExt, ast_ext, pair_token,
 };
 pub use slang_sys::{
     ActualArgument, Event, EventId, MacroCallId, MacroDefinitionId, MacroExpansionId, MacroParam,

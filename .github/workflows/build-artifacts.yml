@@ -73,8 +73,6 @@ jobs:
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
-        with:
-          cmake-launcher: "true"
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:

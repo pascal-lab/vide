@@ -18,8 +18,6 @@ runs:
     - name: Setup sccache
       if: steps.cache.outputs.cache-hit != 'true'
       uses: ./.github/actions/setup-sccache
-      with:
-        cmake-launcher: "true"
 
     - name: Install Emscripten SDK
       if: steps.cache.outputs.cache-hit != 'true'
