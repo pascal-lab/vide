@@ -565,4 +565,26 @@ fn index_benchmarks_module_index_profile() {
         }
         eprintln!("trace_index: {cost:?}");
     }
+
+    // The semantic-index per-file queries (cold, in a fresh host).
+    {
+        let (host, ids, _, _) = host_with_project(&root);
+        let db = host.raw_db();
+        let mut sem_cost = Duration::ZERO;
+        let mut edges_cost = Duration::ZERO;
+        let mut per_file = Vec::new();
+        for &file_id in &ids {
+            let (_, s) = timed(|| std::hint::black_box(db.file_semantic_index(file_id)));
+            let (_, e) = timed(|| std::hint::black_box(db.file_module_edges(file_id)));
+            sem_cost += s;
+            edges_cost += e;
+            per_file.push((file_id, s, e));
+        }
+        eprintln!("file_semantic_index (sum): {sem_cost:?}");
+        eprintln!("file_module_edges (sum):   {edges_cost:?}");
+        per_file.sort_by_key(|&(_, s, _)| std::cmp::Reverse(s));
+        for (file_id, s, e) in per_file.into_iter().take(10) {
+            eprintln!("  sem per-file {s:?} edges={e:?} {:?}", db.file_path(file_id));
+        }
+    }
 }
