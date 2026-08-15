@@ -49,6 +49,7 @@ struct ReferenceIndexCache {
     module_edge_entries: FxHashMap<SourceRootId, ModuleEdgeEntry>,
     module_edge_dirty: FxHashSet<FileId>,
     macro_generated_origins: FxHashMap<(FileId, TextRange), bool>,
+    request_syntax_trees: FxHashMap<FileId, syntax::SyntaxTree>,
 }
 
 impl Default for ReferenceIndexCache {
@@ -66,6 +67,7 @@ impl Default for ReferenceIndexCache {
             module_edge_entries: FxHashMap::default(),
             module_edge_dirty: FxHashSet::default(),
             macro_generated_origins: FxHashMap::default(),
+            request_syntax_trees: FxHashMap::default(),
         }
     }
 }
@@ -194,6 +196,7 @@ impl RootDb {
         cache
             .macro_generated_origins
             .retain(|(file_id, _), _| !files.contains(file_id));
+        cache.request_syntax_trees.retain(|file_id, _| !files.contains(file_id));
     }
 
     pub(crate) fn semantics(&self) -> hir_semantics::semantics::Semantics<'_, RootDb> {
@@ -293,6 +296,16 @@ impl RootDb {
             .insert((file_id, range), generated);
         generated
     }
+
+    pub(crate) fn request_syntax_tree(&self, file_id: FileId) -> syntax::SyntaxTree {
+        if let Some(tree) = self.reference_index_cache.lock().request_syntax_trees.get(&file_id) {
+            return tree.clone();
+        }
+        let tree = self.parse(HirFileId::File(file_id));
+        self.reference_index_cache.lock().request_syntax_trees.insert(file_id, tree.clone());
+        tree
+    }
+
 
     pub(crate) fn index_resolution_context(
         &self,

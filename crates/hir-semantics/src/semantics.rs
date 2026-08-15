@@ -118,6 +118,10 @@ impl<'db> SemanticsImpl<'db> {
         ParsedFile { file_id, tree: self.db.parse(file_id) }
     }
 
+    pub fn parse_file_with_tree(&self, file_id: FileId, tree: SyntaxTree) -> ParsedFile {
+        ParsedFile { file_id: file_id.into(), tree }
+    }
+
     pub fn container_for_node(&self, file_id: HirFileId, node: SyntaxNode) -> Option<OwnerId> {
         Some(source_to_def::find_container(self.db, InFile::new(file_id, node)))
     }

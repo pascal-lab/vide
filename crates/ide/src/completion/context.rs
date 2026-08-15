@@ -94,7 +94,7 @@ pub(crate) fn completion_context(
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
     let sema = db.semantics();
-    let parsed_file = sema.parse_file(file_id);
+    let parsed_file = sema.parse_file_with_tree(file_id, db.request_syntax_tree(file_id));
     let Some(root) = parsed_file.root() else {
         return CompletionContext {
             replacement: TextRange::empty(offset),
