@@ -611,6 +611,107 @@ fn index_benchmarks_real_project_unit_scope_validation() {
     eprintln!("unit_scope after owner tables:        {after_owner_tables:?}");
 }
 
+fn benchmark_project_request_prewarm(
+    root: &AbsPathBuf,
+    probe: &str,
+    label: &str,
+    prefer_use: bool,
+    offset_delta: TextSize,
+    mut request: impl FnMut(&RootDb, FilePosition) -> usize,
+    mut prewarm: impl FnMut(&RootDb, FilePosition),
+) {
+    let (mut host, file_ids, _, _) = host_with_project(root);
+    let db = host.raw_db();
+    let Some(mut position) = project_probe_position(db, &file_ids, probe, prefer_use) else {
+        eprintln!("{label:<28} probe {probe:?} not found");
+        return;
+    };
+    position.offset += offset_delta;
+    let expected = request(db, position);
+
+    let touch_file = file_ids[0];
+    let touched_text = format!("{} // prewarm-bench-touch\n", db.file_text(touch_file));
+    let mut touch = Change::new();
+    touch.add_changed_file(ChangedFile::create(touch_file, touched_text.as_str()));
+    host.apply_change(touch);
+    let db = host.raw_db();
+
+    let (_, prewarm_cost) = timed(|| prewarm(db, position));
+    let (count, request_cost) = timed(|| std::hint::black_box(request(db, position)));
+    assert_eq!(count, expected, "{label} changed result count after prewarming");
+    eprintln!(
+        "{label:<28} prewarm={prewarm_cost:?} remaining-request={request_cost:?} results={count}"
+    );
+}
+
+/// Confirms which aggregate query dominates each slow post-edit request by
+/// validating that query before measuring the request itself.
+#[test]
+#[ignore]
+fn index_benchmarks_real_project_request_query_prewarm() {
+    let Some(raw) = std::env::var_os("VIDE_BENCH_PROJECT") else {
+        println!("VIDE_BENCH_PROJECT not set; skipping request-query prewarm benchmark");
+        return;
+    };
+    let Some(root) = abs_path_buf_from_path_buf(PathBuf::from(raw)) else {
+        println!("VIDE_BENCH_PROJECT must be an absolute UTF-8 path");
+        return;
+    };
+    let probe = std::env::var("VIDE_BENCH_PROBE").unwrap_or_else(|_| "cc_fifo".to_owned());
+    eprintln!("\n== B9: real-project request query prewarm ({root}, probe={probe}) ==");
+
+    benchmark_project_request_prewarm(
+        &root,
+        &probe,
+        "highlight / file index",
+        true,
+        TextSize::from(0),
+        |db, position| {
+            crate::document_highlight::document_highlight(
+                db,
+                position,
+                DocumentHighlightConfig { scope_visibility: ScopeVisibility::Public },
+            )
+            .map_or(0, |items| items.len())
+        },
+        |db, position| {
+            std::hint::black_box(db.file_semantic_index(position.file_id));
+        },
+    );
+
+    let completion_prefix = TextSize::from(u32::try_from(probe.len().min(3)).unwrap());
+    benchmark_project_request_prewarm(
+        &root,
+        &probe,
+        "completion / unit index",
+        true,
+        completion_prefix,
+        |db, position| completion::completions(db, position, None).len(),
+        |db, _| {
+            std::hint::black_box(db.unit_index());
+        },
+    );
+
+    benchmark_project_request_prewarm(
+        &root,
+        &probe,
+        "call hierarchy / modules",
+        false,
+        TextSize::from(0),
+        |db, position| {
+            let range =
+                TextRange::new(position.offset, position.offset + TextSize::of(probe.as_str()));
+            incoming_module_edges(db, position.file_id, range).len()
+        },
+        |db, position| {
+            std::hint::black_box(source_root_module_index_for_root(
+                db,
+                db.source_root_id(position.file_id),
+            ));
+        },
+    );
+}
+
 /// Real multi-file project benchmark: loads `$VIDE_BENCH_PROJECT` as one source
 /// root and times cold load, cold parse, module index, semantic index, and the
 /// semantic-index rebuild after touching one file.
