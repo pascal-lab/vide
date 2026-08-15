@@ -709,22 +709,6 @@ input_file: crates/ide/src/completion/engine/fixtures/completes_system_identifie
         ),
     },
     CompletionItem {
-        label: "$deposit",
-        kind: Snippet,
-        edit: Some(
-            TextEditItem {
-                ins: "$deposit()",
-                del: 26..27,
-            },
-        ),
-        snippet_edit: Some(
-            TextEditItem {
-                ins: "\\$deposit(${1:args})",
-                del: 26..27,
-            },
-        ),
-    },
-    CompletionItem {
         label: "$dimensions",
         kind: Snippet,
         edit: Some(
