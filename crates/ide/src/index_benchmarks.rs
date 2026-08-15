@@ -521,10 +521,10 @@ fn index_benchmarks_module_index_profile() {
     {
         let (host, ids, _, _) = host_with_project(&root);
         let db = host.raw_db();
-        let (_, cold) = timed(|| std::hint::black_box(db.parsed_compilation_unit(ids[0])));
+        let (_, cold) = timed(|| std::hint::black_box(db.parse_tree(ids[0])));
         eprintln!("parsed_compilation_unit (cold): {cold:?}");
         let warm = ids.get(1).copied().map(|file_id| {
-            let (_, cost) = timed(|| std::hint::black_box(db.parsed_compilation_unit(file_id)));
+            let (_, cost) = timed(|| std::hint::black_box(db.parse_tree(file_id)));
             cost
         });
         if let Some(warm) = warm {

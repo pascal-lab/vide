@@ -179,7 +179,7 @@ fn syntax_tree_options_for_parser_cursor(
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
-fn parsed_compilation_unit(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> ParsedCompilationUnit {
+fn parse_tree(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> SyntaxTree {
     let file_id = key.file_id(db);
     let profile_id = db.file_compilation_profile(file_id);
     let plan = db.compilation_plan_for_profile(profile_id);
@@ -221,19 +221,26 @@ fn parsed_compilation_unit(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Pars
                 &identity.path,
                 &options,
             );
-            ParsedCompilationUnit {
-                syntax_tree: parsed.tree,
-                preprocessor_trace: Some(parsed.preprocessor_trace),
-            }
+            parsed.tree
         }
-        SourceFileKind::LibraryMap => ParsedCompilationUnit {
-            syntax_tree: SyntaxTree::from_library_map_text(&text, &identity.name, &identity.path),
-            preprocessor_trace: None,
-        },
-        SourceFileKind::ProjectManifest => ParsedCompilationUnit {
-            syntax_tree: SyntaxTree::from_text("", "", ""),
-            preprocessor_trace: None,
-        },
+        SourceFileKind::LibraryMap => {
+            SyntaxTree::from_library_map_text(&text, &identity.name, &identity.path)
+        }
+        SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
+    }
+}
+
+/// Preprocessor trace of one file, split from [`parse_tree`] so a syntax-only
+/// edit (e.g. a comment) re-parses the tree without invalidating the trace or
+/// the downstream preprocessor model and `$unit` macro chain.
+#[salsa::tracked(lru = 128, returns(clone))]
+fn preproc_trace(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Option<Trace> {
+    let file_id = key.file_id(db);
+    match db.file_kind(file_id) {
+        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
+            Some(db.parse_tree(file_id).preprocessor_trace())
+        }
+        SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => None,
     }
 }
 
@@ -353,13 +360,14 @@ fn parsed_profile(db: &dyn PreprocDb, key: PreprocProfileQueryKey) -> Arc<Parsed
 #[salsa::tracked(lru = 128, returns(clone))]
 fn parse_src_for_compilation(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> SyntaxTree {
     let file_id = key.file_id(db);
-    db.parsed_compilation_unit(file_id).syntax_tree.clone()
+    db.parse_tree(file_id)
 }
 
 pub fn set_parse_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
     parsed_profile::set_lru_capacity(db, capacity);
     parse_src_for_compilation::set_lru_capacity(db, capacity);
-    parsed_compilation_unit::set_lru_capacity(db, capacity);
+    parse_tree::set_lru_capacity(db, capacity);
+    preproc_trace::set_lru_capacity(db, capacity);
     crate::source_db::set_source_preproc_model_lru_capacity(db, capacity);
     crate::macro_file::set_macro_expansion_lru_capacity(db, capacity);
     crate::macro_file::set_trace_index_lru_capacity(db, capacity);
@@ -525,8 +533,12 @@ impl dyn PreprocDb + '_ {
         source_preproc_contexts_for_file(self, file_id)
     }
 
-    pub fn parsed_compilation_unit(&self, file_id: FileId) -> ParsedCompilationUnit {
-        parsed_compilation_unit(self, PreprocFileQueryKey::new(self, file_id))
+    pub fn parse_tree(&self, file_id: FileId) -> SyntaxTree {
+        parse_tree(self, PreprocFileQueryKey::new(self, file_id))
+    }
+
+    pub fn preproc_trace(&self, file_id: FileId) -> Option<Trace> {
+        preproc_trace(self, PreprocFileQueryKey::new(self, file_id))
     }
 
     pub fn unit_macro_predefines(&self, file_id: FileId) -> Arc<[String]> {
@@ -1071,18 +1083,19 @@ mod tests {
     }
 
     #[test]
-    fn root_scoped_compilation_units_reuse_the_authoritative_parse() {
+    fn root_scoped_compilation_units_parse_standalone() {
         let mut db = db_with_root_file();
         db.set_project_config_with_durability(Arc::new(ProjectConfig::default()), Durability::LOW);
 
-        let profile_tree = db.parsed_profile(None).units[0].1.syntax_tree.clone();
-        let compilation_tree = db.parsed_compilation_unit(TOP).syntax_tree;
+        let compilation_tree = db.parse_tree(TOP);
 
-        assert_eq!(profile_tree, compilation_tree);
+        // Roots parse standalone now; the tree must still be a non-empty
+        // compilation unit rather than sharing the profile's buffer identity.
+        assert!(compilation_tree.root().children().next().is_some());
     }
 
     #[test]
-    fn profile_compilation_units_reuse_the_authoritative_profile_parse() {
+    fn profile_compilation_units_parse_standalone() {
         let mut db = db_with_root_file();
         db.set_project_config_with_durability(
             Arc::new(ProjectConfig::new(
@@ -1096,11 +1109,9 @@ mod tests {
             Durability::LOW,
         );
 
-        let profile_tree =
-            db.parsed_profile(Some(CompilationProfileId(0))).units[0].1.syntax_tree.clone();
-        let compilation_tree = db.parsed_compilation_unit(TOP).syntax_tree;
+        let compilation_tree = db.parse_tree(TOP);
 
-        assert_eq!(profile_tree, compilation_tree);
+        assert!(compilation_tree.root().children().next().is_some());
     }
 
     #[test]

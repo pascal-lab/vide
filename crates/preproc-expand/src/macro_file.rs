@@ -191,8 +191,7 @@ pub fn macro_files_at_offset(
                 return Vec::new();
             }
         };
-        let parsed = db.parsed_compilation_unit(model_file);
-        if parsed.preprocessor_trace.is_none() {
+        if db.preproc_trace(model_file).is_none() {
             tracing::warn!(
                 ?file_id,
                 ?model_file,
@@ -263,8 +262,7 @@ pub fn macro_files_for_file(db: &dyn PreprocDb, file_id: FileId) -> Vec<MacroFil
                 return Vec::new();
             }
         };
-        let parsed = db.parsed_compilation_unit(model_file);
-        if parsed.preprocessor_trace.is_none() {
+        if db.preproc_trace(model_file).is_none() {
             tracing::warn!(
                 ?file_id,
                 ?model_file,
@@ -400,8 +398,8 @@ pub fn macro_file_expansion(
         tracing::warn!(?macro_file, "macro expansion has no source call for its trace identity");
         return None;
     };
-    let parsed = db.parsed_compilation_unit(call_loc.model_file);
-    let Some(trace) = parsed.preprocessor_trace.as_ref() else {
+    let trace_opt = db.preproc_trace(call_loc.model_file);
+    let Some(trace) = trace_opt.as_ref() else {
         tracing::warn!(?macro_file, "macro expansion has no preprocessor trace");
         return None;
     };
@@ -454,8 +452,8 @@ fn macro_expansion(db: &dyn PreprocDb, macro_file: MacroFileId) -> ExpandResult<
             ExpandErrorKind::MissingTraceCall { trace_call: call_loc.trace_call },
         );
     };
-    let parsed = db.parsed_compilation_unit(call_loc.model_file);
-    let Some(trace) = parsed.preprocessor_trace.as_ref() else {
+    let trace_opt = db.preproc_trace(call_loc.model_file);
+    let Some(trace) = trace_opt.as_ref() else {
         return expansion_error(
             String::new(),
             ExpansionSourceMap::empty(),
@@ -624,8 +622,7 @@ pub(crate) fn trace_index_query(
     key: crate::db::PreprocFileQueryKey,
 ) -> Arc<TraceIndex> {
     let model_file = key.file_id(db);
-    let parsed = db.parsed_compilation_unit(model_file);
-    match parsed.preprocessor_trace.as_ref() {
+    match db.preproc_trace(model_file).as_ref() {
         Some(trace) => Arc::new(TraceIndex::new(trace)),
         None => Arc::new(TraceIndex::default()),
     }

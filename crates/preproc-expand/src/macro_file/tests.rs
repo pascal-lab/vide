@@ -254,8 +254,8 @@ fn trace_macro_argument_origin_indices_are_exact() {
     let db = db_with_root_text(
         "`define PICK(a, b) b\nmodule top; wire x = `PICK(first, second); endmodule\n",
     );
-    let parsed = db.parsed_compilation_unit(TOP);
-    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+    let trace_opt = db.preproc_trace(TOP);
+    let trace = trace_opt.as_ref().expect("preprocessor trace should be available");
 
     assert!(trace.emitted_tokens.iter().any(|token| {
         matches!(
@@ -378,8 +378,8 @@ fn macro_expansion_reports_preproc_model_failure() {
 #[test]
 fn expansion_text_reports_missing_emitted_token() {
     let db = db_with_root_text("`define ONE 1\n`ONE\n");
-    let parsed = db.parsed_compilation_unit(TOP);
-    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+    let trace_opt = db.preproc_trace(TOP);
+    let trace = trace_opt.as_ref().expect("preprocessor trace should be available");
     let missing = SourceEmittedTokenId::new(trace.emitted_tokens.len());
 
     let expansion =
@@ -396,8 +396,8 @@ fn expansion_source_map_reports_missing_trace_token() {
     let db = db_with_root_text("`define ONE 1\n`ONE\n");
     let mapped = db.source_preproc_model(TOP);
     let mapped = mapped.as_ref().as_ref().expect("preproc model should be available");
-    let parsed = db.parsed_compilation_unit(TOP);
-    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+    let trace_opt = db.preproc_trace(TOP);
+    let trace = trace_opt.as_ref().expect("preprocessor trace should be available");
     let missing = SourceEmittedTokenId::new(trace.emitted_tokens.len());
 
     let expansion = ExpansionSourceMap::from_trace_range(
@@ -420,8 +420,8 @@ fn expansion_source_map_reports_missing_trace_token() {
 #[test]
 fn expansion_text_validates_zero_length_range_start() {
     let db = db_with_root_text("`define EMPTY\n`EMPTY\n");
-    let parsed = db.parsed_compilation_unit(TOP);
-    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+    let trace_opt = db.preproc_trace(TOP);
+    let trace = trace_opt.as_ref().expect("preprocessor trace should be available");
     let table_len = trace.emitted_tokens.len();
     let valid_start = SourceEmittedTokenId::new(table_len);
 
@@ -446,8 +446,8 @@ fn expansion_source_map_validates_zero_length_range_start() {
     let db = db_with_root_text("`define EMPTY\n`EMPTY\n");
     let mapped = db.source_preproc_model(TOP);
     let mapped = mapped.as_ref().as_ref().expect("preproc model should be available");
-    let parsed = db.parsed_compilation_unit(TOP);
-    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+    let trace_opt = db.preproc_trace(TOP);
+    let trace = trace_opt.as_ref().expect("preprocessor trace should be available");
     let table_len = trace.emitted_tokens.len();
     let valid_start = SourceEmittedTokenId::new(table_len);
 
@@ -485,8 +485,8 @@ fn expansion_source_map_preserves_valid_prefix_before_missing_trace_token() {
     let db = db_with_root_text("`define ONE 1\n`ONE\n");
     let mapped = db.source_preproc_model(TOP);
     let mapped = mapped.as_ref().as_ref().expect("preproc model should be available");
-    let parsed = db.parsed_compilation_unit(TOP);
-    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+    let trace_opt = db.preproc_trace(TOP);
+    let trace = trace_opt.as_ref().expect("preprocessor trace should be available");
     let table_len = trace.emitted_tokens.len();
     assert!(table_len > 0, "fixture should emit at least one token");
     let missing = SourceEmittedTokenId::new(table_len);
@@ -513,8 +513,8 @@ fn expansion_info_preserves_source_map_when_text_extraction_fails() {
     let db = db_with_root_text("`define ONE 1\n`ONE\n");
     let mapped = db.source_preproc_model(TOP);
     let mapped = mapped.as_ref().as_ref().expect("preproc model should be available");
-    let parsed = db.parsed_compilation_unit(TOP);
-    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+    let trace_opt = db.preproc_trace(TOP);
+    let trace = trace_opt.as_ref().expect("preprocessor trace should be available");
     assert!(!trace.emitted_tokens.is_empty(), "fixture should emit at least one token");
     let source_map = ExpansionSourceMap::from_trace_range(
         &db,

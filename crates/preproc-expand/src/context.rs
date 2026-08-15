@@ -93,8 +93,7 @@ pub(crate) fn file_macro_coverage_query(db: &dyn PreprocDb, file_id: FileId) -> 
                 return Arc::new(MacroCoverage::default());
             }
         };
-        let parsed = db.parsed_compilation_unit(model_file);
-        if parsed.preprocessor_trace.is_none() {
+        if db.preproc_trace(model_file).is_none() {
             tracing::warn!(
                 ?file_id,
                 ?model_file,
