@@ -37,6 +37,8 @@ struct ReferenceIndexCache {
     resolution_item_trees: FxHashMap<FileId, Arc<ItemTree>>,
     resolution_dirty: FxHashSet<FileId>,
     resolution_built_at: Option<salsa::Revision>,
+    request_file_indexes: FxHashMap<FileId, Arc<FileSemanticIndex>>,
+    request_file_index_dirty: FxHashSet<FileId>,
 }
 
 impl Default for ReferenceIndexCache {
@@ -49,6 +51,8 @@ impl Default for ReferenceIndexCache {
             resolution_item_trees: FxHashMap::default(),
             resolution_dirty: FxHashSet::default(),
             resolution_built_at: None,
+            request_file_indexes: FxHashMap::default(),
+            request_file_index_dirty: FxHashSet::default(),
         }
     }
 }
@@ -164,7 +168,8 @@ impl RootDb {
                     .or_insert_with(|| self.item_tree(HirFileId::File(file_id)));
             }
         }
-        cache.resolution_dirty.extend(files);
+        cache.resolution_dirty.extend(files.iter().copied());
+        cache.request_file_index_dirty.extend(files.iter().copied());
     }
 
     pub(crate) fn semantics(&self) -> hir_semantics::semantics::Semantics<'_, RootDb> {
@@ -185,6 +190,27 @@ impl RootDb {
         let context = crate::semantic_index::IndexResolutionContext::from_db_with_hir(self, hir);
         cache.index_resolution_context = Some(context.clone());
         context
+    }
+
+    pub(crate) fn request_file_semantic_index(
+        &self,
+        file_id: FileId,
+    ) -> Arc<FileSemanticIndex> {
+        let context = self.index_resolution_context();
+        {
+            let cache = self.reference_index_cache.lock();
+            if !cache.request_file_index_dirty.contains(&file_id)
+                && let Some(index) = cache.request_file_indexes.get(&file_id)
+            {
+                return index.clone();
+            }
+        }
+
+        let index = Arc::new(FileSemanticIndex::for_file_with_context(self, file_id, &context));
+        let mut cache = self.reference_index_cache.lock();
+        cache.request_file_indexes.insert(file_id, index.clone());
+        cache.request_file_index_dirty.remove(&file_id);
+        index
     }
 
     fn request_hir_resolution_context(&self) -> Arc<hir_def::pathres::ResolutionContext> {
@@ -210,6 +236,8 @@ impl RootDb {
             cache.resolution_item_trees.clear();
             cache.hir_resolution_context = Some(context);
             cache.index_resolution_context = None;
+            cache.request_file_indexes.clear();
+            cache.request_file_index_dirty.clear();
         } else {
             for file_id in dirty {
                 cache.resolution_item_trees.remove(&file_id);

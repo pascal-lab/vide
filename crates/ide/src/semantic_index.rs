@@ -651,6 +651,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn request_file_index_reuses_unrelated_edits_and_rebuilds_its_file() {
+        use base_db::change::Change;
+        use vfs::ChangedFile;
+
+        let (mut host, marked) = setup_marked_files(&[
+            ("/a.sv", "module a; logic x; endmodule\n"),
+            ("/b.sv", "module b; logic y; endmodule\n"),
+        ]);
+        let a = marked[0].0;
+        let b = marked[1].0;
+        let before = host.raw_db().request_file_semantic_index(b);
+
+        let mut unrelated = Change::new();
+        unrelated.add_changed_file(ChangedFile::create(
+            a,
+            "module a; logic x; endmodule // body-only\n",
+        ));
+        host.apply_change(unrelated);
+        let after_unrelated = host.raw_db().request_file_semantic_index(b);
+        assert!(Arc::ptr_eq(&before, &after_unrelated));
+
+        let mut own_edit = Change::new();
+        own_edit.add_changed_file(ChangedFile::create(
+            b,
+            "module b; logic y; endmodule // own body-only\n",
+        ));
+        host.apply_change(own_edit);
+        let after_own_edit = host.raw_db().request_file_semantic_index(b);
+        assert!(!Arc::ptr_eq(&after_unrelated, &after_own_edit));
+    }
+
     /// The container stack must agree with `find_container` for every
     /// name-like token of a file exercising modules, blocks, subroutines,
     /// explicit generate blocks, single-member generate branches and
