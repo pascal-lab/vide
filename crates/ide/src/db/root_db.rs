@@ -179,6 +179,10 @@ impl RootDb {
         )
     }
 
+    pub(crate) fn request_unit_index(&self) -> Arc<hir_def::unit_index::UnitIndex> {
+        self.request_hir_resolution_context().unit_index()
+    }
+
     pub(crate) fn index_resolution_context(
         &self,
     ) -> Arc<crate::semantic_index::IndexResolutionContext> {

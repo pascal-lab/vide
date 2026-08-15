@@ -32,6 +32,10 @@ impl ResolutionContext {
             unit_index: db.unit_index(),
         })
     }
+
+    pub fn unit_index(&self) -> Arc<UnitIndex> {
+        self.unit_index.clone()
+    }
 }
 
 // SystemVerilog name AST note for path resolution:
