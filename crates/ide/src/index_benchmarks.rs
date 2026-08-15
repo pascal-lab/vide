@@ -3,7 +3,7 @@
 //! These measure the *current* architecture's costs:
 //!
 //! - B2 `index_build_scales_with_file_size`: cold-build cost of
-//!   `SemanticIndex::for_source_root` (plus the `ModuleIndex` it pulls in) as a
+//!   `ReferenceIndex::for_source_root` (plus the `ModuleIndex` it pulls in) as a
 //!   function of file size. A linear-resolver design should cost O(bytes);
 //!   super-linear growth points at per-token scans.
 //! - B3 `index_rebuild_after_single_file_change`: after touching one small file
@@ -39,7 +39,7 @@ use crate::{
     FilePosition, ScopeVisibility,
     analysis_host::AnalysisHost,
     db::workspace_symbol_index_db::{
-        source_root_module_index_for_root, source_root_semantic_index_for_root,
+        source_root_module_index_for_root, source_root_reference_index_for_root,
     },
     document_highlight::DocumentHighlightConfig,
     goto_definition,
@@ -108,7 +108,7 @@ fn index_benchmarks_macro_dense_build() {
         let db = host.raw_db();
         let root_id = db.source_root_id(file_id);
         let (_, semantic_cost) =
-            timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
+            timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
         println!("{:<10} {:<10} {:<14?}", count, text.len(), semantic_cost);
     }
 }
@@ -128,7 +128,7 @@ fn index_benchmarks_build_scales_with_file_size() {
         let (_, module_cost) =
             timed(|| std::hint::black_box(source_root_module_index_for_root(db, root_id)));
         let (_, semantic_cost) =
-            timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
+            timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
 
         println!(
             "{:<10} {:<10} {:<14?} {:<14?}",
@@ -189,7 +189,7 @@ fn index_benchmarks_real_file() {
     eprintln!("module index:                                  {module_cost:?}");
 
     let (_, semantic_cost) =
-        timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
     eprintln!("semantic index (cold, first build):           {semantic_cost:?}");
 
     let probe = std::env::var("VIDE_BENCH_PROBE").unwrap_or_else(|_| "array_0_ext".to_owned());
@@ -249,7 +249,7 @@ fn index_benchmarks_real_file() {
     host.apply_change(touch);
     let db = host.raw_db();
     let (_, rebuild_cost) =
-        timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
     eprintln!("semantic index (rebuild after one-byte touch): {rebuild_cost:?}");
 }
 
@@ -287,7 +287,7 @@ fn index_benchmarks_rebuild_after_single_file_change() {
     let root_id = db.source_root_id(big_file);
 
     let (_, cold) =
-        timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
     println!("cold build of root (64KB big file + small file): {cold:?}");
 
     // Touch only the small file: append a comment.
@@ -300,7 +300,7 @@ fn index_benchmarks_rebuild_after_single_file_change() {
 
     let db = host.raw_db();
     let (_, rebuild) =
-        timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
     println!("rebuild after touching only the small file:     {rebuild:?}");
 
     // Lower bound: building an index for a root containing only the small
@@ -319,7 +319,7 @@ fn index_benchmarks_rebuild_after_single_file_change() {
     let single_db = single_host.raw_db();
     let single_root = single_db.source_root_id(small_file);
     let (_, lower_bound) =
-        timed(|| std::hint::black_box(source_root_semantic_index_for_root(single_db, single_root)));
+        timed(|| std::hint::black_box(source_root_reference_index_for_root(single_db, single_root)));
     println!("lower bound (indexing only the small file alone): {lower_bound:?}");
 }
 
@@ -428,7 +428,7 @@ fn index_benchmarks_real_project() {
     eprintln!("module index:                                      {module_cost:?}");
 
     let (_, semantic_cost) =
-        timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
     eprintln!("semantic index (cold, first build):               {semantic_cost:?}");
 
     // Incremental: touch one file, then rebuild the semantic index.
@@ -439,7 +439,7 @@ fn index_benchmarks_real_project() {
     host.apply_change(touch);
     let db = host.raw_db();
     let (_, rebuild_cost) =
-        timed(|| std::hint::black_box(source_root_semantic_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
     eprintln!("semantic index (rebuild after touching one file): {rebuild_cost:?}");
 }
 

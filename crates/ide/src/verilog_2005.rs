@@ -3023,7 +3023,7 @@ endmodule
         host.raw_db(),
         SourceRootId(0),
     );
-    let index = crate::db::workspace_symbol_index_db::source_root_semantic_index_for_root(
+    let index = crate::db::workspace_symbol_index_db::source_root_reference_index_for_root(
         host.raw_db(),
         SourceRootId(0),
     );

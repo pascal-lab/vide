@@ -20,7 +20,7 @@ use crate::{
     ScopeVisibility,
     db::{
         root_db::RootDb,
-        workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_semantic_index_for_root},
+        workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_reference_index_for_root},
     },
     semantic_index::{ReferenceContext, SemanticReference},
 };
@@ -246,7 +246,7 @@ pub(crate) fn search_references(
 
     for source_root_id in scope.source_root_ids(db) {
         db.unwind_if_revision_cancelled();
-        let index = source_root_semantic_index_for_root(db, source_root_id);
+        let index = source_root_reference_index_for_root(db, source_root_id);
         let Some(group) = index.references_for_definition(*def) else {
             continue;
         };

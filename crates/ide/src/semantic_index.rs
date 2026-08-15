@@ -15,7 +15,7 @@ use crate::{
         root_db::RootDb,
         workspace_symbol_index_db::{
             WorkspaceSymbolIndexDb, source_root_module_index_for_root,
-            source_root_semantic_index_for_root,
+            source_root_module_edge_index_for_root, source_root_reference_index_for_root,
         },
     },
     navigation_target::nav_location,
@@ -133,8 +133,12 @@ pub struct ModuleIndex {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SemanticIndex {
+pub struct ReferenceIndex {
     references_by_definition: FxHashMap<DefId, SemanticReferenceGroup>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ModuleEdgeIndex {
     incoming_module_edges: FxHashMap<OwnerId, Box<[ModuleCallEdge]>>,
     outgoing_module_edges: FxHashMap<OwnerId, Box<[ModuleCallEdge]>>,
 }
@@ -278,8 +282,8 @@ impl SemanticModuleDefinition {
     }
 }
 
-impl SemanticIndex {
-    /// Merges the per-file semantic indexes and module edges of a source root.
+impl ReferenceIndex {
+    /// Merges the per-file semantic indexes of a source root.
     ///
     /// The merge is pure memory assembly: no name resolution happens here, so
     /// a change in one file only re-runs that file's index and this pass.
@@ -289,10 +293,6 @@ impl SemanticIndex {
     ) -> Self {
         let source_root = db.source_root(source_root_id);
         let mut references_by_definition: FxHashMap<DefId, SemanticReferenceGroupBuilder> =
-            FxHashMap::default();
-        let mut incoming_module_edges: FxHashMap<OwnerId, Vec<ModuleCallEdge>> =
-            FxHashMap::default();
-        let mut outgoing_module_edges: FxHashMap<OwnerId, Vec<ModuleCallEdge>> =
             FxHashMap::default();
 
         for file_id in source_root.iter() {
@@ -308,19 +308,13 @@ impl SemanticIndex {
                 });
                 builder.references.extend(group.references.iter().cloned());
             }
-            for (caller, callee, edge) in &db.file_module_edges(file_id).edges {
-                push_unique_edge(outgoing_module_edges.entry(*caller).or_default(), edge.clone());
-                push_unique_edge(incoming_module_edges.entry(*callee).or_default(), edge.clone());
-            }
         }
 
-        SemanticIndex {
+        ReferenceIndex {
             references_by_definition: references_by_definition
                 .into_iter()
                 .map(|(key, group)| (key, group.finish()))
                 .collect(),
-            incoming_module_edges: finish_edge_map(incoming_module_edges),
-            outgoing_module_edges: finish_edge_map(outgoing_module_edges),
         }
     }
 
@@ -331,17 +325,44 @@ impl SemanticIndex {
         self.references_by_definition.get(&definition)
     }
 
+    #[cfg(test)]
+    pub(crate) fn reference_groups_named(&self, name: &str) -> Vec<&SemanticReferenceGroup> {
+        self.references_by_definition.values().filter(|group| group.name == name).collect()
+    }
+}
+
+impl ModuleEdgeIndex {
+    /// Merges the per-file module edges of a source root.
+    pub(crate) fn for_source_root(
+        db: &dyn WorkspaceSymbolIndexDb,
+        source_root_id: SourceRootId,
+    ) -> Self {
+        let source_root = db.source_root(source_root_id);
+        let mut incoming_module_edges: FxHashMap<OwnerId, Vec<ModuleCallEdge>> =
+            FxHashMap::default();
+        let mut outgoing_module_edges: FxHashMap<OwnerId, Vec<ModuleCallEdge>> =
+            FxHashMap::default();
+
+        for file_id in source_root.iter() {
+            db.unwind_if_revision_cancelled();
+            for (caller, callee, edge) in &db.file_module_edges(file_id).edges {
+                push_unique_edge(outgoing_module_edges.entry(*caller).or_default(), edge.clone());
+                push_unique_edge(incoming_module_edges.entry(*callee).or_default(), edge.clone());
+            }
+        }
+
+        ModuleEdgeIndex {
+            incoming_module_edges: finish_edge_map(incoming_module_edges),
+            outgoing_module_edges: finish_edge_map(outgoing_module_edges),
+        }
+    }
+
     pub(crate) fn incoming_module_edges(&self, module_id: OwnerId) -> &[ModuleCallEdge] {
         self.incoming_module_edges.get(&module_id).map_or(&[], |edges| edges.as_ref())
     }
 
     pub(crate) fn outgoing_module_edges(&self, module_id: OwnerId) -> &[ModuleCallEdge] {
         self.outgoing_module_edges.get(&module_id).map_or(&[], |edges| edges.as_ref())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn reference_groups_named(&self, name: &str) -> Vec<&SemanticReferenceGroup> {
-        self.references_by_definition.values().filter(|group| group.name == name).collect()
     }
 }
 
@@ -375,7 +396,7 @@ fn module_edges(
     db: &RootDb,
     file_id: FileId,
     name_range: TextRange,
-    edges_for_index: impl Fn(&SemanticIndex, OwnerId) -> &[ModuleCallEdge],
+    edges_for_index: impl Fn(&ModuleEdgeIndex, OwnerId) -> &[ModuleCallEdge],
 ) -> Vec<ModuleCallEdge> {
     let Some(module_id) = module_id_at_range(db, file_id, name_range) else {
         return Vec::new();
@@ -383,7 +404,7 @@ fn module_edges(
 
     let mut edges = Vec::new();
     for source_root_id in db.workspace_source_root_ids().iter().copied() {
-        let index = source_root_semantic_index_for_root(db, source_root_id);
+        let index = source_root_module_edge_index_for_root(db, source_root_id);
         edges.extend(edges_for_index(&index, module_id).iter().cloned());
     }
     sort_and_dedup_edges(&mut edges);
@@ -649,7 +670,7 @@ module top;
 endmodule
 "#;
         let (host, file_id, _clean, markers) = setup_marked(text);
-        let index = source_root_semantic_index_for_root(host.raw_db(), SourceRootId(0));
+        let index = source_root_reference_index_for_root(host.raw_db(), SourceRootId(0));
 
         let range_at = |marker: &str| {
             let start = markers[marker];
@@ -818,7 +839,7 @@ endmodule
                 "{marker} must remain owned by the preprocessor: {target:?}"
             );
         }
-        let index = source_root_semantic_index_for_root(host.raw_db(), SourceRootId(0));
+        let index = source_root_reference_index_for_root(host.raw_db(), SourceRootId(0));
         let definition_range = TextRange::new(markers["def"], markers["def"] + TextSize::of("x"));
         let preproc_ranges = [
             TextRange::new(markers["param"], markers["param"] + TextSize::of("x")),
