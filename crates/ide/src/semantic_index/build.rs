@@ -469,8 +469,9 @@ fn collect_token(
 
     let (definition_cost, ()) = timed(|| match &class {
         DefinitionClass::Definition(definition) => {
-            let context = reference_context(
+            let reference_context = reference_context(
                 db,
+                sema,
                 token,
                 &class,
                 container,
@@ -485,7 +486,7 @@ fn collect_token(
                 file_id.expect_file(),
                 range,
                 token,
-                &context,
+                &reference_context,
                 groups,
                 definition_ranges_by_def,
             )
@@ -493,6 +494,7 @@ fn collect_token(
         DefinitionClass::PortConnShorthand { port, local } => {
             let port_context = reference_context(
                 db,
+                sema,
                 token,
                 &class,
                 container,
@@ -503,6 +505,7 @@ fn collect_token(
             );
             let local_context = reference_context(
                 db,
+                sema,
                 token,
                 &class,
                 container,
@@ -614,6 +617,7 @@ fn is_same_name_conn(text: &str, conn: &ConnShape) -> bool {
 #[allow(clippy::too_many_arguments)]
 fn reference_context(
     db: &dyn WorkspaceSymbolIndexDb,
+    sema: &SemanticsImpl<'_>,
     token: SyntaxTokenWithParent<'_>,
     class: &DefinitionClass,
     container: OwnerId,
@@ -625,7 +629,8 @@ fn reference_context(
     let Some(role) = conn_token_role(token) else {
         return ReferenceContext::Plain;
     };
-    let sema = SemanticsImpl::new(db);
+    // Reuse the build's precomputed resolution context. Constructing another
+    // SemanticsImpl here deep-verifies project-wide queries after every edit.
     match role {
         ConnTokenRole::Data(conn) => {
             let Some(shape) = conn_shape(conn) else {
