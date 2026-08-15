@@ -38,12 +38,15 @@ use vfs::{AbsPathBuf, ChangedFile, FileId, FileSet, PathMatcher, VfsPath};
 use crate::{
     FilePosition, ScopeVisibility,
     analysis_host::AnalysisHost,
+    completion,
+    db::root_db::RootDb,
     db::workspace_symbol_index_db::{
         source_root_module_index_for_root, source_root_reference_index_for_root,
     },
     document_highlight::DocumentHighlightConfig,
     goto_definition,
     references::ReferencesConfig,
+    rename::{self, RenameConfig},
     semantic_index::{incoming_module_edges, outgoing_module_edges},
     test_utils::normalize_fixture_text,
 };
@@ -377,6 +380,185 @@ fn host_with_project(root: &AbsPathBuf) -> (AnalysisHost, Vec<FileId>, usize, us
     let mut host = AnalysisHost::default();
     host.apply_change(change);
     (host, file_ids, total_bytes, total_lines)
+}
+
+fn project_probe_position(
+    db: &RootDb,
+    file_ids: &[FileId],
+    probe: &str,
+    prefer_use: bool,
+) -> Option<FilePosition> {
+    let is_ident = |ch: char| ch == '_' || ch.is_ascii_alphanumeric();
+    if prefer_use {
+        for &file_id in file_ids {
+            let text = db.file_text(file_id);
+            for (start, _) in text.match_indices(probe) {
+                let before = text[..start].chars().next_back();
+                let after = text[start + probe.len()..].chars().next();
+                if before.is_some_and(is_ident) || after.is_some_and(is_ident) {
+                    continue;
+                }
+                let line_prefix = text[..start].rsplit_once('\n').map_or(&text[..start], |(_, line)| line);
+                let trimmed = line_prefix.trim_start();
+                if trimmed.starts_with("//") || trimmed.ends_with("module ") {
+                    continue;
+                }
+                let line_suffix = text[start + probe.len()..]
+                    .split_once('\n')
+                    .map_or(&text[start + probe.len()..], |(line, _)| line);
+                if !line_suffix.trim_start().starts_with('#') {
+                    continue;
+                }
+                return Some(FilePosition {
+                    file_id,
+                    offset: TextSize::from(u32::try_from(start).ok()?),
+                });
+            }
+        }
+    }
+
+    let declaration = format!("module {probe}");
+    for &file_id in file_ids {
+        let text = db.file_text(file_id);
+        if let Some(start) = text.find(&declaration) {
+            let offset = start + "module ".len();
+            return Some(FilePosition {
+                file_id,
+                offset: TextSize::from(u32::try_from(offset).ok()?),
+            });
+        }
+    }
+
+    for &file_id in file_ids {
+        let text = db.file_text(file_id);
+        for (start, _) in text.match_indices(probe) {
+            let before = text[..start].chars().next_back();
+            let after = text[start + probe.len()..].chars().next();
+            if !before.is_some_and(is_ident) && !after.is_some_and(is_ident) {
+                return Some(FilePosition {
+                    file_id,
+                    offset: TextSize::from(u32::try_from(start).ok()?),
+                });
+            }
+        }
+    }
+    None
+}
+
+fn benchmark_project_request(
+    root: &AbsPathBuf,
+    probe: &str,
+    label: &str,
+    prefer_use: bool,
+    offset_delta: TextSize,
+    mut request: impl FnMut(&RootDb, FilePosition) -> usize,
+) {
+    const WARM_RUNS: usize = 20;
+
+    let (mut host, file_ids, _, _) = host_with_project(root);
+    let db = host.raw_db();
+    let Some(mut position) = project_probe_position(db, &file_ids, probe, prefer_use) else {
+        eprintln!("{label:<28} probe {probe:?} not found");
+        return;
+    };
+    position.offset += offset_delta;
+
+    let (cold_count, cold) = timed(|| std::hint::black_box(request(db, position)));
+    let mut warm = Vec::with_capacity(WARM_RUNS);
+    for _ in 0..WARM_RUNS {
+        let (count, cost) = timed(|| std::hint::black_box(request(db, position)));
+        assert_eq!(count, cold_count, "{label} changed its result count after warming");
+        warm.push(cost);
+    }
+    warm.sort_unstable();
+    let warm_median = warm[WARM_RUNS / 2];
+    let warm_max = warm[WARM_RUNS - 1];
+
+    let touch_file = file_ids[0];
+    let touched_text = format!("{} // request-bench-touch\n", db.file_text(touch_file));
+    let mut touch = Change::new();
+    touch.add_changed_file(ChangedFile::create(touch_file, touched_text.as_str()));
+    host.apply_change(touch);
+    let db = host.raw_db();
+    let (after_edit_count, after_edit) = timed(|| std::hint::black_box(request(db, position)));
+    assert_eq!(
+        after_edit_count, cold_count,
+        "{label} changed its result count after an unrelated body-only edit"
+    );
+
+    eprintln!(
+        "{label:<28} cold={cold:?} warm(p50/max)={warm_median:?}/{warm_max:?} after-edit={after_edit:?} results={cold_count}/{after_edit_count}"
+    );
+}
+
+/// End-to-end latency of representative IDE requests on a real multi-file
+/// project. Each request gets a fresh host, so `cold` includes its own query
+/// and index population rather than inheriting caches from an earlier feature.
+///
+/// `VIDE_BENCH_PROBE` should name a module with cross-file uses; common_cells
+/// defaults to `cc_fifo`.
+///
+/// ```text
+/// VIDE_BENCH_PROJECT=/tmp/vide-bench/common_cells \
+///   cargo test -p ide --release --lib -- --ignored --nocapture \
+///   index_benchmarks_real_project_requests
+/// ```
+#[test]
+#[ignore]
+fn index_benchmarks_real_project_requests() {
+    let Some(raw) = std::env::var_os("VIDE_BENCH_PROJECT") else {
+        println!("VIDE_BENCH_PROJECT not set; skipping real-project request benchmark");
+        return;
+    };
+    let Some(root) = abs_path_buf_from_path_buf(PathBuf::from(raw)) else {
+        println!("VIDE_BENCH_PROJECT must be an absolute UTF-8 path");
+        return;
+    };
+    let probe = std::env::var("VIDE_BENCH_PROBE").unwrap_or_else(|_| "cc_fifo".to_owned());
+    eprintln!("\n== B7: real-project IDE requests ({root}, probe={probe}) ==");
+
+    benchmark_project_request(&root, &probe, "goto definition", true, TextSize::from(0), |db, position| {
+        goto_definition::goto_definition(db, position).map_or(0, |info| info.info.len())
+    });
+    benchmark_project_request(&root, &probe, "document highlight", true, TextSize::from(0), |db, position| {
+        crate::document_highlight::document_highlight(
+            db,
+            position,
+            DocumentHighlightConfig { scope_visibility: ScopeVisibility::Public },
+        )
+        .map_or(0, |items| items.len())
+    });
+    benchmark_project_request(&root, &probe, "find references", true, TextSize::from(0), |db, position| {
+        crate::references::references(
+            db,
+            position,
+            ReferencesConfig::new(ScopeVisibility::Public, None),
+        )
+        .map_or(0, |groups| {
+            groups.iter().map(|group| group.refs.values().map(Vec::len).sum::<usize>()).sum()
+        })
+    });
+    benchmark_project_request(&root, &probe, "rename edit generation", true, TextSize::from(0), |db, position| {
+        rename::rename(
+            db,
+            position,
+            RenameConfig::workspace(ScopeVisibility::Public),
+            "vide_bench_renamed",
+        )
+        .map_or(0, |change| change.text_edits.len())
+    });
+    let completion_prefix = TextSize::from(u32::try_from(probe.len().min(3)).unwrap());
+    benchmark_project_request(&root, &probe, "completion", true, completion_prefix, |db, position| {
+        completion::completions(db, position, None).len()
+    });
+    benchmark_project_request(&root, &probe, "call hierarchy incoming", false, TextSize::from(0), |db, position| {
+        let range = TextRange::new(position.offset, position.offset + TextSize::of(probe.as_str()));
+        incoming_module_edges(db, position.file_id, range).len()
+    });
+    benchmark_project_request(&root, &probe, "call hierarchy outgoing", false, TextSize::from(0), |db, position| {
+        let range = TextRange::new(position.offset, position.offset + TextSize::of(probe.as_str()));
+        outgoing_module_edges(db, position.file_id, range).len()
+    });
 }
 
 /// Real multi-file project benchmark: loads `$VIDE_BENCH_PROJECT` as one source
