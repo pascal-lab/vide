@@ -420,7 +420,11 @@ fn project_probe_position(
     let declaration = format!("module {probe}");
     for &file_id in file_ids {
         let text = db.file_text(file_id);
-        if let Some(start) = text.find(&declaration) {
+        for (start, _) in text.match_indices(&declaration) {
+            let after = text[start + declaration.len()..].chars().next();
+            if after.is_some_and(is_ident) {
+                continue;
+            }
             let offset = start + "module ".len();
             return Some(FilePosition {
                 file_id,
@@ -559,6 +563,52 @@ fn index_benchmarks_real_project_requests() {
         let range = TextRange::new(position.offset, position.offset + TextSize::of(probe.as_str()));
         outgoing_module_edges(db, position.file_id, range).len()
     });
+}
+
+/// Separates `$unit` scope memo validation from the owner-table dependencies
+/// it validates after an unrelated edit. The two hosts start from identical
+/// cold state: the first measures `unit_scope` directly, while the second
+/// validates every owner table before asking for `unit_scope`.
+#[test]
+#[ignore]
+fn index_benchmarks_real_project_unit_scope_validation() {
+    let Some(raw) = std::env::var_os("VIDE_BENCH_PROJECT") else {
+        println!("VIDE_BENCH_PROJECT not set; skipping unit-scope validation benchmark");
+        return;
+    };
+    let Some(root) = abs_path_buf_from_path_buf(PathBuf::from(raw)) else {
+        println!("VIDE_BENCH_PROJECT must be an absolute UTF-8 path");
+        return;
+    };
+
+    let prepare = || {
+        let (mut host, file_ids, _, _) = host_with_project(&root);
+        let db = host.raw_db();
+        std::hint::black_box(db.unit_scope());
+        let touch_file = file_ids[0];
+        let touched_text = format!("{} // unit-scope-bench-touch\n", db.file_text(touch_file));
+        let mut touch = Change::new();
+        touch.add_changed_file(ChangedFile::create(touch_file, touched_text.as_str()));
+        host.apply_change(touch);
+        (host, file_ids)
+    };
+
+    let (direct_host, _) = prepare();
+    let (_, direct) = timed(|| std::hint::black_box(direct_host.raw_db().unit_scope()));
+
+    let (owner_host, file_ids) = prepare();
+    let db = owner_host.raw_db();
+    let (_, owner_tables) = timed(|| {
+        for &file_id in &file_ids {
+            std::hint::black_box(db.owner_table(preproc_expand::file::HirFileId::File(file_id)));
+        }
+    });
+    let (_, after_owner_tables) = timed(|| std::hint::black_box(db.unit_scope()));
+
+    eprintln!("\n== B8: real-project unit-scope validation ({root}) ==");
+    eprintln!("unit_scope directly after edit:        {direct:?}");
+    eprintln!("validate all owner tables after edit: {owner_tables:?}");
+    eprintln!("unit_scope after owner tables:        {after_owner_tables:?}");
 }
 
 /// Real multi-file project benchmark: loads `$VIDE_BENCH_PROJECT` as one source
