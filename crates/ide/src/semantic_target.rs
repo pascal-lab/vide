@@ -213,6 +213,21 @@ pub(crate) fn resolve_semantic_target<'tree, F>(
 where
     F: Fn(TokenKind) -> usize,
 {
+    if !db.file_kind(file_id).is_project_manifest()
+        && is_preproc_free_file(db, file_id)
+        && let Some(root) = root
+    {
+        return normal_syntax_source_target_at_offset(root, offset, &precedence).map_or(
+            TargetResolution::Unresolved,
+            |target| {
+                TargetResolution::Resolved(TargetCandidate::new(
+                    SemanticTarget::Source(target),
+                    source_capabilities(),
+                ))
+            },
+        );
+    }
+
     resolve_semantic_target_with_emitted(db, file_id, offset, root, precedence, None)
 }
 /// Like [`resolve_semantic_target`], but reuses a prebuilt emitted-token
@@ -252,6 +267,15 @@ where
     };
     source_target_at_offset(db, file_id, root, offset, precedence, emitted)
         .unwrap_or(TargetResolution::Unresolved)
+}
+
+fn is_preproc_free_file(db: &dyn PreprocDb, file_id: FileId) -> bool {
+    let trace = db.parse(file_id.into()).preprocessor_trace();
+    trace.events.is_empty()
+        && trace.include_edges.is_empty()
+        && trace.emitted_tokens.iter().all(|token| {
+            matches!(token.origin, syntax::preproc::TokenOrigin::Source { .. })
+        })
 }
 
 /// Resolves the caret offset to a semantic target, or `None` when the offset
