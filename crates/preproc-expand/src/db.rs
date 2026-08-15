@@ -183,25 +183,6 @@ fn parsed_compilation_unit(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Pars
     let file_id = key.file_id(db);
     let profile_id = db.file_compilation_profile(file_id);
     let plan = db.compilation_plan_for_profile(profile_id);
-    if plan.roots.contains(&file_id) {
-        let parsed_profile = db.parsed_profile(profile_id);
-        let Some((_, parsed, _)) =
-            parsed_profile.units.iter().find(|(root_file_id, _, _)| *root_file_id == file_id)
-        else {
-            panic!(
-                "compilation root {file_id:?} is missing from authoritative parse for profile {profile_id:?}"
-            );
-        };
-        tracing::debug!(
-            ?profile_id,
-            ?file_id,
-            root_count = plan.roots.len(),
-            parse_mode = "authoritative",
-            "reusing profile root syntax tree"
-        );
-        return parsed.clone();
-    }
-
     let _span = tracing::info_span!(
         "slang.parse_for_compilation",
         ?profile_id,
@@ -218,7 +199,14 @@ fn parsed_compilation_unit(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Pars
 
     match db.file_kind(file_id) {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
-            let options = syntax_tree_options_for_file(db, file_id);
+            let mut options = syntax_tree_options_for_file(db, file_id);
+            // Roots are parsed standalone so a single-file edit only re-parses
+            // that file. The running compilation-unit macro set of predecessor
+            // roots is injected as predefines to preserve cross-file `$unit`
+            // macro visibility without re-running the whole profile.
+            if plan.roots.contains(&file_id) {
+                options.predefines.extend(db.unit_macro_predefines(file_id).iter().cloned());
+            }
             let include_buffer_count = options.include_buffers.len();
             let _span = tracing::info_span!(
                 "slang.parse_for_compilation.from_text",
@@ -247,6 +235,52 @@ fn parsed_compilation_unit(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Pars
             preprocessor_trace: None,
         },
     }
+}
+
+/// `define` directives this file contributes to the compilation-unit scope,
+/// reconstructed verbatim so they can be injected as predefines into later
+/// roots' standalone parses. Include-derived macros are excluded: each root
+/// re-processes its own includes.
+#[salsa::tracked(returns(clone))]
+fn unit_macro_contribution(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<[String]> {
+    let file_id = key.file_id(db);
+    let model = db.source_preproc_model(file_id);
+    let Ok(model) = model.as_ref() else {
+        return Arc::from(Vec::<String>::new());
+    };
+    let text = db.file_text(file_id);
+    let mut defines = Vec::new();
+    for def in model.model.macro_definitions().iter() {
+        if model.source_map.file_id(def.directive_range.source).ok() != Some(file_id) {
+            continue;
+        }
+        let start = usize::from(def.directive_range.range.start());
+        let end = usize::from(def.directive_range.range.end());
+        if let Some(raw) = text.get(start..end) {
+            defines.push(raw.to_string());
+        }
+    }
+    Arc::from(defines)
+}
+
+/// Running compilation-unit macro set of every root before `file_id`, in
+/// compilation order. Injected as predefines so a standalone parse sees the
+/// same `$unit` macros the monolithic profile parse would.
+#[salsa::tracked(returns(clone))]
+fn unit_macro_predefines(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<[String]> {
+    let file_id = key.file_id(db);
+    let profile_id = db.file_compilation_profile(file_id);
+    let plan = db.compilation_plan_for_profile(profile_id);
+    let mut predefines = Vec::new();
+    for &root in &plan.roots {
+        if root == file_id {
+            break;
+        }
+        predefines.extend(
+            unit_macro_contribution(db, PreprocFileQueryKey::new(db, root)).iter().cloned(),
+        );
+    }
+    Arc::from(predefines)
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
@@ -493,6 +527,10 @@ impl dyn PreprocDb + '_ {
 
     pub fn parsed_compilation_unit(&self, file_id: FileId) -> ParsedCompilationUnit {
         parsed_compilation_unit(self, PreprocFileQueryKey::new(self, file_id))
+    }
+
+    pub fn unit_macro_predefines(&self, file_id: FileId) -> Arc<[String]> {
+        unit_macro_predefines(self, PreprocFileQueryKey::new(self, file_id))
     }
 
     pub fn path_file_ids(&self) -> PathIdentityIndex<FileId> {
