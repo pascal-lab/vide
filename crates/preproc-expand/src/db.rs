@@ -1115,6 +1115,30 @@ mod tests {
     }
 
     #[test]
+    fn compilation_plan_updates_when_one_files_include_directives_change() {
+        let mut db = db_with_macro_included_root();
+        db.set_file_text_with_durability(
+            TOP,
+            Arc::from("`include \"included.sv\"\nmodule top; endmodule\n"),
+            Durability::LOW,
+        );
+
+        let before = db.compilation_plan_for_profile(None);
+        assert!(before.include_only.contains(&INCLUDED));
+        assert!(!before.roots.contains(&INCLUDED));
+
+        db.set_file_text_with_durability(
+            TOP,
+            Arc::from("module top; endmodule\n"),
+            Durability::LOW,
+        );
+
+        let after = db.compilation_plan_for_profile(None);
+        assert!(!after.include_only.contains(&INCLUDED));
+        assert!(after.roots.contains(&INCLUDED));
+    }
+
+    #[test]
     fn project_manifests_are_not_slang_parse_diagnostic_units() {
         let kind = SourceFileKind::from_path(&VfsPath::new_virtual_path("/root/vide.toml".into()));
 

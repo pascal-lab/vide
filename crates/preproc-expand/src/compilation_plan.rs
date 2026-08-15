@@ -14,6 +14,14 @@ use utils::{
 };
 use vfs::FileId;
 
+use crate::db::PreprocDb;
+
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+struct IncludeScanQueryKey {
+    file_id: FileId,
+    predefines: triomphe::Arc<[String]>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CompilationPlan {
     pub source_roots: Vec<SourceRootId>,
@@ -63,7 +71,7 @@ impl CompilationPlan {
             })
     }
 
-    pub fn for_source_root(db: &dyn SourceRootDb, source_root_id: SourceRootId) -> Self {
+    pub fn for_source_root(db: &dyn PreprocDb, source_root_id: SourceRootId) -> Self {
         let project_config = db.project_config();
         let profile_id = project_config.profile_for_root(source_root_id);
         // Profile-backed plans are the normal project path. A compile-capable
@@ -79,7 +87,7 @@ impl CompilationPlan {
         Self::from_inputs(db, source_roots, top_modules, include_dirs, predefines)
     }
 
-    pub fn for_profile(db: &dyn SourceRootDb, profile_id: Option<CompilationProfileId>) -> Self {
+    pub fn for_profile(db: &dyn PreprocDb, profile_id: Option<CompilationProfileId>) -> Self {
         let project_config = db.project_config();
         let (source_roots, top_modules, include_dirs, predefines) =
             profile_inputs(&project_config, None, profile_id);
@@ -89,7 +97,7 @@ impl CompilationPlan {
     }
 
     fn from_inputs(
-        db: &dyn SourceRootDb,
+        db: &dyn PreprocDb,
         source_roots: Vec<SourceRootId>,
         top_modules: Vec<String>,
         include_dirs: Vec<AbsPathBuf>,
@@ -275,12 +283,13 @@ fn path_file_ids(db: &dyn SourceRootDb) -> PathIdentityIndex<FileId> {
 }
 
 fn include_targets_for_source_roots(
-    db: &dyn SourceRootDb,
+    db: &dyn PreprocDb,
     roots: &[SourceRootId],
     include_dirs: &[AbsPathBuf],
     predefines: &[String],
 ) -> (FxHashSet<FileId>, Vec<IncludeScanIssue>) {
     let path_file_ids = path_file_ids(db);
+    let predefines = triomphe::Arc::<[String]>::from(predefines.to_vec());
     let mut included = FxHashSet::default();
     let mut issues = Vec::new();
     let mut scanned = FxHashSet::default();
@@ -307,7 +316,10 @@ fn include_targets_for_source_roots(
             continue;
         };
 
-        let include_targets = match literal_include_targets(db, file_id, predefines) {
+        let include_targets = match literal_include_targets(
+            db,
+            IncludeScanQueryKey::new(db, file_id, predefines.clone()),
+        ) {
             Ok(targets) => targets,
             Err(issue) => {
                 issues.push(issue);
@@ -330,11 +342,13 @@ fn include_targets_for_source_roots(
     (included, issues)
 }
 
+#[salsa::tracked(returns(clone))]
 fn literal_include_targets(
-    db: &dyn SourceRootDb,
-    file_id: FileId,
-    predefines: &[String],
+    db: &dyn PreprocDb,
+    key: IncludeScanQueryKey,
 ) -> Result<Vec<SourceIncludeDirective>, IncludeScanIssue> {
+    let file_id = *key.file_id(db);
+    let predefines = key.predefines(db);
     if !matches!(
         db.file_kind(file_id),
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
