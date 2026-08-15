@@ -34,7 +34,10 @@ use crate::{
     expr::Expr,
     has_source::HasSource,
     owner::OwnerId,
-    pathres::{NameRef, RefKind, before_reference, resolve_name_at, resolve_wildcard_at},
+    pathres::{
+        NameRef, RefKind, ResolutionContext, before_reference, resolve_name_at,
+        resolve_wildcard_at,
+    },
     proc::Proc,
     source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
     source_projection::SourceProjection,
@@ -272,6 +275,7 @@ fn collect_wildcard_activation_conflicts(
     projection: &SourceProjection,
     diagnostics: &mut Vec<LoweringDiagnostic>,
 ) {
+    let context = ResolutionContext::from_db(db);
     let scope = db.scope(owner);
     if !scope.imports().iter().any(|import| import.name.is_none()) {
         return;
@@ -288,12 +292,13 @@ fn collect_wildcard_activation_conflicts(
                 }
                 let reference = NameRef { position: *ref_position, kind: RefKind::Value };
                 let resolved = [NameContext::Type, NameContext::Value].into_iter().any(|ctx| {
-                    let resolved = resolve_name_at(db, *ref_owner, name, ctx, Some(&reference));
+                    let resolved =
+                        resolve_name_at(db, &context, *ref_owner, name, ctx, Some(&reference));
                     if resolved.is_unresolved() {
                         return false;
                     }
                     let (wildcard, activated_scope) =
-                        resolve_wildcard_at(db, *ref_owner, name, ctx, Some(&reference));
+                        resolve_wildcard_at(db, &context, *ref_owner, name, ctx, Some(&reference));
                     activated_scope == Some(owner) && resolved == wildcard
                 });
                 resolved

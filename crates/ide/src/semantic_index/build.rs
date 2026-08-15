@@ -41,6 +41,15 @@ impl FileSemanticIndex {
     }
 
     pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
+        let context = crate::semantic_index::IndexResolutionContext::from_db(db);
+        Self::for_file_with_context(db, file_id, &context)
+    }
+
+    pub(crate) fn for_file_with_context(
+        db: &dyn WorkspaceSymbolIndexDb,
+        file_id: FileId,
+        context: &crate::semantic_index::IndexResolutionContext,
+    ) -> Self {
         let tree = db.parse(file_id.into());
         let root = tree.root();
         let hir_file_id = HirFileId::from(file_id);
@@ -57,7 +66,7 @@ impl FileSemanticIndex {
         };
         let emitted_index = has_preproc_tokens.then(|| emit_token_index(root));
 
-        let sema = SemanticsImpl::new(db);
+        let sema = SemanticsImpl::new_with_context(db, context.hir.clone());
         let mut containers = ContainerCache::new();
         let mut chains = ScopeChainCache::new();
         let mut groups: FxHashMap<DefId, FileReferenceGroup> = FxHashMap::default();
@@ -126,6 +135,8 @@ impl FileSemanticIndex {
                         let (collect_cost, ()) = timed(|| {
                             collect_token(
                                 db,
+                                &sema,
+                                context,
                                 hir_file_id,
                                 token,
                                 container,
@@ -405,6 +416,8 @@ fn is_generate_branch_member(member: SyntaxNode<'_>) -> bool {
 #[allow(clippy::too_many_arguments)]
 fn collect_token(
     db: &dyn WorkspaceSymbolIndexDb,
+    sema: &SemanticsImpl<'_>,
+    context: &crate::semantic_index::IndexResolutionContext,
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
     container: OwnerId,
@@ -422,7 +435,8 @@ fn collect_token(
     let (resolve_cost, class) = timed(|| {
         if in_special_context {
             let start = std::time::Instant::now();
-            let class = DefinitionClass::resolve_in(db, file_id, token, Some(container)).unique();
+            let class =
+                DefinitionClass::resolve_in(db, context, file_id, token, Some(container)).unique();
             trace.resolve_slow += start.elapsed();
             class
         } else {
@@ -434,7 +448,6 @@ fn collect_token(
             // scope chain is resolved once per container; per-token salsa
             // `scope_for` queries revalidate their memos against every
             // intervening query and recompute O(scope size) each time.
-            let sema = SemanticsImpl::new(db);
             let chain_start = std::time::Instant::now();
             let chain = chains.chain_for(db, container);
             let chain_cost = chain_start.elapsed();
@@ -817,6 +830,11 @@ impl FileModuleIndex {
 
 impl FileModuleEdges {
     pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
+        let module_indexes: Vec<_> = db
+            .workspace_source_root_ids()
+            .into_iter()
+            .map(|root| (root, crate::db::workspace_symbol_index_db::source_root_module_index_for_root(db, root)))
+            .collect();
         let hir_file_id = HirFileId::from(file_id);
         let item_tree = db.item_tree(hir_file_id);
         let mut edges = Vec::new();
@@ -829,7 +847,7 @@ impl FileModuleEdges {
             let module = db.body_with_source_map(caller);
             for (instantiation_id, instantiation) in module.instantiations.iter() {
                 let Some(callee_module_id) =
-                    resolve_hir_instantiation_target(db, file_id, instantiation)
+                    resolve_hir_instantiation_target(db, &module_indexes, file_id, instantiation)
                 else {
                     continue;
                 };

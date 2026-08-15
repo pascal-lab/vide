@@ -434,7 +434,7 @@ fn process_instantiation(
 ) -> Option<()> {
     let from_file = module_id.file(db).source_file_id(db)?;
     let target_module_id =
-        resolve_module_name(db, from_file, instantiation.module_name.as_ref()?).unique()?;
+        resolve_module_name(db, &crate::module_resolution::module_indexes(db), from_file, instantiation.module_name.as_ref()?).unique()?;
 
     let target_module = db.body_with_source_map(target_module_id);
     let target_body = db.body_with_source_map(target_module_id);

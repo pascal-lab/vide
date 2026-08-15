@@ -90,11 +90,19 @@ impl<DB: HirDefDb> Semantics<'_, DB> {
 
 pub struct SemanticsImpl<'db> {
     pub db: &'db dyn HirDefDb,
+    context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
 }
 
 impl<'db> SemanticsImpl<'db> {
     pub fn new(db: &'db dyn HirDefDb) -> Self {
-        SemanticsImpl { db }
+        Self::new_with_context(db, hir_def::pathres::ResolutionContext::from_db(db))
+    }
+
+    pub fn new_with_context(
+        db: &'db dyn HirDefDb,
+        context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
+    ) -> Self {
+        SemanticsImpl { db, context }
     }
 
     pub fn parse_file(&self, file_id: FileId) -> ParsedFile {
@@ -129,10 +137,10 @@ impl SemanticsImpl<'_> {
     }
 
     pub fn expr_to_def(&self, in_cont: OwnerRef<ExprId>) -> Resolution<DefId> {
-        hir_to_def::expr_to_def(self.db, in_cont)
+        hir_to_def::expr_to_def(self.db, &self.context, in_cont)
     }
 
     pub fn name_to_def(&self, in_cont: OwnerRef<Ident>) -> Resolution<DefId> {
-        hir_to_def::name_to_def(self.db, in_cont, NameContext::Value)
+        hir_to_def::name_to_def(self.db, &self.context, in_cont, NameContext::Value)
     }
 }

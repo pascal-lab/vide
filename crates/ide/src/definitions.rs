@@ -38,7 +38,8 @@ impl DefinitionClass {
         file_id: HirFileId,
         tp: SyntaxTokenWithParent,
     ) -> DefinitionResolution {
-        Self::resolve_in(db, file_id, tp, None)
+        let context = crate::semantic_index::IndexResolutionContext::from_db(db);
+        Self::resolve_in(db, &context, file_id, tp, None)
     }
 
     /// Like [`resolve`](Self::resolve), but resolves identifiers inside a
@@ -47,11 +48,12 @@ impl DefinitionClass {
     /// the tree (the semantic index build) track it incrementally.
     pub(crate) fn resolve_in(
         db: &dyn WorkspaceSymbolIndexDb,
+        context: &crate::semantic_index::IndexResolutionContext,
         file_id: HirFileId,
         tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
         container: Option<OwnerId>,
     ) -> DefinitionResolution {
-        let sema = SemanticsImpl::new(db);
+        let sema = SemanticsImpl::new_with_context(db, context.hir.clone());
 
         if !tok.kind().name_like() {
             return Resolution::Unresolved;
@@ -65,7 +67,8 @@ impl DefinitionClass {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_instantiation_type_name(db, &sema, file_id, tp, container)
+        if let Some(resolution) =
+            resolve_instantiation_type_name(db, context, &sema, file_id, tp, container)
         {
             return resolution;
         }
@@ -84,11 +87,12 @@ impl DefinitionClass {
 
         match_ast! { parent,
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
-                resolve_named_param_assignment(db, file_id.expect_file(), it)
+                resolve_named_param_assignment(db, &context.module_indexes, file_id.expect_file(), it)
                     .map(DefinitionClass::Definition)
             },
             ast::NamedPortConnection[it] if it.name() == Some(tok) => {
-                let port = resolve_named_port_connection(db, file_id.expect_file(), it);
+                let port =
+                    resolve_named_port_connection(db, &context.module_indexes, file_id.expect_file(), it);
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
                     let local = nameres_ident(&sema, file_id, tp, NameContext::Value, container);
@@ -281,6 +285,7 @@ fn package_member_resolution(
 
 fn resolve_instantiation_type_name(
     db: &dyn WorkspaceSymbolIndexDb,
+    context: &crate::semantic_index::IndexResolutionContext,
     sema: &SemanticsImpl,
     file_id: HirFileId,
     tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
@@ -311,7 +316,12 @@ fn resolve_instantiation_type_name(
         && instantiation.type_() == Some(tok)
     {
         let resolution =
-            match resolve_instantiation_target(db, file_id.expect_file(), instantiation) {
+            match resolve_instantiation_target(
+                db,
+                &context.module_indexes,
+                file_id.expect_file(),
+                instantiation,
+            ) {
                 ModuleResolution::Unique(module_id)
                 | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
                     Resolution::Unique(

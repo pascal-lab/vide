@@ -11,6 +11,7 @@ use hir_def::{
     module::port::PortDeclId,
     owner::OwnerId,
     pathres::{NameRef, RefKind, instance_target_def_id, resolve_name_at, resolve_path},
+    pathres::ResolutionContext,
     stmt::{ForInit, StmtKind},
     subroutine::SubroutinePortId,
     symbol::{DefKind, NameContext, Resolution},
@@ -291,7 +292,14 @@ fn type_of_expr_impl(db: &dyn TyDb, expr: OwnerRef<ExprId>) -> TyResult {
             let reference = expr_reference(db, expr);
             type_of_path_resolution_impl(
                 db,
-                resolve_name_at(db, expr.cont_id, ident, NameContext::Value, reference.as_ref()),
+                resolve_name_at(
+                    db,
+                    &ResolutionContext::from_db(db),
+                    expr.cont_id,
+                    ident,
+                    NameContext::Value,
+                    reference.as_ref(),
+                ),
             )
         }
         Expr::Field { receiver, field } => {
@@ -366,7 +374,13 @@ fn type_of_named_data_ty(
             diagnostics: vec![TypeDiagnostic::InvalidTypePath(recovery)],
         };
     }
-    let resolution = resolve_path(db, container, named.segments(), NameContext::Type);
+    let resolution = resolve_path(
+        db,
+        &ResolutionContext::from_db(db),
+        container,
+        named.segments(),
+        NameContext::Type,
+    );
     let Some(def_id) = resolution.unique() else {
         return TyResult::new(Ty::Unknown);
     };

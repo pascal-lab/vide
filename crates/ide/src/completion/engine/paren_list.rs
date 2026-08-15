@@ -301,5 +301,5 @@ fn resolve_target_module_id(
     from_file: vfs::FileId,
     instantiation: ast::HierarchyInstantiation<'_>,
 ) -> Option<OwnerId> {
-    resolve_instantiation_target(db, from_file, instantiation).unique()
+    resolve_instantiation_target(db, &crate::module_resolution::module_indexes(db), from_file, instantiation).unique()
 }

@@ -1617,16 +1617,16 @@ endmodule
         );
 
         let imported_t =
-            resolve_name(&db, wildcard_importer, &ident("imported_t"), NameContext::Type);
+            resolve_name(&db, &crate::pathres::ResolutionContext::from_db(&db), wildcard_importer, &ident("imported_t"), NameContext::Type);
         assert!(imported_t.iter().any(|def_id| def_id.kind(&db) == DefKind::Typedef));
         assert!(
-            resolve_name(&db, wildcard_importer, &ident("imported_t"), NameContext::Value,)
+            resolve_name(&db, &crate::pathres::ResolutionContext::from_db(&db), wildcard_importer, &ident("imported_t"), NameContext::Value,)
                 .is_unresolved(),
             "value lookup should not fall back to the type bucket"
         );
 
         let shadowed_v =
-            resolve_name(&db, wildcard_importer, &ident("shadowed_v"), NameContext::Value);
+            resolve_name(&db, &crate::pathres::ResolutionContext::from_db(&db), wildcard_importer, &ident("shadowed_v"), NameContext::Value);
         assert!(shadowed_v.iter().any(|def_id| def_id.kind(&db) == DefKind::Net));
         assert!(!shadowed_v.iter().any(|def_id| def_id.kind(&db) == DefKind::Variable));
 
@@ -1642,10 +1642,10 @@ endmodule
         }));
 
         let imported_v =
-            resolve_name(&db, named_importer, &ident("imported_v"), NameContext::Value);
+            resolve_name(&db, &crate::pathres::ResolutionContext::from_db(&db), named_importer, &ident("imported_v"), NameContext::Value);
         assert!(imported_v.iter().any(|def_id| def_id.kind(&db) == DefKind::Variable));
         assert!(
-            resolve_name(&db, named_importer, &ident("imported_t"), NameContext::Type,)
+            resolve_name(&db, &crate::pathres::ResolutionContext::from_db(&db), named_importer, &ident("imported_t"), NameContext::Type,)
                 .is_unresolved(),
             "named import should not expose unrelated package symbols"
         );
@@ -1676,7 +1676,7 @@ endmodule
             .package_ids(&ident("pkg"))
             .unique()
             .expect("package should resolve uniquely");
-        let package_f = resolve_name(&db, package_id, &ident("f"), NameContext::Value)
+        let package_f = resolve_name(&db, &crate::pathres::ResolutionContext::from_db(&db), package_id, &ident("f"), NameContext::Value)
             .unique()
             .expect("package scope should resolve package subroutine");
 
@@ -1691,7 +1691,7 @@ endmodule
             .module_ids(&ident("named_importer"))
             .unique()
             .expect("named importer should resolve uniquely");
-        let named_import_f = resolve_name(&db, named_importer, &ident("f"), NameContext::Value)
+        let named_import_f = resolve_name(&db, &crate::pathres::ResolutionContext::from_db(&db), named_importer, &ident("f"), NameContext::Value)
             .unique()
             .expect("named import should resolve package subroutine");
 
@@ -1701,7 +1701,7 @@ endmodule
             .unique()
             .expect("wildcard importer should resolve uniquely");
         let wildcard_import_f =
-            resolve_name(&db, wildcard_importer, &ident("f"), NameContext::Value)
+            resolve_name(&db, &crate::pathres::ResolutionContext::from_db(&db), wildcard_importer, &ident("f"), NameContext::Value)
                 .unique()
                 .expect("wildcard import should resolve package subroutine");
 

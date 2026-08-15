@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use base_db::source_root::SourceRootRole;
+use base_db::source_root::{SourceRootId, SourceRootRole};
 use hir_def::{
     Ident,
     body::Body,
@@ -24,11 +24,25 @@ use syntax::{
     SyntaxAncestors,
     ast::{self, AstNode},
 };
+use triomphe::Arc;
 use vfs::{FileId, VfsPath};
 
 use crate::db::workspace_symbol_index_db::{
     WorkspaceSymbolIndexDb, source_root_module_index_for_root,
 };
+
+/// Per-root module indexes for every workspace root. Non-index callers compute
+/// this once per request; the index build reuses a cached copy.
+pub(crate) fn module_indexes(
+    db: &dyn WorkspaceSymbolIndexDb,
+) -> Arc<[(SourceRootId, Arc<crate::semantic_index::ModuleIndex>)]> {
+    let indexes: Vec<_> = db
+        .workspace_source_root_ids()
+        .into_iter()
+        .map(|root| (root, source_root_module_index_for_root(db, root)))
+        .collect();
+    Arc::from(indexes)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ModuleResolution {
@@ -69,34 +83,38 @@ impl ModuleResolution {
 
 pub(crate) fn resolve_instantiation_target(
     db: &dyn WorkspaceSymbolIndexDb,
+    module_indexes: &[(SourceRootId, Arc<crate::semantic_index::ModuleIndex>)],
     from_file: FileId,
     instantiation: ast::HierarchyInstantiation,
 ) -> ModuleResolution {
     let Some(name) = lower_ident_opt(instantiation.type_()) else {
         return ModuleResolution::Unresolved;
     };
-    resolve_module_name(db, from_file, &name)
+    resolve_module_name(db, module_indexes, from_file, &name)
 }
 
 pub(crate) fn resolve_hir_instantiation_target(
     db: &dyn WorkspaceSymbolIndexDb,
+    module_indexes: &[(SourceRootId, Arc<crate::semantic_index::ModuleIndex>)],
     from_file: FileId,
     instantiation: &Instantiation,
 ) -> Option<OwnerId> {
-    resolve_module_name(db, from_file, instantiation.module_name.as_ref()?).unique()
+    resolve_module_name(db, module_indexes, from_file, instantiation.module_name.as_ref()?).unique()
 }
 
 pub(crate) fn resolve_module_name(
     db: &dyn WorkspaceSymbolIndexDb,
+    module_indexes: &[(SourceRootId, Arc<crate::semantic_index::ModuleIndex>)],
     from_file: FileId,
     name: &Ident,
 ) -> ModuleResolution {
     let policy = ModuleResolutionPolicy::for_file(db, from_file);
-    resolve_module_name_with_policy(db, name, policy)
+    resolve_module_name_with_policy(db, module_indexes, name, policy)
 }
 
 pub(crate) fn resolve_named_port_connection(
     db: &dyn WorkspaceSymbolIndexDb,
+    module_indexes: &[(SourceRootId, Arc<crate::semantic_index::ModuleIndex>)],
     from_file: FileId,
     conn: ast::NamedPortConnection,
 ) -> Resolution<DefId> {
@@ -108,11 +126,12 @@ pub(crate) fn resolve_named_port_connection(
     else {
         return Resolution::Unresolved;
     };
-    resolve_named_port_in_instantiation(db, from_file, instantiation, &name)
+    resolve_named_port_in_instantiation(db, module_indexes, from_file, instantiation, &name)
 }
 
 pub(crate) fn resolve_named_param_assignment(
     db: &dyn WorkspaceSymbolIndexDb,
+    module_indexes: &[(SourceRootId, Arc<crate::semantic_index::ModuleIndex>)],
     from_file: FileId,
     assign: ast::NamedParamAssignment,
 ) -> Resolution<DefId> {
@@ -124,27 +143,29 @@ pub(crate) fn resolve_named_param_assignment(
     else {
         return Resolution::Unresolved;
     };
-    resolve_named_param_in_instantiation(db, from_file, instantiation, &name)
+    resolve_named_param_in_instantiation(db, module_indexes, from_file, instantiation, &name)
 }
 
 fn resolve_named_port_in_instantiation(
     db: &dyn WorkspaceSymbolIndexDb,
+    module_indexes: &[(SourceRootId, Arc<crate::semantic_index::ModuleIndex>)],
     from_file: FileId,
     instantiation: ast::HierarchyInstantiation,
     port_name: &Ident,
 ) -> Resolution<DefId> {
-    resolve_instantiation_target(db, from_file, instantiation)
+    resolve_instantiation_target(db, module_indexes, from_file, instantiation)
         .into_resolution()
         .and_then(|module_id| resolve_named_port_in_module(db, module_id, port_name))
 }
 
 fn resolve_named_param_in_instantiation(
     db: &dyn WorkspaceSymbolIndexDb,
+    module_indexes: &[(SourceRootId, Arc<crate::semantic_index::ModuleIndex>)],
     from_file: FileId,
     instantiation: ast::HierarchyInstantiation,
     param_name: &Ident,
 ) -> Resolution<DefId> {
-    resolve_instantiation_target(db, from_file, instantiation)
+    resolve_instantiation_target(db, module_indexes, from_file, instantiation)
         .into_resolution()
         .and_then(|module_id| resolve_named_param_in_module(db, module_id, param_name))
 }
@@ -298,10 +319,11 @@ pub(crate) fn resolve_named_param_in_module(
 
 fn resolve_module_name_with_policy(
     db: &dyn WorkspaceSymbolIndexDb,
+    module_indexes: &[(SourceRootId, Arc<crate::semantic_index::ModuleIndex>)],
     name: &Ident,
     policy: ModuleResolutionPolicy,
 ) -> ModuleResolution {
-    let candidates = module_candidates(db, name);
+    let candidates = module_candidates(module_indexes, name);
     match candidates.as_slice() {
         [module_id] => ModuleResolution::Unique(*module_id),
         [] => ModuleResolution::Unresolved,
@@ -309,10 +331,12 @@ fn resolve_module_name_with_policy(
     }
 }
 
-fn module_candidates(db: &dyn WorkspaceSymbolIndexDb, name: &Ident) -> Vec<OwnerId> {
+fn module_candidates(
+    module_indexes: &[(SourceRootId, Arc<crate::semantic_index::ModuleIndex>)],
+    name: &Ident,
+) -> Vec<OwnerId> {
     let mut candidates = Vec::new();
-    for source_root_id in db.workspace_source_root_ids().iter().copied() {
-        let module_index = source_root_module_index_for_root(db, source_root_id);
+    for (_, module_index) in module_indexes {
         candidates.extend(
             module_index
                 .module_definitions(name)
@@ -618,7 +642,7 @@ mod tests {
 
         match fixture.query {
             Query::Module(module) => {
-                let result = resolve_module_name(&db, fixture.focus, &module);
+                let result = resolve_module_name(&db, &module_indexes(&db), fixture.focus, &module);
                 format_module_resolution(&db, &fixture.files, result)
             }
             Query::NamedPort => {
@@ -628,7 +652,7 @@ mod tests {
                 let port_conn = root
                     .find_node_at_offset::<ast::NamedPortConnection>(offset)
                     .expect("named port connection should parse at /*caret*/");
-                let res = resolve_named_port_connection(&db, fixture.focus, port_conn);
+                let res = resolve_named_port_connection(&db, &module_indexes(&db), fixture.focus, port_conn);
                 match resolution_module_id(&db, &res, DefKind::Port) {
                     Some(module_id) => format!(
                         "AnsiPort module={}",
@@ -644,7 +668,7 @@ mod tests {
                 let param_assign = root
                     .find_node_at_offset::<ast::NamedParamAssignment>(offset)
                     .expect("named parameter assignment should parse at /*caret*/");
-                let res = resolve_named_param_assignment(&db, fixture.focus, param_assign);
+                let res = resolve_named_param_assignment(&db, &module_indexes(&db), fixture.focus, param_assign);
                 match resolution_module_id(&db, &res, DefKind::Param) {
                     Some(module_id) => format!(
                         "ParamDecl module={}",

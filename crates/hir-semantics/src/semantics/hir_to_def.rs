@@ -6,13 +6,15 @@ use hir_def::{
     expr::{Expr, ExprId},
     owner::OwnerId,
     pathres::{
-        NameRef, RefKind, resolve_child_name, resolve_name, resolve_name_at, resolve_path_at,
+        NameRef, RefKind, ResolutionContext, resolve_child_name, resolve_name, resolve_name_at,
+        resolve_path_at,
     },
     symbol::{NameContext, Resolution},
 };
 
 pub(super) fn expr_to_def(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     OwnerRef { cont_id, value: expr_id }: OwnerRef<ExprId>,
 ) -> Resolution<DefId> {
     // Expression references resolve at their source position; call callees
@@ -23,19 +25,21 @@ pub(super) fn expr_to_def(
             let Some(field) = field.as_ref() else {
                 return Resolution::Unresolved;
             };
-            resolve_expr_path(db, cont_id, expr_id, NameContext::Value, reference.as_ref()).or_else(
+            resolve_expr_path(db, context, cont_id, expr_id, NameContext::Value, reference.as_ref())
+                .or_else(
                 || {
-                    let receiver_res = expr_to_def(db, OwnerRef::new(cont_id, *receiver));
-                    resolve_child_name(db, &receiver_res, field, NameContext::Value)
+                    let receiver_res = expr_to_def(db, context, OwnerRef::new(cont_id, *receiver));
+                    resolve_child_name(db, context, &receiver_res, field, NameContext::Value)
                 },
             )
         }
         Expr::ElementSelect { receiver, .. } => {
-            resolve_expr_path(db, cont_id, expr_id, NameContext::Value, reference.as_ref())
-                .or_else(|| expr_to_def(db, OwnerRef::new(cont_id, *receiver)))
+            resolve_expr_path(db, context, cont_id, expr_id, NameContext::Value, reference.as_ref())
+                .or_else(|| expr_to_def(db, context, OwnerRef::new(cont_id, *receiver)))
         }
         Expr::Ident(ident) => name_to_def_at(
             db,
+            context,
             OwnerRef::new(cont_id, ident.clone()),
             NameContext::Value,
             reference.as_ref(),
@@ -67,23 +71,26 @@ fn expr_reference(db: &dyn HirDefDb, cont_id: OwnerId, expr_id: ExprId) -> Optio
 
 pub(super) fn name_to_def(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     OwnerRef { cont_id, value: ident }: OwnerRef<Ident>,
     name_ctx: NameContext,
 ) -> Resolution<DefId> {
-    resolve_name(db, cont_id, &ident, name_ctx)
+    resolve_name(db, context, cont_id, &ident, name_ctx)
 }
 
 pub(super) fn name_to_def_at(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     OwnerRef { cont_id, value: ident }: OwnerRef<Ident>,
     name_ctx: NameContext,
     reference: Option<&hir_def::pathres::NameRef>,
 ) -> Resolution<DefId> {
-    resolve_name_at(db, cont_id, &ident, name_ctx, reference)
+    resolve_name_at(db, context, cont_id, &ident, name_ctx, reference)
 }
 
 fn resolve_expr_path(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     expr_id: ExprId,
     ctx: NameContext,
@@ -92,7 +99,7 @@ fn resolve_expr_path(
     let Some(path) = expr_path(db, cont_id, expr_id) else {
         return Resolution::Unresolved;
     };
-    resolve_path_at(db, cont_id, &path, ctx, reference)
+    resolve_path_at(db, context, cont_id, &path, ctx, reference)
 }
 
 fn expr_path(db: &dyn HirDefDb, cont_id: OwnerId, expr_id: ExprId) -> Option<Vec<Ident>> {

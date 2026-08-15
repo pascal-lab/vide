@@ -1,5 +1,6 @@
 use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
+use triomphe::Arc;
 use utils::get::GetRef;
 
 use crate::{
@@ -7,10 +8,31 @@ use crate::{
     container::{InFile, ScopeChain},
     db::HirDefDb,
     def_id::DefId,
+    design_map::DesignMap,
     module::instantiation::InstanceId,
     owner::{OwnerId, OwnerKind},
     symbol::{DefKind, NameContext, Resolution, ScopeData},
+    unit_index::UnitIndex,
 };
+
+/// Cross-file name-resolution inputs, precomputed once per request so the
+/// resolver never reads the O(project) global queries through salsa.
+#[derive(Clone)]
+pub struct ResolutionContext {
+    unit_scope: Arc<ScopeData>,
+    design_map: Arc<DesignMap>,
+    unit_index: Arc<UnitIndex>,
+}
+
+impl ResolutionContext {
+    pub fn from_db(db: &dyn HirDefDb) -> Arc<Self> {
+        Arc::new(Self {
+            unit_scope: db.unit_scope(),
+            design_map: db.design_map(),
+            unit_index: db.unit_index(),
+        })
+    }
+}
 
 // SystemVerilog name AST note for path resolution:
 //
@@ -71,11 +93,12 @@ pub struct NameRef {
 
 pub fn resolve_name(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    resolve_name_at(db, cont_id, ident, ctx, None)
+    resolve_name_at(db, context, cont_id, ident, ctx, None)
 }
 
 /// Resolve a name honoring the reference's source position. Without a
@@ -83,12 +106,13 @@ pub fn resolve_name(
 /// matches the position-less [`resolve_name`].
 pub fn resolve_name_at(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
     reference: Option<&NameRef>,
 ) -> Resolution<DefId> {
-    resolve_name_inner(db, cont_id, ident, ctx, None, reference)
+    resolve_name_inner(db, context, cont_id, ident, ctx, None, reference)
 }
 
 /// Resolve a name and retain the precedence decisions made by the resolver.
@@ -98,12 +122,13 @@ pub fn resolve_name_at(
 /// named-import, wildcard-import, and `$unit` decision through this seam.
 pub fn resolve_name_with_trace(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
 ) -> (Resolution<DefId>, ResolutionTrace) {
     let mut trace = ResolutionTrace::default();
-    let resolution = resolve_name_inner(db, cont_id, ident, ctx, Some(&mut trace), None);
+    let resolution = resolve_name_inner(db, context, cont_id, ident, ctx, Some(&mut trace), None);
     (resolution, trace)
 }
 
@@ -141,6 +166,7 @@ fn filter_resolution_at(
 
 fn resolve_name_inner(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
@@ -175,6 +201,7 @@ fn resolve_name_inner(
         // this scope. `$unit` remains the final scope.
         let imported = resolve_scope_imports(
             db,
+            context,
             scope.as_ref(),
             ident,
             ctx,
@@ -187,7 +214,7 @@ fn resolve_name_inner(
         }
     }
 
-    let unit = db.unit_scope().lookup(ctx, ident);
+    let unit = context.unit_scope.lookup(ctx, ident);
     if let Some(trace) = trace {
         trace.entries.push(ResolutionTraceEntry {
             phase: ResolutionPhase::Unit,
@@ -213,17 +240,19 @@ impl ResolvedScopes {
 /// search order as [`resolve_name_at`].
 pub fn resolve_in_resolved_scopes(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     resolved: &ResolvedScopes,
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    resolve_in_resolved_scopes_at(db, resolved, ident, ctx, None)
+    resolve_in_resolved_scopes_at(db, context, resolved, ident, ctx, None)
 }
 
 /// Position-aware variant of [`resolve_in_resolved_scopes`]; see
 /// [`resolve_name_at`] for the filtering rules.
 pub fn resolve_in_resolved_scopes_at(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     resolved: &ResolvedScopes,
     ident: &Ident,
     ctx: NameContext,
@@ -242,6 +271,7 @@ pub fn resolve_in_resolved_scopes_at(
         }
         let imported = resolve_scope_imports(
             db,
+            context,
             scope.as_ref(),
             ident,
             ctx,
@@ -253,22 +283,24 @@ pub fn resolve_in_resolved_scopes_at(
             return imported;
         }
     }
-    db.unit_scope().lookup(ctx, ident)
+    context.unit_scope.lookup(ctx, ident)
 }
 
 pub fn resolve_path(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     path: &[Ident],
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    resolve_path_at(db, cont_id, path, ctx, None)
+    resolve_path_at(db, context, cont_id, path, ctx, None)
 }
 
 /// Position-aware variant of [`resolve_path`]; the first segment honors the
 /// reference position while member segments keep position-less lookup.
 pub fn resolve_path_at(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     path: &[Ident],
     ctx: NameContext,
@@ -277,12 +309,12 @@ pub fn resolve_path_at(
     let Some((first, rest)) = path.split_first() else {
         return Resolution::Unresolved;
     };
-    let mut current = resolve_name_at(db, cont_id, first, ctx, reference)
-        .or_else(|| resolve_top_level_module_root(db, first, ctx, !rest.is_empty()));
+    let mut current = resolve_name_at(db, context, cont_id, first, ctx, reference)
+        .or_else(|| resolve_top_level_module_root(db, context, first, ctx, !rest.is_empty()));
 
     for (idx, segment) in rest.iter().enumerate() {
         let segment_ctx = if idx + 1 == rest.len() { ctx } else { NameContext::Value };
-        current = resolve_child_name(db, &current, segment, segment_ctx);
+        current = resolve_child_name(db, context, &current, segment, segment_ctx);
         if current.is_unresolved() {
             break;
         }
@@ -293,6 +325,7 @@ pub fn resolve_path_at(
 
 fn resolve_top_level_module_root(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     ident: &Ident,
     ctx: NameContext,
     has_child_segment: bool,
@@ -308,7 +341,8 @@ fn resolve_top_level_module_root(
     // is not a single segment value fallback: `top` alone remains a type-space
     // module name, and nested declarations never leak through the fallback.
     Resolution::from_candidates(
-        db.unit_index()
+        context
+            .unit_index
             .top_level_module_ids(ident)
             .into_candidates()
             .into_iter()
@@ -318,6 +352,7 @@ fn resolve_top_level_module_root(
 
 pub fn resolve_child_name(
     db: &dyn HirDefDb,
+    _context: &ResolutionContext,
     parent: &Resolution<DefId>,
     ident: &Ident,
     ctx: NameContext,
@@ -436,6 +471,7 @@ impl ImportCollector<'_> {
 
 fn resolve_scope_imports(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     scope: &ScopeData,
     ident: &Ident,
     ctx: NameContext,
@@ -443,10 +479,9 @@ fn resolve_scope_imports(
     mut trace: Option<&mut ResolutionTrace>,
     at: AtFilter<'_>,
 ) -> Resolution<DefId> {
-    let design_map = db.design_map();
     let mut collector = ImportCollector {
         db,
-        design_map: &design_map,
+        design_map: &context.design_map,
         scope,
         defs: SmallVec::new(),
         scope_file: scope_id.file(db),
@@ -483,6 +518,7 @@ fn resolve_scope_imports(
 /// import locally visible (IEEE 1800-2017 26.3).
 pub(crate) fn resolve_wildcard_at(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
@@ -490,12 +526,11 @@ pub(crate) fn resolve_wildcard_at(
 ) -> (Resolution<DefId>, Option<OwnerId>) {
     let scopes = ScopeChain::from_inner(db, cont_id);
     let at = AtFilter { reference };
-    let design_map = db.design_map();
     for scope_id in scopes.iter() {
         let scope = db.scope(*scope_id);
         let mut collector = ImportCollector {
             db,
-            design_map: &design_map,
+            design_map: &context.design_map,
             scope: scope.as_ref(),
             defs: SmallVec::new(),
             scope_file: scope_id.file(db),
@@ -635,7 +670,7 @@ mod tests {
         ctx: NameContext,
     ) -> DefKind {
         let path = path(segments);
-        resolve_path(db, scope_id, &path, ctx)
+        resolve_path(db, &ResolutionContext::from_db(db), scope_id, &path, ctx)
             .unique()
             .map(|def_id| def_id.kind(db))
             .unwrap_or_else(|| panic!("path {segments:?} should resolve"))
@@ -709,10 +744,10 @@ endmodule
             .expect("top module should resolve uniquely");
 
         assert!(
-            resolve_path(&db, top, &path(&["u", "only_left"]), NameContext::Value).is_unresolved()
+            resolve_path(&db, &ResolutionContext::from_db(&db), top, &path(&["u", "only_left"]), NameContext::Value).is_unresolved()
         );
         let Resolution::Ambiguous(shared) =
-            resolve_path(&db, top, &path(&["u", "shared"]), NameContext::Value)
+            resolve_path(&db, &ResolutionContext::from_db(&db), top, &path(&["u", "shared"]), NameContext::Value)
         else {
             panic!("members from ambiguous parents should remain ambiguous");
         };
@@ -742,7 +777,7 @@ endmodule
             .unique()
             .expect("top module should resolve uniquely");
         let Resolution::Ambiguous(values) =
-            resolve_name(&db, top, &ident("value"), NameContext::Value)
+            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("value"), NameContext::Value)
         else {
             panic!("imports from ambiguous packages should remain ambiguous");
         };
@@ -772,7 +807,7 @@ endmodule
             .expect("top module should resolve uniquely");
 
         assert!(
-            resolve_name(&db, top, &ident("only_left"), NameContext::Value).is_unresolved(),
+            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("only_left"), NameContext::Value).is_unresolved(),
             "a child member must not disambiguate its parent package"
         );
     }
@@ -812,7 +847,7 @@ endmodule
             .expect("named package value should resolve uniquely");
 
         let (resolved, trace) =
-            resolve_name_with_trace(&db, top, &ident("value"), NameContext::Value);
+            resolve_name_with_trace(&db, &ResolutionContext::from_db(&db), top, &ident("value"), NameContext::Value);
         assert_eq!(resolved, Resolution::Unique(expected));
         assert!(trace.entries().iter().any(|entry| {
             entry.phase == ResolutionPhase::NamedImport
@@ -850,7 +885,7 @@ endmodule
             .unique()
             .expect("top module should resolve uniquely");
         let (resolved, trace) =
-            resolve_name_with_trace(&db, top, &ident("value"), NameContext::Value);
+            resolve_name_with_trace(&db, &ResolutionContext::from_db(&db), top, &ident("value"), NameContext::Value);
         let Resolution::Ambiguous(candidates) = resolved else {
             panic!("two named imports must remain ambiguous");
         };
@@ -891,9 +926,9 @@ endmodule
             .package_ids(&ident("p2"))
             .unique()
             .expect("p2 package should resolve uniquely");
-        let p2_x = resolve_name(&db, p2, &ident("x"), NameContext::Value).unique().expect("p2::x");
+        let p2_x = resolve_name(&db, &ResolutionContext::from_db(&db), p2, &ident("x"), NameContext::Value).unique().expect("p2::x");
         assert_eq!(
-            resolve_name(&db, top, &ident("x"), NameContext::Value),
+            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("x"), NameContext::Value),
             Resolution::Unique(p2_x)
         );
     }
@@ -930,9 +965,9 @@ endmodule
             .package_ids(&ident("p2"))
             .unique()
             .expect("p2 package should resolve uniquely");
-        let p2_x = resolve_name(&db, p2, &ident("x"), NameContext::Value).unique().expect("p2::x");
+        let p2_x = resolve_name(&db, &ResolutionContext::from_db(&db), p2, &ident("x"), NameContext::Value).unique().expect("p2::x");
         assert_eq!(
-            resolve_name(&db, block, &ident("x"), NameContext::Value),
+            resolve_name(&db, &ResolutionContext::from_db(&db), block, &ident("x"), NameContext::Value),
             Resolution::Unique(p2_x)
         );
     }
@@ -980,7 +1015,7 @@ endmodule
             .unique()
             .expect("top module should resolve uniquely");
         assert!(
-            resolve_name(&db, top, &ident("value"), NameContext::Value).unique().is_some(),
+            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("value"), NameContext::Value).unique().is_some(),
             "lexical resolution must consume the canonical design map"
         );
     }
@@ -1031,7 +1066,7 @@ endmodule
             "selective export must not expose other wildcard-imported values"
         );
         assert!(
-            resolve_name(&db, top, &ident("private"), NameContext::Value).unique().is_some(),
+            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("private"), NameContext::Value).unique().is_some(),
             "export-all must re-export wildcard-imported values"
         );
     }
@@ -1073,7 +1108,7 @@ endmodule
             .unique()
             .expect("top module should resolve uniquely");
         let Resolution::Ambiguous(candidates) =
-            resolve_name(&db, top, &ident("x"), NameContext::Value)
+            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("x"), NameContext::Value)
         else {
             panic!("star import of mutually importing packages must stay ambiguous");
         };
@@ -1112,7 +1147,7 @@ endmodule
             .unique()
             .expect("top module should resolve uniquely");
         assert_eq!(
-            resolve_name(&db, top, &ident("value"), NameContext::Value),
+            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("value"), NameContext::Value),
             Resolution::Unique(expected)
         );
     }
@@ -1202,14 +1237,14 @@ endmodule
             .expect("generate block b")
             .id;
         let p = db.unit_index().package_ids(&ident("p")).unique().expect("p");
-        let p_f = resolve_name(&db, p, &ident("f"), NameContext::Value).unique().expect("p::f");
+        let p_f = resolve_name(&db, &ResolutionContext::from_db(&db), p, &ident("f"), NameContext::Value).unique().expect("p::f");
 
         let reference = reference_at(&db, text, "x = f()", RefKind::Call);
-        let resolved = resolve_name_at(&db, b, &ident("f"), NameContext::Value, Some(&reference));
+        let resolved = resolve_name_at(&db, &ResolutionContext::from_db(&db), b, &ident("f"), NameContext::Value, Some(&reference));
         assert_eq!(resolved, Resolution::Unique(p_f), "only the preceding wildcard may bind");
 
         // Without a position both wildcards merge (the previous behavior).
-        let positionless = resolve_name(&db, b, &ident("f"), NameContext::Value);
+        let positionless = resolve_name(&db, &ResolutionContext::from_db(&db), b, &ident("f"), NameContext::Value);
         assert!(matches!(positionless, Resolution::Ambiguous(_)));
     }
 
@@ -1240,7 +1275,7 @@ endmodule
 
         let reference = reference_at(&db, text, "x = f()", RefKind::Call);
         assert!(
-            resolve_name_at(&db, b, &ident("f"), NameContext::Value, Some(&reference))
+            resolve_name_at(&db, &ResolutionContext::from_db(&db), b, &ident("f"), NameContext::Value, Some(&reference))
                 .is_unresolved(),
             "the import follows the reference and must not bind"
         );
@@ -1271,11 +1306,11 @@ endmodule
             .expect("generate block b")
             .id;
         let p = db.unit_index().package_ids(&ident("p")).unique().expect("p");
-        let p_x = resolve_name(&db, p, &ident("x"), NameContext::Value).unique().expect("p::x");
+        let p_x = resolve_name(&db, &ResolutionContext::from_db(&db), p, &ident("x"), NameContext::Value).unique().expect("p::x");
 
         let reference = reference_at(&db, text, "x = 1", RefKind::Value);
         assert_eq!(
-            resolve_name_at(&db, b, &ident("x"), NameContext::Value, Some(&reference)),
+            resolve_name_at(&db, &ResolutionContext::from_db(&db), b, &ident("x"), NameContext::Value, Some(&reference)),
             Resolution::Unique(p_x),
             "the later outer declaration must not shadow the wildcard import"
         );
@@ -1294,12 +1329,12 @@ endmodule
 
         let reference = reference_at(&db, text, "x = 1", RefKind::Value);
         assert!(
-            resolve_name_at(&db, blk, &ident("x"), NameContext::Value, Some(&reference))
+            resolve_name_at(&db, &ResolutionContext::from_db(&db), blk, &ident("x"), NameContext::Value, Some(&reference))
                 .is_unresolved(),
             "a declaration after the reference is not locally visible at the point"
         );
         assert!(
-            resolve_name(&db, blk, &ident("x"), NameContext::Value).unique().is_some(),
+            resolve_name(&db, &ResolutionContext::from_db(&db), blk, &ident("x"), NameContext::Value).unique().is_some(),
             "position-less lookup keeps the declaration"
         );
     }
@@ -1312,16 +1347,16 @@ endmodule
             "module m;\n  assign y = f();\n  function int f(); return 1; endfunction\nendmodule\n";
         let db = db_with_root_text(text);
         let m = db.unit_index().module_ids(&ident("m")).unique().expect("m");
-        let f = resolve_name(&db, m, &ident("f"), NameContext::Value).unique().expect("m::f");
+        let f = resolve_name(&db, &ResolutionContext::from_db(&db), m, &ident("f"), NameContext::Value).unique().expect("m::f");
 
         let call = reference_at(&db, text, "y = f()", RefKind::Call);
         assert_eq!(
-            resolve_name_at(&db, m, &ident("f"), NameContext::Value, Some(&call)),
+            resolve_name_at(&db, &ResolutionContext::from_db(&db), m, &ident("f"), NameContext::Value, Some(&call)),
             Resolution::Unique(f)
         );
         let value = reference_at(&db, text, "y = f()", RefKind::Value);
         assert!(
-            resolve_name_at(&db, m, &ident("f"), NameContext::Value, Some(&value)).is_unresolved(),
+            resolve_name_at(&db, &ResolutionContext::from_db(&db), m, &ident("f"), NameContext::Value, Some(&value)).is_unresolved(),
             "ordinary references do not see the later declaration"
         );
     }
@@ -1371,6 +1406,7 @@ endmodule
 
         let resolution = resolve_path(
             &db,
+            &ResolutionContext::from_db(&db),
             db.owner_table(HirFileId::File(TOP)).file_owner().expect("file owner"),
             &path(&["child", "sig"]),
             NameContext::Value,
@@ -1399,7 +1435,7 @@ endmodule
             .unique()
             .expect("top module should resolve uniquely");
 
-        let res = resolve_path(&db, top, &path(&["u_if", "host"]), NameContext::Value);
+        let res = resolve_path(&db, &ResolutionContext::from_db(&db), top, &path(&["u_if", "host"]), NameContext::Value);
 
         let def = res.unique().expect("modport should produce a unique definition");
         assert_eq!(def.name(&db).as_deref(), Some("host"));

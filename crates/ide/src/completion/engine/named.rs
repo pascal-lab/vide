@@ -35,7 +35,7 @@ pub(super) fn complete_named_port_names(
         return Vec::new();
     };
     let Some(target_module_id) =
-        resolve_instantiation_target(db, position.file_id, instantiation).unique()
+        resolve_instantiation_target(db, &crate::module_resolution::module_indexes(db), position.file_id, instantiation).unique()
     else {
         return Vec::new();
     };
@@ -83,7 +83,7 @@ pub(super) fn complete_named_param_names(
         return Vec::new();
     };
     let Some(target_module_id) =
-        resolve_instantiation_target(db, position.file_id, instantiation).unique()
+        resolve_instantiation_target(db, &crate::module_resolution::module_indexes(db), position.file_id, instantiation).unique()
     else {
         return Vec::new();
     };
@@ -143,7 +143,7 @@ pub(super) fn complete_named_port_conn_expr(
         return Vec::new();
     };
     let Some(target_module_id) =
-        resolve_instantiation_target(db, position.file_id, instantiation).unique()
+        resolve_instantiation_target(db, &crate::module_resolution::module_indexes(db), position.file_id, instantiation).unique()
     else {
         return Vec::new();
     };
@@ -193,7 +193,7 @@ pub(super) fn complete_named_param_assign_expr(
         return Vec::new();
     };
     let Some(target_module_id) =
-        resolve_instantiation_target(db, position.file_id, instantiation).unique()
+        resolve_instantiation_target(db, &crate::module_resolution::module_indexes(db), position.file_id, instantiation).unique()
     else {
         return Vec::new();
     };

@@ -68,6 +68,7 @@ struct ReferenceIndexEntry {
     index: Arc<ReferenceIndex>,
     file_indexes: FxHashMap<FileId, Arc<FileSemanticIndex>>,
     item_trees: FxHashMap<FileId, Arc<ItemTree>>,
+    context: Option<Arc<crate::semantic_index::IndexResolutionContext>>,
     built_at: Option<salsa::Revision>,
 }
 
@@ -165,16 +166,25 @@ impl RootDb {
             });
 
         if needs_full {
+            let context = crate::semantic_index::IndexResolutionContext::from_db(self);
             let mut file_indexes = FxHashMap::default();
             let mut item_trees = FxHashMap::default();
             for file_id in self.source_root(source_root_id).iter() {
-                file_indexes.insert(file_id, self.file_semantic_index(file_id));
+                file_indexes.insert(
+                    file_id,
+                    Arc::new(crate::semantic_index::FileSemanticIndex::for_file_with_context(
+                        self,
+                        file_id,
+                        &context,
+                    )),
+                );
                 item_trees.insert(file_id, self.item_tree(HirFileId::File(file_id)));
             }
             let index = Arc::new(ReferenceIndex::from_file_indexes(self, &file_indexes));
             entry.index = index.clone();
             entry.file_indexes = file_indexes;
             entry.item_trees = item_trees;
+            entry.context = Some(context);
             entry.built_at = Some(revision);
             return index;
         }
@@ -184,7 +194,13 @@ impl RootDb {
         let mut index = (*entry.index).clone();
         for file_id in &dirty {
             let old_file_index = entry.file_indexes.get(file_id).cloned().unwrap_or_default();
-            let new_file_index = self.file_semantic_index(*file_id);
+            let new_file_index = Arc::new(
+                crate::semantic_index::FileSemanticIndex::for_file_with_context(
+                    self,
+                    *file_id,
+                    entry.context.as_ref().unwrap(),
+                ),
+            );
             index =
                 ReferenceIndex::patch_file(self, &index, *file_id, &old_file_index, &new_file_index);
             entry.file_indexes.insert(*file_id, new_file_index);

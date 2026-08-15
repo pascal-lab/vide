@@ -26,6 +26,29 @@ use crate::{
 mod build;
 use build::definition_ranges_for;
 
+/// Precomputed cross-file resolution inputs for one index build: the `$unit`
+/// scope, package design map, top-level module index, and per-root module
+/// indexes. Computed once per request so the per-file nameres never reads the
+/// O(project) global queries through salsa.
+pub(crate) struct IndexResolutionContext {
+    pub hir: triomphe::Arc<hir_def::pathres::ResolutionContext>,
+    pub module_indexes: triomphe::Arc<[(SourceRootId, Arc<ModuleIndex>)]>,
+}
+
+impl IndexResolutionContext {
+    pub(crate) fn from_db(db: &dyn WorkspaceSymbolIndexDb) -> triomphe::Arc<Self> {
+        let module_indexes: Vec<_> = db
+            .workspace_source_root_ids()
+            .into_iter()
+            .map(|root| (root, source_root_module_index_for_root(db, root)))
+            .collect();
+        triomphe::Arc::new(Self {
+            hir: hir_def::pathres::ResolutionContext::from_db(db),
+            module_indexes: triomphe::Arc::from(module_indexes),
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SemanticDefinitionRange {
     pub file_id: FileId,
@@ -614,6 +637,7 @@ endmodule
 "#;
         let (host, file_id, _clean, _markers) = setup_marked(text);
         let db = host.raw_db();
+        let context = IndexResolutionContext::from_db(db);
         let hir_file_id = HirFileId::from(file_id);
         let tree = db.parse(hir_file_id);
         let root = tree.root();
@@ -699,6 +723,7 @@ endmodule
 "#;
         let (host, file_id, _clean, _markers) = setup_marked(text);
         let db = host.raw_db();
+        let context = IndexResolutionContext::from_db(db);
         let hir_file_id = HirFileId::from(file_id);
         let tree = db.parse(hir_file_id);
         let root = tree.root();
@@ -714,7 +739,7 @@ endmodule
                 checked += 1;
                 let container = containers.container_for(&sema, hir_file_id, token.parent);
                 let chosen = if token_in_special_context(token) {
-                    DefinitionClass::resolve_in(db, hir_file_id, token, Some(container)).unique()
+                    DefinitionClass::resolve_in(db, &context, hir_file_id, token, Some(container)).unique()
                 } else {
                     let chain = chains.chain_for(db, container);
                     sema.nameres_ident_in_scopes_at(hir_file_id, token, NameContext::Value, &chain)
@@ -722,7 +747,7 @@ endmodule
                         .unique()
                 };
                 let full =
-                    DefinitionClass::resolve_in(db, hir_file_id, token, Some(container)).unique();
+                    DefinitionClass::resolve_in(db, &context, hir_file_id, token, Some(container)).unique();
                 assert_eq!(
                     chosen,
                     full,

@@ -517,7 +517,7 @@ fn render_instance_signature(db: &RootDb, instance_id: OwnerRef<InstanceId>) -> 
 
     let mut signature = format!("instance {instance_name} of {module_name}");
     if let Some(from_file) = instance_id.cont_id.file(db).source_file_id(db)
-        && let Some(target_module_id) = resolve_module_name(db, from_file, module_name).unique()
+        && let Some(target_module_id) = resolve_module_name(db, &crate::module_resolution::module_indexes(db), from_file, module_name).unique()
         && let Some(module_signature) = render_module_signature(db, target_module_id)
     {
         signature.push_str("\n\n");

@@ -504,7 +504,7 @@ fn collect_named_param_assignments<'a>(
         check_range!(collector, range);
 
         let res = from_file.map_or(Resolution::Unresolved, |f| {
-            resolve_named_param_assignment(sema.db, f, named_assign)
+            resolve_named_param_assignment(sema.db, &crate::module_resolution::module_indexes(sema.db), f, named_assign)
         });
         collect_resolved_path(sema, res, range, collector);
     }
@@ -530,7 +530,7 @@ fn collect_named_port_connections<'a>(
         check_range!(collector, range);
 
         let res = from_file.map_or(Resolution::Unresolved, |f| {
-            resolve_named_port_connection(sema.db, f, named_conn)
+            resolve_named_port_connection(sema.db, &crate::module_resolution::module_indexes(sema.db), f, named_conn)
         });
         collect_resolved_path(sema, res, range, collector);
     }
@@ -553,7 +553,8 @@ fn collect_type_ref_like(
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) -> Option<()> {
-    let res = resolve_path(sema.db, cont_id, type_ref.segments(), NameContext::Type);
+    let context = hir_def::pathres::ResolutionContext::from_db(sema.db);
+    let res = resolve_path(sema.db, &context, cont_id, type_ref.segments(), NameContext::Type);
     collect_resolved_path(sema, res, range, collector)
 }
 
