@@ -179,14 +179,20 @@ impl RootDb {
             return index;
         }
 
+        // Incremental: patch the cached index with each dirty file's new
+        // contribution, reusing cached name/ranges for existing definitions.
+        let mut index = (*entry.index).clone();
         for file_id in &dirty {
-            entry.file_indexes.insert(*file_id, self.file_semantic_index(*file_id));
+            let old_file_index = entry.file_indexes.get(file_id).cloned().unwrap_or_default();
+            let new_file_index = self.file_semantic_index(*file_id);
+            index =
+                ReferenceIndex::patch_file(self, &index, *file_id, &old_file_index, &new_file_index);
+            entry.file_indexes.insert(*file_id, new_file_index);
             entry.item_trees.insert(*file_id, self.item_tree(HirFileId::File(*file_id)));
         }
-        let index = Arc::new(ReferenceIndex::from_file_indexes(self, &entry.file_indexes));
-        entry.index = index.clone();
+        entry.index = Arc::new(index);
         entry.built_at = Some(revision);
-        index
+        entry.index.clone()
     }
 
     pub(crate) fn recursive_rename_closure(

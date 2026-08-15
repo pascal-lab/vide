@@ -2,7 +2,7 @@ use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
 use hir_def::{Ident, container::InFile, def_id::DefId, item_tree::ModuleHeader, owner::OwnerId};
 use hir_ty::db::TyDb;
 use preproc_expand::{db::PreprocDb, file::HirFileId, macro_file::macro_files_for_file};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use syntax::{
     SyntaxNodeExt, TokenKind, has_text_range::HasTextRange, ptr::SyntaxTokenPtr,
     token::TokenKindExt,
@@ -319,6 +319,58 @@ impl ReferenceIndex {
         definition: DefId,
     ) -> Option<&SemanticReferenceGroup> {
         self.references_by_definition.get(&definition)
+    }
+
+    /// Replaces one file's contribution in place. Definitions already in the
+    /// index keep their cached name and definition ranges, so an incremental
+    /// rebuild never re-projects origins for the whole project.
+    pub(crate) fn patch_file(
+        db: &dyn WorkspaceSymbolIndexDb,
+        index: &Self,
+        file_id: FileId,
+        old_file_index: &FileSemanticIndex,
+        new_file_index: &FileSemanticIndex,
+    ) -> Self {
+        let mut map = index.references_by_definition.clone();
+        let mut affected: FxHashSet<DefId> = old_file_index.groups.keys().copied().collect();
+        affected.extend(new_file_index.groups.keys().copied());
+
+        for definition in affected {
+            match new_file_index.groups.get(&definition) {
+                Some(new_group) => {
+                    let group = map.entry(definition).or_insert_with(|| SemanticReferenceGroup {
+                        name: new_group.name.clone(),
+                        definition_ranges: definition_ranges_for(db, definition).into_boxed_slice(),
+                        references: Box::default(),
+                    });
+                    let mut references: Vec<_> = group
+                        .references
+                        .iter()
+                        .filter(|reference| reference.file_id != file_id)
+                        .cloned()
+                        .collect();
+                    references.extend(new_group.references.iter().cloned());
+                    group.references = references.into_boxed_slice();
+                }
+                None => {
+                    if let Some(group) = map.get_mut(&definition) {
+                        let references: Vec<_> = group
+                            .references
+                            .iter()
+                            .filter(|reference| reference.file_id != file_id)
+                            .cloned()
+                            .collect();
+                        if references.is_empty() {
+                            map.remove(&definition);
+                        } else {
+                            group.references = references.into_boxed_slice();
+                        }
+                    }
+                }
+            }
+        }
+
+        Self { references_by_definition: map }
     }
 
     #[cfg(test)]
