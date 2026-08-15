@@ -12,9 +12,14 @@ use hir_def::def_id::DefId;
 use hir_def::item_tree::ItemTree;
 use hir_ty::db::TyDb;
 use parking_lot::Mutex;
-use preproc_expand::{db::PreprocDb, file::HirFileId};
+use preproc_expand::{
+    db::PreprocDb,
+    file::HirFileId,
+    macro_file::{macro_file_call_site, macro_files_at_offset},
+};
 use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
+use utils::line_index::TextRange;
 use vfs::{AnchoredPath, FileId};
 
 use crate::db::{line_index_db::LineIndexDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb};
@@ -43,6 +48,7 @@ struct ReferenceIndexCache {
     request_file_index_dirty: FxHashSet<FileId>,
     module_edge_entries: FxHashMap<SourceRootId, ModuleEdgeEntry>,
     module_edge_dirty: FxHashSet<FileId>,
+    macro_generated_origins: FxHashMap<(FileId, TextRange), bool>,
 }
 
 impl Default for ReferenceIndexCache {
@@ -59,6 +65,7 @@ impl Default for ReferenceIndexCache {
             request_file_index_dirty: FxHashSet::default(),
             module_edge_entries: FxHashMap::default(),
             module_edge_dirty: FxHashSet::default(),
+            macro_generated_origins: FxHashMap::default(),
         }
     }
 }
@@ -184,6 +191,9 @@ impl RootDb {
         cache.resolution_dirty.extend(files.iter().copied());
         cache.request_file_index_dirty.extend(files.iter().copied());
         cache.module_edge_dirty.extend(files.iter().copied());
+        cache
+            .macro_generated_origins
+            .retain(|(file_id, _), _| !files.contains(file_id));
     }
 
     pub(crate) fn semantics(&self) -> hir_semantics::semantics::Semantics<'_, RootDb> {
@@ -254,6 +264,34 @@ impl RootDb {
         ));
         entry.built_at = Some(revision);
         entry.index.clone()
+    }
+
+    pub(crate) fn request_origin_is_macro_generated(
+        &self,
+        file_id: FileId,
+        range: TextRange,
+    ) -> bool {
+        if let Some(generated) = self
+            .reference_index_cache
+            .lock()
+            .macro_generated_origins
+            .get(&(file_id, range))
+            .copied()
+        {
+            return generated;
+        }
+        let generated = macro_files_at_offset(self, file_id, range.start()).into_iter().any(
+            |macro_file| {
+                macro_file_call_site(self, macro_file).is_some_and(|call_site| {
+                    call_site.call_file_id == file_id && call_site.call_range == range
+                })
+            },
+        );
+        self.reference_index_cache
+            .lock()
+            .macro_generated_origins
+            .insert((file_id, range), generated);
+        generated
     }
 
     pub(crate) fn index_resolution_context(

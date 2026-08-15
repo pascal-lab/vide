@@ -4,7 +4,7 @@ use hir_semantics::semantics::Semantics;
 use nohash_hasher::IntMap;
 use preproc_expand::{
     file::HirFileId,
-    macro_file::{macro_file_call_site, macro_files_at_offset},
+
     preproc::{
         MacroDefinition, MacroParamDefinition, MacroReference, PreprocError,
         macro_param_references, macro_references,
@@ -26,7 +26,8 @@ use crate::{
     },
     semantic_index::{ConnSide, ReferenceContext},
     semantic_target::{
-        PreprocMacroTarget, SemanticTarget, SourceTarget, TargetIntent, resolve_semantic_target,
+        PreprocMacroTarget, SemanticTarget, SourceTarget, TargetIntent, is_preproc_free_file,
+        resolve_semantic_target,
     },
     source_change::SourceChange,
 };
@@ -736,12 +737,11 @@ fn origin_is_macro_generated(db: &RootDb, origin: DefOrigin) -> bool {
     else {
         return false;
     };
+    if is_preproc_free_file(db, file_id) {
+        return false;
+    }
 
-    macro_files_at_offset(db, file_id, range.start()).into_iter().any(|macro_file| {
-        macro_file_call_site(db, macro_file).is_some_and(|call_site| {
-            call_site.call_file_id == file_id && call_site.call_range == range
-        })
-    })
+    db.request_origin_is_macro_generated(file_id, range)
 }
 
 fn origins_are_editable(db: &RootDb, def: &DefId, file_id: FileId) -> bool {
