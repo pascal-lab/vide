@@ -27,7 +27,7 @@ use crate::{
     module_resolution::resolve_hir_instantiation_target,
     references::{ReferenceCategory, search::resolve_source_range},
     semantic_target::{
-        SemanticTarget, TargetIntent, preproc::emit_token_index, resolve_plain_syntax_target,
+        SemanticTarget, TargetIntent, preproc::emit_token_index,
         resolve_semantic_target_with_emitted,
     },
 };
@@ -93,63 +93,64 @@ impl FileSemanticIndex {
                     let Some(range) = range else {
                         continue;
                     };
-                    // Preserve the semantic target's preprocessor ownership
-                    // checks while reusing the emitted-token index for macro
-                    // expansion tokens. Preprocessor definitions, parameters,
-                    // and includes are indexed by their own indexes rather
-                    // than as HDL references.
+                    let (container_cost, container) =
+                        timed(|| containers.container_for(&sema, hir_file_id, token.parent));
+                    trace.container += container_cost;
+
+                    if !has_preproc_tokens {
+                        // With no includes or macro-emitted tokens, the token
+                        // from the authoritative root walk is already the
+                        // unique source target. An offset lookup would only
+                        // rediscover the same token.
+                        collect_index_token(
+                            db,
+                            &sema,
+                            context,
+                            hir_file_id,
+                            token,
+                            container,
+                            &mut chains,
+                            &mut conn_port_by_name,
+                            &text,
+                            &mut groups,
+                            &mut definition_ranges_by_def,
+                            &mut trace,
+                        );
+                        continue;
+                    }
+
+                    // Preserve semantic-target ownership checks for macro and
+                    // include tokens while reusing the emitted-token index.
                     let (target_cost, target) = timed(|| {
-                        if has_preproc_tokens {
-                            resolve_semantic_target_with_emitted(
-                                db,
-                                file_id,
-                                range.start(),
-                                Some(root),
-                                token_precedence,
-                                emitted_index.as_ref(),
-                            )
-                        } else {
-                            resolve_plain_syntax_target(root, range.start(), token_precedence)
-                        }
+                        resolve_semantic_target_with_emitted(
+                            db,
+                            file_id,
+                            range.start(),
+                            Some(root),
+                            token_precedence,
+                            emitted_index.as_ref(),
+                        )
                         .unique_for_intent(TargetIntent::FindReferences)
                     });
                     trace.source_target += target_cost;
                     let Some(SemanticTarget::Source(target)) = target else {
                         continue;
                     };
-
-                    let (container_cost, container) =
-                        timed(|| containers.container_for(&sema, hir_file_id, token.parent));
-                    trace.container += container_cost;
-                    for token in
-                        target.into_tokens().into_iter().filter(|token| token.kind().name_like())
-                    {
-                        // The heuristic chain in `DefinitionClass::resolve_in`
-                        // can only diverge from plain value-name resolution at
-                        // the token positions tested by `token_in_special_context`;
-                        // every other token resolves as a plain value identifier.
-                        let in_special_context = token_in_special_context(token);
-                        if in_special_context {
-                            trace.special_tokens += 1;
-                        }
-                        let (collect_cost, ()) = timed(|| {
-                            collect_token(
-                                db,
-                                &sema,
-                                context,
-                                hir_file_id,
-                                token,
-                                container,
-                                in_special_context,
-                                &mut chains,
-                                &mut conn_port_by_name,
-                                &text,
-                                &mut groups,
-                                &mut definition_ranges_by_def,
-                                &mut trace,
-                            )
-                        });
-                        trace.collect += collect_cost;
+                    for token in target.into_tokens() {
+                        collect_index_token(
+                            db,
+                            &sema,
+                            context,
+                            hir_file_id,
+                            token,
+                            container,
+                            &mut chains,
+                            &mut conn_port_by_name,
+                            &text,
+                            &mut groups,
+                            &mut definition_ranges_by_def,
+                            &mut trace,
+                        );
                     }
                 }
                 WalkEvent::Leave(SyntaxElement::Token(_)) => {}
@@ -158,6 +159,50 @@ impl FileSemanticIndex {
         trace.report(file_id);
         Self { groups }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_index_token(
+    db: &dyn WorkspaceSymbolIndexDb,
+    sema: &SemanticsImpl<'_>,
+    context: &crate::semantic_index::IndexResolutionContext,
+    file_id: HirFileId,
+    token: SyntaxTokenWithParent<'_>,
+    container: OwnerId,
+    chains: &mut ScopeChainCache,
+    conn_port_by_name: &mut FxHashMap<TextRange, DefId>,
+    text: &str,
+    groups: &mut FxHashMap<DefId, FileReferenceGroup>,
+    definition_ranges_by_def: &mut FxHashMap<DefId, Vec<SemanticDefinitionRange>>,
+    trace: &mut IndexBuildTrace,
+) {
+    if !token.kind().name_like() {
+        return;
+    }
+    // The heuristic chain in `DefinitionClass::resolve_in` can only diverge
+    // from plain value-name resolution at these syntax positions.
+    let in_special_context = token_in_special_context(token);
+    if in_special_context {
+        trace.special_tokens += 1;
+    }
+    let (collect_cost, ()) = timed(|| {
+        collect_token(
+            db,
+            sema,
+            context,
+            file_id,
+            token,
+            container,
+            in_special_context,
+            chains,
+            conn_port_by_name,
+            text,
+            groups,
+            definition_ranges_by_def,
+            trace,
+        )
+    });
+    trace.collect += collect_cost;
 }
 
 /// Set when `VIDE_INDEX_BUILD_TRACE` is set.

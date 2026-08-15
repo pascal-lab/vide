@@ -215,27 +215,6 @@ where
 {
     resolve_semantic_target_with_emitted(db, file_id, offset, root, precedence, None)
 }
-/// Resolves a source offset without consulting preprocessor state.
-///
-/// Callers that have already proved that a file has no preprocessor-owned
-/// tokens use this path to avoid four offset-index queries and include lookup
-/// for every syntax token.
-pub(crate) fn resolve_plain_syntax_target<'tree>(
-    root: SyntaxNode<'tree>,
-    offset: TextSize,
-    precedence: impl Fn(TokenKind) -> usize,
-) -> TargetResolution<'tree> {
-    normal_syntax_source_target_at_offset(root, offset, &precedence).map_or(
-        TargetResolution::Unresolved,
-        |target| {
-            TargetResolution::Resolved(TargetCandidate::new(
-                SemanticTarget::Source(target),
-                source_capabilities(),
-            ))
-        },
-    )
-}
-
 /// Like [`resolve_semantic_target`], but reuses a prebuilt emitted-token
 /// index of `root`'s tree. Callers that resolve many offsets of one tree
 /// (the semantic index build) should build the index once with
