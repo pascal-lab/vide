@@ -18,7 +18,9 @@ use triomphe::Arc;
 use vfs::{AnchoredPath, FileId};
 
 use crate::db::{line_index_db::LineIndexDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb};
-use crate::semantic_index::{FileSemanticIndex, ReferenceIndex};
+use crate::semantic_index::{
+    FileModuleEdges, FileSemanticIndex, ModuleEdgeIndex, ReferenceIndex,
+};
 
 /// Per-source-root reference index, rebuilt incrementally across revisions.
 ///
@@ -39,6 +41,8 @@ struct ReferenceIndexCache {
     resolution_built_at: Option<salsa::Revision>,
     request_file_indexes: FxHashMap<FileId, Arc<FileSemanticIndex>>,
     request_file_index_dirty: FxHashSet<FileId>,
+    module_edge_entries: FxHashMap<SourceRootId, ModuleEdgeEntry>,
+    module_edge_dirty: FxHashSet<FileId>,
 }
 
 impl Default for ReferenceIndexCache {
@@ -53,6 +57,8 @@ impl Default for ReferenceIndexCache {
             resolution_built_at: None,
             request_file_indexes: FxHashMap::default(),
             request_file_index_dirty: FxHashSet::default(),
+            module_edge_entries: FxHashMap::default(),
+            module_edge_dirty: FxHashSet::default(),
         }
     }
 }
@@ -86,6 +92,13 @@ struct ReferenceIndexEntry {
     file_indexes: FxHashMap<FileId, Arc<FileSemanticIndex>>,
     item_trees: FxHashMap<FileId, Arc<ItemTree>>,
     context: Option<Arc<crate::semantic_index::IndexResolutionContext>>,
+    built_at: Option<salsa::Revision>,
+}
+
+#[derive(Default)]
+struct ModuleEdgeEntry {
+    index: Arc<ModuleEdgeIndex>,
+    file_edges: FxHashMap<FileId, Arc<FileModuleEdges>>,
     built_at: Option<salsa::Revision>,
 }
 
@@ -170,6 +183,7 @@ impl RootDb {
         }
         cache.resolution_dirty.extend(files.iter().copied());
         cache.request_file_index_dirty.extend(files.iter().copied());
+        cache.module_edge_dirty.extend(files.iter().copied());
     }
 
     pub(crate) fn semantics(&self) -> hir_semantics::semantics::Semantics<'_, RootDb> {
@@ -181,6 +195,65 @@ impl RootDb {
 
     pub(crate) fn request_unit_index(&self) -> Arc<hir_def::unit_index::UnitIndex> {
         self.request_hir_resolution_context().unit_index()
+    }
+
+    pub(crate) fn request_module_index(
+        &self,
+        source_root_id: SourceRootId,
+    ) -> Arc<crate::semantic_index::ModuleIndex> {
+        self.index_resolution_context()
+            .module_index(source_root_id)
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn request_module_edge_index(
+        &self,
+        source_root_id: SourceRootId,
+    ) -> Arc<ModuleEdgeIndex> {
+        let context = self.index_resolution_context();
+        let revision = salsa::plumbing::current_revision(self);
+        let mut cache = self.reference_index_cache.lock();
+        let dirty = std::mem::take(&mut cache.module_edge_dirty);
+        let entry = cache.module_edge_entries.entry(source_root_id).or_default();
+        if entry.built_at == Some(revision) {
+            return entry.index.clone();
+        }
+
+        let source_root = self.source_root(source_root_id);
+        let needs_full = dirty.is_empty() || entry.file_edges.is_empty();
+        if needs_full {
+            entry.file_edges = source_root
+                .iter()
+                .map(|file_id| {
+                    (
+                        file_id,
+                        Arc::new(FileModuleEdges::for_file_with_indexes(
+                            self,
+                            file_id,
+                            context.module_indexes(),
+                        )),
+                    )
+                })
+                .collect();
+        } else {
+            for file_id in dirty {
+                if source_root.iter().any(|candidate| candidate == file_id) {
+                    entry.file_edges.insert(
+                        file_id,
+                        Arc::new(FileModuleEdges::for_file_with_indexes(
+                            self,
+                            file_id,
+                            context.module_indexes(),
+                        )),
+                    );
+                }
+            }
+        }
+        entry.index = Arc::new(ModuleEdgeIndex::from_file_edges(
+            entry.file_edges.values().map(Arc::as_ref),
+        ));
+        entry.built_at = Some(revision);
+        entry.index.clone()
     }
 
     pub(crate) fn index_resolution_context(
@@ -242,6 +315,8 @@ impl RootDb {
             cache.index_resolution_context = None;
             cache.request_file_indexes.clear();
             cache.request_file_index_dirty.clear();
+            cache.module_edge_entries.clear();
+            cache.module_edge_dirty.clear();
         } else {
             for file_id in dirty {
                 cache.resolution_item_trees.remove(&file_id);

@@ -16,7 +16,6 @@ use crate::{
         root_db::RootDb,
         workspace_symbol_index_db::{
             WorkspaceSymbolIndexDb, source_root_module_index_for_root,
-            source_root_module_edge_index_for_root,
         },
     },
     navigation_target::nav_location,
@@ -53,6 +52,16 @@ impl IndexResolutionContext {
             hir,
             module_indexes: triomphe::Arc::from(module_indexes),
         })
+    }
+
+    pub(crate) fn module_index(&self, root: SourceRootId) -> Option<Arc<ModuleIndex>> {
+        self.module_indexes
+            .iter()
+            .find_map(|(candidate, index)| (*candidate == root).then(|| index.clone()))
+    }
+
+    pub(crate) fn module_indexes(&self) -> &[(SourceRootId, Arc<ModuleIndex>)] {
+        &self.module_indexes
     }
 }
 
@@ -409,26 +418,20 @@ impl ReferenceIndex {
 }
 
 impl ModuleEdgeIndex {
-    /// Merges the per-file module edges of a source root.
-    pub(crate) fn for_source_root(
-        db: &dyn WorkspaceSymbolIndexDb,
-        source_root_id: SourceRootId,
+    pub(crate) fn from_file_edges<'a>(
+        file_edges: impl IntoIterator<Item = &'a FileModuleEdges>,
     ) -> Self {
-        let source_root = db.source_root(source_root_id);
         let mut incoming_module_edges: FxHashMap<OwnerId, Vec<ModuleCallEdge>> =
             FxHashMap::default();
         let mut outgoing_module_edges: FxHashMap<OwnerId, Vec<ModuleCallEdge>> =
             FxHashMap::default();
-
-        for file_id in source_root.iter() {
-            db.unwind_if_revision_cancelled();
-            for (caller, callee, edge) in &db.file_module_edges(file_id).edges {
+        for file_edges in file_edges {
+            for (caller, callee, edge) in &file_edges.edges {
                 push_unique_edge(outgoing_module_edges.entry(*caller).or_default(), edge.clone());
                 push_unique_edge(incoming_module_edges.entry(*callee).or_default(), edge.clone());
             }
         }
-
-        ModuleEdgeIndex {
+        Self {
             incoming_module_edges: finish_edge_map(incoming_module_edges),
             outgoing_module_edges: finish_edge_map(outgoing_module_edges),
         }
@@ -481,7 +484,7 @@ fn module_edges(
 
     let mut edges = Vec::new();
     for source_root_id in db.workspace_source_root_ids().iter().copied() {
-        let index = source_root_module_edge_index_for_root(db, source_root_id);
+        let index = db.request_module_edge_index(source_root_id);
         edges.extend(edges_for_index(&index, module_id).iter().cloned());
     }
     sort_and_dedup_edges(&mut edges);
@@ -489,7 +492,7 @@ fn module_edges(
 }
 
 fn module_id_at_range(db: &RootDb, file_id: FileId, name_range: TextRange) -> Option<OwnerId> {
-    let module_index = source_root_module_index_for_root(db, db.source_root_id(file_id));
+    let module_index = db.request_module_index(db.source_root_id(file_id));
     module_index.module_definition_at(file_id, name_range).map(|module| module.module_id)
 }
 

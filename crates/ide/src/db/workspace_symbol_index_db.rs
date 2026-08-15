@@ -8,8 +8,7 @@ use vfs::FileId;
 use crate::{
     db::{SourceFileQueryKey, SourceRootQueryKey},
     semantic_index::{
-        FileModuleEdges, FileModuleIndex, FileSemanticIndex, ModuleEdgeIndex, ModuleIndex,
-        ReferenceIndex,
+        FileModuleEdges, FileModuleIndex, FileSemanticIndex, ModuleIndex, ReferenceIndex,
     },
     workspace_symbols::{SymbolIndex, WorkspaceSymbol},
 };
@@ -37,13 +36,6 @@ impl dyn WorkspaceSymbolIndexDb + '_ {
 
     pub fn source_root_module_index(&self, source_root_id: SourceRootId) -> Arc<ModuleIndex> {
         source_root_module_index(self, SourceRootQueryKey::new(self, source_root_id))
-    }
-
-    pub fn source_root_module_edge_index(
-        &self,
-        source_root_id: SourceRootId,
-    ) -> Arc<ModuleEdgeIndex> {
-        source_root_module_edge_index(self, SourceRootQueryKey::new(self, source_root_id))
     }
 
     pub fn file_module_index(&self, file_id: FileId) -> Arc<FileModuleIndex> {
@@ -99,15 +91,6 @@ fn source_root_module_index(
     Arc::new(ModuleIndex::for_source_root(db, source_root_id))
 }
 
-#[salsa::tracked(returns(clone))]
-fn source_root_module_edge_index(
-    db: &dyn WorkspaceSymbolIndexDb,
-    key: SourceRootQueryKey,
-) -> Arc<ModuleEdgeIndex> {
-    let source_root_id = key.source_root_id(db);
-    Arc::new(ModuleEdgeIndex::for_source_root(db, source_root_id))
-}
-
 pub(crate) fn source_root_symbol_index_for_root(
     db: &dyn WorkspaceSymbolIndexDb,
     source_root_id: SourceRootId,
@@ -127,13 +110,6 @@ pub(crate) fn source_root_reference_index_for_root(
     source_root_id: SourceRootId,
 ) -> Arc<ReferenceIndex> {
     db.reference_index_for_root(source_root_id)
-}
-
-pub(crate) fn source_root_module_edge_index_for_root(
-    db: &dyn WorkspaceSymbolIndexDb,
-    source_root_id: SourceRootId,
-) -> Arc<ModuleEdgeIndex> {
-    db.source_root_module_edge_index(source_root_id)
 }
 
 fn file_module_index(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Arc<FileModuleIndex> {

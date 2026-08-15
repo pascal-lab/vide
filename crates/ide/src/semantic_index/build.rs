@@ -885,6 +885,14 @@ impl FileModuleEdges {
             .into_iter()
             .map(|root| (root, crate::db::workspace_symbol_index_db::source_root_module_index_for_root(db, root)))
             .collect();
+        Self::for_file_with_indexes(db, file_id, &module_indexes)
+    }
+
+    pub(crate) fn for_file_with_indexes(
+        db: &dyn WorkspaceSymbolIndexDb,
+        file_id: FileId,
+        module_indexes: &[(SourceRootId, Arc<ModuleIndex>)],
+    ) -> Self {
         let hir_file_id = HirFileId::from(file_id);
         let item_tree = db.item_tree(hir_file_id);
         let mut edges = Vec::new();
