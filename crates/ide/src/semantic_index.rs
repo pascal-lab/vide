@@ -7,6 +7,7 @@ use syntax::{
     SyntaxNodeExt, TokenKind, has_text_range::HasTextRange, ptr::SyntaxTokenPtr,
     token::TokenKindExt,
 };
+use triomphe::Arc;
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -15,7 +16,7 @@ use crate::{
         root_db::RootDb,
         workspace_symbol_index_db::{
             WorkspaceSymbolIndexDb, source_root_module_index_for_root,
-            source_root_module_edge_index_for_root, source_root_reference_index_for_root,
+            source_root_module_edge_index_for_root,
         },
     },
     navigation_target::nav_location,
@@ -283,21 +284,16 @@ impl SemanticModuleDefinition {
 }
 
 impl ReferenceIndex {
-    /// Merges the per-file semantic indexes of a source root.
-    ///
-    /// The merge is pure memory assembly: no name resolution happens here, so
-    /// a change in one file only re-runs that file's index and this pass.
-    pub(crate) fn for_source_root(
+    /// Merges pre-resolved per-file indexes. The per-file indexes are read by
+    /// the caller so an incremental rebuild can reuse the cached indexes of
+    /// unchanged files instead of revalidating every file.
+    pub(crate) fn from_file_indexes(
         db: &dyn WorkspaceSymbolIndexDb,
-        source_root_id: SourceRootId,
+        file_indexes: &FxHashMap<FileId, Arc<FileSemanticIndex>>,
     ) -> Self {
-        let source_root = db.source_root(source_root_id);
         let mut references_by_definition: FxHashMap<DefId, SemanticReferenceGroupBuilder> =
             FxHashMap::default();
-
-        for file_id in source_root.iter() {
-            db.unwind_if_revision_cancelled();
-            let file_index = db.file_semantic_index(file_id);
+        for file_index in file_indexes.values() {
             for (definition, group) in &file_index.groups {
                 let builder = references_by_definition.entry(*definition).or_insert_with(|| {
                     SemanticReferenceGroupBuilder {
@@ -490,14 +486,51 @@ mod tests {
 
     use super::*;
     use crate::{
+        db::workspace_symbol_index_db::source_root_reference_index_for_root,
         definitions::DefinitionClass,
         semantic_index::build::{ContainerCache, ScopeChainCache, token_in_special_context},
         semantic_target::{
             SemanticTarget, TargetIntent, preproc::emit_token_index,
             resolve_semantic_target_with_emitted,
         },
-        test_utils::setup_marked,
+        test_utils::{setup_marked, setup_marked_files},
     };
+
+    /// A non-structural (body-only) edit must be handled by the incremental
+    /// rebuild path: the changed file is re-indexed and a removed reference is
+    /// dropped from the merged index, without touching the other file.
+    #[test]
+    fn incremental_rebuild_drops_removed_reference() {
+        use base_db::change::Change;
+        use vfs::ChangedFile;
+
+        let (mut host, marked) = setup_marked_files(&[
+            (
+                "/child.sv",
+                "module child;\n  logic a;\n  logic b;\n  always_comb b = a;\nendmodule\n",
+            ),
+            ("/top.sv", "module top;\n  child u();\nendmodule\n"),
+        ]);
+        let db = host.raw_db();
+
+        let before = source_root_reference_index_for_root(db, SourceRootId(0));
+        assert_eq!(before.reference_groups_named("a").len(), 1, "wire a has one usage");
+
+        let child_id = marked[0].0;
+        let mut change = Change::new();
+        change.add_changed_file(ChangedFile::create(
+            child_id,
+            "module child;\n  logic a;\n  logic b;\n  always_comb b = 1'b0;\nendmodule\n",
+        ));
+        host.apply_change(change);
+        let db = host.raw_db();
+
+        let after = source_root_reference_index_for_root(db, SourceRootId(0));
+        assert!(
+            after.reference_groups_named("a").is_empty(),
+            "removing the only usage must drop wire a's group"
+        );
+    }
 
     /// The container stack must agree with `find_container` for every
     /// name-like token of a file exercising modules, blocks, subroutines,

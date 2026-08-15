@@ -1,13 +1,11 @@
 use std::ops::Deref;
 
 use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
-use hir_def::def_id::DefId;
 use hir_ty::db::TyDb;
 use triomphe::Arc;
 use vfs::FileId;
 
 use crate::{
-    ScopeVisibility,
     db::{SourceFileQueryKey, SourceRootQueryKey},
     semantic_index::{
         FileModuleEdges, FileModuleIndex, FileSemanticIndex, ModuleEdgeIndex, ModuleIndex,
@@ -39,10 +37,6 @@ impl dyn WorkspaceSymbolIndexDb + '_ {
 
     pub fn source_root_module_index(&self, source_root_id: SourceRootId) -> Arc<ModuleIndex> {
         source_root_module_index(self, SourceRootQueryKey::new(self, source_root_id))
-    }
-
-    pub fn source_root_reference_index(&self, source_root_id: SourceRootId) -> Arc<ReferenceIndex> {
-        source_root_reference_index(self, SourceRootQueryKey::new(self, source_root_id))
     }
 
     pub fn source_root_module_edge_index(
@@ -78,17 +72,6 @@ impl dyn WorkspaceSymbolIndexDb + '_ {
         ids
     }
 
-    /// The connected component of same-name port connections around `def`,
-    /// in discovery order. Shared by the recursive rename info, conflict and
-    /// edit commands so a single F2 interaction computes it once.
-    pub fn recursive_rename_closure(
-        &self,
-        def: DefId,
-        visibility: ScopeVisibility,
-        single_file: Option<FileId>,
-    ) -> Arc<Vec<DefId>> {
-        recursive_rename_closure(self, def, visibility, single_file)
-    }
 }
 
 fn file_workspace_symbols(
@@ -117,15 +100,6 @@ fn source_root_module_index(
 }
 
 #[salsa::tracked(returns(clone))]
-fn source_root_reference_index(
-    db: &dyn WorkspaceSymbolIndexDb,
-    key: SourceRootQueryKey,
-) -> Arc<ReferenceIndex> {
-    let source_root_id = key.source_root_id(db);
-    Arc::new(ReferenceIndex::for_source_root(db, source_root_id))
-}
-
-#[salsa::tracked(returns(clone))]
 fn source_root_module_edge_index(
     db: &dyn WorkspaceSymbolIndexDb,
     key: SourceRootQueryKey,
@@ -149,10 +123,10 @@ pub(crate) fn source_root_module_index_for_root(
 }
 
 pub(crate) fn source_root_reference_index_for_root(
-    db: &dyn WorkspaceSymbolIndexDb,
+    db: &crate::db::root_db::RootDb,
     source_root_id: SourceRootId,
 ) -> Arc<ReferenceIndex> {
-    db.source_root_reference_index(source_root_id)
+    db.reference_index_for_root(source_root_id)
 }
 
 pub(crate) fn source_root_module_edge_index_for_root(
@@ -184,11 +158,3 @@ fn file_semantic_index(
     Arc::new(crate::semantic_index::FileSemanticIndex::for_file(db, file_id))
 }
 
-fn recursive_rename_closure(
-    db: &dyn WorkspaceSymbolIndexDb,
-    def: DefId,
-    visibility: ScopeVisibility,
-    single_file: Option<FileId>,
-) -> Arc<Vec<DefId>> {
-    Arc::new(crate::rename::recursive_rename_closure_impl(db, def, visibility, single_file))
-}

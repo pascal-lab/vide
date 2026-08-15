@@ -18,7 +18,7 @@ use vfs::FileId;
 
 use crate::{
     FilePosition, ScopeVisibility,
-    db::{root_db::RootDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb},
+    db::root_db::RootDb,
     definitions::DefinitionClass,
     references::{
         ReferencesConfig,
@@ -674,7 +674,7 @@ fn range_text(text: &str, range: TextRange) -> &str {
 /// salsa query so the recursive rename info, conflict and edit commands share
 /// one computation across requests.
 pub(crate) fn recursive_rename_closure_impl(
-    db: &dyn WorkspaceSymbolIndexDb,
+    db: &RootDb,
     def: DefId,
     visibility: ScopeVisibility,
     single_file: Option<FileId>,

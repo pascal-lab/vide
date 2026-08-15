@@ -1,4 +1,5 @@
 use base_db::{salsa, source_root::SourceRootId};
+use hir_def::def_id::DefId;
 use vfs::FileId;
 
 // Salsa 0.28 tracked functions require salsa-struct arguments. `FileId` and
@@ -14,6 +15,12 @@ pub(crate) struct SourceFileQueryKey {
 pub(crate) struct SourceRootQueryKey {
     #[returns(copy)]
     pub source_root_id: SourceRootId,
+}
+
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub(crate) struct DefinitionRangeKey {
+    #[returns(copy)]
+    pub def_id: DefId,
 }
 
 pub mod apply_change;

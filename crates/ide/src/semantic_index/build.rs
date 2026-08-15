@@ -777,10 +777,12 @@ fn collect_definition_token(
 
 /// Definition name ranges of `definition` mapped to user-facing files, in
 /// origin order. File-level callers own memoization for this pure projection.
-pub(super) fn definition_ranges_for(
+#[salsa::tracked(returns(clone))]
+fn definition_ranges(
     db: &dyn WorkspaceSymbolIndexDb,
-    definition: DefId,
+    key: crate::db::DefinitionRangeKey,
 ) -> Vec<SemanticDefinitionRange> {
+    let definition = key.def_id(db);
     definition
         .origins(db)
         .iter()
@@ -791,6 +793,13 @@ pub(super) fn definition_ranges_for(
         })
         .unique()
         .collect_vec()
+}
+
+pub(super) fn definition_ranges_for(
+    db: &dyn WorkspaceSymbolIndexDb,
+    definition: DefId,
+) -> Vec<SemanticDefinitionRange> {
+    definition_ranges(db, crate::db::DefinitionRangeKey::new(db, definition))
 }
 
 impl FileModuleIndex {

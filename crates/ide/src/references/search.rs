@@ -219,7 +219,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
 /// closure query; it only touches salsa queries, so it can run on a `dyn`
 /// database.
 pub(crate) fn search_references(
-    db: &dyn WorkspaceSymbolIndexDb,
+    db: &RootDb,
     def: &DefId,
     scope: SearchScope,
 ) -> IntMap<FileId, Vec<ReferenceToken>> {
