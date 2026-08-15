@@ -8,7 +8,7 @@ use std::{
 use anyhow::Context as _;
 use base_db::source_db::SourceDb;
 use dissimilar::Chunk;
-use hir_semantics::semantics::Semantics;
+
 use itertools::Itertools;
 use syntax::{
     SyntaxCursor, SyntaxCursorExt, SyntaxKind, SyntaxTrivia, Trivia, has_text_range::HasTextRange,
@@ -183,7 +183,7 @@ pub fn format_on_type(
         return Ok(None);
     }
 
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(file_id);
     let Some(root) = parsed_file.root() else {
         return Ok(None);

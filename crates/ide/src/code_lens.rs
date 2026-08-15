@@ -1,5 +1,5 @@
 use hir_def::{body::Body, def_id::DefId, has_source::HasSource, source_map::Lowered};
-use hir_semantics::semantics::Semantics;
+
 use preproc_expand::file::HirFileId;
 use syntax::{
     ast::{self, AstNode},
@@ -69,7 +69,7 @@ fn process_instantiations(
 }
 
 pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLensKind {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
 
     match kind {
         CodeLensKind::ModuleInstance { pos: FilePosition { file_id, offset }, ref mut data } => {

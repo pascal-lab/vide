@@ -52,7 +52,7 @@ pub(crate) fn hover(
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Markup>> {
     let _span = tracing::debug_span!("ide.hover", ?file_id, ?offset).entered();
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(file_id);
     let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
     render_hover_target(db, file_id, offset, &sema, target)

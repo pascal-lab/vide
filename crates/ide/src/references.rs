@@ -89,7 +89,7 @@ pub(crate) fn references(
     FilePosition { file_id, offset }: FilePosition,
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(file_id);
     let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
     render_references_target(db, file_id, &sema, target, config)

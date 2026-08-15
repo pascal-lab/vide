@@ -72,7 +72,7 @@ fn complete_parameter_port_list_with_typedefs(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let file_id = position.file_id.into();
     let parsed_file = sema.parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {
@@ -107,7 +107,7 @@ fn complete_port_connections(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let file_id = position.file_id.into();
     let parsed_file = sema.parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {
@@ -191,7 +191,7 @@ fn complete_param_value_assignment(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let file_id = position.file_id.into();
     let parsed_file = sema.parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {

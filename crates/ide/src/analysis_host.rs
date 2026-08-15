@@ -23,8 +23,8 @@ impl AnalysisHost {
 
     pub fn apply_change(&mut self, change: Change) {
         let dirty_files: Vec<_> = change.changed_files.iter().map(|file| file.file_id).collect();
-        self.db.apply_change(change);
         self.db.record_dirty_files(dirty_files);
+        self.db.apply_change(change);
         self.advance_revision();
     }
 

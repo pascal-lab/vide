@@ -145,7 +145,7 @@ pub(crate) fn semantic_tokens(
     if db.file_kind(file_id).is_project_manifest() {
         return crate::manifest::semantic_tokens(db, file_id, range);
     }
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(file_id);
     let Some(root) = parsed_file.root() else {
         return Vec::new();

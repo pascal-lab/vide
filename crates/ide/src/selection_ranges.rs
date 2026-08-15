@@ -1,4 +1,4 @@
-use hir_semantics::semantics::Semantics;
+
 use itertools::Itertools;
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -17,7 +17,7 @@ pub(crate) fn selection_ranges(
     if db.file_kind(file_id).is_project_manifest() {
         return crate::manifest::selection_ranges(db, FilePosition { file_id, offset });
     }
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(file_id);
     let Some(root) = parsed_file.root() else {
         return vec![TextRange::empty(offset)];

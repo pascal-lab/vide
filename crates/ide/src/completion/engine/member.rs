@@ -17,7 +17,7 @@ pub(super) fn complete_member_access(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let file_id = position.file_id.into();
     let parsed_file = sema.parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {

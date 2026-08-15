@@ -17,6 +17,7 @@ use syntax::{
 };
 
 use crate::{
+    db::root_db::RootDb,
     db::workspace_symbol_index_db::WorkspaceSymbolIndexDb,
     module_resolution::{
         ModuleResolution, resolve_instantiation_target, resolve_named_param_assignment,
@@ -34,11 +35,11 @@ pub type DefinitionResolution = Resolution<DefinitionClass>;
 
 impl DefinitionClass {
     pub(crate) fn resolve(
-        db: &dyn WorkspaceSymbolIndexDb,
+        db: &RootDb,
         file_id: HirFileId,
         tp: SyntaxTokenWithParent,
     ) -> DefinitionResolution {
-        let context = crate::semantic_index::IndexResolutionContext::from_db(db);
+        let context = db.index_resolution_context();
         Self::resolve_in(db, &context, file_id, tp, None)
     }
 

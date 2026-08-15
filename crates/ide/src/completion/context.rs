@@ -9,7 +9,7 @@ mod resolve;
 mod util;
 
 use base_db::source_db::SourceDb;
-use hir_semantics::semantics::Semantics;
+
 use smallvec::{SmallVec, smallvec};
 use syntax::{
     SyntaxNode, SyntaxNodeExt,
@@ -93,7 +93,7 @@ pub(crate) fn completion_context(
     FilePosition { file_id, offset }: FilePosition,
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(file_id);
     let Some(root) = parsed_file.root() else {
         return CompletionContext {

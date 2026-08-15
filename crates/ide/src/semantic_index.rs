@@ -37,13 +37,20 @@ pub(crate) struct IndexResolutionContext {
 
 impl IndexResolutionContext {
     pub(crate) fn from_db(db: &dyn WorkspaceSymbolIndexDb) -> triomphe::Arc<Self> {
+        Self::from_db_with_hir(db, hir_def::pathres::ResolutionContext::from_db(db))
+    }
+
+    pub(crate) fn from_db_with_hir(
+        db: &dyn WorkspaceSymbolIndexDb,
+        hir: triomphe::Arc<hir_def::pathres::ResolutionContext>,
+    ) -> triomphe::Arc<Self> {
         let module_indexes: Vec<_> = db
             .workspace_source_root_ids()
             .into_iter()
             .map(|root| (root, source_root_module_index_for_root(db, root)))
             .collect();
         triomphe::Arc::new(Self {
-            hir: hir_def::pathres::ResolutionContext::from_db(db),
+            hir,
             module_indexes: triomphe::Arc::from(module_indexes),
         })
     }
@@ -608,6 +615,39 @@ mod tests {
             before.reference_groups_named("a").len(),
             1,
             "an index snapshot held by a caller must not be mutated in place"
+        );
+    }
+
+    #[test]
+    fn request_resolution_context_reuses_body_edits_and_rebuilds_structural_edits() {
+        use base_db::change::Change;
+        use vfs::ChangedFile;
+
+        let (mut host, file_id, clean, _) = setup_marked("module top; logic a; endmodule\n");
+        let before = host.raw_db().index_resolution_context();
+
+        let mut body_edit = Change::new();
+        body_edit.add_changed_file(ChangedFile::create(
+            file_id,
+            format!("{clean} // body-only\n").as_str(),
+        ));
+        host.apply_change(body_edit);
+        let after_body = host.raw_db().index_resolution_context();
+        assert!(
+            Arc::ptr_eq(&before, &after_body),
+            "position-free structure is unchanged, so the context must be reused"
+        );
+
+        let mut structural_edit = Change::new();
+        structural_edit.add_changed_file(ChangedFile::create(
+            file_id,
+            "module renamed; logic a; endmodule\n",
+        ));
+        host.apply_change(structural_edit);
+        let after_structure = host.raw_db().index_resolution_context();
+        assert!(
+            !Arc::ptr_eq(&after_body, &after_structure),
+            "a changed declaration must invalidate the project resolution context"
         );
     }
 

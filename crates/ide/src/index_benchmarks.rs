@@ -482,7 +482,7 @@ fn benchmark_project_request(
     let touched_text = format!("{} // request-bench-touch\n", db.file_text(touch_file));
     let mut touch = Change::new();
     touch.add_changed_file(ChangedFile::create(touch_file, touched_text.as_str()));
-    host.apply_change(touch);
+    let (_, apply_change) = timed(|| host.apply_change(touch));
     let db = host.raw_db();
     let (after_edit_count, after_edit) = timed(|| std::hint::black_box(request(db, position)));
     assert_eq!(
@@ -491,7 +491,7 @@ fn benchmark_project_request(
     );
 
     eprintln!(
-        "{label:<28} cold={cold:?} warm(p50/max)={warm_median:?}/{warm_max:?} after-edit={after_edit:?} results={cold_count}/{after_edit_count}"
+        "{label:<28} cold={cold:?} warm(p50/max)={warm_median:?}/{warm_max:?} apply={apply_change:?} after-edit={after_edit:?} results={cold_count}/{after_edit_count}"
     );
 }
 

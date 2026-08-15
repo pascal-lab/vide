@@ -1,5 +1,5 @@
 use hir_def::lower_ident_opt;
-use hir_semantics::semantics::Semantics;
+
 use rustc_hash::FxHashSet;
 use syntax::ast::{self, AstNode};
 
@@ -24,7 +24,7 @@ pub(super) fn complete_named_port_names(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {
         return Vec::new();
@@ -72,7 +72,7 @@ pub(super) fn complete_named_param_names(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {
         return Vec::new();
@@ -118,7 +118,7 @@ pub(super) fn complete_named_port_conn_expr(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let file_id = position.file_id.into();
     let parsed_file = sema.parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {
@@ -168,7 +168,7 @@ pub(super) fn complete_named_param_assign_expr(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let file_id = position.file_id.into();
     let parsed_file = sema.parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {

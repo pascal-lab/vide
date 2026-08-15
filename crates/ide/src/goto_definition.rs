@@ -24,7 +24,7 @@ pub(crate) fn goto_definition(
     db: &RootDb,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(file_id);
     let target = resolve_semantic_target(
         db,

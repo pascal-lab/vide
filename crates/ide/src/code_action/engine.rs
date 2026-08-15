@@ -1,4 +1,4 @@
-use hir_semantics::semantics::Semantics;
+
 use utils::text_edit::TextRange;
 use vfs::FileId;
 
@@ -15,7 +15,7 @@ pub(crate) fn code_action(
     if db.file_kind(file_id).is_project_manifest() {
         return Vec::new();
     }
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let Some(ctx) = CodeActionCtx::new(&sema, file_id, range, diagnostics) else {
         return Vec::new();
     };

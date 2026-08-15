@@ -32,11 +32,24 @@ use crate::semantic_index::{FileSemanticIndex, ReferenceIndex};
 struct ReferenceIndexCache {
     entries: FxHashMap<SourceRootId, ReferenceIndexEntry>,
     dirty: FxHashSet<FileId>,
+    hir_resolution_context: Option<Arc<hir_def::pathres::ResolutionContext>>,
+    index_resolution_context: Option<Arc<crate::semantic_index::IndexResolutionContext>>,
+    resolution_item_trees: FxHashMap<FileId, Arc<ItemTree>>,
+    resolution_dirty: FxHashSet<FileId>,
+    resolution_built_at: Option<salsa::Revision>,
 }
 
 impl Default for ReferenceIndexCache {
     fn default() -> Self {
-        Self { entries: FxHashMap::default(), dirty: FxHashSet::default() }
+        Self {
+            entries: FxHashMap::default(),
+            dirty: FxHashSet::default(),
+            hir_resolution_context: None,
+            index_resolution_context: None,
+            resolution_item_trees: FxHashMap::default(),
+            resolution_dirty: FxHashSet::default(),
+            resolution_built_at: None,
+        }
     }
 }
 
@@ -140,7 +153,70 @@ impl RootDb {
     }
 
     pub(crate) fn record_dirty_files(&mut self, files: impl IntoIterator<Item = FileId>) {
-        self.reference_index_cache.lock().dirty.extend(files);
+        let files = files.into_iter().collect::<Vec<_>>();
+        let mut cache = self.reference_index_cache.lock();
+        cache.dirty.extend(files.iter().copied());
+        if cache.hir_resolution_context.is_some() {
+            for &file_id in &files {
+                cache
+                    .resolution_item_trees
+                    .entry(file_id)
+                    .or_insert_with(|| self.item_tree(HirFileId::File(file_id)));
+            }
+        }
+        cache.resolution_dirty.extend(files);
+    }
+
+    pub(crate) fn semantics(&self) -> hir_semantics::semantics::Semantics<'_, RootDb> {
+        hir_semantics::semantics::Semantics::new_with_context(
+            self,
+            self.request_hir_resolution_context(),
+        )
+    }
+
+    pub(crate) fn index_resolution_context(
+        &self,
+    ) -> Arc<crate::semantic_index::IndexResolutionContext> {
+        let hir = self.request_hir_resolution_context();
+        let mut cache = self.reference_index_cache.lock();
+        if let Some(context) = &cache.index_resolution_context {
+            return context.clone();
+        }
+        let context = crate::semantic_index::IndexResolutionContext::from_db_with_hir(self, hir);
+        cache.index_resolution_context = Some(context.clone());
+        context
+    }
+
+    fn request_hir_resolution_context(&self) -> Arc<hir_def::pathres::ResolutionContext> {
+        let revision = salsa::plumbing::current_revision(self);
+        let mut cache = self.reference_index_cache.lock();
+        if cache.resolution_built_at == Some(revision) {
+            return cache.hir_resolution_context.as_ref().unwrap().clone();
+        }
+
+        let dirty = std::mem::take(&mut cache.resolution_dirty);
+        let current_files = self.files();
+        let needs_rebuild = cache.hir_resolution_context.is_none()
+            || dirty.is_empty()
+            || dirty.iter().any(|file_id| {
+                !current_files.contains(file_id)
+                    || cache.resolution_item_trees.get(file_id).is_none_or(|old| {
+                        *old != self.item_tree(HirFileId::File(*file_id))
+                    })
+            });
+
+        if needs_rebuild {
+            let context = hir_def::pathres::ResolutionContext::from_db(self);
+            cache.resolution_item_trees.clear();
+            cache.hir_resolution_context = Some(context);
+            cache.index_resolution_context = None;
+        } else {
+            for file_id in dirty {
+                cache.resolution_item_trees.remove(&file_id);
+            }
+        }
+        cache.resolution_built_at = Some(revision);
+        cache.hir_resolution_context.as_ref().unwrap().clone()
     }
 
     pub(crate) fn reference_index_for_root(&self, source_root_id: SourceRootId) -> Arc<ReferenceIndex> {

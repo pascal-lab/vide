@@ -69,7 +69,7 @@ pub(crate) fn signature_help(
     if db.file_kind(file_id).is_project_manifest() {
         return None;
     }
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;

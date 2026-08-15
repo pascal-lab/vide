@@ -1,5 +1,5 @@
 use hir_def::symbol::DefKind;
-use hir_semantics::semantics::Semantics;
+
 use syntax::ast;
 
 use super::candidate::CompletionCandidate;
@@ -50,7 +50,7 @@ fn complete_function_port_list(
 }
 
 fn visible_typedefs_in_module_header(db: &RootDb, position: FilePosition) -> Vec<String> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let file_id = position.file_id.into();
     let parsed_file = sema.parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {
@@ -82,7 +82,7 @@ fn complete_non_ansi_port_list(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let file_id = position.file_id.into();
     let parsed_file = sema.parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {

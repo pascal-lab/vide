@@ -32,7 +32,7 @@ pub(crate) fn document_highlight(
     FilePosition { file_id, offset }: FilePosition,
     config: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
@@ -184,7 +184,7 @@ endmodule
             DefId::from_owner(db, local_module_id).expect("module owner must have a definition");
 
         let highlights = highlight_refs(
-            &Semantics::new(db),
+            &db.semantics(),
             position.file_id,
             def,
             DocumentHighlightConfig { scope_visibility: ScopeVisibility::Public },

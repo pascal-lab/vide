@@ -58,6 +58,14 @@ impl<DB: HirDefDb> Semantics<'_, DB> {
         let impl_ = SemanticsImpl::new(db);
         Semantics { db, impl_ }
     }
+
+    pub fn new_with_context(
+        db: &DB,
+        context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
+    ) -> Semantics<'_, DB> {
+        let impl_ = SemanticsImpl::new_with_context(db, context);
+        Semantics { db, impl_ }
+    }
 }
 
 impl<'db, DB> ops::Deref for Semantics<'db, DB> {

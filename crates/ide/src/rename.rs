@@ -114,7 +114,7 @@ pub(crate) fn prepare_rename(
     position @ FilePosition { file_id, .. }: FilePosition,
     config: RenameConfig,
 ) -> RenameResult<TextRange> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let target = resolve_rename_target(&sema, position)?;
     match &target {
         RenameTarget::Hdl(target) => {
@@ -131,7 +131,7 @@ pub(crate) fn rename(
     config: RenameConfig,
     new_name: &str,
 ) -> RenameResult<SourceChange> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     match resolve_rename_target(&sema, position)? {
         RenameTarget::Macro(target) => rename_macro(db, file_id, &config, target, new_name),
         RenameTarget::Manifest(target) => {
@@ -158,7 +158,7 @@ pub(crate) fn rename_expansion_info(
     position: FilePosition,
     config: RenameConfig,
 ) -> RenameResult<RecursiveRenameInfo> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let resolved = match resolve_rename_target(&sema, position)? {
         RenameTarget::Macro(_) => {
             // Recursive rename follows same-name port connections; macros have
@@ -181,7 +181,7 @@ pub(crate) fn expanded_rename(
     config: RenameConfig,
     new_name: &str,
 ) -> RenameResult<SourceChange> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     match resolve_rename_target(&sema, position)? {
         // Macros have no recursive semantics; the expanded rename is the
         // plain rename.
@@ -228,7 +228,7 @@ pub(crate) fn rename_conflict_info(
     new_name: &str,
     recursive: bool,
 ) -> RenameResult<RenameCollisionInfo> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let resolved = match resolve_rename_target(&sema, position)? {
         // The preproc model has no name-scope query for macros yet; report no
         // collisions for macro renames.
