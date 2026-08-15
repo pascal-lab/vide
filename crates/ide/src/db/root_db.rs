@@ -164,7 +164,6 @@ impl RootDb {
                         *old != self.item_tree(HirFileId::File(*file_id))
                     })
             });
-
         if needs_full {
             let context = crate::semantic_index::IndexResolutionContext::from_db(self);
             let mut file_indexes = FxHashMap::default();
@@ -191,7 +190,6 @@ impl RootDb {
 
         // Incremental: patch the cached index with each dirty file's new
         // contribution, reusing cached name/ranges for existing definitions.
-        let mut index = (*entry.index).clone();
         for file_id in &dirty {
             let old_file_index = entry.file_indexes.get(file_id).cloned().unwrap_or_default();
             let new_file_index = Arc::new(
@@ -201,12 +199,15 @@ impl RootDb {
                     entry.context.as_ref().unwrap(),
                 ),
             );
-            index =
-                ReferenceIndex::patch_file(self, &index, *file_id, &old_file_index, &new_file_index);
+            Arc::make_mut(&mut entry.index).patch_file(
+                self,
+                *file_id,
+                &old_file_index,
+                &new_file_index,
+            );
             entry.file_indexes.insert(*file_id, new_file_index);
             entry.item_trees.insert(*file_id, self.item_tree(HirFileId::File(*file_id)));
         }
-        entry.index = Arc::new(index);
         entry.built_at = Some(revision);
         entry.index.clone()
     }

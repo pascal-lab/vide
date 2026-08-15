@@ -348,13 +348,13 @@ impl ReferenceIndex {
     /// index keep their cached name and definition ranges, so an incremental
     /// rebuild never re-projects origins for the whole project.
     pub(crate) fn patch_file(
+        &mut self,
         db: &dyn WorkspaceSymbolIndexDb,
-        index: &Self,
         file_id: FileId,
         old_file_index: &FileSemanticIndex,
         new_file_index: &FileSemanticIndex,
-    ) -> Self {
-        let mut map = index.references_by_definition.clone();
+    ) {
+        let map = &mut self.references_by_definition;
         let mut affected: FxHashSet<DefId> = old_file_index.groups.keys().copied().collect();
         affected.extend(new_file_index.groups.keys().copied());
 
@@ -393,7 +393,6 @@ impl ReferenceIndex {
             }
         }
 
-        Self { references_by_definition: map }
     }
 
     #[cfg(test)]
@@ -604,6 +603,11 @@ mod tests {
         assert!(
             after.reference_groups_named("a").is_empty(),
             "removing the only usage must drop wire a's group"
+        );
+        assert_eq!(
+            before.reference_groups_named("a").len(),
+            1,
+            "an index snapshot held by a caller must not be mutated in place"
         );
     }
 
