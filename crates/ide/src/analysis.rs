@@ -36,7 +36,7 @@ use crate::{
     markup::Markup,
     navigation_target::NavTarget,
     references::{self, References, ReferencesConfig},
-    revision_cache::{ProductCell, ProductPriority, RevisionCache},
+    revision_cache::{ComputationPriority, RevisionCache},
     rename::{self, RenameConfig, RenameResult},
     selection_ranges,
     semantic_index::{
@@ -187,7 +187,7 @@ impl AnalysisContext<'_> {
     }
 
     pub(crate) fn semantic_snapshot_inputs(&self) -> Arc<SemanticSnapshotInputs> {
-        self.semantic_snapshot_inputs_with_priority(ProductPriority::Foreground, &NEVER_CANCELLED)
+        self.semantic_snapshot_inputs_with_priority(ComputationPriority::Foreground, &NEVER_CANCELLED)
             .expect("foreground semantic input computation cannot be cancelled")
     }
 
@@ -195,12 +195,12 @@ impl AnalysisContext<'_> {
         &self,
         cancel: &AtomicBool,
     ) -> Option<Arc<SemanticSnapshotInputs>> {
-        self.semantic_snapshot_inputs_with_priority(ProductPriority::Background, cancel)
+        self.semantic_snapshot_inputs_with_priority(ComputationPriority::Background, cancel)
     }
 
     fn semantic_snapshot_inputs_with_priority(
         &self,
-        priority: ProductPriority,
+        priority: ComputationPriority,
         cancel: &AtomicBool,
     ) -> Option<Arc<SemanticSnapshotInputs>> {
         let hir = self.request_hir_resolution_context_with_priority(priority, cancel)?;
@@ -230,7 +230,7 @@ impl AnalysisContext<'_> {
 
     fn request_hir_resolution_context(&self) -> Arc<ResolutionContext> {
         self.request_hir_resolution_context_with_priority(
-            ProductPriority::Foreground,
+            ComputationPriority::Foreground,
             &NEVER_CANCELLED,
         )
         .expect("foreground resolution computation cannot be cancelled")
@@ -238,47 +238,25 @@ impl AnalysisContext<'_> {
 
     fn request_hir_resolution_context_with_priority(
         &self,
-        priority: ProductPriority,
+        priority: ComputationPriority,
         cancel: &AtomicBool,
     ) -> Option<Arc<ResolutionContext>> {
         let revision = salsa::plumbing::current_revision(self.db);
-        let (built_at, ready, dirty, snapshots) = {
+        let (built_at, ready, epoch) = {
             let cache = self.cache.lock();
             (
                 cache.revision.resolution_built_at,
                 cache.revision.hir_resolution_context.is_ready(),
-                cache.revision.resolution_dirty.clone(),
-                cache.revision.structure_snapshots.clone(),
+                cache.revision.structure_epoch.clone(),
             )
         };
         if built_at != Some(revision) {
-            let current_files = self.db.files();
-            let needs_rebuild = !ready
-                || dirty.is_empty()
-                || dirty.iter().any(|file_id| {
-                    !current_files.contains(file_id)
-                        || snapshots.get(file_id).is_none_or(
-                            |(old_fingerprint, old_tree, allow_skeleton)| {
-                                !crate::revision_cache::structure_matches(
-                                    self.db,
-                                    *file_id,
-                                    *old_fingerprint,
-                                    old_tree,
-                                    *allow_skeleton,
-                                )
-                            },
-                        )
-                });
+            let needs_rebuild = !ready || epoch.is_empty() || !epoch.reusable(self.db);
             let mut cache = self.cache.lock();
             if cache.revision.resolution_built_at != Some(revision) {
-                cache.revision.structure_snapshots.clear();
+                cache.revision.structure_epoch.clear();
                 if needs_rebuild {
-                    cache.revision.hir_resolution_context = Arc::new(ProductCell::default());
-                    cache.revision.semantic_inputs = Arc::new(ProductCell::default());
-                    cache.indexes.request_file_indexes.clear();
-                    cache.indexes.request_file_index_dirty.clear();
-                    cache.indexes.module_edge_entries.clear();
-                    cache.indexes.module_edge_dirty.clear();
+                    cache.discard_resolution_products();
                 }
                 cache.revision.resolution_built_at = Some(revision);
             }
