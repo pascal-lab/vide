@@ -121,6 +121,7 @@ struct CompilationUnitArtifactInput<'db> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceModel {
     pub syntax_tree: SyntaxTree,
+    pub preprocessor_independent: bool,
 }
 
 pub type ParsedProfileUnits = Arc<[(FileId, ParsedCompilationUnit, SyntaxTreeBufferIds)]>;
@@ -161,7 +162,14 @@ fn source_model(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<SourceModel
         }
         SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
     };
-    Arc::new(SourceModel { syntax_tree })
+    let trace = syntax_tree.preprocessor_trace();
+    let preprocessor_independent = trace.events.is_empty()
+        && trace.include_edges.is_empty()
+        && trace
+            .emitted_tokens
+            .iter()
+            .all(|token| matches!(token.origin, syntax::preproc::TokenOrigin::Source { .. }));
+    Arc::new(SourceModel { syntax_tree, preprocessor_independent })
 }
 
 /// Workspace-global path-spelling → [`FileId`] index, memoized per revision.

@@ -202,6 +202,15 @@ pub(crate) fn owner_table(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerTab
     let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
     let ast_ids = crate::ast_id_map::ast_id_map(db, file);
+    Arc::new(build_owner_table(db, file_id, &tree, &ast_ids))
+}
+
+pub(crate) fn build_owner_table(
+    db: &dyn HirDefDb,
+    file_id: HirFileId,
+    tree: &syntax::SyntaxTree,
+    ast_ids: &crate::ast_id_map::AstIdMap,
+) -> OwnerTable {
     let root = tree.root();
     assert!(
         matches!(root.kind(), SyntaxKind::COMPILATION_UNIT | SyntaxKind::LIBRARY_MAP),
@@ -222,7 +231,7 @@ pub(crate) fn owner_table(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerTab
             _ => {}
         }
     }
-    Arc::new(builder.finish())
+    builder.finish()
 }
 
 pub(crate) fn set_owner_table_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {

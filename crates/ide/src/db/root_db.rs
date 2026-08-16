@@ -1,4 +1,4 @@
-use std::{fmt, ops::Deref};
+use std::{fmt, ops::Deref, sync::atomic::AtomicBool};
 
 use base_db::{
     diagnostics_config::DiagnosticsConfig,
@@ -7,7 +7,7 @@ use base_db::{
     source_db::{FileLoader, SourceDb, SourceRootDb},
     source_root::SourceRootId,
 };
-use hir_def::{db::HirDefDb, def_id::DefId};
+use hir_def::{db::HirDefDb, def_id::DefId, item_tree::ItemTree};
 use hir_ty::db::TyDb;
 use preproc_expand::{db::PreprocDb, file::HirFileId};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -16,11 +16,14 @@ use vfs::{AnchoredPath, FileId};
 
 use crate::{
     db::{
-        caches::RevisionProducts, line_index_db::LineIndexDb,
+        caches::{ProductCell, ProductPriority, RevisionProducts},
+        line_index_db::LineIndexDb,
         workspace_symbol_index_db::WorkspaceSymbolIndexDb,
     },
     semantic_index::{FileModuleEdges, FileSemanticIndex, ModuleEdgeIndex, ReferenceIndex},
 };
+
+static NEVER_CANCELLED: AtomicBool = AtomicBool::new(false);
 
 #[salsa::db]
 #[derive(Clone)]
@@ -147,16 +150,31 @@ impl RootDb {
         if files.is_empty() {
             return;
         }
+        let capture_structure =
+            self.revision_products.lock().revision.hir_resolution_context.is_ready();
+        let structure_snapshots = if capture_structure {
+            files
+                .iter()
+                .map(|&file_id| {
+                    let tree = self.item_tree(HirFileId::File(file_id));
+                    // A backtick is the lexical introducer for every
+                    // preprocessor directive and macro call. Its absence is a
+                    // cheap, conservative proof that the old source can use
+                    // the standalone declaration skeleton; false positives
+                    // (for example a backtick in a string) only take the slow
+                    // authoritative path.
+                    let allow_skeleton = !self.file_text(file_id).contains('`');
+                    (file_id, (tree.structure_fingerprint(), tree, allow_skeleton))
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         self.revision_products = Arc::new(self.revision_products.fork());
         let mut cache = self.revision_products.lock();
         cache.indexes.reference_dirty = files.iter().copied().collect();
-        if cache.revision.hir_resolution_context.is_some() {
-            for &file_id in &files {
-                cache.revision.structure_snapshots.entry(file_id).or_insert_with(|| {
-                    let tree = self.item_tree(HirFileId::File(file_id));
-                    (tree.structure_fingerprint(), tree)
-                });
-            }
+        for (file_id, snapshot) in structure_snapshots {
+            cache.revision.structure_snapshots.entry(file_id).or_insert(snapshot);
         }
         cache.revision.resolution_dirty = files.iter().copied().collect();
         cache.indexes.request_file_index_dirty = files.iter().copied().collect();
@@ -174,7 +192,7 @@ impl RootDb {
     }
 
     pub(crate) fn has_materialized_semantic_inputs(&self) -> bool {
-        self.revision_products.lock().revision.semantic_inputs.is_some()
+        self.revision_products.lock().revision.semantic_inputs.is_ready()
     }
 
     pub(crate) fn has_materialized_file_index(&self, file_id: FileId) -> bool {
@@ -208,37 +226,71 @@ impl RootDb {
     /// them before any IDE request observes the new revision.
     pub(crate) fn finalize_structure_epoch(&self) {
         let revision = salsa::plumbing::current_revision(self);
-        let mut cache = self.revision_products.lock();
-        if cache.revision.hir_resolution_context.is_none() {
+        let cache = self.revision_products.lock();
+        if !cache.revision.hir_resolution_context.is_ready() {
             return;
         }
         let dirty = cache.revision.resolution_dirty.clone();
         if dirty.is_empty() {
             return;
         }
+        let snapshots = dirty
+            .iter()
+            .filter_map(|file_id| {
+                cache
+                    .revision
+                    .structure_snapshots
+                    .get(file_id)
+                    .cloned()
+                    .map(|snapshot| (*file_id, snapshot))
+            })
+            .collect::<FxHashMap<_, _>>();
+        drop(cache);
         let current_files = self.files();
         let unchanged = dirty.iter().all(|file_id| {
             current_files.contains(file_id)
-                && cache.revision.structure_snapshots.get(file_id).is_some_and(
-                    |(old_fingerprint, old_tree)| {
-                        let new_tree = self.item_tree(HirFileId::File(*file_id));
-                        *old_fingerprint == new_tree.structure_fingerprint()
-                            && **old_tree == *new_tree
+                && snapshots.get(file_id).is_some_and(
+                    |(old_fingerprint, old_tree, allow_skeleton)| {
+                        self.structure_matches(
+                            *file_id,
+                            *old_fingerprint,
+                            old_tree,
+                            *allow_skeleton,
+                        )
                     },
                 )
         });
+        let mut cache = self.revision_products.lock();
         cache.revision.structure_snapshots.clear();
         if unchanged {
             cache.revision.resolution_built_at = Some(revision);
             return;
         }
-        cache.revision.hir_resolution_context = None;
-        cache.revision.semantic_inputs = None;
+        cache.revision.hir_resolution_context = Arc::new(ProductCell::default());
+        cache.revision.semantic_inputs = Arc::new(ProductCell::default());
         cache.revision.resolution_built_at = None;
         cache.indexes.request_file_indexes.clear();
         cache.indexes.request_file_index_dirty.clear();
         cache.indexes.module_edge_entries.clear();
         cache.indexes.module_edge_dirty.clear();
+    }
+
+    fn structure_matches(
+        &self,
+        file_id: FileId,
+        old_fingerprint: hir_def::item_tree::StructureFingerprint,
+        old_tree: &ItemTree,
+        allow_skeleton: bool,
+    ) -> bool {
+        if allow_skeleton
+            && let Some(skeleton) = self.declaration_skeleton(HirFileId::File(file_id))
+            && skeleton.preprocessor_independent()
+            && skeleton.matches(old_tree)
+        {
+            return true;
+        }
+        let new_tree = self.item_tree(HirFileId::File(file_id));
+        old_fingerprint == new_tree.structure_fingerprint() && *old_tree == *new_tree
     }
 
     pub(crate) fn request_unit_index(&self) -> Arc<hir_def::unit_index::UnitIndex> {
@@ -258,12 +310,15 @@ impl RootDb {
     ) -> Arc<ModuleEdgeIndex> {
         let context = self.semantic_snapshot_inputs();
         let revision = salsa::plumbing::current_revision(self);
-        let mut cache = self.revision_products.lock();
-        let dirty = cache.indexes.module_edge_dirty.clone();
-        let entry = cache.indexes.module_edge_entries.entry(source_root_id).or_default();
-        if entry.built_at == Some(revision) {
-            return entry.index.clone();
-        }
+        let (dirty, mut entry) = {
+            let cache = self.revision_products.lock();
+            let entry =
+                cache.indexes.module_edge_entries.get(&source_root_id).cloned().unwrap_or_default();
+            if entry.built_at == Some(revision) {
+                return entry.index;
+            }
+            (cache.indexes.module_edge_dirty.clone(), entry)
+        };
 
         let source_root = self.source_root(source_root_id);
         let needs_full = dirty.is_empty() || entry.file_edges.is_empty();
@@ -298,20 +353,39 @@ impl RootDb {
         entry.index =
             Arc::new(ModuleEdgeIndex::from_file_edges(entry.file_edges.values().map(Arc::as_ref)));
         entry.built_at = Some(revision);
-        entry.index.clone()
+        let result = entry.index.clone();
+        let mut cache = self.revision_products.lock();
+        let stored = cache.indexes.module_edge_entries.entry(source_root_id).or_default();
+        if stored.built_at != Some(revision) {
+            *stored = entry;
+        }
+        result
     }
 
     pub(crate) fn semantic_snapshot_inputs(
         &self,
     ) -> Arc<crate::semantic_index::SemanticSnapshotInputs> {
-        let hir = self.request_hir_resolution_context();
-        let mut cache = self.revision_products.lock();
-        if let Some(context) = &cache.revision.semantic_inputs {
-            return context.clone();
-        }
-        let context = crate::semantic_index::SemanticSnapshotInputs::from_db_with_hir(self, hir);
-        cache.revision.semantic_inputs = Some(context.clone());
-        context
+        self.semantic_snapshot_inputs_with_priority(ProductPriority::Foreground, &NEVER_CANCELLED)
+            .expect("foreground semantic input computation cannot be cancelled")
+    }
+
+    pub(crate) fn prewarm_semantic_snapshot_inputs(
+        &self,
+        cancel: &AtomicBool,
+    ) -> Option<Arc<crate::semantic_index::SemanticSnapshotInputs>> {
+        self.semantic_snapshot_inputs_with_priority(ProductPriority::Background, cancel)
+    }
+
+    fn semantic_snapshot_inputs_with_priority(
+        &self,
+        priority: ProductPriority,
+        cancel: &AtomicBool,
+    ) -> Option<Arc<crate::semantic_index::SemanticSnapshotInputs>> {
+        let hir = self.request_hir_resolution_context_with_priority(priority, cancel)?;
+        let cell = self.revision_products.lock().revision.semantic_inputs.clone();
+        cell.get_or_compute(priority, cancel, |_| {
+            crate::semantic_index::SemanticSnapshotInputs::from_db_with_hir(self, hir)
+        })
     }
 
     pub(crate) fn request_file_semantic_index(&self, file_id: FileId) -> Arc<FileSemanticIndex> {
@@ -333,56 +407,79 @@ impl RootDb {
     }
 
     fn request_hir_resolution_context(&self) -> Arc<hir_def::pathres::ResolutionContext> {
+        self.request_hir_resolution_context_with_priority(
+            ProductPriority::Foreground,
+            &NEVER_CANCELLED,
+        )
+        .expect("foreground resolution computation cannot be cancelled")
+    }
+
+    fn request_hir_resolution_context_with_priority(
+        &self,
+        priority: ProductPriority,
+        cancel: &AtomicBool,
+    ) -> Option<Arc<hir_def::pathres::ResolutionContext>> {
         let revision = salsa::plumbing::current_revision(self);
-        let mut cache = self.revision_products.lock();
-        if cache.revision.resolution_built_at == Some(revision) {
-            return cache.revision.hir_resolution_context.as_ref().unwrap().clone();
-        }
-
-        let dirty = cache.revision.resolution_dirty.clone();
-        let current_files = self.files();
-        let needs_rebuild = cache.revision.hir_resolution_context.is_none()
-            || dirty.is_empty()
-            || dirty.iter().any(|file_id| {
-                !current_files.contains(file_id)
-                    || cache.revision.structure_snapshots.get(file_id).is_none_or(
-                        |(old_fingerprint, old_tree)| {
-                            let new_tree = self.item_tree(HirFileId::File(*file_id));
-                            *old_fingerprint != new_tree.structure_fingerprint()
-                                || **old_tree != *new_tree
-                        },
-                    )
-            });
-
-        if needs_rebuild {
-            let context = hir_def::pathres::ResolutionContext::from_db(self);
-            cache.revision.structure_snapshots.clear();
-            cache.revision.hir_resolution_context = Some(context);
-            cache.revision.semantic_inputs = None;
-            cache.indexes.request_file_indexes.clear();
-            cache.indexes.request_file_index_dirty.clear();
-            cache.indexes.module_edge_entries.clear();
-            cache.indexes.module_edge_dirty.clear();
-        } else {
-            for file_id in dirty {
-                cache.revision.structure_snapshots.remove(&file_id);
+        let (built_at, ready, dirty, snapshots) = {
+            let cache = self.revision_products.lock();
+            (
+                cache.revision.resolution_built_at,
+                cache.revision.hir_resolution_context.is_ready(),
+                cache.revision.resolution_dirty.clone(),
+                cache.revision.structure_snapshots.clone(),
+            )
+        };
+        if built_at != Some(revision) {
+            let current_files = self.files();
+            let needs_rebuild = !ready
+                || dirty.is_empty()
+                || dirty.iter().any(|file_id| {
+                    !current_files.contains(file_id)
+                        || snapshots.get(file_id).is_none_or(
+                            |(old_fingerprint, old_tree, allow_skeleton)| {
+                                !self.structure_matches(
+                                    *file_id,
+                                    *old_fingerprint,
+                                    old_tree,
+                                    *allow_skeleton,
+                                )
+                            },
+                        )
+                });
+            let mut cache = self.revision_products.lock();
+            if cache.revision.resolution_built_at != Some(revision) {
+                cache.revision.structure_snapshots.clear();
+                if needs_rebuild {
+                    cache.revision.hir_resolution_context = Arc::new(ProductCell::default());
+                    cache.revision.semantic_inputs = Arc::new(ProductCell::default());
+                    cache.indexes.request_file_indexes.clear();
+                    cache.indexes.request_file_index_dirty.clear();
+                    cache.indexes.module_edge_entries.clear();
+                    cache.indexes.module_edge_dirty.clear();
+                }
+                cache.revision.resolution_built_at = Some(revision);
             }
         }
-        cache.revision.resolution_built_at = Some(revision);
-        cache.revision.hir_resolution_context.as_ref().unwrap().clone()
+        let cell = self.revision_products.lock().revision.hir_resolution_context.clone();
+        cell.get_or_compute(priority, cancel, |_| {
+            hir_def::pathres::ResolutionContext::from_db(self)
+        })
     }
 
     pub(crate) fn reference_index_for_root(
         &self,
         source_root_id: SourceRootId,
     ) -> Arc<ReferenceIndex> {
-        let mut cache = self.revision_products.lock();
         let revision = salsa::plumbing::current_revision(self);
-        let dirty = cache.indexes.reference_dirty.clone();
-        let entry = cache.indexes.reference_entries.entry(source_root_id).or_default();
-        if entry.built_at == Some(revision) {
-            return entry.index.clone();
-        }
+        let (dirty, mut entry) = {
+            let cache = self.revision_products.lock();
+            let entry =
+                cache.indexes.reference_entries.get(&source_root_id).cloned().unwrap_or_default();
+            if entry.built_at == Some(revision) {
+                return entry.index;
+            }
+            (cache.indexes.reference_dirty.clone(), entry)
+        };
 
         let current_files = self.files();
 
@@ -398,7 +495,7 @@ impl RootDb {
                         .map_or(true, |old| *old != self.item_tree(HirFileId::File(*file_id)))
             });
         if needs_full {
-            let context = crate::semantic_index::SemanticSnapshotInputs::from_db(self);
+            let context = self.semantic_snapshot_inputs();
             let mut file_indexes = FxHashMap::default();
             let mut item_trees = FxHashMap::default();
             for file_id in self.source_root(source_root_id).iter() {
@@ -410,36 +507,40 @@ impl RootDb {
                 );
                 item_trees.insert(file_id, self.item_tree(HirFileId::File(file_id)));
             }
-            let index = Arc::new(ReferenceIndex::from_file_indexes(self, &file_indexes));
-            entry.index = index.clone();
+            entry.index = Arc::new(ReferenceIndex::from_file_indexes(self, &file_indexes));
             entry.file_indexes = file_indexes;
             entry.item_trees = item_trees;
             entry.context = Some(context);
             entry.built_at = Some(revision);
-            return index;
-        }
-
-        // Incremental: patch the cached index with each dirty file's new
-        // contribution, reusing cached name/ranges for existing definitions.
-        for file_id in &dirty {
-            let old_file_index = entry.file_indexes.get(file_id).cloned().unwrap_or_default();
-            let new_file_index =
-                Arc::new(crate::semantic_index::FileSemanticIndex::for_file_with_context(
+        } else {
+            // Incremental: patch the cached index with each dirty file's new
+            // contribution, reusing cached name/ranges for existing definitions.
+            for file_id in &dirty {
+                let old_file_index = entry.file_indexes.get(file_id).cloned().unwrap_or_default();
+                let new_file_index =
+                    Arc::new(crate::semantic_index::FileSemanticIndex::for_file_with_context(
+                        self,
+                        *file_id,
+                        entry.context.as_ref().unwrap(),
+                    ));
+                Arc::make_mut(&mut entry.index).patch_file(
                     self,
                     *file_id,
-                    entry.context.as_ref().unwrap(),
-                ));
-            Arc::make_mut(&mut entry.index).patch_file(
-                self,
-                *file_id,
-                &old_file_index,
-                &new_file_index,
-            );
-            entry.file_indexes.insert(*file_id, new_file_index);
-            entry.item_trees.insert(*file_id, self.item_tree(HirFileId::File(*file_id)));
+                    &old_file_index,
+                    &new_file_index,
+                );
+                entry.file_indexes.insert(*file_id, new_file_index);
+                entry.item_trees.insert(*file_id, self.item_tree(HirFileId::File(*file_id)));
+            }
+            entry.built_at = Some(revision);
         }
-        entry.built_at = Some(revision);
-        entry.index.clone()
+        let result = entry.index.clone();
+        let mut cache = self.revision_products.lock();
+        let stored = cache.indexes.reference_entries.entry(source_root_id).or_default();
+        if stored.built_at != Some(revision) {
+            *stored = entry;
+        }
+        result
     }
 
     pub(crate) fn recursive_rename_closure(

@@ -38,6 +38,7 @@ impl AnalysisHost {
     }
 
     pub fn make_analysis(&self) -> AnalysisSnapshot {
+        self.signal_foreground_request();
         let db = self.db.clone();
         let salsa_revision = base_db::salsa::plumbing::current_revision(&db);
         AnalysisSnapshot { db, snapshot_id: self.snapshot_id, salsa_revision }
@@ -91,7 +92,7 @@ impl AnalysisHost {
                     thread::sleep(std::time::Duration::from_millis(5));
                 }
                 if db.has_materialized_semantic_inputs() {
-                    let _ = db.semantic_snapshot_inputs();
+                    let _ = db.prewarm_semantic_snapshot_inputs(&worker_cancel);
                 }
                 let mut roots = rustc_hash::FxHashSet::default();
                 for file_id in affected_files {
@@ -132,11 +133,18 @@ impl AnalysisHost {
         let _ = task.worker.join();
     }
 
+    fn signal_foreground_request(&self) {
+        if let Some(task) = &self.prewarm {
+            task.cancel.store(true, Ordering::Release);
+        }
+    }
+
     pub fn snapshot_id(&self) -> AnalysisSnapshotId {
         self.snapshot_id
     }
 
     pub fn raw_db(&self) -> &RootDb {
+        self.signal_foreground_request();
         &self.db
     }
 }
