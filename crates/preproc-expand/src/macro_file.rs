@@ -13,7 +13,7 @@ use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use crate::{
-    db::PreprocDb,
+    db::{PreprocDb, PreprocFileQueryKey},
     preproc::{MacroDefinition, map_macro_definition},
     source_db::{MappedSourcePreprocModel, SourcePreprocQueryError},
 };
@@ -152,6 +152,34 @@ pub enum ExpandErrorKind {
 pub struct MacroFileCallSite {
     pub call_file_id: FileId,
     pub call_range: TextRange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceSemanticAnchor {
+    pub source_range: TextRange,
+    pub expansion: MacroFileId,
+}
+
+/// Per-source-file mapping from raw invocation ranges to their expanded
+/// semantic files. Built once per preprocessor revision so caret and rename
+/// queries do not repeatedly rediscover macro files by offset.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceSemanticMap {
+    complete: bool,
+    anchors: Box<[SourceSemanticAnchor]>,
+}
+
+impl SourceSemanticMap {
+    pub fn macro_origin_for_range(&self, range: TextRange) -> Option<bool> {
+        self.complete.then(|| self.anchors.iter().any(|anchor| anchor.source_range == range))
+    }
+
+    pub fn expansions_at(&self, offset: TextSize) -> impl Iterator<Item = MacroFileId> + '_ {
+        self.anchors
+            .iter()
+            .filter(move |anchor| anchor.source_range.contains(offset))
+            .map(|anchor| anchor.expansion)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -333,6 +361,48 @@ fn relevant_model_files(db: &dyn PreprocDb, file_id: FileId) -> Option<Vec<FileI
         }
     }
     Some(model_file_ids)
+}
+
+#[salsa::tracked(returns(clone))]
+pub(crate) fn source_semantic_map_query(
+    db: &dyn PreprocDb,
+    key: PreprocFileQueryKey,
+) -> Arc<SourceSemanticMap> {
+    let file_id = key.file_id(db);
+    let Some(model_file_ids) = relevant_model_files(db, file_id) else {
+        return Arc::new(SourceSemanticMap { complete: false, anchors: Box::new([]) });
+    };
+    let mut anchors = Vec::new();
+    for model_file in model_file_ids {
+        let mapped = db.source_preproc_model(model_file);
+        let Ok(mapped) = mapped.as_ref() else {
+            return Arc::new(SourceSemanticMap { complete: false, anchors: Box::new([]) });
+        };
+        for call in mapped.model.macro_calls().iter() {
+            let Ok(call_file) = mapped.source_map.file_id(call.call_range.source) else {
+                return Arc::new(SourceSemanticMap { complete: false, anchors: Box::new([]) });
+            };
+            if call_file != file_id {
+                continue;
+            }
+            let Some(trace_call) = call.trace_call else {
+                return Arc::new(SourceSemanticMap { complete: false, anchors: Box::new([]) });
+            };
+            if db.trace_index(model_file).emitted_range_for_call(trace_call).is_none() {
+                return Arc::new(SourceSemanticMap { complete: false, anchors: Box::new([]) });
+            }
+            let Ok(source_range) = mapped.source_map.map_range(call.call_range) else {
+                return Arc::new(SourceSemanticMap { complete: false, anchors: Box::new([]) });
+            };
+            anchors.push(SourceSemanticAnchor {
+                source_range,
+                expansion: MacroFileId::new(db, MacroCallLoc { model_file, trace_call }),
+            });
+        }
+    }
+    anchors.sort_unstable_by_key(|anchor| (anchor.source_range.start(), anchor.source_range.end()));
+    anchors.dedup();
+    Arc::new(SourceSemanticMap { complete: true, anchors: anchors.into_boxed_slice() })
 }
 
 pub fn macro_file_call_site(

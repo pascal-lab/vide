@@ -200,11 +200,10 @@ pub(crate) fn syntax_tree_options_for_file(
     let profile_id = db.file_compilation_profile(file_id);
     let context = db.compilation_context_for_file(file_id);
     let identity = source_file_identity(db, file_id);
-    let include_buffers = db
-        .include_buffers_for_profile(profile_id)
-        .iter()
+    let plan = db.compilation_plan_for_profile(profile_id);
+    let include_buffers = compilation_plan::include_buffers_for_file(db, &plan, file_id)
+        .into_iter()
         .filter(|buffer| buffer.path != identity.path)
-        .cloned()
         .collect();
     syntax::SyntaxTreeOptions {
         predefines: context.predefines.to_vec(),
@@ -232,23 +231,12 @@ fn syntax_tree_options_for_parser_cursor(
     file_id: FileId,
 ) -> syntax::SyntaxTreeOptions {
     let profile_id = db.file_compilation_profile(file_id);
-    let context = db.compilation_context_for_file(file_id);
-    let identity = source_file_identity(db, file_id);
-    let include_buffers = if db.file_kind(file_id).is_semantic_compilation_unit() {
-        let plan = db.compilation_plan_for_profile(profile_id);
-        compilation_plan::compilation_source_buffers_for_plan(db, &plan)
-    } else {
-        db.include_buffers_for_profile(profile_id).as_ref().clone()
-    };
-    syntax::SyntaxTreeOptions {
-        predefines: context.predefines.to_vec(),
-        include_paths: context.include_dirs.iter().map(ToString::to_string).collect(),
-        include_buffers: include_buffers
-            .into_iter()
-            .filter(|buffer| buffer.path != identity.path)
-            .collect(),
-        ..syntax::SyntaxTreeOptions::default()
+    let plan = db.compilation_plan_for_profile(profile_id);
+    let mut options = syntax_tree_options_for_file(db, file_id);
+    if plan.roots.contains(&file_id) {
+        options.predefines.extend(db.unit_macro_predefines(file_id).iter().cloned());
     }
+    options
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
@@ -732,6 +720,10 @@ impl dyn PreprocDb + '_ {
 
     pub fn file_macro_coverage(&self, file_id: FileId) -> Arc<MacroCoverage> {
         file_macro_coverage_query(self, file_id)
+    }
+
+    pub fn source_semantic_map(&self, file_id: FileId) -> Arc<macro_file::SourceSemanticMap> {
+        macro_file::source_semantic_map_query(self, PreprocFileQueryKey::new(self, file_id))
     }
 
     pub fn macro_reference_index_for_profile(

@@ -50,7 +50,7 @@ pub enum SignaturePortDirection {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SignaturePort {
     direction: SignaturePortDirection,
     name: Option<SmolStr>,
@@ -71,7 +71,7 @@ impl SignaturePort {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Signature {
     kind: SignatureKind,
     return_type_ast: Option<SourceAstId>,
@@ -92,7 +92,7 @@ impl Signature {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ItemTreeItem {
     id: SourceAstId,
     parent: Option<SourceAstId>,
@@ -179,7 +179,19 @@ pub struct ItemTree {
     signatures: Vec<Signature>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StructureFingerprint(pub u64);
+
 impl ItemTree {
+    pub fn structure_fingerprint(&self) -> StructureFingerprint {
+        let mut hasher = FxHasher::default();
+        self.file_id.hash(&mut hasher);
+        self.owners.owners().hash(&mut hasher);
+        self.items.hash(&mut hasher);
+        self.signatures.hash(&mut hasher);
+        StructureFingerprint(hasher.finish())
+    }
+
     pub fn file_id(&self) -> HirFileId {
         self.file_id
     }

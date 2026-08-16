@@ -88,7 +88,7 @@ impl Ord for OwnerId {
     }
 }
 /// One entry of the per-file [`OwnerTable`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OwnerData {
     pub id: OwnerId,
     pub source: SourceAstId,

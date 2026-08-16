@@ -82,6 +82,7 @@ pub struct CompletionContext {
     pub in_decl_name: bool,
 }
 
+#[derive(Clone)]
 struct CompletionWord {
     replacement: TextRange,
     prefix: String,
@@ -95,10 +96,22 @@ pub(crate) fn completion_context(
     let source_model = db.source_model(file_id);
     let root = source_model.syntax_tree.root();
     let text = db.file_text(file_id);
-    let parser_expected_syntax = db.parser_expected_syntax(file_id, offset);
     let directive_word = directive_word_at_offset(&text, offset);
     let token_word = library_map_word_at_offset(root, &text, offset);
     let system_word = standalone_system_identifier_word_at_offset(&text, offset);
+    let fast = detect_completion_context_impl(
+        root,
+        offset,
+        trigger,
+        directive_word.clone(),
+        token_word.clone(),
+        system_word.clone(),
+        None,
+    );
+    if parser_independent_context(&fast) {
+        return fast;
+    }
+    let parser_expected_syntax = db.parser_expected_syntax(file_id, offset);
     detect_completion_context_impl(
         root,
         offset,
@@ -108,6 +121,32 @@ pub(crate) fn completion_context(
         system_word,
         Some(&parser_expected_syntax),
     )
+}
+
+fn parser_independent_context(context: &CompletionContext) -> bool {
+    if context.lex != LexContext::Code {
+        return true;
+    }
+    !context.expectations.is_empty()
+        && context.expectations.iter().all(|expectation| {
+            matches!(
+                expectation.syntax,
+                ExpectedSyntax::DirectiveName
+                    | ExpectedSyntax::IntegerLiteralBase
+                    | ExpectedSyntax::ParameterPortListItem
+                    | ExpectedSyntax::AnsiPortItem
+                    | ExpectedSyntax::FunctionPortItem
+                    | ExpectedSyntax::PortConnectionName
+                    | ExpectedSyntax::ParameterAssignmentName
+                    | ExpectedSyntax::MemberName
+                    | ExpectedSyntax::PortConnectionExpr
+                    | ExpectedSyntax::ParameterAssignmentExpr
+                    | ExpectedSyntax::AfterParamValueAssignmentHash
+                    | ExpectedSyntax::AfterParameterPortListHash
+                    | ExpectedSyntax::ParamValueAssignment
+                    | ExpectedSyntax::EventControl { .. }
+            )
+        })
 }
 
 pub fn detect_completion_context(

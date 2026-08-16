@@ -1,6 +1,17 @@
+use std::{
+    sync::{
+        Arc as StdArc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::{self, JoinHandle},
+};
+
 use base_db::{
-    analysis_snapshot::AnalysisSnapshotId, change::Change, diagnostics_config::DiagnosticsConfig,
-    salsa::Durability, source_db::SourceDb,
+    analysis_snapshot::AnalysisSnapshotId,
+    change::Change,
+    diagnostics_config::DiagnosticsConfig,
+    salsa::Durability,
+    source_db::{SourceDb, SourceRootDb},
 };
 use triomphe::Arc;
 
@@ -9,11 +20,21 @@ use crate::{analysis::AnalysisSnapshot, db::root_db::RootDb};
 pub struct AnalysisHost {
     db: RootDb,
     snapshot_id: AnalysisSnapshotId,
+    prewarm: Option<PrewarmTask>,
+}
+
+struct PrewarmTask {
+    cancel: StdArc<AtomicBool>,
+    worker: JoinHandle<()>,
 }
 
 impl AnalysisHost {
     pub fn new(lru_capacity: Option<usize>) -> AnalysisHost {
-        AnalysisHost { db: RootDb::new(lru_capacity), snapshot_id: AnalysisSnapshotId::default() }
+        AnalysisHost {
+            db: RootDb::new(lru_capacity),
+            snapshot_id: AnalysisSnapshotId::default(),
+            prewarm: None,
+        }
     }
 
     pub fn make_analysis(&self) -> AnalysisSnapshot {
@@ -23,6 +44,7 @@ impl AnalysisHost {
     }
 
     pub fn apply_change(&mut self, change: Change) {
+        self.cancel_prewarm();
         let dirty_files: Vec<_> = change.changed_files.iter().map(|file| file.file_id).collect();
         // Source-root changes carry file creation/deletion and path remapping.
         // Some VFS producers use `ChangedFile::create` for a full-text update
@@ -34,9 +56,13 @@ impl AnalysisHost {
         } else {
             self.db.preproc_affected_files(dirty_files).into_iter().collect()
         };
-        self.db.record_dirty_files(affected_files, invalidate_workspace);
+        self.db.record_dirty_files(affected_files.iter().copied(), invalidate_workspace);
         self.db.apply_change(change);
+        self.db.finalize_structure_epoch();
         self.advance_revision();
+        if !invalidate_workspace && !affected_files.is_empty() {
+            self.start_prewarm(affected_files);
+        }
     }
 
     pub fn set_diagnostics_config(&mut self, config: Arc<DiagnosticsConfig>) {
@@ -48,12 +74,76 @@ impl AnalysisHost {
         self.snapshot_id = self.snapshot_id.next();
     }
 
+    fn start_prewarm(&mut self, affected_files: Vec<vfs::FileId>) {
+        let db = self.db.clone();
+        let cancel = StdArc::new(AtomicBool::new(false));
+        let worker_cancel = cancel.clone();
+        let worker = thread::Builder::new()
+            .name("vide-revision-prewarm".to_owned())
+            .spawn(move || {
+                // Give latency-sensitive foreground requests first access to
+                // the new revision. Prewarm only starts once the edit has been
+                // idle briefly, and cancellation stays responsive to typing.
+                for _ in 0..10 {
+                    if worker_cancel.load(Ordering::Acquire) {
+                        return;
+                    }
+                    thread::sleep(std::time::Duration::from_millis(5));
+                }
+                if db.has_materialized_semantic_inputs() {
+                    let _ = db.semantic_snapshot_inputs();
+                }
+                let mut roots = rustc_hash::FxHashSet::default();
+                for file_id in affected_files {
+                    if worker_cancel.load(Ordering::Acquire) {
+                        return;
+                    }
+                    if db.files().contains(&file_id) {
+                        roots.insert(db.source_root_id(file_id));
+                        if db.has_materialized_file_index(file_id) {
+                            let _ = db.request_file_semantic_index(file_id);
+                        }
+                    }
+                }
+                for root in roots {
+                    if worker_cancel.load(Ordering::Acquire) {
+                        return;
+                    }
+                    if db.has_materialized_module_edges(root) {
+                        let _ = db.request_module_edge_index(root);
+                    }
+                    if worker_cancel.load(Ordering::Acquire) {
+                        return;
+                    }
+                    if db.has_materialized_reference_index(root) {
+                        let _ = db.reference_index_for_root(root);
+                    }
+                }
+            })
+            .expect("failed to spawn revision prewarm worker");
+        self.prewarm = Some(PrewarmTask { cancel, worker });
+    }
+
+    fn cancel_prewarm(&mut self) {
+        let Some(task) = self.prewarm.take() else {
+            return;
+        };
+        task.cancel.store(true, Ordering::Release);
+        let _ = task.worker.join();
+    }
+
     pub fn snapshot_id(&self) -> AnalysisSnapshotId {
         self.snapshot_id
     }
 
     pub fn raw_db(&self) -> &RootDb {
         &self.db
+    }
+}
+
+impl Drop for AnalysisHost {
+    fn drop(&mut self) {
+        self.cancel_prewarm();
     }
 }
 

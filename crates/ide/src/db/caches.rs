@@ -1,9 +1,12 @@
 use base_db::{salsa, source_root::SourceRootId};
-use hir_def::{item_tree::ItemTree, pathres::ResolutionContext};
+use hir_def::{
+    item_tree::{ItemTree, StructureFingerprint},
+    pathres::ResolutionContext,
+};
 use parking_lot::Mutex;
+use preproc_expand::macro_file::SourceSemanticMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
-use utils::line_index::TextRange;
 use vfs::FileId;
 
 use crate::semantic_index::{
@@ -11,49 +14,57 @@ use crate::semantic_index::{
 };
 
 /// Materialized, independently replaceable workspace index shards.
-#[derive(Default)]
-pub(super) struct WorkspaceIndexStore {
+#[derive(Clone, Default)]
+pub(super) struct WorkspaceIndexSnapshot {
     pub reference_entries: FxHashMap<SourceRootId, ReferenceIndexEntry>,
     pub reference_dirty: FxHashSet<FileId>,
     pub request_file_indexes: FxHashMap<FileId, Arc<FileSemanticIndex>>,
     pub request_file_index_dirty: FxHashSet<FileId>,
     pub module_edge_entries: FxHashMap<SourceRootId, ModuleEdgeEntry>,
     pub module_edge_dirty: FxHashSet<FileId>,
+    pub source_semantic_maps: FxHashMap<FileId, Arc<SourceSemanticMap>>,
 }
 
 /// Semantic values tied to one Salsa revision and its immutable snapshots.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct IdeRevisionCache {
     pub hir_resolution_context: Option<Arc<ResolutionContext>>,
     pub semantic_inputs: Option<Arc<SemanticSnapshotInputs>>,
-    pub resolution_item_trees: FxHashMap<FileId, Arc<ItemTree>>,
+    pub structure_snapshots: FxHashMap<FileId, (StructureFingerprint, Arc<ItemTree>)>,
     pub resolution_dirty: FxHashSet<FileId>,
     pub resolution_built_at: Option<salsa::Revision>,
-    pub macro_generated_origins: FxHashMap<(FileId, TextRange), bool>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct IdeCaches {
-    pub indexes: WorkspaceIndexStore,
+    pub indexes: WorkspaceIndexSnapshot,
     pub revision: IdeRevisionCache,
 }
 
-/// Snapshots cloned from one `RootDb` share the same cache generation. Salsa
-/// serializes input mutation against live snapshots, so a generation cannot be
-/// mutated while a request observes it.
-#[derive(Clone, Default)]
-pub(super) struct IdeCachesHandle(Arc<Mutex<IdeCaches>>);
+/// All lazily materialized products for exactly one input revision.
+///
+/// A new revision clones the shard maps (whose values are `Arc`s) and mutates
+/// only affected entries. Existing `AnalysisSnapshot`s keep the previous
+/// `Arc<RevisionProducts>` and can never observe products from a later edit.
+#[derive(Default)]
+pub(super) struct RevisionProducts {
+    caches: Mutex<IdeCaches>,
+}
 
-impl std::panic::RefUnwindSafe for IdeCachesHandle {}
-impl std::panic::UnwindSafe for IdeCachesHandle {}
+impl std::panic::RefUnwindSafe for RevisionProducts {}
+impl std::panic::UnwindSafe for RevisionProducts {}
 
-impl IdeCachesHandle {
+impl RevisionProducts {
+    pub fn fork(&self) -> Self {
+        Self { caches: Mutex::new(self.caches.lock().clone()) }
+    }
+
     pub fn lock(&self) -> parking_lot::MutexGuard<'_, IdeCaches> {
-        self.0.lock()
+        self.caches.lock()
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct ReferenceIndexEntry {
     pub index: Arc<ReferenceIndex>,
     pub file_indexes: FxHashMap<FileId, Arc<FileSemanticIndex>>,
@@ -62,7 +73,7 @@ pub(super) struct ReferenceIndexEntry {
     pub built_at: Option<salsa::Revision>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct ModuleEdgeEntry {
     pub index: Arc<ModuleEdgeIndex>,
     pub file_edges: FxHashMap<FileId, Arc<FileModuleEdges>>,

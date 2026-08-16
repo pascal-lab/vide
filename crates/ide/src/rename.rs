@@ -4,7 +4,7 @@ use hir_semantics::semantics::Semantics;
 use nohash_hasher::IntMap;
 use preproc_expand::{
     file::HirFileId,
-
+    macro_file::{macro_file_call_site, macro_files_at_offset},
     preproc::{
         MacroDefinition, MacroParamDefinition, MacroReference, PreprocError,
         macro_param_references, macro_references,
@@ -741,7 +741,14 @@ fn origin_is_macro_generated(db: &RootDb, origin: DefOrigin) -> bool {
         return false;
     }
 
-    db.request_origin_is_macro_generated(file_id, range)
+    if let Some(generated) = db.request_source_semantic_map(file_id).macro_origin_for_range(range) {
+        return generated;
+    }
+    macro_files_at_offset(db, file_id, range.start()).into_iter().any(|macro_file| {
+        macro_file_call_site(db, macro_file).is_some_and(|call_site| {
+            call_site.call_file_id == file_id && call_site.call_range == range
+        })
+    })
 }
 
 fn origins_are_editable(db: &RootDb, def: &DefId, file_id: FileId) -> bool {

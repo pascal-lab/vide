@@ -84,6 +84,29 @@ impl CompilationPlan {
         }
     }
 
+    /// Exact transitive include closure when every visited directive resolved
+    /// statically. Dynamic or currently missing include targets return `None`,
+    /// which tells the parser to retain the conservative profile-wide buffer
+    /// set for correctness.
+    pub fn include_closure(&self, root: FileId) -> Option<FxHashSet<FileId>> {
+        let mut closure = FxHashSet::default();
+        let mut pending = vec![root];
+        while let Some(file_id) = pending.pop() {
+            if self.dynamic_include_files.contains(&file_id) {
+                return None;
+            }
+            let Some(dependencies) = self.include_dependencies.get(&file_id) else {
+                continue;
+            };
+            for &dependency in dependencies {
+                if closure.insert(dependency) {
+                    pending.push(dependency);
+                }
+            }
+        }
+        Some(closure)
+    }
+
     /// Whether a file should be made available to slang as an include buffer:
     /// include headers reachable through the configured include paths.
     pub fn is_include_header_in_include_paths(
@@ -151,6 +174,29 @@ pub fn include_buffers_for_plan(
     plan: &CompilationPlan,
 ) -> Vec<SyntaxTreeBuffer> {
     include_buffers_for_plan_with_roots(db, plan, false)
+}
+
+/// Include buffers needed by one standalone compilation unit. Falls back to
+/// the profile-wide set when a dynamic or unresolved include prevents a
+/// complete static closure.
+pub fn include_buffers_for_file(
+    db: &dyn SourceRootDb,
+    plan: &CompilationPlan,
+    file_id: FileId,
+) -> Vec<SyntaxTreeBuffer> {
+    let Some(closure) = plan.include_closure(file_id) else {
+        return include_buffers_for_plan(db, plan);
+    };
+    let mut dependencies = closure.into_iter().collect::<Vec<_>>();
+    dependencies.sort_unstable_by_key(|dependency| dependency.index());
+    dependencies
+        .into_iter()
+        .filter(|dependency| !db.file_is_project_ignored(*dependency))
+        .map(|dependency| SyntaxTreeBuffer {
+            path: source_buffer_path(db, dependency).to_string(),
+            text: db.file_text(dependency).to_string(),
+        })
+        .collect()
 }
 
 pub fn compilation_source_buffers_for_plan(
@@ -447,6 +493,32 @@ fn resolve_include_target(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn include_closure_contains_only_transitive_dependencies() {
+        let root = FileId::from_raw(0);
+        let direct = FileId::from_raw(1);
+        let transitive = FileId::from_raw(2);
+        let unrelated = FileId::from_raw(3);
+        let mut plan = CompilationPlan::default();
+        plan.include_dependencies.insert(root, FxHashSet::from_iter([direct]));
+        plan.include_dependencies.insert(direct, FxHashSet::from_iter([transitive]));
+        plan.include_dependencies.insert(unrelated, FxHashSet::default());
+
+        let closure = plan.include_closure(root).unwrap();
+
+        assert_eq!(closure, FxHashSet::from_iter([direct, transitive]));
+        assert!(!closure.contains(&unrelated));
+    }
+
+    #[test]
+    fn dynamic_include_forces_conservative_manifest() {
+        let root = FileId::from_raw(0);
+        let mut plan = CompilationPlan::default();
+        plan.dynamic_include_files.insert(root);
+
+        assert_eq!(plan.include_closure(root), None);
+    }
 
     #[test]
     fn synthetic_source_buffer_paths_are_absolute() {
