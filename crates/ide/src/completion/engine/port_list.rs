@@ -3,14 +3,14 @@ use hir_def::symbol::DefKind;
 use syntax::ast;
 
 use super::candidate::CompletionCandidate;
+use crate::analysis::AnalysisContext;
 use crate::{
     FilePosition,
     completion::{context::CompletionContext, request::PortListKind},
-    db::root_db::RootDb,
 };
 
 pub(super) fn complete_in_port_list(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -24,7 +24,7 @@ pub(super) fn complete_in_port_list(
 }
 
 fn complete_ansi_port_list(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -37,7 +37,7 @@ fn complete_ansi_port_list(
 }
 
 fn complete_function_port_list(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -49,7 +49,7 @@ fn complete_function_port_list(
         .collect()
 }
 
-fn visible_typedefs_in_module_header(db: &RootDb, position: FilePosition) -> Vec<String> {
+fn visible_typedefs_in_module_header(db: &AnalysisContext<'_>, position: FilePosition) -> Vec<String> {
     let sema = db.semantics();
     let file_id = position.file_id.into();
     let parsed_file = sema.parse_file(position.file_id);
@@ -67,9 +67,9 @@ fn visible_typedefs_in_module_header(db: &RootDb, position: FilePosition) -> Vec
     let unit_scope = db.unit_scope();
     let module_scope = db.scope(module_id);
     let mut names: Vec<String> =
-        unit_scope.typedef_names(db).map(|ident| ident.to_string()).collect();
+        unit_scope.typedef_names(db.db).map(|ident| ident.to_string()).collect();
 
-    names.extend(module_scope.typedef_names(db).map(|ident| ident.to_string()));
+    names.extend(module_scope.typedef_names(db.db).map(|ident| ident.to_string()));
 
     names.sort();
     names.dedup();
@@ -77,7 +77,7 @@ fn visible_typedefs_in_module_header(db: &RootDb, position: FilePosition) -> Vec
 }
 
 fn complete_non_ansi_port_list(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -100,7 +100,7 @@ fn complete_non_ansi_port_list(
         .iter_listing()
         .filter_map(|(ident, defs)| {
             defs.iter()
-                .any(|def_id| matches!(def_id.kind(db), DefKind::Port | DefKind::NonAnsiPort))
+                .any(|def_id| matches!(def_id.kind(db.db), DefKind::Port | DefKind::NonAnsiPort))
                 .then(|| ident.to_string())
         })
         .filter(|name| name.starts_with(prefix))

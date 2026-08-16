@@ -13,7 +13,6 @@ use vfs::FileId;
 
 use crate::{
     db::{
-        root_db::RootDb,
         workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_module_index_for_root},
     },
     navigation_target::nav_location,
@@ -451,7 +450,7 @@ impl SemanticReferenceGroupBuilder {
 }
 
 pub(crate) fn incoming_module_edges(
-    db: &RootDb,
+    db: &crate::analysis::AnalysisContext<'_>,
     file_id: FileId,
     name_range: TextRange,
 ) -> Vec<ModuleCallEdge> {
@@ -459,7 +458,7 @@ pub(crate) fn incoming_module_edges(
 }
 
 pub(crate) fn outgoing_module_edges(
-    db: &RootDb,
+    db: &crate::analysis::AnalysisContext<'_>,
     file_id: FileId,
     name_range: TextRange,
 ) -> Vec<ModuleCallEdge> {
@@ -467,7 +466,7 @@ pub(crate) fn outgoing_module_edges(
 }
 
 fn module_edges(
-    db: &RootDb,
+    db: &crate::analysis::AnalysisContext<'_>,
     file_id: FileId,
     name_range: TextRange,
     edges_for_index: impl Fn(&ModuleEdgeIndex, OwnerId) -> &[ModuleCallEdge],
@@ -485,7 +484,11 @@ fn module_edges(
     edges
 }
 
-fn module_id_at_range(db: &RootDb, file_id: FileId, name_range: TextRange) -> Option<OwnerId> {
+fn module_id_at_range(
+    db: &crate::analysis::AnalysisContext<'_>,
+    file_id: FileId,
+    name_range: TextRange,
+) -> Option<OwnerId> {
     let module_index = db.request_module_index(db.source_root_id(file_id));
     module_index.module_definition_at(file_id, name_range).map(|module| module.module_id)
 }
@@ -589,9 +592,9 @@ mod tests {
             ),
             ("/top.sv", "module top;\n  child u();\nendmodule\n"),
         ]);
-        let db = host.raw_db();
+        let db = host.ctx();
 
-        let before = source_root_reference_index_for_root(db, SourceRootId(0));
+        let before = source_root_reference_index_for_root(&db, SourceRootId(0));
         assert_eq!(before.reference_groups_named("a").len(), 1, "wire a has one usage");
 
         let child_id = marked[0].0;
@@ -601,9 +604,9 @@ mod tests {
             "module child;\n  logic a;\n  logic b;\n  always_comb b = 1'b0;\nendmodule\n",
         ));
         host.apply_change(change);
-        let db = host.raw_db();
+        let db = host.ctx();
 
-        let after = source_root_reference_index_for_root(db, SourceRootId(0));
+        let after = source_root_reference_index_for_root(&db, SourceRootId(0));
         assert!(
             after.reference_groups_named("a").is_empty(),
             "removing the only usage must drop wire a's group"
@@ -621,7 +624,7 @@ mod tests {
         use vfs::ChangedFile;
 
         let (mut host, file_id, clean, _) = setup_marked("module top; logic a; endmodule\n");
-        let before = host.raw_db().semantic_snapshot_inputs();
+        let before = host.ctx().semantic_snapshot_inputs();
 
         let mut body_edit = Change::new();
         body_edit.add_changed_file(ChangedFile::create(
@@ -629,7 +632,7 @@ mod tests {
             format!("{clean} // body-only\n").as_str(),
         ));
         host.apply_change(body_edit);
-        let after_body = host.raw_db().semantic_snapshot_inputs();
+        let after_body = host.ctx().semantic_snapshot_inputs();
         assert!(
             Arc::ptr_eq(&before, &after_body),
             "position-free structure is unchanged, so the context must be reused"
@@ -639,7 +642,7 @@ mod tests {
         structural_edit
             .add_changed_file(ChangedFile::create(file_id, "module renamed; logic a; endmodule\n"));
         host.apply_change(structural_edit);
-        let after_structure = host.raw_db().semantic_snapshot_inputs();
+        let after_structure = host.ctx().semantic_snapshot_inputs();
         assert!(
             !Arc::ptr_eq(&after_body, &after_structure),
             "a changed declaration must invalidate the project resolution context"
@@ -650,7 +653,7 @@ mod tests {
     fn declaration_skeleton_is_authoritative_only_without_preprocessing() {
         let (plain, file_id, _, _) =
             setup_marked("module top; function void f(); endfunction endmodule\n");
-        let db = plain.raw_db();
+        let db = plain.ctx();
         let hir_file = HirFileId::File(file_id);
         let skeleton = db.declaration_skeleton(hir_file).unwrap();
         assert!(skeleton.preprocessor_independent());
@@ -659,7 +662,7 @@ mod tests {
         let (preprocessed, file_id, _, _) =
             setup_marked("`define DECL module generated; endmodule\n`DECL\n");
         let skeleton =
-            preprocessed.raw_db().declaration_skeleton(HirFileId::File(file_id)).unwrap();
+            preprocessed.ctx().declaration_skeleton(HirFileId::File(file_id)).unwrap();
         assert!(!skeleton.preprocessor_independent());
     }
 
@@ -674,7 +677,7 @@ mod tests {
         ]);
         let a = marked[0].0;
         let b = marked[1].0;
-        let before = host.raw_db().request_file_semantic_index(b);
+        let before = host.ctx().request_file_semantic_index(b);
 
         let mut unrelated = Change::new();
         unrelated.add_changed_file(ChangedFile::create(
@@ -682,7 +685,7 @@ mod tests {
             "module a; logic x; endmodule // body-only\n",
         ));
         host.apply_change(unrelated);
-        let after_unrelated = host.raw_db().request_file_semantic_index(b);
+        let after_unrelated = host.ctx().request_file_semantic_index(b);
         assert!(Arc::ptr_eq(&before, &after_unrelated));
 
         let mut own_edit = Change::new();
@@ -691,7 +694,7 @@ mod tests {
             "module b; logic y; endmodule // own body-only\n",
         ));
         host.apply_change(own_edit);
-        let after_own_edit = host.raw_db().request_file_semantic_index(b);
+        let after_own_edit = host.ctx().request_file_semantic_index(b);
         assert!(!Arc::ptr_eq(&after_unrelated, &after_own_edit));
     }
 
@@ -724,7 +727,7 @@ module top(input logic clk);
 endmodule
 "#;
         let (host, file_id, _clean, _markers) = setup_marked(text);
-        let db = host.raw_db();
+        let db = host.ctx();
         let hir_file_id = HirFileId::from(file_id);
         let tree = db.parse(hir_file_id);
         let root = tree.root();
@@ -745,7 +748,7 @@ endmodule
             }),
             "macro expansion should contain distinct module nodes with the same display identity"
         );
-        let sema = SemanticsImpl::new(db);
+        let sema = SemanticsImpl::new(db.db);
         let mut containers = ContainerCache::new();
         for event in root.elem_preorder() {
             match event {
@@ -809,12 +812,12 @@ module top(input logic clk, input logic [3:0] data);
 endmodule
 "#;
         let (host, file_id, _clean, _markers) = setup_marked(text);
-        let db = host.raw_db();
-        let context = SemanticSnapshotInputs::from_db(db);
+        let db = host.ctx();
+        let context = SemanticSnapshotInputs::from_db(db.db);
         let hir_file_id = HirFileId::from(file_id);
         let tree = db.parse(hir_file_id);
         let root = tree.root();
-        let sema = SemanticsImpl::new(db);
+        let sema = SemanticsImpl::new(db.db);
         let mut containers = ContainerCache::new();
         let mut chains = ScopeChainCache::new();
         let mut checked = 0usize;
@@ -826,16 +829,16 @@ endmodule
                 checked += 1;
                 let container = containers.container_for(&sema, hir_file_id, token.parent);
                 let chosen = if token_in_special_context(token) {
-                    DefinitionClass::resolve_in(db, &context, hir_file_id, token, Some(container))
+                    DefinitionClass::resolve_in(db.db, &context, hir_file_id, token, Some(container))
                         .unique()
                 } else {
-                    let chain = chains.chain_for(db, container);
+                    let chain = chains.chain_for(db.db, container);
                     sema.nameres_ident_in_scopes_at(hir_file_id, token, NameContext::Value, &chain)
                         .map(DefinitionClass::Definition)
                         .unique()
                 };
                 let full =
-                    DefinitionClass::resolve_in(db, &context, hir_file_id, token, Some(container))
+                    DefinitionClass::resolve_in(db.db, &context, hir_file_id, token, Some(container))
                         .unique();
                 assert_eq!(
                     chosen,
@@ -869,7 +872,7 @@ module top;
 endmodule
 "#;
         let (host, file_id, _clean, markers) = setup_marked(text);
-        let index = source_root_reference_index_for_root(host.raw_db(), SourceRootId(0));
+        let index = source_root_reference_index_for_root(&host.ctx(), SourceRootId(0));
 
         let range_at = |marker: &str| {
             let start = markers[marker];
@@ -1019,13 +1022,13 @@ module top;
 endmodule
 "#;
         let (host, file_id, _clean, markers) = setup_marked(text);
-        let db = host.raw_db();
+        let db = host.ctx();
         let tree = db.parse(HirFileId::from(file_id));
         let root = tree.root();
         let emitted = emit_token_index(root);
         for marker in ["param", "body"] {
             let target = resolve_semantic_target_with_emitted(
-                db,
+                db.db,
                 file_id,
                 markers[marker],
                 Some(root),
@@ -1038,7 +1041,7 @@ endmodule
                 "{marker} must remain owned by the preprocessor: {target:?}"
             );
         }
-        let index = source_root_reference_index_for_root(host.raw_db(), SourceRootId(0));
+        let index = source_root_reference_index_for_root(&host.ctx(), SourceRootId(0));
         let definition_range = TextRange::new(markers["def"], markers["def"] + TextSize::of("x"));
         let preproc_ranges = [
             TextRange::new(markers["param"], markers["param"] + TextSize::of("x")),

@@ -24,7 +24,6 @@ pub(crate) struct DefinitionRangeKey {
 }
 
 pub mod apply_change;
-mod caches;
 pub mod line_index_db;
 pub mod root_db;
 pub mod workspace_symbol_index_db;

@@ -3,14 +3,14 @@ use std::collections::HashMap;
 use preproc_expand::preproc::visible_macro_names_at;
 
 use super::candidate::CompletionCandidate;
+use crate::analysis::AnalysisContext;
 use crate::{
     FilePosition,
     completion::{context::CompletionContext, directives, engine::snippets},
-    db::root_db::RootDb,
 };
 
 pub(super) fn complete_directives(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
@@ -33,7 +33,7 @@ pub(super) fn complete_directives(
         items.push(CompletionCandidate::keyword(kw.clone(), ctx.replacement));
     }
 
-    let macro_names = match visible_macro_names_at(db, position.file_id, position.offset) {
+    let macro_names = match visible_macro_names_at(db.db, position.file_id, position.offset) {
         Ok(names) => names,
         Err(error) => {
             tracing::warn!(

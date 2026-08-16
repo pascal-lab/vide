@@ -3,10 +3,10 @@ use utils::text_edit::TextRange;
 use vfs::FileId;
 
 use super::{CodeAction, CodeActionCollector, CodeActionCtx, CodeActionResolveStrategy, handlers};
-use crate::{db::root_db::RootDb, diagnostics::Diagnostic};
+use crate::{analysis::AnalysisContext, diagnostics::Diagnostic};
 
 pub(crate) fn code_action(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     file_id: FileId,
     range: TextRange,
     diagnostics: &[Diagnostic],

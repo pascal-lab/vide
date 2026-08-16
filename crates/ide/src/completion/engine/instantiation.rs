@@ -7,16 +7,16 @@ use syntax::{
     ast::{self, AstNode},
 };
 
-use crate::db::root_db::RootDb;
+use crate::analysis::AnalysisContext;
 
-pub(super) fn ports_of_module_sorted(db: &RootDb, module_id: OwnerId) -> Vec<Ident> {
+pub(super) fn ports_of_module_sorted(db: &AnalysisContext<'_>, module_id: OwnerId) -> Vec<Ident> {
     let mut names = ports_of_module_in_order(db, module_id);
     names.sort();
     names.dedup();
     names
 }
 
-pub(super) fn ports_of_module_in_order(db: &RootDb, module_id: OwnerId) -> Vec<Ident> {
+pub(super) fn ports_of_module_in_order(db: &AnalysisContext<'_>, module_id: OwnerId) -> Vec<Ident> {
     let module = db.body_with_source_map(module_id);
     let body = db.body_with_source_map(module_id);
     let mut names = Vec::new();
@@ -43,14 +43,14 @@ pub(super) fn ports_of_module_in_order(db: &RootDb, module_id: OwnerId) -> Vec<I
     names
 }
 
-pub(super) fn overridable_params_of_module_sorted(db: &RootDb, module_id: OwnerId) -> Vec<Ident> {
+pub(super) fn overridable_params_of_module_sorted(db: &AnalysisContext<'_>, module_id: OwnerId) -> Vec<Ident> {
     let mut names = overridable_params_of_module_in_order(db, module_id);
     names.sort();
     names.dedup();
     names
 }
 
-pub(super) fn overridable_params_of_module_in_order(db: &RootDb, module_id: OwnerId) -> Vec<Ident> {
+pub(super) fn overridable_params_of_module_in_order(db: &AnalysisContext<'_>, module_id: OwnerId) -> Vec<Ident> {
     let body = db.body_with_source_map(module_id);
 
     let mut names = Vec::new();

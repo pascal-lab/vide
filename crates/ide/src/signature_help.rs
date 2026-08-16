@@ -27,7 +27,7 @@ use syntax::{
 use utils::text_edit::{TextRange, TextSize};
 
 use crate::{
-    FilePosition, db::root_db::RootDb, markup::Markup,
+    FilePosition, analysis::AnalysisContext, db::root_db::RootDb, markup::Markup,
     module_resolution::resolve_instantiation_target,
 };
 
@@ -62,7 +62,7 @@ impl SignatureHelp {
 }
 
 pub(crate) fn signature_help(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
     config: SignatureHelpConfig,
 ) -> Option<SignatureHelp> {

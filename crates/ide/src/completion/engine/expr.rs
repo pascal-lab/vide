@@ -18,6 +18,7 @@ use syntax::{
 use utils::text_edit::TextSize;
 
 use super::{candidate::CompletionCandidate, system, typed_filter::is_compatible_typed_value};
+use crate::analysis::AnalysisContext;
 use crate::{FilePosition, completion::context::CompletionContext, db::root_db::RootDb};
 
 #[derive(Clone, Debug)]
@@ -27,7 +28,7 @@ enum NameKind {
 }
 
 pub(super) fn complete_expression(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -36,7 +37,7 @@ pub(super) fn complete_expression(
 }
 
 pub(super) fn complete_argument_exprs(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -45,7 +46,7 @@ pub(super) fn complete_argument_exprs(
 }
 
 fn complete_expression_impl(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -62,7 +63,7 @@ fn complete_expression_impl(
 
     if let Some(container_id) = container_id_at_offset(&sema, file_id, root, position.offset) {
         current_module_id = module_id_for_container(db, container_id);
-        for container_id in ScopeParent::start_from(db, container_id) {
+        for container_id in ScopeParent::start_from(db.db, container_id) {
             collect_container_names(db, container_id, &mut names);
         }
     }
@@ -102,7 +103,7 @@ fn container_id_at_offset(
     sema.container_for_node(file_id, node)
 }
 
-fn collect_container_names(db: &RootDb, owner: OwnerId, names: &mut BTreeMap<String, NameKind>) {
+fn collect_container_names(db: &AnalysisContext<'_>, owner: OwnerId, names: &mut BTreeMap<String, NameKind>) {
     let scope = db.scope(owner);
     for (ident, defs) in scope.iter_listing() {
         collect_def_names(db, ident, defs, names);
@@ -110,7 +111,7 @@ fn collect_container_names(db: &RootDb, owner: OwnerId, names: &mut BTreeMap<Str
 }
 
 fn collect_def_names(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     ident: &hir_def::Ident,
     defs: impl IntoIterator<Item = DefId>,
     names: &mut BTreeMap<String, NameKind>,
@@ -118,7 +119,7 @@ fn collect_def_names(
     let defs = defs.into_iter().collect::<Vec<_>>();
 
     let subroutines = Resolution::from_candidates(
-        defs.iter().filter_map(|def_id| def_id.primary_origin(db).as_subroutine(db)),
+        defs.iter().filter_map(|def_id| def_id.primary_origin(db.db).as_subroutine(db.db)),
     );
     let return_ty = match subroutines {
         Resolution::Unresolved => None,
@@ -132,7 +133,7 @@ fn collect_def_names(
 
     if defs.iter().any(|def_id| {
         matches!(
-            def_id.kind(db),
+            def_id.kind(db.db),
             DefKind::Variable
                 | DefKind::Net
                 | DefKind::Param
@@ -143,19 +144,19 @@ fn collect_def_names(
         )
     }) {
         let res = Resolution::from_candidates(defs.iter().cloned());
-        let ty = TypeSystem::new(db).type_of_resolution(res);
+        let ty = TypeSystem::new(db.db).type_of_resolution(res);
         names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
     }
 }
-fn subroutine_return_ty(db: &RootDb, subroutine: OwnerId) -> Type {
-    TypeSystem::new(db).type_of_subroutine_return(subroutine)
+fn subroutine_return_ty(db: &AnalysisContext<'_>, subroutine: OwnerId) -> Type {
+    TypeSystem::new(db.db).type_of_subroutine_return(subroutine)
 }
 
-fn module_id_for_container(db: &RootDb, owner: OwnerId) -> Option<OwnerId> {
-    ScopeParent::start_from(db, owner).find(|owner| owner.kind(db) == OwnerKind::Module)
+fn module_id_for_container(db: &AnalysisContext<'_>, owner: OwnerId) -> Option<OwnerId> {
+    ScopeParent::start_from(db.db, owner).find(|owner| owner.kind(db.db) == OwnerKind::Module)
 }
 fn expression_candidate_matches_expected_type(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     expected_ty: Option<&Type>,
     kind: &NameKind,
 ) -> bool {
@@ -170,7 +171,7 @@ fn expression_candidate_matches_expected_type(
 }
 
 fn expected_type_at_offset(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     sema: &Semantics<'_, RootDb>,
     file_id: HirFileId,
     root: SyntaxNode<'_>,
@@ -179,11 +180,11 @@ fn expected_type_at_offset(
 ) -> Option<Type> {
     expected_type_for_assignment_rhs(db, sema, file_id, root, offset)
         .or_else(|| expected_type_for_declarator_initializer(db, sema, file_id, root, offset))
-        .filter(|ty| TypeSystem::new(db).is_typed_value(ty))
+        .filter(|ty| TypeSystem::new(db.db).is_typed_value(ty))
 }
 
 fn expected_type_for_assignment_rhs(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     sema: &Semantics<'_, RootDb>,
     file_id: HirFileId,
     root: SyntaxNode<'_>,
@@ -201,11 +202,11 @@ fn expected_type_for_assignment_rhs(
     }
 
     let res = sema.expr_to_def(sema.resolve_expr(file_id, assignment.left())?);
-    Some(TypeSystem::new(db).type_of_resolution(res))
+    Some(TypeSystem::new(db.db).type_of_resolution(res))
 }
 
 fn expected_type_for_declarator_initializer(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     sema: &Semantics<'_, RootDb>,
     file_id: HirFileId,
     root: SyntaxNode<'_>,
@@ -222,7 +223,7 @@ fn expected_type_for_declarator_initializer(
     let ident = lower_ident_opt(declarator.name())?;
     let container_id = sema.container_for_node(file_id, declarator.syntax())?;
     let res = sema.name_to_def(OwnerRef::new(container_id, ident));
-    Some(TypeSystem::new(db).type_of_resolution(res))
+    Some(TypeSystem::new(db.db).type_of_resolution(res))
 }
 
 fn is_assignment_expression(kind: SyntaxKind) -> bool {

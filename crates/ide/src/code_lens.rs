@@ -10,7 +10,7 @@ use vfs::FileId;
 
 use crate::{
     FilePosition, FileRange, ScopeVisibility,
-    db::root_db::RootDb,
+    analysis::AnalysisContext,
     references::{
         ReferencesConfig,
         search::{ReferencesCtx, SearchScope},
@@ -30,7 +30,11 @@ pub enum CodeLensKind {
     ModuleInstance { pos: FilePosition, data: Option<Vec<FileRange>> },
 }
 
-pub(crate) fn code_lens(db: &RootDb, config: CodeLensConfig, file_id: FileId) -> Vec<CodeLens> {
+pub(crate) fn code_lens(
+    db: &AnalysisContext<'_>,
+    config: CodeLensConfig,
+    file_id: FileId,
+) -> Vec<CodeLens> {
     if db.file_kind(file_id).is_project_manifest() {
         return Vec::new();
     }
@@ -48,7 +52,7 @@ pub(crate) fn code_lens(db: &RootDb, config: CodeLensConfig, file_id: FileId) ->
 }
 
 fn process_instantiations(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     hir_file: &Lowered<Body>,
     file_id: HirFileId,
     res: &mut Vec<CodeLens>,
@@ -58,7 +62,7 @@ fn process_instantiations(
         if module.name.is_none() {
             continue;
         }
-        let Some(source) = module_id.source(db) else {
+        let Some(source) = module_id.source(db.db) else {
             continue;
         };
         let range = source.value.full_range();
@@ -68,7 +72,7 @@ fn process_instantiations(
     }
 }
 
-pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLensKind {
+pub(crate) fn code_lens_resolve(db: &AnalysisContext<'_>, mut kind: CodeLensKind) -> CodeLensKind {
     let sema = db.semantics();
 
     match kind {
@@ -78,7 +82,7 @@ pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLens
                 sema.db.owner_table(hir_file_id).file_owner().expect("file owner"),
             );
             let Some(module_id) = hir_file.module_owners().find(|id| {
-                id.source(db).is_some_and(|source| source.value.full_range().start() == offset)
+                id.source(db.db).is_some_and(|source| source.value.full_range().start() == offset)
             }) else {
                 *data = Some(Vec::new());
                 return kind;
@@ -90,7 +94,7 @@ pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLens
                 ReferencesConfig::new(ScopeVisibility::Public, Some(SearchScope::all(sema.db)));
 
             let mut ranges = Vec::new();
-            for (file_id, tokens) in ReferencesCtx::new(&sema, &def, ref_config).search() {
+            for (file_id, tokens) in ReferencesCtx::new(db, &def, ref_config).search() {
                 let parsed_file = sema.parse_file(file_id);
                 for instantiation in tokens
                     .into_iter()

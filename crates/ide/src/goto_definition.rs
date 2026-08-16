@@ -11,6 +11,7 @@ use vfs::FileId;
 
 use crate::{
     FilePosition, RangeInfo,
+    analysis::AnalysisContext,
     db::root_db::RootDb,
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
@@ -21,13 +22,13 @@ use crate::{
 };
 
 pub(crate) fn goto_definition(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let sema = db.semantics();
     let parsed_file = sema.parse_file(file_id);
     let target = resolve_semantic_target(
-        db,
+        db.db,
         file_id,
         offset,
         parsed_file.root(),
@@ -37,7 +38,7 @@ pub(crate) fn goto_definition(
 }
 
 fn render_definition_target(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     file_id: FileId,
     sema: &Semantics<RootDb>,
     target: TargetResolution<'_>,
@@ -66,7 +67,7 @@ fn render_definition_target(
 }
 
 fn render_source_definition_target(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     file_id: FileId,
     sema: &Semantics<RootDb>,
     target: SourceTarget<'_>,
@@ -87,18 +88,18 @@ fn render_source_definition_target(
 }
 
 fn nav_targets_for_token(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     sema: &Semantics<RootDb>,
     hir_file_id: HirFileId,
     token: SyntaxTokenWithParent,
 ) -> Option<Vec<NavTarget>> {
     handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
-        let navs = DefinitionClass::resolve(sema.db, hir_file_id, token)
+        let navs = DefinitionClass::resolve(db, hir_file_id, token)
             .into_candidates()
             .into_iter()
-            .flat_map(|class| class.origins(db))
+            .flat_map(|class| class.origins(db.db))
             .unique()
-            .filter_map(|def| def.to_nav(db))
+            .filter_map(|def| def.to_nav(db.db))
             .collect_vec();
         (!navs.is_empty()).then_some(navs)
     })

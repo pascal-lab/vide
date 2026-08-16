@@ -19,6 +19,7 @@ use super::{
         value_candidates_in_module,
     },
 };
+use crate::analysis::AnalysisContext;
 use crate::{
     FilePosition,
     completion::{
@@ -30,7 +31,7 @@ use crate::{
 };
 
 pub(super) fn complete_in_paren_list(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -67,7 +68,7 @@ pub(super) fn complete_after_hash(
 }
 
 fn complete_parameter_port_list_with_typedefs(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -89,8 +90,8 @@ fn complete_parameter_port_list_with_typedefs(
     let unit_scope = db.unit_scope();
     let module_scope = db.scope(module_id);
     let mut items: Vec<CompletionCandidate> = unit_scope
-        .typedef_names(db)
-        .chain(module_scope.typedef_names(db))
+        .typedef_names(db.db)
+        .chain(module_scope.typedef_names(db.db))
         .map(|ident| ident.to_string())
         .filter(|name| name.starts_with(prefix))
         .map(|name| CompletionCandidate::text(name, ctx.replacement))
@@ -102,7 +103,7 @@ fn complete_parameter_port_list_with_typedefs(
 }
 
 fn complete_port_connections(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -186,7 +187,7 @@ fn complete_port_connections(
 }
 
 fn complete_param_value_assignment(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -296,10 +297,10 @@ fn separated_list_index_at_offset<'a, T: AstNode<'a>>(
 }
 
 fn resolve_target_module_id(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     _sema: &Semantics<'_, RootDb>,
     from_file: vfs::FileId,
     instantiation: ast::HierarchyInstantiation<'_>,
 ) -> Option<OwnerId> {
-    resolve_instantiation_target(db, &crate::module_resolution::module_indexes(db), from_file, instantiation).unique()
+    resolve_instantiation_target(db.db, &crate::module_resolution::module_indexes(db.db), from_file, instantiation).unique()
 }

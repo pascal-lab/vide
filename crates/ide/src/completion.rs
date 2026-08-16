@@ -4,4 +4,5 @@ mod engine;
 mod request;
 mod syntax_keywords;
 
-pub use engine::{CompletionItem, CompletionItemKind, completions};
+pub use engine::{CompletionItem, CompletionItemKind};
+pub(crate) use engine::completions;

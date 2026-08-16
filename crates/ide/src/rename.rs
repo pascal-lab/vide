@@ -18,6 +18,7 @@ use vfs::FileId;
 
 use crate::{
     FilePosition, ScopeVisibility,
+    analysis::AnalysisContext,
     db::root_db::RootDb,
     definitions::DefinitionClass,
     references::{
@@ -111,30 +112,30 @@ pub struct RenameCollisionInfo {
 }
 
 pub(crate) fn prepare_rename(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position @ FilePosition { file_id, .. }: FilePosition,
     config: RenameConfig,
 ) -> RenameResult<TextRange> {
     let sema = db.semantics();
-    let target = resolve_rename_target(&sema, position)?;
+    let target = resolve_rename_target(db, &sema, position)?;
     match &target {
         RenameTarget::Hdl(target) => {
-            let _ = config.references_config(db, &target.selected_def, file_id)?;
+            let _ = config.references_config(db.db, &target.selected_def, file_id)?;
         }
         RenameTarget::Macro(_) | RenameTarget::Manifest(_) => {}
     }
-    target.range(db).ok_or(RenameError::NoRefFound)
+    target.range(db.db).ok_or(RenameError::NoRefFound)
 }
 
 pub(crate) fn rename(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position @ FilePosition { file_id, .. }: FilePosition,
     config: RenameConfig,
     new_name: &str,
 ) -> RenameResult<SourceChange> {
     let sema = db.semantics();
-    match resolve_rename_target(&sema, position)? {
-        RenameTarget::Macro(target) => rename_macro(db, file_id, &config, target, new_name),
+    match resolve_rename_target(db, &sema, position)? {
+        RenameTarget::Macro(target) => rename_macro(db.db, file_id, &config, target, new_name),
         RenameTarget::Manifest(target) => {
             crate::manifest::rename_target(db, target, &config, new_name)
         }
@@ -142,7 +143,7 @@ pub(crate) fn rename(
             let mut source_change =
                 rename_definition(db, &sema, file_id, &config, &selected_def, new_name, None)?;
             crate::manifest::rename_module_references(
-                db,
+                db.db,
                 file_id,
                 &selected_def,
                 &config,
@@ -155,12 +156,12 @@ pub(crate) fn rename(
 }
 
 pub(crate) fn rename_expansion_info(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     config: RenameConfig,
 ) -> RenameResult<RecursiveRenameInfo> {
     let sema = db.semantics();
-    let resolved = match resolve_rename_target(&sema, position)? {
+    let resolved = match resolve_rename_target(db, &sema, position)? {
         RenameTarget::Macro(_) => {
             // Recursive rename follows same-name port connections; macros have
             // no such semantics.
@@ -171,39 +172,39 @@ pub(crate) fn rename_expansion_info(
         }
         RenameTarget::Hdl(target) => target,
     };
-    let targets = recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?;
+    let targets = recursive_rename_targets(db, position.file_id, &config, resolved.targets)?;
     let additional_symbols = targets.len().saturating_sub(1);
     Ok(RecursiveRenameInfo { additional_symbols })
 }
 
 pub(crate) fn expanded_rename(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     config: RenameConfig,
     new_name: &str,
 ) -> RenameResult<SourceChange> {
     let sema = db.semantics();
-    match resolve_rename_target(&sema, position)? {
+    match resolve_rename_target(db, &sema, position)? {
         // Macros have no recursive semantics; the expanded rename is the
         // plain rename.
         RenameTarget::Macro(target) => {
-            rename_macro(db, position.file_id, &config, target, new_name)
+            rename_macro(db.db, position.file_id, &config, target, new_name)
         }
         RenameTarget::Manifest(target) => {
             crate::manifest::rename_target(db, target, &config, new_name)
         }
         RenameTarget::Hdl(resolved) => {
             let targets =
-                recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?;
+                recursive_rename_targets(db, position.file_id, &config, resolved.targets)?;
             let mut rename_targets = UniqVec::<(), DefOrigin>::default();
             for target in &targets {
-                rename_targets.push(target.def.origins(db), ());
+                rename_targets.push(target.def.origins(db.db), ());
             }
             let mut source_changes = SourceChange::default();
 
             for target in &targets {
                 let changes = rename_definition_with_refs(
-                    db,
+                    db.db,
                     &sema,
                     &target.def,
                     new_name,
@@ -223,14 +224,14 @@ pub(crate) fn expanded_rename(
 }
 
 pub(crate) fn rename_conflict_info(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     config: RenameConfig,
     new_name: &str,
     recursive: bool,
 ) -> RenameResult<RenameCollisionInfo> {
     let sema = db.semantics();
-    let resolved = match resolve_rename_target(&sema, position)? {
+    let resolved = match resolve_rename_target(db, &sema, position)? {
         // The preproc model has no name-scope query for macros yet; report no
         // collisions for macro renames.
         RenameTarget::Macro(_) => return Ok(RenameCollisionInfo { conflicts: 0 }),
@@ -238,7 +239,7 @@ pub(crate) fn rename_conflict_info(
         RenameTarget::Hdl(target) => target,
     };
     let targets: Vec<DefId> = if recursive {
-        recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?
+        recursive_rename_targets(db, position.file_id, &config, resolved.targets)?
             .into_iter()
             .map(|target| target.def)
             .collect()
@@ -249,17 +250,17 @@ pub(crate) fn rename_conflict_info(
     let new_name = SmolStr::new(new_name);
     let mut target_index = UniqVec::<(), DefOrigin>::default();
     for target in &targets {
-        target_index.push(target.origins(db), ());
+        target_index.push(target.origins(db.db), ());
     }
     let mut conflicts = UniqVec::<DefId, DefOrigin>::default();
-    for collision in targets.iter().flat_map(|target| target.origins(db)).flat_map(|origin| {
-        sema.resolve_name(origin.container_id(db), &new_name, origin.kind(db).name_context())
+    for collision in targets.iter().flat_map(|target| target.origins(db.db)).flat_map(|origin| {
+        sema.resolve_name(origin.container_id(db.db), &new_name, origin.kind(db.db).name_context())
             .into_candidates()
     }) {
-        if collision.origins(db).iter().any(|origin| target_index.contains(origin)) {
+        if collision.origins(db.db).iter().any(|origin| target_index.contains(origin)) {
             continue;
         }
-        conflicts.push(collision.origins(db), collision);
+        conflicts.push(collision.origins(db.db), collision);
     }
 
     Ok(RenameCollisionInfo { conflicts: conflicts.len() })
@@ -322,6 +323,7 @@ enum ReferenceEdit {
 }
 
 fn resolve_rename_target(
+    db: &AnalysisContext<'_>,
     sema: &Semantics<'_, RootDb>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> RenameResult<RenameTarget> {
@@ -339,7 +341,7 @@ fn resolve_rename_target(
         SemanticTarget::Include(_) => Err(RenameError::NoRefFound),
         SemanticTarget::Manifest(target) => Ok(RenameTarget::Manifest(target)),
         SemanticTarget::Source(target) => {
-            resolve_hdl_rename_target(sema, hir_file_id, target).map(RenameTarget::Hdl)
+            resolve_hdl_rename_target(db, sema, hir_file_id, target).map(RenameTarget::Hdl)
         }
     }
 }
@@ -392,6 +394,7 @@ fn unique_macro_param_definition(
 }
 
 fn resolve_hdl_rename_target(
+    db: &AnalysisContext<'_>,
     sema: &Semantics<'_, RootDb>,
     hir_file_id: HirFileId,
     target: SourceTarget<'_>,
@@ -401,7 +404,7 @@ fn resolve_hdl_rename_target(
     let mut targets = UniqVec::<DefId, DefOrigin>::default();
 
     for token in tokens {
-        let token_selected = match DefinitionClass::resolve(sema.db, hir_file_id, token)
+        let token_selected = match DefinitionClass::resolve(db, hir_file_id, token)
             .unique()
             .ok_or(RenameError::NoDefFound)?
         {
@@ -430,7 +433,7 @@ fn resolve_hdl_rename_target(
     if targets
         .iter()
         .flat_map(|def| def.origins(sema.db))
-        .any(|origin| origin_is_macro_generated(sema.db, origin))
+        .any(|origin| origin_is_macro_generated(db, origin))
     {
         return Err(RenameError::MacroDefinitionNotEditable);
     }
@@ -512,7 +515,7 @@ fn macro_reference_name_range(db: &RootDb, reference: &MacroReference) -> TextRa
 }
 
 fn rename_definition(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     sema: &Semantics<'_, RootDb>,
     request_file_id: FileId,
     config: &RenameConfig,
@@ -520,19 +523,18 @@ fn rename_definition(
     new_name: &str,
     rename_targets: Option<&UniqVec<(), DefOrigin>>,
 ) -> RenameResult<SourceChange> {
-    let refs = references_for_definition(db, sema, request_file_id, config, def)?;
-    rename_definition_with_refs(db, sema, def, new_name, rename_targets, &refs)
+    let refs = references_for_definition(db, request_file_id, config, def)?;
+    rename_definition_with_refs(db.db, sema, def, new_name, rename_targets, &refs)
 }
 
 fn references_for_definition(
-    db: &RootDb,
-    sema: &Semantics<'_, RootDb>,
+    db: &AnalysisContext<'_>,
     request_file_id: FileId,
     config: &RenameConfig,
     def: &DefId,
 ) -> RenameResult<ReferenceSearchResult> {
-    let refs_config = config.references_config(db, def, request_file_id)?;
-    Ok(ReferencesCtx::new(sema, def, refs_config).search())
+    let refs_config = config.references_config(db.db, def, request_file_id)?;
+    Ok(ReferencesCtx::new(db, def, refs_config).search())
 }
 
 fn rename_definition_with_refs(
@@ -675,26 +677,26 @@ fn range_text(text: &str, range: TextRange) -> &str {
 /// salsa query so the recursive rename info, conflict and edit commands share
 /// one computation across requests.
 pub(crate) fn recursive_rename_closure_impl(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     def: DefId,
     visibility: ScopeVisibility,
     single_file: Option<FileId>,
 ) -> Vec<DefId> {
     let config = ReferencesConfig::new(visibility, single_file.map(SearchScope::single_file));
     let mut targets = UniqVec::<DefId, DefOrigin>::default();
-    targets.push(def.origins(db), def);
+    targets.push(def.origins(db.db), def);
     let mut idx = 0;
     while idx < targets.len() {
         let current = *targets.get(idx);
         idx += 1;
-        let scope = SearchScope::new(db, &current, config.clone());
+        let scope = SearchScope::new(db.db, &current, config.clone());
         let refs = search_references(db, &current, scope);
         // Same-name connections connect their paired definition: follow them
         // to close the recursive rename set.
         for toks in refs.values() {
             for token_ref in toks {
                 if let Some(paired) = token_ref.context().paired() {
-                    targets.push(paired.origins(db), *paired);
+                    targets.push(paired.origins(db.db), *paired);
                 }
             }
         }
@@ -703,8 +705,7 @@ pub(crate) fn recursive_rename_closure_impl(
 }
 
 fn recursive_rename_targets(
-    db: &RootDb,
-    sema: &Semantics<'_, RootDb>,
+    db: &AnalysisContext<'_>,
     file_id: FileId,
     config: &RenameConfig,
     initial_targets: Vec<DefId>,
@@ -717,35 +718,35 @@ fn recursive_rename_targets(
     for target in initial_targets {
         let closure = db.recursive_rename_closure(target, config.scope_visibility, single_file);
         for def in closure.iter() {
-            targets.push(def.origins(db), *def);
+            targets.push(def.origins(db.db), *def);
         }
     }
     let mut resolved_targets = Vec::new();
     for def in targets.into_vec() {
-        let refs = references_for_definition(db, sema, file_id, config, &def)?;
+        let refs = references_for_definition(db, file_id, config, &def)?;
         resolved_targets.push(RecursiveRenameTarget { def, refs });
     }
 
     Ok(resolved_targets)
 }
 
-fn origin_is_macro_generated(db: &RootDb, origin: DefOrigin) -> bool {
-    if matches!(origin.container_id(db).file(db), HirFileId::Macro(_)) {
+fn origin_is_macro_generated(db: &AnalysisContext<'_>, origin: DefOrigin) -> bool {
+    if matches!(origin.container_id(db.db).file(db.db), HirFileId::Macro(_)) {
         return true;
     }
-    let Some(InFile { file_id: HirFileId::File(file_id), value: range }) = origin.name_range(db)
+    let Some(InFile { file_id: HirFileId::File(file_id), value: range }) = origin.name_range(db.db)
     else {
         return false;
     };
-    if is_preproc_free_file(db, file_id) {
+    if is_preproc_free_file(db.db, file_id) {
         return false;
     }
 
     if let Some(generated) = db.request_source_semantic_map(file_id).macro_origin_for_range(range) {
         return generated;
     }
-    macro_files_at_offset(db, file_id, range.start()).into_iter().any(|macro_file| {
-        macro_file_call_site(db, macro_file).is_some_and(|call_site| {
+    macro_files_at_offset(db.db, file_id, range.start()).into_iter().any(|macro_file| {
+        macro_file_call_site(db.db, macro_file).is_some_and(|call_site| {
             call_site.call_file_id == file_id && call_site.call_range == range
         })
     })
@@ -770,9 +771,10 @@ mod tests {
     use utils::text_edit::TextSize;
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
+    use crate::analysis_host::AnalysisHost;
     use super::*;
 
-    fn db_with_text(text: &str) -> (RootDb, FileId) {
+    fn db_with_text(text: &str) -> (AnalysisHost, FileId) {
         let file_id = FileId::from_raw(0);
         let mut file_set = FileSet::default();
         file_set.insert(file_id, VfsPath::new_virtual_path("/test.sv".to_owned()));
@@ -781,21 +783,22 @@ mod tests {
         change.set_roots(vec![SourceRoot::new_local(file_set)]);
         change.add_changed_file(ChangedFile::create(file_id, text));
 
-        let mut db = RootDb::new(None);
-        db.apply_change(change);
-        (db, file_id)
+        let mut host = AnalysisHost::default();
+        host.apply_change(change);
+        (host, file_id)
     }
 
-    fn db_with_caret(text: &str) -> (RootDb, FileId, TextSize) {
+    fn db_with_caret(text: &str) -> (AnalysisHost, FileId, TextSize) {
         let marker = "/*caret*/";
         let offset = text.find(marker).expect("missing caret marker");
         let text = text.replace(marker, "");
-        let (db, file_id) = db_with_text(&text);
-        (db, file_id, TextSize::from(offset as u32))
+        let (host, file_id) = db_with_text(&text);
+        (host, file_id, TextSize::from(offset as u32))
     }
 
     fn apply_rename(text: &str, new_name: &str, recursive: bool) -> String {
-        let (db, file_id, offset) = db_with_caret(text);
+        let (host, file_id, offset) = db_with_caret(text);
+        let db = host.ctx();
         let config = RenameConfig::workspace(ScopeVisibility::Public);
         let position = FilePosition { file_id, offset };
         let change = if recursive {
@@ -960,9 +963,9 @@ mod tests {
         );
         let config = RenameConfig::workspace(ScopeVisibility::Public);
         let position = FilePosition { file_id, offset };
-        let info = rename_expansion_info(&db, position, config.clone()).unwrap();
+        let info = rename_expansion_info(&db.ctx(), position, config.clone()).unwrap();
         assert_eq!(info.additional_symbols, 0);
-        let conflicts = rename_conflict_info(&db, position, config, "BAR", false).unwrap();
+        let conflicts = rename_conflict_info(&db.ctx(), position, config, "BAR", false).unwrap();
         assert_eq!(conflicts.conflicts, 0);
     }
 }

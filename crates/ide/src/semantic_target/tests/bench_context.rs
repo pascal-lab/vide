@@ -63,10 +63,10 @@ fn index_benchmarks_macro_context_scales_with_offset() {
     for count in modules {
         let text = bench_context_text(count);
         let (host, file_id) = crate::test_utils::setup_with_path(&text, "/bench.sv");
-        let db = host.raw_db();
+        let db = host.ctx();
         // Warm the coverage query once; the scan measures lookup cost only.
-        std::hint::black_box(macro_context_at(db, file_id, TextSize::from(0)));
-        let (total, tokens) = context_scan_all_name_tokens(db, &text);
+        std::hint::black_box(macro_context_at(db.db, file_id, TextSize::from(0)));
+        let (total, tokens) = context_scan_all_name_tokens(db.db, &text);
         let per_token =
             std::time::Duration::from_nanos(total.as_nanos() as u64 / tokens.max(1) as u64);
         println!(

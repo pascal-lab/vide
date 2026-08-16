@@ -1227,7 +1227,7 @@ endmodule
     let (host, file_id, _clean_text, markers) =
         setup_marked_with_predefines(text, vec!["USE_IMPL=1".to_owned()]);
 
-    let include = include_directive_at(host.raw_db(), file_id, markers["active"])
+    let include = include_directive_at(host.ctx().db, file_id, markers["active"])
         .unwrap()
         .expect("active include should be queryable");
     let IncludeTarget::Literal { path, .. } = include.target else {
@@ -1235,7 +1235,7 @@ endmodule
     };
     assert_eq!(path.as_str(), "active.svh");
 
-    assert!(include_directive_at(host.raw_db(), file_id, markers["inactive"]).unwrap().is_none());
+    assert!(include_directive_at(host.ctx().db, file_id, markers["inactive"]).unwrap().is_none());
 }
 
 #[test]
@@ -3020,11 +3020,11 @@ endmodule
     };
 
     let module_index = crate::db::workspace_symbol_index_db::source_root_module_index_for_root(
-        host.raw_db(),
+        host.ctx().db,
         SourceRootId(0),
     );
     let index = crate::db::workspace_symbol_index_db::source_root_reference_index_for_root(
-        host.raw_db(),
+        &host.ctx(),
         SourceRootId(0),
     );
 
@@ -3120,7 +3120,7 @@ endmodule
     let leaf_call = marked_range(child_markers, "leaf_call", 4);
 
     let top_outgoing =
-        crate::semantic_index::outgoing_module_edges(host.raw_db(), *top_file, top_def);
+        crate::semantic_index::outgoing_module_edges(&host.ctx(), *top_file, top_def);
     assert_eq!(top_outgoing.len(), 1);
     assert_eq!(top_outgoing[0].caller.file_id, *top_file);
     assert_eq!(top_outgoing[0].caller.name_range, top_def);
@@ -3129,14 +3129,14 @@ endmodule
     assert_eq!(top_outgoing[0].call_range, child_call);
 
     let child_outgoing =
-        crate::semantic_index::outgoing_module_edges(host.raw_db(), *child_file, child_def);
+        crate::semantic_index::outgoing_module_edges(&host.ctx(), *child_file, child_def);
     assert_eq!(child_outgoing.len(), 1);
     assert_eq!(child_outgoing[0].callee.file_id, *leaf_file);
     assert_eq!(child_outgoing[0].callee.name_range, leaf_def);
     assert_eq!(child_outgoing[0].call_range, leaf_call);
 
     let child_incoming =
-        crate::semantic_index::incoming_module_edges(host.raw_db(), *child_file, child_def);
+        crate::semantic_index::incoming_module_edges(&host.ctx(), *child_file, child_def);
     assert_eq!(child_incoming.len(), 1);
     assert_eq!(child_incoming[0].caller.file_id, *top_file);
     assert_eq!(child_incoming[0].call_range, child_call);
@@ -3760,7 +3760,7 @@ endmodule
             stmts.values().any(|stmt| matches_kind(&stmt.kind))
         }
 
-        let db = host.raw_db();
+        let db = host.ctx();
         let hir_file_id = HirFileId::File(file_id);
         let hir_file =
             db.body_with_source_map(db.owner_table(hir_file_id).file_owner().expect("file owner"));

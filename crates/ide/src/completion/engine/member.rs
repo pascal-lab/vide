@@ -9,10 +9,11 @@ use syntax::{
 };
 
 use super::candidate::CompletionCandidate;
+use crate::analysis::AnalysisContext;
 use crate::{FilePosition, completion::context::CompletionContext, db::root_db::RootDb};
 
 pub(super) fn complete_member_access(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -71,7 +72,7 @@ fn scoped_name_at_offset(
 }
 
 fn members_for_incomplete_scoped_access(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     sema: &Semantics<'_, RootDb>,
     file_id: HirFileId,
     root: SyntaxNode<'_>,
@@ -83,12 +84,12 @@ fn members_for_incomplete_scoped_access(
     }
     let left = root.token_before_offset(separator.text_range()?.start())?;
     let res = sema.nameres_ident(file_id, left, NameContext::Type);
-    let members = TypeSystem::new(db).members(&TypeSystem::new(db).type_of_resolution(res));
+    let members = TypeSystem::new(db.db).members(&TypeSystem::new(db.db).type_of_resolution(res));
     (!members.is_empty()).then_some(members)
 }
 
 fn members_for_incomplete_access(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     sema: &Semantics<'_, RootDb>,
     file_id: HirFileId,
     root: SyntaxNode<'_>,
@@ -117,13 +118,13 @@ fn expr_before_dot(
 }
 
 fn members_for_expr(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     sema: &Semantics<'_, RootDb>,
     file_id: HirFileId,
     expr: ast::Expression<'_>,
 ) -> Option<Vec<Member>> {
     let expr_id = sema.resolve_expr(file_id, expr)?;
-    let types = TypeSystem::new(db);
+    let types = TypeSystem::new(db.db);
     let mut members = types.members(&types.type_of_expr(expr_id));
     if members.is_empty() {
         members = types.members(&types.type_of_resolution(sema.expr_to_def(expr_id)));
@@ -132,14 +133,14 @@ fn members_for_expr(
 }
 
 fn members_for_scoped_name(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     sema: &Semantics<'_, RootDb>,
     file_id: HirFileId,
     scoped: ast::ScopedName<'_>,
 ) -> Option<Vec<Member>> {
     if let Some(left) = scoped_left_token(scoped) {
         let res = sema.nameres_ident(file_id, left, NameContext::Type);
-        let types = TypeSystem::new(db);
+        let types = TypeSystem::new(db.db);
         let members = types.members(&types.type_of_resolution(res));
         return (!members.is_empty()).then_some(members);
     }

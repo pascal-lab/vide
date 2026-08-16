@@ -37,6 +37,7 @@ use vfs::{AbsPathBuf, ChangedFile, FileId, FileSet, PathMatcher, VfsPath};
 
 use crate::{
     FilePosition, ScopeVisibility,
+    analysis::AnalysisContext,
     analysis_host::AnalysisHost,
     completion,
     db::{
@@ -110,10 +111,10 @@ fn index_benchmarks_macro_dense_build() {
     for count in counts {
         let text = macro_dense_text(count);
         let (host, file_id) = host_with_single_file(&text);
-        let db = host.raw_db();
+        let db = host.ctx();
         let root_id = db.source_root_id(file_id);
         let (_, semantic_cost) =
-            timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
+            timed(|| std::hint::black_box(source_root_reference_index_for_root(&db, root_id)));
         println!("{:<10} {:<10} {:<14?}", count, text.len(), semantic_cost);
     }
 }
@@ -127,13 +128,13 @@ fn index_benchmarks_build_scales_with_file_size() {
     for count in modules {
         let text = file_text(count as u32);
         let (host, file_id) = host_with_single_file(&text);
-        let db = host.raw_db();
+        let db = host.ctx();
         let root_id = db.source_root_id(file_id);
 
         let (_, module_cost) =
-            timed(|| std::hint::black_box(source_root_module_index_for_root(db, root_id)));
+            timed(|| std::hint::black_box(source_root_module_index_for_root(db.db, root_id)));
         let (_, semantic_cost) =
-            timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
+            timed(|| std::hint::black_box(source_root_reference_index_for_root(&db, root_id)));
 
         println!(
             "{:<10} {:<10} {:<14?} {:<14?}",
@@ -183,18 +184,18 @@ fn index_benchmarks_real_file() {
     let mut host = AnalysisHost::default();
     host.apply_change(change);
 
-    let db = host.raw_db();
+    let db = host.ctx();
     let root_id = db.source_root_id(file_id);
 
     let (_, parse_cost) = timed(|| std::hint::black_box(db.parse(file_id.into())));
     eprintln!("cold parse:                                    {parse_cost:?}");
 
     let (_, module_cost) =
-        timed(|| std::hint::black_box(source_root_module_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_module_index_for_root(db.db, root_id)));
     eprintln!("module index:                                  {module_cost:?}");
 
     let (_, semantic_cost) =
-        timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_reference_index_for_root(&db, root_id)));
     eprintln!("semantic index (cold, first build):           {semantic_cost:?}");
 
     let probe = std::env::var("VIDE_BENCH_PROBE").unwrap_or_else(|_| "array_0_ext".to_owned());
@@ -206,7 +207,7 @@ fn index_benchmarks_real_file() {
     );
     let position = FilePosition { file_id, offset: probe_offset };
 
-    let (nav, goto_cost) = timed(|| goto_definition::goto_definition(db, position));
+    let (nav, goto_cost) = timed(|| goto_definition::goto_definition(&db, position));
     eprintln!(
         "goto definition on first module ({probe}):     {goto_cost:?} ({} targets)",
         nav.map_or(0, |info| info.info.len())
@@ -214,7 +215,7 @@ fn index_benchmarks_real_file() {
 
     let (highlights, highlight_cost) = timed(|| {
         crate::document_highlight::document_highlight(
-            db,
+            &db,
             position,
             DocumentHighlightConfig { scope_visibility: ScopeVisibility::Public },
         )
@@ -226,7 +227,7 @@ fn index_benchmarks_real_file() {
 
     let (refs, refs_cost) = timed(|| {
         crate::references::references(
-            db,
+            &db,
             position,
             ReferencesConfig::new(ScopeVisibility::Public, None),
         )
@@ -236,12 +237,12 @@ fn index_benchmarks_real_file() {
     eprintln!("find references (workspace):                  {refs_cost:?} ({ref_count} refs)");
 
     let probe_range = TextRange::new(probe_offset, probe_offset + TextSize::of(&probe));
-    let (incoming, incoming_cost) = timed(|| incoming_module_edges(db, file_id, probe_range));
+    let (incoming, incoming_cost) = timed(|| incoming_module_edges(&db, file_id, probe_range));
     eprintln!(
         "call hierarchy incoming:                      {incoming_cost:?} ({} edges)",
         incoming.len()
     );
-    let (outgoing, outgoing_cost) = timed(|| outgoing_module_edges(db, file_id, probe_range));
+    let (outgoing, outgoing_cost) = timed(|| outgoing_module_edges(&db, file_id, probe_range));
     eprintln!(
         "call hierarchy outgoing:                      {outgoing_cost:?} ({} edges)",
         outgoing.len()
@@ -252,9 +253,9 @@ fn index_benchmarks_real_file() {
     let touched = format!("{text} ");
     touch.add_changed_file(ChangedFile::create(file_id, touched.as_str()));
     host.apply_change(touch);
-    let db = host.raw_db();
+    let db = host.ctx();
     let (_, rebuild_cost) =
-        timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_reference_index_for_root(&db, root_id)));
     eprintln!("semantic index (rebuild after one-byte touch): {rebuild_cost:?}");
 }
 
@@ -288,11 +289,11 @@ fn index_benchmarks_rebuild_after_single_file_change() {
     let mut host = AnalysisHost::default();
     host.apply_change(change);
 
-    let db = host.raw_db();
+    let db = host.ctx();
     let root_id = db.source_root_id(big_file);
 
     let (_, cold) =
-        timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_reference_index_for_root(&db, root_id)));
     println!("cold build of root (64KB big file + small file): {cold:?}");
 
     // Touch only the small file: append a comment.
@@ -303,9 +304,9 @@ fn index_benchmarks_rebuild_after_single_file_change() {
     ));
     host.apply_change(touch);
 
-    let db = host.raw_db();
+    let db = host.ctx();
     let (_, rebuild) =
-        timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_reference_index_for_root(&db, root_id)));
     println!("rebuild after touching only the small file:     {rebuild:?}");
 
     // Lower bound: building an index for a root containing only the small
@@ -321,10 +322,10 @@ fn index_benchmarks_rebuild_after_single_file_change() {
     ));
     let mut single_host = AnalysisHost::default();
     single_host.apply_change(single_change);
-    let single_db = single_host.raw_db();
+    let single_db = single_host.ctx();
     let single_root = single_db.source_root_id(small_file);
     let (_, lower_bound) = timed(|| {
-        std::hint::black_box(source_root_reference_index_for_root(single_db, single_root))
+        std::hint::black_box(source_root_reference_index_for_root(&single_db, single_root))
     });
     println!("lower bound (indexing only the small file alone): {lower_bound:?}");
 }
@@ -459,22 +460,22 @@ fn benchmark_project_request(
     label: &str,
     prefer_use: bool,
     offset_delta: TextSize,
-    mut request: impl FnMut(&RootDb, FilePosition) -> usize,
+    mut request: impl FnMut(&AnalysisContext<'_>, FilePosition) -> usize,
 ) {
     const WARM_RUNS: usize = 20;
 
     let (mut host, file_ids, _, _) = host_with_project(root);
-    let db = host.raw_db();
-    let Some(mut position) = project_probe_position(db, &file_ids, probe, prefer_use) else {
+    let db = host.ctx();
+    let Some(mut position) = project_probe_position(db.db, &file_ids, probe, prefer_use) else {
         eprintln!("{label:<28} probe {probe:?} not found");
         return;
     };
     position.offset += offset_delta;
 
-    let (cold_count, cold) = timed(|| std::hint::black_box(request(db, position)));
+    let (cold_count, cold) = timed(|| std::hint::black_box(request(&db, position)));
     let mut warm = Vec::with_capacity(WARM_RUNS);
     for _ in 0..WARM_RUNS {
-        let (count, cost) = timed(|| std::hint::black_box(request(db, position)));
+        let (count, cost) = timed(|| std::hint::black_box(request(&db, position)));
         assert_eq!(count, cold_count, "{label} changed its result count after warming");
         warm.push(cost);
     }
@@ -487,8 +488,8 @@ fn benchmark_project_request(
     let mut touch = Change::new();
     touch.add_changed_file(ChangedFile::create(touch_file, touched_text.as_str()));
     let (_, apply_change) = timed(|| host.apply_change(touch));
-    let db = host.raw_db();
-    let (after_edit_count, after_edit) = timed(|| std::hint::black_box(request(db, position)));
+    let db = host.ctx();
+    let (after_edit_count, after_edit) = timed(|| std::hint::black_box(request(&db, position)));
     assert_eq!(
         after_edit_count, cold_count,
         "{label} changed its result count after an unrelated body-only edit"
@@ -636,7 +637,7 @@ fn index_benchmarks_real_project_unit_scope_validation() {
 
     let prepare = || {
         let (mut host, file_ids, _, _) = host_with_project(&root);
-        let db = host.raw_db();
+        let db = host.ctx();
         std::hint::black_box(db.unit_scope());
         let touch_file = file_ids[0];
         let touched_text = format!("{} // unit-scope-bench-touch\n", db.file_text(touch_file));
@@ -647,10 +648,10 @@ fn index_benchmarks_real_project_unit_scope_validation() {
     };
 
     let (direct_host, _) = prepare();
-    let (_, direct) = timed(|| std::hint::black_box(direct_host.raw_db().unit_scope()));
+    let (_, direct) = timed(|| std::hint::black_box(direct_host.ctx().unit_scope()));
 
     let (owner_host, file_ids) = prepare();
-    let db = owner_host.raw_db();
+    let db = owner_host.ctx();
     let (_, owner_tables) = timed(|| {
         for &file_id in &file_ids {
             std::hint::black_box(db.owner_table(preproc_expand::file::HirFileId::File(file_id)));
@@ -670,27 +671,27 @@ fn benchmark_project_request_prewarm(
     label: &str,
     prefer_use: bool,
     offset_delta: TextSize,
-    mut request: impl FnMut(&RootDb, FilePosition) -> usize,
-    mut prewarm: impl FnMut(&RootDb, FilePosition),
+    mut request: impl FnMut(&AnalysisContext<'_>, FilePosition) -> usize,
+    mut prewarm: impl FnMut(&AnalysisContext<'_>, FilePosition),
 ) {
     let (mut host, file_ids, _, _) = host_with_project(root);
-    let db = host.raw_db();
-    let Some(mut position) = project_probe_position(db, &file_ids, probe, prefer_use) else {
+    let db = host.ctx();
+    let Some(mut position) = project_probe_position(db.db, &file_ids, probe, prefer_use) else {
         eprintln!("{label:<28} probe {probe:?} not found");
         return;
     };
     position.offset += offset_delta;
-    let expected = request(db, position);
+    let expected = request(&db, position);
 
     let touch_file = file_ids[0];
     let touched_text = format!("{} // prewarm-bench-touch\n", db.file_text(touch_file));
     let mut touch = Change::new();
     touch.add_changed_file(ChangedFile::create(touch_file, touched_text.as_str()));
     host.apply_change(touch);
-    let db = host.raw_db();
+    let db = host.ctx();
 
-    let (_, prewarm_cost) = timed(|| prewarm(db, position));
-    let (count, request_cost) = timed(|| std::hint::black_box(request(db, position)));
+    let (_, prewarm_cost) = timed(|| prewarm(&db, position));
+    let (count, request_cost) = timed(|| std::hint::black_box(request(&db, position)));
     assert_eq!(count, expected, "{label} changed result count after prewarming");
     eprintln!(
         "{label:<28} prewarm={prewarm_cost:?} remaining-request={request_cost:?} results={count}"
@@ -758,7 +759,7 @@ fn index_benchmarks_real_project_request_query_prewarm() {
         },
         |db, position| {
             std::hint::black_box(source_root_module_index_for_root(
-                db,
+                db.db,
                 db.source_root_id(position.file_id),
             ));
         },
@@ -796,7 +797,7 @@ fn index_benchmarks_real_project() {
         return;
     }
     let file_count = file_ids.len();
-    let db = host.raw_db();
+    let db = host.ctx();
     let root_id = db.source_root_id(file_ids[0]);
 
     eprintln!("files: {file_count}, bytes: {total_bytes}, lines: {total_lines}");
@@ -810,11 +811,11 @@ fn index_benchmarks_real_project() {
     eprintln!("cold parse (all {file_count} files):                  {parse_cost:?}");
 
     let (_, module_cost) =
-        timed(|| std::hint::black_box(source_root_module_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_module_index_for_root(db.db, root_id)));
     eprintln!("module index:                                      {module_cost:?}");
 
     let (_, semantic_cost) =
-        timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_reference_index_for_root(&db, root_id)));
     eprintln!("semantic index (cold, first build):               {semantic_cost:?}");
 
     // Incremental: touch one file, then rebuild the semantic index.
@@ -823,9 +824,9 @@ fn index_benchmarks_real_project() {
     let mut touch = Change::new();
     touch.add_changed_file(ChangedFile::create(touch_file, touched_text.as_str()));
     host.apply_change(touch);
-    let db = host.raw_db();
+    let db = host.ctx();
     let (_, rebuild_cost) =
-        timed(|| std::hint::black_box(source_root_reference_index_for_root(db, root_id)));
+        timed(|| std::hint::black_box(source_root_reference_index_for_root(&db, root_id)));
     eprintln!("semantic index (rebuild after touching one file): {rebuild_cost:?}");
 }
 
@@ -860,7 +861,7 @@ fn index_benchmarks_module_index_profile() {
         println!("no SystemVerilog source files found under {root}");
         return;
     }
-    let db = host.raw_db();
+    let db = host.ctx();
 
     let mut parse_cost = Duration::ZERO;
     let mut macro_cost = Duration::ZERO;
@@ -874,7 +875,7 @@ fn index_benchmarks_module_index_profile() {
         parse_cost += cost;
     }
     for &file_id in &file_ids {
-        let (_, cost) = timed(|| macro_files_for_file(db, file_id));
+        let (_, cost) = timed(|| macro_files_for_file(db.db, file_id));
         macro_cost += cost;
     }
     for &file_id in &file_ids {
@@ -905,7 +906,7 @@ fn index_benchmarks_module_index_profile() {
     // first call vs a warm second call in a fresh host.
     {
         let (host, ids, _, _) = host_with_project(&root);
-        let db = host.raw_db();
+        let db = host.ctx();
         let (_, cold) = timed(|| std::hint::black_box(db.parse_tree(ids[0])));
         eprintln!("parsed_compilation_unit (cold): {cold:?}");
         let warm = ids.get(1).copied().map(|file_id| {
@@ -921,7 +922,7 @@ fn index_benchmarks_module_index_profile() {
     // host so no earlier measurement warms them.
     {
         let (host, ids, _, _) = host_with_project(&root);
-        let db = host.raw_db();
+        let db = host.ctx();
         let mut cost = Duration::ZERO;
         for &file_id in &ids {
             let (_, c) =
@@ -932,7 +933,7 @@ fn index_benchmarks_module_index_profile() {
     }
     {
         let (host, ids, _, _) = host_with_project(&root);
-        let db = host.raw_db();
+        let db = host.ctx();
         let mut cost = Duration::ZERO;
         for &file_id in &ids {
             let (_, c) = timed(|| std::hint::black_box(db.source_preproc_model(file_id)));
@@ -942,7 +943,7 @@ fn index_benchmarks_module_index_profile() {
     }
     {
         let (host, ids, _, _) = host_with_project(&root);
-        let db = host.raw_db();
+        let db = host.ctx();
         let mut cost = Duration::ZERO;
         for &file_id in &ids {
             let (_, c) = timed(|| std::hint::black_box(db.trace_index(file_id)));
@@ -954,7 +955,7 @@ fn index_benchmarks_module_index_profile() {
     // The semantic-index per-file queries (cold, in a fresh host).
     {
         let (host, ids, _, _) = host_with_project(&root);
-        let db = host.raw_db();
+        let db = host.ctx();
         let mut sem_cost = Duration::ZERO;
         let mut edges_cost = Duration::ZERO;
         let mut per_file = Vec::new();

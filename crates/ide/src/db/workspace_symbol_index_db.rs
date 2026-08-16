@@ -6,6 +6,7 @@ use triomphe::Arc;
 use vfs::FileId;
 
 use crate::{
+    analysis::AnalysisContext,
     db::{SourceFileQueryKey, SourceRootQueryKey},
     semantic_index::{
         FileModuleEdges, FileModuleIndex, FileSemanticIndex, ModuleIndex, ReferenceIndex,
@@ -106,7 +107,7 @@ pub(crate) fn source_root_module_index_for_root(
 }
 
 pub(crate) fn source_root_reference_index_for_root(
-    db: &crate::db::root_db::RootDb,
+    db: &AnalysisContext<'_>,
     source_root_id: SourceRootId,
 ) -> Arc<ReferenceIndex> {
     db.reference_index_for_root(source_root_id)

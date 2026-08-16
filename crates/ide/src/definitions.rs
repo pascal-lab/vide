@@ -17,7 +17,8 @@ use syntax::{
 };
 
 use crate::{
-    db::{root_db::RootDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb},
+    analysis::AnalysisContext,
+    db::workspace_symbol_index_db::WorkspaceSymbolIndexDb,
     module_resolution::{
         ModuleResolution, resolve_instantiation_target, resolve_named_param_assignment,
         resolve_named_port_connection,
@@ -34,12 +35,12 @@ pub type DefinitionResolution = Resolution<DefinitionClass>;
 
 impl DefinitionClass {
     pub(crate) fn resolve(
-        db: &RootDb,
+        db: &AnalysisContext<'_>,
         file_id: HirFileId,
         tp: SyntaxTokenWithParent,
     ) -> DefinitionResolution {
         let context = db.semantic_snapshot_inputs();
-        Self::resolve_in(db, &context, file_id, tp, None)
+        Self::resolve_in(db.db, &context, file_id, tp, None)
     }
 
     /// Like [`resolve`](Self::resolve), but resolves identifiers inside a
@@ -465,8 +466,8 @@ mod tests {
             let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
             let text = text.replace("/*caret*/", "");
             let (host, file_id) = host_with_file(&text);
-            let db = host.raw_db();
-            let sema = Semantics::<RootDb>::new(db);
+            let db = host.ctx();
+            let sema = Semantics::<RootDb>::new(db.db);
             let parsed_file = sema.parse_file(file_id);
             let file = parsed_file.compilation_unit().unwrap();
             let tokens = file.syntax().token_at_offset(offset);
@@ -478,19 +479,19 @@ mod tests {
             }
             .unwrap();
             let DefinitionClass::Definition(def) =
-                DefinitionClass::resolve(sema.db, file_id.into(), token).unique().unwrap()
+                DefinitionClass::resolve(&db, file_id.into(), token).unique().unwrap()
             else {
                 panic!("expected plain definition for {name}");
             };
 
-            let origins = def.origins(db);
+            let origins = def.origins(db.db);
             let (resolution, range) = match origins.first().cloned() {
-                Some(origin) if origin.kind(db) == DefKind::NonAnsiPort => (
+                Some(origin) if origin.kind(db.db) == DefKind::NonAnsiPort => (
                     "NonAnsiPort",
-                    origin.name_range(db).expect("non-ANSI port label should have a name range"),
+                    origin.name_range(db.db).expect("non-ANSI port label should have a name range"),
                 ),
-                Some(origin) if origin.kind(db) == DefKind::Port => {
-                    ("AnsiPort", origin.name_range(db).expect("ANSI port should have a name range"))
+                Some(origin) if origin.kind(db.db) == DefKind::Port => {
+                    ("AnsiPort", origin.name_range(db.db).expect("ANSI port should have a name range"))
                 }
                 other => panic!("unexpected definition for {name}: {other:?}"),
             };
@@ -527,8 +528,8 @@ endmodule
         let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
         let text = text.replace("/*caret*/", "");
         let (host, file_id) = host_with_file(&text);
-        let db = host.raw_db();
-        let sema = Semantics::<RootDb>::new(db);
+        let db = host.ctx();
+        let sema = Semantics::<RootDb>::new(db.db);
         let parsed_file = sema.parse_file(file_id);
         let file = parsed_file.compilation_unit().unwrap();
         let token = file
@@ -538,14 +539,14 @@ endmodule
             .unwrap();
 
         let DefinitionClass::Definition(def) =
-            DefinitionClass::resolve(sema.db, file_id.into(), token).unique().unwrap()
+            DefinitionClass::resolve(&db, file_id.into(), token).unique().unwrap()
         else {
             panic!("expected plain definition for hierarchical leaf");
         };
 
-        let origins = def.origins(db);
+        let origins = def.origins(db.db);
         assert!(
-            origins.iter().any(|origin| origin.kind(db) == DefKind::Net),
+            origins.iter().any(|origin| origin.kind(db.db) == DefKind::Net),
             "hierarchical leaf should resolve to child net, got {origins:?}"
         );
     }
@@ -565,7 +566,7 @@ endmodule
         let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
         let text = text.replace("/*caret*/", "");
         let (host, file_id) = host_with_file(&text);
-        let sema = Semantics::<RootDb>::new(host.raw_db());
+        let sema = Semantics::<RootDb>::new(host.ctx().db);
         let parsed = sema.parse_file(file_id);
         let token = parsed
             .compilation_unit()
@@ -576,7 +577,7 @@ endmodule
             .unwrap();
 
         assert_eq!(
-            DefinitionClass::resolve(sema.db, file_id.into(), token),
+            DefinitionClass::resolve(&host.ctx(), file_id.into(), token),
             Resolution::Unresolved
         );
     }
@@ -594,8 +595,8 @@ endmodule
         let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
         let text = text.replace("/*caret*/", "");
         let (host, file_id) = host_with_file(&text);
-        let db = host.raw_db();
-        let sema = Semantics::<RootDb>::new(db);
+        let db = host.ctx();
+        let sema = Semantics::<RootDb>::new(db.db);
         let parsed = sema.parse_file(file_id);
         let token = parsed
             .compilation_unit()
@@ -606,13 +607,13 @@ endmodule
             .unwrap();
 
         let Resolution::Ambiguous(candidates) =
-            DefinitionClass::resolve(sema.db, file_id.into(), token)
+            DefinitionClass::resolve(&db, file_id.into(), token)
         else {
             panic!("duplicate named parameters should remain ambiguous");
         };
         assert_eq!(candidates.len(), 2);
         assert!(candidates.iter().all(
-            |candidate| matches!(candidate, DefinitionClass::Definition(def) if def.kind(db) == DefKind::Param)
+            |candidate| matches!(candidate, DefinitionClass::Definition(def) if def.kind(db.db) == DefKind::Param)
         ));
     }
 
@@ -653,7 +654,7 @@ endmodule
             let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
             let text = text.replace("/*caret*/", "");
             let (host, file_id) = host_with_file(&text);
-            let sema = Semantics::<RootDb>::new(host.raw_db());
+            let sema = Semantics::<RootDb>::new(host.ctx().db);
             let parsed = sema.parse_file(file_id);
             let token = parsed
                 .compilation_unit()
@@ -664,7 +665,7 @@ endmodule
                 .unwrap();
 
             assert_eq!(
-                DefinitionClass::resolve(sema.db, file_id.into(), token),
+                DefinitionClass::resolve(&host.ctx(), file_id.into(), token),
                 Resolution::Unresolved,
                 "{case} must not use child existence to disambiguate its package"
             );
@@ -690,8 +691,8 @@ endmodule
         let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
         let text = text.replace("/*caret*/", "");
         let (host, file_id) = host_with_file(&text);
-        let db = host.raw_db();
-        let sema = Semantics::<RootDb>::new(db);
+        let db = host.ctx();
+        let sema = Semantics::<RootDb>::new(db.db);
         let parsed = sema.parse_file(file_id);
         let token = parsed
             .compilation_unit()
@@ -701,11 +702,11 @@ endmodule
             .pick_best_token(crate::token::navigation_precedence)
             .unwrap();
 
-        let resolution = DefinitionClass::resolve(sema.db, file_id.into(), token);
+        let resolution = DefinitionClass::resolve(&db, file_id.into(), token);
         let Some(DefinitionClass::Definition(def)) = resolution.unique() else {
             panic!("UDP type should resolve uniquely, got {resolution:?}");
         };
-        assert_eq!(def.kind(db), DefKind::Udp);
+        assert_eq!(def.kind(db.db), DefKind::Udp);
     }
 
     #[test]
@@ -720,8 +721,8 @@ endmodule
         let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
         let text = text.replace("/*caret*/", "");
         let (host, file_id) = host_with_file(&text);
-        let db = host.raw_db();
-        let sema = Semantics::<RootDb>::new(db);
+        let db = host.ctx();
+        let sema = Semantics::<RootDb>::new(db.db);
         let parsed_file = sema.parse_file(file_id);
         let file = parsed_file.compilation_unit().unwrap();
         let token = file
@@ -730,13 +731,13 @@ endmodule
             .pick_best_token(crate::token::navigation_precedence)
             .unwrap();
 
-        let resolution = DefinitionClass::resolve(sema.db, file_id.into(), token);
+        let resolution = DefinitionClass::resolve(&db, file_id.into(), token);
         let Resolution::Ambiguous(candidates) = resolution else {
             panic!("duplicate declarations should produce an ambiguous definition resolution");
         };
         assert_eq!(candidates.len(), 2);
         assert!(candidates.iter().all(|candidate| {
-            matches!(candidate, DefinitionClass::Definition(def) if def.origins(db).len() == 1)
+            matches!(candidate, DefinitionClass::Definition(def) if def.origins(db.db).len() == 1)
         }));
     }
 }

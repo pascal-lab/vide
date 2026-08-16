@@ -1,25 +1,24 @@
-use hir_semantics::semantics::Semantics;
 use itertools::Itertools;
 use preproc_expand::file::HirFileId;
 use utils::line_index::covering_range;
 
 use crate::{
     FilePosition, RangeInfo,
-    db::root_db::RootDb,
+    analysis::AnalysisContext,
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
     semantic_target::{SemanticTarget, SourceTarget, TargetIntent, resolve_semantic_target},
 };
 
 pub(crate) fn goto_declaration(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let sema = db.semantics();
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let target = resolve_semantic_target(
-        db,
+        db.db,
         file_id,
         offset,
         parsed_file.root(),
@@ -28,15 +27,13 @@ pub(crate) fn goto_declaration(
     render_declaration_target(
         db,
         hir_file_id,
-        &sema,
         target.targets_for_intent(TargetIntent::Navigate),
     )
 }
 
 fn render_declaration_target(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     hir_file_id: HirFileId,
-    sema: &Semantics<RootDb>,
     targets: Vec<SemanticTarget<'_>>,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let mut ranges = Vec::new();
@@ -45,7 +42,7 @@ fn render_declaration_target(
         let target = match target {
             SemanticTarget::Manifest(target) => crate::manifest::definition_target(db, target),
             SemanticTarget::Source(target) => {
-                render_source_declaration_target(db, hir_file_id, sema, target)
+                render_source_declaration_target(db, hir_file_id, target)
             }
             SemanticTarget::PreprocMacro(_) | SemanticTarget::Include(_) => None,
         };
@@ -59,9 +56,8 @@ fn render_declaration_target(
 }
 
 fn render_source_declaration_target(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     hir_file_id: HirFileId,
-    sema: &Semantics<RootDb>,
     target: SourceTarget<'_>,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let (range, tokens) = target.into_parts();
@@ -69,10 +65,10 @@ fn render_source_declaration_target(
     let origins = tokens
         .into_iter()
         .flat_map(|token| {
-            DefinitionClass::resolve(sema.db, hir_file_id, token).into_candidates().into_iter().map(
+            DefinitionClass::resolve(db, hir_file_id, token).into_candidates().into_iter().map(
                 |class| match class {
-                    DefinitionClass::Definition(definition) => definition.declaration_origin(db),
-                    DefinitionClass::PortConnShorthand { port, .. } => port.declaration_origin(db),
+                    DefinitionClass::Definition(definition) => definition.declaration_origin(db.db),
+                    DefinitionClass::PortConnShorthand { port, .. } => port.declaration_origin(db.db),
                 },
             )
         })

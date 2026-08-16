@@ -6,7 +6,6 @@ use hir_def::{
     module::ModuleKind,
     owner::{OwnerId, OwnerKind},
 };
-use hir_semantics::semantics::Semantics;
 use hir_ty::db::TyDb;
 use nohash_hasher::IntMap;
 use preproc_expand::{file::HirFileId, macro_file::macro_file_call_site};
@@ -18,10 +17,8 @@ use vfs::FileId;
 use super::{ReferenceCategory, ReferencesConfig};
 use crate::{
     ScopeVisibility,
-    db::{
-        root_db::RootDb,
-        workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_reference_index_for_root},
-    },
+    analysis::AnalysisContext,
+    db::workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_reference_index_for_root},
     semantic_index::{ReferenceContext, SemanticReference},
 };
 
@@ -156,9 +153,9 @@ impl SearchScope {
     }
 }
 
-pub(crate) struct ReferencesCtx<'a, 'b> {
-    sema: &'a Semantics<'a, RootDb>,
-    def: &'b DefId,
+pub(crate) struct ReferencesCtx<'a> {
+    db: &'a AnalysisContext<'a>,
+    def: DefId,
     scope: SearchScope,
 }
 
@@ -197,20 +194,20 @@ impl ReferenceToken {
     }
 }
 
-impl<'a, 'b> ReferencesCtx<'a, 'b> {
+impl<'a> ReferencesCtx<'a> {
     const FILE_REF_CAPACITY: usize = 8;
 
     pub(crate) fn new(
-        sema: &'a Semantics<'a, RootDb>,
-        def: &'b DefId,
+        db: &'a AnalysisContext<'a>,
+        def: &DefId,
         cfg: ReferencesConfig,
     ) -> Self {
-        let scope = SearchScope::new(sema.db, def, cfg);
-        Self { sema, def, scope }
+        let scope = SearchScope::new(db.db, def, cfg);
+        Self { db, def: *def, scope }
     }
 
     pub(crate) fn search(&self) -> IntMap<FileId, Vec<ReferenceToken>> {
-        search_references(self.sema.db, self.def, self.scope.clone())
+        search_references(self.db, &self.def, self.scope.clone())
     }
 }
 
@@ -219,7 +216,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
 /// closure query; it only touches salsa queries, so it can run on a `dyn`
 /// database.
 pub(crate) fn search_references(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     def: &DefId,
     scope: SearchScope,
 ) -> IntMap<FileId, Vec<ReferenceToken>> {
@@ -244,7 +241,7 @@ pub(crate) fn search_references(
         return res;
     }
 
-    for source_root_id in scope.source_root_ids(db) {
+    for source_root_id in scope.source_root_ids(db.db) {
         db.unwind_if_revision_cancelled();
         let index = source_root_reference_index_for_root(db, source_root_id);
         let Some(group) = index.references_for_definition(*def) else {

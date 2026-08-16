@@ -19,29 +19,29 @@ mod typed_filter;
 mod tests;
 
 pub use self::item::{CompletionItem, CompletionItemKind};
+use crate::analysis::AnalysisContext;
 use crate::{
     FilePosition,
     completion::{
         context::{CompletionContext, TriggerChar, completion_context},
         request::CompletionRequest,
     },
-    db::root_db::RootDb,
 };
 
-pub fn completions(
-    db: &RootDb,
+pub(crate) fn completions(
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     trigger: Option<TriggerChar>,
 ) -> Vec<CompletionItem> {
     if db.file_kind(position.file_id).is_project_manifest() {
-        return crate::manifest::completions(db, position);
+        return crate::manifest::completions(db.db, position);
     }
     let ctx = completion_context(db, position, trigger);
     completions_with_context(db, position, &ctx)
 }
 
 fn completions_with_context(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {

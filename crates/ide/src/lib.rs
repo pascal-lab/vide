@@ -39,6 +39,7 @@ mod macro_hover_tests;
 pub mod range;
 pub mod references;
 pub mod rename;
+mod revision_cache;
 pub mod selection_ranges;
 pub mod semantic_index;
 pub(crate) mod semantic_target;

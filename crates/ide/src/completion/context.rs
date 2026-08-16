@@ -18,7 +18,8 @@ use syntax::{
 use utils::line_index::{TextRange, TextSize};
 
 use self::caret::CaretSnapshot;
-use crate::{FilePosition, db::root_db::RootDb};
+use crate::analysis::AnalysisContext;
+use crate::FilePosition;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LexContext {
@@ -89,7 +90,7 @@ struct CompletionWord {
 }
 
 pub(crate) fn completion_context(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {

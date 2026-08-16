@@ -15,10 +15,15 @@ use base_db::{
 };
 use triomphe::Arc;
 
-use crate::{analysis::AnalysisSnapshot, db::root_db::RootDb};
+use crate::{
+    analysis::{AnalysisContext, AnalysisSnapshot},
+    db::root_db::RootDb,
+    revision_cache::RevisionCache,
+};
 
 pub struct AnalysisHost {
     db: RootDb,
+    cache: Arc<RevisionCache>,
     snapshot_id: AnalysisSnapshotId,
     prewarm: Option<PrewarmTask>,
 }
@@ -32,6 +37,7 @@ impl AnalysisHost {
     pub fn new(lru_capacity: Option<usize>) -> AnalysisHost {
         AnalysisHost {
             db: RootDb::new(lru_capacity),
+            cache: Arc::new(RevisionCache::default()),
             snapshot_id: AnalysisSnapshotId::default(),
             prewarm: None,
         }
@@ -41,7 +47,12 @@ impl AnalysisHost {
         self.signal_foreground_request();
         let db = self.db.clone();
         let salsa_revision = base_db::salsa::plumbing::current_revision(&db);
-        AnalysisSnapshot { db, snapshot_id: self.snapshot_id, salsa_revision }
+        AnalysisSnapshot {
+            db,
+            cache: self.cache.clone(),
+            snapshot_id: self.snapshot_id,
+            salsa_revision,
+        }
     }
 
     pub fn apply_change(&mut self, change: Change) {
@@ -57,9 +68,15 @@ impl AnalysisHost {
         } else {
             self.db.preproc_affected_files(dirty_files).into_iter().collect()
         };
-        self.db.record_dirty_files(affected_files.iter().copied(), invalidate_workspace);
+        if invalidate_workspace {
+            self.cache = Arc::new(RevisionCache::default());
+        } else if !affected_files.is_empty() {
+            let mut cache = self.cache.fork();
+            cache.record_dirty_files(&self.db, &affected_files);
+            self.cache = Arc::new(cache);
+        }
         self.db.apply_change(change);
-        self.db.finalize_structure_epoch();
+        self.cache.finalize_structure_epoch(&self.db);
         self.advance_revision();
         if !invalidate_workspace && !affected_files.is_empty() {
             self.start_prewarm(affected_files);
@@ -77,6 +94,7 @@ impl AnalysisHost {
 
     fn start_prewarm(&mut self, affected_files: Vec<vfs::FileId>) {
         let db = self.db.clone();
+        let cache = self.cache.clone();
         let cancel = StdArc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
         let worker = thread::Builder::new()
@@ -91,18 +109,19 @@ impl AnalysisHost {
                     }
                     thread::sleep(std::time::Duration::from_millis(5));
                 }
-                if db.has_materialized_semantic_inputs() {
-                    let _ = db.prewarm_semantic_snapshot_inputs(&worker_cancel);
+                let ctx = AnalysisContext { db: &db, cache: &*cache };
+                if ctx.has_materialized_semantic_inputs() {
+                    let _ = ctx.prewarm_semantic_snapshot_inputs(&worker_cancel);
                 }
                 let mut roots = rustc_hash::FxHashSet::default();
                 for file_id in affected_files {
                     if worker_cancel.load(Ordering::Acquire) {
                         return;
                     }
-                    if db.files().contains(&file_id) {
-                        roots.insert(db.source_root_id(file_id));
-                        if db.has_materialized_file_index(file_id) {
-                            let _ = db.request_file_semantic_index(file_id);
+                    if ctx.files().contains(&file_id) {
+                        roots.insert(ctx.source_root_id(file_id));
+                        if ctx.has_materialized_file_index(file_id) {
+                            let _ = ctx.request_file_semantic_index(file_id);
                         }
                     }
                 }
@@ -110,14 +129,14 @@ impl AnalysisHost {
                     if worker_cancel.load(Ordering::Acquire) {
                         return;
                     }
-                    if db.has_materialized_module_edges(root) {
-                        let _ = db.request_module_edge_index(root);
+                    if ctx.has_materialized_module_edges(root) {
+                        let _ = ctx.request_module_edge_index(root);
                     }
                     if worker_cancel.load(Ordering::Acquire) {
                         return;
                     }
-                    if db.has_materialized_reference_index(root) {
-                        let _ = db.reference_index_for_root(root);
+                    if ctx.has_materialized_reference_index(root) {
+                        let _ = ctx.reference_index_for_root(root);
                     }
                 }
             })
@@ -146,6 +165,11 @@ impl AnalysisHost {
     pub fn raw_db(&self) -> &RootDb {
         self.signal_foreground_request();
         &self.db
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ctx(&self) -> AnalysisContext<'_> {
+        AnalysisContext::new(&self.db, &self.cache)
     }
 }
 

@@ -44,7 +44,7 @@ fn completions_in_path(
     trigger: Option<TriggerChar>,
 ) -> Vec<CompletionItem> {
     let (host, position) = setup_with_path(text, path);
-    super::completions(host.raw_db(), position, trigger)
+    super::completions(&host.ctx(), position, trigger)
 }
 
 fn labels(items: &[CompletionItem]) -> Vec<&str> {
