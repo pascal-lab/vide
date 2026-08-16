@@ -17,8 +17,7 @@ use syntax::{
 };
 
 use crate::{
-    db::root_db::RootDb,
-    db::workspace_symbol_index_db::WorkspaceSymbolIndexDb,
+    db::{root_db::RootDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb},
     module_resolution::{
         ModuleResolution, resolve_instantiation_target, resolve_named_param_assignment,
         resolve_named_port_connection,
@@ -39,7 +38,7 @@ impl DefinitionClass {
         file_id: HirFileId,
         tp: SyntaxTokenWithParent,
     ) -> DefinitionResolution {
-        let context = db.index_resolution_context();
+        let context = db.semantic_snapshot_inputs();
         Self::resolve_in(db, &context, file_id, tp, None)
     }
 
@@ -49,7 +48,7 @@ impl DefinitionClass {
     /// the tree (the semantic index build) track it incrementally.
     pub(crate) fn resolve_in(
         db: &dyn WorkspaceSymbolIndexDb,
-        context: &crate::semantic_index::IndexResolutionContext,
+        context: &crate::semantic_index::SemanticSnapshotInputs,
         file_id: HirFileId,
         tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
         container: Option<OwnerId>,
@@ -286,7 +285,7 @@ fn package_member_resolution(
 
 fn resolve_instantiation_type_name(
     db: &dyn WorkspaceSymbolIndexDb,
-    context: &crate::semantic_index::IndexResolutionContext,
+    context: &crate::semantic_index::SemanticSnapshotInputs,
     sema: &SemanticsImpl,
     file_id: HirFileId,
     tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
@@ -316,37 +315,36 @@ fn resolve_instantiation_type_name(
         SyntaxAncestors::start_from(parent).find_map(ast::HierarchyInstantiation::cast)
         && instantiation.type_() == Some(tok)
     {
-        let resolution =
-            match resolve_instantiation_target(
-                db,
-                &context.module_indexes,
-                file_id.expect_file(),
-                instantiation,
-            ) {
-                ModuleResolution::Unique(module_id)
-                | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
-                    Resolution::Unique(
-                        DefId::from_owner(sema.db, module_id)
-                            .expect("module owner must have a definition"),
+        let resolution = match resolve_instantiation_target(
+            db,
+            &context.module_indexes,
+            file_id.expect_file(),
+            instantiation,
+        ) {
+            ModuleResolution::Unique(module_id)
+            | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
+                Resolution::Unique(
+                    DefId::from_owner(sema.db, module_id)
+                        .expect("module owner must have a definition"),
+                )
+            }
+            ModuleResolution::Ambiguous { candidates, .. } => {
+                Resolution::from_candidates(candidates.into_iter().map(|module_id| {
+                    DefId::from_owner(sema.db, module_id)
+                        .expect("module owner must have a definition")
+                }))
+            }
+            ModuleResolution::Unresolved => {
+                nameres_ident(sema, file_id, tp, NameContext::Type, container).or_else(|| {
+                    Resolution::from_candidates(
+                        nameres_ident(sema, file_id, tp, NameContext::Value, container)
+                            .into_candidates()
+                            .into_iter()
+                            .filter(|def| def.kind(sema.db) == DefKind::Udp),
                     )
-                }
-                ModuleResolution::Ambiguous { candidates, .. } => {
-                    Resolution::from_candidates(candidates.into_iter().map(|module_id| {
-                        DefId::from_owner(sema.db, module_id)
-                            .expect("module owner must have a definition")
-                    }))
-                }
-                ModuleResolution::Unresolved => {
-                    nameres_ident(sema, file_id, tp, NameContext::Type, container).or_else(|| {
-                        Resolution::from_candidates(
-                            nameres_ident(sema, file_id, tp, NameContext::Value, container)
-                                .into_candidates()
-                                .into_iter()
-                                .filter(|def| def.kind(sema.db) == DefKind::Udp),
-                        )
-                    })
-                }
-            };
+                })
+            }
+        };
         return Some(resolution.map(DefinitionClass::Definition));
     }
 

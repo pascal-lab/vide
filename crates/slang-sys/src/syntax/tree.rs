@@ -34,7 +34,7 @@ pub struct SyntaxTreeWithTrace {
 }
 
 /// Parser options for creating a syntax tree.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SyntaxTreeOptions {
     pub predefines: Vec<String>,
     pub include_paths: Vec<String>,
@@ -48,7 +48,7 @@ pub struct SyntaxTreeOptions {
 }
 
 /// In-memory source buffer that can be used for include resolution.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SyntaxTreeBuffer {
     pub path: String,
     pub text: String,

@@ -3,8 +3,8 @@
 //! These measure the *current* architecture's costs:
 //!
 //! - B2 `index_build_scales_with_file_size`: cold-build cost of
-//!   `ReferenceIndex::for_source_root` (plus the `ModuleIndex` it pulls in) as a
-//!   function of file size. A linear-resolver design should cost O(bytes);
+//!   `ReferenceIndex::for_source_root` (plus the `ModuleIndex` it pulls in) as
+//!   a function of file size. A linear-resolver design should cost O(bytes);
 //!   super-linear growth points at per-token scans.
 //! - B3 `index_rebuild_after_single_file_change`: after touching one small file
 //!   in a root, the cost of re-serving the root index. If this is close to the
@@ -39,9 +39,11 @@ use crate::{
     FilePosition, ScopeVisibility,
     analysis_host::AnalysisHost,
     completion,
-    db::root_db::RootDb,
-    db::workspace_symbol_index_db::{
-        source_root_module_index_for_root, source_root_reference_index_for_root,
+    db::{
+        root_db::RootDb,
+        workspace_symbol_index_db::{
+            source_root_module_index_for_root, source_root_reference_index_for_root,
+        },
     },
     document_highlight::DocumentHighlightConfig,
     goto_definition,
@@ -321,8 +323,9 @@ fn index_benchmarks_rebuild_after_single_file_change() {
     single_host.apply_change(single_change);
     let single_db = single_host.raw_db();
     let single_root = single_db.source_root_id(small_file);
-    let (_, lower_bound) =
-        timed(|| std::hint::black_box(source_root_reference_index_for_root(single_db, single_root)));
+    let (_, lower_bound) = timed(|| {
+        std::hint::black_box(source_root_reference_index_for_root(single_db, single_root))
+    });
     println!("lower bound (indexing only the small file alone): {lower_bound:?}");
 }
 
@@ -398,7 +401,8 @@ fn project_probe_position(
                 if before.is_some_and(is_ident) || after.is_some_and(is_ident) {
                     continue;
                 }
-                let line_prefix = text[..start].rsplit_once('\n').map_or(&text[..start], |(_, line)| line);
+                let line_prefix =
+                    text[..start].rsplit_once('\n').map_or(&text[..start], |(_, line)| line);
                 let trimmed = line_prefix.trim_start();
                 if trimmed.starts_with("//") || trimmed.ends_with("module ") {
                     continue;
@@ -521,48 +525,97 @@ fn index_benchmarks_real_project_requests() {
     let probe = std::env::var("VIDE_BENCH_PROBE").unwrap_or_else(|_| "cc_fifo".to_owned());
     eprintln!("\n== B7: real-project IDE requests ({root}, probe={probe}) ==");
 
-    benchmark_project_request(&root, &probe, "goto definition", true, TextSize::from(0), |db, position| {
-        goto_definition::goto_definition(db, position).map_or(0, |info| info.info.len())
-    });
-    benchmark_project_request(&root, &probe, "document highlight", true, TextSize::from(0), |db, position| {
-        crate::document_highlight::document_highlight(
-            db,
-            position,
-            DocumentHighlightConfig { scope_visibility: ScopeVisibility::Public },
-        )
-        .map_or(0, |items| items.len())
-    });
-    benchmark_project_request(&root, &probe, "find references", true, TextSize::from(0), |db, position| {
-        crate::references::references(
-            db,
-            position,
-            ReferencesConfig::new(ScopeVisibility::Public, None),
-        )
-        .map_or(0, |groups| {
-            groups.iter().map(|group| group.refs.values().map(Vec::len).sum::<usize>()).sum()
-        })
-    });
-    benchmark_project_request(&root, &probe, "rename edit generation", true, TextSize::from(0), |db, position| {
-        rename::rename(
-            db,
-            position,
-            RenameConfig::workspace(ScopeVisibility::Public),
-            "vide_bench_renamed",
-        )
-        .map_or(0, |change| change.text_edits.len())
-    });
+    benchmark_project_request(
+        &root,
+        &probe,
+        "goto definition",
+        true,
+        TextSize::from(0),
+        |db, position| {
+            goto_definition::goto_definition(db, position).map_or(0, |info| info.info.len())
+        },
+    );
+    benchmark_project_request(
+        &root,
+        &probe,
+        "document highlight",
+        true,
+        TextSize::from(0),
+        |db, position| {
+            crate::document_highlight::document_highlight(
+                db,
+                position,
+                DocumentHighlightConfig { scope_visibility: ScopeVisibility::Public },
+            )
+            .map_or(0, |items| items.len())
+        },
+    );
+    benchmark_project_request(
+        &root,
+        &probe,
+        "find references",
+        true,
+        TextSize::from(0),
+        |db, position| {
+            crate::references::references(
+                db,
+                position,
+                ReferencesConfig::new(ScopeVisibility::Public, None),
+            )
+            .map_or(0, |groups| {
+                groups.iter().map(|group| group.refs.values().map(Vec::len).sum::<usize>()).sum()
+            })
+        },
+    );
+    benchmark_project_request(
+        &root,
+        &probe,
+        "rename edit generation",
+        true,
+        TextSize::from(0),
+        |db, position| {
+            rename::rename(
+                db,
+                position,
+                RenameConfig::workspace(ScopeVisibility::Public),
+                "vide_bench_renamed",
+            )
+            .map_or(0, |change| change.text_edits.len())
+        },
+    );
     let completion_prefix = TextSize::from(u32::try_from(probe.len().min(3)).unwrap());
-    benchmark_project_request(&root, &probe, "completion", true, completion_prefix, |db, position| {
-        completion::completions(db, position, None).len()
-    });
-    benchmark_project_request(&root, &probe, "call hierarchy incoming", false, TextSize::from(0), |db, position| {
-        let range = TextRange::new(position.offset, position.offset + TextSize::of(probe.as_str()));
-        incoming_module_edges(db, position.file_id, range).len()
-    });
-    benchmark_project_request(&root, &probe, "call hierarchy outgoing", false, TextSize::from(0), |db, position| {
-        let range = TextRange::new(position.offset, position.offset + TextSize::of(probe.as_str()));
-        outgoing_module_edges(db, position.file_id, range).len()
-    });
+    benchmark_project_request(
+        &root,
+        &probe,
+        "completion",
+        true,
+        completion_prefix,
+        |db, position| completion::completions(db, position, None).len(),
+    );
+    benchmark_project_request(
+        &root,
+        &probe,
+        "call hierarchy incoming",
+        false,
+        TextSize::from(0),
+        |db, position| {
+            let range =
+                TextRange::new(position.offset, position.offset + TextSize::of(probe.as_str()));
+            incoming_module_edges(db, position.file_id, range).len()
+        },
+    );
+    benchmark_project_request(
+        &root,
+        &probe,
+        "call hierarchy outgoing",
+        false,
+        TextSize::from(0),
+        |db, position| {
+            let range =
+                TextRange::new(position.offset, position.offset + TextSize::of(probe.as_str()));
+            outgoing_module_edges(db, position.file_id, range).len()
+        },
+    );
 }
 
 /// Separates `$unit` scope memo validation from the owner-table dependencies
@@ -792,8 +845,7 @@ fn index_benchmarks_real_project() {
 #[test]
 #[ignore]
 fn index_benchmarks_module_index_profile() {
-    use hir_def::db::HirDefDb;
-    use preproc_expand::{db::PreprocDb, file::HirFileId, macro_file::macro_files_for_file};
+    use preproc_expand::{file::HirFileId, macro_file::macro_files_for_file};
 
     let Some(raw) = std::env::var_os("VIDE_BENCH_PROJECT") else {
         println!("VIDE_BENCH_PROJECT not set; skipping module-index profile");

@@ -46,6 +46,7 @@ use crate::{
 pub struct AnalysisSnapshot {
     pub(crate) db: RootDb,
     pub(crate) snapshot_id: AnalysisSnapshotId,
+    pub(crate) salsa_revision: base_db::salsa::Revision,
 }
 
 impl AnalysisSnapshot {
@@ -57,6 +58,11 @@ impl AnalysisSnapshot {
     where
         F: FnOnce(&RootDb) -> T + std::panic::UnwindSafe,
     {
+        debug_assert_eq!(
+            base_db::salsa::plumbing::current_revision(&self.db),
+            self.salsa_revision,
+            "an AnalysisSnapshot must never cross Salsa revisions",
+        );
         let _span = tracing::debug_span!("ide.analysis", snapshot_id = ?self.snapshot_id).entered();
         Cancelled::catch(|| f(&self.db))
     }

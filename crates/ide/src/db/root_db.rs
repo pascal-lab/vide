@@ -7,11 +7,8 @@ use base_db::{
     source_db::{FileLoader, SourceDb, SourceRootDb},
     source_root::SourceRootId,
 };
-use hir_def::db::HirDefDb;
-use hir_def::def_id::DefId;
-use hir_def::item_tree::ItemTree;
+use hir_def::{db::HirDefDb, def_id::DefId};
 use hir_ty::db::TyDb;
-use parking_lot::Mutex;
 use preproc_expand::{
     db::PreprocDb,
     file::HirFileId,
@@ -22,100 +19,20 @@ use triomphe::Arc;
 use utils::line_index::TextRange;
 use vfs::{AnchoredPath, FileId};
 
-use crate::db::{line_index_db::LineIndexDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb};
-use crate::semantic_index::{
-    FileModuleEdges, FileSemanticIndex, ModuleEdgeIndex, ReferenceIndex,
+use crate::{
+    db::{
+        caches::{IdeCaches, IdeCachesHandle},
+        line_index_db::LineIndexDb,
+        workspace_symbol_index_db::WorkspaceSymbolIndexDb,
+    },
+    semantic_index::{FileModuleEdges, FileSemanticIndex, ModuleEdgeIndex, ReferenceIndex},
 };
-
-/// Per-source-root reference index, rebuilt incrementally across revisions.
-///
-/// Salsa revalidation is O(project) for any query that aggregates all file
-/// indexes, so the merged reference index is materialized here instead of
-/// being a salsa query. On a revision bump only the files changed by
-/// `apply_change` are re-indexed; unchanged files reuse their cached per-file
-/// indexes. A structural change to a changed file (detected by comparing its
-/// `ItemTree`) conservatively falls back to a full rebuild, since that may
-/// affect other files' name resolution.
-struct ReferenceIndexCache {
-    entries: FxHashMap<SourceRootId, ReferenceIndexEntry>,
-    dirty: FxHashSet<FileId>,
-    hir_resolution_context: Option<Arc<hir_def::pathres::ResolutionContext>>,
-    index_resolution_context: Option<Arc<crate::semantic_index::IndexResolutionContext>>,
-    resolution_item_trees: FxHashMap<FileId, Arc<ItemTree>>,
-    resolution_dirty: FxHashSet<FileId>,
-    resolution_built_at: Option<salsa::Revision>,
-    request_file_indexes: FxHashMap<FileId, Arc<FileSemanticIndex>>,
-    request_file_index_dirty: FxHashSet<FileId>,
-    module_edge_entries: FxHashMap<SourceRootId, ModuleEdgeEntry>,
-    module_edge_dirty: FxHashSet<FileId>,
-    macro_generated_origins: FxHashMap<(FileId, TextRange), bool>,
-    request_syntax_trees: FxHashMap<FileId, syntax::SyntaxTree>,
-}
-
-impl Default for ReferenceIndexCache {
-    fn default() -> Self {
-        Self {
-            entries: FxHashMap::default(),
-            dirty: FxHashSet::default(),
-            hir_resolution_context: None,
-            index_resolution_context: None,
-            resolution_item_trees: FxHashMap::default(),
-            resolution_dirty: FxHashSet::default(),
-            resolution_built_at: None,
-            request_file_indexes: FxHashMap::default(),
-            request_file_index_dirty: FxHashSet::default(),
-            module_edge_entries: FxHashMap::default(),
-            module_edge_dirty: FxHashSet::default(),
-            macro_generated_origins: FxHashMap::default(),
-            request_syntax_trees: FxHashMap::default(),
-        }
-    }
-}
-
-/// Shared handle to the reference-index cache. `parking_lot` mutexes never
-/// poison, so the handle is unwind-safe: accessing it after a panic cannot
-/// observe a poisoned state.
-#[derive(Clone)]
-struct ReferenceIndexCacheHandle(Arc<Mutex<ReferenceIndexCache>>);
-
-// `parking_lot::Mutex` has no poisoning and `ReferenceIndexCache` holds only
-// owned data, so the handle carries no unwind-sensitive invariants.
-impl std::panic::RefUnwindSafe for ReferenceIndexCacheHandle {}
-impl std::panic::UnwindSafe for ReferenceIndexCacheHandle {}
-
-impl Default for ReferenceIndexCacheHandle {
-    fn default() -> Self {
-        Self(Arc::new(Mutex::new(ReferenceIndexCache::default())))
-    }
-}
-
-impl ReferenceIndexCacheHandle {
-    fn lock(&self) -> parking_lot::MutexGuard<'_, ReferenceIndexCache> {
-        self.0.lock()
-    }
-}
-
-#[derive(Default)]
-struct ReferenceIndexEntry {
-    index: Arc<ReferenceIndex>,
-    file_indexes: FxHashMap<FileId, Arc<FileSemanticIndex>>,
-    item_trees: FxHashMap<FileId, Arc<ItemTree>>,
-    context: Option<Arc<crate::semantic_index::IndexResolutionContext>>,
-    built_at: Option<salsa::Revision>,
-}
-
-#[derive(Default)]
-struct ModuleEdgeEntry {
-    index: Arc<ModuleEdgeIndex>,
-    file_edges: FxHashMap<FileId, Arc<FileModuleEdges>>,
-    built_at: Option<salsa::Revision>,
-}
 
 #[salsa::db]
 #[derive(Clone)]
 pub struct RootDb {
     storage: salsa::Storage<Self>,
-    reference_index_cache: ReferenceIndexCacheHandle,
+    ide_caches: IdeCachesHandle,
 }
 
 #[salsa::db]
@@ -158,10 +75,8 @@ impl FileLoader for RootDb {
 
 impl RootDb {
     pub fn new(lru_capacity: Option<usize>) -> RootDb {
-        let mut db = RootDb {
-            storage: salsa::Storage::default(),
-            reference_index_cache: ReferenceIndexCacheHandle::default(),
-        };
+        let mut db =
+            RootDb { storage: salsa::Storage::default(), ide_caches: IdeCachesHandle::default() };
         db.set_files_with_durability(Default::default(), Durability::HIGH);
         db.set_diagnostics_config_with_durability(
             Arc::new(DiagnosticsConfig::default()),
@@ -178,25 +93,78 @@ impl RootDb {
         hir_def::db::set_lru_capacity(self, lru_capacity);
     }
 
-    pub(crate) fn record_dirty_files(&mut self, files: impl IntoIterator<Item = FileId>) {
+    pub(crate) fn preproc_affected_files(
+        &self,
+        changed: impl IntoIterator<Item = FileId>,
+    ) -> FxHashSet<FileId> {
+        let changed = changed.into_iter().collect::<FxHashSet<_>>();
+        let mut affected = changed.clone();
+        let config = self.project_config();
+        for profile_id in std::iter::once(None).chain(config.profile_ids().into_iter().map(Some)) {
+            let plan = self.compilation_plan_for_profile(profile_id);
+            let path_file_ids = self.path_file_ids();
+            let mut profile_affected = plan.affected_files(changed.iter().copied());
+            loop {
+                let mut grew = false;
+                for &includer in &plan.dynamic_include_files {
+                    if profile_affected.contains(&includer) {
+                        continue;
+                    }
+                    let Some(trace) = self.preproc_trace(includer) else {
+                        continue;
+                    };
+                    let depends_on_affected = trace.include_edges.iter().any(|edge| {
+                        trace
+                            .source_buffers
+                            .iter()
+                            .find(|buffer| buffer.buffer_id == edge.included_buffer_id)
+                            .and_then(|buffer| path_file_ids.get(&buffer.path))
+                            .is_some_and(|dependency| profile_affected.contains(&dependency))
+                    });
+                    if depends_on_affected {
+                        profile_affected.insert(includer);
+                        grew = true;
+                    }
+                }
+                let closed = plan.affected_files(profile_affected.iter().copied());
+                grew |= closed.len() != profile_affected.len();
+                profile_affected = closed;
+                if !grew {
+                    break;
+                }
+            }
+            affected.extend(profile_affected);
+        }
+        affected
+    }
+
+    pub(crate) fn record_dirty_files(
+        &mut self,
+        files: impl IntoIterator<Item = FileId>,
+        invalidate_workspace: bool,
+    ) {
+        if invalidate_workspace {
+            *self.ide_caches.lock() = IdeCaches::default();
+            return;
+        }
         let files = files.into_iter().collect::<Vec<_>>();
-        let mut cache = self.reference_index_cache.lock();
-        cache.dirty.extend(files.iter().copied());
-        if cache.hir_resolution_context.is_some() {
+        let mut cache = self.ide_caches.lock();
+        cache.indexes.reference_dirty.extend(files.iter().copied());
+        if cache.revision.hir_resolution_context.is_some() {
             for &file_id in &files {
                 cache
+                    .revision
                     .resolution_item_trees
                     .entry(file_id)
                     .or_insert_with(|| self.item_tree(HirFileId::File(file_id)));
             }
         }
-        cache.resolution_dirty.extend(files.iter().copied());
-        cache.request_file_index_dirty.extend(files.iter().copied());
-        cache.module_edge_dirty.extend(files.iter().copied());
-        cache
-            .macro_generated_origins
-            .retain(|(file_id, _), _| !files.contains(file_id));
-        cache.request_syntax_trees.retain(|file_id, _| !files.contains(file_id));
+        cache.revision.resolution_dirty.extend(files.iter().copied());
+        cache.indexes.request_file_index_dirty.extend(files.iter().copied());
+        cache.indexes.module_edge_dirty.extend(files.iter().copied());
+        // `files` already contains the reverse-include closure, including
+        // dynamically resolved include edges from the authoritative trace.
+        cache.revision.macro_generated_origins.retain(|(file_id, _), _| !files.contains(file_id));
     }
 
     pub(crate) fn semantics(&self) -> hir_semantics::semantics::Semantics<'_, RootDb> {
@@ -214,20 +182,18 @@ impl RootDb {
         &self,
         source_root_id: SourceRootId,
     ) -> Arc<crate::semantic_index::ModuleIndex> {
-        self.index_resolution_context()
-            .module_index(source_root_id)
-            .unwrap_or_default()
+        self.semantic_snapshot_inputs().module_index(source_root_id).unwrap_or_default()
     }
 
     pub(crate) fn request_module_edge_index(
         &self,
         source_root_id: SourceRootId,
     ) -> Arc<ModuleEdgeIndex> {
-        let context = self.index_resolution_context();
+        let context = self.semantic_snapshot_inputs();
         let revision = salsa::plumbing::current_revision(self);
-        let mut cache = self.reference_index_cache.lock();
-        let dirty = std::mem::take(&mut cache.module_edge_dirty);
-        let entry = cache.module_edge_entries.entry(source_root_id).or_default();
+        let mut cache = self.ide_caches.lock();
+        let dirty = std::mem::take(&mut cache.indexes.module_edge_dirty);
+        let entry = cache.indexes.module_edge_entries.entry(source_root_id).or_default();
         if entry.built_at == Some(revision) {
             return entry.index.clone();
         }
@@ -262,9 +228,8 @@ impl RootDb {
                 }
             }
         }
-        entry.index = Arc::new(ModuleEdgeIndex::from_file_edges(
-            entry.file_edges.values().map(Arc::as_ref),
-        ));
+        entry.index =
+            Arc::new(ModuleEdgeIndex::from_file_edges(entry.file_edges.values().map(Arc::as_ref)));
         entry.built_at = Some(revision);
         entry.index.clone()
     }
@@ -274,114 +239,98 @@ impl RootDb {
         file_id: FileId,
         range: TextRange,
     ) -> bool {
-        if let Some(generated) = self
-            .reference_index_cache
-            .lock()
-            .macro_generated_origins
-            .get(&(file_id, range))
-            .copied()
+        if let Some(generated) =
+            self.ide_caches.lock().revision.macro_generated_origins.get(&(file_id, range)).copied()
         {
             return generated;
         }
-        let generated = macro_files_at_offset(self, file_id, range.start()).into_iter().any(
-            |macro_file| {
+        let generated =
+            macro_files_at_offset(self, file_id, range.start()).into_iter().any(|macro_file| {
                 macro_file_call_site(self, macro_file).is_some_and(|call_site| {
                     call_site.call_file_id == file_id && call_site.call_range == range
                 })
-            },
-        );
-        self.reference_index_cache
-            .lock()
-            .macro_generated_origins
-            .insert((file_id, range), generated);
+            });
+        self.ide_caches.lock().revision.macro_generated_origins.insert((file_id, range), generated);
         generated
     }
 
-    pub(crate) fn request_syntax_tree(&self, file_id: FileId) -> syntax::SyntaxTree {
-        if let Some(tree) = self.reference_index_cache.lock().request_syntax_trees.get(&file_id) {
-            return tree.clone();
-        }
-        let tree = self.parse(HirFileId::File(file_id));
-        self.reference_index_cache.lock().request_syntax_trees.insert(file_id, tree.clone());
-        tree
-    }
-
-
-    pub(crate) fn index_resolution_context(
+    pub(crate) fn semantic_snapshot_inputs(
         &self,
-    ) -> Arc<crate::semantic_index::IndexResolutionContext> {
+    ) -> Arc<crate::semantic_index::SemanticSnapshotInputs> {
         let hir = self.request_hir_resolution_context();
-        let mut cache = self.reference_index_cache.lock();
-        if let Some(context) = &cache.index_resolution_context {
+        let mut cache = self.ide_caches.lock();
+        if let Some(context) = &cache.revision.semantic_inputs {
             return context.clone();
         }
-        let context = crate::semantic_index::IndexResolutionContext::from_db_with_hir(self, hir);
-        cache.index_resolution_context = Some(context.clone());
+        let context = crate::semantic_index::SemanticSnapshotInputs::from_db_with_hir(self, hir);
+        cache.revision.semantic_inputs = Some(context.clone());
         context
     }
 
-    pub(crate) fn request_file_semantic_index(
-        &self,
-        file_id: FileId,
-    ) -> Arc<FileSemanticIndex> {
-        let context = self.index_resolution_context();
+    pub(crate) fn request_file_semantic_index(&self, file_id: FileId) -> Arc<FileSemanticIndex> {
+        let context = self.semantic_snapshot_inputs();
         {
-            let cache = self.reference_index_cache.lock();
-            if !cache.request_file_index_dirty.contains(&file_id)
-                && let Some(index) = cache.request_file_indexes.get(&file_id)
+            let cache = self.ide_caches.lock();
+            if !cache.indexes.request_file_index_dirty.contains(&file_id)
+                && let Some(index) = cache.indexes.request_file_indexes.get(&file_id)
             {
                 return index.clone();
             }
         }
 
         let index = Arc::new(FileSemanticIndex::for_file_with_context(self, file_id, &context));
-        let mut cache = self.reference_index_cache.lock();
-        cache.request_file_indexes.insert(file_id, index.clone());
-        cache.request_file_index_dirty.remove(&file_id);
+        let mut cache = self.ide_caches.lock();
+        cache.indexes.request_file_indexes.insert(file_id, index.clone());
+        cache.indexes.request_file_index_dirty.remove(&file_id);
         index
     }
 
     fn request_hir_resolution_context(&self) -> Arc<hir_def::pathres::ResolutionContext> {
         let revision = salsa::plumbing::current_revision(self);
-        let mut cache = self.reference_index_cache.lock();
-        if cache.resolution_built_at == Some(revision) {
-            return cache.hir_resolution_context.as_ref().unwrap().clone();
+        let mut cache = self.ide_caches.lock();
+        if cache.revision.resolution_built_at == Some(revision) {
+            return cache.revision.hir_resolution_context.as_ref().unwrap().clone();
         }
 
-        let dirty = std::mem::take(&mut cache.resolution_dirty);
+        let dirty = std::mem::take(&mut cache.revision.resolution_dirty);
         let current_files = self.files();
-        let needs_rebuild = cache.hir_resolution_context.is_none()
+        let needs_rebuild = cache.revision.hir_resolution_context.is_none()
             || dirty.is_empty()
             || dirty.iter().any(|file_id| {
                 !current_files.contains(file_id)
-                    || cache.resolution_item_trees.get(file_id).is_none_or(|old| {
-                        *old != self.item_tree(HirFileId::File(*file_id))
-                    })
+                    || cache
+                        .revision
+                        .resolution_item_trees
+                        .get(file_id)
+                        .is_none_or(|old| *old != self.item_tree(HirFileId::File(*file_id)))
             });
 
         if needs_rebuild {
             let context = hir_def::pathres::ResolutionContext::from_db(self);
-            cache.resolution_item_trees.clear();
-            cache.hir_resolution_context = Some(context);
-            cache.index_resolution_context = None;
-            cache.request_file_indexes.clear();
-            cache.request_file_index_dirty.clear();
-            cache.module_edge_entries.clear();
-            cache.module_edge_dirty.clear();
+            cache.revision.resolution_item_trees.clear();
+            cache.revision.hir_resolution_context = Some(context);
+            cache.revision.semantic_inputs = None;
+            cache.indexes.request_file_indexes.clear();
+            cache.indexes.request_file_index_dirty.clear();
+            cache.indexes.module_edge_entries.clear();
+            cache.indexes.module_edge_dirty.clear();
         } else {
             for file_id in dirty {
-                cache.resolution_item_trees.remove(&file_id);
+                cache.revision.resolution_item_trees.remove(&file_id);
             }
         }
-        cache.resolution_built_at = Some(revision);
-        cache.hir_resolution_context.as_ref().unwrap().clone()
+        cache.revision.resolution_built_at = Some(revision);
+        cache.revision.hir_resolution_context.as_ref().unwrap().clone()
     }
 
-    pub(crate) fn reference_index_for_root(&self, source_root_id: SourceRootId) -> Arc<ReferenceIndex> {
-        let mut cache = self.reference_index_cache.lock();
+    pub(crate) fn reference_index_for_root(
+        &self,
+        source_root_id: SourceRootId,
+    ) -> Arc<ReferenceIndex> {
+        let mut cache = self.ide_caches.lock();
         let revision = salsa::plumbing::current_revision(self);
-        let dirty = std::mem::take(&mut cache.dirty);
-        let entry = cache.entries.entry(source_root_id).or_default();
+        let dirty = std::mem::take(&mut cache.indexes.reference_dirty);
+        let entry = cache.indexes.reference_entries.entry(source_root_id).or_default();
         if entry.built_at == Some(revision) {
             return entry.index.clone();
         }
@@ -394,21 +343,20 @@ impl RootDb {
             || entry.file_indexes.is_empty()
             || dirty.iter().any(|file_id| {
                 !current_files.contains(file_id)
-                    || entry.item_trees.get(file_id).map_or(true, |old| {
-                        *old != self.item_tree(HirFileId::File(*file_id))
-                    })
+                    || entry
+                        .item_trees
+                        .get(file_id)
+                        .map_or(true, |old| *old != self.item_tree(HirFileId::File(*file_id)))
             });
         if needs_full {
-            let context = crate::semantic_index::IndexResolutionContext::from_db(self);
+            let context = crate::semantic_index::SemanticSnapshotInputs::from_db(self);
             let mut file_indexes = FxHashMap::default();
             let mut item_trees = FxHashMap::default();
             for file_id in self.source_root(source_root_id).iter() {
                 file_indexes.insert(
                     file_id,
                     Arc::new(crate::semantic_index::FileSemanticIndex::for_file_with_context(
-                        self,
-                        file_id,
-                        &context,
+                        self, file_id, &context,
                     )),
                 );
                 item_trees.insert(file_id, self.item_tree(HirFileId::File(file_id)));
@@ -426,13 +374,12 @@ impl RootDb {
         // contribution, reusing cached name/ranges for existing definitions.
         for file_id in &dirty {
             let old_file_index = entry.file_indexes.get(file_id).cloned().unwrap_or_default();
-            let new_file_index = Arc::new(
-                crate::semantic_index::FileSemanticIndex::for_file_with_context(
+            let new_file_index =
+                Arc::new(crate::semantic_index::FileSemanticIndex::for_file_with_context(
                     self,
                     *file_id,
                     entry.context.as_ref().unwrap(),
-                ),
-            );
+                ));
             Arc::make_mut(&mut entry.index).patch_file(
                 self,
                 *file_id,
@@ -452,12 +399,7 @@ impl RootDb {
         visibility: crate::ScopeVisibility,
         single_file: Option<FileId>,
     ) -> Arc<Vec<DefId>> {
-        Arc::new(crate::rename::recursive_rename_closure_impl(
-            self,
-            def,
-            visibility,
-            single_file,
-        ))
+        Arc::new(crate::rename::recursive_rename_closure_impl(self, def, visibility, single_file))
     }
 }
 

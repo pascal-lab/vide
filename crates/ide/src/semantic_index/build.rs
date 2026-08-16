@@ -41,14 +41,14 @@ impl FileSemanticIndex {
     }
 
     pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
-        let context = crate::semantic_index::IndexResolutionContext::from_db(db);
+        let context = crate::semantic_index::SemanticSnapshotInputs::from_db(db);
         Self::for_file_with_context(db, file_id, &context)
     }
 
     pub(crate) fn for_file_with_context(
         db: &dyn WorkspaceSymbolIndexDb,
         file_id: FileId,
-        context: &crate::semantic_index::IndexResolutionContext,
+        context: &crate::semantic_index::SemanticSnapshotInputs,
     ) -> Self {
         let tree = db.parse(file_id.into());
         let root = tree.root();
@@ -165,7 +165,7 @@ impl FileSemanticIndex {
 fn collect_index_token(
     db: &dyn WorkspaceSymbolIndexDb,
     sema: &SemanticsImpl<'_>,
-    context: &crate::semantic_index::IndexResolutionContext,
+    context: &crate::semantic_index::SemanticSnapshotInputs,
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
     container: OwnerId,
@@ -462,7 +462,7 @@ fn is_generate_branch_member(member: SyntaxNode<'_>) -> bool {
 fn collect_token(
     db: &dyn WorkspaceSymbolIndexDb,
     sema: &SemanticsImpl<'_>,
-    context: &crate::semantic_index::IndexResolutionContext,
+    context: &crate::semantic_index::SemanticSnapshotInputs,
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
     container: OwnerId,
@@ -883,7 +883,14 @@ impl FileModuleEdges {
         let module_indexes: Vec<_> = db
             .workspace_source_root_ids()
             .into_iter()
-            .map(|root| (root, crate::db::workspace_symbol_index_db::source_root_module_index_for_root(db, root)))
+            .map(|root| {
+                (
+                    root,
+                    crate::db::workspace_symbol_index_db::source_root_module_index_for_root(
+                        db, root,
+                    ),
+                )
+            })
             .collect();
         Self::for_file_with_indexes(db, file_id, &module_indexes)
     }

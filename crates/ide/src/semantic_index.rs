@@ -14,9 +14,7 @@ use vfs::FileId;
 use crate::{
     db::{
         root_db::RootDb,
-        workspace_symbol_index_db::{
-            WorkspaceSymbolIndexDb, source_root_module_index_for_root,
-        },
+        workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_module_index_for_root},
     },
     navigation_target::nav_location,
     references::ReferenceCategory,
@@ -29,12 +27,12 @@ use build::definition_ranges_for;
 /// scope, package design map, top-level module index, and per-root module
 /// indexes. Computed once per request so the per-file nameres never reads the
 /// O(project) global queries through salsa.
-pub(crate) struct IndexResolutionContext {
+pub(crate) struct SemanticSnapshotInputs {
     pub hir: triomphe::Arc<hir_def::pathres::ResolutionContext>,
     pub module_indexes: triomphe::Arc<[(SourceRootId, Arc<ModuleIndex>)]>,
 }
 
-impl IndexResolutionContext {
+impl SemanticSnapshotInputs {
     pub(crate) fn from_db(db: &dyn WorkspaceSymbolIndexDb) -> triomphe::Arc<Self> {
         Self::from_db_with_hir(db, hir_def::pathres::ResolutionContext::from_db(db))
     }
@@ -48,10 +46,7 @@ impl IndexResolutionContext {
             .into_iter()
             .map(|root| (root, source_root_module_index_for_root(db, root)))
             .collect();
-        triomphe::Arc::new(Self {
-            hir,
-            module_indexes: triomphe::Arc::from(module_indexes),
-        })
+        triomphe::Arc::new(Self { hir, module_indexes: triomphe::Arc::from(module_indexes) })
     }
 
     pub(crate) fn module_index(&self, root: SourceRootId) -> Option<Arc<ModuleIndex>> {
@@ -408,7 +403,6 @@ impl ReferenceIndex {
                 }
             }
         }
-
     }
 
     #[cfg(test)]
@@ -627,7 +621,7 @@ mod tests {
         use vfs::ChangedFile;
 
         let (mut host, file_id, clean, _) = setup_marked("module top; logic a; endmodule\n");
-        let before = host.raw_db().index_resolution_context();
+        let before = host.raw_db().semantic_snapshot_inputs();
 
         let mut body_edit = Change::new();
         body_edit.add_changed_file(ChangedFile::create(
@@ -635,19 +629,17 @@ mod tests {
             format!("{clean} // body-only\n").as_str(),
         ));
         host.apply_change(body_edit);
-        let after_body = host.raw_db().index_resolution_context();
+        let after_body = host.raw_db().semantic_snapshot_inputs();
         assert!(
             Arc::ptr_eq(&before, &after_body),
             "position-free structure is unchanged, so the context must be reused"
         );
 
         let mut structural_edit = Change::new();
-        structural_edit.add_changed_file(ChangedFile::create(
-            file_id,
-            "module renamed; logic a; endmodule\n",
-        ));
+        structural_edit
+            .add_changed_file(ChangedFile::create(file_id, "module renamed; logic a; endmodule\n"));
         host.apply_change(structural_edit);
-        let after_structure = host.raw_db().index_resolution_context();
+        let after_structure = host.raw_db().semantic_snapshot_inputs();
         assert!(
             !Arc::ptr_eq(&after_body, &after_structure),
             "a changed declaration must invalidate the project resolution context"
@@ -716,7 +708,6 @@ endmodule
 "#;
         let (host, file_id, _clean, _markers) = setup_marked(text);
         let db = host.raw_db();
-        let context = IndexResolutionContext::from_db(db);
         let hir_file_id = HirFileId::from(file_id);
         let tree = db.parse(hir_file_id);
         let root = tree.root();
@@ -802,7 +793,7 @@ endmodule
 "#;
         let (host, file_id, _clean, _markers) = setup_marked(text);
         let db = host.raw_db();
-        let context = IndexResolutionContext::from_db(db);
+        let context = SemanticSnapshotInputs::from_db(db);
         let hir_file_id = HirFileId::from(file_id);
         let tree = db.parse(hir_file_id);
         let root = tree.root();
@@ -818,7 +809,8 @@ endmodule
                 checked += 1;
                 let container = containers.container_for(&sema, hir_file_id, token.parent);
                 let chosen = if token_in_special_context(token) {
-                    DefinitionClass::resolve_in(db, &context, hir_file_id, token, Some(container)).unique()
+                    DefinitionClass::resolve_in(db, &context, hir_file_id, token, Some(container))
+                        .unique()
                 } else {
                     let chain = chains.chain_for(db, container);
                     sema.nameres_ident_in_scopes_at(hir_file_id, token, NameContext::Value, &chain)
@@ -826,7 +818,8 @@ endmodule
                         .unique()
                 };
                 let full =
-                    DefinitionClass::resolve_in(db, &context, hir_file_id, token, Some(container)).unique();
+                    DefinitionClass::resolve_in(db, &context, hir_file_id, token, Some(container))
+                        .unique();
                 assert_eq!(
                     chosen,
                     full,

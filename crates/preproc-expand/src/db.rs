@@ -1,3 +1,5 @@
+use std::hash::{Hash, Hasher};
+
 use base_db::{
     analysis_snapshot::CompilationContext,
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
@@ -5,7 +7,7 @@ use base_db::{
     source_db::{SourceFileKind, SourceRootDb},
     source_root::SourceRootId,
 };
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHasher};
 use syntax::{
     SyntaxTree, SyntaxTreeBuffer,
     compilation::Compilation,
@@ -72,6 +74,55 @@ pub struct ParsedCompilationUnit {
     pub preprocessor_trace: Option<Trace>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CompilationUnitId {
+    pub root_file: FileId,
+    pub profile: Option<CompilationProfileId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilationDependencyManifest {
+    pub files: Arc<[FileId]>,
+}
+
+/// Immutable identity of every input that can affect one standalone Slang
+/// parse. The fingerprint is diagnostic; Salsa keys the compiler artifact by a
+/// tracked input containing the complete value, so hash collisions cannot
+/// alias compiler artifacts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilationUnitSnapshot {
+    pub id: CompilationUnitId,
+    pub fingerprint: u64,
+    pub dependencies: CompilationDependencyManifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CompilationUnitInputs {
+    id: CompilationUnitId,
+    kind: SourceFileKind,
+    name: String,
+    path: String,
+    text: Arc<str>,
+    options: Arc<syntax::SyntaxTreeOptions>,
+    dependencies: Arc<[FileId]>,
+}
+
+#[salsa::tracked(debug)]
+struct CompilationUnitArtifactInput<'db> {
+    #[returns(clone)]
+    inputs: Arc<CompilationUnitInputs>,
+}
+
+/// A strictly single-file source model for editor-local operations.
+///
+/// Unlike [`ParsedCompilationUnit`], this model never expands includes or
+/// reads profile predefines. Its complete dependency set is the file text,
+/// file kind, and display identity, so edits elsewhere cannot invalidate it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceModel {
+    pub syntax_tree: SyntaxTree,
+}
+
 pub type ParsedProfileUnits = Arc<[(FileId, ParsedCompilationUnit, SyntaxTreeBufferIds)]>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +140,28 @@ fn source_file_identity(db: &dyn SourceRootDb, file_id: FileId) -> SourceFileIde
     let name =
         db.file_path(file_id).map(|path| path.to_string()).unwrap_or_else(|| "source".to_owned());
     SourceFileIdentity { name, path }
+}
+
+#[salsa::tracked(lru = 128, returns(clone))]
+fn source_model(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<SourceModel> {
+    let file_id = key.file_id(db);
+    let text = db.file_text(file_id);
+    let identity = source_file_identity(db, file_id);
+    let syntax_tree = match db.file_kind(file_id) {
+        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
+            SyntaxTree::from_file_in_memory_with_options(
+                &text,
+                &identity.name,
+                &identity.path,
+                &syntax::SyntaxTreeOptions::without_include_expansion(),
+            )
+        }
+        SourceFileKind::LibraryMap => {
+            SyntaxTree::from_library_map_text(&text, &identity.name, &identity.path)
+        }
+        SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
+    };
+    Arc::new(SourceModel { syntax_tree })
 }
 
 /// Workspace-global path-spelling → [`FileId`] index, memoized per revision.
@@ -179,25 +252,17 @@ fn syntax_tree_options_for_parser_cursor(
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
-fn parse_tree(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> SyntaxTree {
+fn compilation_unit_inputs(
+    db: &dyn PreprocDb,
+    key: PreprocFileQueryKey,
+) -> Arc<CompilationUnitInputs> {
     let file_id = key.file_id(db);
     let profile_id = db.file_compilation_profile(file_id);
     let plan = db.compilation_plan_for_profile(profile_id);
-    let _span = tracing::info_span!(
-        "slang.parse_for_compilation",
-        ?profile_id,
-        ?file_id,
-        parse_mode = "authoritative"
-    )
-    .entered();
-    let text = {
-        let _span =
-            tracing::info_span!("slang.parse_for_compilation.file_text", ?file_id).entered();
-        db.file_text(file_id)
-    };
+    let text = db.file_text(file_id);
     let identity = source_file_identity(db, file_id);
-
-    match db.file_kind(file_id) {
+    let kind = db.file_kind(file_id);
+    let options = match kind {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
             let mut options = syntax_tree_options_for_file(db, file_id);
             // Roots are parsed standalone so a single-file edit only re-parses
@@ -207,27 +272,91 @@ fn parse_tree(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> SyntaxTree {
             if plan.roots.contains(&file_id) {
                 options.predefines.extend(db.unit_macro_predefines(file_id).iter().cloned());
             }
-            let include_buffer_count = options.include_buffers.len();
-            let _span = tracing::info_span!(
-                "slang.parse_for_compilation.from_text",
-                ?file_id,
-                bytes = text.len(),
-                include_buffer_count
-            )
-            .entered();
+            options
+        }
+        SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => {
+            syntax::SyntaxTreeOptions::default()
+        }
+    };
+    let mut dependencies = vec![file_id];
+    let path_file_ids = db.path_file_ids();
+    dependencies.extend(
+        options.include_buffers.iter().filter_map(|buffer| path_file_ids.get(&buffer.path)),
+    );
+    dependencies.sort_unstable_by_key(|dependency| dependency.index());
+    dependencies.dedup();
+    Arc::new(CompilationUnitInputs {
+        id: CompilationUnitId { root_file: file_id, profile: profile_id },
+        kind,
+        name: identity.name,
+        path: identity.path,
+        text,
+        options: Arc::new(options),
+        dependencies: Arc::from(dependencies),
+    })
+}
+
+#[salsa::tracked(lru = 128, returns(clone))]
+fn compilation_unit_snapshot(
+    db: &dyn PreprocDb,
+    key: PreprocFileQueryKey,
+) -> Arc<CompilationUnitSnapshot> {
+    let inputs = compilation_unit_inputs(db, key);
+    let mut hasher = FxHasher::default();
+    inputs.hash(&mut hasher);
+    let fingerprint = hasher.finish();
+    Arc::new(CompilationUnitSnapshot {
+        id: inputs.id,
+        fingerprint,
+        dependencies: CompilationDependencyManifest { files: inputs.dependencies.clone() },
+    })
+}
+
+#[salsa::tracked]
+fn compilation_unit_artifact_input<'db>(
+    db: &'db dyn PreprocDb,
+    key: PreprocFileQueryKey,
+) -> CompilationUnitArtifactInput<'db> {
+    CompilationUnitArtifactInput::new(db, compilation_unit_inputs(db, key))
+}
+
+/// Content-addressed Slang artifact store. Salsa interns the complete immutable
+/// input value and memoizes this parse by that identity across revisions.
+#[salsa::tracked(lru = 128, returns(clone))]
+fn compilation_unit_artifact(
+    db: &dyn PreprocDb,
+    key: CompilationUnitArtifactInput<'_>,
+) -> Arc<ParsedCompilationUnit> {
+    let inputs = key.inputs(db);
+    let _span = tracing::info_span!(
+        "slang.compilation_unit_artifact",
+        file_id = ?inputs.id.root_file,
+        profile_id = ?inputs.id.profile,
+        include_buffer_count = inputs.options.include_buffers.len(),
+        bytes = inputs.text.len(),
+    )
+    .entered();
+    let (syntax_tree, preprocessor_trace) = match inputs.kind {
+        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
             let parsed = SyntaxTree::from_file_in_memory_with_options_and_trace(
-                &text,
-                &identity.name,
-                &identity.path,
-                &options,
+                &inputs.text,
+                &inputs.name,
+                &inputs.path,
+                &inputs.options,
             );
-            parsed.tree
+            (parsed.tree, Some(parsed.preprocessor_trace))
         }
         SourceFileKind::LibraryMap => {
-            SyntaxTree::from_library_map_text(&text, &identity.name, &identity.path)
+            (SyntaxTree::from_library_map_text(&inputs.text, &inputs.name, &inputs.path), None)
         }
-        SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
-    }
+        SourceFileKind::ProjectManifest => (SyntaxTree::from_text("", "", ""), None),
+    };
+    Arc::new(ParsedCompilationUnit { syntax_tree, preprocessor_trace })
+}
+
+fn parse_tree(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> SyntaxTree {
+    let input = compilation_unit_artifact_input(db, key);
+    compilation_unit_artifact(db, *input).syntax_tree.clone()
 }
 
 /// Preprocessor trace of one file, split from [`parse_tree`] so a syntax-only
@@ -235,13 +364,8 @@ fn parse_tree(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> SyntaxTree {
 /// the downstream preprocessor model and `$unit` macro chain.
 #[salsa::tracked(lru = 128, returns(clone))]
 fn preproc_trace(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Option<Trace> {
-    let file_id = key.file_id(db);
-    match db.file_kind(file_id) {
-        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
-            Some(db.parse_tree(file_id).preprocessor_trace())
-        }
-        SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => None,
-    }
+    let input = compilation_unit_artifact_input(db, key);
+    compilation_unit_artifact(db, *input).preprocessor_trace.clone()
 }
 
 /// `define` directives this file contributes to the compilation-unit scope,
@@ -366,7 +490,9 @@ fn parse_src_for_compilation(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Sy
 pub fn set_parse_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
     parsed_profile::set_lru_capacity(db, capacity);
     parse_src_for_compilation::set_lru_capacity(db, capacity);
-    parse_tree::set_lru_capacity(db, capacity);
+    compilation_unit_inputs::set_lru_capacity(db, capacity);
+    compilation_unit_snapshot::set_lru_capacity(db, capacity);
+    compilation_unit_artifact::set_lru_capacity(db, capacity);
     preproc_trace::set_lru_capacity(db, capacity);
     crate::source_db::set_source_preproc_model_lru_capacity(db, capacity);
     crate::macro_file::set_macro_expansion_lru_capacity(db, capacity);
@@ -535,6 +661,14 @@ impl dyn PreprocDb + '_ {
 
     pub fn parse_tree(&self, file_id: FileId) -> SyntaxTree {
         parse_tree(self, PreprocFileQueryKey::new(self, file_id))
+    }
+
+    pub fn compilation_unit_snapshot(&self, file_id: FileId) -> Arc<CompilationUnitSnapshot> {
+        compilation_unit_snapshot(self, PreprocFileQueryKey::new(self, file_id))
+    }
+
+    pub fn source_model(&self, file_id: FileId) -> Arc<SourceModel> {
+        source_model(self, PreprocFileQueryKey::new(self, file_id))
     }
 
     pub fn preproc_trace(&self, file_id: FileId) -> Option<Trace> {
@@ -1035,6 +1169,18 @@ mod tests {
     }
 
     #[test]
+    fn source_model_never_expands_includes() {
+        let db = db_with_macro_included_root();
+
+        let source = db.source_model(TOP);
+        let trace = source.syntax_tree.preprocessor_trace();
+
+        assert!(trace.include_edges.is_empty());
+        let included_path = abs_path("rtl/included.sv").to_string();
+        assert!(trace.source_buffers.iter().all(|buffer| buffer.path != included_path));
+    }
+
+    #[test]
     fn systemverilog_sources_remain_parse_diagnostic_units() {
         let kind = SourceFileKind::from_path(&VfsPath::new_virtual_path("/rtl/top.sv".into()));
 
@@ -1136,6 +1282,51 @@ mod tests {
         let after = db.compilation_plan_for_profile(None);
         assert!(!after.include_only.contains(&INCLUDED));
         assert!(after.roots.contains(&INCLUDED));
+    }
+
+    #[test]
+    fn compilation_plan_propagates_include_changes_to_includers() {
+        let mut db = db_with_macro_included_root();
+        db.set_file_text_with_durability(
+            TOP,
+            Arc::from("`include \"included.sv\"\nmodule top; endmodule\n"),
+            Durability::LOW,
+        );
+        let plan = db.compilation_plan_for_profile(None);
+
+        let affected = plan.affected_files([INCLUDED]);
+
+        assert!(affected.contains(&INCLUDED));
+        assert!(affected.contains(&TOP));
+    }
+
+    #[test]
+    fn compilation_unit_fingerprint_covers_include_contents() {
+        let mut db = db_with_macro_included_root();
+        db.set_file_text_with_durability(
+            TOP,
+            Arc::from("`include \"included.sv\"\nmodule top; endmodule\n"),
+            Durability::LOW,
+        );
+        let before = db.compilation_unit_snapshot(TOP);
+
+        db.set_file_text_with_durability(
+            INCLUDED,
+            Arc::from("module included_changed; endmodule\n"),
+            Durability::LOW,
+        );
+        let after = db.compilation_unit_snapshot(TOP);
+
+        assert_ne!(before.fingerprint, after.fingerprint);
+        assert!(after.dependencies.files.contains(&INCLUDED));
+    }
+
+    #[test]
+    fn compilation_plan_records_dynamic_includes_for_authoritative_resolution() {
+        let db = db_with_macro_included_root();
+        let plan = db.compilation_plan_for_profile(None);
+
+        assert!(plan.dynamic_include_files.contains(&TOP));
     }
 
     #[test]

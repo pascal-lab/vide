@@ -6,7 +6,7 @@ use base_db::{
 use preproc::source::{
     MacroIncludeTarget, SourceIncludeDirective, SourcePreprocError, SourcePreprocModel,
 };
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use syntax::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
 use utils::{
     path_identity::PathIdentityIndex,
@@ -30,6 +30,12 @@ pub struct CompilationPlan {
     /// made available to slang through include buffers, but are not added
     /// as standalone semantic roots.
     pub include_only: FxHashSet<FileId>,
+    /// Direct resolved include edges, keyed by the including file.
+    pub include_dependencies: FxHashMap<FileId, FxHashSet<FileId>>,
+    /// Files with a non-literal include target. Their exact dependency cannot
+    /// be known without the authoritative preprocessor, so they are treated as
+    /// affected by every source edit.
+    pub dynamic_include_files: FxHashSet<FileId>,
     pub include_dirs: Vec<AbsPathBuf>,
     pub top_modules: Vec<String>,
     pub predefines: Vec<String>,
@@ -56,6 +62,26 @@ impl CompilationPlan {
         file_ids.sort_unstable_by_key(|file_id| file_id.index());
         file_ids.dedup();
         file_ids
+    }
+
+    /// Return changed files plus every file that transitively includes one of
+    /// them in this compilation plan.
+    pub fn affected_files(&self, changed: impl IntoIterator<Item = FileId>) -> FxHashSet<FileId> {
+        let mut affected = changed.into_iter().collect::<FxHashSet<_>>();
+        loop {
+            let mut grew = false;
+            for (&includer, dependencies) in &self.include_dependencies {
+                if !affected.contains(&includer)
+                    && dependencies.iter().any(|dependency| affected.contains(dependency))
+                {
+                    affected.insert(includer);
+                    grew = true;
+                }
+            }
+            if !grew {
+                return affected;
+            }
+        }
     }
 
     /// Whether a file should be made available to slang as an include buffer:
@@ -103,13 +129,15 @@ impl CompilationPlan {
         include_dirs: Vec<AbsPathBuf>,
         predefines: Vec<String>,
     ) -> Self {
-        let (include_only, include_scan_issues) =
+        let (include_only, include_dependencies, dynamic_include_files, include_scan_issues) =
             include_targets_for_source_roots(db, &source_roots, &include_dirs, &predefines);
         let roots = compile_roots_for_source_roots(db, &source_roots, &include_only);
         CompilationPlan {
             source_roots,
             roots,
             include_only,
+            include_dependencies,
+            dynamic_include_files,
             include_dirs,
             top_modules,
             predefines,
@@ -287,10 +315,17 @@ fn include_targets_for_source_roots(
     roots: &[SourceRootId],
     include_dirs: &[AbsPathBuf],
     predefines: &[String],
-) -> (FxHashSet<FileId>, Vec<IncludeScanIssue>) {
+) -> (
+    FxHashSet<FileId>,
+    FxHashMap<FileId, FxHashSet<FileId>>,
+    FxHashSet<FileId>,
+    Vec<IncludeScanIssue>,
+) {
     let path_file_ids = path_file_ids(db);
     let predefines = triomphe::Arc::<[String]>::from(predefines.to_vec());
     let mut included = FxHashSet::default();
+    let mut dependencies = FxHashMap::<FileId, FxHashSet<FileId>>::default();
+    let mut dynamic_include_files = FxHashSet::default();
     let mut issues = Vec::new();
     let mut scanned = FxHashSet::default();
     let mut pending = Vec::new();
@@ -322,24 +357,30 @@ fn include_targets_for_source_roots(
         ) {
             Ok(targets) => targets,
             Err(issue) => {
+                dynamic_include_files.insert(file_id);
                 issues.push(issue);
                 continue;
             }
         };
         for include in include_targets {
             let MacroIncludeTarget::Literal { path, .. } = &include.target else {
+                dynamic_include_files.insert(file_id);
                 continue;
             };
             if let Some(included_file_id) =
                 resolve_include_target(path.as_str(), &includer_path, include_dirs, &path_file_ids)
-                && included.insert(included_file_id)
             {
-                pending.push(included_file_id);
+                dependencies.entry(file_id).or_default().insert(included_file_id);
+                if included.insert(included_file_id) {
+                    pending.push(included_file_id);
+                }
+            } else {
+                dynamic_include_files.insert(file_id);
             }
         }
     }
 
-    (included, issues)
+    (included, dependencies, dynamic_include_files, issues)
 }
 
 #[salsa::tracked(returns(clone))]

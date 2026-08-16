@@ -9,7 +9,6 @@ mod resolve;
 mod util;
 
 use base_db::source_db::SourceDb;
-
 use smallvec::{SmallVec, smallvec};
 use syntax::{
     SyntaxNode, SyntaxNodeExt,
@@ -93,18 +92,8 @@ pub(crate) fn completion_context(
     FilePosition { file_id, offset }: FilePosition,
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
-    let sema = db.semantics();
-    let parsed_file = sema.parse_file_with_tree(file_id, db.request_syntax_tree(file_id));
-    let Some(root) = parsed_file.root() else {
-        return CompletionContext {
-            replacement: TextRange::empty(offset),
-            prefix: String::new(),
-            trigger,
-            lex: LexContext::Code,
-            expectations: SmallVec::new(),
-            in_decl_name: false,
-        };
-    };
+    let source_model = db.source_model(file_id);
+    let root = source_model.syntax_tree.root();
     let text = db.file_text(file_id);
     let parser_expected_syntax = db.parser_expected_syntax(file_id, offset);
     let directive_word = directive_word_at_offset(&text, offset);
