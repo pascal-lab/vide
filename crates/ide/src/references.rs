@@ -109,9 +109,7 @@ fn render_references_target(
             render_preproc_references_target(db.db, file_id, target, &config)
         }
         SemanticTarget::Include(_) => None,
-        SemanticTarget::Manifest(target) => {
-            crate::manifest::references_target(db, target, config)
-        }
+        SemanticTarget::Manifest(target) => crate::manifest::references_target(db, target, config),
         SemanticTarget::Source(target) => {
             render_source_references_target(db, sema, file_id, target, config)
         }
@@ -174,11 +172,7 @@ pub(crate) fn handle_ctrl_flow_kw(
     }])
 }
 
-fn search_refs(
-    db: &AnalysisContext<'_>,
-    def: DefId,
-    config: ReferencesConfig,
-) -> References {
+fn search_refs(db: &AnalysisContext<'_>, def: DefId, config: ReferencesConfig) -> References {
     let refs = ReferencesCtx::new(db, &def, config)
         .search()
         .into_iter()

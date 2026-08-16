@@ -9,8 +9,10 @@ use syntax::{
 };
 
 use super::candidate::CompletionCandidate;
-use crate::analysis::AnalysisContext;
-use crate::{FilePosition, completion::context::CompletionContext, db::root_db::RootDb};
+use crate::{
+    FilePosition, analysis::AnalysisContext, completion::context::CompletionContext,
+    db::root_db::RootDb,
+};
 
 pub(super) fn complete_member_access(
     db: &AnalysisContext<'_>,

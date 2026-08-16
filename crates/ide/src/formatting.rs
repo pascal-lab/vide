@@ -8,7 +8,6 @@ use std::{
 use anyhow::Context as _;
 use base_db::source_db::SourceDb;
 use dissimilar::Chunk;
-
 use itertools::Itertools;
 use syntax::{
     SyntaxCursor, SyntaxCursorExt, SyntaxKind, SyntaxTrivia, Trivia, has_text_range::HasTextRange,
@@ -441,7 +440,7 @@ mod tests {
             ("first line inside block comment", "/*\n*/", 3, "\n"),
         ] {
             let (host, file_id) = db_with_file(text);
-        let db = host.ctx();
+            let db = host.ctx();
             let edit = format_on_type(
                 &db,
                 FilePosition { file_id, offset: TextSize::from(offset) },

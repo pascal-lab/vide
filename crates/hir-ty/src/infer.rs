@@ -10,8 +10,9 @@ use hir_def::{
     },
     module::port::PortDeclId,
     owner::OwnerId,
-    pathres::{NameRef, RefKind, instance_target_def_id, resolve_name_at, resolve_path},
-    pathres::ResolutionContext,
+    pathres::{
+        NameRef, RefKind, ResolutionContext, instance_target_def_id, resolve_name_at, resolve_path,
+    },
     stmt::{ForInit, StmtKind},
     subroutine::SubroutinePortId,
     symbol::{DefKind, NameContext, Resolution},

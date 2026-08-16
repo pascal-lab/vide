@@ -103,8 +103,7 @@ impl<T> ProductCell<T> {
                 state.generation += 1;
                 let generation = state.generation;
                 let cancel = std::sync::Arc::new(AtomicBool::new(false));
-                state.in_flight =
-                    Some(InFlight { generation, priority, cancel: cancel.clone() });
+                state.in_flight = Some(InFlight { generation, priority, cancel: cancel.clone() });
                 (generation, cancel)
             };
 
@@ -205,10 +204,9 @@ impl StructureEpoch {
         let current_files = db.files();
         self.dirty.iter().all(|file_id| {
             current_files.contains(file_id)
-                && self
-                    .snapshots
-                    .get(file_id)
-                    .is_some_and(|snapshot| snapshot.classify(db, *file_id) == StructureChange::Unchanged)
+                && self.snapshots.get(file_id).is_some_and(|snapshot| {
+                    snapshot.classify(db, *file_id) == StructureChange::Unchanged
+                })
         })
     }
 }
@@ -378,22 +376,18 @@ mod tests {
         started_rx.recv().unwrap();
 
         let foreground = cell
-            .get_or_compute(
-                ComputationPriority::Foreground,
-                &AtomicBool::new(false),
-                |_| Arc::new(2),
-            )
+            .get_or_compute(ComputationPriority::Foreground, &AtomicBool::new(false), |_| {
+                Arc::new(2)
+            })
             .unwrap();
 
         assert_eq!(*foreground, 2);
         assert!(background.join().unwrap().is_none());
         assert_eq!(
             *cell
-                .get_or_compute(
-                    ComputationPriority::Foreground,
-                    &AtomicBool::new(false),
-                    |_| Arc::new(3),
-                )
+                .get_or_compute(ComputationPriority::Foreground, &AtomicBool::new(false), |_| {
+                    Arc::new(3)
+                },)
                 .unwrap(),
             2
         );

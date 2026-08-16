@@ -24,11 +24,7 @@ pub(crate) fn goto_declaration(
         parsed_file.root(),
         crate::token::navigation_precedence,
     );
-    render_declaration_target(
-        db,
-        hir_file_id,
-        target.targets_for_intent(TargetIntent::Navigate),
-    )
+    render_declaration_target(db, hir_file_id, target.targets_for_intent(TargetIntent::Navigate))
 }
 
 fn render_declaration_target(
@@ -68,7 +64,9 @@ fn render_source_declaration_target(
             DefinitionClass::resolve(db, hir_file_id, token).into_candidates().into_iter().map(
                 |class| match class {
                     DefinitionClass::Definition(definition) => definition.declaration_origin(db.db),
-                    DefinitionClass::PortConnShorthand { port, .. } => port.declaration_origin(db.db),
+                    DefinitionClass::PortConnShorthand { port, .. } => {
+                        port.declaration_origin(db.db)
+                    }
                 },
             )
         })

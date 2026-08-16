@@ -19,9 +19,9 @@ mod typed_filter;
 mod tests;
 
 pub use self::item::{CompletionItem, CompletionItemKind};
-use crate::analysis::AnalysisContext;
 use crate::{
     FilePosition,
+    analysis::AnalysisContext,
     completion::{
         context::{CompletionContext, TriggerChar, completion_context},
         request::CompletionRequest,

@@ -771,8 +771,8 @@ mod tests {
     use utils::text_edit::TextSize;
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
-    use crate::analysis_host::AnalysisHost;
     use super::*;
+    use crate::analysis_host::AnalysisHost;
 
     fn db_with_text(text: &str) -> (AnalysisHost, FileId) {
         let file_id = FileId::from_raw(0);

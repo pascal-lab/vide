@@ -1,4 +1,3 @@
-
 use itertools::Itertools;
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -238,7 +237,7 @@ mod tests {
             ("at token boundary", "module top;\n  assign y = a + b;\nendmodule\n", 31),
         ] {
             let (host, file_id) = db_with_file(text);
-        let db = host.ctx();
+            let db = host.ctx();
             let ranges = selection_ranges(&db, FilePosition { file_id, offset: offset.into() });
             writeln!(&mut report, "{name}: {ranges:?}").unwrap();
         }

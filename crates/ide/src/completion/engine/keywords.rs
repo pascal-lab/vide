@@ -1,7 +1,7 @@
 use super::candidate::CompletionCandidate;
-use crate::analysis::AnalysisContext;
 use crate::{
     FilePosition,
+    analysis::AnalysisContext,
     completion::{
         context::CompletionContext,
         engine::snippets,

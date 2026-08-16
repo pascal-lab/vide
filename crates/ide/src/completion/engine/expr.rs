@@ -18,8 +18,10 @@ use syntax::{
 use utils::text_edit::TextSize;
 
 use super::{candidate::CompletionCandidate, system, typed_filter::is_compatible_typed_value};
-use crate::analysis::AnalysisContext;
-use crate::{FilePosition, completion::context::CompletionContext, db::root_db::RootDb};
+use crate::{
+    FilePosition, analysis::AnalysisContext, completion::context::CompletionContext,
+    db::root_db::RootDb,
+};
 
 #[derive(Clone, Debug)]
 enum NameKind {
@@ -103,7 +105,11 @@ fn container_id_at_offset(
     sema.container_for_node(file_id, node)
 }
 
-fn collect_container_names(db: &AnalysisContext<'_>, owner: OwnerId, names: &mut BTreeMap<String, NameKind>) {
+fn collect_container_names(
+    db: &AnalysisContext<'_>,
+    owner: OwnerId,
+    names: &mut BTreeMap<String, NameKind>,
+) {
     let scope = db.scope(owner);
     for (ident, defs) in scope.iter_listing() {
         collect_def_names(db, ident, defs, names);

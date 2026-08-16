@@ -197,11 +197,7 @@ impl ReferenceToken {
 impl<'a> ReferencesCtx<'a> {
     const FILE_REF_CAPACITY: usize = 8;
 
-    pub(crate) fn new(
-        db: &'a AnalysisContext<'a>,
-        def: &DefId,
-        cfg: ReferencesConfig,
-    ) -> Self {
+    pub(crate) fn new(db: &'a AnalysisContext<'a>, def: &DefId, cfg: ReferencesConfig) -> Self {
         let scope = SearchScope::new(db.db, def, cfg);
         Self { db, def: *def, scope }
     }

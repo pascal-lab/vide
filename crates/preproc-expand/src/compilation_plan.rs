@@ -356,6 +356,7 @@ fn path_file_ids(db: &dyn SourceRootDb) -> PathIdentityIndex<FileId> {
     index
 }
 
+#[allow(clippy::type_complexity)]
 fn include_targets_for_source_roots(
     db: &dyn PreprocDb,
     roots: &[SourceRootId],

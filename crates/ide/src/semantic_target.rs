@@ -273,9 +273,10 @@ pub(crate) fn is_preproc_free_file(db: &dyn PreprocDb, file_id: FileId) -> bool 
     let trace = db.parse(file_id.into()).preprocessor_trace();
     trace.events.is_empty()
         && trace.include_edges.is_empty()
-        && trace.emitted_tokens.iter().all(|token| {
-            matches!(token.origin, syntax::preproc::TokenOrigin::Source { .. })
-        })
+        && trace
+            .emitted_tokens
+            .iter()
+            .all(|token| matches!(token.origin, syntax::preproc::TokenOrigin::Source { .. }))
 }
 
 /// Resolves the caret offset to a semantic target, or `None` when the offset

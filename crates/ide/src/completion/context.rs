@@ -18,8 +18,7 @@ use syntax::{
 use utils::line_index::{TextRange, TextSize};
 
 use self::caret::CaretSnapshot;
-use crate::analysis::AnalysisContext;
-use crate::FilePosition;
+use crate::{FilePosition, analysis::AnalysisContext};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LexContext {

@@ -1,11 +1,10 @@
 use hir_def::symbol::DefKind;
-
 use syntax::ast;
 
 use super::candidate::CompletionCandidate;
-use crate::analysis::AnalysisContext;
 use crate::{
     FilePosition,
+    analysis::AnalysisContext,
     completion::{context::CompletionContext, request::PortListKind},
 };
 
@@ -49,7 +48,10 @@ fn complete_function_port_list(
         .collect()
 }
 
-fn visible_typedefs_in_module_header(db: &AnalysisContext<'_>, position: FilePosition) -> Vec<String> {
+fn visible_typedefs_in_module_header(
+    db: &AnalysisContext<'_>,
+    position: FilePosition,
+) -> Vec<String> {
     let sema = db.semantics();
     let file_id = position.file_id.into();
     let parsed_file = sema.parse_file(position.file_id);

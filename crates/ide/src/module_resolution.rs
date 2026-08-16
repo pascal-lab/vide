@@ -652,7 +652,12 @@ mod tests {
                 let port_conn = root
                     .find_node_at_offset::<ast::NamedPortConnection>(offset)
                     .expect("named port connection should parse at /*caret*/");
-                let res = resolve_named_port_connection(&db, &module_indexes(&db), fixture.focus, port_conn);
+                let res = resolve_named_port_connection(
+                    &db,
+                    &module_indexes(&db),
+                    fixture.focus,
+                    port_conn,
+                );
                 match resolution_module_id(&db, &res, DefKind::Port) {
                     Some(module_id) => format!(
                         "AnsiPort module={}",
@@ -668,7 +673,12 @@ mod tests {
                 let param_assign = root
                     .find_node_at_offset::<ast::NamedParamAssignment>(offset)
                     .expect("named parameter assignment should parse at /*caret*/");
-                let res = resolve_named_param_assignment(&db, &module_indexes(&db), fixture.focus, param_assign);
+                let res = resolve_named_param_assignment(
+                    &db,
+                    &module_indexes(&db),
+                    fixture.focus,
+                    param_assign,
+                );
                 match resolution_module_id(&db, &res, DefKind::Param) {
                     Some(module_id) => format!(
                         "ParamDecl module={}",

@@ -3,9 +3,9 @@ use preproc_expand::file::HirFileId;
 use utils::text_edit::TextSize;
 
 use super::{candidate::CompletionCandidate, typed_filter::value_candidates_in_module};
-use crate::analysis::AnalysisContext;
 use crate::{
     FilePosition,
+    analysis::AnalysisContext,
     completion::{context::CompletionContext, syntax_keywords},
 };
 

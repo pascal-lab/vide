@@ -2,9 +2,9 @@ use super::{
     CompletionItem, candidate, expr, keywords, literal, member, named, paren_list, port_list,
     preproc, sensitivity_list, system,
 };
-use crate::analysis::AnalysisContext;
 use crate::{
     FilePosition,
+    analysis::AnalysisContext,
     completion::{
         context::CompletionContext,
         request::{CompletionProvider, CompletionRequest},

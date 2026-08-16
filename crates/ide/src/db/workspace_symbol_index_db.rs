@@ -64,7 +64,6 @@ impl dyn WorkspaceSymbolIndexDb + '_ {
         ids.dedup();
         ids
     }
-
 }
 
 fn file_workspace_symbols(
@@ -134,4 +133,3 @@ fn file_semantic_index(
     let file_id = key.file_id(db);
     Arc::new(crate::semantic_index::FileSemanticIndex::for_file(db, file_id))
 }
-

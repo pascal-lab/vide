@@ -1,5 +1,4 @@
 use hir_def::lower_ident_opt;
-
 use rustc_hash::FxHashSet;
 use syntax::ast::{self, AstNode};
 
@@ -13,9 +12,8 @@ use super::{
         value_candidates_in_module,
     },
 };
-use crate::analysis::AnalysisContext;
 use crate::{
-    FilePosition, completion::context::CompletionContext,
+    FilePosition, analysis::AnalysisContext, completion::context::CompletionContext,
     module_resolution::resolve_instantiation_target,
 };
 
@@ -35,9 +33,13 @@ pub(super) fn complete_named_port_names(
     else {
         return Vec::new();
     };
-    let Some(target_module_id) =
-        resolve_instantiation_target(db.db, &crate::module_resolution::module_indexes(db.db), position.file_id, instantiation).unique()
-    else {
+    let Some(target_module_id) = resolve_instantiation_target(
+        db.db,
+        &crate::module_resolution::module_indexes(db.db),
+        position.file_id,
+        instantiation,
+    )
+    .unique() else {
         return Vec::new();
     };
 
@@ -83,9 +85,13 @@ pub(super) fn complete_named_param_names(
     else {
         return Vec::new();
     };
-    let Some(target_module_id) =
-        resolve_instantiation_target(db.db, &crate::module_resolution::module_indexes(db.db), position.file_id, instantiation).unique()
-    else {
+    let Some(target_module_id) = resolve_instantiation_target(
+        db.db,
+        &crate::module_resolution::module_indexes(db.db),
+        position.file_id,
+        instantiation,
+    )
+    .unique() else {
         return Vec::new();
     };
 
@@ -143,9 +149,13 @@ pub(super) fn complete_named_port_conn_expr(
     else {
         return Vec::new();
     };
-    let Some(target_module_id) =
-        resolve_instantiation_target(db.db, &crate::module_resolution::module_indexes(db.db), position.file_id, instantiation).unique()
-    else {
+    let Some(target_module_id) = resolve_instantiation_target(
+        db.db,
+        &crate::module_resolution::module_indexes(db.db),
+        position.file_id,
+        instantiation,
+    )
+    .unique() else {
         return Vec::new();
     };
 
@@ -193,9 +203,13 @@ pub(super) fn complete_named_param_assign_expr(
     else {
         return Vec::new();
     };
-    let Some(target_module_id) =
-        resolve_instantiation_target(db.db, &crate::module_resolution::module_indexes(db.db), position.file_id, instantiation).unique()
-    else {
+    let Some(target_module_id) = resolve_instantiation_target(
+        db.db,
+        &crate::module_resolution::module_indexes(db.db),
+        position.file_id,
+        instantiation,
+    )
+    .unique() else {
         return Vec::new();
     };
 

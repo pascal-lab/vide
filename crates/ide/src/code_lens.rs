@@ -1,5 +1,4 @@
 use hir_def::{body::Body, def_id::DefId, has_source::HasSource, source_map::Lowered};
-
 use preproc_expand::file::HirFileId;
 use syntax::{
     ast::{self, AstNode},

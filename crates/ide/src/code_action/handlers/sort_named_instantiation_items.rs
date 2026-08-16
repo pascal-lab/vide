@@ -55,7 +55,12 @@ pub(super) fn sort_named_parameter_assignments(
         sema.resolve_instantiation(ctx.file_id().into(), ast_instantiation)?;
     let module = db.body_with_source_map(module_id);
     let instantiation = module.get(instantiation_id);
-    let target_module_id = resolve_hir_instantiation_target(db, &crate::module_resolution::module_indexes(db), ctx.file_id(), instantiation)?;
+    let target_module_id = resolve_hir_instantiation_target(
+        db,
+        &crate::module_resolution::module_indexes(db),
+        ctx.file_id(),
+        instantiation,
+    )?;
     let target_body = db.body_with_source_map(target_module_id);
     let parameter_order = all_overridable_parameter_names(&target_body);
     let parameter_order_map: FxHashMap<_, _> =
@@ -117,7 +122,12 @@ pub(super) fn sort_named_port_connections(
     let module = db.body_with_source_map(module_id);
     let instance = module.get(instance_id);
     let instantiation = module.get(instance.parent);
-    let target_module_id = resolve_hir_instantiation_target(db, &crate::module_resolution::module_indexes(db), ctx.file_id(), instantiation)?;
+    let target_module_id = resolve_hir_instantiation_target(
+        db,
+        &crate::module_resolution::module_indexes(db),
+        ctx.file_id(),
+        instantiation,
+    )?;
     let target_module = db.body_with_source_map(target_module_id);
     let target_body = db.body_with_source_map(target_module_id);
     let port_order = port_names(&target_module, &target_body);

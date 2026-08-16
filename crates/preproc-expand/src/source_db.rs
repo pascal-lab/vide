@@ -25,7 +25,6 @@ pub(crate) mod range_index;
 mod source_map;
 mod source_mapping;
 
-pub(crate) use self::source_mapping::manifest_predefine_name_range;
 #[cfg(not(test))]
 use self::source_mapping::source_preproc_file_ids;
 #[cfg(test)]
@@ -42,8 +41,10 @@ pub use self::{
     },
     source_mapping::{manifest_predefine_name_range_in_text, preproc_virtual_predefines_path},
 };
-pub(crate) use self::queries::set_source_preproc_model_lru_capacity;
 pub(super) use self::{
     context::{source_preproc_context_index_for_profile, source_preproc_contexts_for_file},
     queries::source_preproc_model,
+};
+pub(crate) use self::{
+    queries::set_source_preproc_model_lru_capacity, source_mapping::manifest_predefine_name_range,
 };

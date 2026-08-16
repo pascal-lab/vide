@@ -31,15 +31,21 @@ pub(super) fn expected_param_ty(
     target_module_id: OwnerId,
     param_name: &Ident,
 ) -> Option<Type> {
-    let res =
-        crate::module_resolution::resolve_named_param_in_module(db.db, target_module_id, param_name);
+    let res = crate::module_resolution::resolve_named_param_in_module(
+        db.db,
+        target_module_id,
+        param_name,
+    );
     if res.is_unresolved() {
         return None;
     }
     Some(TypeSystem::new(db.db).type_of_resolution(res))
 }
 
-pub(super) fn value_candidates_in_module(db: &AnalysisContext<'_>, module_id: OwnerId) -> Vec<(String, Type)> {
+pub(super) fn value_candidates_in_module(
+    db: &AnalysisContext<'_>,
+    module_id: OwnerId,
+) -> Vec<(String, Type)> {
     typed_candidates_in_module(db, module_id, |kind| {
         matches!(
             kind,
@@ -53,11 +59,18 @@ pub(super) fn value_candidates_in_module(db: &AnalysisContext<'_>, module_id: Ow
     })
 }
 
-pub(super) fn const_candidates_in_module(db: &AnalysisContext<'_>, module_id: OwnerId) -> Vec<(String, Type)> {
+pub(super) fn const_candidates_in_module(
+    db: &AnalysisContext<'_>,
+    module_id: OwnerId,
+) -> Vec<(String, Type)> {
     typed_candidates_in_module(db, module_id, |kind| kind == DefKind::Param)
 }
 
-pub(super) fn is_compatible_typed_value(db: &AnalysisContext<'_>, expected: &Type, candidate: &Type) -> bool {
+pub(super) fn is_compatible_typed_value(
+    db: &AnalysisContext<'_>,
+    expected: &Type,
+    candidate: &Type,
+) -> bool {
     TypeSystem::new(db.db).compatibility(expected, candidate) == Compatibility::Compatible
 }
 
@@ -71,8 +84,9 @@ fn typed_candidates_in_module(
     let mut candidates: Vec<_> = scope
         .iter_listing()
         .filter_map(|(name, defs)| {
-            let resolution =
-                Resolution::from_candidates(defs.into_iter().filter(|def| include(def.kind(db.db))));
+            let resolution = Resolution::from_candidates(
+                defs.into_iter().filter(|def| include(def.kind(db.db))),
+            );
             (!resolution.is_unresolved())
                 .then(|| (name.to_string(), types.type_of_resolution(resolution)))
         })

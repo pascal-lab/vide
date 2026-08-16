@@ -12,9 +12,7 @@ use utils::line_index::TextRange;
 use vfs::FileId;
 
 use crate::{
-    db::{
-        workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_module_index_for_root},
-    },
+    db::workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_module_index_for_root},
     navigation_target::nav_location,
     references::ReferenceCategory,
 };
@@ -661,8 +659,7 @@ mod tests {
 
         let (preprocessed, file_id, _, _) =
             setup_marked("`define DECL module generated; endmodule\n`DECL\n");
-        let skeleton =
-            preprocessed.ctx().declaration_skeleton(HirFileId::File(file_id)).unwrap();
+        let skeleton = preprocessed.ctx().declaration_skeleton(HirFileId::File(file_id)).unwrap();
         assert!(!skeleton.preprocessor_independent());
     }
 
@@ -829,17 +826,28 @@ endmodule
                 checked += 1;
                 let container = containers.container_for(&sema, hir_file_id, token.parent);
                 let chosen = if token_in_special_context(token) {
-                    DefinitionClass::resolve_in(db.db, &context, hir_file_id, token, Some(container))
-                        .unique()
+                    DefinitionClass::resolve_in(
+                        db.db,
+                        &context,
+                        hir_file_id,
+                        token,
+                        Some(container),
+                    )
+                    .unique()
                 } else {
                     let chain = chains.chain_for(db.db, container);
                     sema.nameres_ident_in_scopes_at(hir_file_id, token, NameContext::Value, &chain)
                         .map(DefinitionClass::Definition)
                         .unique()
                 };
-                let full =
-                    DefinitionClass::resolve_in(db.db, &context, hir_file_id, token, Some(container))
-                        .unique();
+                let full = DefinitionClass::resolve_in(
+                    db.db,
+                    &context,
+                    hir_file_id,
+                    token,
+                    Some(container),
+                )
+                .unique();
                 assert_eq!(
                     chosen,
                     full,

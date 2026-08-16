@@ -473,6 +473,7 @@ impl ImportCollector<'_> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn resolve_scope_imports(
     db: &dyn HirDefDb,
     context: &ResolutionContext,
@@ -748,11 +749,22 @@ endmodule
             .expect("top module should resolve uniquely");
 
         assert!(
-            resolve_path(&db, &ResolutionContext::from_db(&db), top, &path(&["u", "only_left"]), NameContext::Value).is_unresolved()
+            resolve_path(
+                &db,
+                &ResolutionContext::from_db(&db),
+                top,
+                &path(&["u", "only_left"]),
+                NameContext::Value
+            )
+            .is_unresolved()
         );
-        let Resolution::Ambiguous(shared) =
-            resolve_path(&db, &ResolutionContext::from_db(&db), top, &path(&["u", "shared"]), NameContext::Value)
-        else {
+        let Resolution::Ambiguous(shared) = resolve_path(
+            &db,
+            &ResolutionContext::from_db(&db),
+            top,
+            &path(&["u", "shared"]),
+            NameContext::Value,
+        ) else {
             panic!("members from ambiguous parents should remain ambiguous");
         };
         assert_eq!(shared.len(), 2);
@@ -780,9 +792,13 @@ endmodule
             .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
-        let Resolution::Ambiguous(values) =
-            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("value"), NameContext::Value)
-        else {
+        let Resolution::Ambiguous(values) = resolve_name(
+            &db,
+            &ResolutionContext::from_db(&db),
+            top,
+            &ident("value"),
+            NameContext::Value,
+        ) else {
             panic!("imports from ambiguous packages should remain ambiguous");
         };
         assert_eq!(values.len(), 2);
@@ -811,7 +827,14 @@ endmodule
             .expect("top module should resolve uniquely");
 
         assert!(
-            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("only_left"), NameContext::Value).is_unresolved(),
+            resolve_name(
+                &db,
+                &ResolutionContext::from_db(&db),
+                top,
+                &ident("only_left"),
+                NameContext::Value
+            )
+            .is_unresolved(),
             "a child member must not disambiguate its parent package"
         );
     }
@@ -850,8 +873,13 @@ endmodule
             .unique()
             .expect("named package value should resolve uniquely");
 
-        let (resolved, trace) =
-            resolve_name_with_trace(&db, &ResolutionContext::from_db(&db), top, &ident("value"), NameContext::Value);
+        let (resolved, trace) = resolve_name_with_trace(
+            &db,
+            &ResolutionContext::from_db(&db),
+            top,
+            &ident("value"),
+            NameContext::Value,
+        );
         assert_eq!(resolved, Resolution::Unique(expected));
         assert!(trace.entries().iter().any(|entry| {
             entry.phase == ResolutionPhase::NamedImport
@@ -888,8 +916,13 @@ endmodule
             .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
-        let (resolved, trace) =
-            resolve_name_with_trace(&db, &ResolutionContext::from_db(&db), top, &ident("value"), NameContext::Value);
+        let (resolved, trace) = resolve_name_with_trace(
+            &db,
+            &ResolutionContext::from_db(&db),
+            top,
+            &ident("value"),
+            NameContext::Value,
+        );
         let Resolution::Ambiguous(candidates) = resolved else {
             panic!("two named imports must remain ambiguous");
         };
@@ -930,9 +963,23 @@ endmodule
             .package_ids(&ident("p2"))
             .unique()
             .expect("p2 package should resolve uniquely");
-        let p2_x = resolve_name(&db, &ResolutionContext::from_db(&db), p2, &ident("x"), NameContext::Value).unique().expect("p2::x");
+        let p2_x = resolve_name(
+            &db,
+            &ResolutionContext::from_db(&db),
+            p2,
+            &ident("x"),
+            NameContext::Value,
+        )
+        .unique()
+        .expect("p2::x");
         assert_eq!(
-            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("x"), NameContext::Value),
+            resolve_name(
+                &db,
+                &ResolutionContext::from_db(&db),
+                top,
+                &ident("x"),
+                NameContext::Value
+            ),
             Resolution::Unique(p2_x)
         );
     }
@@ -969,9 +1016,23 @@ endmodule
             .package_ids(&ident("p2"))
             .unique()
             .expect("p2 package should resolve uniquely");
-        let p2_x = resolve_name(&db, &ResolutionContext::from_db(&db), p2, &ident("x"), NameContext::Value).unique().expect("p2::x");
+        let p2_x = resolve_name(
+            &db,
+            &ResolutionContext::from_db(&db),
+            p2,
+            &ident("x"),
+            NameContext::Value,
+        )
+        .unique()
+        .expect("p2::x");
         assert_eq!(
-            resolve_name(&db, &ResolutionContext::from_db(&db), block, &ident("x"), NameContext::Value),
+            resolve_name(
+                &db,
+                &ResolutionContext::from_db(&db),
+                block,
+                &ident("x"),
+                NameContext::Value
+            ),
             Resolution::Unique(p2_x)
         );
     }
@@ -1019,7 +1080,15 @@ endmodule
             .unique()
             .expect("top module should resolve uniquely");
         assert!(
-            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("value"), NameContext::Value).unique().is_some(),
+            resolve_name(
+                &db,
+                &ResolutionContext::from_db(&db),
+                top,
+                &ident("value"),
+                NameContext::Value
+            )
+            .unique()
+            .is_some(),
             "lexical resolution must consume the canonical design map"
         );
     }
@@ -1070,7 +1139,15 @@ endmodule
             "selective export must not expose other wildcard-imported values"
         );
         assert!(
-            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("private"), NameContext::Value).unique().is_some(),
+            resolve_name(
+                &db,
+                &ResolutionContext::from_db(&db),
+                top,
+                &ident("private"),
+                NameContext::Value
+            )
+            .unique()
+            .is_some(),
             "export-all must re-export wildcard-imported values"
         );
     }
@@ -1111,9 +1188,13 @@ endmodule
             .module_ids(&ident("top"))
             .unique()
             .expect("top module should resolve uniquely");
-        let Resolution::Ambiguous(candidates) =
-            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("x"), NameContext::Value)
-        else {
+        let Resolution::Ambiguous(candidates) = resolve_name(
+            &db,
+            &ResolutionContext::from_db(&db),
+            top,
+            &ident("x"),
+            NameContext::Value,
+        ) else {
             panic!("star import of mutually importing packages must stay ambiguous");
         };
         assert_eq!(candidates.len(), 2);
@@ -1151,7 +1232,13 @@ endmodule
             .unique()
             .expect("top module should resolve uniquely");
         assert_eq!(
-            resolve_name(&db, &ResolutionContext::from_db(&db), top, &ident("value"), NameContext::Value),
+            resolve_name(
+                &db,
+                &ResolutionContext::from_db(&db),
+                top,
+                &ident("value"),
+                NameContext::Value
+            ),
             Resolution::Unique(expected)
         );
     }
@@ -1241,14 +1328,25 @@ endmodule
             .expect("generate block b")
             .id;
         let p = db.unit_index().package_ids(&ident("p")).unique().expect("p");
-        let p_f = resolve_name(&db, &ResolutionContext::from_db(&db), p, &ident("f"), NameContext::Value).unique().expect("p::f");
+        let p_f =
+            resolve_name(&db, &ResolutionContext::from_db(&db), p, &ident("f"), NameContext::Value)
+                .unique()
+                .expect("p::f");
 
         let reference = reference_at(&db, text, "x = f()", RefKind::Call);
-        let resolved = resolve_name_at(&db, &ResolutionContext::from_db(&db), b, &ident("f"), NameContext::Value, Some(&reference));
+        let resolved = resolve_name_at(
+            &db,
+            &ResolutionContext::from_db(&db),
+            b,
+            &ident("f"),
+            NameContext::Value,
+            Some(&reference),
+        );
         assert_eq!(resolved, Resolution::Unique(p_f), "only the preceding wildcard may bind");
 
         // Without a position both wildcards merge (the previous behavior).
-        let positionless = resolve_name(&db, &ResolutionContext::from_db(&db), b, &ident("f"), NameContext::Value);
+        let positionless =
+            resolve_name(&db, &ResolutionContext::from_db(&db), b, &ident("f"), NameContext::Value);
         assert!(matches!(positionless, Resolution::Ambiguous(_)));
     }
 
@@ -1279,8 +1377,15 @@ endmodule
 
         let reference = reference_at(&db, text, "x = f()", RefKind::Call);
         assert!(
-            resolve_name_at(&db, &ResolutionContext::from_db(&db), b, &ident("f"), NameContext::Value, Some(&reference))
-                .is_unresolved(),
+            resolve_name_at(
+                &db,
+                &ResolutionContext::from_db(&db),
+                b,
+                &ident("f"),
+                NameContext::Value,
+                Some(&reference)
+            )
+            .is_unresolved(),
             "the import follows the reference and must not bind"
         );
     }
@@ -1310,11 +1415,21 @@ endmodule
             .expect("generate block b")
             .id;
         let p = db.unit_index().package_ids(&ident("p")).unique().expect("p");
-        let p_x = resolve_name(&db, &ResolutionContext::from_db(&db), p, &ident("x"), NameContext::Value).unique().expect("p::x");
+        let p_x =
+            resolve_name(&db, &ResolutionContext::from_db(&db), p, &ident("x"), NameContext::Value)
+                .unique()
+                .expect("p::x");
 
         let reference = reference_at(&db, text, "x = 1", RefKind::Value);
         assert_eq!(
-            resolve_name_at(&db, &ResolutionContext::from_db(&db), b, &ident("x"), NameContext::Value, Some(&reference)),
+            resolve_name_at(
+                &db,
+                &ResolutionContext::from_db(&db),
+                b,
+                &ident("x"),
+                NameContext::Value,
+                Some(&reference)
+            ),
             Resolution::Unique(p_x),
             "the later outer declaration must not shadow the wildcard import"
         );
@@ -1333,12 +1448,27 @@ endmodule
 
         let reference = reference_at(&db, text, "x = 1", RefKind::Value);
         assert!(
-            resolve_name_at(&db, &ResolutionContext::from_db(&db), blk, &ident("x"), NameContext::Value, Some(&reference))
-                .is_unresolved(),
+            resolve_name_at(
+                &db,
+                &ResolutionContext::from_db(&db),
+                blk,
+                &ident("x"),
+                NameContext::Value,
+                Some(&reference)
+            )
+            .is_unresolved(),
             "a declaration after the reference is not locally visible at the point"
         );
         assert!(
-            resolve_name(&db, &ResolutionContext::from_db(&db), blk, &ident("x"), NameContext::Value).unique().is_some(),
+            resolve_name(
+                &db,
+                &ResolutionContext::from_db(&db),
+                blk,
+                &ident("x"),
+                NameContext::Value
+            )
+            .unique()
+            .is_some(),
             "position-less lookup keeps the declaration"
         );
     }
@@ -1351,16 +1481,34 @@ endmodule
             "module m;\n  assign y = f();\n  function int f(); return 1; endfunction\nendmodule\n";
         let db = db_with_root_text(text);
         let m = db.unit_index().module_ids(&ident("m")).unique().expect("m");
-        let f = resolve_name(&db, &ResolutionContext::from_db(&db), m, &ident("f"), NameContext::Value).unique().expect("m::f");
+        let f =
+            resolve_name(&db, &ResolutionContext::from_db(&db), m, &ident("f"), NameContext::Value)
+                .unique()
+                .expect("m::f");
 
         let call = reference_at(&db, text, "y = f()", RefKind::Call);
         assert_eq!(
-            resolve_name_at(&db, &ResolutionContext::from_db(&db), m, &ident("f"), NameContext::Value, Some(&call)),
+            resolve_name_at(
+                &db,
+                &ResolutionContext::from_db(&db),
+                m,
+                &ident("f"),
+                NameContext::Value,
+                Some(&call)
+            ),
             Resolution::Unique(f)
         );
         let value = reference_at(&db, text, "y = f()", RefKind::Value);
         assert!(
-            resolve_name_at(&db, &ResolutionContext::from_db(&db), m, &ident("f"), NameContext::Value, Some(&value)).is_unresolved(),
+            resolve_name_at(
+                &db,
+                &ResolutionContext::from_db(&db),
+                m,
+                &ident("f"),
+                NameContext::Value,
+                Some(&value)
+            )
+            .is_unresolved(),
             "ordinary references do not see the later declaration"
         );
     }
@@ -1439,7 +1587,13 @@ endmodule
             .unique()
             .expect("top module should resolve uniquely");
 
-        let res = resolve_path(&db, &ResolutionContext::from_db(&db), top, &path(&["u_if", "host"]), NameContext::Value);
+        let res = resolve_path(
+            &db,
+            &ResolutionContext::from_db(&db),
+            top,
+            &path(&["u_if", "host"]),
+            NameContext::Value,
+        );
 
         let def = res.unique().expect("modport should produce a unique definition");
         assert_eq!(def.name(&db).as_deref(), Some("host"));

@@ -51,7 +51,12 @@ pub(super) fn add_missing_connections(
     let close_paren = ast_instance.close_paren()?.text_range_in(ast_instance.syntax())?;
 
     let instantiation = module.get(instance.parent);
-    let target_module_id = resolve_hir_instantiation_target(db, &crate::module_resolution::module_indexes(db), ctx.file_id(), instantiation)?;
+    let target_module_id = resolve_hir_instantiation_target(
+        db,
+        &crate::module_resolution::module_indexes(db),
+        ctx.file_id(),
+        instantiation,
+    )?;
     let target_module = db.body_with_source_map(target_module_id);
     let target_body = db.body_with_source_map(target_module_id);
 

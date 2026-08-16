@@ -490,9 +490,10 @@ mod tests {
                     "NonAnsiPort",
                     origin.name_range(db.db).expect("non-ANSI port label should have a name range"),
                 ),
-                Some(origin) if origin.kind(db.db) == DefKind::Port => {
-                    ("AnsiPort", origin.name_range(db.db).expect("ANSI port should have a name range"))
-                }
+                Some(origin) if origin.kind(db.db) == DefKind::Port => (
+                    "AnsiPort",
+                    origin.name_range(db.db).expect("ANSI port should have a name range"),
+                ),
                 other => panic!("unexpected definition for {name}: {other:?}"),
             };
             let range_start = usize::from(range.value.start());

@@ -1,4 +1,7 @@
-use std::{ops::{Deref, Range}, sync::atomic::AtomicBool};
+use std::{
+    ops::{Deref, Range},
+    sync::atomic::AtomicBool,
+};
 
 use base_db::{
     Cancelled,
@@ -36,8 +39,8 @@ use crate::{
     markup::Markup,
     navigation_target::NavTarget,
     references::{self, References, ReferencesConfig},
-    revision_cache::{ComputationPriority, RevisionCache},
     rename::{self, RenameConfig, RenameResult},
+    revision_cache::{ComputationPriority, RevisionCache},
     selection_ranges,
     semantic_index::{
         self, FileModuleEdges, FileSemanticIndex, ModuleCallEdge, ModuleEdgeIndex, ReferenceIndex,
@@ -107,9 +110,7 @@ impl AnalysisContext<'_> {
         &self,
         file_id: FileId,
     ) -> Arc<preproc_expand::macro_file::SourceSemanticMap> {
-        if let Some(map) =
-            self.cache.lock().indexes.source_semantic_maps.get(&file_id).cloned()
-        {
+        if let Some(map) = self.cache.lock().indexes.source_semantic_maps.get(&file_id).cloned() {
             return map;
         }
         let map = self.db.source_semantic_map(file_id);
@@ -187,8 +188,11 @@ impl AnalysisContext<'_> {
     }
 
     pub(crate) fn semantic_snapshot_inputs(&self) -> Arc<SemanticSnapshotInputs> {
-        self.semantic_snapshot_inputs_with_priority(ComputationPriority::Foreground, &NEVER_CANCELLED)
-            .expect("foreground semantic input computation cannot be cancelled")
+        self.semantic_snapshot_inputs_with_priority(
+            ComputationPriority::Foreground,
+            &NEVER_CANCELLED,
+        )
+        .expect("foreground semantic input computation cannot be cancelled")
     }
 
     pub(crate) fn prewarm_semantic_snapshot_inputs(

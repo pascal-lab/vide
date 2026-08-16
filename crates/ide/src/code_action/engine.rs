@@ -1,4 +1,3 @@
-
 use utils::text_edit::TextRange;
 use vfs::FileId;
 

@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use preproc_expand::preproc::visible_macro_names_at;
 
 use super::candidate::CompletionCandidate;
-use crate::analysis::AnalysisContext;
 use crate::{
     FilePosition,
+    analysis::AnalysisContext,
     completion::{context::CompletionContext, directives, engine::snippets},
 };
 

@@ -19,9 +19,9 @@ use super::{
         value_candidates_in_module,
     },
 };
-use crate::analysis::AnalysisContext;
 use crate::{
     FilePosition,
+    analysis::AnalysisContext,
     completion::{
         context::CompletionContext,
         request::{HashKind, ParenListKind},
@@ -302,5 +302,11 @@ fn resolve_target_module_id(
     from_file: vfs::FileId,
     instantiation: ast::HierarchyInstantiation<'_>,
 ) -> Option<OwnerId> {
-    resolve_instantiation_target(db.db, &crate::module_resolution::module_indexes(db.db), from_file, instantiation).unique()
+    resolve_instantiation_target(
+        db.db,
+        &crate::module_resolution::module_indexes(db.db),
+        from_file,
+        instantiation,
+    )
+    .unique()
 }

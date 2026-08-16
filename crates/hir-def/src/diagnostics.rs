@@ -35,8 +35,7 @@ use crate::{
     has_source::HasSource,
     owner::OwnerId,
     pathres::{
-        NameRef, RefKind, ResolutionContext, before_reference, resolve_name_at,
-        resolve_wildcard_at,
+        NameRef, RefKind, ResolutionContext, before_reference, resolve_name_at, resolve_wildcard_at,
     },
     proc::Proc,
     source_map::{LoweringDiagnostic, LoweringDiagnosticKind},

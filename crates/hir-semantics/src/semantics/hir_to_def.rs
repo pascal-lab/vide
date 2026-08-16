@@ -26,12 +26,10 @@ pub(super) fn expr_to_def(
                 return Resolution::Unresolved;
             };
             resolve_expr_path(db, context, cont_id, expr_id, NameContext::Value, reference.as_ref())
-                .or_else(
-                || {
+                .or_else(|| {
                     let receiver_res = expr_to_def(db, context, OwnerRef::new(cont_id, *receiver));
                     resolve_child_name(db, context, &receiver_res, field, NameContext::Value)
-                },
-            )
+                })
         }
         Expr::ElementSelect { receiver, .. } => {
             resolve_expr_path(db, context, cont_id, expr_id, NameContext::Value, reference.as_ref())
