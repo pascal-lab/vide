@@ -176,27 +176,114 @@ pub fn include_buffers_for_plan(
     include_buffers_for_plan_with_roots(db, plan, false)
 }
 
-/// Include buffers needed by one standalone compilation unit. Falls back to
-/// the profile-wide set when a dynamic or unresolved include prevents a
-/// complete static closure.
-pub fn include_buffers_for_file(
+/// Transitive literal includes of one file, walking only that file's
+/// include graph. Dynamic or unresolved directives make the closure
+/// [`Partial`](StaticIncludeClosure::Partial); resolved files are still
+/// returned. This never expands to the whole profile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StaticIncludeClosure {
+    Complete(Vec<FileId>),
+    Partial(Vec<FileId>),
+}
+
+impl StaticIncludeClosure {
+    pub fn files(&self) -> &[FileId] {
+        match self {
+            Self::Complete(files) | Self::Partial(files) => files,
+        }
+    }
+
+    pub fn is_complete(&self) -> bool {
+        matches!(self, Self::Complete(_))
+    }
+}
+
+/// Include buffers needed by one standalone compilation unit.
+///
+/// Only files on this file's static include closure are registered. A
+/// dynamic or unresolved include does **not** load every header in the
+/// profile.
+pub fn include_buffers_for_file(db: &dyn PreprocDb, file_id: FileId) -> Vec<SyntaxTreeBuffer> {
+    include_buffers_for_static_closure(db, &static_include_closure(db, file_id))
+}
+
+pub fn include_buffers_for_static_closure(
     db: &dyn SourceRootDb,
-    plan: &CompilationPlan,
-    file_id: FileId,
+    closure: &StaticIncludeClosure,
 ) -> Vec<SyntaxTreeBuffer> {
-    let Some(closure) = plan.include_closure(file_id) else {
-        return include_buffers_for_plan(db, plan);
-    };
-    let mut dependencies = closure.into_iter().collect::<Vec<_>>();
-    dependencies.sort_unstable_by_key(|dependency| dependency.index());
-    dependencies
-        .into_iter()
-        .filter(|dependency| !db.file_is_project_ignored(*dependency))
-        .map(|dependency| SyntaxTreeBuffer {
-            path: source_buffer_path(db, dependency).to_string(),
-            text: db.file_text(dependency).to_string(),
+    closure
+        .files()
+        .iter()
+        .copied()
+        .filter(|&file_id| !db.file_is_project_ignored(file_id))
+        .map(|file_id| SyntaxTreeBuffer {
+            path: source_buffer_path(db, file_id).to_string(),
+            text: db.file_text(file_id).to_string(),
         })
         .collect()
+}
+
+/// Walk literal `` `include `` directives from `file_id` only.
+pub fn static_include_closure(db: &dyn PreprocDb, file_id: FileId) -> StaticIncludeClosure {
+    let profile_id = db.file_compilation_profile(file_id);
+    let preprocess = db.project_config().preprocess_for_profile(profile_id);
+    let predefines = triomphe::Arc::<[String]>::from(preprocess.predefine_strings());
+    let include_dirs = preprocess.include_dirs;
+    let path_file_ids = db.path_file_ids();
+
+    let mut resolved = Vec::new();
+    let mut seen = FxHashSet::default();
+    let mut pending = vec![file_id];
+    let mut complete = true;
+
+    while let Some(current) = pending.pop() {
+        if !matches!(
+            db.file_kind(current),
+            SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
+        ) {
+            continue;
+        }
+        let includer_path =
+            db.file_path(current).unwrap_or_else(|| source_buffer_path(db, current));
+        let include_targets = match literal_include_targets(
+            db,
+            IncludeScanQueryKey::new(db, current, predefines.clone()),
+        ) {
+            Ok(targets) => targets,
+            Err(_) => {
+                complete = false;
+                continue;
+            }
+        };
+        for include in include_targets {
+            let MacroIncludeTarget::Literal { path, .. } = &include.target else {
+                complete = false;
+                continue;
+            };
+            match resolve_include_target(
+                path.as_str(),
+                &includer_path,
+                &include_dirs,
+                &path_file_ids,
+            ) {
+                Some(included) => {
+                    if seen.insert(included) {
+                        resolved.push(included);
+                        pending.push(included);
+                    }
+                }
+                None => complete = false,
+            }
+        }
+    }
+
+    resolved.sort_unstable_by_key(|file_id| file_id.index());
+    resolved.dedup();
+    if complete {
+        StaticIncludeClosure::Complete(resolved)
+    } else {
+        StaticIncludeClosure::Partial(resolved)
+    }
 }
 
 pub fn compilation_source_buffers_for_plan(

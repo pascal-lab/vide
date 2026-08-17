@@ -206,16 +206,15 @@ pub(crate) fn syntax_tree_options_for_file(
 ) -> syntax::SyntaxTreeOptions {
     let _span = tracing::info_span!("slang.syntax_tree_options.file", ?file_id).entered();
     let profile_id = db.file_compilation_profile(file_id);
-    let context = db.compilation_context_for_file(file_id);
+    let preprocess = db.project_config().preprocess_for_profile(profile_id);
     let identity = source_file_identity(db, file_id);
-    let plan = db.compilation_plan_for_profile(profile_id);
-    let include_buffers = compilation_plan::include_buffers_for_file(db, &plan, file_id)
+    let include_buffers = compilation_plan::include_buffers_for_file(db, file_id)
         .into_iter()
         .filter(|buffer| buffer.path != identity.path)
         .collect();
     syntax::SyntaxTreeOptions {
-        predefines: context.predefines.to_vec(),
-        include_paths: context.include_dirs.iter().map(ToString::to_string).collect(),
+        predefines: preprocess.predefine_strings(),
+        include_paths: preprocess.include_dir_strings(),
         include_buffers,
         ..syntax::SyntaxTreeOptions::default()
     }
@@ -238,13 +237,7 @@ fn syntax_tree_options_for_parser_cursor(
     db: &dyn PreprocDb,
     file_id: FileId,
 ) -> syntax::SyntaxTreeOptions {
-    let profile_id = db.file_compilation_profile(file_id);
-    let plan = db.compilation_plan_for_profile(profile_id);
-    let mut options = syntax_tree_options_for_file(db, file_id);
-    if plan.roots.contains(&file_id) {
-        options.predefines.extend(db.unit_macro_predefines(file_id).iter().cloned());
-    }
-    options
+    syntax_tree_options_for_file(db, file_id)
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
@@ -254,21 +247,16 @@ fn compilation_unit_inputs(
 ) -> Arc<CompilationUnitInputs> {
     let file_id = key.file_id(db);
     let profile_id = db.file_compilation_profile(file_id);
-    let plan = db.compilation_plan_for_profile(profile_id);
     let text = db.file_text(file_id);
     let identity = source_file_identity(db, file_id);
     let kind = db.file_kind(file_id);
     let options = match kind {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
-            let mut options = syntax_tree_options_for_file(db, file_id);
-            // Roots are parsed standalone so a single-file edit only re-parses
-            // that file. The running compilation-unit macro set of predecessor
-            // roots is injected as predefines to preserve cross-file `$unit`
-            // macro visibility without re-running the whole profile.
-            if plan.roots.contains(&file_id) {
-                options.predefines.extend(db.unit_macro_predefines(file_id).iter().cloned());
-            }
-            options
+            // Profile predefines + this file's static include closure.
+            // Predecessor `$unit` macros are not injected here: that walk
+            // builds the profile include plan and re-parses every earlier
+            // root. This file's own includes carry the macros it uses.
+            syntax_tree_options_for_file(db, file_id)
         }
         SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => {
             syntax::SyntaxTreeOptions::default()
@@ -607,6 +595,13 @@ impl dyn PreprocDb + '_ {
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<CompilationPlan> {
         compilation_plan_for_profile(self, PreprocProfileQueryKey::new(self, profile_id))
+    }
+
+    pub fn static_include_closure(
+        &self,
+        file_id: FileId,
+    ) -> compilation_plan::StaticIncludeClosure {
+        compilation_plan::static_include_closure(self, file_id)
     }
 
     pub fn compilation_context(
@@ -1319,6 +1314,43 @@ mod tests {
 
         assert_ne!(before.fingerprint, after.fingerprint);
         assert!(after.dependencies.files.contains(&INCLUDED));
+    }
+
+    #[test]
+    fn standalone_parse_registers_only_the_static_include_closure() {
+        let mut db = db_with_macro_included_root();
+        db.set_file_text_with_durability(
+            TOP,
+            Arc::from("`include \"included.sv\"\nmodule top; endmodule\n"),
+            Durability::LOW,
+        );
+
+        let closure = db.static_include_closure(TOP);
+        assert!(closure.is_complete(), "{closure:?}");
+        assert_eq!(closure.files(), &[INCLUDED]);
+
+        let options = syntax_tree_options_for_file(&db, TOP);
+        assert_eq!(options.include_buffers.len(), 1);
+        assert!(
+            options.include_buffers[0].path.ends_with("included.sv"),
+            "{}",
+            options.include_buffers[0].path
+        );
+    }
+
+    #[test]
+    fn dynamic_include_does_not_load_the_profile_as_buffers() {
+        let db = db_with_macro_included_root();
+        let closure = db.static_include_closure(TOP);
+        assert!(!closure.is_complete(), "{closure:?}");
+        assert!(closure.files().is_empty(), "{closure:?}");
+
+        let options = syntax_tree_options_for_file(&db, TOP);
+        assert!(
+            options.include_buffers.is_empty(),
+            "dynamic include must not register every profile file: {:?}",
+            options.include_buffers
+        );
     }
 
     #[test]
