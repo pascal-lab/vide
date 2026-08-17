@@ -912,7 +912,7 @@ impl FileModuleEdges {
             let module = db.body_with_source_map(caller);
             for (instantiation_id, instantiation) in module.instantiations.iter() {
                 let Some(callee_module_id) =
-                    resolve_hir_instantiation_target(db, &module_indexes, file_id, instantiation)
+                    resolve_hir_instantiation_target(db, module_indexes, file_id, instantiation)
                 else {
                     continue;
                 };

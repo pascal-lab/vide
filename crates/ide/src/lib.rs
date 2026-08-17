@@ -31,6 +31,7 @@ pub mod formatting;
 pub mod goto_declaration;
 pub mod goto_definition;
 pub mod hover;
+pub(crate) mod incrementality;
 #[cfg(test)]
 mod index_benchmarks;
 pub mod inlay_hint;
@@ -39,7 +40,6 @@ mod macro_hover_tests;
 pub mod range;
 pub mod references;
 pub mod rename;
-mod revision_cache;
 pub mod selection_ranges;
 pub mod semantic_index;
 pub(crate) mod semantic_target;

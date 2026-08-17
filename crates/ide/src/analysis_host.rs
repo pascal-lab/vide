@@ -18,12 +18,12 @@ use triomphe::Arc;
 use crate::{
     analysis::{AnalysisContext, AnalysisSnapshot},
     db::root_db::RootDb,
-    revision_cache::RevisionCache,
+    incrementality::ProductStore,
 };
 
 pub struct AnalysisHost {
     db: RootDb,
-    cache: Arc<RevisionCache>,
+    store: Arc<ProductStore>,
     snapshot_id: AnalysisSnapshotId,
     prewarm: Option<PrewarmTask>,
 }
@@ -37,7 +37,7 @@ impl AnalysisHost {
     pub fn new(lru_capacity: Option<usize>) -> AnalysisHost {
         AnalysisHost {
             db: RootDb::new(lru_capacity),
-            cache: Arc::new(RevisionCache::default()),
+            store: Arc::new(ProductStore::default()),
             snapshot_id: AnalysisSnapshotId::default(),
             prewarm: None,
         }
@@ -49,7 +49,7 @@ impl AnalysisHost {
         let salsa_revision = base_db::salsa::plumbing::current_revision(&db);
         AnalysisSnapshot {
             db,
-            cache: self.cache.clone(),
+            store: self.store.clone(),
             snapshot_id: self.snapshot_id,
             salsa_revision,
         }
@@ -69,14 +69,17 @@ impl AnalysisHost {
             self.db.preproc_affected_files(dirty_files).into_iter().collect()
         };
         if invalidate_workspace {
-            self.cache = Arc::new(RevisionCache::default());
+            self.store = Arc::new(ProductStore::default());
+            self.db.apply_change(change);
         } else if !affected_files.is_empty() {
-            let mut cache = self.cache.fork();
-            cache.record_dirty_files(&self.db, &affected_files);
-            self.cache = Arc::new(cache);
+            let store = self.store.fork();
+            store.capture_epoch(&self.db, &affected_files);
+            self.db.apply_change(change);
+            store.invalidate(&self.db, &affected_files);
+            self.store = Arc::new(store);
+        } else {
+            self.db.apply_change(change);
         }
-        self.db.apply_change(change);
-        self.cache.finalize_structure_epoch(&self.db);
         self.advance_revision();
         if !invalidate_workspace && !affected_files.is_empty() {
             self.start_prewarm(affected_files);
@@ -94,7 +97,7 @@ impl AnalysisHost {
 
     fn start_prewarm(&mut self, affected_files: Vec<vfs::FileId>) {
         let db = self.db.clone();
-        let cache = self.cache.clone();
+        let store = self.store.clone();
         let cancel = StdArc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
         let worker = thread::Builder::new()
@@ -109,35 +112,41 @@ impl AnalysisHost {
                     }
                     thread::sleep(std::time::Duration::from_millis(5));
                 }
-                let ctx = AnalysisContext { db: &db, cache: &*cache };
-                if ctx.has_materialized_semantic_inputs() {
+                let ctx = AnalysisContext { db: &db, store: &store };
+                let hot = store.hot();
+                if hot.snapshot_inputs {
                     let _ = ctx.prewarm_semantic_snapshot_inputs(&worker_cancel);
                 }
-                let mut roots = rustc_hash::FxHashSet::default();
+                let mut edge_roots = rustc_hash::FxHashSet::default();
+                let mut reference_roots = rustc_hash::FxHashSet::default();
                 for file_id in affected_files {
                     if worker_cancel.load(Ordering::Acquire) {
                         return;
                     }
                     if ctx.files().contains(&file_id) {
-                        roots.insert(ctx.source_root_id(file_id));
-                        if ctx.has_materialized_file_index(file_id) {
-                            let _ = ctx.request_file_semantic_index(file_id);
+                        let root = ctx.source_root_id(file_id);
+                        if hot.module_edge_roots.contains(&root) {
+                            edge_roots.insert(root);
+                        }
+                        if hot.reference_roots.contains(&root) {
+                            reference_roots.insert(root);
+                        }
+                        if hot.files.contains(&file_id) {
+                            let _ = ctx.file_index(file_id);
                         }
                     }
                 }
-                for root in roots {
+                for root in edge_roots {
                     if worker_cancel.load(Ordering::Acquire) {
                         return;
                     }
-                    if ctx.has_materialized_module_edges(root) {
-                        let _ = ctx.request_module_edge_index(root);
-                    }
+                    let _ = ctx.module_edges(root);
+                }
+                for root in reference_roots {
                     if worker_cancel.load(Ordering::Acquire) {
                         return;
                     }
-                    if ctx.has_materialized_reference_index(root) {
-                        let _ = ctx.reference_index_for_root(root);
-                    }
+                    let _ = ctx.references(root);
                 }
             })
             .expect("failed to spawn revision prewarm worker");
@@ -169,7 +178,7 @@ impl AnalysisHost {
 
     #[cfg(test)]
     pub(crate) fn ctx(&self) -> AnalysisContext<'_> {
-        AnalysisContext::new(&self.db, &self.cache)
+        AnalysisContext::new(&self.db, &self.store)
     }
 }
 

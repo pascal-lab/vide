@@ -17,7 +17,7 @@ use crate::db::{line_index_db::LineIndexDb, workspace_symbol_index_db::Workspace
 
 /// The concrete IDE Salsa database: pure, memoized computation over the input
 /// sources. It holds no request-scoped cache; those live in
-/// [`crate::revision_cache::RevisionCache`] owned by the
+/// [`crate::incrementality::ProductStore`] owned by the
 /// [`crate::analysis_host::AnalysisHost`].
 #[salsa::db]
 #[derive(Clone)]

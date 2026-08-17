@@ -109,7 +109,7 @@ pub(crate) fn source_root_reference_index_for_root(
     db: &AnalysisContext<'_>,
     source_root_id: SourceRootId,
 ) -> Arc<ReferenceIndex> {
-    db.reference_index_for_root(source_root_id)
+    db.references(source_root_id)
 }
 
 fn file_module_index(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Arc<FileModuleIndex> {

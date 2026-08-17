@@ -190,7 +190,7 @@ endmodule
         let def =
             DefId::from_owner(db, local_module_id).expect("module owner must have a definition");
 
-        let ctx = AnalysisContext::new(db, &analysis.cache);
+        let ctx = AnalysisContext::new(db, &analysis.store);
         let sema = ctx.semantics();
         let highlights = highlight_refs(
             &ctx,

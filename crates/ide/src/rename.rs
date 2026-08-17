@@ -742,7 +742,7 @@ fn origin_is_macro_generated(db: &AnalysisContext<'_>, origin: DefOrigin) -> boo
         return false;
     }
 
-    if let Some(generated) = db.request_source_semantic_map(file_id).macro_origin_for_range(range) {
+    if let Some(generated) = db.source_semantic_map(file_id).macro_origin_for_range(range) {
         return generated;
     }
     macro_files_at_offset(db.db, file_id, range.start()).into_iter().any(|macro_file| {

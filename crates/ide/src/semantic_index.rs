@@ -475,7 +475,7 @@ fn module_edges(
 
     let mut edges = Vec::new();
     for source_root_id in db.workspace_source_root_ids().iter().copied() {
-        let index = db.request_module_edge_index(source_root_id);
+        let index = db.module_edges(source_root_id);
         edges.extend(edges_for_index(&index, module_id).iter().cloned());
     }
     sort_and_dedup_edges(&mut edges);
@@ -487,7 +487,7 @@ fn module_id_at_range(
     file_id: FileId,
     name_range: TextRange,
 ) -> Option<OwnerId> {
-    let module_index = db.request_module_index(db.source_root_id(file_id));
+    let module_index = db.module_index(db.source_root_id(file_id));
     module_index.module_definition_at(file_id, name_range).map(|module| module.module_id)
 }
 
@@ -674,7 +674,7 @@ mod tests {
         ]);
         let a = marked[0].0;
         let b = marked[1].0;
-        let before = host.ctx().request_file_semantic_index(b);
+        let before = host.ctx().file_index(b);
 
         let mut unrelated = Change::new();
         unrelated.add_changed_file(ChangedFile::create(
@@ -682,7 +682,7 @@ mod tests {
             "module a; logic x; endmodule // body-only\n",
         ));
         host.apply_change(unrelated);
-        let after_unrelated = host.ctx().request_file_semantic_index(b);
+        let after_unrelated = host.ctx().file_index(b);
         assert!(Arc::ptr_eq(&before, &after_unrelated));
 
         let mut own_edit = Change::new();
@@ -691,8 +691,51 @@ mod tests {
             "module b; logic y; endmodule // own body-only\n",
         ));
         host.apply_change(own_edit);
-        let after_own_edit = host.ctx().request_file_semantic_index(b);
+        let after_own_edit = host.ctx().file_index(b);
         assert!(!Arc::ptr_eq(&after_unrelated, &after_own_edit));
+    }
+
+    /// Two body edits without a request between them must both be visible.
+    /// A replacing dirty set would drop the first file's dirtiness and leave
+    /// its removed reference in the merged index.
+    #[test]
+    fn consecutive_body_edits_both_reach_the_merged_index() {
+        use base_db::change::Change;
+        use vfs::ChangedFile;
+
+        let (mut host, marked) = setup_marked_files(&[
+            ("/a.sv", "module a;\n  logic x;\n  logic y;\n  always_comb y = x;\nendmodule\n"),
+            ("/b.sv", "module b;\n  logic p;\n  logic q;\n  always_comb q = p;\nendmodule\n"),
+        ]);
+        let a = marked[0].0;
+        let b = marked[1].0;
+        let before = source_root_reference_index_for_root(&host.ctx(), SourceRootId(0));
+        assert_eq!(before.reference_groups_named("x").len(), 1);
+        assert_eq!(before.reference_groups_named("p").len(), 1);
+
+        let mut first = Change::new();
+        first.add_changed_file(ChangedFile::create(
+            a,
+            "module a;\n  logic x;\n  logic y;\n  always_comb y = 1'b0;\nendmodule\n",
+        ));
+        host.apply_change(first);
+
+        let mut second = Change::new();
+        second.add_changed_file(ChangedFile::create(
+            b,
+            "module b;\n  logic p;\n  logic q;\n  always_comb q = 1'b0;\nendmodule\n",
+        ));
+        host.apply_change(second);
+
+        let after = source_root_reference_index_for_root(&host.ctx(), SourceRootId(0));
+        assert!(
+            after.reference_groups_named("x").is_empty(),
+            "the first edit must not be dropped when a second edit arrives before a request"
+        );
+        assert!(
+            after.reference_groups_named("p").is_empty(),
+            "the second edit must still be applied"
+        );
     }
 
     /// The container stack must agree with `find_container` for every
