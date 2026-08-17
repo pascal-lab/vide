@@ -928,7 +928,7 @@ endmodule
                 file_id,
                 markers[marker],
                 Some(root),
-                token_precedence,
+                crate::token::navigation_precedence,
                 Some(&emitted),
             )
             .unique_for_intent(TargetIntent::FindReferences);
