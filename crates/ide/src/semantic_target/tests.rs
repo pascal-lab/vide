@@ -19,8 +19,6 @@ use crate::{
     analysis_host::AnalysisHost, db::root_db::RootDb, token::name_precedence as token_precedence,
 };
 
-mod bench_context;
-
 #[test]
 fn source_token_target_is_complete_and_source_origin() {
     let (host, file_id, offset, range) =

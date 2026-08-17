@@ -1,0 +1,9 @@
+{
+  "index": [
+    {
+      "dirs": ["core"],
+      "excludeDirs": ["verif", "vendor", "corev_apu", "pd", "docs"]
+    }
+  ],
+  "flags": "-Icore/include -Icore"
+}

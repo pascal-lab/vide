@@ -1,0 +1,5 @@
+#:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
+sources = ["rtl/**"]
+include_dirs = ["rtl"]
+exclude = ["dv/**", "vendor/**", "syn/**", "formal/**", "examples/**", "doc/**"]
+top_modules = ["ibex_top"]

@@ -32,8 +32,6 @@ pub mod goto_declaration;
 pub mod goto_definition;
 pub mod hover;
 pub(crate) mod incrementality;
-#[cfg(test)]
-mod index_benchmarks;
 pub mod inlay_hint;
 #[cfg(test)]
 mod macro_hover_tests;

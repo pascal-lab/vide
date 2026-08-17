@@ -29,4 +29,7 @@ editors/zed/grammars/systemverilog/
 .vscode/
 .clice/
 
+# Generated comparison reports. Not CI; run locally with `cargo xtask bench`.
+benches/results/
+
 rustc-ice*

@@ -1,0 +1,5 @@
+#:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
+sources = ["core/**"]
+include_dirs = ["core/include", "core"]
+exclude = ["verif/**", "vendor/**", "corev_apu/**", "pd/**", "docs/**", "perf-model/**"]
+top_modules = ["cva6"]

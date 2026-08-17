@@ -1,0 +1,27 @@
+[[probe]]
+id = "ibex_core_def"
+file = "rtl/ibex_core.sv"
+line = 16
+character = 8
+methods = ["definition", "hover", "references"]
+
+[[probe]]
+id = "ibex_core_instance"
+file = "rtl/ibex_top.sv"
+line = 359
+character = 3
+methods = ["definition", "hover", "completion"]
+
+[[probe]]
+id = "ibex_alu_def"
+file = "rtl/ibex_alu.sv"
+line = 9
+character = 8
+methods = ["definition", "hover", "references"]
+
+[[probe]]
+id = "ibex_alu_instance"
+file = "rtl/ibex_ex_block.sv"
+line = 116
+character = 3
+methods = ["definition", "hover"]

@@ -1,0 +1,22 @@
+# Editor coordinates: line and character are 1-based.
+
+[[probe]]
+id = "cc_fifo_def"
+file = "src/cc_fifo.sv"
+line = 16
+character = 8
+methods = ["definition", "hover", "references"]
+
+[[probe]]
+id = "cc_fifo_instance"
+file = "src/cc_stream_fifo.sv"
+line = 50
+character = 5
+methods = ["definition", "hover", "completion"]
+
+[[probe]]
+id = "cc_cdc_2phase_def"
+file = "src/cc_cdc_2phase.sv"
+line = 44
+character = 8
+methods = ["definition", "hover", "references"]

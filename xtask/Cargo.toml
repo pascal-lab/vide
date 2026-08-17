@@ -7,6 +7,9 @@ edition.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+lsp-types.workspace = true
 project-model = { workspace = true, features = ["manifest-schema"] }
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+toml.workspace = true
 user-config.workspace = true

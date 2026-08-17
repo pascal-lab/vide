@@ -1,0 +1,9 @@
+{
+  "index": [
+    {
+      "dirs": ["src", "include"],
+      "excludeDirs": ["test", "formal"]
+    }
+  ],
+  "flags": "-Iinclude -Isrc"
+}

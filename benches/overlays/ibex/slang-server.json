@@ -1,0 +1,9 @@
+{
+  "index": [
+    {
+      "dirs": ["rtl"],
+      "excludeDirs": ["dv", "vendor", "syn", "formal", "examples", "doc"]
+    }
+  ],
+  "flags": "-Irtl"
+}
