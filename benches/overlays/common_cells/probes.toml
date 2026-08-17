@@ -1,5 +1,13 @@
 # Editor coordinates: line and character are 1-based.
 
+# Cold latency is only meaningful once the server has finished loading the
+# workspace. This position gates the run and is deliberately not one of the
+# measured probes, so waiting for it warms no measured query.
+[ready]
+file = "src/cc_onehot.sv"
+line = 18
+character = 8
+
 [[probe]]
 id = "cc_fifo_def"
 file = "src/cc_fifo.sv"

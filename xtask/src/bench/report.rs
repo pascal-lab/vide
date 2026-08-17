@@ -54,6 +54,7 @@ impl BenchReport {
             server: server.to_owned(),
             oracle: false,
             initialize_ms: 0,
+            ready_ms: None,
             rss_kb: None,
             requests: Vec::new(),
             error: Some(error),
@@ -80,30 +81,31 @@ fn render_markdown(report: &BenchReport) -> String {
         "commit `{}` · generated `{}`\n\n",
         report.commit, report.generated_unix
     ));
-    out.push_str("Latency is wall-clock milliseconds of the LSP request. `warm` is p50/p95 of 10 repeats after the first hit. `after-edit` is the next request after a body-only append. slang-server is the accuracy oracle. The `slang` compiler row is a full-compile ceiling, not an LSP.\n\n");
+    out.push_str("Latency is wall-clock milliseconds of the LSP request. `ready` is how long after `initialize` the server first resolved the workload's ready position; every `cold` below is measured after that, so it times a real answer rather than a server that is still indexing. `warm` is p50/p95 of 10 repeats after the first hit. `after-edit` is the next request after a body-only append. slang-server is the accuracy oracle. The `slang` compiler row is a full-compile ceiling, not an LSP.\n\n");
 
     out.push_str("## LSP latency\n\n");
-    out.push_str("| workload | size | server | init | rss | probe | method | cold | warm p50/p95 | after-edit |\n");
-    out.push_str("| --- | --- | --- | ---: | ---: | --- | --- | ---: | ---: | ---: |\n");
+    out.push_str("| workload | size | server | init | ready | rss | probe | method | cold | warm p50/p95 | after-edit |\n");
+    out.push_str("| --- | --- | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: |\n");
     for sample in &report.lsp {
         if let Some(error) = &sample.error {
             out.push_str(&format!(
-                "| {} | {} | {} | — | — | — | — | failed: {} |\n",
+                "| {} | {} | {} | — | — | — | — | — | failed: {} |\n",
                 sample.workload, sample.size, sample.server, error
             ));
             continue;
         }
         let rss = sample.rss_kb.map(|kb| format!("{} KB", kb)).unwrap_or_else(|| "—".into());
+        let ready = sample.ready_ms.map(|ms| ms.to_string()).unwrap_or_else(|| "—".into());
         if sample.requests.is_empty() {
             out.push_str(&format!(
-                "| {} | {} | {} | {} | {rss} | — | — | — | — | — |\n",
+                "| {} | {} | {} | {} | {ready} | {rss} | — | — | — | — | — |\n",
                 sample.workload, sample.size, sample.server, sample.initialize_ms
             ));
             continue;
         }
         for request in &sample.requests {
             out.push_str(&format!(
-                "| {} | {} | {} | {} | {rss} | {} | {} | {} | {}/{} | {} |\n",
+                "| {} | {} | {} | {} | {ready} | {rss} | {} | {} | {} | {}/{} | {} |\n",
                 sample.workload,
                 sample.size,
                 sample.server,

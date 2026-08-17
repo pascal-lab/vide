@@ -10,7 +10,7 @@ use serde_json::Value;
 use super::{
     client::LspClient,
     servers::ServerSpec,
-    workloads::{Probe, Workload},
+    workloads::{Probe, ReadyProbe, Workload},
 };
 
 #[derive(Debug, Clone)]
@@ -53,6 +53,7 @@ pub struct LspSample {
     pub server: String,
     pub oracle: bool,
     pub initialize_ms: u128,
+    pub ready_ms: Option<u128>,
     pub rss_kb: Option<u64>,
     pub requests: Vec<RequestSample>,
     pub error: Option<String>,
@@ -67,6 +68,11 @@ pub fn measure_server(
     let start = Instant::now();
     client.initialize(&workload.path)?;
     let initialize_ms = start.elapsed().as_millis();
+
+    let ready_ms = match &workload.ready {
+        Some(ready) => Some(wait_until_ready(&mut client, workload, ready)?),
+        None => None,
+    };
 
     let mut opened = Vec::new();
     let mut versions = std::collections::HashMap::<std::path::PathBuf, i32>::new();
@@ -114,10 +120,48 @@ pub fn measure_server(
         server: server.id.to_owned(),
         oracle: server.is_oracle(),
         initialize_ms,
+        ready_ms,
         rss_kb,
         requests,
         error: None,
     })
+}
+
+const READY_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Blocks until the ready position resolves, so every `cold` below is the
+/// latency of a real answer rather than of a server that is still indexing.
+fn wait_until_ready(
+    client: &mut LspClient,
+    workload: &Workload,
+    ready: &ReadyProbe,
+) -> Result<u128> {
+    let path = workload.ready_path(ready);
+    let text = fs::read_to_string(&path)
+        .with_context(|| format!("failed to read ready probe file {}", path.display()))?;
+    client.did_open(&path, &text)?;
+    let start = Instant::now();
+    while start.elapsed() < READY_TIMEOUT {
+        let result = client.request_at(
+            "textDocument/definition",
+            &path,
+            ready.lsp_line(),
+            ready.lsp_character(),
+        )?;
+        if !is_empty_result(&result) {
+            return Ok(start.elapsed().as_millis());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    bail!("{} never resolved the ready position at {}", workload.name, ready.file)
+}
+
+fn is_empty_result(result: &Value) -> bool {
+    match result {
+        Value::Null => true,
+        Value::Array(items) => items.is_empty(),
+        _ => false,
+    }
 }
 
 fn time_request(

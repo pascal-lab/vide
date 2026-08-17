@@ -29,7 +29,19 @@ pub struct Workload {
     pub path: PathBuf,
     pub overlay: PathBuf,
     pub probes: Vec<Probe>,
+    pub ready: Option<ReadyProbe>,
     pub manifest: VideManifest,
+}
+
+/// Position whose first non-empty answer means the server finished loading the
+/// workspace. Measuring cold latency before that times an unanswerable request.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReadyProbe {
+    pub file: String,
+    /// 1-based editor line.
+    pub line: u32,
+    /// 1-based editor character.
+    pub character: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -49,6 +61,8 @@ pub struct VideManifest {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProbeFile {
     pub probe: Vec<Probe>,
+    #[serde(default)]
+    pub ready: Option<ReadyProbe>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -74,9 +88,23 @@ impl Workload {
     pub fn probe_path(&self, probe: &Probe) -> PathBuf {
         self.path.join(&probe.file)
     }
+
+    pub fn ready_path(&self, ready: &ReadyProbe) -> PathBuf {
+        self.path.join(&ready.file)
+    }
 }
 
 impl Probe {
+    pub fn lsp_line(&self) -> u32 {
+        self.line.saturating_sub(1)
+    }
+
+    pub fn lsp_character(&self) -> u32 {
+        self.character.saturating_sub(1)
+    }
+}
+
+impl ReadyProbe {
     pub fn lsp_line(&self) -> u32 {
         self.line.saturating_sub(1)
     }
@@ -103,13 +131,13 @@ fn load_workload(workspace_root: &Path, spec: WorkloadSpec) -> Result<Workload> 
     let manifest: VideManifest = toml::from_str(&manifest_text)
         .with_context(|| format!("invalid {}", manifest_path.display()))?;
     let probes_path = overlay.join("probes.toml");
-    let probes = if probes_path.exists() {
+    let (probes, ready) = if probes_path.exists() {
         let text = fs::read_to_string(&probes_path)?;
-        toml::from_str::<ProbeFile>(&text)
-            .with_context(|| format!("invalid {}", probes_path.display()))?
-            .probe
+        let file = toml::from_str::<ProbeFile>(&text)
+            .with_context(|| format!("invalid {}", probes_path.display()))?;
+        (file.probe, file.ready)
     } else {
-        Vec::new()
+        (Vec::new(), None)
     };
     Ok(Workload {
         name: spec.name,
@@ -118,6 +146,7 @@ fn load_workload(workspace_root: &Path, spec: WorkloadSpec) -> Result<Workload> 
         path,
         overlay,
         probes,
+        ready,
         manifest,
     })
 }
