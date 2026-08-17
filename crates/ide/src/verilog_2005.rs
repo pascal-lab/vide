@@ -2872,6 +2872,64 @@ endmodule
 }
 
 #[test]
+fn design_unit_references_join_unit_index_candidates() {
+    let (host, files) = setup_marked_files(&[
+        (
+            "/shared_pkg.sv",
+            r#"
+package /*marker:pkg*/shared;
+endpackage
+"#,
+        ),
+        (
+            "/shared_mod.sv",
+            r#"
+module /*marker:mod*/shared;
+endmodule
+"#,
+        ),
+        (
+            "/top.sv",
+            r#"
+module top;
+  shared u();
+endmodule
+"#,
+        ),
+    ]);
+    let [(pkg_file, _, pkg_markers), (mod_file, _, mod_markers), (top_file, _, _)] =
+        files.as_slice()
+    else {
+        panic!("expected three fixture files");
+    };
+    let analysis = host.make_analysis();
+    let workspace = ReferencesConfig::new(ScopeVisibility::Public, None);
+
+    let module_refs = analysis
+        .references(position(*mod_file, mod_markers, "mod"), workspace.clone())
+        .unwrap()
+        .expect("module candidate should join instantiations");
+    let module_ref_files: Vec<_> =
+        module_refs.iter().flat_map(|refs| refs.refs.keys().copied()).collect();
+    assert_eq!(
+        module_ref_files,
+        vec![*top_file],
+        "only the unit_index module candidate owns the instantiation: {module_refs:?}"
+    );
+
+    let package_refs = analysis
+        .references(position(*pkg_file, pkg_markers, "pkg"), workspace)
+        .unwrap()
+        .unwrap_or_default();
+    let package_ref_files: Vec<_> =
+        package_refs.iter().flat_map(|refs| refs.refs.keys().copied()).collect();
+    assert!(
+        !package_ref_files.contains(top_file),
+        "a package is not an instantiable unit_index candidate: {package_refs:?}"
+    );
+}
+
+#[test]
 fn systemverilog_program_definition_names_support_navigation_and_hover() {
     let text = r#"
 program /*marker:program_def*/p;

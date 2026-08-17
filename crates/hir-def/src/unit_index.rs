@@ -136,6 +136,32 @@ impl UnitIndex {
         self.module_names.iter()
     }
 
+    /// Whether this compilation-unit declaration is a candidate for
+    /// instantiations of `name`. Identity is the L0 record (file, name,
+    /// kind, ordinal), not a lowered `OwnerId`.
+    pub fn declares_instantiable(
+        &self,
+        file_id: vfs::FileId,
+        name: &str,
+        role: crate::decl_shard::DeclRole,
+        ordinal: u32,
+    ) -> bool {
+        let Some(kind) = unit_kind_from_role(role) else {
+            return false;
+        };
+        let Some(kind) = instantiable_kind(kind) else {
+            return false;
+        };
+        self.by_name.get(name).into_iter().flatten().any(|&index| {
+            self.units.get(index).is_some_and(|unit| {
+                unit.file == HirFileId::File(file_id)
+                    && unit.name == name
+                    && unit.kind == kind
+                    && unit.ordinal == ordinal
+            })
+        })
+    }
+
     fn resolve(
         &self,
         db: &dyn HirDefDb,
@@ -184,20 +210,30 @@ pub fn unit_index(db: &dyn HirDefDb) -> Arc<UnitIndex> {
     Arc::new(index)
 }
 
+fn unit_kind_from_role(role: crate::decl_shard::DeclRole) -> Option<UnitKind> {
+    Some(match role {
+        crate::decl_shard::DeclRole::Module => UnitKind::Module(ModuleKind::Module),
+        crate::decl_shard::DeclRole::Interface => UnitKind::Module(ModuleKind::Interface),
+        crate::decl_shard::DeclRole::Package => UnitKind::Module(ModuleKind::Package),
+        crate::decl_shard::DeclRole::Program => UnitKind::Module(ModuleKind::Program),
+        crate::decl_shard::DeclRole::Checker => UnitKind::Checker,
+        crate::decl_shard::DeclRole::Covergroup => UnitKind::Covergroup,
+        _ => return None,
+    })
+}
+
+fn instantiable_kind(kind: UnitKind) -> Option<UnitKind> {
+    kind.is_instantiable().then_some(kind)
+}
+
 fn add_file_units(
     index: &mut UnitIndex,
     file: HirFileId,
     shard: &crate::decl_shard::FileDeclShard,
 ) {
     for decl in shard.decls.iter() {
-        let kind = match decl.role {
-            crate::decl_shard::DeclRole::Module => UnitKind::Module(ModuleKind::Module),
-            crate::decl_shard::DeclRole::Interface => UnitKind::Module(ModuleKind::Interface),
-            crate::decl_shard::DeclRole::Package => UnitKind::Module(ModuleKind::Package),
-            crate::decl_shard::DeclRole::Program => UnitKind::Module(ModuleKind::Program),
-            crate::decl_shard::DeclRole::Checker => UnitKind::Checker,
-            crate::decl_shard::DeclRole::Covergroup => UnitKind::Covergroup,
-            _ => continue,
+        let Some(kind) = unit_kind_from_role(decl.role) else {
+            continue;
         };
         insert_unit(index, file, decl.name.clone(), kind, true);
     }
@@ -313,12 +349,44 @@ pub(crate) fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
 }
 #[cfg(test)]
 mod tests {
-    use super::UnitIndex;
+    use preproc_expand::file::HirFileId;
+
+    use super::{UnitIndex, UnitKind, insert_unit};
+    use crate::{decl_shard::DeclRole, module::ModuleKind};
 
     #[test]
     fn empty_index_has_no_targets() {
         let index = UnitIndex::default();
         assert_eq!(index.module_names().count(), 0);
         assert!(index.by_name.is_empty());
+    }
+
+    #[test]
+    fn declares_instantiable_is_the_l0_record() {
+        let mut index = UnitIndex::default();
+        let file = vfs::FileId::from_raw(1);
+        insert_unit(
+            &mut index,
+            HirFileId::File(file),
+            "fifo".into(),
+            UnitKind::Module(ModuleKind::Module),
+            true,
+        );
+        insert_unit(
+            &mut index,
+            HirFileId::File(file),
+            "fifo".into(),
+            UnitKind::Module(ModuleKind::Package),
+            true,
+        );
+        assert!(index.declares_instantiable(file, "fifo", DeclRole::Module, 0));
+        assert!(!index.declares_instantiable(file, "fifo", DeclRole::Module, 1));
+        assert!(!index.declares_instantiable(file, "fifo", DeclRole::Package, 0));
+        assert!(!index.declares_instantiable(
+            vfs::FileId::from_raw(2),
+            "fifo",
+            DeclRole::Module,
+            0
+        ));
     }
 }

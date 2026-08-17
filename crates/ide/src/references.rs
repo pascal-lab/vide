@@ -1,4 +1,4 @@
-use base_db::source_db::{SourceDb, SourceRootDb};
+use base_db::source_db::SourceDb;
 use hir_def::{
     decl_shard::{Decl, DeclRole},
     def_id::DefId,
@@ -104,9 +104,9 @@ pub(crate) fn references(
     render_references_target(db, file_id, &sema, target, config)
 }
 
-/// Cursor is on a compilation-unit design-unit name. Candidate files are
-/// those whose text contains the spelling; a hit is an L0 instantiation
-/// of that name.
+/// Cursor is on a compilation-unit design-unit name. An instantiation of
+/// that name is a reference iff this declaration is a `unit_index`
+/// candidate for the name.
 fn design_unit_references_from_shard(
     db: &AnalysisContext<'_>,
     file_id: FileId,
@@ -114,6 +114,11 @@ fn design_unit_references_from_shard(
     config: &ReferencesConfig,
 ) -> Option<Vec<References>> {
     let decl = db.file_decl_shard(file_id).design_unit_at(offset)?.clone();
+    if !decl.role.is_instantiable_module()
+        && !matches!(decl.role, DeclRole::Checker | DeclRole::Covergroup)
+    {
+        return None;
+    }
     let name_range = decl.name_range?;
     let def = vec![NavTarget {
         file_id,
@@ -124,8 +129,15 @@ fn design_unit_references_from_shard(
         container_name: None,
         description: None,
     }];
+    if !db.unit_index().declares_instantiable(file_id, &decl.name, decl.role, decl.ordinal) {
+        return Some(vec![References {
+            def: Some(def),
+            refs: IntMap::default(),
+            status: ReferencesStatus::Complete,
+        }]);
+    }
     let mut refs = IntMap::default();
-    for mention_file in design_unit_mention_files(db, file_id, &decl.name, config) {
+    for mention_file in design_unit_instantiation_files(db, config) {
         collect_design_unit_mentions(db, mention_file, &decl, file_id, name_range, &mut refs);
     }
     Some(vec![References { def: Some(def), refs, status: ReferencesStatus::Complete }])
@@ -143,18 +155,18 @@ fn design_unit_def_kind(role: DeclRole) -> Option<crate::DefKind> {
     }
 }
 
-fn design_unit_mention_files(
+fn design_unit_instantiation_files(
     db: &AnalysisContext<'_>,
-    file_id: FileId,
-    name: &str,
     config: &ReferencesConfig,
 ) -> Vec<FileId> {
-    let candidates: Vec<FileId> = if let Some(scope) = &config.search_scope {
-        scope.files().collect()
-    } else {
-        db.source_root(db.source_root_id(file_id)).iter().collect()
-    };
-    candidates.into_iter().filter(|&file| db.file_text(file).contains(name)).collect()
+    if let Some(scope) = &config.search_scope {
+        return scope.files().collect();
+    }
+    db.files()
+        .iter()
+        .copied()
+        .filter(|&file| db.file_kind(file).is_semantic_compilation_unit())
+        .collect()
 }
 
 fn collect_design_unit_mentions(
