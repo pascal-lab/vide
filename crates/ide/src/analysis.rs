@@ -85,8 +85,8 @@ impl AnalysisContext<'_> {
 
     /// Parse one file without building `$unit` or the design map.
     pub(crate) fn parse_file(&self, file_id: FileId) -> syntax::SyntaxTree {
-        let tree = self.db.parse(file_id.into());
-        self.record_parse_dependencies(file_id);
+        let (tree, dependencies) = self.db.parse_src_with_dependencies(file_id);
+        self.store.record_parse_dependencies(file_id, dependencies);
         tree
     }
 

@@ -357,11 +357,18 @@ fn preproc_trace(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Option<Trace> 
 /// The preprocessor's emitted include edges are the dependency identity. This
 /// deliberately does not infer reverse dependencies from source text or from
 /// the profile-wide include plan.
-#[salsa::tracked(lru = 128, returns(clone))]
 fn parsed_compilation_dependencies(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<[FileId]> {
     let file_id = key.file_id(db);
     let input = compilation_unit_artifact_input(db, key);
     let parsed = compilation_unit_artifact(db, *input);
+    dependencies_from_parsed_compilation(db, file_id, &parsed)
+}
+
+fn dependencies_from_parsed_compilation(
+    db: &dyn PreprocDb,
+    file_id: FileId,
+    parsed: &ParsedCompilationUnit,
+) -> Arc<[FileId]> {
     let mut dependencies = vec![file_id];
     if let Some(trace) = &parsed.preprocessor_trace {
         let path_file_ids = db.path_file_ids();
@@ -504,7 +511,6 @@ pub fn set_parse_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
     compilation_unit_snapshot::set_lru_capacity(db, capacity);
     compilation_unit_artifact::set_lru_capacity(db, capacity);
     preproc_trace::set_lru_capacity(db, capacity);
-    parsed_compilation_dependencies::set_lru_capacity(db, capacity);
     crate::source_db::set_source_preproc_model_lru_capacity(db, capacity);
     crate::macro_file::set_macro_expansion_lru_capacity(db, capacity);
     crate::macro_file::set_trace_index_lru_capacity(db, capacity);
@@ -695,6 +701,14 @@ impl dyn PreprocDb + '_ {
 
     pub fn parsed_compilation_dependencies(&self, file_id: FileId) -> Arc<[FileId]> {
         parsed_compilation_dependencies(self, PreprocFileQueryKey::new(self, file_id))
+    }
+
+    pub fn parse_src_with_dependencies(&self, file_id: FileId) -> (SyntaxTree, Arc<[FileId]>) {
+        let key = PreprocFileQueryKey::new(self, file_id);
+        let input = compilation_unit_artifact_input(self, key);
+        let parsed = compilation_unit_artifact(self, *input);
+        let dependencies = dependencies_from_parsed_compilation(self, file_id, &parsed);
+        (parsed.syntax_tree.clone(), dependencies)
     }
 
     pub fn unit_macro_predefines(&self, file_id: FileId) -> Arc<[String]> {
