@@ -53,10 +53,9 @@ struct Inner {
     structure: StructureProducts,
     shards: Shards,
     hot: HotProducts,
-    /// An authoritative parse (or an explicit plan query) has used the
-    /// include graph. Until then, a text edit cannot have invalidated an
-    /// expanded CST, so dirty propagation must not start an include scan.
-    include_graph_used: bool,
+    /// Authoritative standalone parses retained by this store lineage:
+    /// compilation root -> files named by emitted preprocessor include edges.
+    parse_dependencies: FxHashMap<FileId, Arc<[FileId]>>,
 }
 
 impl Inner {
@@ -97,12 +96,22 @@ impl ProductStore {
         self.inner.lock().hot.clone()
     }
 
-    pub(crate) fn mark_include_graph_used(&self) {
-        self.inner.lock().include_graph_used = true;
+    pub(crate) fn record_parse_dependencies(&self, file_id: FileId, dependencies: Arc<[FileId]>) {
+        self.inner.lock().parse_dependencies.insert(file_id, dependencies);
     }
 
-    pub(crate) fn include_graph_used(&self) -> bool {
-        self.inner.lock().include_graph_used
+    pub(crate) fn parsed_dependents(&self, changed: &[FileId]) -> Vec<FileId> {
+        let changed = changed.iter().copied().collect::<FxHashSet<_>>();
+        self.inner
+            .lock()
+            .parse_dependencies
+            .iter()
+            .filter_map(|(&file_id, dependencies)| {
+                (!changed.contains(&file_id)
+                    && dependencies.iter().any(|dependency| changed.contains(dependency)))
+                .then_some(file_id)
+            })
+            .collect()
     }
 
     /// Record the files made dirty by a change before Salsa applies it, so the
@@ -121,6 +130,10 @@ impl ProductStore {
             .map(|&file_id| (file_id, StructureSnapshot::capture(db, file_id)))
             .collect();
         self.inner.lock().epoch.record(snapshots);
+    }
+
+    pub(crate) fn mark_epoch_dirty(&self, files: &[FileId]) {
+        self.inner.lock().epoch.mark_dirty(files);
     }
 
     /// Apply the structural epoch. Body-only edits keep the previous

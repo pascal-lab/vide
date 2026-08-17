@@ -352,6 +352,32 @@ fn preproc_trace(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Option<Trace> 
     compilation_unit_artifact(db, *input).preprocessor_trace.clone()
 }
 
+/// Files actually consumed by one authoritative standalone parse.
+///
+/// The preprocessor's emitted include edges are the dependency identity. This
+/// deliberately does not infer reverse dependencies from source text or from
+/// the profile-wide include plan.
+#[salsa::tracked(lru = 128, returns(clone))]
+fn parsed_compilation_dependencies(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<[FileId]> {
+    let file_id = key.file_id(db);
+    let input = compilation_unit_artifact_input(db, key);
+    let parsed = compilation_unit_artifact(db, *input);
+    let mut dependencies = vec![file_id];
+    if let Some(trace) = &parsed.preprocessor_trace {
+        let path_file_ids = db.path_file_ids();
+        dependencies.extend(trace.include_edges.iter().filter_map(|edge| {
+            let buffer = trace
+                .source_buffers
+                .iter()
+                .find(|buffer| buffer.buffer_id == edge.included_buffer_id)?;
+            path_file_ids.get(&buffer.path)
+        }));
+    }
+    dependencies.sort_unstable_by_key(|dependency| dependency.index());
+    dependencies.dedup();
+    Arc::from(dependencies)
+}
+
 /// `define` directives this file contributes to the compilation-unit scope,
 /// reconstructed verbatim so they can be injected as predefines into later
 /// roots' standalone parses. Include-derived macros are excluded: each root
@@ -478,6 +504,7 @@ pub fn set_parse_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
     compilation_unit_snapshot::set_lru_capacity(db, capacity);
     compilation_unit_artifact::set_lru_capacity(db, capacity);
     preproc_trace::set_lru_capacity(db, capacity);
+    parsed_compilation_dependencies::set_lru_capacity(db, capacity);
     crate::source_db::set_source_preproc_model_lru_capacity(db, capacity);
     crate::macro_file::set_macro_expansion_lru_capacity(db, capacity);
     crate::macro_file::set_trace_index_lru_capacity(db, capacity);
@@ -664,6 +691,10 @@ impl dyn PreprocDb + '_ {
 
     pub fn preproc_trace(&self, file_id: FileId) -> Option<Trace> {
         preproc_trace(self, PreprocFileQueryKey::new(self, file_id))
+    }
+
+    pub fn parsed_compilation_dependencies(&self, file_id: FileId) -> Arc<[FileId]> {
+        parsed_compilation_dependencies(self, PreprocFileQueryKey::new(self, file_id))
     }
 
     pub fn unit_macro_predefines(&self, file_id: FileId) -> Arc<[String]> {
@@ -1336,6 +1367,21 @@ mod tests {
             "{}",
             options.include_buffers[0].path
         );
+    }
+
+    #[test]
+    fn parsed_dependencies_follow_emitted_include_edges() {
+        let mut db = db_with_macro_included_root();
+        db.set_file_text_with_durability(
+            TOP,
+            Arc::from("`include \"included.sv\"\nmodule top; endmodule\n"),
+            Durability::LOW,
+        );
+
+        let _ = db.parse_src_for_compilation(TOP);
+        let dependencies = db.parsed_compilation_dependencies(TOP);
+
+        assert_eq!(dependencies.as_ref(), &[TOP, INCLUDED]);
     }
 
     #[test]

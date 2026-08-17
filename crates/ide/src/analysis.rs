@@ -85,8 +85,14 @@ impl AnalysisContext<'_> {
 
     /// Parse one file without building `$unit` or the design map.
     pub(crate) fn parse_file(&self, file_id: FileId) -> syntax::SyntaxTree {
-        self.store.mark_include_graph_used();
-        self.db.parse(file_id.into())
+        let tree = self.db.parse(file_id.into());
+        self.record_parse_dependencies(file_id);
+        tree
+    }
+
+    pub(crate) fn record_parse_dependencies(&self, file_id: FileId) {
+        let dependencies = self.db.parsed_compilation_dependencies(file_id);
+        self.store.record_parse_dependencies(file_id, dependencies);
     }
 
     pub(crate) fn source_semantic_map(
@@ -105,7 +111,14 @@ impl AnalysisContext<'_> {
         &self,
         source_root_id: SourceRootId,
     ) -> Arc<crate::semantic_index::ModuleIndex> {
-        self.semantic_snapshot_inputs().module_index(self.db, source_root_id).unwrap_or_default()
+        let index = self
+            .semantic_snapshot_inputs()
+            .module_index(self.db, source_root_id)
+            .unwrap_or_default();
+        for file_id in self.source_root(source_root_id).iter() {
+            self.record_parse_dependencies(file_id);
+        }
+        index
     }
 
     pub(crate) fn module_edges(&self, source_root_id: SourceRootId) -> Arc<ModuleEdgeIndex> {
@@ -263,17 +276,11 @@ impl AnalysisSnapshot {
         &self,
         profile_id: CompilationProfileId,
     ) -> Cancellable<Vec<FileId>> {
-        self.with_db(|db| {
-            db.store.mark_include_graph_used();
-            db.compilation_plan_for_profile(Some(profile_id)).all_file_ids()
-        })
+        self.with_db(|db| db.compilation_plan_for_profile(Some(profile_id)).all_file_ids())
     }
 
     pub fn compilation_plan(&self, file_id: FileId) -> Cancellable<Arc<CompilationPlan>> {
-        self.with_db(|db| {
-            db.store.mark_include_graph_used();
-            db.db.compilation_plan_for_root(db.source_root_id(file_id))
-        })
+        self.with_db(|db| db.db.compilation_plan_for_root(db.source_root_id(file_id)))
     }
 }
 

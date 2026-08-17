@@ -597,6 +597,32 @@ mod tests {
     }
 
     #[test]
+    fn recorded_include_dependency_invalidates_the_parsed_root() {
+        use base_db::change::Change;
+        use vfs::ChangedFile;
+
+        let (mut host, marked) = setup_marked_files(&[
+            ("/defs.svh", "`define UNIT_NAME top\n"),
+            ("/top.sv", "`include \"defs.svh\"\nmodule `UNIT_NAME; endmodule\n"),
+        ]);
+        let defs = marked[0].0;
+        let top = marked[1].0;
+        let db = host.ctx();
+        db.store.record_parse_dependencies(top, Arc::from(vec![top, defs]));
+        let before = db.semantic_snapshot_inputs();
+
+        let mut change = Change::new();
+        change.add_changed_file(ChangedFile::create(defs, "`define UNIT_NAME renamed\n"));
+        host.apply_change(change);
+        let after = host.ctx().semantic_snapshot_inputs();
+
+        assert!(
+            !Arc::ptr_eq(&before, &after),
+            "an emitted include dependency must invalidate the parsed root's structure products"
+        );
+    }
+
+    #[test]
     fn declaration_skeleton_is_authoritative_only_without_preprocessing() {
         let (plain, file_id, _, _) =
             setup_marked("module top; function void f(); endfunction endmodule\n");

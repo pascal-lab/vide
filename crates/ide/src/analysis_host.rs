@@ -63,19 +63,25 @@ impl AnalysisHost {
         // of an already registered file, so the per-file change kind alone is
         // not a reliable workspace-structure signal.
         let invalidate_workspace = change.roots.is_some() || change.project_config.is_some();
-        let affected_files = if invalidate_workspace {
-            dirty_files
-        } else if self.store.include_graph_used() {
-            self.db.preproc_affected_files(dirty_files).into_iter().collect()
+        let dependent_files = if invalidate_workspace {
+            Vec::new()
         } else {
-            dirty_files
+            self.store.parsed_dependents(&dirty_files)
         };
+        let mut affected_files = dirty_files.clone();
+        affected_files.extend(dependent_files.iter().copied());
+        affected_files.sort_unstable_by_key(|file_id| file_id.index());
+        affected_files.dedup();
         if invalidate_workspace {
             self.store = Arc::new(ProductStore::default());
             self.db.apply_change(change);
         } else if !affected_files.is_empty() {
             let store = self.store.fork();
-            store.capture_epoch(&self.db, &affected_files);
+            store.capture_epoch(&self.db, &dirty_files);
+            // An included file can change any emitted declaration in a root.
+            // There is no root-local L0 snapshot that can prove otherwise, so
+            // roots named by actual include edges force a structure epoch.
+            store.mark_epoch_dirty(&dependent_files);
             self.db.apply_change(change);
             store.invalidate(&self.db, &affected_files);
             self.store = Arc::new(store);
@@ -201,7 +207,6 @@ mod tests {
     use std::{sync::mpsc, thread};
 
     use base_db::source_root::SourceRoot;
-    use utils::paths::{AbsPathBuf, Utf8PathBuf};
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
     use super::*;
@@ -220,26 +225,6 @@ mod tests {
     fn modify_with_file_text(text: &str) -> Change {
         let mut change = Change::new();
         change.add_changed_file(ChangedFile::modify(FileId::from_raw(0), text));
-        change
-    }
-
-    fn change_with_include() -> Change {
-        let top = FileId::from_raw(0);
-        let header = FileId::from_raw(1);
-        let mut file_set = FileSet::default();
-        let root = if cfg!(windows) { r"C:\repo" } else { "/repo" };
-        let top_path = AbsPathBuf::assert(Utf8PathBuf::from(format!("{root}/top.sv")));
-        let header_path = AbsPathBuf::assert(Utf8PathBuf::from(format!("{root}/defs.svh")));
-        file_set.insert(top, VfsPath::from(top_path));
-        file_set.insert(header, VfsPath::from(header_path));
-
-        let mut change = Change::new();
-        change.set_roots(vec![SourceRoot::new_local_with_source_files(file_set, vec![top])]);
-        change.add_changed_file(ChangedFile::create(
-            top,
-            "`include \"defs.svh\"\nmodule top; endmodule\n",
-        ));
-        change.add_changed_file(ChangedFile::create(header, "`define VALUE 1\n"));
         change
     }
 
@@ -308,15 +293,5 @@ mod tests {
         host.apply_change(Change::new());
         let changed = host.make_analysis();
         assert_eq!(changed.snapshot_id().get(), 1);
-    }
-
-    #[test]
-    fn include_changes_mark_includers_affected() {
-        let mut host = AnalysisHost::default();
-        host.apply_change(change_with_include());
-
-        let affected = host.db.preproc_affected_files([FileId::from_raw(1)]);
-
-        assert!(affected.contains(&FileId::from_raw(0)));
     }
 }

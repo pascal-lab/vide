@@ -9,7 +9,6 @@ use base_db::{
 use hir_def::db::HirDefDb;
 use hir_ty::db::TyDb;
 use preproc_expand::db::PreprocDb;
-use rustc_hash::FxHashSet;
 use triomphe::Arc;
 use vfs::{AnchoredPath, FileId};
 
@@ -80,54 +79,6 @@ impl RootDb {
         let lru_capacity = lru_capacity.unwrap_or(DEFAULT_PARSE_LRU_CAP);
         preproc_expand::db::set_parse_lru_capacity(self, lru_capacity);
         hir_def::db::set_lru_capacity(self, lru_capacity);
-    }
-
-    /// Compute the files affected by a change through the preprocessor
-    /// dependency graph: includes and dynamic includes propagate edits to
-    /// every file that transitively depends on the changed sources.
-    pub(crate) fn preproc_affected_files(
-        &self,
-        changed: impl IntoIterator<Item = FileId>,
-    ) -> FxHashSet<FileId> {
-        let changed = changed.into_iter().collect::<FxHashSet<_>>();
-        let mut affected = changed.clone();
-        let config = self.project_config();
-        for profile_id in std::iter::once(None).chain(config.profile_ids().into_iter().map(Some)) {
-            let plan = self.compilation_plan_for_profile(profile_id);
-            let path_file_ids = self.path_file_ids();
-            let mut profile_affected = plan.affected_files(changed.iter().copied());
-            loop {
-                let mut grew = false;
-                for &includer in &plan.dynamic_include_files {
-                    if profile_affected.contains(&includer) {
-                        continue;
-                    }
-                    let Some(trace) = self.preproc_trace(includer) else {
-                        continue;
-                    };
-                    let depends_on_affected = trace.include_edges.iter().any(|edge| {
-                        trace
-                            .source_buffers
-                            .iter()
-                            .find(|buffer| buffer.buffer_id == edge.included_buffer_id)
-                            .and_then(|buffer| path_file_ids.get(&buffer.path))
-                            .is_some_and(|dependency| profile_affected.contains(&dependency))
-                    });
-                    if depends_on_affected {
-                        profile_affected.insert(includer);
-                        grew = true;
-                    }
-                }
-                let closed = plan.affected_files(profile_affected.iter().copied());
-                grew |= closed.len() != profile_affected.len();
-                profile_affected = closed;
-                if !grew {
-                    break;
-                }
-            }
-            affected.extend(profile_affected);
-        }
-        affected
     }
 }
 

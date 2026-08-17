@@ -107,7 +107,9 @@ impl ModuleEdgeEntry {
             self.file_edges = root_files
                 .iter()
                 .map(|&file_id| {
-                    (file_id, Arc::new(FileModuleEdges::for_file_with_indexes(ctx.db, file_id)))
+                    let edges = Arc::new(FileModuleEdges::for_file_with_indexes(ctx.db, file_id));
+                    ctx.record_parse_dependencies(file_id);
+                    (file_id, edges)
                 })
                 .collect();
             self.shard_gens =
@@ -118,6 +120,7 @@ impl ModuleEdgeEntry {
                     file_id,
                     Arc::new(FileModuleEdges::for_file_with_indexes(ctx.db, file_id)),
                 );
+                ctx.record_parse_dependencies(file_id);
                 self.shard_gens.insert(file_id, file_gen(gens, file_id));
             }
             self.file_edges.retain(|file_id, _| root_files.contains(file_id));
