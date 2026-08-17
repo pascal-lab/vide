@@ -10,7 +10,6 @@ anyhow.workspace = true
 camino.workspace = true
 ra_ap_paths = "0.0.347"
 crossbeam-channel.workspace = true
-dunce.workspace = true
 itertools.workspace = true
 jod-thread = "0.1.2"
 la-arena.workspace = true
