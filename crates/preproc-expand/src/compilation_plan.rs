@@ -544,7 +544,7 @@ fn literal_include_targets(
         &options,
     );
     let trace = parsed.preprocessor_trace;
-    let model = SourcePreprocModel::from_trace(trace)
+    let model = SourcePreprocModel::from_trace(&trace)
         .map_err(|err| IncludeScanIssue { file_id, reason: IncludeScanIssueReason::Model(err) })?;
     Ok(model.include_graph().directives().to_vec())
 }

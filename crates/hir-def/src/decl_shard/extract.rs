@@ -45,8 +45,8 @@ fn walk(tree: &SyntaxTree, source_text: &str) -> FileDeclShard {
     let mut has_compilation_unit_locals = false;
     let mut ordinals = rustc_hash::FxHashMap::<(SmolStr, DeclRole), u32>::default();
     let root = tree.root();
-    let preprocessor_independent = tree.preprocessor_trace().include_edges.is_empty()
-        && tree.preprocessor_trace().events.is_empty();
+    let trace = tree.preprocessor_trace();
+    let preprocessor_independent = trace.include_edges.is_empty() && trace.events.is_empty();
 
     if root.kind() != SyntaxKind::COMPILATION_UNIT {
         return FileDeclShard { preprocessor_independent, ..FileDeclShard::default() };

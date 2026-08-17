@@ -70,7 +70,7 @@ pub struct CompilationDiagnostic {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedCompilationUnit {
     pub syntax_tree: SyntaxTree,
-    pub preprocessor_trace: Option<Trace>,
+    pub preprocessor_trace: Option<std::sync::Arc<Trace>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -307,7 +307,7 @@ fn parse_tree(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> SyntaxTree {
 /// edit (e.g. a comment) re-parses the tree without invalidating the trace or
 /// the downstream preprocessor model and `$unit` macro chain.
 #[salsa::tracked(lru = 128, returns(clone))]
-fn preproc_trace(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Option<Trace> {
+fn preproc_trace(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Option<std::sync::Arc<Trace>> {
     let input = compilation_unit_artifact_input(db, key);
     compilation_unit_artifact(db, *input).preprocessor_trace.clone()
 }
@@ -580,7 +580,7 @@ impl dyn PreprocDb + '_ {
         source_model(self, PreprocFileQueryKey::new(self, file_id))
     }
 
-    pub fn preproc_trace(&self, file_id: FileId) -> Option<Trace> {
+    pub fn preproc_trace(&self, file_id: FileId) -> Option<std::sync::Arc<Trace>> {
         preproc_trace(self, PreprocFileQueryKey::new(self, file_id))
     }
 

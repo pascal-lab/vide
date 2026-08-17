@@ -24,13 +24,13 @@ use crate::{
 #[derive(Clone)]
 pub struct SyntaxTree {
     pub(crate) raw: SharedPtr<ffi::SyntaxTree>,
-    preprocessor_trace_cache: Arc<OnceLock<crate::preproc::Trace>>,
+    preprocessor_trace_cache: Arc<OnceLock<Arc<crate::preproc::Trace>>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SyntaxTreeWithTrace {
     pub tree: SyntaxTree,
-    pub preprocessor_trace: crate::preproc::Trace,
+    pub preprocessor_trace: Arc<crate::preproc::Trace>,
 }
 
 /// Parser options for creating a syntax tree.
@@ -140,7 +140,7 @@ impl SyntaxTree {
         options: &SyntaxTreeOptions,
     ) -> SyntaxTreeWithTrace {
         let tree = Self::from_file_in_memory_with_options(text, name, path, options);
-        let preprocessor_trace = tree.build_preprocessor_trace();
+        let preprocessor_trace = tree.preprocessor_trace();
         SyntaxTreeWithTrace { tree, preprocessor_trace }
     }
 
@@ -151,7 +151,7 @@ impl SyntaxTree {
         options: &SyntaxTreeOptions,
     ) -> SyntaxTreeWithTrace {
         let tree = Self::from_text_with_options(text, name, path, options);
-        let preprocessor_trace = tree.build_preprocessor_trace();
+        let preprocessor_trace = tree.preprocessor_trace();
         SyntaxTreeWithTrace { tree, preprocessor_trace }
     }
 
@@ -262,18 +262,16 @@ impl SyntaxTree {
             .collect()
     }
 
-    pub fn preprocessor_trace(&self) -> crate::preproc::Trace {
+    /// The trace is built once per tree and shared; every emitted token carries
+    /// three owned strings, so handing out copies is never affordable.
+    pub fn preprocessor_trace(&self) -> Arc<crate::preproc::Trace> {
         self.preprocessor_trace_cache
             .get_or_init(|| {
-                crate::preproc::Trace::from_raw(ffi::syntax_tree_preprocessor_trace(
+                Arc::new(crate::preproc::Trace::from_raw(ffi::syntax_tree_preprocessor_trace(
                     self.raw.as_ref().expect("Slang returned a null syntax tree"),
-                ))
+                )))
             })
             .clone()
-    }
-
-    fn build_preprocessor_trace(&self) -> crate::preproc::Trace {
-        self.preprocessor_trace()
     }
 
     pub fn buffer_id(&self) -> u32 {
@@ -284,7 +282,7 @@ impl SyntaxTree {
         let trace = self.preprocessor_trace();
         SyntaxTreeBufferIds {
             root_buffer_id: trace.root_buffer_id,
-            source_buffers: trace.source_buffers,
+            source_buffers: trace.source_buffers.clone(),
         }
     }
 }

@@ -14,7 +14,7 @@ use super::*;
 impl SourcePreprocModelBuilder {
     /// Collect the raw event projections from the preprocessor trace into the
     /// builder's private fields, ready for table derivation.
-    pub(in crate::source) fn collect(trace: Trace) -> Result<Self, SourcePreprocError> {
+    pub(in crate::source) fn collect(trace: &Trace) -> Result<Self, SourcePreprocError> {
         let root_source = PreprocSourceId::from(trace.root_buffer_id);
         let include_edges = trace
             .include_edges
@@ -30,7 +30,7 @@ impl SourcePreprocModelBuilder {
             .collect::<BTreeMap<_, _>>();
         let sources = trace
             .source_buffers
-            .into_iter()
+            .iter()
             .map(|source| PreprocSource {
                 id: PreprocSourceId::from(source.buffer_id),
                 path: source.path.to_smolstr(),
@@ -71,7 +71,7 @@ impl SourcePreprocModelBuilder {
             current_state: BTreeMap::new(),
         };
 
-        for (source_order, directive) in trace.events.into_iter().enumerate() {
+        for (source_order, directive) in trace.events.iter().enumerate() {
             builder.collect_trace_event(source_order, directive)?;
         }
 
@@ -81,7 +81,7 @@ impl SourcePreprocModelBuilder {
     fn collect_trace_event(
         &mut self,
         source_order: usize,
-        directive: Event,
+        directive: &Event,
     ) -> Result<(), SourcePreprocError> {
         self.model.inactive_ranges.extend(
             directive
@@ -100,7 +100,7 @@ impl SourcePreprocModelBuilder {
         match kind {
             MacroEventKind::Define => {
                 let event_index = self.defines.len();
-                let define = collect_trace_define(directive, event_id, range);
+                let define = collect_trace_define(directive.clone(), event_id, range);
                 self.defines.push(define);
                 self.push_source_event_record(event_id, kind, event_index, range);
             }
@@ -130,7 +130,12 @@ impl SourcePreprocModelBuilder {
                 self.conditionals.push(SourceMacroConditional {
                     event_id,
                     kind: trace_conditional_kind(directive.kind),
-                    expr: directive.expr_tokens.into_iter().map(macro_token_from_trace).collect(),
+                    expr: directive
+                        .expr_tokens
+                        .iter()
+                        .cloned()
+                        .map(macro_token_from_trace)
+                        .collect(),
                     range,
                 });
                 self.push_source_event_record(event_id, kind, event_index, range);
@@ -145,7 +150,8 @@ impl SourcePreprocModelBuilder {
                     name_range: directive.name.source_range(),
                     arguments: directive
                         .arguments
-                        .into_iter()
+                        .iter()
+                        .cloned()
                         .enumerate()
                         .map(macro_actual_argument_from_trace)
                         .collect(),

@@ -96,7 +96,7 @@ pub(crate) fn source_preproc_model(
             Ok(source_map) => source_map,
             Err(err) => return Arc::new(Err(err)),
         };
-    let model = match SourcePreprocModel::from_trace(trace) {
+    let model = match SourcePreprocModel::from_trace(&trace) {
         Ok(model) => model,
         Err(err) => return Arc::new(Err(SourcePreprocQueryError::Model(err))),
     };
