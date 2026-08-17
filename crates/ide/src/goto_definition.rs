@@ -24,6 +24,9 @@ pub(crate) fn goto_definition(
     db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
+    if let Some(target) = declaration_name_from_shard(db, file_id, offset) {
+        return Some(target);
+    }
     let tree = db.parse_file(file_id);
     let target = resolve_semantic_target(
         db.db,
@@ -33,6 +36,38 @@ pub(crate) fn goto_definition(
         crate::token::navigation_precedence,
     );
     render_definition_target(db, file_id, target)
+}
+
+/// Cursor is on a compilation-unit design-unit name in this file. The
+/// definition is that token; do not build the include plan or `$unit`.
+fn declaration_name_from_shard(
+    db: &AnalysisContext<'_>,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<RangeInfo<Vec<NavTarget>>> {
+    let decl = db.file_decl_shard(file_id).design_unit_at(offset)?.clone();
+    let range = decl.name_range?;
+    let kind = match decl.role {
+        hir_def::decl_shard::DeclRole::Module => Some(crate::DefKind::Module),
+        hir_def::decl_shard::DeclRole::Interface => Some(crate::DefKind::Interface),
+        hir_def::decl_shard::DeclRole::Package => Some(crate::DefKind::Package),
+        hir_def::decl_shard::DeclRole::Program => Some(crate::DefKind::Program),
+        hir_def::decl_shard::DeclRole::Checker => Some(crate::DefKind::Checker),
+        hir_def::decl_shard::DeclRole::Covergroup => Some(crate::DefKind::Covergroup),
+        _ => None,
+    };
+    Some(RangeInfo::new(
+        range,
+        vec![NavTarget {
+            file_id,
+            full_range: range,
+            focus_range: Some(range),
+            name: Some(decl.name),
+            kind,
+            container_name: None,
+            description: None,
+        }],
+    ))
 }
 
 fn render_definition_target(

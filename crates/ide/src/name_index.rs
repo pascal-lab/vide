@@ -142,4 +142,25 @@ endmodule
         assert_eq!(token.text_range(), Some(arg));
         assert_eq!(token.raw_text(), "payload_i");
     }
+
+    #[test]
+    fn design_unit_name_range_covers_the_declaration_token() {
+        let text = "module /*marker:name*/top; endmodule\n";
+        let (host, file_id, _clean, markers) = setup_marked(text);
+        let decl = host
+            .ctx()
+            .file_decl_shard(file_id)
+            .design_unit_at(markers["name"])
+            .expect("L0 shard records the module name")
+            .clone();
+        assert_eq!(decl.name, "top");
+        assert_eq!(decl.role, hir_def::decl_shard::DeclRole::Module);
+        assert_eq!(
+            decl.name_range,
+            Some(utils::line_index::TextRange::new(
+                markers["name"],
+                markers["name"] + TextSize::of("top"),
+            ))
+        );
+    }
 }

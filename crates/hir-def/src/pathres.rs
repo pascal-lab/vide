@@ -17,22 +17,22 @@ use crate::{
 
 /// Cross-file name-resolution inputs.
 ///
-/// `unit_index` is the L0 product and is always built. `$unit` locals and the
-/// package export map are paid for on first import / compilation-unit lookup,
-/// not on every goto of a module instantiation type.
+/// None of the workspace products are built in [`Self::from_db`]. `$unit`
+/// design units, compilation-unit locals, and the package export map are
+/// paid for when a lookup actually reads them.
 #[derive(Clone)]
 pub struct ResolutionContext {
     unit_scope: Arc<std::sync::OnceLock<Arc<ScopeData>>>,
     design_map: Arc<std::sync::OnceLock<Arc<DesignMap>>>,
-    unit_index: Arc<UnitIndex>,
+    unit_index: Arc<std::sync::OnceLock<Arc<UnitIndex>>>,
 }
 
 impl ResolutionContext {
-    pub fn from_db(db: &dyn HirDefDb) -> Arc<Self> {
+    pub fn from_db(_db: &dyn HirDefDb) -> Arc<Self> {
         Arc::new(Self {
             unit_scope: Arc::new(std::sync::OnceLock::new()),
             design_map: Arc::new(std::sync::OnceLock::new()),
-            unit_index: db.unit_index(),
+            unit_index: Arc::new(std::sync::OnceLock::new()),
         })
     }
 
@@ -44,8 +44,8 @@ impl ResolutionContext {
         self.design_map.get_or_init(|| db.design_map()).clone()
     }
 
-    pub fn unit_index(&self) -> Arc<UnitIndex> {
-        self.unit_index.clone()
+    pub fn unit_index(&self, db: &dyn HirDefDb) -> Arc<UnitIndex> {
+        self.unit_index.get_or_init(|| db.unit_index()).clone()
     }
 }
 
@@ -249,7 +249,7 @@ fn resolve_unit_name(
     let locals = context.unit_scope(db).lookup(ctx, ident);
     let units = match ctx {
         NameContext::Type | NameContext::Listing => {
-            context.unit_index.type_unit_ids(db, ident).and_then(|owner| {
+            context.unit_index(db).type_unit_ids(db, ident).and_then(|owner| {
                 DefId::from_owner(db, owner)
                     .map(Resolution::Unique)
                     .unwrap_or(Resolution::Unresolved)
@@ -382,7 +382,7 @@ fn resolve_top_level_module_root(
     // module name, and nested declarations never leak through the fallback.
     Resolution::from_candidates(
         context
-            .unit_index
+            .unit_index(db)
             .top_level_module_ids(db, ident)
             .into_candidates()
             .into_iter()

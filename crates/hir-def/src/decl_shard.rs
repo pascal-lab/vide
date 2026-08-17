@@ -56,6 +56,9 @@ pub struct Decl {
     pub role: DeclRole,
     pub ordinal: u32,
     pub header_fingerprint: u64,
+    /// Name token in this file's display coordinates. Absent when the extract
+    /// tree could not assign a single-buffer range.
+    pub name_range: Option<TextRange>,
 }
 
 /// One name-like token, unresolved.
@@ -95,6 +98,14 @@ impl FileDeclShard {
 
     pub fn has_compilation_unit_locals(&self) -> bool {
         self.has_compilation_unit_locals
+    }
+
+    /// Design-unit whose recorded name token covers `offset`.
+    pub fn design_unit_at(&self, offset: utils::line_index::TextSize) -> Option<&Decl> {
+        self.decls.iter().find(|decl| {
+            decl.role.is_design_unit()
+                && decl.name_range.is_some_and(|range| range.contains(offset))
+        })
     }
 }
 

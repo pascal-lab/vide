@@ -3,10 +3,10 @@ use std::hash::{Hash, Hasher};
 use rustc_hash::FxHasher;
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxTree, SyntaxTreeOptions, WalkEvent,
+    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTree, SyntaxTreeOptions, WalkEvent,
     ast::{self, AstNode},
     has_name::HasName,
-    has_text_range::HasTextRange,
+    has_text_range::{HasTextRange, HasTextRangeIn},
     token::TokenKindExt,
 };
 use vfs::FileId;
@@ -19,9 +19,13 @@ pub(super) fn collect(db: &dyn HirDefDb, file_id: FileId) -> FileDeclShard {
     let path = preproc_expand::compilation_plan::source_buffer_path(db, file_id).to_string();
     let name =
         db.file_path(file_id).map(|path| path.to_string()).unwrap_or_else(|| "source".into());
-    let context = db.compilation_context_for_file(file_id);
+    // Profile predefines come from vide.toml. Do not ask
+    // `compilation_context_for_file`: that builds the include plan and
+    // unexpanded-parses every file in the profile.
+    let profile_id = db.file_compilation_profile(file_id);
+    let predefines = db.project_config().preprocess_for_profile(profile_id).predefine_strings();
     let options = SyntaxTreeOptions {
-        predefines: context.predefines.to_vec(),
+        predefines,
         include_paths: Vec::new(),
         include_buffers: Vec::new(),
         expand_includes: false,
@@ -84,6 +88,7 @@ fn walk(tree: &SyntaxTree, source_text: &str) -> FileDeclShard {
                             role: decl.role,
                             ordinal: *ordinal,
                             header_fingerprint: decl.header_fingerprint,
+                            name_range: decl.name_range,
                         });
                         *ordinal += 1;
                     } else {
@@ -122,11 +127,12 @@ struct PartialDecl {
     name: SmolStr,
     role: DeclRole,
     header_fingerprint: u64,
+    name_range: Option<utils::line_index::TextRange>,
 }
 
 fn member_decl(node: SyntaxNode<'_>, source_text: &str) -> Option<PartialDecl> {
     let role = decl_role(node)?;
-    let name = member_name(node)?;
+    let (name, name_range) = member_name(node)?;
     if name.is_empty() {
         return None;
     }
@@ -138,6 +144,7 @@ fn member_decl(node: SyntaxNode<'_>, source_text: &str) -> Option<PartialDecl> {
         header_fingerprint: fingerprint(role, &name, header_range, source_text),
         name,
         role,
+        name_range,
     })
 }
 
@@ -165,21 +172,26 @@ fn decl_role(node: SyntaxNode<'_>) -> Option<DeclRole> {
     })
 }
 
-fn member_name(node: SyntaxNode<'_>) -> Option<SmolStr> {
+fn member_name(node: SyntaxNode<'_>) -> Option<(SmolStr, Option<utils::line_index::TextRange>)> {
+    let token = member_name_token(node)?;
+    Some((token.value_text().to_smolstr(), token.text_range_in(node)))
+}
+
+fn member_name_token(node: SyntaxNode<'_>) -> Option<SyntaxToken<'_>> {
     if let Some(module) = ast::ModuleDeclaration::cast(node) {
-        return HasName::name(&module).map(|token| token.value_text().to_smolstr());
+        return HasName::name(&module);
     }
     if let Some(function) = ast::FunctionDeclaration::cast(node) {
-        return HasName::name(&function).map(|token| token.value_text().to_smolstr());
+        return HasName::name(&function);
     }
     if let Some(typedef) = ast::TypedefDeclaration::cast(node) {
-        return typedef.name().map(|token| token.value_text().to_smolstr());
+        return typedef.name();
     }
     if let Some(checker) = ast::CheckerDeclaration::cast(node) {
-        return checker.name().map(|token| token.value_text().to_smolstr());
+        return checker.name();
     }
     if let Some(covergroup) = ast::CovergroupDeclaration::cast(node) {
-        return covergroup.name().map(|token| token.value_text().to_smolstr());
+        return covergroup.name();
     }
     None
 }

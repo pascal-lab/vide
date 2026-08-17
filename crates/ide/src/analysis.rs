@@ -97,7 +97,7 @@ impl AnalysisContext<'_> {
     }
 
     pub(crate) fn unit_index(&self) -> Arc<hir_def::unit_index::UnitIndex> {
-        self.resolution().unit_index()
+        self.resolution().unit_index(self.db)
     }
 
     pub(crate) fn module_index(
