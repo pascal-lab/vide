@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -82,14 +82,32 @@ pub fn measure_server(
         }
         for method in &probe.methods {
             let lsp_method = lsp_method_name(method);
-            let sample =
-                time_request(&mut client, probe, lsp_method, &path, &text, &mut versions, config)?;
-            requests.push(sample);
+            match time_request(&mut client, probe, lsp_method, &path, &text, &mut versions, config)
+            {
+                Ok(sample) => requests.push(sample),
+                Err(error) if is_unsupported_method(&error) => {
+                    eprintln!("    skip {method}: not supported");
+                }
+                Err(error) => {
+                    eprintln!("    {method} failed: {error:#}");
+                    if client.child.try_wait().ok().flatten().is_some() {
+                        break;
+                    }
+                }
+            }
+        }
+        if client.child.try_wait().ok().flatten().is_some() {
+            break;
         }
     }
 
     let rss_kb = rss_kb(client.child.id());
-    let _ = client.shutdown();
+    if client.child.try_wait().ok().flatten().is_none() {
+        let _ = client.shutdown();
+    }
+    if requests.is_empty() {
+        bail!("no successful requests");
+    }
     Ok(LspSample {
         workload: workload.name.clone(),
         size: workload.size.clone(),
@@ -153,6 +171,11 @@ fn percentile(sorted: &[Duration], pct: u32) -> Duration {
     }
     let idx = ((sorted.len() - 1) * pct as usize) / 100;
     sorted[idx]
+}
+
+fn is_unsupported_method(error: &anyhow::Error) -> bool {
+    let text = format!("{error:#}").to_ascii_lowercase();
+    text.contains("method not found") || text.contains("-32601")
 }
 
 fn lsp_method_name(method: &str) -> &'static str {
