@@ -342,11 +342,17 @@ pub(crate) fn token_for_occurrence<'tree>(
     emitted: &EmittedTokenIndex<'tree>,
     occurrence: &crate::name_index::NameOccurrence,
 ) -> Option<SyntaxTokenWithParent<'tree>> {
-    if let Some(emitted_id) = occurrence.emitted {
-        return emitted.get(&emitted_id)?.iter().copied().find(|token| {
-            token.kind() == occurrence.kind && token.text_range() == Some(occurrence.range)
-        });
+    if let Some(emitted_id) = occurrence.emitted
+        && let Some(token) = emitted.get(&emitted_id).and_then(|tokens| {
+            tokens.iter().copied().find(|token| {
+                token.kind() == occurrence.kind && token.text_range() == Some(occurrence.range)
+            })
+        })
+    {
+        return Some(token);
     }
+    // L0 extract and the request parse can disagree on emitted indices when
+    // includes expand. Fall back to (kind, range) rather than dropping the hit.
     SyntaxTokenPtr::from_kind_range(occurrence.kind, occurrence.range).to_token(tree)
 }
 

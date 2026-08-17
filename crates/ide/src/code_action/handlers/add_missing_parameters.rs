@@ -52,12 +52,7 @@ pub(super) fn add_missing_parameters(
     let open_paren = params_node.open_paren()?.text_range_in(params_node.syntax())?;
     let close_paren = params_node.close_paren()?.text_range_in(params_node.syntax())?;
 
-    let target_module_id = resolve_hir_instantiation_target(
-        db,
-        &crate::module_resolution::module_indexes(db),
-        ctx.file_id(),
-        instantiation,
-    )?;
+    let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
     let target_body = db.body_with_source_map(target_module_id);
 
     let is_ordered = instantiation

@@ -6,7 +6,7 @@
 //! definition.
 
 use base_db::salsa;
-use preproc_expand::file::HirFileId;
+use preproc_expand::{file::HirFileId, macro_file::macro_files_for_file};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
@@ -62,7 +62,13 @@ pub struct UnitIndex {
 }
 impl UnitIndex {
     pub fn module_ids(&self, db: &dyn HirDefDb, name: &SmolStr) -> Resolution<OwnerId> {
-        self.resolve(db, name, |unit| unit.kind.is_module())
+        let declared = self.resolve(db, name, |unit| unit.kind.is_module());
+        if !declared.is_unresolved() {
+            return declared;
+        }
+        // Macro-generated modules are not CU decls in the unexpanded shard.
+        // L2 only the files that mention the spelling.
+        locate_modules_in_mentioning_files(db, name)
     }
 
     /// Design-unit modules declared at compilation-unit scope. Only these may
@@ -73,6 +79,29 @@ impl UnitIndex {
 
     pub fn package_ids(&self, db: &dyn HirDefDb, name: &SmolStr) -> Resolution<OwnerId> {
         self.resolve(db, name, |unit| unit.kind.is_package())
+    }
+
+    /// Package owners declared in the L0 index. Locating them is L2 of those
+    /// files only — not every compilation unit.
+    pub fn package_owners(&self, db: &dyn HirDefDb) -> Vec<OwnerId> {
+        self.units
+            .iter()
+            .filter(|unit| unit.kind.is_package())
+            .filter_map(|unit| locate_unit_owner(db, unit))
+            .collect()
+    }
+
+    /// Modules, packages, checkers, and covergroups visible as `$unit` types.
+    pub fn type_unit_ids(&self, db: &dyn HirDefDb, name: &SmolStr) -> Resolution<OwnerId> {
+        let declared = self.resolve(db, name, |unit| {
+            unit.kind.is_module()
+                || unit.kind.is_package()
+                || matches!(unit.kind, UnitKind::Checker | UnitKind::Covergroup)
+        });
+        if !declared.is_unresolved() {
+            return declared;
+        }
+        locate_modules_in_mentioning_files(db, name)
     }
 
     /// Resolve an instance target using the containing module's local
@@ -134,17 +163,7 @@ pub fn unit_index(db: &dyn HirDefDb) -> Arc<UnitIndex> {
         .copied()
         .filter(|&file_id| db.file_kind(file_id).is_semantic_compilation_unit())
     {
-        let Some(skeleton) = db.declaration_skeleton(HirFileId::File(file_id)) else {
-            continue;
-        };
-        add_file_units(&mut index, HirFileId::File(file_id), skeleton.item_tree());
-        for macro_file in preproc_expand::macro_file::macro_files_for_file(db, file_id) {
-            add_file_units(
-                &mut index,
-                HirFileId::Macro(macro_file),
-                &db.item_tree(HirFileId::Macro(macro_file)),
-            );
-        }
+        add_file_units(&mut index, HirFileId::File(file_id), &db.file_decl_shard(file_id));
     }
 
     index.module_names = index
@@ -165,26 +184,63 @@ pub fn unit_index(db: &dyn HirDefDb) -> Arc<UnitIndex> {
     Arc::new(index)
 }
 
-fn add_file_units(index: &mut UnitIndex, file: HirFileId, item_tree: &crate::item_tree::ItemTree) {
-    let file_owner = item_tree.root_owner();
-    for header in item_tree.module_headers() {
-        let owner = item_tree.owners().owner(header.owner());
-        insert_unit(
-            index,
-            file,
-            header.name().clone(),
-            UnitKind::Module(header.kind()),
-            owner.is_some_and(|data| data.parent == file_owner),
-        );
-    }
-    for owner in item_tree.owners().owners() {
-        let kind = match owner.kind {
-            OwnerKind::Checker => UnitKind::Checker,
-            OwnerKind::Covergroup => UnitKind::Covergroup,
+fn add_file_units(
+    index: &mut UnitIndex,
+    file: HirFileId,
+    shard: &crate::decl_shard::FileDeclShard,
+) {
+    for decl in shard.decls.iter() {
+        let kind = match decl.role {
+            crate::decl_shard::DeclRole::Module => UnitKind::Module(ModuleKind::Module),
+            crate::decl_shard::DeclRole::Interface => UnitKind::Module(ModuleKind::Interface),
+            crate::decl_shard::DeclRole::Package => UnitKind::Module(ModuleKind::Package),
+            crate::decl_shard::DeclRole::Program => UnitKind::Module(ModuleKind::Program),
+            crate::decl_shard::DeclRole::Checker => UnitKind::Checker,
+            crate::decl_shard::DeclRole::Covergroup => UnitKind::Covergroup,
             _ => continue,
         };
-        insert_unit(index, file, owner.name.clone(), kind, owner.parent == file_owner);
+        insert_unit(index, file, decl.name.clone(), kind, true);
     }
+}
+
+fn locate_modules_in_mentioning_files(db: &dyn HirDefDb, name: &SmolStr) -> Resolution<OwnerId> {
+    let files: Vec<_> = db.files().iter().copied().collect();
+    let candidates = files.into_iter().filter_map(|file_id| {
+        if !db.file_kind(file_id).is_semantic_compilation_unit() {
+            return None;
+        }
+        if !db.file_decl_shard(file_id).mentions_name(name) {
+            return None;
+        }
+        locate_named_instantiable_module(db, file_id, name)
+    });
+    Resolution::from_candidates(candidates)
+}
+
+fn locate_named_instantiable_module(
+    db: &dyn HirDefDb,
+    file_id: vfs::FileId,
+    name: &SmolStr,
+) -> Option<OwnerId> {
+    let is_match = |owner: &crate::owner::OwnerData| {
+        owner.name == *name
+            && owner.kind == OwnerKind::Module
+            && owner.module_kind.is_some_and(|kind| kind.is_instantiable())
+    };
+    for macro_file in macro_files_for_file(db, file_id) {
+        if let Some(owner) = db
+            .owner_table(HirFileId::Macro(macro_file))
+            .owners()
+            .iter()
+            .find_map(|owner| is_match(owner).then_some(owner.id))
+        {
+            return Some(owner);
+        }
+    }
+    db.owner_table(HirFileId::File(file_id))
+        .owners()
+        .iter()
+        .find_map(|owner| is_match(owner).then_some(owner.id))
 }
 
 fn insert_unit(
@@ -208,16 +264,34 @@ fn insert_unit(
 }
 
 fn locate_unit_owner(db: &dyn HirDefDb, unit: &UnitData) -> Option<OwnerId> {
-    let table = db.owner_table(unit.file);
-    table
+    let file_id = match unit.file {
+        HirFileId::File(file_id) => file_id,
+        HirFileId::Macro(_) => {
+            return matching_unit_owners(db, unit.file, unit)
+                .into_iter()
+                .nth(unit.ordinal as usize);
+        }
+    };
+    let macro_owners: Vec<OwnerId> = macro_files_for_file(db, file_id)
+        .into_iter()
+        .flat_map(|macro_file| matching_unit_owners(db, HirFileId::Macro(macro_file), unit))
+        .collect();
+    if !macro_owners.is_empty() {
+        return macro_owners.into_iter().nth(unit.ordinal as usize);
+    }
+    matching_unit_owners(db, HirFileId::File(file_id), unit).into_iter().nth(unit.ordinal as usize)
+}
+
+fn matching_unit_owners(db: &dyn HirDefDb, file: HirFileId, unit: &UnitData) -> Vec<OwnerId> {
+    db.owner_table(file)
         .owners()
         .iter()
         .filter(|owner| {
             owner.name == unit.name
                 && owner_matches_unit_kind(owner.kind, owner.module_kind, unit.kind)
         })
-        .nth(unit.ordinal as usize)
         .map(|owner| owner.id)
+        .collect()
 }
 
 fn owner_matches_unit_kind(

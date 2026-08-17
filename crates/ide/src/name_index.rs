@@ -94,9 +94,8 @@ pub(crate) fn index_files_for_root(
 ) -> Vec<FileId> {
     let plan = ctx.compilation_plan_for_root(source_root_id);
     let mut files: Vec<FileId> = plan
-        .roots
-        .iter()
-        .copied()
+        .all_file_ids()
+        .into_iter()
         .filter(|&file_id| ctx.source_root_id(file_id) == source_root_id)
         .collect();
     files.sort_by_key(|file_id| file_id.index());

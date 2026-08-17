@@ -41,12 +41,10 @@ impl SemanticSnapshotInputs {
     }
 
     pub(crate) fn from_db_with_hir(
-        db: &dyn WorkspaceSymbolIndexDb,
+        _db: &dyn WorkspaceSymbolIndexDb,
         hir: triomphe::Arc<hir_def::pathres::ResolutionContext>,
     ) -> triomphe::Arc<Self> {
-        let inputs = Self::from_hir(hir);
-        let _ = inputs.module_indexes(db);
-        inputs
+        Self::from_hir(hir)
     }
 
     pub(crate) fn module_index(

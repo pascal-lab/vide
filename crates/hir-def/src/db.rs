@@ -158,6 +158,7 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     def_id::set_definition_table_lru_capacity(db, capacity);
     design_map::set_lru_capacity(db, capacity);
     item_tree::set_item_tree_lru_capacity(db, capacity);
+    crate::decl_shard::set_decl_shard_lru_capacity(db, capacity);
     owner::set_owner_table_lru_capacity(db, capacity);
     unit_index::set_lru_capacity(db, capacity);
     scope::set_scope_lru_capacity(db, capacity);

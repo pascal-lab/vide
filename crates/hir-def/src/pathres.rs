@@ -15,22 +15,33 @@ use crate::{
     unit_index::UnitIndex,
 };
 
-/// Cross-file name-resolution inputs, precomputed once per request so the
-/// resolver never reads the O(project) global queries through salsa.
+/// Cross-file name-resolution inputs.
+///
+/// `unit_index` is the L0 product and is always built. `$unit` locals and the
+/// package export map are paid for on first import / compilation-unit lookup,
+/// not on every goto of a module instantiation type.
 #[derive(Clone)]
 pub struct ResolutionContext {
-    unit_scope: Arc<ScopeData>,
-    design_map: Arc<DesignMap>,
+    unit_scope: Arc<std::sync::OnceLock<Arc<ScopeData>>>,
+    design_map: Arc<std::sync::OnceLock<Arc<DesignMap>>>,
     unit_index: Arc<UnitIndex>,
 }
 
 impl ResolutionContext {
     pub fn from_db(db: &dyn HirDefDb) -> Arc<Self> {
         Arc::new(Self {
-            unit_scope: db.unit_scope(),
-            design_map: db.design_map(),
+            unit_scope: Arc::new(std::sync::OnceLock::new()),
+            design_map: Arc::new(std::sync::OnceLock::new()),
             unit_index: db.unit_index(),
         })
+    }
+
+    pub fn unit_scope(&self, db: &dyn HirDefDb) -> Arc<ScopeData> {
+        self.unit_scope.get_or_init(|| db.unit_scope()).clone()
+    }
+
+    pub fn design_map(&self, db: &dyn HirDefDb) -> Arc<DesignMap> {
+        self.design_map.get_or_init(|| db.design_map()).clone()
     }
 
     pub fn unit_index(&self) -> Arc<UnitIndex> {
@@ -235,10 +246,10 @@ fn resolve_unit_name(
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    let locals = context.unit_scope.lookup(ctx, ident);
+    let locals = context.unit_scope(db).lookup(ctx, ident);
     let units = match ctx {
         NameContext::Type | NameContext::Listing => {
-            context.unit_index.module_ids(db, ident).and_then(|owner| {
+            context.unit_index.type_unit_ids(db, ident).and_then(|owner| {
                 DefId::from_owner(db, owner)
                     .map(Resolution::Unique)
                     .unwrap_or(Resolution::Unresolved)
@@ -509,9 +520,10 @@ fn resolve_scope_imports(
     mut trace: Option<&mut ResolutionTrace>,
     at: AtFilter<'_>,
 ) -> Resolution<DefId> {
+    let design_map = context.design_map(db);
     let mut collector = ImportCollector {
         db,
-        design_map: &context.design_map,
+        design_map: design_map.as_ref(),
         scope,
         defs: SmallVec::new(),
         scope_file: scope_id.file(db),
@@ -558,9 +570,10 @@ pub(crate) fn resolve_wildcard_at(
     let at = AtFilter { reference };
     for scope_id in scopes.iter() {
         let scope = db.scope(*scope_id);
+        let design_map = context.design_map(db);
         let mut collector = ImportCollector {
             db,
-            design_map: &context.design_map,
+            design_map: design_map.as_ref(),
             scope: scope.as_ref(),
             defs: SmallVec::new(),
             scope_file: scope_id.file(db),

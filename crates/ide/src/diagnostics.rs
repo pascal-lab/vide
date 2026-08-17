@@ -428,12 +428,7 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
                 }
             }
 
-            match resolve_module_name(
-                db,
-                &crate::module_resolution::module_indexes(db),
-                file_id,
-                module_name,
-            ) {
+            match resolve_module_name(db, file_id, module_name) {
                 ModuleResolution::Ambiguous { candidates, kind } => {
                     let (severity, message, message_key, message_args) =
                         ambiguous_module_instantiation_diagnostic(

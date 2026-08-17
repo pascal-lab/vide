@@ -101,21 +101,13 @@ impl ModuleEdgeEntry {
         gens: &FxHashMap<FileId, u64>,
     ) {
         let stale = stale_files(root_files, &self.shard_gens, gens);
-        let context = ctx.semantic_snapshot_inputs();
         let full = self.file_edges.is_empty() || has_removed_files(&self.file_edges, root_files);
 
         if full {
             self.file_edges = root_files
                 .iter()
                 .map(|&file_id| {
-                    (
-                        file_id,
-                        Arc::new(FileModuleEdges::for_file_with_indexes(
-                            ctx.db,
-                            file_id,
-                            context.module_indexes(ctx.db),
-                        )),
-                    )
+                    (file_id, Arc::new(FileModuleEdges::for_file_with_indexes(ctx.db, file_id)))
                 })
                 .collect();
             self.shard_gens =
@@ -124,11 +116,7 @@ impl ModuleEdgeEntry {
             for file_id in stale {
                 self.file_edges.insert(
                     file_id,
-                    Arc::new(FileModuleEdges::for_file_with_indexes(
-                        ctx.db,
-                        file_id,
-                        context.module_indexes(ctx.db),
-                    )),
+                    Arc::new(FileModuleEdges::for_file_with_indexes(ctx.db, file_id)),
                 );
                 self.shard_gens.insert(file_id, file_gen(gens, file_id));
             }

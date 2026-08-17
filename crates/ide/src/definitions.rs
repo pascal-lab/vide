@@ -91,12 +91,12 @@ impl DefinitionClass {
 
         match_ast! { parent,
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
-                resolve_named_param_assignment(db, context.module_indexes(db), file_id.expect_file(), it)
+                resolve_named_param_assignment(db, file_id.expect_file(), it)
                     .map(DefinitionClass::Definition)
             },
             ast::NamedPortConnection[it] if it.name() == Some(tok) => {
                 let port =
-                    resolve_named_port_connection(db, context.module_indexes(db), file_id.expect_file(), it);
+                    resolve_named_port_connection(db, file_id.expect_file(), it);
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
                     let local = nameres_ident(&sema, file_id, tp, NameContext::Value, container);
@@ -305,7 +305,7 @@ fn package_member_resolution(
 
 fn resolve_instantiation_type_name(
     db: &dyn WorkspaceSymbolIndexDb,
-    context: &crate::semantic_index::SemanticSnapshotInputs,
+    _context: &crate::semantic_index::SemanticSnapshotInputs,
     sema: &SemanticsImpl,
     file_id: HirFileId,
     tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
@@ -335,36 +335,32 @@ fn resolve_instantiation_type_name(
         SyntaxAncestors::start_from(parent).find_map(ast::HierarchyInstantiation::cast)
         && instantiation.type_() == Some(tok)
     {
-        let resolution = match resolve_instantiation_target(
-            db,
-            context.module_indexes(db),
-            file_id.expect_file(),
-            instantiation,
-        ) {
-            ModuleResolution::Unique(module_id)
-            | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
-                Resolution::Unique(
-                    DefId::from_owner(sema.db, module_id)
-                        .expect("module owner must have a definition"),
-                )
-            }
-            ModuleResolution::Ambiguous { candidates, .. } => {
-                Resolution::from_candidates(candidates.into_iter().map(|module_id| {
-                    DefId::from_owner(sema.db, module_id)
-                        .expect("module owner must have a definition")
-                }))
-            }
-            ModuleResolution::Unresolved => {
-                nameres_ident(sema, file_id, tp, NameContext::Type, container).or_else(|| {
-                    Resolution::from_candidates(
-                        nameres_ident(sema, file_id, tp, NameContext::Value, container)
-                            .into_candidates()
-                            .into_iter()
-                            .filter(|def| def.kind(sema.db) == DefKind::Udp),
+        let resolution =
+            match resolve_instantiation_target(db, file_id.expect_file(), instantiation) {
+                ModuleResolution::Unique(module_id)
+                | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
+                    Resolution::Unique(
+                        DefId::from_owner(sema.db, module_id)
+                            .expect("module owner must have a definition"),
                     )
-                })
-            }
-        };
+                }
+                ModuleResolution::Ambiguous { candidates, .. } => {
+                    Resolution::from_candidates(candidates.into_iter().map(|module_id| {
+                        DefId::from_owner(sema.db, module_id)
+                            .expect("module owner must have a definition")
+                    }))
+                }
+                ModuleResolution::Unresolved => {
+                    nameres_ident(sema, file_id, tp, NameContext::Type, container).or_else(|| {
+                        Resolution::from_candidates(
+                            nameres_ident(sema, file_id, tp, NameContext::Value, container)
+                                .into_candidates()
+                                .into_iter()
+                                .filter(|def| def.kind(sema.db) == DefKind::Udp),
+                        )
+                    })
+                }
+            };
         return Some(resolution.map(DefinitionClass::Definition));
     }
 

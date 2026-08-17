@@ -6,7 +6,6 @@
 //! package queries and lexical name resolution.
 
 use base_db::salsa;
-use preproc_expand::file::HirFileId;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
@@ -269,22 +268,10 @@ impl DesignMap {
 
 #[salsa::tracked(lru = 128, returns(clone))]
 pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
-    let mut packages = db
-        .files()
-        .iter()
-        .copied()
-        .filter(|&file_id| db.file_kind(file_id).is_semantic_compilation_unit())
-        .flat_map(|file_id| {
-            db.item_tree(HirFileId::File(file_id))
-                .module_headers()
-                .filter(|header| header.kind() == crate::module::ModuleKind::Package)
-                .map(|header| header.owner())
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+    let unit_index = db.unit_index();
+    let mut packages = unit_index.package_owners(db);
     packages.sort();
     packages.dedup();
-    let unit_index = db.unit_index();
 
     let mut exports = FxHashMap::default();
     let mut imports = FxHashMap::default();

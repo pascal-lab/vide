@@ -52,10 +52,7 @@ pub fn unit_scope(db: &dyn HirDefDb) -> Arc<ScopeData> {
     let mut unit = ScopeData::default();
     for file_id in compilation_unit_files(db) {
         let hir_file = HirFileId::File(file_id);
-        let Some(skeleton) = db.declaration_skeleton(hir_file) else {
-            continue;
-        };
-        if !file_has_compilation_unit_locals(skeleton.item_tree()) {
+        if !db.file_decl_shard(file_id).has_compilation_unit_locals() {
             continue;
         }
         let file_owner =
@@ -63,20 +60,6 @@ pub fn unit_scope(db: &dyn HirDefDb) -> Arc<ScopeData> {
         unit.extend_definitions_from(scope_for(db, file_owner).as_ref());
     }
     Arc::new(unit)
-}
-
-fn file_has_compilation_unit_locals(item_tree: &crate::item_tree::ItemTree) -> bool {
-    use syntax::SyntaxKind;
-    item_tree.items().any(|item| {
-        !matches!(
-            item.kind(),
-            SyntaxKind::MODULE_DECLARATION
-                | SyntaxKind::INTERFACE_DECLARATION
-                | SyntaxKind::PACKAGE_DECLARATION
-                | SyntaxKind::PROGRAM_DECLARATION
-                | SyntaxKind::EMPTY_MEMBER
-        )
-    })
 }
 
 fn compilation_unit_files(db: &dyn HirDefDb) -> Vec<vfs::FileId> {
