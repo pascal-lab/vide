@@ -11,10 +11,7 @@ use base_db::{
     source_root::{SourceRootId, SourceRootRole},
 };
 use hir_def::{def_id::DefId, pathres::ResolutionContext};
-use preproc_expand::{
-    compilation_plan::CompilationPlan,
-    profile_compiler::{ProfileCompilationJob, ProfileCompilationOutput},
-};
+use preproc_expand::{compilation_plan::CompilationPlan, profile_compiler::ProfileCompilationJob};
 use triomphe::Arc;
 use utils::{
     cancellation::CancellationToken,
@@ -239,25 +236,11 @@ impl AnalysisSnapshot {
         })
     }
 
-    pub fn materialize_compilation_profile_diagnostics(
+    pub fn file_vide_diagnostics(
         &self,
-        profile_id: CompilationProfileId,
-        output: ProfileCompilationOutput,
+        file_id: FileId,
     ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
-        self.with_db(|db| {
-            diagnostics::materialize_compilation_profile_diagnostics(
-                db.db,
-                profile_id,
-                output.into_diagnostics(),
-            )
-        })
-    }
-
-    pub fn compilation_profile_vide_diagnostics(
-        &self,
-        profile_id: CompilationProfileId,
-    ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
-        self.with_db(|db| diagnostics::compilation_profile_vide_diagnostics(db.db, profile_id))
+        self.with_db(|db| diagnostics::vide_diagnostics(db.db, file_id))
     }
 
     pub fn parse_diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {

@@ -336,6 +336,19 @@ fn run_semantic_compiler_task(
     }
 }
 
+fn open_file_vide_diagnostics(
+    snapshot: &GlobalStateSnapshot,
+    profile_id: CompilationProfileId,
+) -> Result<Vec<ide::diagnostics::Diagnostic>> {
+    let mut diagnostics = Vec::new();
+    for file_id in snapshot.mem_docs.file_ids() {
+        if snapshot.analysis.file_compilation_profile(file_id)? == Some(profile_id) {
+            diagnostics.extend(snapshot.analysis.file_vide_diagnostics(file_id)?);
+        }
+    }
+    Ok(diagnostics)
+}
+
 fn collect_semantic_diagnostics(
     snapshot: GlobalStateSnapshot,
     profile_ids: Vec<CompilationProfileId>,
@@ -353,7 +366,7 @@ fn collect_semantic_diagnostics(
         if !pull_diagnostics {
             profiles.push((
                 snapshot.analysis.compilation_profile_job(profile_id)?,
-                snapshot.analysis.compilation_profile_vide_diagnostics(profile_id)?,
+                open_file_vide_diagnostics(&snapshot, profile_id)?,
             ));
         }
         cancellation.check()?;

@@ -1,6 +1,7 @@
+#[cfg(test)]
+use base_db::project::CompilationProfileId;
 use base_db::{
     diagnostics_config::DiagnosticSource as SlangDiagnosticSource,
-    project::CompilationProfileId,
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
@@ -176,6 +177,7 @@ pub(crate) fn compilation_profile_diagnostics(
     materialize_compilation_profile_diagnostics(db, profile_id, output.into_diagnostics())
 }
 
+#[cfg(test)]
 pub(crate) fn materialize_compilation_profile_diagnostics(
     db: &RootDb,
     profile_id: CompilationProfileId,
@@ -195,6 +197,7 @@ pub fn materialize_compiler_diagnostics(
         .collect()
 }
 
+#[cfg(test)]
 pub(crate) fn compilation_profile_vide_diagnostics(
     db: &RootDb,
     profile_id: CompilationProfileId,
@@ -205,6 +208,7 @@ pub(crate) fn compilation_profile_vide_diagnostics(
         .collect()
 }
 
+#[cfg(test)]
 fn compilation_profile_file_ids(db: &RootDb, profile_id: CompilationProfileId) -> Vec<FileId> {
     db.compilation_plan_for_profile(Some(profile_id)).all_file_ids()
 }
@@ -313,7 +317,7 @@ fn vide_providers() -> Vec<Box<dyn VideDiagnosticProvider>> {
     ]
 }
 
-fn vide_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+pub(crate) fn vide_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     if !vide_diagnostics_enabled(db) {
         return Vec::new();
     }

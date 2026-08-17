@@ -155,8 +155,7 @@ impl GlobalStateSnapshot {
         if let Some(DiagnosticOwner::CompilationProfile(profile_id)) =
             self.diagnostic_owner(file_id, DiagnosticRequestScope::Document)
         {
-            let diagnostics = self.compilation_profile_diagnostics(profile_id)?;
-            return Ok(diagnostics.into_iter().filter(|diag| diag.file_id == file_id).collect());
+            return self.compilation_profile_file_diagnostics(profile_id, file_id);
         }
 
         Ok(self.analysis.diagnostics(file_id)?)
@@ -197,9 +196,42 @@ impl GlobalStateSnapshot {
         &self,
         profile_id: base_db::project::CompilationProfileId,
     ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
+        let mut diagnostics = self.compilation_profile_slang_diagnostics(profile_id)?;
+        for file_id in self.mem_docs.file_ids() {
+            if self.analysis.file_compilation_profile(file_id)? == Some(profile_id) {
+                diagnostics.extend(self.analysis.file_vide_diagnostics(file_id)?);
+            }
+        }
+        Ok(diagnostics)
+    }
+
+    /// Slang diagnostics of the profile plus Vide checks of this file.
+    /// Does not lower every compilation-unit body to answer one document.
+    fn compilation_profile_file_diagnostics(
+        &self,
+        profile_id: base_db::project::CompilationProfileId,
+        file_id: FileId,
+    ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
+        let config = self.config.diagnostics_config();
+        if config.enabled && config.semantic.enabled {
+            let mut diagnostics = self
+                .compilation_profile_slang_diagnostics(profile_id)?
+                .into_iter()
+                .filter(|diagnostic| diagnostic.file_id == file_id)
+                .collect::<Vec<_>>();
+            diagnostics.extend(self.analysis.file_vide_diagnostics(file_id)?);
+            return Ok(diagnostics);
+        }
+        Ok(self.analysis.diagnostics(file_id)?)
+    }
+
+    fn compilation_profile_slang_diagnostics(
+        &self,
+        profile_id: base_db::project::CompilationProfileId,
+    ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
         let job = self.analysis.compilation_profile_job(profile_id)?;
         let output = crate::compiler_worker::compile(&job)?;
-        Ok(self.analysis.materialize_compilation_profile_diagnostics(profile_id, output)?)
+        Ok(ide::diagnostics::materialize_compiler_diagnostics(output.into_diagnostics()))
     }
 
     pub(crate) fn external_diagnostics(
