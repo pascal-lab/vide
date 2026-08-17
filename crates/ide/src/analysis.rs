@@ -36,14 +36,12 @@ use crate::{
     incrementality::{ComputationPriority, ProductStore},
     inlay_hint::{self, InlayHint, InlayHintConfig},
     markup::Markup,
+    name_index::{FileNameIndex, NameIndex},
     navigation_target::NavTarget,
     references::{self, References, ReferencesConfig},
     rename::{self, RenameConfig, RenameResult},
     selection_ranges,
-    semantic_index::{
-        self, FileSemanticIndex, ModuleCallEdge, ModuleEdgeIndex, ReferenceIndex,
-        SemanticSnapshotInputs,
-    },
+    semantic_index::{self, ModuleCallEdge, ModuleEdgeIndex, SemanticSnapshotInputs},
     semantic_tokens::{self, SemaToken, SemaTokenConfig},
     signature_help::{self, SignatureHelp, SignatureHelpConfig},
     source_change::SourceChange,
@@ -135,8 +133,8 @@ impl AnalysisContext<'_> {
         })
     }
 
-    pub(crate) fn file_index(&self, file_id: FileId) -> Arc<FileSemanticIndex> {
-        self.store.file_index(self, file_id)
+    pub(crate) fn file_name_index(&self, file_id: FileId) -> Arc<FileNameIndex> {
+        self.store.file_name_index(self, file_id)
     }
 
     fn resolution(&self) -> Arc<ResolutionContext> {
@@ -154,8 +152,8 @@ impl AnalysisContext<'_> {
             .get_or_compute(priority, cancel, |_| ResolutionContext::from_db(self.db))
     }
 
-    pub(crate) fn references(&self, source_root_id: SourceRootId) -> Arc<ReferenceIndex> {
-        self.store.references(self, source_root_id)
+    pub(crate) fn name_index(&self, source_root_id: SourceRootId) -> Arc<NameIndex> {
+        self.store.name_index(self, source_root_id)
     }
 
     pub(crate) fn recursive_rename_closure(

@@ -10,11 +10,9 @@ use itertools::Itertools;
 use preproc_expand::file::HirFileId;
 use rustc_hash::FxHashMap;
 use syntax::{
-    SyntaxAncestors, SyntaxElement, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, WalkEvent,
+    SyntaxAncestors, SyntaxNode, SyntaxToken, SyntaxTokenWithParent,
     ast::{self, AstNode},
-    has_text_range::{HasTextRange, HasTextRangeIn},
-    ptr::SyntaxTokenPtr,
-    token::TokenKindExt,
+    has_text_range::HasTextRangeIn,
 };
 use triomphe::Arc;
 use utils::line_index::TextRange;
@@ -25,277 +23,8 @@ use crate::{
     db::workspace_symbol_index_db::WorkspaceSymbolIndexDb,
     definitions::{DefinitionClass, rightmost_name_token},
     module_resolution::resolve_hir_instantiation_target,
-    references::{ReferenceCategory, search::resolve_source_range},
-    semantic_target::{
-        SemanticTarget, TargetIntent, preproc::emit_token_index,
-        resolve_semantic_target_with_emitted,
-    },
+    references::search::resolve_source_range,
 };
-
-impl FileSemanticIndex {
-    pub(crate) fn references_for_definition(
-        &self,
-        definition: DefId,
-    ) -> Option<&FileReferenceGroup> {
-        self.groups.get(&definition)
-    }
-
-    pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
-        let context = crate::semantic_index::SemanticSnapshotInputs::from_db(db);
-        Self::for_file_with_context(db, file_id, &context)
-    }
-
-    pub(crate) fn for_file_with_context(
-        db: &dyn WorkspaceSymbolIndexDb,
-        file_id: FileId,
-        context: &crate::semantic_index::SemanticSnapshotInputs,
-    ) -> Self {
-        let tree = db.parse(file_id.into());
-        let root = tree.root();
-        let hir_file_id = HirFileId::from(file_id);
-
-        // Macro-emitted tokens share the call-site display range. Ordinary
-        // source tokens carry a trace entry too, so presence is determined by
-        // directives, include edges, or non-source origins—not by trace size.
-        let has_preproc_tokens = {
-            let trace = tree.preprocessor_trace();
-            !trace.include_edges.is_empty()
-                || trace.emitted_tokens.iter().any(|token| {
-                    !matches!(token.origin, syntax::preproc::TokenOrigin::Source { .. })
-                })
-        };
-        let emitted_index = has_preproc_tokens.then(|| emit_token_index(root));
-
-        let sema = SemanticsImpl::new_with_context(db, context.hir.clone());
-        let mut containers = ContainerCache::new();
-        let mut chains = ScopeChainCache::new();
-        let mut groups: FxHashMap<DefId, FileReferenceGroup> = FxHashMap::default();
-        let mut definition_ranges_by_def =
-            FxHashMap::<DefId, Vec<SemanticDefinitionRange>>::default();
-        let mut trace = IndexBuildTrace::start();
-        // populated when the name token resolves (it precedes the data token
-        // in source order) and read back when the data token is collected.
-        let mut conn_port_by_name = FxHashMap::default();
-        let text = db.file_text(file_id);
-        for event in root.elem_preorder() {
-            match event {
-                WalkEvent::Enter(SyntaxElement::Node(node)) => {
-                    trace.count_special_kinds(&node);
-                }
-                WalkEvent::Leave(SyntaxElement::Node(_)) => {}
-                WalkEvent::Enter(SyntaxElement::Token(token)) => {
-                    if !token.kind().name_like() {
-                        continue;
-                    }
-                    trace.tokens += 1;
-                    let (range_cost, range) = timed(|| token.text_range());
-                    trace.range += range_cost;
-                    let Some(range) = range else {
-                        continue;
-                    };
-                    let (container_cost, container) =
-                        timed(|| containers.container_for(&sema, hir_file_id, token.parent));
-                    trace.container += container_cost;
-
-                    if !has_preproc_tokens {
-                        // With no includes or macro-emitted tokens, the token
-                        // from the authoritative root walk is already the
-                        // unique source target. An offset lookup would only
-                        // rediscover the same token.
-                        collect_index_token(
-                            db,
-                            &sema,
-                            context,
-                            hir_file_id,
-                            token,
-                            container,
-                            &mut chains,
-                            &mut conn_port_by_name,
-                            &text,
-                            &mut groups,
-                            &mut definition_ranges_by_def,
-                            &mut trace,
-                        );
-                        continue;
-                    }
-
-                    // Preserve semantic-target ownership checks for macro and
-                    // include tokens while reusing the emitted-token index.
-                    let (target_cost, target) = timed(|| {
-                        resolve_semantic_target_with_emitted(
-                            db,
-                            file_id,
-                            range.start(),
-                            Some(root),
-                            token_precedence,
-                            emitted_index.as_ref(),
-                        )
-                        .unique_for_intent(TargetIntent::FindReferences)
-                    });
-                    trace.source_target += target_cost;
-                    let Some(SemanticTarget::Source(target)) = target else {
-                        continue;
-                    };
-                    for token in target.into_tokens() {
-                        collect_index_token(
-                            db,
-                            &sema,
-                            context,
-                            hir_file_id,
-                            token,
-                            container,
-                            &mut chains,
-                            &mut conn_port_by_name,
-                            &text,
-                            &mut groups,
-                            &mut definition_ranges_by_def,
-                            &mut trace,
-                        );
-                    }
-                }
-                WalkEvent::Leave(SyntaxElement::Token(_)) => {}
-            }
-        }
-        trace.report(file_id);
-        Self { groups }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn collect_index_token(
-    db: &dyn WorkspaceSymbolIndexDb,
-    sema: &SemanticsImpl<'_>,
-    context: &crate::semantic_index::SemanticSnapshotInputs,
-    file_id: HirFileId,
-    token: SyntaxTokenWithParent<'_>,
-    container: OwnerId,
-    chains: &mut ScopeChainCache,
-    conn_port_by_name: &mut FxHashMap<TextRange, DefId>,
-    text: &str,
-    groups: &mut FxHashMap<DefId, FileReferenceGroup>,
-    definition_ranges_by_def: &mut FxHashMap<DefId, Vec<SemanticDefinitionRange>>,
-    trace: &mut IndexBuildTrace,
-) {
-    if !token.kind().name_like() {
-        return;
-    }
-    // The heuristic chain in `DefinitionClass::resolve_in` can only diverge
-    // from plain value-name resolution at these syntax positions.
-    let in_special_context = token_in_special_context(token);
-    if in_special_context {
-        trace.special_tokens += 1;
-    }
-    let (collect_cost, ()) = timed(|| {
-        collect_token(
-            db,
-            sema,
-            context,
-            file_id,
-            token,
-            container,
-            in_special_context,
-            chains,
-            conn_port_by_name,
-            text,
-            groups,
-            definition_ranges_by_def,
-            trace,
-        )
-    });
-    trace.collect += collect_cost;
-}
-
-/// Set when `VIDE_INDEX_BUILD_TRACE` is set.
-struct IndexBuildTrace {
-    enabled: bool,
-    range: std::time::Duration,
-    source_target: std::time::Duration,
-    container: std::time::Duration,
-    collect: std::time::Duration,
-    resolve: std::time::Duration,
-    resolve_fast: std::time::Duration,
-    resolve_slow: std::time::Duration,
-    chain_ns: u64,
-    nameres_ns: u64,
-    definition: std::time::Duration,
-    total: std::time::Instant,
-    tokens: usize,
-    special_tokens: usize,
-    kind_hits: [usize; 10],
-}
-
-impl IndexBuildTrace {
-    fn start() -> Self {
-        Self {
-            enabled: std::env::var_os("VIDE_INDEX_BUILD_TRACE").is_some(),
-            range: std::time::Duration::ZERO,
-            source_target: std::time::Duration::ZERO,
-            container: std::time::Duration::ZERO,
-            collect: std::time::Duration::ZERO,
-            resolve: std::time::Duration::ZERO,
-            resolve_fast: std::time::Duration::ZERO,
-            resolve_slow: std::time::Duration::ZERO,
-            chain_ns: 0,
-            nameres_ns: 0,
-            definition: std::time::Duration::ZERO,
-            total: std::time::Instant::now(),
-            tokens: 0,
-            special_tokens: 0,
-            kind_hits: [0; 10],
-        }
-    }
-
-    fn record_chain(&mut self, chain: std::time::Duration, nameres: std::time::Duration) {
-        self.chain_ns += chain.as_nanos() as u64;
-        self.nameres_ns += nameres.as_nanos() as u64;
-    }
-
-    fn count_special_kinds(&mut self, node: &SyntaxNode<'_>) {
-        if !self.enabled {
-            return;
-        }
-        let kind = node.kind();
-        self.kind_hits[0] += usize::from(ast::MemberAccessExpression::can_cast(kind));
-        self.kind_hits[1] += usize::from(ast::ScopedName::can_cast(kind));
-        self.kind_hits[2] += usize::from(ast::ModuleDeclaration::can_cast(kind));
-        self.kind_hits[3] += usize::from(ast::PrimitiveInstantiation::can_cast(kind));
-        self.kind_hits[4] += usize::from(ast::CheckerInstantiation::can_cast(kind));
-        self.kind_hits[5] += usize::from(ast::HierarchyInstantiation::can_cast(kind));
-        self.kind_hits[6] += usize::from(ast::PackageImportItem::can_cast(kind));
-        self.kind_hits[7] += usize::from(ast::NamedParamAssignment::can_cast(kind));
-        self.kind_hits[8] += usize::from(ast::NamedPortConnection::can_cast(kind));
-        self.kind_hits[9] += usize::from(ast::NamedType::can_cast(kind));
-    }
-
-    fn report(&self, file_id: FileId) {
-        if !self.enabled {
-            return;
-        }
-        eprintln!(
-            "[index trace] file={file_id:?} tokens={} special={} total={:?}\n  range={:?} source_target={:?} container={:?}\n  collect={:?} (resolve={:?} [fast={:?} slow={:?}] chain={:?} nameres={:?} definition={:?})\n  kind_hits={:?}",
-            self.tokens,
-            self.special_tokens,
-            self.total.elapsed(),
-            self.range,
-            self.source_target,
-            self.container,
-            self.collect,
-            self.resolve,
-            self.resolve_fast,
-            self.resolve_slow,
-            std::time::Duration::from_nanos(self.chain_ns),
-            std::time::Duration::from_nanos(self.nameres_ns),
-            self.definition,
-            self.kind_hits,
-        );
-    }
-}
-
-fn timed<T>(f: impl FnOnce() -> T) -> (std::time::Duration, T) {
-    let start = std::time::Instant::now();
-    let value = f();
-    (start.elapsed(), value)
-}
 
 /// Caches HIR container ids by syntax node while walking a tree.
 ///
@@ -314,19 +43,19 @@ fn timed<T>(f: impl FnOnce() -> T) -> (std::time::Duration, T) {
 /// The key is the Slang node itself, not `SyntaxNodePtr`: macro-emitted nodes
 /// can share a display range and kind at their call site, while their pointer
 /// identities remain distinct.
-pub(super) struct ContainerCache<'tree> {
+pub(crate) struct ContainerCache<'tree> {
     by_node: FxHashMap<SyntaxNode<'tree>, OwnerId>,
 }
 
 impl<'tree> ContainerCache<'tree> {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { by_node: FxHashMap::default() }
     }
 
     /// The container of a token: the nearest container node on its ancestor
     /// chain whose id computes successfully, mirroring
     /// `find_map(container_to_def)`; nodes that fail to lower are skipped.
-    pub(super) fn container_for(
+    pub(crate) fn container_for(
         &mut self,
         sema: &SemanticsImpl<'_>,
         file_id: HirFileId,
@@ -362,12 +91,12 @@ impl<'tree> ContainerCache<'tree> {
 /// avoids per-token salsa `scope_for` queries, whose memos revalidate against
 /// every intervening query during the index build and recompute O(scope
 /// size) on each miss.
-pub(super) struct ScopeChainCache {
+pub(crate) struct ScopeChainCache {
     by_container: FxHashMap<OwnerId, Arc<ResolvedScopes>>,
 }
 
 impl ScopeChainCache {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { by_container: FxHashMap::default() }
     }
 
@@ -458,132 +187,6 @@ fn is_generate_branch_member(member: SyntaxNode<'_>) -> bool {
     hir_semantics::semantics::is_generate_branch_member(member)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn collect_token(
-    db: &dyn WorkspaceSymbolIndexDb,
-    sema: &SemanticsImpl<'_>,
-    context: &crate::semantic_index::SemanticSnapshotInputs,
-    file_id: HirFileId,
-    token: SyntaxTokenWithParent<'_>,
-    container: OwnerId,
-    in_special_context: bool,
-    chains: &mut ScopeChainCache,
-    conn_port_by_name: &mut FxHashMap<TextRange, DefId>,
-    text: &str,
-    groups: &mut FxHashMap<DefId, FileReferenceGroup>,
-    definition_ranges_by_def: &mut FxHashMap<DefId, Vec<SemanticDefinitionRange>>,
-    trace: &mut IndexBuildTrace,
-) {
-    let Some(range) = token.text_range() else {
-        return;
-    };
-    let (resolve_cost, class) = timed(|| {
-        if in_special_context {
-            let start = std::time::Instant::now();
-            let class =
-                DefinitionClass::resolve_in(db, context, file_id, token, Some(container)).unique();
-            trace.resolve_slow += start.elapsed();
-            class
-        } else {
-            let start = std::time::Instant::now();
-            // Fast path: outside every syntax context the heuristic chain in
-            // `DefinitionClass::resolve` (member access, scoped names,
-            // instantiations, package imports, named connections) is provably
-            // empty, so resolve as a plain value identifier directly. The
-            // scope chain is resolved once per container; per-token salsa
-            // `scope_for` queries revalidate their memos against every
-            // intervening query and recompute O(scope size) each time.
-            let chain_start = std::time::Instant::now();
-            let chain = chains.chain_for(db, container);
-            let chain_cost = chain_start.elapsed();
-            let class = sema
-                .nameres_ident_in_scopes_at(file_id, token, NameContext::Value, &chain)
-                .map(DefinitionClass::Definition)
-                .unique();
-            if trace.enabled {
-                trace.record_chain(chain_cost, start.elapsed() - chain_cost);
-            }
-            trace.resolve_fast += start.elapsed();
-            class
-        }
-    });
-    trace.resolve += resolve_cost;
-    let Some(class) = class else {
-        return;
-    };
-
-    let (definition_cost, ()) = timed(|| match &class {
-        DefinitionClass::Definition(definition) => {
-            let reference_context = reference_context(
-                db,
-                sema,
-                token,
-                &class,
-                container,
-                chains,
-                conn_port_by_name,
-                text,
-                ConnSide::Port,
-            );
-            collect_definition_token(
-                db,
-                *definition,
-                file_id.expect_file(),
-                range,
-                token,
-                &reference_context,
-                groups,
-                definition_ranges_by_def,
-            )
-        }
-        DefinitionClass::PortConnShorthand { port, local } => {
-            let port_context = reference_context(
-                db,
-                sema,
-                token,
-                &class,
-                container,
-                chains,
-                conn_port_by_name,
-                text,
-                ConnSide::Port,
-            );
-            let local_context = reference_context(
-                db,
-                sema,
-                token,
-                &class,
-                container,
-                chains,
-                conn_port_by_name,
-                text,
-                ConnSide::Local,
-            );
-            collect_definition_token(
-                db,
-                *port,
-                file_id.expect_file(),
-                range,
-                token,
-                &port_context,
-                groups,
-                definition_ranges_by_def,
-            );
-            collect_definition_token(
-                db,
-                *local,
-                file_id.expect_file(),
-                range,
-                token,
-                &local_context,
-                groups,
-                definition_ranges_by_def,
-            );
-        }
-    });
-    trace.definition += definition_cost;
-}
-
 /// The role of a token inside a named port connection, if any, computed from
 /// the token's syntax position alone.
 enum ConnTokenRole<'tree> {
@@ -660,9 +263,11 @@ fn is_same_name_conn(text: &str, conn: &ConnShape) -> bool {
 /// the shorthand side; non-shorthand tokens produce the same context for
 /// either side.
 #[allow(clippy::too_many_arguments)]
-fn reference_context(
+pub(crate) fn reference_context(
     db: &dyn WorkspaceSymbolIndexDb,
     sema: &SemanticsImpl<'_>,
+    context: &crate::semantic_index::SemanticSnapshotInputs,
+    file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
     class: &DefinitionClass,
     container: OwnerId,
@@ -674,19 +279,36 @@ fn reference_context(
     let Some(role) = conn_token_role(token) else {
         return ReferenceContext::Plain;
     };
-    // Reuse the build's precomputed resolution context. Constructing another
-    // SemanticsImpl here deep-verifies project-wide queries after every edit.
     match role {
         ConnTokenRole::Data(conn) => {
             let Some(shape) = conn_shape(conn) else {
                 return ReferenceContext::Plain;
             };
+            let paired = is_same_name_conn(text, &shape)
+                .then(|| {
+                    if let Some(port) = conn_port_by_name.get(&shape.name_range) {
+                        return Some(*port);
+                    }
+                    let name = conn.name()?;
+                    let name_token = SyntaxTokenWithParent { parent: conn.syntax(), tok: name };
+                    match DefinitionClass::resolve_in(
+                        db,
+                        context,
+                        file_id,
+                        name_token,
+                        Some(container),
+                    )
+                    .unique()?
+                    {
+                        DefinitionClass::Definition(port) => Some(port),
+                        DefinitionClass::PortConnShorthand { port, .. } => Some(port),
+                    }
+                })
+                .flatten();
             ReferenceContext::ConnData {
                 name_range: shape.name_range,
                 collapse_range: shape.collapse_range,
-                paired: is_same_name_conn(text, &shape)
-                    .then(|| conn_port_by_name.get(&shape.name_range).cloned())
-                    .flatten(),
+                paired,
             }
         }
         ConnTokenRole::Name(conn) => {
@@ -763,7 +385,7 @@ fn reference_context(
 /// walk from the old fast-path gate was dropped because it also flagged every
 /// token inside a module body, which made the fast path dead on module-heavy
 /// files.
-pub(super) fn token_in_special_context(
+pub(crate) fn token_in_special_context(
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent<'_>,
 ) -> bool {
     if ast::MemberAccessExpression::cast(parent).is_some_and(|node| node.name() == Some(tok))
@@ -794,47 +416,23 @@ pub(super) fn token_in_special_context(
         .is_some_and(|node| rightmost_name_token(node.type_()) == Some(tok))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn collect_definition_token(
+pub(crate) fn definition_class_for_token(
     db: &dyn WorkspaceSymbolIndexDb,
-    definition: DefId,
-    file_id: FileId,
-    range: TextRange,
+    sema: &SemanticsImpl<'_>,
+    context: &crate::semantic_index::SemanticSnapshotInputs,
+    file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
-    context: &ReferenceContext,
-    groups: &mut FxHashMap<DefId, FileReferenceGroup>,
-    definition_ranges_by_def: &mut FxHashMap<DefId, Vec<SemanticDefinitionRange>>,
-) {
-    let origins = definition.origins(db);
-    let Some(name) = origins.iter().find_map(|origin| origin.name(db)) else {
-        return;
-    };
-    let definition_ranges = definition_ranges_by_def
-        .entry(definition)
-        .or_insert_with(|| definition_ranges_for(db, definition));
-    let is_definition_site = definition_ranges.iter().any(|definition_range| {
-        definition_range.file_id == file_id && definition_range.range == range
-    });
-    if is_definition_site {
-        return;
-    }
-
-    let group = groups
-        .entry(definition)
-        .or_insert_with(|| FileReferenceGroup { name: name.to_string(), references: Vec::new() });
-    let reference = SemanticReference {
-        file_id,
-        range,
-        category: ReferenceCategory::from_tok(token),
-        ptr: SyntaxTokenPtr::from_token(token),
-        context: context.clone(),
-    };
-    if !group
-        .references
-        .iter()
-        .any(|existing| existing.file_id == reference.file_id && existing.range == reference.range)
-    {
-        group.references.push(reference);
+    container: OwnerId,
+    special: bool,
+    chains: &mut ScopeChainCache,
+) -> Option<DefinitionClass> {
+    if special {
+        DefinitionClass::resolve_in(db, context, file_id, token, Some(container)).unique()
+    } else {
+        let chain = chains.chain_for(db, container);
+        sema.nameres_ident_in_scopes_at(file_id, token, NameContext::Value, &chain)
+            .map(DefinitionClass::Definition)
+            .unique()
     }
 }
 
@@ -858,7 +456,7 @@ fn definition_ranges(
         .collect_vec()
 }
 
-pub(super) fn definition_ranges_for(
+pub(crate) fn definition_ranges_for(
     db: &dyn WorkspaceSymbolIndexDb,
     definition: DefId,
 ) -> Vec<SemanticDefinitionRange> {

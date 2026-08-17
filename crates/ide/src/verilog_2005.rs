@@ -15,6 +15,7 @@ use base_db::{
 use hir_semantics::semantics::Semantics;
 use insta::assert_snapshot;
 use preproc_expand::preproc::{IncludeTarget, include_directive_at};
+use syntax::{SyntaxNodeExt, has_text_range::HasTextRange};
 use triomphe::Arc;
 use utils::{
     test_support::TestDir,
@@ -3023,10 +3024,6 @@ endmodule
         host.ctx().db,
         SourceRootId(0),
     );
-    let index = crate::db::workspace_symbol_index_db::source_root_reference_index_for_root(
-        &host.ctx(),
-        SourceRootId(0),
-    );
 
     let modules = module_index.module_definitions(&"mod_a".into());
     assert_eq!(modules.len(), 1, "module index should contain mod_a exactly once");
@@ -3037,44 +3034,40 @@ endmodule
     assert_eq!(interfaces[0].file_id, *file_a);
     assert_eq!(interfaces[0].name_range, marked_range(markers_a, "a_iface_def", 6));
 
-    let groups = index.reference_groups_named("shared");
-    assert_eq!(groups.len(), 2, "same-name definitions should be separate reference groups");
-
     let a_def = marked_range(markers_a, "a_shared_def", 6);
     let a_ref = marked_range(markers_a, "a_shared_ref", 6);
-    let group_a = groups
-        .iter()
-        .find(|group| {
-            group
-                .definition_ranges
-                .iter()
-                .any(|range| range.file_id == *file_a && range.range == a_def)
-        })
-        .expect("shared definition in a.sv should have a reference group");
-    let refs_a = group_a
-        .references
-        .iter()
-        .map(|reference| (reference.file_id, reference.range))
-        .collect::<Vec<_>>();
-    assert_eq!(refs_a, vec![(*file_a, a_ref)]);
-
     let b_def = marked_range(markers_b, "b_shared_def", 6);
     let b_ref = marked_range(markers_b, "b_shared_ref", 6);
-    let group_b = groups
-        .iter()
-        .find(|group| {
-            group
-                .definition_ranges
-                .iter()
-                .any(|range| range.file_id == *file_b && range.range == b_def)
-        })
-        .expect("shared definition in b.sv should have a reference group");
-    let refs_b = group_b
-        .references
-        .iter()
-        .map(|reference| (reference.file_id, reference.range))
-        .collect::<Vec<_>>();
-    assert_eq!(refs_b, vec![(*file_b, b_ref)]);
+
+    let db = host.ctx();
+    let refs_of = |file_id: FileId, range: TextRange| {
+        let tree = db.parse(preproc_expand::file::HirFileId::from(file_id));
+        let token = tree
+            .root()
+            .token_at_offset(range.start())
+            .find(|token| token.text_range() == Some(range))
+            .expect("definition token");
+        let crate::definitions::DefinitionClass::Definition(def) =
+            crate::definitions::DefinitionClass::resolve(&db, file_id.into(), token)
+                .unique()
+                .expect("unique def")
+        else {
+            panic!("expected a plain definition");
+        };
+        let scope = crate::references::search::SearchScope::new(
+            db.db,
+            &def,
+            ReferencesConfig::new(ScopeVisibility::Public, None),
+        );
+        crate::references::search::search_references(&db, &def, scope)
+            .into_iter()
+            .flat_map(|(file_id, tokens)| {
+                tokens.into_iter().map(move |token| (file_id, token.range()))
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(refs_of(*file_a, a_def), vec![(*file_a, a_ref)]);
+    assert_eq!(refs_of(*file_b, b_def), vec![(*file_b, b_ref)]);
 }
 
 #[test]

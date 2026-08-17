@@ -110,8 +110,13 @@ impl UnitIndex {
 pub fn unit_index(db: &dyn HirDefDb) -> Arc<UnitIndex> {
     let mut index = UnitIndex::default();
 
-    for file_id in db.files().iter() {
-        let file_id = HirFileId::File(*file_id);
+    for file_id in db
+        .files()
+        .iter()
+        .copied()
+        .filter(|&file_id| db.file_kind(file_id).is_semantic_compilation_unit())
+    {
+        let file_id = HirFileId::File(file_id);
         let item_tree = db.item_tree(file_id);
         let owner_table = db.owner_table(file_id);
         add_file_units(&mut index, &item_tree, &owner_table);

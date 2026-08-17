@@ -46,13 +46,24 @@ pub fn scope_for(db: &dyn HirDefDb, owner: OwnerId) -> Arc<ScopeData> {
 #[salsa::tracked(lru = 128, returns(clone))]
 pub fn unit_scope(db: &dyn HirDefDb) -> Arc<ScopeData> {
     let mut unit = ScopeData::default();
-    for file_id in db.files().iter() {
-        let file_id = HirFileId::File(*file_id);
+    for file_id in compilation_unit_files(db) {
+        let file_id = HirFileId::File(file_id);
         let file_owner =
             db.owner_table(file_id).file_owner().expect("owner table must contain file owner");
         unit.extend_definitions_from(scope_for(db, file_owner).as_ref());
     }
     Arc::new(unit)
+}
+
+fn compilation_unit_files(db: &dyn HirDefDb) -> Vec<vfs::FileId> {
+    let mut files: Vec<_> = db
+        .files()
+        .iter()
+        .copied()
+        .filter(|&file_id| db.file_kind(file_id).is_semantic_compilation_unit())
+        .collect();
+    files.sort_by_key(|file_id| file_id.index());
+    files
 }
 
 pub(crate) fn set_scope_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {

@@ -128,11 +128,11 @@ impl AnalysisHost {
                         if hot.module_edge_roots.contains(&root) {
                             edge_roots.insert(root);
                         }
-                        if hot.reference_roots.contains(&root) {
+                        if hot.name_index_roots.contains(&root) {
                             reference_roots.insert(root);
                         }
                         if hot.files.contains(&file_id) {
-                            let _ = ctx.file_index(file_id);
+                            let _ = ctx.file_name_index(file_id);
                         }
                     }
                 }
@@ -146,7 +146,7 @@ impl AnalysisHost {
                     if worker_cancel.load(Ordering::Acquire) {
                         return;
                     }
-                    let _ = ctx.references(root);
+                    let _ = ctx.name_index(root);
                 }
             })
             .expect("failed to spawn revision prewarm worker");

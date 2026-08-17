@@ -7,13 +7,14 @@ use vfs::FileId;
 
 use super::{
     epoch::{EpochDecision, StructureEpoch, StructureSnapshot},
-    indexes::{GenArc, ModuleEdgeEntry, ReferenceIndexEntry, file_gen},
+    indexes::{GenArc, ModuleEdgeEntry, NameIndexEntry, file_gen},
     product_cell::ProductCell,
 };
 use crate::{
     analysis::AnalysisContext,
     db::root_db::RootDb,
-    semantic_index::{FileSemanticIndex, ModuleEdgeIndex, ReferenceIndex, SemanticSnapshotInputs},
+    name_index::{FileNameIndex, NameIndex, index_files_for_root},
+    semantic_index::{ModuleEdgeIndex, SemanticSnapshotInputs},
 };
 
 /// Products that have been requested at least once on this store lineage.
@@ -25,7 +26,7 @@ pub(crate) struct HotProducts {
     pub snapshot_inputs: bool,
     pub files: FxHashSet<FileId>,
     pub module_edge_roots: FxHashSet<SourceRootId>,
-    pub reference_roots: FxHashSet<SourceRootId>,
+    pub name_index_roots: FxHashSet<SourceRootId>,
 }
 
 #[derive(Clone, Default)]
@@ -36,9 +37,9 @@ struct StructureProducts {
 
 #[derive(Clone, Default)]
 struct Shards {
-    file_indexes: FxHashMap<FileId, GenArc<FileSemanticIndex>>,
+    file_indexes: FxHashMap<FileId, GenArc<FileNameIndex>>,
     module_edges: FxHashMap<SourceRootId, ModuleEdgeEntry>,
-    references: FxHashMap<SourceRootId, ReferenceIndexEntry>,
+    names: FxHashMap<SourceRootId, NameIndexEntry>,
 }
 
 #[derive(Clone, Default)]
@@ -60,7 +61,7 @@ impl Inner {
         self.structure.snapshot_inputs = Arc::new(ProductCell::default());
         self.shards.file_indexes.clear();
         self.shards.module_edges.clear();
-        self.shards.references.clear();
+        self.shards.names.clear();
     }
 }
 
@@ -100,22 +101,14 @@ impl ProductStore {
             return;
         }
         // Capture pre-change snapshots outside the lock: Salsa queries must not
-        // run while holding the store mutex.
-        let capture_structure = self.inner.lock().structure.resolution.is_ready();
-        let snapshots = if capture_structure {
-            files
-                .iter()
-                .map(|&file_id| (file_id, StructureSnapshot::capture(db, file_id)))
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let mut inner = self.inner.lock();
-        if snapshots.is_empty() {
-            inner.epoch.mark_dirty(files);
-        } else {
-            inner.epoch.record(snapshots);
-        }
+        // run while holding the store mutex. Always snapshot — name tables do
+        // not depend on resolution being warm, and a missing snapshot cannot
+        // prove a body-only edit.
+        let snapshots: Vec<_> = files
+            .iter()
+            .map(|&file_id| (file_id, StructureSnapshot::capture(db, file_id)))
+            .collect();
+        self.inner.lock().epoch.record(snapshots);
     }
 
     /// Apply the structural epoch. Body-only edits keep the previous
@@ -148,11 +141,11 @@ impl ProductStore {
         inner.structure.snapshot_inputs.clone()
     }
 
-    pub(crate) fn file_index(
+    pub(crate) fn file_name_index(
         &self,
         ctx: &AnalysisContext<'_>,
         file_id: FileId,
-    ) -> Arc<FileSemanticIndex> {
+    ) -> Arc<FileNameIndex> {
         let current_gen = {
             let mut inner = self.inner.lock();
             inner.hot.files.insert(file_id);
@@ -165,8 +158,7 @@ impl ProductStore {
             generation
         };
 
-        let context = ctx.semantic_snapshot_inputs();
-        let index = Arc::new(FileSemanticIndex::for_file_with_context(ctx.db, file_id, &context));
+        let index = Arc::new(FileNameIndex::for_file(ctx.db, file_id));
         let mut inner = self.inner.lock();
         inner
             .shards
@@ -180,7 +172,7 @@ impl ProductStore {
         ctx: &AnalysisContext<'_>,
         source_root_id: SourceRootId,
     ) -> Arc<ModuleEdgeIndex> {
-        let root_files = source_root_files(ctx, source_root_id);
+        let root_files = index_files_for_root(ctx, source_root_id);
         let (mut entry, gens) = {
             let mut inner = self.inner.lock();
             inner.hot.module_edge_roots.insert(source_root_id);
@@ -201,33 +193,29 @@ impl ProductStore {
         result
     }
 
-    pub(crate) fn references(
+    pub(crate) fn name_index(
         &self,
         ctx: &AnalysisContext<'_>,
         source_root_id: SourceRootId,
-    ) -> Arc<ReferenceIndex> {
-        let root_files = source_root_files(ctx, source_root_id);
+    ) -> Arc<NameIndex> {
+        let root_files = index_files_for_root(ctx, source_root_id);
         let (mut entry, gens) = {
             let mut inner = self.inner.lock();
-            inner.hot.reference_roots.insert(source_root_id);
-            if let Some(entry) = inner.shards.references.get(&source_root_id)
+            inner.hot.name_index_roots.insert(source_root_id);
+            if let Some(entry) = inner.shards.names.get(&source_root_id)
                 && entry.is_fresh(&root_files, &inner.dirty_gen)
             {
                 return entry.index.clone();
             }
             (
-                inner.shards.references.get(&source_root_id).cloned().unwrap_or_default(),
+                inner.shards.names.get(&source_root_id).cloned().unwrap_or_default(),
                 inner.dirty_gen.clone(),
             )
         };
 
         entry.refresh(ctx, &root_files, &gens);
         let result = entry.index.clone();
-        self.inner.lock().shards.references.insert(source_root_id, entry);
+        self.inner.lock().shards.names.insert(source_root_id, entry);
         result
     }
-}
-
-fn source_root_files(ctx: &AnalysisContext<'_>, source_root_id: SourceRootId) -> Vec<FileId> {
-    ctx.db.source_root(source_root_id).iter().collect()
 }

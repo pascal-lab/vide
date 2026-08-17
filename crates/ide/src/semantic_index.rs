@@ -2,11 +2,8 @@ use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
 use hir_def::{Ident, container::InFile, def_id::DefId, item_tree::ModuleHeader, owner::OwnerId};
 use hir_ty::db::TyDb;
 use preproc_expand::{db::PreprocDb, file::HirFileId, macro_file::macro_files_for_file};
-use rustc_hash::{FxHashMap, FxHashSet};
-use syntax::{
-    SyntaxNodeExt, TokenKind, has_text_range::HasTextRange, ptr::SyntaxTokenPtr,
-    token::TokenKindExt,
-};
+use rustc_hash::FxHashMap;
+use syntax::{SyntaxNodeExt, has_text_range::HasTextRange, token::TokenKindExt};
 use triomphe::Arc;
 use utils::line_index::TextRange;
 use vfs::FileId;
@@ -14,11 +11,9 @@ use vfs::FileId;
 use crate::{
     db::workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_module_index_for_root},
     navigation_target::nav_location,
-    references::ReferenceCategory,
 };
 
-mod build;
-use build::definition_ranges_for;
+pub(crate) mod build;
 
 /// Precomputed cross-file resolution inputs for one index build: the `$unit`
 /// scope, package design map, top-level module index, and per-root module
@@ -120,22 +115,6 @@ impl ReferenceContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SemanticReference {
-    pub file_id: FileId,
-    pub range: TextRange,
-    pub category: ReferenceCategory,
-    pub ptr: SyntaxTokenPtr,
-    pub context: ReferenceContext,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SemanticReferenceGroup {
-    pub name: String,
-    pub definition_ranges: Box<[SemanticDefinitionRange]>,
-    pub references: Box<[SemanticReference]>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SemanticModuleDefinition {
     pub module_id: OwnerId,
     pub file_id: FileId,
@@ -165,33 +144,9 @@ pub struct ModuleIndex {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct ReferenceIndex {
-    references_by_definition: FxHashMap<DefId, SemanticReferenceGroup>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ModuleEdgeIndex {
     incoming_module_edges: FxHashMap<OwnerId, Box<[ModuleCallEdge]>>,
     outgoing_module_edges: FxHashMap<OwnerId, Box<[ModuleCallEdge]>>,
-}
-
-/// Per-file slice of the semantic index: reference groups without the
-/// cross-file definition ranges, which are computed once at merge time.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct FileSemanticIndex {
-    groups: FxHashMap<DefId, FileReferenceGroup>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileReferenceGroup {
-    name: String,
-    references: Vec<SemanticReference>,
-}
-
-impl FileReferenceGroup {
-    pub(crate) fn references(&self) -> &[SemanticReference] {
-        &self.references
-    }
 }
 
 /// Module definitions contributed by one file.
@@ -205,13 +160,6 @@ pub struct FileModuleIndex {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FileModuleEdges {
     edges: Vec<(OwnerId, OwnerId, ModuleCallEdge)>,
-}
-
-#[derive(Debug)]
-struct SemanticReferenceGroupBuilder {
-    name: String,
-    definition_ranges: Vec<SemanticDefinitionRange>,
-    references: Vec<SemanticReference>,
 }
 
 impl ModuleIndex {
@@ -314,100 +262,6 @@ impl SemanticModuleDefinition {
     }
 }
 
-impl ReferenceIndex {
-    /// Merges pre-resolved per-file indexes. The per-file indexes are read by
-    /// the caller so an incremental rebuild can reuse the cached indexes of
-    /// unchanged files instead of revalidating every file.
-    pub(crate) fn from_file_indexes(
-        db: &dyn WorkspaceSymbolIndexDb,
-        file_indexes: &FxHashMap<FileId, Arc<FileSemanticIndex>>,
-    ) -> Self {
-        let mut references_by_definition: FxHashMap<DefId, SemanticReferenceGroupBuilder> =
-            FxHashMap::default();
-        for file_index in file_indexes.values() {
-            for (definition, group) in &file_index.groups {
-                let builder = references_by_definition.entry(*definition).or_insert_with(|| {
-                    SemanticReferenceGroupBuilder {
-                        name: group.name.clone(),
-                        definition_ranges: definition_ranges_for(db, *definition),
-                        references: Vec::new(),
-                    }
-                });
-                builder.references.extend(group.references.iter().cloned());
-            }
-        }
-
-        ReferenceIndex {
-            references_by_definition: references_by_definition
-                .into_iter()
-                .map(|(key, group)| (key, group.finish()))
-                .collect(),
-        }
-    }
-
-    pub(crate) fn references_for_definition(
-        &self,
-        definition: DefId,
-    ) -> Option<&SemanticReferenceGroup> {
-        self.references_by_definition.get(&definition)
-    }
-
-    /// Replaces one file's contribution in place. Definitions already in the
-    /// index keep their cached name and definition ranges, so an incremental
-    /// rebuild never re-projects origins for the whole project.
-    pub(crate) fn patch_file(
-        &mut self,
-        db: &dyn WorkspaceSymbolIndexDb,
-        file_id: FileId,
-        old_file_index: &FileSemanticIndex,
-        new_file_index: &FileSemanticIndex,
-    ) {
-        let map = &mut self.references_by_definition;
-        let mut affected: FxHashSet<DefId> = old_file_index.groups.keys().copied().collect();
-        affected.extend(new_file_index.groups.keys().copied());
-
-        for definition in affected {
-            match new_file_index.groups.get(&definition) {
-                Some(new_group) => {
-                    let group = map.entry(definition).or_insert_with(|| SemanticReferenceGroup {
-                        name: new_group.name.clone(),
-                        definition_ranges: definition_ranges_for(db, definition).into_boxed_slice(),
-                        references: Box::default(),
-                    });
-                    let mut references: Vec<_> = group
-                        .references
-                        .iter()
-                        .filter(|reference| reference.file_id != file_id)
-                        .cloned()
-                        .collect();
-                    references.extend(new_group.references.iter().cloned());
-                    group.references = references.into_boxed_slice();
-                }
-                None => {
-                    if let Some(group) = map.get_mut(&definition) {
-                        let references: Vec<_> = group
-                            .references
-                            .iter()
-                            .filter(|reference| reference.file_id != file_id)
-                            .cloned()
-                            .collect();
-                        if references.is_empty() {
-                            map.remove(&definition);
-                        } else {
-                            group.references = references.into_boxed_slice();
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn reference_groups_named(&self, name: &str) -> Vec<&SemanticReferenceGroup> {
-        self.references_by_definition.values().filter(|group| group.name == name).collect()
-    }
-}
-
 impl ModuleEdgeIndex {
     pub(crate) fn from_file_edges<'a>(
         file_edges: impl IntoIterator<Item = &'a FileModuleEdges>,
@@ -434,16 +288,6 @@ impl ModuleEdgeIndex {
 
     pub(crate) fn outgoing_module_edges(&self, module_id: OwnerId) -> &[ModuleCallEdge] {
         self.outgoing_module_edges.get(&module_id).map_or(&[], |edges| edges.as_ref())
-    }
-}
-
-impl SemanticReferenceGroupBuilder {
-    fn finish(self) -> SemanticReferenceGroup {
-        SemanticReferenceGroup {
-            name: self.name,
-            definition_ranges: self.definition_ranges.into_boxed_slice(),
-            references: self.references.into_boxed_slice(),
-        }
     }
 }
 
@@ -546,17 +390,13 @@ fn sort_and_dedup_edges(edges: &mut Vec<ModuleCallEdge>) {
     edges.dedup();
 }
 
-fn token_precedence(kind: TokenKind) -> usize {
-    crate::token::name_precedence(kind)
-}
-
 #[cfg(test)]
 mod tests {
     use hir_def::symbol::NameContext;
     use hir_semantics::semantics::SemanticsImpl;
     use preproc_expand::file::HirFileId;
     use syntax::{
-        SyntaxElement, WalkEvent,
+        SyntaxElement, SyntaxNodeExt, WalkEvent,
         ast::{self, AstNode},
         has_text_range::HasTextRange,
         token::TokenKindExt,
@@ -565,9 +405,15 @@ mod tests {
 
     use super::*;
     use crate::{
-        db::workspace_symbol_index_db::source_root_reference_index_for_root,
+        ScopeVisibility,
         definitions::DefinitionClass,
-        semantic_index::build::{ContainerCache, ScopeChainCache, token_in_special_context},
+        references::{
+            ReferencesConfig,
+            search::{SearchScope, search_references},
+        },
+        semantic_index::build::{
+            ContainerCache, ScopeChainCache, definition_ranges_for, token_in_special_context,
+        },
         semantic_target::{
             SemanticTarget, TargetIntent, preproc::emit_token_index,
             resolve_semantic_target_with_emitted,
@@ -575,9 +421,41 @@ mod tests {
         test_utils::{setup_marked, setup_marked_files},
     };
 
-    /// A non-structural (body-only) edit must be handled by the incremental
-    /// rebuild path: the changed file is re-indexed and a removed reference is
-    /// dropped from the merged index, without touching the other file.
+    fn def_named_at(
+        db: &crate::analysis::AnalysisContext<'_>,
+        file_id: FileId,
+        range: TextRange,
+    ) -> DefId {
+        let tree = db.parse(HirFileId::from(file_id));
+        let token = tree
+            .root()
+            .token_at_offset(range.start())
+            .find(|token| token.text_range() == Some(range))
+            .expect("definition token");
+        match DefinitionClass::resolve(db, file_id.into(), token).unique().expect("unique def") {
+            DefinitionClass::Definition(def) => def,
+            DefinitionClass::PortConnShorthand { port, .. } => port,
+        }
+    }
+
+    fn workspace_refs(
+        db: &crate::analysis::AnalysisContext<'_>,
+        def: DefId,
+    ) -> Vec<(FileId, TextRange, ReferenceContext)> {
+        let scope =
+            SearchScope::new(db.db, &def, ReferencesConfig::new(ScopeVisibility::Public, None));
+        search_references(db, &def, scope)
+            .into_iter()
+            .flat_map(|(file_id, tokens)| {
+                tokens
+                    .into_iter()
+                    .map(move |token| (file_id, token.range(), token.context().clone()))
+            })
+            .collect()
+    }
+
+    /// A non-structural (body-only) edit must drop a removed usage from the
+    /// next search without mutating a previously observed name table.
     #[test]
     fn incremental_rebuild_drops_removed_reference() {
         use base_db::change::Change;
@@ -586,16 +464,19 @@ mod tests {
         let (mut host, marked) = setup_marked_files(&[
             (
                 "/child.sv",
-                "module child;\n  logic a;\n  logic b;\n  always_comb b = a;\nendmodule\n",
+                "module child;\n  logic /*marker:def*/a;\n  logic b;\n  always_comb b = /*marker:use*/a;\nendmodule\n",
             ),
             ("/top.sv", "module top;\n  child u();\nendmodule\n"),
         ]);
-        let db = host.ctx();
-
-        let before = source_root_reference_index_for_root(&db, SourceRootId(0));
-        assert_eq!(before.reference_groups_named("a").len(), 1, "wire a has one usage");
-
         let child_id = marked[0].0;
+        let markers = &marked[0].2;
+        let def_range = TextRange::new(markers["def"], markers["def"] + TextSize::of("a"));
+        let db = host.ctx();
+        let def = def_named_at(&db, child_id, def_range);
+        let before_index = db.file_name_index(child_id);
+        assert_eq!(workspace_refs(&db, def).len(), 1, "wire a has one usage");
+        assert_eq!(before_index.occurrences("a").len(), 2);
+
         let mut change = Change::new();
         change.add_changed_file(ChangedFile::create(
             child_id,
@@ -604,15 +485,14 @@ mod tests {
         host.apply_change(change);
         let db = host.ctx();
 
-        let after = source_root_reference_index_for_root(&db, SourceRootId(0));
         assert!(
-            after.reference_groups_named("a").is_empty(),
-            "removing the only usage must drop wire a's group"
+            workspace_refs(&db, def).is_empty(),
+            "removing the only usage must drop the reference"
         );
         assert_eq!(
-            before.reference_groups_named("a").len(),
-            1,
-            "an index snapshot held by a caller must not be mutated in place"
+            before_index.occurrences("a").len(),
+            2,
+            "a name-table snapshot held by a caller must not be mutated in place"
         );
     }
 
@@ -674,7 +554,7 @@ mod tests {
         ]);
         let a = marked[0].0;
         let b = marked[1].0;
-        let before = host.ctx().file_index(b);
+        let before = host.ctx().file_name_index(b);
 
         let mut unrelated = Change::new();
         unrelated.add_changed_file(ChangedFile::create(
@@ -682,7 +562,7 @@ mod tests {
             "module a; logic x; endmodule // body-only\n",
         ));
         host.apply_change(unrelated);
-        let after_unrelated = host.ctx().file_index(b);
+        let after_unrelated = host.ctx().file_name_index(b);
         assert!(Arc::ptr_eq(&before, &after_unrelated));
 
         let mut own_edit = Change::new();
@@ -691,7 +571,7 @@ mod tests {
             "module b; logic y; endmodule // own body-only\n",
         ));
         host.apply_change(own_edit);
-        let after_own_edit = host.ctx().file_index(b);
+        let after_own_edit = host.ctx().file_name_index(b);
         assert!(!Arc::ptr_eq(&after_unrelated, &after_own_edit));
     }
 
@@ -704,14 +584,24 @@ mod tests {
         use vfs::ChangedFile;
 
         let (mut host, marked) = setup_marked_files(&[
-            ("/a.sv", "module a;\n  logic x;\n  logic y;\n  always_comb y = x;\nendmodule\n"),
-            ("/b.sv", "module b;\n  logic p;\n  logic q;\n  always_comb q = p;\nendmodule\n"),
+            (
+                "/a.sv",
+                "module a;\n  logic /*marker:x*/x;\n  logic y;\n  always_comb y = x;\nendmodule\n",
+            ),
+            (
+                "/b.sv",
+                "module b;\n  logic /*marker:p*/p;\n  logic q;\n  always_comb q = p;\nendmodule\n",
+            ),
         ]);
         let a = marked[0].0;
         let b = marked[1].0;
-        let before = source_root_reference_index_for_root(&host.ctx(), SourceRootId(0));
-        assert_eq!(before.reference_groups_named("x").len(), 1);
-        assert_eq!(before.reference_groups_named("p").len(), 1);
+        let x_range = TextRange::new(marked[0].2["x"], marked[0].2["x"] + TextSize::of("x"));
+        let p_range = TextRange::new(marked[1].2["p"], marked[1].2["p"] + TextSize::of("p"));
+        let db = host.ctx();
+        let def_x = def_named_at(&db, a, x_range);
+        let def_p = def_named_at(&db, b, p_range);
+        assert_eq!(workspace_refs(&db, def_x).len(), 1);
+        assert_eq!(workspace_refs(&db, def_p).len(), 1);
 
         let mut first = Change::new();
         first.add_changed_file(ChangedFile::create(
@@ -727,15 +617,12 @@ mod tests {
         ));
         host.apply_change(second);
 
-        let after = source_root_reference_index_for_root(&host.ctx(), SourceRootId(0));
+        let db = host.ctx();
         assert!(
-            after.reference_groups_named("x").is_empty(),
+            workspace_refs(&db, def_x).is_empty(),
             "the first edit must not be dropped when a second edit arrives before a request"
         );
-        assert!(
-            after.reference_groups_named("p").is_empty(),
-            "the second edit must still be applied"
-        );
+        assert!(workspace_refs(&db, def_p).is_empty(), "the second edit must still be applied");
     }
 
     /// The container stack must agree with `find_container` for every
@@ -923,7 +810,7 @@ module top;
 endmodule
 "#;
         let (host, file_id, _clean, markers) = setup_marked(text);
-        let index = source_root_reference_index_for_root(&host.ctx(), SourceRootId(0));
+        let db = host.ctx();
 
         let range_at = |marker: &str| {
             let start = markers[marker];
@@ -936,28 +823,23 @@ endmodule
             TextRange::new(start, start + TextSize::of("a"))
         };
         let def_range = |marker: &str| range_at(marker);
-        let group = |name: &str, def_marker: &str| {
-            let def_range = def_range(def_marker);
-            index
-                .reference_groups_named(name)
-                .into_iter()
-                .find(|group| {
-                    group
-                        .definition_ranges
-                        .iter()
-                        .any(|range| range.file_id == file_id && range.range == def_range)
-                })
-                .unwrap_or_else(|| panic!("missing group {name} at {def_marker}"))
+        let refs_of = |def_marker: &str| {
+            let def = def_named_at(&db, file_id, def_range(def_marker));
+            workspace_refs(&db, def)
         };
-        let reference =
-            |group: &SemanticReferenceGroup, range: TextRange| -> (TextRange, ReferenceContext) {
-                let reference = group
-                    .references
-                    .iter()
-                    .find(|reference| reference.range == range)
-                    .unwrap_or_else(|| panic!("missing reference at {range:?}"));
-                (range, reference.context.clone())
-            };
+        let reference = |def_marker: &str, range: TextRange| -> (TextRange, ReferenceContext) {
+            let refs = refs_of(def_marker);
+            let found = refs
+                .iter()
+                .find(|(_, found, _)| *found == range)
+                .unwrap_or_else(|| panic!("missing reference at {range:?} for {def_marker}"));
+            (range, found.2.clone())
+        };
+        let paired_is = |paired: DefId, marker: &str| {
+            definition_ranges_for(db.db, paired)
+                .iter()
+                .any(|range| range.file_id == file_id && range.range == def_range(marker))
+        };
 
         // Same-name connection `.a(a)`: the name token pairs the local def,
         // the data token pairs the port def, both share the collapse range.
@@ -965,9 +847,7 @@ endmodule
         let same_name_data_range = range_at("same_name_data");
         let collapse =
             TextRange::new(same_name_range.start(), same_name_data_range.end() + TextSize::of(")"));
-        let child_a = group("a", "child_a");
-        let top_a = group("a", "local_a");
-        let name_ref = reference(child_a, conn_name_at("same_name"));
+        let name_ref = reference("child_a", conn_name_at("same_name"));
         let ReferenceContext::ConnName { ident_range, collapse_range, shorthand, side, paired } =
             &name_ref.1
         else {
@@ -977,43 +857,25 @@ endmodule
         assert_eq!(collapse_range, &Some(collapse));
         assert!(!shorthand);
         assert_eq!(side, &ConnSide::Port);
-        let paired = paired.as_ref().expect("same-name conn should pair the local def");
-        assert!(
-            index
-                .references_for_definition(*paired)
-                .expect("paired def should have a group")
-                .definition_ranges
-                .iter()
-                .any(|range| range.file_id == file_id && range.range == def_range("local_a")),
-            "paired local def should be top.a"
-        );
-        let data_ref = reference(top_a, range_at("same_name_data"));
+        let paired = *paired.as_ref().expect("same-name conn should pair the local def");
+        assert!(paired_is(paired, "local_a"), "paired local def should be top.a");
+        let data_ref = reference("local_a", range_at("same_name_data"));
         let ReferenceContext::ConnData { name_range, collapse_range, paired } = &data_ref.1 else {
             panic!("same-name data token should be ConnData: {:?}", data_ref.1);
         };
         assert_eq!(name_range, &same_name_range);
         assert_eq!(collapse_range, &Some(collapse));
-        let paired = paired.as_ref().expect("same-name conn should pair the port def");
-        assert!(
-            index
-                .references_for_definition(*paired)
-                .expect("paired def should have a group")
-                .definition_ranges
-                .iter()
-                .any(|range| range.file_id == file_id && range.range == def_range("child_a")),
-            "paired port def should be child.a"
-        );
+        let paired = *paired.as_ref().expect("same-name conn should pair the port def");
+        assert!(paired_is(paired, "child_a"), "paired port def should be child.a");
 
         // Non-same-name connection `.b(c)`: shape is recorded, no pairing.
-        let child_b = group("b", "child_b");
-        let name_ref = reference(child_b, conn_name_at("other_name"));
+        let name_ref = reference("child_b", conn_name_at("other_name"));
         let ReferenceContext::ConnName { ident_range, paired, .. } = &name_ref.1 else {
             panic!("non-same-name name token should be ConnName: {:?}", name_ref.1);
         };
         assert_eq!(ident_range, &Some(range_at("other_data")));
         assert_eq!(paired, &None);
-        let top_c = group("c", "local_c");
-        let data_ref = reference(top_c, range_at("other_data"));
+        let data_ref = reference("local_c", range_at("other_data"));
         let ReferenceContext::ConnData { name_range, paired, .. } = &data_ref.1 else {
             panic!("non-same-name data token should be ConnData: {:?}", data_ref.1);
         };
@@ -1021,8 +883,7 @@ endmodule
         assert_eq!(paired, &None);
 
         // Shorthand `.b`: one reference in each side's group.
-        let top_b = group("b", "local_b");
-        let port_ref = reference(child_b, conn_name_at("shorthand"));
+        let port_ref = reference("child_b", conn_name_at("shorthand"));
         let ReferenceContext::ConnName { collapse_range, shorthand, side, paired, .. } =
             &port_ref.1
         else {
@@ -1031,34 +892,18 @@ endmodule
         assert!(shorthand);
         assert_eq!(collapse_range, &None);
         assert_eq!(side, &ConnSide::Port);
-        let paired = paired.as_ref().expect("shorthand should pair the local def");
-        assert!(
-            index
-                .references_for_definition(*paired)
-                .expect("paired def should have a group")
-                .definition_ranges
-                .iter()
-                .any(|range| range.file_id == file_id && range.range == def_range("local_b")),
-            "shorthand port side should pair top.b"
-        );
-        let local_ref = reference(top_b, conn_name_at("shorthand"));
+        let paired = *paired.as_ref().expect("shorthand should pair the local def");
+        assert!(paired_is(paired, "local_b"), "shorthand port side should pair top.b");
+        let local_ref = reference("local_b", conn_name_at("shorthand"));
         let ReferenceContext::ConnName { side, paired, .. } = &local_ref.1 else {
             panic!("shorthand local reference should be ConnName: {:?}", local_ref.1);
         };
         assert_eq!(side, &ConnSide::Local);
-        let paired = paired.as_ref().expect("shorthand should pair the port def");
-        assert!(
-            index
-                .references_for_definition(*paired)
-                .expect("paired def should have a group")
-                .definition_ranges
-                .iter()
-                .any(|range| range.file_id == file_id && range.range == def_range("child_b")),
-            "shorthand local side should pair child.b"
-        );
+        let paired = *paired.as_ref().expect("shorthand should pair the port def");
+        assert!(paired_is(paired, "child_b"), "shorthand local side should pair child.b");
 
         // Plain references stay Plain.
-        let plain = reference(top_c, range_at("plain"));
+        let plain = reference("local_c", range_at("plain"));
         assert_eq!(plain.1, ReferenceContext::Plain);
     }
 
@@ -1092,37 +937,23 @@ endmodule
                 "{marker} must remain owned by the preprocessor: {target:?}"
             );
         }
-        let index = source_root_reference_index_for_root(&host.ctx(), SourceRootId(0));
         let definition_range = TextRange::new(markers["def"], markers["def"] + TextSize::of("x"));
         let preproc_ranges = [
             TextRange::new(markers["param"], markers["param"] + TextSize::of("x")),
             TextRange::new(markers["body"], markers["body"] + TextSize::of("x")),
         ];
-        let group = index
-            .reference_groups_named("x")
-            .into_iter()
-            .find(|group| {
-                group
-                    .definition_ranges
-                    .iter()
-                    .any(|range| range.file_id == file_id && range.range == definition_range)
-            })
-            .expect("the HDL declaration should have a semantic reference group");
+        let def = def_named_at(&db, file_id, definition_range);
+        let refs = workspace_refs(&db, def);
 
         assert!(
-            group
-                .references
-                .iter()
-                .all(|reference| { !preproc_ranges.iter().any(|range| range == &reference.range) }),
-            "preprocessor-owned x tokens must not become HDL references: {:?}",
-            group.references
+            refs.iter().all(|(_, range, _)| !preproc_ranges.contains(range)),
+            "preprocessor-owned x tokens must not become HDL references: {refs:?}"
         );
-        assert!(group.references.iter().any(|reference| {
-            reference.range
-                == TextRange::new(markers["ordinary"], markers["ordinary"] + TextSize::of("x"))
+        assert!(refs.iter().any(|(_, range, _)| {
+            *range == TextRange::new(markers["ordinary"], markers["ordinary"] + TextSize::of("x"))
         }));
-        assert!(group.references.iter().any(|reference| {
-            reference.range == TextRange::new(markers["arg"], markers["arg"] + TextSize::of("x"))
+        assert!(refs.iter().any(|(_, range, _)| {
+            *range == TextRange::new(markers["arg"], markers["arg"] + TextSize::of("x"))
         }));
     }
 }

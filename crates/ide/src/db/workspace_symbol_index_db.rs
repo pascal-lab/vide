@@ -6,11 +6,8 @@ use triomphe::Arc;
 use vfs::FileId;
 
 use crate::{
-    analysis::AnalysisContext,
     db::{SourceFileQueryKey, SourceRootQueryKey},
-    semantic_index::{
-        FileModuleEdges, FileModuleIndex, FileSemanticIndex, ModuleIndex, ReferenceIndex,
-    },
+    semantic_index::{FileModuleEdges, FileModuleIndex, ModuleIndex},
     workspace_symbols::{SymbolIndex, WorkspaceSymbol},
 };
 
@@ -45,10 +42,6 @@ impl dyn WorkspaceSymbolIndexDb + '_ {
 
     pub fn file_module_edges(&self, file_id: FileId) -> Arc<FileModuleEdges> {
         file_module_edges(self, SourceFileQueryKey::new(self, file_id))
-    }
-
-    pub fn file_semantic_index(&self, file_id: FileId) -> Arc<FileSemanticIndex> {
-        file_semantic_index(self, SourceFileQueryKey::new(self, file_id))
     }
 
     /// Distinct source roots derived from the current file set, in stable
@@ -105,13 +98,6 @@ pub(crate) fn source_root_module_index_for_root(
     db.source_root_module_index(source_root_id)
 }
 
-pub(crate) fn source_root_reference_index_for_root(
-    db: &AnalysisContext<'_>,
-    source_root_id: SourceRootId,
-) -> Arc<ReferenceIndex> {
-    db.references(source_root_id)
-}
-
 fn file_module_index(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Arc<FileModuleIndex> {
     Arc::new(crate::semantic_index::FileModuleIndex::for_file(db, file_id))
 }
@@ -123,13 +109,4 @@ fn file_module_edges(
 ) -> Arc<FileModuleEdges> {
     let file_id = key.file_id(db);
     Arc::new(crate::semantic_index::FileModuleEdges::for_file(db, file_id))
-}
-
-#[salsa::tracked(returns(clone))]
-fn file_semantic_index(
-    db: &dyn WorkspaceSymbolIndexDb,
-    key: SourceFileQueryKey,
-) -> Arc<FileSemanticIndex> {
-    let file_id = key.file_id(db);
-    Arc::new(crate::semantic_index::FileSemanticIndex::for_file(db, file_id))
 }

@@ -35,6 +35,7 @@ pub(crate) mod incrementality;
 pub mod inlay_hint;
 #[cfg(test)]
 mod macro_hover_tests;
+pub(crate) mod name_index;
 pub mod range;
 pub mod references;
 pub mod rename;

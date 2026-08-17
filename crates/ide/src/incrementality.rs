@@ -14,10 +14,10 @@
 //! - **Structure products** (`ResolutionContext`, `SemanticSnapshotInputs`):
 //!   keyed by `s`, memoized in `ProductCell` so a foreground request can
 //!   preempt a background prewarm
-//! - **File shards** (`FileSemanticIndex`, `FileModuleEdges`): keyed by
+//! - **File shards** (`FileNameIndex`, `FileModuleEdges`): keyed by
 //!   `(generation, FileId)` against a single per-file generation clock
-//! - **Merged indexes** (`ReferenceIndex`, `ModuleEdgeIndex`): folds over
-//!   shards; a Drop epoch forces a full rebuild
+//! - **Merged indexes** (`NameIndex`, `ModuleEdgeIndex`): folds over shards; a
+//!   Drop epoch forces a full rebuild
 //!
 //! [`ProductStore::invalidate`] is the only invalidation entry point.
 //! Features are pure functions of [`crate::analysis::AnalysisContext`].

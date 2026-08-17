@@ -272,8 +272,10 @@ pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
     let mut packages = db
         .files()
         .iter()
+        .copied()
+        .filter(|&file_id| db.file_kind(file_id).is_semantic_compilation_unit())
         .flat_map(|file_id| {
-            db.item_tree(HirFileId::File(*file_id))
+            db.item_tree(HirFileId::File(file_id))
                 .module_headers()
                 .filter(|header| header.kind() == crate::module::ModuleKind::Package)
                 .map(|header| header.owner())
