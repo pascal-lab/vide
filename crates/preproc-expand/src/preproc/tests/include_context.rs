@@ -157,15 +157,3 @@ fn preproc_header_without_including_context_uses_standalone_model() {
     assert!(contexts.model_file_ids.contains(&HEADER), "{contexts:?}");
     assert!(!contexts.model_file_ids.contains(&TOP), "{contexts:?}");
 }
-
-#[test]
-fn preproc_partial_context_index_is_structured_unavailable() {
-    let contexts = SourcePreprocQueryContexts {
-        model_file_ids: Vec::new(),
-        status: SourcePreprocContextStatus::Partial { skipped_models: 2 },
-    };
-
-    let error = finish_empty_single_query(&contexts, None).unwrap_err();
-
-    assert!(matches!(error, PreprocError::PartialPreprocContextIndex { skipped_models: 2 }));
-}

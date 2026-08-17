@@ -161,7 +161,10 @@ fn source_model(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<SourceModel
 
 /// Workspace-global path-spelling → [`FileId`] index, memoized per revision.
 #[salsa::tracked(returns(clone))]
-fn path_file_ids(db: &dyn PreprocDb, _key: WorkspacePathIndexKey) -> PathIdentityIndex<FileId> {
+fn path_file_ids(
+    db: &dyn PreprocDb,
+    _key: WorkspacePathIndexKey,
+) -> Arc<PathIdentityIndex<FileId>> {
     let mut index = PathIdentityIndex::default();
     for file_id in db.files().iter().copied() {
         if db.file_is_project_ignored(file_id) {
@@ -170,7 +173,7 @@ fn path_file_ids(db: &dyn PreprocDb, _key: WorkspacePathIndexKey) -> PathIdentit
         let path = compilation_plan::source_buffer_path(db, file_id);
         index.insert_path(&path, file_id);
     }
-    index
+    Arc::new(index)
 }
 
 pub(crate) fn syntax_tree_options_for_file(
@@ -343,52 +346,6 @@ fn dependencies_from_parsed_compilation(
     dependencies.sort_unstable_by_key(|dependency| dependency.index());
     dependencies.dedup();
     Arc::from(dependencies)
-}
-
-/// `define` directives this file contributes to the compilation-unit scope,
-/// reconstructed verbatim so they can be injected as predefines into later
-/// roots' standalone parses. Include-derived macros are excluded: each root
-/// re-processes its own includes.
-#[salsa::tracked(returns(clone))]
-fn unit_macro_contribution(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<[String]> {
-    let file_id = key.file_id(db);
-    let model = db.source_preproc_model(file_id);
-    let Ok(model) = model.as_ref() else {
-        return Arc::from(Vec::<String>::new());
-    };
-    let text = db.file_text(file_id);
-    let mut defines = Vec::new();
-    for def in model.model.macro_definitions().iter() {
-        if model.source_map.file_id(def.directive_range.source).ok() != Some(file_id) {
-            continue;
-        }
-        let start = usize::from(def.directive_range.range.start());
-        let end = usize::from(def.directive_range.range.end());
-        if let Some(raw) = text.get(start..end) {
-            defines.push(raw.to_string());
-        }
-    }
-    Arc::from(defines)
-}
-
-/// Running compilation-unit macro set of every root before `file_id`, in
-/// compilation order. Injected as predefines so a standalone parse sees the
-/// same `$unit` macros the monolithic profile parse would.
-#[salsa::tracked(returns(clone))]
-fn unit_macro_predefines(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<[String]> {
-    let file_id = key.file_id(db);
-    let profile_id = db.file_compilation_profile(file_id);
-    let plan = db.compilation_plan_for_profile(profile_id);
-    let mut predefines = Vec::new();
-    for &root in &plan.roots {
-        if root == file_id {
-            break;
-        }
-        predefines.extend(
-            unit_macro_contribution(db, PreprocFileQueryKey::new(db, root)).iter().cloned(),
-        );
-    }
-    Arc::from(predefines)
 }
 
 #[salsa::tracked(lru = 128, returns(clone))]
@@ -596,11 +553,7 @@ impl dyn PreprocDb + '_ {
         (parsed.syntax_tree.clone(), dependencies)
     }
 
-    pub fn unit_macro_predefines(&self, file_id: FileId) -> Arc<[String]> {
-        unit_macro_predefines(self, PreprocFileQueryKey::new(self, file_id))
-    }
-
-    pub fn path_file_ids(&self) -> PathIdentityIndex<FileId> {
+    pub fn path_file_ids(&self) -> Arc<PathIdentityIndex<FileId>> {
         path_file_ids(self, WorkspacePathIndexKey::new(self, ()))
     }
 

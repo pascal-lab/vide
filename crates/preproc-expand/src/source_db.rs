@@ -13,7 +13,6 @@ use triomphe::Arc;
 use utils::{
     line_index::{TextRange, TextSize},
     path_identity::PathIdentityIndex,
-    uniq_vec::UniqVec,
 };
 use vfs::{FileId, VfsPath};
 
@@ -32,7 +31,7 @@ pub(super) use self::source_mapping::{materialized_predefine_text, source_prepro
 use self::source_mapping::{shift_text_range, unshift_text_size};
 pub use self::{
     context::{
-        SourcePreprocContextIndex, SourcePreprocContextStatus, SourcePreprocRelevantContexts,
+        SourcePreprocContextIndex, SourcePreprocRelevantContexts,
     },
     queries::{SourcePreprocQueryError, workspace_preproc_model_file_ids},
     range_index::MappedSourcePreprocModel,
