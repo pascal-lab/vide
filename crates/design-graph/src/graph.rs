@@ -24,6 +24,28 @@ pub struct GeneratedUnits {
     pub meta: FxHashMap<UnitId, UnitMeta>,
 }
 
+impl GeneratedUnits {
+    /// Replace one file's generated ids. Returns whether the stored set
+    /// changed.
+    pub fn replace_file(
+        &mut self,
+        file: FileId,
+        ids: Box<[UnitId]>,
+        meta: FxHashMap<UnitId, UnitMeta>,
+    ) -> bool {
+        if self.by_file.get(&file).is_some_and(|old| old.as_ref() == ids.as_ref()) {
+            return false;
+        }
+        if let Some(old) = self.by_file.insert(file, ids) {
+            for id in old.iter() {
+                self.meta.remove(id);
+            }
+        }
+        self.meta.extend(meta);
+        true
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphResolution<T> {
     Unique(T),
@@ -151,5 +173,50 @@ impl DesignGraph {
         let candidates =
             self.by_name.get(name).into_iter().flatten().filter(|id| pred(id)).cloned().collect();
         GraphResolution::from_candidates(candidates)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rustc_hash::FxHashMap;
+    use smol_str::SmolStr;
+    use vfs::FileId;
+
+    use super::{GeneratedUnits, UnitMeta};
+    use crate::unit::{UnitId, UnitKind, UnitOrigin};
+
+    const FILE: FileId = FileId::from_raw(1);
+
+    fn id(name: &str, ordinal: u32) -> UnitId {
+        UnitId { file: FILE, name: SmolStr::new(name), kind: UnitKind::Module, ordinal }
+    }
+
+    fn generated_meta(id: &UnitId) -> UnitMeta {
+        UnitMeta { kind: id.kind, origin: UnitOrigin::Generated, header_fingerprint: 0 }
+    }
+
+    #[test]
+    fn replace_file_is_noop_when_ids_match() {
+        let mut generated = GeneratedUnits::default();
+        let unit = id("foo", 0);
+        let mut meta = FxHashMap::default();
+        meta.insert(unit.clone(), generated_meta(&unit));
+        assert!(generated.replace_file(FILE, Box::new([unit.clone()]), meta.clone()));
+        assert!(!generated.replace_file(FILE, Box::new([unit]), meta));
+    }
+
+    #[test]
+    fn replace_file_drops_previous_meta() {
+        let mut generated = GeneratedUnits::default();
+        let old = id("foo", 0);
+        let new = id("bar", 0);
+        let mut old_meta = FxHashMap::default();
+        old_meta.insert(old.clone(), generated_meta(&old));
+        assert!(generated.replace_file(FILE, Box::new([old.clone()]), old_meta));
+        let mut new_meta = FxHashMap::default();
+        new_meta.insert(new.clone(), generated_meta(&new));
+        assert!(generated.replace_file(FILE, Box::new([new.clone()]), new_meta));
+        assert!(!generated.meta.contains_key(&old));
+        assert!(generated.meta.contains_key(&new));
     }
 }

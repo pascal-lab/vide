@@ -1,4 +1,5 @@
 use base_db::source_root::SourceRootId;
+use design_graph::{GeneratedUnits, UnitId, UnitMeta};
 use hir_def::pathres::ResolutionContext;
 use parking_lot::Mutex;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -56,6 +57,8 @@ struct Inner {
     /// Authoritative standalone parses retained by this store lineage:
     /// compilation root -> files named by emitted preprocessor include edges.
     parse_dependencies: FxHashMap<FileId, Arc<[FileId]>>,
+    /// Generated CU units from paid artifacts. Write-only in this PR.
+    generated: GeneratedUnits,
 }
 
 impl Inner {
@@ -98,6 +101,20 @@ impl ProductStore {
 
     pub(crate) fn record_parse_dependencies(&self, file_id: FileId, dependencies: Arc<[FileId]>) {
         self.inner.lock().parse_dependencies.insert(file_id, dependencies);
+    }
+
+    /// Book-keep generated units for one file. Does not drop any product cell.
+    pub(crate) fn record_generated_units(
+        &self,
+        file_id: FileId,
+        ids: Box<[UnitId]>,
+        meta: FxHashMap<UnitId, UnitMeta>,
+    ) {
+        self.inner.lock().generated.replace_file(file_id, ids, meta);
+    }
+
+    pub(crate) fn generated_units(&self) -> GeneratedUnits {
+        self.inner.lock().generated.clone()
     }
 
     pub(crate) fn parsed_dependents(&self, changed: &[FileId]) -> Vec<FileId> {

@@ -22,6 +22,70 @@ pub fn from_tree(file: FileId, tree: &SyntaxTree, source_text: &str) -> FileFact
     walk(file, tree, source_text)
 }
 
+/// Compilation-unit design-unit name tokens on an already-built tree.
+///
+/// Used by the IDE to classify paid-artifact names against an existing
+/// preprocessor trace. Does not build a Trace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CuUnitName {
+    pub kind: UnitKind,
+    pub name: SmolStr,
+    pub emitted: Option<u32>,
+}
+
+pub fn cu_unit_names(tree: &SyntaxTree) -> Vec<CuUnitName> {
+    let mut names = Vec::new();
+    let mut body_depth = 0usize;
+    let mut module_depth = 0usize;
+    let root = tree.root();
+    if root.kind() != SyntaxKind::COMPILATION_UNIT {
+        return names;
+    }
+    for event in root.elem_preorder() {
+        match event {
+            WalkEvent::Enter(SyntaxElement::Node(node)) => {
+                if body_depth == 0
+                    && module_depth == 0
+                    && ast::Member::can_cast(node.kind())
+                    && let Some(kind) = unit_kind(node)
+                    && let Some(token) = member_name_token(node)
+                {
+                    let name = token.value_text();
+                    if !name.is_empty() {
+                        let with_parent = SyntaxTokenWithParent { parent: node, tok: token };
+                        names.push(CuUnitName {
+                            kind,
+                            name: SmolStr::new(name),
+                            emitted: with_parent.preprocessor_trace_emitted_token_index(),
+                        });
+                    }
+                }
+                if ast::ModuleDeclaration::can_cast(node.kind()) {
+                    module_depth += 1;
+                }
+                if is_body_boundary(node) {
+                    body_depth += 1;
+                }
+            }
+            WalkEvent::Leave(SyntaxElement::Node(node)) => {
+                if is_body_boundary(node) {
+                    body_depth -= 1;
+                }
+                if ast::ModuleDeclaration::can_cast(node.kind()) {
+                    module_depth -= 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    names
+}
+
+/// Kind + name only. Generated units have no `file_text` header to hash.
+pub fn unit_fingerprint(kind: UnitKind, name: &SmolStr) -> u64 {
+    fingerprint(kind, name, None, "")
+}
+
 fn walk(file: FileId, tree: &SyntaxTree, source_text: &str) -> FileFacts {
     let mut units = Vec::new();
     let mut mentions = Vec::new();

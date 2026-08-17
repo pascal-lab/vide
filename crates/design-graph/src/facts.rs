@@ -6,7 +6,7 @@ use vfs::FileId;
 
 use crate::unit::{InstantiationRole, UnitId, UnitNode};
 
-pub(crate) mod extract;
+pub mod extract;
 
 /// One name-like token, unresolved.
 ///

@@ -28,6 +28,7 @@ pub mod document_highlight;
 pub mod document_symbols;
 pub mod folding_ranges;
 pub mod formatting;
+pub(crate) mod generated_units;
 pub mod goto_declaration;
 pub mod goto_definition;
 pub mod hover;

@@ -87,12 +87,14 @@ impl AnalysisContext<'_> {
     pub(crate) fn parse_file(&self, file_id: FileId) -> syntax::SyntaxTree {
         let (tree, dependencies) = self.db.parse_src_with_dependencies(file_id);
         self.store.record_parse_dependencies(file_id, dependencies);
+        crate::generated_units::record_from_paid_artifact(self, file_id);
         tree
     }
 
     pub(crate) fn record_parse_dependencies(&self, file_id: FileId) {
         let dependencies = self.db.parsed_compilation_dependencies(file_id);
         self.store.record_parse_dependencies(file_id, dependencies);
+        crate::generated_units::record_from_paid_artifact(self, file_id);
     }
 
     pub(crate) fn source_semantic_map(
