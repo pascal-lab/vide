@@ -51,8 +51,7 @@ struct UnitData {
 
 /// File-level design-unit declarations, independent of lexical `ScopeGraph`.
 ///
-/// The index is built from [`crate::item_tree::ItemTree::module_headers`] and
-/// structural owner metadata for checker/covergroup declarations. It preserves
+/// The index is built from [`design_graph::FileFacts::units`]. It preserves
 /// duplicate declarations as `Resolution::Ambiguous`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct UnitIndex {
@@ -143,13 +142,10 @@ impl UnitIndex {
         &self,
         file_id: vfs::FileId,
         name: &str,
-        role: crate::decl_shard::DeclRole,
+        kind: design_graph::UnitKind,
         ordinal: u32,
     ) -> bool {
-        let Some(kind) = unit_kind_from_role(role) else {
-            return false;
-        };
-        let Some(kind) = instantiable_kind(kind) else {
+        let Some(kind) = instantiable_kind(unit_kind_from_graph(kind)) else {
             return false;
         };
         self.by_name.get(name).into_iter().flatten().any(|&index| {
@@ -189,7 +185,7 @@ pub fn unit_index(db: &dyn HirDefDb) -> Arc<UnitIndex> {
         .copied()
         .filter(|&file_id| db.file_kind(file_id).is_semantic_compilation_unit())
     {
-        add_file_units(&mut index, HirFileId::File(file_id), &db.file_decl_shard(file_id));
+        add_file_units(&mut index, HirFileId::File(file_id), &db.file_facts(file_id));
     }
 
     index.module_names = index
@@ -210,32 +206,24 @@ pub fn unit_index(db: &dyn HirDefDb) -> Arc<UnitIndex> {
     Arc::new(index)
 }
 
-fn unit_kind_from_role(role: crate::decl_shard::DeclRole) -> Option<UnitKind> {
-    Some(match role {
-        crate::decl_shard::DeclRole::Module => UnitKind::Module(ModuleKind::Module),
-        crate::decl_shard::DeclRole::Interface => UnitKind::Module(ModuleKind::Interface),
-        crate::decl_shard::DeclRole::Package => UnitKind::Module(ModuleKind::Package),
-        crate::decl_shard::DeclRole::Program => UnitKind::Module(ModuleKind::Program),
-        crate::decl_shard::DeclRole::Checker => UnitKind::Checker,
-        crate::decl_shard::DeclRole::Covergroup => UnitKind::Covergroup,
-        _ => return None,
-    })
+fn unit_kind_from_graph(kind: design_graph::UnitKind) -> UnitKind {
+    match kind {
+        design_graph::UnitKind::Module => UnitKind::Module(ModuleKind::Module),
+        design_graph::UnitKind::Interface => UnitKind::Module(ModuleKind::Interface),
+        design_graph::UnitKind::Package => UnitKind::Module(ModuleKind::Package),
+        design_graph::UnitKind::Program => UnitKind::Module(ModuleKind::Program),
+        design_graph::UnitKind::Checker => UnitKind::Checker,
+        design_graph::UnitKind::Covergroup => UnitKind::Covergroup,
+    }
 }
 
 fn instantiable_kind(kind: UnitKind) -> Option<UnitKind> {
     kind.is_instantiable().then_some(kind)
 }
 
-fn add_file_units(
-    index: &mut UnitIndex,
-    file: HirFileId,
-    shard: &crate::decl_shard::FileDeclShard,
-) {
-    for decl in shard.decls.iter() {
-        let Some(kind) = unit_kind_from_role(decl.role) else {
-            continue;
-        };
-        insert_unit(index, file, decl.name.clone(), kind, true);
+fn add_file_units(index: &mut UnitIndex, file: HirFileId, facts: &design_graph::FileFacts) {
+    for unit in facts.units.iter() {
+        insert_unit(index, file, unit.id.name.clone(), unit_kind_from_graph(unit.id.kind), true);
     }
 }
 
@@ -245,7 +233,7 @@ fn locate_modules_in_mentioning_files(db: &dyn HirDefDb, name: &SmolStr) -> Reso
         if !db.file_kind(file_id).is_semantic_compilation_unit() {
             return None;
         }
-        if !db.file_decl_shard(file_id).mentions_name(name) {
+        if !db.file_facts(file_id).mentions_name(name) {
             return None;
         }
         locate_named_instantiable_module(db, file_id, name)
@@ -349,10 +337,11 @@ pub(crate) fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
 }
 #[cfg(test)]
 mod tests {
+    use design_graph::UnitKind as GraphKind;
     use preproc_expand::file::HirFileId;
 
     use super::{UnitIndex, UnitKind, insert_unit};
-    use crate::{decl_shard::DeclRole, module::ModuleKind};
+    use crate::module::ModuleKind;
 
     #[test]
     fn empty_index_has_no_targets() {
@@ -379,13 +368,13 @@ mod tests {
             UnitKind::Module(ModuleKind::Package),
             true,
         );
-        assert!(index.declares_instantiable(file, "fifo", DeclRole::Module, 0));
-        assert!(!index.declares_instantiable(file, "fifo", DeclRole::Module, 1));
-        assert!(!index.declares_instantiable(file, "fifo", DeclRole::Package, 0));
+        assert!(index.declares_instantiable(file, "fifo", GraphKind::Module, 0));
+        assert!(!index.declares_instantiable(file, "fifo", GraphKind::Module, 1));
+        assert!(!index.declares_instantiable(file, "fifo", GraphKind::Package, 0));
         assert!(!index.declares_instantiable(
             vfs::FileId::from_raw(2),
             "fifo",
-            DeclRole::Module,
+            GraphKind::Module,
             0
         ));
     }

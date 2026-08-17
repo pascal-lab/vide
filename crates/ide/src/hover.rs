@@ -69,7 +69,7 @@ fn design_unit_hover_from_shard(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Markup>> {
-    let decl = db.file_decl_shard(file_id).design_unit_at(offset)?.clone();
+    let decl = db.file_facts(file_id).design_unit_at(offset)?.clone();
     let range = decl.name_range?;
     let text = db.file_text(file_id);
     let header = decl
@@ -81,7 +81,7 @@ fn design_unit_hover_from_shard(
         })
         .map(str::trim_end)
         .filter(|header| !header.is_empty())
-        .unwrap_or(decl.name.as_str());
+        .unwrap_or(decl.id.name.as_str());
 
     let mut markup = Markup::new();
     markup.push_with_code_fence(header);

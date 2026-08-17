@@ -1,8 +1,6 @@
 use base_db::source_db::SourceDb;
-use hir_def::{
-    decl_shard::{Decl, DeclRole},
-    def_id::DefId,
-};
+use design_graph::{InstantiationRole, UnitKind, UnitNode};
+use hir_def::def_id::DefId;
 use hir_semantics::semantics::Semantics;
 use itertools::Itertools;
 use nohash_hasher::IntMap;
@@ -113,9 +111,9 @@ fn design_unit_references_from_shard(
     offset: TextSize,
     config: &ReferencesConfig,
 ) -> Option<Vec<References>> {
-    let decl = db.file_decl_shard(file_id).design_unit_at(offset)?.clone();
-    if !decl.role.is_instantiable_module()
-        && !matches!(decl.role, DeclRole::Checker | DeclRole::Covergroup)
+    let decl = db.file_facts(file_id).design_unit_at(offset)?.clone();
+    if !decl.id.kind.is_hierarchy_target()
+        && !matches!(decl.id.kind, UnitKind::Checker | UnitKind::Covergroup)
     {
         return None;
     }
@@ -124,12 +122,13 @@ fn design_unit_references_from_shard(
         file_id,
         full_range: name_range,
         focus_range: Some(name_range),
-        name: Some(decl.name.clone()),
-        kind: design_unit_def_kind(decl.role),
+        name: Some(decl.id.name.clone()),
+        kind: design_unit_def_kind(decl.id.kind),
         container_name: None,
         description: None,
     }];
-    if !db.unit_index().declares_instantiable(file_id, &decl.name, decl.role, decl.ordinal) {
+    if !db.unit_index().declares_instantiable(file_id, &decl.id.name, decl.id.kind, decl.id.ordinal)
+    {
         return Some(vec![References {
             def: Some(def),
             refs: IntMap::default(),
@@ -143,15 +142,14 @@ fn design_unit_references_from_shard(
     Some(vec![References { def: Some(def), refs, status: ReferencesStatus::Complete }])
 }
 
-fn design_unit_def_kind(role: DeclRole) -> Option<crate::DefKind> {
-    match role {
-        DeclRole::Module => Some(crate::DefKind::Module),
-        DeclRole::Interface => Some(crate::DefKind::Interface),
-        DeclRole::Package => Some(crate::DefKind::Package),
-        DeclRole::Program => Some(crate::DefKind::Program),
-        DeclRole::Checker => Some(crate::DefKind::Checker),
-        DeclRole::Covergroup => Some(crate::DefKind::Covergroup),
-        _ => None,
+fn design_unit_def_kind(kind: UnitKind) -> Option<crate::DefKind> {
+    match kind {
+        UnitKind::Module => Some(crate::DefKind::Module),
+        UnitKind::Interface => Some(crate::DefKind::Interface),
+        UnitKind::Package => Some(crate::DefKind::Package),
+        UnitKind::Program => Some(crate::DefKind::Program),
+        UnitKind::Checker => Some(crate::DefKind::Checker),
+        UnitKind::Covergroup => Some(crate::DefKind::Covergroup),
     }
 }
 
@@ -172,14 +170,14 @@ fn design_unit_instantiation_files(
 fn collect_design_unit_mentions(
     db: &AnalysisContext<'_>,
     mention_file: FileId,
-    decl: &Decl,
+    decl: &UnitNode,
     def_file: FileId,
     name_range: TextRange,
     refs: &mut IntMap<FileId, Vec<(TextRange, ReferenceCategory)>>,
 ) {
-    for instantiation in db.file_decl_shard(mention_file).instantiations.iter() {
-        if instantiation.name != decl.name
-            || !instantiation_matches_decl(instantiation.role, decl.role)
+    for instantiation in db.file_facts(mention_file).instantiations.iter() {
+        if instantiation.name != decl.id.name
+            || !instantiation_matches_decl(instantiation.role, decl.id.kind)
         {
             continue;
         }
@@ -192,13 +190,10 @@ fn collect_design_unit_mentions(
     }
 }
 
-fn instantiation_matches_decl(instantiation: DeclRole, decl: DeclRole) -> bool {
-    match decl {
-        DeclRole::Module | DeclRole::Interface | DeclRole::Program | DeclRole::Covergroup => {
-            instantiation == DeclRole::Module
-        }
-        DeclRole::Checker => instantiation == DeclRole::Checker,
-        _ => false,
+fn instantiation_matches_decl(instantiation: InstantiationRole, decl: UnitKind) -> bool {
+    match instantiation {
+        InstantiationRole::Hierarchy => decl.is_hierarchy_target(),
+        InstantiationRole::Checker => decl == UnitKind::Checker,
     }
 }
 

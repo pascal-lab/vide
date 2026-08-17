@@ -20,7 +20,6 @@ pub mod constraint;
 pub mod container;
 pub mod covergroup;
 pub mod db;
-pub mod decl_shard;
 pub mod declaration;
 pub mod def_id;
 pub mod design_map;

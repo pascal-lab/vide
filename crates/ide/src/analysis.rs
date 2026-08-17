@@ -103,6 +103,10 @@ impl AnalysisContext<'_> {
         db.source_semantic_map(file_id)
     }
 
+    pub(crate) fn file_facts(&self, file_id: FileId) -> Arc<design_graph::FileFacts> {
+        self.db.file_facts(file_id)
+    }
+
     pub(crate) fn unit_index(&self) -> Arc<hir_def::unit_index::UnitIndex> {
         self.resolution().unit_index(self.db)
     }

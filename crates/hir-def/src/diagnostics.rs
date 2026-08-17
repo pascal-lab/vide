@@ -443,6 +443,9 @@ mod tests {
     impl PreprocDb for TestDb {}
 
     #[salsa::db]
+    impl crate::db::DesignGraphDb for TestDb {}
+
+    #[salsa::db]
     impl HirDefDb for TestDb {}
 
     impl std::ops::Deref for TestDb {

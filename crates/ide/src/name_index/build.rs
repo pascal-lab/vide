@@ -7,9 +7,9 @@ use super::{FileNameIndex, NameOccurrence};
 use crate::db::workspace_symbol_index_db::WorkspaceSymbolIndexDb;
 
 pub(super) fn collect_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> FileNameIndex {
-    let shard = db.file_decl_shard(file_id);
+    let facts = db.file_facts(file_id);
     let mut occurrences: FxHashMap<SmolStr, Vec<NameOccurrence>> = FxHashMap::default();
-    for mention in shard.mentions.iter() {
+    for mention in facts.mentions.iter() {
         occurrences.entry(mention.name.clone()).or_default().push(NameOccurrence {
             range: mention.range,
             kind: mention.kind,

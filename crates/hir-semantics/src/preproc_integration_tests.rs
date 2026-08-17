@@ -47,6 +47,9 @@ impl SourceRootDb for TestDb {}
 impl PreprocDb for TestDb {}
 
 #[salsa::db]
+impl hir_def::db::DesignGraphDb for TestDb {}
+
+#[salsa::db]
 impl HirDefDb for TestDb {}
 impl std::ops::Deref for TestDb {
     type Target = dyn HirDefDb;

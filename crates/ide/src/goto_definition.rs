@@ -45,16 +45,15 @@ fn declaration_name_from_shard(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    let decl = db.file_decl_shard(file_id).design_unit_at(offset)?.clone();
+    let decl = db.file_facts(file_id).design_unit_at(offset)?.clone();
     let range = decl.name_range?;
-    let kind = match decl.role {
-        hir_def::decl_shard::DeclRole::Module => Some(crate::DefKind::Module),
-        hir_def::decl_shard::DeclRole::Interface => Some(crate::DefKind::Interface),
-        hir_def::decl_shard::DeclRole::Package => Some(crate::DefKind::Package),
-        hir_def::decl_shard::DeclRole::Program => Some(crate::DefKind::Program),
-        hir_def::decl_shard::DeclRole::Checker => Some(crate::DefKind::Checker),
-        hir_def::decl_shard::DeclRole::Covergroup => Some(crate::DefKind::Covergroup),
-        _ => None,
+    let kind = match decl.id.kind {
+        design_graph::UnitKind::Module => Some(crate::DefKind::Module),
+        design_graph::UnitKind::Interface => Some(crate::DefKind::Interface),
+        design_graph::UnitKind::Package => Some(crate::DefKind::Package),
+        design_graph::UnitKind::Program => Some(crate::DefKind::Program),
+        design_graph::UnitKind::Checker => Some(crate::DefKind::Checker),
+        design_graph::UnitKind::Covergroup => Some(crate::DefKind::Covergroup),
     };
     Some(RangeInfo::new(
         range,
@@ -62,7 +61,7 @@ fn declaration_name_from_shard(
             file_id,
             full_range: range,
             focus_range: Some(range),
-            name: Some(decl.name),
+            name: Some(decl.id.name),
             kind,
             container_name: None,
             description: None,

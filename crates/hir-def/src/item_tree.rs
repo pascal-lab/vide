@@ -305,7 +305,7 @@ pub(crate) fn declaration_skeleton(
     let (items, signatures) = build_item_tree_data(tree, &ast_ids, Some(&source_text));
     let by_id = items.iter().enumerate().map(|(index, item)| (item.id, index)).collect();
     Some(Arc::new(DeclarationSkeleton {
-        preprocessor_independent: source_model.preprocessor_independent,
+        preprocessor_independent: db.file_facts(source_file).preprocessor_independent,
         item_tree: Arc::new(ItemTree { file_id, owners, items, by_id, signatures }),
     }))
 }

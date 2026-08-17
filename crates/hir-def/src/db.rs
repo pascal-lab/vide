@@ -1,6 +1,7 @@
 use std::ops::Deref;
 
 use base_db::salsa;
+pub use design_graph::DesignGraphDb;
 use preproc_expand::{db::PreprocDb, file::HirFileId};
 use triomphe::Arc;
 use utils::text_edit::TextSize;
@@ -22,7 +23,7 @@ use crate::{
 };
 
 #[salsa::db]
-pub trait HirDefDb: PreprocDb {}
+pub trait HirDefDb: PreprocDb + DesignGraphDb {}
 
 // Salsa attaches tracked query methods to `dyn Db`; keep the lower-layer
 // surface available on composed database trait objects without forwarding.
@@ -106,6 +107,10 @@ impl dyn HirDefDb + '_ {
         crate::scope::unit_scope(self)
     }
 
+    pub fn file_facts(&self, file_id: vfs::FileId) -> Arc<design_graph::FileFacts> {
+        <dyn DesignGraphDb>::file_facts(self, file_id)
+    }
+
     pub fn unit_index(&self) -> Arc<crate::unit_index::UnitIndex> {
         unit_index::unit_index(self)
     }
@@ -158,7 +163,7 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     def_id::set_definition_table_lru_capacity(db, capacity);
     design_map::set_lru_capacity(db, capacity);
     item_tree::set_item_tree_lru_capacity(db, capacity);
-    crate::decl_shard::set_decl_shard_lru_capacity(db, capacity);
+    design_graph::set_file_facts_lru_capacity(db, capacity);
     owner::set_owner_table_lru_capacity(db, capacity);
     unit_index::set_lru_capacity(db, capacity);
     scope::set_scope_lru_capacity(db, capacity);

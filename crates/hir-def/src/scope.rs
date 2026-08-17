@@ -52,7 +52,7 @@ pub fn unit_scope(db: &dyn HirDefDb) -> Arc<ScopeData> {
     let mut unit = ScopeData::default();
     for file_id in compilation_unit_files(db) {
         let hir_file = HirFileId::File(file_id);
-        if !db.file_decl_shard(file_id).has_compilation_unit_locals() {
+        if !db.file_facts(file_id).has_compilation_unit_locals() {
             continue;
         }
         let file_owner =
@@ -522,6 +522,9 @@ mod tests {
 
     #[salsa::db]
     impl PreprocDb for TestDb {}
+
+    #[salsa::db]
+    impl crate::db::DesignGraphDb for TestDb {}
 
     #[salsa::db]
     impl HirDefDb for TestDb {}

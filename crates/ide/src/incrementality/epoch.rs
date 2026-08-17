@@ -1,4 +1,4 @@
-use hir_def::decl_shard::FileDeclShard;
+use design_graph::FileFacts;
 use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 use vfs::FileId;
@@ -29,17 +29,17 @@ pub(super) enum EpochDecision {
 /// A pre-change snapshot of one file's L0 declaration structure.
 #[derive(Clone)]
 pub(super) struct StructureSnapshot {
-    shard: Arc<FileDeclShard>,
+    facts: Arc<FileFacts>,
 }
 
 impl StructureSnapshot {
     pub(super) fn capture(db: &RootDb, file_id: FileId) -> Self {
-        Self { shard: db.file_decl_shard(file_id) }
+        Self { facts: db.file_facts(file_id) }
     }
 
     /// Classify the file's current CU declarations against this snapshot.
     fn classify(&self, db: &RootDb, file_id: FileId) -> StructureChange {
-        if self.shard.same_structure(db.file_decl_shard(file_id).as_ref()) {
+        if self.facts.same_structure(db.file_facts(file_id).as_ref()) {
             StructureChange::Unchanged
         } else {
             StructureChange::Changed

@@ -149,12 +149,12 @@ endmodule
         let (host, file_id, _clean, markers) = setup_marked(text);
         let decl = host
             .ctx()
-            .file_decl_shard(file_id)
+            .file_facts(file_id)
             .design_unit_at(markers["name"])
-            .expect("L0 shard records the module name")
+            .expect("file facts record the module name")
             .clone();
-        assert_eq!(decl.name, "top");
-        assert_eq!(decl.role, hir_def::decl_shard::DeclRole::Module);
+        assert_eq!(decl.id.name, "top");
+        assert_eq!(decl.id.kind, design_graph::UnitKind::Module);
         assert_eq!(
             decl.name_range,
             Some(utils::line_index::TextRange::new(

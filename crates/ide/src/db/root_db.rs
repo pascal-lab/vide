@@ -6,6 +6,7 @@ use base_db::{
     salsa::{self, Durability},
     source_db::{FileLoader, SourceDb, SourceRootDb},
 };
+use design_graph::DesignGraphDb;
 use hir_def::db::HirDefDb;
 use hir_ty::db::TyDb;
 use preproc_expand::db::PreprocDb;
@@ -35,6 +36,9 @@ impl SourceRootDb for RootDb {}
 
 #[salsa::db]
 impl PreprocDb for RootDb {}
+
+#[salsa::db]
+impl DesignGraphDb for RootDb {}
 
 #[salsa::db]
 impl HirDefDb for RootDb {}
