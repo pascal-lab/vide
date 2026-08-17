@@ -3028,11 +3028,15 @@ endmodule
     let modules = module_index.module_definitions(&"mod_a".into());
     assert_eq!(modules.len(), 1, "module index should contain mod_a exactly once");
     assert_eq!(modules[0].file_id, *file_a);
-    assert_eq!(modules[0].name_range, marked_range(markers_a, "a_module_def", 5));
+    assert_eq!(
+        modules[0].module_id.name(host.ctx().db).as_deref(),
+        Some("mod_a"),
+        "module index identity is the owner, not a stored range"
+    );
     let interfaces = module_index.module_definitions(&"bus_if".into());
     assert_eq!(interfaces.len(), 1, "module index should contain bus_if exactly once");
     assert_eq!(interfaces[0].file_id, *file_a);
-    assert_eq!(interfaces[0].name_range, marked_range(markers_a, "a_iface_def", 6));
+    assert_eq!(interfaces[0].module_id.name(host.ctx().db).as_deref(), Some("bus_if"));
 
     let a_def = marked_range(markers_a, "a_shared_def", 6);
     let a_ref = marked_range(markers_a, "a_shared_ref", 6);

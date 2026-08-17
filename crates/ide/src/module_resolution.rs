@@ -341,13 +341,13 @@ fn module_candidates(
             module_index
                 .module_definitions(name)
                 .iter()
-                .map(|module| (module.file_id, module.name_range.start(), module.module_id)),
+                .map(|module| (module.file_id, module.module_id)),
         );
     }
 
-    candidates.sort_by_key(|(file_id, name_start, _)| (file_id.index(), *name_start));
-    candidates.dedup_by_key(|(_, _, module_id)| *module_id);
-    candidates.into_iter().map(|(_, _, module_id)| module_id).collect()
+    candidates.sort_by_key(|(file_id, module_id)| (file_id.index(), *module_id));
+    candidates.dedup_by_key(|(_, module_id)| *module_id);
+    candidates.into_iter().map(|(_, module_id)| module_id).collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

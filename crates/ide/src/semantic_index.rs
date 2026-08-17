@@ -1,7 +1,11 @@
-use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
+use base_db::source_root::SourceRootId;
 use hir_def::{Ident, container::InFile, def_id::DefId, item_tree::ModuleHeader, owner::OwnerId};
 use hir_ty::db::TyDb;
-use preproc_expand::{db::PreprocDb, file::HirFileId, macro_file::macro_files_for_file};
+use preproc_expand::{
+    db::PreprocDb,
+    file::HirFileId,
+    macro_file::{macro_file_call_site, macro_files_for_file},
+};
 use rustc_hash::FxHashMap;
 use syntax::{SyntaxNodeExt, has_text_range::HasTextRange, token::TokenKindExt};
 use triomphe::Arc;
@@ -16,15 +20,22 @@ use crate::{
 pub(crate) mod build;
 
 /// Precomputed cross-file resolution inputs for one index build: the `$unit`
-/// scope, package design map, top-level module index, and per-root module
-/// indexes. Computed once per request so the per-file nameres never reads the
-/// O(project) global queries through salsa.
+/// scope, package design map, and (when requested) per-root module indexes.
+///
+/// Instantiation indexes are filled on first use. Jumping to a module's own
+/// name only needs [`hir`]; it must not walk every preprocessor model.
 pub(crate) struct SemanticSnapshotInputs {
     pub hir: triomphe::Arc<hir_def::pathres::ResolutionContext>,
-    pub module_indexes: triomphe::Arc<[(SourceRootId, Arc<ModuleIndex>)]>,
+    module_indexes: std::sync::OnceLock<triomphe::Arc<[(SourceRootId, Arc<ModuleIndex>)]>>,
 }
 
 impl SemanticSnapshotInputs {
+    pub(crate) fn from_hir(
+        hir: triomphe::Arc<hir_def::pathres::ResolutionContext>,
+    ) -> triomphe::Arc<Self> {
+        triomphe::Arc::new(Self { hir, module_indexes: std::sync::OnceLock::new() })
+    }
+
     pub(crate) fn from_db(db: &dyn WorkspaceSymbolIndexDb) -> triomphe::Arc<Self> {
         Self::from_db_with_hir(db, hir_def::pathres::ResolutionContext::from_db(db))
     }
@@ -33,22 +44,35 @@ impl SemanticSnapshotInputs {
         db: &dyn WorkspaceSymbolIndexDb,
         hir: triomphe::Arc<hir_def::pathres::ResolutionContext>,
     ) -> triomphe::Arc<Self> {
-        let module_indexes: Vec<_> = db
-            .workspace_source_root_ids()
-            .into_iter()
-            .map(|root| (root, source_root_module_index_for_root(db, root)))
-            .collect();
-        triomphe::Arc::new(Self { hir, module_indexes: triomphe::Arc::from(module_indexes) })
+        let inputs = Self::from_hir(hir);
+        let _ = inputs.module_indexes(db);
+        inputs
     }
 
-    pub(crate) fn module_index(&self, root: SourceRootId) -> Option<Arc<ModuleIndex>> {
-        self.module_indexes
+    pub(crate) fn module_index(
+        &self,
+        db: &dyn WorkspaceSymbolIndexDb,
+        root: SourceRootId,
+    ) -> Option<Arc<ModuleIndex>> {
+        self.module_indexes(db)
             .iter()
             .find_map(|(candidate, index)| (*candidate == root).then(|| index.clone()))
     }
 
-    pub(crate) fn module_indexes(&self) -> &[(SourceRootId, Arc<ModuleIndex>)] {
-        &self.module_indexes
+    pub(crate) fn module_indexes(
+        &self,
+        db: &dyn WorkspaceSymbolIndexDb,
+    ) -> &[(SourceRootId, Arc<ModuleIndex>)] {
+        self.module_indexes
+            .get_or_init(|| {
+                let module_indexes: Vec<_> = db
+                    .workspace_source_root_ids()
+                    .into_iter()
+                    .map(|root| (root, source_root_module_index_for_root(db, root)))
+                    .collect();
+                triomphe::Arc::from(module_indexes)
+            })
+            .as_ref()
     }
 }
 
@@ -138,9 +162,17 @@ pub struct ModuleCallEdge {
     pub call_range: TextRange,
 }
 
+/// A compilation-unit module known by name. Ranges are not stored here;
+/// they are projected from the owning file when a caller needs them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct IndexedModule {
+    pub module_id: OwnerId,
+    pub file_id: FileId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ModuleIndex {
-    modules_by_name: FxHashMap<Ident, Box<[SemanticModuleDefinition]>>,
+    modules_by_name: FxHashMap<Ident, Box<[IndexedModule]>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -164,32 +196,32 @@ pub struct FileModuleEdges {
 
 impl ModuleIndex {
     /// Merges the per-file module indexes of a source root.
+    ///
+    /// This is a structure product of [`ItemTree`] headers. Ranges belong to
+    /// [`hir_def::source_projection::SourceProjection`] and are projected
+    /// when a single file needs them, not while building the name map.
     pub(crate) fn for_source_root(
         db: &dyn WorkspaceSymbolIndexDb,
         source_root_id: SourceRootId,
     ) -> Self {
         let source_root = db.source_root(source_root_id);
-        let mut modules_by_name: FxHashMap<Ident, Vec<SemanticModuleDefinition>> =
-            FxHashMap::default();
+        let mut modules_by_name: FxHashMap<Ident, Vec<IndexedModule>> = FxHashMap::default();
 
-        let mut hir_files = Vec::new();
         for file_id in source_root.iter() {
-            hir_files.push(HirFileId::File(file_id));
-            hir_files.extend(macro_files_for_file(db, file_id).into_iter().map(HirFileId::Macro));
-        }
-        hir_files.sort_unstable();
-        hir_files.dedup();
-
-        for hir_file_id in hir_files {
-            let item_tree = db.item_tree(hir_file_id);
-            for header in
-                item_tree.module_headers().filter(|header| header.kind().is_instantiable())
-            {
-                let Some(module) = SemanticModuleDefinition::from_header(db, hir_file_id, header)
-                else {
+            push_instantiable_headers(
+                &mut modules_by_name,
+                db.item_tree(HirFileId::File(file_id)).module_headers(),
+                file_id,
+            );
+            for macro_file in macro_files_for_file(db, file_id) {
+                let Some(call_site) = macro_file_call_site(db, macro_file) else {
                     continue;
                 };
-                modules_by_name.entry(module.name.clone()).or_default().push(module);
+                push_instantiable_headers(
+                    &mut modules_by_name,
+                    db.item_tree(HirFileId::Macro(macro_file)).module_headers(),
+                    call_site.call_file_id,
+                );
             }
         }
 
@@ -197,11 +229,18 @@ impl ModuleIndex {
             modules_by_name: modules_by_name
                 .into_iter()
                 .map(|(name, mut modules)| {
-                    modules
-                        .sort_by_key(|module| (module.file_id.index(), module.name_range.start()));
+                    // A macro-emitted module also appears in the expanded
+                    // source CST. Keep the macro-file owner: that is the
+                    // identity rename and highlight use to refuse editing
+                    // generated text.
+                    modules.sort_by_key(|module| {
+                        (module.file_id.index(), module.module_id.file(db).as_file().is_some())
+                    });
                     modules.dedup_by(|lhs, rhs| {
                         lhs.module_id == rhs.module_id
-                            || (lhs.file_id == rhs.file_id && lhs.name_range == rhs.name_range)
+                            || (lhs.file_id == rhs.file_id
+                                && (lhs.module_id.file(db).as_file().is_none()
+                                    || rhs.module_id.file(db).as_file().is_none()))
                     });
                     (name, modules.into_boxed_slice())
                 })
@@ -209,21 +248,21 @@ impl ModuleIndex {
         }
     }
 
-    pub(crate) fn module_definitions(&self, name: &Ident) -> &[SemanticModuleDefinition] {
+    pub(crate) fn module_definitions(&self, name: &Ident) -> &[IndexedModule] {
         self.modules_by_name.get(name).map_or(&[], |modules| modules.as_ref())
     }
+}
 
-    fn module_definition_at(
-        &self,
-        file_id: FileId,
-        name_range: TextRange,
-    ) -> Option<&SemanticModuleDefinition> {
-        self.all_module_definitions()
-            .find(|module| module.file_id == file_id && module.name_range == name_range)
-    }
-
-    fn all_module_definitions(&self) -> impl Iterator<Item = &SemanticModuleDefinition> {
-        self.modules_by_name.values().flat_map(|modules| modules.iter())
+fn push_instantiable_headers(
+    modules_by_name: &mut FxHashMap<Ident, Vec<IndexedModule>>,
+    headers: impl IntoIterator<Item = ModuleHeader>,
+    file_id: FileId,
+) {
+    for header in headers.into_iter().filter(|header| header.kind().is_instantiable()) {
+        modules_by_name
+            .entry(header.name().clone())
+            .or_default()
+            .push(IndexedModule { module_id: header.owner(), file_id });
     }
 }
 
@@ -331,8 +370,15 @@ fn module_id_at_range(
     file_id: FileId,
     name_range: TextRange,
 ) -> Option<OwnerId> {
-    let module_index = db.module_index(db.source_root_id(file_id));
-    module_index.module_definition_at(file_id, name_range).map(|module| module.module_id)
+    let hir_file = HirFileId::File(file_id);
+    let item_tree = db.item_tree(hir_file);
+    let projection = db.source_projection(hir_file);
+    item_tree.module_headers().find_map(|header| {
+        let origin = projection.origin(header.source())?;
+        let full_range = origin.full_range()?;
+        let (_, focus, full) = nav_location(db.db, hir_file, origin.focus_range(), full_range)?;
+        (focus.unwrap_or(full) == name_range).then_some(header.owner())
+    })
 }
 
 fn instantiation_name_range(

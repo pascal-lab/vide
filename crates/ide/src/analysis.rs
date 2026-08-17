@@ -99,7 +99,7 @@ impl AnalysisContext<'_> {
         &self,
         source_root_id: SourceRootId,
     ) -> Arc<crate::semantic_index::ModuleIndex> {
-        self.semantic_snapshot_inputs().module_index(source_root_id).unwrap_or_default()
+        self.semantic_snapshot_inputs().module_index(self.db, source_root_id).unwrap_or_default()
     }
 
     pub(crate) fn module_edges(&self, source_root_id: SourceRootId) -> Arc<ModuleEdgeIndex> {
@@ -137,7 +137,7 @@ impl AnalysisContext<'_> {
         self.store.file_name_index(self, file_id)
     }
 
-    fn resolution(&self) -> Arc<ResolutionContext> {
+    pub(crate) fn resolution(&self) -> Arc<ResolutionContext> {
         self.resolution_with_priority(ComputationPriority::Foreground, &NEVER_CANCELLED)
             .expect("foreground resolution computation cannot be cancelled")
     }

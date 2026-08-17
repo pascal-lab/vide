@@ -39,7 +39,7 @@ impl DefinitionClass {
         file_id: HirFileId,
         tp: SyntaxTokenWithParent,
     ) -> DefinitionResolution {
-        let context = db.semantic_snapshot_inputs();
+        let context = crate::semantic_index::SemanticSnapshotInputs::from_hir(db.resolution());
         Self::resolve_in(db.db, &context, file_id, tp, None)
     }
 
@@ -88,12 +88,12 @@ impl DefinitionClass {
 
         match_ast! { parent,
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
-                resolve_named_param_assignment(db, &context.module_indexes, file_id.expect_file(), it)
+                resolve_named_param_assignment(db, context.module_indexes(db), file_id.expect_file(), it)
                     .map(DefinitionClass::Definition)
             },
             ast::NamedPortConnection[it] if it.name() == Some(tok) => {
                 let port =
-                    resolve_named_port_connection(db, &context.module_indexes, file_id.expect_file(), it);
+                    resolve_named_port_connection(db, context.module_indexes(db), file_id.expect_file(), it);
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
                     let local = nameres_ident(&sema, file_id, tp, NameContext::Value, container);
@@ -318,7 +318,7 @@ fn resolve_instantiation_type_name(
     {
         let resolution = match resolve_instantiation_target(
             db,
-            &context.module_indexes,
+            context.module_indexes(db),
             file_id.expect_file(),
             instantiation,
         ) {

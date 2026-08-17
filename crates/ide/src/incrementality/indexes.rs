@@ -113,7 +113,7 @@ impl ModuleEdgeEntry {
                         Arc::new(FileModuleEdges::for_file_with_indexes(
                             ctx.db,
                             file_id,
-                            context.module_indexes(),
+                            context.module_indexes(ctx.db),
                         )),
                     )
                 })
@@ -127,7 +127,7 @@ impl ModuleEdgeEntry {
                     Arc::new(FileModuleEdges::for_file_with_indexes(
                         ctx.db,
                         file_id,
-                        context.module_indexes(),
+                        context.module_indexes(ctx.db),
                     )),
                 );
                 self.shard_gens.insert(file_id, file_gen(gens, file_id));
