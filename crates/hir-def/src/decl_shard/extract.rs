@@ -11,7 +11,7 @@ use syntax::{
 };
 use vfs::FileId;
 
-use super::{Decl, DeclRole, FileDeclShard, ImportSpec, Mention};
+use super::{Decl, DeclRole, FileDeclShard, ImportSpec, Instantiation, Mention};
 use crate::{db::HirDefDb, lower_ident_opt, module::ModuleKind};
 
 pub(super) fn collect(db: &dyn HirDefDb, file_id: FileId) -> FileDeclShard {
@@ -40,6 +40,7 @@ fn walk(tree: &SyntaxTree, source_text: &str) -> FileDeclShard {
     let mut decls = Vec::new();
     let mut mentions = Vec::new();
     let mut imports = Vec::new();
+    let mut instantiations = Vec::new();
     let mut body_depth = 0usize;
     let mut module_depth = 0usize;
     let mut has_compilation_unit_locals = false;
@@ -73,25 +74,30 @@ fn walk(tree: &SyntaxTree, source_text: &str) -> FileDeclShard {
                 });
             }
             WalkEvent::Enter(SyntaxElement::Node(node)) => {
+                if let Some(instantiation) = instantiation_at(node) {
+                    instantiations.push(instantiation);
+                }
                 if body_depth == 0 && module_depth == 0 && ast::Member::can_cast(node.kind()) {
                     if let Some(import) = ast::PackageImportDeclaration::cast(node) {
                         has_compilation_unit_locals = true;
                         imports.extend(import_specs(import));
                     } else if let Some(decl) = member_decl(node, source_text) {
-                        if !decl.role.is_design_unit() {
-                            has_compilation_unit_locals = true;
+                        if decl.name_range.is_some() {
+                            if !decl.role.is_design_unit() {
+                                has_compilation_unit_locals = true;
+                            }
+                            let key = (decl.name.clone(), decl.role);
+                            let ordinal = ordinals.entry(key).or_insert(0);
+                            decls.push(Decl {
+                                name: decl.name,
+                                role: decl.role,
+                                ordinal: *ordinal,
+                                header_fingerprint: decl.header_fingerprint,
+                                name_range: decl.name_range,
+                                header_range: decl.header_range,
+                            });
+                            *ordinal += 1;
                         }
-                        let key = (decl.name.clone(), decl.role);
-                        let ordinal = ordinals.entry(key).or_insert(0);
-                        decls.push(Decl {
-                            name: decl.name,
-                            role: decl.role,
-                            ordinal: *ordinal,
-                            header_fingerprint: decl.header_fingerprint,
-                            name_range: decl.name_range,
-                            header_range: decl.header_range,
-                        });
-                        *ordinal += 1;
                     } else {
                         has_compilation_unit_locals = true;
                     }
@@ -119,9 +125,42 @@ fn walk(tree: &SyntaxTree, source_text: &str) -> FileDeclShard {
         decls: decls.into_boxed_slice(),
         mentions: mentions.into_boxed_slice(),
         imports: imports.into_boxed_slice(),
+        instantiations: instantiations.into_boxed_slice(),
         preprocessor_independent,
         has_compilation_unit_locals,
     }
+}
+
+fn instantiation_at(node: SyntaxNode<'_>) -> Option<Instantiation> {
+    if let Some(instantiation) = ast::HierarchyInstantiation::cast(node) {
+        return instantiation_from_token(instantiation.type_(), DeclRole::Module, node);
+    }
+    if let Some(instantiation) = ast::PrimitiveInstantiation::cast(node) {
+        return instantiation_from_token(instantiation.type_(), DeclRole::Module, node);
+    }
+    if let Some(instantiation) = ast::CheckerInstantiation::cast(node) {
+        let name = match instantiation.type_() {
+            ast::Name::IdentifierName(ident) => ident.identifier(),
+            ast::Name::IdentifierSelectName(ident) => ident.identifier(),
+            _ => None,
+        };
+        return instantiation_from_token(name, DeclRole::Checker, node);
+    }
+    None
+}
+
+fn instantiation_from_token(
+    token: Option<SyntaxToken<'_>>,
+    role: DeclRole,
+    node: SyntaxNode<'_>,
+) -> Option<Instantiation> {
+    let token = token?;
+    let range = token.text_range_in(node)?;
+    let name = token.value_text();
+    if name.is_empty() {
+        return None;
+    }
+    Some(Instantiation { name: SmolStr::new(name), range, role })
 }
 
 struct PartialDecl {

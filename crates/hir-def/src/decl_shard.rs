@@ -84,12 +84,21 @@ pub struct ImportSpec {
     pub item: Option<SmolStr>,
 }
 
+/// Instantiation type name recorded from the unexpanded tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Instantiation {
+    pub name: SmolStr,
+    pub range: TextRange,
+    pub role: DeclRole,
+}
+
 /// Compact L0 slice of one file. No syntax tree, no interned owner.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FileDeclShard {
     pub decls: Box<[Decl]>,
     pub mentions: Box<[Mention]>,
     pub imports: Box<[ImportSpec]>,
+    pub instantiations: Box<[Instantiation]>,
     pub preprocessor_independent: bool,
     pub has_compilation_unit_locals: bool,
 }

@@ -136,8 +136,12 @@ impl SearchScope {
         self.0.keys().all(|candidate| *candidate == file_id)
     }
 
+    pub(crate) fn files(&self) -> impl Iterator<Item = FileId> + '_ {
+        self.0.keys().copied()
+    }
+
     /// The single file of the scope, if it covers exactly one file.
-    fn single_file_id(&self) -> Option<FileId> {
+    pub(crate) fn single_file_id(&self) -> Option<FileId> {
         let mut keys = self.0.keys();
         let first = keys.next()?;
         keys.next().is_none().then_some(*first)
