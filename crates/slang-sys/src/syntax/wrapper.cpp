@@ -30,6 +30,12 @@ namespace slang_sys::syntax::helper {
                range.end().valid();
     }
 
+    /// Whether a range can be reported to the trace, which addresses spans
+    /// inside a single source buffer.
+    static bool trace_range_valid(slang::SourceRange range) {
+        return source_range_valid(range) && range.start().buffer() == range.end().buffer();
+    }
+
     static const SyntaxNode *find_root(const SyntaxNode *node) {
         while (node && node->parent.get())
             node = node->parent.get();
@@ -135,6 +141,29 @@ namespace slang_sys::syntax {
 
     const SyntaxNode &SyntaxTree::root() const {
         return tree->root();
+    }
+
+    std::size_t SyntaxTokenHash::operator()(const SyntaxToken &token) const {
+        auto location = token.location();
+        return std::hash<uint16_t>()(static_cast<uint16_t>(token.kind)) ^
+               (std::hash<uint32_t>()(location.buffer().getId()) << 1) ^
+               (std::hash<std::size_t>()(location.offset()) << 2);
+    }
+
+    const EmittedTokenIndices &SyntaxTree::emitted_token_indices() const {
+        std::call_once(emitted_token_indices_once, [this] {
+            for (auto token : tree->getEmittedTokens()) {
+                if (!helper::trace_range_valid(token.range()))
+                    continue;
+                // A repeated macro argument emits equal tokens more than once;
+                // the first position is the one the trace reports.
+                emitted_token_indices_cache.by_token.emplace(
+                    token, emitted_token_indices_cache.length
+                );
+                emitted_token_indices_cache.length++;
+            }
+        });
+        return emitted_token_indices_cache;
     }
 } // namespace slang_sys::syntax
 
@@ -468,8 +497,7 @@ namespace slang_sys::syntax::tree {
     }
 
     RawTraceSourceRange trace_range(slang::SourceRange range) {
-        if (range == slang::SourceRange::NoLocation || !range.start().valid() ||
-            !range.end().valid() || range.start().buffer() != range.end().buffer())
+        if (!helper::trace_range_valid(range))
             return empty_trace_range();
         return RawTraceSourceRange {
             range.start().buffer().getId(),
@@ -1182,22 +1210,17 @@ namespace slang_sys::syntax::tree {
         if (root != &owner.root())
             throw std::invalid_argument("syntax context does not belong to its owner tree");
 
-        std::optional<uint32_t> match;
-        uint32_t emitted_index = 0;
-        for (auto token : owner.tree->getEmittedTokens()) {
-            if (!trace_range(token.range()).has_range)
-                continue;
-            if (!match && token == *target)
-                match = emitted_index;
-            emitted_index++;
-        }
-        if (trace && emitted_index != trace->emitted_tokens.size())
+        const auto &indices = owner.emitted_token_indices();
+        if (trace && indices.length != trace->emitted_tokens.size())
             throw std::logic_error("Slang trace token sequence is inconsistent");
         // Recovery and macro splicing can leave syntax-tree tokens that were
         // never emitted by the preprocessor. Only the requested target needs
         // an emitted identity; the two sequences are not required to be
         // positionally isomorphic.
-        return match;
+        auto match = indices.by_token.find(*target);
+        if (match == indices.by_token.end())
+            return std::nullopt;
+        return match->second;
     }
 
     RawTraceEmittedToken trace_emitted_token_for_target(
