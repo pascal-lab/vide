@@ -42,7 +42,11 @@ pub fn scope_for(db: &dyn HirDefDb, owner: OwnerId) -> Arc<ScopeData> {
     Arc::new(build_owner_scope(db, owner))
 }
 
-/// Builds the explicit `$unit` scope from file-owner scopes.
+/// Builds the explicit `$unit` scope from each compilation-unit file scope.
+///
+/// Design-unit names come from the owner table. File-scope values, typedefs,
+/// and imports still come from the file-owner body. Child module bodies are
+/// not lowered here.
 #[salsa::tracked(lru = 128, returns(clone))]
 pub fn unit_scope(db: &dyn HirDefDb) -> Arc<ScopeData> {
     let mut unit = ScopeData::default();
@@ -176,14 +180,35 @@ impl ScopeData {
 
 pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> ScopeData {
     let mut scope = ScopeData::default();
-    let file_owner = db.owner_table(file_id).file_owner().expect("file owner must exist");
+    let owner_table = db.owner_table(file_id);
+    let file_owner = owner_table.file_owner().expect("file owner must exist");
+
+    // Compilation-unit design units and file-scope subroutines are on the
+    // owner table. Projecting them through `from_owner` must not lower a
+    // child body: that is what made `$unit` pay for every module in the
+    // project.
+    for owner in owner_table.owners() {
+        if owner.parent != Some(file_owner) {
+            continue;
+        }
+        let name = (!owner.name.is_empty()).then(|| owner.name.clone());
+        match owner.kind {
+            OwnerKind::Module => {
+                if let Some(def) = DefId::from_owner(db, owner.id) {
+                    scope.insert_type_opt(&name, def);
+                }
+            }
+            OwnerKind::Subroutine => {
+                if let Some(def) = DefId::from_owner(db, owner.id) {
+                    scope.insert_value_opt(&name, def);
+                }
+            }
+            _ => {}
+        }
+    }
+
     let hir_file = db.body(file_owner);
     let body = db.body_with_source_map(file_owner);
-
-    for owner in hir_file.module_owners() {
-        let module = db.body(owner);
-        scope.insert_type_opt(&module.name, def_id(db, DefOriginLoc::Module(owner)));
-    }
 
     for (_, import) in hir_file.package_imports.iter() {
         scope.insert_package_import(import);
@@ -192,11 +217,6 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> ScopeDa
     insert_body_declarators(&mut scope, db, file_owner, body.data_ref(), file_owner);
     insert_body_typedefs(&mut scope, db, file_owner, body.data_ref(), file_owner);
     insert_proc_bodies(&mut scope, db, &hir_file.procs);
-
-    for subroutine_owner in hir_file.subroutine_owners() {
-        let subroutine = db.subroutine(subroutine_owner);
-        scope.insert_value_opt(&subroutine.name, owner_def_id(db, subroutine_owner));
-    }
 
     for (config_decl_id, config_decl) in hir_file.config_decls.iter() {
         scope.insert_value_opt(&config_decl.name, def_id(db, InFile::new(file_id, config_decl_id)));
@@ -627,6 +647,11 @@ endmodule
         );
 
         let unit_scope = db.unit_scope();
+        let module_in_unit = unit_scope
+            .lookup(NameContext::Type, &ident("m"))
+            .unique()
+            .expect("$unit must contain the compilation-unit module");
+        assert_eq!(module_in_unit.kind(&db), DefKind::Module);
         assert!(
             unit_scope
                 .lookup(NameContext::Value, &ident("file_sig"))
@@ -765,6 +790,22 @@ endmodule
         for origin in origins {
             assert_eq!(DefId::from_source(&db, origin.loc(&db).clone()), port);
         }
+    }
+
+    #[test]
+    fn unit_scope_module_def_id_matches_body_backed_projection() {
+        let db = db_with_root_text(
+            r#"
+module m;
+  logic buried;
+endmodule
+"#,
+        );
+        let owner = db.unit_index().module_ids(&ident("m")).unique().expect("m");
+        let from_header = DefId::from_owner(&db, owner).expect("module owner has a definition");
+        assert_eq!(from_header, DefId::from_source(&db, DefOriginLoc::Module(owner)));
+        assert_eq!(from_header.name(&db).as_deref(), Some("m"));
+        assert!(db.unit_scope().lookup(NameContext::Value, &ident("buried")).is_unresolved());
     }
 
     #[test]
