@@ -3,7 +3,8 @@ use std::hash::{Hash, Hasher};
 use rustc_hash::FxHasher;
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTree, SyntaxTreeOptions, WalkEvent,
+    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, SyntaxTree,
+    SyntaxTreeOptions, TriviaKind, WalkEvent,
     ast::{self, AstNode},
     has_name::HasName,
     has_text_range::{HasTextRange, HasTextRangeIn},
@@ -45,17 +46,22 @@ fn walk(tree: &SyntaxTree, source_text: &str) -> FileDeclShard {
     let mut module_depth = 0usize;
     let mut has_compilation_unit_locals = false;
     let mut ordinals = rustc_hash::FxHashMap::<(SmolStr, DeclRole), u32>::default();
+    let mut preprocessor_independent = true;
     let root = tree.root();
-    let trace = tree.preprocessor_trace();
-    let preprocessor_independent = trace.include_edges.is_empty() && trace.events.is_empty();
 
     if root.kind() != SyntaxKind::COMPILATION_UNIT {
-        return FileDeclShard { preprocessor_independent, ..FileDeclShard::default() };
+        return FileDeclShard {
+            preprocessor_independent: !token_walk_has_directive_trivia(root),
+            ..FileDeclShard::default()
+        };
     }
 
     for event in root.elem_preorder() {
         match event {
             WalkEvent::Enter(SyntaxElement::Token(token)) => {
+                if preprocessor_independent && token_has_directive_trivia(token) {
+                    preprocessor_independent = false;
+                }
                 if !token.kind().name_like() {
                     continue;
                 }
@@ -129,6 +135,22 @@ fn walk(tree: &SyntaxTree, source_text: &str) -> FileDeclShard {
         preprocessor_independent,
         has_compilation_unit_locals,
     }
+}
+
+/// Preprocessor directives survive as trivia on the next source token, not as
+/// compilation-unit members. That trivia is the same fact the full
+/// preprocessor trace would record as events.
+fn token_has_directive_trivia(token: SyntaxTokenWithParent<'_>) -> bool {
+    token.trivias().any(|trivia| trivia.kind() == TriviaKind::DIRECTIVE)
+}
+
+fn token_walk_has_directive_trivia(root: SyntaxNode<'_>) -> bool {
+    root.elem_preorder().any(|event| {
+        matches!(
+            event,
+            WalkEvent::Enter(SyntaxElement::Token(token)) if token_has_directive_trivia(token)
+        )
+    })
 }
 
 fn instantiation_at(node: SyntaxNode<'_>) -> Option<Instantiation> {
@@ -272,4 +294,45 @@ fn fingerprint(
         header.hash(&mut hasher);
     }
     hasher.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shard(text: &str) -> FileDeclShard {
+        let tree = SyntaxTree::from_file_in_memory(text, "t.sv", "t.sv");
+        walk(&tree, text)
+    }
+
+    #[test]
+    fn plain_module_is_preprocessor_independent() {
+        let shard = shard("module m;\nendmodule\n");
+        assert!(shard.preprocessor_independent);
+        assert_eq!(shard.decls.len(), 1);
+    }
+
+    #[test]
+    fn define_is_preprocessor_activity() {
+        let shard = shard("`define W 8\nmodule m;\nendmodule\n");
+        assert!(!shard.preprocessor_independent);
+    }
+
+    #[test]
+    fn include_is_preprocessor_activity() {
+        let shard = shard("`include \"a.svh\"\nmodule m;\nendmodule\n");
+        assert!(!shard.preprocessor_independent);
+    }
+
+    #[test]
+    fn ifdef_is_preprocessor_activity() {
+        let shard = shard("`ifdef W\nmodule m;\nendmodule\n`endif\n");
+        assert!(!shard.preprocessor_independent);
+    }
+
+    #[test]
+    fn macro_usage_is_preprocessor_activity() {
+        let shard = shard("module m;\n  logic [`UNKNOWN-1:0] x;\nendmodule\n");
+        assert!(!shard.preprocessor_independent);
+    }
 }
