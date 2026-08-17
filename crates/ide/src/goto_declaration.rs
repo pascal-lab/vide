@@ -14,6 +14,10 @@ pub(crate) fn goto_declaration(
     db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
+    if let Some(target) = crate::design_unit::goto_definition(db, FilePosition { file_id, offset })
+    {
+        return Some(target);
+    }
     let sema = db.semantics();
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);

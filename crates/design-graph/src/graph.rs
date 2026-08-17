@@ -33,7 +33,11 @@ impl GeneratedUnits {
         ids: Box<[UnitId]>,
         meta: FxHashMap<UnitId, UnitMeta>,
     ) -> bool {
-        if self.by_file.get(&file).is_some_and(|old| old.as_ref() == ids.as_ref()) {
+        let previous = self.by_file.get(&file).map(Box::as_ref).unwrap_or(&[]);
+        if previous == ids.as_ref() {
+            if self.by_file.get(&file).is_none() {
+                self.by_file.insert(file, ids);
+            }
             return false;
         }
         if let Some(old) = self.by_file.insert(file, ids) {
@@ -62,6 +66,10 @@ impl<T> GraphResolution<T> {
         }
     }
 
+    pub fn is_unresolved(&self) -> bool {
+        matches!(self, Self::Unresolved)
+    }
+
     pub fn into_vec(self) -> SmallVec<[T; 1]> {
         match self {
             Self::Unique(item) => {
@@ -71,6 +79,15 @@ impl<T> GraphResolution<T> {
             }
             Self::Ambiguous(items) => items.into_iter().collect(),
             Self::Unresolved => SmallVec::new(),
+        }
+    }
+}
+
+impl<T: Clone> GraphResolution<T> {
+    pub fn unique(&self) -> Option<T> {
+        match self {
+            Self::Unique(item) => Some(item.clone()),
+            Self::Ambiguous(_) | Self::Unresolved => None,
         }
     }
 }
@@ -118,7 +135,7 @@ impl DesignGraph {
         graph
     }
 
-    fn insert(&mut self, id: UnitId, meta: UnitMeta) {
+    pub(crate) fn insert(&mut self, id: UnitId, meta: UnitMeta) {
         self.by_name.entry(id.name.clone()).or_default().push(id.clone());
         self.meta.insert(id, meta);
     }

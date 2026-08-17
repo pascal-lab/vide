@@ -197,9 +197,8 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> ScopeDa
         let name = (!owner.name.is_empty()).then(|| owner.name.clone());
         match owner.kind {
             OwnerKind::Module => {
-                if let Some(def) = DefId::from_owner(db, owner.id) {
-                    scope.insert_type_opt(&name, def);
-                }
+                // Compilation-unit design units live on DesignGraph, not in
+                // the file / $unit lexical scope.
             }
             OwnerKind::Subroutine => {
                 if let Some(def) = DefId::from_owner(db, owner.id) {
@@ -499,6 +498,7 @@ mod tests {
         module::port::{PortSrcs, Ports},
         pathres::resolve_name,
         symbol::{DefKind, DefOriginLoc, NameContext, Resolution, ScopeKind},
+        unit::ToOwner,
     };
 
     const TOP: FileId = FileId::from_raw(0);
@@ -653,11 +653,13 @@ endmodule
         );
 
         let unit_scope = db.unit_scope();
-        let module_in_unit = unit_scope
-            .lookup(NameContext::Type, &ident("m"))
-            .unique()
-            .expect("$unit must contain the compilation-unit module");
+        let module_in_unit = DefId::from_owner(&db, crate::unit::test_module_owner(&db, "m"))
+            .expect("compilation-unit module projects");
         assert_eq!(module_in_unit.kind(&db), DefKind::Module);
+        assert!(
+            unit_scope.lookup(NameContext::Type, &ident("m")).is_unresolved(),
+            "design-unit names are not $unit locals"
+        );
         assert!(
             unit_scope
                 .lookup(NameContext::Value, &ident("file_sig"))
@@ -674,8 +676,7 @@ endmodule
         assert!(shared_value_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Net));
         assert!(!shared_value_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Typedef));
 
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         assert_eq!(module_id.file(&db), HirFileId::File(TOP));
 
         let module_scope = db.scope(module_id);
@@ -777,8 +778,7 @@ endmodule
         assert_eq!(candidates.len(), 2);
         assert!(candidates.iter().all(|def| def.origins(&db).len() == 1));
 
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let port = db
             .scope(module_id)
             .lookup(NameContext::Value, &ident("a"))
@@ -801,7 +801,7 @@ module m;
 endmodule
 "#,
         );
-        let owner = db.unit_module_ids(&ident("m")).unique().expect("m");
+        let owner = crate::unit::test_module_owner(&db, "m");
         let from_header = DefId::from_owner(&db, owner).expect("module owner has a definition");
         assert_eq!(from_header, DefId::from_source(&db, DefOriginLoc::Module(owner)));
         assert_eq!(from_header.name(&db).as_deref(), Some("m"));
@@ -817,8 +817,7 @@ module m(.out(foo));
 endmodule
 "#,
         );
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let module = db.body_with_source_map(module_id);
         let Ports::NonAnsi { ports, .. } = &module.ports else {
             panic!("module should have non-ANSI ports");
@@ -840,8 +839,7 @@ module m(foo);
 endmodule
 "#,
         );
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let module = db.body_with_source_map(module_id);
         let source_map = module.source_map();
         let Ports::NonAnsi { ports, .. } = &module.ports else {
@@ -887,8 +885,7 @@ module m(a);
 endmodule
 "#,
         );
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let before = db
             .scope(module_id)
             .lookup(NameContext::Value, &ident("a"))
@@ -919,8 +916,7 @@ endmodule
             Durability::LOW,
         );
 
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should still resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let after = db
             .scope(module_id)
             .lookup(NameContext::Value, &ident("a"))
@@ -940,8 +936,7 @@ module m(a);
 endmodule
 "#,
         );
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let Resolution::Ambiguous(candidates) =
             db.scope(module_id).lookup(NameContext::Value, &ident("a"))
         else {
@@ -964,8 +959,7 @@ module m(a, a);
 endmodule
 "#,
         );
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let Resolution::Ambiguous(candidates) =
             db.scope(module_id).lookup(NameContext::Value, &ident("a"))
         else {
@@ -986,8 +980,7 @@ module m(a);
 endmodule
 "#,
         );
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let Resolution::Ambiguous(candidates) =
             db.scope(module_id).lookup(NameContext::Value, &ident("a"))
         else {
@@ -1009,8 +1002,7 @@ endmodule
 "#,
         );
 
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let owner = module_id;
         let module = db.body_with_source_map(owner);
         let (expr_id, expr) = module
@@ -1042,8 +1034,7 @@ module m;
 endmodule
 "#,
         );
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let module = db.body_with_source_map(module_id);
         let proc = module.procs.iter().next().expect("initial block should lower").1;
         let body = db.body_with_source_map(proc.owner);
@@ -1082,8 +1073,7 @@ endmodule
 "#,
         );
 
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let module = db.body_with_source_map(module_id);
         let proc = module.procs.iter().next().expect("initial block should lower").1;
         let body = db.body_with_source_map(proc.owner);
@@ -1127,8 +1117,7 @@ module m;
 endmodule
 "#,
         );
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let module = db.body_with_source_map(module_id);
         let proc = module.procs.iter().next().expect("always block should lower").1;
         let body = db.body_with_source_map(proc.owner);
@@ -1163,8 +1152,7 @@ module m;
 endmodule
 "#,
         );
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let module = db.body_with_source_map(module_id);
         assert!(
             module
@@ -1198,8 +1186,7 @@ module m(input logic x, y);
 endmodule
 "#,
         );
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let module = db.body_with_source_map(module_id);
         assert!(
             module.items.iter().any(|item| matches!(item, crate::body::BodyItem::PropertyId(_)))
@@ -1235,8 +1222,7 @@ endmodule
 "#,
         );
 
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let module = db.body_with_source_map(module_id);
         let declaration = module
             .declarations
@@ -1259,8 +1245,7 @@ module m;
 endmodule
 "#,
         );
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let module = db.body_with_source_map(module_id);
         let proc = module.procs.iter().next().expect("initial block should lower").1;
         let body = db.body_with_source_map(proc.owner);
@@ -1300,8 +1285,7 @@ endmodule
 "#,
         );
 
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let owner = module_id;
         let module = db.body_with_source_map(owner);
         let stream = module
@@ -1330,8 +1314,7 @@ endmodule
 "#,
         );
 
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let owner = module_id;
         let module = db.body_with_source_map(owner);
         let stream = module
@@ -1368,8 +1351,7 @@ endmodule
 "#,
         );
 
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let module = db.body_with_source_map(module_id);
         let clocking_owner = module
             .items
@@ -1426,7 +1408,13 @@ endmodule
 "#,
         );
 
-        let checker_defs = db.unit_scope().lookup(NameContext::Type, &ident("c"));
+        let checker_owner = crate::unit::test_graph(&db)
+            .type_units_named("c")
+            .unique()
+            .expect("checker is a graph node")
+            .to_owner(&db)
+            .expect("checker projects");
+        let checker_defs = DefId::from_owner(&db, checker_owner).map(Resolution::Unique).unwrap();
         assert!(checker_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Checker));
         let checker_id = checker_defs
             .iter()
@@ -1448,8 +1436,7 @@ endmodule
                 .any(|def_id| def_id.kind(&db) == DefKind::Variable)
         );
 
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let module = db.body(module_id);
         let instantiation = module
             .instantiations
@@ -1479,8 +1466,7 @@ endmodule
 "#,
         );
 
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let module = db.body(module_id);
         let covergroup_owner = module
             .items
@@ -1570,8 +1556,7 @@ endmodule
 "#,
         );
 
-        let package_id =
-            db.unit_package_ids(&ident("pkg")).unique().expect("package should resolve uniquely");
+        let package_id = crate::unit::test_package_owner(&db, "pkg");
         let package_exports = db.package_exports(package_id);
         assert!(
             package_exports
@@ -1592,10 +1577,7 @@ endmodule
                 .any(|def_id| def_id.kind(&db) == DefKind::Subroutine)
         );
 
-        let wildcard_importer = db
-            .unit_module_ids(&ident("wildcard_importer"))
-            .unique()
-            .expect("wildcard importer should resolve uniquely");
+        let wildcard_importer = crate::unit::test_module_owner(&db, "wildcard_importer");
         let wildcard_scope = db.scope(wildcard_importer);
         assert!(
             wildcard_scope
@@ -1634,10 +1616,7 @@ endmodule
         assert!(shadowed_v.iter().any(|def_id| def_id.kind(&db) == DefKind::Net));
         assert!(!shadowed_v.iter().any(|def_id| def_id.kind(&db) == DefKind::Variable));
 
-        let named_importer = db
-            .unit_module_ids(&ident("named_importer"))
-            .unique()
-            .expect("named importer should resolve uniquely");
+        let named_importer = crate::unit::test_module_owner(&db, "named_importer");
         let named_scope = db.scope(named_importer);
         assert!(named_scope.imports().iter().any(|import| {
             import.package == ident("pkg")
@@ -1685,8 +1664,7 @@ endmodule
 "#,
         );
 
-        let package_id =
-            db.unit_package_ids(&ident("pkg")).unique().expect("package should resolve uniquely");
+        let package_id = crate::unit::test_package_owner(&db, "pkg");
         let package_f = resolve_name(
             &db,
             &crate::pathres::ResolutionContext::from_db(&db),
@@ -1703,10 +1681,7 @@ endmodule
         };
         assert_eq!(package_subroutine.parent(&db), Some(package_id));
 
-        let named_importer = db
-            .unit_module_ids(&ident("named_importer"))
-            .unique()
-            .expect("named importer should resolve uniquely");
+        let named_importer = crate::unit::test_module_owner(&db, "named_importer");
         let named_import_f = resolve_name(
             &db,
             &crate::pathres::ResolutionContext::from_db(&db),
@@ -1717,10 +1692,7 @@ endmodule
         .unique()
         .expect("named import should resolve package subroutine");
 
-        let wildcard_importer = db
-            .unit_module_ids(&ident("wildcard_importer"))
-            .unique()
-            .expect("wildcard importer should resolve uniquely");
+        let wildcard_importer = crate::unit::test_module_owner(&db, "wildcard_importer");
         let wildcard_import_f = resolve_name(
             &db,
             &crate::pathres::ResolutionContext::from_db(&db),
@@ -1752,8 +1724,7 @@ module m;
 endmodule
 "#,
         );
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let before = db
             .scope(module_id)
             .lookup(NameContext::Value, &ident("stable"))
@@ -1773,8 +1744,7 @@ endmodule
             Durability::LOW,
         );
 
-        let module_id =
-            db.unit_module_ids(&ident("m")).unique().expect("module should still resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let after = db
             .scope(module_id)
             .lookup(NameContext::Value, &ident("stable"))
@@ -1796,10 +1766,7 @@ module second;
 endmodule
 "#,
         );
-        let second = db
-            .unit_module_ids(&ident("second"))
-            .unique()
-            .expect("second module should resolve uniquely");
+        let second = crate::unit::test_module_owner(&db, "second");
         let before = db
             .scope(second)
             .lookup(NameContext::Value, &ident("second_value"))
@@ -1823,10 +1790,7 @@ endmodule
             Durability::LOW,
         );
 
-        let second = db
-            .unit_module_ids(&ident("second"))
-            .unique()
-            .expect("second module should remain unique");
+        let second = crate::unit::test_module_owner(&db, "second");
         let after = db
             .scope(second)
             .lookup(NameContext::Value, &ident("second_value"))
@@ -1850,8 +1814,7 @@ endpackage
 "#,
         );
 
-        let package_id =
-            db.unit_package_ids(&ident("pkg")).unique().expect("package should resolve uniquely");
+        let package_id = crate::unit::test_package_owner(&db, "pkg");
 
         let exports = db.package_exports(package_id);
         assert!(
@@ -1862,7 +1825,7 @@ endpackage
         );
 
         let before_body_edit = db.package_export_signature(package_id);
-        let before_design_map = db.design_map();
+        let before_design_map = crate::pathres::ResolutionContext::from_db(&db).design_map(&db);
         db.set_file_text_with_durability(
             TOP,
             Arc::from(
@@ -1884,7 +1847,7 @@ endpackage
             before_body_edit, after_body_edit,
             "function body edits should not change the package export signature"
         );
-        let after_design_map = db.design_map();
+        let after_design_map = crate::pathres::ResolutionContext::from_db(&db).design_map(&db);
         assert_eq!(
             before_design_map, after_design_map,
             "function body edits should not change the design map"
@@ -1896,7 +1859,7 @@ endpackage
         let db = db_with_root_text(
             "module m #(parameter int A = 0, parameter type T = logic, parameter int B = 1) ();\nendmodule\n",
         );
-        let module_id = db.unit_module_ids(&ident("m")).unique().expect("m");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let body = db.body(module_id);
         assert_eq!(crate::module::param_port_count(&body), 3);
         assert!(crate::module::param_port_id_by_idx(&body, 0).is_some(), "A");
@@ -1912,7 +1875,7 @@ endpackage
     #[test]
     fn default_nettype_selects_implicit_port_net_kind() {
         let db = db_with_root_text("`default_nettype tri\nmodule m(input a);\nendmodule\n");
-        let module_id = db.unit_module_ids(&ident("m")).unique().expect("m");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let body = db.body(module_id);
         let Ports::Ansi(port_decls) = &body.ports else {
             panic!("module should have ANSI ports");
@@ -1936,7 +1899,7 @@ endpackage
             "`default_nettype tri\nmodule a(input x);\nendmodule\n`default_nettype wire\nmodule b(input y);\nendmodule\n",
         );
         let kinds = ["a", "b"].map(|name| {
-            let module_id = db.unit_module_ids(&ident(name)).unique().expect(name);
+            let module_id = crate::unit::test_module_owner(&db, name);
             let body = db.body(module_id);
             let Ports::Ansi(port_decls) = &body.ports else {
                 panic!("module should have ANSI ports");
@@ -1956,7 +1919,7 @@ endpackage
     #[test]
     fn interface_port_header_is_not_previous_header() {
         let db = db_with_root_text("module m(input logic a, interface.ifc);\nendmodule\n");
-        let module_id = db.unit_module_ids(&ident("m")).unique().expect("m");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let body = db.body(module_id);
         let Ports::Ansi(port_decls) = &body.ports else {
             panic!("module should have ANSI ports");
@@ -1975,7 +1938,7 @@ endpackage
         let db = db_with_root_text(
             "package pkg;\nendpackage\nmodule m;\ninitial begin\nx = pkg::arr[0];\nend\nendmodule\n",
         );
-        let module_id = db.unit_module_ids(&ident("m")).unique().expect("m");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let module = db.body_with_source_map(module_id);
         let (_, proc) = module.procs.iter().next().expect("initial block");
         let body = db.body_with_source_map(proc.owner);
@@ -1997,7 +1960,7 @@ endpackage
         let db = db_with_root_text(
             "module m #(parameter int A = 0, parameter int B = 1) ();\n  parameter int P = 2;\nendmodule\n",
         );
-        let module_id = db.unit_module_ids(&ident("m")).unique().expect("m");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let body = db.body(module_id);
         let a = crate::module::param_port_id_by_idx(&body, 0).expect("A");
         let b = crate::module::param_port_id_by_idx(&body, 1).expect("B");

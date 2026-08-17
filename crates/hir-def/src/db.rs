@@ -10,7 +10,6 @@ use crate::{
     ast_id_map::{self, AstIdMap, SyntaxFileId},
     body::{self, Body},
     def_id::{self, DefinitionTable},
-    design_map,
     design_map::PackageExports,
     diagnostics,
     item_tree::{self, DeclarationSkeleton, ItemTree, ItemTreeItem, Signature},
@@ -19,7 +18,6 @@ use crate::{
     source_map::Lowered,
     source_projection::{self, SourceProjection},
     subroutine::Subroutine,
-    unit_index,
 };
 
 #[salsa::db]
@@ -111,16 +109,10 @@ impl dyn HirDefDb + '_ {
         <dyn DesignGraphDb>::file_facts(self, file_id)
     }
 
-    pub fn unit_index(&self) -> Arc<crate::unit_index::UnitIndex> {
-        unit_index::unit_index(self)
-    }
-
-    pub fn unit_module_ids(&self, name: &smol_str::SmolStr) -> crate::symbol::Resolution<OwnerId> {
-        self.unit_index().module_ids(self, name)
-    }
-
-    pub fn unit_package_ids(&self, name: &smol_str::SmolStr) -> crate::symbol::Resolution<OwnerId> {
-        self.unit_index().package_ids(self, name)
+    /// Source-visible name join for salsa interiors. Generated units live on
+    /// the injected store graph, not here.
+    pub fn source_design_graph(&self) -> Arc<design_graph::DesignGraph> {
+        source_design_graph(self)
     }
 
     pub fn subroutine(&self, owner: OwnerId) -> Arc<Subroutine> {
@@ -138,7 +130,8 @@ impl dyn HirDefDb + '_ {
     }
 
     pub fn package_exports(&self, package_owner: OwnerId) -> Arc<PackageExports> {
-        self.design_map()
+        crate::pathres::ResolutionContext::from_db(self)
+            .design_map(self)
             .package_exports(package_owner)
             .expect("package owner must be present in the design map")
     }
@@ -150,10 +143,6 @@ impl dyn HirDefDb + '_ {
     ) -> Arc<[(TextSize, Option<crate::ty::NetKind>)]> {
         crate::ty::default_nettype_directives(self, self.syntax_file(file_id))
     }
-
-    pub fn design_map(&self) -> Arc<crate::design_map::DesignMap> {
-        crate::design_map::design_map(self)
-    }
 }
 
 /// Sets the LRU capacity of the tracked HIR queries.
@@ -161,13 +150,17 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     ast_id_map::set_ast_id_map_lru_capacity(db, capacity);
     body::set_body_lru_capacity(db, capacity);
     def_id::set_definition_table_lru_capacity(db, capacity);
-    design_map::set_lru_capacity(db, capacity);
     item_tree::set_item_tree_lru_capacity(db, capacity);
     design_graph::set_file_facts_lru_capacity(db, capacity);
     owner::set_owner_table_lru_capacity(db, capacity);
-    unit_index::set_lru_capacity(db, capacity);
     scope::set_scope_lru_capacity(db, capacity);
     source_projection::set_source_projection_lru_capacity(db, capacity);
     crate::region_tree::set_region_tree_lru_capacity(db, capacity);
     crate::ty::set_default_nettype_lru_capacity(db, capacity);
+    source_design_graph::set_lru_capacity(db, capacity);
+}
+
+#[salsa::tracked(lru = 128, returns(clone))]
+fn source_design_graph(db: &dyn HirDefDb) -> Arc<design_graph::DesignGraph> {
+    Arc::new(design_graph::DesignGraph::fold(db, &design_graph::GeneratedUnits::default()))
 }

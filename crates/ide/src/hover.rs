@@ -53,42 +53,13 @@ pub(crate) fn hover(
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Markup>> {
     let _span = tracing::debug_span!("ide.hover", ?file_id, ?offset).entered();
-    if let Some(hover) = design_unit_hover_from_shard(db, file_id, offset) {
+    if let Some(hover) = crate::design_unit::hover(db, FilePosition { file_id, offset }) {
         return Some(hover);
     }
     let tree = db.parse_file(file_id);
     let target =
         resolve_semantic_target(db.db, file_id, offset, Some(tree.root()), token_precedence);
     render_hover_target(db, file_id, offset, target)
-}
-
-/// Cursor is on a compilation-unit design-unit name. The hover is that
-/// declaration's recorded header text; do not lower the body.
-fn design_unit_hover_from_shard(
-    db: &AnalysisContext<'_>,
-    file_id: FileId,
-    offset: TextSize,
-) -> Option<RangeInfo<Markup>> {
-    let decl = db.file_facts(file_id).design_unit_at(offset)?.clone();
-    let range = decl.name_range?;
-    let text = db.file_text(file_id);
-    let header = decl
-        .header_range
-        .and_then(|header| {
-            let start = usize::from(header.start());
-            let end = usize::from(header.end());
-            text.get(start..end)
-        })
-        .map(str::trim_end)
-        .filter(|header| !header.is_empty())
-        .unwrap_or(decl.id.name.as_str());
-
-    let mut markup = Markup::new();
-    markup.push_with_code_fence(header);
-    if let Some(link) = crate::render::source_location_link(db, file_id, range.start(), file_id) {
-        markup.metadata_line(&format!("from {link}"));
-    }
-    Some(RangeInfo::new(range, markup))
 }
 
 fn render_hover_target(

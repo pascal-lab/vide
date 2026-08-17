@@ -116,6 +116,9 @@ pub(crate) fn prepare_rename(
     position @ FilePosition { file_id, .. }: FilePosition,
     config: RenameConfig,
 ) -> RenameResult<TextRange> {
+    if let Err(error) = crate::design_unit::rename_guard(db, position) {
+        return Err(error);
+    }
     let sema = db.semantics();
     let target = resolve_rename_target(db, &sema, position)?;
     match &target {
@@ -133,6 +136,9 @@ pub(crate) fn rename(
     config: RenameConfig,
     new_name: &str,
 ) -> RenameResult<SourceChange> {
+    if let Err(error) = crate::design_unit::rename_guard(db, position) {
+        return Err(error);
+    }
     let sema = db.semantics();
     match resolve_rename_target(db, &sema, position)? {
         RenameTarget::Macro(target) => rename_macro(db.db, file_id, &config, target, new_name),

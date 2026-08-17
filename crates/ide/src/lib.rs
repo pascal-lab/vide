@@ -23,6 +23,7 @@ pub mod code_action;
 pub mod code_lens;
 pub mod completion;
 pub mod db;
+pub(crate) mod design_unit;
 pub mod diagnostics;
 pub mod document_highlight;
 pub mod document_symbols;

@@ -123,7 +123,14 @@ pub(crate) fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Instance => origin
             .as_instance(db)
-            .and_then(|instance| instance_target_def_id(db, instance.cont_id, instance.value))
+            .and_then(|instance| {
+                instance_target_def_id(
+                    db,
+                    &ResolutionContext::from_db(db),
+                    instance.cont_id,
+                    instance.value,
+                )
+            })
             .map(|target| match target.kind(db) {
                 DefKind::Interface => {
                     TyResult::new(Ty::VirtualInterface { def: target, modport: None })

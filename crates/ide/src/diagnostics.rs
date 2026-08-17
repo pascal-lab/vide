@@ -12,7 +12,7 @@ use vfs::FileId;
 
 use crate::{
     db::root_db::RootDb,
-    module_resolution::{ModuleResolution, ModuleResolutionAmbiguity, resolve_module_name},
+    module_resolution::{ModuleResolution, resolve_module_name},
 };
 
 const AMBIGUOUS_MODULE_INSTANTIATION: VideDiagnosticDescriptor =
@@ -446,13 +446,9 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
             }
 
             match resolve_module_name(db, file_id, module_name) {
-                ModuleResolution::Ambiguous { candidates, kind } => {
+                ModuleResolution::Ambiguous { candidates } => {
                     let (severity, message, message_key, message_args) =
-                        ambiguous_module_instantiation_diagnostic(
-                            module_name,
-                            candidates.len(),
-                            kind,
-                        );
+                        ambiguous_module_instantiation_diagnostic(module_name, candidates.len());
                     diagnostics.push(AMBIGUOUS_MODULE_INSTANTIATION.diagnostic(
                         diag_file_id,
                         range,
@@ -462,9 +458,7 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
                         message_args,
                     ));
                 }
-                ModuleResolution::Unique(_)
-                | ModuleResolution::BestEffortProximity { .. }
-                | ModuleResolution::Unresolved => {}
+                ModuleResolution::Unique(_) | ModuleResolution::Unresolved => {}
             }
         }
     }
@@ -526,32 +520,18 @@ impl VideDiagnosticProvider for AmbiguousModuleInstantiation {
 fn ambiguous_module_instantiation_diagnostic(
     module_name: &str,
     candidate_count: usize,
-    kind: ModuleResolutionAmbiguity,
 ) -> (DiagnosticSeverity, String, &'static str, Vec<(&'static str, String)>) {
-    let message_args = || {
+    (
+        DiagnosticSeverity::Warning,
+        format!(
+            "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
+        ),
+        DIAGNOSTIC_AMBIGUOUS_MODULE_STRICT,
         vec![
             ("module_name", module_name.to_owned()),
             ("candidate_count", candidate_count.to_string()),
-        ]
-    };
-    match kind {
-        ModuleResolutionAmbiguity::Strict => (
-            DiagnosticSeverity::Warning,
-            format!(
-                "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
-            ),
-            DIAGNOSTIC_AMBIGUOUS_MODULE_STRICT,
-            message_args(),
-        ),
-        ModuleResolutionAmbiguity::BestEffortTie => (
-            DiagnosticSeverity::Note,
-            format!(
-                "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
-            ),
-            DIAGNOSTIC_AMBIGUOUS_MODULE_BEST_EFFORT,
-            message_args(),
-        ),
-    }
+        ],
+    )
 }
 
 fn to_text_range(diag: &SyntaxDiagnostic) -> Option<TextRange> {
@@ -696,15 +676,15 @@ mod tests {
             diagnostics.iter().any(|diag| {
                 diag.source == DiagnosticSource::Vide
                     && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
-                    && diag.severity == syntax::diagnostics::DiagnosticSeverity::Note
+                    && diag.severity == syntax::diagnostics::DiagnosticSeverity::Warning
                     && diag.message.contains("matches 2 module definitions")
             }),
-            "expected vide ambiguous module information: {diagnostics:?}"
+            "expected vide ambiguous module warning: {diagnostics:?}"
         );
     }
 
     #[test]
-    fn best_effort_nearest_module_instantiation_does_not_report_vide_diagnostic() {
+    fn best_effort_duplicate_module_instantiation_reports_vide_warning() {
         let db = db_with_files_in_role(
             &[
                 ("/project/a/child.sv", "module child; endmodule\n"),
@@ -718,8 +698,12 @@ mod tests {
         let diagnostics = diagnostics(&db, FileId::from_raw(1));
 
         assert!(
-            diagnostics.iter().all(|diag| diag.source != DiagnosticSource::Vide),
-            "nearest best-effort module should not produce Vide diagnostics: {diagnostics:?}"
+            diagnostics.iter().any(|diag| {
+                diag.source == DiagnosticSource::Vide
+                    && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
+                    && diag.severity == syntax::diagnostics::DiagnosticSeverity::Warning
+            }),
+            "duplicates stay ambiguous on the graph: {diagnostics:?}"
         );
     }
 

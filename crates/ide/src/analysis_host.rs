@@ -75,6 +75,7 @@ impl AnalysisHost {
         if invalidate_workspace {
             self.store = Arc::new(ProductStore::default());
             self.db.apply_change(change);
+            self.start_prewarm(self.db.files().iter().copied().collect());
         } else if !affected_files.is_empty() {
             let store = self.store.fork();
             store.capture_epoch(&self.db, &dirty_files);
@@ -122,6 +123,9 @@ impl AnalysisHost {
                 }
                 let ctx = AnalysisContext { db: &db, store: &store };
                 let hot = store.hot();
+                if hot.design_graph {
+                    let _ = ctx.prewarm_design_graph(&worker_cancel);
+                }
                 if hot.snapshot_inputs {
                     let _ = ctx.prewarm_semantic_snapshot_inputs(&worker_cancel);
                 }

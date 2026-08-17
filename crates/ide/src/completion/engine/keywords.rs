@@ -42,8 +42,9 @@ fn module_instantiation_snippets(
     }
 
     let mut modules: Vec<String> = db
-        .unit_index()
+        .design_graph()
         .module_names()
+        .iter()
         .map(|ident| ident.to_string())
         .filter(|name| name.starts_with(prefix))
         .collect();

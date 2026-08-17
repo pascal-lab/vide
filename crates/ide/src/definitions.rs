@@ -4,6 +4,7 @@ use hir_def::{
     lower_ident_opt,
     owner::OwnerId,
     symbol::{DefKind, DefOrigin, NameContext, Resolution},
+    unit::ToOwner,
 };
 use hir_semantics::semantics::SemanticsImpl;
 use preproc_expand::file::HirFileId;
@@ -19,10 +20,7 @@ use syntax::{
 use crate::{
     analysis::AnalysisContext,
     db::workspace_symbol_index_db::WorkspaceSymbolIndexDb,
-    module_resolution::{
-        ModuleResolution, resolve_instantiation_target, resolve_named_param_assignment,
-        resolve_named_port_connection,
-    },
+    module_resolution::{resolve_named_param_assignment, resolve_named_port_connection},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -305,7 +303,7 @@ fn package_member_resolution(
 
 fn resolve_instantiation_type_name(
     db: &dyn WorkspaceSymbolIndexDb,
-    _context: &crate::semantic_index::SemanticSnapshotInputs,
+    context: &crate::semantic_index::SemanticSnapshotInputs,
     sema: &SemanticsImpl,
     file_id: HirFileId,
     tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
@@ -335,32 +333,30 @@ fn resolve_instantiation_type_name(
         SyntaxAncestors::start_from(parent).find_map(ast::HierarchyInstantiation::cast)
         && instantiation.type_() == Some(tok)
     {
-        let resolution =
-            match resolve_instantiation_target(db, file_id.expect_file(), instantiation) {
-                ModuleResolution::Unique(module_id)
-                | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
-                    Resolution::Unique(
-                        DefId::from_owner(sema.db, module_id)
-                            .expect("module owner must have a definition"),
-                    )
-                }
-                ModuleResolution::Ambiguous { candidates, .. } => {
-                    Resolution::from_candidates(candidates.into_iter().map(|module_id| {
-                        DefId::from_owner(sema.db, module_id)
-                            .expect("module owner must have a definition")
-                    }))
-                }
-                ModuleResolution::Unresolved => {
-                    nameres_ident(sema, file_id, tp, NameContext::Type, container).or_else(|| {
-                        Resolution::from_candidates(
-                            nameres_ident(sema, file_id, tp, NameContext::Value, container)
-                                .into_candidates()
-                                .into_iter()
-                                .filter(|def| def.kind(sema.db) == DefKind::Udp),
-                        )
-                    })
-                }
-            };
+        let name = hir_def::lower_ident_opt(Some(tok));
+        let cu = name.as_ref().map(|name| {
+            hir_def::symbol::Resolution::from_candidates(
+                context
+                    .hir
+                    .graph()
+                    .modules_named(name)
+                    .into_vec()
+                    .into_iter()
+                    .filter_map(|unit| unit.to_owner(sema.db))
+                    .filter_map(|owner| DefId::from_owner(sema.db, owner)),
+            )
+        });
+        let resolution = match cu {
+            Some(resolution) if !resolution.is_unresolved() => resolution,
+            _ => nameres_ident(sema, file_id, tp, NameContext::Type, container).or_else(|| {
+                Resolution::from_candidates(
+                    nameres_ident(sema, file_id, tp, NameContext::Value, container)
+                        .into_candidates()
+                        .into_iter()
+                        .filter(|def| def.kind(sema.db) == DefKind::Udp),
+                )
+            }),
+        };
         return Some(resolution.map(DefinitionClass::Definition));
     }
 

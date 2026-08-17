@@ -1,5 +1,5 @@
 use base_db::source_root::SourceRootId;
-use design_graph::{GeneratedUnits, UnitId, UnitMeta};
+use design_graph::{DesignGraph, GeneratedUnits, UnitId, UnitMeta};
 use hir_def::pathres::ResolutionContext;
 use parking_lot::Mutex;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -22,16 +22,32 @@ use crate::{
 ///
 /// Survives [`EpochDecision::Drop`] so a structural edit still prewarms what
 /// the user was using. Dies with the store on a workspace reset.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct HotProducts {
     pub snapshot_inputs: bool,
+    /// Always a workspace product. True from initialize so ready waits for
+    /// fold.
+    pub design_graph: bool,
     pub files: FxHashSet<FileId>,
     pub module_edge_roots: FxHashSet<SourceRootId>,
     pub name_index_roots: FxHashSet<SourceRootId>,
 }
 
+impl Default for HotProducts {
+    fn default() -> Self {
+        Self {
+            snapshot_inputs: false,
+            design_graph: true,
+            files: FxHashSet::default(),
+            module_edge_roots: FxHashSet::default(),
+            name_index_roots: FxHashSet::default(),
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 struct StructureProducts {
+    design_graph: Arc<ProductCell<DesignGraph>>,
     resolution: Arc<ProductCell<ResolutionContext>>,
     snapshot_inputs: Arc<ProductCell<SemanticSnapshotInputs>>,
 }
@@ -63,11 +79,16 @@ struct Inner {
 
 impl Inner {
     fn drop_structure_products(&mut self) {
-        self.structure.resolution = Arc::new(ProductCell::default());
-        self.structure.snapshot_inputs = Arc::new(ProductCell::default());
+        self.drop_design_graph_products();
         self.shards.file_indexes.clear();
         self.shards.module_edges.clear();
         self.shards.names.clear();
+    }
+
+    fn drop_design_graph_products(&mut self) {
+        self.structure.design_graph = Arc::new(ProductCell::default());
+        self.structure.resolution = Arc::new(ProductCell::default());
+        self.structure.snapshot_inputs = Arc::new(ProductCell::default());
     }
 }
 
@@ -103,18 +124,32 @@ impl ProductStore {
         self.inner.lock().parse_dependencies.insert(file_id, dependencies);
     }
 
-    /// Book-keep generated units for one file. Does not drop any product cell.
+    /// Book-keep generated units for one file. Drops the design-graph cells
+    /// only when this file's generated `UnitId` set actually changed.
     pub(crate) fn record_generated_units(
         &self,
         file_id: FileId,
         ids: Box<[UnitId]>,
         meta: FxHashMap<UnitId, UnitMeta>,
     ) {
-        self.inner.lock().generated.replace_file(file_id, ids, meta);
+        let changed = self.inner.lock().generated.replace_file(file_id, ids, meta);
+        if changed {
+            self.invalidate_design_graph();
+        }
     }
 
     pub(crate) fn generated_units(&self) -> GeneratedUnits {
         self.inner.lock().generated.clone()
+    }
+
+    pub(crate) fn invalidate_design_graph(&self) {
+        self.inner.lock().drop_design_graph_products();
+    }
+
+    pub(crate) fn design_graph_cell(&self) -> Arc<ProductCell<DesignGraph>> {
+        let mut inner = self.inner.lock();
+        inner.hot.design_graph = true;
+        inner.structure.design_graph.clone()
     }
 
     pub(crate) fn parsed_dependents(&self, changed: &[FileId]) -> Vec<FileId> {

@@ -2952,8 +2952,8 @@ endmodule
         "program instantiation should navigate to the program declaration: {nav:?}"
     );
     assert!(
-        nav.info.iter().all(|target| target.kind == Some(DefKind::Module)),
-        "program navigation targets should retain module symbol metadata: {nav:?}"
+        nav.info.iter().all(|target| target.kind == Some(DefKind::Program)),
+        "program navigation targets should keep program kind: {nav:?}"
     );
 
     let hover = analysis
@@ -3003,9 +3003,9 @@ endmodule
         .expect("package definition expected");
     assert!(
         package_nav.info.iter().any(|target| {
-            target.focus_range == Some(package_def_range) && target.kind == Some(DefKind::Module)
+            target.focus_range == Some(package_def_range) && target.kind == Some(DefKind::Package)
         }),
-        "package navigation target should retain module symbol metadata: {package_nav:?}"
+        "package navigation target should keep package kind: {package_nav:?}"
     );
 
     let type_def_range = marked_range(&markers, "type_def", TextSize::of("exported_t"));
@@ -3078,23 +3078,15 @@ endmodule
         panic!("expected two fixture files");
     };
 
-    let module_index = crate::db::workspace_symbol_index_db::source_root_module_index_for_root(
-        host.ctx().db,
-        SourceRootId(0),
-    );
-
-    let modules = module_index.module_definitions(&"mod_a".into());
-    assert_eq!(modules.len(), 1, "module index should contain mod_a exactly once");
-    assert_eq!(modules[0].file_id, *file_a);
-    assert_eq!(
-        modules[0].module_id.name(host.ctx().db).as_deref(),
-        Some("mod_a"),
-        "module index identity is the owner, not a stored range"
-    );
-    let interfaces = module_index.module_definitions(&"bus_if".into());
-    assert_eq!(interfaces.len(), 1, "module index should contain bus_if exactly once");
-    assert_eq!(interfaces[0].file_id, *file_a);
-    assert_eq!(interfaces[0].module_id.name(host.ctx().db).as_deref(), Some("bus_if"));
+    let graph = host.ctx().design_graph();
+    let modules = graph.modules_named("mod_a").into_vec();
+    assert_eq!(modules.len(), 1, "graph should contain mod_a exactly once");
+    assert_eq!(modules[0].file, *file_a);
+    assert_eq!(modules[0].name, "mod_a");
+    let interfaces = graph.modules_named("bus_if").into_vec();
+    assert_eq!(interfaces.len(), 1, "graph should contain bus_if exactly once");
+    assert_eq!(interfaces[0].file, *file_a);
+    assert_eq!(interfaces[0].name, "bus_if");
 
     let a_def = marked_range(markers_a, "a_shared_def", 6);
     let a_ref = marked_range(markers_a, "a_shared_ref", 6);

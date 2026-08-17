@@ -109,8 +109,37 @@ impl AnalysisContext<'_> {
         self.db.file_facts(file_id)
     }
 
-    pub(crate) fn unit_index(&self) -> Arc<hir_def::unit_index::UnitIndex> {
-        self.resolution().unit_index(self.db)
+    pub(crate) fn design_graph(&self) -> triomphe::Arc<design_graph::DesignGraph> {
+        self.design_graph_with_priority(crate::incrementality::ComputationPriority::Foreground)
+            .expect("foreground design-graph fold cannot be cancelled")
+    }
+
+    pub(crate) fn prewarm_design_graph(
+        &self,
+        cancel: &AtomicBool,
+    ) -> Option<triomphe::Arc<design_graph::DesignGraph>> {
+        self.design_graph_with_priority_cancel(
+            crate::incrementality::ComputationPriority::Background,
+            cancel,
+        )
+    }
+
+    fn design_graph_with_priority(
+        &self,
+        priority: crate::incrementality::ComputationPriority,
+    ) -> Option<triomphe::Arc<design_graph::DesignGraph>> {
+        self.design_graph_with_priority_cancel(priority, &NEVER_CANCELLED)
+    }
+
+    fn design_graph_with_priority_cancel(
+        &self,
+        priority: crate::incrementality::ComputationPriority,
+        cancel: &AtomicBool,
+    ) -> Option<triomphe::Arc<design_graph::DesignGraph>> {
+        let generated = self.store.generated_units();
+        self.store.design_graph_cell().get_or_compute(priority, cancel, |_| {
+            triomphe::Arc::new(design_graph::DesignGraph::fold(self.db, &generated))
+        })
     }
 
     pub(crate) fn module_index(
@@ -172,9 +201,9 @@ impl AnalysisContext<'_> {
         priority: ComputationPriority,
         cancel: &AtomicBool,
     ) -> Option<Arc<ResolutionContext>> {
-        self.store
-            .resolution_cell()
-            .get_or_compute(priority, cancel, |_| ResolutionContext::from_db(self.db))
+        self.store.resolution_cell().get_or_compute(priority, cancel, |_| {
+            ResolutionContext::from_graph(self.design_graph())
+        })
     }
 
     pub(crate) fn name_index(&self, source_root_id: SourceRootId) -> Arc<NameIndex> {

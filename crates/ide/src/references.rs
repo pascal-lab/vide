@@ -1,5 +1,3 @@
-use base_db::source_db::SourceDb;
-use design_graph::{InstantiationRole, UnitKind, UnitNode};
 use hir_def::def_id::DefId;
 use hir_semantics::semantics::Semantics;
 use itertools::Itertools;
@@ -7,7 +5,7 @@ use nohash_hasher::IntMap;
 use preproc_expand::file::HirFileId;
 use search::{ReferencesCtx, SearchScope};
 use syntax::{SyntaxTokenWithParent, TokenKind, has_text_range::HasTextRange};
-use utils::line_index::{TextRange, TextSize};
+use utils::line_index::TextRange;
 use vfs::FileId;
 
 use self::preproc::render_preproc_references_target;
@@ -92,7 +90,9 @@ pub(crate) fn references(
     FilePosition { file_id, offset }: FilePosition,
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
-    if let Some(refs) = design_unit_references_from_shard(db, file_id, offset, &config) {
+    if let Some(refs) =
+        crate::design_unit::references(db, FilePosition { file_id, offset }, &config)
+    {
         return Some(refs);
     }
     let sema = db.semantics();
@@ -100,101 +100,6 @@ pub(crate) fn references(
     let target =
         resolve_semantic_target(db.db, file_id, offset, parsed_file.root(), token_precedence);
     render_references_target(db, file_id, &sema, target, config)
-}
-
-/// Cursor is on a compilation-unit design-unit name. An instantiation of
-/// that name is a reference iff this declaration is a `unit_index`
-/// candidate for the name.
-fn design_unit_references_from_shard(
-    db: &AnalysisContext<'_>,
-    file_id: FileId,
-    offset: TextSize,
-    config: &ReferencesConfig,
-) -> Option<Vec<References>> {
-    let decl = db.file_facts(file_id).design_unit_at(offset)?.clone();
-    if !decl.id.kind.is_hierarchy_target()
-        && !matches!(decl.id.kind, UnitKind::Checker | UnitKind::Covergroup)
-    {
-        return None;
-    }
-    let name_range = decl.name_range?;
-    let def = vec![NavTarget {
-        file_id,
-        full_range: name_range,
-        focus_range: Some(name_range),
-        name: Some(decl.id.name.clone()),
-        kind: design_unit_def_kind(decl.id.kind),
-        container_name: None,
-        description: None,
-    }];
-    if !db.unit_index().declares_instantiable(file_id, &decl.id.name, decl.id.kind, decl.id.ordinal)
-    {
-        return Some(vec![References {
-            def: Some(def),
-            refs: IntMap::default(),
-            status: ReferencesStatus::Complete,
-        }]);
-    }
-    let mut refs = IntMap::default();
-    for mention_file in design_unit_instantiation_files(db, config) {
-        collect_design_unit_mentions(db, mention_file, &decl, file_id, name_range, &mut refs);
-    }
-    Some(vec![References { def: Some(def), refs, status: ReferencesStatus::Complete }])
-}
-
-fn design_unit_def_kind(kind: UnitKind) -> Option<crate::DefKind> {
-    match kind {
-        UnitKind::Module => Some(crate::DefKind::Module),
-        UnitKind::Interface => Some(crate::DefKind::Interface),
-        UnitKind::Package => Some(crate::DefKind::Package),
-        UnitKind::Program => Some(crate::DefKind::Program),
-        UnitKind::Checker => Some(crate::DefKind::Checker),
-        UnitKind::Covergroup => Some(crate::DefKind::Covergroup),
-    }
-}
-
-fn design_unit_instantiation_files(
-    db: &AnalysisContext<'_>,
-    config: &ReferencesConfig,
-) -> Vec<FileId> {
-    if let Some(scope) = &config.search_scope {
-        return scope.files().collect();
-    }
-    db.files()
-        .iter()
-        .copied()
-        .filter(|&file| db.file_kind(file).is_semantic_compilation_unit())
-        .collect()
-}
-
-fn collect_design_unit_mentions(
-    db: &AnalysisContext<'_>,
-    mention_file: FileId,
-    decl: &UnitNode,
-    def_file: FileId,
-    name_range: TextRange,
-    refs: &mut IntMap<FileId, Vec<(TextRange, ReferenceCategory)>>,
-) {
-    for instantiation in db.file_facts(mention_file).instantiations.iter() {
-        if instantiation.name != decl.id.name
-            || !instantiation_matches_decl(instantiation.role, decl.id.kind)
-        {
-            continue;
-        }
-        if mention_file == def_file && instantiation.range == name_range {
-            continue;
-        }
-        refs.entry(mention_file)
-            .or_default()
-            .push((instantiation.range, ReferenceCategory::empty()));
-    }
-}
-
-fn instantiation_matches_decl(instantiation: InstantiationRole, decl: UnitKind) -> bool {
-    match instantiation {
-        InstantiationRole::Hierarchy => decl.is_hierarchy_target(),
-        InstantiationRole::Checker => decl == UnitKind::Checker,
-    }
 }
 
 fn render_references_target(

@@ -5,7 +5,6 @@
 //! that graph so package imports are resolved consistently for both direct
 //! package queries and lexical name resolution.
 
-use base_db::salsa;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
@@ -246,6 +245,7 @@ impl DesignMap {
     pub fn resolve_import(
         &self,
         db: &dyn HirDefDb,
+        graph: &design_graph::DesignGraph,
         import: &Import,
         ident: &SmolStr,
         ctx: NameContext,
@@ -256,7 +256,13 @@ impl DesignMap {
             return Resolution::Unresolved;
         }
 
-        let packages = db.unit_package_ids(&import.package);
+        let packages = Resolution::from_candidates(
+            graph
+                .packages_named(&import.package)
+                .into_vec()
+                .into_iter()
+                .filter_map(|unit| crate::unit::ToOwner::to_owner(unit, db)),
+        );
         packages.and_then(|package| {
             let Some(exports) = self.package_exports.get(&package) else {
                 return Resolution::Unresolved;
@@ -266,10 +272,13 @@ impl DesignMap {
     }
 }
 
-#[salsa::tracked(lru = 128, returns(clone))]
-pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
-    let unit_index = db.unit_index();
-    let mut packages = unit_index.package_owners(db);
+/// Closed package-export graph for the packages on `graph`.
+pub fn package_export_closure(
+    db: &dyn HirDefDb,
+    graph: &design_graph::DesignGraph,
+) -> Arc<DesignMap> {
+    let mut packages: Vec<OwnerId> =
+        graph.packages().filter_map(|unit| crate::unit::ToOwner::to_owner(unit, db)).collect();
     packages.sort();
     packages.dedup();
 
@@ -305,17 +314,20 @@ pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
                 .clone();
 
             let mut add_reexport = |source_package: &Ident, item: Option<&Ident>| {
-                let names = item.map(|item| vec![item.clone()]).unwrap_or_else(|| {
-                    imported_names(&exports, unit_index.package_ids(db, source_package))
-                });
+                let source_owners = Resolution::from_candidates(
+                    graph
+                        .packages_named(source_package)
+                        .into_vec()
+                        .into_iter()
+                        .filter_map(|unit| crate::unit::ToOwner::to_owner(unit, db)),
+                );
+                let names = item
+                    .map(|item| vec![item.clone()])
+                    .unwrap_or_else(|| imported_names(&exports, source_owners.clone()));
                 for name in names {
                     for ctx in [NameContext::Type, NameContext::Value, NameContext::Assertion] {
-                        let resolution = resolve_package_member(
-                            &exports,
-                            unit_index.package_ids(db, source_package),
-                            &name,
-                            ctx,
-                        );
+                        let resolution =
+                            resolve_package_member(&exports, source_owners.clone(), &name, ctx);
                         next.insert_resolution(ctx, &name, resolution);
                     }
                 }
@@ -383,8 +395,4 @@ fn imported_names(
     }
     names.sort();
     names
-}
-
-pub(crate) fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
-    design_map::set_lru_capacity(db, capacity);
 }

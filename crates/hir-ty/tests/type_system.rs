@@ -21,6 +21,7 @@ use hir_def::{
     owner::OwnerId,
     pathres::{ResolutionContext, resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
+    unit::ToOwner,
 };
 use hir_ty::{Compatibility, Type, TypeSystem, db::TyDb, display::HirDisplay};
 use preproc_expand::db::PreprocDb;
@@ -123,7 +124,7 @@ fn ident(name: &str) -> Ident {
 }
 
 fn module_id(db: &TestDb, name: &str) -> OwnerId {
-    db.unit_module_ids(&ident(name)).unique().expect("module should resolve uniquely")
+    hir_def::unit::test_module_owner(db, name)
 }
 
 fn type_of_name(db: &TestDb, module: OwnerId, name: &str, context: NameContext) -> Type {
@@ -343,12 +344,12 @@ module m;
 endmodule
 "#,
     );
-    let module = module_id(&db, "m");
-    let covergroup = db
-        .unit_index()
-        .instantiable_ids_in(&db, module, &ident("cg"))
+    let covergroup = hir_def::unit::test_graph(&db)
+        .type_units_named("cg")
         .unique()
-        .expect("covergroup should be indexed");
+        .expect("covergroup should be on the graph")
+        .to_owner(&db)
+        .expect("covergroup should project");
     let body = db.body(covergroup);
     let definition = body.covergroups.values().next().expect("covergroup should lower");
     let coverpoint = &body.coverpoints[definition.coverpoints[0]];

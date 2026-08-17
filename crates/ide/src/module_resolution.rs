@@ -1,6 +1,3 @@
-use std::cmp::Ordering;
-
-use base_db::source_root::{SourceRootId, SourceRootRole};
 use hir_def::{
     Ident,
     body::Body,
@@ -18,64 +15,47 @@ use hir_def::{
     owner::OwnerId,
     source_map::Lowered,
     symbol::{DefOrigin, NameContext, Resolution},
+    unit::ToOwner,
 };
 use smallvec::SmallVec;
 use syntax::{
     SyntaxAncestors,
     ast::{self, AstNode},
 };
-use triomphe::Arc;
-use vfs::{FileId, VfsPath};
+use vfs::FileId;
 
-use crate::db::workspace_symbol_index_db::{
-    WorkspaceSymbolIndexDb, source_root_module_index_for_root,
-};
-
-/// Per-root module indexes for every workspace root. Non-index callers compute
-/// this once per request; the index build reuses a cached copy.
-pub(crate) fn module_indexes(
-    db: &dyn WorkspaceSymbolIndexDb,
-) -> Arc<[(SourceRootId, Arc<crate::semantic_index::ModuleIndex>)]> {
-    let indexes: Vec<_> = db
-        .workspace_source_root_ids()
-        .into_iter()
-        .map(|root| (root, source_root_module_index_for_root(db, root)))
-        .collect();
-    Arc::from(indexes)
-}
+use crate::db::workspace_symbol_index_db::WorkspaceSymbolIndexDb;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ModuleResolution {
     Unique(OwnerId),
-    BestEffortProximity { selected: OwnerId, candidates: Vec<OwnerId> },
-    Ambiguous { candidates: Vec<OwnerId>, kind: ModuleResolutionAmbiguity },
+    Ambiguous { candidates: Vec<OwnerId> },
     Unresolved,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ModuleResolutionAmbiguity {
-    Strict,
-    BestEffortTie,
 }
 
 impl ModuleResolution {
     pub(crate) fn unique(&self) -> Option<OwnerId> {
         match self {
             ModuleResolution::Unique(module_id) => Some(*module_id),
-            ModuleResolution::BestEffortProximity { selected, .. } => Some(*selected),
             ModuleResolution::Ambiguous { .. } | ModuleResolution::Unresolved => None,
+        }
+    }
+
+    fn from_graph(db: &dyn HirDefDb, name: &Ident) -> Self {
+        let units = db.source_design_graph().modules_named(name);
+        let owners: Vec<OwnerId> =
+            units.into_vec().into_iter().filter_map(|unit| unit.to_owner(db)).collect();
+        match owners.as_slice() {
+            [] => Self::Unresolved,
+            [_] => Self::Unique(owners.into_iter().next().expect("checked")),
+            _ => Self::Ambiguous { candidates: owners },
         }
     }
 
     fn into_resolution(self) -> Resolution<OwnerId> {
         match self {
-            ModuleResolution::Unique(module_id)
-            | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
-                Resolution::Unique(module_id)
-            }
-            ModuleResolution::Ambiguous { candidates, .. } => {
-                Resolution::from_candidates(candidates)
-            }
+            ModuleResolution::Unique(module_id) => Resolution::Unique(module_id),
+            ModuleResolution::Ambiguous { candidates } => Resolution::from_candidates(candidates),
             ModuleResolution::Unresolved => Resolution::Unresolved,
         }
     }
@@ -83,13 +63,13 @@ impl ModuleResolution {
 
 pub(crate) fn resolve_instantiation_target(
     db: &dyn WorkspaceSymbolIndexDb,
-    from_file: FileId,
+    _from_file: FileId,
     instantiation: ast::HierarchyInstantiation,
 ) -> ModuleResolution {
     let Some(name) = lower_ident_opt(instantiation.type_()) else {
         return ModuleResolution::Unresolved;
     };
-    resolve_module_name(db, from_file, &name)
+    resolve_module_name(db, _from_file, &name)
 }
 
 pub(crate) fn resolve_hir_instantiation_target(
@@ -102,11 +82,10 @@ pub(crate) fn resolve_hir_instantiation_target(
 
 pub(crate) fn resolve_module_name(
     db: &dyn WorkspaceSymbolIndexDb,
-    from_file: FileId,
+    _from_file: FileId,
     name: &Ident,
 ) -> ModuleResolution {
-    let policy = ModuleResolutionPolicy::for_file(db, from_file);
-    resolve_module_name_with_policy(db, name, policy)
+    ModuleResolution::from_graph(db, name)
 }
 
 pub(crate) fn resolve_named_port_connection(
@@ -310,163 +289,6 @@ pub(crate) fn resolve_named_param_in_module(
     }))
 }
 
-fn resolve_module_name_with_policy(
-    db: &dyn WorkspaceSymbolIndexDb,
-    name: &Ident,
-    policy: ModuleResolutionPolicy,
-) -> ModuleResolution {
-    let candidates = module_candidates(db, name);
-    match candidates.as_slice() {
-        [module_id] => ModuleResolution::Unique(*module_id),
-        [] => ModuleResolution::Unresolved,
-        _ => policy.resolve_ambiguous(db, candidates),
-    }
-}
-
-fn module_candidates(db: &dyn WorkspaceSymbolIndexDb, name: &Ident) -> Vec<OwnerId> {
-    let mut candidates = db.unit_module_ids(name).into_candidates().into_vec();
-    candidates.sort();
-    candidates.dedup();
-    candidates
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ModuleResolutionPolicy {
-    Strict,
-    // Best-effort indexing has no manifest-backed compilation profile. Use
-    // source proximity as an IDE-only tie breaker, but only when it produces a
-    // unique candidate; configured roots keep duplicate module names ambiguous.
-    BestEffortProximity { from_file: FileId },
-}
-
-impl ModuleResolutionPolicy {
-    fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
-        match source_root_role(db, file_id) {
-            SourceRootRole::BestEffortIndex => Self::BestEffortProximity { from_file: file_id },
-            SourceRootRole::Local | SourceRootRole::Library | SourceRootRole::Ignored => {
-                Self::Strict
-            }
-        }
-    }
-
-    fn resolve_ambiguous(
-        self,
-        db: &dyn WorkspaceSymbolIndexDb,
-        candidates: Vec<OwnerId>,
-    ) -> ModuleResolution {
-        match self {
-            Self::Strict => {
-                ModuleResolution::Ambiguous { candidates, kind: ModuleResolutionAmbiguity::Strict }
-            }
-            Self::BestEffortProximity { from_file } => {
-                resolve_by_proximity(db, from_file, candidates)
-            }
-        }
-    }
-}
-
-fn resolve_by_proximity(
-    db: &dyn WorkspaceSymbolIndexDb,
-    from_file: FileId,
-    mut candidates: Vec<OwnerId>,
-) -> ModuleResolution {
-    let mut best_score = None;
-    let mut best_modules = Vec::new();
-
-    for module_id in candidates.iter().copied() {
-        let Some(score_file) = module_id.file(db).source_file_id(db) else {
-            continue;
-        };
-        let score = ProximityScore::new(db, from_file, score_file);
-        match best_score {
-            None => {
-                best_score = Some(score);
-                best_modules.push(module_id);
-            }
-            Some(best) => match score.preference_cmp(&best) {
-                Ordering::Greater => {
-                    best_score = Some(score);
-                    best_modules.clear();
-                    best_modules.push(module_id);
-                }
-                Ordering::Equal => best_modules.push(module_id),
-                Ordering::Less => {}
-            },
-        }
-    }
-
-    candidates.sort_by_key(|module_id| {
-        module_id.file(db).source_file_id(db).map_or(u32::MAX, FileId::index)
-    });
-
-    match best_modules.as_slice() {
-        [] => ModuleResolution::Unresolved,
-        [selected] => ModuleResolution::BestEffortProximity { selected: *selected, candidates },
-        _ => ModuleResolution::Ambiguous {
-            candidates,
-            kind: ModuleResolutionAmbiguity::BestEffortTie,
-        },
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ProximityScore {
-    same_file: bool,
-    common_dir_depth: usize,
-    same_source_root: bool,
-}
-
-impl ProximityScore {
-    fn new(db: &dyn WorkspaceSymbolIndexDb, from_file: FileId, candidate_file: FileId) -> Self {
-        Self {
-            same_file: from_file == candidate_file,
-            common_dir_depth: common_dir_depth(
-                file_path(db, from_file),
-                file_path(db, candidate_file),
-            ),
-            same_source_root: db.source_root_id(from_file) == db.source_root_id(candidate_file),
-        }
-    }
-
-    fn preference_cmp(&self, other: &Self) -> Ordering {
-        // Prefer exact file matches, then nearest directory, then source-root locality.
-        self.same_file
-            .cmp(&other.same_file)
-            .then_with(|| self.common_dir_depth.cmp(&other.common_dir_depth))
-            .then_with(|| self.same_source_root.cmp(&other.same_source_root))
-    }
-}
-
-fn source_root_role(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> SourceRootRole {
-    let source_root_id = db.source_root_id(file_id);
-    db.source_root(source_root_id).role()
-}
-
-fn file_path(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Option<VfsPath> {
-    let source_root_id = db.source_root_id(file_id);
-    db.source_root(source_root_id).path_for_file(&file_id).cloned()
-}
-
-fn common_dir_depth(left: Option<VfsPath>, right: Option<VfsPath>) -> usize {
-    let (Some(left), Some(right)) = (left, right) else {
-        return 0;
-    };
-    let left = dir_ancestors(left);
-    let right = dir_ancestors(right);
-    left.iter().zip(right.iter()).take_while(|(left, right)| left == right).count()
-}
-
-fn dir_ancestors(path: VfsPath) -> Vec<VfsPath> {
-    let mut ancestors = Vec::new();
-    let mut current = path.parent();
-    while let Some(path) = current {
-        current = path.parent();
-        ancestors.push(path);
-    }
-    ancestors.reverse();
-    ancestors
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -476,7 +298,7 @@ mod tests {
     use smol_str::SmolStr;
     use syntax::{SyntaxNodeExt, ast};
     use utils::text_edit::TextSize;
-    use vfs::{ChangedFile, FileId, FileSet};
+    use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
     use super::*;
     use crate::db::root_db::RootDb;
@@ -684,16 +506,8 @@ mod tests {
                     file_path(files, module_id.file(db).as_file().unwrap())
                 )
             }
-            ModuleResolution::BestEffortProximity { selected, candidates } => format!(
-                "BestEffortProximity selected={} candidates={:?}",
-                file_path(files, selected.file(db).as_file().unwrap()),
-                candidate_paths(db, files, candidates)
-            ),
-            ModuleResolution::Ambiguous { candidates, kind } => {
-                format!(
-                    "Ambiguous kind={kind:?} candidates={:?}",
-                    candidate_paths(db, files, candidates)
-                )
+            ModuleResolution::Ambiguous { candidates } => {
+                format!("Ambiguous candidates={:?}", candidate_paths(db, files, candidates))
             }
             ModuleResolution::Unresolved => "Unresolved".to_string(),
         }

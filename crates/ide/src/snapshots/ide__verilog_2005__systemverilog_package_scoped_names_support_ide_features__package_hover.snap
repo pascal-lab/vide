@@ -1,9 +1,10 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 3035
 expression: normalize_hover_snapshot(package_hover.info.as_str())
 ---
 ```systemverilog
-package pkg ()
+package pkg;
 ```
 
 
