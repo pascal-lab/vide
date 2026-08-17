@@ -128,9 +128,27 @@ fn nav_targets_for_token(
             .flat_map(|class| class.origins(db.db))
             .unique()
             .filter_map(|def| def.to_nav(db.db))
+            .map(compact_design_unit_target)
             .collect_vec();
         (!navs.is_empty()).then_some(navs)
     })
+}
+
+fn compact_design_unit_target(mut target: NavTarget) -> NavTarget {
+    if matches!(
+        target.kind,
+        Some(
+            crate::DefKind::Module
+                | crate::DefKind::Interface
+                | crate::DefKind::Program
+                | crate::DefKind::Checker
+                | crate::DefKind::Covergroup
+        )
+    ) && let Some(focus_range) = target.focus_range
+    {
+        target.full_range = focus_range;
+    }
+    target
 }
 
 fn render_preproc_definition_target(
