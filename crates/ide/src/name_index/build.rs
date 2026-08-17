@@ -11,6 +11,9 @@ use crate::{
 };
 
 pub(super) fn collect_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> FileNameIndex {
+    // Use the compilation parse so `ifdef` / predefines match the file the
+    // user sees. Include expansion is still the cost of that parse; the parse
+    // LRU, not this table, decides whether the tree stays resident.
     let tree = db.parse(HirFileId::from(file_id));
     let mut occurrences: FxHashMap<SmolStr, Vec<NameOccurrence>> = FxHashMap::default();
 

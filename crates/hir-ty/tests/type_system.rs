@@ -120,7 +120,7 @@ fn ident(name: &str) -> Ident {
 }
 
 fn module_id(db: &TestDb, name: &str) -> OwnerId {
-    db.unit_index().module_ids(&ident(name)).unique().expect("module should resolve uniquely")
+    db.unit_module_ids(&ident(name)).unique().expect("module should resolve uniquely")
 }
 
 fn type_of_name(db: &TestDb, module: OwnerId, name: &str, context: NameContext) -> Type {
@@ -343,7 +343,7 @@ endmodule
     let module = module_id(&db, "m");
     let covergroup = db
         .unit_index()
-        .instantiable_ids_in(module, &ident("cg"))
+        .instantiable_ids_in(&db, module, &ident("cg"))
         .unique()
         .expect("covergroup should be indexed");
     let body = db.body(covergroup);

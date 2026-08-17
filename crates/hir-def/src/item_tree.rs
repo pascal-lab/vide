@@ -193,6 +193,10 @@ impl DeclarationSkeleton {
         self.preprocessor_independent
     }
 
+    pub fn item_tree(&self) -> &ItemTree {
+        &self.item_tree
+    }
+
     pub fn matches(&self, authoritative: &ItemTree) -> bool {
         self.item_tree.structure_fingerprint() == authoritative.structure_fingerprint()
             && *self.item_tree == *authoritative
@@ -215,6 +219,10 @@ impl ItemTree {
 
     pub fn root_owner(&self) -> Option<OwnerId> {
         self.owners.file_owner()
+    }
+
+    pub fn owners(&self) -> &OwnerTable {
+        &self.owners
     }
 
     /// Module and package headers in source order.

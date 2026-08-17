@@ -257,7 +257,7 @@ impl DesignMap {
             return Resolution::Unresolved;
         }
 
-        let packages = db.unit_index().package_ids(&import.package);
+        let packages = db.unit_package_ids(&import.package);
         packages.and_then(|package| {
             let Some(exports) = self.package_exports.get(&package) else {
                 return Resolution::Unresolved;
@@ -319,13 +319,13 @@ pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
 
             let mut add_reexport = |source_package: &Ident, item: Option<&Ident>| {
                 let names = item.map(|item| vec![item.clone()]).unwrap_or_else(|| {
-                    imported_names(&exports, unit_index.package_ids(source_package))
+                    imported_names(&exports, unit_index.package_ids(db, source_package))
                 });
                 for name in names {
                     for ctx in [NameContext::Type, NameContext::Value, NameContext::Assertion] {
                         let resolution = resolve_package_member(
                             &exports,
-                            unit_index.package_ids(source_package),
+                            unit_index.package_ids(db, source_package),
                             &name,
                             ctx,
                         );

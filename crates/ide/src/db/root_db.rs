@@ -136,7 +136,9 @@ impl RootDb {
 /// project's per-file working set turns incremental rebuilds into repeated
 /// re-parse/re-lower work. 1024 covers small-to-medium projects without
 /// pinning an unbounded number of parse trees.
-pub const DEFAULT_PARSE_LRU_CAP: usize = 1024;
+/// Workspace products extract compact indexes and drop the trees. This cache
+/// is for files the user is actually in, not the whole project.
+pub const DEFAULT_PARSE_LRU_CAP: usize = 32;
 
 // RootDb is the concrete IDE database; expose the workspace query surface
 // without maintaining a second set of forwarding methods.

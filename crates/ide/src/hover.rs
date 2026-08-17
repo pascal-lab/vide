@@ -53,23 +53,22 @@ pub(crate) fn hover(
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Markup>> {
     let _span = tracing::debug_span!("ide.hover", ?file_id, ?offset).entered();
-    let sema = db.semantics();
-    let parsed_file = sema.parse_file(file_id);
+    let tree = db.parse_file(file_id);
     let target =
-        resolve_semantic_target(db.db, file_id, offset, parsed_file.root(), token_precedence);
-    render_hover_target(db, file_id, offset, &sema, target)
+        resolve_semantic_target(db.db, file_id, offset, Some(tree.root()), token_precedence);
+    render_hover_target(db, file_id, offset, target)
 }
 
 fn render_hover_target(
     db: &AnalysisContext<'_>,
     file_id: FileId,
     offset: TextSize,
-    sema: &Semantics<RootDb>,
     target: TargetResolution<'_>,
 ) -> Option<RangeInfo<Markup>> {
     let mut ranges = Vec::new();
     let mut markups = Vec::new();
     let mut has_source_target = false;
+    let mut sema = None;
 
     for target in target.targets_for_intent(TargetIntent::Describe) {
         let hover = match target {
@@ -80,6 +79,7 @@ fn render_hover_target(
             SemanticTarget::Manifest(target) => crate::manifest::hover_target(db.db, target),
             SemanticTarget::Source(target) => {
                 has_source_target = true;
+                let sema = sema.get_or_insert_with(|| db.semantics());
                 hover_for_source_target(db, sema, file_id.into(), target)
             }
         }?;

@@ -39,6 +39,9 @@ impl DefinitionClass {
         file_id: HirFileId,
         tp: SyntaxTokenWithParent,
     ) -> DefinitionResolution {
+        if let Some(resolution) = resolve_declaration_name_on_db(db.db, file_id, tp) {
+            return resolution;
+        }
         let context = crate::semantic_index::SemanticSnapshotInputs::from_hir(db.resolution());
         Self::resolve_in(db.db, &context, file_id, tp, None)
     }
@@ -148,20 +151,18 @@ fn nameres_ident(
     }
 }
 
-fn resolve_declaration_name(
-    sema: &SemanticsImpl,
+fn resolve_declaration_name_on_db(
+    db: &dyn HirDefDb,
     file_id: HirFileId,
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<DefinitionResolution> {
     if let Some(module) = SyntaxAncestors::start_from(parent).find_map(ast::ModuleDeclaration::cast)
         && module.name() == Some(tok)
     {
-        let resolution = sema
-            .module_to_def(file_id, module)
+        let resolution = module_declaration_owner(db, file_id, module)
             .map(|module_id| {
                 DefinitionClass::Definition(
-                    DefId::from_owner(sema.db, module_id)
-                        .expect("module owner must have a definition"),
+                    DefId::from_owner(db, module_id).expect("module owner must have a definition"),
                 )
             })
             .map(Resolution::Unique)
@@ -170,6 +171,24 @@ fn resolve_declaration_name(
     }
 
     None
+}
+
+fn module_declaration_owner(
+    db: &dyn HirDefDb,
+    file_id: HirFileId,
+    module: ast::ModuleDeclaration<'_>,
+) -> Option<OwnerId> {
+    let tree = db.parse(file_id);
+    let ast_id = db.ast_id_map(file_id).id_of_node_in_tree(&tree, module.syntax())?;
+    db.owner_table(file_id).owner_by_ast(ast_id, hir_def::owner::OwnerKind::Module)
+}
+
+fn resolve_declaration_name(
+    sema: &SemanticsImpl,
+    file_id: HirFileId,
+    tp: SyntaxTokenWithParent,
+) -> Option<DefinitionResolution> {
+    resolve_declaration_name_on_db(sema.db, file_id, tp)
 }
 
 fn resolve_member_or_scoped_name(

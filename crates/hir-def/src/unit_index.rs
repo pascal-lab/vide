@@ -14,9 +14,8 @@ use triomphe::Arc;
 
 use crate::{
     db::HirDefDb,
-    item_tree::ItemTree,
     module::ModuleKind,
-    owner::{OwnerId, OwnerKind, OwnerTable},
+    owner::{OwnerId, OwnerKind},
     symbol::Resolution,
 };
 
@@ -41,12 +40,13 @@ impl UnitKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct UnitData {
-    owner: OwnerId,
+    file: HirFileId,
+    name: SmolStr,
     kind: UnitKind,
-    parent: Option<OwnerId>,
     top_level: bool,
+    ordinal: u32,
 }
 
 /// File-level design-unit declarations, independent of lexical `ScopeGraph`.
@@ -61,31 +61,44 @@ pub struct UnitIndex {
     module_names: Vec<SmolStr>,
 }
 impl UnitIndex {
-    pub fn module_ids(&self, name: &SmolStr) -> Resolution<OwnerId> {
-        self.resolve(name, |unit| unit.kind.is_module())
+    pub fn module_ids(&self, db: &dyn HirDefDb, name: &SmolStr) -> Resolution<OwnerId> {
+        self.resolve(db, name, |unit| unit.kind.is_module())
     }
 
     /// Design-unit modules declared at compilation-unit scope. Only these may
     /// act as explicit hierarchy roots for multi-segment paths.
-    pub fn top_level_module_ids(&self, name: &SmolStr) -> Resolution<OwnerId> {
-        self.resolve(name, |unit| unit.kind.is_module() && unit.top_level)
+    pub fn top_level_module_ids(&self, db: &dyn HirDefDb, name: &SmolStr) -> Resolution<OwnerId> {
+        self.resolve(db, name, |unit| unit.kind.is_module() && unit.top_level)
     }
 
-    pub fn package_ids(&self, name: &SmolStr) -> Resolution<OwnerId> {
-        self.resolve(name, |unit| unit.kind.is_package())
+    pub fn package_ids(&self, db: &dyn HirDefDb, name: &SmolStr) -> Resolution<OwnerId> {
+        self.resolve(db, name, |unit| unit.kind.is_package())
     }
 
     /// Resolve an instance target using the containing module's local
     /// checker/covergroup declarations before compilation-unit declarations.
-    pub fn instantiable_ids_in(&self, scope: OwnerId, name: &SmolStr) -> Resolution<OwnerId> {
-        let local = self.resolve(name, |unit| {
-            matches!(unit.kind, UnitKind::Checker | UnitKind::Covergroup)
-                && unit.parent == Some(scope)
-        });
+    pub fn instantiable_ids_in(
+        &self,
+        db: &dyn HirDefDb,
+        scope: OwnerId,
+        name: &SmolStr,
+    ) -> Resolution<OwnerId> {
+        let file_id = scope.file(db);
+        let local = Resolution::from_candidates(
+            db.owner_table(file_id)
+                .owners()
+                .iter()
+                .filter(|owner| {
+                    owner.parent == Some(scope)
+                        && owner.name == *name
+                        && matches!(owner.kind, OwnerKind::Checker | OwnerKind::Covergroup)
+                })
+                .map(|owner| owner.id),
+        );
         if !local.is_unresolved() {
             return local;
         }
-        self.resolve(name, |unit| {
+        self.resolve(db, name, |unit| {
             unit.kind.is_instantiable() && (unit.kind.is_module() || unit.top_level)
         })
     }
@@ -94,12 +107,17 @@ impl UnitIndex {
         self.module_names.iter()
     }
 
-    fn resolve(&self, name: &SmolStr, matches: impl Fn(&UnitData) -> bool) -> Resolution<OwnerId> {
+    fn resolve(
+        &self,
+        db: &dyn HirDefDb,
+        name: &SmolStr,
+        matches: impl Fn(&UnitData) -> bool,
+    ) -> Resolution<OwnerId> {
         let candidates =
             self.by_name.get(name).into_iter().flat_map(|indices| indices.iter()).filter_map(
                 |index| {
                     let unit = self.units.get(*index)?;
-                    matches(unit).then_some(unit.owner)
+                    matches(unit).then(|| locate_unit_owner(db, unit)).flatten()
                 },
             );
         Resolution::from_candidates(candidates)
@@ -116,10 +134,17 @@ pub fn unit_index(db: &dyn HirDefDb) -> Arc<UnitIndex> {
         .copied()
         .filter(|&file_id| db.file_kind(file_id).is_semantic_compilation_unit())
     {
-        let file_id = HirFileId::File(file_id);
-        let item_tree = db.item_tree(file_id);
-        let owner_table = db.owner_table(file_id);
-        add_file_units(&mut index, &item_tree, &owner_table);
+        let Some(skeleton) = db.declaration_skeleton(HirFileId::File(file_id)) else {
+            continue;
+        };
+        add_file_units(&mut index, HirFileId::File(file_id), skeleton.item_tree());
+        for macro_file in preproc_expand::macro_file::macro_files_for_file(db, file_id) {
+            add_file_units(
+                &mut index,
+                HirFileId::Macro(macro_file),
+                &db.item_tree(HirFileId::Macro(macro_file)),
+            );
+        }
     }
 
     index.module_names = index
@@ -140,51 +165,73 @@ pub fn unit_index(db: &dyn HirDefDb) -> Arc<UnitIndex> {
     Arc::new(index)
 }
 
-fn add_file_units(index: &mut UnitIndex, item_tree: &ItemTree, owner_table: &OwnerTable) {
-    let file_owner = owner_table.file_owner().expect("owner table must contain its file owner");
+fn add_file_units(index: &mut UnitIndex, file: HirFileId, item_tree: &crate::item_tree::ItemTree) {
+    let file_owner = item_tree.root_owner();
     for header in item_tree.module_headers() {
-        let owner = header.owner();
-        let data = owner_table.owner(owner).expect("module header owner must be indexed");
+        let owner = item_tree.owners().owner(header.owner());
         insert_unit(
             index,
+            file,
             header.name().clone(),
-            owner,
             UnitKind::Module(header.kind()),
-            data.parent,
-            data.parent == Some(file_owner),
+            owner.is_some_and(|data| data.parent == file_owner),
         );
     }
-    for owner in owner_table.owners() {
+    for owner in item_tree.owners().owners() {
         let kind = match owner.kind {
             OwnerKind::Checker => UnitKind::Checker,
             OwnerKind::Covergroup => UnitKind::Covergroup,
             _ => continue,
         };
-        insert_unit(
-            index,
-            owner.name.clone(),
-            owner.id,
-            kind,
-            owner.parent,
-            owner.parent == Some(file_owner),
-        );
+        insert_unit(index, file, owner.name.clone(), kind, owner.parent == file_owner);
     }
 }
 
 fn insert_unit(
     index: &mut UnitIndex,
+    file: HirFileId,
     name: SmolStr,
-    owner: OwnerId,
     kind: UnitKind,
-    parent: Option<OwnerId>,
     top_level: bool,
 ) {
     if name.is_empty() {
         return;
     }
+    let ordinal = index
+        .units
+        .iter()
+        .filter(|unit| unit.file == file && unit.name == name && unit.kind == kind)
+        .count() as u32;
     let unit_index = index.units.len();
-    index.units.push(UnitData { owner, kind, parent, top_level });
+    index.units.push(UnitData { file, name: name.clone(), kind, top_level, ordinal });
     index.by_name.entry(name).or_default().push(unit_index);
+}
+
+fn locate_unit_owner(db: &dyn HirDefDb, unit: &UnitData) -> Option<OwnerId> {
+    let table = db.owner_table(unit.file);
+    table
+        .owners()
+        .iter()
+        .filter(|owner| {
+            owner.name == unit.name
+                && owner_matches_unit_kind(owner.kind, owner.module_kind, unit.kind)
+        })
+        .nth(unit.ordinal as usize)
+        .map(|owner| owner.id)
+}
+
+fn owner_matches_unit_kind(
+    owner_kind: OwnerKind,
+    module_kind: Option<ModuleKind>,
+    unit_kind: UnitKind,
+) -> bool {
+    match (owner_kind, unit_kind) {
+        (OwnerKind::Module, UnitKind::Module(kind)) => module_kind == Some(kind),
+        (OwnerKind::Checker, UnitKind::Checker) | (OwnerKind::Covergroup, UnitKind::Covergroup) => {
+            true
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
@@ -197,8 +244,7 @@ mod tests {
     #[test]
     fn empty_index_has_no_targets() {
         let index = UnitIndex::default();
-        assert!(index.module_ids(&"missing".into()).is_unresolved());
-        assert!(index.package_ids(&"missing".into()).is_unresolved());
         assert_eq!(index.module_names().count(), 0);
+        assert!(index.by_name.is_empty());
     }
 }

@@ -110,6 +110,14 @@ impl dyn HirDefDb + '_ {
         unit_index::unit_index(self)
     }
 
+    pub fn unit_module_ids(&self, name: &smol_str::SmolStr) -> crate::symbol::Resolution<OwnerId> {
+        self.unit_index().module_ids(self, name)
+    }
+
+    pub fn unit_package_ids(&self, name: &smol_str::SmolStr) -> crate::symbol::Resolution<OwnerId> {
+        self.unit_index().package_ids(self, name)
+    }
+
     pub fn subroutine(&self, owner: OwnerId) -> Arc<Subroutine> {
         debug_assert_eq!(owner.kind(self), crate::owner::OwnerKind::Subroutine);
         Arc::new(

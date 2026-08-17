@@ -83,6 +83,11 @@ impl AnalysisContext<'_> {
         hir_semantics::semantics::Semantics::new_with_context(self.db, self.resolution())
     }
 
+    /// Parse one file without building `$unit` or the design map.
+    pub(crate) fn parse_file(&self, file_id: FileId) -> syntax::SyntaxTree {
+        self.db.parse(file_id.into())
+    }
+
     pub(crate) fn source_semantic_map(
         &self,
         file_id: FileId,
