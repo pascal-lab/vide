@@ -4,9 +4,10 @@
 //! identifier text", not "every identifier resolved to a `DefId`". Resolution
 //! happens on demand, only for occurrences of the name being searched.
 
+use preproc_expand::macro_file::SourceEmittedTokenId;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
-use syntax::ptr::SyntaxTokenPtr;
+use syntax::TokenKind;
 use triomphe::Arc;
 use utils::line_index::TextRange;
 use vfs::FileId;
@@ -15,12 +16,16 @@ use crate::analysis::AnalysisContext;
 
 mod build;
 
-/// One name-like token in a file, recorded without resolving it.
+/// One name-like CST token, recorded without resolving it.
+///
+/// `emitted` is the preprocessor-trace identity when the token has one.
+/// Macro-expanded trees share display ranges across body tokens, so
+/// `token_at_offset` cannot recover those tokens; the emitted id can.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NameOccurrence {
     pub range: TextRange,
-    pub ptr: SyntaxTokenPtr,
-    pub special: bool,
+    pub kind: TokenKind,
+    pub emitted: Option<SourceEmittedTokenId>,
 }
 
 /// Per-file slice: identifier text to the tokens that spell it.
@@ -97,4 +102,45 @@ pub(crate) fn index_files_for_root(
     files.sort_by_key(|file_id| file_id.index());
     files.dedup();
     files
+}
+
+#[cfg(test)]
+mod tests {
+    use syntax::{SyntaxNodeExt, has_text_range::HasTextRange, token::TokenKindExt};
+    use utils::line_index::TextSize;
+
+    use super::FileNameIndex;
+    use crate::{semantic_target::preproc::emit_token_index, test_utils::setup_marked};
+
+    #[test]
+    fn macro_argument_occurrence_recovers_via_emitted_id() {
+        let text = r#"
+`define NEXT(value) (value + 1)
+module top(input logic /*marker:def*/payload_i);
+  logic active_data;
+  assign active_data = `NEXT(/*marker:arg*/payload_i);
+endmodule
+"#;
+        let (host, file_id, _clean, markers) = setup_marked(text);
+        let db = host.ctx();
+        let arg = utils::line_index::TextRange::new(
+            markers["arg"],
+            markers["arg"] + TextSize::of("payload_i"),
+        );
+        let index = FileNameIndex::for_file(db.db, file_id);
+        let occurrence = index
+            .occurrences("payload_i")
+            .iter()
+            .find(|occurrence| occurrence.range == arg)
+            .expect("CST walk records the macro argument identifier");
+        assert!(occurrence.emitted.is_some(), "macro-argument tokens have a trace identity");
+
+        let tree = db.parse(preproc_expand::file::HirFileId::from(file_id));
+        let emitted = emit_token_index(tree.root());
+        let token = crate::references::search::token_for_occurrence(&tree, &emitted, occurrence)
+            .expect("emitted-id lookup recovers the argument token");
+        assert!(token.kind().name_like());
+        assert_eq!(token.text_range(), Some(arg));
+        assert_eq!(token.raw_text(), "payload_i");
+    }
 }

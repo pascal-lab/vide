@@ -11,8 +11,8 @@ use hir_ty::db::TyDb;
 use nohash_hasher::IntMap;
 use preproc_expand::{file::HirFileId, macro_file::macro_file_call_site};
 use rustc_hash::FxHashMap;
-use syntax::{SyntaxTokenWithParent, ptr::SyntaxTokenPtr};
-use utils::line_index::{TextRange, TextSize};
+use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange, ptr::SyntaxTokenPtr};
+use utils::line_index::TextRange;
 use vfs::FileId;
 
 use super::{ReferenceCategory, ReferencesConfig};
@@ -25,11 +25,10 @@ use crate::{
         ReferenceContext,
         build::{
             ContainerCache, ScopeChainCache, definition_class_for_token, definition_ranges_for,
-            reference_context,
+            reference_context, token_in_special_context,
         },
     },
-    semantic_target::{SemanticTarget, TargetIntent, resolve_semantic_target},
-    token::navigation_precedence,
+    semantic_target::preproc::{EmittedTokenIndex, emit_token_index},
 };
 
 /// A search scope is a set of files and ranges within those files that should
@@ -260,6 +259,7 @@ fn collect_file_references(
     let context = db.semantic_snapshot_inputs();
     let hir_file_id = HirFileId::from(file_id);
     let tree = db.parse(hir_file_id);
+    let emitted = emit_token_index(tree.root());
     let text = db.file_text(file_id);
     let sema = SemanticsImpl::new_with_context(db.db, context.hir.clone());
     let mut containers = ContainerCache::new();
@@ -276,20 +276,22 @@ fn collect_file_references(
         }) {
             continue;
         }
-        let Some((token, class)) = resolve_occurrence(
-            db,
+        let Some(token) = token_for_occurrence(&tree, &emitted, occurrence) else {
+            continue;
+        };
+        let container = containers.container_for(&sema, hir_file_id, token.parent);
+        let Some(class) = definition_class_for_token(
+            db.db,
             &sema,
             &context,
             hir_file_id,
-            file_id,
-            &tree,
-            occurrence,
-            &mut containers,
+            token,
+            container,
+            token_in_special_context(token),
             &mut chains,
         ) else {
             continue;
         };
-        let container = containers.container_for(&sema, hir_file_id, token.parent);
 
         let sides = match &class {
             DefinitionClass::Definition(found) if found == def => {
@@ -326,7 +328,7 @@ fn collect_file_references(
                 continue;
             }
             tokens.push(ReferenceToken {
-                ptr: occurrence.ptr,
+                ptr: SyntaxTokenPtr::from_token(token),
                 range: occurrence.range,
                 category: ReferenceCategory::from_tok(token),
                 context: reference_context,
@@ -335,51 +337,17 @@ fn collect_file_references(
     }
 }
 
-fn resolve_occurrence<'tree>(
-    db: &AnalysisContext<'_>,
-    sema: &SemanticsImpl<'_>,
-    context: &crate::semantic_index::SemanticSnapshotInputs,
-    hir_file_id: HirFileId,
-    file_id: FileId,
+pub(crate) fn token_for_occurrence<'tree>(
     tree: &'tree syntax::SyntaxTree,
+    emitted: &EmittedTokenIndex<'tree>,
     occurrence: &crate::name_index::NameOccurrence,
-    containers: &mut ContainerCache<'tree>,
-    chains: &mut ScopeChainCache,
-) -> Option<(SyntaxTokenWithParent<'tree>, DefinitionClass)> {
-    if let Some(token) = occurrence.ptr.to_token(tree) {
-        let container = containers.container_for(sema, hir_file_id, token.parent);
-        if let Some(class) = definition_class_for_token(
-            db.db,
-            sema,
-            context,
-            hir_file_id,
-            token,
-            container,
-            occurrence.special,
-            chains,
-        ) {
-            return Some((token, class));
-        }
+) -> Option<SyntaxTokenWithParent<'tree>> {
+    if let Some(emitted_id) = occurrence.emitted {
+        return emitted.get(&emitted_id)?.iter().copied().find(|token| {
+            token.kind() == occurrence.kind && token.text_range() == Some(occurrence.range)
+        });
     }
-    let (token, class) = source_target_resolution(db, file_id, tree, occurrence.range.start())?;
-    Some((token, class))
-}
-
-fn source_target_resolution<'tree>(
-    db: &AnalysisContext<'_>,
-    file_id: FileId,
-    tree: &'tree syntax::SyntaxTree,
-    offset: TextSize,
-) -> Option<(SyntaxTokenWithParent<'tree>, DefinitionClass)> {
-    let SemanticTarget::Source(target) =
-        resolve_semantic_target(db.db, file_id, offset, Some(tree.root()), navigation_precedence)
-            .unique_for_intent(TargetIntent::FindReferences)?
-    else {
-        return None;
-    };
-    target.into_tokens().into_iter().find_map(|token| {
-        DefinitionClass::resolve(db, file_id.into(), token).unique().map(|class| (token, class))
-    })
+    SyntaxTokenPtr::from_kind_range(occurrence.kind, occurrence.range).to_token(tree)
 }
 
 /// Resolves a HIR file location to a user-facing source file and range.

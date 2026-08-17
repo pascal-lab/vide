@@ -260,7 +260,7 @@ fn syntax_tokens_for_macro_emitted_tokens<'tree>(
     (!tokens.is_empty()).then_some(tokens)
 }
 
-fn syntax_token_emitted_token_id(
+pub(crate) fn syntax_token_emitted_token_id(
     token: &SyntaxTokenWithParent<'_>,
 ) -> Option<SourceEmittedTokenId> {
     token
