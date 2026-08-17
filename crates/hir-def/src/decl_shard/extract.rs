@@ -89,6 +89,7 @@ fn walk(tree: &SyntaxTree, source_text: &str) -> FileDeclShard {
                             ordinal: *ordinal,
                             header_fingerprint: decl.header_fingerprint,
                             name_range: decl.name_range,
+                            header_range: decl.header_range,
                         });
                         *ordinal += 1;
                     } else {
@@ -128,6 +129,7 @@ struct PartialDecl {
     role: DeclRole,
     header_fingerprint: u64,
     name_range: Option<utils::line_index::TextRange>,
+    header_range: Option<utils::line_index::TextRange>,
 }
 
 fn member_decl(node: SyntaxNode<'_>, source_text: &str) -> Option<PartialDecl> {
@@ -145,6 +147,7 @@ fn member_decl(node: SyntaxNode<'_>, source_text: &str) -> Option<PartialDecl> {
         name,
         role,
         name_range,
+        header_range,
     })
 }
 

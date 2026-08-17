@@ -1,59 +1,45 @@
-use hir_def::item_tree::{ItemTree, StructureFingerprint};
-use preproc_expand::file::HirFileId;
+use hir_def::decl_shard::FileDeclShard;
 use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 use vfs::FileId;
 
 use crate::db::root_db::RootDb;
 
-/// How a file's declaration skeleton changed relative to its pre-change
-/// snapshot.
+/// How a file's L0 compilation-unit declarations changed relative to its
+/// pre-change snapshot.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum StructureChange {
     Unchanged,
     Changed,
 }
 
-/// Outcome of comparing pre-change snapshots to the post-change item trees.
+/// Outcome of comparing pre-change snapshots to the post-change L0 shards.
 ///
 /// [`Keep`](EpochDecision::Keep) means body-only edits: structure products
 /// survive and only dirty file shards refresh. [`Drop`](EpochDecision::Drop)
-/// means a declaration skeleton changed (or we cannot prove otherwise):
-/// structure products and every merge that depends on them are discarded.
+/// means a compilation-unit declaration or import changed (or we cannot
+/// prove otherwise): structure products and every merge that depends on
+/// them are discarded.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum EpochDecision {
     Keep,
     Drop,
 }
 
-/// A pre-change snapshot of one file's declaration structure.
+/// A pre-change snapshot of one file's L0 declaration structure.
 #[derive(Clone)]
 pub(super) struct StructureSnapshot {
-    fingerprint: StructureFingerprint,
-    item_tree: Arc<ItemTree>,
+    shard: Arc<FileDeclShard>,
 }
 
 impl StructureSnapshot {
     pub(super) fn capture(db: &RootDb, file_id: FileId) -> Self {
-        let tree = db.item_tree(HirFileId::File(file_id));
-        Self { fingerprint: tree.structure_fingerprint(), item_tree: tree }
+        Self { shard: db.file_decl_shard(file_id) }
     }
 
-    /// Classify the file's current structure against this snapshot.
+    /// Classify the file's current CU declarations against this snapshot.
     fn classify(&self, db: &RootDb, file_id: FileId) -> StructureChange {
-        // A preprocessor-independent file has a standalone declaration
-        // skeleton; matching it proves the structure is unchanged without
-        // entering scope or body queries. The flag is authoritative (derived
-        // from the preprocessor trace), not a lexical backtick scan.
-        if db.source_model(file_id).preprocessor_independent
-            && let Some(skeleton) = db.declaration_skeleton(HirFileId::File(file_id))
-            && skeleton.matches(&self.item_tree)
-        {
-            return StructureChange::Unchanged;
-        }
-        // Authoritative path: full item-tree equality.
-        let new_tree = db.item_tree(HirFileId::File(file_id));
-        if self.fingerprint == new_tree.structure_fingerprint() && *self.item_tree == *new_tree {
+        if self.shard.same_structure(db.file_decl_shard(file_id).as_ref()) {
             StructureChange::Unchanged
         } else {
             StructureChange::Changed
@@ -93,7 +79,7 @@ impl StructureEpoch {
         self.dirty.clear();
     }
 
-    /// Compare pre-change snapshots to the post-change trees.
+    /// Compare pre-change snapshots to the post-change L0 shards.
     ///
     /// An empty epoch is [`Keep`](EpochDecision::Keep): nothing changed that
     /// we know about. Missing snapshots for a dirty file cannot prove the

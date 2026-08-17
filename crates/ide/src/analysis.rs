@@ -85,6 +85,7 @@ impl AnalysisContext<'_> {
 
     /// Parse one file without building `$unit` or the design map.
     pub(crate) fn parse_file(&self, file_id: FileId) -> syntax::SyntaxTree {
+        self.store.mark_include_graph_used();
         self.db.parse(file_id.into())
     }
 
@@ -262,11 +263,17 @@ impl AnalysisSnapshot {
         &self,
         profile_id: CompilationProfileId,
     ) -> Cancellable<Vec<FileId>> {
-        self.with_db(|db| db.compilation_plan_for_profile(Some(profile_id)).all_file_ids())
+        self.with_db(|db| {
+            db.store.mark_include_graph_used();
+            db.compilation_plan_for_profile(Some(profile_id)).all_file_ids()
+        })
     }
 
     pub fn compilation_plan(&self, file_id: FileId) -> Cancellable<Arc<CompilationPlan>> {
-        self.with_db(|db| db.compilation_plan_for_root(db.source_root_id(file_id)))
+        self.with_db(|db| {
+            db.store.mark_include_graph_used();
+            db.db.compilation_plan_for_root(db.source_root_id(file_id))
+        })
     }
 }
 

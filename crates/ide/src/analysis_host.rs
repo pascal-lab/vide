@@ -65,8 +65,10 @@ impl AnalysisHost {
         let invalidate_workspace = change.roots.is_some() || change.project_config.is_some();
         let affected_files = if invalidate_workspace {
             dirty_files
-        } else {
+        } else if self.store.include_graph_used() {
             self.db.preproc_affected_files(dirty_files).into_iter().collect()
+        } else {
+            dirty_files
         };
         if invalidate_workspace {
             self.store = Arc::new(ProductStore::default());

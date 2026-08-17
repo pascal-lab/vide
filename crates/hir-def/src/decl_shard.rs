@@ -59,6 +59,9 @@ pub struct Decl {
     /// Name token in this file's display coordinates. Absent when the extract
     /// tree could not assign a single-buffer range.
     pub name_range: Option<TextRange>,
+    /// Header syntax range when the extract tree assigned one. Used to show
+    /// the source header on hover without an authoritative parse.
+    pub header_range: Option<TextRange>,
 }
 
 /// One name-like token, unresolved.
@@ -106,6 +109,21 @@ impl FileDeclShard {
             decl.role.is_design_unit()
                 && decl.name_range.is_some_and(|range| range.contains(offset))
         })
+    }
+
+    /// Whether CU declarations and imports match. Mentions and source ranges
+    /// are body/display data and do not move the structure clock.
+    pub fn same_structure(&self, other: &Self) -> bool {
+        self.has_compilation_unit_locals == other.has_compilation_unit_locals
+            && self.preprocessor_independent == other.preprocessor_independent
+            && self.imports == other.imports
+            && self.decls.len() == other.decls.len()
+            && self.decls.iter().zip(other.decls.iter()).all(|(left, right)| {
+                left.name == right.name
+                    && left.role == right.role
+                    && left.ordinal == right.ordinal
+                    && left.header_fingerprint == right.header_fingerprint
+            })
     }
 }
 

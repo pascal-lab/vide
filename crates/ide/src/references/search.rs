@@ -258,7 +258,7 @@ fn collect_file_references(
 
     let context = db.semantic_snapshot_inputs();
     let hir_file_id = HirFileId::from(file_id);
-    let tree = db.parse(hir_file_id);
+    let tree = db.parse_file(file_id);
     let emitted = emit_token_index(tree.root());
     let text = db.file_text(file_id);
     let sema = SemanticsImpl::new_with_context(db.db, context.hir.clone());

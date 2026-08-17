@@ -8,7 +8,8 @@
 //!
 //! Two clocks:
 //! - Salsa revision `r` — any input change
-//! - Structure epoch `s` — a dirty file's declaration skeleton changed
+//! - Structure epoch `s` — a dirty file's L0 compilation-unit declarations
+//!   changed
 //!
 //! Three product kinds:
 //! - **Structure products** (`ResolutionContext`, `SemanticSnapshotInputs`):

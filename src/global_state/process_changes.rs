@@ -193,13 +193,10 @@ impl GlobalState {
             DiagnosticInvalidation::FileChanges(changed_file_ids) => profile_ids
                 .into_iter()
                 .filter(|profile_id| {
-                    snapshot.analysis.compilation_profile_file_ids(*profile_id).is_ok_and(
-                        |profile_file_ids| {
-                            profile_file_ids
-                                .iter()
-                                .any(|file_id| changed_file_ids.contains(file_id))
-                        },
-                    )
+                    changed_file_ids.iter().any(|file_id| {
+                        snapshot.analysis.file_compilation_profile(*file_id).ok().flatten()
+                            == Some(*profile_id)
+                    })
                 })
                 .collect(),
         }

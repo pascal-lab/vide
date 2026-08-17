@@ -53,6 +53,10 @@ struct Inner {
     structure: StructureProducts,
     shards: Shards,
     hot: HotProducts,
+    /// An authoritative parse (or an explicit plan query) has used the
+    /// include graph. Until then, a text edit cannot have invalidated an
+    /// expanded CST, so dirty propagation must not start an include scan.
+    include_graph_used: bool,
 }
 
 impl Inner {
@@ -93,6 +97,14 @@ impl ProductStore {
         self.inner.lock().hot.clone()
     }
 
+    pub(crate) fn mark_include_graph_used(&self) {
+        self.inner.lock().include_graph_used = true;
+    }
+
+    pub(crate) fn include_graph_used(&self) -> bool {
+        self.inner.lock().include_graph_used
+    }
+
     /// Record the files made dirty by a change before Salsa applies it, so the
     /// pre-change structure snapshots can be compared against the post-change
     /// trees when the epoch is decided.
@@ -100,10 +112,10 @@ impl ProductStore {
         if files.is_empty() {
             return;
         }
-        // Capture pre-change snapshots outside the lock: Salsa queries must not
-        // run while holding the store mutex. Always snapshot — name tables do
-        // not depend on resolution being warm, and a missing snapshot cannot
-        // prove a body-only edit.
+        // Capture pre-change L0 shards outside the lock: Salsa queries must
+        // not run while holding the store mutex. Always snapshot — name
+        // tables do not depend on resolution being warm, and a missing
+        // snapshot cannot prove a body-only edit.
         let snapshots: Vec<_> = files
             .iter()
             .map(|&file_id| (file_id, StructureSnapshot::capture(db, file_id)))

@@ -572,6 +572,31 @@ mod tests {
     }
 
     #[test]
+    fn body_edit_of_a_file_with_includes_reuses_resolution() {
+        use base_db::change::Change;
+        use vfs::ChangedFile;
+
+        let (mut host, marked) = setup_marked_files(&[
+            ("/defs.svh", "`define WIDTH 8\n"),
+            ("/top.sv", "`include \"defs.svh\"\nmodule top; logic a; endmodule\n"),
+        ]);
+        let top = marked[1].0;
+        let before = host.ctx().semantic_snapshot_inputs();
+
+        let mut body_edit = Change::new();
+        body_edit.add_changed_file(ChangedFile::create(
+            top,
+            "`include \"defs.svh\"\nmodule top; logic a; endmodule\n// body-only\n",
+        ));
+        host.apply_change(body_edit);
+        let after_body = host.ctx().semantic_snapshot_inputs();
+        assert!(
+            Arc::ptr_eq(&before, &after_body),
+            "an include file's body-only comment must not rebuild resolution via item_tree"
+        );
+    }
+
+    #[test]
     fn declaration_skeleton_is_authoritative_only_without_preprocessing() {
         let (plain, file_id, _, _) =
             setup_marked("module top; function void f(); endfunction endmodule\n");
