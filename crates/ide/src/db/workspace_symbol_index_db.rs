@@ -7,7 +7,7 @@ use vfs::FileId;
 
 use crate::{
     db::{SourceFileQueryKey, SourceRootQueryKey},
-    semantic_index::{FileModuleEdges, FileModuleIndex, ModuleIndex},
+    semantic_index::{FileModuleEdges, FileModuleIndex},
     workspace_symbols::{SymbolIndex, WorkspaceSymbol},
 };
 
@@ -32,10 +32,6 @@ impl dyn WorkspaceSymbolIndexDb + '_ {
         source_root_symbol_index(self, SourceRootQueryKey::new(self, source_root_id))
     }
 
-    pub fn source_root_module_index(&self, source_root_id: SourceRootId) -> Arc<ModuleIndex> {
-        source_root_module_index(self, SourceRootQueryKey::new(self, source_root_id))
-    }
-
     pub fn file_module_index(&self, file_id: FileId) -> Arc<FileModuleIndex> {
         file_module_index(self, file_id)
     }
@@ -45,11 +41,9 @@ impl dyn WorkspaceSymbolIndexDb + '_ {
     }
 
     /// Distinct source roots derived from the current file set, in stable
-    /// order. Module-name resolution scans every root's module index, so both
-    /// callers (`module_candidates`, `module_edges`) share one implementation
-    /// instead of each recomputing `files().map(source_root_id)` inline. The
-    /// per-root module/semantic indices are themselves salsa-memoized, so the
-    /// only per-call work here is the cheap O(files) root-list derivation.
+    /// order. Callers (`module_edges`, workspace symbols) share one
+    /// implementation instead of each recomputing
+    /// `files().map(source_root_id)`.
     pub fn workspace_source_root_ids(&self) -> Vec<SourceRootId> {
         let mut ids =
             self.files().iter().map(|&file_id| self.source_root_id(file_id)).collect::<Vec<_>>();
@@ -75,27 +69,11 @@ fn source_root_symbol_index(
     Arc::new(SymbolIndex::for_source_root(db, source_root_id))
 }
 
-#[salsa::tracked(returns(clone))]
-fn source_root_module_index(
-    db: &dyn WorkspaceSymbolIndexDb,
-    key: SourceRootQueryKey,
-) -> Arc<ModuleIndex> {
-    let source_root_id = key.source_root_id(db);
-    Arc::new(ModuleIndex::for_source_root(db, source_root_id))
-}
-
 pub(crate) fn source_root_symbol_index_for_root(
     db: &dyn WorkspaceSymbolIndexDb,
     source_root_id: SourceRootId,
 ) -> Arc<SymbolIndex> {
     db.source_root_symbol_index(source_root_id)
-}
-
-pub(crate) fn source_root_module_index_for_root(
-    db: &dyn WorkspaceSymbolIndexDb,
-    source_root_id: SourceRootId,
-) -> Arc<ModuleIndex> {
-    db.source_root_module_index(source_root_id)
 }
 
 fn file_module_index(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Arc<FileModuleIndex> {

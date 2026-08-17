@@ -142,20 +142,6 @@ impl AnalysisContext<'_> {
         })
     }
 
-    pub(crate) fn module_index(
-        &self,
-        source_root_id: SourceRootId,
-    ) -> Arc<crate::semantic_index::ModuleIndex> {
-        let index = self
-            .semantic_snapshot_inputs()
-            .module_index(self.db, source_root_id)
-            .unwrap_or_default();
-        for file_id in self.source_root(source_root_id).iter() {
-            self.record_parse_dependencies(file_id);
-        }
-        index
-    }
-
     pub(crate) fn module_edges(&self, source_root_id: SourceRootId) -> Arc<ModuleEdgeIndex> {
         self.store.module_edges(self, source_root_id)
     }

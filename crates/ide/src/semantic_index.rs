@@ -1,4 +1,3 @@
-use base_db::source_root::SourceRootId;
 use hir_def::{Ident, container::InFile, def_id::DefId, item_tree::ModuleHeader, owner::OwnerId};
 use hir_ty::db::TyDb;
 use preproc_expand::{
@@ -13,8 +12,7 @@ use utils::line_index::TextRange;
 use vfs::FileId;
 
 use crate::{
-    db::workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_module_index_for_root},
-    navigation_target::nav_location,
+    db::workspace_symbol_index_db::WorkspaceSymbolIndexDb, navigation_target::nav_location,
 };
 
 pub(crate) mod build;
@@ -26,14 +24,13 @@ pub(crate) mod build;
 /// name only needs [`hir`]; it must not walk every preprocessor model.
 pub(crate) struct SemanticSnapshotInputs {
     pub hir: triomphe::Arc<hir_def::pathres::ResolutionContext>,
-    module_indexes: std::sync::OnceLock<triomphe::Arc<[(SourceRootId, Arc<ModuleIndex>)]>>,
 }
 
 impl SemanticSnapshotInputs {
     pub(crate) fn from_hir(
         hir: triomphe::Arc<hir_def::pathres::ResolutionContext>,
     ) -> triomphe::Arc<Self> {
-        triomphe::Arc::new(Self { hir, module_indexes: std::sync::OnceLock::new() })
+        triomphe::Arc::new(Self { hir })
     }
 
     pub(crate) fn from_db(db: &dyn WorkspaceSymbolIndexDb) -> triomphe::Arc<Self> {
@@ -45,32 +42,6 @@ impl SemanticSnapshotInputs {
         hir: triomphe::Arc<hir_def::pathres::ResolutionContext>,
     ) -> triomphe::Arc<Self> {
         Self::from_hir(hir)
-    }
-
-    pub(crate) fn module_index(
-        &self,
-        db: &dyn WorkspaceSymbolIndexDb,
-        root: SourceRootId,
-    ) -> Option<Arc<ModuleIndex>> {
-        self.module_indexes(db)
-            .iter()
-            .find_map(|(candidate, index)| (*candidate == root).then(|| index.clone()))
-    }
-
-    pub(crate) fn module_indexes(
-        &self,
-        db: &dyn WorkspaceSymbolIndexDb,
-    ) -> &[(SourceRootId, Arc<ModuleIndex>)] {
-        self.module_indexes
-            .get_or_init(|| {
-                let module_indexes: Vec<_> = db
-                    .workspace_source_root_ids()
-                    .into_iter()
-                    .map(|root| (root, source_root_module_index_for_root(db, root)))
-                    .collect();
-                triomphe::Arc::from(module_indexes)
-            })
-            .as_ref()
     }
 }
 
@@ -160,19 +131,6 @@ pub struct ModuleCallEdge {
     pub call_range: TextRange,
 }
 
-/// A compilation-unit module known by name. Ranges are not stored here;
-/// they are projected from the owning file when a caller needs them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct IndexedModule {
-    pub module_id: OwnerId,
-    pub file_id: FileId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct ModuleIndex {
-    modules_by_name: FxHashMap<Ident, Box<[IndexedModule]>>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ModuleEdgeIndex {
     incoming_module_edges: FxHashMap<OwnerId, Box<[ModuleCallEdge]>>,
@@ -190,78 +148,6 @@ pub struct FileModuleIndex {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FileModuleEdges {
     edges: Vec<(OwnerId, OwnerId, ModuleCallEdge)>,
-}
-
-impl ModuleIndex {
-    /// Merges the per-file module indexes of a source root.
-    ///
-    /// This is a structure product of [`ItemTree`] headers. Ranges belong to
-    /// [`hir_def::source_projection::SourceProjection`] and are projected
-    /// when a single file needs them, not while building the name map.
-    pub(crate) fn for_source_root(
-        db: &dyn WorkspaceSymbolIndexDb,
-        source_root_id: SourceRootId,
-    ) -> Self {
-        let source_root = db.source_root(source_root_id);
-        let mut modules_by_name: FxHashMap<Ident, Vec<IndexedModule>> = FxHashMap::default();
-
-        for file_id in source_root.iter() {
-            push_instantiable_headers(
-                &mut modules_by_name,
-                db.item_tree(HirFileId::File(file_id)).module_headers(),
-                file_id,
-            );
-            for macro_file in macro_files_for_file(db, file_id) {
-                let Some(call_site) = macro_file_call_site(db, macro_file) else {
-                    continue;
-                };
-                push_instantiable_headers(
-                    &mut modules_by_name,
-                    db.item_tree(HirFileId::Macro(macro_file)).module_headers(),
-                    call_site.call_file_id,
-                );
-            }
-        }
-
-        Self {
-            modules_by_name: modules_by_name
-                .into_iter()
-                .map(|(name, mut modules)| {
-                    // A macro-emitted module also appears in the expanded
-                    // source CST. Keep the macro-file owner: that is the
-                    // identity rename and highlight use to refuse editing
-                    // generated text.
-                    modules.sort_by_key(|module| {
-                        (module.file_id.index(), module.module_id.file(db).as_file().is_some())
-                    });
-                    modules.dedup_by(|lhs, rhs| {
-                        lhs.module_id == rhs.module_id
-                            || (lhs.file_id == rhs.file_id
-                                && (lhs.module_id.file(db).as_file().is_none()
-                                    || rhs.module_id.file(db).as_file().is_none()))
-                    });
-                    (name, modules.into_boxed_slice())
-                })
-                .collect(),
-        }
-    }
-
-    pub(crate) fn module_definitions(&self, name: &Ident) -> &[IndexedModule] {
-        self.modules_by_name.get(name).map_or(&[], |modules| modules.as_ref())
-    }
-}
-
-fn push_instantiable_headers(
-    modules_by_name: &mut FxHashMap<Ident, Vec<IndexedModule>>,
-    headers: impl IntoIterator<Item = ModuleHeader>,
-    file_id: FileId,
-) {
-    for header in headers.into_iter().filter(|header| header.kind().is_instantiable()) {
-        modules_by_name
-            .entry(header.name().clone())
-            .or_default()
-            .push(IndexedModule { module_id: header.owner(), file_id });
-    }
 }
 
 impl SemanticModuleDefinition {
