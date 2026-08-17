@@ -143,23 +143,23 @@ impl GlobalStateSnapshot {
     pub(crate) fn diagnostics(
         &self,
         file_id: FileId,
-    ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
+    ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
         if !self.document_diagnostics_enabled(file_id) {
             return Ok(Vec::new());
         }
 
         if self.open_file_syntax_diagnostics_for_disabled_root(file_id) {
-            return self.analysis.parse_diagnostics(file_id);
+            return Ok(self.analysis.parse_diagnostics(file_id)?);
         }
 
         if let Some(DiagnosticOwner::CompilationProfile(profile_id)) =
             self.diagnostic_owner(file_id, DiagnosticRequestScope::Document)
         {
-            let diagnostics = self.analysis.compilation_profile_diagnostics(profile_id)?;
+            let diagnostics = self.compilation_profile_diagnostics(profile_id)?;
             return Ok(diagnostics.into_iter().filter(|diag| diag.file_id == file_id).collect());
         }
 
-        self.analysis.diagnostics(file_id)
+        Ok(self.analysis.diagnostics(file_id)?)
     }
 
     pub(crate) fn lsp_diagnostics(
@@ -176,6 +176,14 @@ impl GlobalStateSnapshot {
         }
 
         let diagnostics = self.diagnostics(file_id)?;
+        self.lsp_diagnostics_from_ide(file_id, diagnostics)
+    }
+
+    pub(crate) fn lsp_diagnostics_from_ide(
+        &self,
+        file_id: FileId,
+        diagnostics: Vec<ide::diagnostics::Diagnostic>,
+    ) -> anyhow::Result<Vec<lsp_types::Diagnostic>> {
         let line_info = self.line_info(file_id)?;
         let mut diagnostics = diagnostics
             .into_iter()
@@ -183,6 +191,15 @@ impl GlobalStateSnapshot {
             .collect::<Vec<_>>();
         diagnostics.extend(self.external_lsp_diagnostics(file_id)?);
         Ok(diagnostics)
+    }
+
+    pub(crate) fn compilation_profile_diagnostics(
+        &self,
+        profile_id: base_db::project::CompilationProfileId,
+    ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
+        let job = self.analysis.compilation_profile_job(profile_id)?;
+        let output = crate::compiler_worker::compile(&job)?;
+        Ok(self.analysis.materialize_compilation_profile_diagnostics(profile_id, output)?)
     }
 
     pub(crate) fn external_diagnostics(
@@ -403,15 +420,15 @@ impl GlobalStateSnapshot {
     pub(crate) fn workspace_diagnostics_for_producer(
         &self,
         producer: &DiagnosticWorkspaceProducer,
-    ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
+    ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
         match producer.owner() {
             DiagnosticOwner::CompilationProfile(profile_id) => {
-                self.analysis.compilation_profile_diagnostics(profile_id)
+                self.compilation_profile_diagnostics(profile_id)
             }
             DiagnosticOwner::SourceRoot(_) => {
-                self.analysis.source_root_diagnostics(producer.representative_file_id())
+                Ok(self.analysis.source_root_diagnostics(producer.representative_file_id())?)
             }
-            DiagnosticOwner::File(file_id) => self.diagnostics(file_id),
+            DiagnosticOwner::File(file_id) => Ok(self.diagnostics(file_id)?),
             DiagnosticOwner::External { .. } => Ok(Vec::new()),
         }
     }

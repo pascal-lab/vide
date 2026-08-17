@@ -11,7 +11,10 @@ use base_db::{
     source_root::{SourceRootId, SourceRootRole},
 };
 use hir_def::{def_id::DefId, pathres::ResolutionContext};
-use preproc_expand::compilation_plan::CompilationPlan;
+use preproc_expand::{
+    compilation_plan::CompilationPlan,
+    profile_compiler::{ProfileCompilationJob, ProfileCompilationOutput},
+};
 use triomphe::Arc;
 use utils::{
     cancellation::CancellationToken,
@@ -220,13 +223,6 @@ impl AnalysisSnapshot {
         self.with_db(|db| diagnostics::diagnostics(db, file_id))
     }
 
-    pub fn compilation_diagnostics(
-        &self,
-        file_id: FileId,
-    ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
-        self.with_db(|db| diagnostics::compilation_diagnostics(db, file_id))
-    }
-
     pub fn source_root_diagnostics(
         &self,
         file_id: FileId,
@@ -234,11 +230,34 @@ impl AnalysisSnapshot {
         self.with_db(|db| diagnostics::source_root_diagnostics(db, file_id))
     }
 
-    pub fn compilation_profile_diagnostics(
+    pub fn compilation_profile_job(
+        &self,
+        profile_id: CompilationProfileId,
+    ) -> Cancellable<ProfileCompilationJob> {
+        self.with_db(|db| {
+            preproc_expand::profile_compiler::build_profile_compilation_job(db.db, profile_id)
+        })
+    }
+
+    pub fn materialize_compilation_profile_diagnostics(
+        &self,
+        profile_id: CompilationProfileId,
+        output: ProfileCompilationOutput,
+    ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
+        self.with_db(|db| {
+            diagnostics::materialize_compilation_profile_diagnostics(
+                db.db,
+                profile_id,
+                output.into_diagnostics(),
+            )
+        })
+    }
+
+    pub fn compilation_profile_vide_diagnostics(
         &self,
         profile_id: CompilationProfileId,
     ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
-        self.with_db(|db| diagnostics::compilation_profile_diagnostics(db, profile_id))
+        self.with_db(|db| diagnostics::compilation_profile_vide_diagnostics(db.db, profile_id))
     }
 
     pub fn parse_diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {

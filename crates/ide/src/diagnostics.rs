@@ -166,30 +166,43 @@ pub(crate) fn parse_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic>
         .collect()
 }
 
-pub(crate) fn compilation_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
-    db.file_compilation_diagnostics(file_id)
-        .iter()
-        .filter_map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
-        .collect()
-}
-
+#[cfg(test)]
 pub(crate) fn compilation_profile_diagnostics(
     db: &RootDb,
     profile_id: CompilationProfileId,
 ) -> Vec<Diagnostic> {
-    let mut diagnostics = db
-        .compilation_profile_diagnostics(profile_id)
-        .diagnostics
-        .iter()
-        .filter_map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
-        .collect::<Vec<_>>();
+    let job = preproc_expand::profile_compiler::build_profile_compilation_job(db, profile_id);
+    let output = preproc_expand::profile_compiler::run_profile_compilation(job);
+    materialize_compilation_profile_diagnostics(db, profile_id, output.into_diagnostics())
+}
 
-    diagnostics.extend(
-        compilation_profile_file_ids(db, profile_id)
-            .into_iter()
-            .flat_map(|file_id| vide_diagnostics(db, file_id)),
-    );
+pub(crate) fn materialize_compilation_profile_diagnostics(
+    db: &RootDb,
+    profile_id: CompilationProfileId,
+    compiler_diagnostics: Vec<preproc_expand::db::CompilationDiagnostic>,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = materialize_compiler_diagnostics(compiler_diagnostics);
+    diagnostics.extend(compilation_profile_vide_diagnostics(db, profile_id));
     diagnostics
+}
+
+pub fn materialize_compiler_diagnostics(
+    compiler_diagnostics: Vec<preproc_expand::db::CompilationDiagnostic>,
+) -> Vec<Diagnostic> {
+    compiler_diagnostics
+        .into_iter()
+        .filter_map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
+        .collect()
+}
+
+pub(crate) fn compilation_profile_vide_diagnostics(
+    db: &RootDb,
+    profile_id: CompilationProfileId,
+) -> Vec<Diagnostic> {
+    compilation_profile_file_ids(db, profile_id)
+        .into_iter()
+        .flat_map(|file_id| vide_diagnostics(db, file_id))
+        .collect()
 }
 
 fn compilation_profile_file_ids(db: &RootDb, profile_id: CompilationProfileId) -> Vec<FileId> {
@@ -897,10 +910,6 @@ mod tests {
         assert!(
             diagnostics.iter().all(|diag| diag.file_id == FileId::from_raw(1)),
             "document diagnostics should only include diagnostics attributed to the requested file: {diagnostics:?}"
-        );
-        assert!(
-            db.semantic_diagnostics(FileId::from_raw(0)).is_empty(),
-            "child file should not receive diagnostics that belong to top.sv"
         );
     }
 

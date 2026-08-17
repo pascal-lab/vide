@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use base_db::project::CompilationProfileId;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use utils::{
     cancellation::{CancellationError, CancellationToken},
     thread::ThreadIntent,
@@ -343,61 +343,106 @@ fn collect_semantic_diagnostics(
 ) -> Result<SemanticCompilerUpdate> {
     let freshness = snapshot.diagnostic_publish_freshness;
     let mut touched_files = FxHashSet::default();
-    let mut diagnostic_count = 0;
+    let mut profiles = Vec::with_capacity(profile_ids.len());
     let profile_count = profile_ids.len();
+    let pull_diagnostics = snapshot.config.cli_pull_diagnostics_support();
 
     for profile_id in profile_ids {
         cancellation.check()?;
         touched_files.extend(snapshot.analysis.compilation_profile_file_ids(profile_id)?);
-        let diagnostics = snapshot.analysis.compilation_profile_diagnostics(profile_id)?;
-        diagnostic_count += diagnostics.len();
+        if !pull_diagnostics {
+            profiles.push((
+                snapshot.analysis.compilation_profile_job(profile_id)?,
+                snapshot.analysis.compilation_profile_vide_diagnostics(profile_id)?,
+            ));
+        }
         cancellation.check()?;
     }
-    cancellation.check()?;
+    if pull_diagnostics {
+        drop(snapshot);
+        return Ok(SemanticCompilerUpdate {
+            delivery: SemanticDiagnosticsDelivery::PullRefresh,
+            touched_files,
+            diagnostic_count: 0,
+            freshness,
+        });
+    }
 
+    let i18n = snapshot.config.i18n;
+    let mut publish_files = FxHashMap::default();
+    for file_id in touched_files.iter().copied() {
+        cancellation.check()?;
+        let targets = snapshot
+            .diagnostic_publish_targets(file_id)
+            .with_context(|| format!("failed to resolve diagnostic targets for {file_id:?}"))?;
+        let line_info = snapshot.line_info(file_id)?;
+        let external = snapshot.external_lsp_diagnostics(file_id)?;
+        publish_files.insert(file_id, (targets, line_info, external));
+    }
+    drop(snapshot);
+
+    let mut diagnostics_by_file = FxHashMap::<FileId, Vec<ide::diagnostics::Diagnostic>>::default();
+    let mut diagnostic_count = 0;
+    for (job, vide_diagnostics) in profiles {
+        cancellation.check()?;
+        let output = crate::compiler_worker::compile(&job)?;
+        let diagnostics =
+            ide::diagnostics::materialize_compiler_diagnostics(output.into_diagnostics())
+                .into_iter()
+                .chain(vide_diagnostics);
+        for diagnostic in diagnostics {
+            diagnostic_count += 1;
+            diagnostics_by_file.entry(diagnostic.file_id).or_default().push(diagnostic);
+        }
+        cancellation.check()?;
+    }
+    let delivery = SemanticDiagnosticsDelivery::Push(materialize_semantic_publish_batch(
+        publish_files,
+        &touched_files,
+        &mut diagnostics_by_file,
+        freshness,
+        i18n,
+        cancellation,
+    )?);
     tracing::debug!(
-        snapshot_id = ?snapshot.analysis_snapshot_id(),
         profile_count,
         root_file_count = touched_files.len(),
         diagnostic_count,
-        "semantic compiler prewarmed profile diagnostics"
+        "semantic compiler completed isolated profile diagnostics"
     );
-
-    let delivery = if snapshot.config.cli_pull_diagnostics_support() {
-        SemanticDiagnosticsDelivery::PullRefresh
-    } else {
-        SemanticDiagnosticsDelivery::Push(materialize_semantic_publish_batch(
-            &snapshot,
-            &touched_files,
-            cancellation,
-        )?)
-    };
-    drop(snapshot);
 
     Ok(SemanticCompilerUpdate { delivery, touched_files, diagnostic_count, freshness })
 }
 
 fn materialize_semantic_publish_batch(
-    snapshot: &GlobalStateSnapshot,
+    mut publish_files: FxHashMap<
+        FileId,
+        (
+            Vec<super::snapshot::DiagnosticPublishTarget>,
+            utils::lines::LineInfo,
+            Vec<lsp_types::Diagnostic>,
+        ),
+    >,
     changed_files: &FxHashSet<FileId>,
+    diagnostics_by_file: &mut FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
+    freshness: DiagnosticPublishFreshness,
+    i18n: crate::i18n::I18n,
     cancellation: &CancellationToken,
 ) -> Result<PublishDiagnosticsBatch> {
     let mut publish_tasks = Vec::with_capacity(changed_files.len());
     let mut touched_file_ids = FxHashSet::default();
     for file_id in changed_files.iter().copied() {
         cancellation.check()?;
-        let targets = snapshot
-            .diagnostic_publish_targets(file_id)
-            .with_context(|| format!("failed to resolve diagnostic targets for {file_id:?}"))?;
-        let diagnostics = match snapshot.lsp_diagnostics(file_id) {
-            Ok(diagnostics) => diagnostics,
-            Err(error) if error.is::<ide::Cancelled>() => return Err(CancellationError.into()),
-            Err(error) => {
-                return Err(error.context(format!(
-                    "failed to materialize semantic diagnostics for {file_id:?}"
-                )));
-            }
-        };
+        let (targets, line_info, mut external) = publish_files
+            .remove(&file_id)
+            .expect("every touched file must have prepared publish metadata");
+        let mut diagnostics = diagnostics_by_file
+            .remove(&file_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|diagnostic| crate::lsp_ext::to_proto::diagnostic(i18n, &line_info, diagnostic))
+            .collect::<Vec<_>>();
+        diagnostics.append(&mut external);
         touched_file_ids.insert(file_id);
         publish_tasks.extend(
             targets
@@ -407,11 +452,7 @@ fn materialize_semantic_publish_batch(
     }
     cancellation.check()?;
 
-    Ok(PublishDiagnosticsBatch::for_touched_files(
-        touched_file_ids,
-        publish_tasks,
-        snapshot.diagnostic_publish_freshness,
-    ))
+    Ok(PublishDiagnosticsBatch::for_touched_files(touched_file_ids, publish_tasks, freshness))
 }
 
 fn normalize_profile_ids(mut profile_ids: Vec<CompilationProfileId>) -> Vec<CompilationProfileId> {

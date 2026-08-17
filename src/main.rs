@@ -121,6 +121,10 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    if env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--compiler-worker")) {
+        return vide::compiler_worker::run_stdio();
+    }
+
     let opt = Opt::parse();
     let _profile_guard = setup_logging(&opt)?;
     run_server(opt)?;

@@ -39,7 +39,9 @@ impl GlobalState {
             std::mem::drop(read_guard);
             if !pending_diagnostic_targets.is_empty() {
                 self.diagnostics.diagnostic_target_revision += 1;
-                self.request_diagnostics(pending_diagnostic_targets.into_iter().collect());
+                self.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(
+                    pending_diagnostic_targets,
+                ));
             }
             return false;
         };
@@ -114,11 +116,13 @@ impl GlobalState {
             }
         }
         if !pending_diagnostic_targets.is_empty()
-            && (has_structure_changes
-                || self.config_state.config.user_config.diagnostics.update
-                    != DiagnosticsUpdateUserConfig::OnType)
+            && !has_structure_changes
+            && self.config_state.config.user_config.diagnostics.update
+                != DiagnosticsUpdateUserConfig::OnType
         {
-            self.request_diagnostics(pending_diagnostic_targets.into_iter().collect());
+            self.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(
+                pending_diagnostic_targets,
+            ));
         }
 
         true
@@ -141,9 +145,9 @@ impl GlobalState {
         let semantic_profile_ids = self.semantic_compiler_profiles_for_invalidation(&invalidation);
         let semantic_compilation_scheduled = !semantic_profile_ids.is_empty();
         self.schedule_semantic_compiler(semantic_profile_ids);
-        if self.config_state.config.cli_pull_diagnostics_support()
-            && semantic_compilation_scheduled
-            && matches!(&invalidation, DiagnosticInvalidation::FileChanges(_))
+        if semantic_compilation_scheduled
+            && (!self.config_state.config.cli_pull_diagnostics_support()
+                || matches!(&invalidation, DiagnosticInvalidation::FileChanges(_)))
         {
             return;
         }

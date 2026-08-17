@@ -19,6 +19,7 @@ use crate::{
 };
 
 pub mod browser;
+pub mod compiler_worker;
 mod config;
 mod global_state;
 mod i18n;
