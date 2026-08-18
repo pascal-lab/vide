@@ -12,7 +12,7 @@ use crate::{
     def_id::{self, DefinitionTable},
     design_map::PackageExports,
     diagnostics,
-    item_tree::{self, DeclarationSkeleton, ItemTree, ItemTreeItem, Signature},
+    item_tree::{self, ItemTree, ItemTreeItem, Signature},
     owner::{self, OwnerId, OwnerTable},
     scope,
     source_map::Lowered,
@@ -64,10 +64,6 @@ impl dyn HirDefDb + '_ {
 
     pub fn item_tree(&self, file_id: HirFileId) -> Arc<ItemTree> {
         item_tree::item_tree(self, self.syntax_file(file_id))
-    }
-
-    pub fn declaration_skeleton(&self, file_id: HirFileId) -> Option<Arc<DeclarationSkeleton>> {
-        item_tree::declaration_skeleton(self, self.syntax_file(file_id))
     }
 
     pub fn item_for_owner(&self, owner: OwnerId) -> Option<ItemTreeItem> {

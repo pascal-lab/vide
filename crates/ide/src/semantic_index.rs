@@ -505,22 +505,6 @@ mod tests {
     }
 
     #[test]
-    fn declaration_skeleton_is_authoritative_only_without_preprocessing() {
-        let (plain, file_id, _, _) =
-            setup_marked("module top; function void f(); endfunction endmodule\n");
-        let db = plain.ctx();
-        let hir_file = HirFileId::File(file_id);
-        let skeleton = db.declaration_skeleton(hir_file).unwrap();
-        assert!(skeleton.preprocessor_independent());
-        assert!(skeleton.matches(&db.item_tree(hir_file)));
-
-        let (preprocessed, file_id, _, _) =
-            setup_marked("`define DECL module generated; endmodule\n`DECL\n");
-        let skeleton = preprocessed.ctx().declaration_skeleton(HirFileId::File(file_id)).unwrap();
-        assert!(!skeleton.preprocessor_independent());
-    }
-
-    #[test]
     fn request_file_index_reuses_unrelated_edits_and_rebuilds_its_file() {
         use base_db::change::Change;
         use vfs::ChangedFile;

@@ -179,40 +179,7 @@ pub struct ItemTree {
     signatures: Vec<Signature>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StructureFingerprint(pub u64);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeclarationSkeleton {
-    preprocessor_independent: bool,
-    item_tree: Arc<ItemTree>,
-}
-
-impl DeclarationSkeleton {
-    pub fn preprocessor_independent(&self) -> bool {
-        self.preprocessor_independent
-    }
-
-    pub fn item_tree(&self) -> &ItemTree {
-        &self.item_tree
-    }
-
-    pub fn matches(&self, authoritative: &ItemTree) -> bool {
-        self.item_tree.structure_fingerprint() == authoritative.structure_fingerprint()
-            && *self.item_tree == *authoritative
-    }
-}
-
 impl ItemTree {
-    pub fn structure_fingerprint(&self) -> StructureFingerprint {
-        let mut hasher = FxHasher::default();
-        self.file_id.hash(&mut hasher);
-        self.owners.owners().hash(&mut hasher);
-        self.items.hash(&mut hasher);
-        self.signatures.hash(&mut hasher);
-        StructureFingerprint(hasher.finish())
-    }
-
     pub fn file_id(&self) -> HirFileId {
         self.file_id
     }
@@ -288,32 +255,9 @@ pub(crate) fn item_tree(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<ItemTree> 
     item_tree_input(db, file)
 }
 
-#[salsa::tracked(lru = 128, returns(clone))]
-pub(crate) fn declaration_skeleton(
-    db: &dyn HirDefDb,
-    file: SyntaxFileId,
-) -> Option<Arc<DeclarationSkeleton>> {
-    let file_id = file.hir_file(db);
-    let HirFileId::File(source_file) = file_id else {
-        return None;
-    };
-    let source_model = db.source_model(source_file);
-    let tree = &source_model.syntax_tree;
-    let ast_ids = AstIdMap::from_source(tree);
-    let owners = Arc::new(crate::owner::build_owner_table(db, file_id, tree, &ast_ids));
-    let source_text = db.file_text(source_file);
-    let (items, signatures) = build_item_tree_data(tree, &ast_ids, Some(&source_text));
-    let by_id = items.iter().enumerate().map(|(index, item)| (item.id, index)).collect();
-    Some(Arc::new(DeclarationSkeleton {
-        preprocessor_independent: db.file_facts(source_file).preprocessor_independent,
-        item_tree: Arc::new(ItemTree { file_id, owners, items, by_id, signatures }),
-    }))
-}
-
 pub(crate) fn set_item_tree_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     item_tree_input::set_lru_capacity(db, capacity);
     item_tree::set_lru_capacity(db, capacity);
-    declaration_skeleton::set_lru_capacity(db, capacity);
     item_for_owner::set_lru_capacity(db, capacity);
     signature_for_owner::set_lru_capacity(db, capacity);
 }
