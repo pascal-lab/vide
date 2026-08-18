@@ -118,13 +118,17 @@ impl AnalysisHost {
                     thread::sleep(std::time::Duration::from_millis(5));
                 }
                 let ctx = AnalysisContext { db: &db, store: &store };
-                let hot = store.hot();
-                let _ = affected_files;
-                if hot.design_graph {
-                    let _ = ctx.prewarm_design_graph(&worker_cancel);
-                    if !worker_cancel.load(Ordering::Acquire) {
-                        let _ = ctx.prewarm_resolution(&worker_cancel);
+                for file_id in affected_files {
+                    if worker_cancel.load(Ordering::Acquire) {
+                        return;
                     }
+                    if db.file_kind(file_id).is_semantic_compilation_unit() {
+                        let _ = <dyn design_graph::DesignGraphDb>::file_facts(&db, file_id);
+                    }
+                }
+                let _ = ctx.prewarm_design_graph(&worker_cancel);
+                if !worker_cancel.load(Ordering::Acquire) {
+                    let _ = ctx.prewarm_resolution(&worker_cancel);
                 }
             })
             .expect("failed to spawn revision prewarm worker");

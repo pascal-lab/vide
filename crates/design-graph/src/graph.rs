@@ -271,10 +271,6 @@ impl DesignGraph {
         self.named(name, |id| id.kind.is_package())
     }
 
-    pub fn top_level_modules_named(&self, name: &str) -> GraphResolution<UnitId> {
-        self.modules_named(name)
-    }
-
     pub fn packages(&self) -> impl Iterator<Item = UnitId> + '_ {
         self.meta.keys().filter(|id| id.kind.is_package()).cloned()
     }

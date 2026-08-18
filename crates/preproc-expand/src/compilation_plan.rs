@@ -77,26 +77,6 @@ impl CompilationPlan {
         file_ids
     }
 
-    /// Return changed files plus every file that transitively includes one of
-    /// them in this compilation plan.
-    pub fn affected_files(&self, changed: impl IntoIterator<Item = FileId>) -> FxHashSet<FileId> {
-        let mut affected = changed.into_iter().collect::<FxHashSet<_>>();
-        loop {
-            let mut grew = false;
-            for (&includer, dependencies) in &self.include_dependencies {
-                if !affected.contains(&includer)
-                    && dependencies.iter().any(|dependency| affected.contains(dependency))
-                {
-                    affected.insert(includer);
-                    grew = true;
-                }
-            }
-            if !grew {
-                return affected;
-            }
-        }
-    }
-
     /// Exact transitive include closure when every visited directive resolved
     /// statically. Dynamic or currently missing include targets return `None`,
     /// which tells the parser to retain the conservative profile-wide buffer

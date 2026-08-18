@@ -2,7 +2,6 @@
 
 use smallvec::SmallVec;
 use utils::line_index::TextSize;
-use vfs::FileId;
 
 use crate::{facts::FileFacts, graph::DesignGraph, unit::UnitId};
 
@@ -26,12 +25,7 @@ pub enum CursorHit {
 
 /// Token shape is a *candidate* graph question. Empty candidates mean this
 /// is not a compilation-unit name (`Other`), not a second CU-name path.
-pub fn hit_at(
-    facts: &FileFacts,
-    graph: &DesignGraph,
-    _file: FileId,
-    offset: TextSize,
-) -> CursorHit {
+pub fn hit_at(facts: &FileFacts, graph: &DesignGraph, offset: TextSize) -> CursorHit {
     if let Some(decl) = facts.design_unit_at(offset) {
         let range = decl.name_range.expect("design_unit_at only returns ranged decls");
         return CursorHit::DeclName { unit: decl.id.clone(), range };
@@ -94,7 +88,7 @@ mod tests {
             facts_and_offset("module top;\n  cc_fifo u();\nendmodule\n", "cc_fifo");
         let graph = graph_with(&[("cc_fifo", UnitKind::Module)]);
         assert!(matches!(
-            hit_at(&facts, &graph, FILE, offset),
+            hit_at(&facts, &graph, offset),
             CursorHit::InstantiationType { .. }
         ));
     }
@@ -106,7 +100,7 @@ mod tests {
             "inner u",
         );
         let graph = graph_with(&[("outer", UnitKind::Module)]);
-        assert!(matches!(hit_at(&facts, &graph, FILE, offset), CursorHit::Other));
+        assert!(matches!(hit_at(&facts, &graph, offset), CursorHit::Other));
     }
 
     #[test]
@@ -114,7 +108,7 @@ mod tests {
         let (facts, offset) =
             facts_and_offset("class C; endclass\nmodule m;\n  C::x y;\nendmodule\n", "C::");
         let graph = graph_with(&[("m", UnitKind::Module)]);
-        assert!(matches!(hit_at(&facts, &graph, FILE, offset), CursorHit::Other));
+        assert!(matches!(hit_at(&facts, &graph, offset), CursorHit::Other));
     }
 
     #[test]
@@ -124,14 +118,14 @@ mod tests {
         let facts = from_tree(FILE, &tree, text);
         let offset = facts.imports[0].range.start();
         let graph = graph_with(&[("p", UnitKind::Package), ("m", UnitKind::Module)]);
-        assert!(matches!(hit_at(&facts, &graph, FILE, offset), CursorHit::PackageRef { .. }));
+        assert!(matches!(hit_at(&facts, &graph, offset), CursorHit::PackageRef { .. }));
     }
 
     #[test]
     fn scoped_colon_package_is_package_ref() {
         let (facts, offset) = facts_and_offset("module m;\n  p::y x;\nendmodule\n", "p::");
         let graph = graph_with(&[("p", UnitKind::Package), ("m", UnitKind::Module)]);
-        assert!(matches!(hit_at(&facts, &graph, FILE, offset), CursorHit::PackageRef { .. }));
+        assert!(matches!(hit_at(&facts, &graph, offset), CursorHit::PackageRef { .. }));
     }
 
     #[test]
@@ -139,7 +133,7 @@ mod tests {
         let (facts, offset) = facts_and_offset("module m;\n  assign x = n.sig;\nendmodule\n", "n.");
         let graph = graph_with(&[("m", UnitKind::Module)]);
         assert!(facts.package_refs.is_empty());
-        assert!(matches!(hit_at(&facts, &graph, FILE, offset), CursorHit::Other));
+        assert!(matches!(hit_at(&facts, &graph, offset), CursorHit::Other));
     }
 
     #[test]
@@ -148,7 +142,7 @@ mod tests {
             facts_and_offset("module top;\n  and g(o, a, b);\nendmodule\n", "and ");
         let graph = graph_with(&[("top", UnitKind::Module)]);
         assert!(facts.instantiations.is_empty());
-        assert!(matches!(hit_at(&facts, &graph, FILE, offset), CursorHit::Other));
+        assert!(matches!(hit_at(&facts, &graph, offset), CursorHit::Other));
     }
 
     #[test]
@@ -162,7 +156,7 @@ mod tests {
             facts.instantiations
         );
         assert!(
-            matches!(hit_at(&facts, &graph, FILE, offset), CursorHit::Other),
+            matches!(hit_at(&facts, &graph, offset), CursorHit::Other),
             "Checker is a node, not a Hierarchy candidate"
         );
     }

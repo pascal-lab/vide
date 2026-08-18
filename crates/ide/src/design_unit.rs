@@ -73,7 +73,7 @@ fn hit(db: &AnalysisContext<'_>, file_id: FileId, offset: TextSize) -> CursorHit
         return CursorHit::DeclName { unit: decl.id.clone(), range };
     }
     let graph = db.design_graph();
-    let hit = hit_at(&facts, &graph, file_id, offset);
+    let hit = hit_at(&facts, &graph, offset);
     let (hit_kind, target_count) = match &hit {
         CursorHit::DeclName { .. } => ("decl_name", 1usize),
         CursorHit::InstantiationType { targets, .. } => ("instantiation_type", targets.len()),

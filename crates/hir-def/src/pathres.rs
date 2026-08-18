@@ -380,7 +380,7 @@ fn resolve_top_level_module_root(
     // is not a single segment value fallback: `top` alone remains a type-space
     // module name, and nested declarations never leak through the fallback.
     Resolution::from_candidates(
-        context.graph().top_level_modules_named(ident).into_vec().into_iter().filter_map(|unit| {
+        context.graph().modules_named(ident).into_vec().into_iter().filter_map(|unit| {
             unit.to_owner(db)
                 .map(|owner| DefId::from_source(db, crate::symbol::DefOriginLoc::Module(owner)))
         }),

@@ -34,10 +34,6 @@ impl UnitKind {
     pub fn is_package(self) -> bool {
         matches!(self, Self::Package)
     }
-
-    pub fn is_design_unit(self) -> bool {
-        true
-    }
 }
 
 /// Display facts for a node. Not identity.

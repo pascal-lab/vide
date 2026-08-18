@@ -13,23 +13,6 @@ use super::{
 };
 use crate::db::root_db::RootDb;
 
-/// Products that have been requested at least once on this store lineage.
-///
-/// Survives a structure [`EpochDecision::Patch`] so a CU edit still prewarms
-/// what the user was using. Dies with the store on a workspace reset.
-#[derive(Clone)]
-pub(crate) struct HotProducts {
-    /// Always a workspace product. True from initialize so ready waits for
-    /// fold.
-    pub design_graph: bool,
-}
-
-impl Default for HotProducts {
-    fn default() -> Self {
-        Self { design_graph: true }
-    }
-}
-
 #[derive(Clone, Default)]
 struct StructureProducts {
     design_graph: Arc<ProductCell<DesignGraph>>,
@@ -40,7 +23,6 @@ struct StructureProducts {
 struct Inner {
     epoch: StructureEpoch,
     structure: StructureProducts,
-    hot: HotProducts,
     /// Authoritative standalone parses retained by this store lineage:
     /// compilation root -> files named by emitted preprocessor include edges.
     parse_dependencies: FxHashMap<FileId, Arc<[FileId]>>,
@@ -72,10 +54,6 @@ impl ProductStore {
         Self { inner: Mutex::new(self.inner.lock().clone()) }
     }
 
-    pub(crate) fn hot(&self) -> HotProducts {
-        self.inner.lock().hot.clone()
-    }
-
     pub(crate) fn record_parse_dependencies(&self, file_id: FileId, dependencies: Arc<[FileId]>) {
         self.inner.lock().parse_dependencies.insert(file_id, dependencies);
     }
@@ -105,9 +83,7 @@ impl ProductStore {
     }
 
     pub(crate) fn design_graph_cell(&self) -> Arc<ProductCell<DesignGraph>> {
-        let mut inner = self.inner.lock();
-        inner.hot.design_graph = true;
-        inner.structure.design_graph.clone()
+        self.inner.lock().structure.design_graph.clone()
     }
 
     pub(crate) fn parsed_dependents(&self, changed: &[FileId]) -> Vec<FileId> {
