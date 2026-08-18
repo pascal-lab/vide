@@ -35,7 +35,7 @@ impl GeneratedUnits {
     ) -> bool {
         let previous = self.by_file.get(&file).map(Box::as_ref).unwrap_or(&[]);
         if previous == ids.as_ref() {
-            if self.by_file.get(&file).is_none() {
+            if !self.by_file.contains_key(&file) {
                 self.by_file.insert(file, ids);
             }
             return false;

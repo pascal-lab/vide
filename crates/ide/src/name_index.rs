@@ -105,7 +105,7 @@ pub(crate) fn index_files_for_root(
 
 #[cfg(test)]
 mod tests {
-    use syntax::{SyntaxNodeExt, has_text_range::HasTextRange, token::TokenKindExt};
+    use syntax::{has_text_range::HasTextRange, token::TokenKindExt};
     use utils::line_index::TextSize;
 
     use super::FileNameIndex;

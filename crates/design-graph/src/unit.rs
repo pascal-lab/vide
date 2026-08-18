@@ -54,18 +54,13 @@ pub struct UnitNode {
     pub origin: UnitOrigin,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum UnitOrigin {
     /// Unexpanded-tree source declaration. Ranges may slice `file_text`.
+    #[default]
     Source,
     /// Paid authoritative tree, name token is not `TokenOrigin::Source`.
     Generated,
-}
-
-impl Default for UnitOrigin {
-    fn default() -> Self {
-        Self::Source
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -26,7 +26,7 @@ fn run(input: impl std::io::Read, mut output: impl Write) -> anyhow::Result<()> 
 pub(crate) fn compile(job: &ProfileCompilationJob) -> anyhow::Result<ProfileCompilationOutput> {
     #[cfg(test)]
     {
-        return Ok(run_profile_compilation(job.clone()));
+        Ok(run_profile_compilation(job.clone()))
     }
 
     #[cfg(not(test))]

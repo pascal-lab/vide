@@ -302,7 +302,7 @@ fn package_member_resolution(
 }
 
 fn resolve_instantiation_type_name(
-    db: &dyn WorkspaceSymbolIndexDb,
+    _db: &dyn WorkspaceSymbolIndexDb,
     context: &crate::semantic_index::SemanticSnapshotInputs,
     sema: &SemanticsImpl,
     file_id: HirFileId,

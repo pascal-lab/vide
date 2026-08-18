@@ -1,13 +1,8 @@
 use hir_def::{Ident, container::InFile, def_id::DefId, item_tree::ModuleHeader, owner::OwnerId};
 use hir_ty::db::TyDb;
-use preproc_expand::{
-    db::PreprocDb,
-    file::HirFileId,
-    macro_file::{macro_file_call_site, macro_files_for_file},
-};
+use preproc_expand::{db::PreprocDb, file::HirFileId};
 use rustc_hash::FxHashMap;
 use syntax::{SyntaxNodeExt, has_text_range::HasTextRange, token::TokenKindExt};
-use triomphe::Arc;
 use utils::line_index::TextRange;
 use vfs::FileId;
 

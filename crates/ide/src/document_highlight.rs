@@ -34,31 +34,30 @@ pub(crate) fn document_highlight(
     config: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
     crate::generated_units::record_from_paid_artifact(db, file_id);
-    if crate::design_unit::source_visible_hit(db, FilePosition { file_id, offset }) {
-        if let Some(refs) = crate::design_unit::references(
+    if crate::design_unit::source_visible_hit(db, FilePosition { file_id, offset })
+        && let Some(refs) = crate::design_unit::references(
             db,
             FilePosition { file_id, offset },
             &crate::references::ReferencesConfig::new(config.scope_visibility, None),
-        ) {
-            let highlights: Vec<DocumentHighlight> = refs
-                .into_iter()
-                .flat_map(|item| {
-                    let mut ranges = item.refs.get(&file_id).cloned().unwrap_or_default();
-                    if let Some(defs) = item.def {
-                        for nav in defs {
-                            if nav.file_id == file_id && nav.focus_range.is_some() {
-                                ranges
-                                    .push((nav.focus_or_full_range(), ReferenceCategory::empty()));
-                            }
+        )
+    {
+        let highlights: Vec<DocumentHighlight> = refs
+            .into_iter()
+            .flat_map(|item| {
+                let mut ranges = item.refs.get(&file_id).cloned().unwrap_or_default();
+                if let Some(defs) = item.def {
+                    for nav in defs {
+                        if nav.file_id == file_id && nav.focus_range.is_some() {
+                            ranges.push((nav.focus_or_full_range(), ReferenceCategory::empty()));
                         }
                     }
-                    ranges
-                })
-                .map(|(range, category)| DocumentHighlight { range, category })
-                .collect();
-            if !highlights.is_empty() {
-                return Some(highlights);
-            }
+                }
+                ranges
+            })
+            .map(|(range, category)| DocumentHighlight { range, category })
+            .collect();
+        if !highlights.is_empty() {
+            return Some(highlights);
         }
     }
     let sema = db.semantics();

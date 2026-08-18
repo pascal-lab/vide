@@ -95,7 +95,7 @@ impl SourcePreprocModelBuilder {
             return Ok(());
         };
         let event_id = SourcePreprocEventId::from(directive.event_id);
-        let range = required_event_range(source_order, kind, &directive)?;
+        let range = required_event_range(source_order, kind, directive)?;
 
         match kind {
             MacroEventKind::Define => {

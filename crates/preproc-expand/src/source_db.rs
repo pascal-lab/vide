@@ -30,9 +30,7 @@ use self::source_mapping::source_preproc_file_ids;
 pub(super) use self::source_mapping::{materialized_predefine_text, source_preproc_file_ids};
 use self::source_mapping::{shift_text_range, unshift_text_size};
 pub use self::{
-    context::{
-        SourcePreprocContextIndex, SourcePreprocRelevantContexts,
-    },
+    context::{SourcePreprocContextIndex, SourcePreprocRelevantContexts},
     queries::{SourcePreprocQueryError, workspace_preproc_model_file_ids},
     range_index::MappedSourcePreprocModel,
     source_map::{
