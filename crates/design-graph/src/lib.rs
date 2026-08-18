@@ -13,6 +13,6 @@ pub mod unit;
 
 pub use db::{DesignGraphDb, set_file_facts_lru_capacity};
 pub use facts::{FileFacts, ImportSpec, InstantiationSite, Mention, PackageRefSite};
-pub use graph::{DesignGraph, GeneratedUnits, GraphResolution, UnitMeta};
+pub use graph::{DesignGraph, GeneratedFileUnits, GeneratedUnits, GraphResolution, UnitMeta};
 pub use hit::{CursorHit, hit_at};
 pub use unit::{InstantiationRole, UnitId, UnitKind, UnitNode, UnitOrigin};

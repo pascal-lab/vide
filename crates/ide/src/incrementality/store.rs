@@ -2,6 +2,7 @@ use base_db::source_db::SourceDb;
 use design_graph::{DesignGraph, DesignGraphDb, GeneratedUnits, UnitId, UnitMeta};
 use hir_def::pathres::ResolutionContext;
 use parking_lot::Mutex;
+use preproc_expand::db::PreprocDb;
 use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 use vfs::FileId;
@@ -43,7 +44,7 @@ struct Inner {
     /// Authoritative standalone parses retained by this store lineage:
     /// compilation root -> files named by emitted preprocessor include edges.
     parse_dependencies: FxHashMap<FileId, Arc<[FileId]>>,
-    /// Generated CU units from paid artifacts. Write-only in this PR.
+    /// Generated CU units from paid artifacts, keyed by artifact fingerprint.
     generated: GeneratedUnits,
 }
 
@@ -79,19 +80,28 @@ impl ProductStore {
         self.inner.lock().parse_dependencies.insert(file_id, dependencies);
     }
 
-    /// Book-keep generated units for one file. Returns whether the stored set
-    /// changed so the caller can upsert that file on the live graph.
+    /// Book-keep generated units for one paid artifact. `fingerprint` is
+    /// [`PreprocDb::compilation_unit_snapshot`]; a later snapshot with a
+    /// different fingerprint cannot observe this entry.
     pub(crate) fn record_generated_units(
         &self,
         file_id: FileId,
+        fingerprint: u64,
         ids: Box<[UnitId]>,
         meta: FxHashMap<UnitId, UnitMeta>,
     ) -> bool {
-        self.inner.lock().generated.replace_file(file_id, ids, meta)
+        self.inner.lock().generated.replace_file(file_id, fingerprint, ids, meta)
     }
 
-    pub(crate) fn generated_units(&self) -> GeneratedUnits {
-        self.inner.lock().generated.clone()
+    /// Generated units whose stored fingerprint still matches the current
+    /// compilation-unit snapshot. Stale entries are a miss, not a value.
+    pub(crate) fn generated_units(&self, db: &RootDb) -> GeneratedUnits {
+        let mut generated = self.inner.lock().generated.clone();
+        generated.retain_current(|file, fingerprint| {
+            db.files().contains(&file)
+                && <dyn PreprocDb>::compilation_unit_snapshot(db, file).fingerprint == fingerprint
+        });
+        generated
     }
 
     pub(crate) fn design_graph_cell(&self) -> Arc<ProductCell<DesignGraph>> {
@@ -144,20 +154,41 @@ impl ProductStore {
     /// graph; files whose CU units changed are upserted. Resolution products
     /// drop only when the graph actually changed.
     ///
-    /// This is the only invalidation entry point. The request path never
-    /// re-decides the epoch.
+    /// This is the only epoch-decision entry point. The request path may
+    /// publish newly paid generated units onto an already-decided graph, but
+    /// it never re-decides Keep vs Patch. Overlay entries whose artifact
+    /// fingerprint no longer matches are dropped here so a Keep cannot retain
+    /// a generated name the current snapshot cannot produce.
     pub(crate) fn invalidate(&self, db: &RootDb, _files: &[FileId]) {
+        let stale_generated = self.drop_stale_generated(db);
         let epoch = self.inner.lock().epoch.clone();
         let decision = if epoch.is_empty() { EpochDecision::Keep } else { epoch.decide(db) };
         self.inner.lock().epoch.clear();
-        match decision {
-            EpochDecision::Keep => {}
-            EpochDecision::Patch(patch) => {
-                self.patch_design_graph(db, &patch);
-                let mut inner = self.inner.lock();
-                inner.structure.resolution = Arc::new(ProductCell::default());
-            }
+        let mut patch = match decision {
+            EpochDecision::Keep => Vec::new(),
+            EpochDecision::Patch(files) => files,
+        };
+        patch.extend(stale_generated);
+        patch.sort_unstable_by_key(|file| file.index());
+        patch.dedup();
+        if patch.is_empty() {
+            return;
         }
+        self.patch_design_graph(db, &patch);
+        let mut inner = self.inner.lock();
+        inner.structure.resolution = Arc::new(ProductCell::default());
+    }
+
+    fn drop_stale_generated(&self, db: &RootDb) -> Vec<FileId> {
+        let files: Vec<FileId> = self.inner.lock().generated.by_file.keys().copied().collect();
+        let current: FxHashMap<FileId, u64> = files
+            .into_iter()
+            .filter(|&file| db.files().contains(&file))
+            .map(|file| (file, <dyn PreprocDb>::compilation_unit_snapshot(db, file).fingerprint))
+            .collect();
+        self.inner.lock().generated.retain_current(|file, fingerprint| {
+            current.get(&file).is_some_and(|&got| got == fingerprint)
+        })
     }
 
     /// Upsert or remove `files` on the live graph. If the graph has never
@@ -169,7 +200,7 @@ impl ProductStore {
         let Some(current) = self.design_graph_cell().peek() else {
             return;
         };
-        let generated = self.generated_units();
+        let generated = self.generated_units(db);
         let mut graph = (*current).clone();
         let mut changed = false;
         for &file_id in files {

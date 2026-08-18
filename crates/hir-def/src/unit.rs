@@ -198,8 +198,8 @@ mod tests {
         let generated_id =
             UnitId { file: TOP, name: SmolStr::new("foo"), kind: UnitKind::Module, ordinal: 0 };
         let mut generated = GeneratedUnits::default();
-        generated.by_file.insert(TOP, Box::new([generated_id.clone()]));
-        generated.meta.insert(
+        let mut meta = rustc_hash::FxHashMap::default();
+        meta.insert(
             generated_id.clone(),
             UnitMeta {
                 kind: UnitKind::Module,
@@ -207,6 +207,7 @@ mod tests {
                 header_fingerprint: 0,
             },
         );
+        generated.replace_file(TOP, 0, Box::new([generated_id.clone()]), meta);
         let graph = DesignGraph::fold(&db, &generated);
         assert_eq!(graph.origin(&generated_id), Some(UnitOrigin::Generated));
         assert!(graph.modules_named("foo").unique().is_some());

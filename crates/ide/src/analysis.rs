@@ -61,6 +61,10 @@ static NEVER_CANCELLED: AtomicBool = AtomicBool::new(false);
 /// Read view of one IDE request: the pure Salsa database plus the
 /// workspace product store. Features are pure functions of this context,
 /// so they can never observe products from a later edit.
+///
+/// [`Self::parse_file`] is the one exception that writes: it publishes
+/// generated units derived from the artifact it just paid for, keyed by
+/// that artifact's fingerprint. It does not re-decide the structure epoch.
 pub(crate) struct AnalysisContext<'a> {
     pub(crate) db: &'a RootDb,
     pub(crate) store: &'a ProductStore,
@@ -134,7 +138,7 @@ impl AnalysisContext<'_> {
         priority: crate::incrementality::ComputationPriority,
         cancel: &AtomicBool,
     ) -> Option<triomphe::Arc<design_graph::DesignGraph>> {
-        let generated = self.store.generated_units();
+        let generated = self.store.generated_units(self.db);
         self.store.design_graph_cell().get_or_compute(priority, cancel, |in_flight| {
             let _span = tracing::info_span!("design_graph.build").entered();
             let started = std::time::Instant::now();

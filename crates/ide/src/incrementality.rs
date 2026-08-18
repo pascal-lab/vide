@@ -14,10 +14,16 @@
 //! Structure products (`DesignGraph`, `ResolutionContext`) are keyed by `s`
 //! and memoized in `ProductCell` so a foreground request can preempt a
 //! background prewarm. A generated-unit set change patches the graph for that
-//! file via [`ProductStore::patch_design_graph`].
+//! file via [`ProductStore::patch_design_graph`]. Generated units are stored
+//! under `(FileId, compilation_unit_snapshot.fingerprint)` so a later
+//! snapshot cannot observe a previous artifact's names. Making them a salsa
+//! query over `compilation_unit_artifact` would force a paid parse of every
+//! previously-parsed CU on the next fold; that undoes the L0 fact layer.
 //!
-//! [`ProductStore::invalidate`] is the only invalidation entry point.
-//! Features are pure functions of [`crate::analysis::AnalysisContext`].
+//! [`ProductStore::invalidate`] is the only epoch-decision entry point.
+//! Features are pure functions of [`crate::analysis::AnalysisContext`],
+//! except that a paid parse may publish fingerprint-keyed generated units
+//! onto the already-decided graph.
 //!
 //! New caches belong in Salsa (per-file, dependency-tracked) or in
 //! [`ProductStore`] (workspace-scoped, epoch-tracked). A third cache in a

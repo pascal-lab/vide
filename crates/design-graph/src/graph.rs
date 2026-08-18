@@ -17,29 +17,68 @@ pub struct UnitMeta {
     pub header_fingerprint: u64,
 }
 
-/// Generated units recorded by the IDE from a paid artifact. No ranges.
+/// One file's generated units, valid only for a specific artifact fingerprint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratedFileUnits {
+    pub fingerprint: u64,
+    pub ids: Box<[UnitId]>,
+}
+
+/// Generated units recorded from a paid artifact. No ranges.
+///
+/// Entries are keyed by `(FileId, compilation_unit_snapshot.fingerprint)`.
+/// A FileId-only lookup cannot return a stale set: [`Self::ids_for`] and
+/// [`Self::retain_current`] treat a fingerprint mismatch as a miss.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GeneratedUnits {
-    pub by_file: FxHashMap<FileId, Box<[UnitId]>>,
+    pub by_file: FxHashMap<FileId, GeneratedFileUnits>,
     pub meta: FxHashMap<UnitId, UnitMeta>,
 }
 
 impl GeneratedUnits {
+    pub fn contains_file(&self, file: FileId) -> bool {
+        self.by_file.contains_key(&file)
+    }
+
+    pub fn ids_for(&self, file: FileId) -> &[UnitId] {
+        self.by_file.get(&file).map(|entry| entry.ids.as_ref()).unwrap_or(&[])
+    }
+
+    /// Keep only entries for which `is_current(file, stored_fingerprint)` is
+    /// true. Returns the files that were dropped.
+    pub fn retain_current(&mut self, is_current: impl Fn(FileId, u64) -> bool) -> Vec<FileId> {
+        let mut dropped = Vec::new();
+        self.by_file.retain(|&file, entry| {
+            if is_current(file, entry.fingerprint) {
+                true
+            } else {
+                for id in entry.ids.iter() {
+                    self.meta.remove(id);
+                }
+                dropped.push(file);
+                false
+            }
+        });
+        dropped
+    }
+
     /// Replace one file's generated ids. Returns whether the stored set
     /// changed.
     pub fn replace_file(
         &mut self,
         file: FileId,
+        fingerprint: u64,
         ids: Box<[UnitId]>,
         meta: FxHashMap<UnitId, UnitMeta>,
     ) -> bool {
-        let previous = self.by_file.get(&file).map(Box::as_ref).unwrap_or(&[]);
-        if previous == ids.as_ref() {
-            self.by_file.entry(file).or_insert(ids);
+        let previous = self.by_file.get(&file);
+        if previous.is_some_and(|entry| {
+            entry.fingerprint == fingerprint && entry.ids.as_ref() == ids.as_ref()
+        }) {
             return false;
         }
-        if let Some(old) = self.by_file.insert(file, ids) {
-            for id in old.iter() {
+        if let Some(old) = self.by_file.insert(file, GeneratedFileUnits { fingerprint, ids }) {
+            for id in old.ids.iter() {
                 self.meta.remove(id);
             }
         }
@@ -145,11 +184,9 @@ impl DesignGraph {
                 },
             ));
         }
-        if let Some(ids) = generated.by_file.get(&file) {
-            for id in ids.iter() {
-                if let Some(meta) = generated.meta.get(id) {
-                    next.push((id.clone(), meta.clone()));
-                }
+        for id in generated.ids_for(file) {
+            if let Some(meta) = generated.meta.get(id) {
+                next.push((id.clone(), meta.clone()));
             }
         }
         let mut previous: Vec<_> = self
@@ -304,8 +341,21 @@ mod tests {
         let unit = id("foo", 0);
         let mut meta = FxHashMap::default();
         meta.insert(unit.clone(), generated_meta(&unit));
-        assert!(generated.replace_file(FILE, Box::new([unit.clone()]), meta.clone()));
-        assert!(!generated.replace_file(FILE, Box::new([unit]), meta));
+        assert!(generated.replace_file(FILE, 1, Box::new([unit.clone()]), meta.clone()));
+        assert!(!generated.replace_file(FILE, 1, Box::new([unit]), meta));
+    }
+
+    #[test]
+    fn retain_current_drops_a_mismatched_fingerprint() {
+        let mut generated = GeneratedUnits::default();
+        let unit = id("foo", 0);
+        let mut meta = FxHashMap::default();
+        meta.insert(unit.clone(), generated_meta(&unit));
+        assert!(generated.replace_file(FILE, 1, Box::new([unit.clone()]), meta));
+        let dropped = generated.retain_current(|_, fingerprint| fingerprint == 2);
+        assert_eq!(dropped, vec![FILE]);
+        assert!(generated.ids_for(FILE).is_empty());
+        assert!(!generated.meta.contains_key(&unit));
     }
 
     #[test]
@@ -315,10 +365,10 @@ mod tests {
         let new = id("bar", 0);
         let mut old_meta = FxHashMap::default();
         old_meta.insert(old.clone(), generated_meta(&old));
-        assert!(generated.replace_file(FILE, Box::new([old.clone()]), old_meta));
+        assert!(generated.replace_file(FILE, 1, Box::new([old.clone()]), old_meta));
         let mut new_meta = FxHashMap::default();
         new_meta.insert(new.clone(), generated_meta(&new));
-        assert!(generated.replace_file(FILE, Box::new([new.clone()]), new_meta));
+        assert!(generated.replace_file(FILE, 2, Box::new([new.clone()]), new_meta));
         assert!(!generated.meta.contains_key(&old));
         assert!(generated.meta.contains_key(&new));
     }
@@ -338,7 +388,7 @@ mod tests {
         let mut generated = GeneratedUnits::default();
         let mut meta = FxHashMap::default();
         meta.insert(generated_id.clone(), generated_meta(&generated_id));
-        generated.replace_file(FILE, Box::new([generated_id.clone()]), meta);
+        generated.replace_file(FILE, 1, Box::new([generated_id.clone()]), meta);
 
         let graph = super::DesignGraph::from_file_facts(std::iter::once(&facts), &generated);
         assert!(graph.contains(&unit.id));

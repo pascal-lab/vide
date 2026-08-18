@@ -2,12 +2,14 @@
 //!
 //! Does not parse. Callers must have already computed
 //! `compilation_unit_artifact` for `file_id` (parse_file / include-edge
-//! dependency recording). Does not invalidate any product cell.
+//! dependency recording). Does not re-decide the structure epoch; it only
+//! publishes units derived from the current artifact fingerprint.
 
 use design_graph::{
     FileFacts, UnitId, UnitMeta, UnitOrigin,
     facts::extract::{cu_unit_names, unit_fingerprint},
 };
+use preproc_expand::db::PreprocDb;
 use rustc_hash::FxHashMap;
 use syntax::preproc::{TokenOrigin, Trace};
 use vfs::FileId;
@@ -15,8 +17,10 @@ use vfs::FileId;
 use crate::analysis::AnalysisContext;
 
 pub(crate) fn record_from_paid_artifact(db: &AnalysisContext<'_>, file_id: FileId) {
+    let fingerprint = <dyn PreprocDb>::compilation_unit_snapshot(db.db, file_id).fingerprint;
     let Some(trace) = db.preproc_trace(file_id) else {
-        if db.store.record_generated_units(file_id, Box::new([]), FxHashMap::default()) {
+        if db.store.record_generated_units(file_id, fingerprint, Box::new([]), FxHashMap::default())
+        {
             db.store.patch_design_graph(db.db, &[file_id]);
         }
         return;
@@ -24,7 +28,7 @@ pub(crate) fn record_from_paid_artifact(db: &AnalysisContext<'_>, file_id: FileI
     let tree = db.parse_tree(file_id);
     let facts = db.file_facts(file_id);
     let (ids, meta) = collect_generated_units(file_id, &tree, &trace, &facts);
-    if db.store.record_generated_units(file_id, ids, meta) {
+    if db.store.record_generated_units(file_id, fingerprint, ids, meta) {
         db.store.patch_design_graph(db.db, &[file_id]);
     }
 }
@@ -85,8 +89,8 @@ mod tests {
     #[test]
     fn unpaid_file_has_no_generated_entry() {
         let (host, file_id) = setup("module top;\nendmodule\n");
-        let generated = host.ctx().store.generated_units();
-        assert!(!generated.by_file.contains_key(&file_id), "{generated:?}");
+        let generated = host.ctx().store.generated_units(host.ctx().db);
+        assert!(!generated.contains_file(file_id), "{generated:?}");
     }
 
     #[test]
@@ -94,8 +98,11 @@ mod tests {
         let (host, file_id) = setup("module top;\nendmodule\n");
         let ctx = host.ctx();
         let _ = ctx.parse_file(file_id);
-        let generated = ctx.store.generated_units();
-        assert!(generated.by_file.get(&file_id).is_some_and(|ids| ids.is_empty()), "{generated:?}");
+        let generated = ctx.store.generated_units(ctx.db);
+        assert!(
+            generated.contains_file(file_id) && generated.ids_for(file_id).is_empty(),
+            "{generated:?}"
+        );
     }
 
     #[test]
@@ -103,9 +110,9 @@ mod tests {
         let (host, file_id) = setup("module top;\nendmodule\n");
         let ctx = host.ctx();
         let _ = ctx.parse_file(file_id);
-        let first = ctx.store.generated_units();
+        let first = ctx.store.generated_units(ctx.db);
         let _ = ctx.parse_file(file_id);
-        let second = ctx.store.generated_units();
+        let second = ctx.store.generated_units(ctx.db);
         assert_eq!(first, second);
     }
 
@@ -121,8 +128,9 @@ mod tests {
             facts.units
         );
         let _ = ctx.parse_file(file_id);
-        let generated = ctx.store.generated_units();
-        let ids = generated.by_file.get(&file_id).expect("paid parse records the file");
+        let generated = ctx.store.generated_units(ctx.db);
+        assert!(generated.contains_file(file_id), "{generated:?}");
+        let ids = generated.ids_for(file_id);
         assert_eq!(ids.len(), 1, "{generated:?}");
         assert_eq!(ids[0].name, "foo");
         assert_eq!(ids[0].kind, design_graph::UnitKind::Module);
@@ -142,8 +150,9 @@ mod tests {
         assert_eq!(facts.units[0].id.name, "top");
         assert_eq!(facts.units[0].id.ordinal, 0);
         let _ = ctx.parse_file(file_id);
-        let generated = ctx.store.generated_units();
-        let ids = generated.by_file.get(&file_id).expect("paid parse records the file");
+        let generated = ctx.store.generated_units(ctx.db);
+        assert!(generated.contains_file(file_id), "{generated:?}");
+        let ids = generated.ids_for(file_id);
         assert_eq!(ids.len(), 1, "{generated:?}");
         assert_eq!(ids[0].name, "top");
         assert_eq!(ids[0].ordinal, 1);
