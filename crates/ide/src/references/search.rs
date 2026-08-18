@@ -260,12 +260,12 @@ fn collect_file_references(
         return;
     }
 
-    let context = db.semantic_snapshot_inputs();
+    let context = db.resolution();
     let hir_file_id = HirFileId::from(file_id);
     let tree = db.parse_file(file_id);
     let emitted = emit_token_index(tree.root());
     let text = db.file_text(file_id);
-    let sema = SemanticsImpl::new_with_context(db.db, context.hir.clone());
+    let sema = SemanticsImpl::new_with_context(db.db, context.clone());
     let mut containers = ContainerCache::new();
     let mut chains = ScopeChainCache::new();
     let mut conn_port_by_name = FxHashMap::default();
@@ -287,7 +287,7 @@ fn collect_file_references(
         let Some(class) = definition_class_for_token(
             db.db,
             &sema,
-            &context,
+            context.clone(),
             hir_file_id,
             token,
             container,
@@ -315,7 +315,7 @@ fn collect_file_references(
             let reference_context = reference_context(
                 db.db,
                 &sema,
-                &context,
+                context.clone(),
                 hir_file_id,
                 token,
                 &class,

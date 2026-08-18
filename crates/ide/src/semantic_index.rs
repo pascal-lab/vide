@@ -3,37 +3,7 @@ use hir_def::def_id::DefId;
 use utils::line_index::TextRange;
 use vfs::FileId;
 
-use crate::db::workspace_symbol_index_db::WorkspaceSymbolIndexDb;
-
 pub(crate) mod build;
-
-/// Precomputed cross-file resolution inputs for one index build: the `$unit`
-/// scope, package design map, and (when requested) per-root module indexes.
-///
-/// Instantiation indexes are filled on first use. Jumping to a module's own
-/// name only needs [`hir`]; it must not walk every preprocessor model.
-pub(crate) struct SemanticSnapshotInputs {
-    pub hir: triomphe::Arc<hir_def::pathres::ResolutionContext>,
-}
-
-impl SemanticSnapshotInputs {
-    pub(crate) fn from_hir(
-        hir: triomphe::Arc<hir_def::pathres::ResolutionContext>,
-    ) -> triomphe::Arc<Self> {
-        triomphe::Arc::new(Self { hir })
-    }
-
-    pub(crate) fn from_db(db: &dyn WorkspaceSymbolIndexDb) -> triomphe::Arc<Self> {
-        Self::from_db_with_hir(db, hir_def::pathres::ResolutionContext::from_db(db))
-    }
-
-    pub(crate) fn from_db_with_hir(
-        _db: &dyn WorkspaceSymbolIndexDb,
-        hir: triomphe::Arc<hir_def::pathres::ResolutionContext>,
-    ) -> triomphe::Arc<Self> {
-        Self::from_hir(hir)
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SemanticDefinitionRange {
@@ -325,7 +295,7 @@ mod tests {
         use vfs::ChangedFile;
 
         let (mut host, file_id, clean, _) = setup_marked("module top; logic a; endmodule\n");
-        let before = host.ctx().semantic_snapshot_inputs();
+        let before = host.ctx().resolution();
 
         let mut body_edit = Change::new();
         body_edit.add_changed_file(ChangedFile::create(
@@ -333,7 +303,7 @@ mod tests {
             format!("{clean} // body-only\n").as_str(),
         ));
         host.apply_change(body_edit);
-        let after_body = host.ctx().semantic_snapshot_inputs();
+        let after_body = host.ctx().resolution();
         assert!(
             Arc::ptr_eq(&before, &after_body),
             "position-free structure is unchanged, so the context must be reused"
@@ -343,7 +313,7 @@ mod tests {
         structural_edit
             .add_changed_file(ChangedFile::create(file_id, "module renamed; logic a; endmodule\n"));
         host.apply_change(structural_edit);
-        let after_structure = host.ctx().semantic_snapshot_inputs();
+        let after_structure = host.ctx().resolution();
         assert!(
             !Arc::ptr_eq(&after_body, &after_structure),
             "a changed declaration must invalidate the project resolution context"
@@ -360,7 +330,7 @@ mod tests {
             ("/top.sv", "`include \"defs.svh\"\nmodule top; logic a; endmodule\n"),
         ]);
         let top = marked[1].0;
-        let before = host.ctx().semantic_snapshot_inputs();
+        let before = host.ctx().resolution();
 
         let mut body_edit = Change::new();
         body_edit.add_changed_file(ChangedFile::create(
@@ -368,7 +338,7 @@ mod tests {
             "`include \"defs.svh\"\nmodule top; logic a; endmodule\n// body-only\n",
         ));
         host.apply_change(body_edit);
-        let after_body = host.ctx().semantic_snapshot_inputs();
+        let after_body = host.ctx().resolution();
         assert!(
             Arc::ptr_eq(&before, &after_body),
             "an include file's body-only comment must not rebuild resolution via item_tree"
@@ -388,12 +358,12 @@ mod tests {
         let top = marked[1].0;
         let db = host.ctx();
         db.store.record_parse_dependencies(top, Arc::from(vec![top, defs]));
-        let before = db.semantic_snapshot_inputs();
+        let before = db.resolution();
 
         let mut change = Change::new();
         change.add_changed_file(ChangedFile::create(defs, "`define UNIT_NAME renamed\n"));
         host.apply_change(change);
-        let after = host.ctx().semantic_snapshot_inputs();
+        let after = host.ctx().resolution();
 
         assert!(
             !Arc::ptr_eq(&before, &after),
@@ -598,7 +568,7 @@ endmodule
 "#;
         let (host, file_id, _clean, _markers) = setup_marked(text);
         let db = host.ctx();
-        let context = SemanticSnapshotInputs::from_db(db.db);
+        let context = hir_def::pathres::ResolutionContext::from_db(db.db);
         let hir_file_id = HirFileId::from(file_id);
         let tree = db.parse(hir_file_id);
         let root = tree.root();
@@ -616,7 +586,7 @@ endmodule
                 let chosen = if token_in_special_context(token) {
                     DefinitionClass::resolve_in(
                         db.db,
-                        &context,
+                        context.clone(),
                         hir_file_id,
                         token,
                         Some(container),
@@ -630,7 +600,7 @@ endmodule
                 };
                 let full = DefinitionClass::resolve_in(
                     db.db,
-                    &context,
+                    context.clone(),
                     hir_file_id,
                     token,
                     Some(container),

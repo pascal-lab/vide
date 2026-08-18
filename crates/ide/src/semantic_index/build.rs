@@ -264,7 +264,7 @@ fn is_same_name_conn(text: &str, conn: &ConnShape) -> bool {
 pub(crate) fn reference_context(
     db: &dyn WorkspaceSymbolIndexDb,
     sema: &SemanticsImpl<'_>,
-    context: &crate::semantic_index::SemanticSnapshotInputs,
+    context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
     class: &DefinitionClass,
@@ -291,7 +291,7 @@ pub(crate) fn reference_context(
                     let name_token = SyntaxTokenWithParent { parent: conn.syntax(), tok: name };
                     match DefinitionClass::resolve_in(
                         db,
-                        context,
+                        context.clone(),
                         file_id,
                         name_token,
                         Some(container),
@@ -417,7 +417,7 @@ pub(crate) fn token_in_special_context(
 pub(crate) fn definition_class_for_token(
     db: &dyn WorkspaceSymbolIndexDb,
     sema: &SemanticsImpl<'_>,
-    context: &crate::semantic_index::SemanticSnapshotInputs,
+    context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
     container: OwnerId,
@@ -425,7 +425,7 @@ pub(crate) fn definition_class_for_token(
     chains: &mut ScopeChainCache,
 ) -> Option<DefinitionClass> {
     if special {
-        DefinitionClass::resolve_in(db, context, file_id, token, Some(container)).unique()
+        DefinitionClass::resolve_in(db, context.clone(), file_id, token, Some(container)).unique()
     } else {
         let chain = chains.chain_for(db, container);
         sema.nameres_ident_in_scopes_at(file_id, token, NameContext::Value, &chain)

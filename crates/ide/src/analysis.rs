@@ -42,7 +42,7 @@ use crate::{
     references::{self, References, ReferencesConfig},
     rename::{self, RenameConfig, RenameResult},
     selection_ranges,
-    semantic_index::{self, ModuleCallEdge, SemanticSnapshotInputs},
+    semantic_index::{self, ModuleCallEdge},
     semantic_tokens::{self, SemaToken, SemaTokenConfig},
     signature_help::{self, SignatureHelp, SignatureHelpConfig},
     source_change::SourceChange,
@@ -119,6 +119,10 @@ impl AnalysisContext<'_> {
         )
     }
 
+    pub(crate) fn prewarm_resolution(&self, cancel: &AtomicBool) -> Option<Arc<ResolutionContext>> {
+        self.resolution_with_priority(ComputationPriority::Background, cancel)
+    }
+
     fn design_graph_with_priority(
         &self,
         priority: crate::incrementality::ComputationPriority,
@@ -161,33 +165,6 @@ impl AnalysisContext<'_> {
                 "design_graph.build"
             );
             triomphe::Arc::new(graph)
-        })
-    }
-
-    pub(crate) fn semantic_snapshot_inputs(&self) -> Arc<SemanticSnapshotInputs> {
-        self.semantic_snapshot_inputs_with_priority(
-            ComputationPriority::Foreground,
-            &NEVER_CANCELLED,
-        )
-        .expect("foreground semantic input computation cannot be cancelled")
-    }
-
-    pub(crate) fn prewarm_semantic_snapshot_inputs(
-        &self,
-        cancel: &AtomicBool,
-    ) -> Option<Arc<SemanticSnapshotInputs>> {
-        self.semantic_snapshot_inputs_with_priority(ComputationPriority::Background, cancel)
-    }
-
-    fn semantic_snapshot_inputs_with_priority(
-        &self,
-        priority: ComputationPriority,
-        cancel: &AtomicBool,
-    ) -> Option<Arc<SemanticSnapshotInputs>> {
-        let hir = self.resolution_with_priority(priority, cancel)?;
-        let cell = self.store.snapshot_inputs_cell();
-        cell.get_or_compute(priority, cancel, |_| {
-            crate::semantic_index::SemanticSnapshotInputs::from_db_with_hir(self.db, hir)
         })
     }
 

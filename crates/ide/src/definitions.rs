@@ -40,8 +40,7 @@ impl DefinitionClass {
         if let Some(resolution) = resolve_declaration_name_on_db(db.db, file_id, tp) {
             return resolution;
         }
-        let context = crate::semantic_index::SemanticSnapshotInputs::from_hir(db.resolution());
-        Self::resolve_in(db.db, &context, file_id, tp, None)
+        Self::resolve_in(db.db, db.resolution(), file_id, tp, None)
     }
 
     /// Like [`resolve`](Self::resolve), but resolves identifiers inside a
@@ -50,12 +49,12 @@ impl DefinitionClass {
     /// the tree (the semantic index build) track it incrementally.
     pub(crate) fn resolve_in(
         db: &dyn WorkspaceSymbolIndexDb,
-        context: &crate::semantic_index::SemanticSnapshotInputs,
+        context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
         file_id: HirFileId,
         tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
         container: Option<OwnerId>,
     ) -> DefinitionResolution {
-        let sema = SemanticsImpl::new_with_context(db, context.hir.clone());
+        let sema = SemanticsImpl::new_with_context(db, context.clone());
 
         if !tok.kind().name_like() {
             return Resolution::Unresolved;
@@ -70,7 +69,7 @@ impl DefinitionClass {
         }
 
         if let Some(resolution) =
-            resolve_instantiation_type_name(db, context, &sema, file_id, tp, container)
+            resolve_instantiation_type_name(db, &context, &sema, file_id, tp, container)
         {
             return resolution;
         }
@@ -303,7 +302,7 @@ fn package_member_resolution(
 
 fn resolve_instantiation_type_name(
     _db: &dyn WorkspaceSymbolIndexDb,
-    context: &crate::semantic_index::SemanticSnapshotInputs,
+    context: &hir_def::pathres::ResolutionContext,
     sema: &SemanticsImpl,
     file_id: HirFileId,
     tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
@@ -337,7 +336,6 @@ fn resolve_instantiation_type_name(
         let cu = name.as_ref().map(|name| {
             hir_def::symbol::Resolution::from_candidates(
                 context
-                    .hir
                     .graph()
                     .modules_named(name)
                     .into_vec()

@@ -15,7 +15,6 @@ use crate::{
     analysis::AnalysisContext,
     db::root_db::RootDb,
     name_index::{FileNameIndex, NameIndex, index_files_for_root},
-    semantic_index::SemanticSnapshotInputs,
 };
 
 /// Products that have been requested at least once on this store lineage.
@@ -24,7 +23,6 @@ use crate::{
 /// what the user was using. Dies with the store on a workspace reset.
 #[derive(Clone)]
 pub(crate) struct HotProducts {
-    pub snapshot_inputs: bool,
     /// Always a workspace product. True from initialize so ready waits for
     /// fold.
     pub design_graph: bool,
@@ -35,7 +33,6 @@ pub(crate) struct HotProducts {
 impl Default for HotProducts {
     fn default() -> Self {
         Self {
-            snapshot_inputs: false,
             design_graph: true,
             files: FxHashSet::default(),
             name_index_roots: FxHashSet::default(),
@@ -47,7 +44,6 @@ impl Default for HotProducts {
 struct StructureProducts {
     design_graph: Arc<ProductCell<DesignGraph>>,
     resolution: Arc<ProductCell<ResolutionContext>>,
-    snapshot_inputs: Arc<ProductCell<SemanticSnapshotInputs>>,
 }
 
 #[derive(Clone, Default)]
@@ -190,7 +186,6 @@ impl ProductStore {
                 self.patch_design_graph(db, &patch);
                 let mut inner = self.inner.lock();
                 inner.structure.resolution = Arc::new(ProductCell::default());
-                inner.structure.snapshot_inputs = Arc::new(ProductCell::default());
             }
         }
     }
@@ -226,17 +221,10 @@ impl ProductStore {
         let mut inner = self.inner.lock();
         inner.structure.design_graph = Arc::new(ProductCell::from_arc(triomphe::Arc::new(graph)));
         inner.structure.resolution = Arc::new(ProductCell::default());
-        inner.structure.snapshot_inputs = Arc::new(ProductCell::default());
     }
 
     pub(crate) fn resolution_cell(&self) -> Arc<ProductCell<ResolutionContext>> {
         self.inner.lock().structure.resolution.clone()
-    }
-
-    pub(crate) fn snapshot_inputs_cell(&self) -> Arc<ProductCell<SemanticSnapshotInputs>> {
-        let mut inner = self.inner.lock();
-        inner.hot.snapshot_inputs = true;
-        inner.structure.snapshot_inputs.clone()
     }
 
     pub(crate) fn file_name_index(

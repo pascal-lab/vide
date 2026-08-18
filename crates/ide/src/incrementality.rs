@@ -12,10 +12,9 @@
 //!   changed
 //!
 //! Three product kinds:
-//! - **Structure products** (`DesignGraph`, `ResolutionContext`,
-//!   `SemanticSnapshotInputs`): keyed by `s`, memoized in `ProductCell` so a
-//!   foreground request can preempt a background prewarm. A generated-unit set
-//!   change patches the graph for that file via
+//! - **Structure products** (`DesignGraph`, `ResolutionContext`): keyed by `s`,
+//!   memoized in `ProductCell` so a foreground request can preempt a background
+//!   prewarm. A generated-unit set change patches the graph for that file via
 //!   [`ProductStore::patch_design_graph`].
 //! - **File shards** (`FileNameIndex`): keyed by `(generation, FileId)` against
 //!   a single per-file generation clock

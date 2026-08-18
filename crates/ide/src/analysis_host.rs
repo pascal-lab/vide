@@ -125,9 +125,9 @@ impl AnalysisHost {
                 let hot = store.hot();
                 if hot.design_graph {
                     let _ = ctx.prewarm_design_graph(&worker_cancel);
-                }
-                if hot.snapshot_inputs {
-                    let _ = ctx.prewarm_semantic_snapshot_inputs(&worker_cancel);
+                    if !worker_cancel.load(Ordering::Acquire) {
+                        let _ = ctx.prewarm_resolution(&worker_cancel);
+                    }
                 }
                 let mut reference_roots = rustc_hash::FxHashSet::default();
                 for file_id in affected_files {
