@@ -35,7 +35,7 @@ fn design_graph_fold_by_workspace_size() {
     for files in [64, 256, 1024, 1280] {
         let host = workspace_with_modules(files);
         let started = Instant::now();
-        let graph = host.ctx().design_graph();
+        let graph = host.ctx().unit_catalog();
         print_ms("design_graph.fold", files, started.elapsed());
         assert_eq!(graph.node_count(), files);
     }
@@ -46,7 +46,7 @@ fn design_graph_fold_by_workspace_size() {
 fn first_request_after_body_edit() {
     let files = 256;
     let mut host = workspace_with_modules(files);
-    let _ = host.ctx().design_graph();
+    let _ = host.ctx().unit_catalog();
 
     let mut change = Change::new();
     change.add_changed_file(ChangedFile::modify(

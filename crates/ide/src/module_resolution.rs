@@ -25,44 +25,21 @@ use syntax::{
 
 use crate::db::workspace_symbol_index_db::WorkspaceSymbolIndexDb;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ModuleResolution {
-    Unique(OwnerId),
-    Ambiguous { candidates: Vec<OwnerId> },
-    Unresolved,
-}
+pub(crate) type ModuleResolution = Resolution<OwnerId>;
 
-impl ModuleResolution {
-    pub(crate) fn unique(&self) -> Option<OwnerId> {
-        match self {
-            ModuleResolution::Unique(module_id) => Some(*module_id),
-            ModuleResolution::Ambiguous { .. } | ModuleResolution::Unresolved => None,
-        }
-    }
-
-    fn from_graph(db: &dyn HirDefDb, graph: &design_graph::DesignGraph, name: &Ident) -> Self {
-        let units = graph.modules_named(name);
-        let owners: Vec<OwnerId> =
-            units.into_vec().into_iter().filter_map(|unit| unit.to_owner(db)).collect();
-        match owners.as_slice() {
-            [] => Self::Unresolved,
-            [_] => Self::Unique(owners.into_iter().next().expect("checked")),
-            _ => Self::Ambiguous { candidates: owners },
-        }
-    }
-
-    fn into_resolution(self) -> Resolution<OwnerId> {
-        match self {
-            ModuleResolution::Unique(module_id) => Resolution::Unique(module_id),
-            ModuleResolution::Ambiguous { candidates } => Resolution::from_candidates(candidates),
-            ModuleResolution::Unresolved => Resolution::Unresolved,
-        }
-    }
+fn module_resolution_from_graph(
+    db: &dyn HirDefDb,
+    graph: &design_graph::UnitCatalog,
+    name: &Ident,
+) -> ModuleResolution {
+    Resolution::from_candidates(
+        graph.modules_named(name).into_vec().into_iter().filter_map(|unit| unit.to_owner(db)),
+    )
 }
 
 pub(crate) fn resolve_instantiation_target(
     db: &dyn WorkspaceSymbolIndexDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
     instantiation: ast::HierarchyInstantiation,
 ) -> ModuleResolution {
     let Some(name) = lower_ident_opt(instantiation.type_()) else {
@@ -73,7 +50,7 @@ pub(crate) fn resolve_instantiation_target(
 
 pub(crate) fn resolve_hir_instantiation_target(
     db: &dyn WorkspaceSymbolIndexDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
     instantiation: &Instantiation,
 ) -> Option<OwnerId> {
     resolve_module_name(db, graph, instantiation.module_name.as_ref()?).unique()
@@ -81,15 +58,15 @@ pub(crate) fn resolve_hir_instantiation_target(
 
 pub(crate) fn resolve_module_name(
     db: &dyn WorkspaceSymbolIndexDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
     name: &Ident,
 ) -> ModuleResolution {
-    ModuleResolution::from_graph(db, graph, name)
+    module_resolution_from_graph(db, graph, name)
 }
 
 pub(crate) fn resolve_named_port_connection(
     db: &dyn WorkspaceSymbolIndexDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
     conn: ast::NamedPortConnection,
 ) -> Resolution<DefId> {
     let Some(name) = lower_ident_opt(conn.name()) else {
@@ -105,7 +82,7 @@ pub(crate) fn resolve_named_port_connection(
 
 pub(crate) fn resolve_named_param_assignment(
     db: &dyn WorkspaceSymbolIndexDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
     assign: ast::NamedParamAssignment,
 ) -> Resolution<DefId> {
     let Some(name) = lower_ident_opt(assign.name()) else {
@@ -121,23 +98,21 @@ pub(crate) fn resolve_named_param_assignment(
 
 fn resolve_named_port_in_instantiation(
     db: &dyn WorkspaceSymbolIndexDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
     instantiation: ast::HierarchyInstantiation,
     port_name: &Ident,
 ) -> Resolution<DefId> {
     resolve_instantiation_target(db, graph, instantiation)
-        .into_resolution()
         .and_then(|module_id| resolve_named_port_in_module(db, module_id, port_name))
 }
 
 fn resolve_named_param_in_instantiation(
     db: &dyn WorkspaceSymbolIndexDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
     instantiation: ast::HierarchyInstantiation,
     param_name: &Ident,
 ) -> Resolution<DefId> {
     resolve_instantiation_target(db, graph, instantiation)
-        .into_resolution()
         .and_then(|module_id| resolve_named_param_in_module(db, module_id, param_name))
 }
 
@@ -524,8 +499,11 @@ mod tests {
                     file_path(files, module_id.file(db).as_file().unwrap())
                 )
             }
-            ModuleResolution::Ambiguous { candidates } => {
-                format!("Ambiguous candidates={:?}", candidate_paths(db, files, candidates))
+            ModuleResolution::Ambiguous(candidates) => {
+                format!(
+                    "Ambiguous candidates={:?}",
+                    candidate_paths(db, files, candidates.into_iter().collect())
+                )
             }
             ModuleResolution::Unresolved => "Unresolved".to_string(),
         }

@@ -42,7 +42,7 @@ fn module_instantiation_snippets(
     }
 
     let mut modules: Vec<String> = db
-        .design_graph()
+        .unit_catalog()
         .module_names()
         .iter()
         .map(|ident| ident.to_string())

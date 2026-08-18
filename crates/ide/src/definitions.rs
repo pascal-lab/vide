@@ -46,7 +46,7 @@ impl DefinitionClass {
     /// Like [`resolve`](Self::resolve), but resolves identifiers inside a
     /// caller-provided container instead of re-walking the ancestor chain.
     /// The container must be the token's containing scope; callers that walk
-    /// the tree (the semantic index build) track it incrementally.
+    /// the tree (a reference or call-hierarchy walk) track it incrementally.
     pub(crate) fn resolve_in(
         db: &dyn WorkspaceSymbolIndexDb,
         context: triomphe::Arc<hir_def::pathres::ResolutionContext>,

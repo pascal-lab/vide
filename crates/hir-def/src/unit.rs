@@ -66,8 +66,8 @@ fn owner_matches_unit_kind(owner: &OwnerData, kind: UnitKind) -> bool {
 }
 
 /// Fold a source-only graph for tests. Not a product and not a production path.
-pub fn test_graph(db: &dyn HirDefDb) -> design_graph::DesignGraph {
-    design_graph::DesignGraph::fold(db, &design_graph::GeneratedUnits::default())
+pub fn test_graph(db: &dyn HirDefDb) -> design_graph::UnitCatalog {
+    design_graph::UnitCatalog::fold(db, &design_graph::GeneratedUnits::default())
 }
 
 /// Test-only resolution context over [`test_graph`].
@@ -104,7 +104,7 @@ mod tests {
         source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
         source_root::{SourceRoot, SourceRootId},
     };
-    use design_graph::{DesignGraph, GeneratedUnits, UnitId, UnitKind, UnitMeta, UnitOrigin};
+    use design_graph::{UnitCatalog, GeneratedUnits, UnitId, UnitKind, UnitMeta, UnitOrigin};
     use preproc_expand::db::PreprocDb;
     use rustc_hash::FxHashSet;
     use smol_str::SmolStr;
@@ -208,7 +208,7 @@ mod tests {
             },
         );
         generated.replace_file(TOP, 0, Box::new([generated_id.clone()]), meta);
-        let graph = DesignGraph::fold(&db, &generated);
+        let graph = UnitCatalog::fold(&db, &generated);
         assert_eq!(graph.origin(&generated_id), Some(UnitOrigin::Generated));
         assert!(graph.modules_named("foo").unique().is_some());
         assert!(graph.modules_named("top").unique().is_some());

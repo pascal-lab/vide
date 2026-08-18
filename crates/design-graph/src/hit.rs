@@ -3,7 +3,7 @@
 use smallvec::SmallVec;
 use utils::line_index::TextSize;
 
-use crate::{facts::FileFacts, graph::DesignGraph, unit::UnitId};
+use crate::{facts::FileFacts, graph::UnitCatalog, unit::UnitId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CursorHit {
@@ -13,19 +13,19 @@ pub enum CursorHit {
     },
     InstantiationType {
         range: utils::line_index::TextRange,
-        targets: SmallVec<[UnitId; 1]>,
+        targets: SmallVec<[UnitId; 2]>,
     },
     PackageRef {
         name: smol_str::SmolStr,
         range: utils::line_index::TextRange,
-        targets: SmallVec<[UnitId; 1]>,
+        targets: SmallVec<[UnitId; 2]>,
     },
     Other,
 }
 
 /// Token shape is a *candidate* graph question. Empty candidates mean this
 /// is not a compilation-unit name (`Other`), not a second CU-name path.
-pub fn hit_at(facts: &FileFacts, graph: &DesignGraph, offset: TextSize) -> CursorHit {
+pub fn hit_at(facts: &FileFacts, graph: &UnitCatalog, offset: TextSize) -> CursorHit {
     if let Some(decl) = facts.design_unit_at(offset) {
         let range = decl.name_range.expect("design_unit_at only returns ranged decls");
         return CursorHit::DeclName { unit: decl.id.clone(), range };
@@ -53,7 +53,7 @@ mod tests {
     use super::{CursorHit, hit_at};
     use crate::{
         facts::extract::from_tree,
-        graph::{DesignGraph, UnitMeta},
+        graph::{UnitCatalog, UnitMeta},
         unit::{UnitId, UnitKind, UnitOrigin},
     };
 
@@ -69,8 +69,8 @@ mod tests {
         (facts, utils::line_index::TextSize::from(start as u32))
     }
 
-    fn graph_with(names: &[(&str, UnitKind)]) -> DesignGraph {
-        let mut graph = DesignGraph::default();
+    fn graph_with(names: &[(&str, UnitKind)]) -> UnitCatalog {
+        let mut graph = UnitCatalog::default();
         for (name, kind) in names {
             let id =
                 UnitId { file: FILE, name: smol_str::SmolStr::new(*name), kind: *kind, ordinal: 0 };

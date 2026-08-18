@@ -137,8 +137,10 @@ impl ItemTreeItem {
     }
 }
 
-/// File-level structural summary. It intentionally contains no source ranges
-/// or focus ranges; those belong to
+/// File-level structural summary for HIR lowering. Compilation-unit
+/// declaration identity lives on `design_graph::FileFacts`; this tree is the
+/// body/item inventory. It intentionally contains no source ranges or focus
+/// ranges; those belong to
 /// [`crate::source_projection::SourceProjection`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemTree {

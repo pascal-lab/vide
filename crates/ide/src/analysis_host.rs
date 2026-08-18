@@ -126,7 +126,7 @@ impl AnalysisHost {
                         let _ = <dyn design_graph::DesignGraphDb>::file_facts(&db, file_id);
                     }
                 }
-                let _ = ctx.prewarm_design_graph(&worker_cancel);
+                let _ = ctx.prewarm_unit_catalog(&worker_cancel);
                 if !worker_cancel.load(Ordering::Acquire) {
                     let _ = ctx.prewarm_resolution(&worker_cancel);
                 }
@@ -282,7 +282,7 @@ mod tests {
             "`define GEN(name) module name; endmodule\n`GEN(foo)\nmodule top;\nendmodule\n",
         ));
         let _ = host.ctx().parse_file(FileId::from_raw(0));
-        let before = host.ctx().design_graph();
+        let before = host.ctx().unit_catalog();
         assert!(
             before.module_names().iter().any(|name| name == "foo"),
             "{:?}",
@@ -297,7 +297,7 @@ mod tests {
         host.apply_change(modify_with_file_text(
             "`define GEN(name) module name; endmodule\n`GEN(bar)\nmodule top;\nendmodule\n",
         ));
-        let after_edit = host.ctx().design_graph();
+        let after_edit = host.ctx().unit_catalog();
         assert!(
             !after_edit.module_names().iter().any(|name| name == "foo"),
             "stale generated name foo must not survive the edit: {:?}",
@@ -310,7 +310,7 @@ mod tests {
         );
 
         let _ = host.ctx().parse_file(FileId::from_raw(0));
-        let after_reparse = host.ctx().design_graph();
+        let after_reparse = host.ctx().unit_catalog();
         assert!(
             !after_reparse.module_names().iter().any(|name| name == "foo"),
             "{:?}",
@@ -361,12 +361,12 @@ mod tests {
     fn adding_a_file_upserts_the_existing_design_graph() {
         let mut host = AnalysisHost::default();
         host.apply_change(change_with_file_text("module first;\nendmodule\n"));
-        let first = host.ctx().design_graph();
+        let first = host.ctx().unit_catalog();
         assert_eq!(first.node_count(), 1);
         assert!(first.module_names().iter().any(|name| name == "first"));
 
         host.apply_change(add_second_file("module second;\nendmodule\n"));
-        let both = host.ctx().design_graph();
+        let both = host.ctx().unit_catalog();
         assert_eq!(both.node_count(), 2);
         assert!(both.module_names().iter().any(|name| name == "first"));
         assert!(both.module_names().iter().any(|name| name == "second"));
@@ -376,11 +376,11 @@ mod tests {
     fn body_only_edit_keeps_the_design_graph_nodes() {
         let mut host = AnalysisHost::default();
         host.apply_change(change_with_file_text("module first;\nendmodule\n"));
-        let before = host.ctx().design_graph();
+        let before = host.ctx().unit_catalog();
         assert_eq!(before.node_count(), 1);
 
         host.apply_change(modify_with_file_text("module first;\n  wire x;\nendmodule\n"));
-        let after = host.ctx().design_graph();
+        let after = host.ctx().unit_catalog();
         assert_eq!(after.node_count(), 1);
         assert!(after.module_names().iter().any(|name| name == "first"));
     }
@@ -444,7 +444,7 @@ mod tests {
         let other_id = FileId::from_raw(1);
         let mut host = AnalysisHost::default();
         host.apply_change(two_file_workspace(gated, other));
-        let before = host.ctx().design_graph();
+        let before = host.ctx().unit_catalog();
         assert!(
             before.module_names().iter().any(|name| name == "bar"),
             "{:?}",
@@ -460,7 +460,7 @@ mod tests {
         change.add_changed_file(vfs::ChangedFile::modify(other_id, "module other;\n  wire x;\nendmodule\n"));
         host.apply_change(change);
 
-        let after = host.ctx().design_graph();
+        let after = host.ctx().unit_catalog();
         assert!(
             after.module_names().iter().any(|name| name == "foo"),
             "config+dirty must recompute facts of files that were not edited: {:?}",

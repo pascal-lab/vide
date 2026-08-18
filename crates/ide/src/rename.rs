@@ -25,7 +25,7 @@ use crate::{
         ReferencesConfig,
         search::{ReferenceToken, ReferencesCtx, SearchScope, search_references},
     },
-    semantic_index::{ConnSide, ReferenceContext},
+    reference_support::{ConnSide, ReferenceContext},
     semantic_target::{
         PreprocMacroTarget, SemanticTarget, SourceTarget, TargetIntent, is_preproc_free_file,
         resolve_semantic_target,

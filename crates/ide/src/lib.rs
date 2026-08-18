@@ -41,7 +41,7 @@ pub mod range;
 pub mod references;
 pub mod rename;
 pub mod selection_ranges;
-pub mod semantic_index;
+pub mod reference_support;
 pub(crate) mod semantic_target;
 pub mod semantic_tokens;
 pub mod signature_help;

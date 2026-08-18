@@ -510,7 +510,7 @@ fn render_non_ansi_port_signature(db: &RootDb, port_id: OwnerRef<NonAnsiPortId>)
 
 fn render_instance_signature(
     db: &RootDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
     instance_id: OwnerRef<InstanceId>,
 ) -> Option<String> {
     let parent_module = db.body_with_source_map(instance_id.cont_id);

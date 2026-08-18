@@ -302,5 +302,5 @@ fn resolve_target_module_id(
     _from_file: vfs::FileId,
     instantiation: ast::HierarchyInstantiation<'_>,
 ) -> Option<OwnerId> {
-    resolve_instantiation_target(db.db, db.design_graph().as_ref(), instantiation).unique()
+    resolve_instantiation_target(db.db, db.unit_catalog().as_ref(), instantiation).unique()
 }

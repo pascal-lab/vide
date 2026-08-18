@@ -19,8 +19,8 @@ pub(crate) enum ConnSide {
     Local,
 }
 
-/// Context of a reference token inside a named port connection, computed at
-/// index build time so rename and other reference consumers never re-resolve.
+/// Context of a reference token inside a named port connection, resolved
+/// on demand when references or rename walk the current file.
 ///
 /// `paired` is `Some` exactly when the connection is a same-name connection
 /// (the `.name` and the data identifier have the same text): for the name
@@ -90,7 +90,7 @@ pub(crate) fn incoming_module_edges(
     let Some(callee) = unit_at_name_range(db, file_id, name_range) else {
         return Vec::new();
     };
-    let graph = db.design_graph();
+    let graph = db.unit_catalog();
     let mut edges = Vec::new();
     for file in reference_files(db) {
         let facts = db.file_facts(file);
@@ -120,7 +120,7 @@ pub(crate) fn outgoing_module_edges(
     let Some(caller) = unit_at_name_range(db, file_id, name_range) else {
         return Vec::new();
     };
-    let graph = db.design_graph();
+    let graph = db.unit_catalog();
     let facts = db.file_facts(file_id);
     let mut edges = Vec::new();
     for site in facts.instantiations.iter().filter(|site| site.container.as_ref() == Some(&caller))
@@ -204,7 +204,7 @@ mod tests {
             ReferencesConfig,
             search::{SearchScope, search_references},
         },
-        semantic_index::build::{
+        reference_support::build::{
             ContainerCache, ScopeChainCache, definition_ranges_for, token_in_special_context,
         },
         semantic_target::{

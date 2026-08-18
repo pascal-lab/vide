@@ -29,8 +29,8 @@ pub(crate) fn hover_precedence(kind: TokenKind) -> usize {
     }
 }
 
-/// Precedence for the semantic index build: only name-like tokens are
-/// indexed, so the function is a boolean predicate.
+/// Precedence for on-demand name walks: only name-like tokens are
+/// candidates, so the function is a boolean predicate.
 #[cfg(test)]
 pub(crate) fn name_precedence(kind: TokenKind) -> usize {
     usize::from(kind.name_like())

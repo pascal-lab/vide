@@ -87,57 +87,109 @@ impl GeneratedUnits {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GraphResolution<T> {
+/// A lookup result that preserves the difference between no match, one
+/// logical definition, and several competing definitions.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Resolution<T> {
+    Unresolved,
     Unique(T),
     Ambiguous(SmallVec<[T; 2]>),
-    Unresolved,
 }
 
-impl<T> GraphResolution<T> {
-    pub fn from_candidates(mut candidates: SmallVec<[T; 2]>) -> Self {
-        match candidates.len() {
-            0 => Self::Unresolved,
-            1 => Self::Unique(candidates.remove(0)),
-            _ => Self::Ambiguous(candidates),
+impl<T> Resolution<T> {
+    pub fn candidates(&self) -> &[T] {
+        match self {
+            Self::Unresolved => &[],
+            Self::Unique(value) => std::slice::from_ref(value),
+            Self::Ambiguous(candidates) => candidates,
         }
+    }
+
+    pub fn into_candidates(self) -> SmallVec<[T; 2]> {
+        match self {
+            Self::Unresolved => SmallVec::new(),
+            Self::Unique(value) => {
+                let mut candidates = SmallVec::new();
+                candidates.push(value);
+                candidates
+            }
+            Self::Ambiguous(candidates) => candidates,
+        }
+    }
+
+    pub fn into_vec(self) -> SmallVec<[T; 2]> {
+        self.into_candidates()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+        self.candidates().iter()
     }
 
     pub fn is_unresolved(&self) -> bool {
         matches!(self, Self::Unresolved)
     }
 
-    pub fn into_vec(self) -> SmallVec<[T; 1]> {
-        match self {
-            Self::Unique(item) => {
-                let mut items = SmallVec::new();
-                items.push(item);
-                items
-            }
-            Self::Ambiguous(items) => items.into_iter().collect(),
-            Self::Unresolved => SmallVec::new(),
-        }
+    pub fn or_else(self, fallback: impl FnOnce() -> Self) -> Self {
+        if self.is_unresolved() { fallback() } else { self }
     }
 }
 
-impl<T: Clone> GraphResolution<T> {
+impl<T: Clone> Resolution<T> {
     pub fn unique(&self) -> Option<T> {
         match self {
             Self::Unique(item) => Some(item.clone()),
             Self::Ambiguous(_) | Self::Unresolved => None,
         }
     }
+
+    /// Resolves children without allowing child existence to disambiguate an
+    /// ambiguous parent.
+    pub fn and_then<U: Eq>(&self, mut resolve: impl FnMut(T) -> Resolution<U>) -> Resolution<U> {
+        let children = Resolution::from_candidates(
+            self.iter().cloned().flat_map(|candidate| resolve(candidate).into_candidates()),
+        );
+        match (self, children) {
+            (Self::Ambiguous(_), Resolution::Unique(_)) => Resolution::Unresolved,
+            (_, children) => children,
+        }
+    }
+}
+
+impl<T> From<T> for Resolution<T> {
+    fn from(value: T) -> Self {
+        Self::Unique(value)
+    }
+}
+
+impl<T: Eq> Resolution<T> {
+    pub fn from_candidates(candidates: impl IntoIterator<Item = T>) -> Self {
+        let mut unique = SmallVec::<[T; 2]>::new();
+        for candidate in candidates {
+            if !unique.contains(&candidate) {
+                unique.push(candidate);
+            }
+        }
+        match unique.len() {
+            0 => Self::Unresolved,
+            1 => Self::Unique(unique.pop().expect("candidate length was checked")),
+            _ => Self::Ambiguous(unique),
+        }
+    }
+
+    pub fn map<U: Eq>(self, map: impl FnMut(T) -> U) -> Resolution<U> {
+        Resolution::from_candidates(self.into_candidates().into_iter().map(map))
+    }
 }
 
 /// Structure product: name → `UnitId`. Stores no source ranges.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct DesignGraph {
+pub struct UnitCatalog {
     by_name: FxHashMap<SmolStr, SmallVec<[UnitId; 2]>>,
     meta: FxHashMap<UnitId, UnitMeta>,
     module_names: Vec<SmolStr>,
 }
 
-impl DesignGraph {
+impl UnitCatalog {
     /// Join already-extracted per-file facts. Callers that can run `file_facts`
     /// in parallel should do that and pass the results here.
     pub fn from_file_facts<'a>(
@@ -259,15 +311,15 @@ impl DesignGraph {
         self.meta.insert(id, meta);
     }
 
-    pub fn modules_named(&self, name: &str) -> GraphResolution<UnitId> {
+    pub fn modules_named(&self, name: &str) -> Resolution<UnitId> {
         self.named(name, |id| id.kind.is_hierarchy_target())
     }
 
-    pub fn type_units_named(&self, name: &str) -> GraphResolution<UnitId> {
+    pub fn type_units_named(&self, name: &str) -> Resolution<UnitId> {
         self.named(name, |_| true)
     }
 
-    pub fn packages_named(&self, name: &str) -> GraphResolution<UnitId> {
+    pub fn packages_named(&self, name: &str) -> Resolution<UnitId> {
         self.named(name, |id| id.kind.is_package())
     }
 
@@ -291,7 +343,7 @@ impl DesignGraph {
         self.meta.len()
     }
 
-    pub fn candidates(&self, name: &str, role: InstantiationRole) -> SmallVec<[UnitId; 1]> {
+    pub fn candidates(&self, name: &str, role: InstantiationRole) -> SmallVec<[UnitId; 2]> {
         let matches = match role {
             InstantiationRole::Hierarchy => UnitKind::is_hierarchy_target,
             InstantiationRole::Checker => |kind: UnitKind| matches!(kind, UnitKind::Checker),
@@ -305,10 +357,10 @@ impl DesignGraph {
             .collect()
     }
 
-    fn named(&self, name: &str, pred: impl Fn(&UnitId) -> bool) -> GraphResolution<UnitId> {
-        let candidates =
-            self.by_name.get(name).into_iter().flatten().filter(|id| pred(id)).cloned().collect();
-        GraphResolution::from_candidates(candidates)
+    fn named(&self, name: &str, pred: impl Fn(&UnitId) -> bool) -> Resolution<UnitId> {
+        Resolution::from_candidates(
+            self.by_name.get(name).into_iter().flatten().filter(|id| pred(id)).cloned(),
+        )
     }
 }
 
@@ -386,7 +438,7 @@ mod tests {
         meta.insert(generated_id.clone(), generated_meta(&generated_id));
         generated.replace_file(FILE, 1, Box::new([generated_id.clone()]), meta);
 
-        let graph = super::DesignGraph::from_file_facts(std::iter::once(&facts), &generated);
+        let graph = super::UnitCatalog::from_file_facts(std::iter::once(&facts), &generated);
         assert!(graph.contains(&unit.id));
         assert!(graph.contains(&generated_id));
         assert_eq!(graph.node_count(), 2);
@@ -397,7 +449,7 @@ mod tests {
         let other = FileId::from_raw(2);
         let keep =
             UnitId { file: other, name: SmolStr::new("keep"), kind: UnitKind::Module, ordinal: 0 };
-        let mut graph = super::DesignGraph::default();
+        let mut graph = super::UnitCatalog::default();
         graph.insert(keep.clone(), generated_meta(&keep));
         graph.rebuild_module_names();
 
@@ -435,7 +487,7 @@ mod tests {
         let other = FileId::from_raw(2);
         let keep =
             UnitId { file: other, name: SmolStr::new("keep"), kind: UnitKind::Module, ordinal: 0 };
-        let mut graph = super::DesignGraph::default();
+        let mut graph = super::UnitCatalog::default();
         graph.insert(id("gone", 0), generated_meta(&id("gone", 0)));
         graph.insert(keep.clone(), generated_meta(&keep));
         graph.rebuild_module_names();

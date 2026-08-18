@@ -2,7 +2,7 @@
 //!
 //! Salsa tracks per-file queries. This module tracks workspace-sized values
 //! that must not enter the Salsa dependency graph — notably
-//! [`hir_def::pathres::ResolutionContext`] and [`design_graph::DesignGraph`].
+//! [`hir_def::pathres::ResolutionContext`] and [`design_graph::UnitCatalog`].
 //! Once a per-file query reads `unit_scope` through Salsa, every file hangs
 //! off the whole project.
 //!
@@ -11,7 +11,7 @@
 //! - Structure epoch `s` — a dirty file's L0 compilation-unit declarations
 //!   changed
 //!
-//! Structure products (`DesignGraph`, `ResolutionContext`) are keyed by `s`
+//! Structure products (`UnitCatalog`, `ResolutionContext`) are keyed by `s`
 //! and memoized in `ProductCell` so a foreground request can preempt a
 //! background prewarm. A generated-unit set change patches the graph for that
 //! file via [`ProductStore::patch_design_graph`]. Generated units are stored

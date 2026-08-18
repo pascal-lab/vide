@@ -72,7 +72,7 @@ fn hit(db: &AnalysisContext<'_>, file_id: FileId, offset: TextSize) -> CursorHit
         let range = decl.name_range.expect("design_unit_at only returns ranged decls");
         return CursorHit::DeclName { unit: decl.id.clone(), range };
     }
-    let graph = db.design_graph();
+    let graph = db.unit_catalog();
     let hit = hit_at(&facts, &graph, offset);
     let (hit_kind, target_count) = match &hit {
         CursorHit::DeclName { .. } => ("decl_name", 1usize),
@@ -142,7 +142,7 @@ fn references_for_units(
     _caret_range: TextRange,
     config: &ReferencesConfig,
 ) -> References {
-    let graph = db.design_graph();
+    let graph = db.unit_catalog();
     let def: Vec<NavTarget> = units.iter().cloned().map(|unit| nav_from_unit(db, unit)).collect();
     let mut refs: IntMap<FileId, Vec<(TextRange, ReferenceCategory)>> = IntMap::default();
     for file in reference_files(db, config) {

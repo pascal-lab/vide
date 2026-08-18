@@ -21,7 +21,7 @@ use crate::{
     analysis::AnalysisContext,
     db::workspace_symbol_index_db::WorkspaceSymbolIndexDb,
     definitions::DefinitionClass,
-    semantic_index::{
+    reference_support::{
         ReferenceContext,
         build::{
             ContainerCache, ScopeChainCache, definition_class_for_token, definition_ranges_for,
@@ -309,13 +309,13 @@ fn collect_file_references(
 
         let sides = match &class {
             DefinitionClass::Definition(found) if found == def => {
-                &[crate::semantic_index::ConnSide::Port][..]
+                &[crate::reference_support::ConnSide::Port][..]
             }
             DefinitionClass::PortConnShorthand { port, local } if port == def || local == def => {
                 if port == def {
-                    &[crate::semantic_index::ConnSide::Port][..]
+                    &[crate::reference_support::ConnSide::Port][..]
                 } else {
-                    &[crate::semantic_index::ConnSide::Local][..]
+                    &[crate::reference_support::ConnSide::Local][..]
                 }
             }
             _ => continue,

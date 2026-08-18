@@ -245,7 +245,7 @@ impl DesignMap {
     pub fn resolve_import(
         &self,
         db: &dyn HirDefDb,
-        graph: &design_graph::DesignGraph,
+        graph: &design_graph::UnitCatalog,
         import: &Import,
         ident: &SmolStr,
         ctx: NameContext,
@@ -275,7 +275,7 @@ impl DesignMap {
 /// Closed package-export graph for the packages on `graph`.
 pub fn package_export_closure(
     db: &dyn HirDefDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
 ) -> Arc<DesignMap> {
     let mut packages: Vec<OwnerId> =
         graph.packages().filter_map(|unit| crate::unit::ToOwner::to_owner(unit, db)).collect();

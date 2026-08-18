@@ -197,7 +197,7 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> ScopeDa
         let name = (!owner.name.is_empty()).then(|| owner.name.clone());
         match owner.kind {
             OwnerKind::Module => {
-                // Compilation-unit design units live on DesignGraph, not in
+                // Compilation-unit design units live on UnitCatalog, not in
                 // the file / $unit lexical scope.
             }
             OwnerKind::Subroutine => {

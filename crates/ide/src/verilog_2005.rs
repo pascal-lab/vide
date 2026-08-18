@@ -2914,7 +2914,7 @@ endmodule
     assert_eq!(
         module_ref_files,
         vec![*top_file],
-        "only the DesignGraph module candidate owns the instantiation: {module_refs:?}"
+        "only the UnitCatalog module candidate owns the instantiation: {module_refs:?}"
     );
 
     let package_refs = analysis
@@ -2925,7 +2925,7 @@ endmodule
         package_refs.iter().flat_map(|refs| refs.refs.keys().copied()).collect();
     assert!(
         !package_ref_files.contains(top_file),
-        "a package is not an instantiable DesignGraph candidate: {package_refs:?}"
+        "a package is not an instantiable UnitCatalog candidate: {package_refs:?}"
     );
 }
 
@@ -3078,7 +3078,7 @@ endmodule
         panic!("expected two fixture files");
     };
 
-    let graph = host.ctx().design_graph();
+    let graph = host.ctx().unit_catalog();
     let modules = graph.modules_named("mod_a").into_vec();
     assert_eq!(modules.len(), 1, "graph should contain mod_a exactly once");
     assert_eq!(modules[0].file, *file_a);
@@ -3167,7 +3167,7 @@ endmodule
     let leaf_call = marked_range(child_markers, "leaf_call", 4);
 
     let top_outgoing =
-        crate::semantic_index::outgoing_module_edges(&host.ctx(), *top_file, top_def);
+        crate::reference_support::outgoing_module_edges(&host.ctx(), *top_file, top_def);
     assert_eq!(top_outgoing.len(), 1);
     assert_eq!(top_outgoing[0].caller.file_id, *top_file);
     assert_eq!(top_outgoing[0].caller.name_range, top_def);
@@ -3176,14 +3176,14 @@ endmodule
     assert_eq!(top_outgoing[0].call_range, child_call);
 
     let child_outgoing =
-        crate::semantic_index::outgoing_module_edges(&host.ctx(), *child_file, child_def);
+        crate::reference_support::outgoing_module_edges(&host.ctx(), *child_file, child_def);
     assert_eq!(child_outgoing.len(), 1);
     assert_eq!(child_outgoing[0].callee.file_id, *leaf_file);
     assert_eq!(child_outgoing[0].callee.name_range, leaf_def);
     assert_eq!(child_outgoing[0].call_range, leaf_call);
 
     let child_incoming =
-        crate::semantic_index::incoming_module_edges(&host.ctx(), *child_file, child_def);
+        crate::reference_support::incoming_module_edges(&host.ctx(), *child_file, child_def);
     assert_eq!(child_incoming.len(), 1);
     assert_eq!(child_incoming[0].caller.file_id, *top_file);
     assert_eq!(child_incoming[0].call_range, child_call);

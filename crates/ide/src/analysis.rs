@@ -41,7 +41,7 @@ use crate::{
     references::{self, References, ReferencesConfig},
     rename::{self, RenameConfig, RenameResult},
     selection_ranges,
-    semantic_index::{self, ModuleCallEdge},
+    reference_support::{self, ModuleCallEdge},
     semantic_tokens::{self, SemaToken, SemaTokenConfig},
     signature_help::{self, SignatureHelp, SignatureHelpConfig},
     source_change::SourceChange,
@@ -107,16 +107,16 @@ impl AnalysisContext<'_> {
         self.db.file_facts(file_id)
     }
 
-    pub(crate) fn design_graph(&self) -> triomphe::Arc<design_graph::DesignGraph> {
-        self.design_graph_with_priority(crate::incrementality::ComputationPriority::Foreground)
+    pub(crate) fn unit_catalog(&self) -> triomphe::Arc<design_graph::UnitCatalog> {
+        self.unit_catalog_with_priority(crate::incrementality::ComputationPriority::Foreground)
             .expect("foreground design-graph fold cannot be cancelled")
     }
 
-    pub(crate) fn prewarm_design_graph(
+    pub(crate) fn prewarm_unit_catalog(
         &self,
         cancel: &AtomicBool,
-    ) -> Option<triomphe::Arc<design_graph::DesignGraph>> {
-        self.design_graph_with_priority_cancel(
+    ) -> Option<triomphe::Arc<design_graph::UnitCatalog>> {
+        self.unit_catalog_with_priority_cancel(
             crate::incrementality::ComputationPriority::Background,
             cancel,
         )
@@ -126,20 +126,20 @@ impl AnalysisContext<'_> {
         self.resolution_with_priority(ComputationPriority::Background, cancel)
     }
 
-    fn design_graph_with_priority(
+    fn unit_catalog_with_priority(
         &self,
         priority: crate::incrementality::ComputationPriority,
-    ) -> Option<triomphe::Arc<design_graph::DesignGraph>> {
-        self.design_graph_with_priority_cancel(priority, &NEVER_CANCELLED)
+    ) -> Option<triomphe::Arc<design_graph::UnitCatalog>> {
+        self.unit_catalog_with_priority_cancel(priority, &NEVER_CANCELLED)
     }
 
-    fn design_graph_with_priority_cancel(
+    fn unit_catalog_with_priority_cancel(
         &self,
         priority: crate::incrementality::ComputationPriority,
         cancel: &AtomicBool,
-    ) -> Option<triomphe::Arc<design_graph::DesignGraph>> {
+    ) -> Option<triomphe::Arc<design_graph::UnitCatalog>> {
         let generated = self.store.generated_units(self.db);
-        self.store.design_graph_cell().get_or_compute(priority, cancel, |in_flight| {
+        self.store.unit_catalog_cell().get_or_compute(priority, cancel, |in_flight| {
             let _span = tracing::info_span!("design_graph.build").entered();
             let started = std::time::Instant::now();
             let files: Vec<_> = self
@@ -150,9 +150,9 @@ impl AnalysisContext<'_> {
                 .filter(|&file_id| self.db.file_kind(file_id).is_semantic_compilation_unit())
                 .collect();
             let Some(facts) = file_facts_parallel(self.db, &files, cancel, in_flight) else {
-                return triomphe::Arc::new(design_graph::DesignGraph::default());
+                return triomphe::Arc::new(design_graph::UnitCatalog::default());
             };
-            let graph = design_graph::DesignGraph::from_file_facts(
+            let graph = design_graph::UnitCatalog::from_file_facts(
                 facts.iter().map(std::convert::AsRef::as_ref),
                 &generated,
             );
@@ -182,7 +182,7 @@ impl AnalysisContext<'_> {
         cancel: &AtomicBool,
     ) -> Option<Arc<ResolutionContext>> {
         self.store.resolution_cell().get_or_compute(priority, cancel, |_| {
-            ResolutionContext::from_graph(self.design_graph())
+            ResolutionContext::from_graph(self.unit_catalog())
         })
     }
 
@@ -405,7 +405,7 @@ impl AnalysisSnapshot {
         file_id: FileId,
         name_range: TextRange,
     ) -> Cancellable<Vec<ModuleCallEdge>> {
-        self.with_db(|db| semantic_index::incoming_module_edges(db, file_id, name_range))
+        self.with_db(|db| reference_support::incoming_module_edges(db, file_id, name_range))
     }
 
     pub fn module_outgoing_calls(
@@ -413,7 +413,7 @@ impl AnalysisSnapshot {
         file_id: FileId,
         name_range: TextRange,
     ) -> Cancellable<Vec<ModuleCallEdge>> {
-        self.with_db(|db| semantic_index::outgoing_module_edges(db, file_id, name_range))
+        self.with_db(|db| reference_support::outgoing_module_edges(db, file_id, name_range))
     }
 
     pub fn prepare_rename(
@@ -505,7 +505,7 @@ impl AnalysisSnapshot {
         config: InlayHintConfig,
     ) -> Cancellable<Vec<InlayHint>> {
         self.with_db(|db| {
-            inlay_hint::inlay_hint(db, db.design_graph().as_ref(), file_id, range, config)
+            inlay_hint::inlay_hint(db, db.unit_catalog().as_ref(), file_id, range, config)
         })
     }
 

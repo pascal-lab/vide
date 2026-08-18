@@ -202,7 +202,7 @@ impl InlayHintCollector {
 
 pub(crate) fn inlay_hint(
     db: &RootDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
     file_id: FileId,
     range: TextRange,
     config: InlayHintConfig,
@@ -298,7 +298,7 @@ fn collect_macro_argument_hints_for_call(
 
 fn collect_module_items(
     db: &RootDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
     module_id: OwnerId,
     module_src: SourceAstId,
     collector: &mut InlayHintCollector,
@@ -323,7 +323,7 @@ fn collect_module_items(
 
 fn collect_instantiations_in_body(
     db: &RootDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
     module_id: OwnerId,
     body: &Lowered<Body>,
     collector: &mut InlayHintCollector,
@@ -355,7 +355,7 @@ fn collect_instantiations_in_body(
 
 fn collect_instantiation_item(
     db: &RootDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
     module_id: OwnerId,
     body: &Lowered<Body>,
     item: &BodyItem,
@@ -431,7 +431,7 @@ fn module_end_range(db: &RootDb, file_id: HirFileId, source: SourceAstId) -> Opt
 
 fn process_instantiation(
     db: &RootDb,
-    graph: &design_graph::DesignGraph,
+    graph: &design_graph::UnitCatalog,
     _module_id: OwnerId,
     module: &Lowered<Body>,
     instantiation: &Instantiation,

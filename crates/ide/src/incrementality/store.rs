@@ -1,5 +1,5 @@
 use base_db::source_db::SourceDb;
-use design_graph::{DesignGraph, DesignGraphDb, GeneratedUnits, UnitId, UnitMeta};
+use design_graph::{UnitCatalog, DesignGraphDb, GeneratedUnits, UnitId, UnitMeta};
 use hir_def::pathres::ResolutionContext;
 use parking_lot::Mutex;
 use preproc_expand::db::PreprocDb;
@@ -15,7 +15,7 @@ use crate::db::root_db::RootDb;
 
 #[derive(Clone, Default)]
 struct StructureProducts {
-    design_graph: Arc<ProductCell<DesignGraph>>,
+    design_graph: Arc<ProductCell<UnitCatalog>>,
     resolution: Arc<ProductCell<ResolutionContext>>,
 }
 
@@ -82,7 +82,7 @@ impl ProductStore {
         generated
     }
 
-    pub(crate) fn design_graph_cell(&self) -> Arc<ProductCell<DesignGraph>> {
+    pub(crate) fn unit_catalog_cell(&self) -> Arc<ProductCell<UnitCatalog>> {
         self.inner.lock().structure.design_graph.clone()
     }
 
@@ -173,7 +173,7 @@ impl ProductStore {
         if files.is_empty() {
             return;
         }
-        let Some(current) = self.design_graph_cell().peek() else {
+        let Some(current) = self.unit_catalog_cell().peek() else {
             return;
         };
         let generated = self.generated_units(db);

@@ -28,7 +28,7 @@ use crate::{
 ///
 /// `source_to_def::find_container` finds a token's container by walking up
 /// the ancestor chain and matching every node; doing that per token makes
-/// the index build pay the ancestor walk for every name-like token. This
+/// a reference walk pay the ancestor walk for every name-like token. This
 /// cache keeps the same walk shape (up to the nearest container node, then
 /// a lookup), but computes each container id once instead of once per token.
 ///
@@ -87,7 +87,7 @@ impl<'tree> ContainerCache<'tree> {
 /// Resolved scope chains by container. The nameres fast path looks every
 /// token up in its container's chain; resolving the chain once per container
 /// avoids per-token salsa `scope_for` queries, whose memos revalidate against
-/// every intervening query during the index build and recompute O(scope
+/// every intervening query during a reference walk and recompute O(scope
 /// size) on each miss.
 pub(crate) struct ScopeChainCache {
     by_container: FxHashMap<OwnerId, Arc<ResolvedScopes>>,

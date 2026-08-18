@@ -232,7 +232,7 @@ where
 }
 /// Like [`resolve_semantic_target`], but reuses a prebuilt emitted-token
 /// index of `root`'s tree. Callers that resolve many offsets of one tree
-/// (the semantic index build) should build the index once with
+/// (a reference or call-hierarchy walk) should build the index once with
 /// [`emit_token_index`] and pass it here.
 pub(crate) fn resolve_semantic_target_with_emitted<'tree, F>(
     db: &dyn PreprocDb,

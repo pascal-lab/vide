@@ -17,17 +17,17 @@ use crate::{
 
 /// Cross-file name-resolution inputs.
 ///
-/// The injected [`DesignGraph`] answers compilation-unit names. `$unit`
+/// The injected [`UnitCatalog`] answers compilation-unit names. `$unit`
 /// locals and the package export map are paid for when a lookup reads them.
 #[derive(Clone)]
 pub struct ResolutionContext {
-    graph: Arc<design_graph::DesignGraph>,
+    graph: Arc<design_graph::UnitCatalog>,
     unit_scope: Arc<std::sync::OnceLock<Arc<ScopeData>>>,
     design_map: Arc<std::sync::OnceLock<Arc<DesignMap>>>,
 }
 
 impl ResolutionContext {
-    pub fn from_graph(graph: Arc<design_graph::DesignGraph>) -> Arc<Self> {
+    pub fn from_graph(graph: Arc<design_graph::UnitCatalog>) -> Arc<Self> {
         Arc::new(Self {
             graph,
             unit_scope: Arc::new(std::sync::OnceLock::new()),
@@ -35,7 +35,7 @@ impl ResolutionContext {
         })
     }
 
-    pub fn graph(&self) -> &design_graph::DesignGraph {
+    pub fn graph(&self) -> &design_graph::UnitCatalog {
         &self.graph
     }
 
@@ -509,7 +509,7 @@ impl AtFilter<'_> {
 /// Collects import candidates for one scope, applying the point filter.
 struct ImportCollector<'a> {
     db: &'a dyn HirDefDb,
-    graph: &'a design_graph::DesignGraph,
+    graph: &'a design_graph::UnitCatalog,
     design_map: &'a crate::design_map::DesignMap,
     scope: &'a ScopeData,
     defs: SmallVec<[DefId; 3]>,
