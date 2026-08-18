@@ -1,5 +1,5 @@
 use hir_def::{
-    container::ScopeChain,
+    container::{InFile, ScopeChain},
     def_id::DefId,
     owner::{OwnerId, OwnerKind},
     pathres::ResolvedScopes,
@@ -16,13 +16,11 @@ use syntax::{
 };
 use triomphe::Arc;
 use utils::line_index::TextRange;
-use vfs::FileId;
 
 use super::*;
 use crate::{
     db::workspace_symbol_index_db::WorkspaceSymbolIndexDb,
     definitions::{DefinitionClass, rightmost_name_token},
-    module_resolution::resolve_hir_instantiation_target,
     references::search::resolve_source_range,
 };
 
@@ -461,63 +459,4 @@ pub(crate) fn definition_ranges_for(
     definition: DefId,
 ) -> Vec<SemanticDefinitionRange> {
     definition_ranges(db, crate::db::DefinitionRangeKey::new(db, definition))
-}
-
-impl FileModuleIndex {
-    pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
-        let hir_file_id = HirFileId::from(file_id);
-        let item_tree = db.item_tree(hir_file_id);
-        let modules = item_tree
-            .module_headers()
-            .filter(|header| header.kind().is_instantiable())
-            .filter_map(|header| SemanticModuleDefinition::from_header(db, hir_file_id, header))
-            .collect();
-        Self { modules }
-    }
-}
-
-impl FileModuleEdges {
-    pub(crate) fn for_file(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
-        Self::for_file_with_indexes(db, file_id)
-    }
-
-    pub(crate) fn for_file_with_indexes(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Self {
-        let hir_file_id = HirFileId::from(file_id);
-        let item_tree = db.item_tree(hir_file_id);
-        let mut edges = Vec::new();
-        for header in item_tree.module_headers().filter(|header| header.kind().is_instantiable()) {
-            let caller = header.owner();
-            let Some(caller_def) = SemanticModuleDefinition::from_header(db, hir_file_id, header)
-            else {
-                continue;
-            };
-            let module = db.body_with_source_map(caller);
-            for (instantiation_id, instantiation) in module.instantiations.iter() {
-                let Some(callee_module_id) =
-                    resolve_hir_instantiation_target(db, file_id, instantiation)
-                else {
-                    continue;
-                };
-                let Some(callee) = SemanticModuleDefinition::new(db, callee_module_id) else {
-                    continue;
-                };
-                let Some(call_range) = module
-                    .source_range(db, instantiation_id)
-                    .and_then(|range| instantiation_name_range(db, file_id, range))
-                else {
-                    continue;
-                };
-                edges.push((
-                    caller,
-                    callee.module_id,
-                    ModuleCallEdge {
-                        caller: caller_def.call_item(),
-                        callee: callee.call_item(),
-                        call_range,
-                    },
-                ));
-            }
-        }
-        Self { edges }
-    }
 }

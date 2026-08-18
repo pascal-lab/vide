@@ -1,14 +1,9 @@
-use hir_def::{Ident, container::InFile, def_id::DefId, item_tree::ModuleHeader, owner::OwnerId};
-use hir_ty::db::TyDb;
-use preproc_expand::{db::PreprocDb, file::HirFileId};
-use rustc_hash::FxHashMap;
-use syntax::{SyntaxNodeExt, has_text_range::HasTextRange, token::TokenKindExt};
+use design_graph::UnitId;
+use hir_def::def_id::DefId;
 use utils::line_index::TextRange;
 use vfs::FileId;
 
-use crate::{
-    db::workspace_symbol_index_db::WorkspaceSymbolIndexDb, navigation_target::nav_location,
-};
+use crate::db::workspace_symbol_index_db::WorkspaceSymbolIndexDb;
 
 pub(crate) mod build;
 
@@ -103,15 +98,6 @@ impl ReferenceContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SemanticModuleDefinition {
-    pub module_id: OwnerId,
-    pub file_id: FileId,
-    pub name: Ident,
-    pub name_range: TextRange,
-    pub full_range: TextRange,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleCallItem {
     pub file_id: FileId,
     pub name: String,
@@ -126,95 +112,34 @@ pub struct ModuleCallEdge {
     pub call_range: TextRange,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct ModuleEdgeIndex {
-    incoming_module_edges: FxHashMap<OwnerId, Box<[ModuleCallEdge]>>,
-    outgoing_module_edges: FxHashMap<OwnerId, Box<[ModuleCallEdge]>>,
-}
-
-/// Module definitions contributed by one file.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct FileModuleIndex {
-    modules: Vec<SemanticModuleDefinition>,
-}
-
-/// Module edges contributed by one file: the outgoing edges of the file's
-/// modules, with caller and callee ids so the merge can build both maps.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct FileModuleEdges {
-    edges: Vec<(OwnerId, OwnerId, ModuleCallEdge)>,
-}
-
-impl SemanticModuleDefinition {
-    fn new(db: &dyn TyDb, module_id: OwnerId) -> Option<Self> {
-        let source_file = module_id.file(db);
-        let header = db
-            .item_tree(source_file)
-            .module_headers()
-            .find(|header| header.owner() == module_id)?;
-        Self::from_header(db, source_file, header)
-    }
-
-    fn from_header(db: &dyn TyDb, source_file: HirFileId, header: ModuleHeader) -> Option<Self> {
-        let origin = db.source_projection(source_file).origin(header.source())?;
-        let full_range = origin.full_range()?;
-        let (file_id, name_range, full_range) =
-            nav_location(db, source_file, origin.focus_range(), full_range)?;
-
-        Some(Self {
-            module_id: header.owner(),
-            file_id,
-            name: header.name().clone(),
-            name_range: name_range.unwrap_or(full_range),
-            full_range,
-        })
-    }
-
-    fn call_item(&self) -> ModuleCallItem {
-        ModuleCallItem {
-            file_id: self.file_id,
-            name: self.name.to_string(),
-            full_range: self.full_range,
-            name_range: self.name_range,
-        }
-    }
-}
-
-impl ModuleEdgeIndex {
-    pub(crate) fn from_file_edges<'a>(
-        file_edges: impl IntoIterator<Item = &'a FileModuleEdges>,
-    ) -> Self {
-        let mut incoming_module_edges: FxHashMap<OwnerId, Vec<ModuleCallEdge>> =
-            FxHashMap::default();
-        let mut outgoing_module_edges: FxHashMap<OwnerId, Vec<ModuleCallEdge>> =
-            FxHashMap::default();
-        for file_edges in file_edges {
-            for (caller, callee, edge) in &file_edges.edges {
-                push_unique_edge(outgoing_module_edges.entry(*caller).or_default(), edge.clone());
-                push_unique_edge(incoming_module_edges.entry(*callee).or_default(), edge.clone());
-            }
-        }
-        Self {
-            incoming_module_edges: finish_edge_map(incoming_module_edges),
-            outgoing_module_edges: finish_edge_map(outgoing_module_edges),
-        }
-    }
-
-    pub(crate) fn incoming_module_edges(&self, module_id: OwnerId) -> &[ModuleCallEdge] {
-        self.incoming_module_edges.get(&module_id).map_or(&[], |edges| edges.as_ref())
-    }
-
-    pub(crate) fn outgoing_module_edges(&self, module_id: OwnerId) -> &[ModuleCallEdge] {
-        self.outgoing_module_edges.get(&module_id).map_or(&[], |edges| edges.as_ref())
-    }
-}
-
 pub(crate) fn incoming_module_edges(
     db: &crate::analysis::AnalysisContext<'_>,
     file_id: FileId,
     name_range: TextRange,
 ) -> Vec<ModuleCallEdge> {
-    module_edges(db, file_id, name_range, |index, module_id| index.incoming_module_edges(module_id))
+    let Some(callee) = unit_at_name_range(db, file_id, name_range) else {
+        return Vec::new();
+    };
+    let graph = db.design_graph();
+    let mut edges = Vec::new();
+    for file in reference_files(db) {
+        let facts = db.file_facts(file);
+        for site in facts.instantiations.iter() {
+            let Some(caller) = site.container.clone() else {
+                continue;
+            };
+            let targets = graph.candidates(&site.name, site.role);
+            if targets.len() == 1 && targets[0] == callee {
+                edges.push(ModuleCallEdge {
+                    caller: call_item(db, &caller),
+                    callee: call_item(db, &callee),
+                    call_range: site.range,
+                });
+            }
+        }
+    }
+    sort_and_dedup_edges(&mut edges);
+    edges
 }
 
 pub(crate) fn outgoing_module_edges(
@@ -222,83 +147,55 @@ pub(crate) fn outgoing_module_edges(
     file_id: FileId,
     name_range: TextRange,
 ) -> Vec<ModuleCallEdge> {
-    module_edges(db, file_id, name_range, |index, module_id| index.outgoing_module_edges(module_id))
-}
-
-fn module_edges(
-    db: &crate::analysis::AnalysisContext<'_>,
-    file_id: FileId,
-    name_range: TextRange,
-    edges_for_index: impl Fn(&ModuleEdgeIndex, OwnerId) -> &[ModuleCallEdge],
-) -> Vec<ModuleCallEdge> {
-    let Some(module_id) = module_id_at_range(db, file_id, name_range) else {
+    let Some(caller) = unit_at_name_range(db, file_id, name_range) else {
         return Vec::new();
     };
-
+    let graph = db.design_graph();
+    let facts = db.file_facts(file_id);
     let mut edges = Vec::new();
-    for source_root_id in db.workspace_source_root_ids().iter().copied() {
-        let index = db.module_edges(source_root_id);
-        edges.extend(edges_for_index(&index, module_id).iter().cloned());
+    for site in facts.instantiations.iter().filter(|site| site.container.as_ref() == Some(&caller))
+    {
+        let targets = graph.candidates(&site.name, site.role);
+        if targets.len() != 1 {
+            continue;
+        }
+        edges.push(ModuleCallEdge {
+            caller: call_item(db, &caller),
+            callee: call_item(db, &targets[0]),
+            call_range: site.range,
+        });
     }
     sort_and_dedup_edges(&mut edges);
     edges
 }
 
-fn module_id_at_range(
+fn unit_at_name_range(
     db: &crate::analysis::AnalysisContext<'_>,
     file_id: FileId,
     name_range: TextRange,
-) -> Option<OwnerId> {
-    let hir_file = HirFileId::File(file_id);
-    let item_tree = db.item_tree(hir_file);
-    let projection = db.source_projection(hir_file);
-    item_tree.module_headers().find_map(|header| {
-        let origin = projection.origin(header.source())?;
-        let full_range = origin.full_range()?;
-        let (_, focus, full) = nav_location(db.db, hir_file, origin.focus_range(), full_range)?;
-        (focus.unwrap_or(full) == name_range).then_some(header.owner())
-    })
+) -> Option<UnitId> {
+    db.file_facts(file_id).unit_at_name_range(name_range).map(|unit| unit.id.clone())
 }
 
-fn instantiation_name_range(
-    db: &dyn PreprocDb,
-    file_id: FileId,
-    instantiation_range: TextRange,
-) -> Option<TextRange> {
-    let tree = db.parse_src_for_compilation(file_id);
-    let root = tree.root();
-    let mut offset = instantiation_range.start();
-
-    while offset < instantiation_range.end() {
-        let token = root.token_after_or_at_offset(offset)?;
-        let range = token.text_range()?;
-        if range.start() >= instantiation_range.end() {
-            return None;
-        }
-        if token.kind().name_like() {
-            return Some(range);
-        }
-        offset = range.end();
-    }
-
-    None
-}
-
-fn push_unique_edge(edges: &mut Vec<ModuleCallEdge>, edge: ModuleCallEdge) {
-    if !edges.iter().any(|existing| existing == &edge) {
-        edges.push(edge);
+fn call_item(db: &crate::analysis::AnalysisContext<'_>, unit: &UnitId) -> ModuleCallItem {
+    let facts = db.file_facts(unit.file);
+    let node = facts.unit(unit.clone());
+    let name_range = node
+        .and_then(|node| node.name_range)
+        .unwrap_or_else(|| TextRange::empty(utils::line_index::TextSize::new(0)));
+    ModuleCallItem {
+        file_id: unit.file,
+        name: unit.name.to_string(),
+        full_range: node.and_then(|node| node.header_range).unwrap_or(name_range),
+        name_range,
     }
 }
 
-fn finish_edge_map(
-    edges_by_module: FxHashMap<OwnerId, Vec<ModuleCallEdge>>,
-) -> FxHashMap<OwnerId, Box<[ModuleCallEdge]>> {
-    edges_by_module
-        .into_iter()
-        .map(|(key, mut edges)| {
-            sort_and_dedup_edges(&mut edges);
-            (key, edges.into_boxed_slice())
-        })
+fn reference_files(db: &crate::analysis::AnalysisContext<'_>) -> Vec<FileId> {
+    db.files()
+        .iter()
+        .copied()
+        .filter(|&file| db.file_kind(file).is_semantic_compilation_unit())
         .collect()
 }
 

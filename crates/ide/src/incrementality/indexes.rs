@@ -5,7 +5,6 @@ use vfs::FileId;
 use crate::{
     analysis::AnalysisContext,
     name_index::{FileNameIndex, NameIndex},
-    semantic_index::{FileModuleEdges, ModuleEdgeIndex},
 };
 
 #[derive(Clone, Default)]
@@ -18,13 +17,6 @@ pub(super) struct GenArc<T> {
 pub(super) struct NameIndexEntry {
     pub index: Arc<NameIndex>,
     pub file_indexes: FxHashMap<FileId, Arc<FileNameIndex>>,
-    pub shard_gens: FxHashMap<FileId, u64>,
-}
-
-#[derive(Clone, Default)]
-pub(super) struct ModuleEdgeEntry {
-    pub index: Arc<ModuleEdgeIndex>,
-    pub file_edges: FxHashMap<FileId, Arc<FileModuleEdges>>,
     pub shard_gens: FxHashMap<FileId, u64>,
 }
 
@@ -84,50 +76,5 @@ impl NameIndexEntry {
         }
 
         self.index = Arc::new(NameIndex::from_file_indexes(&self.file_indexes));
-    }
-}
-
-impl ModuleEdgeEntry {
-    pub(super) fn is_fresh(&self, root_files: &[FileId], gens: &FxHashMap<FileId, u64>) -> bool {
-        !self.file_edges.is_empty()
-            && !has_removed_files(&self.file_edges, root_files)
-            && stale_files(root_files, &self.shard_gens, gens).is_empty()
-    }
-
-    pub(super) fn refresh(
-        &mut self,
-        ctx: &AnalysisContext<'_>,
-        root_files: &[FileId],
-        gens: &FxHashMap<FileId, u64>,
-    ) {
-        let stale = stale_files(root_files, &self.shard_gens, gens);
-        let full = self.file_edges.is_empty() || has_removed_files(&self.file_edges, root_files);
-
-        if full {
-            self.file_edges = root_files
-                .iter()
-                .map(|&file_id| {
-                    let edges = Arc::new(FileModuleEdges::for_file_with_indexes(ctx.db, file_id));
-                    ctx.record_parse_dependencies(file_id);
-                    (file_id, edges)
-                })
-                .collect();
-            self.shard_gens =
-                root_files.iter().map(|&file_id| (file_id, file_gen(gens, file_id))).collect();
-        } else {
-            for file_id in stale {
-                self.file_edges.insert(
-                    file_id,
-                    Arc::new(FileModuleEdges::for_file_with_indexes(ctx.db, file_id)),
-                );
-                ctx.record_parse_dependencies(file_id);
-                self.shard_gens.insert(file_id, file_gen(gens, file_id));
-            }
-            self.file_edges.retain(|file_id, _| root_files.contains(file_id));
-            self.shard_gens.retain(|file_id, _| root_files.contains(file_id));
-        }
-
-        self.index =
-            Arc::new(ModuleEdgeIndex::from_file_edges(self.file_edges.values().map(Arc::as_ref)));
     }
 }

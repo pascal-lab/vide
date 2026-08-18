@@ -6,8 +6,7 @@ use triomphe::Arc;
 use vfs::FileId;
 
 use crate::{
-    db::{SourceFileQueryKey, SourceRootQueryKey},
-    semantic_index::{FileModuleEdges, FileModuleIndex},
+    db::SourceRootQueryKey,
     workspace_symbols::{SymbolIndex, WorkspaceSymbol},
 };
 
@@ -32,18 +31,9 @@ impl dyn WorkspaceSymbolIndexDb + '_ {
         source_root_symbol_index(self, SourceRootQueryKey::new(self, source_root_id))
     }
 
-    pub fn file_module_index(&self, file_id: FileId) -> Arc<FileModuleIndex> {
-        file_module_index(self, file_id)
-    }
-
-    pub fn file_module_edges(&self, file_id: FileId) -> Arc<FileModuleEdges> {
-        file_module_edges(self, SourceFileQueryKey::new(self, file_id))
-    }
-
     /// Distinct source roots derived from the current file set, in stable
-    /// order. Callers (`module_edges`, workspace symbols) share one
-    /// implementation instead of each recomputing
-    /// `files().map(source_root_id)`.
+    /// order. Callers (workspace symbols) share one implementation instead
+    /// of each recomputing `files().map(source_root_id)`.
     pub fn workspace_source_root_ids(&self) -> Vec<SourceRootId> {
         let mut ids =
             self.files().iter().map(|&file_id| self.source_root_id(file_id)).collect::<Vec<_>>();
@@ -74,17 +64,4 @@ pub(crate) fn source_root_symbol_index_for_root(
     source_root_id: SourceRootId,
 ) -> Arc<SymbolIndex> {
     db.source_root_symbol_index(source_root_id)
-}
-
-fn file_module_index(db: &dyn WorkspaceSymbolIndexDb, file_id: FileId) -> Arc<FileModuleIndex> {
-    Arc::new(crate::semantic_index::FileModuleIndex::for_file(db, file_id))
-}
-
-#[salsa::tracked(returns(clone))]
-fn file_module_edges(
-    db: &dyn WorkspaceSymbolIndexDb,
-    key: SourceFileQueryKey,
-) -> Arc<FileModuleEdges> {
-    let file_id = key.file_id(db);
-    Arc::new(crate::semantic_index::FileModuleEdges::for_file(db, file_id))
 }

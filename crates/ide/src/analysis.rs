@@ -42,7 +42,7 @@ use crate::{
     references::{self, References, ReferencesConfig},
     rename::{self, RenameConfig, RenameResult},
     selection_ranges,
-    semantic_index::{self, ModuleCallEdge, ModuleEdgeIndex, SemanticSnapshotInputs},
+    semantic_index::{self, ModuleCallEdge, SemanticSnapshotInputs},
     semantic_tokens::{self, SemaToken, SemaTokenConfig},
     signature_help::{self, SignatureHelp, SignatureHelpConfig},
     source_change::SourceChange,
@@ -90,12 +90,6 @@ impl AnalysisContext<'_> {
         self.store.record_parse_dependencies(file_id, dependencies);
         crate::generated_units::record_from_paid_artifact(self, file_id);
         tree
-    }
-
-    pub(crate) fn record_parse_dependencies(&self, file_id: FileId) {
-        let dependencies = self.db.parsed_compilation_dependencies(file_id);
-        self.store.record_parse_dependencies(file_id, dependencies);
-        crate::generated_units::record_from_paid_artifact(self, file_id);
     }
 
     pub(crate) fn source_semantic_map(
@@ -168,10 +162,6 @@ impl AnalysisContext<'_> {
             );
             triomphe::Arc::new(graph)
         })
-    }
-
-    pub(crate) fn module_edges(&self, source_root_id: SourceRootId) -> Arc<ModuleEdgeIndex> {
-        self.store.module_edges(self, source_root_id)
     }
 
     pub(crate) fn semantic_snapshot_inputs(&self) -> Arc<SemanticSnapshotInputs> {

@@ -94,6 +94,7 @@ fn walk(file: FileId, tree: &SyntaxTree, source_text: &str) -> FileFacts {
     let mut package_refs = Vec::new();
     let mut body_depth = 0usize;
     let mut module_depth = 0usize;
+    let mut current_cu: Option<UnitId> = None;
     let mut has_compilation_unit_locals = false;
     let mut ordinals = rustc_hash::FxHashMap::<(SmolStr, UnitKind), u32>::default();
     let preprocessor_independent = !tree.root().has_directive_trivia();
@@ -127,7 +128,10 @@ fn walk(file: FileId, tree: &SyntaxTree, source_text: &str) -> FileFacts {
                 });
             }
             WalkEvent::Enter(SyntaxElement::Node(node)) => {
-                if let Some(site) = instantiation_at(file, node, module_depth) {
+                if let Some(mut site) = instantiation_at(file, node, module_depth) {
+                    if module_depth == 1 {
+                        site.container = current_cu.clone();
+                    }
                     instantiations.push(site);
                 }
                 if let Some(spec) = import_at(node) {
@@ -149,13 +153,15 @@ fn walk(file: FileId, tree: &SyntaxTree, source_text: &str) -> FileFacts {
                                 let ordinal = ordinals.entry(key).or_insert(0);
                                 let ordinal_value = *ordinal;
                                 *ordinal += 1;
+                                let id = UnitId {
+                                    file,
+                                    name: partial.name,
+                                    kind,
+                                    ordinal: ordinal_value,
+                                };
+                                current_cu = Some(id.clone());
                                 units.push(UnitNode {
-                                    id: UnitId {
-                                        file,
-                                        name: partial.name,
-                                        kind,
-                                        ordinal: ordinal_value,
-                                    },
+                                    id,
                                     name_range: partial.name_range,
                                     header_range: partial.header_range,
                                     header_fingerprint: partial.header_fingerprint,
@@ -182,6 +188,9 @@ fn walk(file: FileId, tree: &SyntaxTree, source_text: &str) -> FileFacts {
                 }
                 if ast::ModuleDeclaration::can_cast(node.kind()) {
                     module_depth -= 1;
+                    if module_depth == 0 {
+                        current_cu = None;
+                    }
                 }
             }
             WalkEvent::Leave(SyntaxElement::Token(_)) => {}
@@ -246,6 +255,7 @@ fn instantiation_from_token(
         range,
         role,
         emitted: with_parent.preprocessor_trace_emitted_token_index(),
+        container: None,
     })
 }
 
@@ -490,6 +500,30 @@ mod tests {
         assert_eq!(facts.instantiations.len(), 1);
         assert_eq!(facts.instantiations[0].name, "cc_fifo");
         assert_eq!(facts.instantiations[0].role, InstantiationRole::Hierarchy);
+        assert_eq!(
+            facts.instantiations[0].container.as_ref().map(|id| id.name.as_str()),
+            Some("top")
+        );
+    }
+
+    #[test]
+    fn nested_instantiation_is_not_a_cu_container_edge() {
+        let facts = facts(
+            "module outer;\n  module inner;\n    leaf u();\n  endmodule\n  child v();\nendmodule\n",
+        );
+        let child = facts.instantiations.iter().find(|site| site.name == "child").expect("child");
+        let leaf = facts.instantiations.iter().find(|site| site.name == "leaf").expect("leaf");
+        assert_eq!(child.container.as_ref().map(|id| id.name.as_str()), Some("outer"));
+        assert!(leaf.container.is_none(), "{leaf:?}");
+    }
+
+    #[test]
+    fn two_cu_modules_keep_distinct_instantiation_containers() {
+        let facts = facts("module a;\n  b u();\nendmodule\nmodule c;\n  d v();\nendmodule\n");
+        let b = facts.instantiations.iter().find(|site| site.name == "b").expect("b");
+        let d = facts.instantiations.iter().find(|site| site.name == "d").expect("d");
+        assert_eq!(b.container.as_ref().map(|id| id.name.as_str()), Some("a"));
+        assert_eq!(d.container.as_ref().map(|id| id.name.as_str()), Some("c"));
     }
 
     #[test]

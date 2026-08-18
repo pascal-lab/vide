@@ -22,6 +22,9 @@ pub struct Mention {
 }
 
 /// Instantiation type-name token. Primitive instantiations are not recorded.
+///
+/// `container` is the compilation-unit that directly contains the site.
+/// Nested-module bodies leave it empty — those are not CU graph edges.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstantiationSite {
     pub file: FileId,
@@ -29,6 +32,7 @@ pub struct InstantiationSite {
     pub range: TextRange,
     pub role: InstantiationRole,
     pub emitted: Option<u32>,
+    pub container: Option<UnitId>,
 }
 
 /// `import p::x` / `import p::*`.
@@ -80,6 +84,10 @@ impl FileFacts {
 
     pub fn instantiation_at(&self, offset: TextSize) -> Option<&InstantiationSite> {
         self.instantiations.iter().find(|site| site.range.contains(offset))
+    }
+
+    pub fn unit_at_name_range(&self, range: TextRange) -> Option<&UnitNode> {
+        self.units.iter().find(|unit| unit.name_range == Some(range))
     }
 
     /// Import package token or `::` left ident covering `offset`.

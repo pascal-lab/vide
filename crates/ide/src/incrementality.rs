@@ -17,10 +17,10 @@
 //!   foreground request can preempt a background prewarm. A generated-unit set
 //!   change patches the graph for that file via
 //!   [`ProductStore::patch_design_graph`].
-//! - **File shards** (`FileNameIndex`, `FileModuleEdges`): keyed by
-//!   `(generation, FileId)` against a single per-file generation clock
-//! - **Merged indexes** (`NameIndex`, `ModuleEdgeIndex`): folds over shards; a
-//!   Patch epoch refreshes shards whose files were in the dirty set
+//! - **File shards** (`FileNameIndex`): keyed by `(generation, FileId)` against
+//!   a single per-file generation clock
+//! - **Merged indexes** (`NameIndex`): folds over shards; a Patch epoch
+//!   refreshes shards whose files were in the dirty set
 //!
 //! [`ProductStore::invalidate`] is the only invalidation entry point.
 //! Features are pure functions of [`crate::analysis::AnalysisContext`].

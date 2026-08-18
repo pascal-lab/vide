@@ -8,14 +8,14 @@ use vfs::FileId;
 
 use super::{
     epoch::{EpochDecision, StructureEpoch, StructureSnapshot},
-    indexes::{GenArc, ModuleEdgeEntry, NameIndexEntry, file_gen},
+    indexes::{GenArc, NameIndexEntry, file_gen},
     product_cell::ProductCell,
 };
 use crate::{
     analysis::AnalysisContext,
     db::root_db::RootDb,
     name_index::{FileNameIndex, NameIndex, index_files_for_root},
-    semantic_index::{ModuleEdgeIndex, SemanticSnapshotInputs},
+    semantic_index::SemanticSnapshotInputs,
 };
 
 /// Products that have been requested at least once on this store lineage.
@@ -29,7 +29,6 @@ pub(crate) struct HotProducts {
     /// fold.
     pub design_graph: bool,
     pub files: FxHashSet<FileId>,
-    pub module_edge_roots: FxHashSet<SourceRootId>,
     pub name_index_roots: FxHashSet<SourceRootId>,
 }
 
@@ -39,7 +38,6 @@ impl Default for HotProducts {
             snapshot_inputs: false,
             design_graph: true,
             files: FxHashSet::default(),
-            module_edge_roots: FxHashSet::default(),
             name_index_roots: FxHashSet::default(),
         }
     }
@@ -55,7 +53,6 @@ struct StructureProducts {
 #[derive(Clone, Default)]
 struct Shards {
     file_indexes: FxHashMap<FileId, GenArc<FileNameIndex>>,
-    module_edges: FxHashMap<SourceRootId, ModuleEdgeEntry>,
     names: FxHashMap<SourceRootId, NameIndexEntry>,
 }
 
@@ -266,32 +263,6 @@ impl ProductStore {
             .file_indexes
             .insert(file_id, GenArc { value: index.clone(), built_gen: current_gen });
         index
-    }
-
-    pub(crate) fn module_edges(
-        &self,
-        ctx: &AnalysisContext<'_>,
-        source_root_id: SourceRootId,
-    ) -> Arc<ModuleEdgeIndex> {
-        let root_files = index_files_for_root(ctx, source_root_id);
-        let (mut entry, gens) = {
-            let mut inner = self.inner.lock();
-            inner.hot.module_edge_roots.insert(source_root_id);
-            if let Some(entry) = inner.shards.module_edges.get(&source_root_id)
-                && entry.is_fresh(&root_files, &inner.dirty_gen)
-            {
-                return entry.index.clone();
-            }
-            (
-                inner.shards.module_edges.get(&source_root_id).cloned().unwrap_or_default(),
-                inner.dirty_gen.clone(),
-            )
-        };
-
-        entry.refresh(ctx, &root_files, &gens);
-        let result = entry.index.clone();
-        self.inner.lock().shards.module_edges.insert(source_root_id, entry);
-        result
     }
 
     pub(crate) fn name_index(

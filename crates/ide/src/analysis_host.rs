@@ -129,7 +129,6 @@ impl AnalysisHost {
                 if hot.snapshot_inputs {
                     let _ = ctx.prewarm_semantic_snapshot_inputs(&worker_cancel);
                 }
-                let mut edge_roots = rustc_hash::FxHashSet::default();
                 let mut reference_roots = rustc_hash::FxHashSet::default();
                 for file_id in affected_files {
                     if worker_cancel.load(Ordering::Acquire) {
@@ -137,9 +136,6 @@ impl AnalysisHost {
                     }
                     if ctx.files().contains(&file_id) {
                         let root = ctx.source_root_id(file_id);
-                        if hot.module_edge_roots.contains(&root) {
-                            edge_roots.insert(root);
-                        }
                         if hot.name_index_roots.contains(&root) {
                             reference_roots.insert(root);
                         }
@@ -147,12 +143,6 @@ impl AnalysisHost {
                             let _ = ctx.file_name_index(file_id);
                         }
                     }
-                }
-                for root in edge_roots {
-                    if worker_cancel.load(Ordering::Acquire) {
-                        return;
-                    }
-                    let _ = ctx.module_edges(root);
                 }
                 for root in reference_roots {
                     if worker_cancel.load(Ordering::Acquire) {
