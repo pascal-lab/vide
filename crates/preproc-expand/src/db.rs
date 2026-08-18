@@ -1504,4 +1504,89 @@ mod tests {
             VfsPath::new_virtual_path("/__vide/preproc/default/predefines.sv".to_owned())
         );
     }
+
+    fn db_with_abs_file(path: AbsPathBuf, text: &str) -> TestDb {
+        let mut file_set = FileSet::default();
+        file_set.insert(TOP, VfsPath::from(path));
+        let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
+        let mut files = FxHashSet::default();
+        files.insert(TOP);
+        let mut db = TestDb::default();
+        db.set_files_with_durability(files, Durability::HIGH);
+        db.set_project_config_with_durability(
+            Arc::new(ProjectConfig::new(
+                vec![Some(CompilationProfileId(0))],
+                vec![CompilationProfile {
+                    source_roots: vec![ROOT],
+                    top_modules: Vec::new(),
+                    preprocess: PreprocessConfig::default(),
+                }],
+            )),
+            Durability::HIGH,
+        );
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig::default()),
+            Durability::LOW,
+        );
+        db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
+        db.set_source_root_id_with_durability(TOP, ROOT, Durability::LOW);
+        db.set_file_kind_with_durability(TOP, SourceFileKind::SystemVerilog, Durability::LOW);
+        db.set_file_text_with_durability(TOP, Arc::from(text), Durability::LOW);
+        db
+    }
+
+    fn unique_sv_path(label: &str) -> (std::path::PathBuf, AbsPathBuf) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "vide-profile-ipc-{}-{}-{label}.sv",
+            std::process::id(),
+            id
+        ));
+        let abs = AbsPathBuf::assert(Utf8PathBuf::from_path_buf(path.clone()).expect("utf8 temp"));
+        (path, abs)
+    }
+
+    #[test]
+    fn clean_profile_job_omits_source_text() {
+        let disk = "module clean;\nendmodule\n";
+        let (path, abs) = unique_sv_path("clean");
+        std::fs::write(&path, disk).unwrap();
+        let db = db_with_abs_file(abs, disk);
+        let job = crate::profile_compiler::build_profile_compilation_job(&db, CompilationProfileId(0));
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            job.buffers.iter().all(|buffer| buffer.text.is_none()),
+            "clean files must be path-only: {job:?}"
+        );
+    }
+
+    #[test]
+    fn dirty_overlay_is_compiled_instead_of_disk() {
+        let disk = "module clean;\nendmodule\n";
+        let overlay = "module broken(;\nendmodule\n";
+        let (path, abs) = unique_sv_path("dirty");
+        std::fs::write(&path, disk).unwrap();
+        let mut db = db_with_abs_file(abs, overlay);
+        let job = crate::profile_compiler::build_profile_compilation_job(&db, CompilationProfileId(0));
+        assert_eq!(
+            job.buffers.iter().find(|buffer| buffer.file_id == TOP.index()).map(|b| b.text.as_deref()),
+            Some(Some(overlay)),
+            "dirty overlay must be sent: {job:?}"
+        );
+        let output = crate::profile_compiler::run_profile_compilation(job.clone());
+        assert!(
+            output.diagnostics.iter().any(|diagnostic| diagnostic.file_id == TOP.index()),
+            "overlay syntax error must compile: {output:?}"
+        );
+
+        std::fs::write(&path, "module rewritten;\nendmodule\n").unwrap();
+        let output = crate::profile_compiler::run_profile_compilation(job);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            output.diagnostics.iter().any(|diagnostic| diagnostic.file_id == TOP.index()),
+            "a disk rewrite the VFS has not applied must not be compiled: {output:?}"
+        );
+        db.set_file_text_with_durability(TOP, Arc::from(disk), Durability::LOW);
+    }
 }

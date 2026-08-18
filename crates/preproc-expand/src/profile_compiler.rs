@@ -46,7 +46,9 @@ pub struct ProfileCompilationRoot {
 pub struct ProfileCompilationBuffer {
     pub file_id: u32,
     pub path: String,
-    pub text: String,
+    /// Dirty or virtual overlay. `None` means the worker reads `path` from disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -177,7 +179,7 @@ pub fn build_profile_compilation_job(
         .map(|buffer| ProfileCompilationBuffer {
             file_id: buffer.file_id.index(),
             path: buffer.path,
-            text: buffer.text,
+            text: Some(buffer.text),
         })
         .collect();
     let roots = plan
@@ -214,7 +216,10 @@ pub fn run_profile_compilation(job: ProfileCompilationJob) -> ProfileCompilation
     compilation.register_source_buffers(
         &job.buffers
             .iter()
-            .map(|buffer| SyntaxTreeBuffer { path: buffer.path.clone(), text: buffer.text.clone() })
+            .map(|buffer| SyntaxTreeBuffer {
+                path: buffer.path.clone(),
+                text: resolved_buffer_text(buffer),
+            })
             .collect::<Vec<_>>(),
     );
     let path_file_ids = job
@@ -289,6 +294,15 @@ impl ProfileCompilationOutput {
                 diagnostic: diagnostic.diagnostic.into(),
             })
             .collect()
+    }
+}
+
+fn resolved_buffer_text(buffer: &ProfileCompilationBuffer) -> String {
+    match &buffer.text {
+        Some(text) => text.clone(),
+        None => std::fs::read_to_string(&buffer.path).unwrap_or_else(|error| {
+            panic!("compiler worker failed to read clean file {}: {error}", buffer.path)
+        }),
     }
 }
 
@@ -536,7 +550,7 @@ mod tests {
             buffers: vec![ProfileCompilationBuffer {
                 file_id: 0,
                 path: "/rtl/top.sv".to_owned(),
-                text: text.to_owned(),
+                text: Some(text.to_owned()),
             }],
             top_modules: Vec::new(),
             include_dirs: vec!["/rtl".to_owned()],
@@ -581,7 +595,7 @@ mod tests {
         job.buffers.push(ProfileCompilationBuffer {
             file_id: 1,
             path: "/rtl/defs.svh".to_owned(),
-            text: "module broken(;\nendmodule\n".to_owned(),
+            text: Some("module broken(;\nendmodule\n".to_owned()),
         });
         let output = run_profile_compilation(job);
         assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.file_id == 1), "{output:?}");
@@ -591,7 +605,7 @@ mod tests {
     fn library_map_roots_use_the_profile_session() {
         let mut job = job("");
         job.roots[0].kind = ProfileRootKind::LibraryMap;
-        job.buffers[0].text = "library work \"/rtl/*.sv\";\n".to_owned();
+        job.buffers[0].text = Some("library work \"/rtl/*.sv\";\n".to_owned());
         let output = run_profile_compilation(job);
         assert!(output.diagnostics.is_empty(), "{output:?}");
     }

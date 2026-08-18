@@ -202,7 +202,7 @@ mod tests {
             buffers: vec![ProfileCompilationBuffer {
                 file_id: 0,
                 path: "/top.sv".to_owned(),
-                text: "module top; endmodule\n".to_owned(),
+                text: Some("module top; endmodule\n".to_owned()),
             }],
             top_modules: Vec::new(),
             include_dirs: Vec::new(),
