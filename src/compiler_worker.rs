@@ -119,7 +119,11 @@ fn worker_job_limit() -> usize {
 }
 
 fn timeout_message(job: &ProfileCompilationJob, timeout: Duration, pid: u32) -> String {
-    let bytes: usize = job.buffers.iter().map(|buffer| buffer.text.len()).sum();
+    let bytes: usize = job
+        .buffers
+        .iter()
+        .map(|buffer| buffer.text.as_deref().map(str::len).unwrap_or(0))
+        .sum();
     format!(
         "compiler worker timed out after {timeout:?} (pid={pid}, roots={}, buffers={}, bytes={bytes})",
         job.roots.len(),
@@ -218,7 +222,13 @@ mod tests {
         assert!(message.contains("pid=4242"), "{message}");
         assert!(message.contains("roots=1"), "{message}");
         assert!(message.contains("buffers=1"), "{message}");
-        assert!(message.contains(&format!("bytes={}", job.buffers[0].text.len())), "{message}");
+        assert!(
+            message.contains(&format!(
+                "bytes={}",
+                job.buffers[0].text.as_deref().map(str::len).unwrap_or(0)
+            )),
+            "{message}"
+        );
     }
 
     #[test]

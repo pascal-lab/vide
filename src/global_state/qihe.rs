@@ -781,9 +781,8 @@ fn qihe_compile_input(
     let plan = snapshot.analysis.compilation_plan(active_file_id).map_err(|_| CancellationError)?;
     cancellation.check()?;
     let files = plan
-        .roots
-        .iter()
-        .filter_map(|file_id| snapshot.file_path(*file_id).map(PathBuf::from))
+        .root_file_ids()
+        .filter_map(|file_id| snapshot.file_path(file_id).map(PathBuf::from))
         .collect::<Vec<_>>();
 
     Ok(qihe_compile_input_from_plan(&plan, files, active_path, manifest_file_name))
