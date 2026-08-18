@@ -66,11 +66,19 @@ impl<T> ProductCell<T> {
         }
     }
 
+    pub(crate) fn get_or_compute_foreground(
+        &self,
+        compute: impl FnOnce(&AtomicBool) -> Option<Arc<T>>,
+    ) -> Arc<T> {
+        self.get_or_compute(ComputationPriority::Foreground, &AtomicBool::new(false), compute)
+            .unwrap_or_else(|| unreachable!("foreground product has no cancel token"))
+    }
+
     pub(crate) fn get_or_compute(
         &self,
         priority: ComputationPriority,
         external_cancel: &AtomicBool,
-        compute: impl FnOnce(&AtomicBool) -> Arc<T>,
+        compute: impl FnOnce(&AtomicBool) -> Option<Arc<T>>,
     ) -> Option<Arc<T>> {
         let mut compute = Some(compute);
         loop {
@@ -88,7 +96,7 @@ impl<T> ProductCell<T> {
                         current.cancel.store(true, Ordering::Release);
                     }
                     Some(_) => {
-                        self.ready.wait_for(&mut state, std::time::Duration::from_millis(2));
+                        self.ready.wait(&mut state);
                         continue;
                     }
                 }
@@ -105,11 +113,14 @@ impl<T> ProductCell<T> {
                 state.in_flight.as_ref().is_some_and(|current| current.generation == generation);
             if owns_slot {
                 state.in_flight = None;
-                if !cancel.load(Ordering::Acquire) && !external_cancel.load(Ordering::Acquire) {
-                    state.value = Some(value.clone());
+                let publish = value.as_ref().is_some()
+                    && !cancel.load(Ordering::Acquire)
+                    && !external_cancel.load(Ordering::Acquire);
+                if publish {
+                    state.value = value.clone();
                 }
                 self.ready.notify_all();
-                return (!external_cancel.load(Ordering::Acquire)).then_some(value);
+                return value.filter(|_| !external_cancel.load(Ordering::Acquire));
             }
             // A foreground request superseded this computation; its result is
             // intentionally discarded.
@@ -142,7 +153,7 @@ mod tests {
                     while !cancel.load(Ordering::Acquire) {
                         std::thread::yield_now();
                     }
-                    Arc::new(1)
+                    Some(Arc::new(1))
                 },
             )
         });
@@ -150,7 +161,7 @@ mod tests {
 
         let foreground = cell
             .get_or_compute(ComputationPriority::Foreground, &AtomicBool::new(false), |_| {
-                Arc::new(2)
+                Some(Arc::new(2))
             })
             .unwrap();
 
@@ -159,7 +170,7 @@ mod tests {
         assert_eq!(
             *cell
                 .get_or_compute(ComputationPriority::Foreground, &AtomicBool::new(false), |_| {
-                    Arc::new(3)
+                    Some(Arc::new(3))
                 },)
                 .unwrap(),
             2

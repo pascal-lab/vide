@@ -18,20 +18,21 @@ use crate::{
 /// Cross-file name-resolution inputs.
 ///
 /// The injected [`UnitCatalog`] answers compilation-unit names. `$unit`
-/// locals and the package export map are paid for when a lookup reads them.
+/// locals and the package export map are paid when the context is built, so
+/// they share the catalog's ProductCell clock instead of a third memo.
 #[derive(Clone)]
 pub struct ResolutionContext {
     graph: Arc<design_graph::UnitCatalog>,
-    unit_scope: Arc<std::sync::OnceLock<Arc<ScopeData>>>,
-    design_map: Arc<std::sync::OnceLock<Arc<DesignMap>>>,
+    unit_scope: Arc<ScopeData>,
+    design_map: Arc<DesignMap>,
 }
 
 impl ResolutionContext {
-    pub fn from_graph(graph: Arc<design_graph::UnitCatalog>) -> Arc<Self> {
+    pub fn from_graph(db: &dyn HirDefDb, graph: Arc<design_graph::UnitCatalog>) -> Arc<Self> {
         Arc::new(Self {
+            unit_scope: db.unit_scope(),
+            design_map: crate::design_map::package_export_closure(db, &graph),
             graph,
-            unit_scope: Arc::new(std::sync::OnceLock::new()),
-            design_map: Arc::new(std::sync::OnceLock::new()),
         })
     }
 
@@ -39,14 +40,12 @@ impl ResolutionContext {
         &self.graph
     }
 
-    pub fn unit_scope(&self, db: &dyn HirDefDb) -> Arc<ScopeData> {
-        self.unit_scope.get_or_init(|| db.unit_scope()).clone()
+    pub fn unit_scope(&self, _db: &dyn HirDefDb) -> Arc<ScopeData> {
+        self.unit_scope.clone()
     }
 
-    pub fn design_map(&self, db: &dyn HirDefDb) -> Arc<DesignMap> {
-        self.design_map
-            .get_or_init(|| crate::design_map::package_export_closure(db, &self.graph))
-            .clone()
+    pub fn design_map(&self, _db: &dyn HirDefDb) -> Arc<DesignMap> {
+        self.design_map.clone()
     }
 }
 

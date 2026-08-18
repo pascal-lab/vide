@@ -23,13 +23,15 @@ pub enum CursorHit {
     Other,
 }
 
-/// Token shape is a *candidate* graph question. Empty candidates mean this
-/// is not a compilation-unit name (`Other`), not a second CU-name path.
-pub fn hit_at(facts: &FileFacts, graph: &UnitCatalog, offset: TextSize) -> CursorHit {
-    if let Some(decl) = facts.design_unit_at(offset) {
-        let range = decl.name_range.expect("design_unit_at only returns ranged decls");
-        return CursorHit::DeclName { unit: decl.id.clone(), range };
-    }
+/// A declaration name is a fact of this file. Does not fold the catalog.
+pub fn hit_local(facts: &FileFacts, offset: TextSize) -> Option<CursorHit> {
+    let decl = facts.design_unit_at(offset)?;
+    let range = decl.name_range.expect("design_unit_at only returns ranged decls");
+    Some(CursorHit::DeclName { unit: decl.id.clone(), range })
+}
+
+/// Instantiation and package names need the workspace catalog.
+pub fn hit_global(facts: &FileFacts, graph: &UnitCatalog, offset: TextSize) -> CursorHit {
     if let Some(site) = facts.instantiation_at(offset) {
         let targets = graph.candidates(&site.name, site.role);
         if !targets.is_empty() {
@@ -43,6 +45,12 @@ pub fn hit_at(facts: &FileFacts, graph: &UnitCatalog, offset: TextSize) -> Curso
         }
     }
     CursorHit::Other
+}
+
+/// Token shape is a *candidate* graph question. Empty candidates mean this
+/// is not a compilation-unit name (`Other`), not a second CU-name path.
+pub fn hit_at(facts: &FileFacts, graph: &UnitCatalog, offset: TextSize) -> CursorHit {
+    hit_local(facts, offset).unwrap_or_else(|| hit_global(facts, graph, offset))
 }
 
 #[cfg(test)]

@@ -16,5 +16,5 @@ pub use facts::{
     DeclIndex, DeclUnit, FileFacts, ImportSpec, InstantiationSite, Mention, Mentions, PackageRefSite,
 };
 pub use graph::{GeneratedFileUnits, GeneratedUnits, Resolution, UnitCatalog, UnitMeta};
-pub use hit::{CursorHit, hit_at};
+pub use hit::{CursorHit, hit_at, hit_global, hit_local};
 pub use unit::{InstantiationRole, UnitId, UnitKind, UnitNode, UnitOrigin};

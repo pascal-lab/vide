@@ -108,81 +108,64 @@ impl AnalysisContext<'_> {
     }
 
     pub(crate) fn unit_catalog(&self) -> triomphe::Arc<design_graph::UnitCatalog> {
-        self.unit_catalog_with_priority(crate::incrementality::ComputationPriority::Foreground)
-            .expect("foreground design-graph fold cannot be cancelled")
+        self.store.unit_catalog_cell().get_or_compute_foreground(|in_flight| {
+            self.fold_unit_catalog(&NEVER_CANCELLED, in_flight)
+        })
     }
 
     pub(crate) fn prewarm_unit_catalog(
         &self,
         cancel: &AtomicBool,
     ) -> Option<triomphe::Arc<design_graph::UnitCatalog>> {
-        self.unit_catalog_with_priority_cancel(
+        self.store.unit_catalog_cell().get_or_compute(
             crate::incrementality::ComputationPriority::Background,
             cancel,
+            |in_flight| self.fold_unit_catalog(cancel, in_flight),
         )
     }
 
     pub(crate) fn prewarm_resolution(&self, cancel: &AtomicBool) -> Option<Arc<ResolutionContext>> {
-        self.resolution_with_priority(ComputationPriority::Background, cancel)
-    }
-
-    fn unit_catalog_with_priority(
-        &self,
-        priority: crate::incrementality::ComputationPriority,
-    ) -> Option<triomphe::Arc<design_graph::UnitCatalog>> {
-        self.unit_catalog_with_priority_cancel(priority, &NEVER_CANCELLED)
-    }
-
-    fn unit_catalog_with_priority_cancel(
-        &self,
-        priority: crate::incrementality::ComputationPriority,
-        cancel: &AtomicBool,
-    ) -> Option<triomphe::Arc<design_graph::UnitCatalog>> {
-        let generated = self.store.generated_units(self.db);
-        self.store.unit_catalog_cell().get_or_compute(priority, cancel, |in_flight| {
-            let _span = tracing::info_span!("design_graph.build").entered();
-            let started = std::time::Instant::now();
-            let files: Vec<_> = self
-                .db
-                .files()
-                .iter()
-                .copied()
-                .filter(|&file_id| self.db.file_kind(file_id).is_semantic_compilation_unit())
-                .collect();
-            let Some(decls) = file_decls_parallel(self.db, &files, cancel, in_flight) else {
-                return triomphe::Arc::new(design_graph::UnitCatalog::default());
-            };
-            let graph = design_graph::UnitCatalog::from_decls(
-                decls.iter().map(std::convert::AsRef::as_ref),
-                &generated,
-            );
-            let file_count = decls.len();
-            let independent_files =
-                decls.iter().filter(|decls| decls.preprocessor_independent).count();
-            tracing::info!(
-                file_count,
-                node_count = graph.node_count(),
-                generated_node_count = generated.meta.len(),
-                independent_files,
-                elapsed_ms = started.elapsed().as_millis() as u64,
-                "design_graph.build"
-            );
-            triomphe::Arc::new(graph)
+        self.store.resolution_cell().get_or_compute(ComputationPriority::Background, cancel, |_| {
+            Some(ResolutionContext::from_graph(self.db, self.unit_catalog()))
         })
     }
 
-    pub(crate) fn resolution(&self) -> Arc<ResolutionContext> {
-        self.resolution_with_priority(ComputationPriority::Foreground, &NEVER_CANCELLED)
-            .expect("foreground resolution computation cannot be cancelled")
+    fn fold_unit_catalog(
+        &self,
+        cancel: &AtomicBool,
+        in_flight: &AtomicBool,
+    ) -> Option<triomphe::Arc<design_graph::UnitCatalog>> {
+        let generated = self.store.generated_units(self.db);
+        let _span = tracing::info_span!("design_graph.build").entered();
+        let started = std::time::Instant::now();
+        let files: Vec<_> = self
+            .db
+            .files()
+            .iter()
+            .copied()
+            .filter(|&file_id| self.db.file_kind(file_id).is_semantic_compilation_unit())
+            .collect();
+        let decls = file_decls_parallel(self.db, &files, cancel, in_flight)?;
+        let graph = design_graph::UnitCatalog::from_decls(
+            decls.iter().map(std::convert::AsRef::as_ref),
+            &generated,
+        );
+        let file_count = decls.len();
+        let independent_files = decls.iter().filter(|decls| decls.preprocessor_independent).count();
+        tracing::info!(
+            file_count,
+            node_count = graph.node_count(),
+            generated_node_count = generated.meta.len(),
+            independent_files,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "design_graph.build"
+        );
+        Some(triomphe::Arc::new(graph))
     }
 
-    fn resolution_with_priority(
-        &self,
-        priority: ComputationPriority,
-        cancel: &AtomicBool,
-    ) -> Option<Arc<ResolutionContext>> {
-        self.store.resolution_cell().get_or_compute(priority, cancel, |_| {
-            ResolutionContext::from_graph(self.unit_catalog())
+    pub(crate) fn resolution(&self) -> Arc<ResolutionContext> {
+        self.store.resolution_cell().get_or_compute_foreground(|_| {
+            Some(ResolutionContext::from_graph(self.db, self.unit_catalog()))
         })
     }
 

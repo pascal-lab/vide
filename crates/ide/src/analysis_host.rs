@@ -54,39 +54,10 @@ impl AnalysisHost {
 
     pub fn apply_change(&mut self, change: Change) {
         self.cancel_prewarm();
-        let dirty_files: Vec<_> = change.changed_files.iter().map(|file| file.file_id).collect();
-        // Source-root changes carry file creation/deletion and path remapping.
-        // File create/delete also set roots; that is a graph upsert, not a
-        // workspace reset. A new project config changes profile predefines
-        // for every file, not just the dirty set — incremental epoch compare
-        // of dirty files would Keep a graph whose other files still have the
-        // old facts.
-        let reset_products = change.project_config.is_some();
-        let dependent_files =
-            if reset_products { Vec::new() } else { self.store.parsed_dependents(&dirty_files) };
-        let mut affected_files = dirty_files.clone();
-        affected_files.extend(dependent_files.iter().copied());
-        affected_files.sort_unstable_by_key(|file_id| file_id.index());
-        affected_files.dedup();
-        if reset_products {
-            self.store = Arc::new(ProductStore::default());
-            self.db.apply_change(change);
-            self.start_prewarm(self.db.files().iter().copied().collect());
-        } else if !affected_files.is_empty() {
-            let store = self.store.fork();
-            store.capture_epoch(&self.db, &dirty_files);
-            // An included file can change any emitted declaration in a root.
-            // There is no root-local L0 snapshot that can prove otherwise, so
-            // roots named by actual include edges force a structure epoch.
-            store.mark_epoch_dirty(&dependent_files);
-            self.db.apply_change(change);
-            store.invalidate(&self.db, &affected_files);
-            self.store = Arc::new(store);
-        } else {
-            self.db.apply_change(change);
-        }
+        let (store, affected_files) = ProductStore::transition(&self.store, &mut self.db, change);
+        self.store = store;
         self.advance_revision();
-        if !reset_products && !affected_files.is_empty() {
+        if !affected_files.is_empty() {
             self.start_prewarm(affected_files);
         }
     }
@@ -108,14 +79,8 @@ impl AnalysisHost {
         let worker = thread::Builder::new()
             .name("vide-revision-prewarm".to_owned())
             .spawn(move || {
-                // Give latency-sensitive foreground requests first access to
-                // the new revision. Prewarm only starts once the edit has been
-                // idle briefly, and cancellation stays responsive to typing.
-                for _ in 0..10 {
-                    if worker_cancel.load(Ordering::Acquire) {
-                        return;
-                    }
-                    thread::sleep(std::time::Duration::from_millis(5));
+                if worker_cancel.load(Ordering::Acquire) {
+                    return;
                 }
                 let ctx = AnalysisContext { db: &db, store: &store };
                 for file_id in affected_files {

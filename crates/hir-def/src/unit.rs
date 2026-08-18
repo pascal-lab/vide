@@ -72,7 +72,7 @@ pub fn test_graph(db: &dyn HirDefDb) -> design_graph::UnitCatalog {
 
 /// Test-only resolution context over [`test_graph`].
 pub fn test_resolution(db: &dyn HirDefDb) -> triomphe::Arc<crate::pathres::ResolutionContext> {
-    crate::pathres::ResolutionContext::from_graph(triomphe::Arc::new(test_graph(db)))
+    crate::pathres::ResolutionContext::from_graph(db, triomphe::Arc::new(test_graph(db)))
 }
 
 pub fn test_module_owner(db: &dyn HirDefDb, name: &str) -> OwnerId {

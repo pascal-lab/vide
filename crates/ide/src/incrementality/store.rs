@@ -50,6 +50,36 @@ impl std::fmt::Debug for ProductStore {
 }
 
 impl ProductStore {
+    /// One revision transition. The fork / capture / apply / invalidate
+    /// order is an implementation detail of the store.
+    pub(crate) fn transition(
+        current: &triomphe::Arc<Self>,
+        db: &mut RootDb,
+        change: base_db::change::Change,
+    ) -> (triomphe::Arc<Self>, Vec<FileId>) {
+        let dirty_files: Vec<_> = change.changed_files.iter().map(|file| file.file_id).collect();
+        if change.project_config.is_some() {
+            db.apply_change(change);
+            let files = db.files().iter().copied().collect();
+            return (triomphe::Arc::new(Self::default()), files);
+        }
+        let dependent_files = current.parsed_dependents(&dirty_files);
+        let mut affected_files = dirty_files.clone();
+        affected_files.extend(dependent_files.iter().copied());
+        affected_files.sort_unstable_by_key(|file| file.index());
+        affected_files.dedup();
+        if affected_files.is_empty() {
+            db.apply_change(change);
+            return (current.clone(), Vec::new());
+        }
+        let store = current.fork();
+        store.capture_epoch(db, &dirty_files);
+        store.mark_epoch_dirty(&dependent_files);
+        db.apply_change(change);
+        store.invalidate(db, &affected_files);
+        (triomphe::Arc::new(store), affected_files)
+    }
+
     pub(crate) fn fork(&self) -> Self {
         Self { inner: Mutex::new(self.inner.lock().clone()) }
     }

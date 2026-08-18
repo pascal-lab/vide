@@ -3,7 +3,7 @@
 //! This is the only CU-name answer. Empty graph candidates are `Other` — a
 //! different question (nested module, class `::`, UDP), not a second path.
 
-use design_graph::{CursorHit, UnitId, UnitKind, hit_at};
+use design_graph::{CursorHit, UnitId, UnitKind, hit_global, hit_local};
 use nohash_hasher::IntMap;
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
@@ -66,14 +66,14 @@ pub(crate) fn references(
 
 fn hit(db: &AnalysisContext<'_>, file_id: FileId, offset: TextSize) -> CursorHit {
     let facts = db.file_facts(file_id);
-    // A declaration name is a fact of this file. Do not fold the workspace
-    // graph to answer it — that raced VFS writes and cancelled the ready probe.
-    if let Some(decl) = facts.design_unit_at(offset) {
-        let range = decl.name_range.expect("design_unit_at only returns ranged decls");
-        return CursorHit::DeclName { unit: decl.id.clone(), range };
+    // A declaration name is a fact of this file. ProductStore::transition
+    // owns the revision order; this is a cheap local answer, not a race
+    // bypass.
+    if let Some(hit) = hit_local(&facts, offset) {
+        return hit;
     }
     let graph = db.unit_catalog();
-    let hit = hit_at(&facts, &graph, offset);
+    let hit = hit_global(&facts, &graph, offset);
     let (hit_kind, target_count) = match &hit {
         CursorHit::DeclName { .. } => ("decl_name", 1usize),
         CursorHit::InstantiationType { targets, .. } => ("instantiation_type", targets.len()),
