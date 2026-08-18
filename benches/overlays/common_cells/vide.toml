@@ -1,4 +1,0 @@
-#:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
-sources = ["src/**"]
-include_dirs = ["include", "src"]
-exclude = ["test/**", "formal/**"]

@@ -2,16 +2,3 @@
 	path = third_party/slang
 	url = https://github.com/pascal-lab/slang.git
 	branch = vide
-[submodule "benches/workloads/common_cells"]
-	path = benches/workloads/common_cells
-	url = https://github.com/pulp-platform/common_cells.git
-	branch = master
-	update = none
-[submodule "benches/workloads/ibex"]
-	path = benches/workloads/ibex
-	url = https://github.com/lowRISC/ibex.git
-	update = none
-[submodule "benches/workloads/cva6"]
-	path = benches/workloads/cva6
-	url = https://github.com/openhwgroup/cva6.git
-	update = none

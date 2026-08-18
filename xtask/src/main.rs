@@ -11,8 +11,6 @@ use std::{
 use anyhow::{Context, Result, bail};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 
-mod bench;
-
 const VSCODE_SCHEMA_CONSTANTS_PATH: &str = "editors/vscode/src/generated/projectConfigSchema.ts";
 const VSCODE_CONFIGURATION_PATH: &str = "editors/vscode/src/generated/configuration.ts";
 const VSCODE_PACKAGE_PATH: &str = "editors/vscode/package.json";
@@ -29,7 +27,6 @@ fn main() -> Result<()> {
         Some(XtaskCommand::CheckSchemas) => check_schemas(&workspace_root),
         Some(XtaskCommand::Server(server)) => run_server_command(&workspace_root, server),
         Some(XtaskCommand::Vscode(vscode)) => run_vscode_command(&workspace_root, vscode),
-        Some(XtaskCommand::Bench(args)) => crate::bench::run(&workspace_root, args),
         None => {
             Cli::command().print_help()?;
             eprintln!();
@@ -55,8 +52,6 @@ enum XtaskCommand {
     CheckSchemas,
     Server(ServerArgs),
     Vscode(VscodeArgs),
-    /// Compare Vide against slang-server / Verible / svls. Not run in CI.
-    Bench(crate::bench::BenchArgs),
 }
 
 #[derive(Debug, Args)]
