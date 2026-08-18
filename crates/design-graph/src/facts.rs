@@ -69,6 +69,10 @@ impl FileFacts {
         self.mentions.iter().any(|mention| mention.name == name)
     }
 
+    pub fn mentions_of(&self, name: &str) -> impl Iterator<Item = &Mention> {
+        self.mentions.iter().filter(move |mention| mention.name == name)
+    }
+
     pub fn has_compilation_unit_locals(&self) -> bool {
         self.has_compilation_unit_locals
     }

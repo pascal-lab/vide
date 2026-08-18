@@ -266,9 +266,7 @@ mod tests {
         let def_range = TextRange::new(markers["def"], markers["def"] + TextSize::of("a"));
         let db = host.ctx();
         let def = def_named_at(&db, child_id, def_range);
-        let before_index = db.file_name_index(child_id);
         assert_eq!(workspace_refs(&db, def).len(), 1, "wire a has one usage");
-        assert_eq!(before_index.occurrences("a").len(), 2);
 
         let mut change = Change::new();
         change.add_changed_file(ChangedFile::create(
@@ -281,11 +279,6 @@ mod tests {
         assert!(
             workspace_refs(&db, def).is_empty(),
             "removing the only usage must drop the reference"
-        );
-        assert_eq!(
-            before_index.occurrences("a").len(),
-            2,
-            "a name-table snapshot held by a caller must not be mutated in place"
         );
     }
 
@@ -369,38 +362,6 @@ mod tests {
             !Arc::ptr_eq(&before, &after),
             "an emitted include dependency must invalidate the parsed root's structure products"
         );
-    }
-
-    #[test]
-    fn request_file_index_reuses_unrelated_edits_and_rebuilds_its_file() {
-        use base_db::change::Change;
-        use vfs::ChangedFile;
-
-        let (mut host, marked) = setup_marked_files(&[
-            ("/a.sv", "module a; logic x; endmodule\n"),
-            ("/b.sv", "module b; logic y; endmodule\n"),
-        ]);
-        let a = marked[0].0;
-        let b = marked[1].0;
-        let before = host.ctx().file_name_index(b);
-
-        let mut unrelated = Change::new();
-        unrelated.add_changed_file(ChangedFile::create(
-            a,
-            "module a; logic x; endmodule // body-only\n",
-        ));
-        host.apply_change(unrelated);
-        let after_unrelated = host.ctx().file_name_index(b);
-        assert!(Arc::ptr_eq(&before, &after_unrelated));
-
-        let mut own_edit = Change::new();
-        own_edit.add_changed_file(ChangedFile::create(
-            b,
-            "module b; logic y; endmodule // own body-only\n",
-        ));
-        host.apply_change(own_edit);
-        let after_own_edit = host.ctx().file_name_index(b);
-        assert!(!Arc::ptr_eq(&after_unrelated, &after_own_edit));
     }
 
     /// Two body edits without a request between them must both be visible.

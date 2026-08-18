@@ -1,4 +1,4 @@
-use base_db::{source_db::SourceDb, source_root::SourceRootId};
+use base_db::source_db::SourceDb;
 use design_graph::{DesignGraph, DesignGraphDb, GeneratedUnits, UnitId, UnitMeta};
 use hir_def::pathres::ResolutionContext;
 use parking_lot::Mutex;
@@ -8,14 +8,9 @@ use vfs::FileId;
 
 use super::{
     epoch::{EpochDecision, StructureEpoch, StructureSnapshot},
-    indexes::{GenArc, NameIndexEntry, file_gen},
     product_cell::ProductCell,
 };
-use crate::{
-    analysis::AnalysisContext,
-    db::root_db::RootDb,
-    name_index::{FileNameIndex, NameIndex, index_files_for_root},
-};
+use crate::db::root_db::RootDb;
 
 /// Products that have been requested at least once on this store lineage.
 ///
@@ -26,17 +21,11 @@ pub(crate) struct HotProducts {
     /// Always a workspace product. True from initialize so ready waits for
     /// fold.
     pub design_graph: bool,
-    pub files: FxHashSet<FileId>,
-    pub name_index_roots: FxHashSet<SourceRootId>,
 }
 
 impl Default for HotProducts {
     fn default() -> Self {
-        Self {
-            design_graph: true,
-            files: FxHashSet::default(),
-            name_index_roots: FxHashSet::default(),
-        }
+        Self { design_graph: true }
     }
 }
 
@@ -47,21 +36,9 @@ struct StructureProducts {
 }
 
 #[derive(Clone, Default)]
-struct Shards {
-    file_indexes: FxHashMap<FileId, GenArc<FileNameIndex>>,
-    names: FxHashMap<SourceRootId, NameIndexEntry>,
-}
-
-#[derive(Clone, Default)]
 struct Inner {
     epoch: StructureEpoch,
-    /// How many times each file has been in an affected set since this store
-    /// was created. A shard built at generation G is stale when `dirty_gen`
-    /// has moved past G. Consecutive edits without a request accumulate here
-    /// instead of replacing a single dirty set.
-    dirty_gen: FxHashMap<FileId, u64>,
     structure: StructureProducts,
-    shards: Shards,
     hot: HotProducts,
     /// Authoritative standalone parses retained by this store lineage:
     /// compilation root -> files named by emitted preprocessor include edges.
@@ -165,21 +142,14 @@ impl ProductStore {
 
     /// Apply the structural epoch. Body-only edits keep the previous
     /// graph; files whose CU units changed are upserted. Resolution products
-    /// drop only when the graph actually changed. The per-file generation
-    /// clock always advances for the affected set.
+    /// drop only when the graph actually changed.
     ///
     /// This is the only invalidation entry point. The request path never
     /// re-decides the epoch.
-    pub(crate) fn invalidate(&self, db: &RootDb, files: &[FileId]) {
+    pub(crate) fn invalidate(&self, db: &RootDb, _files: &[FileId]) {
         let epoch = self.inner.lock().epoch.clone();
         let decision = if epoch.is_empty() { EpochDecision::Keep } else { epoch.decide(db) };
-        {
-            let mut inner = self.inner.lock();
-            inner.epoch.clear();
-            for &file_id in files {
-                *inner.dirty_gen.entry(file_id).or_insert(0) += 1;
-            }
-        }
+        self.inner.lock().epoch.clear();
         match decision {
             EpochDecision::Keep => {}
             EpochDecision::Patch(patch) => {
@@ -225,57 +195,5 @@ impl ProductStore {
 
     pub(crate) fn resolution_cell(&self) -> Arc<ProductCell<ResolutionContext>> {
         self.inner.lock().structure.resolution.clone()
-    }
-
-    pub(crate) fn file_name_index(
-        &self,
-        ctx: &AnalysisContext<'_>,
-        file_id: FileId,
-    ) -> Arc<FileNameIndex> {
-        let current_gen = {
-            let mut inner = self.inner.lock();
-            inner.hot.files.insert(file_id);
-            let generation = file_gen(&inner.dirty_gen, file_id);
-            if let Some(shard) = inner.shards.file_indexes.get(&file_id)
-                && shard.built_gen == generation
-            {
-                return shard.value.clone();
-            }
-            generation
-        };
-
-        let index = Arc::new(FileNameIndex::for_file(ctx.db, file_id));
-        let mut inner = self.inner.lock();
-        inner
-            .shards
-            .file_indexes
-            .insert(file_id, GenArc { value: index.clone(), built_gen: current_gen });
-        index
-    }
-
-    pub(crate) fn name_index(
-        &self,
-        ctx: &AnalysisContext<'_>,
-        source_root_id: SourceRootId,
-    ) -> Arc<NameIndex> {
-        let root_files = index_files_for_root(ctx, source_root_id);
-        let (mut entry, gens) = {
-            let mut inner = self.inner.lock();
-            inner.hot.name_index_roots.insert(source_root_id);
-            if let Some(entry) = inner.shards.names.get(&source_root_id)
-                && entry.is_fresh(&root_files, &inner.dirty_gen)
-            {
-                return entry.index.clone();
-            }
-            (
-                inner.shards.names.get(&source_root_id).cloned().unwrap_or_default(),
-                inner.dirty_gen.clone(),
-            )
-        };
-
-        entry.refresh(ctx, &root_files, &gens);
-        let result = entry.index.clone();
-        self.inner.lock().shards.names.insert(source_root_id, entry);
-        result
     }
 }

@@ -37,7 +37,6 @@ use crate::{
     incrementality::{ComputationPriority, ProductStore},
     inlay_hint::{self, InlayHint, InlayHintConfig},
     markup::Markup,
-    name_index::{FileNameIndex, NameIndex},
     navigation_target::NavTarget,
     references::{self, References, ReferencesConfig},
     rename::{self, RenameConfig, RenameResult},
@@ -168,10 +167,6 @@ impl AnalysisContext<'_> {
         })
     }
 
-    pub(crate) fn file_name_index(&self, file_id: FileId) -> Arc<FileNameIndex> {
-        self.store.file_name_index(self, file_id)
-    }
-
     pub(crate) fn resolution(&self) -> Arc<ResolutionContext> {
         self.resolution_with_priority(ComputationPriority::Foreground, &NEVER_CANCELLED)
             .expect("foreground resolution computation cannot be cancelled")
@@ -185,10 +180,6 @@ impl AnalysisContext<'_> {
         self.store.resolution_cell().get_or_compute(priority, cancel, |_| {
             ResolutionContext::from_graph(self.design_graph())
         })
-    }
-
-    pub(crate) fn name_index(&self, source_root_id: SourceRootId) -> Arc<NameIndex> {
-        self.store.name_index(self, source_root_id)
     }
 
     pub(crate) fn recursive_rename_closure(

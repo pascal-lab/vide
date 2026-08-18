@@ -11,15 +11,10 @@
 //! - Structure epoch `s` — a dirty file's L0 compilation-unit declarations
 //!   changed
 //!
-//! Three product kinds:
-//! - **Structure products** (`DesignGraph`, `ResolutionContext`): keyed by `s`,
-//!   memoized in `ProductCell` so a foreground request can preempt a background
-//!   prewarm. A generated-unit set change patches the graph for that file via
-//!   [`ProductStore::patch_design_graph`].
-//! - **File shards** (`FileNameIndex`): keyed by `(generation, FileId)` against
-//!   a single per-file generation clock
-//! - **Merged indexes** (`NameIndex`): folds over shards; a Patch epoch
-//!   refreshes shards whose files were in the dirty set
+//! Structure products (`DesignGraph`, `ResolutionContext`) are keyed by `s`
+//! and memoized in `ProductCell` so a foreground request can preempt a
+//! background prewarm. A generated-unit set change patches the graph for that
+//! file via [`ProductStore::patch_design_graph`].
 //!
 //! [`ProductStore::invalidate`] is the only invalidation entry point.
 //! Features are pure functions of [`crate::analysis::AnalysisContext`].
@@ -29,7 +24,6 @@
 //! feature function or on `RootDb` is a bug.
 
 mod epoch;
-mod indexes;
 mod product_cell;
 mod store;
 

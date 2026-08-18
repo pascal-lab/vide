@@ -7,11 +7,8 @@ use std::{
 };
 
 use base_db::{
-    analysis_snapshot::AnalysisSnapshotId,
-    change::Change,
-    diagnostics_config::DiagnosticsConfig,
-    salsa::Durability,
-    source_db::{SourceDb, SourceRootDb},
+    analysis_snapshot::AnalysisSnapshotId, change::Change, diagnostics_config::DiagnosticsConfig,
+    salsa::Durability, source_db::SourceDb,
 };
 use triomphe::Arc;
 
@@ -123,32 +120,12 @@ impl AnalysisHost {
                 }
                 let ctx = AnalysisContext { db: &db, store: &store };
                 let hot = store.hot();
+                let _ = affected_files;
                 if hot.design_graph {
                     let _ = ctx.prewarm_design_graph(&worker_cancel);
                     if !worker_cancel.load(Ordering::Acquire) {
                         let _ = ctx.prewarm_resolution(&worker_cancel);
                     }
-                }
-                let mut reference_roots = rustc_hash::FxHashSet::default();
-                for file_id in affected_files {
-                    if worker_cancel.load(Ordering::Acquire) {
-                        return;
-                    }
-                    if ctx.files().contains(&file_id) {
-                        let root = ctx.source_root_id(file_id);
-                        if hot.name_index_roots.contains(&root) {
-                            reference_roots.insert(root);
-                        }
-                        if hot.files.contains(&file_id) {
-                            let _ = ctx.file_name_index(file_id);
-                        }
-                    }
-                }
-                for root in reference_roots {
-                    if worker_cancel.load(Ordering::Acquire) {
-                        return;
-                    }
-                    let _ = ctx.name_index(root);
                 }
             })
             .expect("failed to spawn revision prewarm worker");
