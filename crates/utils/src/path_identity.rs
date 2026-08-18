@@ -118,6 +118,25 @@ mod tests {
     }
 
     #[test]
+    fn path_identity_index_keeps_parent_directory_segments() {
+        let mut index = PathIdentityIndex::default();
+        let path = if cfg!(windows) {
+            AbsPathBuf::assert("C:\\repo\\rtl\\config.vh".into())
+        } else {
+            AbsPathBuf::assert("/repo/rtl/config.vh".into())
+        };
+        index.insert_path(path.as_path(), 1);
+
+        let slang_path = if cfg!(windows) {
+            r"C:\repo\rtl\..\rtl\config.vh"
+        } else {
+            "/repo/rtl/../rtl/config.vh"
+        };
+        assert_eq!(index.get(slang_path), None);
+        assert_eq!(index.get(path.to_string()), Some(1));
+    }
+
+    #[test]
     fn path_identity_index_resolves_a_path_that_does_not_exist() {
         let dir = crate::test_support::TestDir::new("unwritten-path-identity");
         let missing = dir.join("missing.sv");

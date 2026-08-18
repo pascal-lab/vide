@@ -163,19 +163,13 @@ pub fn build_profile_compilation_job(
 ) -> ProfileCompilationJob {
     let plan = db.compilation_plan_for_profile(Some(profile_id));
     let context = db.compilation_context(Some(profile_id));
-    let path_file_ids = db.path_file_ids();
     let config = db.diagnostics_config();
     let buffers = compilation_plan::compilation_source_buffers_for_plan(db, &plan)
         .into_iter()
-        .map(|buffer| {
-            let file_id = path_file_ids
-                .get(&buffer.path)
-                .expect("profile compilation buffer must have a VFS identity");
-            ProfileCompilationBuffer {
-                file_id: file_id.index(),
-                path: buffer.path,
-                text: buffer.text,
-            }
+        .map(|buffer| ProfileCompilationBuffer {
+            file_id: buffer.file_id.index(),
+            path: buffer.path,
+            text: buffer.text,
         })
         .collect();
     let roots = plan

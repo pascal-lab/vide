@@ -877,6 +877,100 @@ mod tests {
         );
     }
 
+    fn parent_relative_include_texts() -> (&'static str, &'static str) {
+        // The include must change the root's inactive set. A header that only
+        // defines `__CDEPTH__` cannot do that: failed include and successful
+        // include both leave `__CDEPTH__` undefined.
+        let top = concat!(
+            "`include \"../rtl/config.vh\"\n",
+            "module darkcache;\n",
+            "`ifndef HEADER_FLAG\n",
+            "    wire should_be_inactive;\n",
+            "`endif\n",
+            "endmodule\n",
+        );
+        let header = concat!(
+            "`define HEADER_FLAG\n",
+            "`ifdef NEVER_DEFINED\n",
+            "    wire header_inactive;\n",
+            "`endif\n",
+        );
+        (top, header)
+    }
+
+    fn parent_relative_include_db() -> (TestDir, RootDb, String) {
+        let dir = TestDir::new("inactive-parent-relative-include");
+        let rtl = dir.create_dir_all("rtl");
+        let (top_text, header_text) = parent_relative_include_texts();
+        let top_path = rtl.join("darkcache.v");
+        let header_path = rtl.join("config.vh");
+        std::fs::write(&top_path, top_text).unwrap();
+        std::fs::write(&header_path, header_text).unwrap();
+
+        let mut db = RootDb::new(None);
+        let mut file_set = FileSet::default();
+        file_set.insert(FileId::from_raw(0), VfsPath::from(top_path.clone()));
+        file_set.insert(FileId::from_raw(1), VfsPath::from(header_path.clone()));
+
+        let mut change = Change::new();
+        change.add_changed_file(ChangedFile::create(FileId::from_raw(0), top_text));
+        change.add_changed_file(ChangedFile::create(FileId::from_raw(1), header_text));
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0))],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: PreprocessConfig {
+                    include_dirs: vec![rtl],
+                    ..PreprocessConfig::default()
+                },
+            }],
+        )));
+        db.apply_change(change);
+        (dir, db, top_text.to_owned())
+    }
+
+    fn assert_inactive_header_gated_body(db: &RootDb, top_text: &str, context: &str) {
+        let diagnostics = diagnostics(db, FileId::from_raw(0));
+        let inactive = diagnostics
+            .iter()
+            .filter(|diag| diag.name == INACTIVE_PREPROCESSOR_BRANCH.name)
+            .collect::<Vec<_>>();
+        let branches = preproc_expand::preproc::inactive_branches(db, FileId::from_raw(0));
+        let trace = db.preproc_trace(FileId::from_raw(0)).map(|trace| {
+            trace
+                .source_buffers
+                .iter()
+                .map(|source| {
+                    format!(
+                        "buffer={} origin={:?} path={}",
+                        source.buffer_id, source.origin, source.path
+                    )
+                })
+                .collect::<Vec<_>>()
+        });
+        assert!(
+            inactive.iter().any(|diag| {
+                diag.file_id == FileId::from_raw(0)
+                    && top_text
+                        .get(usize::from(diag.range.start())..usize::from(diag.range.end()))
+                        .is_some_and(|text| text.contains("wire should_be_inactive;"))
+            }),
+            "{context}: expected inactive `ifndef HEADER_FLAG` body, diagnostics={diagnostics:?}, branches={branches:?}, trace={trace:?}"
+        );
+    }
+
+    #[test]
+    fn inactive_preprocessor_branch_survives_parent_relative_header_include() {
+        let (_dir, db, top_text) = parent_relative_include_db();
+        assert_inactive_header_gated_body(
+            &db,
+            &top_text,
+            "parent-relative include with header in VFS",
+        );
+    }
+
     #[test]
     fn semantic_diagnostics_include_other_workspace_files() {
         let db = db_with_files(

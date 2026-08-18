@@ -10,7 +10,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use syntax::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
 use utils::{
     path_identity::PathIdentityIndex,
-    paths::{AbsPathBuf, Utf8Path, Utf8PathBuf},
+    paths::{AbsPath, AbsPathBuf, Utf8Path, Utf8PathBuf},
 };
 use vfs::FileId;
 
@@ -20,6 +20,17 @@ use crate::db::PreprocDb;
 struct IncludeScanQueryKey {
     file_id: FileId,
     predefines: triomphe::Arc<[String]>,
+}
+
+/// A resolved literal `` `include ``. `slang_path` is the cache key slang will
+/// use for this edge (`parent(from) / literal` when that join is the target
+/// file, otherwise the target's VFS path for an include-dir hit).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncludeEdge {
+    pub from: FileId,
+    pub to: FileId,
+    pub literal: String,
+    pub slang_path: AbsPathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -32,6 +43,8 @@ pub struct CompilationPlan {
     pub include_only: FxHashSet<FileId>,
     /// Direct resolved include edges, keyed by the including file.
     pub include_dependencies: FxHashMap<FileId, FxHashSet<FileId>>,
+    /// Resolved include edges with the slang lookup spelling for each use.
+    pub include_edges: Vec<IncludeEdge>,
     /// Files with a non-literal include target. Their exact dependency cannot
     /// be known without the authoritative preprocessor, so they are treated as
     /// affected by every source edit.
@@ -152,28 +165,44 @@ impl CompilationPlan {
         include_dirs: Vec<AbsPathBuf>,
         predefines: Vec<String>,
     ) -> Self {
-        let (include_only, include_dependencies, dynamic_include_files, include_scan_issues) =
-            include_targets_for_source_roots(db, &source_roots, &include_dirs, &predefines);
+        let mut starts = Vec::new();
+        for root in &source_roots {
+            starts.extend(db.source_root(*root).iter());
+        }
+        let scan = scan_include_graph(db, starts, &include_dirs, &predefines);
+        let (include_only, include_dependencies) = include_projections(&scan.edges);
         let roots = compile_roots_for_source_roots(db, &source_roots, &include_only);
         CompilationPlan {
             source_roots,
             roots,
             include_only,
             include_dependencies,
-            dynamic_include_files,
+            include_edges: scan.edges,
+            dynamic_include_files: scan.dynamic_files,
             include_dirs,
             top_modules,
             predefines,
-            include_scan_issues,
+            include_scan_issues: scan.issues,
         }
     }
 }
 
 pub fn include_buffers_for_plan(
-    db: &dyn SourceRootDb,
+    db: &dyn PreprocDb,
     plan: &CompilationPlan,
 ) -> Vec<SyntaxTreeBuffer> {
     include_buffers_for_plan_with_roots(db, plan, false)
+        .into_iter()
+        .map(|buffer| SyntaxTreeBuffer { path: buffer.path, text: buffer.text })
+        .collect()
+}
+
+/// A source buffer we hand to slang, keyed by the spelling slang will look up.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssignedIncludeBuffer {
+    pub file_id: FileId,
+    pub path: String,
+    pub text: String,
 }
 
 /// Transitive literal includes of one file, walking only that file's
@@ -200,96 +229,40 @@ impl StaticIncludeClosure {
 
 /// Include buffers needed by one standalone compilation unit.
 ///
-/// Only files on this file's static include closure are registered. A
+/// Each resolved include is registered under that edge's `slang_path` only. A
 /// dynamic or unresolved include does **not** load every header in the
 /// profile.
 pub fn include_buffers_for_file(db: &dyn PreprocDb, file_id: FileId) -> Vec<SyntaxTreeBuffer> {
-    include_buffers_for_static_closure(db, &static_include_closure(db, file_id))
+    assigned_include_buffers_for_file(db, file_id)
+        .into_iter()
+        .map(|buffer| SyntaxTreeBuffer { path: buffer.path, text: buffer.text })
+        .collect()
 }
 
-pub fn include_buffers_for_static_closure(
-    db: &dyn SourceRootDb,
-    closure: &StaticIncludeClosure,
-) -> Vec<SyntaxTreeBuffer> {
-    closure
-        .files()
-        .iter()
-        .copied()
-        .filter(|&file_id| !db.file_is_project_ignored(file_id))
-        .map(|file_id| SyntaxTreeBuffer {
-            path: source_buffer_path(db, file_id).to_string(),
-            text: db.file_text(file_id).to_string(),
-        })
-        .collect()
+pub fn assigned_include_buffers_for_file(
+    db: &dyn PreprocDb,
+    file_id: FileId,
+) -> Vec<AssignedIncludeBuffer> {
+    buffers_from_edges(db, &scan_includes_from_file(db, file_id).edges)
 }
 
 /// Walk literal `` `include `` directives from `file_id` only.
 pub fn static_include_closure(db: &dyn PreprocDb, file_id: FileId) -> StaticIncludeClosure {
-    let profile_id = db.file_compilation_profile(file_id);
-    let preprocess = db.project_config().preprocess_for_profile(profile_id);
-    let predefines = triomphe::Arc::<[String]>::from(preprocess.predefine_strings());
-    let include_dirs = preprocess.include_dirs;
-    let path_file_ids = db.path_file_ids();
-
-    let mut resolved = Vec::new();
-    let mut seen = FxHashSet::default();
-    let mut pending = vec![file_id];
-    let mut complete = true;
-
-    while let Some(current) = pending.pop() {
-        if !matches!(
-            db.file_kind(current),
-            SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
-        ) {
-            continue;
-        }
-        let includer_path =
-            db.file_path(current).unwrap_or_else(|| source_buffer_path(db, current));
-        let include_targets = match literal_include_targets(
-            db,
-            IncludeScanQueryKey::new(db, current, predefines.clone()),
-        ) {
-            Ok(targets) => targets,
-            Err(_) => {
-                complete = false;
-                continue;
-            }
-        };
-        for include in include_targets {
-            let MacroIncludeTarget::Literal { path, .. } = &include.target else {
-                complete = false;
-                continue;
-            };
-            match resolve_include_target(
-                path.as_str(),
-                &includer_path,
-                &include_dirs,
-                &path_file_ids,
-            ) {
-                Some(included) => {
-                    if seen.insert(included) {
-                        resolved.push(included);
-                        pending.push(included);
-                    }
-                }
-                None => complete = false,
-            }
-        }
-    }
-
-    resolved.sort_unstable_by_key(|file_id| file_id.index());
-    resolved.dedup();
-    if complete {
-        StaticIncludeClosure::Complete(resolved)
+    let scan = scan_includes_from_file(db, file_id);
+    let (include_only, _) = include_projections(&scan.edges);
+    let mut files = include_only.into_iter().collect::<Vec<_>>();
+    files.sort_unstable_by_key(|file_id| file_id.index());
+    if scan.complete {
+        StaticIncludeClosure::Complete(files)
     } else {
-        StaticIncludeClosure::Partial(resolved)
+        StaticIncludeClosure::Partial(files)
     }
 }
 
 pub fn compilation_source_buffers_for_plan(
-    db: &dyn SourceRootDb,
+    db: &dyn PreprocDb,
     plan: &CompilationPlan,
-) -> Vec<SyntaxTreeBuffer> {
+) -> Vec<AssignedIncludeBuffer> {
     include_buffers_for_plan_with_roots(db, plan, true)
 }
 
@@ -314,10 +287,10 @@ fn synthetic_source_buffer_path(file_id: FileId) -> AbsPathBuf {
 }
 
 fn include_buffers_for_plan_with_roots(
-    db: &dyn SourceRootDb,
+    db: &dyn PreprocDb,
     plan: &CompilationPlan,
     include_roots: bool,
-) -> Vec<SyntaxTreeBuffer> {
+) -> Vec<AssignedIncludeBuffer> {
     let root_files = if include_roots {
         plan.roots.iter().copied().collect::<FxHashSet<_>>()
     } else {
@@ -359,11 +332,95 @@ fn include_buffers_for_plan_with_roots(
 
         let path = path.to_string();
         if seen_buffer_paths.insert(path.clone()) {
-            buffers.push(SyntaxTreeBuffer { path, text: db.file_text(file_id).to_string() });
+            buffers.push(AssignedIncludeBuffer {
+                file_id,
+                path,
+                text: db.file_text(file_id).to_string(),
+            });
+        }
+    }
+
+    for buffer in buffers_from_edges(db, &plan.include_edges) {
+        if seen_buffer_paths.insert(buffer.path.clone()) {
+            buffers.push(buffer);
         }
     }
 
     buffers
+}
+
+/// FFI path → [`FileId`] for one standalone parse: the root's VFS spelling plus
+/// each reachable include edge's `slang_path`.
+pub(crate) fn source_buffer_file_ids_for_file(
+    db: &dyn PreprocDb,
+    file_id: FileId,
+) -> PathIdentityIndex<FileId> {
+    let mut index = PathIdentityIndex::default();
+    index.insert_path(source_buffer_path(db, file_id).as_path(), file_id);
+    for edge in scan_includes_from_file(db, file_id).edges {
+        index.insert_path(edge.slang_path.as_path(), edge.to);
+    }
+    index
+}
+
+fn scan_includes_from_file(db: &dyn PreprocDb, file_id: FileId) -> IncludeScan {
+    let preprocess =
+        db.project_config().preprocess_for_profile(db.file_compilation_profile(file_id));
+    scan_include_graph(db, [file_id], &preprocess.include_dirs, &preprocess.predefine_strings())
+}
+
+fn buffers_from_edges(db: &dyn PreprocDb, edges: &[IncludeEdge]) -> Vec<AssignedIncludeBuffer> {
+    let mut seen_paths = FxHashSet::default();
+    let mut buffers = Vec::new();
+    for edge in edges {
+        if db.file_is_project_ignored(edge.to) {
+            continue;
+        }
+        let path = edge.slang_path.to_string();
+        if !seen_paths.insert(path.clone()) {
+            continue;
+        }
+        buffers.push(AssignedIncludeBuffer {
+            file_id: edge.to,
+            path,
+            text: db.file_text(edge.to).to_string(),
+        });
+    }
+    buffers
+}
+
+fn include_projections(
+    edges: &[IncludeEdge],
+) -> (FxHashSet<FileId>, FxHashMap<FileId, FxHashSet<FileId>>) {
+    let mut include_only = FxHashSet::default();
+    let mut include_dependencies = FxHashMap::<FileId, FxHashSet<FileId>>::default();
+    for edge in edges {
+        include_only.insert(edge.to);
+        include_dependencies.entry(edge.from).or_default().insert(edge.to);
+    }
+    (include_only, include_dependencies)
+}
+
+/// Slang's first include lookup key when `disableProximatePaths` is set:
+/// `parent(includer) / include-literal`, with no `.`/`..` collapse.
+pub(crate) fn slang_local_include_lookup_path(
+    includer: &AbsPath,
+    literal: &str,
+) -> Option<AbsPathBuf> {
+    let include = Utf8Path::new(literal);
+    if include.is_absolute() {
+        return AbsPathBuf::try_from(include.to_path_buf()).ok();
+    }
+    let dir = includer.parent()?;
+    AbsPathBuf::try_from(Utf8Path::new(dir.as_str()).join(include)).ok()
+}
+
+/// The spelling to hand slang for one resolved include.
+fn slang_path_for_include(includer: &AbsPath, literal: &str, target_vfs: &AbsPath) -> AbsPathBuf {
+    let Some(local) = slang_local_include_lookup_path(includer, literal) else {
+        return target_vfs.to_path_buf();
+    };
+    if local.normalize() == target_vfs.normalize() { local } else { target_vfs.to_path_buf() }
 }
 
 fn profile_inputs(
@@ -443,29 +500,28 @@ fn path_file_ids(db: &dyn SourceRootDb) -> PathIdentityIndex<FileId> {
     index
 }
 
-#[allow(clippy::type_complexity)]
-fn include_targets_for_source_roots(
+struct IncludeScan {
+    edges: Vec<IncludeEdge>,
+    dynamic_files: FxHashSet<FileId>,
+    issues: Vec<IncludeScanIssue>,
+    complete: bool,
+}
+
+fn scan_include_graph(
     db: &dyn PreprocDb,
-    roots: &[SourceRootId],
+    starts: impl IntoIterator<Item = FileId>,
     include_dirs: &[AbsPathBuf],
     predefines: &[String],
-) -> (
-    FxHashSet<FileId>,
-    FxHashMap<FileId, FxHashSet<FileId>>,
-    FxHashSet<FileId>,
-    Vec<IncludeScanIssue>,
-) {
+) -> IncludeScan {
     let path_file_ids = path_file_ids(db);
     let predefines = triomphe::Arc::<[String]>::from(predefines.to_vec());
-    let mut included = FxHashSet::default();
-    let mut dependencies = FxHashMap::<FileId, FxHashSet<FileId>>::default();
-    let mut dynamic_include_files = FxHashSet::default();
+    let mut edges = Vec::new();
+    let mut seen_edges = FxHashSet::default();
+    let mut dynamic_files = FxHashSet::default();
     let mut issues = Vec::new();
+    let mut complete = true;
     let mut scanned = FxHashSet::default();
-    let mut pending = Vec::new();
-    for root_id in roots {
-        pending.extend(db.source_root(*root_id).iter());
-    }
+    let mut pending = starts.into_iter().collect::<Vec<_>>();
 
     while let Some(file_id) = pending.pop() {
         if !scanned.insert(file_id) {
@@ -481,9 +537,8 @@ fn include_targets_for_source_roots(
             continue;
         }
 
-        let Some(includer_path) = db.file_path(file_id) else {
-            continue;
-        };
+        let includer_path =
+            db.file_path(file_id).unwrap_or_else(|| source_buffer_path(db, file_id));
 
         let include_targets = match literal_include_targets(
             db,
@@ -491,30 +546,47 @@ fn include_targets_for_source_roots(
         ) {
             Ok(targets) => targets,
             Err(issue) => {
-                dynamic_include_files.insert(file_id);
+                complete = false;
+                dynamic_files.insert(file_id);
                 issues.push(issue);
                 continue;
             }
         };
         for include in include_targets {
             let MacroIncludeTarget::Literal { path, .. } = &include.target else {
-                dynamic_include_files.insert(file_id);
+                complete = false;
+                dynamic_files.insert(file_id);
                 continue;
             };
-            if let Some(included_file_id) =
+            let Some(to) =
                 resolve_include_target(path.as_str(), &includer_path, include_dirs, &path_file_ids)
-            {
-                dependencies.entry(file_id).or_default().insert(included_file_id);
-                if included.insert(included_file_id) {
-                    pending.push(included_file_id);
-                }
-            } else {
-                dynamic_include_files.insert(file_id);
+            else {
+                complete = false;
+                dynamic_files.insert(file_id);
+                continue;
+            };
+            pending.push(to);
+            if db.file_is_project_ignored(to) {
+                continue;
+            }
+            let target_vfs = source_buffer_path(db, to);
+            let slang_path = slang_path_for_include(
+                includer_path.as_path(),
+                path.as_str(),
+                target_vfs.as_path(),
+            );
+            if seen_edges.insert((file_id, to, slang_path.clone())) {
+                edges.push(IncludeEdge {
+                    from: file_id,
+                    to,
+                    literal: path.to_string(),
+                    slang_path,
+                });
             }
         }
     }
 
-    (included, dependencies, dynamic_include_files, issues)
+    IncludeScan { edges, dynamic_files, issues, complete }
 }
 
 #[salsa::tracked(returns(clone))]
@@ -581,6 +653,58 @@ fn resolve_include_target(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slang_path_uses_local_join_when_it_names_the_target() {
+        let includer = if cfg!(windows) {
+            AbsPathBuf::assert(r"C:\repo\rtl\darkcache.v".into())
+        } else {
+            AbsPathBuf::assert("/repo/rtl/darkcache.v".into())
+        };
+        let target = if cfg!(windows) {
+            AbsPathBuf::assert(r"C:\repo\rtl\config.vh".into())
+        } else {
+            AbsPathBuf::assert("/repo/rtl/config.vh".into())
+        };
+        let path = slang_path_for_include(includer.as_path(), "../rtl/config.vh", target.as_path());
+        let path = path.to_string().replace('\\', "/");
+        assert!(
+            path.ends_with("rtl/../rtl/config.vh"),
+            "same-file local join is the slang lookup key: {path}"
+        );
+    }
+
+    #[test]
+    fn slang_path_uses_vfs_path_when_include_dirs_resolve_the_target() {
+        let includer = if cfg!(windows) {
+            AbsPathBuf::assert(r"C:\repo\rtl\top.v".into())
+        } else {
+            AbsPathBuf::assert("/repo/rtl/top.v".into())
+        };
+        let target = if cfg!(windows) {
+            AbsPathBuf::assert(r"C:\repo\include\defs.vh".into())
+        } else {
+            AbsPathBuf::assert("/repo/include/defs.vh".into())
+        };
+        let path = slang_path_for_include(includer.as_path(), "defs.vh", target.as_path());
+        assert_eq!(path.as_path(), target.as_path());
+    }
+
+    #[test]
+    fn slang_local_include_lookup_keeps_parent_segments() {
+        let includer = if cfg!(windows) {
+            AbsPathBuf::assert(r"C:\repo\rtl\darkcache.v".into())
+        } else {
+            AbsPathBuf::assert("/repo/rtl/darkcache.v".into())
+        };
+        let lookup = slang_local_include_lookup_path(includer.as_path(), "../rtl/config.vh")
+            .expect("relative include must produce a lookup path");
+        let lookup = lookup.to_string().replace('\\', "/");
+        assert!(
+            lookup.ends_with("rtl/../rtl/config.vh"),
+            "slang lookup key must keep the include join: {lookup}"
+        );
+    }
 
     #[test]
     fn include_closure_contains_only_transitive_dependencies() {

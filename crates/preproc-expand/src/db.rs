@@ -223,9 +223,10 @@ fn compilation_unit_inputs(
         }
     };
     let mut dependencies = vec![file_id];
-    let path_file_ids = db.path_file_ids();
     dependencies.extend(
-        options.include_buffers.iter().filter_map(|buffer| path_file_ids.get(&buffer.path)),
+        compilation_plan::assigned_include_buffers_for_file(db, file_id)
+            .into_iter()
+            .map(|buffer| buffer.file_id),
     );
     dependencies.sort_unstable_by_key(|dependency| dependency.index());
     dependencies.dedup();
@@ -331,13 +332,13 @@ fn dependencies_from_parsed_compilation(
 ) -> Arc<[FileId]> {
     let mut dependencies = vec![file_id];
     if let Some(trace) = &parsed.preprocessor_trace {
-        let path_file_ids = db.path_file_ids();
+        let source_buffer_file_ids = compilation_plan::source_buffer_file_ids_for_file(db, file_id);
         dependencies.extend(trace.include_edges.iter().filter_map(|edge| {
             let buffer = trace
                 .source_buffers
                 .iter()
                 .find(|buffer| buffer.buffer_id == edge.included_buffer_id)?;
-            path_file_ids.get(&buffer.path)
+            source_buffer_file_ids.get(&buffer.path)
         }));
     }
     dependencies.sort_unstable_by_key(|dependency| dependency.index());
