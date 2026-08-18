@@ -1554,10 +1554,20 @@ mod tests {
         std::fs::write(&path, disk).unwrap();
         let db = db_with_abs_file(abs, disk);
         let job = crate::profile_compiler::build_profile_compilation_job(&db, CompilationProfileId(0));
-        let _ = std::fs::remove_file(&path);
         assert!(
             job.buffers.iter().all(|buffer| buffer.text.is_none()),
             "clean files must be path-only: {job:?}"
+        );
+        let encoded = serde_json::to_string(&job).unwrap();
+        assert!(
+            !encoded.contains("module clean"),
+            "clean-file JSON must not include source text: {encoded}"
+        );
+        let output = crate::profile_compiler::run_profile_compilation(job);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            !output.diagnostics.iter().any(|diagnostic| diagnostic.file_id == TOP.index()),
+            "worker must compile the on-disk clean file: {output:?}"
         );
     }
 

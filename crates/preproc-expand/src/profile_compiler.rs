@@ -1,5 +1,3 @@
-use std::ops::Range;
-
 use base_db::{
     diagnostics_config::{
         DiagnosticRuleSeverity, DiagnosticSelector, DiagnosticSource, DiagnosticsConfig,
@@ -11,10 +9,7 @@ use serde::{Deserialize, Serialize};
 use syntax::{
     SyntaxTreeBuffer, SyntaxTreeOptions,
     compilation::Compilation,
-    diagnostics::{
-        DiagnosticSeverity, SyntaxDiagnostic, SyntaxDiagnosticExpansion, SyntaxDiagnosticLocation,
-        SyntaxDiagnosticRange,
-    },
+    diagnostics::{DiagnosticSeverity, SyntaxDiagnostic},
 };
 use vfs::FileId;
 
@@ -112,59 +107,8 @@ pub struct ProfileCompilationOutput {
 pub struct ProfileCompilationDiagnostic {
     pub file_id: u32,
     pub source: ProfileDiagnosticSource,
-    pub diagnostic: SyntaxDiagnosticWire,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SyntaxDiagnosticWire {
-    pub code: u16,
-    pub subsystem: u16,
-    pub severity: DiagnosticSeverityWire,
-    pub message: String,
-    pub args: Vec<String>,
-    pub name: String,
-    pub option_name: Option<String>,
-    pub groups: Vec<String>,
-    pub primary_range: Option<Range<usize>>,
-    pub location: Option<usize>,
-    pub buffer_id: Option<u32>,
-    pub file_name: Option<String>,
-    pub ranges: Vec<SyntaxDiagnosticRangeWire>,
-    pub expansion_locations: Vec<SyntaxDiagnosticExpansionWire>,
-    pub include_stack: Vec<SyntaxDiagnosticLocationWire>,
-    pub diagnostic_id: u32,
-    pub parent_diagnostic_id: Option<u32>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SyntaxDiagnosticLocationWire {
-    pub offset: usize,
-    pub buffer_id: u32,
-    pub file_name: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SyntaxDiagnosticRangeWire {
-    pub start: usize,
-    pub end: usize,
-    pub start_buffer_id: u32,
-    pub end_buffer_id: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SyntaxDiagnosticExpansionWire {
-    pub location: Option<SyntaxDiagnosticLocationWire>,
-    pub original_location: Option<SyntaxDiagnosticLocationWire>,
-    pub macro_name: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DiagnosticSeverityWire {
-    Ignored,
-    Note,
-    Warning,
-    Error,
-    Fatal,
+    #[serde(with = "syntax_diagnostic_serde")]
+    pub diagnostic: SyntaxDiagnostic,
 }
 
 pub fn build_profile_compilation_job(
@@ -178,8 +122,8 @@ pub fn build_profile_compilation_job(
         .into_iter()
         .map(|buffer| ProfileCompilationBuffer {
             file_id: buffer.file_id.index(),
-            path: buffer.path,
-            text: Some(buffer.text),
+            path: buffer.path.clone(),
+            text: overlay_text_for_compilation_buffer(db, buffer.file_id, &buffer.path, &buffer.text),
         })
         .collect();
     let roots = plan
@@ -291,9 +235,24 @@ impl ProfileCompilationOutput {
                     ProfileDiagnosticSource::Parse => DiagnosticSource::Parse,
                     ProfileDiagnosticSource::Semantic => DiagnosticSource::Semantic,
                 },
-                diagnostic: diagnostic.diagnostic.into(),
+                diagnostic: diagnostic.diagnostic,
             })
             .collect()
+    }
+}
+
+/// Send text only when the VFS buffer is not the on-disk file. Virtual
+/// paths and unreadable/mismatched disk files are overlays.
+pub fn overlay_text_for_compilation_buffer(
+    db: &dyn PreprocDb,
+    file_id: vfs::FileId,
+    path: &str,
+    text: &str,
+) -> Option<String> {
+    let disk_path = db.file_path(file_id).map(|path| path.to_string()).unwrap_or_else(|| path.to_owned());
+    match std::fs::read_to_string(&disk_path) {
+        Ok(disk) if disk == text => None,
+        _ => Some(text.to_owned()),
     }
 }
 
@@ -356,7 +315,7 @@ fn collect_diagnostics(
         let file_id =
             diagnostic.buffer_id.and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied())?;
         let diagnostic = apply_rules(options, source, diagnostic)?;
-        Some(ProfileCompilationDiagnostic { file_id, source, diagnostic: diagnostic.into() })
+        Some(ProfileCompilationDiagnostic { file_id, source, diagnostic })
     }));
 }
 
@@ -392,145 +351,198 @@ fn apply_rules(
     (diagnostic.severity != DiagnosticSeverity::Ignored).then_some(diagnostic)
 }
 
-impl From<SyntaxDiagnostic> for SyntaxDiagnosticWire {
-    fn from(diagnostic: SyntaxDiagnostic) -> Self {
-        Self {
-            code: diagnostic.code,
-            subsystem: diagnostic.subsystem,
-            severity: diagnostic.severity.into(),
-            message: diagnostic.message,
-            args: diagnostic.args,
-            name: diagnostic.name,
-            option_name: diagnostic.option_name,
-            groups: diagnostic.groups,
-            primary_range: diagnostic.primary_range,
-            location: diagnostic.location,
-            buffer_id: diagnostic.buffer_id,
-            file_name: diagnostic.file_name,
-            ranges: diagnostic.ranges.into_iter().map(Into::into).collect(),
-            expansion_locations: diagnostic
-                .expansion_locations
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            include_stack: diagnostic.include_stack.into_iter().map(Into::into).collect(),
-            diagnostic_id: diagnostic.diagnostic_id,
-            parent_diagnostic_id: diagnostic.parent_diagnostic_id,
+mod syntax_diagnostic_serde {
+    use std::ops::Range;
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use syntax::diagnostics::{
+        DiagnosticSeverity, SyntaxDiagnostic, SyntaxDiagnosticExpansion, SyntaxDiagnosticLocation,
+        SyntaxDiagnosticRange,
+    };
+
+    #[derive(Serialize, Deserialize)]
+    struct DiagnosticRepr {
+        code: u16,
+        subsystem: u16,
+        #[serde(with = "severity_serde")]
+        severity: DiagnosticSeverity,
+        message: String,
+        args: Vec<String>,
+        name: String,
+        option_name: Option<String>,
+        groups: Vec<String>,
+        primary_range: Option<Range<usize>>,
+        location: Option<usize>,
+        buffer_id: Option<u32>,
+        file_name: Option<String>,
+        ranges: Vec<RangeRepr>,
+        expansion_locations: Vec<ExpansionRepr>,
+        include_stack: Vec<LocationRepr>,
+        diagnostic_id: u32,
+        parent_diagnostic_id: Option<u32>,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct LocationRepr {
+        offset: usize,
+        buffer_id: u32,
+        file_name: Option<String>,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct RangeRepr {
+        start: usize,
+        end: usize,
+        start_buffer_id: u32,
+        end_buffer_id: u32,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct ExpansionRepr {
+        location: Option<LocationRepr>,
+        original_location: Option<LocationRepr>,
+        macro_name: String,
+    }
+
+    mod severity_serde {
+        use serde::{Deserialize, Deserializer, Serialize, Serializer};
+        use syntax::diagnostics::DiagnosticSeverity;
+
+        #[derive(Serialize, Deserialize)]
+        enum Severity {
+            Ignored,
+            Note,
+            Warning,
+            Error,
+            Fatal,
+        }
+
+        pub fn serialize<S: Serializer>(
+            value: &DiagnosticSeverity,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error> {
+            let value = match *value {
+                DiagnosticSeverity::Ignored => Severity::Ignored,
+                DiagnosticSeverity::Note => Severity::Note,
+                DiagnosticSeverity::Warning => Severity::Warning,
+                DiagnosticSeverity::Error => Severity::Error,
+                DiagnosticSeverity::Fatal => Severity::Fatal,
+            };
+            value.serialize(serializer)
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<DiagnosticSeverity, D::Error> {
+            Ok(match Severity::deserialize(deserializer)? {
+                Severity::Ignored => DiagnosticSeverity::Ignored,
+                Severity::Note => DiagnosticSeverity::Note,
+                Severity::Warning => DiagnosticSeverity::Warning,
+                Severity::Error => DiagnosticSeverity::Error,
+                Severity::Fatal => DiagnosticSeverity::Fatal,
+            })
         }
     }
-}
 
-impl From<SyntaxDiagnosticWire> for SyntaxDiagnostic {
-    fn from(diagnostic: SyntaxDiagnosticWire) -> Self {
-        Self {
-            code: diagnostic.code,
-            subsystem: diagnostic.subsystem,
-            severity: diagnostic.severity.into(),
-            message: diagnostic.message,
-            args: diagnostic.args,
-            name: diagnostic.name,
-            option_name: diagnostic.option_name,
-            groups: diagnostic.groups,
-            primary_range: diagnostic.primary_range,
-            location: diagnostic.location,
-            buffer_id: diagnostic.buffer_id,
-            file_name: diagnostic.file_name,
-            ranges: diagnostic.ranges.into_iter().map(Into::into).collect(),
-            expansion_locations: diagnostic
-                .expansion_locations
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            include_stack: diagnostic.include_stack.into_iter().map(Into::into).collect(),
-            diagnostic_id: diagnostic.diagnostic_id,
-            parent_diagnostic_id: diagnostic.parent_diagnostic_id,
-        }
-    }
-}
-
-impl From<DiagnosticSeverity> for DiagnosticSeverityWire {
-    fn from(severity: DiagnosticSeverity) -> Self {
-        match severity {
-            DiagnosticSeverity::Ignored => Self::Ignored,
-            DiagnosticSeverity::Note => Self::Note,
-            DiagnosticSeverity::Warning => Self::Warning,
-            DiagnosticSeverity::Error => Self::Error,
-            DiagnosticSeverity::Fatal => Self::Fatal,
-        }
-    }
-}
-
-impl From<DiagnosticSeverityWire> for DiagnosticSeverity {
-    fn from(severity: DiagnosticSeverityWire) -> Self {
-        match severity {
-            DiagnosticSeverityWire::Ignored => Self::Ignored,
-            DiagnosticSeverityWire::Note => Self::Note,
-            DiagnosticSeverityWire::Warning => Self::Warning,
-            DiagnosticSeverityWire::Error => Self::Error,
-            DiagnosticSeverityWire::Fatal => Self::Fatal,
-        }
-    }
-}
-
-impl From<SyntaxDiagnosticLocation> for SyntaxDiagnosticLocationWire {
-    fn from(location: SyntaxDiagnosticLocation) -> Self {
-        Self {
+    fn location_from(location: SyntaxDiagnosticLocation) -> LocationRepr {
+        LocationRepr {
             offset: location.offset,
             buffer_id: location.buffer_id,
             file_name: location.file_name,
         }
     }
-}
 
-impl From<SyntaxDiagnosticLocationWire> for SyntaxDiagnosticLocation {
-    fn from(location: SyntaxDiagnosticLocationWire) -> Self {
-        Self {
+    fn location_into(location: LocationRepr) -> SyntaxDiagnosticLocation {
+        SyntaxDiagnosticLocation {
             offset: location.offset,
             buffer_id: location.buffer_id,
             file_name: location.file_name,
         }
     }
-}
 
-impl From<SyntaxDiagnosticRange> for SyntaxDiagnosticRangeWire {
-    fn from(range: SyntaxDiagnosticRange) -> Self {
-        Self {
-            start: range.start,
-            end: range.end,
-            start_buffer_id: range.start_buffer_id,
-            end_buffer_id: range.end_buffer_id,
+    pub fn serialize<S: Serializer>(
+        value: &SyntaxDiagnostic,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        DiagnosticRepr {
+            code: value.code,
+            subsystem: value.subsystem,
+            severity: value.severity,
+            message: value.message.clone(),
+            args: value.args.clone(),
+            name: value.name.clone(),
+            option_name: value.option_name.clone(),
+            groups: value.groups.clone(),
+            primary_range: value.primary_range.clone(),
+            location: value.location,
+            buffer_id: value.buffer_id,
+            file_name: value.file_name.clone(),
+            ranges: value
+                .ranges
+                .iter()
+                .map(|range| RangeRepr {
+                    start: range.start,
+                    end: range.end,
+                    start_buffer_id: range.start_buffer_id,
+                    end_buffer_id: range.end_buffer_id,
+                })
+                .collect(),
+            expansion_locations: value
+                .expansion_locations
+                .iter()
+                .map(|expansion| ExpansionRepr {
+                    location: expansion.location.clone().map(location_from),
+                    original_location: expansion.original_location.clone().map(location_from),
+                    macro_name: expansion.macro_name.clone(),
+                })
+                .collect(),
+            include_stack: value.include_stack.iter().cloned().map(location_from).collect(),
+            diagnostic_id: value.diagnostic_id,
+            parent_diagnostic_id: value.parent_diagnostic_id,
         }
+        .serialize(serializer)
     }
-}
 
-impl From<SyntaxDiagnosticRangeWire> for SyntaxDiagnosticRange {
-    fn from(range: SyntaxDiagnosticRangeWire) -> Self {
-        Self {
-            start: range.start,
-            end: range.end,
-            start_buffer_id: range.start_buffer_id,
-            end_buffer_id: range.end_buffer_id,
-        }
-    }
-}
-
-impl From<SyntaxDiagnosticExpansion> for SyntaxDiagnosticExpansionWire {
-    fn from(expansion: SyntaxDiagnosticExpansion) -> Self {
-        Self {
-            location: expansion.location.map(Into::into),
-            original_location: expansion.original_location.map(Into::into),
-            macro_name: expansion.macro_name,
-        }
-    }
-}
-
-impl From<SyntaxDiagnosticExpansionWire> for SyntaxDiagnosticExpansion {
-    fn from(expansion: SyntaxDiagnosticExpansionWire) -> Self {
-        Self {
-            location: expansion.location.map(Into::into),
-            original_location: expansion.original_location.map(Into::into),
-            macro_name: expansion.macro_name,
-        }
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<SyntaxDiagnostic, D::Error> {
+        let repr = DiagnosticRepr::deserialize(deserializer)?;
+        Ok(SyntaxDiagnostic {
+            code: repr.code,
+            subsystem: repr.subsystem,
+            severity: repr.severity,
+            message: repr.message,
+            args: repr.args,
+            name: repr.name,
+            option_name: repr.option_name,
+            groups: repr.groups,
+            primary_range: repr.primary_range,
+            location: repr.location,
+            buffer_id: repr.buffer_id,
+            file_name: repr.file_name,
+            ranges: repr
+                .ranges
+                .into_iter()
+                .map(|range| SyntaxDiagnosticRange {
+                    start: range.start,
+                    end: range.end,
+                    start_buffer_id: range.start_buffer_id,
+                    end_buffer_id: range.end_buffer_id,
+                })
+                .collect(),
+            expansion_locations: repr
+                .expansion_locations
+                .into_iter()
+                .map(|expansion| SyntaxDiagnosticExpansion {
+                    location: expansion.location.map(location_into),
+                    original_location: expansion.original_location.map(location_into),
+                    macro_name: expansion.macro_name,
+                })
+                .collect(),
+            include_stack: repr.include_stack.into_iter().map(location_into).collect(),
+            diagnostic_id: repr.diagnostic_id,
+            parent_diagnostic_id: repr.parent_diagnostic_id,
+        })
     }
 }
 
