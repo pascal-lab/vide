@@ -172,6 +172,10 @@ impl DesignGraph {
         self.meta.get(id).map(|meta| meta.origin)
     }
 
+    pub fn node_count(&self) -> usize {
+        self.meta.len()
+    }
+
     pub fn candidates(&self, name: &str, role: InstantiationRole) -> SmallVec<[UnitId; 1]> {
         let matches = match role {
             InstantiationRole::Hierarchy => UnitKind::is_hierarchy_target,

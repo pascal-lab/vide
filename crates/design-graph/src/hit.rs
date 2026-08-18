@@ -126,4 +126,44 @@ mod tests {
         let graph = graph_with(&[("p", UnitKind::Package), ("m", UnitKind::Module)]);
         assert!(matches!(hit_at(&facts, &graph, FILE, offset), CursorHit::PackageRef { .. }));
     }
+
+    #[test]
+    fn scoped_colon_package_is_package_ref() {
+        let (facts, offset) = facts_and_offset("module m;\n  p::y x;\nendmodule\n", "p::");
+        let graph = graph_with(&[("p", UnitKind::Package), ("m", UnitKind::Module)]);
+        assert!(matches!(hit_at(&facts, &graph, FILE, offset), CursorHit::PackageRef { .. }));
+    }
+
+    #[test]
+    fn dotted_name_is_other() {
+        let (facts, offset) = facts_and_offset("module m;\n  assign x = n.sig;\nendmodule\n", "n.");
+        let graph = graph_with(&[("m", UnitKind::Module)]);
+        assert!(facts.package_refs.is_empty());
+        assert!(matches!(hit_at(&facts, &graph, FILE, offset), CursorHit::Other));
+    }
+
+    #[test]
+    fn primitive_instantiation_is_other() {
+        let (facts, offset) =
+            facts_and_offset("module top;\n  and g(o, a, b);\nendmodule\n", "and ");
+        let graph = graph_with(&[("top", UnitKind::Module)]);
+        assert!(facts.instantiations.is_empty());
+        assert!(matches!(hit_at(&facts, &graph, FILE, offset), CursorHit::Other));
+    }
+
+    #[test]
+    fn checker_is_not_a_hierarchy_candidate() {
+        let (facts, offset) =
+            facts_and_offset("checker c;\nendchecker\nmodule top;\n  c u();\nendmodule\n", "c u");
+        let graph = graph_with(&[("c", UnitKind::Checker), ("top", UnitKind::Module)]);
+        assert!(
+            facts.instantiations.iter().any(|site| site.name == "c"),
+            "slang parses `c u()` as hierarchy: {:?}",
+            facts.instantiations
+        );
+        assert!(
+            matches!(hit_at(&facts, &graph, FILE, offset), CursorHit::Other),
+            "Checker is a node, not a Hierarchy candidate"
+        );
+    }
 }

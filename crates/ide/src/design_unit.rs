@@ -67,7 +67,15 @@ pub(crate) fn references(
 fn hit(db: &AnalysisContext<'_>, file_id: FileId, offset: TextSize) -> CursorHit {
     let facts = db.file_facts(file_id);
     let graph = db.design_graph();
-    hit_at(&facts, &graph, file_id, offset)
+    let hit = hit_at(&facts, &graph, file_id, offset);
+    let (hit_kind, target_count) = match &hit {
+        CursorHit::DeclName { .. } => ("decl_name", 1usize),
+        CursorHit::InstantiationType { targets, .. } => ("instantiation_type", targets.len()),
+        CursorHit::PackageRef { targets, .. } => ("package_ref", targets.len()),
+        CursorHit::Other => ("other", 0usize),
+    };
+    tracing::debug!(hit_kind, target_count, "design_graph.hit");
+    hit
 }
 
 pub(crate) fn nav_from_unit(db: &AnalysisContext<'_>, unit: UnitId) -> NavTarget {

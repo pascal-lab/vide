@@ -44,6 +44,10 @@ Missing competitors are reported as `N/A`, not a hard failure.
 slang-server is the accuracy oracle (same frontend family as Vide, different
 IDE). The `slang` binary is a compile-time ceiling, not an LSP.
 
+Cited common_cells numbers in the design-unit-graph work used slang-server
+**0.2.10+c1e0b0c** (`SLANG_SERVER_BIN` / `PATH`). The repo does not pin that
+version; record the binary you compared against when publishing a result.
+
 ## Run
 
 ```text

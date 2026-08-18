@@ -138,7 +138,29 @@ impl AnalysisContext<'_> {
     ) -> Option<triomphe::Arc<design_graph::DesignGraph>> {
         let generated = self.store.generated_units();
         self.store.design_graph_cell().get_or_compute(priority, cancel, |_| {
-            triomphe::Arc::new(design_graph::DesignGraph::fold(self.db, &generated))
+            let _span = tracing::info_span!("design_graph.build").entered();
+            let started = std::time::Instant::now();
+            let graph = design_graph::DesignGraph::fold(self.db, &generated);
+            let mut file_count = 0usize;
+            let mut independent_files = 0usize;
+            for &file_id in self.db.files().iter() {
+                if !self.db.file_kind(file_id).is_semantic_compilation_unit() {
+                    continue;
+                }
+                file_count += 1;
+                if self.db.file_facts(file_id).preprocessor_independent {
+                    independent_files += 1;
+                }
+            }
+            tracing::info!(
+                file_count,
+                node_count = graph.node_count(),
+                generated_node_count = generated.meta.len(),
+                independent_files,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "design_graph.build"
+            );
+            triomphe::Arc::new(graph)
         })
     }
 
