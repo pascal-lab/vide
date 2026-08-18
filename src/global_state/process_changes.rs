@@ -376,10 +376,7 @@ impl GlobalState {
                 .get(&file_id)
                 .cloned()
                 .unwrap_or_default();
-            let vide = match snapshot.analysis.file_vide_diagnostics(file_id) {
-                Ok(vide) => vide,
-                Err(_) => Vec::new(),
-            };
+            let vide = snapshot.analysis.file_vide_diagnostics(file_id).unwrap_or_default();
             let diagnostics = super::semantic_compiler::with_vide_diagnostics(slang, vide);
             let Ok(lsp_diagnostics) = snapshot.lsp_diagnostics_from_ide(file_id, diagnostics)
             else {
