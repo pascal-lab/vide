@@ -227,8 +227,6 @@ fn file_facts_parallel(
         for chunk in files.chunks(chunk_size) {
             let chunk: Vec<FileId> = chunk.to_vec();
             let db = db.clone();
-            let cancel_a = cancel_a;
-            let cancel_b = cancel_b;
             let stop = &stop;
             handles.push(scope.spawn(move || {
                 let mut facts = Vec::with_capacity(chunk.len());

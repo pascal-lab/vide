@@ -417,7 +417,6 @@ pub(crate) fn token_in_special_context(
 pub(crate) fn definition_class_for_token(
     db: &dyn WorkspaceSymbolIndexDb,
     sema: &SemanticsImpl<'_>,
-    context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
     container: OwnerId,
@@ -425,7 +424,8 @@ pub(crate) fn definition_class_for_token(
     chains: &mut ScopeChainCache,
 ) -> Option<DefinitionClass> {
     if special {
-        DefinitionClass::resolve_in(db, context.clone(), file_id, token, Some(container)).unique()
+        DefinitionClass::resolve_in(db, sema.resolution_context(), file_id, token, Some(container))
+            .unique()
     } else {
         let chain = chains.chain_for(db, container);
         sema.nameres_ident_in_scopes_at(file_id, token, NameContext::Value, &chain)

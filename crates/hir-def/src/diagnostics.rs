@@ -296,12 +296,12 @@ fn collect_wildcard_activation_conflicts(
                 let reference = NameRef { position: *ref_position, kind: RefKind::Value };
                 let resolved = [NameContext::Type, NameContext::Value].into_iter().any(|ctx| {
                     let resolved =
-                        resolve_name_at(db, &context, *ref_owner, name, ctx, Some(&reference));
+                        resolve_name_at(db, context, *ref_owner, name, ctx, Some(&reference));
                     if resolved.is_unresolved() {
                         return false;
                     }
                     let (wildcard, activated_scope) =
-                        resolve_wildcard_at(db, &context, *ref_owner, name, ctx, Some(&reference));
+                        resolve_wildcard_at(db, context, *ref_owner, name, ctx, Some(&reference));
                     activated_scope == Some(owner) && resolved == wildcard
                 });
                 resolved

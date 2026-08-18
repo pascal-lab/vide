@@ -55,10 +55,6 @@ impl<T> Default for ProductCell<T> {
 }
 
 impl<T> ProductCell<T> {
-    pub(crate) fn is_ready(&self) -> bool {
-        self.state.lock().value.is_some()
-    }
-
     pub(crate) fn peek(&self) -> Option<Arc<T>> {
         self.state.lock().value.clone()
     }

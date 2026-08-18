@@ -253,6 +253,7 @@ fn slang_diagnostic(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     let source_root_id = db.source_root_id(file_id);
     // Ignored roots in a profiled workspace are explicitly outside the

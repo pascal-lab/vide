@@ -298,7 +298,6 @@ fn collect_file_references(
         let Some(class) = definition_class_for_token(
             db.db,
             &sema,
-            context.clone(),
             hir_file_id,
             token,
             container,
