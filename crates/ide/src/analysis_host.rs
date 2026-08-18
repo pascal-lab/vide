@@ -373,6 +373,36 @@ mod tests {
     }
 
     #[test]
+    fn file_decls_backdate_across_a_body_only_edit() {
+        use std::cell::Cell;
+
+        use design_graph::DesignGraphDb;
+        let mut host = AnalysisHost::default();
+        host.apply_change(change_with_file_text("module first;\nendmodule\n"));
+        let file = FileId::from_raw(0);
+        let before_decls = <dyn DesignGraphDb>::file_decls(host.ctx().db, file);
+        design_graph::db::SOURCE_CATALOG_RUNS.with(|runs| runs.set(0));
+        let before = <dyn DesignGraphDb>::source_unit_catalog(host.ctx().db);
+        let runs_after_first = design_graph::db::SOURCE_CATALOG_RUNS.with(Cell::get);
+        host.apply_change(modify_with_file_text("module first;\n  wire x;\nendmodule\n"));
+        let after_decls = <dyn DesignGraphDb>::file_decls(host.ctx().db, file);
+        let after = <dyn DesignGraphDb>::source_unit_catalog(host.ctx().db);
+        let runs_after_edit = design_graph::db::SOURCE_CATALOG_RUNS.with(Cell::get);
+        assert_eq!(
+            *before_decls, *after_decls,
+            "position-free decls must be value-equal after a body-only edit"
+        );
+        assert_eq!(before.as_ref(), after.as_ref());
+        // Gate measurement: salsa re-executes the workspace catalog after a
+        // body-only edit even when decls are equal. The handwritten epoch
+        // stays because it is the thing that skips the fold.
+        assert!(
+            runs_after_edit > runs_after_first,
+            "expected the salsa catalog to re-execute after a body edit (first={runs_after_first} after={runs_after_edit})"
+        );
+    }
+
+    #[test]
     fn body_only_edit_keeps_the_design_graph_nodes() {
         let mut host = AnalysisHost::default();
         host.apply_change(change_with_file_text("module first;\nendmodule\n"));

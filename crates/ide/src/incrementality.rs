@@ -11,6 +11,14 @@
 //! - Structure epoch `s` — a dirty file's L0 compilation-unit declarations
 //!   changed
 //!
+//! T10 measured a salsa `source_unit_catalog` over position-free `file_decls`.
+//! After a body-only edit the decls are value-equal, but salsa still
+//! re-executes the workspace catalog (see
+//! `file_decls_backdate_across_a_body_only_edit`). The fold is cheap for
+//! decls, but generated-unit overlay and parse-dependency edges are not
+//! salsa inputs, so epoch remains the invalidation barrier. This is a
+//! measurement, not a theory.
+//!
 //! Structure products (`UnitCatalog`, `ResolutionContext`) are keyed by `s`
 //! and memoized in `ProductCell` so a foreground request can preempt a
 //! background prewarm. A generated-unit set change patches the graph for that

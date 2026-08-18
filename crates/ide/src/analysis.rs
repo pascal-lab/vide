@@ -149,16 +149,16 @@ impl AnalysisContext<'_> {
                 .copied()
                 .filter(|&file_id| self.db.file_kind(file_id).is_semantic_compilation_unit())
                 .collect();
-            let Some(facts) = file_facts_parallel(self.db, &files, cancel, in_flight) else {
+            let Some(decls) = file_decls_parallel(self.db, &files, cancel, in_flight) else {
                 return triomphe::Arc::new(design_graph::UnitCatalog::default());
             };
-            let graph = design_graph::UnitCatalog::from_file_facts(
-                facts.iter().map(std::convert::AsRef::as_ref),
+            let graph = design_graph::UnitCatalog::from_decls(
+                decls.iter().map(std::convert::AsRef::as_ref),
                 &generated,
             );
-            let file_count = facts.len();
+            let file_count = decls.len();
             let independent_files =
-                facts.iter().filter(|facts| facts.preprocessor_independent).count();
+                decls.iter().filter(|decls| decls.preprocessor_independent).count();
             tracing::info!(
                 file_count,
                 node_count = graph.node_count(),
@@ -196,14 +196,14 @@ impl AnalysisContext<'_> {
     }
 }
 
-/// Unexpanded `file_facts` are independent per file. Folding them sequentially
+/// Unexpanded `file_decls` are independent per file. Folding them sequentially
 /// is the ready-path cost on a library-sized workspace.
-fn file_facts_parallel(
+fn file_decls_parallel(
     db: &RootDb,
     files: &[FileId],
     cancel_a: &AtomicBool,
     cancel_b: &AtomicBool,
-) -> Option<Vec<Arc<design_graph::FileFacts>>> {
+) -> Option<Vec<Arc<design_graph::DeclIndex>>> {
     let cancelled = || {
         cancel_a.load(std::sync::atomic::Ordering::Acquire)
             || cancel_b.load(std::sync::atomic::Ordering::Acquire)
@@ -219,7 +219,7 @@ fn file_facts_parallel(
             if cancelled() {
                 return None;
             }
-            facts.push(<dyn DesignGraphDb>::file_facts(db, file_id));
+            facts.push(<dyn DesignGraphDb>::file_decls(db, file_id));
         }
         return Some(facts);
     }
@@ -242,7 +242,7 @@ fn file_facts_parallel(
                         stop.store(true, std::sync::atomic::Ordering::Release);
                         return None;
                     }
-                    facts.push(<dyn DesignGraphDb>::file_facts(&db, file_id));
+                    facts.push(<dyn DesignGraphDb>::file_decls(&db, file_id));
                 }
                 Some(facts)
             }));

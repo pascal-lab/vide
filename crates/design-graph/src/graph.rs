@@ -192,13 +192,13 @@ pub struct UnitCatalog {
 impl UnitCatalog {
     /// Join already-extracted per-file facts. Callers that can run `file_facts`
     /// in parallel should do that and pass the results here.
-    pub fn from_file_facts<'a>(
-        facts: impl IntoIterator<Item = &'a crate::FileFacts>,
+    pub fn from_decls<'a>(
+        decls: impl IntoIterator<Item = &'a crate::DeclIndex>,
         generated: &GeneratedUnits,
     ) -> Self {
         let mut graph = Self::default();
-        for facts in facts {
-            for unit in facts.units.iter() {
+        for decls in decls {
+            for unit in decls.units.iter() {
                 graph.insert(
                     unit.id.clone(),
                     UnitMeta {
@@ -303,7 +303,8 @@ impl UnitCatalog {
             .filter(|&file_id| db.file_kind(file_id).is_semantic_compilation_unit())
             .map(|file_id| db.file_facts(file_id))
             .collect();
-        Self::from_file_facts(facts.iter().map(std::convert::AsRef::as_ref), generated)
+        let decls: Vec<_> = facts.iter().map(|facts| facts.decls()).collect();
+        Self::from_decls(decls.iter(), generated)
     }
 
     pub(crate) fn insert(&mut self, id: UnitId, meta: UnitMeta) {
@@ -438,7 +439,8 @@ mod tests {
         meta.insert(generated_id.clone(), generated_meta(&generated_id));
         generated.replace_file(FILE, 1, Box::new([generated_id.clone()]), meta);
 
-        let graph = super::UnitCatalog::from_file_facts(std::iter::once(&facts), &generated);
+        let decls = facts.decls();
+        let graph = super::UnitCatalog::from_decls(std::iter::once(&decls), &generated);
         assert!(graph.contains(&unit.id));
         assert!(graph.contains(&generated_id));
         assert_eq!(graph.node_count(), 2);

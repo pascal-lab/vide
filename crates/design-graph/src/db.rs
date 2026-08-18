@@ -5,7 +5,14 @@ use syntax::{SyntaxTree, SyntaxTreeOptions};
 use triomphe::Arc;
 use vfs::FileId;
 
-use crate::facts::{FileFacts, extract};
+use std::cell::Cell;
+
+use crate::facts::{DeclIndex, FileFacts, extract};
+use crate::graph::{GeneratedUnits, UnitCatalog};
+
+thread_local! {
+    pub static SOURCE_CATALOG_RUNS: Cell<u32> = const { Cell::new(0) };
+}
 
 #[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
 pub struct FileFactsKey {
@@ -55,12 +62,53 @@ pub fn file_facts_query(db: &dyn DesignGraphDb, key: FileFactsKey) -> Arc<FileFa
     Arc::new(extract::from_tree(file_id, &tree, &text))
 }
 
+#[salsa::tracked(lru = 256, returns(clone))]
+pub fn file_decls_query(db: &dyn DesignGraphDb, key: FileFactsKey) -> Arc<DeclIndex> {
+    Arc::new(file_facts_query(db, key).decls())
+}
+
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub struct UnitCatalogKey {
+    #[returns(copy)]
+    pub _unit: (),
+}
+
+/// Name catalog of source (L0) decls only. Generated units are a paid overlay
+/// and must not enter this query, or every CU edit would pay to re-parse.
+#[salsa::tracked(lru = 4, returns(clone))]
+pub fn source_unit_catalog_query(
+    db: &dyn DesignGraphDb,
+    _key: UnitCatalogKey,
+) -> triomphe::Arc<UnitCatalog> {
+    SOURCE_CATALOG_RUNS.with(|runs| runs.set(runs.get() + 1));
+    let decls: Vec<_> = db
+        .files()
+        .iter()
+        .copied()
+        .filter(|&file_id| db.file_kind(file_id).is_semantic_compilation_unit())
+        .map(|file_id| db.file_decls(file_id))
+        .collect();
+    triomphe::Arc::new(UnitCatalog::from_decls(
+        decls.iter().map(std::convert::AsRef::as_ref),
+        &GeneratedUnits::default(),
+    ))
+}
+
 pub fn set_file_facts_lru_capacity(db: &mut dyn DesignGraphDb, capacity: usize) {
     file_facts_query::set_lru_capacity(db, capacity);
+    file_decls_query::set_lru_capacity(db, capacity);
 }
 
 impl dyn DesignGraphDb + '_ {
     pub fn file_facts(&self, file_id: FileId) -> Arc<FileFacts> {
         file_facts_query(self, FileFactsKey::new(self, file_id))
+    }
+
+    pub fn file_decls(&self, file_id: FileId) -> Arc<DeclIndex> {
+        file_decls_query(self, FileFactsKey::new(self, file_id))
+    }
+
+    pub fn source_unit_catalog(&self) -> triomphe::Arc<UnitCatalog> {
+        source_unit_catalog_query(self, UnitCatalogKey::new(self, ()))
     }
 }

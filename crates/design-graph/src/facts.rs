@@ -1,10 +1,13 @@
 //! Per-file unexpanded design-unit facts.
 
+use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
+use smol_str::SmolStr;
 use syntax::TokenKind;
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
-use crate::unit::{InstantiationRole, UnitId, UnitNode};
+use crate::unit::{InstantiationRole, UnitId, UnitNode, UnitOrigin};
 
 pub mod extract;
 
@@ -52,11 +55,58 @@ pub struct PackageRefSite {
     pub emitted: Option<u32>,
 }
 
+/// Position-free CU declaration index. This is what salsa backdates;
+/// ranges live on [`Mentions`] and must not enter the global catalog.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DeclIndex {
+    pub units: Box<[DeclUnit]>,
+    pub imports: Box<[(SmolStr, Option<SmolStr>)]>,
+    pub preprocessor_independent: bool,
+    pub has_compilation_unit_locals: bool,
+}
+
+/// One CU declaration without source ranges.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclUnit {
+    pub id: UnitId,
+    pub origin: UnitOrigin,
+    pub header_fingerprint: u64,
+}
+
+/// Name-like tokens of one file, with a name → offset inverted index.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Mentions {
+    pub entries: Box<[Mention]>,
+    by_name: FxHashMap<SmolStr, SmallVec<[u32; 2]>>,
+}
+
+impl Mentions {
+    pub fn from_entries(entries: Box<[Mention]>) -> Self {
+        let mut by_name: FxHashMap<SmolStr, SmallVec<[u32; 2]>> = FxHashMap::default();
+        for (index, mention) in entries.iter().enumerate() {
+            by_name.entry(mention.name.clone()).or_default().push(index as u32);
+        }
+        Self { entries, by_name }
+    }
+
+    pub fn mentions_name(&self, name: &str) -> bool {
+        self.by_name.contains_key(name)
+    }
+
+    pub fn mentions_of(&self, name: &str) -> impl Iterator<Item = &Mention> {
+        self.by_name
+            .get(name)
+            .into_iter()
+            .flatten()
+            .map(|&index| &self.entries[index as usize])
+    }
+}
+
 /// Compact unexpanded slice of one file. No syntax tree, no interned owner.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FileFacts {
     pub units: Box<[UnitNode]>,
-    pub mentions: Box<[Mention]>,
+    pub mentions: Mentions,
     pub imports: Box<[ImportSpec]>,
     pub instantiations: Box<[InstantiationSite]>,
     pub package_refs: Box<[PackageRefSite]>,
@@ -65,12 +115,35 @@ pub struct FileFacts {
 }
 
 impl FileFacts {
+    pub fn decls(&self) -> DeclIndex {
+        DeclIndex {
+            units: self
+                .units
+                .iter()
+                .map(|unit| DeclUnit {
+                    id: unit.id.clone(),
+                    origin: unit.origin,
+                    header_fingerprint: unit.header_fingerprint,
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+            imports: self
+                .imports
+                .iter()
+                .map(|import| (import.package.clone(), import.item.clone()))
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+            preprocessor_independent: self.preprocessor_independent,
+            has_compilation_unit_locals: self.has_compilation_unit_locals,
+        }
+    }
+
     pub fn mentions_name(&self, name: &str) -> bool {
-        self.mentions.iter().any(|mention| mention.name == name)
+        self.mentions.mentions_name(name)
     }
 
     pub fn mentions_of(&self, name: &str) -> impl Iterator<Item = &Mention> {
-        self.mentions.iter().filter(move |mention| mention.name == name)
+        self.mentions.mentions_of(name)
     }
 
     pub fn has_compilation_unit_locals(&self) -> bool {
@@ -108,21 +181,6 @@ impl FileFacts {
     /// Whether CU units and import *names* match. Mentions, instantiations,
     /// package-ref sites, and source ranges do not move the structure clock.
     pub fn same_structure(&self, other: &Self) -> bool {
-        self.has_compilation_unit_locals == other.has_compilation_unit_locals
-            && self.preprocessor_independent == other.preprocessor_independent
-            && import_names_equal(&self.imports, &other.imports)
-            && self.units.len() == other.units.len()
-            && self.units.iter().zip(other.units.iter()).all(|(left, right)| {
-                left.id.name == right.id.name
-                    && left.id.kind == right.id.kind
-                    && left.id.ordinal == right.id.ordinal
-                    && left.header_fingerprint == right.header_fingerprint
-                    && left.origin == right.origin
-            })
+        self.decls() == other.decls()
     }
-}
-
-fn import_names_equal(left: &[ImportSpec], right: &[ImportSpec]) -> bool {
-    left.len() == right.len()
-        && left.iter().zip(right.iter()).all(|(a, b)| a.package == b.package && a.item == b.item)
 }

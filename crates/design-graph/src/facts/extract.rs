@@ -14,7 +14,7 @@ use syntax::{
 };
 use vfs::FileId;
 
-use super::{FileFacts, ImportSpec, InstantiationSite, Mention, PackageRefSite};
+use super::{FileFacts, ImportSpec, InstantiationSite, Mention, Mentions, PackageRefSite};
 use crate::unit::{InstantiationRole, UnitId, UnitKind, UnitNode, UnitOrigin};
 
 /// Extract design-unit facts from an already-built unexpanded tree.
@@ -199,7 +199,7 @@ fn walk(file: FileId, tree: &SyntaxTree, source_text: &str) -> FileFacts {
 
     FileFacts {
         units: units.into_boxed_slice(),
-        mentions: mentions.into_boxed_slice(),
+        mentions: Mentions::from_entries(mentions.into_boxed_slice()),
         imports: imports.into_boxed_slice(),
         instantiations: instantiations.into_boxed_slice(),
         package_refs: package_refs.into_boxed_slice(),
