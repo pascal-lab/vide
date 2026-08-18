@@ -3,7 +3,7 @@
 //! This is the only CU-name answer. Empty graph candidates are `Other` — a
 //! different question (nested module, class `::`, UDP), not a second path.
 
-use design_graph::{CursorHit, UnitId, UnitKind, UnitOrigin, hit_at};
+use design_graph::{CursorHit, UnitId, UnitKind, hit_at};
 use nohash_hasher::IntMap;
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
@@ -112,18 +112,17 @@ fn hover_targets(db: &AnalysisContext<'_>, targets: &[UnitId]) -> Markup {
 }
 
 fn hover_markup(db: &AnalysisContext<'_>, unit: &UnitId) -> Markup {
+    // A FileFacts node is a source declaration. Generated units have no
+    // FileFacts row. Do not fold the workspace graph to learn that — DeclName
+    // hover already refused the fold in `hit`.
     let facts = db.file_facts(unit.file);
     let node = facts.unit(unit.clone());
-    let origin = db.design_graph().origin(unit).unwrap_or(UnitOrigin::Source);
     let text = db.file_text(unit.file);
-    let header = match origin {
-        UnitOrigin::Generated => None,
-        UnitOrigin::Source => node.and_then(|node| node.header_range).and_then(|header| {
-            let start = usize::from(header.start());
-            let end = usize::from(header.end());
-            text.get(start..end)
-        }),
-    };
+    let header = node.and_then(|node| node.header_range).and_then(|header| {
+        let start = usize::from(header.start());
+        let end = usize::from(header.end());
+        text.get(start..end)
+    });
     let header =
         header.map(str::trim_end).filter(|header| !header.is_empty()).unwrap_or(unit.name.as_str());
     let mut markup = Markup::new();
@@ -218,8 +217,7 @@ pub(crate) fn source_visible_hit(
 }
 
 fn is_source_unit(db: &AnalysisContext<'_>, unit: &UnitId) -> bool {
-    db.design_graph().origin(unit) != Some(UnitOrigin::Generated)
-        && db.file_facts(unit.file).unit(unit.clone()).is_some()
+    db.file_facts(unit.file).unit(unit.clone()).is_some()
 }
 
 pub(crate) fn rename_guard(
@@ -240,11 +238,29 @@ fn reject_generated(
     db: &AnalysisContext<'_>,
     units: &[UnitId],
 ) -> Result<(), crate::rename::RenameError> {
-    if units.iter().any(|unit| {
-        db.design_graph().origin(unit) == Some(UnitOrigin::Generated)
-            || db.file_facts(unit.file).unit(unit.clone()).is_none()
-    }) {
+    if units.iter().any(|unit| db.file_facts(unit.file).unit(unit.clone()).is_none()) {
         return Err(crate::rename::RenameError::MacroDefinitionNotEditable);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_utils::{position, setup_marked};
+
+    #[test]
+    fn module_decl_hover_uses_file_facts_header() {
+        let (host, file_id, _text, markers) = setup_marked(
+            "module /*marker:name*/top #(parameter int W = 1);\n  wire unused;\nendmodule\n",
+        );
+        let hover = host
+            .make_analysis()
+            .hover(position(file_id, &markers, "name"))
+            .unwrap()
+            .expect("module name hover");
+        let info = hover.info.as_str();
+        assert!(info.contains("module top"), "{info}");
+        assert!(info.contains("parameter int W = 1"), "{info}");
+        assert!(!info.contains("wire unused"), "{info}");
+    }
 }

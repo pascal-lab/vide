@@ -38,7 +38,10 @@ pub(crate) fn document_highlight(
         && let Some(refs) = crate::design_unit::references(
             db,
             FilePosition { file_id, offset },
-            &crate::references::ReferencesConfig::new(config.scope_visibility, None),
+            &crate::references::ReferencesConfig::new(
+                config.scope_visibility,
+                Some(SearchScope::single_file(file_id)),
+            ),
         )
     {
         let highlights: Vec<DocumentHighlight> = refs

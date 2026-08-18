@@ -467,6 +467,17 @@ mod tests {
     }
 
     #[test]
+    fn module_header_range_excludes_the_body() {
+        let text = "module top #(parameter int W = 1);\n  wire unused;\nendmodule\n";
+        let facts = facts(text);
+        let header = facts.units[0].header_range.expect("module header");
+        let header = &text[usize::from(header.start())..usize::from(header.end())];
+        assert!(header.contains("module top"), "{header}");
+        assert!(header.contains("parameter int W = 1"), "{header}");
+        assert!(!header.contains("wire unused"), "{header}");
+    }
+
+    #[test]
     fn nested_module_is_not_a_unit() {
         let facts = facts("module outer;\n  module inner;\n  endmodule\nendmodule\n");
         assert_eq!(facts.units.len(), 1);
