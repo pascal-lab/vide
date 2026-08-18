@@ -9,7 +9,7 @@ use base_db::{
 };
 use rustc_hash::FxHasher;
 use syntax::{
-    SyntaxTree, SyntaxTreeBuffer,
+    SyntaxNodeExt, SyntaxTree, SyntaxTreeBuffer,
     diagnostics::{ParserExpectedSyntax, SyntaxDiagnostic},
     preproc::Trace,
 };
@@ -117,6 +117,9 @@ struct CompilationUnitArtifactInput<'db> {
 /// Unlike [`ParsedCompilationUnit`], this model never expands includes or
 /// reads profile predefines. Its complete dependency set is the file text,
 /// file kind, and display identity, so edits elsewhere cannot invalidate it.
+///
+/// `preprocessor_independent` is the same directive-trivia walk as
+/// `FileFacts`: it does not materialize a preprocessor `Trace`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceModel {
     pub syntax_tree: SyntaxTree,
@@ -149,13 +152,7 @@ fn source_model(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<SourceModel
         }
         SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
     };
-    let trace = syntax_tree.preprocessor_trace();
-    let preprocessor_independent = trace.events.is_empty()
-        && trace.include_edges.is_empty()
-        && trace
-            .emitted_tokens
-            .iter()
-            .all(|token| matches!(token.origin, syntax::preproc::TokenOrigin::Source { .. }));
+    let preprocessor_independent = !syntax_tree.root().has_directive_trivia();
     Arc::new(SourceModel { syntax_tree, preprocessor_independent })
 }
 
@@ -854,6 +851,26 @@ mod tests {
 
         assert_eq!(kind, SourceFileKind::IncludeHeader);
         assert!(!kind.is_slang_parse_unit());
+    }
+
+    #[test]
+    fn source_model_preprocessor_independent_uses_directive_trivia() {
+        let mut db = db_with_root_file();
+        assert!(db.source_model(TOP).preprocessor_independent);
+
+        db.set_file_text_with_durability(
+            TOP,
+            Arc::from("`define W 8\nmodule top;\nendmodule\n"),
+            Durability::LOW,
+        );
+        assert!(!db.source_model(TOP).preprocessor_independent);
+
+        db.set_file_text_with_durability(
+            TOP,
+            Arc::from("module top;\n  logic [`UNKNOWN-1:0] x;\nendmodule\n"),
+            Durability::LOW,
+        );
+        assert!(!db.source_model(TOP).preprocessor_independent);
     }
 
     #[test]

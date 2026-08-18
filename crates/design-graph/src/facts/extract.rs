@@ -5,8 +5,8 @@ use std::hash::{Hash, Hasher};
 use rustc_hash::FxHasher;
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, SyntaxTree,
-    TriviaKind, WalkEvent,
+    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent,
+    SyntaxTree, WalkEvent,
     ast::{self, AstNode},
     has_name::HasName,
     has_text_range::{HasTextRange, HasTextRangeIn},
@@ -96,12 +96,12 @@ fn walk(file: FileId, tree: &SyntaxTree, source_text: &str) -> FileFacts {
     let mut module_depth = 0usize;
     let mut has_compilation_unit_locals = false;
     let mut ordinals = rustc_hash::FxHashMap::<(SmolStr, UnitKind), u32>::default();
-    let mut preprocessor_independent = true;
+    let preprocessor_independent = !tree.root().has_directive_trivia();
     let root = tree.root();
 
     if root.kind() != SyntaxKind::COMPILATION_UNIT {
         return FileFacts {
-            preprocessor_independent: !token_walk_has_directive_trivia(root),
+            preprocessor_independent: !root.has_directive_trivia(),
             ..FileFacts::default()
         };
     }
@@ -109,9 +109,6 @@ fn walk(file: FileId, tree: &SyntaxTree, source_text: &str) -> FileFacts {
     for event in root.elem_preorder() {
         match event {
             WalkEvent::Enter(SyntaxElement::Token(token)) => {
-                if preprocessor_independent && token_has_directive_trivia(token) {
-                    preprocessor_independent = false;
-                }
                 if !token.kind().name_like() {
                     continue;
                 }
@@ -200,19 +197,6 @@ fn walk(file: FileId, tree: &SyntaxTree, source_text: &str) -> FileFacts {
         preprocessor_independent,
         has_compilation_unit_locals,
     }
-}
-
-fn token_has_directive_trivia(token: SyntaxTokenWithParent<'_>) -> bool {
-    token.trivias().any(|trivia| trivia.kind() == TriviaKind::DIRECTIVE)
-}
-
-fn token_walk_has_directive_trivia(root: SyntaxNode<'_>) -> bool {
-    root.elem_preorder().any(|event| {
-        matches!(
-            event,
-            WalkEvent::Enter(SyntaxElement::Token(token)) if token_has_directive_trivia(token)
-        )
-    })
 }
 
 fn instantiation_at(

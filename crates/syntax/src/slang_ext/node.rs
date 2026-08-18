@@ -4,7 +4,7 @@ use either::Either;
 use slang_sys::{
     syntax::{
         ChildrenIter, SyntaxAncestors, SyntaxElement, SyntaxNode, SyntaxTokenWithParent,
-        SyntaxTrivia, ast::AstNode,
+        SyntaxTrivia, WalkEvent, ast::AstNode,
     },
     token::TriviaKind,
 };
@@ -39,6 +39,11 @@ pub trait SyntaxNodeExt<'a> {
     fn trivias_with_range(
         &self,
     ) -> impl ChildrenIter<(TextRange, SyntaxTrivia<'a>)> + use<'a, Self>;
+    /// Whether any token in this subtree carries `TriviaKind::DIRECTIVE`.
+    ///
+    /// This is the preprocessor-activity predicate used by `FileFacts` and
+    /// `source_model`. It does not build a `Trace`.
+    fn has_directive_trivia(&self) -> bool;
 }
 
 impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
@@ -410,5 +415,15 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         } else {
             Either::Left(iter::empty())
         }
+    }
+
+    fn has_directive_trivia(&self) -> bool {
+        self.elem_preorder().any(|event| {
+            matches!(
+                event,
+                WalkEvent::Enter(SyntaxElement::Token(token))
+                    if token.trivias().any(|trivia| trivia.kind() == TriviaKind::DIRECTIVE)
+            )
+        })
     }
 }
