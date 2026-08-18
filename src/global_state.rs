@@ -94,9 +94,11 @@ pub(crate) struct DiagnosticsState {
     // text. Keep those target changes explicit so push diagnostics converge at
     // the normal change-processing boundary.
     pub(crate) pending_document_diagnostic_targets: FxHashSet<FileId>,
-    /// Last isolated profile compile, keyed by analysis file. URI-only
-    /// didOpen/didClose republishes from here instead of compiling again.
-    pub(crate) cached_profile_diagnostics: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
+    /// Last isolated slang profile compile, keyed by analysis file.
+    /// Vide diagnostics are computed at publish time, not stored here.
+    /// URI-only didOpen/didClose republishes slang from here and adds live
+    /// Vide.
+    pub(crate) cached_slang_diagnostics: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
     pub(crate) diagnostics_revision: u64,
     pub(crate) diagnostic_target_revision: u64,
     pub(crate) diagnostic_file_revisions: FxHashMap<FileId, DiagnosticFileRevision>,
@@ -226,7 +228,7 @@ impl GlobalState {
             diagnostics: DiagnosticsState {
                 published_diagnostics: FxHashMap::default(),
                 pending_document_diagnostic_targets: FxHashSet::default(),
-                cached_profile_diagnostics: FxHashMap::default(),
+                cached_slang_diagnostics: FxHashMap::default(),
                 diagnostics_revision: 0,
                 diagnostic_target_revision: 0,
                 diagnostic_file_revisions: FxHashMap::default(),
