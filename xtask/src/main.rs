@@ -27,6 +27,7 @@ fn main() -> Result<()> {
         Some(XtaskCommand::CheckSchemas) => check_schemas(&workspace_root),
         Some(XtaskCommand::Server(server)) => run_server_command(&workspace_root, server),
         Some(XtaskCommand::Vscode(vscode)) => run_vscode_command(&workspace_root, vscode),
+        Some(XtaskCommand::BenchIde) => run_ide_benches(&workspace_root),
         None => {
             Cli::command().print_help()?;
             eprintln!();
@@ -52,6 +53,8 @@ enum XtaskCommand {
     CheckSchemas,
     Server(ServerArgs),
     Vscode(VscodeArgs),
+    /// Synthetic design-graph fold and post-edit request benches.
+    BenchIde,
 }
 
 #[derive(Debug, Args)]
@@ -146,6 +149,29 @@ fn run_vscode_command(workspace_root: &Path, args: VscodeArgs) -> Result<()> {
     match args.command {
         VscodeCommand::PrepareServer(args) => prepare_vscode_server(workspace_root, args),
     }
+}
+
+fn run_ide_benches(workspace_root: &Path) -> Result<()> {
+    let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
+    let status = ProcessCommand::new(cargo)
+        .current_dir(workspace_root)
+        .args([
+            "test",
+            "-p",
+            "ide",
+            "--release",
+            "--lib",
+            "incrementality_benches",
+            "--",
+            "--ignored",
+            "--nocapture",
+        ])
+        .status()
+        .context("failed to spawn cargo test for ide incrementality benches")?;
+    if !status.success() {
+        bail!("ide incrementality benches failed with {status}");
+    }
+    Ok(())
 }
 
 fn run_server_command(workspace_root: &Path, args: ServerArgs) -> Result<()> {

@@ -46,6 +46,8 @@ pub(crate) mod semantic_target;
 pub mod semantic_tokens;
 pub mod signature_help;
 #[cfg(test)]
+mod incrementality_benches;
+#[cfg(test)]
 mod test_utils;
 pub(crate) mod token;
 #[cfg(test)]
