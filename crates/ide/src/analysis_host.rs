@@ -221,6 +221,121 @@ mod tests {
         change
     }
 
+    fn two_file_workspace(first: &str, second: &str) -> Change {
+        let first_id = FileId::from_raw(0);
+        let second_id = FileId::from_raw(1);
+        let mut file_set = FileSet::default();
+        file_set.insert(first_id, VfsPath::new_virtual_path("/gen.sv".to_owned()));
+        file_set.insert(second_id, VfsPath::new_virtual_path("/other.sv".to_owned()));
+        let mut change = Change::new();
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.add_changed_file(ChangedFile::create(first_id, first));
+        change.add_changed_file(ChangedFile::create(second_id, second));
+        change
+    }
+
+    fn modify_file(file_id: FileId, text: &str) -> Change {
+        let mut change = Change::new();
+        change.add_changed_file(ChangedFile::modify(file_id, text));
+        change
+    }
+
+    fn goto_names(host: &AnalysisHost, file_id: FileId, text: &str, needle: &str) -> Vec<String> {
+        let offset = utils::line_index::TextSize::from(text.find(needle).expect(needle) as u32);
+        host.make_analysis()
+            .goto_definition(crate::FilePosition { file_id, offset })
+            .unwrap()
+            .map(|hit| {
+                hit.info
+                    .into_iter()
+                    .filter_map(|nav| nav.name.map(|name| name.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn generated_unit_rename_invalidates_overlay() {
+        let mut host = AnalysisHost::default();
+        host.apply_change(change_with_file_text(
+            "`define GEN(name) module name; endmodule\n`GEN(foo)\nmodule top;\nendmodule\n",
+        ));
+        let _ = host.ctx().parse_file(FileId::from_raw(0));
+        let before = host.ctx().design_graph();
+        assert!(
+            before.module_names().iter().any(|name| name == "foo"),
+            "{:?}",
+            before.module_names()
+        );
+        assert!(
+            before.module_names().iter().any(|name| name == "top"),
+            "{:?}",
+            before.module_names()
+        );
+
+        host.apply_change(modify_with_file_text(
+            "`define GEN(name) module name; endmodule\n`GEN(bar)\nmodule top;\nendmodule\n",
+        ));
+        let after_edit = host.ctx().design_graph();
+        assert!(
+            !after_edit.module_names().iter().any(|name| name == "foo"),
+            "stale generated name foo must not survive the edit: {:?}",
+            after_edit.module_names()
+        );
+        assert!(
+            after_edit.module_names().iter().any(|name| name == "top"),
+            "{:?}",
+            after_edit.module_names()
+        );
+
+        let _ = host.ctx().parse_file(FileId::from_raw(0));
+        let after_reparse = host.ctx().design_graph();
+        assert!(
+            !after_reparse.module_names().iter().any(|name| name == "foo"),
+            "{:?}",
+            after_reparse.module_names()
+        );
+        assert!(
+            after_reparse.module_names().iter().any(|name| name == "bar"),
+            "{:?}",
+            after_reparse.module_names()
+        );
+    }
+
+    #[test]
+    fn generated_unit_rename_invalidates_cross_file_goto() {
+        let gen_foo =
+            "`define GEN(name) module name; endmodule\n`GEN(foo)\nmodule top;\nendmodule\n";
+        let gen_bar =
+            "`define GEN(name) module name; endmodule\n`GEN(bar)\nmodule top;\nendmodule\n";
+        let other = "module other;\n  foo u_foo();\n  bar u_bar();\nendmodule\n";
+        let generator = FileId::from_raw(0);
+        let user = FileId::from_raw(1);
+
+        let mut host = AnalysisHost::default();
+        host.apply_change(two_file_workspace(gen_foo, other));
+        let _ = host.ctx().parse_file(generator);
+        assert_eq!(goto_names(&host, user, other, "foo u_foo"), ["foo"]);
+        assert!(goto_names(&host, user, other, "bar u_bar").is_empty(), "bar is not generated yet");
+
+        host.apply_change(modify_file(generator, gen_bar));
+        assert!(
+            goto_names(&host, user, other, "foo u_foo").is_empty(),
+            "goto foo must fail after the generator was renamed"
+        );
+        assert!(
+            goto_names(&host, user, other, "bar u_bar").is_empty(),
+            "bar is not paid until the generator is reparsed"
+        );
+
+        let _ = host.ctx().parse_file(generator);
+        assert!(
+            goto_names(&host, user, other, "foo u_foo").is_empty(),
+            "goto foo must stay failed after reparse"
+        );
+        assert_eq!(goto_names(&host, user, other, "bar u_bar"), ["bar"]);
+    }
+
     #[test]
     fn adding_a_file_upserts_the_existing_design_graph() {
         let mut host = AnalysisHost::default();
