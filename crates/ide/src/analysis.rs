@@ -10,6 +10,7 @@ use base_db::{
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootId, SourceRootRole},
 };
+use design_graph::DesignGraphDb;
 use hir_def::{def_id::DefId, pathres::ResolutionContext};
 use preproc_expand::{compilation_plan::CompilationPlan, profile_compiler::ProfileCompilationJob};
 use triomphe::Arc;
@@ -140,18 +141,21 @@ impl AnalysisContext<'_> {
         self.store.design_graph_cell().get_or_compute(priority, cancel, |_| {
             let _span = tracing::info_span!("design_graph.build").entered();
             let started = std::time::Instant::now();
-            let graph = design_graph::DesignGraph::fold(self.db, &generated);
-            let mut file_count = 0usize;
-            let mut independent_files = 0usize;
-            for &file_id in self.db.files().iter() {
-                if !self.db.file_kind(file_id).is_semantic_compilation_unit() {
-                    continue;
-                }
-                file_count += 1;
-                if self.db.file_facts(file_id).preprocessor_independent {
-                    independent_files += 1;
-                }
-            }
+            let files: Vec<_> = self
+                .db
+                .files()
+                .iter()
+                .copied()
+                .filter(|&file_id| self.db.file_kind(file_id).is_semantic_compilation_unit())
+                .collect();
+            let facts = file_facts_parallel(self.db, &files);
+            let graph = design_graph::DesignGraph::from_file_facts(
+                facts.iter().map(std::convert::AsRef::as_ref),
+                &generated,
+            );
+            let file_count = facts.len();
+            let independent_files =
+                facts.iter().filter(|facts| facts.preprocessor_independent).count();
             tracing::info!(
                 file_count,
                 node_count = graph.node_count(),
@@ -226,6 +230,31 @@ impl AnalysisContext<'_> {
     ) -> Arc<Vec<DefId>> {
         Arc::new(crate::rename::recursive_rename_closure_impl(self, def, visibility, single_file))
     }
+}
+
+/// Unexpanded `file_facts` are independent per file. Folding them sequentially
+/// is the ready-path cost on a library-sized workspace.
+fn file_facts_parallel(db: &RootDb, files: &[FileId]) -> Vec<Arc<design_graph::FileFacts>> {
+    let threads =
+        std::thread::available_parallelism().map(usize::from).unwrap_or(1).min(files.len());
+    if threads <= 1 {
+        return files.iter().map(|&file_id| <dyn DesignGraphDb>::file_facts(db, file_id)).collect();
+    }
+
+    let chunk_size = files.len().div_ceil(threads);
+    std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(threads);
+        for chunk in files.chunks(chunk_size) {
+            let db = db.clone();
+            handles.push(scope.spawn(move || {
+                chunk
+                    .iter()
+                    .map(|&file_id| <dyn DesignGraphDb>::file_facts(&db, file_id))
+                    .collect::<Vec<_>>()
+            }));
+        }
+        handles.into_iter().flat_map(|handle| handle.join().expect("file_facts worker")).collect()
+    })
 }
 
 impl AnalysisSnapshot {

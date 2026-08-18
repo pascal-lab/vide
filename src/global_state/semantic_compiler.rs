@@ -16,7 +16,7 @@ use super::{
     AnalysisState, ConfigState, DiagnosticsState, GlobalState, LspClient, TaskState,
     WorkspaceState,
     diagnostics::{
-        DiagnosticPublishFreshness, DiagnosticSource,
+        DiagnosticCommitFreshness, DiagnosticPublishFreshness, DiagnosticSource,
         publisher::{DiagnosticsPublisher, PublishDiagnosticsBatch, PublishDiagnosticsTask},
     },
     snapshot::GlobalStateSnapshot,
@@ -28,7 +28,10 @@ pub(crate) struct SemanticCompilerUpdate {
     delivery: SemanticDiagnosticsDelivery,
     touched_files: FxHashSet<FileId>,
     diagnostic_count: usize,
-    freshness: DiagnosticPublishFreshness,
+    /// Commit freshness only. URI-set (didOpen/didClose) changes must not
+    /// discard a compile whose analysis inputs are still current.
+    freshness: DiagnosticCommitFreshness,
+    by_file: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
 }
 
 #[derive(Debug)]
@@ -69,6 +72,16 @@ impl SemanticCompiler {
             active_cancel_token: None,
             pending_profiles: FxHashSet::default(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn run_generation(&self) -> u64 {
+        self.run_generation.0
+    }
+
+    #[cfg(test)]
+    pub(crate) fn has_pending_profiles(&self) -> bool {
+        !self.pending_profiles.is_empty()
     }
 
     pub(crate) fn schedule<C: SemanticCompilerCtx>(
@@ -112,7 +125,7 @@ impl SemanticCompiler {
                 }
 
                 self.active_cancel_token = None;
-                let current_freshness = ctx.diagnostic_publish_freshness();
+                let current_freshness = ctx.diagnostic_publish_freshness().commit();
                 if update.freshness != current_freshness {
                     tracing::debug!(
                         ?run_id,
@@ -124,6 +137,7 @@ impl SemanticCompiler {
                     return;
                 }
 
+                ctx.store_profile_diagnostics(update.by_file.clone());
                 let SemanticCompilerUpdate { delivery, touched_files, .. } = update;
                 match delivery {
                     SemanticDiagnosticsDelivery::PullRefresh => {
@@ -212,6 +226,10 @@ pub(crate) trait SemanticCompilerCtx {
     fn task_cancel_token(&self) -> CancellationToken;
     fn refresh_semantic_diagnostics(&mut self, changed_files: FxHashSet<FileId>);
     fn publish_semantic_diagnostics(&mut self, batch: PublishDiagnosticsBatch);
+    fn store_profile_diagnostics(
+        &mut self,
+        by_file: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
+    );
 }
 
 pub(super) struct SemanticCompilerGlobalCtx<'a> {
@@ -276,6 +294,13 @@ impl SemanticCompilerCtx for SemanticCompilerGlobalCtx<'_> {
 
     fn refresh_semantic_diagnostics(&mut self, changed_files: FxHashSet<FileId>) {
         self.refresh_pull_diagnostics(changed_files);
+    }
+
+    fn store_profile_diagnostics(
+        &mut self,
+        by_file: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
+    ) {
+        self.diagnostics.cached_profile_diagnostics = by_file;
     }
 
     fn publish_semantic_diagnostics(&mut self, batch: PublishDiagnosticsBatch) {
@@ -377,7 +402,8 @@ fn collect_semantic_diagnostics(
             delivery: SemanticDiagnosticsDelivery::PullRefresh,
             touched_files,
             diagnostic_count: 0,
-            freshness,
+            freshness: freshness.commit(),
+            by_file: FxHashMap::default(),
         });
     }
 
@@ -409,6 +435,7 @@ fn collect_semantic_diagnostics(
         }
         cancellation.check()?;
     }
+    let cached = diagnostics_by_file.clone();
     let delivery = SemanticDiagnosticsDelivery::Push(materialize_semantic_publish_batch(
         publish_files,
         &touched_files,
@@ -424,7 +451,13 @@ fn collect_semantic_diagnostics(
         "semantic compiler completed isolated profile diagnostics"
     );
 
-    Ok(SemanticCompilerUpdate { delivery, touched_files, diagnostic_count, freshness })
+    Ok(SemanticCompilerUpdate {
+        delivery,
+        touched_files,
+        diagnostic_count,
+        freshness: freshness.commit(),
+        by_file: cached,
+    })
 }
 
 fn materialize_semantic_publish_batch(

@@ -20,6 +20,9 @@ use crate::{config::user_config::DiagnosticsUpdateUserConfig, lsp_ext::to_proto}
 pub(crate) enum DiagnosticInvalidation {
     FileChanges(FxHashSet<FileId>),
     WorkspaceChanged,
+    /// Open/close URI set changed; analysis text did not. Republish cached
+    /// diagnostics for those files — do not compile the profile again.
+    PublishTargets(FxHashSet<FileId>),
 }
 
 // Apply changes
@@ -39,7 +42,7 @@ impl GlobalState {
             std::mem::drop(read_guard);
             if !pending_diagnostic_targets.is_empty() {
                 self.diagnostics.diagnostic_target_revision += 1;
-                self.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(
+                self.invalidate_diagnostics(DiagnosticInvalidation::PublishTargets(
                     pending_diagnostic_targets,
                 ));
             }
@@ -142,6 +145,11 @@ impl GlobalState {
             return;
         }
 
+        if let DiagnosticInvalidation::PublishTargets(file_ids) = &invalidation {
+            self.republish_cached_profile_diagnostics(file_ids);
+            return;
+        }
+
         let semantic_profile_ids = self.semantic_compiler_profiles_for_invalidation(&invalidation);
         let semantic_compilation_scheduled = !semantic_profile_ids.is_empty();
         self.schedule_semantic_compiler(semantic_profile_ids);
@@ -157,6 +165,7 @@ impl GlobalState {
             && match &invalidation {
                 DiagnosticInvalidation::FileChanges(file_ids) => !file_ids.is_empty(),
                 DiagnosticInvalidation::WorkspaceChanged => true,
+                DiagnosticInvalidation::PublishTargets(_) => false,
             }
         {
             self.client.request_ignore::<WorkspaceDiagnosticRefresh>(());
@@ -170,6 +179,7 @@ impl GlobalState {
                 .into_iter()
                 .collect(),
             DiagnosticInvalidation::WorkspaceChanged => self.open_mem_doc_file_ids(),
+            DiagnosticInvalidation::PublishTargets(file_ids) => file_ids.into_iter().collect(),
         };
         self.request_diagnostics(file_ids);
     }
@@ -194,6 +204,7 @@ impl GlobalState {
 
         match invalidation {
             DiagnosticInvalidation::WorkspaceChanged => profile_ids,
+            DiagnosticInvalidation::PublishTargets(_) => Vec::new(),
             DiagnosticInvalidation::FileChanges(changed_file_ids) => profile_ids
                 .into_iter()
                 .filter(|profile_id| {
@@ -334,6 +345,56 @@ impl GlobalState {
             .collect_vec();
 
         Some(changed_file)
+    }
+
+    fn republish_cached_profile_diagnostics(&mut self, file_ids: &FxHashSet<FileId>) {
+        if file_ids.is_empty() || self.diagnostics.cached_profile_diagnostics.is_empty() {
+            return;
+        }
+        if self.config_state.config.cli_pull_diagnostics_support() {
+            if self.config_state.config.cli_workspace_diagnostic_refresh_support() {
+                self.client.request_ignore::<WorkspaceDiagnosticRefresh>(());
+            }
+            return;
+        }
+
+        let snapshot = self.make_snapshot();
+        let mut results = Vec::new();
+        let mut touched_file_ids = FxHashSet::default();
+        for &file_id in file_ids {
+            let Ok(targets) = snapshot.diagnostic_publish_targets(file_id) else {
+                continue;
+            };
+            if targets.is_empty() {
+                touched_file_ids.insert(file_id);
+                continue;
+            }
+            let mut diagnostics = self
+                .diagnostics
+                .cached_profile_diagnostics
+                .get(&file_id)
+                .cloned()
+                .unwrap_or_default();
+            if let Ok(vide) = snapshot.analysis.file_vide_diagnostics(file_id) {
+                diagnostics.extend(vide);
+            }
+            let Ok(lsp_diagnostics) = snapshot.lsp_diagnostics_from_ide(file_id, diagnostics)
+            else {
+                continue;
+            };
+            touched_file_ids.insert(file_id);
+            results.extend(targets.into_iter().map(|target| {
+                PublishDiagnosticsTask::from_target(target, lsp_diagnostics.clone())
+            }));
+        }
+        if touched_file_ids.is_empty() {
+            return;
+        }
+        self.publish_diagnostics_tasks(PublishDiagnosticsBatch::for_touched_files(
+            touched_file_ids,
+            results,
+            snapshot.diagnostic_publish_freshness,
+        ));
     }
 
     pub(crate) fn request_diagnostics(&mut self, files: Vec<FileId>) {
@@ -482,6 +543,48 @@ mod tests {
         assert!(
             state.workspace.fetch_workspaces_task.has_op_requested(),
             "an external manifest change must reload the workspace"
+        );
+    }
+
+    #[test]
+    fn uri_only_did_open_does_not_schedule_semantic_compiler() {
+        use super::super::handlers::notification::handle_did_open_text_document;
+
+        let root = TestDir::new("uri-only-did-open-no-recompile");
+        let root_path = root.path().to_path_buf();
+        let mut state = test_state(root_path);
+        let file_path = root.join("top.sv");
+        let text = "module top;\nendmodule\n";
+        state
+            .workspace
+            .vfs
+            .write()
+            .0
+            .set_file_contents(VfsPath::from(file_path.clone()), Some(text.as_bytes().to_vec()));
+        assert!(state.process_changes());
+        let generation = state.semantic_compiler.run_generation();
+
+        handle_did_open_text_document(
+            &mut state,
+            lsp_types::DidOpenTextDocumentParams {
+                text_document: lsp_types::TextDocumentItem {
+                    uri: lsp_types::Url::from_file_path(file_path.as_path()).unwrap(),
+                    language_id: "systemverilog".to_owned(),
+                    version: 1,
+                    text: text.to_owned(),
+                },
+            },
+        )
+        .unwrap();
+        assert!(!state.process_changes());
+        assert_eq!(
+            state.semantic_compiler.run_generation(),
+            generation,
+            "didOpen of an already-loaded file must not start a new profile compile"
+        );
+        assert!(
+            !state.semantic_compiler.has_pending_profiles(),
+            "didOpen of an already-loaded file must not queue another profile compile"
         );
     }
 

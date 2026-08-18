@@ -101,16 +101,15 @@ pub struct DesignGraph {
 }
 
 impl DesignGraph {
-    /// `file_facts` come from salsa; `generated` comes from the product store.
-    pub fn fold(db: &dyn DesignGraphDb, generated: &GeneratedUnits) -> Self {
+    /// Join already-extracted per-file facts. Callers that can run `file_facts`
+    /// in parallel should do that and pass the results here.
+    pub fn from_file_facts<'a>(
+        facts: impl IntoIterator<Item = &'a crate::FileFacts>,
+        generated: &GeneratedUnits,
+    ) -> Self {
         let mut graph = Self::default();
-        for file_id in db
-            .files()
-            .iter()
-            .copied()
-            .filter(|&file_id| db.file_kind(file_id).is_semantic_compilation_unit())
-        {
-            for unit in db.file_facts(file_id).units.iter() {
+        for facts in facts {
+            for unit in facts.units.iter() {
                 graph.insert(
                     unit.id.clone(),
                     UnitMeta {
@@ -133,6 +132,18 @@ impl DesignGraph {
         graph.module_names.sort();
         graph.module_names.dedup();
         graph
+    }
+
+    /// `file_facts` come from salsa; `generated` comes from the product store.
+    pub fn fold(db: &dyn DesignGraphDb, generated: &GeneratedUnits) -> Self {
+        let facts: Vec<_> = db
+            .files()
+            .iter()
+            .copied()
+            .filter(|&file_id| db.file_kind(file_id).is_semantic_compilation_unit())
+            .map(|file_id| db.file_facts(file_id))
+            .collect();
+        Self::from_file_facts(facts.iter().map(std::convert::AsRef::as_ref), generated)
     }
 
     pub(crate) fn insert(&mut self, id: UnitId, meta: UnitMeta) {
@@ -239,5 +250,28 @@ mod tests {
         assert!(generated.replace_file(FILE, Box::new([new.clone()]), new_meta));
         assert!(!generated.meta.contains_key(&old));
         assert!(generated.meta.contains_key(&new));
+    }
+
+    #[test]
+    fn from_file_facts_joins_source_units_and_generated() {
+        let unit = crate::unit::UnitNode {
+            id: id("src", 0),
+            origin: UnitOrigin::Source,
+            name_range: None,
+            header_range: None,
+            header_fingerprint: 1,
+        };
+        let facts =
+            crate::FileFacts { units: Box::new([unit.clone()]), ..crate::FileFacts::default() };
+        let generated_id = id("gen", 0);
+        let mut generated = GeneratedUnits::default();
+        let mut meta = FxHashMap::default();
+        meta.insert(generated_id.clone(), generated_meta(&generated_id));
+        generated.replace_file(FILE, Box::new([generated_id.clone()]), meta);
+
+        let graph = super::DesignGraph::from_file_facts(std::iter::once(&facts), &generated);
+        assert!(graph.contains(&unit.id));
+        assert!(graph.contains(&generated_id));
+        assert_eq!(graph.node_count(), 2);
     }
 }
