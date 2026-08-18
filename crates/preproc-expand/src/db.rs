@@ -638,12 +638,12 @@ fn compilation_context(
     let library_maps = plan
         .roots
         .iter()
-        .copied()
-        .filter(|file_id| matches!(db.file_kind(*file_id), SourceFileKind::LibraryMap))
+        .filter(|root| matches!(root.kind, crate::compilation_plan::CompilationRootKind::LibraryMap))
+        .map(|root| root.file_id)
         .collect::<Vec<_>>();
     Arc::new(CompilationContext::new(
         profile_id,
-        plan.roots.clone(),
+        plan.root_file_ids().collect::<Vec<_>>(),
         plan.include_dirs.clone(),
         plan.predefines.clone(),
         library_maps,
@@ -939,7 +939,7 @@ mod tests {
 
         let before = db.compilation_plan_for_profile(None);
         assert!(before.include_only.contains(&INCLUDED));
-        assert!(!before.roots.contains(&INCLUDED));
+        assert!(!before.has_root(INCLUDED));
 
         db.set_file_text_with_durability(
             TOP,
@@ -949,7 +949,7 @@ mod tests {
 
         let after = db.compilation_plan_for_profile(None);
         assert!(!after.include_only.contains(&INCLUDED));
-        assert!(after.roots.contains(&INCLUDED));
+        assert!(after.has_root(INCLUDED));
     }
 
     #[test]
@@ -1085,7 +1085,18 @@ mod tests {
         assert!(db.parse_diagnostics(MANIFEST).is_empty());
 
         let plan = db.compilation_plan_for_root(ROOT);
-        assert_eq!(plan.roots, vec![TOP]);
+        assert_eq!(plan.root_file_ids().collect::<Vec<_>>(), vec![TOP]);
+        assert!(
+            plan.roots.iter().all(|root| {
+                matches!(
+                    root.kind,
+                    crate::compilation_plan::CompilationRootKind::SystemVerilog
+                        | crate::compilation_plan::CompilationRootKind::LibraryMap
+                )
+            }),
+            "{plan:?}"
+        );
+        assert!(!plan.has_root(MANIFEST));
         assert!(!plan.include_only.contains(&MANIFEST));
 
         let preproc_model_files =

@@ -103,9 +103,9 @@ fn preproc_include_only_sv_query_uses_all_including_roots() {
 
     let plan = db.compilation_plan_for_profile(Some(PROFILE));
     assert!(plan.include_only.contains(&HEADER), "{plan:?}");
-    assert!(plan.roots.contains(&TOP), "{plan:?}");
-    assert!(plan.roots.contains(&LEAF), "{plan:?}");
-    assert!(!plan.roots.contains(&HEADER), "{plan:?}");
+    assert!(plan.has_root(TOP), "{plan:?}");
+    assert!(plan.has_root(LEAF), "{plan:?}");
+    assert!(!plan.has_root(HEADER), "{plan:?}");
 
     let contexts = source_preproc_single_query_contexts(&db, HEADER);
     assert!(contexts.model_file_ids.contains(&TOP), "{contexts:?}");

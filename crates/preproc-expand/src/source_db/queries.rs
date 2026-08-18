@@ -37,7 +37,7 @@ pub fn workspace_preproc_model_file_ids(
     let plan = db.compilation_plan_for_profile(profile_id);
     let mut file_ids = FxHashSet::default();
 
-    for root in plan.roots.iter().copied() {
+    for root in plan.root_file_ids() {
         if matches!(
             db.file_kind(root),
             SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader

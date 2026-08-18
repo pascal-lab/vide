@@ -33,10 +33,23 @@ pub struct IncludeEdge {
     pub slang_path: AbsPathBuf,
 }
 
+/// A compilation-unit root. Only SystemVerilog and library maps are legal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompilationRoot {
+    pub file_id: FileId,
+    pub kind: CompilationRootKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompilationRootKind {
+    SystemVerilog,
+    LibraryMap,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CompilationPlan {
     pub source_roots: Vec<SourceRootId>,
-    pub roots: Vec<FileId>,
+    pub roots: Vec<CompilationRoot>,
     /// Files reached through literal SystemVerilog include directives. They are
     /// made available to slang through include buffers, but are not added
     /// as standalone semantic roots.
@@ -67,10 +80,18 @@ pub enum IncludeScanIssueReason {
 }
 
 impl CompilationPlan {
+    pub fn root_file_ids(&self) -> impl Iterator<Item = FileId> + '_ {
+        self.roots.iter().map(|root| root.file_id)
+    }
+
+    pub fn has_root(&self, file_id: FileId) -> bool {
+        self.roots.iter().any(|root| root.file_id == file_id)
+    }
+
     /// Every file the plan compiles: semantic roots plus include-only files,
     /// in stable order without duplicates.
     pub fn all_file_ids(&self) -> Vec<FileId> {
-        let mut file_ids = self.roots.clone();
+        let mut file_ids: Vec<_> = self.root_file_ids().collect();
         file_ids.extend(self.include_only.iter().copied());
         file_ids.sort_unstable_by_key(|file_id| file_id.index());
         file_ids.dedup();
@@ -272,7 +293,7 @@ fn include_buffers_for_plan_with_roots(
     include_roots: bool,
 ) -> Vec<AssignedIncludeBuffer> {
     let root_files = if include_roots {
-        plan.roots.iter().copied().collect::<FxHashSet<_>>()
+        plan.root_file_ids().collect::<FxHashSet<_>>()
     } else {
         FxHashSet::default()
     };
@@ -439,7 +460,7 @@ fn compile_roots_for_source_roots(
     db: &dyn SourceRootDb,
     roots: &[SourceRootId],
     include_only: &FxHashSet<FileId>,
-) -> Vec<FileId> {
+) -> Vec<CompilationRoot> {
     let mut files = Vec::new();
     let mut visited = FxHashSet::default();
 
@@ -452,15 +473,17 @@ fn compile_roots_for_source_roots(
             if db.file_is_project_ignored(file_id) {
                 continue;
             }
-            if !db.file_kind(file_id).is_semantic_compilation_unit() {
-                continue;
-            }
-            if matches!(db.file_kind(file_id), SourceFileKind::SystemVerilog)
-                && include_only.contains(&file_id)
-            {
-                continue;
-            }
-            files.push(file_id);
+            let kind = match db.file_kind(file_id) {
+                SourceFileKind::SystemVerilog => {
+                    if include_only.contains(&file_id) {
+                        continue;
+                    }
+                    CompilationRootKind::SystemVerilog
+                }
+                SourceFileKind::LibraryMap => CompilationRootKind::LibraryMap,
+                SourceFileKind::IncludeHeader | SourceFileKind::ProjectManifest => continue,
+            };
+            files.push(CompilationRoot { file_id, kind });
         }
     }
 

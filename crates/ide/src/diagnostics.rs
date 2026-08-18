@@ -1221,7 +1221,7 @@ mod tests {
 
         let plan = db.compilation_plan_for_root(SourceRootId(0));
         assert!(plan.include_only.contains(&FileId::from_raw(1)));
-        assert_eq!(plan.roots, vec![FileId::from_raw(0)]);
+        assert_eq!(plan.root_file_ids().collect::<Vec<_>>(), vec![FileId::from_raw(0)]);
 
         let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
@@ -1316,7 +1316,10 @@ mod tests {
         db.apply_change(change);
 
         let plan = db.compilation_plan_for_root(SourceRootId(0));
-        assert_eq!(plan.roots, vec![FileId::from_raw(0), FileId::from_raw(1)]);
+        assert_eq!(
+            plan.root_file_ids().collect::<Vec<_>>(),
+            vec![FileId::from_raw(0), FileId::from_raw(1)]
+        );
         let buffers = compilation_source_buffers_for_plan(&db, &plan);
         let buffer_paths = buffers.iter().map(|buffer| buffer.path.as_str()).collect::<Vec<_>>();
         let a_path = a_path.to_string();

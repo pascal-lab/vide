@@ -36,7 +36,7 @@ pub(crate) fn source_preproc_context_index_for_profile(
     let manifest_file_ids = predefine_manifest_file_ids(db, profile_id);
     let mut contexts_by_file = FxHashMap::<FileId, Vec<FileId>>::default();
 
-    for root in plan.roots.iter().copied() {
+    for root in plan.root_file_ids() {
         let inputs = db.parsed_compilation_dependencies(root);
         for file_id in inputs.iter().copied().chain(manifest_file_ids.iter().copied()) {
             if file_id == root {

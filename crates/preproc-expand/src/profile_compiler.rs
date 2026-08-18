@@ -5,7 +5,6 @@ use base_db::{
         DiagnosticRuleSeverity, DiagnosticSelector, DiagnosticSource, DiagnosticsConfig,
     },
     project::CompilationProfileId,
-    source_db::SourceFileKind,
 };
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -54,6 +53,15 @@ pub struct ProfileCompilationBuffer {
 pub enum ProfileRootKind {
     SystemVerilog,
     LibraryMap,
+}
+
+impl From<compilation_plan::CompilationRootKind> for ProfileRootKind {
+    fn from(kind: compilation_plan::CompilationRootKind) -> Self {
+        match kind {
+            compilation_plan::CompilationRootKind::SystemVerilog => Self::SystemVerilog,
+            compilation_plan::CompilationRootKind::LibraryMap => Self::LibraryMap,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,20 +184,18 @@ pub fn build_profile_compilation_job(
         .roots
         .iter()
         .copied()
-        .map(|file_id| {
-            let path = compilation_plan::source_buffer_path(db, file_id).to_string();
+        .map(|root| {
+            let path = compilation_plan::source_buffer_path(db, root.file_id).to_string();
             let name = db
-                .file_path(file_id)
+                .file_path(root.file_id)
                 .map(|path| path.to_string())
                 .unwrap_or_else(|| "source".to_owned());
-            let kind = match db.file_kind(file_id) {
-                SourceFileKind::SystemVerilog => ProfileRootKind::SystemVerilog,
-                SourceFileKind::LibraryMap => ProfileRootKind::LibraryMap,
-                SourceFileKind::IncludeHeader | SourceFileKind::ProjectManifest => {
-                    panic!("non-compilation unit {file_id:?} appeared in profile roots")
-                }
-            };
-            ProfileCompilationRoot { file_id: file_id.index(), kind, name, path }
+            ProfileCompilationRoot {
+                file_id: root.file_id.index(),
+                kind: ProfileRootKind::from(root.kind),
+                name,
+                path,
+            }
         })
         .collect();
     ProfileCompilationJob {
