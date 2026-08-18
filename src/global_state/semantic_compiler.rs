@@ -431,7 +431,7 @@ fn collect_semantic_diagnostics(
     let mut diagnostic_count = 0;
     for (job, vide_diagnostics) in profiles {
         cancellation.check()?;
-        let output = crate::compiler_worker::compile(&job)?;
+        let output = crate::compiler_worker::compile(&job, cancellation)?;
         for diagnostic in
             ide::diagnostics::materialize_compiler_diagnostics(output.into_diagnostics())
         {

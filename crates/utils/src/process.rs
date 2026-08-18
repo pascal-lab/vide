@@ -2,24 +2,57 @@ use std::{
     io::{Read, Write},
     process::{Child, Command, ExitStatus, Output},
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
 
 use crate::cancellation::{CancellationError, CancellationToken};
 
+/// The child did not exit before the configured deadline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcessTimeout {
+    pub timeout: Duration,
+    pub pid: u32,
+}
+
+impl std::fmt::Display for ProcessTimeout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "process timed out after {:?} (pid={})", self.timeout, self.pid)
+    }
+}
+
+impl std::error::Error for ProcessTimeout {}
+
 pub fn configure_process_tree(command: &mut Command) {
     imp::configure_process_tree(command);
 }
 
 pub fn wait_with_cancellation(child: &mut Child, cancel: &CancellationToken) -> Result<ExitStatus> {
+    wait_with_cancellation_and_timeout(child, cancel, None)
+}
+
+pub fn wait_with_cancellation_and_timeout(
+    child: &mut Child,
+    cancel: &CancellationToken,
+    timeout: Option<Duration>,
+) -> Result<ExitStatus> {
     let process_tree = imp::ProcessTree::attach(child);
+    let deadline = timeout.map(|timeout| Instant::now() + timeout);
     loop {
         if cancel.is_cancelled() {
             process_tree.kill(child);
             let _ = child.wait();
             return Err(CancellationError.into());
+        }
+
+        if let Some(timeout) = timeout
+            && deadline.is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            let pid = child.id();
+            process_tree.kill(child);
+            let _ = child.wait();
+            return Err(ProcessTimeout { timeout, pid }.into());
         }
 
         if let Some(status) = child.try_wait().context("failed to poll child process")? {
@@ -184,7 +217,7 @@ pub fn wait_with_output_and_cancellation(
     child: Child,
     cancel: &CancellationToken,
 ) -> Result<Output> {
-    wait_with_stdio_and_cancellation(child, None, cancel)
+    wait_with_stdio_and_cancellation(child, None, cancel, None)
 }
 
 pub fn wait_with_input_and_output_and_cancellation(
@@ -192,13 +225,23 @@ pub fn wait_with_input_and_output_and_cancellation(
     input: Vec<u8>,
     cancel: &CancellationToken,
 ) -> Result<Output> {
-    wait_with_stdio_and_cancellation(child, Some(input), cancel)
+    wait_with_stdio_and_cancellation(child, Some(input), cancel, None)
+}
+
+pub fn wait_with_input_and_output_and_cancellation_and_timeout(
+    child: Child,
+    input: Vec<u8>,
+    cancel: &CancellationToken,
+    timeout: Duration,
+) -> Result<Output> {
+    wait_with_stdio_and_cancellation(child, Some(input), cancel, Some(timeout))
 }
 
 fn wait_with_stdio_and_cancellation(
     mut child: Child,
     input: Option<Vec<u8>>,
     cancel: &CancellationToken,
+    timeout: Option<Duration>,
 ) -> Result<Output> {
     let stdin = input.map(|input| {
         child
@@ -210,7 +253,7 @@ fn wait_with_stdio_and_cancellation(
     let stdout = child.stdout.take().map(read_to_end);
     let stderr = child.stderr.take().map(read_to_end);
 
-    let status = wait_with_cancellation(&mut child, cancel);
+    let status = wait_with_cancellation_and_timeout(&mut child, cancel, timeout);
     let stdin = match stdin.transpose() {
         Ok(handle) => join_input(handle),
         Err(error) => Err(error),
@@ -280,8 +323,8 @@ mod tests {
     use crate::{
         cancellation::{CancellationError, CancellationToken},
         process::{
-            configure_process_tree, wait_with_cancellation,
-            wait_with_input_and_output_and_cancellation,
+            ProcessTimeout, configure_process_tree, wait_with_cancellation,
+            wait_with_cancellation_and_timeout, wait_with_input_and_output_and_cancellation,
         },
     };
 
@@ -294,6 +337,7 @@ mod tests {
             .stderr(Stdio::null())
             .spawn()
             .expect("sleep command should spawn");
+        let pid = child.id();
         let token = CancellationToken::new();
 
         token.cancel();
@@ -301,6 +345,32 @@ mod tests {
 
         assert!(error.is::<CancellationError>(), "{error:#}");
         assert!(child.try_wait().expect("child status should be available").is_some());
+        assert!(!pid_is_alive(pid), "cancelled child pid {pid} must not stay alive");
+    }
+
+    #[test]
+    fn timeout_kills_child_process() {
+        let mut command = sleeper_command();
+        configure_process_tree(&mut command);
+        let mut child = command
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("sleep command should spawn");
+        let pid = child.id();
+        let token = CancellationToken::new();
+
+        let error = wait_with_cancellation_and_timeout(
+            &mut child,
+            &token,
+            Some(Duration::from_millis(200)),
+        )
+        .unwrap_err();
+
+        let timeout = error.downcast_ref::<ProcessTimeout>().unwrap_or_else(|| panic!("{error:#}"));
+        assert_eq!(timeout.pid, pid);
+        assert!(child.try_wait().expect("child status should be available").is_some());
+        assert!(!pid_is_alive(pid), "timed-out child pid {pid} must not stay alive");
     }
 
     #[test]
@@ -402,5 +472,26 @@ Start-Sleep -Seconds 30
         let mut command = Command::new("sh");
         command.arg(child).arg(grandchild).arg(marker);
         command
+    }
+
+    #[cfg(unix)]
+    fn pid_is_alive(pid: u32) -> bool {
+        unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+    }
+
+    #[cfg(windows)]
+    fn pid_is_alive(pid: u32) -> bool {
+        use winapi::um::{
+            handleapi::CloseHandle, processthreadsapi::OpenProcess,
+            winnt::PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if handle.is_null() {
+            return false;
+        }
+        unsafe {
+            CloseHandle(handle);
+        }
+        true
     }
 }

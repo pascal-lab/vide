@@ -230,7 +230,7 @@ impl GlobalStateSnapshot {
         profile_id: base_db::project::CompilationProfileId,
     ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
         let job = self.analysis.compilation_profile_job(profile_id)?;
-        let output = crate::compiler_worker::compile(&job)?;
+        let output = crate::compiler_worker::compile(&job, &self.cancellation)?;
         Ok(ide::diagnostics::materialize_compiler_diagnostics(output.into_diagnostics()))
     }
 
