@@ -169,7 +169,7 @@ fn trim_range(text: &str, range: TextRange) -> Option<TextRange> {
 }
 
 fn extracted_variable_type(ctx: &CodeActionCtx<'_>, expr: ast::Expression<'_>) -> Option<String> {
-    let types = TypeSystem::new(ctx.sema().db);
+    let types = TypeSystem::new(ctx.sema().db, ctx.sema().resolution_context());
     let ty = types.type_of_expr(ctx.sema().resolve_expr(ctx.file_id().into(), expr)?);
     render_ty(ctx, &ty)
         .or_else(|| expected_type_for_assignment_rhs(ctx, expr).and_then(|ty| render_ty(ctx, &ty)))
@@ -182,11 +182,11 @@ fn expected_type_for_assignment_rhs(
     let assignment = assignment_expression_containing_rhs(expr)?;
     let res =
         ctx.sema().expr_to_def(ctx.sema().resolve_expr(ctx.file_id().into(), assignment.left())?);
-    Some(TypeSystem::new(ctx.sema().db).type_of_resolution(res))
+    Some(TypeSystem::new(ctx.sema().db, ctx.sema().resolution_context()).type_of_resolution(res))
 }
 
 fn render_ty(ctx: &CodeActionCtx<'_>, ty: &Type) -> Option<String> {
-    TypeSystem::new(ctx.sema().db)
+    TypeSystem::new(ctx.sema().db, ctx.sema().resolution_context())
         .display_declaration(ty)
         .expect("formatting a type into a String should not fail")
 }

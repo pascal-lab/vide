@@ -294,7 +294,7 @@ fn package_member_resolution(
             let Some(package_id) = package.primary_origin(sema.db).as_module(sema.db) else {
                 return Resolution::Unresolved;
             };
-            let scope = sema.db.package_exports(package_id);
+            let scope = sema.db.package_exports(&sema.resolution_context(), package_id);
             scope.lookup(primary_ctx, ident).or_else(|| scope.lookup(fallback_ctx, ident))
         })
         .map(DefinitionClass::Definition)
@@ -476,7 +476,7 @@ mod tests {
             let text = text.replace("/*caret*/", "");
             let (host, file_id) = host_with_file(&text);
             let db = host.ctx();
-            let sema = Semantics::<RootDb>::new(db.db);
+            let sema = Semantics::<RootDb>::new_with_context(db.db, db.resolution());
             let parsed_file = sema.parse_file(file_id);
             let file = parsed_file.compilation_unit().unwrap();
             let tokens = file.syntax().token_at_offset(offset);
@@ -539,7 +539,7 @@ endmodule
         let text = text.replace("/*caret*/", "");
         let (host, file_id) = host_with_file(&text);
         let db = host.ctx();
-        let sema = Semantics::<RootDb>::new(db.db);
+        let sema = Semantics::<RootDb>::new_with_context(db.db, db.resolution());
         let parsed_file = sema.parse_file(file_id);
         let file = parsed_file.compilation_unit().unwrap();
         let token = file
@@ -576,7 +576,7 @@ endmodule
         let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
         let text = text.replace("/*caret*/", "");
         let (host, file_id) = host_with_file(&text);
-        let sema = Semantics::<RootDb>::new(host.ctx().db);
+        let sema = Semantics::<RootDb>::new_with_context(host.ctx().db, host.ctx().resolution());
         let parsed = sema.parse_file(file_id);
         let token = parsed
             .compilation_unit()
@@ -606,7 +606,7 @@ endmodule
         let text = text.replace("/*caret*/", "");
         let (host, file_id) = host_with_file(&text);
         let db = host.ctx();
-        let sema = Semantics::<RootDb>::new(db.db);
+        let sema = Semantics::<RootDb>::new_with_context(db.db, db.resolution());
         let parsed = sema.parse_file(file_id);
         let token = parsed
             .compilation_unit()
@@ -664,7 +664,8 @@ endmodule
             let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
             let text = text.replace("/*caret*/", "");
             let (host, file_id) = host_with_file(&text);
-            let sema = Semantics::<RootDb>::new(host.ctx().db);
+            let sema =
+                Semantics::<RootDb>::new_with_context(host.ctx().db, host.ctx().resolution());
             let parsed = sema.parse_file(file_id);
             let token = parsed
                 .compilation_unit()
@@ -702,7 +703,7 @@ endmodule
         let text = text.replace("/*caret*/", "");
         let (host, file_id) = host_with_file(&text);
         let db = host.ctx();
-        let sema = Semantics::<RootDb>::new(db.db);
+        let sema = Semantics::<RootDb>::new_with_context(db.db, db.resolution());
         let parsed = sema.parse_file(file_id);
         let token = parsed
             .compilation_unit()
@@ -732,7 +733,7 @@ endmodule
         let text = text.replace("/*caret*/", "");
         let (host, file_id) = host_with_file(&text);
         let db = host.ctx();
-        let sema = Semantics::<RootDb>::new(db.db);
+        let sema = Semantics::<RootDb>::new_with_context(db.db, db.resolution());
         let parsed_file = sema.parse_file(file_id);
         let file = parsed_file.compilation_unit().unwrap();
         let token = file

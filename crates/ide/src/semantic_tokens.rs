@@ -558,7 +558,7 @@ fn collect_type_ref_like(
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) -> Option<()> {
-    let context = hir_def::pathres::ResolutionContext::from_db(sema.db);
+    let context = sema.resolution_context();
     let res = resolve_path(sema.db, &context, cont_id, type_ref.segments(), NameContext::Type);
     collect_resolved_path(sema, res, range, collector)
 }

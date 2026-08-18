@@ -791,7 +791,7 @@ mod tests {
         let (db, file_id) = db_with_file(source);
         let hints = inlay_hint(
             &db,
-            &db.source_design_graph(),
+            &hir_def::unit::test_graph(&db),
             file_id,
             TextRange::up_to(TextSize::of(source)),
             port_config(),
@@ -820,7 +820,7 @@ mod tests {
         let (db, file_id) = db_with_file(source);
         let hints = inlay_hint(
             &db,
-            &db.source_design_graph(),
+            &hir_def::unit::test_graph(&db),
             file_id,
             TextRange::up_to(TextSize::of(source)),
             port_config(),
@@ -840,7 +840,7 @@ mod tests {
             let (db, file_id) = db_with_file(&fixture.source);
             let hints = inlay_hint(
                 &db,
-                &db.source_design_graph(),
+                &hir_def::unit::test_graph(&db),
                 file_id,
                 fixture.range.expect("fixture range should be initialized"),
                 fixture.config,

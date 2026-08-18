@@ -4,4 +4,4 @@ assertion_line: 537
 expression: fixture_snapshot(fixture)
 input_file: crates/ide/src/module_resolution/fixtures/named_port_uses_nearest_duplicate_module.sv
 ---
-Ambiguous([DefId(InternedDefId(Id(681))), DefId(InternedDefId(Id(683)))])
+Ambiguous candidates=["/project/a/child.sv", "/project/b/child.sv"]

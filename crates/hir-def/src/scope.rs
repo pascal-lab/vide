@@ -1557,7 +1557,7 @@ endmodule
         );
 
         let package_id = crate::unit::test_package_owner(&db, "pkg");
-        let package_exports = db.package_exports(package_id);
+        let package_exports = db.package_exports(&crate::unit::test_resolution(&db), package_id);
         assert!(
             package_exports
                 .lookup(NameContext::Type, &ident("imported_t"))
@@ -1588,7 +1588,7 @@ endmodule
 
         let imported_t = resolve_name(
             &db,
-            &crate::pathres::ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             wildcard_importer,
             &ident("imported_t"),
             NameContext::Type,
@@ -1597,7 +1597,7 @@ endmodule
         assert!(
             resolve_name(
                 &db,
-                &crate::pathres::ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 wildcard_importer,
                 &ident("imported_t"),
                 NameContext::Value,
@@ -1608,7 +1608,7 @@ endmodule
 
         let shadowed_v = resolve_name(
             &db,
-            &crate::pathres::ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             wildcard_importer,
             &ident("shadowed_v"),
             NameContext::Value,
@@ -1625,7 +1625,7 @@ endmodule
 
         let imported_v = resolve_name(
             &db,
-            &crate::pathres::ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             named_importer,
             &ident("imported_v"),
             NameContext::Value,
@@ -1634,7 +1634,7 @@ endmodule
         assert!(
             resolve_name(
                 &db,
-                &crate::pathres::ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 named_importer,
                 &ident("imported_t"),
                 NameContext::Type,
@@ -1667,7 +1667,7 @@ endmodule
         let package_id = crate::unit::test_package_owner(&db, "pkg");
         let package_f = resolve_name(
             &db,
-            &crate::pathres::ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             package_id,
             &ident("f"),
             NameContext::Value,
@@ -1684,7 +1684,7 @@ endmodule
         let named_importer = crate::unit::test_module_owner(&db, "named_importer");
         let named_import_f = resolve_name(
             &db,
-            &crate::pathres::ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             named_importer,
             &ident("f"),
             NameContext::Value,
@@ -1695,7 +1695,7 @@ endmodule
         let wildcard_importer = crate::unit::test_module_owner(&db, "wildcard_importer");
         let wildcard_import_f = resolve_name(
             &db,
-            &crate::pathres::ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             wildcard_importer,
             &ident("f"),
             NameContext::Value,
@@ -1816,7 +1816,7 @@ endpackage
 
         let package_id = crate::unit::test_package_owner(&db, "pkg");
 
-        let exports = db.package_exports(package_id);
+        let exports = db.package_exports(&crate::unit::test_resolution(&db), package_id);
         assert!(
             exports
                 .lookup(NameContext::Value, &ident("exported_f"))
@@ -1824,8 +1824,9 @@ endpackage
                 .any(|def_id| def_id.kind(&db) == DefKind::Subroutine)
         );
 
-        let before_body_edit = db.package_export_signature(package_id);
-        let before_design_map = crate::pathres::ResolutionContext::from_db(&db).design_map(&db);
+        let before_body_edit =
+            db.package_export_signature(&crate::unit::test_resolution(&db), package_id);
+        let before_design_map = crate::unit::test_resolution(&db).design_map(&db);
         db.set_file_text_with_durability(
             TOP,
             Arc::from(
@@ -1842,12 +1843,13 @@ endpackage
             ),
             Durability::LOW,
         );
-        let after_body_edit = db.package_export_signature(package_id);
+        let after_body_edit =
+            db.package_export_signature(&crate::unit::test_resolution(&db), package_id);
         assert_eq!(
             before_body_edit, after_body_edit,
             "function body edits should not change the package export signature"
         );
-        let after_design_map = crate::pathres::ResolutionContext::from_db(&db).design_map(&db);
+        let after_design_map = crate::unit::test_resolution(&db).design_map(&db);
         assert_eq!(
             before_design_map, after_design_map,
             "function body edits should not change the design map"

@@ -23,7 +23,7 @@ pub(super) fn expected_port_ty(
     if res.is_unresolved() {
         return None;
     }
-    Some(TypeSystem::new(db.db).type_of_resolution(res))
+    Some(TypeSystem::new(db.db, db.resolution()).type_of_resolution(res))
 }
 
 pub(super) fn expected_param_ty(
@@ -39,7 +39,7 @@ pub(super) fn expected_param_ty(
     if res.is_unresolved() {
         return None;
     }
-    Some(TypeSystem::new(db.db).type_of_resolution(res))
+    Some(TypeSystem::new(db.db, db.resolution()).type_of_resolution(res))
 }
 
 pub(super) fn value_candidates_in_module(
@@ -71,7 +71,8 @@ pub(super) fn is_compatible_typed_value(
     expected: &Type,
     candidate: &Type,
 ) -> bool {
-    TypeSystem::new(db.db).compatibility(expected, candidate) == Compatibility::Compatible
+    TypeSystem::new(db.db, db.resolution()).compatibility(expected, candidate)
+        == Compatibility::Compatible
 }
 
 fn typed_candidates_in_module(
@@ -79,7 +80,7 @@ fn typed_candidates_in_module(
     module_id: OwnerId,
     include: impl Fn(DefKind) -> bool,
 ) -> Vec<(String, Type)> {
-    let types = TypeSystem::new(db.db);
+    let types = TypeSystem::new(db.db, db.resolution());
     let scope = db.scope(module_id);
     let mut candidates: Vec<_> = scope
         .iter_listing()

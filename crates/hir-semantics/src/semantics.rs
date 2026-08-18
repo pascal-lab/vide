@@ -54,11 +54,6 @@ impl ParsedFile {
 }
 
 impl<DB: HirDefDb> Semantics<'_, DB> {
-    pub fn new(db: &DB) -> Semantics<'_, DB> {
-        let impl_ = SemanticsImpl::new(db);
-        Semantics { db, impl_ }
-    }
-
     pub fn new_with_context(
         db: &DB,
         context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
@@ -102,10 +97,6 @@ pub struct SemanticsImpl<'db> {
 }
 
 impl<'db> SemanticsImpl<'db> {
-    pub fn new(db: &'db dyn HirDefDb) -> Self {
-        Self::new_with_context(db, hir_def::pathres::ResolutionContext::from_db(db))
-    }
-
     pub fn new_with_context(
         db: &'db dyn HirDefDb,
         context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
@@ -114,8 +105,8 @@ impl<'db> SemanticsImpl<'db> {
     }
 
     /// The injected name-join context. IDE request paths pass the store graph.
-    pub fn resolution_context(&self) -> &hir_def::pathres::ResolutionContext {
-        &self.context
+    pub fn resolution_context(&self) -> triomphe::Arc<hir_def::pathres::ResolutionContext> {
+        self.context.clone()
     }
 
     pub fn parse_file(&self, file_id: FileId) -> ParsedFile {

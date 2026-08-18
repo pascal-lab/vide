@@ -35,12 +35,6 @@ impl ResolutionContext {
         })
     }
 
-    /// Source-visible graph from salsa. Generated supplement lives on the
-    /// injected store graph used by [`Self::from_graph`].
-    pub fn from_db(db: &dyn HirDefDb) -> Arc<Self> {
-        Self::from_graph(db.source_design_graph())
-    }
-
     pub fn graph(&self) -> &design_graph::DesignGraph {
         &self.graph
     }
@@ -758,7 +752,7 @@ mod tests {
         ctx: NameContext,
     ) -> DefKind {
         let path = path(segments);
-        resolve_path(db, &ResolutionContext::from_db(db), scope_id, &path, ctx)
+        resolve_path(db, &crate::unit::test_resolution(db), scope_id, &path, ctx)
             .unique()
             .map(|def_id| def_id.kind(db))
             .unwrap_or_else(|| panic!("path {segments:?} should resolve"))
@@ -826,7 +820,7 @@ endmodule
         assert!(
             resolve_path(
                 &db,
-                &ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 top,
                 &path(&["u", "only_left"]),
                 NameContext::Value
@@ -835,7 +829,7 @@ endmodule
         );
         let Resolution::Ambiguous(shared) = resolve_path(
             &db,
-            &ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             top,
             &path(&["u", "shared"]),
             NameContext::Value,
@@ -865,7 +859,7 @@ endmodule
         let top = crate::unit::test_module_owner(&db, "top");
         let Resolution::Ambiguous(values) = resolve_name(
             &db,
-            &ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             top,
             &ident("value"),
             NameContext::Value,
@@ -896,7 +890,7 @@ endmodule
         assert!(
             resolve_name(
                 &db,
-                &ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 top,
                 &ident("only_left"),
                 NameContext::Value
@@ -927,14 +921,14 @@ endmodule
         let top = crate::unit::test_module_owner(&db, "top");
         let named = crate::unit::test_package_owner(&db, "named");
         let expected = db
-            .package_exports(named)
+            .package_exports(&crate::unit::test_resolution(&db), named)
             .lookup(NameContext::Value, &ident("value"))
             .unique()
             .expect("named package value should resolve uniquely");
 
         let (resolved, trace) = resolve_name_with_trace(
             &db,
-            &ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             top,
             &ident("value"),
             NameContext::Value,
@@ -973,7 +967,7 @@ endmodule
         let top = crate::unit::test_module_owner(&db, "top");
         let (resolved, trace) = resolve_name_with_trace(
             &db,
-            &ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             top,
             &ident("value"),
             NameContext::Value,
@@ -1012,7 +1006,7 @@ endmodule
         let p2 = crate::unit::test_package_owner(&db, "p2");
         let p2_x = resolve_name(
             &db,
-            &ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             p2,
             &ident("x"),
             NameContext::Value,
@@ -1022,7 +1016,7 @@ endmodule
         assert_eq!(
             resolve_name(
                 &db,
-                &ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 top,
                 &ident("x"),
                 NameContext::Value
@@ -1061,7 +1055,7 @@ endmodule
         let p2 = crate::unit::test_package_owner(&db, "p2");
         let p2_x = resolve_name(
             &db,
-            &ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             p2,
             &ident("x"),
             NameContext::Value,
@@ -1071,7 +1065,7 @@ endmodule
         assert_eq!(
             resolve_name(
                 &db,
-                &ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 block,
                 &ident("x"),
                 NameContext::Value
@@ -1106,7 +1100,7 @@ endmodule
 
         let outer = crate::unit::test_package_owner(&db, "outer");
         assert!(
-            db.package_exports(outer)
+            db.package_exports(&crate::unit::test_resolution(&db), outer)
                 .lookup(NameContext::Value, &ident("value"))
                 .unique()
                 .is_some(),
@@ -1117,7 +1111,7 @@ endmodule
         assert!(
             resolve_name(
                 &db,
-                &ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 top,
                 &ident("value"),
                 NameContext::Value
@@ -1153,14 +1147,14 @@ endmodule
         let top = crate::unit::test_module_owner(&db, "top");
         let selective = crate::unit::test_package_owner(&db, "selective");
         assert!(
-            db.package_exports(selective)
+            db.package_exports(&crate::unit::test_resolution(&db), selective)
                 .lookup(NameContext::Value, &ident("exported"))
                 .unique()
                 .is_some(),
             "selective export must expose the selected imported value"
         );
         assert!(
-            db.package_exports(selective)
+            db.package_exports(&crate::unit::test_resolution(&db), selective)
                 .lookup(NameContext::Value, &ident("private"))
                 .is_unresolved(),
             "selective export must not expose other wildcard-imported values"
@@ -1168,7 +1162,7 @@ endmodule
         assert!(
             resolve_name(
                 &db,
-                &ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 top,
                 &ident("private"),
                 NameContext::Value
@@ -1199,8 +1193,9 @@ endmodule
 "#,
         );
         let p = crate::unit::test_package_owner(&db, "p");
-        let Resolution::Ambiguous(candidates) =
-            db.package_exports(p).lookup(NameContext::Value, &ident("x"))
+        let Resolution::Ambiguous(candidates) = db
+            .package_exports(&crate::unit::test_resolution(&db), p)
+            .lookup(NameContext::Value, &ident("x"))
         else {
             panic!("mutually exported x must remain ambiguous");
         };
@@ -1209,7 +1204,7 @@ endmodule
         let top = crate::unit::test_module_owner(&db, "top");
         let Resolution::Ambiguous(candidates) = resolve_name(
             &db,
-            &ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             top,
             &ident("x"),
             NameContext::Value,
@@ -1237,7 +1232,7 @@ endmodule
         );
         let base = crate::unit::test_package_owner(&db, "base");
         let expected = db
-            .package_exports(base)
+            .package_exports(&crate::unit::test_resolution(&db), base)
             .lookup(NameContext::Value, &ident("value"))
             .unique()
             .expect("base::value");
@@ -1245,7 +1240,7 @@ endmodule
         assert_eq!(
             resolve_name(
                 &db,
-                &ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 top,
                 &ident("value"),
                 NameContext::Value
@@ -1331,15 +1326,20 @@ endmodule
             .expect("generate block b")
             .id;
         let p = crate::unit::test_package_owner(&db, "p");
-        let p_f =
-            resolve_name(&db, &ResolutionContext::from_db(&db), p, &ident("f"), NameContext::Value)
-                .unique()
-                .expect("p::f");
+        let p_f = resolve_name(
+            &db,
+            &crate::unit::test_resolution(&db),
+            p,
+            &ident("f"),
+            NameContext::Value,
+        )
+        .unique()
+        .expect("p::f");
 
         let reference = reference_at(&db, text, "x = f()", RefKind::Call);
         let resolved = resolve_name_at(
             &db,
-            &ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             b,
             &ident("f"),
             NameContext::Value,
@@ -1348,8 +1348,13 @@ endmodule
         assert_eq!(resolved, Resolution::Unique(p_f), "only the preceding wildcard may bind");
 
         // Without a position both wildcards merge (the previous behavior).
-        let positionless =
-            resolve_name(&db, &ResolutionContext::from_db(&db), b, &ident("f"), NameContext::Value);
+        let positionless = resolve_name(
+            &db,
+            &crate::unit::test_resolution(&db),
+            b,
+            &ident("f"),
+            NameContext::Value,
+        );
         assert!(matches!(positionless, Resolution::Ambiguous(_)));
     }
 
@@ -1382,7 +1387,7 @@ endmodule
         assert!(
             resolve_name_at(
                 &db,
-                &ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 b,
                 &ident("f"),
                 NameContext::Value,
@@ -1418,16 +1423,21 @@ endmodule
             .expect("generate block b")
             .id;
         let p = crate::unit::test_package_owner(&db, "p");
-        let p_x =
-            resolve_name(&db, &ResolutionContext::from_db(&db), p, &ident("x"), NameContext::Value)
-                .unique()
-                .expect("p::x");
+        let p_x = resolve_name(
+            &db,
+            &crate::unit::test_resolution(&db),
+            p,
+            &ident("x"),
+            NameContext::Value,
+        )
+        .unique()
+        .expect("p::x");
 
         let reference = reference_at(&db, text, "x = 1", RefKind::Value);
         assert_eq!(
             resolve_name_at(
                 &db,
-                &ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 b,
                 &ident("x"),
                 NameContext::Value,
@@ -1453,7 +1463,7 @@ endmodule
         assert!(
             resolve_name_at(
                 &db,
-                &ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 blk,
                 &ident("x"),
                 NameContext::Value,
@@ -1465,7 +1475,7 @@ endmodule
         assert!(
             resolve_name(
                 &db,
-                &ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 blk,
                 &ident("x"),
                 NameContext::Value
@@ -1484,16 +1494,21 @@ endmodule
             "module m;\n  assign y = f();\n  function int f(); return 1; endfunction\nendmodule\n";
         let db = db_with_root_text(text);
         let m = crate::unit::test_module_owner(&db, "m");
-        let f =
-            resolve_name(&db, &ResolutionContext::from_db(&db), m, &ident("f"), NameContext::Value)
-                .unique()
-                .expect("m::f");
+        let f = resolve_name(
+            &db,
+            &crate::unit::test_resolution(&db),
+            m,
+            &ident("f"),
+            NameContext::Value,
+        )
+        .unique()
+        .expect("m::f");
 
         let call = reference_at(&db, text, "y = f()", RefKind::Call);
         assert_eq!(
             resolve_name_at(
                 &db,
-                &ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 m,
                 &ident("f"),
                 NameContext::Value,
@@ -1505,7 +1520,7 @@ endmodule
         assert!(
             resolve_name_at(
                 &db,
-                &ResolutionContext::from_db(&db),
+                &crate::unit::test_resolution(&db),
                 m,
                 &ident("f"),
                 NameContext::Value,
@@ -1561,7 +1576,7 @@ endmodule
 
         let resolution = resolve_path(
             &db,
-            &ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             db.owner_table(HirFileId::File(TOP)).file_owner().expect("file owner"),
             &path(&["child", "sig"]),
             NameContext::Value,
@@ -1588,7 +1603,7 @@ endmodule
 
         let res = resolve_path(
             &db,
-            &ResolutionContext::from_db(&db),
+            &crate::unit::test_resolution(&db),
             top,
             &path(&["u_if", "host"]),
             NameContext::Value,

@@ -19,7 +19,7 @@ use hir_def::{
         data_ty::{DataTy, TypePathKind},
     },
     owner::OwnerId,
-    pathres::{ResolutionContext, resolve_name, resolve_path},
+    pathres::{resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
     unit::ToOwner,
 };
@@ -129,21 +129,23 @@ fn module_id(db: &TestDb, name: &str) -> OwnerId {
 
 fn type_of_name(db: &TestDb, module: OwnerId, name: &str, context: NameContext) -> Type {
     let resolution =
-        resolve_name(db, &ResolutionContext::from_db(db), module, &ident(name), context);
+        resolve_name(db, &hir_def::unit::test_resolution(db), module, &ident(name), context);
     assert!(!resolution.is_unresolved(), "{name} should resolve");
-    TypeSystem::new(db).type_of_resolution(resolution)
+    TypeSystem::new(db, hir_def::unit::test_resolution(db)).type_of_resolution(resolution)
 }
 
 fn type_of_path(db: &TestDb, module: OwnerId, segments: &[&str]) -> Type {
     let path = segments.iter().map(|segment| ident(segment)).collect::<Vec<_>>();
     let resolution =
-        resolve_path(db, &ResolutionContext::from_db(db), module, &path, NameContext::Value);
+        resolve_path(db, &hir_def::unit::test_resolution(db), module, &path, NameContext::Value);
     assert!(!resolution.is_unresolved(), "path {segments:?} should resolve");
-    TypeSystem::new(db).type_of_resolution(resolution)
+    TypeSystem::new(db, hir_def::unit::test_resolution(db)).type_of_resolution(resolution)
 }
 
 fn display_type(db: &TestDb, ty: &Type) -> String {
-    TypeSystem::new(db).display_source(ty).expect("formatting a type into a String should not fail")
+    TypeSystem::new(db, hir_def::unit::test_resolution(db))
+        .display_source(ty)
+        .expect("formatting a type into a String should not fail")
 }
 
 #[test]
@@ -205,7 +207,7 @@ endmodule
 "#,
     );
     let module = module_id(&db, "m");
-    let types = TypeSystem::new(&db);
+    let types = TypeSystem::new(&db, hir_def::unit::test_resolution(&db));
     let payload = type_of_name(&db, module, "payload", NameContext::Value);
     let member_names = types
         .members(&payload)
@@ -242,7 +244,7 @@ endmodule
 "#,
     );
     let module = module_id(&db, "m");
-    let types = TypeSystem::new(&db);
+    let types = TypeSystem::new(&db, hir_def::unit::test_resolution(&db));
     let payload = type_of_name(&db, module, "payload", NameContext::Value);
     let members = types.members(&payload);
     assert_eq!(
@@ -323,7 +325,7 @@ endmodule
 "#,
     );
     let module = module_id(&db, "m");
-    let types = TypeSystem::new(&db);
+    let types = TypeSystem::new(&db, hir_def::unit::test_resolution(&db));
     let values = type_of_name(&db, module, "values", NameContext::Value);
     assert_eq!(
         types.display_source(&values).expect("wildcard array type should render"),

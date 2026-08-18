@@ -22,62 +22,53 @@ use rustc_hash::FxHashSet;
 use utils::get::GetRef;
 
 use crate::{
-    Type, TypeDiagnostic,
+    TypeDiagnostic,
     db::TyDb,
     members::select_member,
     ty::{BuiltinTy, Ty, TyResult},
 };
 
-#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
-pub(crate) struct ExprQueryKey {
-    #[returns(copy)]
-    pub owner: hir_def::owner::OwnerId,
-    #[returns(copy)]
-    pub local: u32,
-}
-pub(crate) fn normalize_data_ty(db: &dyn TyDb, container: OwnerId, data_ty: DataTy) -> TyResult {
-    normalize_data_ty_with_owner(db, container, data_ty, None)
+pub(crate) fn normalize_data_ty(
+    db: &dyn TyDb,
+    context: &ResolutionContext,
+    container: OwnerId,
+    data_ty: DataTy,
+) -> TyResult {
+    normalize_data_ty_with_owner(db, context, container, data_ty, None)
 }
 
 fn normalize_data_ty_with_owner(
     db: &dyn TyDb,
+    context: &ResolutionContext,
     container: OwnerId,
     data_ty: DataTy,
     owner: Option<DefId>,
 ) -> TyResult {
-    normalize_data_ty_inner(db, container, data_ty, owner, &mut FxHashSet::default())
+    normalize_data_ty_inner(db, context, container, data_ty, owner, &mut FxHashSet::default())
 }
 
-#[salsa::tracked(returns(clone))]
-pub(crate) fn type_of_def_origin_query(db: &dyn TyDb, origin: hir_def::symbol::DefOrigin) -> Type {
-    let def_id = DefId::from_origin(db, origin);
-    type_of_def_id(db, def_id).into()
+fn type_of_typedef_impl(
+    db: &dyn TyDb,
+    context: &ResolutionContext,
+    typedef: OwnerRef<TypedefId>,
+) -> TyResult {
+    type_of_typedef_inner(db, context, typedef, &mut FxHashSet::default())
 }
 
-#[salsa::tracked(returns(clone))]
-pub(crate) fn type_of_expr_query(db: &dyn TyDb, key: ExprQueryKey) -> Type {
-    let body = db.body_with_source_map(key.owner(db));
-    let (expr_id, _) = body
-        .exprs
-        .iter()
-        .nth(key.local(db) as usize)
-        .expect("expression query key must refer to an expression in its owner body");
-    let expr = OwnerRef::new(key.owner(db), expr_id);
-    type_of_expr_impl(db, expr).into()
-}
-fn type_of_typedef_impl(db: &dyn TyDb, typedef: OwnerRef<TypedefId>) -> TyResult {
-    type_of_typedef_inner(db, typedef, &mut FxHashSet::default())
-}
-
-fn type_of_decl_impl(db: &dyn TyDb, decl: OwnerRef<DeclId>) -> TyResult {
+fn type_of_decl_impl(
+    db: &dyn TyDb,
+    context: &ResolutionContext,
+    decl: OwnerRef<DeclId>,
+) -> TyResult {
     let Some(data_ty) = data_ty_of_decl(db, decl) else {
         return TyResult::new(Ty::Unknown);
     };
     let owner = DefId::from_source(db, decl);
-    let mut result = normalize_data_ty_with_owner(db, decl.cont_id, data_ty, Some(owner));
+    let mut result = normalize_data_ty_with_owner(db, context, decl.cont_id, data_ty, Some(owner));
     let data = decl.cont_id.data(db);
     result.ty = apply_unpacked_dimensions(
         db,
+        context,
         decl.cont_id,
         result.ty,
         &data.declarator(decl.value).dimensions,
@@ -85,14 +76,22 @@ fn type_of_decl_impl(db: &dyn TyDb, decl: OwnerRef<DeclId>) -> TyResult {
     result
 }
 
-pub(crate) fn type_of_path_resolution_impl(db: &dyn TyDb, res: Resolution<DefId>) -> TyResult {
+pub(crate) fn type_of_path_resolution_impl(
+    db: &dyn TyDb,
+    context: &ResolutionContext,
+    res: Resolution<DefId>,
+) -> TyResult {
     res.unique()
-        .map(|def_id| type_of_def_id(db, def_id))
+        .map(|def_id| type_of_def_id(db, context, def_id))
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
 }
-pub(crate) fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
+pub(crate) fn type_of_def_id(
+    db: &dyn TyDb,
+    context: &ResolutionContext,
+    def_id: DefId,
+) -> TyResult {
     if def_id.is_non_ansi_port(db) {
-        return type_of_non_ansi_port(db, def_id);
+        return type_of_non_ansi_port(db, context, def_id);
     }
     let origin = def_id.primary_origin(db);
     match def_id.kind(db) {
@@ -111,25 +110,20 @@ pub(crate) fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
         | DefKind::Genvar
         | DefKind::Specparam => origin
             .as_decl(db)
-            .map(|decl| type_of_decl_impl(db, decl))
+            .map(|decl| type_of_decl_impl(db, context, decl))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Typedef => origin
             .as_typedef(db)
-            .map(|typedef| type_of_typedef_impl(db, typedef))
+            .map(|typedef| type_of_typedef_impl(db, context, typedef))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::SubroutinePort => origin
             .as_subroutine_port(db)
-            .map(|port| type_of_subroutine_port_impl(db, port))
+            .map(|port| type_of_subroutine_port_impl(db, context, port))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Instance => origin
             .as_instance(db)
             .and_then(|instance| {
-                instance_target_def_id(
-                    db,
-                    &ResolutionContext::from_db(db),
-                    instance.cont_id,
-                    instance.value,
-                )
+                instance_target_def_id(db, context, instance.cont_id, instance.value)
             })
             .map(|target| match target.kind(db) {
                 DefKind::Interface => {
@@ -230,13 +224,13 @@ pub(crate) fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
         }
     }
 }
-fn type_of_non_ansi_port(db: &dyn TyDb, def_id: DefId) -> TyResult {
+fn type_of_non_ansi_port(db: &dyn TyDb, context: &ResolutionContext, def_id: DefId) -> TyResult {
     let mut port_ty = None;
     for origin in def_id.origins(db) {
         let Some(decl) = origin.as_decl(db) else {
             continue;
         };
-        let ty = type_of_decl_impl(db, decl);
+        let ty = type_of_decl_impl(db, context, decl);
         match origin.kind(db) {
             DefKind::Variable | DefKind::Net if !matches!(ty.ty, Ty::Unknown) => return ty,
             DefKind::Port => {
@@ -291,7 +285,11 @@ fn type_of_non_ansi_port(db: &dyn TyDb, def_id: DefId) -> TyResult {
     port_ty.unwrap_or_else(|| TyResult::new(Ty::Unknown))
 }
 
-fn type_of_expr_impl(db: &dyn TyDb, expr: OwnerRef<ExprId>) -> TyResult {
+pub(crate) fn type_of_expr_impl(
+    db: &dyn TyDb,
+    context: &ResolutionContext,
+    expr: OwnerRef<ExprId>,
+) -> TyResult {
     let data = expr.cont_id.data(db);
     match data.expr(expr.value) {
         Expr::Ident(ident) => {
@@ -300,9 +298,10 @@ fn type_of_expr_impl(db: &dyn TyDb, expr: OwnerRef<ExprId>) -> TyResult {
             let reference = expr_reference(db, expr);
             type_of_path_resolution_impl(
                 db,
+                context,
                 resolve_name_at(
                     db,
-                    &ResolutionContext::from_db(db),
+                    context,
                     expr.cont_id,
                     ident,
                     NameContext::Value,
@@ -314,16 +313,18 @@ fn type_of_expr_impl(db: &dyn TyDb, expr: OwnerRef<ExprId>) -> TyResult {
             let Some(field) = field else {
                 return TyResult::new(Ty::Unknown);
             };
-            let base = type_of_expr_impl(db, expr.with_value(*receiver));
+            let base = type_of_expr_impl(db, context, expr.with_value(*receiver));
             if matches!(base.ty, Ty::Unknown | Ty::Error) {
                 return base;
             }
-            let mut selected = select_member(db, &base.ty, field);
+            let mut selected = select_member(db, context, &base.ty, field);
             selected.diagnostics.extend(base.diagnostics);
             selected
         }
-        Expr::ElementSelect { receiver, .. } => type_of_expr_impl(db, expr.with_value(*receiver)),
-        Expr::Cast { ty, .. } => normalize_data_ty(db, expr.cont_id, ty.clone()),
+        Expr::ElementSelect { receiver, .. } => {
+            type_of_expr_impl(db, context, expr.with_value(*receiver))
+        }
+        Expr::Cast { ty, .. } => normalize_data_ty(db, context, expr.cont_id, ty.clone()),
         _ => TyResult::new(Ty::Unknown),
     }
 }
@@ -341,6 +342,7 @@ fn expr_reference(db: &dyn TyDb, expr: OwnerRef<ExprId>) -> Option<NameRef> {
 
 fn normalize_data_ty_inner(
     db: &dyn TyDb,
+    context: &ResolutionContext,
     container: OwnerId,
     data_ty: DataTy,
     owner: Option<DefId>,
@@ -360,7 +362,7 @@ fn normalize_data_ty_inner(
                 .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
             Some(StructKind::Struct) | None => TyResult::new(Ty::Struct(struct_id)),
         },
-        DataTy::Named(named) => type_of_named_data_ty(db, container, named, seen),
+        DataTy::Named(named) => type_of_named_data_ty(db, context, container, named, seen),
         DataTy::Enum(_) => {
             owner.map(Ty::Enum).map(TyResult::new).unwrap_or_else(|| TyResult::new(Ty::Unknown))
         }
@@ -372,6 +374,7 @@ fn normalize_data_ty_inner(
 
 fn type_of_named_data_ty(
     db: &dyn TyDb,
+    context: &ResolutionContext,
     container: OwnerId,
     named: TypeRef,
     seen: &mut FxHashSet<OwnerRef<TypedefId>>,
@@ -382,24 +385,19 @@ fn type_of_named_data_ty(
             diagnostics: vec![TypeDiagnostic::InvalidTypePath(recovery)],
         };
     }
-    let resolution = resolve_path(
-        db,
-        &ResolutionContext::from_db(db),
-        container,
-        named.segments(),
-        NameContext::Type,
-    );
+    let resolution = resolve_path(db, context, container, named.segments(), NameContext::Type);
     let Some(def_id) = resolution.unique() else {
         return TyResult::new(Ty::Unknown);
     };
     if let Some(typedef) = def_id.primary_origin(db).as_typedef(db) {
-        return type_of_typedef_inner(db, typedef, seen);
+        return type_of_typedef_inner(db, context, typedef, seen);
     }
-    type_of_def_id(db, def_id)
+    type_of_def_id(db, context, def_id)
 }
 
 fn type_of_typedef_inner(
     db: &dyn TyDb,
+    context: &ResolutionContext,
     typedef: OwnerRef<TypedefId>,
     seen: &mut FxHashSet<OwnerRef<TypedefId>>,
 ) -> TyResult {
@@ -417,7 +415,8 @@ fn type_of_typedef_inner(
     };
 
     let owner = DefId::from_source(db, typedef);
-    let mut target = normalize_data_ty_inner(db, typedef.cont_id, data_ty, Some(owner), seen);
+    let mut target =
+        normalize_data_ty_inner(db, context, typedef.cont_id, data_ty, Some(owner), seen);
     seen.remove(&typedef);
     let ty = if matches!(target.ty, Ty::Error) {
         Ty::Error
@@ -433,6 +432,7 @@ fn struct_kind(db: &dyn TyDb, struct_id: OwnerRef<StructId>) -> Option<StructKin
 
 pub(crate) fn apply_unpacked_dimensions(
     db: &dyn TyDb,
+    context: &ResolutionContext,
     container: OwnerId,
     mut ty: Ty,
     dimensions: &[Option<Dimension>],
@@ -441,14 +441,14 @@ pub(crate) fn apply_unpacked_dimensions(
         ty = match dim {
             Dimension::Queue(size) => Ty::Queue { elem: Box::new(ty), size: *size },
             Dimension::Assoc(key) => Ty::Assoc {
-                key: Box::new(type_of_dimension_key(db, &container, *key)),
+                key: Box::new(type_of_dimension_key(db, context, &container, *key)),
                 elem: Box::new(ty),
             },
             Dimension::Wildcard => Ty::Assoc { key: Box::new(Ty::Unknown), elem: Box::new(ty) },
             Dimension::Dynamic => Ty::Dynamic(Box::new(ty)),
             Dimension::Size(key) if builtin_dimension_key_ty(db, &container, *key).is_some() => {
                 Ty::Assoc {
-                    key: Box::new(type_of_dimension_key(db, &container, *key)),
+                    key: Box::new(type_of_dimension_key(db, context, &container, *key)),
                     elem: Box::new(ty),
                 }
             }
@@ -458,11 +458,16 @@ pub(crate) fn apply_unpacked_dimensions(
     ty
 }
 
-fn type_of_dimension_key(db: &dyn TyDb, container: &OwnerId, expr_id: ExprId) -> Ty {
+fn type_of_dimension_key(
+    db: &dyn TyDb,
+    context: &ResolutionContext,
+    container: &OwnerId,
+    expr_id: ExprId,
+) -> Ty {
     if let Some(ty) = builtin_dimension_key_ty(db, container, expr_id) {
         return ty;
     }
-    type_of_expr_impl(db, OwnerRef::new(*container, expr_id)).ty
+    type_of_expr_impl(db, context, OwnerRef::new(*container, expr_id)).ty
 }
 
 fn builtin_dimension_key_ty(db: &dyn TyDb, container: &OwnerId, expr_id: ExprId) -> Option<Ty> {
@@ -521,7 +526,11 @@ fn port_decl_ty(db: &dyn TyDb, cont_id: OwnerId, port_decl_id: PortDeclId) -> Op
     Some(module.ports.get(port_decl_id).header.ty())
 }
 
-fn type_of_subroutine_port_impl(db: &dyn TyDb, port: OwnerRef<SubroutinePortId>) -> TyResult {
+fn type_of_subroutine_port_impl(
+    db: &dyn TyDb,
+    context: &ResolutionContext,
+    port: OwnerRef<SubroutinePortId>,
+) -> TyResult {
     let owner = port.cont_id;
     let subroutine = db.subroutine(owner);
     let Some(port_data) = subroutine.ports.get(port.value.0 as usize) else {
@@ -530,6 +539,8 @@ fn type_of_subroutine_port_impl(db: &dyn TyDb, port: OwnerRef<SubroutinePortId>)
     port_data
         .ty
         .clone()
-        .map(|ty| normalize_data_ty_with_owner(db, owner, ty, Some(DefId::from_source(db, port))))
+        .map(|ty| {
+            normalize_data_ty_with_owner(db, context, owner, ty, Some(DefId::from_source(db, port)))
+        })
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
 }

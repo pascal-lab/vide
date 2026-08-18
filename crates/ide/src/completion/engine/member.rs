@@ -86,7 +86,8 @@ fn members_for_incomplete_scoped_access(
     }
     let left = root.token_before_offset(separator.text_range()?.start())?;
     let res = sema.nameres_ident(file_id, left, NameContext::Type);
-    let members = TypeSystem::new(db.db).members(&TypeSystem::new(db.db).type_of_resolution(res));
+    let members = TypeSystem::new(db.db, db.resolution())
+        .members(&TypeSystem::new(db.db, db.resolution()).type_of_resolution(res));
     (!members.is_empty()).then_some(members)
 }
 
@@ -126,7 +127,7 @@ fn members_for_expr(
     expr: ast::Expression<'_>,
 ) -> Option<Vec<Member>> {
     let expr_id = sema.resolve_expr(file_id, expr)?;
-    let types = TypeSystem::new(db.db);
+    let types = TypeSystem::new(db.db, db.resolution());
     let mut members = types.members(&types.type_of_expr(expr_id));
     if members.is_empty() {
         members = types.members(&types.type_of_resolution(sema.expr_to_def(expr_id)));
@@ -142,7 +143,7 @@ fn members_for_scoped_name(
 ) -> Option<Vec<Member>> {
     if let Some(left) = scoped_left_token(scoped) {
         let res = sema.nameres_ident(file_id, left, NameContext::Type);
-        let types = TypeSystem::new(db.db);
+        let types = TypeSystem::new(db.db, db.resolution());
         let members = types.members(&types.type_of_resolution(res));
         return (!members.is_empty()).then_some(members);
     }

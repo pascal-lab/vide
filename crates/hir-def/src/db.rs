@@ -89,8 +89,9 @@ impl dyn HirDefDb + '_ {
     pub fn file_lowering_diagnostics(
         &self,
         file_id: HirFileId,
+        context: &crate::pathres::ResolutionContext,
     ) -> Arc<[crate::source_map::LoweringDiagnostic]> {
-        diagnostics::file_lowering_diagnostics(self, self.syntax_file(file_id))
+        diagnostics::file_lowering_diagnostics(self, self.syntax_file(file_id), context)
     }
 
     pub fn scope(&self, owner: OwnerId) -> Arc<crate::symbol::ScopeData> {
@@ -105,12 +106,6 @@ impl dyn HirDefDb + '_ {
         <dyn DesignGraphDb>::file_facts(self, file_id)
     }
 
-    /// Source-only name join for HIR tests and interiors that have no
-    /// product store. IDE request paths must pass the injected store graph.
-    pub fn source_design_graph(&self) -> Arc<design_graph::DesignGraph> {
-        source_design_graph(self)
-    }
-
     pub fn subroutine(&self, owner: OwnerId) -> Arc<Subroutine> {
         debug_assert_eq!(owner.kind(self), crate::owner::OwnerKind::Subroutine);
         Arc::new(
@@ -121,12 +116,20 @@ impl dyn HirDefDb + '_ {
         )
     }
 
-    pub fn package_export_signature(&self, package_owner: OwnerId) -> Arc<PackageExports> {
-        self.package_exports(package_owner)
+    pub fn package_export_signature(
+        &self,
+        context: &crate::pathres::ResolutionContext,
+        package_owner: OwnerId,
+    ) -> Arc<PackageExports> {
+        self.package_exports(context, package_owner)
     }
 
-    pub fn package_exports(&self, package_owner: OwnerId) -> Arc<PackageExports> {
-        crate::pathres::ResolutionContext::from_db(self)
+    pub fn package_exports(
+        &self,
+        context: &crate::pathres::ResolutionContext,
+        package_owner: OwnerId,
+    ) -> Arc<PackageExports> {
+        context
             .design_map(self)
             .package_exports(package_owner)
             .expect("package owner must be present in the design map")
@@ -153,10 +156,4 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     source_projection::set_source_projection_lru_capacity(db, capacity);
     crate::region_tree::set_region_tree_lru_capacity(db, capacity);
     crate::ty::set_default_nettype_lru_capacity(db, capacity);
-    source_design_graph::set_lru_capacity(db, capacity);
-}
-
-#[salsa::tracked(lru = 128, returns(clone))]
-fn source_design_graph(db: &dyn HirDefDb) -> Arc<design_graph::DesignGraph> {
-    Arc::new(design_graph::DesignGraph::fold(db, &design_graph::GeneratedUnits::default()))
 }

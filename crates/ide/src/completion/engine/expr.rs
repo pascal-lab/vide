@@ -150,12 +150,12 @@ fn collect_def_names(
         )
     }) {
         let res = Resolution::from_candidates(defs.iter().cloned());
-        let ty = TypeSystem::new(db.db).type_of_resolution(res);
+        let ty = TypeSystem::new(db.db, db.resolution()).type_of_resolution(res);
         names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
     }
 }
 fn subroutine_return_ty(db: &AnalysisContext<'_>, subroutine: OwnerId) -> Type {
-    TypeSystem::new(db.db).type_of_subroutine_return(subroutine)
+    TypeSystem::new(db.db, db.resolution()).type_of_subroutine_return(subroutine)
 }
 
 fn module_id_for_container(db: &AnalysisContext<'_>, owner: OwnerId) -> Option<OwnerId> {
@@ -186,7 +186,7 @@ fn expected_type_at_offset(
 ) -> Option<Type> {
     expected_type_for_assignment_rhs(db, sema, file_id, root, offset)
         .or_else(|| expected_type_for_declarator_initializer(db, sema, file_id, root, offset))
-        .filter(|ty| TypeSystem::new(db.db).is_typed_value(ty))
+        .filter(|ty| TypeSystem::new(db.db, db.resolution()).is_typed_value(ty))
 }
 
 fn expected_type_for_assignment_rhs(
@@ -208,7 +208,7 @@ fn expected_type_for_assignment_rhs(
     }
 
     let res = sema.expr_to_def(sema.resolve_expr(file_id, assignment.left())?);
-    Some(TypeSystem::new(db.db).type_of_resolution(res))
+    Some(TypeSystem::new(db.db, db.resolution()).type_of_resolution(res))
 }
 
 fn expected_type_for_declarator_initializer(
@@ -229,7 +229,7 @@ fn expected_type_for_declarator_initializer(
     let ident = lower_ident_opt(declarator.name())?;
     let container_id = sema.container_for_node(file_id, declarator.syntax())?;
     let res = sema.name_to_def(OwnerRef::new(container_id, ident));
-    Some(TypeSystem::new(db.db).type_of_resolution(res))
+    Some(TypeSystem::new(db.db, db.resolution()).type_of_resolution(res))
 }
 
 fn is_assignment_expression(kind: SyntaxKind) -> bool {

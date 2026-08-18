@@ -464,7 +464,7 @@ endmodule
             }),
             "macro expansion should contain distinct module nodes with the same display identity"
         );
-        let sema = SemanticsImpl::new(db.db);
+        let sema = SemanticsImpl::new_with_context(db.db, hir_def::unit::test_resolution(db.db));
         let mut containers = ContainerCache::new();
         for event in root.elem_preorder() {
             match event {
@@ -529,11 +529,11 @@ endmodule
 "#;
         let (host, file_id, _clean, _markers) = setup_marked(text);
         let db = host.ctx();
-        let context = hir_def::pathres::ResolutionContext::from_db(db.db);
+        let context = hir_def::unit::test_resolution(db.db);
         let hir_file_id = HirFileId::from(file_id);
         let tree = db.parse(hir_file_id);
         let root = tree.root();
-        let sema = SemanticsImpl::new(db.db);
+        let sema = SemanticsImpl::new_with_context(db.db, hir_def::unit::test_resolution(db.db));
         let mut containers = ContainerCache::new();
         let mut chains = ScopeChainCache::new();
         let mut checked = 0usize;

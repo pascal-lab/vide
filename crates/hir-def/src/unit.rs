@@ -65,8 +65,14 @@ fn owner_matches_unit_kind(owner: &OwnerData, kind: UnitKind) -> bool {
     }
 }
 
+/// Fold a source-only graph for tests. Not a product and not a production path.
 pub fn test_graph(db: &dyn HirDefDb) -> design_graph::DesignGraph {
     design_graph::DesignGraph::fold(db, &design_graph::GeneratedUnits::default())
+}
+
+/// Test-only resolution context over [`test_graph`].
+pub fn test_resolution(db: &dyn HirDefDb) -> triomphe::Arc<crate::pathres::ResolutionContext> {
+    crate::pathres::ResolutionContext::from_graph(triomphe::Arc::new(test_graph(db)))
 }
 
 pub fn test_module_owner(db: &dyn HirDefDb, name: &str) -> OwnerId {

@@ -22,7 +22,6 @@ use syntax::{
     SyntaxAncestors,
     ast::{self, AstNode},
 };
-use vfs::FileId;
 
 use crate::db::workspace_symbol_index_db::WorkspaceSymbolIndexDb;
 
@@ -444,7 +443,7 @@ mod tests {
 
         match fixture.query {
             Query::Module(module) => {
-                let result = resolve_module_name(&db, &db.source_design_graph(), &module);
+                let result = resolve_module_name(&db, &hir_def::unit::test_graph(&db), &module);
                 format_module_resolution(&db, &fixture.files, result)
             }
             Query::NamedPort => {
@@ -454,14 +453,9 @@ mod tests {
                 let port_conn = root
                     .find_node_at_offset::<ast::NamedPortConnection>(offset)
                     .expect("named port connection should parse at /*caret*/");
-                let res = resolve_named_port_connection(&db, &db.source_design_graph(), port_conn);
-                match resolution_module_id(&db, &res, DefKind::Port) {
-                    Some(module_id) => format!(
-                        "AnsiPort module={}",
-                        file_path(&fixture.files, module_id.file(&db).as_file().unwrap())
-                    ),
-                    None => format!("{res:?}"),
-                }
+                let res =
+                    resolve_named_port_connection(&db, &hir_def::unit::test_graph(&db), port_conn);
+                format_def_resolution(&db, &fixture.files, &res, DefKind::Port, "AnsiPort")
             }
             Query::NamedParam => {
                 let offset = fixture.offset.expect("named_param query requires /*caret*/");
@@ -470,15 +464,12 @@ mod tests {
                 let param_assign = root
                     .find_node_at_offset::<ast::NamedParamAssignment>(offset)
                     .expect("named parameter assignment should parse at /*caret*/");
-                let res =
-                    resolve_named_param_assignment(&db, &db.source_design_graph(), param_assign);
-                match resolution_module_id(&db, &res, DefKind::Param) {
-                    Some(module_id) => format!(
-                        "ParamDecl module={}",
-                        file_path(&fixture.files, module_id.file(&db).as_file().unwrap())
-                    ),
-                    None => format!("{res:?}"),
-                }
+                let res = resolve_named_param_assignment(
+                    &db,
+                    &hir_def::unit::test_graph(&db),
+                    param_assign,
+                );
+                format_def_resolution(&db, &fixture.files, &res, DefKind::Param, "ParamDecl")
             }
         }
     }
@@ -493,6 +484,32 @@ mod tests {
             return None;
         }
         Some(def_id.container_id(db))
+    }
+
+    fn format_def_resolution(
+        db: &RootDb,
+        files: &[(String, String)],
+        res: &Resolution<DefId>,
+        kind: DefKind,
+        unique_label: &str,
+    ) -> String {
+        match resolution_module_id(db, res, kind) {
+            Some(module_id) => format!(
+                "{unique_label} module={}",
+                file_path(files, module_id.file(db).as_file().unwrap())
+            ),
+            None => match res {
+                Resolution::Ambiguous(candidates) => {
+                    let owners = candidates
+                        .iter()
+                        .filter(|def_id| def_id.kind(db) == kind)
+                        .map(|def_id| def_id.container_id(db))
+                        .collect();
+                    format!("Ambiguous candidates={:?}", candidate_paths(db, files, owners))
+                }
+                other => format!("{other:?}"),
+            },
+        }
     }
 
     fn format_module_resolution(

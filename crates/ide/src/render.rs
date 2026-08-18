@@ -333,9 +333,9 @@ fn render_signature(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<Stri
         | DefKind::Genvar
         | DefKind::Specparam => origin.as_decl(db).and_then(|id| render_decl_signature(db, id)),
         DefKind::Typedef => origin.as_typedef(db).and_then(|id| id.display_signature(db).ok()),
-        DefKind::Instance => {
-            origin.as_instance(db).and_then(|id| render_instance_signature(db, id))
-        }
+        DefKind::Instance => origin
+            .as_instance(db)
+            .and_then(|id| render_instance_signature(db, sema.resolution_context().graph(), id)),
         DefKind::ClockingBlock => {
             origin.as_clocking_block(db).and_then(|id| render_clocking_block_signature(db, id))
         }
@@ -508,7 +508,11 @@ fn render_non_ansi_port_signature(db: &RootDb, port_id: OwnerRef<NonAnsiPortId>)
     Some(format!("port {label}"))
 }
 
-fn render_instance_signature(db: &RootDb, instance_id: OwnerRef<InstanceId>) -> Option<String> {
+fn render_instance_signature(
+    db: &RootDb,
+    graph: &design_graph::DesignGraph,
+    instance_id: OwnerRef<InstanceId>,
+) -> Option<String> {
     let parent_module = db.body_with_source_map(instance_id.cont_id);
     let instance = parent_module.get(instance_id.value);
     let instance_name = instance.name.as_ref()?;
@@ -517,8 +521,7 @@ fn render_instance_signature(db: &RootDb, instance_id: OwnerRef<InstanceId>) -> 
 
     let mut signature = format!("instance {instance_name} of {module_name}");
     if instance_id.cont_id.file(db).source_file_id(db).is_some()
-        && let Some(target_module_id) =
-            resolve_module_name(db, &db.source_design_graph(), module_name).unique()
+        && let Some(target_module_id) = resolve_module_name(db, graph, module_name).unique()
         && let Some(module_signature) = render_module_signature(db, target_module_id)
     {
         signature.push_str("\n\n");

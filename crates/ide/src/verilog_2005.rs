@@ -111,7 +111,7 @@ fn parsed_file_nodes_survive_parse_lru_eviction() {
     let mut db = RootDb::new(Some(1));
     db.apply_change(change);
 
-    let sema = Semantics::new(&db);
+    let sema = Semantics::new_with_context(&db, hir_def::unit::test_resolution(&db));
     let parsed_file = sema.parse_file(FileId::from_raw(0));
     let root = parsed_file.root().expect("a.sv should parse");
     let child_count = root.child_count();

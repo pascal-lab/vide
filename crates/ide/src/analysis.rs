@@ -309,7 +309,7 @@ impl AnalysisSnapshot {
         &self,
         file_id: FileId,
     ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
-        self.with_db(|db| diagnostics::vide_diagnostics(db.db, db.design_graph().as_ref(), file_id))
+        self.with_db(|db| diagnostics::vide_diagnostics(db.db, db.resolution().as_ref(), file_id))
     }
 
     pub fn parse_diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {

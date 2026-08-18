@@ -15,7 +15,6 @@ use crate::{
     compatibility::{compatibility, is_typed_value},
     db::TyDb,
     display::{HirDisplay, HirDisplayError},
-    infer::normalize_data_ty,
     members::members_of_ty,
     ty::{Ty, TyResult},
 };
@@ -88,22 +87,26 @@ pub enum Compatibility {
 ///
 /// Salsa queries, HIR arena access, normalization, and type representation are
 /// implementation details behind this interface.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct TypeSystem<'db> {
     db: &'db dyn TyDb,
+    context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
 }
 
 impl<'db> TypeSystem<'db> {
-    pub fn new(db: &'db dyn TyDb) -> Self {
-        Self { db }
+    pub fn new(
+        db: &'db dyn TyDb,
+        context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
+    ) -> Self {
+        Self { db, context }
     }
 
     pub fn type_of_expr(&self, expr: OwnerRef<ExprId>) -> Type {
-        self.db.infer_expr(expr)
+        crate::infer::type_of_expr_impl(self.db, &self.context, expr).into()
     }
 
     pub fn type_of_resolution(&self, resolution: Resolution<DefId>) -> Type {
-        self.db.infer_path_resolution(resolution)
+        crate::infer::type_of_path_resolution_impl(self.db, &self.context, resolution).into()
     }
 
     pub fn type_of_def(&self, def: DefId) -> Type {
@@ -113,14 +116,20 @@ impl<'db> TypeSystem<'db> {
     pub fn type_of_subroutine_return(&self, subroutine: OwnerId) -> Type {
         match &self.db.subroutine(subroutine).kind {
             SubroutineKind::Function { return_ty: Some(return_ty) } => {
-                normalize_data_ty(self.db, subroutine, return_ty.clone()).into()
+                crate::infer::normalize_data_ty(
+                    self.db,
+                    &self.context,
+                    subroutine,
+                    return_ty.clone(),
+                )
+                .into()
             }
             SubroutineKind::Function { return_ty: None } | SubroutineKind::Task => Type::unknown(),
         }
     }
 
     pub fn members(&self, ty: &Type) -> Vec<Member> {
-        members_of_ty(self.db, ty.ty())
+        members_of_ty(self.db, &self.context, ty.ty())
             .into_iter()
             .map(|member| Member { name: member.name, ty: TyResult::new(member.ty).into() })
             .collect()

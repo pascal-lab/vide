@@ -204,7 +204,7 @@ pub(crate) fn compilation_profile_vide_diagnostics(
 ) -> Vec<Diagnostic> {
     compilation_profile_file_ids(db, profile_id)
         .into_iter()
-        .flat_map(|file_id| vide_diagnostics(db, &db.source_design_graph(), file_id))
+        .flat_map(|file_id| vide_diagnostics(db, &hir_def::unit::test_resolution(db), file_id))
         .collect()
 }
 
@@ -215,14 +215,14 @@ fn compilation_profile_file_ids(db: &RootDb, profile_id: CompilationProfileId) -
 
 fn syntax_diagnostics(
     db: &RootDb,
-    graph: &design_graph::DesignGraph,
+    context: &hir_def::pathres::ResolutionContext,
     file_id: FileId,
 ) -> Vec<Diagnostic> {
     if db.file_kind(file_id).is_project_manifest() {
         return crate::manifest::diagnostics(db, file_id);
     }
     let mut diagnostics = parse_diagnostics(db, file_id);
-    diagnostics.extend(vide_diagnostics(db, graph, file_id));
+    diagnostics.extend(vide_diagnostics(db, context, file_id));
     diagnostics
 }
 
@@ -265,7 +265,7 @@ pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
         return Vec::new();
     }
 
-    syntax_diagnostics(db, &db.source_design_graph(), file_id)
+    syntax_diagnostics(db, &hir_def::unit::test_resolution(db), file_id)
 }
 
 pub(crate) fn analysis_diagnostics(
@@ -280,22 +280,22 @@ pub(crate) fn analysis_diagnostics(
         return Vec::new();
     }
 
-    syntax_diagnostics(db, db.design_graph().as_ref(), file_id)
+    syntax_diagnostics(db, db.resolution().as_ref(), file_id)
 }
 
 pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     let source_root_id = db.source_root_id(file_id);
     let source_root = db.source_root(source_root_id);
-    let graph = db.source_design_graph();
+    let context = hir_def::unit::test_resolution(db);
     match source_root.role().diagnostic_scope() {
         SourceRootDiagnosticScope::Disabled => return Vec::new(),
         SourceRootDiagnosticScope::OpenFile => {
-            return syntax_diagnostics(db, &graph, file_id);
+            return syntax_diagnostics(db, &context, file_id);
         }
         SourceRootDiagnosticScope::Workspace => {}
     }
 
-    source_root.iter().flat_map(|file_id| syntax_diagnostics(db, &graph, file_id)).collect()
+    source_root.iter().flat_map(|file_id| syntax_diagnostics(db, &context, file_id)).collect()
 }
 
 pub(crate) fn source_root_file_ids(db: &RootDb, file_id: FileId) -> Vec<FileId> {
@@ -329,7 +329,7 @@ trait VideDiagnosticProvider {
     fn diagnostic(
         &self,
         db: &RootDb,
-        graph: &design_graph::DesignGraph,
+        context: &hir_def::pathres::ResolutionContext,
         file_id: FileId,
     ) -> Vec<Diagnostic>;
 }
@@ -344,7 +344,7 @@ fn vide_providers() -> Vec<Box<dyn VideDiagnosticProvider>> {
 
 pub(crate) fn vide_diagnostics(
     db: &RootDb,
-    graph: &design_graph::DesignGraph,
+    context: &hir_def::pathres::ResolutionContext,
     file_id: FileId,
 ) -> Vec<Diagnostic> {
     if !vide_diagnostics_enabled(db) {
@@ -354,7 +354,7 @@ pub(crate) fn vide_diagnostics(
     vide_providers()
         .into_iter()
         .filter(|provider| provider.active(db, file_id))
-        .flat_map(|provider| provider.diagnostic(db, graph, file_id))
+        .flat_map(|provider| provider.diagnostic(db, context, file_id))
         .collect()
 }
 
@@ -374,18 +374,22 @@ impl VideDiagnosticProvider for LoweringSyntaxDiagnostics {
     fn diagnostic(
         &self,
         db: &RootDb,
-        _graph: &design_graph::DesignGraph,
+        context: &hir_def::pathres::ResolutionContext,
         file_id: FileId,
     ) -> Vec<Diagnostic> {
-        lowering_syntax_diagnostics(db, file_id)
+        lowering_syntax_diagnostics(db, context, file_id)
     }
 }
 
-fn lowering_syntax_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+fn lowering_syntax_diagnostics(
+    db: &RootDb,
+    context: &hir_def::pathres::ResolutionContext,
+    file_id: FileId,
+) -> Vec<Diagnostic> {
     let parse_ranges =
         db.parse_diagnostics(file_id).iter().filter_map(to_text_range).collect::<Vec<_>>();
 
-    db.file_lowering_diagnostics(file_id.into())
+    db.file_lowering_diagnostics(file_id.into(), context)
         .iter()
         .filter_map(|diag| lowering_diagnostic(file_id, diag, &parse_ranges))
         .collect()
@@ -541,7 +545,7 @@ impl VideDiagnosticProvider for InactivePreprocessorBranch {
     fn diagnostic(
         &self,
         db: &RootDb,
-        _graph: &design_graph::DesignGraph,
+        _context: &hir_def::pathres::ResolutionContext,
         file_id: FileId,
     ) -> Vec<Diagnostic> {
         inactive_preprocessor_branch_diagnostics(db, file_id)
@@ -558,10 +562,10 @@ impl VideDiagnosticProvider for AmbiguousModuleInstantiation {
     fn diagnostic(
         &self,
         db: &RootDb,
-        graph: &design_graph::DesignGraph,
+        context: &hir_def::pathres::ResolutionContext,
         file_id: FileId,
     ) -> Vec<Diagnostic> {
-        module_instantiation_resolution_diagnostics(db, graph, file_id)
+        module_instantiation_resolution_diagnostics(db, context.graph(), file_id)
     }
 }
 
