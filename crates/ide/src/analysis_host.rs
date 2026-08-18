@@ -56,13 +56,12 @@ impl AnalysisHost {
         self.cancel_prewarm();
         let dirty_files: Vec<_> = change.changed_files.iter().map(|file| file.file_id).collect();
         // Source-root changes carry file creation/deletion and path remapping.
-        // Some VFS producers use `ChangedFile::create` for a full-text update
-        // of an already registered file, so the per-file change kind alone is
-        // not a reliable workspace-structure signal.
-        // A project-config-only change (workspace switch) has no dirty files
-        // and must start a new store. File create/delete also set roots, but
-        // that is a graph upsert, not a workspace reset.
-        let reset_products = change.project_config.is_some() && dirty_files.is_empty();
+        // File create/delete also set roots; that is a graph upsert, not a
+        // workspace reset. A new project config changes profile predefines
+        // for every file, not just the dirty set — incremental epoch compare
+        // of dirty files would Keep a graph whose other files still have the
+        // old facts.
+        let reset_products = change.project_config.is_some();
         let dependent_files =
             if reset_products { Vec::new() } else { self.store.parsed_dependents(&dirty_files) };
         let mut affected_files = dirty_files.clone();
@@ -240,6 +239,24 @@ mod tests {
         change
     }
 
+    fn project_config_with_predefines(predefines: Vec<String>) -> Change {
+        use base_db::project::{
+            CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig,
+        };
+        use base_db::source_root::SourceRootId;
+        use triomphe::Arc;
+        let mut change = Change::new();
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0))],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: PreprocessConfig::with_predefine_strings(predefines, Vec::new()),
+            }],
+        )));
+        change
+    }
+
     fn goto_names(host: &AnalysisHost, file_id: FileId, text: &str, needle: &str) -> Vec<String> {
         let offset = utils::line_index::TextSize::from(text.find(needle).expect(needle) as u32);
         host.make_analysis()
@@ -414,6 +431,47 @@ mod tests {
 
         assert_eq!(updater.join().unwrap().as_ref(), "module new;\nendmodule\n");
         reader.join().unwrap();
+    }
+
+    #[test]
+    fn project_config_and_dirty_files_together_rebuild_facts() {
+        let gated = "`ifdef FOO\nmodule foo;\nendmodule\n`else\nmodule bar;\nendmodule\n`endif\n";
+        let other = "module other;\nendmodule\n";
+        let other_id = FileId::from_raw(1);
+        let mut host = AnalysisHost::default();
+        host.apply_change(two_file_workspace(gated, other));
+        let before = host.ctx().design_graph();
+        assert!(
+            before.module_names().iter().any(|name| name == "bar"),
+            "{:?}",
+            before.module_names()
+        );
+        assert!(
+            !before.module_names().iter().any(|name| name == "foo"),
+            "{:?}",
+            before.module_names()
+        );
+
+        let mut change = project_config_with_predefines(vec!["FOO".to_owned()]);
+        change.add_changed_file(vfs::ChangedFile::modify(other_id, "module other;\n  wire x;\nendmodule\n"));
+        host.apply_change(change);
+
+        let after = host.ctx().design_graph();
+        assert!(
+            after.module_names().iter().any(|name| name == "foo"),
+            "config+dirty must recompute facts of files that were not edited: {:?}",
+            after.module_names()
+        );
+        assert!(
+            !after.module_names().iter().any(|name| name == "bar"),
+            "stale unit from the old predefines must not remain: {:?}",
+            after.module_names()
+        );
+        assert!(
+            after.module_names().iter().any(|name| name == "other"),
+            "{:?}",
+            after.module_names()
+        );
     }
 
     #[test]
