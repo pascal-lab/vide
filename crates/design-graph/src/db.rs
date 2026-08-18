@@ -36,6 +36,13 @@ pub fn file_facts_query(db: &dyn DesignGraphDb, key: FileFactsKey) -> Arc<FileFa
         db.file_path(file_id).map(|path| path.to_string()).unwrap_or_else(|| "source".into());
     let profile_id = db.file_compilation_profile(file_id);
     let predefines = db.project_config().preprocess_for_profile(profile_id).predefine_strings();
+    // Profile predefines, no include expansion. This is not
+    // `SyntaxTreeOptions::without_include_expansion()`: that helper ships
+    // empty predefines so `source_model` stays file-local. FileFacts must
+    // see the same `ifdef` view the profile will compile, or gated units
+    // disappear from the name catalog. Sharing one salsa query would
+    // either hide those units or make every profile edit invalidate the
+    // file-local preprocessor model.
     let options = SyntaxTreeOptions {
         predefines,
         include_paths: Vec::new(),

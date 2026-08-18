@@ -9,7 +9,7 @@ use base_db::{
 };
 use rustc_hash::FxHasher;
 use syntax::{
-    SyntaxNodeExt, SyntaxTree, SyntaxTreeBuffer,
+    SyntaxNodeExt, SyntaxTree,
     diagnostics::{ParserExpectedSyntax, SyntaxDiagnostic},
     preproc::Trace,
 };
@@ -118,8 +118,13 @@ struct CompilationUnitArtifactInput<'db> {
 /// reads profile predefines. Its complete dependency set is the file text,
 /// file kind, and display identity, so edits elsewhere cannot invalidate it.
 ///
-/// `preprocessor_independent` is the same directive-trivia walk as
-/// `FileFacts`: it does not materialize a preprocessor `Trace`.
+/// This is intentionally not the same `SyntaxTreeOptions` as
+/// `design_graph::file_facts_query`. FileFacts must apply profile
+/// predefines so gated compilation units exist in the name catalog.
+/// `source_model` must not: a profile edit would otherwise invalidate
+/// every file-local preprocessor query. `preprocessor_independent` is
+/// still the same directive-trivia walk — it does not depend on
+/// predefines and does not materialize a preprocessor `Trace`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceModel {
     pub syntax_tree: SyntaxTree,
@@ -495,13 +500,6 @@ impl dyn PreprocDb + '_ {
         compilation_context_for_file(self, file_id)
     }
 
-    pub fn include_buffers_for_profile(
-        &self,
-        profile_id: Option<CompilationProfileId>,
-    ) -> Arc<Vec<SyntaxTreeBuffer>> {
-        include_buffers_for_profile(self, profile_id)
-    }
-
     pub fn source_preproc_model(
         &self,
         file_id: FileId,
@@ -658,14 +656,6 @@ fn compilation_context_for_file(db: &dyn PreprocDb, file_id: FileId) -> Arc<Comp
     db.compilation_context(profile_id)
 }
 
-fn include_buffers_for_profile(
-    db: &dyn PreprocDb,
-    profile_id: Option<CompilationProfileId>,
-) -> Arc<Vec<SyntaxTreeBuffer>> {
-    let plan = db.compilation_plan_for_profile(profile_id);
-    Arc::new(compilation_plan::include_buffers_for_plan(db, &plan))
-}
-
 #[cfg(test)]
 mod tests {
     use std::fmt;
@@ -681,7 +671,7 @@ mod tests {
     };
     use rustc_hash::FxHashSet;
     use syntax::{
-        SyntaxTreeOptions,
+        SyntaxTreeBuffer, SyntaxTreeOptions,
         preproc::{SourceBufferId, SourceBufferOrigin, Trace},
     };
     use utils::{
@@ -960,22 +950,6 @@ mod tests {
         let after = db.compilation_plan_for_profile(None);
         assert!(!after.include_only.contains(&INCLUDED));
         assert!(after.roots.contains(&INCLUDED));
-    }
-
-    #[test]
-    fn compilation_plan_propagates_include_changes_to_includers() {
-        let mut db = db_with_macro_included_root();
-        db.set_file_text_with_durability(
-            TOP,
-            Arc::from("`include \"included.sv\"\nmodule top; endmodule\n"),
-            Durability::LOW,
-        );
-        let plan = db.compilation_plan_for_profile(None);
-
-        let affected = plan.affected_files([INCLUDED]);
-
-        assert!(affected.contains(&INCLUDED));
-        assert!(affected.contains(&TOP));
     }
 
     #[test]
