@@ -88,12 +88,12 @@ impl DefinitionClass {
 
         match_ast! { parent,
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
-                resolve_named_param_assignment(db, file_id.expect_file(), it)
+                resolve_named_param_assignment(db, context.graph(), it)
                     .map(DefinitionClass::Definition)
             },
             ast::NamedPortConnection[it] if it.name() == Some(tok) => {
                 let port =
-                    resolve_named_port_connection(db, file_id.expect_file(), it);
+                    resolve_named_port_connection(db, context.graph(), it);
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
                     let local = nameres_ident(&sema, file_id, tp, NameContext::Value, container);

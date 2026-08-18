@@ -299,8 +299,8 @@ fn separated_list_index_at_offset<'a, T: AstNode<'a>>(
 fn resolve_target_module_id(
     db: &AnalysisContext<'_>,
     _sema: &Semantics<'_, RootDb>,
-    from_file: vfs::FileId,
+    _from_file: vfs::FileId,
     instantiation: ast::HierarchyInstantiation<'_>,
 ) -> Option<OwnerId> {
-    resolve_instantiation_target(db.db, from_file, instantiation).unique()
+    resolve_instantiation_target(db.db, db.design_graph().as_ref(), instantiation).unique()
 }

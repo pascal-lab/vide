@@ -105,8 +105,8 @@ impl dyn HirDefDb + '_ {
         <dyn DesignGraphDb>::file_facts(self, file_id)
     }
 
-    /// Source-visible name join for salsa interiors. Generated units live on
-    /// the injected store graph, not here.
+    /// Source-only name join for HIR tests and interiors that have no
+    /// product store. IDE request paths must pass the injected store graph.
     pub fn source_design_graph(&self) -> Arc<design_graph::DesignGraph> {
         source_design_graph(self)
     }

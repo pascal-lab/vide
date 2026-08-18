@@ -113,6 +113,11 @@ impl<'db> SemanticsImpl<'db> {
         SemanticsImpl { db, context }
     }
 
+    /// The injected name-join context. IDE request paths pass the store graph.
+    pub fn resolution_context(&self) -> &hir_def::pathres::ResolutionContext {
+        &self.context
+    }
+
     pub fn parse_file(&self, file_id: FileId) -> ParsedFile {
         let file_id = file_id.into();
         ParsedFile { file_id, tree: self.db.parse(file_id) }

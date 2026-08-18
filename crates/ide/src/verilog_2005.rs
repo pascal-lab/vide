@@ -2872,7 +2872,7 @@ endmodule
 }
 
 #[test]
-fn design_unit_references_join_unit_index_candidates() {
+fn design_unit_references_join_graph_candidates() {
     let (host, files) = setup_marked_files(&[
         (
             "/shared_pkg.sv",
@@ -2914,7 +2914,7 @@ endmodule
     assert_eq!(
         module_ref_files,
         vec![*top_file],
-        "only the unit_index module candidate owns the instantiation: {module_refs:?}"
+        "only the DesignGraph module candidate owns the instantiation: {module_refs:?}"
     );
 
     let package_refs = analysis
@@ -2925,7 +2925,7 @@ endmodule
         package_refs.iter().flat_map(|refs| refs.refs.keys().copied()).collect();
     assert!(
         !package_ref_files.contains(top_file),
-        "a package is not an instantiable unit_index candidate: {package_refs:?}"
+        "a package is not an instantiable DesignGraph candidate: {package_refs:?}"
     );
 }
 

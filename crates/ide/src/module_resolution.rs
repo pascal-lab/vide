@@ -41,8 +41,8 @@ impl ModuleResolution {
         }
     }
 
-    fn from_graph(db: &dyn HirDefDb, name: &Ident) -> Self {
-        let units = db.source_design_graph().modules_named(name);
+    fn from_graph(db: &dyn HirDefDb, graph: &design_graph::DesignGraph, name: &Ident) -> Self {
+        let units = graph.modules_named(name);
         let owners: Vec<OwnerId> =
             units.into_vec().into_iter().filter_map(|unit| unit.to_owner(db)).collect();
         match owners.as_slice() {
@@ -63,34 +63,34 @@ impl ModuleResolution {
 
 pub(crate) fn resolve_instantiation_target(
     db: &dyn WorkspaceSymbolIndexDb,
-    _from_file: FileId,
+    graph: &design_graph::DesignGraph,
     instantiation: ast::HierarchyInstantiation,
 ) -> ModuleResolution {
     let Some(name) = lower_ident_opt(instantiation.type_()) else {
         return ModuleResolution::Unresolved;
     };
-    resolve_module_name(db, _from_file, &name)
+    resolve_module_name(db, graph, &name)
 }
 
 pub(crate) fn resolve_hir_instantiation_target(
     db: &dyn WorkspaceSymbolIndexDb,
-    from_file: FileId,
+    graph: &design_graph::DesignGraph,
     instantiation: &Instantiation,
 ) -> Option<OwnerId> {
-    resolve_module_name(db, from_file, instantiation.module_name.as_ref()?).unique()
+    resolve_module_name(db, graph, instantiation.module_name.as_ref()?).unique()
 }
 
 pub(crate) fn resolve_module_name(
     db: &dyn WorkspaceSymbolIndexDb,
-    _from_file: FileId,
+    graph: &design_graph::DesignGraph,
     name: &Ident,
 ) -> ModuleResolution {
-    ModuleResolution::from_graph(db, name)
+    ModuleResolution::from_graph(db, graph, name)
 }
 
 pub(crate) fn resolve_named_port_connection(
     db: &dyn WorkspaceSymbolIndexDb,
-    from_file: FileId,
+    graph: &design_graph::DesignGraph,
     conn: ast::NamedPortConnection,
 ) -> Resolution<DefId> {
     let Some(name) = lower_ident_opt(conn.name()) else {
@@ -101,12 +101,12 @@ pub(crate) fn resolve_named_port_connection(
     else {
         return Resolution::Unresolved;
     };
-    resolve_named_port_in_instantiation(db, from_file, instantiation, &name)
+    resolve_named_port_in_instantiation(db, graph, instantiation, &name)
 }
 
 pub(crate) fn resolve_named_param_assignment(
     db: &dyn WorkspaceSymbolIndexDb,
-    from_file: FileId,
+    graph: &design_graph::DesignGraph,
     assign: ast::NamedParamAssignment,
 ) -> Resolution<DefId> {
     let Some(name) = lower_ident_opt(assign.name()) else {
@@ -117,27 +117,27 @@ pub(crate) fn resolve_named_param_assignment(
     else {
         return Resolution::Unresolved;
     };
-    resolve_named_param_in_instantiation(db, from_file, instantiation, &name)
+    resolve_named_param_in_instantiation(db, graph, instantiation, &name)
 }
 
 fn resolve_named_port_in_instantiation(
     db: &dyn WorkspaceSymbolIndexDb,
-    from_file: FileId,
+    graph: &design_graph::DesignGraph,
     instantiation: ast::HierarchyInstantiation,
     port_name: &Ident,
 ) -> Resolution<DefId> {
-    resolve_instantiation_target(db, from_file, instantiation)
+    resolve_instantiation_target(db, graph, instantiation)
         .into_resolution()
         .and_then(|module_id| resolve_named_port_in_module(db, module_id, port_name))
 }
 
 fn resolve_named_param_in_instantiation(
     db: &dyn WorkspaceSymbolIndexDb,
-    from_file: FileId,
+    graph: &design_graph::DesignGraph,
     instantiation: ast::HierarchyInstantiation,
     param_name: &Ident,
 ) -> Resolution<DefId> {
-    resolve_instantiation_target(db, from_file, instantiation)
+    resolve_instantiation_target(db, graph, instantiation)
         .into_resolution()
         .and_then(|module_id| resolve_named_param_in_module(db, module_id, param_name))
 }
@@ -444,7 +444,7 @@ mod tests {
 
         match fixture.query {
             Query::Module(module) => {
-                let result = resolve_module_name(&db, fixture.focus, &module);
+                let result = resolve_module_name(&db, &db.source_design_graph(), &module);
                 format_module_resolution(&db, &fixture.files, result)
             }
             Query::NamedPort => {
@@ -454,7 +454,7 @@ mod tests {
                 let port_conn = root
                     .find_node_at_offset::<ast::NamedPortConnection>(offset)
                     .expect("named port connection should parse at /*caret*/");
-                let res = resolve_named_port_connection(&db, fixture.focus, port_conn);
+                let res = resolve_named_port_connection(&db, &db.source_design_graph(), port_conn);
                 match resolution_module_id(&db, &res, DefKind::Port) {
                     Some(module_id) => format!(
                         "AnsiPort module={}",
@@ -470,7 +470,8 @@ mod tests {
                 let param_assign = root
                     .find_node_at_offset::<ast::NamedParamAssignment>(offset)
                     .expect("named parameter assignment should parse at /*caret*/");
-                let res = resolve_named_param_assignment(&db, fixture.focus, param_assign);
+                let res =
+                    resolve_named_param_assignment(&db, &db.source_design_graph(), param_assign);
                 match resolution_module_id(&db, &res, DefKind::Param) {
                     Some(module_id) => format!(
                         "ParamDecl module={}",

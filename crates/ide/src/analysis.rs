@@ -286,7 +286,7 @@ impl AnalysisSnapshot {
     }
 
     pub fn diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
-        self.with_db(|db| diagnostics::diagnostics(db, file_id))
+        self.with_db(|db| diagnostics::analysis_diagnostics(db, file_id))
     }
 
     pub fn source_root_diagnostics(
@@ -309,7 +309,7 @@ impl AnalysisSnapshot {
         &self,
         file_id: FileId,
     ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
-        self.with_db(|db| diagnostics::vide_diagnostics(db.db, file_id))
+        self.with_db(|db| diagnostics::vide_diagnostics(db.db, db.design_graph().as_ref(), file_id))
     }
 
     pub fn parse_diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
@@ -502,7 +502,9 @@ impl AnalysisSnapshot {
         range: TextRange,
         config: InlayHintConfig,
     ) -> Cancellable<Vec<InlayHint>> {
-        self.with_db(|db| inlay_hint::inlay_hint(db, file_id, range, config))
+        self.with_db(|db| {
+            inlay_hint::inlay_hint(db, db.design_graph().as_ref(), file_id, range, config)
+        })
     }
 
     pub fn code_lens(&self, file_id: FileId, config: CodeLensConfig) -> Cancellable<Vec<CodeLens>> {
