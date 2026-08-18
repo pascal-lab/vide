@@ -278,6 +278,12 @@ impl GlobalState {
         qihe::with_global_ctx(self, |qihe, ctx| qihe.handle(task, ctx));
     }
 
+    pub(crate) fn cancel_semantic_compiler(&mut self) {
+        semantic_compiler::with_global_ctx(self, |semantic_compiler, _ctx| {
+            semantic_compiler.cancel_active();
+        });
+    }
+
     pub(crate) fn schedule_semantic_compiler(&mut self, profile_ids: Vec<CompilationProfileId>) {
         semantic_compiler::with_global_ctx(self, |semantic_compiler, ctx| {
             semantic_compiler.schedule(profile_ids, ctx)

@@ -59,6 +59,17 @@ impl<T> ProductCell<T> {
         self.state.lock().value.is_some()
     }
 
+    pub(crate) fn peek(&self) -> Option<Arc<T>> {
+        self.state.lock().value.clone()
+    }
+
+    pub(crate) fn from_arc(value: Arc<T>) -> Self {
+        Self {
+            state: Mutex::new(ProductState { generation: 0, value: Some(value), in_flight: None }),
+            ready: Condvar::new(),
+        }
+    }
+
     pub(crate) fn get_or_compute(
         &self,
         priority: ComputationPriority,

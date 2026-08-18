@@ -138,7 +138,7 @@ impl AnalysisContext<'_> {
         cancel: &AtomicBool,
     ) -> Option<triomphe::Arc<design_graph::DesignGraph>> {
         let generated = self.store.generated_units();
-        self.store.design_graph_cell().get_or_compute(priority, cancel, |_| {
+        self.store.design_graph_cell().get_or_compute(priority, cancel, |in_flight| {
             let _span = tracing::info_span!("design_graph.build").entered();
             let started = std::time::Instant::now();
             let files: Vec<_> = self
@@ -148,7 +148,9 @@ impl AnalysisContext<'_> {
                 .copied()
                 .filter(|&file_id| self.db.file_kind(file_id).is_semantic_compilation_unit())
                 .collect();
-            let facts = file_facts_parallel(self.db, &files);
+            let Some(facts) = file_facts_parallel(self.db, &files, cancel, in_flight) else {
+                return triomphe::Arc::new(design_graph::DesignGraph::default());
+            };
             let graph = design_graph::DesignGraph::from_file_facts(
                 facts.iter().map(std::convert::AsRef::as_ref),
                 &generated,
@@ -234,27 +236,64 @@ impl AnalysisContext<'_> {
 
 /// Unexpanded `file_facts` are independent per file. Folding them sequentially
 /// is the ready-path cost on a library-sized workspace.
-fn file_facts_parallel(db: &RootDb, files: &[FileId]) -> Vec<Arc<design_graph::FileFacts>> {
+fn file_facts_parallel(
+    db: &RootDb,
+    files: &[FileId],
+    cancel_a: &AtomicBool,
+    cancel_b: &AtomicBool,
+) -> Option<Vec<Arc<design_graph::FileFacts>>> {
+    let cancelled = || {
+        cancel_a.load(std::sync::atomic::Ordering::Acquire)
+            || cancel_b.load(std::sync::atomic::Ordering::Acquire)
+    };
+    if cancelled() {
+        return None;
+    }
     let threads =
         std::thread::available_parallelism().map(usize::from).unwrap_or(1).min(files.len());
     if threads <= 1 {
-        return files.iter().map(|&file_id| <dyn DesignGraphDb>::file_facts(db, file_id)).collect();
+        let mut facts = Vec::with_capacity(files.len());
+        for &file_id in files {
+            if cancelled() {
+                return None;
+            }
+            facts.push(<dyn DesignGraphDb>::file_facts(db, file_id));
+        }
+        return Some(facts);
     }
 
     let chunk_size = files.len().div_ceil(threads);
-    std::thread::scope(|scope| {
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let result = std::thread::scope(|scope| {
         let mut handles = Vec::with_capacity(threads);
         for chunk in files.chunks(chunk_size) {
+            let chunk: Vec<FileId> = chunk.to_vec();
             let db = db.clone();
+            let cancel_a = cancel_a;
+            let cancel_b = cancel_b;
+            let stop = &stop;
             handles.push(scope.spawn(move || {
-                chunk
-                    .iter()
-                    .map(|&file_id| <dyn DesignGraphDb>::file_facts(&db, file_id))
-                    .collect::<Vec<_>>()
+                let mut facts = Vec::with_capacity(chunk.len());
+                for file_id in chunk {
+                    if cancel_a.load(std::sync::atomic::Ordering::Acquire)
+                        || cancel_b.load(std::sync::atomic::Ordering::Acquire)
+                        || stop.load(std::sync::atomic::Ordering::Acquire)
+                    {
+                        stop.store(true, std::sync::atomic::Ordering::Release);
+                        return None;
+                    }
+                    facts.push(<dyn DesignGraphDb>::file_facts(&db, file_id));
+                }
+                Some(facts)
             }));
         }
-        handles.into_iter().flat_map(|handle| handle.join().expect("file_facts worker")).collect()
-    })
+        let mut facts = Vec::with_capacity(files.len());
+        for handle in handles {
+            facts.extend(handle.join().expect("file_facts worker")?);
+        }
+        Some(facts)
+    });
+    result.filter(|_| !cancelled())
 }
 
 impl AnalysisSnapshot {

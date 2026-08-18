@@ -88,6 +88,7 @@ impl GlobalState {
 
         std::mem::drop(write_guard);
 
+        self.cancel_semantic_compiler();
         self.analysis.analysis_host.apply_change(change);
         self.diagnostics.diagnostics_revision += 1;
         for file_id in &content_changed_file_ids {

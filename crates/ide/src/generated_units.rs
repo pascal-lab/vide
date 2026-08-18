@@ -16,13 +16,17 @@ use crate::analysis::AnalysisContext;
 
 pub(crate) fn record_from_paid_artifact(db: &AnalysisContext<'_>, file_id: FileId) {
     let Some(trace) = db.preproc_trace(file_id) else {
-        db.store.record_generated_units(file_id, Box::new([]), FxHashMap::default());
+        if db.store.record_generated_units(file_id, Box::new([]), FxHashMap::default()) {
+            db.store.patch_design_graph(db.db, &[file_id]);
+        }
         return;
     };
     let tree = db.parse_tree(file_id);
     let facts = db.file_facts(file_id);
     let (ids, meta) = collect_generated_units(file_id, &tree, &trace, &facts);
-    db.store.record_generated_units(file_id, ids, meta);
+    if db.store.record_generated_units(file_id, ids, meta) {
+        db.store.patch_design_graph(db.db, &[file_id]);
+    }
 }
 
 fn collect_generated_units(

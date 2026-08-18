@@ -15,15 +15,13 @@ pub(super) enum StructureChange {
 
 /// Outcome of comparing pre-change snapshots to the post-change L0 shards.
 ///
-/// [`Keep`](EpochDecision::Keep) means body-only edits: structure products
-/// survive and only dirty file shards refresh. [`Drop`](EpochDecision::Drop)
-/// means a compilation-unit declaration or import changed (or we cannot
-/// prove otherwise): structure products and every merge that depends on
-/// them are discarded.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// [`Keep`](EpochDecision::Keep) means body-only edits: the name graph
+/// stays. [`Patch`](EpochDecision::Patch) lists files whose CU units must
+/// be upserted or removed; other files stay on the graph.
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub(super) enum EpochDecision {
     Keep,
-    Drop,
+    Patch(Vec<FileId>),
 }
 
 /// A pre-change snapshot of one file's L0 declaration structure.
@@ -81,20 +79,29 @@ impl StructureEpoch {
 
     /// Compare pre-change snapshots to the post-change L0 shards.
     ///
-    /// An empty epoch is [`Keep`](EpochDecision::Keep): nothing changed that
-    /// we know about. Missing snapshots for a dirty file cannot prove the
-    /// skeleton is unchanged, so they are [`Drop`](EpochDecision::Drop).
+    /// An empty epoch is [`Keep`](EpochDecision::Keep). A dirty file with no
+    /// snapshot is a create (or an include-root we cannot prove stable):
+    /// patch that file, do not drop the rest of the graph. A missing current
+    /// file is a delete.
     pub(super) fn decide(&self, db: &RootDb) -> EpochDecision {
         if self.dirty.is_empty() {
             return EpochDecision::Keep;
         }
         let current_files = db.files();
-        let reusable = self.dirty.iter().all(|file_id| {
-            current_files.contains(file_id)
-                && self.snapshots.get(file_id).is_some_and(|snapshot| {
-                    snapshot.classify(db, *file_id) == StructureChange::Unchanged
-                })
-        });
-        if reusable { EpochDecision::Keep } else { EpochDecision::Drop }
+        let mut patch = Vec::new();
+        for &file_id in &self.dirty {
+            let needs_patch = if !current_files.contains(&file_id) {
+                true
+            } else {
+                match self.snapshots.get(&file_id) {
+                    None => true,
+                    Some(snapshot) => snapshot.classify(db, file_id) == StructureChange::Changed,
+                }
+            };
+            if needs_patch {
+                patch.push(file_id);
+            }
+        }
+        if patch.is_empty() { EpochDecision::Keep } else { EpochDecision::Patch(patch) }
     }
 }

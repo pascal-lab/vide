@@ -123,15 +123,88 @@ impl DesignGraph {
         for (id, meta) in generated.meta.iter() {
             graph.insert(id.clone(), meta.clone());
         }
-        graph.module_names = graph
+        graph.rebuild_module_names();
+        graph
+    }
+
+    /// Replace one file's source and generated units. Other files stay.
+    /// Returns whether the node set for `file` changed.
+    pub fn upsert_file(
+        &mut self,
+        file: FileId,
+        facts: &crate::FileFacts,
+        generated: &GeneratedUnits,
+    ) -> bool {
+        let mut next = Vec::new();
+        for unit in facts.units.iter() {
+            debug_assert_eq!(unit.id.file, file);
+            next.push((
+                unit.id.clone(),
+                UnitMeta {
+                    kind: unit.id.kind,
+                    origin: unit.origin,
+                    header_fingerprint: unit.header_fingerprint,
+                },
+            ));
+        }
+        if let Some(ids) = generated.by_file.get(&file) {
+            for id in ids.iter() {
+                if let Some(meta) = generated.meta.get(id) {
+                    next.push((id.clone(), meta.clone()));
+                }
+            }
+        }
+        let mut previous: Vec<_> = self
+            .meta
+            .iter()
+            .filter(|(id, _)| id.file == file)
+            .map(|(id, meta)| (id.clone(), meta.clone()))
+            .collect();
+        previous.sort_by(|left, right| {
+            left.0.ordinal.cmp(&right.0.ordinal).then_with(|| left.0.name.cmp(&right.0.name))
+        });
+        next.sort_by(|left, right| {
+            left.0.ordinal.cmp(&right.0.ordinal).then_with(|| left.0.name.cmp(&right.0.name))
+        });
+        if previous == next {
+            return false;
+        }
+        self.remove_file(file);
+        for (id, meta) in next {
+            self.insert(id, meta);
+        }
+        self.rebuild_module_names();
+        true
+    }
+
+    /// Drop every node owned by `file`. Returns whether anything was removed.
+    pub fn remove_file(&mut self, file: FileId) -> bool {
+        let ids: Vec<_> = self.meta.keys().filter(|id| id.file == file).cloned().collect();
+        if ids.is_empty() {
+            return false;
+        }
+        for id in ids {
+            self.meta.remove(&id);
+            if let Some(list) = self.by_name.get_mut(&id.name) {
+                list.retain(|existing| existing != &id);
+                if list.is_empty() {
+                    self.by_name.remove(&id.name);
+                }
+            }
+        }
+        self.rebuild_module_names();
+        true
+    }
+
+    fn rebuild_module_names(&mut self) {
+        self.module_names = self
             .by_name
             .iter()
             .filter(|(_, ids)| ids.iter().any(|id| id.kind.is_hierarchy_target()))
             .map(|(name, _)| name.clone())
             .collect();
-        graph.module_names.sort();
-        graph.module_names.dedup();
-        graph
+        self.module_names.sort();
+        self.module_names.dedup();
     }
 
     /// `file_facts` come from salsa; `generated` comes from the product store.
@@ -273,5 +346,58 @@ mod tests {
         assert!(graph.contains(&unit.id));
         assert!(graph.contains(&generated_id));
         assert_eq!(graph.node_count(), 2);
+    }
+
+    #[test]
+    fn upsert_file_replaces_one_file_and_keeps_the_other() {
+        let other = FileId::from_raw(2);
+        let keep =
+            UnitId { file: other, name: SmolStr::new("keep"), kind: UnitKind::Module, ordinal: 0 };
+        let mut graph = super::DesignGraph::default();
+        graph.insert(keep.clone(), generated_meta(&keep));
+        graph.rebuild_module_names();
+
+        let first = crate::unit::UnitNode {
+            id: id("first", 0),
+            origin: UnitOrigin::Source,
+            name_range: None,
+            header_range: None,
+            header_fingerprint: 1,
+        };
+        let facts =
+            crate::FileFacts { units: Box::new([first.clone()]), ..crate::FileFacts::default() };
+        assert!(graph.upsert_file(FILE, &facts, &GeneratedUnits::default()));
+        assert!(graph.contains(&keep));
+        assert!(graph.contains(&first.id));
+
+        let second = crate::unit::UnitNode {
+            id: id("second", 0),
+            origin: UnitOrigin::Source,
+            name_range: None,
+            header_range: None,
+            header_fingerprint: 2,
+        };
+        let facts =
+            crate::FileFacts { units: Box::new([second.clone()]), ..crate::FileFacts::default() };
+        assert!(graph.upsert_file(FILE, &facts, &GeneratedUnits::default()));
+        assert!(graph.contains(&keep));
+        assert!(graph.contains(&second.id));
+        assert!(!graph.contains(&first.id));
+        assert!(!graph.upsert_file(FILE, &facts, &GeneratedUnits::default()));
+    }
+
+    #[test]
+    fn remove_file_drops_only_that_file() {
+        let other = FileId::from_raw(2);
+        let keep =
+            UnitId { file: other, name: SmolStr::new("keep"), kind: UnitKind::Module, ordinal: 0 };
+        let mut graph = super::DesignGraph::default();
+        graph.insert(id("gone", 0), generated_meta(&id("gone", 0)));
+        graph.insert(keep.clone(), generated_meta(&keep));
+        graph.rebuild_module_names();
+        assert!(graph.remove_file(FILE));
+        assert!(graph.contains(&keep));
+        assert!(!graph.contains(&id("gone", 0)));
+        assert!(!graph.remove_file(FILE));
     }
 }

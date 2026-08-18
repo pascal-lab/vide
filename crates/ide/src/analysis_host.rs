@@ -62,17 +62,17 @@ impl AnalysisHost {
         // Some VFS producers use `ChangedFile::create` for a full-text update
         // of an already registered file, so the per-file change kind alone is
         // not a reliable workspace-structure signal.
-        let invalidate_workspace = change.roots.is_some() || change.project_config.is_some();
-        let dependent_files = if invalidate_workspace {
-            Vec::new()
-        } else {
-            self.store.parsed_dependents(&dirty_files)
-        };
+        // A project-config-only change (workspace switch) has no dirty files
+        // and must start a new store. File create/delete also set roots, but
+        // that is a graph upsert, not a workspace reset.
+        let reset_products = change.project_config.is_some() && dirty_files.is_empty();
+        let dependent_files =
+            if reset_products { Vec::new() } else { self.store.parsed_dependents(&dirty_files) };
         let mut affected_files = dirty_files.clone();
         affected_files.extend(dependent_files.iter().copied());
         affected_files.sort_unstable_by_key(|file_id| file_id.index());
         affected_files.dedup();
-        if invalidate_workspace {
+        if reset_products {
             self.store = Arc::new(ProductStore::default());
             self.db.apply_change(change);
             self.start_prewarm(self.db.files().iter().copied().collect());
@@ -90,7 +90,7 @@ impl AnalysisHost {
             self.db.apply_change(change);
         }
         self.advance_revision();
-        if !invalidate_workspace && !affected_files.is_empty() {
+        if !reset_products && !affected_files.is_empty() {
             self.start_prewarm(affected_files);
         }
     }
@@ -170,6 +170,16 @@ impl AnalysisHost {
             return;
         };
         task.cancel.store(true, Ordering::Release);
+        // Do not join: the worker checks cancel between files and drops its
+        // salsa snapshot. Joining waited out an in-flight fold on the main
+        // loop and showed up as after-edit request latency.
+    }
+
+    fn join_prewarm(&mut self) {
+        let Some(task) = self.prewarm.take() else {
+            return;
+        };
+        task.cancel.store(true, Ordering::Release);
         let _ = task.worker.join();
     }
 
@@ -196,7 +206,7 @@ impl AnalysisHost {
 
 impl Drop for AnalysisHost {
     fn drop(&mut self) {
-        self.cancel_prewarm();
+        self.join_prewarm();
     }
 }
 
@@ -230,6 +240,46 @@ mod tests {
         let mut change = Change::new();
         change.add_changed_file(ChangedFile::modify(FileId::from_raw(0), text));
         change
+    }
+
+    fn add_second_file(text: &str) -> Change {
+        let first = FileId::from_raw(0);
+        let second = FileId::from_raw(1);
+        let mut file_set = FileSet::default();
+        file_set.insert(first, VfsPath::new_virtual_path("/top.sv".to_owned()));
+        file_set.insert(second, VfsPath::new_virtual_path("/other.sv".to_owned()));
+        let mut change = Change::new();
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.add_changed_file(ChangedFile::create(second, text));
+        change
+    }
+
+    #[test]
+    fn adding_a_file_upserts_the_existing_design_graph() {
+        let mut host = AnalysisHost::default();
+        host.apply_change(change_with_file_text("module first;\nendmodule\n"));
+        let first = host.ctx().design_graph();
+        assert_eq!(first.node_count(), 1);
+        assert!(first.module_names().iter().any(|name| name == "first"));
+
+        host.apply_change(add_second_file("module second;\nendmodule\n"));
+        let both = host.ctx().design_graph();
+        assert_eq!(both.node_count(), 2);
+        assert!(both.module_names().iter().any(|name| name == "first"));
+        assert!(both.module_names().iter().any(|name| name == "second"));
+    }
+
+    #[test]
+    fn body_only_edit_keeps_the_design_graph_nodes() {
+        let mut host = AnalysisHost::default();
+        host.apply_change(change_with_file_text("module first;\nendmodule\n"));
+        let before = host.ctx().design_graph();
+        assert_eq!(before.node_count(), 1);
+
+        host.apply_change(modify_with_file_text("module first;\n  wire x;\nendmodule\n"));
+        let after = host.ctx().design_graph();
+        assert_eq!(after.node_count(), 1);
+        assert!(after.module_names().iter().any(|name| name == "first"));
     }
 
     #[test]

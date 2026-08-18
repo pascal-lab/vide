@@ -1,5 +1,5 @@
-use base_db::source_root::SourceRootId;
-use design_graph::{DesignGraph, GeneratedUnits, UnitId, UnitMeta};
+use base_db::{source_db::SourceDb, source_root::SourceRootId};
+use design_graph::{DesignGraph, DesignGraphDb, GeneratedUnits, UnitId, UnitMeta};
 use hir_def::pathres::ResolutionContext;
 use parking_lot::Mutex;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -20,8 +20,8 @@ use crate::{
 
 /// Products that have been requested at least once on this store lineage.
 ///
-/// Survives [`EpochDecision::Drop`] so a structural edit still prewarms what
-/// the user was using. Dies with the store on a workspace reset.
+/// Survives a structure [`EpochDecision::Patch`] so a CU edit still prewarms
+/// what the user was using. Dies with the store on a workspace reset.
 #[derive(Clone)]
 pub(crate) struct HotProducts {
     pub snapshot_inputs: bool,
@@ -77,21 +77,6 @@ struct Inner {
     generated: GeneratedUnits,
 }
 
-impl Inner {
-    fn drop_structure_products(&mut self) {
-        self.drop_design_graph_products();
-        self.shards.file_indexes.clear();
-        self.shards.module_edges.clear();
-        self.shards.names.clear();
-    }
-
-    fn drop_design_graph_products(&mut self) {
-        self.structure.design_graph = Arc::new(ProductCell::default());
-        self.structure.resolution = Arc::new(ProductCell::default());
-        self.structure.snapshot_inputs = Arc::new(ProductCell::default());
-    }
-}
-
 /// Lazily materialized workspace products, forked on every change so
 /// previously created [`crate::analysis::AnalysisSnapshot`]s keep the previous
 /// value and can never observe products from a later edit.
@@ -124,26 +109,19 @@ impl ProductStore {
         self.inner.lock().parse_dependencies.insert(file_id, dependencies);
     }
 
-    /// Book-keep generated units for one file. Drops the design-graph cells
-    /// only when this file's generated `UnitId` set actually changed.
+    /// Book-keep generated units for one file. Returns whether the stored set
+    /// changed so the caller can upsert that file on the live graph.
     pub(crate) fn record_generated_units(
         &self,
         file_id: FileId,
         ids: Box<[UnitId]>,
         meta: FxHashMap<UnitId, UnitMeta>,
-    ) {
-        let changed = self.inner.lock().generated.replace_file(file_id, ids, meta);
-        if changed {
-            self.invalidate_design_graph();
-        }
+    ) -> bool {
+        self.inner.lock().generated.replace_file(file_id, ids, meta)
     }
 
     pub(crate) fn generated_units(&self) -> GeneratedUnits {
         self.inner.lock().generated.clone()
-    }
-
-    pub(crate) fn invalidate_design_graph(&self) {
-        self.inner.lock().drop_design_graph_products();
     }
 
     pub(crate) fn design_graph_cell(&self) -> Arc<ProductCell<DesignGraph>> {
@@ -174,14 +152,18 @@ impl ProductStore {
             return;
         }
         // Capture pre-change L0 shards outside the lock: Salsa queries must
-        // not run while holding the store mutex. Always snapshot — name
-        // tables do not depend on resolution being warm, and a missing
-        // snapshot cannot prove a body-only edit.
+        // not run while holding the store mutex. Only snapshot files that
+        // already exist — a create has no pre-change facts, and parsing an
+        // empty slot is not a snapshot.
         let snapshots: Vec<_> = files
             .iter()
-            .map(|&file_id| (file_id, StructureSnapshot::capture(db, file_id)))
+            .copied()
+            .filter(|&file_id| db.files().contains(&file_id))
+            .map(|file_id| (file_id, StructureSnapshot::capture(db, file_id)))
             .collect();
-        self.inner.lock().epoch.record(snapshots);
+        let mut inner = self.inner.lock();
+        inner.epoch.record(snapshots);
+        inner.epoch.mark_dirty(files);
     }
 
     pub(crate) fn mark_epoch_dirty(&self, files: &[FileId]) {
@@ -189,23 +171,65 @@ impl ProductStore {
     }
 
     /// Apply the structural epoch. Body-only edits keep the previous
-    /// resolution products; structural edits discard them before any IDE
-    /// request observes the new store. The per-file generation clock always
-    /// advances for the affected set.
+    /// graph; files whose CU units changed are upserted. Resolution products
+    /// drop only when the graph actually changed. The per-file generation
+    /// clock always advances for the affected set.
     ///
     /// This is the only invalidation entry point. The request path never
     /// re-decides the epoch.
     pub(crate) fn invalidate(&self, db: &RootDb, files: &[FileId]) {
         let epoch = self.inner.lock().epoch.clone();
         let decision = if epoch.is_empty() { EpochDecision::Keep } else { epoch.decide(db) };
-        let mut inner = self.inner.lock();
-        inner.epoch.clear();
+        {
+            let mut inner = self.inner.lock();
+            inner.epoch.clear();
+            for &file_id in files {
+                *inner.dirty_gen.entry(file_id).or_insert(0) += 1;
+            }
+        }
+        match decision {
+            EpochDecision::Keep => {}
+            EpochDecision::Patch(patch) => {
+                self.patch_design_graph(db, &patch);
+                let mut inner = self.inner.lock();
+                inner.structure.resolution = Arc::new(ProductCell::default());
+                inner.structure.snapshot_inputs = Arc::new(ProductCell::default());
+            }
+        }
+    }
+
+    /// Upsert or remove `files` on the live graph. If the graph has never
+    /// been built, leave the cell empty so the next request folds what exists.
+    pub(crate) fn patch_design_graph(&self, db: &RootDb, files: &[FileId]) {
+        if files.is_empty() {
+            return;
+        }
+        let Some(current) = self.design_graph_cell().peek() else {
+            return;
+        };
+        let generated = self.generated_units();
+        let mut graph = (*current).clone();
+        let mut changed = false;
         for &file_id in files {
-            *inner.dirty_gen.entry(file_id).or_insert(0) += 1;
+            if !db.files().contains(&file_id)
+                || !db.file_kind(file_id).is_semantic_compilation_unit()
+            {
+                changed |= graph.remove_file(file_id);
+                continue;
+            }
+            changed |= graph.upsert_file(
+                file_id,
+                <dyn DesignGraphDb>::file_facts(db, file_id).as_ref(),
+                &generated,
+            );
         }
-        if decision == EpochDecision::Drop {
-            inner.drop_structure_products();
+        if !changed {
+            return;
         }
+        let mut inner = self.inner.lock();
+        inner.structure.design_graph = Arc::new(ProductCell::from_arc(triomphe::Arc::new(graph)));
+        inner.structure.resolution = Arc::new(ProductCell::default());
+        inner.structure.snapshot_inputs = Arc::new(ProductCell::default());
     }
 
     pub(crate) fn resolution_cell(&self) -> Arc<ProductCell<ResolutionContext>> {

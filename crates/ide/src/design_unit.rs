@@ -66,6 +66,12 @@ pub(crate) fn references(
 
 fn hit(db: &AnalysisContext<'_>, file_id: FileId, offset: TextSize) -> CursorHit {
     let facts = db.file_facts(file_id);
+    // A declaration name is a fact of this file. Do not fold the workspace
+    // graph to answer it — that raced VFS writes and cancelled the ready probe.
+    if let Some(decl) = facts.design_unit_at(offset) {
+        let range = decl.name_range.expect("design_unit_at only returns ranged decls");
+        return CursorHit::DeclName { unit: decl.id.clone(), range };
+    }
     let graph = db.design_graph();
     let hit = hit_at(&facts, &graph, file_id, offset);
     let (hit_kind, target_count) = match &hit {

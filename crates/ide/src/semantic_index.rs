@@ -326,6 +326,7 @@ mod tests {
         has_text_range::HasTextRange,
         token::TokenKindExt,
     };
+    use triomphe::Arc;
     use utils::line_index::{TextRange, TextSize};
 
     use super::*;

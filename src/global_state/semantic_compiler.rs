@@ -84,6 +84,12 @@ impl SemanticCompiler {
         !self.pending_profiles.is_empty()
     }
 
+    pub(crate) fn cancel_active(&mut self) {
+        if let Some(token) = &self.active_cancel_token {
+            token.cancel();
+        }
+    }
+
     pub(crate) fn schedule<C: SemanticCompilerCtx>(
         &mut self,
         profile_ids: Vec<CompilationProfileId>,
