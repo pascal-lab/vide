@@ -433,6 +433,48 @@ mod tests {
         );
     }
 
+    /// T6 form B: L0 is a name→file locator. Generated names live on the paid
+    /// parse (`HirFileId::Macro`). Merging them into the catalog that feeds
+    /// `resolution()` is the overlay that made stale goto possible.
+    #[test]
+    fn production_resolution_does_not_merge_generated_overlay() {
+        use design_graph::DesignGraphDb;
+        let gen_foo =
+            "`define GEN(name) module name; endmodule\n`GEN(foo)\nmodule top;\nendmodule\n";
+        let other = "module other;\n  foo u_foo();\nendmodule\n";
+        let generator = FileId::from_raw(0);
+        let user = FileId::from_raw(1);
+
+        let mut host = AnalysisHost::default();
+        host.apply_change(two_file_workspace(gen_foo, other));
+        let _ = host.ctx().parse_file(generator);
+
+        let source = <dyn DesignGraphDb>::source_unit_catalog(host.ctx().db);
+        let production = host.ctx().unit_catalog();
+        let resolution = host.ctx().resolution();
+        let graph = resolution.graph();
+        assert!(
+            !source.module_names().iter().any(|name| name == "foo"),
+            "L0 salsa catalog must not see a generated name: {:?}",
+            source.module_names()
+        );
+        assert!(
+            !production.module_names().iter().any(|name| name == "foo"),
+            "production catalog must not merge generated names: {:?}",
+            production.module_names()
+        );
+        assert!(
+            !graph.module_names().iter().any(|name| name == "foo"),
+            "resolution must not be fed generated L0 names: {:?}",
+            graph.module_names()
+        );
+        assert_eq!(
+            goto_names(&host, user, other, "foo u_foo"),
+            ["foo"],
+            "goto must still find the generated module via paid-parse identity"
+        );
+    }
+
     #[test]
     fn body_only_edit_keeps_the_design_graph_nodes() {
         let mut host = AnalysisHost::default();

@@ -522,6 +522,31 @@ mod tests {
         assert!(calls > 0, "a hover+goto session must cross the bridge");
     }
 
+    /// T6 form B: shipped resolution must not project L0 `UnitId` → `OwnerId`
+    /// by name. The T5 counter is the production bridge; it must stay at 0.
+    #[test]
+    fn shipped_request_does_not_project_l0_unit_ids() {
+        use hir_def::unit::TO_OWNER_RUNS;
+
+        let (host, files) = crate::test_utils::setup_marked_files(&[
+            ("/a.sv", "package a;\n  int x;\nendpackage\n"),
+            ("/b.sv", "package b;\n  import a::*;\n  int y;\nendpackage\n"),
+            ("/c.sv", "package c;\n  import b::*;\n  int z;\nendpackage\n"),
+            ("/top.sv", "module top;\n  int /*marker:w*/w;\nendmodule\n"),
+        ]);
+        let file_id = files[3].0;
+        let offset = files[3].2["w"];
+        TO_OWNER_RUNS.with(|runs| runs.set(0));
+        let _ = host.make_analysis().hover(crate::FilePosition { file_id, offset }).unwrap();
+        let _ =
+            host.make_analysis().goto_definition(crate::FilePosition { file_id, offset }).unwrap();
+        let calls = TO_OWNER_RUNS.with(Cell::get);
+        assert_eq!(
+            calls, 0,
+            "shipped hover+goto must not project L0 UnitId by name (to_owner={calls})"
+        );
+    }
+
     /// Cold start of one file hits U1 / U2 / U3 once each. The three
     /// unexpanded parses stay split (empty vs profile predefines vs Trace);
     /// `preprocessor_independent` is one function on U1 and U2.
