@@ -16,6 +16,7 @@ namespace slang_sys::compilation {
 
 struct ParseSyntaxTreeOptions;
 struct ClassMemberAnswer;
+struct HierInstanceAnswer;
 
 class Compilation {
   public:
@@ -73,4 +74,5 @@ ClassMemberAnswer lookup_class_member(
     rust::Str path,
     std::size_t offset
 );
+rust::Vec<HierInstanceAnswer> list_instances(Compilation& compilation);
 } // namespace slang_sys::compilation

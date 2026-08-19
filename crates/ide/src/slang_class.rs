@@ -10,7 +10,7 @@ use base_db::source_db::SourceRootDb;
 use hir_def::ast_id_map::SourceAstId;
 use preproc_expand::{compilation_plan, file::HirFileId};
 use slang_sys::compilation::ClassMemberInfo;
-use syntax::has_text_range::HasTextRange;
+use syntax::{SyntaxTreeOptions, has_text_range::HasTextRange};
 use vfs::FileId;
 
 use crate::{analysis::AnalysisContext, elaboration::ElabResult};

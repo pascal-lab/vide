@@ -21,6 +21,14 @@ pub struct ClassMemberInfo {
     pub inheritance: Vec<String>,
 }
 
+/// One elaborated instance: hierarchical path and the instantiation site.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HierInstance {
+    pub path: String,
+    pub file: String,
+    pub offset: usize,
+}
+
 impl Default for Compilation {
     fn default() -> Self {
         Self::new()
@@ -154,6 +162,13 @@ impl Compilation {
         })
     }
 
+    pub fn list_instances(&mut self) -> Vec<HierInstance> {
+        ffi::list_instances(self.raw_pin())
+            .into_iter()
+            .map(|row| HierInstance { path: row.path, file: row.file, offset: row.offset })
+            .collect()
+    }
+
     fn raw_pin(&mut self) -> Pin<&mut ffi::Compilation> {
         self.raw.as_mut().expect("Slang compilation unexpectedly null")
     }
@@ -239,6 +254,23 @@ endclass
         assert_eq!(info.owner_class, "uvm_object");
         assert!(info.inheritance.iter().any(|name| name == "uvm_void"), "{info:?}");
         assert!(info.type_name.contains("string"), "{info:?}");
+    }
+
+    #[test]
+    fn list_instances_reports_hierarchical_path_and_site() {
+        let src = "module child; endmodule\nmodule top; child u0(); endmodule\n";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(
+            src,
+            "top",
+            "top.sv",
+            &SyntaxTreeOptions::default(),
+        );
+        let instances = compilation.list_instances();
+        assert!(
+            instances.iter().any(|inst| inst.path.contains("u0") && inst.file.contains("top")),
+            "{instances:?}"
+        );
     }
 
     #[test]

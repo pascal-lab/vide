@@ -350,4 +350,47 @@ ClassMemberAnswer lookup_class_member(
     return out;
 }
 
+namespace {
+
+void collect_instances(
+    const slang::ast::Scope& scope,
+    const slang::SourceManager& sm,
+    rust::Vec<HierInstanceAnswer>& out
+) {
+    for (const auto& member : scope.members()) {
+        if (const auto* inst = member.as_if<slang::ast::InstanceSymbol>()) {
+            HierInstanceAnswer row;
+            row.path = rust::String(inst->getHierarchicalPath());
+            if (inst->location.valid()) {
+                row.file = rust::String(std::string(sm.getRawFileName(inst->location.buffer())));
+                if (row.file.empty())
+                    row.file = rust::String(sm.getFullPath(inst->location.buffer()).string());
+                row.offset = inst->location.offset();
+            }
+            out.push_back(std::move(row));
+            collect_instances(inst->body, sm, out);
+        } else if (const auto* pkg = member.as_if<slang::ast::PackageSymbol>()) {
+            collect_instances(*pkg, sm, out);
+        } else if (const auto* cu = member.as_if<slang::ast::CompilationUnitSymbol>()) {
+            collect_instances(*cu, sm, out);
+        } else if (const auto* body = member.as_if<slang::ast::InstanceBodySymbol>()) {
+            collect_instances(*body, sm, out);
+        }
+    }
+}
+
+} // namespace
+
+rust::Vec<HierInstanceAnswer> list_instances(Compilation& compilation) {
+    rust::Vec<HierInstanceAnswer> out;
+    if (!compilation.inner)
+        return out;
+    const auto& root = compilation.inner->getRoot();
+    const auto* sm = compilation.inner->getSourceManager();
+    if (!sm)
+        return out;
+    collect_instances(root, *sm, out);
+    return out;
+}
+
 } // namespace slang_sys::compilation

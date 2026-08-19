@@ -21,6 +21,13 @@ mod slang_ffi {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
+    struct HierInstanceAnswer {
+        path: String,
+        file: String,
+        offset: usize,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct ParseSyntaxTreeOptions {
         predefines: Vec<String>,
         include_paths: Vec<String>,
@@ -99,6 +106,7 @@ mod slang_ffi {
             path: &str,
             offset: usize,
         ) -> ClassMemberAnswer;
+        fn list_instances(compilation: Pin<&mut Compilation>) -> Vec<HierInstanceAnswer>;
 
     }
 }

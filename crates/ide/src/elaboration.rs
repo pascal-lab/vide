@@ -25,7 +25,7 @@ use preproc_expand::compilation_plan::{
     self, CompilationPlan, CompilationRootKind, compilation_source_buffers_for_plan,
 };
 use rustc_hash::{FxHashMap, FxHasher};
-use slang_sys::compilation::{ClassMemberInfo, Compilation};
+use slang_sys::compilation::{ClassMemberInfo, Compilation, HierInstance};
 use syntax::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
 use vfs::FileId;
 
@@ -72,6 +72,12 @@ enum Request {
         path: String,
         offset: usize,
         reply: Sender<ElabResult<ClassMemberInfo>>,
+    },
+    Instances {
+        db: RootDb,
+        revision: ElabRevision,
+        profile: Option<CompilationProfileId>,
+        reply: Sender<ElabResult<Vec<HierInstance>>>,
     },
     #[cfg(test)]
     LastReused {
@@ -147,6 +153,33 @@ impl ElaborationService {
         }
     }
 
+    pub fn list_instances(
+        &self,
+        db: &RootDb,
+        revision: ElabRevision,
+        profile: Option<CompilationProfileId>,
+    ) -> ElabResult<Vec<HierInstance>> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        if self
+            .tx
+            .send(Request::Instances { db: db.clone(), revision, profile, reply: reply_tx })
+            .is_err()
+        {
+            return ElabResult::Unavailable(UnavailableReason::Crashed(
+                "elaboration worker is gone".to_owned(),
+            ));
+        }
+        match reply_rx.recv_timeout(LOOKUP_TIMEOUT) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                ElabResult::Unavailable(UnavailableReason::TimedOut)
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => ElabResult::Unavailable(
+                UnavailableReason::Crashed("elaboration worker dropped the lookup".to_owned()),
+            ),
+        }
+    }
+
     pub fn shutdown(&self) {
         let _ = self.tx.send(Request::Shutdown);
     }
@@ -169,6 +202,10 @@ fn worker_loop(rx: Receiver<Request>) {
             Request::Lookup { db, revision, profile, path, offset, reply } => {
                 let result =
                     handle_lookup(&mut gens, &mut last_reused, db, revision, profile, path, offset);
+                let _ = reply.send(result);
+            }
+            Request::Instances { db, revision, profile, reply } => {
+                let result = handle_instances(&mut gens, &mut last_reused, db, revision, profile);
                 let _ = reply.send(result);
             }
             #[cfg(test)]
@@ -231,6 +268,36 @@ fn handle_lookup(
         Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
             "class-member lookup panicked".to_owned(),
         )),
+    }
+}
+
+fn handle_instances(
+    gens: &mut Vec<Generation>,
+    last_reused: &mut usize,
+    db: RootDb,
+    revision: ElabRevision,
+    profile: Option<CompilationProfileId>,
+) -> ElabResult<Vec<HierInstance>> {
+    match handle_lookup(gens, last_reused, db, revision, profile, String::new(), 0) {
+        ElabResult::Stale { have, want } => ElabResult::Stale { have, want },
+        ElabResult::Unavailable(reason) => ElabResult::Unavailable(reason),
+        ElabResult::Ready(_) => {
+            let slot = gens.iter_mut().find(|slot| slot.revision == revision);
+            let Some(slot) = slot else {
+                return ElabResult::Unavailable(UnavailableReason::NotReady);
+            };
+            let Some(profile_elab) = slot.profiles.get_mut(&profile) else {
+                return ElabResult::Unavailable(UnavailableReason::NotReady);
+            };
+            match panic::catch_unwind(AssertUnwindSafe(|| {
+                profile_elab.compilation.list_instances()
+            })) {
+                Ok(instances) => ElabResult::Ready(Some(instances)),
+                Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
+                    "instance walk panicked".to_owned(),
+                )),
+            }
+        }
     }
 }
 
@@ -480,6 +547,29 @@ endclass
         assert!(
             info.inheritance.iter().any(|name| name == "uvm_object" || name == "uvm_void"),
             "inheritance must resolve through the imported package in the same compilation: {info:?}"
+        );
+    }
+
+    #[test]
+    fn instance_hierarchy_names_the_instantiation_site() {
+        let src = "module child; endmodule\nmodule top; child u0(); endmodule\n";
+        let (host, file_id) = setup_with_path(src, "/top.sv");
+        let ctx = host.ctx();
+        let rows = match ctx.elab.list_instances(
+            ctx.db,
+            ctx.revision,
+            ctx.db.file_compilation_profile(file_id),
+        ) {
+            ElabResult::Ready(Some(rows)) => rows,
+            other => panic!("expected instance list, got {other:?}"),
+        };
+        let u0 =
+            rows.iter().find(|row| row.path.contains("u0")).unwrap_or_else(|| panic!("{rows:?}"));
+        let site = src.find("u0").expect("instance name");
+        assert_eq!(u0.offset, site, "{u0:?}");
+        assert!(
+            rows.iter().any(|row| row.offset == site && row.path.contains("u0")),
+            "source site must list the instance: {rows:?}"
         );
     }
 
