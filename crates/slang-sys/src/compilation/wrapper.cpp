@@ -7,8 +7,8 @@
 #include "slang/ast/symbols/SubroutineSymbols.h"
 #include "slang/ast/symbols/VariableSymbols.h"
 #include "slang/text/SourceManager.h"
+#include "slang/util/String.h"
 
-#include <filesystem>
 #include <optional>
 #include <stdexcept>
 
@@ -195,8 +195,14 @@ rust::Vec<diagnostic::RawSyntaxDiagnostic> semantic_diagnostics(
 
 namespace {
 
-std::string filename_of(std::string_view path) {
-    return std::filesystem::path(std::string(path)).filename().string();
+// Path we handed `assignText`. `getRawFileName` is not that: SourceSession
+// sets disableProximatePaths, so cacheBuffer stores only path.filename()
+// in FileData::name. FileData::fullPath is the assigned spelling.
+std::string assigned_path(const slang::SourceManager& sm, slang::BufferID buffer) {
+    auto full = sm.getFullPath(buffer);
+    if (!full.empty())
+        return slang::getU8Str(full);
+    return std::string(sm.getRawFileName(buffer));
 }
 
 // Resolve the query path once. Per-symbol string compares were the T4 slice
@@ -205,19 +211,12 @@ std::optional<slang::BufferID> buffer_for_path(
     const slang::SourceManager& sm,
     std::string_view want
 ) {
-    auto want_name = filename_of(want);
     for (auto buffer : sm.getAllBuffers()) {
         auto kind = sm.getBufferKind(buffer);
         if (kind == slang::SourceManager::BufferKind::Macro ||
             kind == slang::SourceManager::BufferKind::MacroArg)
             continue;
-        auto raw = std::string(sm.getRawFileName(buffer));
-        auto full = sm.getFullPath(buffer).string();
-        slang::SourceLocation loc(buffer, 0);
-        auto display = loc.valid() ? std::string(sm.getFileName(loc)) : std::string();
-        if (raw == want || full == want || display == want ||
-            filename_of(raw) == want_name || filename_of(full) == want_name ||
-            filename_of(display) == want_name)
+        if (assigned_path(sm, buffer) == want)
             return buffer;
     }
     return std::nullopt;
@@ -362,9 +361,7 @@ void collect_instances(
             HierInstanceAnswer row;
             row.path = rust::String(inst->getHierarchicalPath());
             if (inst->location.valid()) {
-                row.file = rust::String(std::string(sm.getRawFileName(inst->location.buffer())));
-                if (row.file.empty())
-                    row.file = rust::String(sm.getFullPath(inst->location.buffer()).string());
+                row.file = rust::String(assigned_path(sm, inst->location.buffer()));
                 row.offset = inst->location.offset();
             }
             out.push_back(std::move(row));

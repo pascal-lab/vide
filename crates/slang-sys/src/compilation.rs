@@ -257,6 +257,25 @@ endclass
     }
 
     #[test]
+    fn lookup_uses_the_assigned_buffer_path() {
+        let src = "virtual class uvm_void; endclass\nvirtual class uvm_object extends uvm_void;\n  string m_leaf_name;\nendclass\n";
+        let path = "/vide-assigned/uvm_object.svh";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(
+            src,
+            "uvm_object.svh",
+            path,
+            &SyntaxTreeOptions::default(),
+        );
+        let offset = src.find("m_leaf_name").expect("property");
+        let info = compilation
+            .lookup_class_member(path, offset)
+            .expect("lookup must hit the buffer under the path it was assigned");
+        assert_eq!(info.owner_class, "uvm_object");
+        assert!(info.type_name.contains("string"), "{info:?}");
+    }
+
+    #[test]
     fn list_instances_reports_hierarchical_path_and_site() {
         let src = "module child; endmodule\nmodule top; child u0(); endmodule\n";
         let mut compilation = Compilation::new();
@@ -268,9 +287,23 @@ endclass
         );
         let instances = compilation.list_instances();
         assert!(
-            instances.iter().any(|inst| inst.path.contains("u0") && inst.file.contains("top")),
+            instances.iter().any(|inst| inst.path.contains("u0") && inst.file == "top.sv"),
             "{instances:?}"
         );
+    }
+
+    #[test]
+    fn list_instances_reports_the_assigned_buffer_path() {
+        let src = "module child; endmodule\nmodule top; child u0(); endmodule\n";
+        let path = "/vide-assigned/top.sv";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(src, "top", path, &SyntaxTreeOptions::default());
+        let instances = compilation.list_instances();
+        let inst = instances
+            .iter()
+            .find(|inst| inst.path.contains("u0"))
+            .unwrap_or_else(|| panic!("missing u0: {instances:?}"));
+        assert_eq!(inst.file, path, "{instances:?}");
     }
 
     #[test]
