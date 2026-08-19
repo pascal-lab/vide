@@ -7,6 +7,7 @@
 
 use std::cell::Cell;
 
+use base_db::salsa;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
@@ -275,15 +276,53 @@ impl DesignMap {
 }
 
 thread_local! {
-    /// Executions of [`package_export_closure`]. A salsa memo must keep this
-    /// at one per request, not one per `resolution()` / `semantics()` call.
+    /// Executions of the salsa query body. A request that calls
+    /// `resolution()` / `semantics()` more than once must still see 1.
     pub static PACKAGE_EXPORT_CLOSURE_RUNS: Cell<u32> = const { Cell::new(0) };
     /// Paid [`ToOwner::to_owner`] calls performed while building the closure.
     pub static PACKAGE_EXPORT_TO_OWNER_RUNS: Cell<u32> = const { Cell::new(0) };
 }
 
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub struct PackageExportClosureKey {
+    #[returns(copy)]
+    pub _unit: (),
+}
+
+/// Closed package-export graph for the source catalog.
+///
+/// Overlay-generated packages are not salsa inputs (T14). When the
+/// production catalog has extra packages, [`package_export_closure`]
+/// computes them outside this query rather than smuggling the overlay
+/// into salsa.
+#[salsa::tracked(returns(clone))]
+fn package_export_closure_query(
+    db: &dyn HirDefDb,
+    _key: PackageExportClosureKey,
+) -> Arc<DesignMap> {
+    let graph = <dyn crate::db::DesignGraphDb>::source_unit_catalog(db);
+    compute_package_export_closure(db, &graph)
+}
+
 /// Closed package-export graph for the packages on `graph`.
 pub fn package_export_closure(
+    db: &dyn HirDefDb,
+    graph: &design_graph::UnitCatalog,
+) -> Arc<DesignMap> {
+    let source = <dyn crate::db::DesignGraphDb>::source_unit_catalog(db);
+    if same_packages(graph, &source) {
+        return package_export_closure_query(db, PackageExportClosureKey::new(db, ()));
+    }
+    compute_package_export_closure(db, graph)
+}
+
+fn same_packages(left: &design_graph::UnitCatalog, right: &design_graph::UnitCatalog) -> bool {
+    let left: rustc_hash::FxHashSet<_> = left.packages().collect();
+    let right: rustc_hash::FxHashSet<_> = right.packages().collect();
+    left == right
+}
+
+fn compute_package_export_closure(
     db: &dyn HirDefDb,
     graph: &design_graph::UnitCatalog,
 ) -> Arc<DesignMap> {
