@@ -9,6 +9,7 @@
 #include "slang/text/SourceManager.h"
 
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
 
 namespace slang_sys::compilation {
@@ -194,15 +195,45 @@ rust::Vec<diagnostic::RawSyntaxDiagnostic> semantic_diagnostics(
 
 namespace {
 
-bool file_matches(const slang::SourceManager& sm, slang::SourceLocation loc, std::string_view want) {
+std::string filename_of(std::string_view path) {
+    return std::filesystem::path(std::string(path)).filename().string();
+}
+
+// Resolve the query path once. Per-symbol string compares were the T4 slice
+// cost; a live compilation has thousands of symbols and that does not scale.
+std::optional<slang::BufferID> buffer_for_path(
+    const slang::SourceManager& sm,
+    std::string_view want
+) {
+    auto want_name = filename_of(want);
+    for (auto buffer : sm.getAllBuffers()) {
+        auto kind = sm.getBufferKind(buffer);
+        if (kind == slang::SourceManager::BufferKind::Macro ||
+            kind == slang::SourceManager::BufferKind::MacroArg)
+            continue;
+        auto raw = std::string(sm.getRawFileName(buffer));
+        auto full = sm.getFullPath(buffer).string();
+        slang::SourceLocation loc(buffer, 0);
+        auto display = loc.valid() ? std::string(sm.getFileName(loc)) : std::string();
+        if (raw == want || full == want || display == want ||
+            filename_of(raw) == want_name || filename_of(full) == want_name ||
+            filename_of(display) == want_name)
+            return buffer;
+    }
+    return std::nullopt;
+}
+
+bool in_buffer(
+    const slang::SourceManager& sm,
+    slang::SourceLocation loc,
+    slang::BufferID buffer
+) {
     if (!loc.valid())
         return false;
-    auto name = std::string(sm.getFileName(loc));
-    auto full = sm.getFullPath(loc.buffer()).string();
-    auto want_name = std::filesystem::path(std::string(want)).filename().string();
-    auto name_base = std::filesystem::path(name).filename().string();
-    return name == want || full == want || name_base == want_name ||
-           name.ends_with(std::string(want)) || full.ends_with(std::string(want));
+    if (loc.buffer() == buffer)
+        return true;
+    auto original = sm.getFullyOriginalLoc(loc);
+    return original.valid() && original.buffer() == buffer;
 }
 
 bool offset_in_symbol(const slang::ast::Symbol& symbol, std::size_t offset) {
@@ -247,14 +278,14 @@ bool consider_member(
     const slang::ast::Symbol& symbol,
     const slang::ast::ClassType& owner,
     const slang::SourceManager& sm,
-    std::string_view path,
+    slang::BufferID buffer,
     std::size_t offset,
     ClassMemberAnswer& out
 ) {
-    if (!file_matches(sm, symbol.location, path) &&
-        !(symbol.getSyntax() && file_matches(sm, symbol.getSyntax()->sourceRange().start(), path)))
-        return false;
-    if (!offset_in_symbol(symbol, offset))
+    auto loc = symbol.location;
+    if (const auto* syntax = symbol.getSyntax(); syntax && !in_buffer(sm, loc, buffer))
+        loc = syntax->sourceRange().start();
+    if (!in_buffer(sm, loc, buffer) || !offset_in_symbol(symbol, offset))
         return false;
     out.found = true;
     out.type_name = rust::String(member_type_name(symbol));
@@ -267,29 +298,29 @@ bool consider_member(
 bool walk_scope(
     const slang::ast::Scope& scope,
     const slang::SourceManager& sm,
-    std::string_view path,
+    slang::BufferID buffer,
     std::size_t offset,
     ClassMemberAnswer& out
 ) {
     for (const auto& member : scope.members()) {
         if (const auto* cls = member.as_if<slang::ast::ClassType>()) {
             for (const auto& child : cls->members()) {
-                if (consider_member(child, *cls, sm, path, offset, out))
+                if (consider_member(child, *cls, sm, buffer, offset, out))
                     return true;
             }
-            if (walk_scope(*cls, sm, path, offset, out))
+            if (walk_scope(*cls, sm, buffer, offset, out))
                 return true;
         } else if (const auto* pkg = member.as_if<slang::ast::PackageSymbol>()) {
-            if (walk_scope(*pkg, sm, path, offset, out))
+            if (walk_scope(*pkg, sm, buffer, offset, out))
                 return true;
         } else if (const auto* cu = member.as_if<slang::ast::CompilationUnitSymbol>()) {
-            if (walk_scope(*cu, sm, path, offset, out))
+            if (walk_scope(*cu, sm, buffer, offset, out))
                 return true;
         } else if (const auto* inst = member.as_if<slang::ast::InstanceSymbol>()) {
-            if (walk_scope(inst->body, sm, path, offset, out))
+            if (walk_scope(inst->body, sm, buffer, offset, out))
                 return true;
-        } else if (const auto* gen = member.as_if<slang::ast::InstanceBodySymbol>()) {
-            if (walk_scope(*gen, sm, path, offset, out))
+        } else if (const auto* body = member.as_if<slang::ast::InstanceBodySymbol>()) {
+            if (walk_scope(*body, sm, buffer, offset, out))
                 return true;
         }
     }
@@ -312,7 +343,10 @@ ClassMemberAnswer lookup_class_member(
     if (!sm)
         return out;
     std::string path_owned(path.data(), path.size());
-    walk_scope(root, *sm, path_owned, offset, out);
+    auto buffer = buffer_for_path(*sm, path_owned);
+    if (!buffer)
+        return out;
+    walk_scope(root, *sm, *buffer, offset, out);
     return out;
 }
 
