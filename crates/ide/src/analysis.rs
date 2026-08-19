@@ -472,18 +472,30 @@ mod tests {
         PACKAGE_EXPORT_TO_OWNER_RUNS.with(|runs| runs.set(0));
         let ctx = host.ctx();
         let _ = ctx.resolution();
+        let after_first = PACKAGE_EXPORT_CLOSURE_RUNS.with(Cell::get);
+        let to_owner_first = PACKAGE_EXPORT_TO_OWNER_RUNS.with(Cell::get);
         let _ = ctx.semantics();
         let _ = ctx.resolution();
         let closure_runs = PACKAGE_EXPORT_CLOSURE_RUNS.with(Cell::get);
         let to_owner_runs = PACKAGE_EXPORT_TO_OWNER_RUNS.with(Cell::get);
-        assert_eq!(
-            closure_runs, 1,
-            "package_export_closure must execute once per request, not once per resolution()/semantics() call (ran {closure_runs})"
+        assert!(
+            after_first <= 1,
+            "first resolution() may hit a prewarm memo (0) or compute once (1), not {after_first}"
         );
         assert_eq!(
-            to_owner_runs, package_count,
-            "to_owner work inside the closure must run once per package, not once per package per call (ran {to_owner_runs} for {package_count} packages)"
+            closure_runs, after_first,
+            "later resolution()/semantics() must not re-execute the closure (first={after_first} after={closure_runs})"
         );
+        assert_eq!(
+            to_owner_runs, to_owner_first,
+            "to_owner work inside the closure must not repeat per call (first={to_owner_first} after={to_owner_runs})"
+        );
+        if after_first == 1 {
+            assert_eq!(
+                to_owner_first, package_count,
+                "a cold closure walk is once per package (ran {to_owner_first} for {package_count} packages)"
+            );
+        }
     }
 
     #[test]
