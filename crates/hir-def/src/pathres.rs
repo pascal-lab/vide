@@ -98,9 +98,12 @@ impl ResolutionContext {
 // raw-AST distinction between `a.b` hierarchical selection and `a::b`
 // package/class scoping. HIR lowering turns dot-style member access and
 // `ScopedName` with an identifier right side into `Expr::Field`, and
-// `IdentifierSelectName` into `Expr::ElementSelect`; C3's `resolve_path`
-// handles the hierarchical dot/select shape only. Package/class `::` remains
-// outside this resolver until those constructs are lowered.
+// `IdentifierSelectName` into `Expr::ElementSelect`; this resolver handles
+// the hierarchical dot/select shape only.
+//
+// Package `::` is name lookup in an export scope (IDE
+// `resolve_package_scoped_name`). Class `::` needs types and is answered by the
+// elaboration service. There is no type-lowering path here.
 
 /// Resolution phase recorded by [`resolve_name_with_trace`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
