@@ -1,5 +1,7 @@
 #![recursion_limit = "512"]
 
+mod include_shape;
+
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::{
@@ -28,6 +30,7 @@ fn main() -> Result<()> {
         Some(XtaskCommand::Server(server)) => run_server_command(&workspace_root, server),
         Some(XtaskCommand::Vscode(vscode)) => run_vscode_command(&workspace_root, vscode),
         Some(XtaskCommand::BenchIde) => run_ide_benches(&workspace_root),
+        Some(XtaskCommand::IncludeShape(args)) => include_shape::run(&args.corpus),
         None => {
             Cli::command().print_help()?;
             eprintln!();
@@ -55,6 +58,16 @@ enum XtaskCommand {
     Vscode(VscodeArgs),
     /// Synthetic design-graph fold and post-edit request benches.
     BenchIde,
+    /// Classify `` `include `` targets as MacrosOnly / Balanced / Unbalanced.
+    IncludeShape(IncludeShapeArgs),
+}
+
+#[derive(Debug, Args)]
+struct IncludeShapeArgs {
+    /// Corpus roots (files under these trees with
+    /// .sv/.v/.svh/.vh/.svi/.inc/.h/.vi).
+    #[arg(required = true, num_args = 1..)]
+    corpus: Vec<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -550,6 +563,15 @@ mod tests {
     #[test]
     fn checked_in_schemas_match_generated_schemas() {
         check_schemas(&workspace_root().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn parses_include_shape_command_with_clap() {
+        let cli = Cli::try_parse_from(["xtask", "include-shape", "/tmp/corpus"]).unwrap();
+        let Some(XtaskCommand::IncludeShape(args)) = cli.command else {
+            panic!("expected include-shape command");
+        };
+        assert_eq!(args.corpus, vec![PathBuf::from("/tmp/corpus")]);
     }
 
     #[test]
