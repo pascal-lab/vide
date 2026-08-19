@@ -592,6 +592,16 @@ fn scan_include_graph(
     IncludeScan { edges, dynamic_files, issues, complete }
 }
 
+/// U3: include-closure scan. Profile predefines, no include expansion,
+/// and a preprocessor `Trace`.
+///
+/// This cannot share U1 (`source_model`): U1 uses empty predefines so a
+/// profile edit does not invalidate the file-local editor model. It cannot
+/// share U2 (`file_facts_query`): U2 must stay a cheap fact extract and
+/// must not build a `Trace`. U3 does not compute
+/// [`syntax::preprocessor_independent`] — the scan only needs include
+/// directives after `ifdef` evaluation. The boolean lives on U1 and U2
+/// via that one function and cannot diverge between them.
 #[salsa::tracked(returns(clone))]
 fn literal_include_targets(
     db: &dyn PreprocDb,
@@ -612,6 +622,7 @@ fn literal_include_targets(
         predefines: predefines.to_vec(),
         ..SyntaxTreeOptions::without_include_expansion()
     };
+    syntax::record_unexpanded_parse("include_scan");
     let parsed = SyntaxTree::from_file_in_memory_with_options_and_trace(
         &db.file_text(file_id),
         &name,

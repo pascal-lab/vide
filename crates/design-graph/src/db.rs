@@ -45,13 +45,19 @@ pub fn file_facts_query(db: &dyn DesignGraphDb, key: FileFactsKey) -> Arc<FileFa
         db.file_path(file_id).map(|path| path.to_string()).unwrap_or_else(|| "source".into());
     let profile_id = db.file_compilation_profile(file_id);
     let predefines = db.project_config().preprocess_for_profile(profile_id).predefine_strings();
-    // Profile predefines, no include expansion. This is not
+    // U2: profile predefines, no include expansion. This is not
     // `SyntaxTreeOptions::without_include_expansion()`: that helper ships
-    // empty predefines so `source_model` stays file-local. FileFacts must
-    // see the same `ifdef` view the profile will compile, or gated units
-    // disappear from the name catalog. Sharing one salsa query would
-    // either hide those units or make every profile edit invalidate the
-    // file-local preprocessor model.
+    // empty predefines so `source_model` (U1) stays file-local. FileFacts
+    // must see the same `ifdef` view the profile will compile, or gated
+    // units disappear from the name catalog. It also cannot share U3
+    // (`literal_include_targets`): that scan needs a preprocessor `Trace`,
+    // and attaching a Trace here would make every L0 fact pay for include
+    // resolution. Sharing one salsa query would hide gated units, invalidate
+    // the file-local preprocessor model, or both.
+    //
+    // `preprocessor_independent` is `syntax::preprocessor_independent` —
+    // the same directive-trivia walk U1 uses. The boolean cannot diverge;
+    // the trees can, because predefines differ.
     let options = SyntaxTreeOptions {
         predefines,
         include_paths: Vec::new(),
@@ -60,6 +66,7 @@ pub fn file_facts_query(db: &dyn DesignGraphDb, key: FileFactsKey) -> Arc<FileFa
         collect_expected_syntax: false,
         expected_syntax_offset: None,
     };
+    syntax::record_unexpanded_parse("file_facts");
     let tree = SyntaxTree::from_file_in_memory_with_options(&text, &name, &path, &options);
     Arc::new(extract::from_tree(file_id, &tree, &text))
 }

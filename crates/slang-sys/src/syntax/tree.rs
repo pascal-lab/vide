@@ -1,10 +1,25 @@
 use std::{
+    cell::Cell,
     fmt,
     sync::{Arc, OnceLock},
 };
 
 use cxx::SharedPtr;
 use tracing::warn;
+
+thread_local! {
+    /// Executions of an unexpanded (`expand_includes = false`) parse.
+    /// The three shipped sites (source_model / file_facts / include_scan)
+    /// record here so a cold-start count is testable.
+    pub static UNEXPANDED_PARSE_RUNS: Cell<u32> = const { Cell::new(0) };
+}
+
+/// Record one unexpanded parse at a named site. Call only from the three
+/// shipped query bodies, not from ad-hoc test parses.
+pub fn record_unexpanded_parse(site: &'static str) {
+    let _span = tracing::info_span!("unexpanded_parse", site).entered();
+    UNEXPANDED_PARSE_RUNS.with(|runs| runs.set(runs.get() + 1));
+}
 
 use super::{
     ffi,

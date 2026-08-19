@@ -9,7 +9,7 @@ use base_db::{
 };
 use rustc_hash::FxHasher;
 use syntax::{
-    SyntaxNodeExt, SyntaxTree,
+    SyntaxTree,
     diagnostics::{ParserExpectedSyntax, SyntaxDiagnostic},
     preproc::Trace,
 };
@@ -118,13 +118,20 @@ struct CompilationUnitArtifactInput<'db> {
 /// reads profile predefines. Its complete dependency set is the file text,
 /// file kind, and display identity, so edits elsewhere cannot invalidate it.
 ///
-/// This is intentionally not the same `SyntaxTreeOptions` as
-/// `design_graph::file_facts_query`. FileFacts must apply profile
-/// predefines so gated compilation units exist in the name catalog.
-/// `source_model` must not: a profile edit would otherwise invalidate
-/// every file-local preprocessor query. `preprocessor_independent` is
-/// still the same directive-trivia walk — it does not depend on
-/// predefines and does not materialize a preprocessor `Trace`.
+/// # Why this unexpanded parse is not U2 or U3
+///
+/// This is U1. Empty predefines, `expand_includes = false`. It cannot
+/// share a tree with [`design_graph::file_facts_query`] (U2: profile
+/// predefines so gated units exist in the name catalog) or
+/// [`crate::compilation_plan::literal_include_targets`] (U3: profile
+/// predefines plus a preprocessor `Trace` for the include graph). Sharing
+/// U1 with either would make a profile edit invalidate every file-local
+/// preprocessor query.
+///
+/// `preprocessor_independent` is [`syntax::preprocessor_independent`] —
+/// the same directive-trivia walk U2 uses. It does not depend on
+/// predefines and does not materialize a `Trace`. The boolean therefore
+/// cannot diverge from U2; the trees can.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceModel {
     pub syntax_tree: SyntaxTree,
@@ -145,6 +152,7 @@ fn source_model(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<SourceModel
     let identity = source_file_identity(db, file_id);
     let syntax_tree = match db.file_kind(file_id) {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
+            syntax::record_unexpanded_parse("source_model");
             SyntaxTree::from_file_in_memory_with_options(
                 &text,
                 &identity.name,
@@ -157,7 +165,7 @@ fn source_model(db: &dyn PreprocDb, key: PreprocFileQueryKey) -> Arc<SourceModel
         }
         SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
     };
-    let preprocessor_independent = !syntax_tree.root().has_directive_trivia();
+    let preprocessor_independent = syntax::preprocessor_independent(&syntax_tree);
     Arc::new(SourceModel { syntax_tree, preprocessor_independent })
 }
 
@@ -638,7 +646,9 @@ fn compilation_context(
     let library_maps = plan
         .roots
         .iter()
-        .filter(|root| matches!(root.kind, crate::compilation_plan::CompilationRootKind::LibraryMap))
+        .filter(|root| {
+            matches!(root.kind, crate::compilation_plan::CompilationRootKind::LibraryMap)
+        })
         .map(|root| root.file_id)
         .collect::<Vec<_>>();
     Arc::new(CompilationContext::new(
@@ -1553,7 +1563,8 @@ mod tests {
         let (path, abs) = unique_sv_path("clean");
         std::fs::write(&path, disk).unwrap();
         let db = db_with_abs_file(abs, disk);
-        let job = crate::profile_compiler::build_profile_compilation_job(&db, CompilationProfileId(0));
+        let job =
+            crate::profile_compiler::build_profile_compilation_job(&db, CompilationProfileId(0));
         assert!(
             job.buffers.iter().all(|buffer| buffer.text.is_none()),
             "clean files must be path-only: {job:?}"
@@ -1578,9 +1589,13 @@ mod tests {
         let (path, abs) = unique_sv_path("dirty");
         std::fs::write(&path, disk).unwrap();
         let mut db = db_with_abs_file(abs, overlay);
-        let job = crate::profile_compiler::build_profile_compilation_job(&db, CompilationProfileId(0));
+        let job =
+            crate::profile_compiler::build_profile_compilation_job(&db, CompilationProfileId(0));
         assert_eq!(
-            job.buffers.iter().find(|buffer| buffer.file_id == TOP.index()).map(|b| b.text.as_deref()),
+            job.buffers
+                .iter()
+                .find(|buffer| buffer.file_id == TOP.index())
+                .map(|b| b.text.as_deref()),
             Some(Some(overlay)),
             "dirty overlay must be sent: {job:?}"
         );

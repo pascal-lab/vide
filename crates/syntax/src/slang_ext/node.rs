@@ -41,8 +41,8 @@ pub trait SyntaxNodeExt<'a> {
     ) -> impl ChildrenIter<(TextRange, SyntaxTrivia<'a>)> + use<'a, Self>;
     /// Whether any token in this subtree carries `TriviaKind::DIRECTIVE`.
     ///
-    /// This is the preprocessor-activity predicate used by `FileFacts` and
-    /// `source_model`. It does not build a `Trace`.
+    /// [`crate::preprocessor_independent`] is the single caller of this
+    /// walk. It does not build a `Trace`.
     fn has_directive_trivia(&self) -> bool;
 }
 

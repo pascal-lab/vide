@@ -485,4 +485,36 @@ mod tests {
             "to_owner work inside the closure must run once per package, not once per package per call (ran {to_owner_runs} for {package_count} packages)"
         );
     }
+
+    /// Cold start of one file hits U1 / U2 / U3 once each. The three
+    /// unexpanded parses stay split (empty vs profile predefines vs Trace);
+    /// `preprocessor_independent` is one function on U1 and U2.
+    #[test]
+    fn cold_start_unexpanded_parse_count_matches_three_sites() {
+        use base_db::{change::Change, source_root::SourceRoot};
+        use preproc_expand::db::PreprocDb;
+        use syntax::UNEXPANDED_PARSE_RUNS;
+        use vfs::{ChangedFile, FileId, FileSet, VfsPath};
+
+        let file_id = FileId::from_raw(0);
+        let mut file_set = FileSet::default();
+        file_set.insert(file_id, VfsPath::new_virtual_path("/top.sv".to_owned()));
+        let mut change = Change::new();
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.add_changed_file(ChangedFile::create(file_id, "module top;\n  int w;\nendmodule\n"));
+        let mut host = crate::analysis_host::AnalysisHost::default();
+        UNEXPANDED_PARSE_RUNS.with(|runs| runs.set(0));
+        host.apply_change_without_prewarm(change);
+
+        let ctx = host.ctx();
+        let db: &dyn PreprocDb = ctx.db;
+        let _ = db.source_model(file_id);
+        let _ = ctx.file_facts(file_id);
+        let _ = db.compilation_plan_for_root(db.source_root_id(file_id));
+        let runs = UNEXPANDED_PARSE_RUNS.with(Cell::get);
+        assert_eq!(
+            runs, 3,
+            "cold start of one file must unexpanded-parse once per site (source_model, file_facts, include_scan); ran {runs}"
+        );
+    }
 }

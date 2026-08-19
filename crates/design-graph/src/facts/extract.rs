@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use rustc_hash::FxHasher;
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent,
+    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent,
     SyntaxTree, WalkEvent,
     ast::{self, AstNode},
     has_name::HasName,
@@ -97,14 +97,11 @@ fn walk(file: FileId, tree: &SyntaxTree, source_text: &str) -> FileFacts {
     let mut current_cu: Option<UnitId> = None;
     let mut has_compilation_unit_locals = false;
     let mut ordinals = rustc_hash::FxHashMap::<(SmolStr, UnitKind), u32>::default();
-    let preprocessor_independent = !tree.root().has_directive_trivia();
+    let preprocessor_independent = syntax::preprocessor_independent(tree);
     let root = tree.root();
 
     if root.kind() != SyntaxKind::COMPILATION_UNIT {
-        return FileFacts {
-            preprocessor_independent: !root.has_directive_trivia(),
-            ..FileFacts::default()
-        };
+        return FileFacts { preprocessor_independent, ..FileFacts::default() };
     }
 
     for event in root.elem_preorder() {
