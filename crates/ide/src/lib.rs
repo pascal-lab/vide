@@ -13,6 +13,7 @@ pub mod analysis;
 pub mod analysis_host;
 pub mod anchor;
 pub mod definitions;
+pub mod hier;
 pub(crate) mod manifest;
 pub mod markup;
 pub(crate) mod module_resolution;

@@ -163,8 +163,8 @@ impl AnalysisSnapshot {
     pub fn project_anchor(
         &self,
         anchor: crate::anchor::Anchor,
-    ) -> Cancellable<Option<utils::line_index::TextRange>> {
-        self.with_db(|ctx| crate::anchor::project_anchor(ctx.db, anchor))
+    ) -> Cancellable<Option<crate::anchor::ProjectedAnchor>> {
+        self.with_db(|ctx| crate::anchor::project(ctx, &anchor))
     }
 
     pub fn ast_id_at_range(

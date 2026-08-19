@@ -118,10 +118,10 @@ impl QiheDiagnostics {
                 if let (Some(analysis), Some(ast_id), Some(line_info)) =
                     (analysis, item.ast_id, line_info)
                 {
-                    if let Ok(Some(range)) = analysis
+                    if let Ok(Some(origin)) = analysis
                         .project_anchor(ide::anchor::Anchor::Definition { file: file_id, ast_id })
                     {
-                        diagnostic.range = to_proto::range(line_info, range);
+                        diagnostic.range = to_proto::range(line_info, origin.range);
                     }
                 }
                 if edits_ago > 0 {
