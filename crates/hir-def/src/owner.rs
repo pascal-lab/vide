@@ -459,6 +459,34 @@ mod tests {
         AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}/{path}")))
     }
 
+    #[test]
+    fn a_class_is_a_syntax_record_not_an_owner() {
+        let db = db_with_root_text(
+            r#"
+module m;
+  class C extends Base;
+    int value;
+    function void tick();
+    endfunction
+  endclass
+endmodule
+"#,
+        );
+        let table = db.owner_table(HirFileId::File(TOP));
+        assert!(
+            table.owners().iter().all(|owner| owner.name.as_str() != "C"),
+            "a class is not interned as an owner"
+        );
+        let module = *table.owners_named("m", OwnerKind::Module).first().expect("module owner");
+        let body = db.body(module);
+        let class = body.classes.values().next().expect("class syntax record");
+        assert_eq!(class.name.as_deref(), Some("C"));
+        assert_eq!(class.base_class_name.as_deref(), Some("Base"));
+        assert_eq!(class.members.len(), 2);
+        assert_eq!(class.members[0].kind, crate::aggregate::ClassMemberKind::Property);
+        assert_eq!(class.members[1].kind, crate::aggregate::ClassMemberKind::Method);
+    }
+
     /// Structural fingerprint of an owner table: (kind, name, parent name).
     /// Comparable across databases, unlike the interned ids.
     fn fingerprint(table: &crate::owner::OwnerTable) -> Vec<(String, String, Option<String>)> {
