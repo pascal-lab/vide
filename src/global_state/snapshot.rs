@@ -256,7 +256,14 @@ impl GlobalStateSnapshot {
                 let line_info = self.line_info(diagnostic.file_id)?;
                 diagnostics.push(to_proto::diagnostic(self.config.i18n, &line_info, diagnostic));
             }
-            diagnostics.extend(source.lsp_diagnostics(file_id, &freshness));
+            let line_info = self.line_info(file_id).ok();
+            diagnostics.extend(source.lsp_diagnostics_projected(
+                file_id,
+                &freshness,
+                &self.analysis,
+                self.config.i18n,
+                line_info.as_ref(),
+            ));
         }
         Ok(diagnostics)
     }

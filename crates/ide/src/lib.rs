@@ -11,6 +11,7 @@ pub type Cancellable<T> = Result<T, Cancelled>;
 
 pub mod analysis;
 pub mod analysis_host;
+pub mod anchor;
 pub mod definitions;
 pub(crate) mod manifest;
 pub mod markup;

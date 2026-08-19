@@ -160,6 +160,21 @@ impl AnalysisSnapshot {
         self.snapshot_id
     }
 
+    pub fn project_anchor(
+        &self,
+        anchor: crate::anchor::Anchor,
+    ) -> Cancellable<Option<utils::line_index::TextRange>> {
+        self.with_db(|ctx| crate::anchor::project_anchor(ctx.db, anchor))
+    }
+
+    pub fn ast_id_at_range(
+        &self,
+        file_id: FileId,
+        range: utils::line_index::TextRange,
+    ) -> Cancellable<Option<hir_def::ast_id_map::SourceAstId>> {
+        self.with_db(|ctx| crate::anchor::ast_id_at_range(ctx.db, file_id, range))
+    }
+
     fn with_db<F, T>(&self, f: F) -> Cancellable<T>
     where
         F: FnOnce(&AnalysisContext<'_>) -> T + std::panic::UnwindSafe,

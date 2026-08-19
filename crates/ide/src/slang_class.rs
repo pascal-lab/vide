@@ -9,13 +9,14 @@
 use base_db::source_db::SourceRootDb;
 use hir_def::ast_id_map::SourceAstId;
 use preproc_expand::{compilation_plan, file::HirFileId};
-use slang_sys::compilation::{ClassMemberInfo, Compilation};
-use syntax::{SyntaxTreeOptions, has_text_range::HasTextRange};
+use slang_sys::compilation::ClassMemberInfo;
+use syntax::has_text_range::HasTextRange;
 use vfs::FileId;
 
 use crate::{analysis::AnalysisContext, elaboration::ElabResult};
 
 /// Look up a class member in `text` at `offset` via a fresh slang compilation.
+#[cfg(test)]
 pub fn lookup_in_text(
     text: &str,
     name: &str,
@@ -23,6 +24,8 @@ pub fn lookup_in_text(
     offset: usize,
     include_paths: &[String],
 ) -> Option<ClassMemberInfo> {
+    use slang_sys::compilation::Compilation;
+    use syntax::SyntaxTreeOptions;
     let mut compilation = Compilation::new();
     let options =
         SyntaxTreeOptions { include_paths: include_paths.to_vec(), ..SyntaxTreeOptions::default() };

@@ -54,6 +54,18 @@ pub(crate) trait DiagnosticSource: Send + Sync {
         Vec::new()
     }
 
+    fn lsp_diagnostics_projected(
+        &self,
+        file_id: FileId,
+        freshness: &DiagnosticCommitFreshness,
+        analysis: &ide::analysis::AnalysisSnapshot,
+        i18n: crate::i18n::I18n,
+        line_info: Option<&utils::lines::LineInfo>,
+    ) -> Vec<lsp_types::Diagnostic> {
+        let _ = (analysis, i18n, line_info);
+        self.lsp_diagnostics(file_id, freshness)
+    }
+
     fn external_revision(
         &self,
         file_id: FileId,

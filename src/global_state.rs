@@ -39,8 +39,8 @@ pub(crate) use self::workspace_state::{
 };
 use self::{
     diagnostics::{
-        DiagnosticCommitFreshness, DiagnosticFileRevision, DiagnosticPublishFreshness,
-        DiagnosticSource, publisher::DiagnosticPublishKey,
+        DiagnosticFileRevision, DiagnosticPublishFreshness, DiagnosticSource,
+        publisher::DiagnosticPublishKey,
     },
     mem_docs::MemDocs,
     snapshot::GlobalStateSnapshot,
@@ -317,7 +317,13 @@ impl GlobalState {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct QiheDiagnosticState {
-    pub(crate) freshness: DiagnosticCommitFreshness,
+    pub(crate) captured_snapshot: base_db::analysis_snapshot::AnalysisSnapshotId,
     pub(crate) generation: u64,
-    pub(crate) diagnostics: Vec<lsp_types::Diagnostic>,
+    pub(crate) items: Vec<AnchoredQiheDiagnostic>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AnchoredQiheDiagnostic {
+    pub(crate) ast_id: Option<hir_def::ast_id_map::SourceAstId>,
+    pub(crate) diagnostic: lsp_types::Diagnostic,
 }
