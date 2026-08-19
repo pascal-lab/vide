@@ -138,7 +138,7 @@ endclass
         let markup = hover.expect("hover the UVM class type").info;
         let text = markup.as_str();
         assert!(
-            text.contains("slang") && text.contains("uvm_object"),
+            text.contains("hir-ty") && text.contains("slang") && text.contains("uvm_object"),
             "hover must run slang beside hir-ty:\n{text}"
         );
     }
@@ -155,23 +155,53 @@ endclass
     fn t4_gate_numbers() {
         use std::time::Instant;
 
-        let src = UVM_OBJECT;
-        let offset = src.find("m_leaf_name").expect("property");
+        let (host, file_id, _text, markers) = setup_marked(UVM_OBJECT);
+        let pos = position(file_id, &markers, "name");
         let mut times = Vec::new();
         let mut hits = 0usize;
         for _ in 0..40 {
             let started = Instant::now();
-            let info = lookup_in_text(src, "uvm_object.svh", "uvm_object.svh", offset, &[]);
+            let hover = host.make_analysis().hover(pos).unwrap();
             times.push(started.elapsed().as_secs_f64() * 1000.0);
-            if info.is_some() {
+            if hover.as_ref().is_some_and(|h| h.info.as_str().contains("slang")) {
                 hits += 1;
             }
         }
         times.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let p95 = times[((times.len() * 95) / 100).min(times.len() - 1)];
-        let (matched, compared) = source_ast_ids_agree(src, "uvm_object.svh", "uvm_object.svh");
+
+        let ctx = host.ctx();
+        let hir_ty = crate::hover::hir_ty_display_at(&ctx, file_id, pos.offset);
+        let tree = ctx.parse_file(file_id);
+        let map = ctx.db.ast_id_map(HirFileId::File(file_id));
+        let slang = map
+            .id_of_node(tree.root())
+            .and_then(|_| {
+                let offset = pos.offset;
+                tree.root().node_preorder().find_map(|event| {
+                    let syntax::WalkEvent::Enter(node) = event else {
+                        return None;
+                    };
+                    let range = node.text_range()?;
+                    if range.start() <= offset && offset < range.end() {
+                        let id = map.id_of_node(node)?;
+                        lookup_from_ast_id(ctx.db, file_id, id)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .or_else(|| {
+                lookup_in_text(UVM_OBJECT, "feature.v", "/feature.v", usize::from(pos.offset), &[])
+            });
+        let slang = slang.expect("slang must answer the same class member hir-ty saw");
+        let agree = hir_ty_agrees_with_slang(&hir_ty, &slang.type_name);
+        let consistency_pct = if agree { 100.0 } else { 0.0 };
+        let (matched, compared) =
+            source_ast_ids_agree(UVM_OBJECT, "uvm_object.svh", "uvm_object.svh");
         let id_ok = compared > 0 && matched == compared;
-        let consistency_pct = 0.0;
+        println!("t4.hir_ty\t{hir_ty}");
+        println!("t4.slang\t{}", slang.type_name);
         println!("t4.p95_ms\t{p95:.3}");
         println!("t4.consistency_vs_hir_ty\t{consistency_pct:.1}%");
         println!("t4.section_3_7\t{matched}/{compared} {}", if id_ok { "pass" } else { "fail" });
@@ -182,7 +212,17 @@ endclass
             consistency_pct > 99.0,
             id_ok
         );
-        assert!(hits == times.len(), "slang must answer every UVM class-member query");
+        assert!(hits == times.len(), "slang must answer every shipped hover");
         assert!(id_ok, "§3.7 must hold");
+    }
+
+    fn hir_ty_agrees_with_slang(hir_ty: &str, slang_ty: &str) -> bool {
+        let hir = hir_ty.trim().to_ascii_lowercase();
+        let slang = slang_ty.trim().to_ascii_lowercase();
+        !hir.is_empty()
+            && hir != "unknown"
+            && hir != "error"
+            && !slang.is_empty()
+            && (hir == slang || hir.contains(&slang) || slang.contains(&hir))
     }
 }
