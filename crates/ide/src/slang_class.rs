@@ -59,7 +59,8 @@ pub fn format_answer(info: &ClassMemberInfo) -> String {
 
 /// Independent `SourceAstId` computation on two parses of the same text.
 /// This is the §3.7 check: same text + same options ⇒ same stable paths.
-pub fn source_ast_ids_agree(text: &str, name: &str, path: &str) -> (usize, usize) {
+#[cfg(test)]
+fn source_ast_ids_agree(text: &str, name: &str, path: &str) -> (usize, usize) {
     let options = SyntaxTreeOptions::without_include_expansion();
     let tree_a = syntax::SyntaxTree::from_file_in_memory_with_options(text, name, path, &options);
     let tree_b = syntax::SyntaxTree::from_file_in_memory_with_options(text, name, path, &options);
