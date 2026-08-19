@@ -16,6 +16,7 @@ namespace slang_sys::compilation {
 
 struct ParseSyntaxTreeOptions;
 struct ClassMemberAnswer;
+struct SymbolAnswer;
 struct HierInstanceAnswer;
 
 class Compilation {
@@ -70,6 +71,11 @@ rust::Vec<diagnostic::RawSyntaxDiagnostic> semantic_diagnostics(
     rust::Vec<rust::String> warning_options
 );
 ClassMemberAnswer lookup_class_member(
+    Compilation& compilation,
+    rust::Str path,
+    std::size_t offset
+);
+SymbolAnswer lookup_symbol(
     Compilation& compilation,
     rust::Str path,
     std::size_t offset

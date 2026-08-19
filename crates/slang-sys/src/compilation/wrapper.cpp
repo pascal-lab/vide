@@ -1,16 +1,23 @@
 #include "compilation/wrapper.h"
 #include "slang-sys/src/compilation/ffi.rs.h"
 
+#include "slang/ast/ASTVisitor.h"
+#include "slang/ast/expressions/CallExpression.h"
+#include "slang/ast/expressions/MiscExpressions.h"
+#include "slang/ast/expressions/SelectExpressions.h"
 #include "slang/ast/symbols/ClassSymbols.h"
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "slang/ast/symbols/SubroutineSymbols.h"
 #include "slang/ast/symbols/VariableSymbols.h"
+#include "slang/ast/types/AllTypes.h"
 #include "slang/text/SourceManager.h"
 #include "slang/util/String.h"
 
 #include <optional>
 #include <stdexcept>
+#include <type_traits>
+#include <variant>
 
 namespace slang_sys::compilation {
 
@@ -346,6 +353,123 @@ ClassMemberAnswer lookup_class_member(
     if (!buffer)
         return out;
     walk_scope(root, *sm, *buffer, offset, out);
+    return out;
+}
+
+namespace {
+
+std::string type_of_symbol(const slang::ast::Symbol& symbol) {
+    if (const auto* value = symbol.as_if<slang::ast::ValueSymbol>())
+        return value->getType().toString();
+    if (const auto* sub = symbol.as_if<slang::ast::SubroutineSymbol>())
+        return sub->getReturnType().toString();
+    if (const auto* type = symbol.as_if<slang::ast::Type>())
+        return type->toString();
+    if (const auto* inst = symbol.as_if<slang::ast::InstanceSymbol>())
+        return std::string(inst->getDefinition().name);
+    return {};
+}
+
+void fill_symbol(
+    const slang::ast::Symbol& symbol,
+    const slang::SourceManager& sm,
+    SymbolAnswer& out
+) {
+    out.found = true;
+    out.name = rust::String(std::string(symbol.name));
+    out.kind = rust::String(std::string(toString(symbol.kind)));
+    out.type_name = rust::String(type_of_symbol(symbol));
+    if (symbol.location.valid()) {
+        out.def_file = rust::String(assigned_path(sm, symbol.location.buffer()));
+        out.def_offset = symbol.location.offset();
+    }
+    if (const auto* scope = symbol.getParentScope()) {
+        if (const auto* cls = scope->asSymbol().as_if<slang::ast::ClassType>()) {
+            out.owner_class = rust::String(std::string(cls->name));
+            for (auto& name : inheritance_of(*cls))
+                out.inheritance.push_back(rust::String(std::move(name)));
+        }
+    }
+}
+
+struct FindAtOffset : slang::ast::ASTVisitor<FindAtOffset, slang::ast::VisitFlags::AllGood> {
+    const slang::SourceManager& sm;
+    slang::BufferID buffer;
+    std::size_t offset;
+    const slang::ast::Symbol* best = nullptr;
+    std::size_t best_span = static_cast<std::size_t>(-1);
+
+    FindAtOffset(const slang::SourceManager& sm, slang::BufferID buffer, std::size_t offset) :
+        sm(sm), buffer(buffer), offset(offset) {}
+
+    void consider(const slang::ast::Symbol& symbol, slang::SourceRange range) {
+        if (!range.start().valid() || !range.end().valid())
+            return;
+        if (!in_buffer(sm, range.start(), buffer) && !in_buffer(sm, symbol.location, buffer))
+            return;
+        auto start = range.start().offset();
+        auto end = range.end().offset();
+        if (offset < start || offset > end)
+            return;
+        auto span = end - start;
+        if (span < best_span) {
+            best_span = span;
+            best = &symbol;
+        }
+    }
+
+    void consider_symbol(const slang::ast::Symbol& symbol) {
+        if (!symbol.location.valid() || !in_buffer(sm, symbol.location, buffer))
+            return;
+        auto end = slang::SourceLocation(
+            symbol.location.buffer(),
+            symbol.location.offset() + symbol.name.size());
+        consider(symbol, slang::SourceRange(symbol.location, end));
+        if (const auto* syntax = symbol.getSyntax())
+            consider(symbol, syntax->sourceRange());
+    }
+
+    template<typename T>
+    void handle(const T& node) {
+        if constexpr (std::is_same_v<T, slang::ast::NamedValueExpression> ||
+                      std::is_same_v<T, slang::ast::HierarchicalValueExpression>) {
+            consider(node.symbol, node.sourceRange);
+        } else if constexpr (std::is_same_v<T, slang::ast::CallExpression>) {
+            if (auto* sub = std::get_if<const slang::ast::SubroutineSymbol*>(&node.subroutine))
+                consider(**sub, node.sourceRange);
+        } else if constexpr (std::is_same_v<T, slang::ast::MemberAccessExpression>) {
+            consider(node.member, node.sourceRange);
+        } else if constexpr (std::is_base_of_v<slang::ast::Symbol, T>) {
+            consider_symbol(node);
+        }
+        visitDefault(node);
+    }
+};
+
+} // namespace
+
+SymbolAnswer lookup_symbol(
+    Compilation& compilation,
+    rust::Str path,
+    std::size_t offset
+) {
+    SymbolAnswer out;
+    out.found = false;
+    out.def_offset = 0;
+    if (!compilation.inner)
+        return out;
+    const auto& root = compilation.inner->getRoot();
+    const auto* sm = compilation.inner->getSourceManager();
+    if (!sm)
+        return out;
+    std::string path_owned(path.data(), path.size());
+    auto buffer = buffer_for_path(*sm, path_owned);
+    if (!buffer)
+        return out;
+    FindAtOffset finder(*sm, *buffer, offset);
+    root.visit(finder);
+    if (finder.best)
+        fill_symbol(*finder.best, *sm, out);
     return out;
 }
 

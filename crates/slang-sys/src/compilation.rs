@@ -29,6 +29,18 @@ pub struct HierInstance {
     pub offset: usize,
 }
 
+/// Symbol at a source offset: type and definition site.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SymbolInfo {
+    pub name: String,
+    pub type_name: String,
+    pub kind: String,
+    pub def_file: String,
+    pub def_offset: usize,
+    pub owner_class: String,
+    pub inheritance: Vec<String>,
+}
+
 impl Default for Compilation {
     fn default() -> Self {
         Self::new()
@@ -157,6 +169,19 @@ impl Compilation {
         let answer = ffi::lookup_class_member(self.raw_pin(), path, offset);
         answer.found.then_some(ClassMemberInfo {
             type_name: answer.type_name,
+            owner_class: answer.owner_class,
+            inheritance: answer.inheritance,
+        })
+    }
+
+    pub fn lookup_symbol(&mut self, path: &str, offset: usize) -> Option<SymbolInfo> {
+        let answer = ffi::lookup_symbol(self.raw_pin(), path, offset);
+        answer.found.then_some(SymbolInfo {
+            name: answer.name,
+            type_name: answer.type_name,
+            kind: answer.kind,
+            def_file: answer.def_file,
+            def_offset: answer.def_offset,
             owner_class: answer.owner_class,
             inheritance: answer.inheritance,
         })
@@ -304,6 +329,33 @@ endclass
             .find(|inst| inst.path.contains("u0"))
             .unwrap_or_else(|| panic!("missing u0: {instances:?}"));
         assert_eq!(inst.file, path, "{instances:?}");
+    }
+
+    #[test]
+    fn lookup_symbol_answers_a_net_type_and_a_class_scope() {
+        let src = r#"
+class env;
+  static int count;
+endclass
+module top;
+  logic [7:0] x;
+  initial env::count = x;
+endmodule
+"#;
+        let path = "/vide-assigned/top.sv";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(src, "top", path, &SyntaxTreeOptions::default());
+        let x = compilation
+            .lookup_symbol(path, src.find("x;").expect("net"))
+            .expect("net at its declaration");
+        assert!(x.type_name.contains("logic"), "{x:?}");
+        let scoped = compilation
+            .lookup_symbol(path, src.find("count =").expect("class scope"))
+            .expect("env::count at the use");
+        assert_eq!(scoped.name, "count", "{scoped:?}");
+        assert!(scoped.type_name.contains("int"), "{scoped:?}");
+        assert_eq!(scoped.def_file, path, "{scoped:?}");
+        assert_eq!(scoped.def_offset, src.find("count;").expect("def"), "{scoped:?}");
     }
 
     #[test]

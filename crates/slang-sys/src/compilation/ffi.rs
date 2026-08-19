@@ -28,6 +28,18 @@ mod slang_ffi {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
+    struct SymbolAnswer {
+        found: bool,
+        name: String,
+        type_name: String,
+        kind: String,
+        def_file: String,
+        def_offset: usize,
+        owner_class: String,
+        inheritance: Vec<String>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct ParseSyntaxTreeOptions {
         predefines: Vec<String>,
         include_paths: Vec<String>,
@@ -106,6 +118,11 @@ mod slang_ffi {
             path: &str,
             offset: usize,
         ) -> ClassMemberAnswer;
+        fn lookup_symbol(
+            compilation: Pin<&mut Compilation>,
+            path: &str,
+            offset: usize,
+        ) -> SymbolAnswer;
         fn list_instances(compilation: Pin<&mut Compilation>) -> Vec<HierInstanceAnswer>;
 
     }
