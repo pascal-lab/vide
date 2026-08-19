@@ -267,14 +267,14 @@ fn ident_regex() -> Regex {
 }
 
 fn closer_for(opener: &str) -> String {
-    // Same table as scripts/include_shape.py: `end` + opener, with the
-    // three SV exceptions. `covergroup` therefore pairs with
-    // `endcovergroup`, not `endgroup` — keep the lexical approximation
-    // conservative rather than "more correct".
+    // SV closers. `covergroup` pairs with `endgroup` (the old `end`+opener
+    // table invented `endcovergroup` and treated every covergroup as
+    // Unbalanced). Still conservative: unmatched covergroups stay Unbalanced.
     match opener {
         "generate" => "endgenerate".to_owned(),
         "specify" => "endspecify".to_owned(),
         "table" => "endtable".to_owned(),
+        "covergroup" => "endgroup".to_owned(),
         other => format!("end{other}"),
     }
 }
@@ -291,9 +291,21 @@ pub fn classify_source(raw: &str) -> (IncludeShape, usize) {
         return (IncludeShape::MacrosOnly, 0);
     }
 
+    // T8 redesign: `typedef class` and `extern function/task` are not
+    // openers. Counting them as Unbalanced was lexical noise on UVM.
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for tok in &toks {
-        *counts.entry(*tok).or_default() += 1;
+    let mut index = 0;
+    while index < toks.len() {
+        if toks[index] == "typedef" && toks.get(index + 1) == Some(&"class") {
+            index += 2;
+            continue;
+        }
+        if toks[index] == "extern" && matches!(toks.get(index + 1), Some(&"function" | &"task")) {
+            index += 2;
+            continue;
+        }
+        *counts.entry(toks[index]).or_default() += 1;
+        index += 1;
     }
     let mut imbalance = 0usize;
     for op in OPENERS {
@@ -387,5 +399,25 @@ mod tests {
         // and closes neither.
         let src = "class c;\nmodule m;\n";
         assert_eq!(classify_source(src).0, IncludeShape::Unbalanced);
+    }
+
+    #[test]
+    fn typedef_class_and_extern_function_are_not_openers() {
+        let src = "\
+typedef class uvm_component;
+virtual class uvm_object extends uvm_void;
+  extern function string get_name();
+  function string get_type_name();
+    return \"\";
+  endfunction
+endclass
+";
+        assert_eq!(classify_source(src).0, IncludeShape::Balanced);
+    }
+
+    #[test]
+    fn covergroup_pairs_with_endgroup() {
+        let src = "class c;\n  covergroup g;\n  endgroup\nendclass\n";
+        assert_eq!(classify_source(src).0, IncludeShape::Balanced);
     }
 }
