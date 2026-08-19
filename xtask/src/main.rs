@@ -165,6 +165,7 @@ fn run_ide_benches(workspace_root: &Path) -> Result<()> {
             "--",
             "--ignored",
             "--nocapture",
+            "--test-threads=1",
         ])
         .status()
         .context("failed to spawn cargo test for ide incrementality benches")?;
