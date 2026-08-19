@@ -1,6 +1,14 @@
 #include "compilation/wrapper.h"
 #include "slang-sys/src/compilation/ffi.rs.h"
 
+#include "slang/ast/symbols/ClassSymbols.h"
+#include "slang/ast/symbols/CompilationUnitSymbols.h"
+#include "slang/ast/symbols/InstanceSymbols.h"
+#include "slang/ast/symbols/SubroutineSymbols.h"
+#include "slang/ast/symbols/VariableSymbols.h"
+#include "slang/text/SourceManager.h"
+
+#include <filesystem>
 #include <stdexcept>
 
 namespace slang_sys::compilation {
@@ -182,6 +190,130 @@ rust::Vec<diagnostic::RawSyntaxDiagnostic> semantic_diagnostics(
         *source_manager,
         std::move(warning_options)
     );
+}
+
+namespace {
+
+bool file_matches(const slang::SourceManager& sm, slang::SourceLocation loc, std::string_view want) {
+    if (!loc.valid())
+        return false;
+    auto name = std::string(sm.getFileName(loc));
+    auto full = sm.getFullPath(loc.buffer()).string();
+    auto want_name = std::filesystem::path(std::string(want)).filename().string();
+    auto name_base = std::filesystem::path(name).filename().string();
+    return name == want || full == want || name_base == want_name ||
+           name.ends_with(std::string(want)) || full.ends_with(std::string(want));
+}
+
+bool offset_in_symbol(const slang::ast::Symbol& symbol, std::size_t offset) {
+    auto loc = symbol.location;
+    if (loc.valid() && loc.offset() == offset)
+        return true;
+    if (const auto* syntax = symbol.getSyntax()) {
+        auto range = syntax->sourceRange();
+        if (range.start().valid() && range.end().valid()) {
+            auto start = range.start().offset();
+            auto end = range.end().offset();
+            if (offset >= start && offset <= end)
+                return true;
+        }
+    }
+    auto name_end = loc.valid() ? loc.offset() + symbol.name.size() : 0;
+    return loc.valid() && offset >= loc.offset() && offset < name_end;
+}
+
+std::vector<std::string> inheritance_of(const slang::ast::ClassType& cls) {
+    std::vector<std::string> chain;
+    const slang::ast::Type* base = cls.getBaseClass();
+    while (base) {
+        chain.emplace_back(std::string(base->name));
+        if (const auto* base_cls = base->as_if<slang::ast::ClassType>())
+            base = base_cls->getBaseClass();
+        else
+            break;
+    }
+    return chain;
+}
+
+std::string member_type_name(const slang::ast::Symbol& symbol) {
+    if (const auto* value = symbol.as_if<slang::ast::ValueSymbol>())
+        return value->getType().toString();
+    if (const auto* sub = symbol.as_if<slang::ast::SubroutineSymbol>())
+        return sub->getReturnType().toString();
+    return {};
+}
+
+bool consider_member(
+    const slang::ast::Symbol& symbol,
+    const slang::ast::ClassType& owner,
+    const slang::SourceManager& sm,
+    std::string_view path,
+    std::size_t offset,
+    ClassMemberAnswer& out
+) {
+    if (!file_matches(sm, symbol.location, path) &&
+        !(symbol.getSyntax() && file_matches(sm, symbol.getSyntax()->sourceRange().start(), path)))
+        return false;
+    if (!offset_in_symbol(symbol, offset))
+        return false;
+    out.found = true;
+    out.type_name = rust::String(member_type_name(symbol));
+    out.owner_class = rust::String(std::string(owner.name));
+    for (auto& name : inheritance_of(owner))
+        out.inheritance.push_back(rust::String(std::move(name)));
+    return true;
+}
+
+bool walk_scope(
+    const slang::ast::Scope& scope,
+    const slang::SourceManager& sm,
+    std::string_view path,
+    std::size_t offset,
+    ClassMemberAnswer& out
+) {
+    for (const auto& member : scope.members()) {
+        if (const auto* cls = member.as_if<slang::ast::ClassType>()) {
+            for (const auto& child : cls->members()) {
+                if (consider_member(child, *cls, sm, path, offset, out))
+                    return true;
+            }
+            if (walk_scope(*cls, sm, path, offset, out))
+                return true;
+        } else if (const auto* pkg = member.as_if<slang::ast::PackageSymbol>()) {
+            if (walk_scope(*pkg, sm, path, offset, out))
+                return true;
+        } else if (const auto* cu = member.as_if<slang::ast::CompilationUnitSymbol>()) {
+            if (walk_scope(*cu, sm, path, offset, out))
+                return true;
+        } else if (const auto* inst = member.as_if<slang::ast::InstanceSymbol>()) {
+            if (walk_scope(inst->body, sm, path, offset, out))
+                return true;
+        } else if (const auto* gen = member.as_if<slang::ast::InstanceBodySymbol>()) {
+            if (walk_scope(*gen, sm, path, offset, out))
+                return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+ClassMemberAnswer lookup_class_member(
+    Compilation& compilation,
+    rust::Str path,
+    std::size_t offset
+) {
+    ClassMemberAnswer out;
+    out.found = false;
+    if (!compilation.inner)
+        return out;
+    const auto& root = compilation.inner->getRoot();
+    const auto* sm = compilation.inner->getSourceManager();
+    if (!sm)
+        return out;
+    std::string path_owned(path.data(), path.size());
+    walk_scope(root, *sm, path_owned, offset, out);
+    return out;
 }
 
 } // namespace slang_sys::compilation

@@ -33,6 +33,7 @@ pub(crate) mod generated_units;
 pub mod goto_declaration;
 pub mod goto_definition;
 pub mod hover;
+pub(crate) mod slang_class;
 pub(crate) mod incrementality;
 #[cfg(test)]
 mod incrementality_benches;

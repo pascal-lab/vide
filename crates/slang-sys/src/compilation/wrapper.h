@@ -15,6 +15,7 @@
 namespace slang_sys::compilation {
 
 struct ParseSyntaxTreeOptions;
+struct ClassMemberAnswer;
 
 class Compilation {
   public:
@@ -66,5 +67,10 @@ rust::Vec<diagnostic::RawSyntaxDiagnostic> parse_diagnostics(
 rust::Vec<diagnostic::RawSyntaxDiagnostic> semantic_diagnostics(
     const Compilation& compilation,
     rust::Vec<rust::String> warning_options
+);
+ClassMemberAnswer lookup_class_member(
+    Compilation& compilation,
+    rust::Str path,
+    std::size_t offset
 );
 } // namespace slang_sys::compilation

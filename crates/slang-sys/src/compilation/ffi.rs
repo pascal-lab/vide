@@ -13,6 +13,14 @@ pub(crate) use slang_ffi::*;
 #[cxx::bridge(namespace = "slang_sys::compilation")]
 mod slang_ffi {
     #[derive(Debug, Clone, PartialEq, Eq)]
+    struct ClassMemberAnswer {
+        found: bool,
+        type_name: String,
+        owner_class: String,
+        inheritance: Vec<String>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct ParseSyntaxTreeOptions {
         predefines: Vec<String>,
         include_paths: Vec<String>,
@@ -86,6 +94,11 @@ mod slang_ffi {
             compilation: &Compilation,
             warning_options: Vec<String>,
         ) -> Vec<RawSyntaxDiagnostic>;
+        fn lookup_class_member(
+            compilation: Pin<&mut Compilation>,
+            path: &str,
+            offset: usize,
+        ) -> ClassMemberAnswer;
 
     }
 }

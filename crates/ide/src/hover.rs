@@ -247,10 +247,30 @@ fn handle_definition(
                 }
             }
         }
-        hir_def::symbol::Resolution::Unresolved => return None,
+        hir_def::symbol::Resolution::Unresolved => {
+            return slang_class_hover(db, file_id, tp);
+        }
     }
 
+    if let Some(slang) = slang_class_hover(db, file_id, tp) {
+        res.merge(slang);
+    }
     Some(res)
+}
+
+fn slang_class_hover(
+    db: &AnalysisContext<'_>,
+    file_id: HirFileId,
+    tp: SyntaxTokenWithParent<'_>,
+) -> Option<Markup> {
+    let file = file_id.as_file()?;
+    let map = db.db.ast_id_map(file_id);
+    let ast_id = map.id_of_node(tp.parent)?;
+    let info = crate::slang_class::lookup_from_ast_id(db.db, file, ast_id)?;
+    let mut markup = Markup::new();
+    markup.section("slang");
+    markup.print(&crate::slang_class::format_answer(&info));
+    Some(markup)
 }
 
 fn token_text(

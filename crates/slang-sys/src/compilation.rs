@@ -13,6 +13,14 @@ pub struct Compilation {
     raw: UniquePtr<ffi::Compilation>,
 }
 
+/// Type, owning class, and base-class chain of one class member.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassMemberInfo {
+    pub type_name: String,
+    pub owner_class: String,
+    pub inheritance: Vec<String>,
+}
+
 impl Default for Compilation {
     fn default() -> Self {
         Self::new()
@@ -132,6 +140,20 @@ impl Compilation {
             .collect()
     }
 
+    /// Semantic answer for a class member at `offset` in `path`.
+    ///
+    /// Empty `found` means slang elaborated the compilation but the offset
+    /// is not a class property or subroutine. This is the T4 slice: type,
+    /// owning class, inheritance chain.
+    pub fn lookup_class_member(&mut self, path: &str, offset: usize) -> Option<ClassMemberInfo> {
+        let answer = ffi::lookup_class_member(self.raw_pin(), path, offset);
+        answer.found.then_some(ClassMemberInfo {
+            type_name: answer.type_name,
+            owner_class: answer.owner_class,
+            inheritance: answer.inheritance,
+        })
+    }
+
     fn raw_pin(&mut self) -> Pin<&mut ffi::Compilation> {
         self.raw.as_mut().expect("Slang compilation unexpectedly null")
     }
@@ -189,6 +211,34 @@ mod tests {
         drop(tree);
 
         assert!(compilation.parse_diagnostics_with_options(&[]).is_empty());
+    }
+
+    #[test]
+    fn uvm_shaped_class_member_has_type_class_and_inheritance() {
+        let src = r#"
+virtual class uvm_void;
+endclass
+virtual class uvm_object extends uvm_void;
+  string m_leaf_name;
+  function string get_type_name();
+    return "";
+  endfunction
+endclass
+"#;
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(
+            src,
+            "uvm_object.svh",
+            "uvm_object.svh",
+            &SyntaxTreeOptions::default(),
+        );
+        let offset = src.find("m_leaf_name").expect("property");
+        let info = compilation
+            .lookup_class_member("uvm_object.svh", offset)
+            .expect("slang must see the UVM-shaped class property");
+        assert_eq!(info.owner_class, "uvm_object");
+        assert!(info.inheritance.iter().any(|name| name == "uvm_void"), "{info:?}");
+        assert!(info.type_name.contains("string"), "{info:?}");
     }
 
     #[test]
