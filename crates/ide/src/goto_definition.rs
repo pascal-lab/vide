@@ -4,7 +4,7 @@ use preproc_expand::{
     file::HirFileId,
     preproc::{IncludeDirective, IncludeTarget, MacroDefinition, MacroParamDefinition},
 };
-use syntax::SyntaxTokenWithParent;
+use syntax::{SyntaxAncestors, SyntaxTokenWithParent, ast::AstNode, has_text_range::HasTextRange};
 use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
@@ -99,8 +99,54 @@ fn nav_targets_for_token(
             .filter_map(|def| def.to_nav(db.db))
             .map(compact_design_unit_target)
             .collect_vec();
-        (!navs.is_empty()).then_some(navs)
+        if !navs.is_empty() {
+            return Some(navs);
+        }
+        slang_scoped_nav(db, hir_file_id, token)
     })
+}
+
+fn slang_scoped_nav(
+    db: &AnalysisContext<'_>,
+    hir_file_id: HirFileId,
+    token: SyntaxTokenWithParent<'_>,
+) -> Option<Vec<NavTarget>> {
+    let file = hir_file_id.as_file()?;
+    let scoped =
+        SyntaxAncestors::start_from(token.parent).find_map(syntax::ast::ScopedName::cast)?;
+    if scoped_uses_dot(scoped) {
+        return None;
+    }
+    let range = token.text_range()?;
+    let crate::elaboration::ElabResult::Ready(Some(info)) =
+        crate::slang_class::lookup_symbol_at(db, file, usize::from(range.start()))
+    else {
+        return None;
+    };
+    if info.def_file.is_empty() {
+        return None;
+    }
+    let file_id = crate::anchor::file_id_for_slang_path(db.db, &info.def_file);
+    let start = utils::line_index::TextSize::from(info.def_offset as u32);
+    let len = utils::line_index::TextSize::from(info.name.len() as u32);
+    let focus = utils::line_index::TextRange::new(start, start + len);
+    Some(vec![NavTarget {
+        file_id,
+        full_range: focus,
+        focus_range: Some(focus),
+        name: Some(smol_str::SmolStr::from(info.name.as_str())),
+        kind: None,
+        container_name: None,
+        description: None,
+    }])
+}
+
+fn scoped_uses_dot(scoped: syntax::ast::ScopedName<'_>) -> bool {
+    scoped
+        .syntax()
+        .children()
+        .filter_map(|elem| elem.as_token())
+        .any(|tok| tok.kind() == syntax::Token![.])
 }
 
 fn compact_design_unit_target(mut target: NavTarget) -> NavTarget {

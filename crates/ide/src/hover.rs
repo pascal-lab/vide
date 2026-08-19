@@ -1,7 +1,6 @@
 use base_db::source_db::SourceDb;
 use hir_def::{container::OwnerRef, expr::Expr, symbol::Resolution};
 use hir_semantics::semantics::Semantics;
-use hir_ty::TypeSystem;
 use preproc_expand::file::HirFileId;
 use syntax::{
     SyntaxTokenWithParent, TokenKind,
@@ -248,23 +247,20 @@ fn handle_definition(
                 }
             }
         }
-        hir_def::symbol::Resolution::Unresolved => {
-            res.section("hir-ty");
-            res.print(&hir_ty_type_of_resolution(sema, Resolution::Unresolved));
-        }
+        hir_def::symbol::Resolution::Unresolved => {}
     }
 
-    if let Some(slang) = slang_class_hover(db, file_id, tp) {
+    if let Some(slang) = slang_type_hover(db, file_id, tp) {
         res.merge(slang);
     }
-    Some(res)
+    (!res.is_empty()).then_some(res)
 }
 
 fn hir_ty_type_of_resolution(
     sema: &Semantics<RootDb>,
     resolution: Resolution<hir_def::def_id::DefId>,
 ) -> String {
-    let tys = TypeSystem::new(sema.db, sema.resolution_context());
+    let tys = hir_ty::TypeSystem::new(sema.db, sema.resolution_context());
     tys.display_source(&tys.type_of_resolution(resolution)).unwrap_or_else(|_| "error".to_owned())
 }
 
@@ -305,22 +301,31 @@ pub(crate) fn hir_ty_display_at(
     }
 }
 
-fn slang_class_hover(
+fn slang_type_hover(
     db: &AnalysisContext<'_>,
     file_id: HirFileId,
     tp: SyntaxTokenWithParent<'_>,
 ) -> Option<Markup> {
     let file = file_id.as_file()?;
-    let map = db.db.ast_id_map(file_id);
-    let ast_id = map.id_of_node(tp.parent)?;
+    let range = tp.text_range()?;
     let crate::elaboration::ElabResult::Ready(Some(info)) =
-        crate::slang_class::lookup_from_ast_id(db, file, ast_id)
+        crate::slang_class::lookup_symbol_at(db, file, usize::from(range.start()))
     else {
         return None;
     };
     let mut markup = Markup::new();
     markup.section("slang");
-    markup.print(&crate::slang_class::format_answer(&info));
+    if info.owner_class.is_empty() {
+        markup.print(&info.type_name);
+    } else {
+        markup.print(&crate::slang_class::format_answer(
+            &slang_sys::compilation::ClassMemberInfo {
+                type_name: info.type_name,
+                owner_class: info.owner_class,
+                inheritance: info.inheritance,
+            },
+        ));
+    }
     Some(markup)
 }
 

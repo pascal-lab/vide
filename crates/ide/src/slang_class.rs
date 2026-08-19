@@ -9,7 +9,7 @@
 use base_db::source_db::SourceRootDb;
 use hir_def::ast_id_map::SourceAstId;
 use preproc_expand::{compilation_plan, file::HirFileId};
-use slang_sys::compilation::ClassMemberInfo;
+use slang_sys::compilation::{ClassMemberInfo, SymbolInfo};
 use syntax::{SyntaxTreeOptions, has_text_range::HasTextRange};
 use vfs::FileId;
 
@@ -53,6 +53,16 @@ pub fn lookup_from_ast_id(
     let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
     let profile = ctx.db.file_compilation_profile(file_id);
     ctx.elab.lookup_class_member(ctx.db, ctx.revision, profile, &path, offset)
+}
+
+pub fn lookup_symbol_at(
+    ctx: &AnalysisContext<'_>,
+    file_id: FileId,
+    offset: usize,
+) -> ElabResult<SymbolInfo> {
+    let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
+    let profile = ctx.db.file_compilation_profile(file_id);
+    ctx.elab.lookup_symbol(ctx.db, ctx.revision, profile, &path, offset)
 }
 
 pub fn format_answer(info: &ClassMemberInfo) -> String {
@@ -142,14 +152,51 @@ endclass
     }
 
     #[test]
-    fn hover_shows_slang_answer_beside_hir_ty() {
+    fn hover_shows_slang_type_for_a_net() {
+        let src = "module top;\n  logic [7:0] /*marker:x*/x;\nendmodule\n";
+        let (host, file_id, _text, markers) = setup_marked(src);
+        let hover = host.make_analysis().hover(position(file_id, &markers, "x")).unwrap();
+        let markup = hover.expect("net hover");
+        let text = markup.info.as_str();
+        assert!(
+            text.contains("slang") && text.contains("logic"),
+            "slang must type the net:\n{text}"
+        );
+    }
+
+    #[test]
+    fn hover_shows_slang_type() {
         let (host, file_id, _text, markers) = setup_marked(UVM_OBJECT);
         let hover = host.make_analysis().hover(position(file_id, &markers, "name")).unwrap();
         let markup = hover.expect("hover the UVM class type").info;
         let text = markup.as_str();
         assert!(
-            text.contains("hir-ty") && text.contains("slang") && text.contains("uvm_object"),
-            "hover must run slang beside hir-ty:\n{text}"
+            text.contains("slang") && text.contains("uvm_object") && text.contains("string"),
+            "hover type comes from slang:\n{text}"
+        );
+        assert!(!text.contains("hir-ty"), "TypeSystem is not the hover type answer:\n{text}");
+    }
+
+    #[test]
+    fn class_scope_goto_is_answered_by_slang() {
+        let src = r#"
+class env;
+  static int /*marker:def*/count;
+endclass
+module top;
+  initial env::/*marker:use*/count = 1;
+endmodule
+"#;
+        let (host, file_id, _text, markers) = setup_marked(src);
+        let nav = host
+            .make_analysis()
+            .goto_definition(position(file_id, &markers, "use"))
+            .unwrap()
+            .expect("env::count");
+        assert!(
+            nav.info.iter().any(|target| target.focus_range.map(|range| range.start())
+                == Some(markers["def"])),
+            "class :: must jump to the member: {nav:?}"
         );
     }
 

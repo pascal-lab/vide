@@ -25,7 +25,7 @@ use preproc_expand::compilation_plan::{
     self, CompilationPlan, CompilationRootKind, compilation_source_buffers_for_plan,
 };
 use rustc_hash::{FxHashMap, FxHasher};
-use slang_sys::compilation::{ClassMemberInfo, Compilation, HierInstance};
+use slang_sys::compilation::{ClassMemberInfo, Compilation, HierInstance, SymbolInfo};
 use syntax::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
 use vfs::FileId;
 
@@ -72,6 +72,14 @@ enum Request {
         path: String,
         offset: usize,
         reply: Sender<ElabResult<ClassMemberInfo>>,
+    },
+    Symbol {
+        db: RootDb,
+        revision: ElabRevision,
+        profile: Option<CompilationProfileId>,
+        path: String,
+        offset: usize,
+        reply: Sender<ElabResult<SymbolInfo>>,
     },
     Instances {
         db: RootDb,
@@ -153,6 +161,42 @@ impl ElaborationService {
         }
     }
 
+    pub fn lookup_symbol(
+        &self,
+        db: &RootDb,
+        revision: ElabRevision,
+        profile: Option<CompilationProfileId>,
+        path: &str,
+        offset: usize,
+    ) -> ElabResult<SymbolInfo> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        if self
+            .tx
+            .send(Request::Symbol {
+                db: db.clone(),
+                revision,
+                profile,
+                path: path.to_owned(),
+                offset,
+                reply: reply_tx,
+            })
+            .is_err()
+        {
+            return ElabResult::Unavailable(UnavailableReason::Crashed(
+                "elaboration worker is gone".to_owned(),
+            ));
+        }
+        match reply_rx.recv_timeout(LOOKUP_TIMEOUT) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                ElabResult::Unavailable(UnavailableReason::TimedOut)
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => ElabResult::Unavailable(
+                UnavailableReason::Crashed("elaboration worker dropped the lookup".to_owned()),
+            ),
+        }
+    }
+
     pub fn list_instances(
         &self,
         db: &RootDb,
@@ -202,6 +246,11 @@ fn worker_loop(rx: Receiver<Request>) {
             Request::Lookup { db, revision, profile, path, offset, reply } => {
                 let result =
                     handle_lookup(&mut gens, &mut last_reused, db, revision, profile, path, offset);
+                let _ = reply.send(result);
+            }
+            Request::Symbol { db, revision, profile, path, offset, reply } => {
+                let result =
+                    handle_symbol(&mut gens, &mut last_reused, db, revision, profile, path, offset);
                 let _ = reply.send(result);
             }
             Request::Instances { db, revision, profile, reply } => {
@@ -268,6 +317,37 @@ fn handle_lookup(
         Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
             "class-member lookup panicked".to_owned(),
         )),
+    }
+}
+
+fn handle_symbol(
+    gens: &mut Vec<Generation>,
+    last_reused: &mut usize,
+    db: RootDb,
+    revision: ElabRevision,
+    profile: Option<CompilationProfileId>,
+    path: String,
+    offset: usize,
+) -> ElabResult<SymbolInfo> {
+    match handle_lookup(gens, last_reused, db, revision, profile, String::new(), 0) {
+        ElabResult::Stale { have, want } => ElabResult::Stale { have, want },
+        ElabResult::Unavailable(reason) => ElabResult::Unavailable(reason),
+        ElabResult::Ready(_) => {
+            let Some(slot) = gens.iter_mut().find(|slot| slot.revision == revision) else {
+                return ElabResult::Unavailable(UnavailableReason::NotReady);
+            };
+            let Some(profile_elab) = slot.profiles.get_mut(&profile) else {
+                return ElabResult::Unavailable(UnavailableReason::NotReady);
+            };
+            match panic::catch_unwind(AssertUnwindSafe(|| {
+                profile_elab.compilation.lookup_symbol(&path, offset)
+            })) {
+                Ok(answer) => ElabResult::Ready(answer),
+                Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
+                    "symbol lookup panicked".to_owned(),
+                )),
+            }
+        }
     }
 }
 
