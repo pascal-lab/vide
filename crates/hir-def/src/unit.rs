@@ -104,7 +104,7 @@ mod tests {
         source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
         source_root::{SourceRoot, SourceRootId},
     };
-    use design_graph::{UnitCatalog, GeneratedUnits, UnitId, UnitKind, UnitMeta, UnitOrigin};
+    use design_graph::{GeneratedUnits, UnitCatalog, UnitId, UnitKind, UnitMeta, UnitOrigin};
     use preproc_expand::db::PreprocDb;
     use rustc_hash::FxHashSet;
     use smol_str::SmolStr;

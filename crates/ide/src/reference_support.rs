@@ -200,12 +200,12 @@ mod tests {
     use crate::{
         ScopeVisibility,
         definitions::DefinitionClass,
+        reference_support::build::{
+            ContainerCache, ScopeChainCache, definition_ranges_for, token_in_special_context,
+        },
         references::{
             ReferencesConfig,
             search::{SearchScope, search_references},
-        },
-        reference_support::build::{
-            ContainerCache, ScopeChainCache, definition_ranges_for, token_in_special_context,
         },
         semantic_target::{
             SemanticTarget, TargetIntent, preproc::emit_token_index,

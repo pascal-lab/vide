@@ -34,19 +34,19 @@ pub mod goto_declaration;
 pub mod goto_definition;
 pub mod hover;
 pub(crate) mod incrementality;
+#[cfg(test)]
+mod incrementality_benches;
 pub mod inlay_hint;
 #[cfg(test)]
 mod macro_hover_tests;
 pub mod range;
+pub mod reference_support;
 pub mod references;
 pub mod rename;
 pub mod selection_ranges;
-pub mod reference_support;
 pub(crate) mod semantic_target;
 pub mod semantic_tokens;
 pub mod signature_help;
-#[cfg(test)]
-mod incrementality_benches;
 #[cfg(test)]
 mod test_utils;
 pub(crate) mod token;

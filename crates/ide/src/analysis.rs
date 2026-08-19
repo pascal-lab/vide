@@ -444,3 +444,45 @@ impl AnalysisSnapshot {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use hir_def::design_map::{PACKAGE_EXPORT_CLOSURE_RUNS, PACKAGE_EXPORT_TO_OWNER_RUNS};
+
+    /// `semantics()` rebuilds [`super::AnalysisContext::resolution`] each time.
+    /// The workspace-level export closure must not re-walk every package on
+    /// every one of those calls.
+    #[test]
+    fn package_export_closure_runs_once_per_request() {
+        let (host, _) = crate::test_utils::setup_marked_files(&[
+            ("/a.sv", "package a;\n  int x;\nendpackage\n"),
+            ("/b.sv", "package b;\n  int y;\nendpackage\n"),
+            ("/c.sv", "package c;\n  int z;\nendpackage\n"),
+            ("/top.sv", "module top;\n  int w;\nendmodule\n"),
+        ]);
+        let package_count = host.ctx().unit_catalog().packages().count() as u32;
+        assert_eq!(
+            package_count, 3,
+            "fixture must have three packages so per-package work is visible"
+        );
+
+        PACKAGE_EXPORT_CLOSURE_RUNS.with(|runs| runs.set(0));
+        PACKAGE_EXPORT_TO_OWNER_RUNS.with(|runs| runs.set(0));
+        let ctx = host.ctx();
+        let _ = ctx.resolution();
+        let _ = ctx.semantics();
+        let _ = ctx.resolution();
+        let closure_runs = PACKAGE_EXPORT_CLOSURE_RUNS.with(Cell::get);
+        let to_owner_runs = PACKAGE_EXPORT_TO_OWNER_RUNS.with(Cell::get);
+        assert_eq!(
+            closure_runs, 1,
+            "package_export_closure must execute once per request, not once per resolution()/semantics() call (ran {closure_runs})"
+        );
+        assert_eq!(
+            to_owner_runs, package_count,
+            "to_owner work inside the closure must run once per package, not once per package per call (ran {to_owner_runs} for {package_count} packages)"
+        );
+    }
+}

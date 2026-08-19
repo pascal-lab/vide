@@ -5,6 +5,8 @@
 //! that graph so package imports are resolved consistently for both direct
 //! package queries and lexical name resolution.
 
+use std::cell::Cell;
+
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
@@ -272,13 +274,27 @@ impl DesignMap {
     }
 }
 
+thread_local! {
+    /// Executions of [`package_export_closure`]. A salsa memo must keep this
+    /// at one per request, not one per `resolution()` / `semantics()` call.
+    pub static PACKAGE_EXPORT_CLOSURE_RUNS: Cell<u32> = const { Cell::new(0) };
+    /// Paid [`ToOwner::to_owner`] calls performed while building the closure.
+    pub static PACKAGE_EXPORT_TO_OWNER_RUNS: Cell<u32> = const { Cell::new(0) };
+}
+
 /// Closed package-export graph for the packages on `graph`.
 pub fn package_export_closure(
     db: &dyn HirDefDb,
     graph: &design_graph::UnitCatalog,
 ) -> Arc<DesignMap> {
-    let mut packages: Vec<OwnerId> =
-        graph.packages().filter_map(|unit| crate::unit::ToOwner::to_owner(unit, db)).collect();
+    PACKAGE_EXPORT_CLOSURE_RUNS.with(|runs| runs.set(runs.get() + 1));
+    let mut packages: Vec<OwnerId> = graph
+        .packages()
+        .filter_map(|unit| {
+            PACKAGE_EXPORT_TO_OWNER_RUNS.with(|runs| runs.set(runs.get() + 1));
+            crate::unit::ToOwner::to_owner(unit, db)
+        })
+        .collect();
     packages.sort();
     packages.dedup();
 

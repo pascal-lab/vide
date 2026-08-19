@@ -21,11 +21,11 @@ use crate::{
     analysis::AnalysisContext,
     db::root_db::RootDb,
     definitions::DefinitionClass,
+    reference_support::{ConnSide, ReferenceContext},
     references::{
         ReferencesConfig,
         search::{ReferenceToken, ReferencesCtx, SearchScope, search_references},
     },
-    reference_support::{ConnSide, ReferenceContext},
     semantic_target::{
         PreprocMacroTarget, SemanticTarget, SourceTarget, TargetIntent, is_preproc_free_file,
         resolve_semantic_target,
