@@ -79,8 +79,8 @@ fn design_graph_fold_by_workspace_size() {
 /// Cold fold never crosses a revision, so it cannot show LRU eviction.
 /// Default parse LRU is 1024. After a 1280-file 2000-wire fold, a body
 /// edit starts a revision and salsa evicts ~256 `file_facts` memos.
-/// Refetching every `file_decls` is the work a fold must do once epoch
-/// no longer skips it. Coupled to the parse LRU that refetch was 379ms;
+/// Refetching every `file_decls` is the work a salsa catalog revalidation
+/// does after an edit. Coupled to the parse LRU that refetch was 379ms;
 /// unbounded `file_decls` brings it to <1ms. A live salsa
 /// `source_unit_catalog` memo would pin those deps and hide the cliff,
 /// so this times the per-file refetch.

@@ -18,8 +18,8 @@ use crate::{
 /// Cross-file name-resolution inputs.
 ///
 /// The injected [`UnitCatalog`] answers compilation-unit names. `$unit`
-/// locals and the package export map are paid when the context is built, so
-/// they share the catalog's ProductCell clock instead of a third memo.
+/// locals and the package export map are paid when the context is built
+/// from the current catalog, not stored as a third memo.
 #[derive(Clone)]
 pub struct ResolutionContext {
     graph: Arc<design_graph::UnitCatalog>,

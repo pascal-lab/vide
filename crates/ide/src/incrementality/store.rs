@@ -1,28 +1,15 @@
 use base_db::source_db::SourceDb;
-use design_graph::{UnitCatalog, DesignGraphDb, GeneratedUnits, UnitId, UnitMeta};
-use hir_def::pathres::ResolutionContext;
+use design_graph::{GeneratedUnits, UnitId, UnitMeta};
 use parking_lot::Mutex;
 use preproc_expand::db::PreprocDb;
 use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 use vfs::FileId;
 
-use super::{
-    epoch::{EpochDecision, StructureEpoch, StructureSnapshot},
-    product_cell::ProductCell,
-};
 use crate::db::root_db::RootDb;
 
 #[derive(Clone, Default)]
-struct StructureProducts {
-    design_graph: Arc<ProductCell<UnitCatalog>>,
-    resolution: Arc<ProductCell<ResolutionContext>>,
-}
-
-#[derive(Clone, Default)]
 struct Inner {
-    epoch: StructureEpoch,
-    structure: StructureProducts,
     /// Authoritative standalone parses retained by this store lineage:
     /// compilation root -> files named by emitted preprocessor include edges.
     parse_dependencies: FxHashMap<FileId, Arc<[FileId]>>,
@@ -30,9 +17,11 @@ struct Inner {
     generated: GeneratedUnits,
 }
 
-/// Lazily materialized workspace products, forked on every change so
+/// Overlay and parse-dependency book-keeping, forked on every change so
 /// previously created [`crate::analysis::AnalysisSnapshot`]s keep the previous
-/// value and can never observe products from a later edit.
+/// overlay and can never observe generated names from a later edit.
+///
+/// Source catalogs live in salsa. This store does not memoize them.
 ///
 /// Owned by [`crate::analysis_host::AnalysisHost`].
 #[derive(Default)]
@@ -50,8 +39,8 @@ impl std::fmt::Debug for ProductStore {
 }
 
 impl ProductStore {
-    /// One revision transition. The fork / capture / apply / invalidate
-    /// order is an implementation detail of the store.
+    /// One revision transition. Fork the overlay, apply the salsa change,
+    /// drop generated entries whose artifact fingerprint no longer matches.
     pub(crate) fn transition(
         current: &triomphe::Arc<Self>,
         db: &mut RootDb,
@@ -64,8 +53,8 @@ impl ProductStore {
             return (triomphe::Arc::new(Self::default()), files);
         }
         let dependent_files = current.parsed_dependents(&dirty_files);
-        let mut affected_files = dirty_files.clone();
-        affected_files.extend(dependent_files.iter().copied());
+        let mut affected_files = dirty_files;
+        affected_files.extend(dependent_files);
         affected_files.sort_unstable_by_key(|file| file.index());
         affected_files.dedup();
         if affected_files.is_empty() {
@@ -73,10 +62,8 @@ impl ProductStore {
             return (current.clone(), Vec::new());
         }
         let store = current.fork();
-        store.capture_epoch(db, &dirty_files);
-        store.mark_epoch_dirty(&dependent_files);
         db.apply_change(change);
-        store.invalidate(db, &affected_files);
+        store.drop_stale_generated(db);
         (triomphe::Arc::new(store), affected_files)
     }
 
@@ -112,10 +99,6 @@ impl ProductStore {
         generated
     }
 
-    pub(crate) fn unit_catalog_cell(&self) -> Arc<ProductCell<UnitCatalog>> {
-        self.inner.lock().structure.design_graph.clone()
-    }
-
     pub(crate) fn parsed_dependents(&self, changed: &[FileId]) -> Vec<FileId> {
         let changed = changed.iter().copied().collect::<FxHashSet<_>>();
         self.inner
@@ -130,62 +113,7 @@ impl ProductStore {
             .collect()
     }
 
-    /// Record the files made dirty by a change before Salsa applies it, so the
-    /// pre-change structure snapshots can be compared against the post-change
-    /// trees when the epoch is decided.
-    pub(crate) fn capture_epoch(&self, db: &RootDb, files: &[FileId]) {
-        if files.is_empty() {
-            return;
-        }
-        // Capture pre-change L0 shards outside the lock: Salsa queries must
-        // not run while holding the store mutex. Only snapshot files that
-        // already exist — a create has no pre-change facts, and parsing an
-        // empty slot is not a snapshot.
-        let snapshots: Vec<_> = files
-            .iter()
-            .copied()
-            .filter(|&file_id| db.files().contains(&file_id))
-            .map(|file_id| (file_id, StructureSnapshot::capture(db, file_id)))
-            .collect();
-        let mut inner = self.inner.lock();
-        inner.epoch.record(snapshots);
-        inner.epoch.mark_dirty(files);
-    }
-
-    pub(crate) fn mark_epoch_dirty(&self, files: &[FileId]) {
-        self.inner.lock().epoch.mark_dirty(files);
-    }
-
-    /// Apply the structural epoch. Body-only edits keep the previous
-    /// graph; files whose CU units changed are upserted. Resolution products
-    /// drop only when the graph actually changed.
-    ///
-    /// This is the only epoch-decision entry point. The request path may
-    /// publish newly paid generated units onto an already-decided graph, but
-    /// it never re-decides Keep vs Patch. Overlay entries whose artifact
-    /// fingerprint no longer matches are dropped here so a Keep cannot retain
-    /// a generated name the current snapshot cannot produce.
-    pub(crate) fn invalidate(&self, db: &RootDb, _files: &[FileId]) {
-        let stale_generated = self.drop_stale_generated(db);
-        let epoch = self.inner.lock().epoch.clone();
-        let decision = if epoch.is_empty() { EpochDecision::Keep } else { epoch.decide(db) };
-        self.inner.lock().epoch.clear();
-        let mut patch = match decision {
-            EpochDecision::Keep => Vec::new(),
-            EpochDecision::Patch(files) => files,
-        };
-        patch.extend(stale_generated);
-        patch.sort_unstable_by_key(|file| file.index());
-        patch.dedup();
-        if patch.is_empty() {
-            return;
-        }
-        self.patch_design_graph(db, &patch);
-        let mut inner = self.inner.lock();
-        inner.structure.resolution = Arc::new(ProductCell::default());
-    }
-
-    fn drop_stale_generated(&self, db: &RootDb) -> Vec<FileId> {
+    fn drop_stale_generated(&self, db: &RootDb) {
         let files: Vec<FileId> = self.inner.lock().generated.by_file.keys().copied().collect();
         let current: FxHashMap<FileId, u64> = files
             .into_iter()
@@ -194,43 +122,6 @@ impl ProductStore {
             .collect();
         self.inner.lock().generated.retain_current(|file, fingerprint| {
             current.get(&file).is_some_and(|&got| got == fingerprint)
-        })
-    }
-
-    /// Upsert or remove `files` on the live graph. If the graph has never
-    /// been built, leave the cell empty so the next request folds what exists.
-    pub(crate) fn patch_design_graph(&self, db: &RootDb, files: &[FileId]) {
-        if files.is_empty() {
-            return;
-        }
-        let Some(current) = self.unit_catalog_cell().peek() else {
-            return;
-        };
-        let generated = self.generated_units(db);
-        let mut graph = (*current).clone();
-        let mut changed = false;
-        for &file_id in files {
-            if !db.files().contains(&file_id)
-                || !db.file_kind(file_id).is_semantic_compilation_unit()
-            {
-                changed |= graph.remove_file(file_id);
-                continue;
-            }
-            changed |= graph.upsert_file(
-                file_id,
-                <dyn DesignGraphDb>::file_facts(db, file_id).as_ref(),
-                &generated,
-            );
-        }
-        if !changed {
-            return;
-        }
-        let mut inner = self.inner.lock();
-        inner.structure.design_graph = Arc::new(ProductCell::from_arc(triomphe::Arc::new(graph)));
-        inner.structure.resolution = Arc::new(ProductCell::default());
-    }
-
-    pub(crate) fn resolution_cell(&self) -> Arc<ProductCell<ResolutionContext>> {
-        self.inner.lock().structure.resolution.clone()
+        });
     }
 }

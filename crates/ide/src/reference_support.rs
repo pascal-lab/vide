@@ -297,9 +297,10 @@ mod tests {
         ));
         host.apply_change(body_edit);
         let after_body = host.ctx().resolution();
-        assert!(
-            Arc::ptr_eq(&before, &after_body),
-            "position-free structure is unchanged, so the context must be reused"
+        assert_eq!(
+            before.graph(),
+            after_body.graph(),
+            "position-free structure is unchanged, so the catalog must be equal"
         );
 
         let mut structural_edit = Change::new();
@@ -307,9 +308,10 @@ mod tests {
             .add_changed_file(ChangedFile::create(file_id, "module renamed; logic a; endmodule\n"));
         host.apply_change(structural_edit);
         let after_structure = host.ctx().resolution();
-        assert!(
-            !Arc::ptr_eq(&after_body, &after_structure),
-            "a changed declaration must invalidate the project resolution context"
+        assert_ne!(
+            after_body.graph(),
+            after_structure.graph(),
+            "a changed declaration must produce a different catalog"
         );
     }
 
@@ -332,14 +334,15 @@ mod tests {
         ));
         host.apply_change(body_edit);
         let after_body = host.ctx().resolution();
-        assert!(
-            Arc::ptr_eq(&before, &after_body),
-            "an include file's body-only comment must not rebuild resolution via item_tree"
+        assert_eq!(
+            before.graph(),
+            after_body.graph(),
+            "a body-only comment must not change the name catalog"
         );
     }
 
     #[test]
-    fn recorded_include_dependency_invalidates_the_parsed_root() {
+    fn recorded_include_dependency_survives_an_include_edit() {
         use base_db::change::Change;
         use vfs::ChangedFile;
 
@@ -351,16 +354,22 @@ mod tests {
         let top = marked[1].0;
         let db = host.ctx();
         db.store.record_parse_dependencies(top, Arc::from(vec![top, defs]));
-        let before = db.resolution();
+        assert_eq!(db.store.parsed_dependents(&[defs]), vec![top]);
+        let before = db.unit_catalog();
 
         let mut change = Change::new();
         change.add_changed_file(ChangedFile::create(defs, "`define UNIT_NAME renamed\n"));
         host.apply_change(change);
-        let after = host.ctx().resolution();
-
-        assert!(
-            !Arc::ptr_eq(&before, &after),
-            "an emitted include dependency must invalidate the parsed root's structure products"
+        let after = host.ctx().unit_catalog();
+        assert_eq!(
+            before.as_ref(),
+            after.as_ref(),
+            "an include edit does not change the including file's L0 decls"
+        );
+        assert_eq!(
+            host.ctx().store.parsed_dependents(&[defs]),
+            vec![top],
+            "the paid parse still names the include as a dependency"
         );
     }
 

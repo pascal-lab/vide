@@ -2,8 +2,8 @@
 //!
 //! Does not parse. Callers must have already computed
 //! `compilation_unit_artifact` for `file_id` (parse_file / include-edge
-//! dependency recording). Does not re-decide the structure epoch; it only
-//! publishes units derived from the current artifact fingerprint.
+//! dependency recording). The next catalog read merges this overlay; it
+//! does not patch a handwritten graph.
 
 use design_graph::{
     FileFacts, UnitId, UnitMeta, UnitOrigin,
@@ -19,18 +19,13 @@ use crate::analysis::AnalysisContext;
 pub(crate) fn record_from_paid_artifact(db: &AnalysisContext<'_>, file_id: FileId) {
     let fingerprint = <dyn PreprocDb>::compilation_unit_snapshot(db.db, file_id).fingerprint;
     let Some(trace) = db.preproc_trace(file_id) else {
-        if db.store.record_generated_units(file_id, fingerprint, Box::new([]), FxHashMap::default())
-        {
-            db.store.patch_design_graph(db.db, &[file_id]);
-        }
+        db.store.record_generated_units(file_id, fingerprint, Box::new([]), FxHashMap::default());
         return;
     };
     let tree = db.parse_tree(file_id);
     let facts = db.file_facts(file_id);
     let (ids, meta) = collect_generated_units(file_id, &tree, &trace, &facts);
-    if db.store.record_generated_units(file_id, fingerprint, ids, meta) {
-        db.store.patch_design_graph(db.db, &[file_id]);
-    }
+    db.store.record_generated_units(file_id, fingerprint, ids, meta);
 }
 
 fn collect_generated_units(

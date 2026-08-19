@@ -16,7 +16,7 @@ use vfs::{AnchoredPath, FileId};
 use crate::db::{line_index_db::LineIndexDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb};
 
 /// The concrete IDE Salsa database: pure, memoized computation over the input
-/// sources. It holds no request-scoped cache; those live in
+/// sources. Overlay and parse-deps live in
 /// [`crate::incrementality::ProductStore`] owned by the
 /// [`crate::analysis_host::AnalysisHost`].
 #[salsa::db]

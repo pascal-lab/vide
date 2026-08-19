@@ -78,11 +78,11 @@ pub struct UnitCatalogKey {
     pub _unit: (),
 }
 
-/// L0 name catalog of source decls. T14 turns this into the production
-/// source side: `source_unit_catalog(db).with_overlay(generated)`. Overlay
-/// is fingerprint-keyed and is not a salsa input, so it must not enter
-/// this query. Tests also use it to observe salsa backdating of
-/// `file_decls`.
+/// L0 name catalog of source decls. Production reads this and merges
+/// generated units at the call site:
+/// `source_unit_catalog(db).with_overlay(generated)`. Overlay is
+/// fingerprint-keyed and is not a salsa input, so it must not enter this
+/// query.
 #[salsa::tracked(lru = 4, returns(clone))]
 pub fn source_unit_catalog_query(
     db: &dyn DesignGraphDb,

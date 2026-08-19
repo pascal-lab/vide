@@ -34,14 +34,14 @@ use crate::{
     folding_ranges::{self, Fold},
     formatting::{self, FmtConfig},
     goto_declaration, goto_definition, hover,
-    incrementality::{ComputationPriority, ProductStore},
+    incrementality::ProductStore,
     inlay_hint::{self, InlayHint, InlayHintConfig},
     markup::Markup,
     navigation_target::NavTarget,
+    reference_support::{self, ModuleCallEdge},
     references::{self, References, ReferencesConfig},
     rename::{self, RenameConfig, RenameResult},
     selection_ranges,
-    reference_support::{self, ModuleCallEdge},
     semantic_tokens::{self, SemaToken, SemaTokenConfig},
     signature_help::{self, SignatureHelp, SignatureHelpConfig},
     source_change::SourceChange,
@@ -56,15 +56,13 @@ pub struct AnalysisSnapshot {
     pub(crate) salsa_revision: base_db::salsa::Revision,
 }
 
-static NEVER_CANCELLED: AtomicBool = AtomicBool::new(false);
-
 /// Read view of one IDE request: the pure Salsa database plus the
-/// workspace product store. Features are pure functions of this context,
-/// so they can never observe products from a later edit.
+/// overlay store. Features are pure functions of this context, so they
+/// can never observe generated names from a later edit.
 ///
 /// [`Self::parse_file`] is the one exception that writes: it publishes
 /// generated units derived from the artifact it just paid for, keyed by
-/// that artifact's fingerprint. It does not re-decide the structure epoch.
+/// that artifact's fingerprint. The next catalog read merges them.
 pub(crate) struct AnalysisContext<'a> {
     pub(crate) db: &'a RootDb,
     pub(crate) store: &'a ProductStore,
@@ -108,65 +106,34 @@ impl AnalysisContext<'_> {
     }
 
     pub(crate) fn unit_catalog(&self) -> triomphe::Arc<design_graph::UnitCatalog> {
-        self.store.unit_catalog_cell().get_or_compute_foreground(|in_flight| {
-            self.fold_unit_catalog(&NEVER_CANCELLED, in_flight)
-        })
+        let source = <dyn DesignGraphDb>::source_unit_catalog(self.db);
+        let generated = self.store.generated_units(self.db);
+        if generated.meta.is_empty() {
+            source
+        } else {
+            triomphe::Arc::new(source.with_overlay(&generated))
+        }
     }
 
     pub(crate) fn prewarm_unit_catalog(
         &self,
         cancel: &AtomicBool,
     ) -> Option<triomphe::Arc<design_graph::UnitCatalog>> {
-        self.store.unit_catalog_cell().get_or_compute(
-            crate::incrementality::ComputationPriority::Background,
-            cancel,
-            |in_flight| self.fold_unit_catalog(cancel, in_flight),
-        )
+        if cancel.load(std::sync::atomic::Ordering::Acquire) {
+            return None;
+        }
+        Some(self.unit_catalog())
     }
 
     pub(crate) fn prewarm_resolution(&self, cancel: &AtomicBool) -> Option<Arc<ResolutionContext>> {
-        self.store.resolution_cell().get_or_compute(ComputationPriority::Background, cancel, |_| {
-            Some(ResolutionContext::from_graph(self.db, self.unit_catalog()))
-        })
-    }
-
-    fn fold_unit_catalog(
-        &self,
-        cancel: &AtomicBool,
-        in_flight: &AtomicBool,
-    ) -> Option<triomphe::Arc<design_graph::UnitCatalog>> {
-        let generated = self.store.generated_units(self.db);
-        let _span = tracing::info_span!("design_graph.build").entered();
-        let started = std::time::Instant::now();
-        let files: Vec<_> = self
-            .db
-            .files()
-            .iter()
-            .copied()
-            .filter(|&file_id| self.db.file_kind(file_id).is_semantic_compilation_unit())
-            .collect();
-        let decls = file_decls_parallel(self.db, &files, cancel, in_flight)?;
-        let graph = design_graph::UnitCatalog::from_decls(
-            decls.iter().map(std::convert::AsRef::as_ref),
-            &generated,
-        );
-        let file_count = decls.len();
-        let independent_files = decls.iter().filter(|decls| decls.preprocessor_independent).count();
-        tracing::info!(
-            file_count,
-            node_count = graph.node_count(),
-            generated_node_count = generated.meta.len(),
-            independent_files,
-            elapsed_ms = started.elapsed().as_millis() as u64,
-            "design_graph.build"
-        );
-        Some(triomphe::Arc::new(graph))
+        if cancel.load(std::sync::atomic::Ordering::Acquire) {
+            return None;
+        }
+        Some(self.resolution())
     }
 
     pub(crate) fn resolution(&self) -> Arc<ResolutionContext> {
-        self.store.resolution_cell().get_or_compute_foreground(|_| {
-            Some(ResolutionContext::from_graph(self.db, self.unit_catalog()))
-        })
+        ResolutionContext::from_graph(self.db, self.unit_catalog())
     }
 
     pub(crate) fn recursive_rename_closure(
@@ -177,66 +144,6 @@ impl AnalysisContext<'_> {
     ) -> Arc<Vec<DefId>> {
         Arc::new(crate::rename::recursive_rename_closure_impl(self, def, visibility, single_file))
     }
-}
-
-/// Unexpanded `file_decls` are independent per file. Folding them sequentially
-/// is the ready-path cost on a library-sized workspace.
-fn file_decls_parallel(
-    db: &RootDb,
-    files: &[FileId],
-    cancel_a: &AtomicBool,
-    cancel_b: &AtomicBool,
-) -> Option<Vec<Arc<design_graph::DeclIndex>>> {
-    let cancelled = || {
-        cancel_a.load(std::sync::atomic::Ordering::Acquire)
-            || cancel_b.load(std::sync::atomic::Ordering::Acquire)
-    };
-    if cancelled() {
-        return None;
-    }
-    let threads =
-        std::thread::available_parallelism().map(usize::from).unwrap_or(1).min(files.len());
-    if threads <= 1 {
-        let mut facts = Vec::with_capacity(files.len());
-        for &file_id in files {
-            if cancelled() {
-                return None;
-            }
-            facts.push(<dyn DesignGraphDb>::file_decls(db, file_id));
-        }
-        return Some(facts);
-    }
-
-    let chunk_size = files.len().div_ceil(threads);
-    let stop = std::sync::atomic::AtomicBool::new(false);
-    let result = std::thread::scope(|scope| {
-        let mut handles = Vec::with_capacity(threads);
-        for chunk in files.chunks(chunk_size) {
-            let chunk: Vec<FileId> = chunk.to_vec();
-            let db = db.clone();
-            let stop = &stop;
-            handles.push(scope.spawn(move || {
-                let mut facts = Vec::with_capacity(chunk.len());
-                for file_id in chunk {
-                    if cancel_a.load(std::sync::atomic::Ordering::Acquire)
-                        || cancel_b.load(std::sync::atomic::Ordering::Acquire)
-                        || stop.load(std::sync::atomic::Ordering::Acquire)
-                    {
-                        stop.store(true, std::sync::atomic::Ordering::Release);
-                        return None;
-                    }
-                    facts.push(<dyn DesignGraphDb>::file_decls(&db, file_id));
-                }
-                Some(facts)
-            }));
-        }
-        let mut facts = Vec::with_capacity(files.len());
-        for handle in handles {
-            facts.extend(handle.join().expect("file_facts worker")?);
-        }
-        Some(facts)
-    });
-    result.filter(|_| !cancelled())
 }
 
 impl AnalysisSnapshot {

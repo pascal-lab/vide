@@ -99,7 +99,7 @@ impl AnalysisHost {
                         return;
                     }
                     if db.file_kind(file_id).is_semantic_compilation_unit() {
-                        let _ = <dyn design_graph::DesignGraphDb>::file_facts(&db, file_id);
+                        let _ = <dyn design_graph::DesignGraphDb>::file_decls(&db, file_id);
                     }
                 }
                 let _ = ctx.prewarm_unit_catalog(&worker_cancel);
@@ -424,6 +424,12 @@ mod tests {
             production.module_names().iter().any(|name| name == "top"),
             "{:?}",
             production.module_names()
+        );
+        let overlay = host.ctx().store.generated_units(host.ctx().db);
+        assert_eq!(
+            production.as_ref(),
+            &source_after.with_overlay(&overlay),
+            "production catalog is the salsa source plus the current overlay"
         );
     }
 

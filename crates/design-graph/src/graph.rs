@@ -216,6 +216,23 @@ impl UnitCatalog {
         graph
     }
 
+    /// Merge fingerprint-current generated units onto this L0 source catalog.
+    ///
+    /// `self` is the salsa source catalog and must not already contain
+    /// generated units. Overlay entries are not salsa inputs; the caller
+    /// supplies the current set on each read.
+    pub fn with_overlay(&self, generated: &GeneratedUnits) -> Self {
+        if generated.meta.is_empty() {
+            return self.clone();
+        }
+        let mut graph = self.clone();
+        for (id, meta) in &generated.meta {
+            graph.insert(id.clone(), meta.clone());
+        }
+        graph.rebuild_module_names();
+        graph
+    }
+
     /// Replace one file's source and generated units. Other files stay.
     /// Returns whether the node set for `file` changed.
     pub fn upsert_file(
@@ -444,6 +461,37 @@ mod tests {
         assert!(graph.contains(&unit.id));
         assert!(graph.contains(&generated_id));
         assert_eq!(graph.node_count(), 2);
+    }
+
+    #[test]
+    fn with_overlay_adds_generated_names_to_a_source_catalog() {
+        let source_unit = crate::unit::UnitNode {
+            id: id("src", 0),
+            origin: UnitOrigin::Source,
+            name_range: None,
+            header_range: None,
+            header_fingerprint: 1,
+        };
+        let facts = crate::FileFacts {
+            units: Box::new([source_unit.clone()]),
+            ..crate::FileFacts::default()
+        };
+        let source = super::UnitCatalog::from_decls(
+            std::iter::once(&facts.decls()),
+            &GeneratedUnits::default(),
+        );
+        let generated_id = id("gen", 0);
+        let mut generated = GeneratedUnits::default();
+        let mut meta = FxHashMap::default();
+        meta.insert(generated_id.clone(), generated_meta(&generated_id));
+        generated.replace_file(FILE, 1, Box::new([generated_id.clone()]), meta);
+
+        let merged = source.with_overlay(&generated);
+        assert!(source.contains(&source_unit.id));
+        assert!(!source.contains(&generated_id));
+        assert!(merged.contains(&source_unit.id));
+        assert!(merged.contains(&generated_id));
+        assert_eq!(source.with_overlay(&GeneratedUnits::default()), source);
     }
 
     #[test]
