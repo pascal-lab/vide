@@ -62,6 +62,17 @@ impl AnalysisHost {
         }
     }
 
+    /// Apply a change without starting revision prewarm. Benches that build
+    /// a large workspace would otherwise spend Drop joining `unit_scope`
+    /// over every file.
+    #[cfg(test)]
+    pub(crate) fn apply_change_without_prewarm(&mut self, change: Change) {
+        self.cancel_prewarm();
+        let (store, _) = ProductStore::transition(&self.store, &mut self.db, change);
+        self.store = store;
+        self.advance_revision();
+    }
+
     pub fn set_diagnostics_config(&mut self, config: Arc<DiagnosticsConfig>) {
         self.db.set_diagnostics_config_with_durability(config, Durability::HIGH);
         self.advance_revision();

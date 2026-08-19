@@ -11,30 +11,34 @@
 //! - Structure epoch `s` — a dirty file's L0 compilation-unit declarations
 //!   changed
 //!
-//! T10 remasured a salsa `source_unit_catalog` over position-free `file_decls`
+//! T10 remeasured a salsa `source_unit_catalog` over position-free `file_decls`
 //! after `Change::apply` stopped rewriting `file_kind` on every Modify.
-//! After a body-only edit the decls are value-equal and salsa backdates: the
-//! catalog does not re-execute (`file_decls_backdate_across_a_body_only_edit`,
-//! first=1 after=1). The earlier "salsa still re-executes" reading was that
-//! extra input write, not a backdating failure.
+//! After a body-only edit the decls are value-equal and salsa backdates
+//! (`file_decls_backdate_across_a_body_only_edit`, first=1 after=1). The
+//! earlier "salsa still re-executes" reading was that extra input write.
 //!
-//! Epoch remains for a different reason, now measured separately:
-//! generated-unit overlay and parse-dependency edges are not salsa inputs
-//! (`generated_overlay_is_outside_the_salsa_source_catalog`). Making
-//! generated units a salsa query over `compilation_unit_artifact` would
-//! force a paid parse of every previously-parsed CU on the next fold; that
-//! undoes the L0 fact layer (T1). A 1280-file L0 fold of the 8-wire
-//! synthetic corpus is ~14ms. Salsa LRU evicts only at a revision
-//! boundary: a 2000-wire `file_facts` miss after an edit is ~8ms, the hit
-//! is free. ProductCell preemption is not justified by the fold number.
-//! It stays because the overlay merge cannot live in salsa.
+//! What that measurement supports: the source catalog can live in salsa.
+//! Generated units are a fingerprint-keyed overlay, not a salsa input
+//! (`generated_overlay_is_outside_the_salsa_source_catalog`), so the
+//! production catalog is a read-time merge:
+//! `source_unit_catalog(db).with_overlay(generated)`. Making generated
+//! units a salsa query over `compilation_unit_artifact` would force a paid
+//! parse of every previously-parsed CU on the next fold (T1).
 //!
-//! Structure products (`UnitCatalog`, `ResolutionContext`) are keyed by `s`
-//! and memoized in `ProductCell` so a foreground request can preempt a
-//! background prewarm. A generated-unit set change patches the graph for that
-//! file via [`ProductStore::patch_design_graph`]. Generated units are stored
-//! under `(FileId, compilation_unit_snapshot.fingerprint)` so a later
-//! snapshot cannot observe a previous artifact's names.
+//! Epoch, ProductCell preemption, and `ProductStore::fork` are leftovers of
+//! the handwritten source-catalog clock. T14 deletes them. Overlay merge
+//! does not need a generation counter. ProductCell stays until that
+//! close-out so request-path behavior does not change in this step.
+//!
+//! `file_decls` is unbounded; `file_facts` keeps the parse LRU. Sharing
+//! that LRU made a 1280-file 2000-wire `file_decls` refetch after one
+//! edit cost 379ms. With decls unbounded it is 0.17ms
+//! (`design_graph_refold_after_body_edit`).
+//!
+//! A generated-unit set change patches the graph for that file via
+//! [`ProductStore::patch_design_graph`]. Generated units are stored under
+//! `(FileId, compilation_unit_snapshot.fingerprint)` so a later snapshot
+//! cannot observe a previous artifact's names.
 //!
 //! [`ProductStore::invalidate`] is the only epoch-decision entry point.
 //! Features are pure functions of [`crate::analysis::AnalysisContext`],

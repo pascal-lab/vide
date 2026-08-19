@@ -38,6 +38,10 @@ impl<T> Default for ProductState<T> {
 /// A memoized structure product computed once and reused across concurrent
 /// requests.
 ///
+/// T14 deletes this. The source catalog is a salsa query; overlay merge does
+/// not need a generation counter. Kept until that close-out so request-path
+/// behavior stays put.
+///
 /// Generation model: every computation bumps a generation counter. The result
 /// of a computation is published only while its generation is still current;
 /// a foreground request that supersedes a background prewarm starts a newer

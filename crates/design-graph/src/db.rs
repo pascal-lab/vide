@@ -64,7 +64,10 @@ pub fn file_facts_query(db: &dyn DesignGraphDb, key: FileFactsKey) -> Arc<FileFa
     Arc::new(extract::from_tree(file_id, &tree, &text))
 }
 
-#[salsa::tracked(lru = 256, returns(clone))]
+/// Position-free and small: must not share the parse LRU with `file_facts`.
+/// A workspace larger than that LRU would otherwise re-extract every evicted
+/// file's decls on the next revision, which re-parses `file_facts` with them.
+#[salsa::tracked(returns(clone))]
 pub fn file_decls_query(db: &dyn DesignGraphDb, key: FileFactsKey) -> Arc<DeclIndex> {
     Arc::new(file_facts_query(db, key).decls())
 }
@@ -75,10 +78,11 @@ pub struct UnitCatalogKey {
     pub _unit: (),
 }
 
-/// L0 name catalog of source decls. Not on the request path: production fold
-/// goes through `ProductStore` so it can merge generated units, which are
-/// not salsa inputs. Kept so tests can observe salsa backdating of
-/// `file_decls` (`file_decls_backdate_across_a_body_only_edit`).
+/// L0 name catalog of source decls. T14 turns this into the production
+/// source side: `source_unit_catalog(db).with_overlay(generated)`. Overlay
+/// is fingerprint-keyed and is not a salsa input, so it must not enter
+/// this query. Tests also use it to observe salsa backdating of
+/// `file_decls`.
 #[salsa::tracked(lru = 4, returns(clone))]
 pub fn source_unit_catalog_query(
     db: &dyn DesignGraphDb,
@@ -100,7 +104,6 @@ pub fn source_unit_catalog_query(
 
 pub fn set_file_facts_lru_capacity(db: &mut dyn DesignGraphDb, capacity: usize) {
     file_facts_query::set_lru_capacity(db, capacity);
-    file_decls_query::set_lru_capacity(db, capacity);
 }
 
 impl dyn DesignGraphDb + '_ {
