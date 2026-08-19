@@ -1,14 +1,16 @@
 //! Salsa `file_facts` over an unexpanded parse.
 
+use std::cell::Cell;
+
 use base_db::{salsa, source_db::SourceRootDb};
 use syntax::{SyntaxTree, SyntaxTreeOptions};
 use triomphe::Arc;
 use vfs::FileId;
 
-use std::cell::Cell;
-
-use crate::facts::{DeclIndex, FileFacts, extract};
-use crate::graph::{GeneratedUnits, UnitCatalog};
+use crate::{
+    facts::{DeclIndex, FileFacts, extract},
+    graph::{GeneratedUnits, UnitCatalog},
+};
 
 thread_local! {
     pub static SOURCE_CATALOG_RUNS: Cell<u32> = const { Cell::new(0) };
@@ -73,8 +75,10 @@ pub struct UnitCatalogKey {
     pub _unit: (),
 }
 
-/// Name catalog of source (L0) decls only. Generated units are a paid overlay
-/// and must not enter this query, or every CU edit would pay to re-parse.
+/// L0 name catalog of source decls. Not on the request path: production fold
+/// goes through `ProductStore` so it can merge generated units, which are
+/// not salsa inputs. Kept so tests can observe salsa backdating of
+/// `file_decls` (`file_decls_backdate_across_a_body_only_edit`).
 #[salsa::tracked(lru = 4, returns(clone))]
 pub fn source_unit_catalog_query(
     db: &dyn DesignGraphDb,

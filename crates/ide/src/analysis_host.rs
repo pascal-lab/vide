@@ -209,10 +209,10 @@ mod tests {
     }
 
     fn project_config_with_predefines(predefines: Vec<String>) -> Change {
-        use base_db::project::{
-            CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig,
+        use base_db::{
+            project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+            source_root::SourceRootId,
         };
-        use base_db::source_root::SourceRootId;
         use triomphe::Arc;
         let mut change = Change::new();
         change.set_project_config(Arc::new(ProjectConfig::new(
@@ -358,12 +358,61 @@ mod tests {
             "position-free decls must be value-equal after a body-only edit"
         );
         assert_eq!(before.as_ref(), after.as_ref());
-        // Gate measurement: salsa re-executes the workspace catalog after a
-        // body-only edit even when decls are equal. The handwritten epoch
-        // stays because it is the thing that skips the fold.
+        // Body-only edits leave `file_decls` value-equal. Salsa must
+        // backdate the L0 catalog rather than re-fold it. An extra
+        // `set_file_kind` on the same enum dirties every query that
+        // reads kind, and looks like a backdating failure.
+        assert_eq!(
+            runs_after_edit, runs_after_first,
+            "salsa catalog must not re-execute after a body-only edit (first={runs_after_first} after={runs_after_edit})"
+        );
+    }
+
+    #[test]
+    fn generated_overlay_is_outside_the_salsa_source_catalog() {
+        use std::cell::Cell;
+
+        use design_graph::DesignGraphDb;
+        let mut host = AnalysisHost::default();
+        host.apply_change(change_with_file_text(
+            "`define GEN(name) module name; endmodule\n`GEN(foo)\nmodule top;\nendmodule\n",
+        ));
+        design_graph::db::SOURCE_CATALOG_RUNS.with(|runs| runs.set(0));
+        let source_before = <dyn DesignGraphDb>::source_unit_catalog(host.ctx().db);
+        let runs_before_parse = design_graph::db::SOURCE_CATALOG_RUNS.with(Cell::get);
         assert!(
-            runs_after_edit > runs_after_first,
-            "expected the salsa catalog to re-execute after a body edit (first={runs_after_first} after={runs_after_edit})"
+            source_before.module_names().iter().any(|name| name == "top"),
+            "{:?}",
+            source_before.module_names()
+        );
+        assert!(
+            !source_before.module_names().iter().any(|name| name == "foo"),
+            "L0 salsa catalog must not see a generated name: {:?}",
+            source_before.module_names()
+        );
+
+        let _ = host.ctx().parse_file(FileId::from_raw(0));
+        let source_after = <dyn DesignGraphDb>::source_unit_catalog(host.ctx().db);
+        let runs_after_parse = design_graph::db::SOURCE_CATALOG_RUNS.with(Cell::get);
+        let production = host.ctx().unit_catalog();
+        assert_eq!(
+            runs_after_parse, runs_before_parse,
+            "recording generated units must not re-execute the salsa catalog (before={runs_before_parse} after={runs_after_parse})"
+        );
+        assert!(
+            !source_after.module_names().iter().any(|name| name == "foo"),
+            "{:?}",
+            source_after.module_names()
+        );
+        assert!(
+            production.module_names().iter().any(|name| name == "foo"),
+            "production catalog merges the overlay salsa cannot see: {:?}",
+            production.module_names()
+        );
+        assert!(
+            production.module_names().iter().any(|name| name == "top"),
+            "{:?}",
+            production.module_names()
         );
     }
 
@@ -452,7 +501,10 @@ mod tests {
         );
 
         let mut change = project_config_with_predefines(vec!["FOO".to_owned()]);
-        change.add_changed_file(vfs::ChangedFile::modify(other_id, "module other;\n  wire x;\nendmodule\n"));
+        change.add_changed_file(vfs::ChangedFile::modify(
+            other_id,
+            "module other;\n  wire x;\nendmodule\n",
+        ));
         host.apply_change(change);
 
         let after = host.ctx().unit_catalog();
