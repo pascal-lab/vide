@@ -1,12 +1,15 @@
-//! Project a graph `UnitId` onto a file-local `OwnerId`.
+//! Locate compilation-unit owners.
 //!
-//! Navigation does not call this. It is the interiors seam: ports, nets,
-//! hierarchical paths, types, and package export members.
+//! L0 [`UnitCatalog`] is a name → file locator, not identity. Identity is the
+//! paid-parse [`OwnerId`] (`SourceAstId` / `HirFileId::Macro`). Production
+//! resolution must not project `UnitId` → `OwnerId` by name.
 
 use std::cell::Cell;
 
-use design_graph::{UnitId, UnitKind};
+use design_graph::UnitKind;
 use preproc_expand::{file::HirFileId, macro_file::macro_files_for_file};
+use rustc_hash::FxHashSet;
+use vfs::FileId;
 
 use crate::{
     db::HirDefDb,
@@ -15,61 +18,158 @@ use crate::{
 };
 
 thread_local! {
-    /// `to_owner` calls on the shipped path.
+    /// Former `to_owner` calls on the shipped path. T6 form B keeps this at 0.
     pub static TO_OWNER_RUNS: Cell<u32> = const { Cell::new(0) };
-    /// Those calls whose `owner_table` query body ran (paid expanded parse).
-    pub static TO_OWNER_PAID_PARSE: Cell<u32> = const { Cell::new(0) };
-    /// Owners examined inside [`matching_owners`]. An indexed lookup of a
+    /// Owners examined inside a `(name, kind)` lookup. An indexed lookup of a
     /// unique `(name, kind)` must stay at 1, not the table length.
     pub static OWNER_LOOKUP_STEPS: Cell<u32> = const { Cell::new(0) };
-    pub(crate) static IN_TO_OWNER: Cell<bool> = const { Cell::new(false) };
 }
 
-pub trait ToOwner {
-    fn to_owner(self, db: &dyn HirDefDb) -> Option<OwnerId>;
+/// Compilation-unit owners of `name` whose kind is `kind`.
+///
+/// `locator` answers which source files declare the name. When it has no
+/// match, `paid_files` are searched for macro-generated owners.
+pub fn locate_cu_owners(
+    db: &dyn HirDefDb,
+    locator: &design_graph::UnitCatalog,
+    paid_files: &[FileId],
+    name: &str,
+    kind: UnitKind,
+) -> Vec<OwnerId> {
+    locate_cu_owners_matching(db, locator, paid_files, name, |unit_kind| unit_kind == kind)
 }
 
-impl ToOwner for UnitId {
-    fn to_owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
-        TO_OWNER_RUNS.with(|runs| runs.set(runs.get() + 1));
-        IN_TO_OWNER.with(|flag| flag.set(true));
-        let macro_owners: Vec<OwnerId> = macro_files_for_file(db, self.file)
+/// Compilation-unit owners of `name` whose kind satisfies `matches`.
+pub fn locate_cu_owners_matching(
+    db: &dyn HirDefDb,
+    locator: &design_graph::UnitCatalog,
+    paid_files: &[FileId],
+    name: &str,
+    matches: impl Fn(UnitKind) -> bool,
+) -> Vec<OwnerId> {
+    let located = located_files(locator, name, &matches);
+    if !located.is_empty() {
+        return located
             .into_iter()
-            .flat_map(|macro_file| {
-                matching_owners(db, HirFileId::Macro(macro_file), self.name.as_str(), self.kind)
-            })
+            .flat_map(|file| cu_owners_named_in_file(db, file, name, &matches))
             .collect();
-        let result = if !macro_owners.is_empty() {
-            macro_owners.into_iter().nth(self.ordinal as usize)
-        } else {
-            matching_owners(db, HirFileId::File(self.file), self.name.as_str(), self.kind)
-                .into_iter()
-                .nth(self.ordinal as usize)
-        };
-        IN_TO_OWNER.with(|flag| flag.set(false));
-        result
     }
+    let mut files: Vec<FileId> = paid_files.to_vec();
+    files.sort_by_key(|file| file.index());
+    files.dedup();
+    files.into_iter().flat_map(|file| cu_owners_named_in_macros(db, file, name, &matches)).collect()
 }
 
-fn matching_owners(db: &dyn HirDefDb, file: HirFileId, name: &str, kind: UnitKind) -> Vec<OwnerId> {
+/// Every compilation-unit package owner L0 locates. Source files only.
+pub fn locate_package_owners(
+    db: &dyn HirDefDb,
+    locator: &design_graph::UnitCatalog,
+) -> Vec<OwnerId> {
+    let mut files = Vec::new();
+    let mut seen = FxHashSet::default();
+    for unit in locator.packages() {
+        if seen.insert(unit.file) {
+            files.push(unit.file);
+        }
+    }
+    files
+        .into_iter()
+        .flat_map(|file| cu_owners_of_kind_in_hir(db, HirFileId::File(file), UnitKind::Package))
+        .collect()
+}
+
+fn located_files(
+    locator: &design_graph::UnitCatalog,
+    name: &str,
+    matches: &impl Fn(UnitKind) -> bool,
+) -> Vec<FileId> {
+    let mut files = Vec::new();
+    let mut seen = FxHashSet::default();
+    for unit in locator.type_units_named(name).into_vec() {
+        if matches(unit.kind) && seen.insert(unit.file) {
+            files.push(unit.file);
+        }
+    }
+    files
+}
+
+fn cu_owners_named_in_file(
+    db: &dyn HirDefDb,
+    file: FileId,
+    name: &str,
+    matches: &impl Fn(UnitKind) -> bool,
+) -> Vec<OwnerId> {
+    cu_owners_named_in_hir(db, HirFileId::File(file), name, matches)
+}
+
+fn cu_owners_named_in_macros(
+    db: &dyn HirDefDb,
+    file: FileId,
+    name: &str,
+    matches: &impl Fn(UnitKind) -> bool,
+) -> Vec<OwnerId> {
+    macro_files_for_file(db, file)
+        .into_iter()
+        .flat_map(|macro_file| {
+            cu_owners_named_in_hir(db, HirFileId::Macro(macro_file), name, matches)
+        })
+        .collect()
+}
+
+fn cu_owners_named_in_hir(
+    db: &dyn HirDefDb,
+    file: HirFileId,
+    name: &str,
+    matches: &impl Fn(UnitKind) -> bool,
+) -> Vec<OwnerId> {
     let table = db.owner_table(file);
     let file_owner = table.file_owner();
-    let owner_kind = match kind {
-        UnitKind::Module | UnitKind::Interface | UnitKind::Package | UnitKind::Program => {
-            crate::owner::OwnerKind::Module
-        }
-        UnitKind::Checker => crate::owner::OwnerKind::Checker,
-        UnitKind::Covergroup => crate::owner::OwnerKind::Covergroup,
-    };
-    table
-        .owners_named(name, owner_kind)
-        .iter()
-        .filter_map(|id| {
+    let mut owners = Vec::new();
+    for owner_kind in [OwnerKind::Module, OwnerKind::Checker, OwnerKind::Covergroup] {
+        for id in table.owners_named(name, owner_kind) {
             OWNER_LOOKUP_STEPS.with(|steps| steps.set(steps.get() + 1));
-            let owner = table.owner(*id)?;
+            let Some(owner) = table.owner(*id) else {
+                continue;
+            };
+            if owner.parent != file_owner {
+                continue;
+            }
+            let Some(kind) = unit_kind_of(owner) else {
+                continue;
+            };
+            if matches(kind) {
+                owners.push(owner.id);
+            }
+        }
+    }
+    owners
+}
+
+fn cu_owners_of_kind_in_hir(db: &dyn HirDefDb, file: HirFileId, kind: UnitKind) -> Vec<OwnerId> {
+    let table = db.owner_table(file);
+    let file_owner = table.file_owner();
+    table
+        .owners()
+        .iter()
+        .filter_map(|owner| {
             (owner.parent == file_owner && owner_matches_unit_kind(owner, kind)).then_some(owner.id)
         })
         .collect()
+}
+
+fn unit_kind_of(owner: &OwnerData) -> Option<UnitKind> {
+    match owner.kind {
+        OwnerKind::Module => match owner.module_kind {
+            Some(ModuleKind::Module) => Some(UnitKind::Module),
+            Some(ModuleKind::Interface) => Some(UnitKind::Interface),
+            Some(ModuleKind::Package) => Some(UnitKind::Package),
+            Some(ModuleKind::Program) => Some(UnitKind::Program),
+            None => None,
+        },
+        OwnerKind::Checker => Some(UnitKind::Checker),
+        OwnerKind::Covergroup => Some(UnitKind::Covergroup),
+        _ => None,
+    }
 }
 
 fn owner_matches_unit_kind(owner: &OwnerData, kind: UnitKind) -> bool {
@@ -102,21 +202,29 @@ pub fn test_resolution(db: &dyn HirDefDb) -> triomphe::Arc<crate::pathres::Resol
 }
 
 pub fn test_module_owner(db: &dyn HirDefDb, name: &str) -> OwnerId {
-    test_graph(db)
-        .modules_named(name)
-        .unique()
-        .unwrap_or_else(|| panic!("{name} should be a unique module"))
-        .to_owner(db)
-        .unwrap_or_else(|| panic!("{name} should project to an owner"))
+    let graph = test_graph(db);
+    crate::symbol::Resolution::from_candidates(locate_cu_owners(
+        db,
+        &graph,
+        &[],
+        name,
+        UnitKind::Module,
+    ))
+    .unique()
+    .unwrap_or_else(|| panic!("{name} should be a unique module owner"))
 }
 
 pub fn test_package_owner(db: &dyn HirDefDb, name: &str) -> OwnerId {
-    test_graph(db)
-        .packages_named(name)
-        .unique()
-        .unwrap_or_else(|| panic!("{name} should be a unique package"))
-        .to_owner(db)
-        .unwrap_or_else(|| panic!("{name} should project to an owner"))
+    let graph = test_graph(db);
+    crate::symbol::Resolution::from_candidates(locate_cu_owners(
+        db,
+        &graph,
+        &[],
+        name,
+        UnitKind::Package,
+    ))
+    .unique()
+    .unwrap_or_else(|| panic!("{name} should be a unique package owner"))
 }
 
 #[cfg(test)]
@@ -138,7 +246,7 @@ mod tests {
     use utils::paths::{AbsPathBuf, Utf8PathBuf};
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
-    use super::{ToOwner, test_graph, test_module_owner, test_package_owner};
+    use super::{test_graph, test_module_owner, test_package_owner};
     use crate::db::HirDefDb;
 
     const TOP: FileId = FileId::from_raw(0);
@@ -273,7 +381,15 @@ mod tests {
         let graph = test_graph(&db);
         let inner = graph.modules_named("inner").unique().expect("one CU inner");
         assert_eq!(inner.ordinal, 0);
-        let owner = inner.to_owner(&db).expect("CU inner projects");
+        let owner = crate::symbol::Resolution::from_candidates(super::locate_cu_owners(
+            &db,
+            &graph,
+            &[],
+            "inner",
+            UnitKind::Module,
+        ))
+        .unique()
+        .expect("CU inner projects");
         assert_eq!(owner.name(&db).as_deref(), Some("inner"));
         assert_eq!(
             owner.parent(&db).map(|parent| parent.kind(&db)),

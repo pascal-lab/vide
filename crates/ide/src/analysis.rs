@@ -57,12 +57,11 @@ pub struct AnalysisSnapshot {
 }
 
 /// Read view of one IDE request: the pure Salsa database plus the
-/// overlay store. Features are pure functions of this context, so they
-/// can never observe generated names from a later edit.
+/// parse-dependency store. Features are pure functions of this context.
 ///
-/// [`Self::parse_file`] is the one exception that writes: it publishes
-/// generated units derived from the artifact it just paid for, keyed by
-/// that artifact's fingerprint. The next catalog read merges them.
+/// [`Self::parse_file`] records the file as paid so later resolution can
+/// look at that file's `HirFileId::Macro` owner table. It does not merge
+/// generated names into the L0 catalog.
 pub(crate) struct AnalysisContext<'a> {
     pub(crate) db: &'a RootDb,
     pub(crate) store: &'a ProductStore,
@@ -89,7 +88,6 @@ impl AnalysisContext<'_> {
     pub(crate) fn parse_file(&self, file_id: FileId) -> syntax::SyntaxTree {
         let (tree, dependencies) = self.db.parse_src_with_dependencies(file_id);
         self.store.record_parse_dependencies(file_id, dependencies);
-        crate::generated_units::record_from_paid_artifact(self, file_id);
         tree
     }
 
@@ -106,13 +104,7 @@ impl AnalysisContext<'_> {
     }
 
     pub(crate) fn unit_catalog(&self) -> triomphe::Arc<design_graph::UnitCatalog> {
-        let source = <dyn DesignGraphDb>::source_unit_catalog(self.db);
-        let generated = self.store.generated_units(self.db);
-        if generated.meta.is_empty() {
-            source
-        } else {
-            triomphe::Arc::new(source.with_overlay(&generated))
-        }
+        <dyn DesignGraphDb>::source_unit_catalog(self.db)
     }
 
     pub(crate) fn prewarm_unit_catalog(
@@ -133,7 +125,11 @@ impl AnalysisContext<'_> {
     }
 
     pub(crate) fn resolution(&self) -> Arc<ResolutionContext> {
-        ResolutionContext::from_graph(self.db, self.unit_catalog())
+        ResolutionContext::from_locator(
+            self.db,
+            self.unit_catalog(),
+            Arc::from(self.store.paid_files()),
+        )
     }
 
     pub(crate) fn recursive_rename_closure(
@@ -395,7 +391,7 @@ impl AnalysisSnapshot {
         config: InlayHintConfig,
     ) -> Cancellable<Vec<InlayHint>> {
         self.with_db(|db| {
-            inlay_hint::inlay_hint(db, db.unit_catalog().as_ref(), file_id, range, config)
+            inlay_hint::inlay_hint(db, db.resolution().as_ref(), file_id, range, config)
         })
     }
 
@@ -449,7 +445,7 @@ impl AnalysisSnapshot {
 mod tests {
     use std::cell::Cell;
 
-    use hir_def::design_map::{PACKAGE_EXPORT_CLOSURE_RUNS, PACKAGE_EXPORT_TO_OWNER_RUNS};
+    use hir_def::design_map::PACKAGE_EXPORT_CLOSURE_RUNS;
 
     /// `semantics()` rebuilds [`super::AnalysisContext::resolution`] each time.
     /// The workspace-level export closure must not re-walk every package on
@@ -469,15 +465,12 @@ mod tests {
         );
 
         PACKAGE_EXPORT_CLOSURE_RUNS.with(|runs| runs.set(0));
-        PACKAGE_EXPORT_TO_OWNER_RUNS.with(|runs| runs.set(0));
         let ctx = host.ctx();
         let _ = ctx.resolution();
         let after_first = PACKAGE_EXPORT_CLOSURE_RUNS.with(Cell::get);
-        let to_owner_first = PACKAGE_EXPORT_TO_OWNER_RUNS.with(Cell::get);
         let _ = ctx.semantics();
         let _ = ctx.resolution();
         let closure_runs = PACKAGE_EXPORT_CLOSURE_RUNS.with(Cell::get);
-        let to_owner_runs = PACKAGE_EXPORT_TO_OWNER_RUNS.with(Cell::get);
         assert!(
             after_first <= 1,
             "first resolution() may hit a prewarm memo (0) or compute once (1), not {after_first}"
@@ -486,21 +479,11 @@ mod tests {
             closure_runs, after_first,
             "later resolution()/semantics() must not re-execute the closure (first={after_first} after={closure_runs})"
         );
-        assert_eq!(
-            to_owner_runs, to_owner_first,
-            "to_owner work inside the closure must not repeat per call (first={to_owner_first} after={to_owner_runs})"
-        );
-        if after_first == 1 {
-            assert_eq!(
-                to_owner_first, package_count,
-                "a cold closure walk is once per package (ran {to_owner_first} for {package_count} packages)"
-            );
-        }
     }
 
     #[test]
     fn to_owner_traffic_on_a_typical_request() {
-        use hir_def::unit::{TO_OWNER_PAID_PARSE, TO_OWNER_RUNS};
+        use hir_def::unit::TO_OWNER_RUNS;
 
         let (host, files) = crate::test_utils::setup_marked_files(&[
             ("/a.sv", "package a;\n  int x;\nendpackage\n"),
@@ -511,15 +494,12 @@ mod tests {
         let file_id = files[3].0;
         let offset = files[3].2["w"];
         TO_OWNER_RUNS.with(|runs| runs.set(0));
-        TO_OWNER_PAID_PARSE.with(|runs| runs.set(0));
         let _ = host.make_analysis().hover(crate::FilePosition { file_id, offset }).unwrap();
         let _ =
             host.make_analysis().goto_definition(crate::FilePosition { file_id, offset }).unwrap();
         let calls = TO_OWNER_RUNS.with(Cell::get);
-        let paid = TO_OWNER_PAID_PARSE.with(Cell::get);
-        println!("t5.to_owner_calls\t{calls}");
-        println!("t5.to_owner_paid_parse\t{paid}");
-        assert!(calls > 0, "a hover+goto session must cross the bridge");
+        println!("t6.to_owner_calls\t{calls}");
+        assert_eq!(calls, 0, "T6 removed the UnitId→OwnerId name bridge");
     }
 
     /// T6 form B: shipped resolution must not project L0 `UnitId` → `OwnerId`

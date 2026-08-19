@@ -154,7 +154,7 @@ fn sig_help_for_instance(
 
     let instantiation = ast::HierarchyInstantiation::cast(instance.syntax().parent()?)?;
     let target_module_id =
-        resolve_instantiation_target(db, sema.resolution_context().graph(), instantiation)
+        resolve_instantiation_target(db, sema.resolution_context().as_ref(), instantiation)
             .unique()?;
     let target_module = db.body_with_source_map(target_module_id);
     let target_body = db.body_with_source_map(target_module_id);
@@ -277,7 +277,7 @@ fn sig_help_for_instantiation(
     };
 
     let target_module_id =
-        resolve_instantiation_target(db, sema.resolution_context().graph(), instantiation)
+        resolve_instantiation_target(db, sema.resolution_context().as_ref(), instantiation)
             .unique()?;
     let target_module = db.body_with_source_map(target_module_id);
     let target_body = db.body_with_source_map(target_module_id);

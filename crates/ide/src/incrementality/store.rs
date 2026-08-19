@@ -1,7 +1,5 @@
 use base_db::source_db::SourceDb;
-use design_graph::{GeneratedUnits, UnitId, UnitMeta};
 use parking_lot::Mutex;
-use preproc_expand::db::PreprocDb;
 use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 use vfs::FileId;
@@ -13,15 +11,11 @@ struct Inner {
     /// Authoritative standalone parses retained by this store lineage:
     /// compilation root -> files named by emitted preprocessor include edges.
     parse_dependencies: FxHashMap<FileId, Arc<[FileId]>>,
-    /// Generated CU units from paid artifacts, keyed by artifact fingerprint.
-    generated: GeneratedUnits,
 }
 
-/// Overlay and parse-dependency book-keeping, forked on every change so
-/// previously created [`crate::analysis::AnalysisSnapshot`]s keep the previous
-/// overlay and can never observe generated names from a later edit.
-///
-/// Source catalogs live in salsa. This store does not memoize them.
+/// Parse-dependency book-keeping, forked on every change so previously
+/// created [`crate::analysis::AnalysisSnapshot`]s keep the previous paid-file
+/// set. Source catalogs live in salsa. This store does not memoize them.
 ///
 /// Owned by [`crate::analysis_host::AnalysisHost`].
 #[derive(Default)]
@@ -39,8 +33,7 @@ impl std::fmt::Debug for ProductStore {
 }
 
 impl ProductStore {
-    /// One revision transition. Fork the overlay, apply the salsa change,
-    /// drop generated entries whose artifact fingerprint no longer matches.
+    /// One revision transition. Fork parse-deps, apply the salsa change.
     pub(crate) fn transition(
         current: &triomphe::Arc<Self>,
         db: &mut RootDb,
@@ -63,7 +56,6 @@ impl ProductStore {
         }
         let store = current.fork();
         db.apply_change(change);
-        store.drop_stale_generated(db);
         (triomphe::Arc::new(store), affected_files)
     }
 
@@ -75,28 +67,19 @@ impl ProductStore {
         self.inner.lock().parse_dependencies.insert(file_id, dependencies);
     }
 
-    /// Book-keep generated units for one paid artifact. `fingerprint` is
-    /// [`PreprocDb::compilation_unit_snapshot`]; a later snapshot with a
-    /// different fingerprint cannot observe this entry.
-    pub(crate) fn record_generated_units(
-        &self,
-        file_id: FileId,
-        fingerprint: u64,
-        ids: Box<[UnitId]>,
-        meta: FxHashMap<UnitId, UnitMeta>,
-    ) -> bool {
-        self.inner.lock().generated.replace_file(file_id, fingerprint, ids, meta)
+    pub(crate) fn record_paid_file(&self, file_id: FileId) {
+        self.inner
+            .lock()
+            .parse_dependencies
+            .entry(file_id)
+            .or_insert_with(|| Arc::from(Vec::<FileId>::new()));
     }
 
-    /// Generated units whose stored fingerprint still matches the current
-    /// compilation-unit snapshot. Stale entries are a miss, not a value.
-    pub(crate) fn generated_units(&self, db: &RootDb) -> GeneratedUnits {
-        let mut generated = self.inner.lock().generated.clone();
-        generated.retain_current(|file, fingerprint| {
-            db.files().contains(&file)
-                && <dyn PreprocDb>::compilation_unit_snapshot(db, file).fingerprint == fingerprint
-        });
-        generated
+    /// Files whose paid parse may be consulted for macro-generated owners.
+    pub(crate) fn paid_files(&self) -> Vec<FileId> {
+        let mut files: Vec<_> = self.inner.lock().parse_dependencies.keys().copied().collect();
+        files.sort_by_key(|file| file.index());
+        files
     }
 
     pub(crate) fn parsed_dependents(&self, changed: &[FileId]) -> Vec<FileId> {
@@ -111,17 +94,5 @@ impl ProductStore {
                 .then_some(file_id)
             })
             .collect()
-    }
-
-    fn drop_stale_generated(&self, db: &RootDb) {
-        let files: Vec<FileId> = self.inner.lock().generated.by_file.keys().copied().collect();
-        let current: FxHashMap<FileId, u64> = files
-            .into_iter()
-            .filter(|&file| db.files().contains(&file))
-            .map(|file| (file, <dyn PreprocDb>::compilation_unit_snapshot(db, file).fingerprint))
-            .collect();
-        self.inner.lock().generated.retain_current(|file, fingerprint| {
-            current.get(&file).is_some_and(|&got| got == fingerprint)
-        });
     }
 }

@@ -260,8 +260,8 @@ mod tests {
         let _ = host.ctx().parse_file(FileId::from_raw(0));
         let before = host.ctx().unit_catalog();
         assert!(
-            before.module_names().iter().any(|name| name == "foo"),
-            "{:?}",
+            !before.module_names().iter().any(|name| name == "foo"),
+            "L0 catalog must not absorb generated names: {:?}",
             before.module_names()
         );
         assert!(
@@ -293,8 +293,8 @@ mod tests {
             after_reparse.module_names()
         );
         assert!(
-            after_reparse.module_names().iter().any(|name| name == "bar"),
-            "{:?}",
+            !after_reparse.module_names().iter().any(|name| name == "bar"),
+            "generated bar stays on the paid parse, not the L0 catalog: {:?}",
             after_reparse.module_names()
         );
     }
@@ -320,17 +320,11 @@ mod tests {
             goto_names(&host, user, other, "foo u_foo").is_empty(),
             "goto foo must fail after the generator was renamed"
         );
-        assert!(
-            goto_names(&host, user, other, "bar u_bar").is_empty(),
-            "bar is not paid until the generator is reparsed"
+        assert_eq!(
+            goto_names(&host, user, other, "bar u_bar"),
+            ["bar"],
+            "the paid file's salsa owner table sees the new expansion without a side table"
         );
-
-        let _ = host.ctx().parse_file(generator);
-        assert!(
-            goto_names(&host, user, other, "foo u_foo").is_empty(),
-            "goto foo must stay failed after reparse"
-        );
-        assert_eq!(goto_names(&host, user, other, "bar u_bar"), ["bar"]);
     }
 
     #[test]
@@ -416,8 +410,8 @@ mod tests {
             source_after.module_names()
         );
         assert!(
-            production.module_names().iter().any(|name| name == "foo"),
-            "production catalog merges the overlay salsa cannot see: {:?}",
+            !production.module_names().iter().any(|name| name == "foo"),
+            "production catalog is the salsa source catalog: {:?}",
             production.module_names()
         );
         assert!(
@@ -425,11 +419,10 @@ mod tests {
             "{:?}",
             production.module_names()
         );
-        let overlay = host.ctx().store.generated_units(host.ctx().db);
         assert_eq!(
             production.as_ref(),
-            &source_after.with_overlay(&overlay),
-            "production catalog is the salsa source plus the current overlay"
+            source_after.as_ref(),
+            "production catalog is the salsa source catalog"
         );
     }
 

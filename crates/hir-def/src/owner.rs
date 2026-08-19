@@ -209,9 +209,6 @@ impl<'db> OwnerTableBuilder<'db> {
 
 #[salsa::tracked(lru = 128, returns(clone))]
 pub(crate) fn owner_table(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerTable> {
-    if crate::unit::IN_TO_OWNER.with(std::cell::Cell::get) {
-        crate::unit::TO_OWNER_PAID_PARSE.with(|runs| runs.set(runs.get() + 1));
-    }
     let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
     let ast_ids = crate::ast_id_map::ast_id_map(db, file);

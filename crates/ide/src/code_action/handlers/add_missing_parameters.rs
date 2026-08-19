@@ -54,7 +54,7 @@ pub(super) fn add_missing_parameters(
 
     let target_module_id = resolve_hir_instantiation_target(
         db,
-        ctx.sema().resolution_context().graph(),
+        ctx.sema().resolution_context().as_ref(),
         instantiation,
     )?;
     let target_body = db.body_with_source_map(target_module_id);

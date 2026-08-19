@@ -248,7 +248,7 @@ impl DesignMap {
     pub fn resolve_import(
         &self,
         db: &dyn HirDefDb,
-        graph: &design_graph::UnitCatalog,
+        context: &crate::pathres::ResolutionContext,
         import: &Import,
         ident: &SmolStr,
         ctx: NameContext,
@@ -259,13 +259,7 @@ impl DesignMap {
             return Resolution::Unresolved;
         }
 
-        let packages = Resolution::from_candidates(
-            graph
-                .packages_named(&import.package)
-                .into_vec()
-                .into_iter()
-                .filter_map(|unit| crate::unit::ToOwner::to_owner(unit, db)),
-        );
+        let packages = Resolution::from_candidates(context.locate_packages(db, &import.package));
         packages.and_then(|package| {
             let Some(exports) = self.package_exports.get(&package) else {
                 return Resolution::Unresolved;
@@ -279,7 +273,7 @@ thread_local! {
     /// Executions of the salsa query body. A request that calls
     /// `resolution()` / `semantics()` more than once must still see 1.
     pub static PACKAGE_EXPORT_CLOSURE_RUNS: Cell<u32> = const { Cell::new(0) };
-    /// Paid [`ToOwner::to_owner`] calls performed while building the closure.
+    /// Former paid UnitId projections while building the closure. T6 keeps this at 0.
     pub static PACKAGE_EXPORT_TO_OWNER_RUNS: Cell<u32> = const { Cell::new(0) };
 }
 
@@ -327,13 +321,7 @@ fn compute_package_export_closure(
     graph: &design_graph::UnitCatalog,
 ) -> Arc<DesignMap> {
     PACKAGE_EXPORT_CLOSURE_RUNS.with(|runs| runs.set(runs.get() + 1));
-    let mut packages: Vec<OwnerId> = graph
-        .packages()
-        .filter_map(|unit| {
-            PACKAGE_EXPORT_TO_OWNER_RUNS.with(|runs| runs.set(runs.get() + 1));
-            crate::unit::ToOwner::to_owner(unit, db)
-        })
-        .collect();
+    let mut packages: Vec<OwnerId> = crate::unit::locate_package_owners(db, graph);
     packages.sort();
     packages.dedup();
 
@@ -369,13 +357,13 @@ fn compute_package_export_closure(
                 .clone();
 
             let mut add_reexport = |source_package: &Ident, item: Option<&Ident>| {
-                let source_owners = Resolution::from_candidates(
-                    graph
-                        .packages_named(source_package)
-                        .into_vec()
-                        .into_iter()
-                        .filter_map(|unit| crate::unit::ToOwner::to_owner(unit, db)),
-                );
+                let source_owners = Resolution::from_candidates(crate::unit::locate_cu_owners(
+                    db,
+                    graph,
+                    &[],
+                    source_package,
+                    design_graph::UnitKind::Package,
+                ));
                 let names = item
                     .map(|item| vec![item.clone()])
                     .unwrap_or_else(|| imported_names(&exports, source_owners.clone()));

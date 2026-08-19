@@ -29,11 +29,9 @@ pub mod document_highlight;
 pub mod document_symbols;
 pub mod folding_ranges;
 pub mod formatting;
-pub(crate) mod generated_units;
 pub mod goto_declaration;
 pub mod goto_definition;
 pub mod hover;
-pub(crate) mod slang_class;
 pub(crate) mod incrementality;
 #[cfg(test)]
 mod incrementality_benches;
@@ -48,6 +46,7 @@ pub mod selection_ranges;
 pub(crate) mod semantic_target;
 pub mod semantic_tokens;
 pub mod signature_help;
+pub(crate) mod slang_class;
 #[cfg(test)]
 mod test_utils;
 pub(crate) mod token;

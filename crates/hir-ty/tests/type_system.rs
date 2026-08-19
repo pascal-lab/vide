@@ -21,7 +21,6 @@ use hir_def::{
     owner::OwnerId,
     pathres::{resolve_name, resolve_path},
     symbol::{NameContext, Resolution},
-    unit::ToOwner,
 };
 use hir_ty::{Compatibility, Type, TypeSystem, db::TyDb, display::HirDisplay};
 use preproc_expand::db::PreprocDb;
@@ -346,11 +345,10 @@ module m;
 endmodule
 "#,
     );
-    let covergroup = hir_def::unit::test_graph(&db)
-        .type_units_named("cg")
-        .unique()
-        .expect("covergroup should be on the graph")
-        .to_owner(&db)
+    let table = db.owner_table(preproc_expand::file::HirFileId::File(TOP));
+    let covergroup = *table
+        .owners_named("cg", hir_def::owner::OwnerKind::Covergroup)
+        .first()
         .expect("covergroup should project");
     let body = db.body(covergroup);
     let definition = body.covergroups.values().next().expect("covergroup should lower");

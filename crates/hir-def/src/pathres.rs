@@ -2,6 +2,7 @@ use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
 use triomphe::Arc;
 use utils::get::GetRef;
+use vfs::FileId;
 
 use crate::{
     Ident,
@@ -12,33 +13,44 @@ use crate::{
     module::instantiation::InstanceId,
     owner::{OwnerId, OwnerKind},
     symbol::{DefKind, NameContext, Resolution, ScopeData},
-    unit::ToOwner,
+    unit::{locate_cu_owners, locate_cu_owners_matching},
 };
 
 /// Cross-file name-resolution inputs.
 ///
-/// The injected [`UnitCatalog`] answers compilation-unit names. `$unit`
+/// The injected [`UnitCatalog`] is a name → file locator, not identity.
+/// Compilation-unit owners come from the paid-parse owner table. `$unit`
 /// locals come from the unit-scope query. The package export map is a
 /// salsa query over the source catalog — building this context does not
 /// re-fold every package.
 #[derive(Clone)]
 pub struct ResolutionContext {
-    graph: Arc<design_graph::UnitCatalog>,
+    locator: Arc<design_graph::UnitCatalog>,
+    paid_files: Arc<[FileId]>,
     unit_scope: Arc<ScopeData>,
     design_map: Arc<DesignMap>,
 }
 
 impl ResolutionContext {
     pub fn from_graph(db: &dyn HirDefDb, graph: Arc<design_graph::UnitCatalog>) -> Arc<Self> {
+        Self::from_locator(db, graph, Arc::from(Vec::<FileId>::new()))
+    }
+
+    pub fn from_locator(
+        db: &dyn HirDefDb,
+        locator: Arc<design_graph::UnitCatalog>,
+        paid_files: Arc<[FileId]>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             unit_scope: db.unit_scope(),
-            design_map: crate::design_map::package_export_closure(db, &graph),
-            graph,
+            design_map: crate::design_map::package_export_closure(db, &locator),
+            locator,
+            paid_files,
         })
     }
 
     pub fn graph(&self) -> &design_graph::UnitCatalog {
-        &self.graph
+        &self.locator
     }
 
     pub fn unit_scope(&self, _db: &dyn HirDefDb) -> Arc<ScopeData> {
@@ -47,6 +59,34 @@ impl ResolutionContext {
 
     pub fn design_map(&self, _db: &dyn HirDefDb) -> Arc<DesignMap> {
         self.design_map.clone()
+    }
+
+    pub fn locate_type_units(&self, db: &dyn HirDefDb, name: &str) -> Vec<OwnerId> {
+        locate_cu_owners_matching(db, &self.locator, &self.paid_files, name, |_| true)
+    }
+
+    pub fn locate_hierarchy_targets(&self, db: &dyn HirDefDb, name: &str) -> Vec<OwnerId> {
+        locate_cu_owners_matching(db, &self.locator, &self.paid_files, name, |kind| {
+            kind.is_hierarchy_target()
+        })
+    }
+
+    pub fn locate_packages(&self, db: &dyn HirDefDb, name: &str) -> Vec<OwnerId> {
+        locate_cu_owners(db, &self.locator, &self.paid_files, name, design_graph::UnitKind::Package)
+    }
+
+    pub fn locate_instantiation_targets(
+        &self,
+        db: &dyn HirDefDb,
+        name: &str,
+        role: design_graph::InstantiationRole,
+    ) -> Vec<OwnerId> {
+        locate_cu_owners_matching(db, &self.locator, &self.paid_files, name, |kind| match role {
+            design_graph::InstantiationRole::Hierarchy => kind.is_hierarchy_target(),
+            design_graph::InstantiationRole::Checker => {
+                matches!(kind, design_graph::UnitKind::Checker)
+            }
+        })
     }
 }
 
@@ -250,9 +290,10 @@ fn resolve_unit_name(
     let locals = context.unit_scope(db).lookup(ctx, ident);
     let units = match ctx {
         NameContext::Type | NameContext::Listing => Resolution::from_candidates(
-            context.graph().type_units_named(ident).into_vec().into_iter().filter_map(|unit| {
-                unit.to_owner(db).and_then(|owner| DefId::from_owner(db, owner))
-            }),
+            context
+                .locate_type_units(db, ident)
+                .into_iter()
+                .filter_map(|owner| DefId::from_owner(db, owner)),
         ),
         NameContext::Value | NameContext::Assertion => Resolution::Unresolved,
     };
@@ -380,10 +421,10 @@ fn resolve_top_level_module_root(
     // is not a single segment value fallback: `top` alone remains a type-space
     // module name, and nested declarations never leak through the fallback.
     Resolution::from_candidates(
-        context.graph().modules_named(ident).into_vec().into_iter().filter_map(|unit| {
-            unit.to_owner(db)
-                .map(|owner| DefId::from_source(db, crate::symbol::DefOriginLoc::Module(owner)))
-        }),
+        context
+            .locate_hierarchy_targets(db, ident)
+            .into_iter()
+            .map(|owner| DefId::from_source(db, crate::symbol::DefOriginLoc::Module(owner))),
     )
 }
 
@@ -445,13 +486,17 @@ pub fn instance_target_def_id(
     }
     let target = Resolution::from_candidates(
         context
-            .graph()
-            .candidates(module_name, design_graph::InstantiationRole::Hierarchy)
-            .into_iter()
-            .chain(
-                context.graph().candidates(module_name, design_graph::InstantiationRole::Checker),
+            .locate_instantiation_targets(
+                db,
+                module_name,
+                design_graph::InstantiationRole::Hierarchy,
             )
-            .filter_map(|unit| unit.to_owner(db)),
+            .into_iter()
+            .chain(context.locate_instantiation_targets(
+                db,
+                module_name,
+                design_graph::InstantiationRole::Checker,
+            )),
     )
     .unique()
     .map(|owner| instantiable_def_id(db, owner))?;
@@ -509,7 +554,7 @@ impl AtFilter<'_> {
 /// Collects import candidates for one scope, applying the point filter.
 struct ImportCollector<'a> {
     db: &'a dyn HirDefDb,
-    graph: &'a design_graph::UnitCatalog,
+    context: &'a ResolutionContext,
     design_map: &'a crate::design_map::DesignMap,
     scope: &'a ScopeData,
     defs: SmallVec<[DefId; 3]>,
@@ -532,7 +577,7 @@ impl ImportCollector<'_> {
             }
             for def_id in self
                 .design_map
-                .resolve_import(self.db, self.graph, import, ident, ctx)
+                .resolve_import(self.db, self.context, import, ident, ctx)
                 .into_candidates()
             {
                 if !self.defs.contains(&def_id) {
@@ -557,7 +602,7 @@ fn resolve_scope_imports(
     let design_map = context.design_map(db);
     let mut collector = ImportCollector {
         db,
-        graph: context.graph(),
+        context,
         design_map: design_map.as_ref(),
         scope,
         defs: SmallVec::new(),
@@ -608,7 +653,7 @@ pub(crate) fn resolve_wildcard_at(
         let design_map = context.design_map(db);
         let mut collector = ImportCollector {
             db,
-            graph: context.graph(),
+            context,
             design_map: design_map.as_ref(),
             scope: scope.as_ref(),
             defs: SmallVec::new(),

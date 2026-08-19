@@ -57,7 +57,7 @@ pub(super) fn convert_ordered_ports(
     let instantiation = module.get(module.get(instance_id).parent);
     let target_module_id = resolve_hir_instantiation_target(
         db,
-        ctx.sema().resolution_context().graph(),
+        ctx.sema().resolution_context().as_ref(),
         instantiation,
     )?;
     let target_module = db.body_with_source_map(target_module_id);
@@ -120,7 +120,7 @@ pub(super) fn convert_ordered_params(
     let instantiation = module.get(instantiation_id);
     let target_module_id = resolve_hir_instantiation_target(
         db,
-        ctx.sema().resolution_context().graph(),
+        ctx.sema().resolution_context().as_ref(),
         instantiation,
     )?;
     let target_body = db.body_with_source_map(target_module_id);

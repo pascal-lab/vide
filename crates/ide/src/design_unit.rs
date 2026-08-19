@@ -224,7 +224,7 @@ pub(crate) fn rename_guard(
     db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Result<(), crate::rename::RenameError> {
-    crate::generated_units::record_from_paid_artifact(db, file_id);
+    db.store.record_paid_file(file_id);
     match hit(db, file_id, offset) {
         CursorHit::Other => Ok(()),
         CursorHit::DeclName { unit, .. } => reject_generated(db, &[unit]),

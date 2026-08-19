@@ -33,7 +33,7 @@ pub(crate) fn document_highlight(
     FilePosition { file_id, offset }: FilePosition,
     config: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
-    crate::generated_units::record_from_paid_artifact(db, file_id);
+    db.store.record_paid_file(file_id);
     if crate::design_unit::source_visible_hit(db, FilePosition { file_id, offset })
         && let Some(refs) = crate::design_unit::references(
             db,
@@ -221,7 +221,7 @@ endmodule
             DefId::from_owner(db, local_module_id).expect("module owner must have a definition");
 
         let ctx = AnalysisContext::new(db, &analysis.store);
-        crate::generated_units::record_from_paid_artifact(&ctx, position.file_id);
+        ctx.store.record_paid_file(position.file_id);
         let sema = ctx.semantics();
         let highlights = highlight_refs(
             &ctx,

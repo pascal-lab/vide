@@ -85,11 +85,9 @@ pub struct UnitCatalogKey {
     pub _unit: (),
 }
 
-/// L0 name catalog of source decls. Production reads this and merges
-/// generated units at the call site:
-/// `source_unit_catalog(db).with_overlay(generated)`. Overlay is
-/// fingerprint-keyed and is not a salsa input, so it must not enter this
-/// query.
+/// L0 name catalog of source decls. Production resolution uses this as a
+/// name → file locator. Generated names are not merged here; they live on
+/// the paid-parse owner table (`HirFileId::Macro`).
 #[salsa::tracked(lru = 4, returns(clone))]
 pub fn source_unit_catalog_query(
     db: &dyn DesignGraphDb,

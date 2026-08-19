@@ -498,7 +498,6 @@ mod tests {
         module::port::{PortSrcs, Ports},
         pathres::resolve_name,
         symbol::{DefKind, DefOriginLoc, NameContext, Resolution, ScopeKind},
-        unit::ToOwner,
     };
 
     const TOP: FileId = FileId::from_raw(0);
@@ -1408,12 +1407,16 @@ endmodule
 "#,
         );
 
-        let checker_owner = crate::unit::test_graph(&db)
-            .type_units_named("c")
-            .unique()
-            .expect("checker is a graph node")
-            .to_owner(&db)
-            .expect("checker projects");
+        let graph = crate::unit::test_graph(&db);
+        let checker_owner = Resolution::from_candidates(crate::unit::locate_cu_owners(
+            &db,
+            &graph,
+            &[],
+            "c",
+            design_graph::UnitKind::Checker,
+        ))
+        .unique()
+        .expect("checker projects");
         let checker_defs = DefId::from_owner(&db, checker_owner).map(Resolution::Unique).unwrap();
         assert!(checker_defs.iter().any(|def_id| def_id.kind(&db) == DefKind::Checker));
         let checker_id = checker_defs

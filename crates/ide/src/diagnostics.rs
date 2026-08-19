@@ -451,7 +451,7 @@ fn slang_semantic_diagnostics_active(db: &RootDb, file_id: FileId) -> bool {
 
 fn module_instantiation_resolution_diagnostics(
     db: &RootDb,
-    graph: &design_graph::UnitCatalog,
+    context: &hir_def::pathres::ResolutionContext,
     file_id: FileId,
 ) -> Vec<Diagnostic> {
     let hir_file_id = file_id.into();
@@ -488,7 +488,7 @@ fn module_instantiation_resolution_diagnostics(
                 }
             }
 
-            match resolve_module_name(db, graph, module_name) {
+            match resolve_module_name(db, context, module_name) {
                 ModuleResolution::Ambiguous(candidates) => {
                     let (severity, message, message_key, message_args) =
                         ambiguous_module_instantiation_diagnostic(module_name, candidates.len());
@@ -566,7 +566,7 @@ impl VideDiagnosticProvider for AmbiguousModuleInstantiation {
         context: &hir_def::pathres::ResolutionContext,
         file_id: FileId,
     ) -> Vec<Diagnostic> {
-        module_instantiation_resolution_diagnostics(db, context.graph(), file_id)
+        module_instantiation_resolution_diagnostics(db, context, file_id)
     }
 }
 

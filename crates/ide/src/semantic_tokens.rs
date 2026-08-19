@@ -505,7 +505,11 @@ fn collect_named_param_assignments<'a>(
         check_range!(collector, range);
 
         let res = if from_file.is_some() {
-            resolve_named_param_assignment(sema.db, sema.resolution_context().graph(), named_assign)
+            resolve_named_param_assignment(
+                sema.db,
+                sema.resolution_context().as_ref(),
+                named_assign,
+            )
         } else {
             Resolution::Unresolved
         };
@@ -533,7 +537,7 @@ fn collect_named_port_connections<'a>(
         check_range!(collector, range);
 
         let res = if from_file.is_some() {
-            resolve_named_port_connection(sema.db, sema.resolution_context().graph(), named_conn)
+            resolve_named_port_connection(sema.db, sema.resolution_context().as_ref(), named_conn)
         } else {
             Resolution::Unresolved
         };

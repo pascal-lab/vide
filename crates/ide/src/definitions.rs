@@ -4,7 +4,6 @@ use hir_def::{
     lower_ident_opt,
     owner::OwnerId,
     symbol::{DefKind, DefOrigin, NameContext, Resolution},
-    unit::ToOwner,
 };
 use hir_semantics::semantics::SemanticsImpl;
 use preproc_expand::file::HirFileId;
@@ -88,12 +87,12 @@ impl DefinitionClass {
 
         match_ast! { parent,
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
-                resolve_named_param_assignment(db, context.graph(), it)
+                resolve_named_param_assignment(db, &context, it)
                     .map(DefinitionClass::Definition)
             },
             ast::NamedPortConnection[it] if it.name() == Some(tok) => {
                 let port =
-                    resolve_named_port_connection(db, context.graph(), it);
+                    resolve_named_port_connection(db, &context, it);
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
                     let local = nameres_ident(&sema, file_id, tp, NameContext::Value, container);
@@ -336,11 +335,8 @@ fn resolve_instantiation_type_name(
         let cu = name.as_ref().map(|name| {
             hir_def::symbol::Resolution::from_candidates(
                 context
-                    .graph()
-                    .modules_named(name)
-                    .into_vec()
+                    .locate_hierarchy_targets(sema.db, name)
                     .into_iter()
-                    .filter_map(|unit| unit.to_owner(sema.db))
                     .filter_map(|owner| DefId::from_owner(sema.db, owner)),
             )
         });
