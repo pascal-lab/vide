@@ -1,16 +1,19 @@
-//! T4 slang FFI slice: class-member type / owner / inheritance.
+//! Class-member lookup through the resident elaboration service.
 //!
-//! The slice is in-process. A missing answer is `None` (HIR hover still
-//! works). That is the "service down → drop fidelity, not function" rule.
+//! A missing answer is [`ElabResult::Ready`]`(None)` (slang elaborated and
+//! found no class member). [`ElabResult::Stale`] and
+//! [`ElabResult::Unavailable`] are not empty: hover skips slang and keeps
+//! the HIR answer. That is the "service down → drop fidelity, not function"
+//! rule, with the failure mode visible in the type.
 
 use base_db::source_db::SourceRootDb;
 use hir_def::ast_id_map::SourceAstId;
-use preproc_expand::file::HirFileId;
+use preproc_expand::{compilation_plan, file::HirFileId};
 use slang_sys::compilation::{ClassMemberInfo, Compilation};
 use syntax::{SyntaxTreeOptions, has_text_range::HasTextRange};
 use vfs::FileId;
 
-use crate::db::root_db::RootDb;
+use crate::{analysis::AnalysisContext, elaboration::ElabResult};
 
 /// Look up a class member in `text` at `offset` via a fresh slang compilation.
 pub fn lookup_in_text(
@@ -28,24 +31,25 @@ pub fn lookup_in_text(
 }
 
 /// Shipped `(FileId, SourceAstId)` entry: map the stable id to a range, then
-/// ask slang on the same text.
+/// ask the resident compilation for this snapshot.
 pub fn lookup_from_ast_id(
-    db: &RootDb,
+    ctx: &AnalysisContext<'_>,
     file_id: FileId,
     ast_id: SourceAstId,
-) -> Option<ClassMemberInfo> {
+) -> ElabResult<ClassMemberInfo> {
     let hir_file = HirFileId::File(file_id);
-    let tree = db.parse(hir_file);
-    let map = db.ast_id_map(hir_file);
-    let node = map.node(ast_id, &tree)?;
-    let offset = usize::from(node.text_range()?.start());
-    let text = db.file_text(file_id);
-    let path = db
-        .file_path(file_id)
-        .map(|path| path.to_string())
-        .unwrap_or_else(|| format!("file{}", file_id.index()));
-    let name = path.clone();
-    lookup_in_text(&text, &name, &path, offset, &[])
+    let tree = ctx.db.parse(hir_file);
+    let map = ctx.db.ast_id_map(hir_file);
+    let Some(node) = map.node(ast_id, &tree) else {
+        return ElabResult::Ready(None);
+    };
+    let Some(range) = node.text_range() else {
+        return ElabResult::Ready(None);
+    };
+    let offset = usize::from(range.start());
+    let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
+    let profile = ctx.db.file_compilation_profile(file_id);
+    ctx.elab.lookup_class_member(ctx.db, ctx.revision, profile, &path, offset)
 }
 
 pub fn format_answer(info: &ClassMemberInfo) -> String {
@@ -102,7 +106,7 @@ endclass
     #[test]
     fn shipped_lookup_from_ast_id_returns_class_member() {
         let src = "virtual class uvm_void; endclass\nvirtual class uvm_object extends uvm_void;\n  string m_leaf_name;\nendclass\n";
-        let (host, file_id) = crate::test_utils::setup_with_path(src, "/uvm_object.svh");
+        let (host, file_id) = crate::test_utils::setup_with_path(src, "/uvm_object.sv");
         let tree = host.ctx().parse_file(file_id);
         let map = host.ctx().db.ast_id_map(HirFileId::File(file_id));
         let mut found = None;
@@ -119,7 +123,10 @@ endclass
                 continue;
             }
             if let Some(id) = map.id_of_node(node) {
-                found = lookup_from_ast_id(host.ctx().db, file_id, id);
+                found = match lookup_from_ast_id(&host.ctx(), file_id, id) {
+                    ElabResult::Ready(Some(info)) => Some(info),
+                    _ => None,
+                };
                 if found.is_some() {
                     break;
                 }
@@ -185,7 +192,10 @@ endclass
                     let range = node.text_range()?;
                     if range.start() <= offset && offset < range.end() {
                         let id = map.id_of_node(node)?;
-                        lookup_from_ast_id(ctx.db, file_id, id)
+                        match lookup_from_ast_id(&ctx, file_id, id) {
+                            ElabResult::Ready(Some(info)) => Some(info),
+                            _ => None,
+                        }
                     } else {
                         None
                     }

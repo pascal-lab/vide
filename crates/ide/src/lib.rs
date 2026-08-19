@@ -27,6 +27,7 @@ pub(crate) mod design_unit;
 pub mod diagnostics;
 pub mod document_highlight;
 pub mod document_symbols;
+pub(crate) mod elaboration;
 pub mod folding_ranges;
 pub mod formatting;
 pub mod goto_declaration;

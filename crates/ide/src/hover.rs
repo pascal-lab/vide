@@ -313,7 +313,11 @@ fn slang_class_hover(
     let file = file_id.as_file()?;
     let map = db.db.ast_id_map(file_id);
     let ast_id = map.id_of_node(tp.parent)?;
-    let info = crate::slang_class::lookup_from_ast_id(db.db, file, ast_id)?;
+    let crate::elaboration::ElabResult::Ready(Some(info)) =
+        crate::slang_class::lookup_from_ast_id(db, file, ast_id)
+    else {
+        return None;
+    };
     let mut markup = Markup::new();
     markup.section("slang");
     markup.print(&crate::slang_class::format_answer(&info));

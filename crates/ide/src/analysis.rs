@@ -31,6 +31,7 @@ use crate::{
     diagnostics,
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},
+    elaboration::{ElabRevision, ElaborationService},
     folding_ranges::{self, Fold},
     formatting::{self, FmtConfig},
     goto_declaration, goto_definition, hover,
@@ -54,17 +55,24 @@ pub struct AnalysisSnapshot {
     pub(crate) store: Arc<ProductStore>,
     pub(crate) snapshot_id: AnalysisSnapshotId,
     pub(crate) salsa_revision: base_db::salsa::Revision,
+    pub(crate) elab: ElaborationService,
 }
 
-/// Read view of one IDE request: the pure Salsa database plus the
-/// parse-dependency store. Features are pure functions of this context.
+/// Read view of one IDE request: the Salsa database, the parse-dependency
+/// store, and the resident elaboration service.
 ///
 /// [`Self::parse_file`] records the file as paid so later resolution can
 /// look at that file's `HirFileId::Macro` owner table. It does not merge
 /// generated names into the L0 catalog.
+///
+/// Elaboration is a backend worker, not a salsa query. Features that need
+/// types, hierarchy, or class members ask [`Self::elab`] with this
+/// snapshot's revision.
 pub(crate) struct AnalysisContext<'a> {
     pub(crate) db: &'a RootDb,
     pub(crate) store: &'a ProductStore,
+    pub(crate) elab: &'a ElaborationService,
+    pub(crate) revision: ElabRevision,
 }
 
 impl Deref for AnalysisContext<'_> {
@@ -76,8 +84,13 @@ impl Deref for AnalysisContext<'_> {
 }
 
 impl AnalysisContext<'_> {
-    pub(crate) fn new<'a>(db: &'a RootDb, store: &'a ProductStore) -> AnalysisContext<'a> {
-        AnalysisContext { db, store }
+    pub(crate) fn new<'a>(
+        db: &'a RootDb,
+        store: &'a ProductStore,
+        elab: &'a ElaborationService,
+        revision: ElabRevision,
+    ) -> AnalysisContext<'a> {
+        AnalysisContext { db, store, elab, revision }
     }
 
     pub(crate) fn semantics(&self) -> hir_semantics::semantics::Semantics<'_, RootDb> {
@@ -157,7 +170,7 @@ impl AnalysisSnapshot {
             "an AnalysisSnapshot must never cross Salsa revisions",
         );
         let _span = tracing::debug_span!("ide.analysis", snapshot_id = ?self.snapshot_id).entered();
-        let ctx = AnalysisContext::new(&self.db, &self.store);
+        let ctx = AnalysisContext::new(&self.db, &self.store, &self.elab, self.snapshot_id);
         Cancelled::catch(|| f(&ctx))
     }
 

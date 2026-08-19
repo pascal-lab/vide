@@ -15,6 +15,7 @@ use triomphe::Arc;
 use crate::{
     analysis::{AnalysisContext, AnalysisSnapshot},
     db::root_db::RootDb,
+    elaboration::ElaborationService,
     incrementality::ProductStore,
 };
 
@@ -23,6 +24,8 @@ pub struct AnalysisHost {
     store: Arc<ProductStore>,
     snapshot_id: AnalysisSnapshotId,
     prewarm: Option<PrewarmTask>,
+    elab: ElaborationService,
+    elab_worker: Option<JoinHandle<()>>,
 }
 
 struct PrewarmTask {
@@ -32,11 +35,14 @@ struct PrewarmTask {
 
 impl AnalysisHost {
     pub fn new(lru_capacity: Option<usize>) -> AnalysisHost {
+        let (elab, elab_worker) = ElaborationService::spawn();
         AnalysisHost {
             db: RootDb::new(lru_capacity),
             store: Arc::new(ProductStore::default()),
             snapshot_id: AnalysisSnapshotId::default(),
             prewarm: None,
+            elab,
+            elab_worker: Some(elab_worker),
         }
     }
 
@@ -49,6 +55,7 @@ impl AnalysisHost {
             store: self.store.clone(),
             snapshot_id: self.snapshot_id,
             salsa_revision,
+            elab: self.elab.clone(),
         }
     }
 
@@ -85,6 +92,8 @@ impl AnalysisHost {
     fn start_prewarm(&mut self, affected_files: Vec<vfs::FileId>) {
         let db = self.db.clone();
         let store = self.store.clone();
+        let elab = self.elab.clone();
+        let revision = self.snapshot_id;
         let cancel = StdArc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
         let worker = thread::Builder::new()
@@ -93,7 +102,7 @@ impl AnalysisHost {
                 if worker_cancel.load(Ordering::Acquire) {
                     return;
                 }
-                let ctx = AnalysisContext { db: &db, store: &store };
+                let ctx = AnalysisContext::new(&db, &store, &elab, revision);
                 for file_id in affected_files {
                     if worker_cancel.load(Ordering::Acquire) {
                         return;
@@ -145,14 +154,23 @@ impl AnalysisHost {
     }
 
     #[cfg(test)]
+    pub(crate) fn elab(&self) -> &ElaborationService {
+        &self.elab
+    }
+
+    #[cfg(test)]
     pub(crate) fn ctx(&self) -> AnalysisContext<'_> {
-        AnalysisContext::new(&self.db, &self.store)
+        AnalysisContext::new(&self.db, &self.store, &self.elab, self.snapshot_id)
     }
 }
 
 impl Drop for AnalysisHost {
     fn drop(&mut self) {
         self.join_prewarm();
+        self.elab.shutdown();
+        if let Some(worker) = self.elab_worker.take() {
+            let _ = worker.join();
+        }
     }
 }
 
