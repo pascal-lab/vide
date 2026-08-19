@@ -3,6 +3,8 @@
 //! Navigation does not call this. It is the interiors seam: ports, nets,
 //! hierarchical paths, types, and package export members.
 
+use std::cell::Cell;
+
 use design_graph::{UnitId, UnitKind};
 use preproc_expand::{file::HirFileId, macro_file::macro_files_for_file};
 
@@ -12,37 +14,61 @@ use crate::{
     owner::{OwnerData, OwnerId, OwnerKind},
 };
 
+thread_local! {
+    /// `to_owner` calls on the shipped path.
+    pub static TO_OWNER_RUNS: Cell<u32> = const { Cell::new(0) };
+    /// Those calls whose `owner_table` query body ran (paid expanded parse).
+    pub static TO_OWNER_PAID_PARSE: Cell<u32> = const { Cell::new(0) };
+    /// Owners examined inside [`matching_owners`]. An indexed lookup of a
+    /// unique `(name, kind)` must stay at 1, not the table length.
+    pub static OWNER_LOOKUP_STEPS: Cell<u32> = const { Cell::new(0) };
+    pub(crate) static IN_TO_OWNER: Cell<bool> = const { Cell::new(false) };
+}
+
 pub trait ToOwner {
     fn to_owner(self, db: &dyn HirDefDb) -> Option<OwnerId>;
 }
 
 impl ToOwner for UnitId {
     fn to_owner(self, db: &dyn HirDefDb) -> Option<OwnerId> {
+        TO_OWNER_RUNS.with(|runs| runs.set(runs.get() + 1));
+        IN_TO_OWNER.with(|flag| flag.set(true));
         let macro_owners: Vec<OwnerId> = macro_files_for_file(db, self.file)
             .into_iter()
             .flat_map(|macro_file| {
                 matching_owners(db, HirFileId::Macro(macro_file), self.name.as_str(), self.kind)
             })
             .collect();
-        if !macro_owners.is_empty() {
-            return macro_owners.into_iter().nth(self.ordinal as usize);
-        }
-        matching_owners(db, HirFileId::File(self.file), self.name.as_str(), self.kind)
-            .into_iter()
-            .nth(self.ordinal as usize)
+        let result = if !macro_owners.is_empty() {
+            macro_owners.into_iter().nth(self.ordinal as usize)
+        } else {
+            matching_owners(db, HirFileId::File(self.file), self.name.as_str(), self.kind)
+                .into_iter()
+                .nth(self.ordinal as usize)
+        };
+        IN_TO_OWNER.with(|flag| flag.set(false));
+        result
     }
 }
 
 fn matching_owners(db: &dyn HirDefDb, file: HirFileId, name: &str, kind: UnitKind) -> Vec<OwnerId> {
     let table = db.owner_table(file);
     let file_owner = table.file_owner();
+    let owner_kind = match kind {
+        UnitKind::Module | UnitKind::Interface | UnitKind::Package | UnitKind::Program => {
+            crate::owner::OwnerKind::Module
+        }
+        UnitKind::Checker => crate::owner::OwnerKind::Checker,
+        UnitKind::Covergroup => crate::owner::OwnerKind::Covergroup,
+    };
     table
-        .owners()
+        .owners_named(name, owner_kind)
         .iter()
-        .filter(|owner| {
-            owner.parent == file_owner && owner.name == name && owner_matches_unit_kind(owner, kind)
+        .filter_map(|id| {
+            OWNER_LOOKUP_STEPS.with(|steps| steps.set(steps.get() + 1));
+            let owner = table.owner(*id)?;
+            (owner.parent == file_owner && owner_matches_unit_kind(owner, kind)).then_some(owner.id)
         })
-        .map(|owner| owner.id)
         .collect()
 }
 
@@ -112,7 +138,7 @@ mod tests {
     use utils::paths::{AbsPathBuf, Utf8PathBuf};
     use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
-    use super::{ToOwner, test_graph, test_module_owner};
+    use super::{ToOwner, test_graph, test_module_owner, test_package_owner};
     use crate::db::HirDefDb;
 
     const TOP: FileId = FileId::from_raw(0);
@@ -212,6 +238,24 @@ mod tests {
         assert_eq!(graph.origin(&generated_id), Some(UnitOrigin::Generated));
         assert!(graph.modules_named("foo").unique().is_some());
         assert!(graph.modules_named("top").unique().is_some());
+    }
+
+    #[test]
+    fn unique_name_lookup_does_not_scan_the_owner_table() {
+        let mut text = String::new();
+        for index in 0..40 {
+            text.push_str(&format!("module m{index};\nendmodule\n"));
+        }
+        text.push_str("package p;\nendpackage\n");
+        let db = db_with_text(&text);
+        super::OWNER_LOOKUP_STEPS.with(|steps| steps.set(0));
+        let owner = test_package_owner(&db, "p");
+        let steps = super::OWNER_LOOKUP_STEPS.with(std::cell::Cell::get);
+        assert_eq!(owner.name(&db).as_deref(), Some("p"));
+        assert_eq!(
+            steps, 1,
+            "a unique (name, kind) must not walk the other owners (steps={steps})"
+        );
     }
 
     #[test]

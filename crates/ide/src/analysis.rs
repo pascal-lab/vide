@@ -486,6 +486,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn to_owner_traffic_on_a_typical_request() {
+        use hir_def::unit::{TO_OWNER_PAID_PARSE, TO_OWNER_RUNS};
+
+        let (host, files) = crate::test_utils::setup_marked_files(&[
+            ("/a.sv", "package a;\n  int x;\nendpackage\n"),
+            ("/b.sv", "package b;\n  import a::*;\n  int y;\nendpackage\n"),
+            ("/c.sv", "package c;\n  import b::*;\n  int z;\nendpackage\n"),
+            ("/top.sv", "module top;\n  int /*marker:w*/w;\nendmodule\n"),
+        ]);
+        let file_id = files[3].0;
+        let offset = files[3].2["w"];
+        TO_OWNER_RUNS.with(|runs| runs.set(0));
+        TO_OWNER_PAID_PARSE.with(|runs| runs.set(0));
+        let _ = host.make_analysis().hover(crate::FilePosition { file_id, offset }).unwrap();
+        let _ =
+            host.make_analysis().goto_definition(crate::FilePosition { file_id, offset }).unwrap();
+        let calls = TO_OWNER_RUNS.with(Cell::get);
+        let paid = TO_OWNER_PAID_PARSE.with(Cell::get);
+        println!("t5.to_owner_calls\t{calls}");
+        println!("t5.to_owner_paid_parse\t{paid}");
+        assert!(calls > 0, "a hover+goto session must cross the bridge");
+    }
+
     /// Cold start of one file hits U1 / U2 / U3 once each. The three
     /// unexpanded parses stay split (empty vs profile predefines vs Trace);
     /// `preprocessor_independent` is one function on U1 and U2.
