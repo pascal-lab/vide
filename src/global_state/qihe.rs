@@ -100,10 +100,10 @@ impl QiheDiagnostics {
         };
         if let (Some(analysis), Some(line_info)) = (analysis, line_info) {
             for item in &mut state.items {
-                if item.ast_id.is_none() {
-                    if let Ok(range) = from_proto::text_range(line_info, item.diagnostic.range) {
-                        item.ast_id = analysis.ast_id_at_range(file_id, range).ok().flatten();
-                    }
+                if item.ast_id.is_none()
+                    && let Ok(range) = from_proto::text_range(line_info, item.diagnostic.range)
+                {
+                    item.ast_id = analysis.ast_id_at_range(file_id, range).ok().flatten();
                 }
             }
         }
@@ -117,12 +117,10 @@ impl QiheDiagnostics {
                 let mut diagnostic = item.diagnostic;
                 if let (Some(analysis), Some(ast_id), Some(line_info)) =
                     (analysis, item.ast_id, line_info)
-                {
-                    if let Ok(Some(origin)) = analysis
+                    && let Ok(Some(origin)) = analysis
                         .project_anchor(ide::anchor::Anchor::Definition { file: file_id, ast_id })
-                    {
-                        diagnostic.range = to_proto::range(line_info, origin.range);
-                    }
+                {
+                    diagnostic.range = to_proto::range(line_info, origin.range);
                 }
                 if edits_ago > 0 {
                     let note =

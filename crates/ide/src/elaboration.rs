@@ -65,6 +65,7 @@ impl fmt::Debug for ElaborationService {
 }
 
 enum Request {
+    #[cfg(test)]
     Lookup {
         db: RootDb,
         revision: ElabRevision,
@@ -157,6 +158,7 @@ impl ElaborationService {
         (Self { tx }, worker)
     }
 
+    #[cfg(test)]
     pub fn lookup_class_member(
         &self,
         db: &RootDb,
@@ -419,6 +421,7 @@ fn worker_loop(rx: Receiver<Request>) {
     let mut last_reused = 0usize;
     while let Ok(request) = rx.recv() {
         match request {
+            #[cfg(test)]
             Request::Lookup { db, revision, profile, path, offset, reply } => {
                 let result =
                     handle_lookup(&mut gens, &mut last_reused, db, revision, profile, path, offset);
@@ -459,8 +462,7 @@ fn worker_loop(rx: Receiver<Request>) {
                     revision,
                     profile,
                     path,
-                    start,
-                    end,
+                    (start, end),
                 );
                 let _ = reply.send(result);
             }
@@ -661,8 +663,7 @@ fn handle_type(
     revision: ElabRevision,
     profile: Option<CompilationProfileId>,
     path: String,
-    start: usize,
-    end: usize,
+    span: (usize, usize),
 ) -> ElabResult<String> {
     match handle_lookup(gens, last_reused, db, revision, profile, String::new(), 0) {
         ElabResult::Stale { have, want } => ElabResult::Stale { have, want },
@@ -675,7 +676,7 @@ fn handle_type(
                 return ElabResult::Unavailable(UnavailableReason::NotReady);
             };
             match panic::catch_unwind(AssertUnwindSafe(|| {
-                profile_elab.compilation.lookup_type(&path, start, end)
+                profile_elab.compilation.lookup_type(&path, span.0, span.1)
             })) {
                 Ok(answer) => ElabResult::Ready(answer),
                 Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
@@ -770,13 +771,13 @@ fn compile_profile(
         let dirty = previous.is_none_or(|previous| {
             root_is_dirty(root.file_id, &plan, &previous.file_hashes, &new_hashes)
         });
-        if !dirty {
-            if let Some(tree) = previous.and_then(|previous| previous.trees.get(&root.file_id)) {
-                compilation.add_syntax_tree(tree);
-                trees.insert(root.file_id, tree.clone());
-                reused += 1;
-                continue;
-            }
+        if !dirty
+            && let Some(tree) = previous.and_then(|previous| previous.trees.get(&root.file_id))
+        {
+            compilation.add_syntax_tree(tree);
+            trees.insert(root.file_id, tree.clone());
+            reused += 1;
+            continue;
         }
         let path = compilation_plan::source_buffer_path(db, root.file_id).to_string();
         let name =
