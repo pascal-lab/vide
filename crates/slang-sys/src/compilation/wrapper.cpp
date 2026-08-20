@@ -14,6 +14,7 @@
 #include "slang/ast/types/AllTypes.h"
 #include "slang/text/SourceManager.h"
 #include "slang/util/String.h"
+#include "slang/util/Util.h"
 
 #include <optional>
 #include <stdexcept>
@@ -515,6 +516,20 @@ const slang::ast::Scope* scope_of_symbol(const slang::ast::Symbol& symbol) {
     return symbol.as_if<slang::ast::Scope>();
 }
 
+const slang::ast::Symbol* try_lookup_name(
+    const slang::ast::Scope& scope,
+    std::string_view name
+) {
+    // Scope::lookupName asserts that parseName produced no selectors.
+    // Completion prefixes can be `bus[0]` or similar; that is not a
+    // hierarchical name, and aborting the process is not an answer.
+    try {
+        return scope.lookupName(name);
+    } catch (const slang::assert::AssertionException&) {
+        return nullptr;
+    }
+}
+
 void search_instance_scopes(
     const slang::ast::Scope& scope,
     std::string_view name,
@@ -526,7 +541,7 @@ void search_instance_scopes(
         if (hit)
             return;
         if (const auto* inst = member.as_if<slang::ast::InstanceSymbol>()) {
-            if (const auto* found = inst->body.lookupName(name)) {
+            if (const auto* found = try_lookup_name(inst->body, name)) {
                 hit = found;
                 return;
             }
@@ -536,7 +551,7 @@ void search_instance_scopes(
         } else if (const auto* cu = member.as_if<slang::ast::CompilationUnitSymbol>()) {
             search_instance_scopes(*cu, name, hit);
         } else if (const auto* body = member.as_if<slang::ast::InstanceBodySymbol>()) {
-            if (const auto* found = body->lookupName(name)) {
+            if (const auto* found = try_lookup_name(*body, name)) {
                 hit = found;
                 return;
             }
@@ -554,7 +569,7 @@ const slang::ast::Symbol* find_named_symbol(
         return nullptr;
     if (const auto* pkg = compilation.getPackage(name))
         return pkg;
-    if (const auto* found = root.lookupName(name))
+    if (const auto* found = try_lookup_name(root, name))
         return found;
     if (const auto* cls = find_class(root, name))
         return cls;

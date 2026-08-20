@@ -493,6 +493,16 @@ endmodule
     }
 
     #[test]
+    fn list_scope_members_of_a_select_prefix_does_not_abort() {
+        let src = "module top; logic [7:0] bus; initial bus[0] = 1; endmodule\n";
+        let path = "/vide-assigned/select.sv";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(src, "top", path, &SyntaxTreeOptions::default());
+        let members = compilation.list_scope_members("bus[0]");
+        assert!(members.is_empty(), "element select is not a hierarchical name: {members:?}");
+    }
+
+    #[test]
     fn lookup_type_of_mixed_width_add_is_the_sum_not_the_narrow_operand() {
         let src = "module top; logic [3:0] b; logic [7:0] a, y; always_comb y = b + a; endmodule\n";
         let path = "/vide-assigned/add-mixed.sv";
