@@ -98,8 +98,8 @@ fn signal_candidates(
 ) -> Vec<CompletionCandidate> {
     value_candidates_in_module(db, module_id)
         .into_iter()
-        .filter(|(name, _)| name.starts_with(prefix))
-        .map(|(name, _)| {
+        .filter(|name| name.starts_with(prefix))
+        .map(|name| {
             let plain = if wrap_in_parens { format!("({name})") } else { name.clone() };
             CompletionCandidate::text_edit(name, ctx.replacement, plain)
         })

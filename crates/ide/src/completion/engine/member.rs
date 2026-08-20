@@ -1,16 +1,15 @@
-use hir_semantics::semantics::Semantics;
-use hir_ty::{Member, TypeSystem};
-use preproc_expand::file::HirFileId;
+use std::ops::Range;
+
+use base_db::source_db::SourceDb;
 use syntax::{
-    SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,
+    SyntaxAncestors, SyntaxNode, SyntaxNodeExt,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
 
 use super::candidate::CompletionCandidate;
 use crate::{
-    FilePosition, analysis::AnalysisContext, completion::context::CompletionContext,
-    db::root_db::RootDb,
+    FilePosition, analysis::AnalysisContext, completion::context::CompletionContext, slang_class,
 };
 
 pub(super) fn complete_member_access(
@@ -24,31 +23,50 @@ pub(super) fn complete_member_access(
         return Vec::new();
     };
     if let Some(name) = colon_colon_scope_name(root, position.offset) {
-        let crate::elaboration::ElabResult::Ready(Some(members)) =
-            crate::slang_class::list_scope_members_at(db, position.file_id, &name)
-        else {
-            return Vec::new();
-        };
-        return members
-            .into_iter()
-            .filter(|member| member.name.starts_with(prefix))
-            .map(|member| CompletionCandidate::text(member.name, ctx.replacement))
-            .collect();
+        return members_to_candidates(
+            slang_class::list_scope_members_at(db, position.file_id, &name),
+            prefix,
+            ctx,
+        );
     }
 
-    let sema = db.semantics();
-    let file_id = position.file_id.into();
-    let members = member_access_at_offset(root, position.offset)
-        .and_then(|access| members_for_expr(db, &sema, file_id, access.left()))
-        .or_else(|| members_for_incomplete_access(db, &sema, file_id, root, position.offset));
-    let Some(members) = members else {
+    let Some(expr) = dot_prefix_expr(root, position.offset) else {
+        return Vec::new();
+    };
+    let Some(name) = expr_source_text(db, position.file_id, expr) else {
+        return Vec::new();
+    };
+    let named = slang_class::list_scope_members_at(db, position.file_id, &name);
+    if matches!(&named, crate::elaboration::ElabResult::Ready(Some(members)) if !members.is_empty())
+    {
+        return members_to_candidates(named, prefix, ctx);
+    }
+    let Some(range) = expr.syntax().text_range() else {
+        return members_to_candidates(named, prefix, ctx);
+    };
+    members_to_candidates(
+        slang_class::list_members_at(
+            db,
+            position.file_id,
+            usize::from(range.end()).saturating_sub(1),
+        ),
+        prefix,
+        ctx,
+    )
+}
+
+fn members_to_candidates(
+    result: crate::elaboration::ElabResult<Vec<slang_sys::compilation::MemberInfo>>,
+    prefix: &str,
+    ctx: &CompletionContext,
+) -> Vec<CompletionCandidate> {
+    let crate::elaboration::ElabResult::Ready(Some(members)) = result else {
         return Vec::new();
     };
     members
         .into_iter()
-        .map(Member::into_name)
-        .filter(|name| name.as_str().starts_with(prefix))
-        .map(|name| CompletionCandidate::text(name.to_string(), ctx.replacement))
+        .filter(|member| member.name.starts_with(prefix))
+        .map(|member| CompletionCandidate::text(member.name, ctx.replacement))
         .collect()
 }
 
@@ -69,6 +87,20 @@ fn colon_colon_scope_name(
     Some(left.tok.raw_text().to_string())
 }
 
+fn dot_prefix_expr(
+    root: SyntaxNode<'_>,
+    offset: utils::text_edit::TextSize,
+) -> Option<ast::Expression<'_>> {
+    if let Some(access) = member_access_at_offset(root, offset) {
+        return Some(access.left());
+    }
+    let prev = root.token_before_offset(offset)?;
+    if prev.kind() != syntax::Token![.] {
+        return None;
+    }
+    expr_before_dot(prev.parent, prev.text_range()?.start())
+}
+
 fn member_access_at_offset(
     root: SyntaxNode<'_>,
     offset: utils::text_edit::TextSize,
@@ -78,22 +110,6 @@ fn member_access_at_offset(
         return None;
     }
     SyntaxAncestors::start_from(prev.parent).find_map(ast::MemberAccessExpression::cast)
-}
-
-fn members_for_incomplete_access(
-    db: &AnalysisContext<'_>,
-    sema: &Semantics<'_, RootDb>,
-    file_id: HirFileId,
-    root: SyntaxNode<'_>,
-    offset: utils::text_edit::TextSize,
-) -> Option<Vec<Member>> {
-    let dot = root.token_before_offset(offset)?;
-    if dot.kind() != syntax::Token![.] {
-        return None;
-    }
-    let dot_start = dot.text_range()?.start();
-    let expr = expr_before_dot(dot.parent, dot_start)?;
-    members_for_expr(db, sema, file_id, expr)
 }
 
 fn expr_before_dot(
@@ -107,19 +123,14 @@ fn expr_before_dot(
         .find(|expr| expr.syntax().text_range().is_some_and(|r| r.end() == dot_start))
 }
 
-fn members_for_expr(
+fn expr_source_text(
     db: &AnalysisContext<'_>,
-    sema: &Semantics<'_, RootDb>,
-    file_id: HirFileId,
+    file_id: vfs::FileId,
     expr: ast::Expression<'_>,
-) -> Option<Vec<Member>> {
-    let expr_id = sema.resolve_expr(file_id, expr)?;
-    let types = TypeSystem::new(db.db, db.resolution());
-    let mut members = types.members(&types.type_of_expr(expr_id));
-    if members.is_empty() {
-        members = types.members(&types.type_of_resolution(sema.expr_to_def(expr_id)));
-    }
-    (!members.is_empty()).then_some(members)
+) -> Option<String> {
+    let range = expr.syntax().text_range()?;
+    let text = db.file_text(file_id);
+    Some(text.get(Range::<usize>::from(range))?.trim().to_owned())
 }
 
 fn scoped_uses_dot(scoped: ast::ScopedName<'_>) -> bool {
@@ -142,14 +153,14 @@ fn scoped_name_at_offset(
     })
 }
 
-fn scoped_left_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxTokenWithParent<'_>> {
+fn scoped_left_token(scoped: ast::ScopedName<'_>) -> Option<syntax::SyntaxTokenWithParent<'_>> {
     use ast::Name::*;
     match scoped.left() {
         IdentifierName(ident) => {
-            Some(SyntaxTokenWithParent { parent: ident.syntax(), tok: ident.identifier()? })
+            Some(syntax::SyntaxTokenWithParent { parent: ident.syntax(), tok: ident.identifier()? })
         }
         IdentifierSelectName(ident) => {
-            Some(SyntaxTokenWithParent { parent: ident.syntax(), tok: ident.identifier()? })
+            Some(syntax::SyntaxTokenWithParent { parent: ident.syntax(), tok: ident.identifier()? })
         }
         _ => None,
     }

@@ -1,52 +1,12 @@
-use hir_def::{
-    Ident,
-    owner::OwnerId,
-    symbol::{DefKind, NameContext, Resolution},
-};
-use hir_ty::{Compatibility, Type, TypeSystem};
+use hir_def::{owner::OwnerId, symbol::DefKind};
 
 use crate::analysis::AnalysisContext;
-
-pub(super) fn expected_port_ty(
-    db: &AnalysisContext<'_>,
-    target_module_id: OwnerId,
-    port_name: &Ident,
-) -> Option<Type> {
-    let scope = db.scope(target_module_id);
-    let res = Resolution::from_candidates(
-        scope
-            .lookup(NameContext::Value, port_name)
-            .into_candidates()
-            .into_iter()
-            .filter(|def_id| def_id.is_port(db.db)),
-    );
-    if res.is_unresolved() {
-        return None;
-    }
-    Some(TypeSystem::new(db.db, db.resolution()).type_of_resolution(res))
-}
-
-pub(super) fn expected_param_ty(
-    db: &AnalysisContext<'_>,
-    target_module_id: OwnerId,
-    param_name: &Ident,
-) -> Option<Type> {
-    let res = crate::module_resolution::resolve_named_param_in_module(
-        db.db,
-        target_module_id,
-        param_name,
-    );
-    if res.is_unresolved() {
-        return None;
-    }
-    Some(TypeSystem::new(db.db, db.resolution()).type_of_resolution(res))
-}
 
 pub(super) fn value_candidates_in_module(
     db: &AnalysisContext<'_>,
     module_id: OwnerId,
-) -> Vec<(String, Type)> {
-    typed_candidates_in_module(db, module_id, |kind| {
+) -> Vec<String> {
+    names_in_module(db, module_id, |kind| {
         matches!(
             kind,
             DefKind::Variable
@@ -62,36 +22,23 @@ pub(super) fn value_candidates_in_module(
 pub(super) fn const_candidates_in_module(
     db: &AnalysisContext<'_>,
     module_id: OwnerId,
-) -> Vec<(String, Type)> {
-    typed_candidates_in_module(db, module_id, |kind| kind == DefKind::Param)
+) -> Vec<String> {
+    names_in_module(db, module_id, |kind| kind == DefKind::Param)
 }
 
-pub(super) fn is_compatible_typed_value(
-    db: &AnalysisContext<'_>,
-    expected: &Type,
-    candidate: &Type,
-) -> bool {
-    TypeSystem::new(db.db, db.resolution()).compatibility(expected, candidate)
-        == Compatibility::Compatible
-}
-
-fn typed_candidates_in_module(
+fn names_in_module(
     db: &AnalysisContext<'_>,
     module_id: OwnerId,
     include: impl Fn(DefKind) -> bool,
-) -> Vec<(String, Type)> {
-    let types = TypeSystem::new(db.db, db.resolution());
+) -> Vec<String> {
     let scope = db.scope(module_id);
     let mut candidates: Vec<_> = scope
         .iter_listing()
         .filter_map(|(name, defs)| {
-            let resolution = Resolution::from_candidates(
-                defs.into_iter().filter(|def| include(def.kind(db.db))),
-            );
-            (!resolution.is_unresolved())
-                .then(|| (name.to_string(), types.type_of_resolution(resolution)))
+            defs.into_iter().any(|def| include(def.kind(db.db))).then(|| name.to_string())
         })
         .collect();
-    candidates.sort_by(|left, right| left.0.cmp(&right.0));
+    candidates.sort();
+    candidates.dedup();
     candidates
 }

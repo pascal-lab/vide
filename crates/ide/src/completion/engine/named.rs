@@ -7,10 +7,7 @@ use super::{
     instantiation::{
         enclosing_instantiation, overridable_params_of_module_sorted, ports_of_module_sorted,
     },
-    typed_filter::{
-        const_candidates_in_module, expected_param_ty, expected_port_ty, is_compatible_typed_value,
-        value_candidates_in_module,
-    },
+    typed_filter::{const_candidates_in_module, value_candidates_in_module},
 };
 use crate::{
     FilePosition, analysis::AnalysisContext, completion::context::CompletionContext,
@@ -128,9 +125,9 @@ pub(super) fn complete_named_port_conn_expr(
         return Vec::new();
     };
 
-    let Some(port_name) = lower_ident_opt(conn.name()) else {
+    if lower_ident_opt(conn.name()).is_none() {
         return Vec::new();
-    };
+    }
 
     let Some(instantiation) = enclosing_instantiation(conn.syntax()) else {
         return Vec::new();
@@ -141,23 +138,11 @@ pub(super) fn complete_named_port_conn_expr(
     else {
         return Vec::new();
     };
-    let Some(target_module_id) =
-        resolve_instantiation_target(db.db, db.resolution().as_ref(), instantiation).unique()
-    else {
-        return Vec::new();
-    };
 
-    let Some(expected_ty) = expected_port_ty(db, target_module_id, &port_name) else {
-        return Vec::new();
-    };
-
-    let candidates = value_candidates_in_module(db, current_module_id);
-
-    candidates
+    value_candidates_in_module(db, current_module_id)
         .into_iter()
-        .filter(|(name, _)| name.starts_with(prefix))
-        .filter(|(_, candidate_ty)| is_compatible_typed_value(db, &expected_ty, candidate_ty))
-        .map(|(name, _)| CompletionCandidate::text(name, ctx.replacement))
+        .filter(|name| name.starts_with(prefix))
+        .map(|name| CompletionCandidate::text(name, ctx.replacement))
         .collect()
 }
 
@@ -178,9 +163,9 @@ pub(super) fn complete_named_param_assign_expr(
         return Vec::new();
     };
 
-    let Some(param_name) = lower_ident_opt(assign.name()) else {
+    if lower_ident_opt(assign.name()).is_none() {
         return Vec::new();
-    };
+    }
 
     let Some(instantiation) = enclosing_instantiation(assign.syntax()) else {
         return Vec::new();
@@ -191,22 +176,10 @@ pub(super) fn complete_named_param_assign_expr(
     else {
         return Vec::new();
     };
-    let Some(target_module_id) =
-        resolve_instantiation_target(db.db, db.resolution().as_ref(), instantiation).unique()
-    else {
-        return Vec::new();
-    };
 
-    let Some(expected_ty) = expected_param_ty(db, target_module_id, &param_name) else {
-        return Vec::new();
-    };
-
-    let candidates = const_candidates_in_module(db, current_module_id);
-
-    candidates
+    const_candidates_in_module(db, current_module_id)
         .into_iter()
-        .filter(|(name, _)| name.starts_with(prefix))
-        .filter(|(_, candidate_ty)| is_compatible_typed_value(db, &expected_ty, candidate_ty))
-        .map(|(name, _)| CompletionCandidate::text(name, ctx.replacement))
+        .filter(|name| name.starts_with(prefix))
+        .map(|name| CompletionCandidate::text(name, ctx.replacement))
         .collect()
 }

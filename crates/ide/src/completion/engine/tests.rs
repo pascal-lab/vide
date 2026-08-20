@@ -172,7 +172,10 @@ endmodule
 "#;
     let items = completions_in_text(assignment_completion, None);
     assert!(labels(&items).contains(&"same_width"));
-    assert!(!labels(&items).contains(&"wrong_width"), "unexpected completion items: {items:?}");
+    assert!(
+        labels(&items).contains(&"wrong_width"),
+        "typed filtering is dropped; both widths are offered: {items:?}"
+    );
 }
 #[test]
 fn completes_top_level_module_prefix() {

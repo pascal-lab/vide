@@ -96,6 +96,23 @@ enum Request {
         name: String,
         reply: Sender<ElabResult<Vec<MemberInfo>>>,
     },
+    Members {
+        db: RootDb,
+        revision: ElabRevision,
+        profile: Option<CompilationProfileId>,
+        path: String,
+        offset: usize,
+        reply: Sender<ElabResult<Vec<MemberInfo>>>,
+    },
+    Type {
+        db: RootDb,
+        revision: ElabRevision,
+        profile: Option<CompilationProfileId>,
+        path: String,
+        start: usize,
+        end: usize,
+        reply: Sender<ElabResult<String>>,
+    },
     Instances {
         db: RootDb,
         revision: ElabRevision,
@@ -282,6 +299,80 @@ impl ElaborationService {
         }
     }
 
+    pub fn list_members(
+        &self,
+        db: &RootDb,
+        revision: ElabRevision,
+        profile: Option<CompilationProfileId>,
+        path: &str,
+        offset: usize,
+    ) -> ElabResult<Vec<MemberInfo>> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        if self
+            .tx
+            .send(Request::Members {
+                db: db.clone(),
+                revision,
+                profile,
+                path: path.to_owned(),
+                offset,
+                reply: reply_tx,
+            })
+            .is_err()
+        {
+            return ElabResult::Unavailable(UnavailableReason::Crashed(
+                "elaboration worker is gone".to_owned(),
+            ));
+        }
+        match reply_rx.recv_timeout(LOOKUP_TIMEOUT) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                ElabResult::Unavailable(UnavailableReason::TimedOut)
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => ElabResult::Unavailable(
+                UnavailableReason::Crashed("elaboration worker dropped the member list".to_owned()),
+            ),
+        }
+    }
+
+    pub fn lookup_type(
+        &self,
+        db: &RootDb,
+        revision: ElabRevision,
+        profile: Option<CompilationProfileId>,
+        path: &str,
+        start: usize,
+        end: usize,
+    ) -> ElabResult<String> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        if self
+            .tx
+            .send(Request::Type {
+                db: db.clone(),
+                revision,
+                profile,
+                path: path.to_owned(),
+                start,
+                end,
+                reply: reply_tx,
+            })
+            .is_err()
+        {
+            return ElabResult::Unavailable(UnavailableReason::Crashed(
+                "elaboration worker is gone".to_owned(),
+            ));
+        }
+        match reply_rx.recv_timeout(LOOKUP_TIMEOUT) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                ElabResult::Unavailable(UnavailableReason::TimedOut)
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => ElabResult::Unavailable(
+                UnavailableReason::Crashed("elaboration worker dropped the type lookup".to_owned()),
+            ),
+        }
+    }
+
     pub fn list_instances(
         &self,
         db: &RootDb,
@@ -346,6 +437,31 @@ fn worker_loop(rx: Receiver<Request>) {
             Request::ScopeMembers { db, revision, profile, name, reply } => {
                 let result =
                     handle_scope_members(&mut gens, &mut last_reused, db, revision, profile, name);
+                let _ = reply.send(result);
+            }
+            Request::Members { db, revision, profile, path, offset, reply } => {
+                let result = handle_members(
+                    &mut gens,
+                    &mut last_reused,
+                    db,
+                    revision,
+                    profile,
+                    path,
+                    offset,
+                );
+                let _ = reply.send(result);
+            }
+            Request::Type { db, revision, profile, path, start, end, reply } => {
+                let result = handle_type(
+                    &mut gens,
+                    &mut last_reused,
+                    db,
+                    revision,
+                    profile,
+                    path,
+                    start,
+                    end,
+                );
                 let _ = reply.send(result);
             }
             Request::Instances { db, revision, profile, reply } => {
@@ -501,6 +617,69 @@ fn handle_scope_members(
                 Ok(members) => ElabResult::Ready(Some(members)),
                 Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
                     "scope member list panicked".to_owned(),
+                )),
+            }
+        }
+    }
+}
+
+fn handle_members(
+    gens: &mut Vec<Generation>,
+    last_reused: &mut usize,
+    db: RootDb,
+    revision: ElabRevision,
+    profile: Option<CompilationProfileId>,
+    path: String,
+    offset: usize,
+) -> ElabResult<Vec<MemberInfo>> {
+    match handle_lookup(gens, last_reused, db, revision, profile, String::new(), 0) {
+        ElabResult::Stale { have, want } => ElabResult::Stale { have, want },
+        ElabResult::Unavailable(reason) => ElabResult::Unavailable(reason),
+        ElabResult::Ready(_) => {
+            let Some(slot) = gens.iter_mut().find(|slot| slot.revision == revision) else {
+                return ElabResult::Unavailable(UnavailableReason::NotReady);
+            };
+            let Some(profile_elab) = slot.profiles.get_mut(&profile) else {
+                return ElabResult::Unavailable(UnavailableReason::NotReady);
+            };
+            match panic::catch_unwind(AssertUnwindSafe(|| {
+                profile_elab.compilation.list_members(&path, offset)
+            })) {
+                Ok(members) => ElabResult::Ready(Some(members)),
+                Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
+                    "member list panicked".to_owned(),
+                )),
+            }
+        }
+    }
+}
+
+fn handle_type(
+    gens: &mut Vec<Generation>,
+    last_reused: &mut usize,
+    db: RootDb,
+    revision: ElabRevision,
+    profile: Option<CompilationProfileId>,
+    path: String,
+    start: usize,
+    end: usize,
+) -> ElabResult<String> {
+    match handle_lookup(gens, last_reused, db, revision, profile, String::new(), 0) {
+        ElabResult::Stale { have, want } => ElabResult::Stale { have, want },
+        ElabResult::Unavailable(reason) => ElabResult::Unavailable(reason),
+        ElabResult::Ready(_) => {
+            let Some(slot) = gens.iter_mut().find(|slot| slot.revision == revision) else {
+                return ElabResult::Unavailable(UnavailableReason::NotReady);
+            };
+            let Some(profile_elab) = slot.profiles.get_mut(&profile) else {
+                return ElabResult::Unavailable(UnavailableReason::NotReady);
+            };
+            match panic::catch_unwind(AssertUnwindSafe(|| {
+                profile_elab.compilation.lookup_type(&path, start, end)
+            })) {
+                Ok(answer) => ElabResult::Ready(answer),
+                Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
+                    "type lookup panicked".to_owned(),
                 )),
             }
         }

@@ -10,7 +10,9 @@ use base_db::source_db::SourceRootDb;
 use hir_def::ast_id_map::SourceAstId;
 use preproc_expand::{compilation_plan, file::HirFileId};
 use slang_sys::compilation::{ClassMemberInfo, MemberInfo, SymbolInfo};
-use syntax::{SyntaxTreeOptions, has_text_range::HasTextRange};
+#[cfg(test)]
+use syntax::SyntaxTreeOptions;
+use syntax::has_text_range::HasTextRange;
 use vfs::FileId;
 
 use crate::{analysis::AnalysisContext, elaboration::ElabResult};
@@ -82,6 +84,27 @@ pub fn list_scope_members_at(
 ) -> ElabResult<Vec<MemberInfo>> {
     let profile = ctx.db.file_compilation_profile(file_id);
     ctx.elab.list_scope_members(ctx.db, ctx.revision, profile, name)
+}
+
+pub fn list_members_at(
+    ctx: &AnalysisContext<'_>,
+    file_id: FileId,
+    offset: usize,
+) -> ElabResult<Vec<MemberInfo>> {
+    let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
+    let profile = ctx.db.file_compilation_profile(file_id);
+    ctx.elab.list_members(ctx.db, ctx.revision, profile, &path, offset)
+}
+
+pub fn lookup_type_at(
+    ctx: &AnalysisContext<'_>,
+    file_id: FileId,
+    start: usize,
+    end: usize,
+) -> ElabResult<String> {
+    let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
+    let profile = ctx.db.file_compilation_profile(file_id);
+    ctx.elab.lookup_type(ctx.db, ctx.revision, profile, &path, start, end)
 }
 
 pub fn format_answer(info: &ClassMemberInfo) -> String {
@@ -247,7 +270,6 @@ endmodule
         let p95 = times[((times.len() * 95) / 100).min(times.len() - 1)];
 
         let ctx = host.ctx();
-        let hir_ty = crate::hover::hir_ty_display_at(&ctx, file_id, pos.offset);
         let tree = ctx.parse_file(file_id);
         let map = ctx.db.ast_id_map(HirFileId::File(file_id));
         let slang = map
@@ -273,35 +295,16 @@ endmodule
             .or_else(|| {
                 lookup_in_text(UVM_OBJECT, "feature.v", "/feature.v", usize::from(pos.offset), &[])
             });
-        let slang = slang.expect("slang must answer the same class member hir-ty saw");
-        let agree = hir_ty_agrees_with_slang(&hir_ty, &slang.type_name);
-        let consistency_pct = if agree { 100.0 } else { 0.0 };
+        let slang = slang.expect("slang must answer the class member");
         let (matched, compared) =
             source_ast_ids_agree(UVM_OBJECT, "uvm_object.svh", "uvm_object.svh");
         let id_ok = compared > 0 && matched == compared;
-        println!("t4.hir_ty\t{hir_ty}");
         println!("t4.slang\t{}", slang.type_name);
         println!("t4.p95_ms\t{p95:.3}");
-        println!("t4.consistency_vs_hir_ty\t{consistency_pct:.1}%");
         println!("t4.section_3_7\t{matched}/{compared} {}", if id_ok { "pass" } else { "fail" });
         println!("t4.slang_hits\t{hits}/{}", times.len());
-        println!(
-            "t4.gate\tp95<50ms={} consistency>99%={} §3.7={}",
-            p95 < 50.0,
-            consistency_pct > 99.0,
-            id_ok
-        );
+        println!("t4.gate\tp95<50ms={} §3.7={}", p95 < 50.0, id_ok);
         assert!(hits == times.len(), "slang must answer every shipped hover");
         assert!(id_ok, "§3.7 must hold");
-    }
-
-    fn hir_ty_agrees_with_slang(hir_ty: &str, slang_ty: &str) -> bool {
-        let hir = hir_ty.trim().to_ascii_lowercase();
-        let slang = slang_ty.trim().to_ascii_lowercase();
-        !hir.is_empty()
-            && hir != "unknown"
-            && hir != "error"
-            && !slang.is_empty()
-            && (hir == slang || hir.contains(&slang) || slang.contains(&hir))
     }
 }
