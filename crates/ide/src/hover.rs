@@ -1,5 +1,5 @@
 use base_db::source_db::SourceDb;
-use hir_def::{container::OwnerRef, expr::Expr, symbol::Resolution};
+use hir_def::{container::OwnerRef, expr::Expr};
 use hir_semantics::semantics::Semantics;
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -254,51 +254,6 @@ fn handle_definition(
         res.merge(slang);
     }
     (!res.is_empty()).then_some(res)
-}
-
-fn hir_ty_type_of_resolution(
-    sema: &Semantics<RootDb>,
-    resolution: Resolution<hir_def::def_id::DefId>,
-) -> String {
-    let tys = hir_ty::TypeSystem::new(sema.db, sema.resolution_context());
-    tys.display_source(&tys.type_of_resolution(resolution)).unwrap_or_else(|_| "error".to_owned())
-}
-
-/// Shipped hir-ty answer at a caret. Used by the T4 consistency gate so
-/// the percentage is slang vs `TypeSystem`, not a hardcoded zero.
-#[cfg(test)]
-pub(crate) fn hir_ty_display_at(
-    db: &AnalysisContext<'_>,
-    file_id: FileId,
-    offset: utils::line_index::TextSize,
-) -> String {
-    use syntax::SyntaxNodeExt;
-
-    let tree = db.parse_file(file_id);
-    let tp = match tree.root().token_or_node_at_offset(offset) {
-        either::Either::Left(tokens) => tokens.pick_best_token(crate::token::hover_precedence),
-        either::Either::Right(_) => None,
-    };
-    let sema = db.semantics();
-    let Some(tp) = tp else {
-        return hir_ty_type_of_resolution(&sema, Resolution::Unresolved);
-    };
-    match DefinitionClass::resolve(db, file_id.into(), tp) {
-        Resolution::Unique(DefinitionClass::Definition(id)) => {
-            hir_ty_type_of_resolution(&sema, Resolution::Unique(id))
-        }
-        Resolution::Unique(DefinitionClass::PortConnShorthand { port, .. }) => {
-            hir_ty_type_of_resolution(&sema, Resolution::Unique(port))
-        }
-        Resolution::Ambiguous(defs) => {
-            let ids = defs.into_iter().map(|def| match def {
-                DefinitionClass::Definition(id) => id,
-                DefinitionClass::PortConnShorthand { port, .. } => port,
-            });
-            hir_ty_type_of_resolution(&sema, Resolution::from_candidates(ids))
-        }
-        Resolution::Unresolved => hir_ty_type_of_resolution(&sema, Resolution::Unresolved),
-    }
 }
 
 fn slang_type_hover(

@@ -1,16 +1,8 @@
-//! Semantic types, inference, and type display.
+//! Type display of hir-def syntax.
 //!
-//! This crate interprets `hir-def` definitions and expressions as semantic
-//! types. Definition-kind matching across this seam is exhaustive so adding a
-//! new definition kind forces the type layer to classify it. This crate must
-//! not depend on semantic adapters or IDE features.
+//! Semantic type inference lives in the resident slang elaboration service.
+//! This crate pretty-prints lowered hir-def types, expressions, and
+//! declarations for hover/render/signature-help.
 
-mod compatibility;
 pub mod db;
 pub mod display;
-mod infer;
-mod members;
-mod ty;
-mod type_system;
-
-pub use type_system::{Compatibility, Member, Type, TypeDiagnostic, TypeSystem};
