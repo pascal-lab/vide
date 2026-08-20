@@ -15,7 +15,7 @@ pub(crate) fn code_action(
         return Vec::new();
     }
     let sema = db.semantics();
-    let Some(ctx) = CodeActionCtx::new(&sema, file_id, range, diagnostics) else {
+    let Some(ctx) = CodeActionCtx::new(db, &sema, file_id, range, diagnostics) else {
         return Vec::new();
     };
 
