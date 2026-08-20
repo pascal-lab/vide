@@ -119,11 +119,8 @@ fn worker_job_limit() -> usize {
 }
 
 fn timeout_message(job: &ProfileCompilationJob, timeout: Duration, pid: u32) -> String {
-    let bytes: usize = job
-        .buffers
-        .iter()
-        .map(|buffer| buffer.text.as_deref().map(str::len).unwrap_or(0))
-        .sum();
+    let bytes: usize =
+        job.buffers.iter().map(|buffer| buffer.text.as_deref().map(str::len).unwrap_or(0)).sum();
     format!(
         "compiler worker timed out after {timeout:?} (pid={pid}, roots={}, buffers={}, bytes={bytes})",
         job.roots.len(),

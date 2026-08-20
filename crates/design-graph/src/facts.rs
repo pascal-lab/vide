@@ -94,11 +94,7 @@ impl Mentions {
     }
 
     pub fn mentions_of(&self, name: &str) -> impl Iterator<Item = &Mention> {
-        self.by_name
-            .get(name)
-            .into_iter()
-            .flatten()
-            .map(|&index| &self.entries[index as usize])
+        self.by_name.get(name).into_iter().flatten().map(|&index| &self.entries[index as usize])
     }
 }
 

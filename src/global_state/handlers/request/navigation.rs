@@ -1,6 +1,6 @@
 use ide::{
-    DefKind, FileRange, navigation_target::NavTarget, references::References,
-    reference_support::ModuleCallItem,
+    DefKind, FileRange, navigation_target::NavTarget, reference_support::ModuleCallItem,
+    references::References,
 };
 use itertools::Itertools;
 

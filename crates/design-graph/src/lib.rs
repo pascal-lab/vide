@@ -13,7 +13,8 @@ pub mod unit;
 
 pub use db::{DesignGraphDb, set_file_facts_lru_capacity};
 pub use facts::{
-    DeclIndex, DeclUnit, FileFacts, ImportSpec, InstantiationSite, Mention, Mentions, PackageRefSite,
+    DeclIndex, DeclUnit, FileFacts, ImportSpec, InstantiationSite, Mention, Mentions,
+    PackageRefSite,
 };
 pub use graph::{GeneratedFileUnits, GeneratedUnits, Resolution, UnitCatalog, UnitMeta};
 pub use hit::{CursorHit, hit_at, hit_global, hit_local};

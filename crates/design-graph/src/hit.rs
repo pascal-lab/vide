@@ -95,10 +95,7 @@ mod tests {
         let (facts, offset) =
             facts_and_offset("module top;\n  cc_fifo u();\nendmodule\n", "cc_fifo");
         let graph = graph_with(&[("cc_fifo", UnitKind::Module)]);
-        assert!(matches!(
-            hit_at(&facts, &graph, offset),
-            CursorHit::InstantiationType { .. }
-        ));
+        assert!(matches!(hit_at(&facts, &graph, offset), CursorHit::InstantiationType { .. }));
     }
 
     #[test]

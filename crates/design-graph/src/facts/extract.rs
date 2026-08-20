@@ -5,8 +5,8 @@ use std::hash::{Hash, Hasher};
 use rustc_hash::FxHasher;
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent,
-    SyntaxTree, WalkEvent,
+    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, SyntaxTree,
+    WalkEvent,
     ast::{self, AstNode},
     has_name::HasName,
     has_text_range::{HasTextRange, HasTextRangeIn},
