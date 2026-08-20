@@ -115,6 +115,13 @@ impl AnalysisHost {
                 if !worker_cancel.load(Ordering::Acquire) {
                     let _ = ctx.prewarm_resolution(&worker_cancel);
                 }
+                // Slang is the last step: it is the slowest and the only one
+                // a request can do without. Building it here is what lets the
+                // request path give up after `INTERACTIVE_TIMEOUT` instead of
+                // waiting out a cold elaboration on the keyboard path.
+                if !worker_cancel.load(Ordering::Acquire) {
+                    let _ = elab.prewarm(&db, revision);
+                }
             })
             .expect("failed to spawn revision prewarm worker");
         self.prewarm = Some(PrewarmTask { cancel, worker });

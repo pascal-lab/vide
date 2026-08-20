@@ -276,11 +276,11 @@ fn slang_type_line(
     if info.owner_class.is_empty() {
         Some(info.type_name)
     } else {
-        Some(crate::slang_class::format_answer(&slang_sys::compilation::ClassMemberInfo {
-            type_name: info.type_name,
-            owner_class: info.owner_class,
-            inheritance: info.inheritance,
-        }))
+        Some(crate::slang_class::format_class_member(
+            &info.owner_class,
+            &info.type_name,
+            &info.inheritance,
+        ))
     }
 }
 

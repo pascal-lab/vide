@@ -13,14 +13,6 @@ pub struct Compilation {
     raw: UniquePtr<ffi::Compilation>,
 }
 
-/// Type, owning class, and base-class chain of one class member.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClassMemberInfo {
-    pub type_name: String,
-    pub owner_class: String,
-    pub inheritance: Vec<String>,
-}
-
 /// One elaborated instance: hierarchical path and the instantiation site.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HierInstance {
@@ -167,20 +159,11 @@ impl Compilation {
             .collect()
     }
 
-    /// Semantic answer for a class member at `offset` in `path`.
+    /// Semantic answer for the symbol at `offset` in `path`.
     ///
-    /// Empty `found` means slang elaborated the compilation but the offset
-    /// is not a class property or subroutine. This is the T4 slice: type,
-    /// owning class, inheritance chain.
-    pub fn lookup_class_member(&mut self, path: &str, offset: usize) -> Option<ClassMemberInfo> {
-        let answer = ffi::lookup_class_member(self.raw_pin(), path, offset);
-        answer.found.then_some(ClassMemberInfo {
-            type_name: answer.type_name,
-            owner_class: answer.owner_class,
-            inheritance: answer.inheritance,
-        })
-    }
-
+    /// `None` means slang elaborated the compilation and the offset denotes
+    /// no symbol. For a class member the answer also carries the owning
+    /// class and its base-class chain.
     pub fn lookup_symbol(&mut self, path: &str, offset: usize) -> Option<SymbolInfo> {
         let answer = ffi::lookup_symbol(self.raw_pin(), path, offset);
         answer.found.then_some(SymbolInfo {

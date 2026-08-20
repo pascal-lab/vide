@@ -5,43 +5,80 @@
 //! [`crate::incrementality::ProductStore`]. One worker thread owns the live
 //! compilations; queries name a snapshot revision and get a typed result.
 //!
-//! `ElabResult` is the T7 safety rope: callers can tell "slang said nothing"
+//! [`ElabResult`] is the T7 safety rope: callers can tell "slang said nothing"
 //! (`Ready(None)`) from "this snapshot is gone" (`Stale`) from "the worker
 //! could not answer" (`Unavailable`). Silent `None` is a bug.
+//!
+//! Every query is the same three steps — reach the live compilation for a
+//! revision, run one closure on it, ship the answer back. That shape is
+//! written once in [`Worker::query`] and [`ElaborationService::query`]; the
+//! public methods only name a slang entry point.
 
 use std::{
     fmt,
     hash::{Hash, Hasher},
     panic::{self, AssertUnwindSafe},
-    sync::mpsc::{self, Receiver, Sender},
+    sync::mpsc::{self, Receiver, RecvTimeoutError, Sender},
     thread::{self, JoinHandle},
     time::Duration,
 };
 
 use base_db::{
-    analysis_snapshot::AnalysisSnapshotId, project::CompilationProfileId, source_db::SourceRootDb,
+    Cancelled, analysis_snapshot::AnalysisSnapshotId, project::CompilationProfileId,
+    source_db::SourceRootDb,
 };
 use preproc_expand::compilation_plan::{
     self, CompilationPlan, CompilationRootKind, compilation_source_buffers_for_plan,
 };
 use rustc_hash::{FxHashMap, FxHasher};
-use slang_sys::compilation::{ClassMemberInfo, Compilation, HierInstance, MemberInfo, SymbolInfo};
+use slang_sys::compilation::{Compilation, HierInstance, MemberInfo, SymbolInfo};
 use syntax::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
 use vfs::FileId;
 
 use crate::db::root_db::RootDb;
 
-const LOOKUP_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long a request-path query waits before giving up on the worker.
+///
+/// A cold snapshot needs a full slang elaboration, which is far longer than
+/// this. Waiting it out on the keyboard path is a hang, not a degradation.
+/// The build is not cancelled by giving up: [`AnalysisHost`] prewarms it off
+/// the request path, and a later query for the same revision finds it ready.
+///
+/// [`AnalysisHost`]: crate::analysis_host::AnalysisHost
+const INTERACTIVE_TIMEOUT: Duration = Duration::from_millis(150);
+
 const KEPT_GENERATIONS: usize = 2;
+
+/// How long a caller is willing to wait for the worker.
+#[derive(Debug, Clone, Copy)]
+enum Wait {
+    /// Request path. Never block the editor; degrade to HIR instead.
+    Interactive,
+    /// Prewarm and tests: the answer matters, the latency does not.
+    UntilDone,
+}
 
 /// Snapshot tag carried by every query. Matches [`AnalysisSnapshotId`].
 pub type ElabRevision = AnalysisSnapshotId;
 
+/// Why the resident compilation could not answer. Each arm implies a
+/// different caller action, so they must not be collapsed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnavailableReason {
+    /// The wait elapsed while the worker was still compiling this snapshot.
+    /// The build continues; a later query for the same revision can be
+    /// `Ready`.
     NotReady,
-    TimedOut,
+    /// The file belongs to no compilation profile, so no elaboration covers
+    /// it. Waiting does not help; the workspace configuration has to change.
+    OutsideAnyProfile,
+    /// Salsa cancelled the rebuild because the workspace moved on. The next
+    /// revision will build.
+    Cancelled,
+    /// Slang unwound while answering. The payload names the query.
     Crashed(String),
+    /// The worker thread is gone.
+    WorkerGone,
 }
 
 /// Answer from the resident compilation. The three arms are the contract:
@@ -53,9 +90,26 @@ pub enum ElabResult<T> {
     Unavailable(UnavailableReason),
 }
 
+/// The payload-free half of [`ElabResult`]. Reaching the live compilation can
+/// fail before a query type is even involved, so that step returns this.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NotAnswered {
+    Stale { have: ElabRevision, want: ElabRevision },
+    Unavailable(UnavailableReason),
+}
+
+impl NotAnswered {
+    fn into_result<T>(self) -> ElabResult<T> {
+        match self {
+            NotAnswered::Stale { have, want } => ElabResult::Stale { have, want },
+            NotAnswered::Unavailable(reason) => ElabResult::Unavailable(reason),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ElaborationService {
-    tx: Sender<Request>,
+    tx: Sender<Job>,
 }
 
 impl fmt::Debug for ElaborationService {
@@ -64,73 +118,16 @@ impl fmt::Debug for ElaborationService {
     }
 }
 
-enum Request {
-    #[cfg(test)]
-    Lookup {
-        db: RootDb,
-        revision: ElabRevision,
-        profile: Option<CompilationProfileId>,
-        path: String,
-        offset: usize,
-        reply: Sender<ElabResult<ClassMemberInfo>>,
-    },
-    Symbol {
-        db: RootDb,
-        revision: ElabRevision,
-        profile: Option<CompilationProfileId>,
-        path: String,
-        offset: usize,
-        reply: Sender<ElabResult<SymbolInfo>>,
-    },
-    Scoped {
-        db: RootDb,
-        revision: ElabRevision,
-        profile: Option<CompilationProfileId>,
-        left: String,
-        right: String,
-        reply: Sender<ElabResult<SymbolInfo>>,
-    },
-    ScopeMembers {
-        db: RootDb,
-        revision: ElabRevision,
-        profile: Option<CompilationProfileId>,
-        name: String,
-        reply: Sender<ElabResult<Vec<MemberInfo>>>,
-    },
-    Members {
-        db: RootDb,
-        revision: ElabRevision,
-        profile: Option<CompilationProfileId>,
-        path: String,
-        offset: usize,
-        reply: Sender<ElabResult<Vec<MemberInfo>>>,
-    },
-    Type {
-        db: RootDb,
-        revision: ElabRevision,
-        profile: Option<CompilationProfileId>,
-        path: String,
-        start: usize,
-        end: usize,
-        reply: Sender<ElabResult<String>>,
-    },
-    Instances {
-        db: RootDb,
-        revision: ElabRevision,
-        profile: Option<CompilationProfileId>,
-        reply: Sender<ElabResult<Vec<HierInstance>>>,
-    },
-    #[cfg(test)]
-    LastReused {
-        reply: Sender<usize>,
-    },
+/// One unit of worker work. Every query is a closure so that the reply type
+/// stays with the caller instead of becoming another channel variant.
+enum Job {
+    Run(Box<dyn FnOnce(&mut Worker) + Send>),
     Shutdown,
 }
 
 struct Generation {
     revision: ElabRevision,
     profiles: FxHashMap<Option<CompilationProfileId>, ProfileElab>,
-    crash: Option<String>,
 }
 
 struct ProfileElab {
@@ -158,41 +155,63 @@ impl ElaborationService {
         (Self { tx }, worker)
     }
 
-    #[cfg(test)]
-    pub fn lookup_class_member(
+    /// Hand one job to the worker and wait for its answer.
+    ///
+    /// This is the only place that talks to the channel, so timeout and
+    /// disconnect are classified once.
+    fn dispatch<T: Send + 'static>(
+        &self,
+        wait: Wait,
+        job: impl FnOnce(&mut Worker) -> ElabResult<T> + Send + 'static,
+    ) -> ElabResult<T> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        let run = move |worker: &mut Worker| {
+            let _ = reply_tx.send(job(worker));
+        };
+        if self.tx.send(Job::Run(Box::new(run))).is_err() {
+            return ElabResult::Unavailable(UnavailableReason::WorkerGone);
+        }
+        let received = match wait {
+            Wait::Interactive => reply_rx.recv_timeout(INTERACTIVE_TIMEOUT).map_err(|err| match err
+            {
+                RecvTimeoutError::Timeout => UnavailableReason::NotReady,
+                RecvTimeoutError::Disconnected => UnavailableReason::WorkerGone,
+            }),
+            Wait::UntilDone => reply_rx.recv().map_err(|_| UnavailableReason::WorkerGone),
+        };
+        received.unwrap_or_else(ElabResult::Unavailable)
+    }
+
+    /// Run one slang entry point on the live compilation for `revision`.
+    ///
+    /// `what` names the query in [`UnavailableReason::Crashed`]. `run`
+    /// executes on the worker thread, so the compilation never crosses a
+    /// thread boundary.
+    fn query<T: Send + 'static>(
         &self,
         db: &RootDb,
         revision: ElabRevision,
         profile: Option<CompilationProfileId>,
-        path: &str,
-        offset: usize,
-    ) -> ElabResult<ClassMemberInfo> {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        if self
-            .tx
-            .send(Request::Lookup {
-                db: db.clone(),
-                revision,
-                profile,
-                path: path.to_owned(),
-                offset,
-                reply: reply_tx,
-            })
-            .is_err()
-        {
-            return ElabResult::Unavailable(UnavailableReason::Crashed(
-                "elaboration worker is gone".to_owned(),
-            ));
-        }
-        match reply_rx.recv_timeout(LOOKUP_TIMEOUT) {
-            Ok(result) => result,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                ElabResult::Unavailable(UnavailableReason::TimedOut)
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => ElabResult::Unavailable(
-                UnavailableReason::Crashed("elaboration worker dropped the lookup".to_owned()),
-            ),
-        }
+        what: &'static str,
+        run: impl FnOnce(&mut Compilation) -> Option<T> + Send + 'static,
+    ) -> ElabResult<T> {
+        let db = db.clone();
+        self.dispatch(Wait::Interactive, move |worker| {
+            worker.query(&db, revision, profile, what, run)
+        })
+    }
+
+    /// Build this snapshot's compilations, waiting for slang to finish.
+    ///
+    /// The revision prewarm calls this so that the request path finds the
+    /// answer ready instead of paying for a cold elaboration on the keyboard
+    /// path. Blocking here is the point: this is not the request path.
+    pub fn prewarm(&self, db: &RootDb, revision: ElabRevision) -> ElabResult<()> {
+        let db = db.clone();
+        self.dispatch(Wait::UntilDone, move |worker| match worker.generation(&db, revision) {
+            Ok(_) => ElabResult::Ready(Some(())),
+            Err(not_answered) => not_answered.into_result(),
+        })
     }
 
     pub fn lookup_symbol(
@@ -203,32 +222,10 @@ impl ElaborationService {
         path: &str,
         offset: usize,
     ) -> ElabResult<SymbolInfo> {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        if self
-            .tx
-            .send(Request::Symbol {
-                db: db.clone(),
-                revision,
-                profile,
-                path: path.to_owned(),
-                offset,
-                reply: reply_tx,
-            })
-            .is_err()
-        {
-            return ElabResult::Unavailable(UnavailableReason::Crashed(
-                "elaboration worker is gone".to_owned(),
-            ));
-        }
-        match reply_rx.recv_timeout(LOOKUP_TIMEOUT) {
-            Ok(result) => result,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                ElabResult::Unavailable(UnavailableReason::TimedOut)
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => ElabResult::Unavailable(
-                UnavailableReason::Crashed("elaboration worker dropped the lookup".to_owned()),
-            ),
-        }
+        let path = path.to_owned();
+        self.query(db, revision, profile, "symbol", move |slang| {
+            slang.lookup_symbol(&path, offset)
+        })
     }
 
     pub fn lookup_scoped(
@@ -239,32 +236,10 @@ impl ElaborationService {
         left: &str,
         right: &str,
     ) -> ElabResult<SymbolInfo> {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        if self
-            .tx
-            .send(Request::Scoped {
-                db: db.clone(),
-                revision,
-                profile,
-                left: left.to_owned(),
-                right: right.to_owned(),
-                reply: reply_tx,
-            })
-            .is_err()
-        {
-            return ElabResult::Unavailable(UnavailableReason::Crashed(
-                "elaboration worker is gone".to_owned(),
-            ));
-        }
-        match reply_rx.recv_timeout(LOOKUP_TIMEOUT) {
-            Ok(result) => result,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                ElabResult::Unavailable(UnavailableReason::TimedOut)
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => ElabResult::Unavailable(
-                UnavailableReason::Crashed("elaboration worker dropped the lookup".to_owned()),
-            ),
-        }
+        let (left, right) = (left.to_owned(), right.to_owned());
+        self.query(db, revision, profile, "scoped", move |slang| {
+            slang.lookup_scoped(&left, &right)
+        })
     }
 
     pub fn list_scope_members(
@@ -274,31 +249,10 @@ impl ElaborationService {
         profile: Option<CompilationProfileId>,
         name: &str,
     ) -> ElabResult<Vec<MemberInfo>> {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        if self
-            .tx
-            .send(Request::ScopeMembers {
-                db: db.clone(),
-                revision,
-                profile,
-                name: name.to_owned(),
-                reply: reply_tx,
-            })
-            .is_err()
-        {
-            return ElabResult::Unavailable(UnavailableReason::Crashed(
-                "elaboration worker is gone".to_owned(),
-            ));
-        }
-        match reply_rx.recv_timeout(LOOKUP_TIMEOUT) {
-            Ok(result) => result,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                ElabResult::Unavailable(UnavailableReason::TimedOut)
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => ElabResult::Unavailable(
-                UnavailableReason::Crashed("elaboration worker dropped the lookup".to_owned()),
-            ),
-        }
+        let name = name.to_owned();
+        self.query(db, revision, profile, "scope members", move |slang| {
+            Some(slang.list_scope_members(&name))
+        })
     }
 
     pub fn list_members(
@@ -309,32 +263,10 @@ impl ElaborationService {
         path: &str,
         offset: usize,
     ) -> ElabResult<Vec<MemberInfo>> {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        if self
-            .tx
-            .send(Request::Members {
-                db: db.clone(),
-                revision,
-                profile,
-                path: path.to_owned(),
-                offset,
-                reply: reply_tx,
-            })
-            .is_err()
-        {
-            return ElabResult::Unavailable(UnavailableReason::Crashed(
-                "elaboration worker is gone".to_owned(),
-            ));
-        }
-        match reply_rx.recv_timeout(LOOKUP_TIMEOUT) {
-            Ok(result) => result,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                ElabResult::Unavailable(UnavailableReason::TimedOut)
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => ElabResult::Unavailable(
-                UnavailableReason::Crashed("elaboration worker dropped the member list".to_owned()),
-            ),
-        }
+        let path = path.to_owned();
+        self.query(db, revision, profile, "members", move |slang| {
+            Some(slang.list_members(&path, offset))
+        })
     }
 
     pub fn lookup_type(
@@ -346,33 +278,10 @@ impl ElaborationService {
         start: usize,
         end: usize,
     ) -> ElabResult<String> {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        if self
-            .tx
-            .send(Request::Type {
-                db: db.clone(),
-                revision,
-                profile,
-                path: path.to_owned(),
-                start,
-                end,
-                reply: reply_tx,
-            })
-            .is_err()
-        {
-            return ElabResult::Unavailable(UnavailableReason::Crashed(
-                "elaboration worker is gone".to_owned(),
-            ));
-        }
-        match reply_rx.recv_timeout(LOOKUP_TIMEOUT) {
-            Ok(result) => result,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                ElabResult::Unavailable(UnavailableReason::TimedOut)
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => ElabResult::Unavailable(
-                UnavailableReason::Crashed("elaboration worker dropped the type lookup".to_owned()),
-            ),
-        }
+        let path = path.to_owned();
+        self.query(db, revision, profile, "type", move |slang| {
+            slang.lookup_type(&path, start, end)
+        })
     }
 
     pub fn list_instances(
@@ -381,352 +290,133 @@ impl ElaborationService {
         revision: ElabRevision,
         profile: Option<CompilationProfileId>,
     ) -> ElabResult<Vec<HierInstance>> {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        if self
-            .tx
-            .send(Request::Instances { db: db.clone(), revision, profile, reply: reply_tx })
-            .is_err()
-        {
-            return ElabResult::Unavailable(UnavailableReason::Crashed(
-                "elaboration worker is gone".to_owned(),
-            ));
-        }
-        match reply_rx.recv_timeout(LOOKUP_TIMEOUT) {
-            Ok(result) => result,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                ElabResult::Unavailable(UnavailableReason::TimedOut)
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => ElabResult::Unavailable(
-                UnavailableReason::Crashed("elaboration worker dropped the lookup".to_owned()),
-            ),
-        }
+        self.query(db, revision, profile, "instances", move |slang| {
+            Some(slang.list_instances())
+        })
     }
 
     pub fn shutdown(&self) {
-        let _ = self.tx.send(Request::Shutdown);
+        let _ = self.tx.send(Job::Shutdown);
     }
 
+    /// Roots whose `SyntaxTree` the last rebuild carried over.
     #[cfg(test)]
     pub(crate) fn last_reused_root_count(&self) -> usize {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        if self.tx.send(Request::LastReused { reply: reply_tx }).is_err() {
-            return 0;
-        }
-        reply_rx.recv_timeout(LOOKUP_TIMEOUT).unwrap_or(0)
-    }
-}
-
-fn worker_loop(rx: Receiver<Request>) {
-    let mut gens: Vec<Generation> = Vec::new();
-    let mut last_reused = 0usize;
-    while let Ok(request) = rx.recv() {
-        match request {
-            #[cfg(test)]
-            Request::Lookup { db, revision, profile, path, offset, reply } => {
-                let result =
-                    handle_lookup(&mut gens, &mut last_reused, db, revision, profile, path, offset);
-                let _ = reply.send(result);
-            }
-            Request::Symbol { db, revision, profile, path, offset, reply } => {
-                let result =
-                    handle_symbol(&mut gens, &mut last_reused, db, revision, profile, path, offset);
-                let _ = reply.send(result);
-            }
-            Request::Scoped { db, revision, profile, left, right, reply } => {
-                let result =
-                    handle_scoped(&mut gens, &mut last_reused, db, revision, profile, left, right);
-                let _ = reply.send(result);
-            }
-            Request::ScopeMembers { db, revision, profile, name, reply } => {
-                let result =
-                    handle_scope_members(&mut gens, &mut last_reused, db, revision, profile, name);
-                let _ = reply.send(result);
-            }
-            Request::Members { db, revision, profile, path, offset, reply } => {
-                let result = handle_members(
-                    &mut gens,
-                    &mut last_reused,
-                    db,
-                    revision,
-                    profile,
-                    path,
-                    offset,
-                );
-                let _ = reply.send(result);
-            }
-            Request::Type { db, revision, profile, path, start, end, reply } => {
-                let result = handle_type(
-                    &mut gens,
-                    &mut last_reused,
-                    db,
-                    revision,
-                    profile,
-                    path,
-                    (start, end),
-                );
-                let _ = reply.send(result);
-            }
-            Request::Instances { db, revision, profile, reply } => {
-                let result = handle_instances(&mut gens, &mut last_reused, db, revision, profile);
-                let _ = reply.send(result);
-            }
-            #[cfg(test)]
-            Request::LastReused { reply } => {
-                let _ = reply.send(last_reused);
-            }
-            Request::Shutdown => break,
+        match self.dispatch(Wait::UntilDone, |worker| ElabResult::Ready(Some(worker.last_reused))) {
+            ElabResult::Ready(Some(count)) => count,
+            other => panic!("the reuse probe must be answered, got {other:?}"),
         }
     }
 }
 
-fn handle_lookup(
-    gens: &mut Vec<Generation>,
-    last_reused: &mut usize,
-    db: RootDb,
+fn worker_loop(rx: Receiver<Job>) {
+    let mut worker = Worker::default();
+    while let Ok(job) = rx.recv() {
+        match job {
+            Job::Run(run) => run(&mut worker),
+            Job::Shutdown => break,
+        }
+    }
+}
+
+/// The live compilations. Owned by one thread; never shared.
+#[derive(Default)]
+struct Worker {
+    /// Newest last. At most [`KEPT_GENERATIONS`] entries.
+    generations: Vec<Generation>,
+    #[cfg(test)]
+    last_reused: usize,
+}
+
+impl Worker {
+    fn query<T>(
+        &mut self,
+        db: &RootDb,
+        revision: ElabRevision,
+        profile: Option<CompilationProfileId>,
+        what: &'static str,
+        run: impl FnOnce(&mut Compilation) -> Option<T>,
+    ) -> ElabResult<T> {
+        let slang = match self.compilation(db, revision, profile) {
+            Ok(slang) => slang,
+            Err(not_answered) => return not_answered.into_result(),
+        };
+        // Slang is a foreign library reached over FFI. An unwind out of it is
+        // its failure, not a broken invariant of ours, and it must not take
+        // the worker down with it. Rust-side bugs are not caught here: they
+        // live in `rebuild`, which propagates.
+        match panic::catch_unwind(AssertUnwindSafe(|| run(slang))) {
+            Ok(answer) => ElabResult::Ready(answer),
+            Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(format!(
+                "slang unwound during {what} lookup"
+            ))),
+        }
+    }
+
+    /// The live compilation for one snapshot and profile, building the
+    /// snapshot first if it is newer than everything kept.
+    fn compilation(
+        &mut self,
+        db: &RootDb,
+        revision: ElabRevision,
+        profile: Option<CompilationProfileId>,
+    ) -> Result<&mut Compilation, NotAnswered> {
+        let index = self.generation(db, revision)?;
+        self.generations[index]
+            .profiles
+            .get_mut(&profile)
+            .map(|elab| &mut elab.compilation)
+            .ok_or(NotAnswered::Unavailable(UnavailableReason::OutsideAnyProfile))
+    }
+
+    fn generation(
+        &mut self,
+        db: &RootDb,
+        revision: ElabRevision,
+    ) -> Result<usize, NotAnswered> {
+        if let Some(index) = self.generations.iter().position(|slot| slot.revision == revision) {
+            return Ok(index);
+        }
+        if let Some(newest) = self.generations.last()
+            && revision < newest.revision
+        {
+            return Err(NotAnswered::Stale { have: newest.revision, want: revision });
+        }
+        // `Cancelled::catch` unwinds again for anything that is not salsa
+        // cancellation, so a Rust bug in the rebuild kills this worker and
+        // every later query reports `WorkerGone`. That is louder than a
+        // swallowed panic and does not poison the revision.
+        let (generation, reused) =
+            Cancelled::catch(|| rebuild(db, revision, self.generations.last()))
+                .map_err(|_| NotAnswered::Unavailable(UnavailableReason::Cancelled))?;
+        #[cfg(test)]
+        {
+            self.last_reused = reused;
+        }
+        #[cfg(not(test))]
+        let _ = reused;
+        self.generations.push(generation);
+        if self.generations.len() > KEPT_GENERATIONS {
+            self.generations.remove(0);
+        }
+        Ok(self.generations.len() - 1)
+    }
+}
+
+/// Build every profile's compilation for one snapshot, carrying over the
+/// syntax trees of roots the edit did not touch.
+fn rebuild(
+    db: &RootDb,
     revision: ElabRevision,
-    profile: Option<CompilationProfileId>,
-    path: String,
-    offset: usize,
-) -> ElabResult<ClassMemberInfo> {
-    if !gens.iter().any(|slot| slot.revision == revision) {
-        if !should_build(gens, revision) {
-            let have = gens.last().map(|slot| slot.revision).unwrap_or(revision);
-            return ElabResult::Stale { have, want: revision };
-        }
-        match panic::catch_unwind(AssertUnwindSafe(|| rebuild(&db, revision, gens))) {
-            Ok((built, reused)) => {
-                *last_reused = reused;
-                gens.push(built);
-                if gens.len() > KEPT_GENERATIONS {
-                    gens.remove(0);
-                }
-            }
-            Err(_) => {
-                gens.push(Generation {
-                    revision,
-                    profiles: FxHashMap::default(),
-                    crash: Some("elaboration rebuild panicked".to_owned()),
-                });
-                if gens.len() > KEPT_GENERATIONS {
-                    gens.remove(0);
-                }
-            }
-        }
-    }
+    reuse_from: Option<&Generation>,
+) -> (Generation, usize) {
+    // A workspace with no configured profile still compiles: the plan for
+    // `None` covers every root. This is the unconfigured case, not the
+    // orphan-file bucket that profile partitioning has to avoid.
+    let ids = db.project_config().profile_ids();
+    let profile_ids: Vec<Option<CompilationProfileId>> =
+        if ids.is_empty() { vec![None] } else { ids.into_iter().map(Some).collect() };
 
-    let Some(slot) = gens.iter_mut().find(|slot| slot.revision == revision) else {
-        return ElabResult::Unavailable(UnavailableReason::NotReady);
-    };
-    if let Some(message) = &slot.crash {
-        return ElabResult::Unavailable(UnavailableReason::Crashed(message.clone()));
-    }
-    let Some(profile_elab) = slot.profiles.get_mut(&profile) else {
-        return ElabResult::Unavailable(UnavailableReason::NotReady);
-    };
-    match panic::catch_unwind(AssertUnwindSafe(|| {
-        profile_elab.compilation.lookup_class_member(&path, offset)
-    })) {
-        Ok(answer) => ElabResult::Ready(answer),
-        Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
-            "class-member lookup panicked".to_owned(),
-        )),
-    }
-}
-
-fn handle_symbol(
-    gens: &mut Vec<Generation>,
-    last_reused: &mut usize,
-    db: RootDb,
-    revision: ElabRevision,
-    profile: Option<CompilationProfileId>,
-    path: String,
-    offset: usize,
-) -> ElabResult<SymbolInfo> {
-    match handle_lookup(gens, last_reused, db, revision, profile, String::new(), 0) {
-        ElabResult::Stale { have, want } => ElabResult::Stale { have, want },
-        ElabResult::Unavailable(reason) => ElabResult::Unavailable(reason),
-        ElabResult::Ready(_) => {
-            let Some(slot) = gens.iter_mut().find(|slot| slot.revision == revision) else {
-                return ElabResult::Unavailable(UnavailableReason::NotReady);
-            };
-            let Some(profile_elab) = slot.profiles.get_mut(&profile) else {
-                return ElabResult::Unavailable(UnavailableReason::NotReady);
-            };
-            match panic::catch_unwind(AssertUnwindSafe(|| {
-                profile_elab.compilation.lookup_symbol(&path, offset)
-            })) {
-                Ok(answer) => ElabResult::Ready(answer),
-                Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
-                    "symbol lookup panicked".to_owned(),
-                )),
-            }
-        }
-    }
-}
-
-fn handle_scoped(
-    gens: &mut Vec<Generation>,
-    last_reused: &mut usize,
-    db: RootDb,
-    revision: ElabRevision,
-    profile: Option<CompilationProfileId>,
-    left: String,
-    right: String,
-) -> ElabResult<SymbolInfo> {
-    match handle_lookup(gens, last_reused, db, revision, profile, String::new(), 0) {
-        ElabResult::Stale { have, want } => ElabResult::Stale { have, want },
-        ElabResult::Unavailable(reason) => ElabResult::Unavailable(reason),
-        ElabResult::Ready(_) => {
-            let Some(slot) = gens.iter_mut().find(|slot| slot.revision == revision) else {
-                return ElabResult::Unavailable(UnavailableReason::NotReady);
-            };
-            let Some(profile_elab) = slot.profiles.get_mut(&profile) else {
-                return ElabResult::Unavailable(UnavailableReason::NotReady);
-            };
-            match panic::catch_unwind(AssertUnwindSafe(|| {
-                profile_elab.compilation.lookup_scoped(&left, &right)
-            })) {
-                Ok(answer) => ElabResult::Ready(answer),
-                Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
-                    "scoped lookup panicked".to_owned(),
-                )),
-            }
-        }
-    }
-}
-
-fn handle_scope_members(
-    gens: &mut Vec<Generation>,
-    last_reused: &mut usize,
-    db: RootDb,
-    revision: ElabRevision,
-    profile: Option<CompilationProfileId>,
-    name: String,
-) -> ElabResult<Vec<MemberInfo>> {
-    match handle_lookup(gens, last_reused, db, revision, profile, String::new(), 0) {
-        ElabResult::Stale { have, want } => ElabResult::Stale { have, want },
-        ElabResult::Unavailable(reason) => ElabResult::Unavailable(reason),
-        ElabResult::Ready(_) => {
-            let Some(slot) = gens.iter_mut().find(|slot| slot.revision == revision) else {
-                return ElabResult::Unavailable(UnavailableReason::NotReady);
-            };
-            let Some(profile_elab) = slot.profiles.get_mut(&profile) else {
-                return ElabResult::Unavailable(UnavailableReason::NotReady);
-            };
-            match panic::catch_unwind(AssertUnwindSafe(|| {
-                profile_elab.compilation.list_scope_members(&name)
-            })) {
-                Ok(members) => ElabResult::Ready(Some(members)),
-                Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
-                    "scope member list panicked".to_owned(),
-                )),
-            }
-        }
-    }
-}
-
-fn handle_members(
-    gens: &mut Vec<Generation>,
-    last_reused: &mut usize,
-    db: RootDb,
-    revision: ElabRevision,
-    profile: Option<CompilationProfileId>,
-    path: String,
-    offset: usize,
-) -> ElabResult<Vec<MemberInfo>> {
-    match handle_lookup(gens, last_reused, db, revision, profile, String::new(), 0) {
-        ElabResult::Stale { have, want } => ElabResult::Stale { have, want },
-        ElabResult::Unavailable(reason) => ElabResult::Unavailable(reason),
-        ElabResult::Ready(_) => {
-            let Some(slot) = gens.iter_mut().find(|slot| slot.revision == revision) else {
-                return ElabResult::Unavailable(UnavailableReason::NotReady);
-            };
-            let Some(profile_elab) = slot.profiles.get_mut(&profile) else {
-                return ElabResult::Unavailable(UnavailableReason::NotReady);
-            };
-            match panic::catch_unwind(AssertUnwindSafe(|| {
-                profile_elab.compilation.list_members(&path, offset)
-            })) {
-                Ok(members) => ElabResult::Ready(Some(members)),
-                Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
-                    "member list panicked".to_owned(),
-                )),
-            }
-        }
-    }
-}
-
-fn handle_type(
-    gens: &mut Vec<Generation>,
-    last_reused: &mut usize,
-    db: RootDb,
-    revision: ElabRevision,
-    profile: Option<CompilationProfileId>,
-    path: String,
-    span: (usize, usize),
-) -> ElabResult<String> {
-    match handle_lookup(gens, last_reused, db, revision, profile, String::new(), 0) {
-        ElabResult::Stale { have, want } => ElabResult::Stale { have, want },
-        ElabResult::Unavailable(reason) => ElabResult::Unavailable(reason),
-        ElabResult::Ready(_) => {
-            let Some(slot) = gens.iter_mut().find(|slot| slot.revision == revision) else {
-                return ElabResult::Unavailable(UnavailableReason::NotReady);
-            };
-            let Some(profile_elab) = slot.profiles.get_mut(&profile) else {
-                return ElabResult::Unavailable(UnavailableReason::NotReady);
-            };
-            match panic::catch_unwind(AssertUnwindSafe(|| {
-                profile_elab.compilation.lookup_type(&path, span.0, span.1)
-            })) {
-                Ok(answer) => ElabResult::Ready(answer),
-                Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
-                    "type lookup panicked".to_owned(),
-                )),
-            }
-        }
-    }
-}
-
-fn handle_instances(
-    gens: &mut Vec<Generation>,
-    last_reused: &mut usize,
-    db: RootDb,
-    revision: ElabRevision,
-    profile: Option<CompilationProfileId>,
-) -> ElabResult<Vec<HierInstance>> {
-    match handle_lookup(gens, last_reused, db, revision, profile, String::new(), 0) {
-        ElabResult::Stale { have, want } => ElabResult::Stale { have, want },
-        ElabResult::Unavailable(reason) => ElabResult::Unavailable(reason),
-        ElabResult::Ready(_) => {
-            let slot = gens.iter_mut().find(|slot| slot.revision == revision);
-            let Some(slot) = slot else {
-                return ElabResult::Unavailable(UnavailableReason::NotReady);
-            };
-            let Some(profile_elab) = slot.profiles.get_mut(&profile) else {
-                return ElabResult::Unavailable(UnavailableReason::NotReady);
-            };
-            match panic::catch_unwind(AssertUnwindSafe(|| {
-                profile_elab.compilation.list_instances()
-            })) {
-                Ok(instances) => ElabResult::Ready(Some(instances)),
-                Err(_) => ElabResult::Unavailable(UnavailableReason::Crashed(
-                    "instance walk panicked".to_owned(),
-                )),
-            }
-        }
-    }
-}
-
-fn should_build(gens: &[Generation], revision: ElabRevision) -> bool {
-    gens.is_empty() || gens.iter().all(|slot| slot.revision < revision)
-}
-
-fn rebuild(db: &RootDb, revision: ElabRevision, prev: &[Generation]) -> (Generation, usize) {
-    let profile_ids = {
-        let ids = db.project_config().profile_ids();
-        if ids.is_empty() { vec![None] } else { ids.into_iter().map(Some).collect() }
-    };
-    let reuse_from = prev.last();
     let mut profiles = FxHashMap::default();
     let mut reused_total = 0;
     for profile_id in profile_ids {
@@ -735,7 +425,7 @@ fn rebuild(db: &RootDb, revision: ElabRevision, prev: &[Generation]) -> (Generat
         reused_total += reused;
         profiles.insert(profile_id, elab);
     }
-    (Generation { revision, profiles, crash: None }, reused_total)
+    (Generation { revision, profiles }, reused_total)
 }
 
 fn compile_profile(
@@ -857,15 +547,19 @@ endclass
         }
     }
 
+    /// Block for the build, then ask, so a cold snapshot cannot make an
+    /// assertion about the *answer* fail for a latency reason.
     fn lookup_at(
         host: &AnalysisHost,
         file_id: FileId,
         offset: TextSize,
-    ) -> ElabResult<ClassMemberInfo> {
+    ) -> ElabResult<SymbolInfo> {
         let ctx = host.ctx();
         let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
         let profile = ctx.db.file_compilation_profile(file_id);
-        ctx.elab.lookup_class_member(ctx.db, ctx.revision, profile, &path, usize::from(offset))
+        let built = ctx.elab.prewarm(ctx.db, ctx.revision);
+        assert!(matches!(built, ElabResult::Ready(_)), "build must finish, got {built:?}");
+        ctx.elab.lookup_symbol(ctx.db, ctx.revision, profile, &path, usize::from(offset))
     }
 
     #[test]
@@ -896,7 +590,7 @@ endclass
 
         let ctx = host.ctx();
         let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
-        let stale = ctx.elab.lookup_class_member(
+        let stale = ctx.elab.lookup_symbol(
             ctx.db,
             first,
             ctx.db.file_compilation_profile(file_id),
@@ -915,11 +609,11 @@ endclass
         service.shutdown();
         let _ = worker.join();
         let db = RootDb::new(None);
-        let result =
-            service.lookup_class_member(&db, AnalysisSnapshotId::default(), None, "gone.sv", 0);
-        assert!(
-            matches!(result, ElabResult::Unavailable(UnavailableReason::Crashed(_))),
-            "a gone worker is Unavailable, got {result:?}"
+        let result = service.lookup_symbol(&db, AnalysisSnapshotId::default(), None, "gone.sv", 0);
+        assert_eq!(
+            result,
+            ElabResult::Unavailable(UnavailableReason::WorkerGone),
+            "a gone worker is WorkerGone, not empty"
         );
     }
 

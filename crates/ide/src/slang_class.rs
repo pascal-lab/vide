@@ -7,60 +7,13 @@
 //! rule, with the failure mode visible in the type.
 
 use base_db::source_db::SourceRootDb;
-#[cfg(test)]
-use hir_def::ast_id_map::SourceAstId;
 use preproc_expand::compilation_plan;
-#[cfg(test)]
-use preproc_expand::file::HirFileId;
-use slang_sys::compilation::{ClassMemberInfo, MemberInfo, SymbolInfo};
+use slang_sys::compilation::{MemberInfo, SymbolInfo};
 #[cfg(test)]
 use syntax::SyntaxTreeOptions;
-#[cfg(test)]
-use syntax::has_text_range::HasTextRange;
 use vfs::FileId;
 
 use crate::{analysis::AnalysisContext, elaboration::ElabResult};
-
-/// Look up a class member in `text` at `offset` via a fresh slang compilation.
-#[cfg(test)]
-pub fn lookup_in_text(
-    text: &str,
-    name: &str,
-    path: &str,
-    offset: usize,
-    include_paths: &[String],
-) -> Option<ClassMemberInfo> {
-    use slang_sys::compilation::Compilation;
-    use syntax::SyntaxTreeOptions;
-    let mut compilation = Compilation::new();
-    let options =
-        SyntaxTreeOptions { include_paths: include_paths.to_vec(), ..SyntaxTreeOptions::default() };
-    compilation.parse_syntax_tree_from_text(text, name, path, &options);
-    compilation.lookup_class_member(path, offset)
-}
-
-/// Shipped `(FileId, SourceAstId)` entry: map the stable id to a range, then
-/// ask the resident compilation for this snapshot.
-#[cfg(test)]
-pub fn lookup_from_ast_id(
-    ctx: &AnalysisContext<'_>,
-    file_id: FileId,
-    ast_id: SourceAstId,
-) -> ElabResult<ClassMemberInfo> {
-    let hir_file = HirFileId::File(file_id);
-    let tree = ctx.db.parse(hir_file);
-    let map = ctx.db.ast_id_map(hir_file);
-    let Some(node) = map.node(ast_id, &tree) else {
-        return ElabResult::Ready(None);
-    };
-    let Some(range) = node.text_range() else {
-        return ElabResult::Ready(None);
-    };
-    let offset = usize::from(range.start());
-    let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
-    let profile = ctx.db.file_compilation_profile(file_id);
-    ctx.elab.lookup_class_member(ctx.db, ctx.revision, profile, &path, offset)
-}
 
 pub fn lookup_symbol_at(
     ctx: &AnalysisContext<'_>,
@@ -112,11 +65,12 @@ pub fn lookup_type_at(
     ctx.elab.lookup_type(ctx.db, ctx.revision, profile, &path, start, end)
 }
 
-pub fn format_answer(info: &ClassMemberInfo) -> String {
-    let mut line = format!("{} :: {}", info.owner_class, info.type_name);
-    if !info.inheritance.is_empty() {
+/// `owner :: type extends base > base` for a class member.
+pub fn format_class_member(owner_class: &str, type_name: &str, inheritance: &[String]) -> String {
+    let mut line = format!("{owner_class} :: {type_name}");
+    if !inheritance.is_empty() {
         line.push_str(" extends ");
-        line.push_str(&info.inheritance.join(" > "));
+        line.push_str(&inheritance.join(" > "));
     }
     line
 }
@@ -163,36 +117,28 @@ virtual class uvm_object extends uvm_void;
 endclass
 "#;
 
-    #[test]
-    fn shipped_lookup_from_ast_id_returns_class_member() {
-        let src = "virtual class uvm_void; endclass\nvirtual class uvm_object extends uvm_void;\n  string m_leaf_name;\nendclass\n";
-        let (host, file_id) = crate::test_utils::setup_with_path(src, "/uvm_object.sv");
-        let tree = host.ctx().parse_file(file_id);
-        let map = host.ctx().db.ast_id_map(HirFileId::File(file_id));
-        let mut found = None;
-        for event in tree.root().node_preorder() {
-            let syntax::WalkEvent::Enter(node) = event else {
-                continue;
-            };
-            let Some(range) = node.text_range() else {
-                continue;
-            };
-            let start = usize::from(range.start());
-            let end = usize::from(range.end());
-            if !src.get(start..end).is_some_and(|span| span.contains("m_leaf_name")) {
-                continue;
-            }
-            if let Some(id) = map.id_of_node(node) {
-                found = match lookup_from_ast_id(&host.ctx(), file_id, id) {
-                    ElabResult::Ready(Some(info)) => Some(info),
-                    _ => None,
-                };
-                if found.is_some() {
-                    break;
-                }
-            }
+    /// Wait for the build, then use the shipped entry point. Nothing here may
+    /// fall back to a private compilation: a test that answers by a route
+    /// production does not take proves nothing about production.
+    fn shipped_symbol_at(
+        host: &crate::analysis_host::AnalysisHost,
+        file_id: FileId,
+        offset: utils::line_index::TextSize,
+    ) -> Option<SymbolInfo> {
+        let ctx = host.ctx();
+        let built = ctx.elab.prewarm(ctx.db, ctx.revision);
+        assert!(matches!(built, ElabResult::Ready(_)), "build must finish, got {built:?}");
+        match lookup_symbol_at(&ctx, file_id, usize::from(offset)) {
+            ElabResult::Ready(info) => info,
+            other => panic!("shipped lookup must be Ready, got {other:?}"),
         }
-        let info = found.expect("shipped (FileId, SourceAstId) path must hit slang");
+    }
+
+    #[test]
+    fn the_shipped_offset_entry_returns_the_class_member() {
+        let (host, file_id, _text, markers) = setup_marked(UVM_OBJECT);
+        let info =
+            shipped_symbol_at(&host, file_id, markers["name"]).expect("class property is a symbol");
         assert_eq!(info.owner_class, "uvm_object");
         assert!(info.inheritance.iter().any(|name| name == "uvm_void"), "{info:?}");
         assert!(info.type_name.contains("string"), "{info:?}");
@@ -255,6 +201,9 @@ endmodule
 
         let (host, file_id, _text, markers) = setup_marked(UVM_OBJECT);
         let pos = position(file_id, &markers, "name");
+        let slang =
+            shipped_symbol_at(&host, file_id, markers["name"]).expect("slang answers the member");
+
         let mut times = Vec::new();
         let mut hits = 0usize;
         for _ in 0..40 {
@@ -268,33 +217,6 @@ endmodule
         times.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let p95 = times[((times.len() * 95) / 100).min(times.len() - 1)];
 
-        let ctx = host.ctx();
-        let tree = ctx.parse_file(file_id);
-        let map = ctx.db.ast_id_map(HirFileId::File(file_id));
-        let slang = map
-            .id_of_node(tree.root())
-            .and_then(|_| {
-                let offset = pos.offset;
-                tree.root().node_preorder().find_map(|event| {
-                    let syntax::WalkEvent::Enter(node) = event else {
-                        return None;
-                    };
-                    let range = node.text_range()?;
-                    if range.start() <= offset && offset < range.end() {
-                        let id = map.id_of_node(node)?;
-                        match lookup_from_ast_id(&ctx, file_id, id) {
-                            ElabResult::Ready(Some(info)) => Some(info),
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    }
-                })
-            })
-            .or_else(|| {
-                lookup_in_text(UVM_OBJECT, "feature.v", "/feature.v", usize::from(pos.offset), &[])
-            });
-        let slang = slang.expect("slang must answer the class member");
         let (matched, compared) =
             source_ast_ids_agree(UVM_OBJECT, "uvm_object.svh", "uvm_object.svh");
         let id_ok = compared > 0 && matched == compared;
