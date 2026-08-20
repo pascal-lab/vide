@@ -250,17 +250,19 @@ fn handle_definition(
         hir_def::symbol::Resolution::Unresolved => {}
     }
 
-    if let Some(slang) = slang_type_hover(db, file_id, tp) {
-        res.merge(slang);
+    if res.is_empty()
+        && let Some(ty) = slang_type_line(db, file_id, tp)
+    {
+        res.push_with_code_fence(&ty);
     }
     (!res.is_empty()).then_some(res)
 }
 
-fn slang_type_hover(
+fn slang_type_line(
     db: &AnalysisContext<'_>,
     file_id: HirFileId,
     tp: SyntaxTokenWithParent<'_>,
-) -> Option<Markup> {
+) -> Option<String> {
     let file = file_id.as_file()?;
     let range = tp.text_range()?;
     let crate::elaboration::ElabResult::Ready(Some(info)) =
@@ -268,20 +270,18 @@ fn slang_type_hover(
     else {
         return None;
     };
-    let mut markup = Markup::new();
-    markup.section("slang");
-    if info.owner_class.is_empty() {
-        markup.print(&info.type_name);
-    } else {
-        markup.print(&crate::slang_class::format_answer(
-            &slang_sys::compilation::ClassMemberInfo {
-                type_name: info.type_name,
-                owner_class: info.owner_class,
-                inheritance: info.inheritance,
-            },
-        ));
+    if info.type_name.is_empty() {
+        return None;
     }
-    Some(markup)
+    if info.owner_class.is_empty() {
+        Some(info.type_name)
+    } else {
+        Some(crate::slang_class::format_answer(&slang_sys::compilation::ClassMemberInfo {
+            type_name: info.type_name,
+            owner_class: info.owner_class,
+            inheritance: info.inheritance,
+        }))
+    }
 }
 
 fn token_text(
