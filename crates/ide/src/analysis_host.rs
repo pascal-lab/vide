@@ -161,11 +161,6 @@ impl AnalysisHost {
     }
 
     #[cfg(test)]
-    pub(crate) fn elab(&self) -> &ElaborationService {
-        &self.elab
-    }
-
-    #[cfg(test)]
     pub(crate) fn ctx(&self) -> AnalysisContext<'_> {
         AnalysisContext::new(&self.db, &self.store, &self.elab, self.snapshot_id)
     }

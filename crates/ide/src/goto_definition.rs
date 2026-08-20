@@ -113,11 +113,8 @@ fn slang_scoped_nav(
 ) -> Option<Vec<NavTarget>> {
     let file = hir_file_id.as_file()?;
     let (left, right) = crate::definitions::colon_colon_query(token)?;
-    let crate::elaboration::ElabResult::Ready(Some(info)) =
-        crate::slang_class::lookup_scoped_at(db, file, &left, &right)
-    else {
-        return None;
-    };
+    let info = crate::slang_class::lookup_scoped_at(db, file, &left, &right)
+        .answered("goto definition")?;
     if info.def_file.is_empty() {
         return None;
     }

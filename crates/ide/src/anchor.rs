@@ -46,16 +46,15 @@ fn project_instance(
     ctx: &crate::analysis::AnalysisContext<'_>,
     path: &HierPath,
 ) -> Option<ProjectedAnchor> {
-    use crate::elaboration::ElabResult;
-
     let profiles = {
         let ids = ctx.db.project_config().profile_ids();
         if ids.is_empty() { vec![None] } else { ids.into_iter().map(Some).collect::<Vec<_>>() }
     };
     for profile in profiles {
-        let rows = match ctx.elab.list_instances(ctx.db, ctx.revision, profile) {
-            ElabResult::Ready(Some(rows)) => rows,
-            _ => continue,
+        let Some(rows) =
+            ctx.elab.list_instances(ctx.db, ctx.revision, profile).answered("instance anchor")
+        else {
+            continue;
         };
         let Some(row) = rows.iter().find(|row| row.path == path.as_str()) else {
             continue;

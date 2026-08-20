@@ -23,11 +23,10 @@ pub(super) fn complete_member_access(
         return Vec::new();
     };
     if let Some(name) = colon_colon_scope_name(root, position.offset) {
-        return members_to_candidates(
-            slang_class::list_scope_members_at(db, position.file_id, &name),
-            prefix,
-            ctx,
-        );
+        let members = slang_class::list_scope_members_at(db, position.file_id, &name)
+            .answered("scope member completion")
+            .unwrap_or_default();
+        return to_candidates(members, prefix, ctx);
     }
 
     let Some(expr) = dot_prefix_expr(root, position.offset) else {
@@ -36,33 +35,29 @@ pub(super) fn complete_member_access(
     let Some(name) = expr_source_text(db, position.file_id, expr) else {
         return Vec::new();
     };
-    let named = slang_class::list_scope_members_at(db, position.file_id, &name);
-    if matches!(&named, crate::elaboration::ElabResult::Ready(Some(members)) if !members.is_empty())
-    {
-        return members_to_candidates(named, prefix, ctx);
+    // `a.b` where `a` names a scope directly, versus `a` being an expression
+    // whose type has the members. Ask by name first; it is the cheaper shape.
+    let by_name = slang_class::list_scope_members_at(db, position.file_id, &name)
+        .answered("member completion by name")
+        .unwrap_or_default();
+    if !by_name.is_empty() {
+        return to_candidates(by_name, prefix, ctx);
     }
     let Some(range) = expr.syntax().text_range() else {
-        return members_to_candidates(named, prefix, ctx);
+        return Vec::new();
     };
-    members_to_candidates(
-        slang_class::list_members_at(
-            db,
-            position.file_id,
-            usize::from(range.end()).saturating_sub(1),
-        ),
-        prefix,
-        ctx,
-    )
+    let by_type =
+        slang_class::list_members_at(db, position.file_id, usize::from(range.end()).saturating_sub(1))
+            .answered("member completion by type")
+            .unwrap_or_default();
+    to_candidates(by_type, prefix, ctx)
 }
 
-fn members_to_candidates(
-    result: crate::elaboration::ElabResult<Vec<slang_sys::compilation::MemberInfo>>,
+fn to_candidates(
+    members: Vec<slang_sys::compilation::MemberInfo>,
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let crate::elaboration::ElabResult::Ready(Some(members)) = result else {
-        return Vec::new();
-    };
     members
         .into_iter()
         .filter(|member| member.name.starts_with(prefix))

@@ -1,10 +1,12 @@
-//! Class-member lookup through the resident elaboration service.
+//! Semantic lookups through the resident elaboration service.
 //!
-//! A missing answer is [`ElabResult::Ready`]`(None)` (slang elaborated and
-//! found no class member). [`ElabResult::Stale`] and
-//! [`ElabResult::Unavailable`] are not empty: hover skips slang and keeps
-//! the HIR answer. That is the "service down → drop fidelity, not function"
-//! rule, with the failure mode visible in the type.
+//! These functions only turn an IDE position into the arguments slang wants
+//! and hand back the whole [`ElabResult`]. Deciding what a non-answer means
+//! is the caller's job, and every caller does it the same way, through
+//! [`ElabResult::answered`], so "slang is down" never reads as "no such
+//! symbol".
+//!
+//! [`ElabResult::answered`]: crate::elaboration::ElabResult::answered
 
 use base_db::source_db::SourceRootDb;
 use preproc_expand::compilation_plan;

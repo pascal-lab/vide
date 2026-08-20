@@ -244,23 +244,6 @@ bool in_buffer(
     return original.valid() && original.buffer() == buffer;
 }
 
-bool offset_in_symbol(const slang::ast::Symbol& symbol, std::size_t offset) {
-    auto loc = symbol.location;
-    if (loc.valid() && loc.offset() == offset)
-        return true;
-    if (const auto* syntax = symbol.getSyntax()) {
-        auto range = syntax->sourceRange();
-        if (range.start().valid() && range.end().valid()) {
-            auto start = range.start().offset();
-            auto end = range.end().offset();
-            if (offset >= start && offset <= end)
-                return true;
-        }
-    }
-    auto name_end = loc.valid() ? loc.offset() + symbol.name.size() : 0;
-    return loc.valid() && offset >= loc.offset() && offset < name_end;
-}
-
 std::vector<std::string> inheritance_of(const slang::ast::ClassType& cls) {
     std::vector<std::string> chain;
     const slang::ast::Type* base = cls.getBaseClass();
@@ -272,14 +255,6 @@ std::vector<std::string> inheritance_of(const slang::ast::ClassType& cls) {
             break;
     }
     return chain;
-}
-
-std::string member_type_name(const slang::ast::Symbol& symbol) {
-    if (const auto* value = symbol.as_if<slang::ast::ValueSymbol>())
-        return value->getType().toString();
-    if (const auto* sub = symbol.as_if<slang::ast::SubroutineSymbol>())
-        return sub->getReturnType().toString();
-    return {};
 }
 
 } // namespace

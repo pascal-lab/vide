@@ -265,11 +265,8 @@ fn slang_type_line(
 ) -> Option<String> {
     let file = file_id.as_file()?;
     let range = tp.text_range()?;
-    let crate::elaboration::ElabResult::Ready(Some(info)) =
-        crate::slang_class::lookup_symbol_at(db, file, usize::from(range.start()))
-    else {
-        return None;
-    };
+    let info = crate::slang_class::lookup_symbol_at(db, file, usize::from(range.start()))
+        .answered("hover")?;
     if info.type_name.is_empty() {
         return None;
     }

@@ -16,7 +16,6 @@
 
 use std::{
     fmt,
-    hash::{Hash, Hasher},
     panic::{self, AssertUnwindSafe},
     sync::mpsc::{self, Receiver, RecvTimeoutError, Sender},
     thread::{self, JoinHandle},
@@ -28,12 +27,11 @@ use base_db::{
     source_db::SourceRootDb,
 };
 use preproc_expand::compilation_plan::{
-    self, CompilationPlan, CompilationRootKind, compilation_source_buffers_for_plan,
+    self, CompilationRootKind, compilation_source_buffers_for_plan,
 };
-use rustc_hash::{FxHashMap, FxHasher};
+use rustc_hash::FxHashMap;
 use slang_sys::compilation::{Compilation, HierInstance, MemberInfo, SymbolInfo};
-use syntax::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
-use vfs::FileId;
+use syntax::{SyntaxTreeBuffer, SyntaxTreeOptions};
 
 use crate::db::root_db::RootDb;
 
@@ -90,6 +88,43 @@ pub enum ElabResult<T> {
     Unavailable(UnavailableReason),
 }
 
+impl<T> ElabResult<T> {
+    /// The answer, recording the degradation when there is not one.
+    ///
+    /// `Ready(None)` is an answer: slang elaborated and found nothing there,
+    /// so absence is the truth. Every other arm means slang did *not*
+    /// answer, which is a different fact, and callers that fall back to HIR
+    /// must not make it indistinguishable from absence. Routing the whole
+    /// enum through here is what keeps the fallback visible.
+    ///
+    /// `feature` names the caller; the slang entry point is already in
+    /// [`UnavailableReason::Crashed`].
+    pub fn answered(self, feature: &'static str) -> Option<T> {
+        match self {
+            ElabResult::Ready(answer) => answer,
+            // Routine while typing: the snapshot rolled, or the build for
+            // this one is still running.
+            ElabResult::Stale { have, want } => {
+                tracing::debug!(feature, ?have, ?want, "elaboration is behind; HIR answers");
+                None
+            }
+            ElabResult::Unavailable(
+                reason @ (UnavailableReason::NotReady
+                | UnavailableReason::OutsideAnyProfile
+                | UnavailableReason::Cancelled),
+            ) => {
+                tracing::debug!(feature, ?reason, "elaboration declined; HIR answers");
+                None
+            }
+            // Not routine. Fidelity is gone until someone looks at this.
+            ElabResult::Unavailable(reason) => {
+                tracing::warn!(feature, ?reason, "elaboration failed; HIR answers");
+                None
+            }
+        }
+    }
+}
+
 /// The payload-free half of [`ElabResult`]. Reaching the live compilation can
 /// fail before a query type is even involved, so that step returns this.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,22 +162,7 @@ enum Job {
 
 struct Generation {
     revision: ElabRevision,
-    profiles: FxHashMap<Option<CompilationProfileId>, ProfileElab>,
-}
-
-struct ProfileElab {
-    compilation: Compilation,
-    trees: FxHashMap<FileId, SyntaxTree>,
-    file_hashes: FxHashMap<FileId, u64>,
-    fingerprint: Fingerprint,
-}
-
-#[derive(Clone, PartialEq, Eq)]
-struct Fingerprint {
-    top_modules: Vec<String>,
-    include_dirs: Vec<String>,
-    predefines: Vec<String>,
-    roots: Vec<(u32, CompilationRootKind)>,
+    profiles: FxHashMap<Option<CompilationProfileId>, Compilation>,
 }
 
 impl ElaborationService {
@@ -299,14 +319,6 @@ impl ElaborationService {
         let _ = self.tx.send(Job::Shutdown);
     }
 
-    /// Roots whose `SyntaxTree` the last rebuild carried over.
-    #[cfg(test)]
-    pub(crate) fn last_reused_root_count(&self) -> usize {
-        match self.dispatch(Wait::UntilDone, |worker| ElabResult::Ready(Some(worker.last_reused))) {
-            ElabResult::Ready(Some(count)) => count,
-            other => panic!("the reuse probe must be answered, got {other:?}"),
-        }
-    }
 }
 
 fn worker_loop(rx: Receiver<Job>) {
@@ -324,8 +336,6 @@ fn worker_loop(rx: Receiver<Job>) {
 struct Worker {
     /// Newest last. At most [`KEPT_GENERATIONS`] entries.
     generations: Vec<Generation>,
-    #[cfg(test)]
-    last_reused: usize,
 }
 
 impl Worker {
@@ -365,7 +375,6 @@ impl Worker {
         self.generations[index]
             .profiles
             .get_mut(&profile)
-            .map(|elab| &mut elab.compilation)
             .ok_or(NotAnswered::Unavailable(UnavailableReason::OutsideAnyProfile))
     }
 
@@ -386,15 +395,8 @@ impl Worker {
         // cancellation, so a Rust bug in the rebuild kills this worker and
         // every later query reports `WorkerGone`. That is louder than a
         // swallowed panic and does not poison the revision.
-        let (generation, reused) =
-            Cancelled::catch(|| rebuild(db, revision, self.generations.last()))
-                .map_err(|_| NotAnswered::Unavailable(UnavailableReason::Cancelled))?;
-        #[cfg(test)]
-        {
-            self.last_reused = reused;
-        }
-        #[cfg(not(test))]
-        let _ = reused;
+        let generation = Cancelled::catch(|| rebuild(db, revision))
+            .map_err(|_| NotAnswered::Unavailable(UnavailableReason::Cancelled))?;
         self.generations.push(generation);
         if self.generations.len() > KEPT_GENERATIONS {
             self.generations.remove(0);
@@ -403,13 +405,16 @@ impl Worker {
     }
 }
 
-/// Build every profile's compilation for one snapshot, carrying over the
-/// syntax trees of roots the edit did not touch.
-fn rebuild(
-    db: &RootDb,
-    revision: ElabRevision,
-    reuse_from: Option<&Generation>,
-) -> (Generation, usize) {
+/// Build every profile's compilation for one snapshot.
+///
+/// Every root is parsed fresh. Carrying a `SyntaxTree` over from the previous
+/// generation is not possible as the FFI stands: a `Compilation` owns a
+/// `SourceSession`, every tree belongs to the session it was parsed in, and
+/// `add_syntax_tree` rejects a foreign one. Reusing trees needs a session
+/// that outlives a single generation, with `SourceManager::replaceBuffer` for
+/// the edited files — a change in `slang-sys`, not here. Do not reintroduce
+/// per-root reuse without it; it aborts the process.
+fn rebuild(db: &RootDb, revision: ElabRevision) -> Generation {
     // A workspace with no configured profile still compiles: the plan for
     // `None` covers every root. This is the unconfigured case, not the
     // orphan-file bucket that profile partitioning has to avoid.
@@ -417,102 +422,49 @@ fn rebuild(
     let profile_ids: Vec<Option<CompilationProfileId>> =
         if ids.is_empty() { vec![None] } else { ids.into_iter().map(Some).collect() };
 
-    let mut profiles = FxHashMap::default();
-    let mut reused_total = 0;
-    for profile_id in profile_ids {
-        let previous = reuse_from.and_then(|slot| slot.profiles.get(&profile_id));
-        let (elab, reused) = compile_profile(db, profile_id, previous);
-        reused_total += reused;
-        profiles.insert(profile_id, elab);
-    }
-    (Generation { revision, profiles }, reused_total)
+    let profiles = profile_ids
+        .into_iter()
+        .map(|profile_id| (profile_id, compile_profile(db, profile_id)))
+        .collect();
+    Generation { revision, profiles }
 }
 
-fn compile_profile(
-    db: &RootDb,
-    profile_id: Option<CompilationProfileId>,
-    prev: Option<&ProfileElab>,
-) -> (ProfileElab, usize) {
+fn compile_profile(db: &RootDb, profile_id: Option<CompilationProfileId>) -> Compilation {
     let plan = db.compilation_plan_for_profile(profile_id);
     let context = db.compilation_context(profile_id);
-    let buffers = compilation_source_buffers_for_plan(db, &plan);
-    let fingerprint = Fingerprint {
-        top_modules: context.top_modules.to_vec(),
-        include_dirs: context.include_dirs.iter().map(ToString::to_string).collect(),
-        predefines: context.predefines.to_vec(),
-        roots: plan.roots.iter().map(|root| (root.file_id.index(), root.kind)).collect(),
-    };
-    let new_hashes: FxHashMap<FileId, u64> =
-        buffers.iter().map(|buffer| (buffer.file_id, hash_text(&buffer.text))).collect();
-    let can_reuse = prev.is_some_and(|previous| previous.fingerprint == fingerprint);
+    let include_paths: Vec<String> =
+        context.include_dirs.iter().map(ToString::to_string).collect();
 
-    let mut compilation = Compilation::new_with_top_modules(&fingerprint.top_modules);
+    let mut compilation = Compilation::new_with_top_modules(&context.top_modules);
     compilation.register_source_buffers(
-        &buffers
-            .iter()
-            .map(|buffer| SyntaxTreeBuffer { path: buffer.path.clone(), text: buffer.text.clone() })
+        &compilation_source_buffers_for_plan(db, &plan)
+            .into_iter()
+            .map(|buffer| SyntaxTreeBuffer { path: buffer.path, text: buffer.text })
             .collect::<Vec<_>>(),
     );
 
-    let mut trees = FxHashMap::default();
-    let mut reused = 0;
     for root in &plan.roots {
-        let previous = prev.filter(|_| can_reuse);
-        let dirty = previous.is_none_or(|previous| {
-            root_is_dirty(root.file_id, &plan, &previous.file_hashes, &new_hashes)
-        });
-        if !dirty
-            && let Some(tree) = previous.and_then(|previous| previous.trees.get(&root.file_id))
-        {
-            compilation.add_syntax_tree(tree);
-            trees.insert(root.file_id, tree.clone());
-            reused += 1;
-            continue;
-        }
         let path = compilation_plan::source_buffer_path(db, root.file_id).to_string();
         let name =
             db.file_path(root.file_id).map(|path| path.to_string()).unwrap_or_else(|| path.clone());
-        let tree = match root.kind {
-            CompilationRootKind::SystemVerilog => {
-                let options = SyntaxTreeOptions {
-                    predefines: fingerprint.predefines.clone(),
-                    include_paths: fingerprint.include_dirs.clone(),
-                    ..SyntaxTreeOptions::default()
-                };
-                compilation.parse_syntax_tree_from_buffer(&name, &path, &options)
-            }
-            CompilationRootKind::LibraryMap => compilation
-                .parse_library_map_syntax_tree_from_buffer(
-                    &name,
-                    &path,
-                    &SyntaxTreeOptions::default(),
-                ),
+        let options = match root.kind {
+            CompilationRootKind::SystemVerilog => SyntaxTreeOptions {
+                predefines: context.predefines.to_vec(),
+                include_paths: include_paths.clone(),
+                ..SyntaxTreeOptions::default()
+            },
+            CompilationRootKind::LibraryMap => SyntaxTreeOptions::default(),
         };
-        trees.insert(root.file_id, tree);
+        match root.kind {
+            CompilationRootKind::SystemVerilog => {
+                compilation.parse_syntax_tree_from_buffer(&name, &path, &options);
+            }
+            CompilationRootKind::LibraryMap => {
+                compilation.parse_library_map_syntax_tree_from_buffer(&name, &path, &options);
+            }
+        }
     }
-
-    (ProfileElab { compilation, trees, file_hashes: new_hashes, fingerprint }, reused)
-}
-
-fn root_is_dirty(
-    root: FileId,
-    plan: &CompilationPlan,
-    old_hashes: &FxHashMap<FileId, u64>,
-    new_hashes: &FxHashMap<FileId, u64>,
-) -> bool {
-    if old_hashes.get(&root) != new_hashes.get(&root) {
-        return true;
-    }
-    match plan.include_closure(root) {
-        Some(closure) => closure.iter().any(|file| old_hashes.get(file) != new_hashes.get(file)),
-        None => old_hashes != new_hashes,
-    }
-}
-
-fn hash_text(text: &str) -> u64 {
-    let mut hasher = FxHasher::default();
-    text.hash(&mut hasher);
-    hasher.finish()
+    compilation
 }
 
 #[cfg(test)]
@@ -684,16 +636,25 @@ endclass
     }
 
     #[test]
-    fn an_edit_reuses_the_unchanged_root_tree() {
+    /// Editing one root must leave the other root's symbols answerable.
+    ///
+    /// This used to assert that the untouched root kept its `SyntaxTree`.
+    /// That reuse aborted the process — a tree belongs to the
+    /// `SourceSession` of the `Compilation` that parsed it, and
+    /// `add_syntax_tree` refuses a foreign one. What actually has to hold is
+    /// the observable part: after an edit the new generation still answers
+    /// for every root.
+    fn an_edit_keeps_the_other_roots_answerable() {
         let root = AbsPathBuf::assert(
             if cfg!(windows) { "C:/vide-elab-reuse" } else { "/vide-elab-reuse" }.into(),
         );
-        let a_path = root.join("a.sv");
-        let b_path = root.join("b.sv");
+        let class_file = FileId::from_raw(0);
+        let module_file = FileId::from_raw(1);
         let mut file_set = FileSet::default();
-        file_set.insert(FileId::from_raw(0), VfsPath::from(a_path));
-        file_set.insert(FileId::from_raw(1), VfsPath::from(b_path));
+        file_set.insert(class_file, VfsPath::from(root.join("a.sv")));
+        file_set.insert(module_file, VfsPath::from(root.join("b.sv")));
 
+        let class_text = "class holder;\n  string tag;\nendclass\n";
         let mut change = Change::new();
         change.set_roots(vec![SourceRoot::new_local(file_set)]);
         change.set_project_config(Arc::new(ProjectConfig::new(
@@ -707,28 +668,21 @@ endclass
                 },
             }],
         )));
-        change.add_changed_file(ChangedFile::create(
-            FileId::from_raw(0),
-            "virtual class uvm_void;\nendclass\n",
-        ));
-        change.add_changed_file(ChangedFile::create(FileId::from_raw(1), "module b;\nendmodule\n"));
+        change.add_changed_file(ChangedFile::create(class_file, class_text));
+        change.add_changed_file(ChangedFile::create(module_file, "module b;\nendmodule\n"));
         let mut host = AnalysisHost::default();
         host.apply_change(change);
-        let _ = lookup_at(&host, FileId::from_raw(1), TextSize::from(0u32));
-        assert_eq!(host.elab().last_reused_root_count(), 0);
+
+        let tag = TextSize::from(class_text.find("tag").unwrap() as u32);
+        let before = expect_ready(lookup_at(&host, class_file, tag)).expect("tag before the edit");
+        assert_eq!(before.owner_class, "holder");
 
         let mut edit = Change::new();
-        edit.add_changed_file(ChangedFile::modify(
-            FileId::from_raw(1),
-            "module b;\n  wire w;\nendmodule\n",
-        ));
+        edit.add_changed_file(ChangedFile::modify(module_file, "module b;\n  wire w;\nendmodule\n"));
         host.apply_change(edit);
-        let _ = lookup_at(&host, FileId::from_raw(1), TextSize::from(0u32));
-        assert_eq!(
-            host.elab().last_reused_root_count(),
-            1,
-            "the unchanged class file must keep its SyntaxTree"
-        );
+
+        let after = expect_ready(lookup_at(&host, class_file, tag)).expect("tag after the edit");
+        assert_eq!(after, before, "an unrelated edit must not change this answer");
     }
 
     fn modify_object(text: &str) -> Change {

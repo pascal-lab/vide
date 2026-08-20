@@ -10,7 +10,6 @@ use utils::text_edit::{TextRange, TextSize};
 
 use crate::{
     code_action::{CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, line_indent},
-    elaboration::ElabResult,
     slang_class,
 };
 
@@ -178,15 +177,14 @@ fn extracted_variable_type(ctx: &CodeActionCtx<'_>, expr: ast::Expression<'_>) -
 }
 
 fn lookup_type_range(ctx: &CodeActionCtx<'_>, range: TextRange) -> Option<String> {
-    match slang_class::lookup_type_at(
+    slang_class::lookup_type_at(
         ctx.analysis(),
         ctx.file_id(),
         usize::from(range.start()),
         usize::from(range.end()),
-    ) {
-        ElabResult::Ready(Some(ty)) if !ty.is_empty() && !ty.contains("<error>") => Some(ty),
-        _ => None,
-    }
+    )
+    .answered("extract variable")
+    .filter(|ty| !ty.is_empty() && !ty.contains("<error>"))
 }
 
 fn fresh_variable_name(text: &str, base: &str) -> String {
