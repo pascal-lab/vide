@@ -1,4 +1,3 @@
-use hir_def::symbol::NameContext;
 use hir_semantics::semantics::Semantics;
 use hir_ty::{Member, TypeSystem};
 use preproc_expand::file::HirFileId;
@@ -20,34 +19,54 @@ pub(super) fn complete_member_access(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let sema = db.semantics();
-    let file_id = position.file_id.into();
-    let parsed_file = sema.parse_file(position.file_id);
+    let parsed_file = db.semantics().parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {
         return Vec::new();
     };
+    if let Some(name) = colon_colon_scope_name(root, position.offset) {
+        let crate::elaboration::ElabResult::Ready(Some(members)) =
+            crate::slang_class::list_scope_members_at(db, position.file_id, &name)
+        else {
+            return Vec::new();
+        };
+        return members
+            .into_iter()
+            .filter(|member| member.name.starts_with(prefix))
+            .map(|member| CompletionCandidate::text(member.name, ctx.replacement))
+            .collect();
+    }
 
+    let sema = db.semantics();
+    let file_id = position.file_id.into();
     let members = member_access_at_offset(root, position.offset)
         .and_then(|access| members_for_expr(db, &sema, file_id, access.left()))
-        .or_else(|| members_for_incomplete_access(db, &sema, file_id, root, position.offset))
-        .or_else(|| members_for_incomplete_scoped_access(db, &sema, file_id, root, position.offset))
-        .or_else(|| {
-            scoped_name_at_offset(root, position.offset)
-                .and_then(|scoped| members_for_scoped_name(db, &sema, file_id, scoped))
-        });
+        .or_else(|| members_for_incomplete_access(db, &sema, file_id, root, position.offset));
     let Some(members) = members else {
         return Vec::new();
     };
-
     members
         .into_iter()
         .map(Member::into_name)
         .filter(|name| name.as_str().starts_with(prefix))
-        .map(|name| {
-            let label = name.to_string();
-            CompletionCandidate::text(label, ctx.replacement)
-        })
+        .map(|name| CompletionCandidate::text(name.to_string(), ctx.replacement))
         .collect()
+}
+
+fn colon_colon_scope_name(
+    root: SyntaxNode<'_>,
+    offset: utils::text_edit::TextSize,
+) -> Option<String> {
+    let prev = root.token_before_offset(offset)?;
+    if prev.kind() == syntax::Token![::] {
+        let left = root.token_before_offset(prev.text_range()?.start())?;
+        return Some(left.tok.raw_text().to_string());
+    }
+    let scoped = scoped_name_at_offset(root, offset)?;
+    if scoped_uses_dot(scoped) {
+        return None;
+    }
+    let left = scoped_left_token(scoped)?;
+    Some(left.tok.raw_text().to_string())
 }
 
 fn member_access_at_offset(
@@ -61,36 +80,6 @@ fn member_access_at_offset(
     SyntaxAncestors::start_from(prev.parent).find_map(ast::MemberAccessExpression::cast)
 }
 
-fn scoped_name_at_offset(
-    root: SyntaxNode<'_>,
-    offset: utils::text_edit::TextSize,
-) -> Option<ast::ScopedName<'_>> {
-    let elem = root.covering_element(utils::line_index::TextRange::empty(offset));
-    let node = elem.as_node().or_else(|| elem.parent())?;
-    SyntaxAncestors::start_from(node).find_map(ast::ScopedName::cast).or_else(|| {
-        let prev = root.token_before_offset(offset)?;
-        SyntaxAncestors::start_from(prev.parent).find_map(ast::ScopedName::cast)
-    })
-}
-
-fn members_for_incomplete_scoped_access(
-    db: &AnalysisContext<'_>,
-    sema: &Semantics<'_, RootDb>,
-    file_id: HirFileId,
-    root: SyntaxNode<'_>,
-    offset: utils::text_edit::TextSize,
-) -> Option<Vec<Member>> {
-    let separator = root.token_before_offset(offset)?;
-    if separator.kind() != syntax::Token![::] {
-        return None;
-    }
-    let left = root.token_before_offset(separator.text_range()?.start())?;
-    let res = sema.nameres_ident(file_id, left, NameContext::Type);
-    let members = TypeSystem::new(db.db, db.resolution())
-        .members(&TypeSystem::new(db.db, db.resolution()).type_of_resolution(res));
-    (!members.is_empty()).then_some(members)
-}
-
 fn members_for_incomplete_access(
     db: &AnalysisContext<'_>,
     sema: &Semantics<'_, RootDb>,
@@ -102,10 +91,8 @@ fn members_for_incomplete_access(
     if dot.kind() != syntax::Token![.] {
         return None;
     }
-
     let dot_start = dot.text_range()?.start();
     let expr = expr_before_dot(dot.parent, dot_start)?;
-
     members_for_expr(db, sema, file_id, expr)
 }
 
@@ -135,21 +122,24 @@ fn members_for_expr(
     (!members.is_empty()).then_some(members)
 }
 
-fn members_for_scoped_name(
-    db: &AnalysisContext<'_>,
-    sema: &Semantics<'_, RootDb>,
-    file_id: HirFileId,
-    scoped: ast::ScopedName<'_>,
-) -> Option<Vec<Member>> {
-    if let Some(left) = scoped_left_token(scoped) {
-        let res = sema.nameres_ident(file_id, left, NameContext::Type);
-        let types = TypeSystem::new(db.db, db.resolution());
-        let members = types.members(&types.type_of_resolution(res));
-        return (!members.is_empty()).then_some(members);
-    }
+fn scoped_uses_dot(scoped: ast::ScopedName<'_>) -> bool {
+    scoped
+        .syntax()
+        .children()
+        .filter_map(|elem| elem.as_token())
+        .any(|tok| tok.kind() == syntax::Token![.])
+}
 
-    let left = ast::Expression::cast(scoped.left().syntax())?;
-    members_for_expr(db, sema, file_id, left)
+fn scoped_name_at_offset(
+    root: SyntaxNode<'_>,
+    offset: utils::text_edit::TextSize,
+) -> Option<ast::ScopedName<'_>> {
+    let elem = root.covering_element(utils::line_index::TextRange::empty(offset));
+    let node = elem.as_node().or_else(|| elem.parent())?;
+    SyntaxAncestors::start_from(node).find_map(ast::ScopedName::cast).or_else(|| {
+        let prev = root.token_before_offset(offset)?;
+        SyntaxAncestors::start_from(prev.parent).find_map(ast::ScopedName::cast)
+    })
 }
 
 fn scoped_left_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxTokenWithParent<'_>> {

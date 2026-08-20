@@ -1,7 +1,6 @@
 use hir_def::{
     db::HirDefDb,
     def_id::DefId,
-    lower_ident_opt,
     owner::OwnerId,
     symbol::{DefKind, DefOrigin, NameContext, Resolution},
 };
@@ -39,6 +38,9 @@ impl DefinitionClass {
         if let Some(resolution) = resolve_declaration_name_on_db(db.db, file_id, tp) {
             return resolution;
         }
+        if let Some(resolution) = slang_colon_colon(db, file_id, tp) {
+            return resolution;
+        }
         Self::resolve_in(db.db, db.resolution(), file_id, tp, None)
     }
 
@@ -73,15 +75,9 @@ impl DefinitionClass {
             return resolution;
         }
 
-        if let Some(resolution) = resolve_package_import_item(&sema, file_id, tp, container) {
-            return resolution;
-        }
-
-        if let Some(resolution) = resolve_package_scoped_name(&sema, file_id, tp, container) {
-            return resolution;
-        }
-
-        if token_is_in_non_dot_scoped_name(parent) {
+        if token_is_in_non_dot_scoped_name(parent)
+            || SyntaxAncestors::start_from(parent).find_map(ast::PackageImportItem::cast).is_some()
+        {
             return Resolution::Unresolved;
         }
 
@@ -219,84 +215,61 @@ fn resolve_member_or_scoped_name(
     Some(resolution.map(DefinitionClass::Definition))
 }
 
-fn resolve_package_scoped_name(
-    sema: &SemanticsImpl,
+pub(crate) fn slang_colon_colon(
+    db: &AnalysisContext<'_>,
     file_id: HirFileId,
-    SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
-    container: Option<OwnerId>,
+    tp: SyntaxTokenWithParent<'_>,
 ) -> Option<DefinitionResolution> {
-    let scoped = SyntaxAncestors::start_from(parent).find_map(ast::ScopedName::cast)?;
+    use syntax::SyntaxNodeExt;
+
+    let file = file_id.as_file()?;
+    let (left, right) = colon_colon_query(tp)?;
+    let crate::elaboration::ElabResult::Ready(Some(info)) =
+        crate::slang_class::lookup_scoped_at(db, file, &left, &right)
+    else {
+        return None;
+    };
+    if info.def_file.is_empty() {
+        return None;
+    }
+    let origin_file = crate::anchor::file_id_for_slang_path(db.db, &info.def_file);
+    let offset = utils::line_index::TextSize::from(info.def_offset as u32);
+    let tree = db.parse_file(origin_file);
+    let token =
+        tree.root().token_at_offset(offset).pick_best_token(crate::token::navigation_precedence)?;
+    let resolution =
+        DefinitionClass::resolve_in(db.db, db.resolution(), origin_file.into(), token, None);
+    (!resolution.is_unresolved()).then_some(resolution)
+}
+
+pub(crate) fn colon_colon_query(tp: SyntaxTokenWithParent<'_>) -> Option<(String, String)> {
+    if let Some(item) =
+        SyntaxAncestors::start_from(tp.parent).find_map(ast::PackageImportItem::cast)
+    {
+        let package = item.package()?;
+        let package_name = package.raw_text().to_string();
+        if item.package() == Some(tp.tok) {
+            return Some((package_name, String::new()));
+        }
+        if item.item() == Some(tp.tok) {
+            return Some((package_name, tp.tok.raw_text().to_string()));
+        }
+        return None;
+    }
+    let scoped = SyntaxAncestors::start_from(tp.parent).find_map(ast::ScopedName::cast)?;
     if scoped_uses_dot(scoped) {
         return None;
     }
-
     let left = scoped_left_token(scoped)?;
-    let packages = package_defs(sema, file_id, left, container);
-    if left.tok == tok {
-        return Some(packages.map(DefinitionClass::Definition));
+    let left_name = left.tok.raw_text().to_string();
+    if left.tok == tp.tok {
+        return Some((left_name, String::new()));
     }
-
-    let right_tok = scoped_right_token(scoped)?;
-    if right_tok != tok {
-        return None;
+    let right = scoped_right_token(scoped)?;
+    if right == tp.tok {
+        return Some((left_name, right.raw_text().to_string()));
     }
-
-    let ident = lower_ident_opt(Some(tok))?;
-    let primary_ctx = name_context_for_token(parent);
-    Some(package_member_resolution(sema, packages, &ident, primary_ctx))
-}
-
-fn resolve_package_import_item(
-    sema: &SemanticsImpl,
-    file_id: HirFileId,
-    SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
-    container: Option<OwnerId>,
-) -> Option<DefinitionResolution> {
-    let item = SyntaxAncestors::start_from(parent).find_map(ast::PackageImportItem::cast)?;
-    let package_token = SyntaxTokenWithParent { parent: item.syntax(), tok: item.package()? };
-    let packages = package_defs(sema, file_id, package_token, container);
-    if item.package() == Some(tok) {
-        return Some(packages.map(DefinitionClass::Definition));
-    }
-
-    if item.item() != Some(tok) {
-        return None;
-    }
-    let ident = lower_ident_opt(Some(tok))?;
-    Some(package_member_resolution(sema, packages, &ident, NameContext::Type))
-}
-
-fn package_defs(
-    sema: &SemanticsImpl,
-    file_id: HirFileId,
-    token: SyntaxTokenWithParent<'_>,
-    container: Option<OwnerId>,
-) -> Resolution<DefId> {
-    Resolution::from_candidates(
-        nameres_ident(sema, file_id, token, NameContext::Type, container)
-            .into_candidates()
-            .into_iter()
-            .filter(|def| def.kind(sema.db) == DefKind::Package),
-    )
-}
-
-fn package_member_resolution(
-    sema: &SemanticsImpl,
-    packages: Resolution<DefId>,
-    ident: &hir_def::Ident,
-    primary_ctx: NameContext,
-) -> DefinitionResolution {
-    let fallback_ctx =
-        if primary_ctx == NameContext::Type { NameContext::Value } else { NameContext::Type };
-    packages
-        .and_then(|package| {
-            let Some(package_id) = package.primary_origin(sema.db).as_module(sema.db) else {
-                return Resolution::Unresolved;
-            };
-            let scope = sema.db.package_exports(&sema.resolution_context(), package_id);
-            scope.lookup(primary_ctx, ident).or_else(|| scope.lookup(fallback_ctx, ident))
-        })
-        .map(DefinitionClass::Definition)
+    None
 }
 
 fn resolve_instantiation_type_name(
@@ -624,7 +597,7 @@ endmodule
     }
 
     #[test]
-    fn package_member_does_not_disambiguate_ambiguous_package() {
+    fn package_colon_colon_is_answered_by_slang_when_the_package_name_is_duplicate() {
         for (case, text) in [
             (
                 "scoped member",
@@ -658,23 +631,19 @@ endmodule
             ),
         ] {
             let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
+            let def_at = TextSize::from(text.find("only_left;").unwrap() as u32);
             let text = text.replace("/*caret*/", "");
             let (host, file_id) = host_with_file(&text);
-            let sema =
-                Semantics::<RootDb>::new_with_context(host.ctx().db, host.ctx().resolution());
-            let parsed = sema.parse_file(file_id);
-            let token = parsed
-                .compilation_unit()
+            let nav = host
+                .make_analysis()
+                .goto_definition(crate::FilePosition { file_id, offset })
                 .unwrap()
-                .syntax()
-                .token_at_offset(offset)
-                .pick_best_token(crate::token::navigation_precedence)
-                .unwrap();
-
-            assert_eq!(
-                DefinitionClass::resolve(&host.ctx(), file_id.into(), token),
-                Resolution::Unresolved,
-                "{case} must not use child existence to disambiguate its package"
+                .unwrap_or_else(|| panic!("{case}: slang must pick a p::only_left"));
+            assert!(
+                nav.info
+                    .iter()
+                    .any(|target| target.focus_range.map(|range| range.start()) == Some(def_at)),
+                "{case} should land on only_left: {nav:?}"
             );
         }
     }

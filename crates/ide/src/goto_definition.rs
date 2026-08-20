@@ -4,7 +4,7 @@ use preproc_expand::{
     file::HirFileId,
     preproc::{IncludeDirective, IncludeTarget, MacroDefinition, MacroParamDefinition},
 };
-use syntax::{SyntaxAncestors, SyntaxTokenWithParent, ast::AstNode, has_text_range::HasTextRange};
+use syntax::SyntaxTokenWithParent;
 use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
@@ -112,14 +112,9 @@ fn slang_scoped_nav(
     token: SyntaxTokenWithParent<'_>,
 ) -> Option<Vec<NavTarget>> {
     let file = hir_file_id.as_file()?;
-    let scoped =
-        SyntaxAncestors::start_from(token.parent).find_map(syntax::ast::ScopedName::cast)?;
-    if scoped_uses_dot(scoped) {
-        return None;
-    }
-    let range = token.text_range()?;
+    let (left, right) = crate::definitions::colon_colon_query(token)?;
     let crate::elaboration::ElabResult::Ready(Some(info)) =
-        crate::slang_class::lookup_symbol_at(db, file, usize::from(range.start()))
+        crate::slang_class::lookup_scoped_at(db, file, &left, &right)
     else {
         return None;
     };
@@ -139,14 +134,6 @@ fn slang_scoped_nav(
         container_name: None,
         description: None,
     }])
-}
-
-fn scoped_uses_dot(scoped: syntax::ast::ScopedName<'_>) -> bool {
-    scoped
-        .syntax()
-        .children()
-        .filter_map(|elem| elem.as_token())
-        .any(|tok| tok.kind() == syntax::Token![.])
 }
 
 fn compact_design_unit_target(mut target: NavTarget) -> NavTarget {

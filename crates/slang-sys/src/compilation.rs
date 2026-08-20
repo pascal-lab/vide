@@ -41,6 +41,13 @@ pub struct SymbolInfo {
     pub inheritance: Vec<String>,
 }
 
+/// A member of a scope or structured type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberInfo {
+    pub name: String,
+    pub type_name: String,
+}
+
 impl Default for Compilation {
     fn default() -> Self {
         Self::new()
@@ -185,6 +192,38 @@ impl Compilation {
             owner_class: answer.owner_class,
             inheritance: answer.inheritance,
         })
+    }
+
+    pub fn lookup_scoped(&mut self, left: &str, right: &str) -> Option<SymbolInfo> {
+        let answer = ffi::lookup_scoped(self.raw_pin(), left, right);
+        answer.found.then_some(SymbolInfo {
+            name: answer.name,
+            type_name: answer.type_name,
+            kind: answer.kind,
+            def_file: answer.def_file,
+            def_offset: answer.def_offset,
+            owner_class: answer.owner_class,
+            inheritance: answer.inheritance,
+        })
+    }
+
+    pub fn list_members(&mut self, path: &str, offset: usize) -> Vec<MemberInfo> {
+        ffi::list_members(self.raw_pin(), path, offset)
+            .into_iter()
+            .map(|row| MemberInfo { name: row.name, type_name: row.type_name })
+            .collect()
+    }
+
+    pub fn list_scope_members(&mut self, name: &str) -> Vec<MemberInfo> {
+        ffi::list_scope_members(self.raw_pin(), name)
+            .into_iter()
+            .map(|row| MemberInfo { name: row.name, type_name: row.type_name })
+            .collect()
+    }
+
+    pub fn lookup_type(&mut self, path: &str, start: usize, end: usize) -> Option<String> {
+        let answer = ffi::lookup_type(self.raw_pin(), path, start, end);
+        answer.found.then_some(answer.type_name)
     }
 
     pub fn list_instances(&mut self) -> Vec<HierInstance> {
@@ -356,6 +395,70 @@ endmodule
         assert!(scoped.type_name.contains("int"), "{scoped:?}");
         assert_eq!(scoped.def_file, path, "{scoped:?}");
         assert_eq!(scoped.def_offset, src.find("count;").expect("def"), "{scoped:?}");
+    }
+
+    #[test]
+    fn lookup_scoped_resolves_package_and_class() {
+        let src = r#"
+package p;
+  typedef logic exported_t;
+endpackage
+class env;
+  static int count;
+endclass
+module top;
+  p::exported_t x;
+  initial env::count = 1;
+endmodule
+"#;
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(
+            src,
+            "top",
+            "/vide-assigned/top.sv",
+            &SyntaxTreeOptions::default(),
+        );
+        let exported = compilation.lookup_scoped("p", "exported_t").expect("p::exported_t");
+        assert_eq!(exported.name, "exported_t", "{exported:?}");
+        let count = compilation.lookup_scoped("env", "count").expect("env::count");
+        assert_eq!(count.name, "count", "{count:?}");
+        let pkg = compilation.lookup_scoped("p", "").expect("package p");
+        assert_eq!(pkg.name, "p", "{pkg:?}");
+    }
+
+    #[test]
+    fn list_members_of_a_package_and_a_struct() {
+        let src = r#"
+package p;
+  typedef logic exported_t;
+  function int make(); return 1; endfunction
+endpackage
+module top;
+  typedef struct { logic [7:0] field; } packet_t;
+  packet_t pkt;
+endmodule
+"#;
+        let path = "/vide-assigned/members.sv";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(src, "top", path, &SyntaxTreeOptions::default());
+        let pkg_members = compilation.list_members(path, src.find("p;").expect("package name"));
+        let names: Vec<_> = pkg_members.iter().map(|m| m.name.as_str()).collect();
+        assert!(names.contains(&"exported_t"), "{pkg_members:?}");
+        assert!(names.contains(&"make"), "{pkg_members:?}");
+        let fields = compilation.list_members(path, src.find("pkt;").expect("pkt"));
+        assert!(fields.iter().any(|m| m.name == "field"), "{fields:?}");
+    }
+
+    #[test]
+    fn lookup_type_covers_an_additive_expression() {
+        let src = "module top; logic [7:0] a, b, y; always_comb y = a + b; endmodule\n";
+        let path = "/vide-assigned/add.sv";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(src, "top", path, &SyntaxTreeOptions::default());
+        let start = src.find("a + b").expect("expr");
+        let end = start + "a + b".len();
+        let ty = compilation.lookup_type(path, start, end).expect("type of a + b");
+        assert!(ty.contains("logic"), "{ty}");
     }
 
     #[test]

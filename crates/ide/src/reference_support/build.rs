@@ -19,6 +19,7 @@ use utils::line_index::TextRange;
 
 use super::*;
 use crate::{
+    analysis::AnalysisContext,
     db::workspace_symbol_index_db::WorkspaceSymbolIndexDb,
     definitions::{DefinitionClass, rightmost_name_token},
     references::search::resolve_source_range,
@@ -415,7 +416,7 @@ pub(crate) fn token_in_special_context(
 }
 
 pub(crate) fn definition_class_for_token(
-    db: &dyn WorkspaceSymbolIndexDb,
+    db: &AnalysisContext<'_>,
     sema: &SemanticsImpl<'_>,
     file_id: HirFileId,
     token: SyntaxTokenWithParent<'_>,
@@ -424,10 +425,19 @@ pub(crate) fn definition_class_for_token(
     chains: &mut ScopeChainCache,
 ) -> Option<DefinitionClass> {
     if special {
-        DefinitionClass::resolve_in(db, sema.resolution_context(), file_id, token, Some(container))
-            .unique()
+        if let Some(resolution) = crate::definitions::slang_colon_colon(db, file_id, token) {
+            return resolution.unique();
+        }
+        DefinitionClass::resolve_in(
+            db.db,
+            sema.resolution_context(),
+            file_id,
+            token,
+            Some(container),
+        )
+        .unique()
     } else {
-        let chain = chains.chain_for(db, container);
+        let chain = chains.chain_for(db.db, container);
         sema.nameres_ident_in_scopes_at(file_id, token, NameContext::Value, &chain)
             .map(DefinitionClass::Definition)
             .unique()

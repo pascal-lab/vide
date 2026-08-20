@@ -40,6 +40,18 @@ mod slang_ffi {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
+    struct MemberAnswer {
+        name: String,
+        type_name: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct TypeAnswer {
+        found: bool,
+        type_name: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct ParseSyntaxTreeOptions {
         predefines: Vec<String>,
         include_paths: Vec<String>,
@@ -123,6 +135,23 @@ mod slang_ffi {
             path: &str,
             offset: usize,
         ) -> SymbolAnswer;
+        fn lookup_scoped(
+            compilation: Pin<&mut Compilation>,
+            left: &str,
+            right: &str,
+        ) -> SymbolAnswer;
+        fn list_members(
+            compilation: Pin<&mut Compilation>,
+            path: &str,
+            offset: usize,
+        ) -> Vec<MemberAnswer>;
+        fn list_scope_members(compilation: Pin<&mut Compilation>, name: &str) -> Vec<MemberAnswer>;
+        fn lookup_type(
+            compilation: Pin<&mut Compilation>,
+            path: &str,
+            start: usize,
+            end: usize,
+        ) -> TypeAnswer;
         fn list_instances(compilation: Pin<&mut Compilation>) -> Vec<HierInstanceAnswer>;
 
     }

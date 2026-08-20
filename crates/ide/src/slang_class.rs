@@ -9,7 +9,7 @@
 use base_db::source_db::SourceRootDb;
 use hir_def::ast_id_map::SourceAstId;
 use preproc_expand::{compilation_plan, file::HirFileId};
-use slang_sys::compilation::{ClassMemberInfo, SymbolInfo};
+use slang_sys::compilation::{ClassMemberInfo, MemberInfo, SymbolInfo};
 use syntax::{SyntaxTreeOptions, has_text_range::HasTextRange};
 use vfs::FileId;
 
@@ -63,6 +63,25 @@ pub fn lookup_symbol_at(
     let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
     let profile = ctx.db.file_compilation_profile(file_id);
     ctx.elab.lookup_symbol(ctx.db, ctx.revision, profile, &path, offset)
+}
+
+pub fn lookup_scoped_at(
+    ctx: &AnalysisContext<'_>,
+    file_id: FileId,
+    left: &str,
+    right: &str,
+) -> ElabResult<SymbolInfo> {
+    let profile = ctx.db.file_compilation_profile(file_id);
+    ctx.elab.lookup_scoped(ctx.db, ctx.revision, profile, left, right)
+}
+
+pub fn list_scope_members_at(
+    ctx: &AnalysisContext<'_>,
+    file_id: FileId,
+    name: &str,
+) -> ElabResult<Vec<MemberInfo>> {
+    let profile = ctx.db.file_compilation_profile(file_id);
+    ctx.elab.list_scope_members(ctx.db, ctx.revision, profile, name)
 }
 
 pub fn format_answer(info: &ClassMemberInfo) -> String {

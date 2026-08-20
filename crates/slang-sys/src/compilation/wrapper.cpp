@@ -2,6 +2,7 @@
 #include "slang-sys/src/compilation/ffi.rs.h"
 
 #include "slang/ast/ASTVisitor.h"
+#include "slang/ast/Scope.h"
 #include "slang/ast/expressions/CallExpression.h"
 #include "slang/ast/expressions/MiscExpressions.h"
 #include "slang/ast/expressions/SelectExpressions.h"
@@ -392,11 +393,14 @@ void fill_symbol(
     }
 }
 
-struct FindAtOffset : slang::ast::ASTVisitor<FindAtOffset, slang::ast::VisitFlags::AllGood> {
+struct FindAtOffset : slang::ast::ASTVisitor<
+                          FindAtOffset,
+                          slang::ast::VisitFlags::AllGood | slang::ast::VisitFlags::Bad> {
     const slang::SourceManager& sm;
     slang::BufferID buffer;
     std::size_t offset;
     const slang::ast::Symbol* best = nullptr;
+    std::size_t best_end_dist = static_cast<std::size_t>(-1);
     std::size_t best_span = static_cast<std::size_t>(-1);
 
     FindAtOffset(const slang::SourceManager& sm, slang::BufferID buffer, std::size_t offset) :
@@ -412,21 +416,23 @@ struct FindAtOffset : slang::ast::ASTVisitor<FindAtOffset, slang::ast::VisitFlag
         if (offset < start || offset > end)
             return;
         auto span = end - start;
-        if (span < best_span) {
+        auto end_dist = end >= offset ? end - offset : offset - end;
+        if (end_dist < best_end_dist || (end_dist == best_end_dist && span < best_span)) {
+            best_end_dist = end_dist;
             best_span = span;
             best = &symbol;
         }
     }
 
     void consider_symbol(const slang::ast::Symbol& symbol) {
+        if (symbol.name.empty())
+            return;
         if (!symbol.location.valid() || !in_buffer(sm, symbol.location, buffer))
             return;
         auto end = slang::SourceLocation(
             symbol.location.buffer(),
             symbol.location.offset() + symbol.name.size());
         consider(symbol, slang::SourceRange(symbol.location, end));
-        if (const auto* syntax = symbol.getSyntax())
-            consider(symbol, syntax->sourceRange());
     }
 
     template<typename T>
@@ -470,6 +476,199 @@ SymbolAnswer lookup_symbol(
     root.visit(finder);
     if (finder.best)
         fill_symbol(*finder.best, *sm, out);
+    return out;
+}
+
+namespace {
+
+const slang::ast::ClassType* find_class(const slang::ast::Scope& scope, std::string_view name) {
+    for (const auto& member : scope.members()) {
+        if (const auto* cls = member.as_if<slang::ast::ClassType>(); cls && cls->name == name)
+            return cls;
+        if (const auto* pkg = member.as_if<slang::ast::PackageSymbol>()) {
+            if (const auto* found = find_class(*pkg, name))
+                return found;
+        } else if (const auto* cu = member.as_if<slang::ast::CompilationUnitSymbol>()) {
+            if (const auto* found = find_class(*cu, name))
+                return found;
+        } else if (const auto* inst = member.as_if<slang::ast::InstanceSymbol>()) {
+            if (const auto* found = find_class(inst->body, name))
+                return found;
+        }
+    }
+    return nullptr;
+}
+
+const slang::ast::Scope* scope_of_symbol(const slang::ast::Symbol& symbol) {
+    if (const auto* inst = symbol.as_if<slang::ast::InstanceSymbol>())
+        return &inst->body;
+    if (const auto* type = symbol.as_if<slang::ast::Type>()) {
+        const auto& canon = type->getCanonicalType();
+        if (const auto* scope = canon.as_if<slang::ast::Scope>())
+            return scope;
+    }
+    if (const auto* value = symbol.as_if<slang::ast::ValueSymbol>()) {
+        const auto& canon = value->getType().getCanonicalType();
+        if (const auto* scope = canon.as_if<slang::ast::Scope>())
+            return scope;
+    }
+    return symbol.as_if<slang::ast::Scope>();
+}
+
+void collect_members(const slang::ast::Scope& scope, rust::Vec<MemberAnswer>& out) {
+    for (const auto& member : scope.members()) {
+        if (member.name.empty())
+            continue;
+        MemberAnswer row;
+        row.name = rust::String(std::string(member.name));
+        row.type_name = rust::String(type_of_symbol(member));
+        out.push_back(std::move(row));
+    }
+}
+
+struct FindType : slang::ast::ASTVisitor<
+                      FindType,
+                      slang::ast::VisitFlags::AllGood | slang::ast::VisitFlags::Bad> {
+    const slang::SourceManager& sm;
+    slang::BufferID buffer;
+    std::size_t start;
+    std::size_t end;
+    const slang::ast::Type* best = nullptr;
+    std::size_t best_span = static_cast<std::size_t>(-1);
+
+    FindType(
+        const slang::SourceManager& sm,
+        slang::BufferID buffer,
+        std::size_t start,
+        std::size_t end
+    ) :
+        sm(sm), buffer(buffer), start(start), end(end) {}
+
+    template<typename T>
+    void handle(const T& node) {
+        if constexpr (std::is_base_of_v<slang::ast::Expression, T>) {
+            auto range = node.sourceRange;
+            if (range.start().valid() && range.end().valid() &&
+                in_buffer(sm, range.start(), buffer)) {
+                auto rs = range.start().offset();
+                auto re = range.end().offset();
+                auto contained_in_sel = start <= rs && re <= end;
+                auto covers_sel = rs <= start && end <= re;
+                if (contained_in_sel || covers_sel) {
+                    auto span = re - rs;
+                    if (span < best_span) {
+                        best_span = span;
+                        best = node.type;
+                    }
+                }
+            }
+        }
+        visitDefault(node);
+    }
+};
+
+} // namespace
+
+SymbolAnswer lookup_scoped(
+    Compilation& compilation,
+    rust::Str left,
+    rust::Str right
+) {
+    SymbolAnswer out;
+    out.found = false;
+    out.def_offset = 0;
+    if (!compilation.inner)
+        return out;
+    const auto& root = compilation.inner->getRoot();
+    const auto* sm = compilation.inner->getSourceManager();
+    if (!sm)
+        return out;
+    std::string left_s(left.data(), left.size());
+    std::string right_s(right.data(), right.size());
+    const slang::ast::Symbol* found = nullptr;
+    if (const auto* pkg = compilation.inner->getPackage(left_s)) {
+        if (right_s.empty())
+            found = pkg;
+        else
+            found = pkg->lookupName(right_s);
+    }
+    if (!found) {
+        if (const auto* cls = find_class(root, left_s)) {
+            if (right_s.empty())
+                found = cls;
+            else
+                found = cls->find(right_s);
+        }
+    }
+    if (found)
+        fill_symbol(*found, *sm, out);
+    return out;
+}
+
+rust::Vec<MemberAnswer> list_members(
+    Compilation& compilation,
+    rust::Str path,
+    std::size_t offset
+) {
+    rust::Vec<MemberAnswer> out;
+    if (!compilation.inner)
+        return out;
+    const auto& root = compilation.inner->getRoot();
+    const auto* sm = compilation.inner->getSourceManager();
+    if (!sm)
+        return out;
+    std::string path_owned(path.data(), path.size());
+    auto buffer = buffer_for_path(*sm, path_owned);
+    if (!buffer)
+        return out;
+    FindAtOffset finder(*sm, *buffer, offset);
+    root.visit(finder);
+    if (!finder.best)
+        return out;
+    if (const auto* scope = scope_of_symbol(*finder.best))
+        collect_members(*scope, out);
+    return out;
+}
+
+rust::Vec<MemberAnswer> list_scope_members(Compilation& compilation, rust::Str name) {
+    rust::Vec<MemberAnswer> out;
+    if (!compilation.inner)
+        return out;
+    const auto& root = compilation.inner->getRoot();
+    std::string name_s(name.data(), name.size());
+    if (const auto* pkg = compilation.inner->getPackage(name_s)) {
+        collect_members(*pkg, out);
+        return out;
+    }
+    if (const auto* cls = find_class(root, name_s))
+        collect_members(*cls, out);
+    return out;
+}
+
+TypeAnswer lookup_type(
+    Compilation& compilation,
+    rust::Str path,
+    std::size_t start,
+    std::size_t end
+) {
+    TypeAnswer out;
+    out.found = false;
+    if (!compilation.inner)
+        return out;
+    const auto& root = compilation.inner->getRoot();
+    const auto* sm = compilation.inner->getSourceManager();
+    if (!sm)
+        return out;
+    std::string path_owned(path.data(), path.size());
+    auto buffer = buffer_for_path(*sm, path_owned);
+    if (!buffer)
+        return out;
+    FindType finder(*sm, *buffer, start, end);
+    root.visit(finder);
+    if (finder.best) {
+        out.found = true;
+        out.type_name = rust::String(finder.best->toString());
+    }
     return out;
 }
 

@@ -296,7 +296,7 @@ fn collect_file_references(
         };
         let container = containers.container_for(&sema, hir_file_id, token.parent);
         let Some(class) = definition_class_for_token(
-            db.db,
+            db,
             &sema,
             hir_file_id,
             token,

@@ -101,9 +101,8 @@ impl ResolutionContext {
 // `IdentifierSelectName` into `Expr::ElementSelect`; this resolver handles
 // the hierarchical dot/select shape only.
 //
-// Package `::` is name lookup in an export scope (IDE
-// `resolve_package_scoped_name`). Class `::` needs types and is answered by the
-// elaboration service. There is no type-lowering path here.
+// Package and class `::` are answered by the elaboration service. This
+// resolver does hierarchical dots only. There is no type-lowering path here.
 
 /// Resolution phase recorded by [`resolve_name_with_trace`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
