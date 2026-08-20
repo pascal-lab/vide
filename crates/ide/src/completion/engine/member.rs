@@ -32,20 +32,28 @@ pub(super) fn complete_member_access(
     let Some(expr) = dot_prefix_expr(root, position.offset) else {
         return Vec::new();
     };
-    let Some(name) = expr_source_text(db, position.file_id, expr) else {
+    let Some(range) = expr.syntax().text_range() else {
         return Vec::new();
     };
-    // `a.b` where `a` names a scope directly, versus `a` being an expression
-    // whose type has the members. Ask by name first; it is the cheaper shape.
-    let by_name = slang_class::list_scope_members_at(db, position.file_id, &name)
+    // A prefix reaches members two ways and the spelling does not say which:
+    // `top.u0` and `u0[0]` name instance bodies, `pkt` is a variable whose
+    // struct type has the fields. Only slang can tell them apart, so it is
+    // asked as a name first and as an expression second.
+    //
+    // Collapsing this needs the offset resolver to see expressions, not just
+    // declarations: `FindAtOffset` visits symbols, so a *use* of `top.u0`
+    // has no symbol at that range. That in turn needs the buffer to parse,
+    // and a buffer being completed in does not. Two questions, not a guess.
+    let file_text = db.file_text(position.file_id);
+    let Some(prefix_text) = file_text.get(Range::<usize>::from(range)).map(str::trim) else {
+        return Vec::new();
+    };
+    let by_name = slang_class::list_scope_members_at(db, position.file_id, prefix_text)
         .answered("member completion by name")
         .unwrap_or_default();
     if !by_name.is_empty() {
         return to_candidates(by_name, prefix, ctx);
     }
-    let Some(range) = expr.syntax().text_range() else {
-        return Vec::new();
-    };
     let by_type =
         slang_class::list_members_at(db, position.file_id, usize::from(range.end()).saturating_sub(1))
             .answered("member completion by type")
@@ -116,16 +124,6 @@ fn expr_before_dot(
         .filter_map(|elem| elem.as_node())
         .filter_map(ast::Expression::cast)
         .find(|expr| expr.syntax().text_range().is_some_and(|r| r.end() == dot_start))
-}
-
-fn expr_source_text(
-    db: &AnalysisContext<'_>,
-    file_id: vfs::FileId,
-    expr: ast::Expression<'_>,
-) -> Option<String> {
-    let range = expr.syntax().text_range()?;
-    let text = db.file_text(file_id);
-    Some(text.get(Range::<usize>::from(range))?.trim().to_owned())
 }
 
 fn scoped_uses_dot(scoped: ast::ScopedName<'_>) -> bool {

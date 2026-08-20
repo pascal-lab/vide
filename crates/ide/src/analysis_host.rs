@@ -67,6 +67,20 @@ impl AnalysisHost {
         if !affected_files.is_empty() {
             self.start_prewarm(affected_files);
         }
+        // A request that arrives before the prewarm lands answers from HIR
+        // and moves on, which is right in an editor and useless in a test:
+        // the assertion would depend on which one won. Tests observe the
+        // warm state, so they wait for it.
+        #[cfg(test)]
+        self.await_prewarm();
+    }
+
+    /// Wait for the revision prewarm without cancelling it.
+    #[cfg(test)]
+    fn await_prewarm(&mut self) {
+        if let Some(task) = self.prewarm.take() {
+            let _ = task.worker.join();
+        }
     }
 
     /// Apply a change without starting revision prewarm. Benches that build

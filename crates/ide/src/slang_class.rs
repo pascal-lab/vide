@@ -37,6 +37,12 @@ pub fn lookup_scoped_at(
     ctx.elab.lookup_scoped(ctx.db, ctx.revision, profile, left, right)
 }
 
+/// Members of the scope a name denotes: a package, a class, or a
+/// hierarchical instance path such as `top.u0` or `u0[0]`.
+///
+/// Empty when `name` denotes no scope — including when it is an expression
+/// rather than a name. Those belong to [`list_members_at`], which resolves
+/// them at their own offset.
 pub fn list_scope_members_at(
     ctx: &AnalysisContext<'_>,
     file_id: FileId,

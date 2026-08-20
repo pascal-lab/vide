@@ -1,7 +1,9 @@
 #include "compilation/wrapper.h"
 #include "slang-sys/src/compilation/ffi.rs.h"
 
+#include "slang/ast/ASTContext.h"
 #include "slang/ast/ASTVisitor.h"
+#include "slang/ast/Lookup.h"
 #include "slang/ast/Scope.h"
 #include "slang/ast/expressions/CallExpression.h"
 #include "slang/ast/expressions/MiscExpressions.h"
@@ -417,51 +419,69 @@ const slang::ast::Scope* scope_of_symbol(const slang::ast::Symbol& symbol) {
     return symbol.as_if<slang::ast::Scope>();
 }
 
-const slang::ast::Symbol* try_lookup_name(
+/// Resolve `name` in `scope`, tolerating a name that carries selectors.
+///
+/// `Scope::lookupName` is the convenience wrapper and it ends in
+/// `SLANG_ASSERT(result.selectors.empty())`. That does not mean "the name
+/// had no selectors": `u0[0]` on an instance array resolves and leaves none.
+/// It fires when a select could not be applied, as in `bus[0]` on a plain
+/// net. Completion prefixes are arbitrary source text, so which case a name
+/// falls into is not knowable before the lookup — using the underlying
+/// `Lookup::name` and reading `selectors` is how that question gets asked
+/// instead of assumed.
+const slang::ast::Symbol* lookup_name(const slang::ast::Scope& scope, std::string_view name) {
+    slang::ast::LookupResult result;
+    slang::ast::ASTContext context(scope, slang::ast::LookupLocation::max);
+    slang::ast::Lookup::name(
+        scope.getCompilation().parseName(name),
+        context,
+        slang::bitmask<slang::ast::LookupFlags>{},
+        result
+    );
+    // An unapplied select means the name reached something the select does
+    // not fit. That is not the scope the caller named.
+    return result.selectors.empty() ? result.found : nullptr;
+}
+
+/// Resolve `name` in an instance body, anywhere under `scope`.
+///
+/// A design walk, and deliberately so. The caller is completing inside a
+/// buffer that does not parse yet — `initial pkt.` has no expression for
+/// slang to type — so a name is all there is to go on, and the name is
+/// visible only from inside the instance it was declared in. Nothing
+/// cheaper reaches it. What would remove this walk is resolving the prefix
+/// expression instead, which needs the buffer to parse.
+const slang::ast::Symbol* search_instance_bodies(
     const slang::ast::Scope& scope,
     std::string_view name
 ) {
-    // Scope::lookupName asserts that parseName produced no selectors.
-    // Completion prefixes can be `bus[0]` or similar; that is not a
-    // hierarchical name, and aborting the process is not an answer.
-    try {
-        return scope.lookupName(name);
-    } catch (const slang::assert::AssertionException&) {
-        return nullptr;
-    }
-}
-
-void search_instance_scopes(
-    const slang::ast::Scope& scope,
-    std::string_view name,
-    const slang::ast::Symbol*& hit
-) {
-    if (hit)
-        return;
     for (const auto& member : scope.members()) {
-        if (hit)
-            return;
-        if (const auto* inst = member.as_if<slang::ast::InstanceSymbol>()) {
-            if (const auto* found = try_lookup_name(inst->body, name)) {
-                hit = found;
-                return;
-            }
-            search_instance_scopes(inst->body, name, hit);
-        } else if (const auto* pkg = member.as_if<slang::ast::PackageSymbol>()) {
-            search_instance_scopes(*pkg, name, hit);
-        } else if (const auto* cu = member.as_if<slang::ast::CompilationUnitSymbol>()) {
-            search_instance_scopes(*cu, name, hit);
-        } else if (const auto* body = member.as_if<slang::ast::InstanceBodySymbol>()) {
-            if (const auto* found = try_lookup_name(*body, name)) {
-                hit = found;
-                return;
-            }
-            search_instance_scopes(*body, name, hit);
-        }
+        const slang::ast::Scope* body = nullptr;
+        if (const auto* inst = member.as_if<slang::ast::InstanceSymbol>())
+            body = &inst->body;
+        else if (const auto* nested = member.as_if<slang::ast::InstanceBodySymbol>())
+            body = nested;
+        else if (const auto* pkg = member.as_if<slang::ast::PackageSymbol>())
+            body = pkg;
+        else if (const auto* cu = member.as_if<slang::ast::CompilationUnitSymbol>())
+            body = cu;
+        if (!body)
+            continue;
+        if (const auto* found = lookup_name(*body, name))
+            return found;
+        if (const auto* found = search_instance_bodies(*body, name))
+            return found;
     }
+    return nullptr;
 }
 
-const slang::ast::Symbol* find_named_symbol(
+/// The scope a name denotes.
+///
+/// SystemVerilog does not disambiguate these by spelling, so each namespace
+/// is asked in turn: a package, a class-like, a hierarchical path from the
+/// root, and finally a name declared inside some instance body. The order is
+/// cheapest first; only the last one walks.
+const slang::ast::Symbol* find_named_scope(
     slang::ast::Compilation& compilation,
     const slang::ast::RootSymbol& root,
     std::string_view name
@@ -470,13 +490,11 @@ const slang::ast::Symbol* find_named_symbol(
         return nullptr;
     if (const auto* pkg = compilation.getPackage(name))
         return pkg;
-    if (const auto* found = try_lookup_name(root, name))
-        return found;
     if (const auto* cls = find_class(root, name))
         return cls;
-    const slang::ast::Symbol* hit = nullptr;
-    search_instance_scopes(root, name, hit);
-    return hit;
+    if (const auto* found = lookup_name(root, name))
+        return found;
+    return search_instance_bodies(root, name);
 }
 
 void collect_members(const slang::ast::Scope& scope, rust::Vec<MemberAnswer>& out) {
@@ -552,22 +570,18 @@ SymbolAnswer lookup_scoped(
     const auto* sm = compilation.inner->getSourceManager();
     if (!sm)
         return out;
+    // `left` and `right` are single identifier tokens from the caller's
+    // `ScopedName`, so neither carries selectors and `lookupName` cannot
+    // assert on them.
     std::string left_s(left.data(), left.size());
     std::string right_s(right.data(), right.size());
-    const slang::ast::Symbol* found = nullptr;
-    if (const auto* pkg = compilation.inner->getPackage(left_s)) {
-        if (right_s.empty())
-            found = pkg;
-        else
-            found = pkg->lookupName(right_s);
-    }
-    if (!found) {
-        if (const auto* cls = find_class(root, left_s)) {
-            if (right_s.empty())
-                found = cls;
-            else
-                found = cls->find(right_s);
-        }
+    const auto* qualifier = find_named_scope(*compilation.inner, root, left_s);
+    if (!qualifier)
+        return out;
+    const slang::ast::Symbol* found = qualifier;
+    if (!right_s.empty()) {
+        const auto* scope = scope_of_symbol(*qualifier);
+        found = scope ? scope->lookupName(right_s) : nullptr;
     }
     if (found)
         fill_symbol(*found, *sm, out);
@@ -605,7 +619,7 @@ rust::Vec<MemberAnswer> list_scope_members(Compilation& compilation, rust::Str n
         return out;
     const auto& root = compilation.inner->getRoot();
     std::string name_s(name.data(), name.size());
-    const auto* found = find_named_symbol(*compilation.inner, root, name_s);
+    const auto* found = find_named_scope(*compilation.inner, root, name_s);
     if (!found)
         return out;
     if (const auto* scope = scope_of_symbol(*found))
