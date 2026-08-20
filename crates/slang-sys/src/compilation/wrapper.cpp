@@ -515,6 +515,54 @@ const slang::ast::Scope* scope_of_symbol(const slang::ast::Symbol& symbol) {
     return symbol.as_if<slang::ast::Scope>();
 }
 
+void search_instance_scopes(
+    const slang::ast::Scope& scope,
+    std::string_view name,
+    const slang::ast::Symbol*& hit
+) {
+    if (hit)
+        return;
+    for (const auto& member : scope.members()) {
+        if (hit)
+            return;
+        if (const auto* inst = member.as_if<slang::ast::InstanceSymbol>()) {
+            if (const auto* found = inst->body.lookupName(name)) {
+                hit = found;
+                return;
+            }
+            search_instance_scopes(inst->body, name, hit);
+        } else if (const auto* pkg = member.as_if<slang::ast::PackageSymbol>()) {
+            search_instance_scopes(*pkg, name, hit);
+        } else if (const auto* cu = member.as_if<slang::ast::CompilationUnitSymbol>()) {
+            search_instance_scopes(*cu, name, hit);
+        } else if (const auto* body = member.as_if<slang::ast::InstanceBodySymbol>()) {
+            if (const auto* found = body->lookupName(name)) {
+                hit = found;
+                return;
+            }
+            search_instance_scopes(*body, name, hit);
+        }
+    }
+}
+
+const slang::ast::Symbol* find_named_symbol(
+    slang::ast::Compilation& compilation,
+    const slang::ast::RootSymbol& root,
+    std::string_view name
+) {
+    if (name.empty())
+        return nullptr;
+    if (const auto* pkg = compilation.getPackage(name))
+        return pkg;
+    if (const auto* found = root.lookupName(name))
+        return found;
+    if (const auto* cls = find_class(root, name))
+        return cls;
+    const slang::ast::Symbol* hit = nullptr;
+    search_instance_scopes(root, name, hit);
+    return hit;
+}
+
 void collect_members(const slang::ast::Scope& scope, rust::Vec<MemberAnswer>& out) {
     for (const auto& member : scope.members()) {
         if (member.name.empty())
@@ -533,8 +581,10 @@ struct FindType : slang::ast::ASTVisitor<
     slang::BufferID buffer;
     std::size_t start;
     std::size_t end;
-    const slang::ast::Type* best = nullptr;
-    std::size_t best_span = static_cast<std::size_t>(-1);
+    const slang::ast::Type* covering = nullptr;
+    std::size_t covering_span = static_cast<std::size_t>(-1);
+    const slang::ast::Type* contained = nullptr;
+    std::size_t contained_span = 0;
 
     FindType(
         const slang::SourceManager& sm,
@@ -549,22 +599,25 @@ struct FindType : slang::ast::ASTVisitor<
         if constexpr (std::is_base_of_v<slang::ast::Expression, T>) {
             auto range = node.sourceRange;
             if (range.start().valid() && range.end().valid() &&
-                in_buffer(sm, range.start(), buffer)) {
+                in_buffer(sm, range.start(), buffer) && node.type) {
                 auto rs = range.start().offset();
                 auto re = range.end().offset();
-                auto contained_in_sel = start <= rs && re <= end;
-                auto covers_sel = rs <= start && end <= re;
-                if (contained_in_sel || covers_sel) {
-                    auto span = re - rs;
-                    if (span < best_span) {
-                        best_span = span;
-                        best = node.type;
+                auto span = re - rs;
+                if (rs <= start && end <= re) {
+                    if (span < covering_span) {
+                        covering_span = span;
+                        covering = node.type;
                     }
+                } else if (start <= rs && re <= end && span > contained_span) {
+                    contained_span = span;
+                    contained = node.type;
                 }
             }
         }
         visitDefault(node);
     }
+
+    const slang::ast::Type* best() const { return covering ? covering : contained; }
 };
 
 } // namespace
@@ -636,12 +689,11 @@ rust::Vec<MemberAnswer> list_scope_members(Compilation& compilation, rust::Str n
         return out;
     const auto& root = compilation.inner->getRoot();
     std::string name_s(name.data(), name.size());
-    if (const auto* pkg = compilation.inner->getPackage(name_s)) {
-        collect_members(*pkg, out);
+    const auto* found = find_named_symbol(*compilation.inner, root, name_s);
+    if (!found)
         return out;
-    }
-    if (const auto* cls = find_class(root, name_s))
-        collect_members(*cls, out);
+    if (const auto* scope = scope_of_symbol(*found))
+        collect_members(*scope, out);
     return out;
 }
 
@@ -665,9 +717,9 @@ TypeAnswer lookup_type(
         return out;
     FindType finder(*sm, *buffer, start, end);
     root.visit(finder);
-    if (finder.best) {
+    if (const auto* ty = finder.best()) {
         out.found = true;
-        out.type_name = rust::String(finder.best->toString());
+        out.type_name = rust::String(ty->toString());
     }
     return out;
 }

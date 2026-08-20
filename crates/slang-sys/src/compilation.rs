@@ -450,6 +450,37 @@ endmodule
     }
 
     #[test]
+    fn list_scope_members_of_hierarchical_instance_and_struct() {
+        let src = r#"
+package p;
+  typedef logic exported_t;
+  function int make(); return 1; endfunction
+endpackage
+module leaf;
+  wire leaf_wire;
+endmodule
+module top;
+  leaf u0();
+  typedef struct { logic [7:0] field; } packet_t;
+  packet_t pkt;
+endmodule
+"#;
+        let path = "/vide-assigned/hier.sv";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(src, "top", path, &SyntaxTreeOptions::default());
+        let inst = compilation.list_scope_members("top.u0");
+        assert!(inst.iter().any(|m| m.name == "leaf_wire"), "top.u0 members: {inst:?}");
+        let nested = compilation.list_scope_members("u0");
+        assert!(nested.iter().any(|m| m.name == "leaf_wire"), "u0 members: {nested:?}");
+        let fields = compilation.list_scope_members("pkt");
+        assert!(fields.iter().any(|m| m.name == "field"), "pkt members: {fields:?}");
+        let pkg = compilation.list_scope_members("p");
+        let pkg_names: Vec<_> = pkg.iter().map(|m| m.name.as_str()).collect();
+        assert!(pkg_names.contains(&"exported_t"), "{pkg:?}");
+        assert!(pkg_names.contains(&"make"), "{pkg:?}");
+    }
+
+    #[test]
     fn lookup_type_covers_an_additive_expression() {
         let src = "module top; logic [7:0] a, b, y; always_comb y = a + b; endmodule\n";
         let path = "/vide-assigned/add.sv";
@@ -459,6 +490,22 @@ endmodule
         let end = start + "a + b".len();
         let ty = compilation.lookup_type(path, start, end).expect("type of a + b");
         assert!(ty.contains("logic"), "{ty}");
+    }
+
+    #[test]
+    fn lookup_type_of_mixed_width_add_is_the_sum_not_the_narrow_operand() {
+        let src = "module top; logic [3:0] b; logic [7:0] a, y; always_comb y = b + a; endmodule\n";
+        let path = "/vide-assigned/add-mixed.sv";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(src, "top", path, &SyntaxTreeOptions::default());
+        let start = src.find("b + a").expect("expr");
+        let end = start + "b + a".len();
+        let ty = compilation.lookup_type(path, start, end).expect("type of b + a");
+        assert!(
+            ty.contains("logic") && ty.contains("7"),
+            "sum of logic[3:0] + logic[7:0] must be the 8-bit result, not operand b: {ty}"
+        );
+        assert!(!ty.contains("[3:0]"), "must not return the narrow operand type: {ty}");
     }
 
     #[test]
