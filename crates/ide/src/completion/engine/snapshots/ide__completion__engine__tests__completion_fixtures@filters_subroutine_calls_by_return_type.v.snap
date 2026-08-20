@@ -1,5 +1,6 @@
 ---
 source: crates/ide/src/completion/engine/tests.rs
+assertion_line: 188
 expression: items
 input_file: crates/ide/src/completion/engine/fixtures/filters_subroutine_calls_by_return_type.v
 ---
@@ -27,6 +28,22 @@ input_file: crates/ide/src/completion/engine/fixtures/filters_subroutine_calls_b
         snippet_edit: Some(
             TextEditItem {
                 ins: "same_type(${1:args})",
+                del: 201..201,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "wrong_type",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "wrong_type()",
+                del: 201..201,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "wrong_type(${1:args})",
                 del: 201..201,
             },
         ),

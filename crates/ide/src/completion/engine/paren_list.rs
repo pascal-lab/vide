@@ -14,13 +14,11 @@ use super::{
         enclosing_instantiation, overridable_params_of_module_in_order,
         overridable_params_of_module_sorted, ports_of_module_in_order, ports_of_module_sorted,
     },
-    typed_filter::{
-        const_candidates_in_module, expected_param_ty, expected_port_ty, is_compatible_typed_value,
-        value_candidates_in_module,
-    },
+    typed_filter::{const_candidates_in_module, value_candidates_in_module},
 };
 use crate::{
     FilePosition,
+    analysis::AnalysisContext,
     completion::{
         context::CompletionContext,
         request::{HashKind, ParenListKind},
@@ -30,7 +28,7 @@ use crate::{
 };
 
 pub(super) fn complete_in_paren_list(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -67,12 +65,12 @@ pub(super) fn complete_after_hash(
 }
 
 fn complete_parameter_port_list_with_typedefs(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let file_id = position.file_id.into();
     let parsed_file = sema.parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {
@@ -89,8 +87,8 @@ fn complete_parameter_port_list_with_typedefs(
     let unit_scope = db.unit_scope();
     let module_scope = db.scope(module_id);
     let mut items: Vec<CompletionCandidate> = unit_scope
-        .typedef_names(db)
-        .chain(module_scope.typedef_names(db))
+        .typedef_names(db.db)
+        .chain(module_scope.typedef_names(db.db))
         .map(|ident| ident.to_string())
         .filter(|name| name.starts_with(prefix))
         .map(|name| CompletionCandidate::text(name, ctx.replacement))
@@ -102,12 +100,12 @@ fn complete_parameter_port_list_with_typedefs(
 }
 
 fn complete_port_connections(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let file_id = position.file_id.into();
     let parsed_file = sema.parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {
@@ -168,30 +166,24 @@ fn complete_port_connections(
 
     let index = separated_list_index_at_offset(instance.connections(), position.offset);
     let ports = ports_of_module_in_order(db, target_module_id);
-    let Some(port_name) = ports.get(index) else {
+    if ports.get(index).is_none() {
         return Vec::new();
-    };
+    }
 
-    let Some(expected_ty) = expected_port_ty(db, target_module_id, port_name) else {
-        return Vec::new();
-    };
-
-    let candidates = value_candidates_in_module(db, current_module_id);
-    candidates
+    value_candidates_in_module(db, current_module_id)
         .into_iter()
-        .filter(|(name, _)| name.starts_with(prefix))
-        .filter(|(_, candidate_ty)| is_compatible_typed_value(db, &expected_ty, candidate_ty))
-        .map(|(name, _)| CompletionCandidate::text(name, ctx.replacement))
+        .filter(|name| name.starts_with(prefix))
+        .map(|name| CompletionCandidate::text(name, ctx.replacement))
         .collect()
 }
 
 fn complete_param_value_assignment(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let file_id = position.file_id.into();
     let parsed_file = sema.parse_file(position.file_id);
     let Some(root) = parsed_file.root() else {
@@ -252,20 +244,14 @@ fn complete_param_value_assignment(
 
     let index = separated_list_index_at_offset(params.parameters(), position.offset);
     let params_in_order = overridable_params_of_module_in_order(db, target_module_id);
-    let Some(param_name) = params_in_order.get(index) else {
+    if params_in_order.get(index).is_none() {
         return Vec::new();
-    };
+    }
 
-    let Some(expected_ty) = expected_param_ty(db, target_module_id, param_name) else {
-        return Vec::new();
-    };
-
-    let candidates = const_candidates_in_module(db, current_module_id);
-    candidates
+    const_candidates_in_module(db, current_module_id)
         .into_iter()
-        .filter(|(name, _)| name.starts_with(prefix))
-        .filter(|(_, candidate_ty)| is_compatible_typed_value(db, &expected_ty, candidate_ty))
-        .map(|(name, _)| CompletionCandidate::text(name, ctx.replacement))
+        .filter(|name| name.starts_with(prefix))
+        .map(|name| CompletionCandidate::text(name, ctx.replacement))
         .collect()
 }
 
@@ -296,10 +282,10 @@ fn separated_list_index_at_offset<'a, T: AstNode<'a>>(
 }
 
 fn resolve_target_module_id(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     _sema: &Semantics<'_, RootDb>,
     from_file: vfs::FileId,
     instantiation: ast::HierarchyInstantiation<'_>,
 ) -> Option<OwnerId> {
-    resolve_instantiation_target(db, from_file, instantiation).unique()
+    resolve_instantiation_target(db.db, from_file, instantiation).unique()
 }

@@ -9,7 +9,6 @@ mod resolve;
 mod util;
 
 use base_db::source_db::SourceDb;
-use hir_semantics::semantics::Semantics;
 use smallvec::{SmallVec, smallvec};
 use syntax::{
     SyntaxNode, SyntaxNodeExt,
@@ -19,7 +18,7 @@ use syntax::{
 use utils::line_index::{TextRange, TextSize};
 
 use self::caret::CaretSnapshot;
-use crate::{FilePosition, db::root_db::RootDb};
+use crate::{FilePosition, analysis::AnalysisContext};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LexContext {
@@ -89,11 +88,11 @@ struct CompletionWord {
 }
 
 pub(crate) fn completion_context(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(file_id);
     let Some(root) = parsed_file.root() else {
         return CompletionContext {

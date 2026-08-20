@@ -1,6 +1,7 @@
 use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
-use hir_def::{Ident, container::InFile, def_id::DefId, item_tree::ModuleHeader, owner::OwnerId};
-use hir_ty::db::TyDb;
+use hir_def::{
+    Ident, container::InFile, db::HirDefDb, def_id::DefId, item_tree::ModuleHeader, owner::OwnerId,
+};
 use preproc_expand::{db::PreprocDb, file::HirFileId, macro_file::macro_files_for_file};
 use rustc_hash::FxHashMap;
 use syntax::{
@@ -244,7 +245,7 @@ impl ModuleIndex {
 }
 
 impl SemanticModuleDefinition {
-    fn new(db: &dyn TyDb, module_id: OwnerId) -> Option<Self> {
+    fn new(db: &dyn HirDefDb, module_id: OwnerId) -> Option<Self> {
         let source_file = module_id.file(db);
         let header = db
             .item_tree(source_file)
@@ -253,7 +254,11 @@ impl SemanticModuleDefinition {
         Self::from_header(db, source_file, header)
     }
 
-    fn from_header(db: &dyn TyDb, source_file: HirFileId, header: ModuleHeader) -> Option<Self> {
+    fn from_header(
+        db: &dyn HirDefDb,
+        source_file: HirFileId,
+        header: ModuleHeader,
+    ) -> Option<Self> {
         let origin = db.source_projection(source_file).origin(header.source())?;
         let full_range = origin.full_range()?;
         let (file_id, name_range, full_range) =

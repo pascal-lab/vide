@@ -15,7 +15,6 @@ fst = "0.4.7"
 # syntax-to-HIR adapter, not a high-level facade over them.
 hir-def.workspace = true
 hir-semantics.workspace = true
-hir-ty.workspace = true
 itertools.workspace = true
 la-arena.workspace = true
 memchr.workspace = true
@@ -27,6 +26,7 @@ salsa.workspace = true
 serde.workspace = true
 smallvec.workspace = true
 smol_str.workspace = true
+slang-sys = { package = "slang-sys", path = "../slang-sys" }
 syntax.workspace = true
 thiserror.workspace = true
 toml = "0.9.8"

@@ -1,9 +1,32 @@
 ---
 source: crates/ide/src/completion/engine/tests.rs
+assertion_line: 188
 expression: items
 input_file: crates/ide/src/completion/engine/fixtures/completes_ordered_port_connection_expr_by_width.v
 ---
 [
+    CompletionItem {
+        label: "sig1",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "sig1",
+                del: 118..118,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "sig4",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "sig4",
+                del: 118..118,
+            },
+        ),
+        snippet_edit: None,
+    },
     CompletionItem {
         label: "sig8",
         kind: Text,

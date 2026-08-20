@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::ops::{Deref, Range};
 
 use base_db::{
     Cancelled,
@@ -26,6 +26,7 @@ use crate::{
     diagnostics,
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},
+    elaboration::{ElabRevision, ElaborationService},
     folding_ranges::{self, Fold},
     formatting::{self, FmtConfig},
     goto_declaration, goto_definition, hover,
@@ -46,6 +47,37 @@ use crate::{
 pub struct AnalysisSnapshot {
     pub(crate) db: RootDb,
     pub(crate) snapshot_id: AnalysisSnapshotId,
+    pub(crate) elab: ElaborationService,
+}
+
+/// Read view of one IDE request: the Salsa database and the resident
+/// elaboration service.
+pub(crate) struct AnalysisContext<'a> {
+    pub(crate) db: &'a RootDb,
+    pub(crate) elab: &'a ElaborationService,
+    pub(crate) revision: ElabRevision,
+}
+
+impl Deref for AnalysisContext<'_> {
+    type Target = RootDb;
+
+    fn deref(&self) -> &RootDb {
+        self.db
+    }
+}
+
+impl AnalysisContext<'_> {
+    pub(crate) fn new<'a>(
+        db: &'a RootDb,
+        elab: &'a ElaborationService,
+        revision: ElabRevision,
+    ) -> AnalysisContext<'a> {
+        AnalysisContext { db, elab, revision }
+    }
+
+    pub(crate) fn semantics(&self) -> hir_semantics::semantics::Semantics<'_, RootDb> {
+        hir_semantics::semantics::Semantics::new(self.db)
+    }
 }
 
 impl AnalysisSnapshot {
@@ -59,6 +91,14 @@ impl AnalysisSnapshot {
     {
         let _span = tracing::debug_span!("ide.analysis", snapshot_id = ?self.snapshot_id).entered();
         Cancelled::catch(|| f(&self.db))
+    }
+
+    fn with_ctx<F, T>(&self, f: F) -> Cancellable<T>
+    where
+        F: FnOnce(&AnalysisContext<'_>) -> T + std::panic::UnwindSafe,
+    {
+        let _span = tracing::debug_span!("ide.analysis", snapshot_id = ?self.snapshot_id).entered();
+        Cancelled::catch(|| f(&AnalysisContext::new(&self.db, &self.elab, self.snapshot_id)))
     }
 
     pub fn line_index(&self, file_id: FileId) -> Cancellable<Arc<LineIndex>> {
@@ -146,7 +186,7 @@ impl AnalysisSnapshot {
         &self,
         position: FilePosition,
     ) -> Cancellable<Option<RangeInfo<Vec<NavTarget>>>> {
-        self.with_db(|db| goto_definition::goto_definition(db, position))
+        self.with_ctx(|ctx| goto_definition::goto_definition(ctx, position))
     }
 
     pub fn goto_declaration(
@@ -279,7 +319,7 @@ impl AnalysisSnapshot {
     }
 
     pub fn hover(&self, position: FilePosition) -> Cancellable<Option<RangeInfo<Markup>>> {
-        self.with_db(|db| hover::hover(db, position))
+        self.with_ctx(|ctx| hover::hover(ctx, position))
     }
 
     pub fn inlay_hint(
@@ -321,7 +361,7 @@ impl AnalysisSnapshot {
         position: FilePosition,
         trigger: Option<TriggerChar>,
     ) -> Cancellable<Vec<CompletionItem>> {
-        self.with_db(|db| crate::completion::completions(db, position, trigger))
+        self.with_ctx(|ctx| crate::completion::completions(ctx, position, trigger))
     }
 
     pub fn code_action(
@@ -331,8 +371,8 @@ impl AnalysisSnapshot {
         diagnostics: &[crate::diagnostics::Diagnostic],
         resolve_strategy: CodeActionResolveStrategy,
     ) -> Cancellable<Vec<CodeAction>> {
-        self.with_db(|db| {
-            code_action::code_action(db, file_id, range, diagnostics, resolve_strategy)
+        self.with_ctx(|ctx| {
+            code_action::code_action(ctx, file_id, range, diagnostics, resolve_strategy)
         })
     }
 }

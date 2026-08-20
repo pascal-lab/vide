@@ -1,29 +1,68 @@
+use std::{
+    sync::{
+        Arc as StdArc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::{self, JoinHandle},
+};
+
 use base_db::{
     analysis_snapshot::AnalysisSnapshotId, change::Change, diagnostics_config::DiagnosticsConfig,
     salsa::Durability, source_db::SourceDb,
 };
 use triomphe::Arc;
 
-use crate::{analysis::AnalysisSnapshot, db::root_db::RootDb};
+use crate::{
+    analysis::{AnalysisContext, AnalysisSnapshot},
+    db::root_db::RootDb,
+    elaboration::ElaborationService,
+};
 
 pub struct AnalysisHost {
     db: RootDb,
     snapshot_id: AnalysisSnapshotId,
+    elab: ElaborationService,
+    elab_worker: Option<JoinHandle<()>>,
+    prewarm: Option<PrewarmTask>,
+}
+
+struct PrewarmTask {
+    cancel: StdArc<AtomicBool>,
+    worker: JoinHandle<()>,
 }
 
 impl AnalysisHost {
     pub fn new(lru_capacity: Option<usize>) -> AnalysisHost {
-        AnalysisHost { db: RootDb::new(lru_capacity), snapshot_id: AnalysisSnapshotId::default() }
+        let (elab, elab_worker) = ElaborationService::spawn();
+        AnalysisHost {
+            db: RootDb::new(lru_capacity),
+            snapshot_id: AnalysisSnapshotId::default(),
+            elab,
+            elab_worker: Some(elab_worker),
+            prewarm: None,
+        }
     }
 
     pub fn make_analysis(&self) -> AnalysisSnapshot {
+        self.signal_foreground_request();
         let db = self.db.clone();
-        AnalysisSnapshot { db, snapshot_id: self.snapshot_id }
+        AnalysisSnapshot { db, snapshot_id: self.snapshot_id, elab: self.elab.clone() }
     }
 
     pub fn apply_change(&mut self, change: Change) {
+        self.cancel_prewarm();
         self.db.apply_change(change);
         self.advance_revision();
+        self.start_prewarm();
+        #[cfg(test)]
+        self.await_prewarm();
+    }
+
+    #[cfg(test)]
+    fn await_prewarm(&mut self) {
+        if let Some(task) = self.prewarm.take() {
+            let _ = task.worker.join();
+        }
     }
 
     pub fn set_diagnostics_config(&mut self, config: Arc<DiagnosticsConfig>) {
@@ -35,12 +74,66 @@ impl AnalysisHost {
         self.snapshot_id = self.snapshot_id.next();
     }
 
+    fn start_prewarm(&mut self) {
+        let db = self.db.clone();
+        let elab = self.elab.clone();
+        let revision = self.snapshot_id;
+        let cancel = StdArc::new(AtomicBool::new(false));
+        let worker_cancel = cancel.clone();
+        let worker = thread::Builder::new()
+            .name("vide-elaboration-prewarm".to_owned())
+            .spawn(move || {
+                if !worker_cancel.load(Ordering::Acquire) {
+                    let _ = elab.prewarm(&db, revision);
+                }
+            })
+            .expect("failed to spawn elaboration prewarm worker");
+        self.prewarm = Some(PrewarmTask { cancel, worker });
+    }
+
+    fn cancel_prewarm(&mut self) {
+        let Some(task) = self.prewarm.take() else {
+            return;
+        };
+        task.cancel.store(true, Ordering::Release);
+    }
+
+    fn join_prewarm(&mut self) {
+        let Some(task) = self.prewarm.take() else {
+            return;
+        };
+        task.cancel.store(true, Ordering::Release);
+        let _ = task.worker.join();
+    }
+
+    fn signal_foreground_request(&self) {
+        if let Some(task) = &self.prewarm {
+            task.cancel.store(true, Ordering::Release);
+        }
+    }
+
     pub fn snapshot_id(&self) -> AnalysisSnapshotId {
         self.snapshot_id
     }
 
     pub fn raw_db(&self) -> &RootDb {
+        self.signal_foreground_request();
         &self.db
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ctx(&self) -> AnalysisContext<'_> {
+        AnalysisContext::new(&self.db, &self.elab, self.snapshot_id)
+    }
+}
+
+impl Drop for AnalysisHost {
+    fn drop(&mut self) {
+        self.join_prewarm();
+        self.elab.shutdown();
+        if let Some(worker) = self.elab_worker.take() {
+            let _ = worker.join();
+        }
     }
 }
 

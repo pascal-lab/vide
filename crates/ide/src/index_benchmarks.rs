@@ -191,7 +191,7 @@ fn index_benchmarks_real_file() {
     );
     let position = FilePosition { file_id, offset: probe_offset };
 
-    let (nav, goto_cost) = timed(|| goto_definition::goto_definition(db, position));
+    let (nav, goto_cost) = timed(|| goto_definition::goto_definition(&host.ctx(), position));
     eprintln!(
         "goto definition on first module ({probe}):     {goto_cost:?} ({} targets)",
         nav.map_or(0, |info| info.info.len())

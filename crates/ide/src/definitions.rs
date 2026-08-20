@@ -353,6 +353,36 @@ fn name_context_for_token(parent: syntax::SyntaxNode<'_>) -> NameContext {
     }
 }
 
+pub(crate) fn colon_colon_query(tp: SyntaxTokenWithParent<'_>) -> Option<(String, String)> {
+    if let Some(item) =
+        SyntaxAncestors::start_from(tp.parent).find_map(ast::PackageImportItem::cast)
+    {
+        let package = item.package()?;
+        let package_name = package.raw_text().to_string();
+        if item.package() == Some(tp.tok) {
+            return Some((package_name, String::new()));
+        }
+        if item.item() == Some(tp.tok) {
+            return Some((package_name, tp.tok.raw_text().to_string()));
+        }
+        return None;
+    }
+    let scoped = SyntaxAncestors::start_from(tp.parent).find_map(ast::ScopedName::cast)?;
+    if scoped_uses_dot(scoped) {
+        return None;
+    }
+    let left = scoped_left_token(scoped)?;
+    let left_name = left.tok.raw_text().to_string();
+    if left.tok == tp.tok {
+        return Some((left_name, String::new()));
+    }
+    let right = scoped_right_token(scoped)?;
+    if right == tp.tok {
+        return Some((left_name, right.raw_text().to_string()));
+    }
+    None
+}
+
 fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {
     use ast::Name::*;
     match scoped.right() {

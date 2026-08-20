@@ -12,7 +12,6 @@ use hir_def::{
     symbol::Resolution,
 };
 use hir_semantics::semantics::Semantics;
-use hir_ty::display::HirDisplay;
 use itertools::Either;
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -28,7 +27,7 @@ use utils::text_edit::{TextRange, TextSize};
 
 use crate::{
     FilePosition, db::root_db::RootDb, markup::Markup,
-    module_resolution::resolve_instantiation_target,
+    module_resolution::resolve_instantiation_target, render::hir_display::HirDisplay,
 };
 
 #[derive(Debug)]

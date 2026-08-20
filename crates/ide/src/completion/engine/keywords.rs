@@ -1,17 +1,17 @@
 use super::candidate::CompletionCandidate;
 use crate::{
     FilePosition,
+    analysis::AnalysisContext,
     completion::{
         context::CompletionContext,
         engine::snippets,
         request::{KeywordProvider, KeywordSnippetScope},
         syntax_keywords,
     },
-    db::root_db::RootDb,
 };
 
 pub(super) fn complete_keywords(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     _position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -32,7 +32,7 @@ pub(super) fn complete_keywords(
 }
 
 fn module_instantiation_snippets(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     prefix: &str,
     ctx: &CompletionContext,
     enabled: bool,

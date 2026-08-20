@@ -11,6 +11,7 @@ use vfs::FileId;
 
 use crate::{
     FilePosition, RangeInfo,
+    analysis::AnalysisContext,
     db::root_db::RootDb,
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
@@ -21,13 +22,13 @@ use crate::{
 };
 
 pub(crate) fn goto_definition(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    let sema = Semantics::new(db);
+    let sema = Semantics::new(db.db);
     let parsed_file = sema.parse_file(file_id);
     let target = resolve_semantic_target(
-        db,
+        db.db,
         file_id,
         offset,
         parsed_file.root(),
@@ -37,7 +38,7 @@ pub(crate) fn goto_definition(
 }
 
 fn render_definition_target(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     file_id: FileId,
     sema: &Semantics<RootDb>,
     target: TargetResolution<'_>,
@@ -47,8 +48,8 @@ fn render_definition_target(
     for target in target.targets_for_intent(TargetIntent::Navigate) {
         let target = match target {
             SemanticTarget::PreprocMacro(target) => render_preproc_definition_target(target),
-            SemanticTarget::Include(includes) => render_include_definition_target(db, includes),
-            SemanticTarget::Manifest(target) => crate::manifest::definition_target(db, target),
+            SemanticTarget::Include(includes) => render_include_definition_target(db.db, includes),
+            SemanticTarget::Manifest(target) => crate::manifest::definition_target(db.db, target),
             SemanticTarget::Source(target) => {
                 render_source_definition_target(db, file_id, sema, target)
             }
@@ -66,7 +67,7 @@ fn render_definition_target(
 }
 
 fn render_source_definition_target(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     file_id: FileId,
     sema: &Semantics<RootDb>,
     target: SourceTarget<'_>,
@@ -87,7 +88,7 @@ fn render_source_definition_target(
 }
 
 fn nav_targets_for_token(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     sema: &Semantics<RootDb>,
     hir_file_id: HirFileId,
     token: SyntaxTokenWithParent,
@@ -96,12 +97,42 @@ fn nav_targets_for_token(
         let navs = DefinitionClass::resolve(sema.db, hir_file_id, token)
             .into_candidates()
             .into_iter()
-            .flat_map(|class| class.origins(db))
+            .flat_map(|class| class.origins(db.db))
             .unique()
-            .filter_map(|def| def.to_nav(db))
+            .filter_map(|def| def.to_nav(db.db))
             .collect_vec();
-        (!navs.is_empty()).then_some(navs)
+        if !navs.is_empty() {
+            return Some(navs);
+        }
+        slang_scoped_nav(db, hir_file_id, token)
     })
+}
+
+fn slang_scoped_nav(
+    db: &AnalysisContext<'_>,
+    hir_file_id: HirFileId,
+    token: SyntaxTokenWithParent<'_>,
+) -> Option<Vec<NavTarget>> {
+    let file = hir_file_id.as_file()?;
+    let (left, right) = crate::definitions::colon_colon_query(token)?;
+    let info = crate::slang_class::lookup_scoped_at(db, file, &left, &right)
+        .answered("goto definition")?;
+    if info.def_file.is_empty() {
+        return None;
+    }
+    let file_id = crate::slang_class::file_id_for_slang_path(db.db, &info.def_file);
+    let start = utils::line_index::TextSize::from(info.def_offset as u32);
+    let len = utils::line_index::TextSize::from(info.name.len() as u32);
+    let focus = utils::line_index::TextRange::new(start, start + len);
+    Some(vec![NavTarget {
+        file_id,
+        full_range: focus,
+        focus_range: Some(focus),
+        name: Some(smol_str::SmolStr::from(info.name.as_str())),
+        kind: None,
+        container_name: None,
+        description: None,
+    }])
 }
 
 fn render_preproc_definition_target(

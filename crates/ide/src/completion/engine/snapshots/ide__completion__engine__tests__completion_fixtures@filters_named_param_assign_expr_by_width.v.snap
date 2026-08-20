@@ -1,5 +1,6 @@
 ---
 source: crates/ide/src/completion/engine/tests.rs
+assertion_line: 188
 expression: items
 input_file: crates/ide/src/completion/engine/fixtures/filters_named_param_assign_expr_by_width.v
 ---
@@ -10,6 +11,17 @@ input_file: crates/ide/src/completion/engine/fixtures/filters_named_param_assign
         edit: Some(
             TextEditItem {
                 ins: "P4",
+                del: 117..117,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "P8",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "P8",
                 del: 117..117,
             },
         ),

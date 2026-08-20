@@ -7,7 +7,6 @@ use base_db::{
     source_db::{FileLoader, SourceDb, SourceRootDb},
 };
 use hir_def::db::HirDefDb;
-use hir_ty::db::TyDb;
 use preproc_expand::db::PreprocDb;
 use triomphe::Arc;
 use vfs::{AnchoredPath, FileId};
@@ -34,9 +33,6 @@ impl PreprocDb for RootDb {}
 
 #[salsa::db]
 impl HirDefDb for RootDb {}
-
-#[salsa::db]
-impl TyDb for RootDb {}
 
 #[salsa::db]
 impl LineIndexDb for RootDb {}

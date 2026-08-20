@@ -1,13 +1,13 @@
 use base_db::source_root::SourceRootId;
 use hir_def::{
     container::InFile,
+    db::HirDefDb,
     def_id::DefId,
     has_source::HasSource,
     module::ModuleKind,
     owner::{OwnerId, OwnerKind},
 };
 use hir_semantics::semantics::Semantics;
-use hir_ty::db::TyDb;
 use nohash_hasher::IntMap;
 use preproc_expand::{file::HirFileId, macro_file::macro_file_call_site};
 use rustc_hash::FxHashMap;
@@ -271,7 +271,7 @@ pub(crate) fn search_references(
 /// not a file the user can open. Returns `None` when a macro expansion's call
 /// site cannot be resolved.
 pub(crate) fn resolve_source_range(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     file_id: HirFileId,
     range: TextRange,
 ) -> Option<(FileId, TextRange)> {

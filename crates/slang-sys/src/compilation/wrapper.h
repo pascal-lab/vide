@@ -15,6 +15,10 @@
 namespace slang_sys::compilation {
 
 struct ParseSyntaxTreeOptions;
+struct SymbolAnswer;
+struct MemberAnswer;
+struct TypeAnswer;
+struct HierInstanceAnswer;
 
 class Compilation {
   public:
@@ -67,4 +71,30 @@ rust::Vec<diagnostic::RawSyntaxDiagnostic> semantic_diagnostics(
     const Compilation& compilation,
     rust::Vec<rust::String> warning_options
 );
+SymbolAnswer lookup_symbol(
+    Compilation& compilation,
+    rust::Str path,
+    std::size_t offset
+);
+SymbolAnswer lookup_scoped(
+    Compilation& compilation,
+    rust::Str left,
+    rust::Str right
+);
+rust::Vec<MemberAnswer> list_members(
+    Compilation& compilation,
+    rust::Str path,
+    std::size_t offset
+);
+rust::Vec<MemberAnswer> list_scope_members(
+    Compilation& compilation,
+    rust::Str name
+);
+TypeAnswer lookup_type(
+    Compilation& compilation,
+    rust::Str path,
+    std::size_t start,
+    std::size_t end
+);
+rust::Vec<HierInstanceAnswer> list_instances(Compilation& compilation);
 } // namespace slang_sys::compilation
