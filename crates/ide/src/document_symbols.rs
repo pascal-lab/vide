@@ -9,6 +9,7 @@ use hir_def::{
     checker::{CheckerDef, CheckerId},
     container::InFile,
     covergroup::{CovergroupDef, CovergroupId, CoverpointDef, CoverpointId, CrossDef, CrossId},
+    db::HirDefDb,
     declaration::{Declaration, DeclarationId},
     expr::declarator::{DeclId, Declarator, DeclsRange},
     file::{
@@ -31,7 +32,6 @@ use hir_def::{
     stmt::{CaseItem, ForInit, StmtId, StmtKind},
     typedef::{Typedef, TypedefId},
 };
-use hir_def::db::HirDefDb;
 use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
 use syntax::WalkEvent;
@@ -873,8 +873,12 @@ fn build_coverpoint<L>(
 }
 
 #[inline]
-fn build_cross<L>(db: &dyn HirDefDb, collector: &mut SymbolCollector, cross_id: CrossId, lowered: &L)
-where
+fn build_cross<L>(
+    db: &dyn HirDefDb,
+    collector: &mut SymbolCollector,
+    cross_id: CrossId,
+    lowered: &L,
+) where
     L: HirLookup<CrossId, Hir = CrossDef> + NamedSourceLookup<CrossId>,
 {
     let cross = lowered.hir(cross_id);
@@ -886,8 +890,12 @@ where
 }
 
 #[inline]
-fn build_struct<L>(db: &dyn HirDefDb, collector: &mut SymbolCollector, struct_id: StructId, lowered: &L)
-where
+fn build_struct<L>(
+    db: &dyn HirDefDb,
+    collector: &mut SymbolCollector,
+    struct_id: StructId,
+    lowered: &L,
+) where
     L: HirLookup<StructId, Hir = StructDef> + NamedSourceLookup<StructId>,
 {
     let hir = lowered.hir(struct_id);
@@ -1017,8 +1025,12 @@ fn build_config_decl<L>(
 }
 
 #[inline]
-fn build_udp_decl<L>(db: &dyn HirDefDb, collector: &mut SymbolCollector, udp_id: UdpDeclId, lowered: &L)
-where
+fn build_udp_decl<L>(
+    db: &dyn HirDefDb,
+    collector: &mut SymbolCollector,
+    udp_id: UdpDeclId,
+    lowered: &L,
+) where
     L: HirLookup<UdpDeclId, Hir = UdpDecl> + NamedSourceLookup<UdpDeclId>,
 {
     let hir = lowered.hir(udp_id);

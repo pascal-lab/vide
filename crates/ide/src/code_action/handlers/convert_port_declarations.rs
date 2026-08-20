@@ -5,14 +5,13 @@ use hir_def::{
     Ident,
     body::Body,
     container::OwnerRef,
+    db::HirDefDb,
     expr::declarator::{DeclId, DeclaratorParent},
     module::port::{PortDecl, Ports},
     owner::OwnerId,
     source_map::Lowered,
     symbol::{NameContext, ScopeData},
 };
-use hir_def::db::HirDefDb;
-use crate::render::hir_display::HirDisplay;
 use itertools::Itertools;
 use syntax::{
     ast::{self, AstNode},
@@ -20,8 +19,9 @@ use syntax::{
 };
 use utils::text_edit::TextRange;
 
-use crate::code_action::{
-    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, line_indent,
+use crate::{
+    code_action::{CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, line_indent},
+    render::hir_display::HirDisplay,
 };
 
 const ANSI_TO_NON_ANSI_ID: CodeActionId = CodeActionId {

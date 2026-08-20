@@ -32,7 +32,6 @@ use hir_def::{
     symbol::{DefKind, DefOrigin},
 };
 use hir_semantics::semantics::Semantics;
-use crate::render::hir_display::HirDisplay;
 use itertools::Itertools;
 use syntax::{
     SyntaxCursorExt, SyntaxNodeExt,
@@ -47,6 +46,7 @@ use crate::{
     markup::{Markup, display_project_path, file_link_target, inline_code, markdown_link},
     module_resolution::resolve_module_name,
     references::search::resolve_source_range,
+    render::hir_display::HirDisplay,
 };
 
 pub(crate) fn render_literal(literal: &Literal) -> Option<Markup> {

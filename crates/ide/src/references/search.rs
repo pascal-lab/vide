@@ -1,13 +1,13 @@
 use base_db::source_root::SourceRootId;
 use hir_def::{
     container::InFile,
+    db::HirDefDb,
     def_id::DefId,
     has_source::HasSource,
     module::ModuleKind,
     owner::{OwnerId, OwnerKind},
 };
 use hir_semantics::semantics::SemanticsImpl;
-use hir_def::db::HirDefDb;
 use nohash_hasher::IntMap;
 use preproc_expand::{file::HirFileId, macro_file::macro_file_call_site};
 use rustc_hash::FxHashMap;

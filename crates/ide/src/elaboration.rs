@@ -192,11 +192,12 @@ impl ElaborationService {
             return ElabResult::Unavailable(UnavailableReason::WorkerGone);
         }
         let received = match wait {
-            Wait::Interactive => reply_rx.recv_timeout(INTERACTIVE_TIMEOUT).map_err(|err| match err
-            {
-                RecvTimeoutError::Timeout => UnavailableReason::NotReady,
-                RecvTimeoutError::Disconnected => UnavailableReason::WorkerGone,
-            }),
+            Wait::Interactive => {
+                reply_rx.recv_timeout(INTERACTIVE_TIMEOUT).map_err(|err| match err {
+                    RecvTimeoutError::Timeout => UnavailableReason::NotReady,
+                    RecvTimeoutError::Disconnected => UnavailableReason::WorkerGone,
+                })
+            }
             Wait::UntilDone => reply_rx.recv().map_err(|_| UnavailableReason::WorkerGone),
         };
         received.unwrap_or_else(ElabResult::Unavailable)
@@ -243,9 +244,7 @@ impl ElaborationService {
         offset: usize,
     ) -> ElabResult<SymbolInfo> {
         let path = path.to_owned();
-        self.query(db, revision, profile, "symbol", move |slang| {
-            slang.lookup_symbol(&path, offset)
-        })
+        self.query(db, revision, profile, "symbol", move |slang| slang.lookup_symbol(&path, offset))
     }
 
     pub fn lookup_scoped(
@@ -257,9 +256,7 @@ impl ElaborationService {
         right: &str,
     ) -> ElabResult<SymbolInfo> {
         let (left, right) = (left.to_owned(), right.to_owned());
-        self.query(db, revision, profile, "scoped", move |slang| {
-            slang.lookup_scoped(&left, &right)
-        })
+        self.query(db, revision, profile, "scoped", move |slang| slang.lookup_scoped(&left, &right))
     }
 
     pub fn list_scope_members(
@@ -299,9 +296,7 @@ impl ElaborationService {
         end: usize,
     ) -> ElabResult<String> {
         let path = path.to_owned();
-        self.query(db, revision, profile, "type", move |slang| {
-            slang.lookup_type(&path, start, end)
-        })
+        self.query(db, revision, profile, "type", move |slang| slang.lookup_type(&path, start, end))
     }
 
     pub fn list_instances(
@@ -310,15 +305,12 @@ impl ElaborationService {
         revision: ElabRevision,
         profile: Option<CompilationProfileId>,
     ) -> ElabResult<Vec<HierInstance>> {
-        self.query(db, revision, profile, "instances", move |slang| {
-            Some(slang.list_instances())
-        })
+        self.query(db, revision, profile, "instances", move |slang| Some(slang.list_instances()))
     }
 
     pub fn shutdown(&self) {
         let _ = self.tx.send(Job::Shutdown);
     }
-
 }
 
 fn worker_loop(rx: Receiver<Job>) {
@@ -378,11 +370,7 @@ impl Worker {
             .ok_or(NotAnswered::Unavailable(UnavailableReason::OutsideAnyProfile))
     }
 
-    fn generation(
-        &mut self,
-        db: &RootDb,
-        revision: ElabRevision,
-    ) -> Result<usize, NotAnswered> {
+    fn generation(&mut self, db: &RootDb, revision: ElabRevision) -> Result<usize, NotAnswered> {
         if let Some(index) = self.generations.iter().position(|slot| slot.revision == revision) {
             return Ok(index);
         }
@@ -432,8 +420,7 @@ fn rebuild(db: &RootDb, revision: ElabRevision) -> Generation {
 fn compile_profile(db: &RootDb, profile_id: Option<CompilationProfileId>) -> Compilation {
     let plan = db.compilation_plan_for_profile(profile_id);
     let context = db.compilation_context(profile_id);
-    let include_paths: Vec<String> =
-        context.include_dirs.iter().map(ToString::to_string).collect();
+    let include_paths: Vec<String> = context.include_dirs.iter().map(ToString::to_string).collect();
 
     let mut compilation = Compilation::new_with_top_modules(&context.top_modules);
     compilation.register_source_buffers(
@@ -501,11 +488,7 @@ endclass
 
     /// Block for the build, then ask, so a cold snapshot cannot make an
     /// assertion about the *answer* fail for a latency reason.
-    fn lookup_at(
-        host: &AnalysisHost,
-        file_id: FileId,
-        offset: TextSize,
-    ) -> ElabResult<SymbolInfo> {
+    fn lookup_at(host: &AnalysisHost, file_id: FileId, offset: TextSize) -> ElabResult<SymbolInfo> {
         let ctx = host.ctx();
         let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
         let profile = ctx.db.file_compilation_profile(file_id);
@@ -678,7 +661,10 @@ endclass
         assert_eq!(before.owner_class, "holder");
 
         let mut edit = Change::new();
-        edit.add_changed_file(ChangedFile::modify(module_file, "module b;\n  wire w;\nendmodule\n"));
+        edit.add_changed_file(ChangedFile::modify(
+            module_file,
+            "module b;\n  wire w;\nendmodule\n",
+        ));
         host.apply_change(edit);
 
         let after = expect_ready(lookup_at(&host, class_file, tag)).expect("tag after the edit");

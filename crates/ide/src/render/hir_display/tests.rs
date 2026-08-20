@@ -1,14 +1,10 @@
 //! Rendering lowered declarations back to SystemVerilog source text.
 
-use super::HirDisplay;
-use crate::db::root_db::RootDb;
-use std::fmt;
-
 use base_db::{
     diagnostics_config::DiagnosticsConfig,
     project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
-    salsa::{self, Durability},
-    source_db::{FileLoader, SourceDb, SourceFileKind, SourceRootDb},
+    salsa::Durability,
+    source_db::{SourceDb, SourceFileKind, SourceRootDb},
     source_root::{SourceRoot, SourceRootId},
 };
 use hir_def::{
@@ -16,19 +12,20 @@ use hir_def::{
     constraint::Constraint,
     container::OwnerRef,
     covergroup::CoverageBinInitializer,
-    db::HirDefDb,
     expr::{
         Expr,
         data_ty::{DataTy, TypePathKind},
     },
     owner::OwnerId,
 };
-use preproc_expand::db::PreprocDb;
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use triomphe::Arc;
 use utils::paths::{AbsPathBuf, Utf8PathBuf};
-use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
+use vfs::{FileId, FileSet, VfsPath};
+
+use super::HirDisplay;
+use crate::db::root_db::RootDb;
 
 const TOP: FileId = FileId::from_raw(0);
 const ROOT: SourceRootId = SourceRootId(0);

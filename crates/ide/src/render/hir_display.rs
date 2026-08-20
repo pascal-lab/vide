@@ -4,6 +4,7 @@ use hir_def::{
     aggregate::StructKind,
     constraint::DistItem,
     container::OwnerRef,
+    db::HirDefDb,
     expr::{
         Arg, AssignOp, AssignmentPattern, AssignmentPatternItem, BinaryOp, Expr, ExprId, IncDecOp,
         InsideRange, PropertyCaseItem, PropertyExpr, Selector, SequenceExpr, SequenceRepetition,
@@ -21,8 +22,6 @@ use hir_def::{
 };
 use syntax::value::TimeUnit;
 use triomphe::Arc;
-
-use hir_def::db::HirDefDb;
 
 pub struct HirFormatter<'a> {
     pub db: &'a dyn HirDefDb,

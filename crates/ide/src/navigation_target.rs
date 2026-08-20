@@ -1,5 +1,6 @@
 use hir_def::{
     container::{InFile, OwnerRef},
+    db::HirDefDb,
     def_id::DefId,
     expr::declarator::DeclId,
     file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
@@ -11,7 +12,6 @@ use hir_def::{
     symbol::DefOrigin,
     typedef::TypedefId,
 };
-use hir_def::db::HirDefDb;
 use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
 use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange};

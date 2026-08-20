@@ -54,10 +54,13 @@ pub(super) fn complete_member_access(
     if !by_name.is_empty() {
         return to_candidates(by_name, prefix, ctx);
     }
-    let by_type =
-        slang_class::list_members_at(db, position.file_id, usize::from(range.end()).saturating_sub(1))
-            .answered("member completion by type")
-            .unwrap_or_default();
+    let by_type = slang_class::list_members_at(
+        db,
+        position.file_id,
+        usize::from(range.end()).saturating_sub(1),
+    )
+    .answered("member completion by type")
+    .unwrap_or_default();
     to_candidates(by_type, prefix, ctx)
 }
 
