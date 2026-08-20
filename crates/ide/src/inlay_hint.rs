@@ -202,6 +202,7 @@ impl InlayHintCollector {
 
 pub(crate) fn inlay_hint(
     db: &RootDb,
+    context: &hir_def::pathres::ResolutionContext,
     file_id: FileId,
     range: TextRange,
     config: InlayHintConfig,
@@ -231,7 +232,7 @@ pub(crate) fn inlay_hint(
                 };
 
                 if collector.intersect(range) {
-                    collect_module_items(db, module_id, module_src, &mut collector);
+                    collect_module_items(db, context, module_id, module_src, &mut collector);
                 }
             }
             _ => {}
@@ -297,6 +298,7 @@ fn collect_macro_argument_hints_for_call(
 
 fn collect_module_items(
     db: &RootDb,
+    context: &hir_def::pathres::ResolutionContext,
     module_id: OwnerId,
     module_src: SourceAstId,
     collector: &mut InlayHintCollector,
@@ -304,7 +306,7 @@ fn collect_module_items(
     let module = db.body_with_source_map(module_id);
 
     if collector.config.instantiation() {
-        collect_instantiations_in_body(db, module_id, &module, collector);
+        collect_instantiations_in_body(db, context, module_id, &module, collector);
     }
 
     if collector.config.end_structure
@@ -321,6 +323,7 @@ fn collect_module_items(
 
 fn collect_instantiations_in_body(
     db: &RootDb,
+    context: &hir_def::pathres::ResolutionContext,
     module_id: OwnerId,
     body: &Lowered<Body>,
     collector: &mut InlayHintCollector,
@@ -332,18 +335,18 @@ fn collect_instantiations_in_body(
                 if let Some(range) = body.source_range(db, *instantiation_id)
                     && collector.intersect(range)
                 {
-                    process_instantiation(db, module_id, body, instantiation, collector);
+                    process_instantiation(db, context, module_id, body, instantiation, collector);
                 }
             }
             BodyItem::GenerateRegionId(region_id) => {
                 let region = body.get(*region_id);
                 for item in &region.items {
-                    collect_instantiation_item(db, module_id, body, item, collector);
+                    collect_instantiation_item(db, context, module_id, body, item, collector);
                 }
             }
             BodyItem::GenerateBlockOwner(owner) => {
                 let generate_body = db.body_with_source_map(*owner);
-                collect_instantiations_in_body(db, module_id, &generate_body, collector);
+                collect_instantiations_in_body(db, context, module_id, &generate_body, collector);
             }
             _ => {}
         }
@@ -352,6 +355,7 @@ fn collect_instantiations_in_body(
 
 fn collect_instantiation_item(
     db: &RootDb,
+    context: &hir_def::pathres::ResolutionContext,
     module_id: OwnerId,
     body: &Lowered<Body>,
     item: &BodyItem,
@@ -363,12 +367,12 @@ fn collect_instantiation_item(
             if let Some(range) = body.source_range(db, *instantiation_id)
                 && collector.intersect(range)
             {
-                process_instantiation(db, module_id, body, instantiation, collector);
+                process_instantiation(db, context, module_id, body, instantiation, collector);
             }
         }
         BodyItem::GenerateBlockOwner(owner) => {
             let generate_body = db.body_with_source_map(*owner);
-            collect_instantiations_in_body(db, module_id, &generate_body, collector);
+            collect_instantiations_in_body(db, context, module_id, &generate_body, collector);
         }
         _ => {}
     }
@@ -427,14 +431,14 @@ fn module_end_range(db: &RootDb, file_id: HirFileId, source: SourceAstId) -> Opt
 
 fn process_instantiation(
     db: &RootDb,
-    module_id: OwnerId,
+    context: &hir_def::pathres::ResolutionContext,
+    _module_id: OwnerId,
     module: &Lowered<Body>,
     instantiation: &Instantiation,
     collector: &mut InlayHintCollector,
 ) -> Option<()> {
-    let from_file = module_id.file(db).source_file_id(db)?;
     let target_module_id =
-        resolve_module_name(db, from_file, instantiation.module_name.as_ref()?).unique()?;
+        resolve_module_name(db, context, instantiation.module_name.as_ref()?).unique()?;
 
     let target_module = db.body_with_source_map(target_module_id);
     let target_body = db.body_with_source_map(target_module_id);
@@ -785,7 +789,13 @@ mod tests {
         let source = "module child(output instr_addr_o); endmodule\n\
             module top; logic instr_addr_o; child u(instr_addr_o); endmodule\n";
         let (db, file_id) = db_with_file(source);
-        let hints = inlay_hint(&db, file_id, TextRange::up_to(TextSize::of(source)), port_config());
+        let hints = inlay_hint(
+            &db,
+            &hir_def::unit::test_resolution(&db),
+            file_id,
+            TextRange::up_to(TextSize::of(source)),
+            port_config(),
+        );
         let hint = hints.iter().find(|hint| hint.label == "→").expect("same-name port hint");
 
         assert!(hint.target_location.is_some());
@@ -808,7 +818,13 @@ mod tests {
             endgenerate\n\
             endmodule\n";
         let (db, file_id) = db_with_file(source);
-        let hints = inlay_hint(&db, file_id, TextRange::up_to(TextSize::of(source)), port_config());
+        let hints = inlay_hint(
+            &db,
+            &hir_def::unit::test_resolution(&db),
+            file_id,
+            TextRange::up_to(TextSize::of(source)),
+            port_config(),
+        );
 
         assert!(
             hints.iter().any(|hint| hint.label == "→"),
@@ -824,6 +840,7 @@ mod tests {
             let (db, file_id) = db_with_file(&fixture.source);
             let hints = inlay_hint(
                 &db,
+                &hir_def::unit::test_resolution(&db),
                 file_id,
                 fixture.range.expect("fixture range should be initialized"),
                 fixture.config,

@@ -1,3 +1,15 @@
+/// Writing a lowered `hir-def` item back out as SystemVerilog source text.
+///
+/// Hover, signature help, and navigation labels need a declaration spelled
+/// out: `logic [7:0]`, a port list, an enum body. That is a syntactic job —
+/// it reads what `hir-def` lowered and prints it.
+///
+/// It is not type inference. What a name's type actually *is* comes from the
+/// resident slang elaboration service; nothing here computes a type, and a
+/// string produced here is never an answer about semantics. This lived in a
+/// crate called `hir-ty` for exactly as long as that was untrue.
+pub(crate) mod hir_display;
+
 use base_db::source_db::SourceRootDb;
 use hir_def::{
     container::{InFile, OwnerRef, ScopeParent},
@@ -20,7 +32,6 @@ use hir_def::{
     symbol::{DefKind, DefOrigin},
 };
 use hir_semantics::semantics::Semantics;
-use hir_ty::display::HirDisplay;
 use itertools::Itertools;
 use syntax::{
     SyntaxCursorExt, SyntaxNodeExt,
@@ -35,6 +46,7 @@ use crate::{
     markup::{Markup, display_project_path, file_link_target, inline_code, markdown_link},
     module_resolution::resolve_module_name,
     references::search::resolve_source_range,
+    render::hir_display::HirDisplay,
 };
 
 pub(crate) fn render_literal(literal: &Literal) -> Option<Markup> {
@@ -333,9 +345,9 @@ fn render_signature(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<Stri
         | DefKind::Genvar
         | DefKind::Specparam => origin.as_decl(db).and_then(|id| render_decl_signature(db, id)),
         DefKind::Typedef => origin.as_typedef(db).and_then(|id| id.display_signature(db).ok()),
-        DefKind::Instance => {
-            origin.as_instance(db).and_then(|id| render_instance_signature(db, id))
-        }
+        DefKind::Instance => origin
+            .as_instance(db)
+            .and_then(|id| render_instance_signature(db, sema.resolution_context().as_ref(), id)),
         DefKind::ClockingBlock => {
             origin.as_clocking_block(db).and_then(|id| render_clocking_block_signature(db, id))
         }
@@ -508,7 +520,11 @@ fn render_non_ansi_port_signature(db: &RootDb, port_id: OwnerRef<NonAnsiPortId>)
     Some(format!("port {label}"))
 }
 
-fn render_instance_signature(db: &RootDb, instance_id: OwnerRef<InstanceId>) -> Option<String> {
+fn render_instance_signature(
+    db: &RootDb,
+    context: &hir_def::pathres::ResolutionContext,
+    instance_id: OwnerRef<InstanceId>,
+) -> Option<String> {
     let parent_module = db.body_with_source_map(instance_id.cont_id);
     let instance = parent_module.get(instance_id.value);
     let instance_name = instance.name.as_ref()?;
@@ -516,8 +532,8 @@ fn render_instance_signature(db: &RootDb, instance_id: OwnerRef<InstanceId>) -> 
     let module_name = instantiation.module_name.as_ref()?;
 
     let mut signature = format!("instance {instance_name} of {module_name}");
-    if let Some(from_file) = instance_id.cont_id.file(db).source_file_id(db)
-        && let Some(target_module_id) = resolve_module_name(db, from_file, module_name).unique()
+    if instance_id.cont_id.file(db).source_file_id(db).is_some()
+        && let Some(target_module_id) = resolve_module_name(db, context, module_name).unique()
         && let Some(module_signature) = render_module_signature(db, target_module_id)
     {
         signature.push_str("\n\n");

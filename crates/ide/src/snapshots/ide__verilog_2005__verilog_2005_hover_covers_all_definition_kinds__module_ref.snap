@@ -1,12 +1,10 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 3224
 expression: normalize_hover_snapshot(hover.info.as_str())
 ---
 ```systemverilog
-module child (
-    input wire logic a,
-    output wire logic y
-)
+module child(input wire a, output wire y);
 ```
 
 

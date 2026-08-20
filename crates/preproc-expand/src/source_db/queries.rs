@@ -37,7 +37,7 @@ pub fn workspace_preproc_model_file_ids(
     let plan = db.compilation_plan_for_profile(profile_id);
     let mut file_ids = FxHashSet::default();
 
-    for root in plan.roots.iter().copied() {
+    for root in plan.root_file_ids() {
         if matches!(
             db.file_kind(root),
             SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
@@ -87,7 +87,7 @@ pub(crate) fn source_preproc_model(
     let profile_id = db.file_compilation_profile(file_id);
     let preprocess = db.project_config().preprocess_for_profile(profile_id);
     let options = syntax_tree_options_for_file(db, file_id);
-    let Some(trace) = db.parsed_compilation_unit(file_id).preprocessor_trace.clone() else {
+    let Some(trace) = db.preproc_trace(file_id) else {
         return Arc::new(Err(SourcePreprocQueryError::TraceUnavailable));
     };
 
@@ -96,10 +96,14 @@ pub(crate) fn source_preproc_model(
             Ok(source_map) => source_map,
             Err(err) => return Arc::new(Err(err)),
         };
-    let model = match SourcePreprocModel::from_trace(trace) {
+    let model = match SourcePreprocModel::from_trace(&trace) {
         Ok(model) => model,
         Err(err) => return Arc::new(Err(SourcePreprocQueryError::Model(err))),
     };
 
     Arc::new(Ok(MappedSourcePreprocModel::new(model, source_map)))
+}
+
+pub(crate) fn set_source_preproc_model_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
+    source_preproc_model::set_lru_capacity(db, capacity);
 }

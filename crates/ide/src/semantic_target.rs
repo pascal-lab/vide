@@ -213,32 +213,26 @@ pub(crate) fn resolve_semantic_target<'tree, F>(
 where
     F: Fn(TokenKind) -> usize,
 {
+    if !db.file_kind(file_id).is_project_manifest()
+        && is_preproc_free_file(db, file_id)
+        && let Some(root) = root
+    {
+        return normal_syntax_source_target_at_offset(root, offset, &precedence).map_or(
+            TargetResolution::Unresolved,
+            |target| {
+                TargetResolution::Resolved(TargetCandidate::new(
+                    SemanticTarget::Source(target),
+                    source_capabilities(),
+                ))
+            },
+        );
+    }
+
     resolve_semantic_target_with_emitted(db, file_id, offset, root, precedence, None)
 }
-/// Resolves a source offset without consulting preprocessor state.
-///
-/// Callers that have already proved that a file has no preprocessor-owned
-/// tokens use this path to avoid four offset-index queries and include lookup
-/// for every syntax token.
-pub(crate) fn resolve_plain_syntax_target<'tree>(
-    root: SyntaxNode<'tree>,
-    offset: TextSize,
-    precedence: impl Fn(TokenKind) -> usize,
-) -> TargetResolution<'tree> {
-    normal_syntax_source_target_at_offset(root, offset, &precedence).map_or(
-        TargetResolution::Unresolved,
-        |target| {
-            TargetResolution::Resolved(TargetCandidate::new(
-                SemanticTarget::Source(target),
-                source_capabilities(),
-            ))
-        },
-    )
-}
-
 /// Like [`resolve_semantic_target`], but reuses a prebuilt emitted-token
 /// index of `root`'s tree. Callers that resolve many offsets of one tree
-/// (the semantic index build) should build the index once with
+/// (a reference or call-hierarchy walk) should build the index once with
 /// [`emit_token_index`] and pass it here.
 pub(crate) fn resolve_semantic_target_with_emitted<'tree, F>(
     db: &dyn PreprocDb,
@@ -273,6 +267,16 @@ where
     };
     source_target_at_offset(db, file_id, root, offset, precedence, emitted)
         .unwrap_or(TargetResolution::Unresolved)
+}
+
+pub(crate) fn is_preproc_free_file(db: &dyn PreprocDb, file_id: FileId) -> bool {
+    let trace = db.parse(file_id.into()).preprocessor_trace();
+    trace.events.is_empty()
+        && trace.include_edges.is_empty()
+        && trace
+            .emitted_tokens
+            .iter()
+            .all(|token| matches!(token.origin, syntax::preproc::TokenOrigin::Source { .. }))
 }
 
 /// Resolves the caret offset to a semantic target, or `None` when the offset

@@ -8,5 +8,6 @@ edition.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 project-model = { workspace = true, features = ["manifest-schema"] }
+regex.workspace = true
 serde_json.workspace = true
 user-config.workspace = true

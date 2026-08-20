@@ -54,8 +54,11 @@ impl ParsedFile {
 }
 
 impl<DB: HirDefDb> Semantics<'_, DB> {
-    pub fn new(db: &DB) -> Semantics<'_, DB> {
-        let impl_ = SemanticsImpl::new(db);
+    pub fn new_with_context(
+        db: &DB,
+        context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
+    ) -> Semantics<'_, DB> {
+        let impl_ = SemanticsImpl::new_with_context(db, context);
         Semantics { db, impl_ }
     }
 }
@@ -90,16 +93,29 @@ impl<DB: HirDefDb> Semantics<'_, DB> {
 
 pub struct SemanticsImpl<'db> {
     pub db: &'db dyn HirDefDb,
+    context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
 }
 
 impl<'db> SemanticsImpl<'db> {
-    pub fn new(db: &'db dyn HirDefDb) -> Self {
-        SemanticsImpl { db }
+    pub fn new_with_context(
+        db: &'db dyn HirDefDb,
+        context: triomphe::Arc<hir_def::pathres::ResolutionContext>,
+    ) -> Self {
+        SemanticsImpl { db, context }
+    }
+
+    /// The injected name-join context. IDE request paths pass the store graph.
+    pub fn resolution_context(&self) -> triomphe::Arc<hir_def::pathres::ResolutionContext> {
+        self.context.clone()
     }
 
     pub fn parse_file(&self, file_id: FileId) -> ParsedFile {
         let file_id = file_id.into();
         ParsedFile { file_id, tree: self.db.parse(file_id) }
+    }
+
+    pub fn parse_file_with_tree(&self, file_id: FileId, tree: SyntaxTree) -> ParsedFile {
+        ParsedFile { file_id: file_id.into(), tree }
     }
 
     pub fn container_for_node(&self, file_id: HirFileId, node: SyntaxNode) -> Option<OwnerId> {
@@ -129,10 +145,10 @@ impl SemanticsImpl<'_> {
     }
 
     pub fn expr_to_def(&self, in_cont: OwnerRef<ExprId>) -> Resolution<DefId> {
-        hir_to_def::expr_to_def(self.db, in_cont)
+        hir_to_def::expr_to_def(self.db, &self.context, in_cont)
     }
 
     pub fn name_to_def(&self, in_cont: OwnerRef<Ident>) -> Resolution<DefId> {
-        hir_to_def::name_to_def(self.db, in_cont, NameContext::Value)
+        hir_to_def::name_to_def(self.db, &self.context, in_cont, NameContext::Value)
     }
 }

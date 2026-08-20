@@ -1,4 +1,7 @@
-use std::ops::Range;
+use std::{
+    ops::{Deref, Range},
+    sync::atomic::AtomicBool,
+};
 
 use base_db::{
     Cancelled,
@@ -7,7 +10,9 @@ use base_db::{
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootId, SourceRootRole},
 };
-use preproc_expand::compilation_plan::CompilationPlan;
+use design_graph::DesignGraphDb;
+use hir_def::{def_id::DefId, pathres::ResolutionContext};
+use preproc_expand::{compilation_plan::CompilationPlan, profile_compiler::ProfileCompilationJob};
 use triomphe::Arc;
 use utils::{
     cancellation::CancellationToken,
@@ -26,16 +31,18 @@ use crate::{
     diagnostics,
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},
+    elaboration::{ElabRevision, ElaborationService},
     folding_ranges::{self, Fold},
     formatting::{self, FmtConfig},
     goto_declaration, goto_definition, hover,
+    incrementality::ProductStore,
     inlay_hint::{self, InlayHint, InlayHintConfig},
     markup::Markup,
     navigation_target::NavTarget,
+    reference_support::{self, ModuleCallEdge},
     references::{self, References, ReferencesConfig},
     rename::{self, RenameConfig, RenameResult},
     selection_ranges,
-    semantic_index::{self, ModuleCallEdge},
     semantic_tokens::{self, SemaToken, SemaTokenConfig},
     signature_help::{self, SignatureHelp, SignatureHelpConfig},
     source_change::SourceChange,
@@ -45,7 +52,107 @@ use crate::{
 #[derive(Debug)]
 pub struct AnalysisSnapshot {
     pub(crate) db: RootDb,
+    pub(crate) store: Arc<ProductStore>,
     pub(crate) snapshot_id: AnalysisSnapshotId,
+    pub(crate) salsa_revision: base_db::salsa::Revision,
+    pub(crate) elab: ElaborationService,
+}
+
+/// Read view of one IDE request: the Salsa database, the parse-dependency
+/// store, and the resident elaboration service.
+///
+/// [`Self::parse_file`] records the file as paid so later resolution can
+/// look at that file's `HirFileId::Macro` owner table. It does not merge
+/// generated names into the L0 catalog.
+///
+/// Elaboration is a backend worker, not a salsa query. Features that need
+/// types, hierarchy, or class members ask [`Self::elab`] with this
+/// snapshot's revision.
+pub(crate) struct AnalysisContext<'a> {
+    pub(crate) db: &'a RootDb,
+    pub(crate) store: &'a ProductStore,
+    pub(crate) elab: &'a ElaborationService,
+    pub(crate) revision: ElabRevision,
+}
+
+impl Deref for AnalysisContext<'_> {
+    type Target = RootDb;
+
+    fn deref(&self) -> &RootDb {
+        self.db
+    }
+}
+
+impl AnalysisContext<'_> {
+    pub(crate) fn new<'a>(
+        db: &'a RootDb,
+        store: &'a ProductStore,
+        elab: &'a ElaborationService,
+        revision: ElabRevision,
+    ) -> AnalysisContext<'a> {
+        AnalysisContext { db, store, elab, revision }
+    }
+
+    pub(crate) fn semantics(&self) -> hir_semantics::semantics::Semantics<'_, RootDb> {
+        hir_semantics::semantics::Semantics::new_with_context(self.db, self.resolution())
+    }
+
+    /// Parse one file without building `$unit` or the design map.
+    pub(crate) fn parse_file(&self, file_id: FileId) -> syntax::SyntaxTree {
+        let (tree, dependencies) = self.db.parse_src_with_dependencies(file_id);
+        self.store.record_parse_dependencies(file_id, dependencies);
+        tree
+    }
+
+    pub(crate) fn source_semantic_map(
+        &self,
+        file_id: FileId,
+    ) -> Arc<preproc_expand::macro_file::SourceSemanticMap> {
+        let db: &dyn preproc_expand::db::PreprocDb = self.db;
+        db.source_semantic_map(file_id)
+    }
+
+    pub(crate) fn file_facts(&self, file_id: FileId) -> Arc<design_graph::FileFacts> {
+        self.db.file_facts(file_id)
+    }
+
+    pub(crate) fn unit_catalog(&self) -> triomphe::Arc<design_graph::UnitCatalog> {
+        <dyn DesignGraphDb>::source_unit_catalog(self.db)
+    }
+
+    pub(crate) fn prewarm_unit_catalog(
+        &self,
+        cancel: &AtomicBool,
+    ) -> Option<triomphe::Arc<design_graph::UnitCatalog>> {
+        if cancel.load(std::sync::atomic::Ordering::Acquire) {
+            return None;
+        }
+        Some(self.unit_catalog())
+    }
+
+    pub(crate) fn prewarm_resolution(&self, cancel: &AtomicBool) -> Option<Arc<ResolutionContext>> {
+        if cancel.load(std::sync::atomic::Ordering::Acquire) {
+            return None;
+        }
+        Some(self.resolution())
+    }
+
+    pub(crate) fn resolution(&self) -> Arc<ResolutionContext> {
+        ResolutionContext::from_locator(
+            self.db,
+            self.unit_catalog(),
+            Arc::from(self.store.paid_files()),
+        )
+    }
+
+    pub(crate) fn recursive_rename_closure(
+        &self,
+        def: DefId,
+        visibility: crate::ScopeVisibility,
+        single_file: Option<FileId>,
+    ) -> Arc<Vec<DefId>> {
+        Arc::new(crate::rename::recursive_rename_closure_impl(self, def, visibility, single_file))
+    }
 }
 
 impl AnalysisSnapshot {
@@ -53,12 +160,33 @@ impl AnalysisSnapshot {
         self.snapshot_id
     }
 
+    pub fn project_anchor(
+        &self,
+        anchor: crate::anchor::Anchor,
+    ) -> Cancellable<Option<crate::anchor::ProjectedAnchor>> {
+        self.with_db(|ctx| crate::anchor::project(ctx, &anchor))
+    }
+
+    pub fn ast_id_at_range(
+        &self,
+        file_id: FileId,
+        range: utils::line_index::TextRange,
+    ) -> Cancellable<Option<hir_def::ast_id_map::SourceAstId>> {
+        self.with_db(|ctx| crate::anchor::ast_id_at_range(ctx.db, file_id, range))
+    }
+
     fn with_db<F, T>(&self, f: F) -> Cancellable<T>
     where
-        F: FnOnce(&RootDb) -> T + std::panic::UnwindSafe,
+        F: FnOnce(&AnalysisContext<'_>) -> T + std::panic::UnwindSafe,
     {
+        debug_assert_eq!(
+            base_db::salsa::plumbing::current_revision(&self.db),
+            self.salsa_revision,
+            "an AnalysisSnapshot must never cross Salsa revisions",
+        );
         let _span = tracing::debug_span!("ide.analysis", snapshot_id = ?self.snapshot_id).entered();
-        Cancelled::catch(|| f(&self.db))
+        let ctx = AnalysisContext::new(&self.db, &self.store, &self.elab, self.snapshot_id);
+        Cancelled::catch(|| f(&ctx))
     }
 
     pub fn line_index(&self, file_id: FileId) -> Cancellable<Arc<LineIndex>> {
@@ -74,14 +202,7 @@ impl AnalysisSnapshot {
     }
 
     pub fn diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
-        self.with_db(|db| diagnostics::diagnostics(db, file_id))
-    }
-
-    pub fn compilation_diagnostics(
-        &self,
-        file_id: FileId,
-    ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
-        self.with_db(|db| diagnostics::compilation_diagnostics(db, file_id))
+        self.with_db(|db| diagnostics::analysis_diagnostics(db, file_id))
     }
 
     pub fn source_root_diagnostics(
@@ -91,11 +212,20 @@ impl AnalysisSnapshot {
         self.with_db(|db| diagnostics::source_root_diagnostics(db, file_id))
     }
 
-    pub fn compilation_profile_diagnostics(
+    pub fn compilation_profile_job(
         &self,
         profile_id: CompilationProfileId,
+    ) -> Cancellable<ProfileCompilationJob> {
+        self.with_db(|db| {
+            preproc_expand::profile_compiler::build_profile_compilation_job(db.db, profile_id)
+        })
+    }
+
+    pub fn file_vide_diagnostics(
+        &self,
+        file_id: FileId,
     ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
-        self.with_db(|db| diagnostics::compilation_profile_diagnostics(db, profile_id))
+        self.with_db(|db| diagnostics::vide_diagnostics(db.db, db.resolution().as_ref(), file_id))
     }
 
     pub fn parse_diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
@@ -137,7 +267,7 @@ impl AnalysisSnapshot {
     }
 
     pub fn compilation_plan(&self, file_id: FileId) -> Cancellable<Arc<CompilationPlan>> {
-        self.with_db(|db| db.compilation_plan_for_root(db.source_root_id(file_id)))
+        self.with_db(|db| db.db.compilation_plan_for_root(db.source_root_id(file_id)))
     }
 }
 
@@ -157,7 +287,7 @@ impl AnalysisSnapshot {
     }
 
     pub fn document_symbol(&self, file_id: FileId) -> Cancellable<Vec<DocumentSymbol>> {
-        self.with_db(|db| document_symbols::document_symbols(db, file_id))
+        self.with_db(|db| document_symbols::document_symbols(db.db, file_id))
     }
 
     pub fn workspace_symbol(
@@ -189,7 +319,7 @@ impl AnalysisSnapshot {
         file_id: FileId,
         name_range: TextRange,
     ) -> Cancellable<Vec<ModuleCallEdge>> {
-        self.with_db(|db| semantic_index::incoming_module_edges(db, file_id, name_range))
+        self.with_db(|db| reference_support::incoming_module_edges(db, file_id, name_range))
     }
 
     pub fn module_outgoing_calls(
@@ -197,7 +327,7 @@ impl AnalysisSnapshot {
         file_id: FileId,
         name_range: TextRange,
     ) -> Cancellable<Vec<ModuleCallEdge>> {
-        self.with_db(|db| semantic_index::outgoing_module_edges(db, file_id, name_range))
+        self.with_db(|db| reference_support::outgoing_module_edges(db, file_id, name_range))
     }
 
     pub fn prepare_rename(
@@ -288,7 +418,9 @@ impl AnalysisSnapshot {
         range: TextRange,
         config: InlayHintConfig,
     ) -> Cancellable<Vec<InlayHint>> {
-        self.with_db(|db| inlay_hint::inlay_hint(db, file_id, range, config))
+        self.with_db(|db| {
+            inlay_hint::inlay_hint(db, db.resolution().as_ref(), file_id, range, config)
+        })
     }
 
     pub fn code_lens(&self, file_id: FileId, config: CodeLensConfig) -> Cancellable<Vec<CodeLens>> {
@@ -334,5 +466,124 @@ impl AnalysisSnapshot {
         self.with_db(|db| {
             code_action::code_action(db, file_id, range, diagnostics, resolve_strategy)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use hir_def::design_map::PACKAGE_EXPORT_CLOSURE_RUNS;
+
+    /// `semantics()` rebuilds [`super::AnalysisContext::resolution`] each time.
+    /// The workspace-level export closure must not re-walk every package on
+    /// every one of those calls.
+    #[test]
+    fn package_export_closure_runs_once_per_request() {
+        let (host, _) = crate::test_utils::setup_marked_files(&[
+            ("/a.sv", "package a;\n  int x;\nendpackage\n"),
+            ("/b.sv", "package b;\n  int y;\nendpackage\n"),
+            ("/c.sv", "package c;\n  int z;\nendpackage\n"),
+            ("/top.sv", "module top;\n  int w;\nendmodule\n"),
+        ]);
+        let package_count = host.ctx().unit_catalog().packages().count() as u32;
+        assert_eq!(
+            package_count, 3,
+            "fixture must have three packages so per-package work is visible"
+        );
+
+        PACKAGE_EXPORT_CLOSURE_RUNS.with(|runs| runs.set(0));
+        let ctx = host.ctx();
+        let _ = ctx.resolution();
+        let after_first = PACKAGE_EXPORT_CLOSURE_RUNS.with(Cell::get);
+        let _ = ctx.semantics();
+        let _ = ctx.resolution();
+        let closure_runs = PACKAGE_EXPORT_CLOSURE_RUNS.with(Cell::get);
+        assert!(
+            after_first <= 1,
+            "first resolution() may hit a prewarm memo (0) or compute once (1), not {after_first}"
+        );
+        assert_eq!(
+            closure_runs, after_first,
+            "later resolution()/semantics() must not re-execute the closure (first={after_first} after={closure_runs})"
+        );
+    }
+
+    #[test]
+    fn to_owner_traffic_on_a_typical_request() {
+        use hir_def::unit::TO_OWNER_RUNS;
+
+        let (host, files) = crate::test_utils::setup_marked_files(&[
+            ("/a.sv", "package a;\n  int x;\nendpackage\n"),
+            ("/b.sv", "package b;\n  import a::*;\n  int y;\nendpackage\n"),
+            ("/c.sv", "package c;\n  import b::*;\n  int z;\nendpackage\n"),
+            ("/top.sv", "module top;\n  int /*marker:w*/w;\nendmodule\n"),
+        ]);
+        let file_id = files[3].0;
+        let offset = files[3].2["w"];
+        TO_OWNER_RUNS.with(|runs| runs.set(0));
+        let _ = host.make_analysis().hover(crate::FilePosition { file_id, offset }).unwrap();
+        let _ =
+            host.make_analysis().goto_definition(crate::FilePosition { file_id, offset }).unwrap();
+        let calls = TO_OWNER_RUNS.with(Cell::get);
+        println!("t6.to_owner_calls\t{calls}");
+        assert_eq!(calls, 0, "T6 removed the UnitId→OwnerId name bridge");
+    }
+
+    /// T6 form B: shipped resolution must not project L0 `UnitId` → `OwnerId`
+    /// by name. The T5 counter is the production bridge; it must stay at 0.
+    #[test]
+    fn shipped_request_does_not_project_l0_unit_ids() {
+        use hir_def::unit::TO_OWNER_RUNS;
+
+        let (host, files) = crate::test_utils::setup_marked_files(&[
+            ("/a.sv", "package a;\n  int x;\nendpackage\n"),
+            ("/b.sv", "package b;\n  import a::*;\n  int y;\nendpackage\n"),
+            ("/c.sv", "package c;\n  import b::*;\n  int z;\nendpackage\n"),
+            ("/top.sv", "module top;\n  int /*marker:w*/w;\nendmodule\n"),
+        ]);
+        let file_id = files[3].0;
+        let offset = files[3].2["w"];
+        TO_OWNER_RUNS.with(|runs| runs.set(0));
+        let _ = host.make_analysis().hover(crate::FilePosition { file_id, offset }).unwrap();
+        let _ =
+            host.make_analysis().goto_definition(crate::FilePosition { file_id, offset }).unwrap();
+        let calls = TO_OWNER_RUNS.with(Cell::get);
+        assert_eq!(
+            calls, 0,
+            "shipped hover+goto must not project L0 UnitId by name (to_owner={calls})"
+        );
+    }
+
+    /// Cold start of one file hits U1 / U2 / U3 once each. The three
+    /// unexpanded parses stay split (empty vs profile predefines vs Trace);
+    /// `preprocessor_independent` is one function on U1 and U2.
+    #[test]
+    fn cold_start_unexpanded_parse_count_matches_three_sites() {
+        use base_db::{change::Change, source_root::SourceRoot};
+        use preproc_expand::db::PreprocDb;
+        use syntax::UNEXPANDED_PARSE_RUNS;
+        use vfs::{ChangedFile, FileId, FileSet, VfsPath};
+
+        let file_id = FileId::from_raw(0);
+        let mut file_set = FileSet::default();
+        file_set.insert(file_id, VfsPath::new_virtual_path("/top.sv".to_owned()));
+        let mut change = Change::new();
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.add_changed_file(ChangedFile::create(file_id, "module top;\n  int w;\nendmodule\n"));
+        let mut host = crate::analysis_host::AnalysisHost::default();
+        UNEXPANDED_PARSE_RUNS.with(|runs| runs.set(0));
+        host.apply_change_without_prewarm(change);
+
+        let ctx = host.ctx();
+        let db: &dyn PreprocDb = ctx.db;
+        let _ = db.source_model(file_id);
+        let _ = ctx.file_facts(file_id);
+        let _ = db.compilation_plan_for_root(db.source_root_id(file_id));
+        let runs = UNEXPANDED_PARSE_RUNS.with(Cell::get);
+        assert_eq!(
+            runs, 3,
+            "cold start of one file must unexpanded-parse once per site (source_model, file_facts, include_scan); ran {runs}"
+        );
     }
 }

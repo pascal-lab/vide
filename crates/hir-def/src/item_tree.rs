@@ -50,7 +50,7 @@ pub enum SignaturePortDirection {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SignaturePort {
     direction: SignaturePortDirection,
     name: Option<SmolStr>,
@@ -71,7 +71,7 @@ impl SignaturePort {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Signature {
     kind: SignatureKind,
     return_type_ast: Option<SourceAstId>,
@@ -92,7 +92,7 @@ impl Signature {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ItemTreeItem {
     id: SourceAstId,
     parent: Option<SourceAstId>,
@@ -137,38 +137,10 @@ impl ItemTreeItem {
     }
 }
 
-/// A module declaration collected from the file-level structural summary.
-///
-/// It contains semantic header data and source identity, but no source range.
-/// Ranges belong to [`crate::source_projection::SourceProjection`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModuleHeader {
-    owner: OwnerId,
-    name: SmolStr,
-    kind: crate::module::ModuleKind,
-    source: SourceAstId,
-}
-
-impl ModuleHeader {
-    pub fn owner(&self) -> OwnerId {
-        self.owner
-    }
-
-    pub fn name(&self) -> &SmolStr {
-        &self.name
-    }
-
-    pub fn kind(&self) -> crate::module::ModuleKind {
-        self.kind
-    }
-
-    pub fn source(&self) -> SourceAstId {
-        self.source
-    }
-}
-
-/// File-level structural summary. It intentionally contains no source ranges
-/// or focus ranges; those belong to
+/// File-level structural summary for HIR lowering. Compilation-unit
+/// declaration identity lives on `design_graph::FileFacts`; this tree is the
+/// body/item inventory. It intentionally contains no source ranges or focus
+/// ranges; those belong to
 /// [`crate::source_projection::SourceProjection`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemTree {
@@ -188,19 +160,8 @@ impl ItemTree {
         self.owners.file_owner()
     }
 
-    /// Module and package headers in source order.
-    ///
-    /// This is the file-level declaration seam. Consumers that only need
-    /// headers must not enter a scope or body query to discover them.
-    pub fn module_headers(&self) -> impl Iterator<Item = ModuleHeader> + '_ {
-        self.owners.owners_of_kind(crate::owner::OwnerKind::Module).filter_map(|owner| {
-            owner.module_kind.map(|kind| ModuleHeader {
-                owner: owner.id,
-                name: owner.name.clone(),
-                kind,
-                source: owner.source,
-            })
-        })
+    pub fn owners(&self) -> &OwnerTable {
+        &self.owners
     }
 
     pub fn items(&self) -> impl Iterator<Item = &ItemTreeItem> {
@@ -308,11 +269,12 @@ fn build_item_tree_data(
     let mut parents = Vec::new();
     let mut body_depth = 0usize;
     let root = tree.root();
-    assert_eq!(
-        root.kind(),
-        syntax::SyntaxKind::COMPILATION_UNIT,
-        "item tree requires a compilation-unit syntax root"
-    );
+    if root.kind() != syntax::SyntaxKind::COMPILATION_UNIT {
+        // Library-map and other non-compilation-unit syntax roots have no
+        // compilation-unit members, so they contribute no item-tree items.
+        // Their declarations are lowered via `lower_library_map` instead.
+        return (Vec::new(), Vec::new());
+    }
     for event in root.elem_preorder() {
         match event {
             WalkEvent::Enter(SyntaxElement::Node(node)) => {
@@ -646,6 +608,16 @@ mod tests {
 
         assert_eq!(before_function.header_fingerprint(), after_function.header_fingerprint());
         assert_eq!(before_function.parent(), after_function.parent());
+    }
+
+    #[test]
+    fn item_tree_builds_empty_for_library_map() {
+        let text = "library foo \"dir/*.sv\";\n";
+        let file_id = HirFileId::File(FileId::from_raw(0));
+        let tree = SyntaxTree::from_library_map_text(text, "test.map", "test.map");
+        let ast_ids = AstIdMap::from_source(&tree);
+        let item_tree = build_item_tree(file_id, &tree, &ast_ids, Some(text));
+        assert_eq!(item_tree.len(), 0, "library-map files contribute no item-tree items");
     }
 
     #[test]

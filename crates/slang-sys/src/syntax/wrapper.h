@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -51,6 +52,20 @@ namespace slang_sys::syntax {
 
     // TODO: Maybe we should expose this data structure to the rust side, rather
     // than pretendint it as a SyntaxTree.
+    // Hashes the public fields that Token equality implies, so equal tokens
+    // always land in the same bucket and `operator==` decides identity.
+    struct SyntaxTokenHash {
+        std::size_t operator()(const SyntaxToken &token) const;
+    };
+
+    struct EmittedTokenIndices {
+        /// First emitted position of each distinct token.
+        std::unordered_map<SyntaxToken, uint32_t, SyntaxTokenHash> by_token;
+        /// Length of the emitted sequence, which repeated macro arguments make
+        /// longer than `by_token`.
+        uint32_t length = 0;
+    };
+
     class SyntaxTree {
       public:
         std::shared_ptr<::slang::syntax::SyntaxTree> tree;
@@ -65,6 +80,16 @@ namespace slang_sys::syntax {
         ~SyntaxTree();
 
         const SyntaxNode &root() const;
+
+        /// Position of each emitted token that carries a source range, keyed by
+        /// token identity. Built once per tree: callers ask for one token at a
+        /// time, and rescanning the emitted stream per token is quadratic in
+        /// file size.
+        const EmittedTokenIndices &emitted_token_indices() const;
+
+      private:
+        mutable std::once_flag emitted_token_indices_once;
+        mutable EmittedTokenIndices emitted_token_indices_cache;
     };
 
     namespace tree {

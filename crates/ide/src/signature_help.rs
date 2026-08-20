@@ -12,7 +12,6 @@ use hir_def::{
     symbol::Resolution,
 };
 use hir_semantics::semantics::Semantics;
-use hir_ty::display::HirDisplay;
 use itertools::Either;
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -27,8 +26,8 @@ use syntax::{
 use utils::text_edit::{TextRange, TextSize};
 
 use crate::{
-    FilePosition, db::root_db::RootDb, markup::Markup,
-    module_resolution::resolve_instantiation_target,
+    FilePosition, analysis::AnalysisContext, db::root_db::RootDb, markup::Markup,
+    module_resolution::resolve_instantiation_target, render::hir_display::HirDisplay,
 };
 
 #[derive(Debug)]
@@ -62,14 +61,14 @@ impl SignatureHelp {
 }
 
 pub(crate) fn signature_help(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
     config: SignatureHelpConfig,
 ) -> Option<SignatureHelp> {
     if db.file_kind(file_id).is_project_manifest() {
         return None;
     }
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
@@ -154,7 +153,8 @@ fn sig_help_for_instance(
 
     let instantiation = ast::HierarchyInstantiation::cast(instance.syntax().parent()?)?;
     let target_module_id =
-        resolve_instantiation_target(db, file_id.expect_file(), instantiation).unique()?;
+        resolve_instantiation_target(db, sema.resolution_context().as_ref(), instantiation)
+            .unique()?;
     let target_module = db.body_with_source_map(target_module_id);
     let target_body = db.body_with_source_map(target_module_id);
     let target_module_name =
@@ -276,7 +276,8 @@ fn sig_help_for_instantiation(
     };
 
     let target_module_id =
-        resolve_instantiation_target(db, file_id.expect_file(), instantiation).unique()?;
+        resolve_instantiation_target(db, sema.resolution_context().as_ref(), instantiation)
+            .unique()?;
     let target_module = db.body_with_source_map(target_module_id);
     let target_body = db.body_with_source_map(target_module_id);
     let target_module_name =

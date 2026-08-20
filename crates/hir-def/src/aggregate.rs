@@ -173,6 +173,10 @@ pub enum ClassParameter {
     },
 }
 
+/// One class member as written. Types and method bodies are stored so
+/// outline can name them; they are not a name-resolution or typing API.
+/// Cross-file members, inheritance, and types are answered by the
+/// elaboration service.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassMember {
     pub name: Option<Ident>,
@@ -185,6 +189,12 @@ pub struct ClassMember {
     pub owner: Option<OwnerId>,
 }
 
+/// Syntax record of a class declaration.
+///
+/// A class is not an [`crate::owner::OwnerId`] and not a name-resolution
+/// scope: `scope` / `pathres` / `symbol` do not mention [`ClassId`].
+/// `base_class_name` is the identifier as written, unresolved. Semantic
+/// answers (type, inheritance, members of a base) come from slang.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassDef {
     pub name: Option<Ident>,

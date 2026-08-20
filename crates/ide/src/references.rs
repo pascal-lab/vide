@@ -11,6 +11,7 @@ use vfs::FileId;
 use self::preproc::render_preproc_references_target;
 use crate::{
     FilePosition, ScopeVisibility,
+    analysis::AnalysisContext,
     db::root_db::RootDb,
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
@@ -85,18 +86,24 @@ impl ReferencesStatus {
 }
 
 pub(crate) fn references(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
-    let sema = Semantics::new(db);
+    if let Some(refs) =
+        crate::design_unit::references(db, FilePosition { file_id, offset }, &config)
+    {
+        return Some(refs);
+    }
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
+    let target =
+        resolve_semantic_target(db.db, file_id, offset, parsed_file.root(), token_precedence);
     render_references_target(db, file_id, &sema, target, config)
 }
 
 fn render_references_target(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     file_id: FileId,
     sema: &Semantics<RootDb>,
     target: TargetResolution<'_>,
@@ -104,17 +111,18 @@ fn render_references_target(
 ) -> Option<Vec<References>> {
     match target.unique_for_intent(TargetIntent::FindReferences)? {
         SemanticTarget::PreprocMacro(target) => {
-            render_preproc_references_target(db, file_id, target, &config)
+            render_preproc_references_target(db.db, file_id, target, &config)
         }
         SemanticTarget::Include(_) => None,
         SemanticTarget::Manifest(target) => crate::manifest::references_target(db, target, config),
         SemanticTarget::Source(target) => {
-            render_source_references_target(sema, file_id, target, config)
+            render_source_references_target(db, sema, file_id, target, config)
         }
     }
 }
 
 fn render_source_references_target(
+    db: &AnalysisContext<'_>,
     sema: &Semantics<RootDb>,
     file_id: FileId,
     target: SourceTarget<'_>,
@@ -124,24 +132,25 @@ fn render_source_references_target(
     let tokens = target.into_tokens();
     let references = tokens
         .into_iter()
-        .filter_map(|token| references_for_token(sema, hir_file_id, token, config.clone()))
+        .filter_map(|token| references_for_token(db, sema, hir_file_id, token, config.clone()))
         .flatten()
         .collect_vec();
     (!references.is_empty()).then_some(references)
 }
 
 fn references_for_token(
+    db: &AnalysisContext<'_>,
     sema: &Semantics<RootDb>,
     hir_file_id: HirFileId,
     token: SyntaxTokenWithParent,
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
     handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
-        let def = match DefinitionClass::resolve(sema.db, hir_file_id, token).unique()? {
+        let def = match DefinitionClass::resolve(db, hir_file_id, token).unique()? {
             DefinitionClass::Definition(def) => def,
             DefinitionClass::PortConnShorthand { local, .. } => local,
         };
-        Some(vec![search_refs(sema, def, config)])
+        Some(vec![search_refs(db, def, config)])
     })
 }
 
@@ -168,12 +177,8 @@ pub(crate) fn handle_ctrl_flow_kw(
     }])
 }
 
-fn search_refs<'a>(
-    sema: &'a Semantics<'a, RootDb>,
-    def: DefId,
-    config: ReferencesConfig,
-) -> References {
-    let refs = ReferencesCtx::new(sema, &def, config)
+fn search_refs(db: &AnalysisContext<'_>, def: DefId, config: ReferencesConfig) -> References {
+    let refs = ReferencesCtx::new(db, &def, config)
         .search()
         .into_iter()
         .map(|(file_id, tokens)| {
@@ -181,8 +186,7 @@ fn search_refs<'a>(
             (file_id, res)
         })
         .collect();
-    let def =
-        def.origins(sema.db).iter().filter_map(|def| def.to_nav(sema.db)).collect_vec().into();
+    let def = def.origins(db.db).iter().filter_map(|def| def.to_nav(db.db)).collect_vec().into();
     References { def, refs, status: ReferencesStatus::Complete }
 }
 

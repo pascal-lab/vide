@@ -16,6 +16,7 @@ use vfs::FileId;
 
 use crate::{
     FilePosition, RangeInfo,
+    analysis::AnalysisContext,
     db::root_db::RootDb,
     definitions::DefinitionClass,
     hover::{
@@ -48,37 +49,41 @@ pub struct HoverConfig {
 }
 
 pub(crate) fn hover(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Markup>> {
     let _span = tracing::debug_span!("ide.hover", ?file_id, ?offset).entered();
-    let sema = Semantics::new(db);
-    let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
-    render_hover_target(db, file_id, offset, &sema, target)
+    if let Some(hover) = crate::design_unit::hover(db, FilePosition { file_id, offset }) {
+        return Some(hover);
+    }
+    let tree = db.parse_file(file_id);
+    let target =
+        resolve_semantic_target(db.db, file_id, offset, Some(tree.root()), token_precedence);
+    render_hover_target(db, file_id, offset, target)
 }
 
 fn render_hover_target(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     file_id: FileId,
     offset: TextSize,
-    sema: &Semantics<RootDb>,
     target: TargetResolution<'_>,
 ) -> Option<RangeInfo<Markup>> {
     let mut ranges = Vec::new();
     let mut markups = Vec::new();
     let mut has_source_target = false;
+    let mut sema = None;
 
     for target in target.targets_for_intent(TargetIntent::Describe) {
         let hover = match target {
             SemanticTarget::PreprocMacro(target) => {
-                render_macro_hover_target(db, file_id, offset, target)
+                render_macro_hover_target(db.db, file_id, offset, target)
             }
-            SemanticTarget::Include(includes) => render_include_hover(db, includes),
-            SemanticTarget::Manifest(target) => crate::manifest::hover_target(db, target),
+            SemanticTarget::Include(includes) => render_include_hover(db.db, includes),
+            SemanticTarget::Manifest(target) => crate::manifest::hover_target(db.db, target),
             SemanticTarget::Source(target) => {
                 has_source_target = true;
-                hover_for_source_target(sema, file_id.into(), target)
+                let sema = sema.get_or_insert_with(|| db.semantics());
+                hover_for_source_target(db, sema, file_id.into(), target)
             }
         }?;
         ranges.push(hover.range);
@@ -88,22 +93,24 @@ fn render_hover_target(
     let range = covering_range(&ranges)?;
     let hover = RangeInfo::new(range, merge_hover_results(markups)?);
     Some(if has_source_target {
-        with_expanded_macro_hover(db, file_id, offset, hover)
+        with_expanded_macro_hover(db.db, file_id, offset, hover)
     } else {
         hover
     })
 }
 
 fn hover_for_source_target(
+    db: &AnalysisContext<'_>,
     sema: &Semantics<RootDb>,
     hir_file_id: HirFileId,
     target: SourceTarget<'_>,
 ) -> Option<RangeInfo<Markup>> {
     let (range, tokens) = target.into_parts();
-    hover_for_token_selection(sema, hir_file_id, range, tokens)
+    hover_for_token_selection(db, sema, hir_file_id, range, tokens)
 }
 
 fn hover_for_token_selection(
+    db: &AnalysisContext<'_>,
     sema: &Semantics<RootDb>,
     hir_file_id: HirFileId,
     range: TextRange,
@@ -111,7 +118,7 @@ fn hover_for_token_selection(
 ) -> Option<RangeInfo<Markup>> {
     let markups = tokens
         .into_iter()
-        .filter_map(|token| hover_for_token(sema, hir_file_id, token))
+        .filter_map(|token| hover_for_token(db, sema, hir_file_id, token))
         .collect::<Vec<_>>();
     let res = merge_hover_results(markups)?;
     Some(RangeInfo::new(range, res))
@@ -161,13 +168,14 @@ fn handle_system_subroutine(tp: &SyntaxTokenWithParent<'_>) -> Option<Markup> {
 }
 
 fn hover_for_token(
+    db: &AnalysisContext<'_>,
     sema: &Semantics<RootDb>,
     file_id: HirFileId,
     token: SyntaxTokenWithParent,
 ) -> Option<Markup> {
     handle_literal(sema, file_id, token)
         .or_else(|| handle_system_subroutine(&token))
-        .or_else(|| handle_definition(sema, file_id, token))
+        .or_else(|| handle_definition(db, sema, file_id, token))
 }
 
 fn merge_hover_results(markups: Vec<Markup>) -> Option<Markup> {
@@ -186,12 +194,13 @@ fn merge_hover_results(markups: Vec<Markup>) -> Option<Markup> {
 }
 
 fn handle_definition(
+    db: &AnalysisContext<'_>,
     sema: &Semantics<RootDb>,
     file_id: HirFileId,
     tp: SyntaxTokenWithParent,
 ) -> Option<Markup> {
     let token_text = token_text(sema.db, file_id, &tp);
-    let def = DefinitionClass::resolve(sema.db, file_id, tp);
+    let def = DefinitionClass::resolve(db, file_id, tp);
     let anchor_file_id = file_id.expect_file();
     let mut res = Markup::new();
 
@@ -238,10 +247,38 @@ fn handle_definition(
                 }
             }
         }
-        hir_def::symbol::Resolution::Unresolved => return None,
+        hir_def::symbol::Resolution::Unresolved => {}
     }
 
-    Some(res)
+    if res.is_empty()
+        && let Some(ty) = slang_type_line(db, file_id, tp)
+    {
+        res.push_with_code_fence(&ty);
+    }
+    (!res.is_empty()).then_some(res)
+}
+
+fn slang_type_line(
+    db: &AnalysisContext<'_>,
+    file_id: HirFileId,
+    tp: SyntaxTokenWithParent<'_>,
+) -> Option<String> {
+    let file = file_id.as_file()?;
+    let range = tp.text_range()?;
+    let info = crate::slang_class::lookup_symbol_at(db, file, usize::from(range.start()))
+        .answered("hover")?;
+    if info.type_name.is_empty() {
+        return None;
+    }
+    if info.owner_class.is_empty() {
+        Some(info.type_name)
+    } else {
+        Some(crate::slang_class::format_class_member(
+            &info.owner_class,
+            &info.type_name,
+            &info.inheritance,
+        ))
+    }
 }
 
 fn token_text(

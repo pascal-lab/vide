@@ -159,7 +159,14 @@ fn stale_qihe_result_does_not_replace_current_diagnostics() {
     let freshness = state.diagnostic_publish_freshness().commit();
     state.qihe.diagnostics.lock().insert(
         file_id,
-        QiheDiagnosticState { freshness, generation: 1, diagnostics: vec![current.clone()] },
+        QiheDiagnosticState {
+            captured_snapshot: freshness.snapshot_id(),
+            generation: 1,
+            items: vec![crate::global_state::AnchoredQiheDiagnostic {
+                ast_id: None,
+                diagnostic: current.clone(),
+            }],
+        },
     );
 
     state.handle_qihe_task(QiheTask::Finished {
@@ -172,7 +179,16 @@ fn stale_qihe_result_does_not_replace_current_diagnostics() {
         progress_token: "old".to_owned(),
     });
 
-    let stored = state.qihe.diagnostics.lock().get(&file_id).unwrap().diagnostics.clone();
+    let stored = state
+        .qihe
+        .diagnostics
+        .lock()
+        .get(&file_id)
+        .unwrap()
+        .items
+        .iter()
+        .map(|item| item.diagnostic.clone())
+        .collect::<Vec<_>>();
     assert_eq!(stored, vec![current]);
 }
 
@@ -277,7 +293,7 @@ fn work_done_progress_cancel_ignores_stale_qihe_run_token() {
 }
 
 #[test]
-fn qihe_diagnostics_are_scoped_to_diagnostic_commit_freshness() {
+fn qihe_diagnostics_survive_a_freshness_advance() {
     let root = TestDir::new("qihe-diagnostic-freshness");
     let config = config::Config::new(
         Opt {
@@ -306,7 +322,14 @@ fn qihe_diagnostics_are_scoped_to_diagnostic_commit_freshness() {
     let freshness = state.diagnostic_publish_freshness().commit();
     state.qihe.diagnostics.lock().insert(
         file_id,
-        QiheDiagnosticState { freshness, generation: 1, diagnostics: vec![diagnostic.clone()] },
+        QiheDiagnosticState {
+            captured_snapshot: freshness.snapshot_id(),
+            generation: 1,
+            items: vec![crate::global_state::AnchoredQiheDiagnostic {
+                ast_id: None,
+                diagnostic: diagnostic.clone(),
+            }],
+        },
     );
 
     let snapshot = state.make_snapshot();
@@ -321,19 +344,43 @@ fn qihe_diagnostics_are_scoped_to_diagnostic_commit_freshness() {
     state.diagnostics.diagnostics_revision += 1;
     let snapshot = state.make_snapshot();
     let freshness = snapshot.diagnostic_commit_freshness();
+    let after_edit = snapshot
+        .external_sources
+        .iter()
+        .flat_map(|source| source.lsp_diagnostics(file_id, &freshness))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        after_edit.iter().map(|diag| diag.message.as_str()).collect::<Vec<_>>(),
+        vec!["current"],
+        "an edit must not drop the last qihe result"
+    );
+
+    let later = crate::global_state::diagnostics::DiagnosticCommitFreshness::for_snapshot(
+        ide::AnalysisSnapshotId::new(3),
+        0,
+        0,
+    );
+    let labeled = snapshot
+        .external_sources
+        .iter()
+        .flat_map(|source| source.lsp_diagnostics(file_id, &later))
+        .collect::<Vec<_>>();
     assert!(
-        snapshot
-            .external_sources
-            .iter()
-            .flat_map(|source| source.lsp_diagnostics(file_id, &freshness))
-            .collect::<Vec<_>>()
-            .is_empty()
+        labeled.iter().any(|diag| diag.message.contains("edit")),
+        "a later snapshot must label how many edits the analysis predates:\n{labeled:?}"
     );
 }
 
 #[test]
-fn qihe_result_with_stale_diagnostic_freshness_does_not_commit() {
+fn qihe_result_that_lands_after_an_edit_still_commits() {
     let root = TestDir::new("stale-qihe-freshness");
+    let caps = lsp_types::ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..TextDocumentClientCapabilities::default()
+        }),
+        ..lsp_types::ClientCapabilities::default()
+    };
     let config = config::Config::new(
         Opt {
             process_name: "vide-test".to_string(),
@@ -342,7 +389,7 @@ fn qihe_result_with_stale_diagnostic_freshness_does_not_commit() {
             profile_trace: None,
         },
         root.path().to_path_buf(),
-        lsp_types::ClientCapabilities::default(),
+        caps,
         vec![root.path().to_path_buf()],
         I18n::default(),
         UserConfig::default(),
@@ -374,7 +421,10 @@ fn qihe_result_with_stale_diagnostic_freshness_does_not_commit() {
         progress_token: "current".to_owned(),
     });
 
-    assert!(state.qihe.diagnostics.lock().is_empty());
+    assert!(
+        !state.qihe.diagnostics.lock().is_empty(),
+        "results that land after an edit stay and reproject; they are not discarded"
+    );
     assert_eq!(state.qihe.active_progress_token, None);
 }
 

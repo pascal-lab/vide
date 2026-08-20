@@ -30,6 +30,7 @@ use utils::text_edit::TextRange;
 use vfs::FileId;
 
 use crate::{
+    analysis::AnalysisContext,
     db::root_db::RootDb,
     module_resolution::{
         resolve_named_param_assignment, resolve_named_port_connection, resolve_port_metadata,
@@ -136,16 +137,16 @@ impl SemaToken {
 }
 
 pub(crate) fn semantic_tokens(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     config: SemaTokenConfig,
     file_id: FileId,
     range: Option<TextRange>,
 ) -> Vec<SemaToken> {
     let _span = tracing::debug_span!("ide.semantic_tokens", ?file_id, ?range).entered();
     if db.file_kind(file_id).is_project_manifest() {
-        return crate::manifest::semantic_tokens(db, file_id, range);
+        return crate::manifest::semantic_tokens(db.db, file_id, range);
     }
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(file_id);
     let Some(root) = parsed_file.root() else {
         return Vec::new();
@@ -163,7 +164,7 @@ pub(crate) fn semantic_tokens(
 
     let mut collector = SemaTokenCollector::new(config, range);
     collect_file(&sema, file_id, &mut collector);
-    collect_preproc_macro_references(db, file_id.expect_file(), range, &mut collector);
+    collect_preproc_macro_references(db.db, file_id.expect_file(), range, &mut collector);
 
     collector.finish()
 }
@@ -503,9 +504,15 @@ fn collect_named_param_assignments<'a>(
         };
         check_range!(collector, range);
 
-        let res = from_file.map_or(Resolution::Unresolved, |f| {
-            resolve_named_param_assignment(sema.db, f, named_assign)
-        });
+        let res = if from_file.is_some() {
+            resolve_named_param_assignment(
+                sema.db,
+                sema.resolution_context().as_ref(),
+                named_assign,
+            )
+        } else {
+            Resolution::Unresolved
+        };
         collect_resolved_path(sema, res, range, collector);
     }
 }
@@ -529,9 +536,11 @@ fn collect_named_port_connections<'a>(
         };
         check_range!(collector, range);
 
-        let res = from_file.map_or(Resolution::Unresolved, |f| {
-            resolve_named_port_connection(sema.db, f, named_conn)
-        });
+        let res = if from_file.is_some() {
+            resolve_named_port_connection(sema.db, sema.resolution_context().as_ref(), named_conn)
+        } else {
+            Resolution::Unresolved
+        };
         collect_resolved_path(sema, res, range, collector);
     }
 }
@@ -553,7 +562,8 @@ fn collect_type_ref_like(
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) -> Option<()> {
-    let res = resolve_path(sema.db, cont_id, type_ref.segments(), NameContext::Type);
+    let context = sema.resolution_context();
+    let res = resolve_path(sema.db, &context, cont_id, type_ref.segments(), NameContext::Type);
     collect_resolved_path(sema, res, range, collector)
 }
 

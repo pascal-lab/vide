@@ -39,8 +39,8 @@ pub(crate) use self::workspace_state::{
 };
 use self::{
     diagnostics::{
-        DiagnosticCommitFreshness, DiagnosticFileRevision, DiagnosticPublishFreshness,
-        DiagnosticSource, publisher::DiagnosticPublishKey,
+        DiagnosticFileRevision, DiagnosticPublishFreshness, DiagnosticSource,
+        publisher::DiagnosticPublishKey,
     },
     mem_docs::MemDocs,
     snapshot::GlobalStateSnapshot,
@@ -94,6 +94,11 @@ pub(crate) struct DiagnosticsState {
     // text. Keep those target changes explicit so push diagnostics converge at
     // the normal change-processing boundary.
     pub(crate) pending_document_diagnostic_targets: FxHashSet<FileId>,
+    /// Last isolated slang profile compile, keyed by analysis file.
+    /// Vide diagnostics are computed at publish time, not stored here.
+    /// URI-only didOpen/didClose republishes slang from here and adds live
+    /// Vide.
+    pub(crate) cached_slang_diagnostics: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
     pub(crate) diagnostics_revision: u64,
     pub(crate) diagnostic_target_revision: u64,
     pub(crate) diagnostic_file_revisions: FxHashMap<FileId, DiagnosticFileRevision>,
@@ -223,6 +228,7 @@ impl GlobalState {
             diagnostics: DiagnosticsState {
                 published_diagnostics: FxHashMap::default(),
                 pending_document_diagnostic_targets: FxHashSet::default(),
+                cached_slang_diagnostics: FxHashMap::default(),
                 diagnostics_revision: 0,
                 diagnostic_target_revision: 0,
                 diagnostic_file_revisions: FxHashMap::default(),
@@ -274,6 +280,12 @@ impl GlobalState {
         qihe::with_global_ctx(self, |qihe, ctx| qihe.handle(task, ctx));
     }
 
+    pub(crate) fn cancel_semantic_compiler(&mut self) {
+        semantic_compiler::with_global_ctx(self, |semantic_compiler, _ctx| {
+            semantic_compiler.cancel_active();
+        });
+    }
+
     pub(crate) fn schedule_semantic_compiler(&mut self, profile_ids: Vec<CompilationProfileId>) {
         semantic_compiler::with_global_ctx(self, |semantic_compiler, ctx| {
             semantic_compiler.schedule(profile_ids, ctx)
@@ -305,7 +317,13 @@ impl GlobalState {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct QiheDiagnosticState {
-    pub(crate) freshness: DiagnosticCommitFreshness,
+    pub(crate) captured_snapshot: base_db::analysis_snapshot::AnalysisSnapshotId,
     pub(crate) generation: u64,
-    pub(crate) diagnostics: Vec<lsp_types::Diagnostic>,
+    pub(crate) items: Vec<AnchoredQiheDiagnostic>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AnchoredQiheDiagnostic {
+    pub(crate) ast_id: Option<hir_def::ast_id_map::SourceAstId>,
+    pub(crate) diagnostic: lsp_types::Diagnostic,
 }

@@ -139,3 +139,34 @@ wire active;
     assert_eq!(branches[0].file_id, TOP);
     assert!(text_at_range(root_text, branches[0].range).contains("disabled_by_header"));
 }
+
+#[test]
+fn preproc_inactive_branch_uses_parent_relative_header_include() {
+    let root_text = concat!(
+        "`include \"../rtl/config.vh\"\n",
+        "`ifndef HEADER_FLAG\n",
+        "wire should_be_inactive;\n",
+        "`endif\n",
+    );
+    let header_text = concat!(
+        "`define HEADER_FLAG\n",
+        "`ifdef NEVER_DEFINED\n",
+        "wire header_inactive;\n",
+        "`endif\n",
+    );
+    let db =
+        db_with_entries(&[(TOP, "rtl/top.v", root_text), (HEADER, "rtl/config.vh", header_text)]);
+
+    let buffers = include_buffers_for_file(&db, TOP);
+    assert_eq!(buffers.len(), 1, "one include edge issues one slang_path: {buffers:?}");
+    let path = buffers[0].path.replace('\\', "/");
+    assert!(
+        path.contains("rtl/../rtl/config.vh"),
+        "include buffer must be issued under slang's local join spelling: {buffers:?}"
+    );
+
+    let branches = inactive_branches(&db, TOP).unwrap();
+    assert_eq!(branches.len(), 1);
+    assert_eq!(branches[0].file_id, TOP);
+    assert!(text_at_range(root_text, branches[0].range).contains("should_be_inactive"));
+}

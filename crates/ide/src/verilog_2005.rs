@@ -15,6 +15,7 @@ use base_db::{
 use hir_semantics::semantics::Semantics;
 use insta::assert_snapshot;
 use preproc_expand::preproc::{IncludeTarget, include_directive_at};
+use syntax::{SyntaxNodeExt, has_text_range::HasTextRange};
 use triomphe::Arc;
 use utils::{
     test_support::TestDir,
@@ -110,7 +111,7 @@ fn parsed_file_nodes_survive_parse_lru_eviction() {
     let mut db = RootDb::new(Some(1));
     db.apply_change(change);
 
-    let sema = Semantics::new(&db);
+    let sema = Semantics::new_with_context(&db, hir_def::unit::test_resolution(&db));
     let parsed_file = sema.parse_file(FileId::from_raw(0));
     let root = parsed_file.root().expect("a.sv should parse");
     let child_count = root.child_count();
@@ -1227,7 +1228,7 @@ endmodule
     let (host, file_id, _clean_text, markers) =
         setup_marked_with_predefines(text, vec!["USE_IMPL=1".to_owned()]);
 
-    let include = include_directive_at(host.raw_db(), file_id, markers["active"])
+    let include = include_directive_at(host.ctx().db, file_id, markers["active"])
         .unwrap()
         .expect("active include should be queryable");
     let IncludeTarget::Literal { path, .. } = include.target else {
@@ -1235,7 +1236,7 @@ endmodule
     };
     assert_eq!(path.as_str(), "active.svh");
 
-    assert!(include_directive_at(host.raw_db(), file_id, markers["inactive"]).unwrap().is_none());
+    assert!(include_directive_at(host.ctx().db, file_id, markers["inactive"]).unwrap().is_none());
 }
 
 #[test]
@@ -2871,6 +2872,64 @@ endmodule
 }
 
 #[test]
+fn design_unit_references_join_graph_candidates() {
+    let (host, files) = setup_marked_files(&[
+        (
+            "/shared_pkg.sv",
+            r#"
+package /*marker:pkg*/shared;
+endpackage
+"#,
+        ),
+        (
+            "/shared_mod.sv",
+            r#"
+module /*marker:mod*/shared;
+endmodule
+"#,
+        ),
+        (
+            "/top.sv",
+            r#"
+module top;
+  shared u();
+endmodule
+"#,
+        ),
+    ]);
+    let [(pkg_file, _, pkg_markers), (mod_file, _, mod_markers), (top_file, _, _)] =
+        files.as_slice()
+    else {
+        panic!("expected three fixture files");
+    };
+    let analysis = host.make_analysis();
+    let workspace = ReferencesConfig::new(ScopeVisibility::Public, None);
+
+    let module_refs = analysis
+        .references(position(*mod_file, mod_markers, "mod"), workspace.clone())
+        .unwrap()
+        .expect("module candidate should join instantiations");
+    let module_ref_files: Vec<_> =
+        module_refs.iter().flat_map(|refs| refs.refs.keys().copied()).collect();
+    assert_eq!(
+        module_ref_files,
+        vec![*top_file],
+        "only the UnitCatalog module candidate owns the instantiation: {module_refs:?}"
+    );
+
+    let package_refs = analysis
+        .references(position(*pkg_file, pkg_markers, "pkg"), workspace)
+        .unwrap()
+        .unwrap_or_default();
+    let package_ref_files: Vec<_> =
+        package_refs.iter().flat_map(|refs| refs.refs.keys().copied()).collect();
+    assert!(
+        !package_ref_files.contains(top_file),
+        "a package is not an instantiable UnitCatalog candidate: {package_refs:?}"
+    );
+}
+
+#[test]
 fn systemverilog_program_definition_names_support_navigation_and_hover() {
     let text = r#"
 program /*marker:program_def*/p;
@@ -2893,8 +2952,8 @@ endmodule
         "program instantiation should navigate to the program declaration: {nav:?}"
     );
     assert!(
-        nav.info.iter().all(|target| target.kind == Some(DefKind::Module)),
-        "program navigation targets should retain module symbol metadata: {nav:?}"
+        nav.info.iter().all(|target| target.kind == Some(DefKind::Program)),
+        "program navigation targets should keep program kind: {nav:?}"
     );
 
     let hover = analysis
@@ -2944,9 +3003,9 @@ endmodule
         .expect("package definition expected");
     assert!(
         package_nav.info.iter().any(|target| {
-            target.focus_range == Some(package_def_range) && target.kind == Some(DefKind::Module)
+            target.focus_range == Some(package_def_range) && target.kind == Some(DefKind::Package)
         }),
-        "package navigation target should retain module symbol metadata: {package_nav:?}"
+        "package navigation target should keep package kind: {package_nav:?}"
     );
 
     let type_def_range = marked_range(&markers, "type_def", TextSize::of("exported_t"));
@@ -3019,62 +3078,50 @@ endmodule
         panic!("expected two fixture files");
     };
 
-    let module_index = crate::db::workspace_symbol_index_db::source_root_module_index_for_root(
-        host.raw_db(),
-        SourceRootId(0),
-    );
-    let index = crate::db::workspace_symbol_index_db::source_root_semantic_index_for_root(
-        host.raw_db(),
-        SourceRootId(0),
-    );
-
-    let modules = module_index.module_definitions(&"mod_a".into());
-    assert_eq!(modules.len(), 1, "module index should contain mod_a exactly once");
-    assert_eq!(modules[0].file_id, *file_a);
-    assert_eq!(modules[0].name_range, marked_range(markers_a, "a_module_def", 5));
-    let interfaces = module_index.module_definitions(&"bus_if".into());
-    assert_eq!(interfaces.len(), 1, "module index should contain bus_if exactly once");
-    assert_eq!(interfaces[0].file_id, *file_a);
-    assert_eq!(interfaces[0].name_range, marked_range(markers_a, "a_iface_def", 6));
-
-    let groups = index.reference_groups_named("shared");
-    assert_eq!(groups.len(), 2, "same-name definitions should be separate reference groups");
+    let graph = host.ctx().unit_catalog();
+    let modules = graph.modules_named("mod_a").into_vec();
+    assert_eq!(modules.len(), 1, "graph should contain mod_a exactly once");
+    assert_eq!(modules[0].file, *file_a);
+    assert_eq!(modules[0].name, "mod_a");
+    let interfaces = graph.modules_named("bus_if").into_vec();
+    assert_eq!(interfaces.len(), 1, "graph should contain bus_if exactly once");
+    assert_eq!(interfaces[0].file, *file_a);
+    assert_eq!(interfaces[0].name, "bus_if");
 
     let a_def = marked_range(markers_a, "a_shared_def", 6);
     let a_ref = marked_range(markers_a, "a_shared_ref", 6);
-    let group_a = groups
-        .iter()
-        .find(|group| {
-            group
-                .definition_ranges
-                .iter()
-                .any(|range| range.file_id == *file_a && range.range == a_def)
-        })
-        .expect("shared definition in a.sv should have a reference group");
-    let refs_a = group_a
-        .references
-        .iter()
-        .map(|reference| (reference.file_id, reference.range))
-        .collect::<Vec<_>>();
-    assert_eq!(refs_a, vec![(*file_a, a_ref)]);
-
     let b_def = marked_range(markers_b, "b_shared_def", 6);
     let b_ref = marked_range(markers_b, "b_shared_ref", 6);
-    let group_b = groups
-        .iter()
-        .find(|group| {
-            group
-                .definition_ranges
-                .iter()
-                .any(|range| range.file_id == *file_b && range.range == b_def)
-        })
-        .expect("shared definition in b.sv should have a reference group");
-    let refs_b = group_b
-        .references
-        .iter()
-        .map(|reference| (reference.file_id, reference.range))
-        .collect::<Vec<_>>();
-    assert_eq!(refs_b, vec![(*file_b, b_ref)]);
+
+    let db = host.ctx();
+    let refs_of = |file_id: FileId, range: TextRange| {
+        let tree = db.parse(preproc_expand::file::HirFileId::from(file_id));
+        let token = tree
+            .root()
+            .token_at_offset(range.start())
+            .find(|token| token.text_range() == Some(range))
+            .expect("definition token");
+        let crate::definitions::DefinitionClass::Definition(def) =
+            crate::definitions::DefinitionClass::resolve(&db, file_id.into(), token)
+                .unique()
+                .expect("unique def")
+        else {
+            panic!("expected a plain definition");
+        };
+        let scope = crate::references::search::SearchScope::new(
+            db.db,
+            &def,
+            ReferencesConfig::new(ScopeVisibility::Public, None),
+        );
+        crate::references::search::search_references(&db, &def, scope)
+            .into_iter()
+            .flat_map(|(file_id, tokens)| {
+                tokens.into_iter().map(move |token| (file_id, token.range()))
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(refs_of(*file_a, a_def), vec![(*file_a, a_ref)]);
+    assert_eq!(refs_of(*file_b, b_def), vec![(*file_b, b_ref)]);
 }
 
 #[test]
@@ -3120,7 +3167,7 @@ endmodule
     let leaf_call = marked_range(child_markers, "leaf_call", 4);
 
     let top_outgoing =
-        crate::semantic_index::outgoing_module_edges(host.raw_db(), *top_file, top_def);
+        crate::reference_support::outgoing_module_edges(&host.ctx(), *top_file, top_def);
     assert_eq!(top_outgoing.len(), 1);
     assert_eq!(top_outgoing[0].caller.file_id, *top_file);
     assert_eq!(top_outgoing[0].caller.name_range, top_def);
@@ -3129,14 +3176,14 @@ endmodule
     assert_eq!(top_outgoing[0].call_range, child_call);
 
     let child_outgoing =
-        crate::semantic_index::outgoing_module_edges(host.raw_db(), *child_file, child_def);
+        crate::reference_support::outgoing_module_edges(&host.ctx(), *child_file, child_def);
     assert_eq!(child_outgoing.len(), 1);
     assert_eq!(child_outgoing[0].callee.file_id, *leaf_file);
     assert_eq!(child_outgoing[0].callee.name_range, leaf_def);
     assert_eq!(child_outgoing[0].call_range, leaf_call);
 
     let child_incoming =
-        crate::semantic_index::incoming_module_edges(host.raw_db(), *child_file, child_def);
+        crate::reference_support::incoming_module_edges(&host.ctx(), *child_file, child_def);
     assert_eq!(child_incoming.len(), 1);
     assert_eq!(child_incoming[0].caller.file_id, *top_file);
     assert_eq!(child_incoming[0].call_range, child_call);
@@ -3760,7 +3807,7 @@ endmodule
             stmts.values().any(|stmt| matches_kind(&stmt.kind))
         }
 
-        let db = host.raw_db();
+        let db = host.ctx();
         let hir_file_id = HirFileId::File(file_id);
         let hir_file =
             db.body_with_source_map(db.owner_table(hir_file_id).file_owner().expect("file owner"));

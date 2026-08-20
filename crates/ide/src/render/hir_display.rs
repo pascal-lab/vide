@@ -4,7 +4,7 @@ use hir_def::{
     aggregate::StructKind,
     constraint::DistItem,
     container::OwnerRef,
-    def_id::DefId,
+    db::HirDefDb,
     expr::{
         Arg, AssignOp, AssignmentPattern, AssignmentPatternItem, BinaryOp, Expr, ExprId, IncDecOp,
         InsideRange, PropertyCaseItem, PropertyExpr, Selector, SequenceExpr, SequenceRepetition,
@@ -17,20 +17,14 @@ use hir_def::{
     literal::Literal,
     module::port::{PortDirection, PortHeader},
     subroutine::SubroutinePortDir,
-    symbol::DefKind,
     ty::{NetKind, NetType},
     typedef::TypedefId,
 };
 use syntax::value::TimeUnit;
 use triomphe::Arc;
 
-use crate::{
-    db::TyDb,
-    ty::{BuiltinTy, Ty},
-};
-
 pub struct HirFormatter<'a> {
-    pub db: &'a dyn TyDb,
+    pub db: &'a dyn HirDefDb,
     f: &'a mut dyn HirWrite,
     simplified_ty: bool,
 }
@@ -81,13 +75,13 @@ impl From<fmt::Error> for HirDisplayError {
 pub trait HirDisplay {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError>;
 
-    fn display_source(&self, db: &dyn TyDb) -> Result<String, HirDisplayError> {
+    fn display_source(&self, db: &dyn HirDefDb) -> Result<String, HirDisplayError> {
         let mut res = String::new();
         self.hir_fmt(&mut HirFormatter { db, f: &mut res, simplified_ty: false })?;
         Ok(res)
     }
 
-    fn display_signature(&self, db: &dyn TyDb) -> Result<String, HirDisplayError> {
+    fn display_signature(&self, db: &dyn HirDefDb) -> Result<String, HirDisplayError> {
         let mut res = String::new();
         self.hir_fmt(&mut HirFormatter { db, f: &mut res, simplified_ty: true })?;
         Ok(res)
@@ -97,137 +91,6 @@ pub trait HirDisplay {
 impl<T: HirDisplay> HirDisplay for Arc<T> {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         (**self).hir_fmt(f)
-    }
-}
-
-impl HirDisplay for Ty {
-    fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
-        match self {
-            Ty::Unknown => f.write_str("unknown"),
-            Ty::Error => f.write_str("error"),
-            Ty::Void => f.write_str("void"),
-            Ty::Builtin(BuiltinTy::Data { id, container }) => {
-                OwnerRef::new(*container, DataTy::Builtin(id.clone())).hir_fmt(f)
-            }
-            Ty::Struct(struct_ref) => {
-                OwnerRef::new(struct_ref.cont_id, DataTy::Struct(*struct_ref)).hir_fmt(f)
-            }
-            Ty::Enum(def) => hir_fmt_def_backed_type(f, "enum", *def),
-            Ty::Union(def) => hir_fmt_def_backed_type(f, "union", *def),
-            Ty::Queue { elem, size } => {
-                elem.hir_fmt(f)?;
-                f.write_str(" [$")?;
-                if let (Some(size), Some(container)) = (size, ty_expr_container(f.db, elem)) {
-                    f.write_str(":")?;
-                    OwnerRef::new(container, *size).hir_fmt(f)?;
-                }
-                f.write_str("]")
-            }
-            Ty::Assoc { key, elem } => {
-                elem.hir_fmt(f)?;
-                f.write_str(" [")?;
-                if matches!(key.as_ref(), Ty::Unknown) {
-                    f.write_str("*")?;
-                } else {
-                    key.hir_fmt(f)?;
-                }
-                f.write_str("]")
-            }
-            Ty::Dynamic(elem) => {
-                elem.hir_fmt(f)?;
-                f.write_str(" []")
-            }
-            Ty::Event => f.write_str("event"),
-            Ty::Chandle => f.write_str("chandle"),
-            Ty::Alias { typedef, target } => {
-                let container = typedef.cont_id.data(f.db);
-                if let Some(name) = &container.typedef(typedef.value).name {
-                    f.write_str(name)
-                } else {
-                    target.hir_fmt(f)
-                }
-            }
-            Ty::Module(module_id) => {
-                let module = f.db.body(*module_id);
-                if let Some(name) = &module.name {
-                    f.write_str(name)
-                } else {
-                    f.write_str("module")
-                }
-            }
-            Ty::Checker(def) => hir_fmt_named_def_type(f, "checker", *def),
-            Ty::Covergroup(def) => hir_fmt_named_def_type(f, "covergroup", *def),
-            Ty::VirtualInterface { def, modport } => {
-                f.write_str("virtual interface ")?;
-                if let Some(name) = def.name(f.db) {
-                    f.write_str(&name)?;
-                } else {
-                    f.write_str("interface")?;
-                }
-                if let Some(modport_name) = modport.as_ref().and_then(|modport| modport.name(f.db))
-                {
-                    f.write_str(".")?;
-                    f.write_str(&modport_name)?;
-                }
-                Ok(())
-            }
-            Ty::GenerateBlock(generate_block_id) => {
-                let block = f.db.body(*generate_block_id);
-                if let Some(name) = &block.name {
-                    f.write_str(name)
-                } else {
-                    f.write_str("generate block")
-                }
-            }
-            Ty::Block(owner) => {
-                if let Some(name) = owner.name(f.db) {
-                    f.write_str(&name)
-                } else {
-                    f.write_str("block")
-                }
-            }
-        }
-    }
-}
-
-fn hir_fmt_def_backed_type(
-    f: &mut HirFormatter<'_>,
-    keyword: &str,
-    def: DefId,
-) -> Result<(), HirDisplayError> {
-    f.write_str(keyword)?;
-    if def.kind(f.db) == DefKind::Typedef
-        && let Some(name) = def.name(f.db)
-    {
-        f.write_str(" ")?;
-        f.write_str(&name)?;
-    }
-    Ok(())
-}
-
-fn hir_fmt_named_def_type(
-    f: &mut HirFormatter<'_>,
-    keyword: &str,
-    def: DefId,
-) -> Result<(), HirDisplayError> {
-    f.write_str(keyword)?;
-    if let Some(name) = def.name(f.db) {
-        f.write_str(" ")?;
-        f.write_str(&name)?;
-    }
-    Ok(())
-}
-
-fn ty_expr_container(db: &dyn crate::db::TyDb, ty: &Ty) -> Option<hir_def::owner::OwnerId> {
-    match ty {
-        Ty::Builtin(BuiltinTy::Data { container, .. }) => Some(*container),
-        Ty::Struct(struct_ref) => Some(struct_ref.cont_id),
-        Ty::Alias { typedef, .. } => Some(typedef.cont_id),
-        Ty::Enum(def) | Ty::Union(def) => def.type_container(db),
-        Ty::Queue { elem, .. } | Ty::Assoc { elem, .. } | Ty::Dynamic(elem) => {
-            ty_expr_container(db, elem)
-        }
-        _ => None,
     }
 }
 
@@ -1159,3 +1022,6 @@ impl HirDisplay for OwnerRef<Selector> {
         f.write_str("]")
     }
 }
+
+#[cfg(test)]
+mod tests;

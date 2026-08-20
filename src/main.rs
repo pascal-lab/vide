@@ -16,7 +16,6 @@ const DEFAULT_PROFILE_TRACE_FILTER: &str = concat!(
     "base_db=trace,",
     "hir_semantics=trace,",
     "hir_def=trace,",
-    "hir_ty=trace,",
     "ide=trace,",
     "project_model=trace,",
     "preproc_expand=trace,",
@@ -119,6 +118,10 @@ fn main() -> anyhow::Result<()> {
         unsafe {
             env::set_var("RUST_BACKTRACE", "short");
         }
+    }
+
+    if env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--compiler-worker")) {
+        return vide::compiler_worker::run_stdio();
     }
 
     let opt = Opt::parse();

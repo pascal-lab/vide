@@ -32,10 +32,22 @@ pub use slang_sys::{
         ChildrenIter, SyntaxAncestors, SyntaxChildren, SyntaxCursor, SyntaxElemPreorder,
         SyntaxElement, SyntaxElementKind, SyntaxIdxChildren, SyntaxKind, SyntaxNode,
         SyntaxNodePreorder, SyntaxToken, SyntaxTokenWithParent, SyntaxTree, SyntaxTreeBuffer,
-        SyntaxTreeOptions, SyntaxTrivia, SyntaxTriviaLoc, WalkEvent, ast,
+        SyntaxTreeOptions, SyntaxTrivia, SyntaxTriviaLoc, UNEXPANDED_PARSE_RUNS, WalkEvent, ast,
+        record_unexpanded_parse,
     },
     token::{TokenKind, TriviaKind},
 };
+
+/// Whether this tree contains any preprocessor-directive trivia.
+///
+/// This is the single computation of `preprocessor_independent`. It does
+/// not depend on predefines and does not build a `Trace`. U1 (`source_model`)
+/// and U2 (`file_facts`) both call this; U3 (`include_scan`) does not
+/// compute the predicate.
+pub fn preprocessor_independent(tree: &SyntaxTree) -> bool {
+    use crate::SyntaxNodeExt;
+    !tree.root().has_directive_trivia()
+}
 
 pub mod compilation {
     pub use slang_sys::compilation::Compilation;

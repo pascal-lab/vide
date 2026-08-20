@@ -71,7 +71,14 @@ impl Change {
             }
 
             let text = changed_file.text().unwrap_or_else(|| Arc::from(""));
-            db.set_file_kind_with_durability(file_id, kind, durability);
+            // Salsa treats every input write as a new revision, even when the
+            // value is unchanged. Rewriting kind on a body-only Modify dirties
+            // every query that reads `file_kind` (workspace catalogs,
+            // `unit_scope`, fold filters). Skip the write when the salsa
+            // input already exists and already holds this kind.
+            if !db.files().contains(&file_id) || db.file_kind(file_id) != kind {
+                db.set_file_kind_with_durability(file_id, kind, durability);
+            }
             db.set_file_text_with_durability(file_id, text, durability);
         }
 

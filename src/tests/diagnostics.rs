@@ -1,5 +1,104 @@
 use super::*;
 
+fn vide_diagnostics(diagnostics: &[lsp_types::Diagnostic]) -> Vec<&lsp_types::Diagnostic> {
+    diagnostics.iter().filter(|diagnostic| diagnostic.source.as_deref() == Some("vide")).collect()
+}
+
+fn recv_publish_diagnostics_until(
+    client: &Connection,
+    uri: &Url,
+    pred: impl Fn(&[lsp_types::Diagnostic]) -> bool,
+    context: &str,
+) -> Vec<lsp_types::Diagnostic> {
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    let mut last = None;
+    while let Some(message) = recv_lsp_message_until(client, deadline, context) {
+        match message {
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::PublishDiagnostics::METHOD =>
+            {
+                let params =
+                    serde_json::from_value::<PublishDiagnosticsParams>(notification.params)
+                        .unwrap();
+                if &params.uri == uri {
+                    if pred(&params.diagnostics) {
+                        return params.diagnostics;
+                    }
+                    last = Some(params.diagnostics);
+                }
+            }
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::Progress::METHOD => {}
+            Message::Request(request) => handle_test_server_request(client, request, context),
+            _ => {}
+        }
+    }
+    panic!("{context}: matching publishDiagnostics not received; last={last:?}");
+}
+
+fn drain_publish_diagnostics_for_uri(
+    client: &Connection,
+    uri: &Url,
+    window: Duration,
+) -> Vec<Vec<lsp_types::Diagnostic>> {
+    let deadline = Instant::now() + window;
+    let mut extras = Vec::new();
+    while let Some(message) = recv_lsp_message_until(client, deadline, "drain publishDiagnostics") {
+        match message {
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::PublishDiagnostics::METHOD =>
+            {
+                let params =
+                    serde_json::from_value::<PublishDiagnosticsParams>(notification.params)
+                        .unwrap();
+                if &params.uri == uri {
+                    extras.push(params.diagnostics);
+                }
+            }
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::Progress::METHOD => {}
+            Message::Request(request) => {
+                handle_test_server_request(client, request, "drain publishDiagnostics")
+            }
+            _ => {}
+        }
+    }
+    extras
+}
+
+#[test]
+fn did_open_after_semantic_compile_does_not_duplicate_vide_diagnostics() {
+    let text = "`ifdef NEVER\nwire hidden;\n`endif\nmodule top;\nendmodule\n";
+    let (_temp_dir, client, server_thread, uri) = setup_configured_diagnostics_test(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        text,
+    );
+
+    let first = recv_publish_diagnostics_until(
+        &client,
+        &uri,
+        |diagnostics| !vide_diagnostics(diagnostics).is_empty(),
+        "first semantic compile vide diagnostic",
+    );
+    let first_vide = vide_diagnostics(&first).len();
+    assert!(first_vide >= 1, "expected a Vide diagnostic before republish: {first:?}");
+
+    // A second didOpen of the same file republishes the cached profile
+    // diagnostics without compiling again.
+    open_test_document(&client, uri.clone(), text);
+    let extras = drain_publish_diagnostics_for_uri(&client, &uri, Duration::from_secs(5));
+    for extra in &extras {
+        assert_eq!(
+            vide_diagnostics(extra).len(),
+            first_vide,
+            "didOpen must not duplicate Vide diagnostics: first={first:?} extra={extra:?}"
+        );
+    }
+
+    shutdown_test_server(&client, server_thread);
+}
+
 #[test]
 fn default_diagnostics_warn_on_port_width_mismatch() {
     let text = "\

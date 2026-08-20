@@ -3,192 +3,76 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourcePreprocRelevantContexts {
     pub model_file_ids: Vec<FileId>,
-    pub status: SourcePreprocContextStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SourcePreprocContextIndex {
     contexts_by_file: FxHashMap<FileId, Vec<FileId>>,
-    status: SourcePreprocContextStatus,
 }
 
 impl SourcePreprocContextIndex {
     fn contexts_for_file(&self, file_id: FileId) -> SourcePreprocRelevantContexts {
         SourcePreprocRelevantContexts {
             model_file_ids: self.contexts_by_file.get(&file_id).cloned().unwrap_or_default(),
-            status: self.status,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SourcePreprocContextStatus {
-    #[default]
-    Complete,
-    Partial {
-        skipped_models: usize,
-    },
-}
-
-fn preproc_context_file_ids(
-    mapped: &MappedSourcePreprocModel,
-    model_file_id: FileId,
-) -> Result<Vec<FileId>, SourcePreprocQueryError> {
-    let mut file_ids = UniqVec::<FileId, FileId>::default();
-    file_ids.push_unique(model_file_id);
-
-    for definition in mapped.model.macro_definitions().iter() {
-        collect_context_source_range(mapped, definition.directive_range, &mut file_ids)?;
-        collect_context_source_range(mapped, definition.name_range, &mut file_ids)?;
-        if let Some(params) = &definition.params {
-            for param in params {
-                if let Some(range) = param.name_range {
-                    collect_context_source_range(mapped, range, &mut file_ids)?;
-                }
-                if let Some(range) = param.range {
-                    collect_context_source_range(mapped, range, &mut file_ids)?;
-                }
-                if let Some(default) = &param.default {
-                    for token in default {
-                        if let Some(range) = token.range {
-                            collect_context_source_range(mapped, range, &mut file_ids)?;
-                        }
-                    }
-                }
-            }
-        }
-        for token in &definition.body_tokens {
-            if let Some(range) = token.range {
-                collect_context_source_range(mapped, range, &mut file_ids)?;
-            }
-        }
-    }
-
-    for reference in mapped.model.macro_references().iter() {
-        collect_context_source_range(mapped, reference.directive_range, &mut file_ids)?;
-        collect_context_source_range(mapped, reference.name_range, &mut file_ids)?;
-    }
-
-    for call in mapped.model.macro_calls().iter() {
-        collect_context_source_range(mapped, call.call_range, &mut file_ids)?;
-        for argument in &call.arguments {
-            if let Some(range) = argument.argument_range {
-                collect_context_source_range(mapped, range, &mut file_ids)?;
-            }
-            for token in &argument.tokens {
-                if let Some(range) = token.range {
-                    collect_context_source_range(mapped, range, &mut file_ids)?;
-                }
-            }
-        }
-    }
-
-    for include in mapped.model.include_graph().directives() {
-        collect_context_source_range(mapped, include.directive_range, &mut file_ids)?;
-        if let Some(range) = include.target_range {
-            collect_context_source_range(mapped, range, &mut file_ids)?;
-        }
-        if let Some(source) = include.resolved_source {
-            collect_context_source(mapped, source, &mut file_ids)?;
-        }
-    }
-
-    for range in mapped.model.inactive_ranges() {
-        collect_context_source_range(mapped, *range, &mut file_ids)?;
-    }
-
-    let mut file_ids = file_ids.into_vec();
-    file_ids.sort();
-    Ok(file_ids)
-}
-
-fn collect_context_source_range(
-    mapped: &MappedSourcePreprocModel,
-    range: SourceRange,
-    file_ids: &mut UniqVec<FileId, FileId>,
-) -> Result<(), SourcePreprocQueryError> {
-    collect_context_source(mapped, range.source, file_ids)
-}
-
-fn collect_context_source(
-    mapped: &MappedSourcePreprocModel,
-    source: PreprocSourceId,
-    file_ids: &mut UniqVec<FileId, FileId>,
-) -> Result<(), SourcePreprocQueryError> {
-    match mapped.source_map.file_id(source) {
-        Ok(file_id) => {
-            file_ids.push_unique(file_id);
-        }
-        Err(SourcePreprocQueryError::DisplayOnlyVirtualSource { .. }) => {}
-        Err(error) => return Err(error),
-    }
-    if let Some(manifest_source) = mapped.source_map.predefine_manifest_source(source) {
-        file_ids.push_unique(manifest_source.file_id);
-    }
-    Ok(())
-}
-
+/// Which runs read each file, inverted from what those runs actually consumed.
+///
+/// A run's inputs are facts, not inferences: the include edges its
+/// preprocessor emitted, plus the manifest supplying its predefines. Both are
+/// already memoized for other consumers, so inverting them costs one slice
+/// read per root instead of a preprocessor model per root.
+///
+/// This shares its identity with the invalidation model. A file's dependents
+/// and the runs that can answer a query about it are the same relation, so
+/// they must not be two computations.
 pub(crate) fn source_preproc_context_index_for_profile(
     db: &dyn PreprocDb,
     profile_id: Option<CompilationProfileId>,
 ) -> Arc<SourcePreprocContextIndex> {
     let plan = db.compilation_plan_for_profile(profile_id);
-    let mut contexts_by_file = FxHashMap::<FileId, UniqVec<FileId, FileId>>::default();
-    let mut skipped_models = 0usize;
+    let manifest_file_ids = predefine_manifest_file_ids(db, profile_id);
+    let mut contexts_by_file = FxHashMap::<FileId, Vec<FileId>>::default();
 
-    for model_file_id in plan.roots.iter().copied() {
-        if !matches!(
-            db.file_kind(model_file_id),
-            SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
-        ) {
-            continue;
-        }
-        let mapped = db.source_preproc_model(model_file_id);
-        match mapped.as_ref() {
-            Ok(mapped) => match preproc_context_file_ids(mapped, model_file_id) {
-                Ok(file_ids) => {
-                    for file_id in file_ids {
-                        if file_id == model_file_id {
-                            continue;
-                        }
-                        contexts_by_file.entry(file_id).or_default().push_unique(model_file_id);
-                    }
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        ?model_file_id,
-                        ?error,
-                        "failed to index source preprocessor context"
-                    );
-                    skipped_models += 1;
-                }
-            },
-            Err(error) => {
-                tracing::warn!(
-                    ?model_file_id,
-                    ?error,
-                    "failed to load source preprocessor model for context index"
-                );
-                skipped_models += 1;
+    for root in plan.root_file_ids() {
+        let inputs = db.parsed_compilation_dependencies(root);
+        for file_id in inputs.iter().copied().chain(manifest_file_ids.iter().copied()) {
+            if file_id == root {
+                continue;
             }
+            contexts_by_file.entry(file_id).or_default().push(root);
         }
     }
 
-    let contexts_by_file = contexts_by_file
-        .into_iter()
-        .map(|(file_id, model_file_ids)| {
-            let mut model_file_ids = model_file_ids.into_vec();
-            model_file_ids.sort();
-            (file_id, model_file_ids)
-        })
-        .collect();
-    let status = if skipped_models == 0 {
-        SourcePreprocContextStatus::Complete
-    } else {
-        SourcePreprocContextStatus::Partial { skipped_models }
-    };
-    Arc::new(SourcePreprocContextIndex { contexts_by_file, status })
+    for roots in contexts_by_file.values_mut() {
+        roots.sort_unstable_by_key(|root| root.index());
+        roots.dedup();
+    }
+    Arc::new(SourcePreprocContextIndex { contexts_by_file })
 }
+
+/// Files whose text a profile's predefines were read from. A predefine is an
+/// input to every run in the profile without being included by any of them.
+fn predefine_manifest_file_ids(
+    db: &dyn PreprocDb,
+    profile_id: Option<CompilationProfileId>,
+) -> Vec<FileId> {
+    let path_file_ids = db.path_file_ids();
+    let mut file_ids = db
+        .project_config()
+        .preprocess_for_profile(profile_id)
+        .predefines
+        .iter()
+        .filter_map(|predefine| predefine.source.as_ref())
+        .filter_map(|source| path_file_ids.get_path(source.path.as_path()))
+        .collect::<Vec<_>>();
+    file_ids.sort_unstable_by_key(|file_id| file_id.index());
+    file_ids.dedup();
+    file_ids
+}
+
 pub(crate) fn source_preproc_contexts_for_file(
     db: &dyn PreprocDb,
     file_id: FileId,

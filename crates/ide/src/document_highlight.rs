@@ -7,6 +7,7 @@ use vfs::FileId;
 
 use crate::{
     FilePosition, ScopeVisibility,
+    analysis::AnalysisContext,
     db::root_db::RootDb,
     definitions::DefinitionClass,
     references::{
@@ -28,14 +29,45 @@ pub struct DocumentHighlight {
 }
 
 pub(crate) fn document_highlight(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
     config: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
-    let sema = Semantics::new(db);
+    db.store.record_paid_file(file_id);
+    if crate::design_unit::source_visible_hit(db, FilePosition { file_id, offset })
+        && let Some(refs) = crate::design_unit::references(
+            db,
+            FilePosition { file_id, offset },
+            &crate::references::ReferencesConfig::new(
+                config.scope_visibility,
+                Some(SearchScope::single_file(file_id)),
+            ),
+        )
+    {
+        let highlights: Vec<DocumentHighlight> = refs
+            .into_iter()
+            .flat_map(|item| {
+                let mut ranges = item.refs.get(&file_id).cloned().unwrap_or_default();
+                if let Some(defs) = item.def {
+                    for nav in defs {
+                        if nav.file_id == file_id && nav.focus_range.is_some() {
+                            ranges.push((nav.focus_or_full_range(), ReferenceCategory::empty()));
+                        }
+                    }
+                }
+                ranges
+            })
+            .map(|(range, category)| DocumentHighlight { range, category })
+            .collect();
+        if !highlights.is_empty() {
+            return Some(highlights);
+        }
+    }
+    let sema = db.semantics();
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
+    let target =
+        resolve_semantic_target(db.db, file_id, offset, parsed_file.root(), token_precedence);
     let target = target.unique_for_intent(TargetIntent::Highlight)?;
     let SemanticTarget::Source(target) = target else {
         return match target {
@@ -46,7 +78,9 @@ pub(crate) fn document_highlight(
     let tokens = target.into_tokens();
     let highlights = tokens
         .into_iter()
-        .filter_map(|token| highlight_for_token(&sema, file_id, hir_file_id, token, config.clone()))
+        .filter_map(|token| {
+            highlight_for_token(db, &sema, file_id, hir_file_id, token, config.clone())
+        })
         .flatten()
         .collect::<Vec<_>>();
     (!highlights.is_empty()).then_some(highlights)
@@ -72,6 +106,7 @@ fn handle_ctrl_flow_kw(
 }
 
 fn highlight_for_token(
+    db: &AnalysisContext<'_>,
     sema: &Semantics<'_, RootDb>,
     file_id: FileId,
     hir_file_id: HirFileId,
@@ -79,15 +114,16 @@ fn highlight_for_token(
     config: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
     handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
-        let def = match DefinitionClass::resolve(sema.db, hir_file_id, token).unique()? {
+        let def = match DefinitionClass::resolve(db, hir_file_id, token).unique()? {
             DefinitionClass::Definition(def) => def,
             DefinitionClass::PortConnShorthand { local, .. } => local,
         };
-        highlight_refs(sema, file_id, def, config)
+        highlight_refs(db, sema, file_id, def, config)
     })
 }
 
 fn highlight_refs<'a>(
+    db: &AnalysisContext<'_>,
     sema: &'a Semantics<'a, RootDb>,
     file_id: FileId,
     def: DefId,
@@ -102,7 +138,7 @@ fn highlight_refs<'a>(
 
     let ref_config =
         ReferencesConfig::new(scope_visibility, Some(SearchScope::single_file(file_id)));
-    let refs = ReferencesCtx::new(sema, &def, ref_config)
+    let refs = ReferencesCtx::new(db, &def, ref_config)
         .search()
         .remove(&file_id)
         .unwrap_or_default()
@@ -171,7 +207,8 @@ endmodule
             TextSize::from((reference_start + "generated".len()) as u32),
         );
         let (host, position) = setup(text);
-        let db = host.raw_db();
+        let analysis = host.make_analysis();
+        let db = &analysis.db;
         let macro_file =
             macro_files_at_offset(db, position.file_id, TextSize::from(call_start as u32))
                 .pop()
@@ -183,8 +220,12 @@ endmodule
         let def =
             DefId::from_owner(db, local_module_id).expect("module owner must have a definition");
 
+        let ctx = AnalysisContext::new(db, &analysis.store, &analysis.elab, analysis.snapshot_id);
+        ctx.store.record_paid_file(position.file_id);
+        let sema = ctx.semantics();
         let highlights = highlight_refs(
-            &Semantics::new(db),
+            &ctx,
+            &sema,
             position.file_id,
             def,
             DocumentHighlightConfig { scope_visibility: ScopeVisibility::Public },

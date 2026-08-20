@@ -1,16 +1,94 @@
 use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
+use triomphe::Arc;
 use utils::get::GetRef;
+use vfs::FileId;
 
 use crate::{
     Ident,
     container::{InFile, ScopeChain},
     db::HirDefDb,
     def_id::DefId,
+    design_map::DesignMap,
     module::instantiation::InstanceId,
     owner::{OwnerId, OwnerKind},
     symbol::{DefKind, NameContext, Resolution, ScopeData},
+    unit::{locate_cu_owners, locate_cu_owners_matching},
 };
+
+/// Cross-file name-resolution inputs.
+///
+/// The injected [`UnitCatalog`] is a name → file locator, not identity.
+/// Compilation-unit owners come from the paid-parse owner table. `$unit`
+/// locals come from the unit-scope query. The package export map is a
+/// salsa query over the source catalog — building this context does not
+/// re-fold every package.
+#[derive(Clone)]
+pub struct ResolutionContext {
+    locator: Arc<design_graph::UnitCatalog>,
+    paid_files: Arc<[FileId]>,
+    unit_scope: Arc<ScopeData>,
+    design_map: Arc<DesignMap>,
+}
+
+impl ResolutionContext {
+    pub fn from_graph(db: &dyn HirDefDb, graph: Arc<design_graph::UnitCatalog>) -> Arc<Self> {
+        Self::from_locator(db, graph, Arc::from(Vec::<FileId>::new()))
+    }
+
+    pub fn from_locator(
+        db: &dyn HirDefDb,
+        locator: Arc<design_graph::UnitCatalog>,
+        paid_files: Arc<[FileId]>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            unit_scope: db.unit_scope(),
+            design_map: crate::design_map::package_export_closure(db, &locator),
+            locator,
+            paid_files,
+        })
+    }
+
+    pub fn graph(&self) -> &design_graph::UnitCatalog {
+        &self.locator
+    }
+
+    pub fn unit_scope(&self, _db: &dyn HirDefDb) -> Arc<ScopeData> {
+        self.unit_scope.clone()
+    }
+
+    pub fn design_map(&self, _db: &dyn HirDefDb) -> Arc<DesignMap> {
+        self.design_map.clone()
+    }
+
+    pub fn locate_type_units(&self, db: &dyn HirDefDb, name: &str) -> Vec<OwnerId> {
+        locate_cu_owners_matching(db, &self.locator, &self.paid_files, name, |_| true)
+    }
+
+    pub fn locate_hierarchy_targets(&self, db: &dyn HirDefDb, name: &str) -> Vec<OwnerId> {
+        locate_cu_owners_matching(db, &self.locator, &self.paid_files, name, |kind| {
+            kind.is_hierarchy_target()
+        })
+    }
+
+    pub fn locate_packages(&self, db: &dyn HirDefDb, name: &str) -> Vec<OwnerId> {
+        locate_cu_owners(db, &self.locator, &self.paid_files, name, design_graph::UnitKind::Package)
+    }
+
+    pub fn locate_instantiation_targets(
+        &self,
+        db: &dyn HirDefDb,
+        name: &str,
+        role: design_graph::InstantiationRole,
+    ) -> Vec<OwnerId> {
+        locate_cu_owners_matching(db, &self.locator, &self.paid_files, name, |kind| match role {
+            design_graph::InstantiationRole::Hierarchy => kind.is_hierarchy_target(),
+            design_graph::InstantiationRole::Checker => {
+                matches!(kind, design_graph::UnitKind::Checker)
+            }
+        })
+    }
+}
 
 // SystemVerilog name AST note for path resolution:
 //
@@ -20,9 +98,11 @@ use crate::{
 // raw-AST distinction between `a.b` hierarchical selection and `a::b`
 // package/class scoping. HIR lowering turns dot-style member access and
 // `ScopedName` with an identifier right side into `Expr::Field`, and
-// `IdentifierSelectName` into `Expr::ElementSelect`; C3's `resolve_path`
-// handles the hierarchical dot/select shape only. Package/class `::` remains
-// outside this resolver until those constructs are lowered.
+// `IdentifierSelectName` into `Expr::ElementSelect`; this resolver handles
+// the hierarchical dot/select shape only.
+//
+// Package and class `::` are answered by the elaboration service. This
+// resolver does hierarchical dots only. There is no type-lowering path here.
 
 /// Resolution phase recorded by [`resolve_name_with_trace`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -71,11 +151,12 @@ pub struct NameRef {
 
 pub fn resolve_name(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    resolve_name_at(db, cont_id, ident, ctx, None)
+    resolve_name_at(db, context, cont_id, ident, ctx, None)
 }
 
 /// Resolve a name honoring the reference's source position. Without a
@@ -83,12 +164,13 @@ pub fn resolve_name(
 /// matches the position-less [`resolve_name`].
 pub fn resolve_name_at(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
     reference: Option<&NameRef>,
 ) -> Resolution<DefId> {
-    resolve_name_inner(db, cont_id, ident, ctx, None, reference)
+    resolve_name_inner(db, context, cont_id, ident, ctx, None, reference)
 }
 
 /// Resolve a name and retain the precedence decisions made by the resolver.
@@ -98,12 +180,13 @@ pub fn resolve_name_at(
 /// named-import, wildcard-import, and `$unit` decision through this seam.
 pub fn resolve_name_with_trace(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
 ) -> (Resolution<DefId>, ResolutionTrace) {
     let mut trace = ResolutionTrace::default();
-    let resolution = resolve_name_inner(db, cont_id, ident, ctx, Some(&mut trace), None);
+    let resolution = resolve_name_inner(db, context, cont_id, ident, ctx, Some(&mut trace), None);
     (resolution, trace)
 }
 
@@ -141,6 +224,7 @@ fn filter_resolution_at(
 
 fn resolve_name_inner(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
@@ -175,6 +259,7 @@ fn resolve_name_inner(
         // this scope. `$unit` remains the final scope.
         let imported = resolve_scope_imports(
             db,
+            context,
             scope.as_ref(),
             ident,
             ctx,
@@ -187,7 +272,7 @@ fn resolve_name_inner(
         }
     }
 
-    let unit = db.unit_scope().lookup(ctx, ident);
+    let unit = resolve_unit_name(db, context, ident, ctx);
     if let Some(trace) = trace {
         trace.entries.push(ResolutionTraceEntry {
             phase: ResolutionPhase::Unit,
@@ -196,6 +281,30 @@ fn resolve_name_inner(
         });
     }
     unit
+}
+
+fn resolve_unit_name(
+    db: &dyn HirDefDb,
+    context: &ResolutionContext,
+    ident: &Ident,
+    ctx: NameContext,
+) -> Resolution<DefId> {
+    let locals = context.unit_scope(db).lookup(ctx, ident);
+    let units = match ctx {
+        NameContext::Type | NameContext::Listing => Resolution::from_candidates(
+            context
+                .locate_type_units(db, ident)
+                .into_iter()
+                .filter_map(|owner| DefId::from_owner(db, owner)),
+        ),
+        NameContext::Value | NameContext::Assertion => Resolution::Unresolved,
+    };
+    match (locals, units) {
+        (Resolution::Unresolved, other) | (other, Resolution::Unresolved) => other,
+        (left, right) => Resolution::from_candidates(
+            left.into_candidates().into_iter().chain(right.into_candidates()),
+        ),
+    }
 }
 
 /// A scope chain resolved against canonical owner-local scope queries.
@@ -213,17 +322,19 @@ impl ResolvedScopes {
 /// search order as [`resolve_name_at`].
 pub fn resolve_in_resolved_scopes(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     resolved: &ResolvedScopes,
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    resolve_in_resolved_scopes_at(db, resolved, ident, ctx, None)
+    resolve_in_resolved_scopes_at(db, context, resolved, ident, ctx, None)
 }
 
 /// Position-aware variant of [`resolve_in_resolved_scopes`]; see
 /// [`resolve_name_at`] for the filtering rules.
 pub fn resolve_in_resolved_scopes_at(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     resolved: &ResolvedScopes,
     ident: &Ident,
     ctx: NameContext,
@@ -242,6 +353,7 @@ pub fn resolve_in_resolved_scopes_at(
         }
         let imported = resolve_scope_imports(
             db,
+            context,
             scope.as_ref(),
             ident,
             ctx,
@@ -253,22 +365,24 @@ pub fn resolve_in_resolved_scopes_at(
             return imported;
         }
     }
-    db.unit_scope().lookup(ctx, ident)
+    resolve_unit_name(db, context, ident, ctx)
 }
 
 pub fn resolve_path(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     path: &[Ident],
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    resolve_path_at(db, cont_id, path, ctx, None)
+    resolve_path_at(db, context, cont_id, path, ctx, None)
 }
 
 /// Position-aware variant of [`resolve_path`]; the first segment honors the
 /// reference position while member segments keep position-less lookup.
 pub fn resolve_path_at(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     path: &[Ident],
     ctx: NameContext,
@@ -277,12 +391,12 @@ pub fn resolve_path_at(
     let Some((first, rest)) = path.split_first() else {
         return Resolution::Unresolved;
     };
-    let mut current = resolve_name_at(db, cont_id, first, ctx, reference)
-        .or_else(|| resolve_top_level_module_root(db, first, ctx, !rest.is_empty()));
+    let mut current = resolve_name_at(db, context, cont_id, first, ctx, reference)
+        .or_else(|| resolve_top_level_module_root(db, context, first, ctx, !rest.is_empty()));
 
     for (idx, segment) in rest.iter().enumerate() {
         let segment_ctx = if idx + 1 == rest.len() { ctx } else { NameContext::Value };
-        current = resolve_child_name(db, &current, segment, segment_ctx);
+        current = resolve_child_name(db, context, &current, segment, segment_ctx);
         if current.is_unresolved() {
             break;
         }
@@ -293,6 +407,7 @@ pub fn resolve_path_at(
 
 fn resolve_top_level_module_root(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     ident: &Ident,
     ctx: NameContext,
     has_child_segment: bool,
@@ -308,9 +423,8 @@ fn resolve_top_level_module_root(
     // is not a single segment value fallback: `top` alone remains a type-space
     // module name, and nested declarations never leak through the fallback.
     Resolution::from_candidates(
-        db.unit_index()
-            .top_level_module_ids(ident)
-            .into_candidates()
+        context
+            .locate_hierarchy_targets(db, ident)
             .into_iter()
             .map(|owner| DefId::from_source(db, crate::symbol::DefOriginLoc::Module(owner))),
     )
@@ -318,18 +432,23 @@ fn resolve_top_level_module_root(
 
 pub fn resolve_child_name(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     parent: &Resolution<DefId>,
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
     parent.and_then(|def_id| {
-        let Some(scope_id) = descend_scope(db, def_id) else {
+        let Some(scope_id) = descend_scope(db, context, def_id) else {
             return Resolution::Unresolved;
         };
         db.scope(scope_id).lookup(ctx, ident)
     })
 }
-pub fn descend_scope(db: &dyn HirDefDb, def_id: DefId) -> Option<OwnerId> {
+pub fn descend_scope(
+    db: &dyn HirDefDb,
+    context: &ResolutionContext,
+    def_id: DefId,
+) -> Option<OwnerId> {
     let origin = def_id.primary_origin(db);
     match def_id.kind(db) {
         DefKind::Module | DefKind::Interface | DefKind::Program | DefKind::Package => {
@@ -342,8 +461,8 @@ pub fn descend_scope(db: &dyn HirDefDb, def_id: DefId) -> Option<OwnerId> {
         | DefKind::GenerateBlock => Some(definition_scope_owner(db, origin)),
         DefKind::Instance => {
             let instance = origin.as_instance(db)?;
-            let target = instance_target_def_id(db, instance.cont_id, instance.value)?;
-            descend_scope(db, target)
+            let target = instance_target_def_id(db, context, instance.cont_id, instance.value)?;
+            descend_scope(db, context, target)
         }
         _ => None,
     }
@@ -355,6 +474,7 @@ fn definition_scope_owner(db: &dyn HirDefDb, origin: crate::symbol::DefOrigin) -
 
 pub fn instance_target_def_id(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     module_id: OwnerId,
     instance_id: InstanceId,
 ) -> Option<DefId> {
@@ -362,12 +482,45 @@ pub fn instance_target_def_id(
     let instance = module.get(instance_id);
     let instantiation = module.get(instance.parent);
     let module_name = instantiation.module_name.as_ref()?;
-    let target = db
-        .unit_index()
-        .instantiable_ids_in(module_id, module_name)
-        .unique()
-        .map(|owner| instantiable_def_id(db, owner))?;
+    let local = local_instantiable_owner(db, module_id, module_name);
+    if !local.is_unresolved() {
+        return local.unique().map(|owner| instantiable_def_id(db, owner));
+    }
+    let target = Resolution::from_candidates(
+        context
+            .locate_instantiation_targets(
+                db,
+                module_name,
+                design_graph::InstantiationRole::Hierarchy,
+            )
+            .into_iter()
+            .chain(context.locate_instantiation_targets(
+                db,
+                module_name,
+                design_graph::InstantiationRole::Checker,
+            )),
+    )
+    .unique()
+    .map(|owner| instantiable_def_id(db, owner))?;
     Some(target)
+}
+
+fn local_instantiable_owner(
+    db: &dyn HirDefDb,
+    scope: OwnerId,
+    name: &Ident,
+) -> Resolution<OwnerId> {
+    Resolution::from_candidates(
+        db.owner_table(scope.file(db))
+            .owners()
+            .iter()
+            .filter(|owner| {
+                owner.parent == Some(scope)
+                    && owner.name == *name
+                    && matches!(owner.kind, OwnerKind::Checker | OwnerKind::Covergroup)
+            })
+            .map(|owner| owner.id),
+    )
 }
 
 fn instantiable_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
@@ -403,6 +556,7 @@ impl AtFilter<'_> {
 /// Collects import candidates for one scope, applying the point filter.
 struct ImportCollector<'a> {
     db: &'a dyn HirDefDb,
+    context: &'a ResolutionContext,
     design_map: &'a crate::design_map::DesignMap,
     scope: &'a ScopeData,
     defs: SmallVec<[DefId; 3]>,
@@ -423,8 +577,10 @@ impl ImportCollector<'_> {
             {
                 continue;
             }
-            for def_id in
-                self.design_map.resolve_import(self.db, import, ident, ctx).into_candidates()
+            for def_id in self
+                .design_map
+                .resolve_import(self.db, self.context, import, ident, ctx)
+                .into_candidates()
             {
                 if !self.defs.contains(&def_id) {
                     self.defs.push(def_id);
@@ -434,8 +590,10 @@ impl ImportCollector<'_> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn resolve_scope_imports(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     scope: &ScopeData,
     ident: &Ident,
     ctx: NameContext,
@@ -443,10 +601,11 @@ fn resolve_scope_imports(
     mut trace: Option<&mut ResolutionTrace>,
     at: AtFilter<'_>,
 ) -> Resolution<DefId> {
-    let design_map = db.design_map();
+    let design_map = context.design_map(db);
     let mut collector = ImportCollector {
         db,
-        design_map: &design_map,
+        context,
+        design_map: design_map.as_ref(),
         scope,
         defs: SmallVec::new(),
         scope_file: scope_id.file(db),
@@ -483,6 +642,7 @@ fn resolve_scope_imports(
 /// import locally visible (IEEE 1800-2017 26.3).
 pub(crate) fn resolve_wildcard_at(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     cont_id: OwnerId,
     ident: &Ident,
     ctx: NameContext,
@@ -490,12 +650,13 @@ pub(crate) fn resolve_wildcard_at(
 ) -> (Resolution<DefId>, Option<OwnerId>) {
     let scopes = ScopeChain::from_inner(db, cont_id);
     let at = AtFilter { reference };
-    let design_map = db.design_map();
     for scope_id in scopes.iter() {
         let scope = db.scope(*scope_id);
+        let design_map = context.design_map(db);
         let mut collector = ImportCollector {
             db,
-            design_map: &design_map,
+            context,
+            design_map: design_map.as_ref(),
             scope: scope.as_ref(),
             defs: SmallVec::new(),
             scope_file: scope_id.file(db),
@@ -559,6 +720,9 @@ mod tests {
 
     #[salsa::db]
     impl PreprocDb for TestDb {}
+
+    #[salsa::db]
+    impl crate::db::DesignGraphDb for TestDb {}
 
     #[salsa::db]
     impl HirDefDb for TestDb {}
@@ -635,7 +799,7 @@ mod tests {
         ctx: NameContext,
     ) -> DefKind {
         let path = path(segments);
-        resolve_path(db, scope_id, &path, ctx)
+        resolve_path(db, &crate::unit::test_resolution(db), scope_id, &path, ctx)
             .unique()
             .map(|def_id| def_id.kind(db))
             .unwrap_or_else(|| panic!("path {segments:?} should resolve"))
@@ -667,11 +831,7 @@ endmodule
 "#,
         );
 
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
+        let top = crate::unit::test_module_owner(&db, "top");
 
         assert_eq!(resolved_kind(&db, top, &["u", "sig"], NameContext::Value), DefKind::Net);
         assert_eq!(resolved_kind(&db, top, &["arr", "sig"], NameContext::Value), DefKind::Net);
@@ -702,18 +862,25 @@ module top;
 endmodule
 "#,
         );
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
+        let top = crate::unit::test_module_owner(&db, "top");
 
         assert!(
-            resolve_path(&db, top, &path(&["u", "only_left"]), NameContext::Value).is_unresolved()
+            resolve_path(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &path(&["u", "only_left"]),
+                NameContext::Value
+            )
+            .is_unresolved()
         );
-        let Resolution::Ambiguous(shared) =
-            resolve_path(&db, top, &path(&["u", "shared"]), NameContext::Value)
-        else {
+        let Resolution::Ambiguous(shared) = resolve_path(
+            &db,
+            &crate::unit::test_resolution(&db),
+            top,
+            &path(&["u", "shared"]),
+            NameContext::Value,
+        ) else {
             panic!("members from ambiguous parents should remain ambiguous");
         };
         assert_eq!(shared.len(), 2);
@@ -736,14 +903,14 @@ module top;
 endmodule
 "#,
         );
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
-        let Resolution::Ambiguous(values) =
-            resolve_name(&db, top, &ident("value"), NameContext::Value)
-        else {
+        let top = crate::unit::test_module_owner(&db, "top");
+        let Resolution::Ambiguous(values) = resolve_name(
+            &db,
+            &crate::unit::test_resolution(&db),
+            top,
+            &ident("value"),
+            NameContext::Value,
+        ) else {
             panic!("imports from ambiguous packages should remain ambiguous");
         };
         assert_eq!(values.len(), 2);
@@ -765,14 +932,17 @@ module top;
 endmodule
 "#,
         );
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
+        let top = crate::unit::test_module_owner(&db, "top");
 
         assert!(
-            resolve_name(&db, top, &ident("only_left"), NameContext::Value).is_unresolved(),
+            resolve_name(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &ident("only_left"),
+                NameContext::Value
+            )
+            .is_unresolved(),
             "a child member must not disambiguate its parent package"
         );
     }
@@ -795,24 +965,21 @@ module top;
 endmodule
 "#,
         );
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
-        let named = db
-            .unit_index()
-            .package_ids(&ident("named"))
-            .unique()
-            .expect("named package should resolve uniquely");
+        let top = crate::unit::test_module_owner(&db, "top");
+        let named = crate::unit::test_package_owner(&db, "named");
         let expected = db
-            .package_exports(named)
+            .package_exports(&crate::unit::test_resolution(&db), named)
             .lookup(NameContext::Value, &ident("value"))
             .unique()
             .expect("named package value should resolve uniquely");
 
-        let (resolved, trace) =
-            resolve_name_with_trace(&db, top, &ident("value"), NameContext::Value);
+        let (resolved, trace) = resolve_name_with_trace(
+            &db,
+            &crate::unit::test_resolution(&db),
+            top,
+            &ident("value"),
+            NameContext::Value,
+        );
         assert_eq!(resolved, Resolution::Unique(expected));
         assert!(trace.entries().iter().any(|entry| {
             entry.phase == ResolutionPhase::NamedImport
@@ -844,13 +1011,14 @@ module top;
 endmodule
 "#,
         );
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
-        let (resolved, trace) =
-            resolve_name_with_trace(&db, top, &ident("value"), NameContext::Value);
+        let top = crate::unit::test_module_owner(&db, "top");
+        let (resolved, trace) = resolve_name_with_trace(
+            &db,
+            &crate::unit::test_resolution(&db),
+            top,
+            &ident("value"),
+            NameContext::Value,
+        );
         let Resolution::Ambiguous(candidates) = resolved else {
             panic!("two named imports must remain ambiguous");
         };
@@ -881,19 +1049,25 @@ initial x = 1;
 endmodule
 "#,
         );
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
-        let p2 = db
-            .unit_index()
-            .package_ids(&ident("p2"))
-            .unique()
-            .expect("p2 package should resolve uniquely");
-        let p2_x = resolve_name(&db, p2, &ident("x"), NameContext::Value).unique().expect("p2::x");
+        let top = crate::unit::test_module_owner(&db, "top");
+        let p2 = crate::unit::test_package_owner(&db, "p2");
+        let p2_x = resolve_name(
+            &db,
+            &crate::unit::test_resolution(&db),
+            p2,
+            &ident("x"),
+            NameContext::Value,
+        )
+        .unique()
+        .expect("p2::x");
         assert_eq!(
-            resolve_name(&db, top, &ident("x"), NameContext::Value),
+            resolve_name(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &ident("x"),
+                NameContext::Value
+            ),
             Resolution::Unique(p2_x)
         );
     }
@@ -925,14 +1099,24 @@ endmodule
             .find(|owner| owner.name.as_str() == "b")
             .expect("generate block b owner")
             .id;
-        let p2 = db
-            .unit_index()
-            .package_ids(&ident("p2"))
-            .unique()
-            .expect("p2 package should resolve uniquely");
-        let p2_x = resolve_name(&db, p2, &ident("x"), NameContext::Value).unique().expect("p2::x");
+        let p2 = crate::unit::test_package_owner(&db, "p2");
+        let p2_x = resolve_name(
+            &db,
+            &crate::unit::test_resolution(&db),
+            p2,
+            &ident("x"),
+            NameContext::Value,
+        )
+        .unique()
+        .expect("p2::x");
         assert_eq!(
-            resolve_name(&db, block, &ident("x"), NameContext::Value),
+            resolve_name(
+                &db,
+                &crate::unit::test_resolution(&db),
+                block,
+                &ident("x"),
+                NameContext::Value
+            ),
             Resolution::Unique(p2_x)
         );
     }
@@ -961,26 +1145,26 @@ endmodule
 "#,
         );
 
-        let outer = db
-            .unit_index()
-            .package_ids(&ident("outer"))
-            .unique()
-            .expect("outer package should resolve uniquely");
+        let outer = crate::unit::test_package_owner(&db, "outer");
         assert!(
-            db.package_exports(outer)
+            db.package_exports(&crate::unit::test_resolution(&db), outer)
                 .lookup(NameContext::Value, &ident("value"))
                 .unique()
                 .is_some(),
             "nested package exports must be computed transitively"
         );
 
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
+        let top = crate::unit::test_module_owner(&db, "top");
         assert!(
-            resolve_name(&db, top, &ident("value"), NameContext::Value).unique().is_some(),
+            resolve_name(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &ident("value"),
+                NameContext::Value
+            )
+            .unique()
+            .is_some(),
             "lexical resolution must consume the canonical design map"
         );
     }
@@ -1007,31 +1191,31 @@ module top;
 endmodule
 "#,
         );
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
-        let selective = db
-            .unit_index()
-            .package_ids(&ident("selective"))
-            .unique()
-            .expect("selective package should resolve uniquely");
+        let top = crate::unit::test_module_owner(&db, "top");
+        let selective = crate::unit::test_package_owner(&db, "selective");
         assert!(
-            db.package_exports(selective)
+            db.package_exports(&crate::unit::test_resolution(&db), selective)
                 .lookup(NameContext::Value, &ident("exported"))
                 .unique()
                 .is_some(),
             "selective export must expose the selected imported value"
         );
         assert!(
-            db.package_exports(selective)
+            db.package_exports(&crate::unit::test_resolution(&db), selective)
                 .lookup(NameContext::Value, &ident("private"))
                 .is_unresolved(),
             "selective export must not expose other wildcard-imported values"
         );
         assert!(
-            resolve_name(&db, top, &ident("private"), NameContext::Value).unique().is_some(),
+            resolve_name(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &ident("private"),
+                NameContext::Value
+            )
+            .unique()
+            .is_some(),
             "export-all must re-export wildcard-imported values"
         );
     }
@@ -1055,26 +1239,23 @@ import p::*;
 endmodule
 "#,
         );
-        let p = db
-            .unit_index()
-            .package_ids(&ident("p"))
-            .unique()
-            .expect("p package should resolve uniquely");
-        let Resolution::Ambiguous(candidates) =
-            db.package_exports(p).lookup(NameContext::Value, &ident("x"))
+        let p = crate::unit::test_package_owner(&db, "p");
+        let Resolution::Ambiguous(candidates) = db
+            .package_exports(&crate::unit::test_resolution(&db), p)
+            .lookup(NameContext::Value, &ident("x"))
         else {
             panic!("mutually exported x must remain ambiguous");
         };
         assert_eq!(candidates.len(), 2, "p::x and q::x must both be exported");
 
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
-        let Resolution::Ambiguous(candidates) =
-            resolve_name(&db, top, &ident("x"), NameContext::Value)
-        else {
+        let top = crate::unit::test_module_owner(&db, "top");
+        let Resolution::Ambiguous(candidates) = resolve_name(
+            &db,
+            &crate::unit::test_resolution(&db),
+            top,
+            &ident("x"),
+            NameContext::Value,
+        ) else {
             panic!("star import of mutually importing packages must stay ambiguous");
         };
         assert_eq!(candidates.len(), 2);
@@ -1096,23 +1277,21 @@ import middle::*;
 endmodule
 "#,
         );
-        let base = db
-            .unit_index()
-            .package_ids(&ident("base"))
-            .unique()
-            .expect("base package should resolve uniquely");
+        let base = crate::unit::test_package_owner(&db, "base");
         let expected = db
-            .package_exports(base)
+            .package_exports(&crate::unit::test_resolution(&db), base)
             .lookup(NameContext::Value, &ident("value"))
             .unique()
             .expect("base::value");
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
+        let top = crate::unit::test_module_owner(&db, "top");
         assert_eq!(
-            resolve_name(&db, top, &ident("value"), NameContext::Value),
+            resolve_name(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &ident("value"),
+                NameContext::Value
+            ),
             Resolution::Unique(expected)
         );
     }
@@ -1120,11 +1299,7 @@ endmodule
     #[test]
     fn def_id_survives_inserted_sibling_declaration() {
         let mut db = db_with_root_text("module m;\nint b;\nendmodule\n");
-        let module_id = db
-            .unit_index()
-            .module_ids(&ident("m"))
-            .unique()
-            .expect("module should resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let before = db
             .scope(module_id)
             .lookup(NameContext::Value, &ident("b"))
@@ -1139,11 +1314,7 @@ endmodule
             Durability::LOW,
         );
 
-        let module_id = db
-            .unit_index()
-            .module_ids(&ident("m"))
-            .unique()
-            .expect("module should still resolve uniquely");
+        let module_id = crate::unit::test_module_owner(&db, "m");
         let after = db
             .scope(module_id)
             .lookup(NameContext::Value, &ident("b"))
@@ -1201,15 +1372,36 @@ endmodule
             .find(|owner| owner.name.as_str() == "b")
             .expect("generate block b")
             .id;
-        let p = db.unit_index().package_ids(&ident("p")).unique().expect("p");
-        let p_f = resolve_name(&db, p, &ident("f"), NameContext::Value).unique().expect("p::f");
+        let p = crate::unit::test_package_owner(&db, "p");
+        let p_f = resolve_name(
+            &db,
+            &crate::unit::test_resolution(&db),
+            p,
+            &ident("f"),
+            NameContext::Value,
+        )
+        .unique()
+        .expect("p::f");
 
         let reference = reference_at(&db, text, "x = f()", RefKind::Call);
-        let resolved = resolve_name_at(&db, b, &ident("f"), NameContext::Value, Some(&reference));
+        let resolved = resolve_name_at(
+            &db,
+            &crate::unit::test_resolution(&db),
+            b,
+            &ident("f"),
+            NameContext::Value,
+            Some(&reference),
+        );
         assert_eq!(resolved, Resolution::Unique(p_f), "only the preceding wildcard may bind");
 
         // Without a position both wildcards merge (the previous behavior).
-        let positionless = resolve_name(&db, b, &ident("f"), NameContext::Value);
+        let positionless = resolve_name(
+            &db,
+            &crate::unit::test_resolution(&db),
+            b,
+            &ident("f"),
+            NameContext::Value,
+        );
         assert!(matches!(positionless, Resolution::Ambiguous(_)));
     }
 
@@ -1240,8 +1432,15 @@ endmodule
 
         let reference = reference_at(&db, text, "x = f()", RefKind::Call);
         assert!(
-            resolve_name_at(&db, b, &ident("f"), NameContext::Value, Some(&reference))
-                .is_unresolved(),
+            resolve_name_at(
+                &db,
+                &crate::unit::test_resolution(&db),
+                b,
+                &ident("f"),
+                NameContext::Value,
+                Some(&reference)
+            )
+            .is_unresolved(),
             "the import follows the reference and must not bind"
         );
     }
@@ -1270,12 +1469,27 @@ endmodule
             .find(|owner| owner.name.as_str() == "b")
             .expect("generate block b")
             .id;
-        let p = db.unit_index().package_ids(&ident("p")).unique().expect("p");
-        let p_x = resolve_name(&db, p, &ident("x"), NameContext::Value).unique().expect("p::x");
+        let p = crate::unit::test_package_owner(&db, "p");
+        let p_x = resolve_name(
+            &db,
+            &crate::unit::test_resolution(&db),
+            p,
+            &ident("x"),
+            NameContext::Value,
+        )
+        .unique()
+        .expect("p::x");
 
         let reference = reference_at(&db, text, "x = 1", RefKind::Value);
         assert_eq!(
-            resolve_name_at(&db, b, &ident("x"), NameContext::Value, Some(&reference)),
+            resolve_name_at(
+                &db,
+                &crate::unit::test_resolution(&db),
+                b,
+                &ident("x"),
+                NameContext::Value,
+                Some(&reference)
+            ),
             Resolution::Unique(p_x),
             "the later outer declaration must not shadow the wildcard import"
         );
@@ -1294,12 +1508,27 @@ endmodule
 
         let reference = reference_at(&db, text, "x = 1", RefKind::Value);
         assert!(
-            resolve_name_at(&db, blk, &ident("x"), NameContext::Value, Some(&reference))
-                .is_unresolved(),
+            resolve_name_at(
+                &db,
+                &crate::unit::test_resolution(&db),
+                blk,
+                &ident("x"),
+                NameContext::Value,
+                Some(&reference)
+            )
+            .is_unresolved(),
             "a declaration after the reference is not locally visible at the point"
         );
         assert!(
-            resolve_name(&db, blk, &ident("x"), NameContext::Value).unique().is_some(),
+            resolve_name(
+                &db,
+                &crate::unit::test_resolution(&db),
+                blk,
+                &ident("x"),
+                NameContext::Value
+            )
+            .unique()
+            .is_some(),
             "position-less lookup keeps the declaration"
         );
     }
@@ -1311,17 +1540,40 @@ endmodule
         let text =
             "module m;\n  assign y = f();\n  function int f(); return 1; endfunction\nendmodule\n";
         let db = db_with_root_text(text);
-        let m = db.unit_index().module_ids(&ident("m")).unique().expect("m");
-        let f = resolve_name(&db, m, &ident("f"), NameContext::Value).unique().expect("m::f");
+        let m = crate::unit::test_module_owner(&db, "m");
+        let f = resolve_name(
+            &db,
+            &crate::unit::test_resolution(&db),
+            m,
+            &ident("f"),
+            NameContext::Value,
+        )
+        .unique()
+        .expect("m::f");
 
         let call = reference_at(&db, text, "y = f()", RefKind::Call);
         assert_eq!(
-            resolve_name_at(&db, m, &ident("f"), NameContext::Value, Some(&call)),
+            resolve_name_at(
+                &db,
+                &crate::unit::test_resolution(&db),
+                m,
+                &ident("f"),
+                NameContext::Value,
+                Some(&call)
+            ),
             Resolution::Unique(f)
         );
         let value = reference_at(&db, text, "y = f()", RefKind::Value);
         assert!(
-            resolve_name_at(&db, m, &ident("f"), NameContext::Value, Some(&value)).is_unresolved(),
+            resolve_name_at(
+                &db,
+                &crate::unit::test_resolution(&db),
+                m,
+                &ident("f"),
+                NameContext::Value,
+                Some(&value)
+            )
+            .is_unresolved(),
             "ordinary references do not see the later declaration"
         );
     }
@@ -1371,6 +1623,7 @@ endmodule
 
         let resolution = resolve_path(
             &db,
+            &crate::unit::test_resolution(&db),
             db.owner_table(HirFileId::File(TOP)).file_owner().expect("file owner"),
             &path(&["child", "sig"]),
             NameContext::Value,
@@ -1393,13 +1646,15 @@ endmodule
 "#,
         );
 
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
+        let top = crate::unit::test_module_owner(&db, "top");
 
-        let res = resolve_path(&db, top, &path(&["u_if", "host"]), NameContext::Value);
+        let res = resolve_path(
+            &db,
+            &crate::unit::test_resolution(&db),
+            top,
+            &path(&["u_if", "host"]),
+            NameContext::Value,
+        );
 
         let def = res.unique().expect("modport should produce a unique definition");
         assert_eq!(def.name(&db).as_deref(), Some("host"));
@@ -1428,11 +1683,7 @@ endmodule
 "#,
         );
 
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
+        let top = crate::unit::test_module_owner(&db, "top");
 
         assert_eq!(
             resolved_kind(&db, top, &["cb", "a"], NameContext::Value),
@@ -1454,11 +1705,7 @@ endmodule
 "#,
         );
 
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
+        let top = crate::unit::test_module_owner(&db, "top");
 
         assert_eq!(
             resolved_kind(&db, top, &["u", "clk"], NameContext::Value),
@@ -1482,11 +1729,7 @@ endmodule
 "#,
         );
 
-        let top = db
-            .unit_index()
-            .module_ids(&ident("top"))
-            .unique()
-            .expect("top module should resolve uniquely");
+        let top = crate::unit::test_module_owner(&db, "top");
 
         assert_eq!(resolved_kind(&db, top, &["u", "cp"], NameContext::Value), DefKind::Coverpoint);
         assert_eq!(resolved_kind(&db, top, &["u", "cx"], NameContext::Value), DefKind::Cross);

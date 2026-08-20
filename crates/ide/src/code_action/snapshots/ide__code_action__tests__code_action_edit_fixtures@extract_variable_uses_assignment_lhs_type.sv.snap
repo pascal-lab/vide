@@ -1,7 +1,8 @@
 ---
 source: crates/ide/src/code_action/tests.rs
+assertion_line: 360
 expression: fixed
 input_file: crates/ide/src/code_action/fixtures/code_actions/extract_variable_uses_assignment_lhs_type.sv
 ---
-module top; logic [7:0] y, a, b; always_comb begin logic [7:0] value = a + b;
+module top; logic [7:0] y, a, b; always_comb begin logic[7:0] value = a + b;
 y = value; end endmodule

@@ -5,8 +5,9 @@
 //! that graph so package imports are resolved consistently for both direct
 //! package queries and lexical name resolution.
 
+use std::cell::Cell;
+
 use base_db::salsa;
-use preproc_expand::file::HirFileId;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
@@ -247,6 +248,7 @@ impl DesignMap {
     pub fn resolve_import(
         &self,
         db: &dyn HirDefDb,
+        context: &crate::pathres::ResolutionContext,
         import: &Import,
         ident: &SmolStr,
         ctx: NameContext,
@@ -257,7 +259,7 @@ impl DesignMap {
             return Resolution::Unresolved;
         }
 
-        let packages = db.unit_index().package_ids(&import.package);
+        let packages = Resolution::from_candidates(context.locate_packages(db, &import.package));
         packages.and_then(|package| {
             let Some(exports) = self.package_exports.get(&package) else {
                 return Resolution::Unresolved;
@@ -267,22 +269,61 @@ impl DesignMap {
     }
 }
 
-#[salsa::tracked(lru = 128, returns(clone))]
-pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
-    let mut packages = db
-        .files()
-        .iter()
-        .flat_map(|file_id| {
-            db.item_tree(HirFileId::File(*file_id))
-                .module_headers()
-                .filter(|header| header.kind() == crate::module::ModuleKind::Package)
-                .map(|header| header.owner())
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+thread_local! {
+    /// Executions of the salsa query body. A request that calls
+    /// `resolution()` / `semantics()` more than once must still see 1.
+    pub static PACKAGE_EXPORT_CLOSURE_RUNS: Cell<u32> = const { Cell::new(0) };
+    /// Former paid UnitId projections while building the closure. T6 keeps this at 0.
+    pub static PACKAGE_EXPORT_TO_OWNER_RUNS: Cell<u32> = const { Cell::new(0) };
+}
+
+#[salsa::interned(unsafe(no_lifetime), revisions = usize::MAX, debug)]
+pub struct PackageExportClosureKey {
+    #[returns(copy)]
+    pub _unit: (),
+}
+
+/// Closed package-export graph for the source catalog.
+///
+/// Overlay-generated packages are not salsa inputs (T14). When the
+/// production catalog has extra packages, [`package_export_closure`]
+/// computes them outside this query rather than smuggling the overlay
+/// into salsa.
+#[salsa::tracked(returns(clone))]
+fn package_export_closure_query(
+    db: &dyn HirDefDb,
+    _key: PackageExportClosureKey,
+) -> Arc<DesignMap> {
+    let graph = <dyn crate::db::DesignGraphDb>::source_unit_catalog(db);
+    compute_package_export_closure(db, &graph)
+}
+
+/// Closed package-export graph for the packages on `graph`.
+pub fn package_export_closure(
+    db: &dyn HirDefDb,
+    graph: &design_graph::UnitCatalog,
+) -> Arc<DesignMap> {
+    let source = <dyn crate::db::DesignGraphDb>::source_unit_catalog(db);
+    if same_packages(graph, &source) {
+        return package_export_closure_query(db, PackageExportClosureKey::new(db, ()));
+    }
+    compute_package_export_closure(db, graph)
+}
+
+fn same_packages(left: &design_graph::UnitCatalog, right: &design_graph::UnitCatalog) -> bool {
+    let left: rustc_hash::FxHashSet<_> = left.packages().collect();
+    let right: rustc_hash::FxHashSet<_> = right.packages().collect();
+    left == right
+}
+
+fn compute_package_export_closure(
+    db: &dyn HirDefDb,
+    graph: &design_graph::UnitCatalog,
+) -> Arc<DesignMap> {
+    PACKAGE_EXPORT_CLOSURE_RUNS.with(|runs| runs.set(runs.get() + 1));
+    let mut packages: Vec<OwnerId> = crate::unit::locate_package_owners(db, graph);
     packages.sort();
     packages.dedup();
-    let unit_index = db.unit_index();
 
     let mut exports = FxHashMap::default();
     let mut imports = FxHashMap::default();
@@ -316,17 +357,20 @@ pub fn design_map(db: &dyn HirDefDb) -> Arc<DesignMap> {
                 .clone();
 
             let mut add_reexport = |source_package: &Ident, item: Option<&Ident>| {
-                let names = item.map(|item| vec![item.clone()]).unwrap_or_else(|| {
-                    imported_names(&exports, unit_index.package_ids(source_package))
-                });
+                let source_owners = Resolution::from_candidates(crate::unit::locate_cu_owners(
+                    db,
+                    graph,
+                    &[],
+                    source_package,
+                    design_graph::UnitKind::Package,
+                ));
+                let names = item
+                    .map(|item| vec![item.clone()])
+                    .unwrap_or_else(|| imported_names(&exports, source_owners.clone()));
                 for name in names {
                     for ctx in [NameContext::Type, NameContext::Value, NameContext::Assertion] {
-                        let resolution = resolve_package_member(
-                            &exports,
-                            unit_index.package_ids(source_package),
-                            &name,
-                            ctx,
-                        );
+                        let resolution =
+                            resolve_package_member(&exports, source_owners.clone(), &name, ctx);
                         next.insert_resolution(ctx, &name, resolution);
                     }
                 }
@@ -394,8 +438,4 @@ fn imported_names(
     }
     names.sort();
     names
-}
-
-pub(crate) fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
-    design_map::set_lru_capacity(db, capacity);
 }

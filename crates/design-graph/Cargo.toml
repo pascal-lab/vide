@@ -1,18 +1,16 @@
 [package]
-name = "hir-ty"
+name = "design-graph"
 version = "0.0.0"
+description = "Compilation-unit design-unit facts and name join"
 edition.workspace = true
 
 [dependencies]
 base-db.workspace = true
-hir-def.workspace = true
 rustc-hash.workspace = true
 salsa.workspace = true
+smallvec.workspace = true
 smol_str.workspace = true
 syntax.workspace = true
 triomphe.workspace = true
 utils.workspace = true
 vfs.workspace = true
-
-[dev-dependencies]
-preproc-expand.workspace = true

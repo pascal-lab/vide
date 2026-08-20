@@ -19,18 +19,16 @@ use crate::{
     analysis_host::AnalysisHost, db::root_db::RootDb, token::name_precedence as token_precedence,
 };
 
-mod bench_context;
-
 #[test]
 fn source_token_target_is_complete_and_source_origin() {
     let (host, file_id, offset, range) =
         setup("module m; wire payload_i; endmodule\n", "payload_i");
-    let sema = Semantics::new(host.raw_db());
+    let sema = Semantics::new_with_context(host.ctx().db, host.ctx().resolution());
     let parsed = sema.parse_file(file_id);
     let root = parsed.root().expect("test source should parse");
 
     let resolution =
-        resolve_semantic_target(host.raw_db(), file_id, offset, Some(root), token_precedence);
+        resolve_semantic_target(host.ctx().db, file_id, offset, Some(root), token_precedence);
     assert!(matches!(
         resolution.clone().unique_for_intent(TargetIntent::Describe),
         Some(SemanticTarget::Source(_))

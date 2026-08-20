@@ -1,6 +1,7 @@
+#[cfg(test)]
+use base_db::project::CompilationProfileId;
 use base_db::{
     diagnostics_config::DiagnosticSource as SlangDiagnosticSource,
-    project::CompilationProfileId,
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
@@ -11,7 +12,7 @@ use vfs::FileId;
 
 use crate::{
     db::root_db::RootDb,
-    module_resolution::{ModuleResolution, ModuleResolutionAmbiguity, resolve_module_name},
+    module_resolution::{ModuleResolution, resolve_module_name},
 };
 
 const AMBIGUOUS_MODULE_INSTANTIATION: VideDiagnosticDescriptor =
@@ -166,42 +167,62 @@ pub(crate) fn parse_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic>
         .collect()
 }
 
-pub(crate) fn compilation_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
-    db.file_compilation_diagnostics(file_id)
-        .iter()
-        .filter_map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
-        .collect()
-}
-
+#[cfg(test)]
 pub(crate) fn compilation_profile_diagnostics(
     db: &RootDb,
     profile_id: CompilationProfileId,
 ) -> Vec<Diagnostic> {
-    let mut diagnostics = db
-        .compilation_profile_diagnostics(profile_id)
-        .diagnostics
-        .iter()
-        .filter_map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
-        .collect::<Vec<_>>();
+    let job = preproc_expand::profile_compiler::build_profile_compilation_job(db, profile_id);
+    let output = preproc_expand::profile_compiler::run_profile_compilation(job);
+    materialize_compilation_profile_diagnostics(db, profile_id, output.into_diagnostics())
+}
 
-    diagnostics.extend(
-        compilation_profile_file_ids(db, profile_id)
-            .into_iter()
-            .flat_map(|file_id| vide_diagnostics(db, file_id)),
-    );
+#[cfg(test)]
+pub(crate) fn materialize_compilation_profile_diagnostics(
+    db: &RootDb,
+    profile_id: CompilationProfileId,
+    compiler_diagnostics: Vec<preproc_expand::db::CompilationDiagnostic>,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = materialize_compiler_diagnostics(compiler_diagnostics);
+    diagnostics.extend(compilation_profile_vide_diagnostics(db, profile_id));
     diagnostics
 }
 
+pub fn materialize_compiler_diagnostics(
+    compiler_diagnostics: Vec<preproc_expand::db::CompilationDiagnostic>,
+) -> Vec<Diagnostic> {
+    compiler_diagnostics
+        .into_iter()
+        .filter_map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
+        .collect()
+}
+
+#[cfg(test)]
+pub(crate) fn compilation_profile_vide_diagnostics(
+    db: &RootDb,
+    profile_id: CompilationProfileId,
+) -> Vec<Diagnostic> {
+    compilation_profile_file_ids(db, profile_id)
+        .into_iter()
+        .flat_map(|file_id| vide_diagnostics(db, &hir_def::unit::test_resolution(db), file_id))
+        .collect()
+}
+
+#[cfg(test)]
 fn compilation_profile_file_ids(db: &RootDb, profile_id: CompilationProfileId) -> Vec<FileId> {
     db.compilation_plan_for_profile(Some(profile_id)).all_file_ids()
 }
 
-fn syntax_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+fn syntax_diagnostics(
+    db: &RootDb,
+    context: &hir_def::pathres::ResolutionContext,
+    file_id: FileId,
+) -> Vec<Diagnostic> {
     if db.file_kind(file_id).is_project_manifest() {
         return crate::manifest::diagnostics(db, file_id);
     }
     let mut diagnostics = parse_diagnostics(db, file_id);
-    diagnostics.extend(vide_diagnostics(db, file_id));
+    diagnostics.extend(vide_diagnostics(db, context, file_id));
     diagnostics
 }
 
@@ -232,6 +253,7 @@ fn slang_diagnostic(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     let source_root_id = db.source_root_id(file_id);
     // Ignored roots in a profiled workspace are explicitly outside the
@@ -244,21 +266,37 @@ pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
         return Vec::new();
     }
 
-    syntax_diagnostics(db, file_id)
+    syntax_diagnostics(db, &hir_def::unit::test_resolution(db), file_id)
+}
+
+pub(crate) fn analysis_diagnostics(
+    db: &crate::analysis::AnalysisContext<'_>,
+    file_id: FileId,
+) -> Vec<Diagnostic> {
+    let source_root_id = db.source_root_id(file_id);
+    if db.source_root(source_root_id).role().diagnostic_scope()
+        == SourceRootDiagnosticScope::Disabled
+        && db.project_config().has_compilation_profiles()
+    {
+        return Vec::new();
+    }
+
+    syntax_diagnostics(db, db.resolution().as_ref(), file_id)
 }
 
 pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     let source_root_id = db.source_root_id(file_id);
     let source_root = db.source_root(source_root_id);
+    let context = hir_def::unit::test_resolution(db);
     match source_root.role().diagnostic_scope() {
         SourceRootDiagnosticScope::Disabled => return Vec::new(),
         SourceRootDiagnosticScope::OpenFile => {
-            return syntax_diagnostics(db, file_id);
+            return syntax_diagnostics(db, &context, file_id);
         }
         SourceRootDiagnosticScope::Workspace => {}
     }
 
-    source_root.iter().flat_map(|file_id| syntax_diagnostics(db, file_id)).collect()
+    source_root.iter().flat_map(|file_id| syntax_diagnostics(db, &context, file_id)).collect()
 }
 
 pub(crate) fn source_root_file_ids(db: &RootDb, file_id: FileId) -> Vec<FileId> {
@@ -289,7 +327,12 @@ trait VideDiagnosticProvider {
     }
 
     /// Compute this provider's diagnostics for `file_id`.
-    fn diagnostic(&self, db: &RootDb, file_id: FileId) -> Vec<Diagnostic>;
+    fn diagnostic(
+        &self,
+        db: &RootDb,
+        context: &hir_def::pathres::ResolutionContext,
+        file_id: FileId,
+    ) -> Vec<Diagnostic>;
 }
 
 fn vide_providers() -> Vec<Box<dyn VideDiagnosticProvider>> {
@@ -300,7 +343,11 @@ fn vide_providers() -> Vec<Box<dyn VideDiagnosticProvider>> {
     ]
 }
 
-fn vide_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+pub(crate) fn vide_diagnostics(
+    db: &RootDb,
+    context: &hir_def::pathres::ResolutionContext,
+    file_id: FileId,
+) -> Vec<Diagnostic> {
     if !vide_diagnostics_enabled(db) {
         return Vec::new();
     }
@@ -308,7 +355,7 @@ fn vide_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     vide_providers()
         .into_iter()
         .filter(|provider| provider.active(db, file_id))
-        .flat_map(|provider| provider.diagnostic(db, file_id))
+        .flat_map(|provider| provider.diagnostic(db, context, file_id))
         .collect()
 }
 
@@ -325,16 +372,25 @@ fn vide_diagnostics_enabled(db: &RootDb) -> bool {
 struct LoweringSyntaxDiagnostics;
 
 impl VideDiagnosticProvider for LoweringSyntaxDiagnostics {
-    fn diagnostic(&self, db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
-        lowering_syntax_diagnostics(db, file_id)
+    fn diagnostic(
+        &self,
+        db: &RootDb,
+        context: &hir_def::pathres::ResolutionContext,
+        file_id: FileId,
+    ) -> Vec<Diagnostic> {
+        lowering_syntax_diagnostics(db, context, file_id)
     }
 }
 
-fn lowering_syntax_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+fn lowering_syntax_diagnostics(
+    db: &RootDb,
+    context: &hir_def::pathres::ResolutionContext,
+    file_id: FileId,
+) -> Vec<Diagnostic> {
     let parse_ranges =
         db.parse_diagnostics(file_id).iter().filter_map(to_text_range).collect::<Vec<_>>();
 
-    db.file_lowering_diagnostics(file_id.into())
+    db.file_lowering_diagnostics(file_id.into(), context)
         .iter()
         .filter_map(|diag| lowering_diagnostic(file_id, diag, &parse_ranges))
         .collect()
@@ -393,7 +449,11 @@ fn slang_semantic_diagnostics_active(db: &RootDb, file_id: FileId) -> bool {
         && db.project_config().profile_for_root(db.source_root_id(file_id)).is_some()
 }
 
-fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+fn module_instantiation_resolution_diagnostics(
+    db: &RootDb,
+    context: &hir_def::pathres::ResolutionContext,
+    file_id: FileId,
+) -> Vec<Diagnostic> {
     let hir_file_id = file_id.into();
     let hir_file = db.body(db.owner_table(hir_file_id).file_owner().expect("file owner"));
     let mut diagnostics = Vec::new();
@@ -428,14 +488,10 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
                 }
             }
 
-            match resolve_module_name(db, file_id, module_name) {
-                ModuleResolution::Ambiguous { candidates, kind } => {
+            match resolve_module_name(db, context, module_name) {
+                ModuleResolution::Ambiguous(candidates) => {
                     let (severity, message, message_key, message_args) =
-                        ambiguous_module_instantiation_diagnostic(
-                            module_name,
-                            candidates.len(),
-                            kind,
-                        );
+                        ambiguous_module_instantiation_diagnostic(module_name, candidates.len());
                     diagnostics.push(AMBIGUOUS_MODULE_INSTANTIATION.diagnostic(
                         diag_file_id,
                         range,
@@ -445,9 +501,7 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
                         message_args,
                     ));
                 }
-                ModuleResolution::Unique(_)
-                | ModuleResolution::BestEffortProximity { .. }
-                | ModuleResolution::Unresolved => {}
+                ModuleResolution::Unique(_) | ModuleResolution::Unresolved => {}
             }
         }
     }
@@ -489,7 +543,12 @@ fn inactive_preprocessor_branch_diagnostics(db: &RootDb, file_id: FileId) -> Vec
 struct InactivePreprocessorBranch;
 
 impl VideDiagnosticProvider for InactivePreprocessorBranch {
-    fn diagnostic(&self, db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    fn diagnostic(
+        &self,
+        db: &RootDb,
+        _context: &hir_def::pathres::ResolutionContext,
+        file_id: FileId,
+    ) -> Vec<Diagnostic> {
         inactive_preprocessor_branch_diagnostics(db, file_id)
     }
 }
@@ -501,40 +560,31 @@ impl VideDiagnosticProvider for AmbiguousModuleInstantiation {
         !slang_semantic_diagnostics_active(db, file_id)
     }
 
-    fn diagnostic(&self, db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
-        module_instantiation_resolution_diagnostics(db, file_id)
+    fn diagnostic(
+        &self,
+        db: &RootDb,
+        context: &hir_def::pathres::ResolutionContext,
+        file_id: FileId,
+    ) -> Vec<Diagnostic> {
+        module_instantiation_resolution_diagnostics(db, context, file_id)
     }
 }
 
 fn ambiguous_module_instantiation_diagnostic(
     module_name: &str,
     candidate_count: usize,
-    kind: ModuleResolutionAmbiguity,
 ) -> (DiagnosticSeverity, String, &'static str, Vec<(&'static str, String)>) {
-    let message_args = || {
+    (
+        DiagnosticSeverity::Warning,
+        format!(
+            "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
+        ),
+        DIAGNOSTIC_AMBIGUOUS_MODULE_STRICT,
         vec![
             ("module_name", module_name.to_owned()),
             ("candidate_count", candidate_count.to_string()),
-        ]
-    };
-    match kind {
-        ModuleResolutionAmbiguity::Strict => (
-            DiagnosticSeverity::Warning,
-            format!(
-                "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
-            ),
-            DIAGNOSTIC_AMBIGUOUS_MODULE_STRICT,
-            message_args(),
-        ),
-        ModuleResolutionAmbiguity::BestEffortTie => (
-            DiagnosticSeverity::Note,
-            format!(
-                "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
-            ),
-            DIAGNOSTIC_AMBIGUOUS_MODULE_BEST_EFFORT,
-            message_args(),
-        ),
-    }
+        ],
+    )
 }
 
 fn to_text_range(diag: &SyntaxDiagnostic) -> Option<TextRange> {
@@ -679,15 +729,15 @@ mod tests {
             diagnostics.iter().any(|diag| {
                 diag.source == DiagnosticSource::Vide
                     && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
-                    && diag.severity == syntax::diagnostics::DiagnosticSeverity::Note
+                    && diag.severity == syntax::diagnostics::DiagnosticSeverity::Warning
                     && diag.message.contains("matches 2 module definitions")
             }),
-            "expected vide ambiguous module information: {diagnostics:?}"
+            "expected vide ambiguous module warning: {diagnostics:?}"
         );
     }
 
     #[test]
-    fn best_effort_nearest_module_instantiation_does_not_report_vide_diagnostic() {
+    fn best_effort_duplicate_module_instantiation_reports_vide_warning() {
         let db = db_with_files_in_role(
             &[
                 ("/project/a/child.sv", "module child; endmodule\n"),
@@ -701,8 +751,12 @@ mod tests {
         let diagnostics = diagnostics(&db, FileId::from_raw(1));
 
         assert!(
-            diagnostics.iter().all(|diag| diag.source != DiagnosticSource::Vide),
-            "nearest best-effort module should not produce Vide diagnostics: {diagnostics:?}"
+            diagnostics.iter().any(|diag| {
+                diag.source == DiagnosticSource::Vide
+                    && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
+                    && diag.severity == syntax::diagnostics::DiagnosticSeverity::Warning
+            }),
+            "duplicates stay ambiguous on the graph: {diagnostics:?}"
         );
     }
 
@@ -876,6 +930,100 @@ mod tests {
         );
     }
 
+    fn parent_relative_include_texts() -> (&'static str, &'static str) {
+        // The include must change the root's inactive set. A header that only
+        // defines `__CDEPTH__` cannot do that: failed include and successful
+        // include both leave `__CDEPTH__` undefined.
+        let top = concat!(
+            "`include \"../rtl/config.vh\"\n",
+            "module darkcache;\n",
+            "`ifndef HEADER_FLAG\n",
+            "    wire should_be_inactive;\n",
+            "`endif\n",
+            "endmodule\n",
+        );
+        let header = concat!(
+            "`define HEADER_FLAG\n",
+            "`ifdef NEVER_DEFINED\n",
+            "    wire header_inactive;\n",
+            "`endif\n",
+        );
+        (top, header)
+    }
+
+    fn parent_relative_include_db() -> (TestDir, RootDb, String) {
+        let dir = TestDir::new("inactive-parent-relative-include");
+        let rtl = dir.create_dir_all("rtl");
+        let (top_text, header_text) = parent_relative_include_texts();
+        let top_path = rtl.join("darkcache.v");
+        let header_path = rtl.join("config.vh");
+        std::fs::write(&top_path, top_text).unwrap();
+        std::fs::write(&header_path, header_text).unwrap();
+
+        let mut db = RootDb::new(None);
+        let mut file_set = FileSet::default();
+        file_set.insert(FileId::from_raw(0), VfsPath::from(top_path.clone()));
+        file_set.insert(FileId::from_raw(1), VfsPath::from(header_path.clone()));
+
+        let mut change = Change::new();
+        change.add_changed_file(ChangedFile::create(FileId::from_raw(0), top_text));
+        change.add_changed_file(ChangedFile::create(FileId::from_raw(1), header_text));
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0))],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: PreprocessConfig {
+                    include_dirs: vec![rtl],
+                    ..PreprocessConfig::default()
+                },
+            }],
+        )));
+        db.apply_change(change);
+        (dir, db, top_text.to_owned())
+    }
+
+    fn assert_inactive_header_gated_body(db: &RootDb, top_text: &str, context: &str) {
+        let diagnostics = diagnostics(db, FileId::from_raw(0));
+        let inactive = diagnostics
+            .iter()
+            .filter(|diag| diag.name == INACTIVE_PREPROCESSOR_BRANCH.name)
+            .collect::<Vec<_>>();
+        let branches = preproc_expand::preproc::inactive_branches(db, FileId::from_raw(0));
+        let trace = db.preproc_trace(FileId::from_raw(0)).map(|trace| {
+            trace
+                .source_buffers
+                .iter()
+                .map(|source| {
+                    format!(
+                        "buffer={} origin={:?} path={}",
+                        source.buffer_id, source.origin, source.path
+                    )
+                })
+                .collect::<Vec<_>>()
+        });
+        assert!(
+            inactive.iter().any(|diag| {
+                diag.file_id == FileId::from_raw(0)
+                    && top_text
+                        .get(usize::from(diag.range.start())..usize::from(diag.range.end()))
+                        .is_some_and(|text| text.contains("wire should_be_inactive;"))
+            }),
+            "{context}: expected inactive `ifndef HEADER_FLAG` body, diagnostics={diagnostics:?}, branches={branches:?}, trace={trace:?}"
+        );
+    }
+
+    #[test]
+    fn inactive_preprocessor_branch_survives_parent_relative_header_include() {
+        let (_dir, db, top_text) = parent_relative_include_db();
+        assert_inactive_header_gated_body(
+            &db,
+            &top_text,
+            "parent-relative include with header in VFS",
+        );
+    }
+
     #[test]
     fn semantic_diagnostics_include_other_workspace_files() {
         let db = db_with_files(
@@ -897,10 +1045,6 @@ mod tests {
         assert!(
             diagnostics.iter().all(|diag| diag.file_id == FileId::from_raw(1)),
             "document diagnostics should only include diagnostics attributed to the requested file: {diagnostics:?}"
-        );
-        assert!(
-            db.semantic_diagnostics(FileId::from_raw(0)).is_empty(),
-            "child file should not receive diagnostics that belong to top.sv"
         );
     }
 
@@ -1077,7 +1221,7 @@ mod tests {
 
         let plan = db.compilation_plan_for_root(SourceRootId(0));
         assert!(plan.include_only.contains(&FileId::from_raw(1)));
-        assert_eq!(plan.roots, vec![FileId::from_raw(0)]);
+        assert_eq!(plan.root_file_ids().collect::<Vec<_>>(), vec![FileId::from_raw(0)]);
 
         let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
@@ -1172,7 +1316,10 @@ mod tests {
         db.apply_change(change);
 
         let plan = db.compilation_plan_for_root(SourceRootId(0));
-        assert_eq!(plan.roots, vec![FileId::from_raw(0), FileId::from_raw(1)]);
+        assert_eq!(
+            plan.root_file_ids().collect::<Vec<_>>(),
+            vec![FileId::from_raw(0), FileId::from_raw(1)]
+        );
         let buffers = compilation_source_buffers_for_plan(&db, &plan);
         let buffer_paths = buffers.iter().map(|buffer| buffer.path.as_str()).collect::<Vec<_>>();
         let a_path = a_path.to_string();

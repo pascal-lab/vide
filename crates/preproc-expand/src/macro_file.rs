@@ -13,7 +13,7 @@ use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use crate::{
-    db::PreprocDb,
+    db::{PreprocDb, PreprocFileQueryKey},
     preproc::{MacroDefinition, map_macro_definition},
     source_db::{MappedSourcePreprocModel, SourcePreprocQueryError},
 };
@@ -154,6 +154,34 @@ pub struct MacroFileCallSite {
     pub call_range: TextRange,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceSemanticAnchor {
+    pub source_range: TextRange,
+    pub expansion: MacroFileId,
+}
+
+/// Per-source-file mapping from raw invocation ranges to their expanded
+/// semantic files. Built once per preprocessor revision so caret and rename
+/// queries do not repeatedly rediscover macro files by offset.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceSemanticMap {
+    complete: bool,
+    anchors: Box<[SourceSemanticAnchor]>,
+}
+
+impl SourceSemanticMap {
+    pub fn macro_origin_for_range(&self, range: TextRange) -> Option<bool> {
+        self.complete.then(|| self.anchors.iter().any(|anchor| anchor.source_range == range))
+    }
+
+    pub fn expansions_at(&self, offset: TextSize) -> impl Iterator<Item = MacroFileId> + '_ {
+        self.anchors
+            .iter()
+            .filter(move |anchor| anchor.source_range.contains(offset))
+            .map(|anchor| anchor.expansion)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroFileExpansion {
     pub call_file_id: FileId,
@@ -191,8 +219,7 @@ pub fn macro_files_at_offset(
                 return Vec::new();
             }
         };
-        let parsed = db.parsed_compilation_unit(model_file);
-        if parsed.preprocessor_trace.is_none() {
+        if db.preproc_trace(model_file).is_none() {
             tracing::warn!(
                 ?file_id,
                 ?model_file,
@@ -263,8 +290,7 @@ pub fn macro_files_for_file(db: &dyn PreprocDb, file_id: FileId) -> Vec<MacroFil
                 return Vec::new();
             }
         };
-        let parsed = db.parsed_compilation_unit(model_file);
-        if parsed.preprocessor_trace.is_none() {
+        if db.preproc_trace(model_file).is_none() {
             tracing::warn!(
                 ?file_id,
                 ?model_file,
@@ -317,17 +343,6 @@ pub fn macro_files_for_file(db: &dyn PreprocDb, file_id: FileId) -> Vec<MacroFil
 
 fn relevant_model_files(db: &dyn PreprocDb, file_id: FileId) -> Option<Vec<FileId>> {
     let contexts = db.source_preproc_contexts_for_file(file_id);
-    if let crate::source_db::SourcePreprocContextStatus::Partial { skipped_models } =
-        contexts.status
-    {
-        tracing::warn!(
-            ?file_id,
-            skipped_models,
-            "macro expansion query unavailable because preprocessor contexts are partial"
-        );
-        return None;
-    }
-
     let mut model_file_ids = vec![file_id];
     for model_file_id in &contexts.model_file_ids {
         if !model_file_ids.contains(model_file_id) {
@@ -335,6 +350,48 @@ fn relevant_model_files(db: &dyn PreprocDb, file_id: FileId) -> Option<Vec<FileI
         }
     }
     Some(model_file_ids)
+}
+
+#[salsa::tracked(returns(clone))]
+pub(crate) fn source_semantic_map_query(
+    db: &dyn PreprocDb,
+    key: PreprocFileQueryKey,
+) -> Arc<SourceSemanticMap> {
+    let file_id = key.file_id(db);
+    let Some(model_file_ids) = relevant_model_files(db, file_id) else {
+        return Arc::new(SourceSemanticMap { complete: false, anchors: Box::new([]) });
+    };
+    let mut anchors = Vec::new();
+    for model_file in model_file_ids {
+        let mapped = db.source_preproc_model(model_file);
+        let Ok(mapped) = mapped.as_ref() else {
+            return Arc::new(SourceSemanticMap { complete: false, anchors: Box::new([]) });
+        };
+        for call in mapped.model.macro_calls().iter() {
+            let Ok(call_file) = mapped.source_map.file_id(call.call_range.source) else {
+                return Arc::new(SourceSemanticMap { complete: false, anchors: Box::new([]) });
+            };
+            if call_file != file_id {
+                continue;
+            }
+            let Some(trace_call) = call.trace_call else {
+                return Arc::new(SourceSemanticMap { complete: false, anchors: Box::new([]) });
+            };
+            if db.trace_index(model_file).emitted_range_for_call(trace_call).is_none() {
+                return Arc::new(SourceSemanticMap { complete: false, anchors: Box::new([]) });
+            }
+            let Ok(source_range) = mapped.source_map.map_range(call.call_range) else {
+                return Arc::new(SourceSemanticMap { complete: false, anchors: Box::new([]) });
+            };
+            anchors.push(SourceSemanticAnchor {
+                source_range,
+                expansion: MacroFileId::new(db, MacroCallLoc { model_file, trace_call }),
+            });
+        }
+    }
+    anchors.sort_unstable_by_key(|anchor| (anchor.source_range.start(), anchor.source_range.end()));
+    anchors.dedup();
+    Arc::new(SourceSemanticMap { complete: true, anchors: anchors.into_boxed_slice() })
 }
 
 pub fn macro_file_call_site(
@@ -400,8 +457,8 @@ pub fn macro_file_expansion(
         tracing::warn!(?macro_file, "macro expansion has no source call for its trace identity");
         return None;
     };
-    let parsed = db.parsed_compilation_unit(call_loc.model_file);
-    let Some(trace) = parsed.preprocessor_trace.as_ref() else {
+    let trace_opt = db.preproc_trace(call_loc.model_file);
+    let Some(trace) = trace_opt.as_ref() else {
         tracing::warn!(?macro_file, "macro expansion has no preprocessor trace");
         return None;
     };
@@ -430,6 +487,10 @@ pub(crate) fn macro_expansion_query(
     Arc::new(macro_expansion(db, macro_file))
 }
 
+pub(crate) fn set_macro_expansion_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
+    macro_expansion_query::set_lru_capacity(db, capacity);
+}
+
 fn macro_expansion(db: &dyn PreprocDb, macro_file: MacroFileId) -> ExpandResult<ExpansionInfo> {
     let call_loc = macro_file.loc(db);
     let mapped = db.source_preproc_model(call_loc.model_file);
@@ -450,8 +511,8 @@ fn macro_expansion(db: &dyn PreprocDb, macro_file: MacroFileId) -> ExpandResult<
             ExpandErrorKind::MissingTraceCall { trace_call: call_loc.trace_call },
         );
     };
-    let parsed = db.parsed_compilation_unit(call_loc.model_file);
-    let Some(trace) = parsed.preprocessor_trace.as_ref() else {
+    let trace_opt = db.preproc_trace(call_loc.model_file);
+    let Some(trace) = trace_opt.as_ref() else {
         return expansion_error(
             String::new(),
             ExpansionSourceMap::empty(),
@@ -620,11 +681,14 @@ pub(crate) fn trace_index_query(
     key: crate::db::PreprocFileQueryKey,
 ) -> Arc<TraceIndex> {
     let model_file = key.file_id(db);
-    let parsed = db.parsed_compilation_unit(model_file);
-    match parsed.preprocessor_trace.as_ref() {
+    match db.preproc_trace(model_file).as_ref() {
         Some(trace) => Arc::new(TraceIndex::new(trace)),
         None => Arc::new(TraceIndex::default()),
     }
+}
+
+pub(crate) fn set_trace_index_lru_capacity(db: &mut dyn PreprocDb, capacity: usize) {
+    trace_index_query::set_lru_capacity(db, capacity);
 }
 
 /// Parent-expansion links. Slang records them on each emitted token's origin

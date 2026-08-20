@@ -1,7 +1,6 @@
 use std::ops::Range;
 
 use base_db::source_db::SourceDb;
-use hir_ty::{Type, TypeSystem};
 use syntax::{
     SyntaxAncestors, SyntaxKind, TokenKind, WalkEvent,
     ast::{self, AstNode},
@@ -9,8 +8,9 @@ use syntax::{
 };
 use utils::text_edit::{TextRange, TextSize};
 
-use crate::code_action::{
-    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, line_indent,
+use crate::{
+    code_action::{CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, line_indent},
+    slang_class,
 };
 
 const ID: CodeActionId =
@@ -26,7 +26,7 @@ const ID: CodeActionId =
 // ```
 // ->
 // ```
-// always_comb begin logic value = a + b;
+// always_comb begin logic[7:0] value = a + b;
 // y = value; end
 // ```
 pub(super) fn extract_variable(
@@ -40,8 +40,8 @@ pub(super) fn extract_variable(
     let expr_text = text.get(Range::from(expr_range))?.trim().to_owned();
     let name = fresh_variable_name(&text, "value");
 
+    let ty_text = extracted_variable_type(ctx, expr)?;
     collector.add(ID, "Extract into variable", expr_range, |builder| {
-        let ty_text = extracted_variable_type(ctx, expr).unwrap_or_else(|| "logic".to_owned());
         let declaration = target.declaration(&ty_text, &name, &expr_text);
         builder.insert(target.insert_offset, declaration);
         builder.replace(expr_range, name);
@@ -169,26 +169,22 @@ fn trim_range(text: &str, range: TextRange) -> Option<TextRange> {
 }
 
 fn extracted_variable_type(ctx: &CodeActionCtx<'_>, expr: ast::Expression<'_>) -> Option<String> {
-    let types = TypeSystem::new(ctx.sema().db);
-    let ty = types.type_of_expr(ctx.sema().resolve_expr(ctx.file_id().into(), expr)?);
-    render_ty(ctx, &ty)
-        .or_else(|| expected_type_for_assignment_rhs(ctx, expr).and_then(|ty| render_ty(ctx, &ty)))
+    let expr_range = expr.syntax().text_range()?;
+    lookup_type_range(ctx, expr_range).or_else(|| {
+        let assignment = assignment_expression_containing_rhs(expr)?;
+        lookup_type_range(ctx, assignment.left().syntax().text_range()?)
+    })
 }
 
-fn expected_type_for_assignment_rhs(
-    ctx: &CodeActionCtx<'_>,
-    expr: ast::Expression<'_>,
-) -> Option<Type> {
-    let assignment = assignment_expression_containing_rhs(expr)?;
-    let res =
-        ctx.sema().expr_to_def(ctx.sema().resolve_expr(ctx.file_id().into(), assignment.left())?);
-    Some(TypeSystem::new(ctx.sema().db).type_of_resolution(res))
-}
-
-fn render_ty(ctx: &CodeActionCtx<'_>, ty: &Type) -> Option<String> {
-    TypeSystem::new(ctx.sema().db)
-        .display_declaration(ty)
-        .expect("formatting a type into a String should not fail")
+fn lookup_type_range(ctx: &CodeActionCtx<'_>, range: TextRange) -> Option<String> {
+    slang_class::lookup_type_at(
+        ctx.analysis(),
+        ctx.file_id(),
+        usize::from(range.start()),
+        usize::from(range.end()),
+    )
+    .answered("extract variable")
+    .filter(|ty| !ty.is_empty() && !ty.contains("<error>"))
 }
 
 fn fresh_variable_name(text: &str, base: &str) -> String {
