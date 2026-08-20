@@ -12,7 +12,7 @@ use hir_def::{
     symbol::Resolution,
 };
 use hir_semantics::semantics::Semantics;
-use hir_ty::display::HirDisplay;
+use crate::render::hir_display::HirDisplay;
 use itertools::Either;
 use preproc_expand::file::HirFileId;
 use syntax::{

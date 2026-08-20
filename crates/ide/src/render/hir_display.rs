@@ -22,10 +22,10 @@ use hir_def::{
 use syntax::value::TimeUnit;
 use triomphe::Arc;
 
-use crate::db::TyDb;
+use hir_def::db::HirDefDb;
 
 pub struct HirFormatter<'a> {
-    pub db: &'a dyn TyDb,
+    pub db: &'a dyn HirDefDb,
     f: &'a mut dyn HirWrite,
     simplified_ty: bool,
 }
@@ -76,13 +76,13 @@ impl From<fmt::Error> for HirDisplayError {
 pub trait HirDisplay {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError>;
 
-    fn display_source(&self, db: &dyn TyDb) -> Result<String, HirDisplayError> {
+    fn display_source(&self, db: &dyn HirDefDb) -> Result<String, HirDisplayError> {
         let mut res = String::new();
         self.hir_fmt(&mut HirFormatter { db, f: &mut res, simplified_ty: false })?;
         Ok(res)
     }
 
-    fn display_signature(&self, db: &dyn TyDb) -> Result<String, HirDisplayError> {
+    fn display_signature(&self, db: &dyn HirDefDb) -> Result<String, HirDisplayError> {
         let mut res = String::new();
         self.hir_fmt(&mut HirFormatter { db, f: &mut res, simplified_ty: true })?;
         Ok(res)
@@ -1023,3 +1023,6 @@ impl HirDisplay for OwnerRef<Selector> {
         f.write_str("]")
     }
 }
+
+#[cfg(test)]
+mod tests;

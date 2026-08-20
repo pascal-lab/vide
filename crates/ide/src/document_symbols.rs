@@ -31,7 +31,7 @@ use hir_def::{
     stmt::{CaseItem, ForInit, StmtId, StmtKind},
     typedef::{Typedef, TypedefId},
 };
-use hir_ty::db::TyDb;
+use hir_def::db::HirDefDb;
 use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
 use syntax::WalkEvent;
@@ -196,7 +196,7 @@ impl AddRegionSymbol for Peekable<RegionTreeIterator<'_>> {
 }
 
 // TODO: add ty info in detail
-pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSymbol> {
+pub(crate) fn document_symbols(db: &dyn HirDefDb, file_id: FileId) -> Vec<DocumentSymbol> {
     let _span = tracing::debug_span!("ide.document_symbols", ?file_id).entered();
     if db.file_kind(file_id).is_project_manifest() {
         return crate::manifest::document_symbols(db, file_id);
@@ -299,7 +299,7 @@ pub(crate) fn document_symbols(db: &dyn TyDb, file_id: FileId) -> Vec<DocumentSy
     collector.finish()
 }
 
-fn collect_module_items(db: &dyn TyDb, owner: OwnerId, collector: &mut SymbolCollector) {
+fn collect_module_items(db: &dyn HirDefDb, owner: OwnerId, collector: &mut SymbolCollector) {
     let lowered = db.body_with_source_map(owner);
     let body = db.body_with_source_map(owner);
     let module = lowered.data_ref();
@@ -452,7 +452,7 @@ fn collect_module_items(db: &dyn TyDb, owner: OwnerId, collector: &mut SymbolCol
 }
 
 fn collect_block_items(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     owner: OwnerId,
     lowered: &Lowered<Body>,
@@ -494,7 +494,7 @@ fn collect_block_items(
     regions.finish_all(collector);
 }
 fn build_stmt(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     stmt_id: StmtId,
     lowered: &Lowered<Body>,
@@ -581,7 +581,7 @@ fn build_stmt(
 }
 
 fn build_declaration<L>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     declaration_id: DeclarationId,
     lowered: &L,
@@ -606,7 +606,7 @@ fn build_declaration<L>(
 
 #[inline]
 fn build_generate_region<S>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     generate_region_id: GenerateRegionId,
     structure: &S,
@@ -632,7 +632,7 @@ fn build_generate_region<S>(
 }
 
 fn build_generate_block(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     generate_block_owner: OwnerId,
 ) {
@@ -657,7 +657,7 @@ fn build_generate_block(
 /// (whose items live in their own container).
 #[inline]
 fn build_generate_block_item<S>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     item: BodyItem,
     structure: &S,
@@ -735,7 +735,7 @@ fn build_generate_block_item<S>(
         }
     }
 }
-fn build_checker_owner(db: &dyn TyDb, collector: &mut SymbolCollector, owner: OwnerId) {
+fn build_checker_owner(db: &dyn HirDefDb, collector: &mut SymbolCollector, owner: OwnerId) {
     let Some(checker) = owner.as_checker(db) else {
         return;
     };
@@ -743,7 +743,7 @@ fn build_checker_owner(db: &dyn TyDb, collector: &mut SymbolCollector, owner: Ow
     build_checker(db, collector, checker.value, body.as_ref());
 }
 
-fn build_clocking_block_owner(db: &dyn TyDb, collector: &mut SymbolCollector, owner: OwnerId) {
+fn build_clocking_block_owner(db: &dyn HirDefDb, collector: &mut SymbolCollector, owner: OwnerId) {
     let Some(clocking_block) = owner.as_clocking_block(db) else {
         return;
     };
@@ -751,7 +751,7 @@ fn build_clocking_block_owner(db: &dyn TyDb, collector: &mut SymbolCollector, ow
     build_clocking_block(db, collector, clocking_block.value, body.as_ref());
 }
 
-fn build_covergroup_owner(db: &dyn TyDb, collector: &mut SymbolCollector, owner: OwnerId) {
+fn build_covergroup_owner(db: &dyn HirDefDb, collector: &mut SymbolCollector, owner: OwnerId) {
     let Some(covergroup) = owner.as_covergroup(db) else {
         return;
     };
@@ -760,7 +760,7 @@ fn build_covergroup_owner(db: &dyn TyDb, collector: &mut SymbolCollector, owner:
 }
 
 fn build_checker<L>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     checker_id: CheckerId,
     lowered: &L,
@@ -776,7 +776,7 @@ fn build_checker<L>(
 }
 #[inline]
 fn build_property<L>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     property_id: PropertyId,
     lowered: &L,
@@ -792,7 +792,7 @@ fn build_property<L>(
 
 #[inline]
 fn build_sequence<L>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     sequence_id: SequenceId,
     lowered: &L,
@@ -808,7 +808,7 @@ fn build_sequence<L>(
 
 #[inline]
 fn build_clocking_block<L>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     clocking_block_id: ClockingBlockId,
     lowered: &L,
@@ -825,7 +825,7 @@ fn build_clocking_block<L>(
 
 #[inline]
 fn build_covergroup<L>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     covergroup_id: CovergroupId,
     lowered: &L,
@@ -857,7 +857,7 @@ fn build_covergroup<L>(
 
 #[inline]
 fn build_coverpoint<L>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     coverpoint_id: CoverpointId,
     lowered: &L,
@@ -873,7 +873,7 @@ fn build_coverpoint<L>(
 }
 
 #[inline]
-fn build_cross<L>(db: &dyn TyDb, collector: &mut SymbolCollector, cross_id: CrossId, lowered: &L)
+fn build_cross<L>(db: &dyn HirDefDb, collector: &mut SymbolCollector, cross_id: CrossId, lowered: &L)
 where
     L: HirLookup<CrossId, Hir = CrossDef> + NamedSourceLookup<CrossId>,
 {
@@ -886,7 +886,7 @@ where
 }
 
 #[inline]
-fn build_struct<L>(db: &dyn TyDb, collector: &mut SymbolCollector, struct_id: StructId, lowered: &L)
+fn build_struct<L>(db: &dyn HirDefDb, collector: &mut SymbolCollector, struct_id: StructId, lowered: &L)
 where
     L: HirLookup<StructId, Hir = StructDef> + NamedSourceLookup<StructId>,
 {
@@ -910,7 +910,7 @@ fn struct_kind_name(kind: StructKind) -> SmolStr {
 
 #[inline]
 fn build_specify_block<S>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     specify_block_id: SpecifyBlockId,
     structure: &S,
@@ -937,7 +937,7 @@ fn build_specify_block<S>(
 
 #[inline]
 fn build_decls<L>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     decls: &DeclsRange,
     kind: DefKind,
@@ -952,7 +952,7 @@ fn build_decls<L>(
 
 #[inline]
 fn build_decl<L>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     decl: DeclId,
     kind: DefKind,
@@ -970,7 +970,7 @@ fn build_decl<L>(
 
 #[inline]
 fn build_typedef<L>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     typedef_id: TypedefId,
     lowered: &L,
@@ -990,7 +990,7 @@ fn build_typedef<L>(
 }
 
 #[inline]
-fn build_subroutine(db: &dyn TyDb, collector: &mut SymbolCollector, owner: OwnerId) {
+fn build_subroutine(db: &dyn HirDefDb, collector: &mut SymbolCollector, owner: OwnerId) {
     let hir = db.subroutine(owner);
     let Some(src) = owner.source(db).map(|source| source.value) else {
         return;
@@ -1001,7 +1001,7 @@ fn build_subroutine(db: &dyn TyDb, collector: &mut SymbolCollector, owner: Owner
 
 #[inline]
 fn build_config_decl<L>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     config_id: ConfigDeclId,
     lowered: &L,
@@ -1017,7 +1017,7 @@ fn build_config_decl<L>(
 }
 
 #[inline]
-fn build_udp_decl<L>(db: &dyn TyDb, collector: &mut SymbolCollector, udp_id: UdpDeclId, lowered: &L)
+fn build_udp_decl<L>(db: &dyn HirDefDb, collector: &mut SymbolCollector, udp_id: UdpDeclId, lowered: &L)
 where
     L: HirLookup<UdpDeclId, Hir = UdpDecl> + NamedSourceLookup<UdpDeclId>,
 {
@@ -1031,7 +1031,7 @@ where
 
 #[inline]
 fn build_library_decl<L>(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     collector: &mut SymbolCollector,
     library_id: LibraryDeclId,
     lowered: &L,

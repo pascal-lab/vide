@@ -8,7 +8,6 @@ use base_db::{
 };
 use design_graph::DesignGraphDb;
 use hir_def::db::HirDefDb;
-use hir_ty::db::TyDb;
 use preproc_expand::db::PreprocDb;
 use triomphe::Arc;
 use vfs::{AnchoredPath, FileId};
@@ -42,9 +41,6 @@ impl DesignGraphDb for RootDb {}
 
 #[salsa::db]
 impl HirDefDb for RootDb {}
-
-#[salsa::db]
-impl TyDb for RootDb {}
 
 #[salsa::db]
 impl LineIndexDb for RootDb {}

@@ -7,7 +7,7 @@ use hir_def::{
     owner::{OwnerId, OwnerKind},
 };
 use hir_semantics::semantics::SemanticsImpl;
-use hir_ty::db::TyDb;
+use hir_def::db::HirDefDb;
 use nohash_hasher::IntMap;
 use preproc_expand::{file::HirFileId, macro_file::macro_file_call_site};
 use rustc_hash::FxHashMap;
@@ -380,7 +380,7 @@ pub(crate) fn token_for_mention<'tree>(
 /// not a file the user can open. Returns `None` when a macro expansion's call
 /// site cannot be resolved.
 pub(crate) fn resolve_source_range(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     file_id: HirFileId,
     range: TextRange,
 ) -> Option<(FileId, TextRange)> {

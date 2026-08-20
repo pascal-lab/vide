@@ -17,7 +17,6 @@ fst = "0.4.7"
 # syntax-to-HIR adapter, not a high-level facade over them.
 hir-def.workspace = true
 hir-semantics.workspace = true
-hir-ty.workspace = true
 itertools.workspace = true
 la-arena.workspace = true
 memchr.workspace = true

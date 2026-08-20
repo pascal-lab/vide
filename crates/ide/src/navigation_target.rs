@@ -11,7 +11,7 @@ use hir_def::{
     symbol::DefOrigin,
     typedef::TypedefId,
 };
-use hir_ty::db::TyDb;
+use hir_def::db::HirDefDb;
 use preproc_expand::file::HirFileId;
 use smol_str::SmolStr;
 use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange};
@@ -132,7 +132,7 @@ fn build(
 /// macro call. Returns `None` when a macro expansion's call site cannot be
 /// resolved.
 pub(crate) fn nav_location(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     file_id: HirFileId,
     name_range: Option<TextRange>,
     full_range: TextRange,

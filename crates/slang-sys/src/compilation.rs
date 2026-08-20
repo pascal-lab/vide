@@ -296,7 +296,7 @@ endclass
         );
         let offset = src.find("m_leaf_name").expect("property");
         let info = compilation
-            .lookup_class_member("uvm_object.svh", offset)
+            .lookup_symbol("uvm_object.svh", offset)
             .expect("slang must see the UVM-shaped class property");
         assert_eq!(info.owner_class, "uvm_object");
         assert!(info.inheritance.iter().any(|name| name == "uvm_void"), "{info:?}");
@@ -316,7 +316,7 @@ endclass
         );
         let offset = src.find("m_leaf_name").expect("property");
         let info = compilation
-            .lookup_class_member(path, offset)
+            .lookup_symbol(path, offset)
             .expect("lookup must hit the buffer under the path it was assigned");
         assert_eq!(info.owner_class, "uvm_object");
         assert!(info.type_name.contains("string"), "{info:?}");

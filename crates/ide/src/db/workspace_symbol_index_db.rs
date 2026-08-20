@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
-use hir_ty::db::TyDb;
+use hir_def::db::HirDefDb;
 use triomphe::Arc;
 use vfs::FileId;
 
@@ -11,11 +11,11 @@ use crate::{
 };
 
 #[salsa::db]
-pub trait WorkspaceSymbolIndexDb: SourceRootDb + TyDb {}
+pub trait WorkspaceSymbolIndexDb: SourceRootDb + HirDefDb {}
 
 // Expose the lower Salsa query surface without rebuilding it as IDE wrappers.
 impl Deref for dyn WorkspaceSymbolIndexDb {
-    type Target = dyn TyDb;
+    type Target = dyn HirDefDb;
 
     fn deref(&self) -> &Self::Target {
         self

@@ -1,3 +1,7 @@
+//! Rendering lowered declarations back to SystemVerilog source text.
+
+use super::HirDisplay;
+use crate::db::root_db::RootDb;
 use std::fmt;
 
 use base_db::{
@@ -19,7 +23,6 @@ use hir_def::{
     },
     owner::OwnerId,
 };
-use hir_ty::{db::TyDb, display::HirDisplay};
 use preproc_expand::db::PreprocDb;
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
@@ -31,54 +34,7 @@ const TOP: FileId = FileId::from_raw(0);
 const ROOT: SourceRootId = SourceRootId(0);
 const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
-#[salsa::db]
-#[derive(Default)]
-struct TestDb {
-    storage: salsa::Storage<Self>,
-}
-
-#[salsa::db]
-impl salsa::Database for TestDb {}
-
-#[salsa::db]
-impl SourceDb for TestDb {}
-
-#[salsa::db]
-impl SourceRootDb for TestDb {}
-
-#[salsa::db]
-impl PreprocDb for TestDb {}
-
-#[salsa::db]
-impl hir_def::db::DesignGraphDb for TestDb {}
-
-#[salsa::db]
-impl HirDefDb for TestDb {}
-
-#[salsa::db]
-impl TyDb for TestDb {}
-impl std::ops::Deref for TestDb {
-    type Target = dyn HirDefDb;
-
-    fn deref(&self) -> &Self::Target {
-        self
-    }
-}
-
-impl fmt::Debug for TestDb {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TestDb").finish()
-    }
-}
-
-impl FileLoader for TestDb {
-    fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId> {
-        let source_root_id = SourceRootDb::source_root_id(self, path.anchor);
-        SourceRootDb::source_root(self, source_root_id).resolve_path(path)
-    }
-}
-
-fn db_with_root_text(root_text: &str) -> TestDb {
+fn db_with_root_text(root_text: &str) -> RootDb {
     let top_path = abs_path("rtl/top.sv");
     let mut file_set = FileSet::default();
     file_set.insert(TOP, VfsPath::from(top_path.clone()));
@@ -96,7 +52,7 @@ fn db_with_root_text(root_text: &str) -> TestDb {
         }],
     );
 
-    let mut db = TestDb::default();
+    let mut db = RootDb::new(None);
     db.set_files_with_durability(files, Durability::HIGH);
     db.set_project_config_with_durability(Arc::new(project_config), Durability::HIGH);
     db.set_diagnostics_config_with_durability(
@@ -119,7 +75,7 @@ fn ident(name: &str) -> Ident {
     SmolStr::new(name)
 }
 
-fn module_id(db: &TestDb, name: &str) -> OwnerId {
+fn module_id(db: &RootDb, name: &str) -> OwnerId {
     hir_def::unit::test_module_owner(db, name)
 }
 

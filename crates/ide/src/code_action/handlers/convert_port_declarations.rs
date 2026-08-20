@@ -11,7 +11,8 @@ use hir_def::{
     source_map::Lowered,
     symbol::{NameContext, ScopeData},
 };
-use hir_ty::{db::TyDb, display::HirDisplay};
+use hir_def::db::HirDefDb;
+use crate::render::hir_display::HirDisplay;
 use itertools::Itertools;
 use syntax::{
     ast::{self, AstNode},
@@ -260,7 +261,7 @@ fn non_ansi_port_replacement(
 }
 
 fn data_decl_range_for_name(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     body: &Lowered<Body>,
     decl_id: DeclId,
     name: &Ident,

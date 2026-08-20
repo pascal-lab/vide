@@ -1,3 +1,15 @@
+/// Writing a lowered `hir-def` item back out as SystemVerilog source text.
+///
+/// Hover, signature help, and navigation labels need a declaration spelled
+/// out: `logic [7:0]`, a port list, an enum body. That is a syntactic job —
+/// it reads what `hir-def` lowered and prints it.
+///
+/// It is not type inference. What a name's type actually *is* comes from the
+/// resident slang elaboration service; nothing here computes a type, and a
+/// string produced here is never an answer about semantics. This lived in a
+/// crate called `hir-ty` for exactly as long as that was untrue.
+pub(crate) mod hir_display;
+
 use base_db::source_db::SourceRootDb;
 use hir_def::{
     container::{InFile, OwnerRef, ScopeParent},
@@ -20,7 +32,7 @@ use hir_def::{
     symbol::{DefKind, DefOrigin},
 };
 use hir_semantics::semantics::Semantics;
-use hir_ty::display::HirDisplay;
+use crate::render::hir_display::HirDisplay;
 use itertools::Itertools;
 use syntax::{
     SyntaxCursorExt, SyntaxNodeExt,
