@@ -114,13 +114,30 @@ endmodule
 fn code_action_request_returns_extract_variable_for_selected_expression() {
     let text = "\
 module top;
+  logic [7:0] y, a, b;
   always_comb begin
     y = a + b;
   end
 endmodule
 ";
     let (_temp_dir, client, server_thread, uri) =
-        setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+        setup_configured_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+    let diagnostics_id = lsp_server::RequestId::from(198);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            diagnostics_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let _ = recv_document_diagnostics(&client, diagnostics_id);
 
     let actions = request_code_actions_with_range(
         &client,
@@ -146,19 +163,30 @@ endmodule
 #[test]
 fn code_action_request_returns_extract_variable_for_selected_continuous_assign_rhs() {
     let text = "\
-module top (
-    c,
-    led0
-);
-    input wire c;
-    output led0;
-    reg led0;
-
+module top;
+    logic c;
+    logic led0;
     assign led0 = c * 2 + c;
 endmodule
 ";
     let (_temp_dir, client, server_thread, uri) =
-        setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+        setup_configured_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+    let diagnostics_id = lsp_server::RequestId::from(197);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            diagnostics_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let _ = recv_document_diagnostics(&client, diagnostics_id);
 
     let actions = request_code_actions_with_range(
         &client,
@@ -193,7 +221,7 @@ module top;
 endmodule
 ";
     let (_temp_dir, client, server_thread, uri) =
-        setup_configured_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+        setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
 
     let (_result_id, mut diagnostics) = request_document_diagnostics_until(
         &client,
