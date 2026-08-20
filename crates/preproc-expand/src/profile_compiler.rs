@@ -41,7 +41,8 @@ pub struct ProfileCompilationRoot {
 pub struct ProfileCompilationBuffer {
     pub file_id: u32,
     pub path: String,
-    /// Dirty or virtual overlay. `None` means the worker reads `path` from disk.
+    /// Dirty or virtual overlay. `None` means the worker reads `path` from
+    /// disk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
 }
@@ -123,7 +124,12 @@ pub fn build_profile_compilation_job(
         .map(|buffer| ProfileCompilationBuffer {
             file_id: buffer.file_id.index(),
             path: buffer.path.clone(),
-            text: overlay_text_for_compilation_buffer(db, buffer.file_id, &buffer.path, &buffer.text),
+            text: overlay_text_for_compilation_buffer(
+                db,
+                buffer.file_id,
+                &buffer.path,
+                &buffer.text,
+            ),
         })
         .collect();
     let roots = plan
@@ -249,7 +255,8 @@ pub fn overlay_text_for_compilation_buffer(
     path: &str,
     text: &str,
 ) -> Option<String> {
-    let disk_path = db.file_path(file_id).map(|path| path.to_string()).unwrap_or_else(|| path.to_owned());
+    let disk_path =
+        db.file_path(file_id).map(|path| path.to_string()).unwrap_or_else(|| path.to_owned());
     match std::fs::read_to_string(&disk_path) {
         Ok(disk) if disk == text => None,
         _ => Some(text.to_owned()),
@@ -550,22 +557,31 @@ mod syntax_diagnostic_serde {
 mod tests {
     use super::*;
 
+    fn rtl_dir() -> String {
+        if cfg!(windows) { r"C:\rtl".to_owned() } else { "/rtl".to_owned() }
+    }
+
+    fn rtl_file(name: &str) -> String {
+        if cfg!(windows) { format!(r"C:\rtl\{name}") } else { format!("/rtl/{name}") }
+    }
+
     fn job(text: &str) -> ProfileCompilationJob {
+        let top = rtl_file("top.sv");
         ProfileCompilationJob {
             profile_id: 0,
             roots: vec![ProfileCompilationRoot {
                 file_id: 0,
                 kind: ProfileRootKind::SystemVerilog,
-                name: "/rtl/top.sv".to_owned(),
-                path: "/rtl/top.sv".to_owned(),
+                name: top.clone(),
+                path: top.clone(),
             }],
             buffers: vec![ProfileCompilationBuffer {
                 file_id: 0,
-                path: "/rtl/top.sv".to_owned(),
+                path: top,
                 text: Some(text.to_owned()),
             }],
             top_modules: Vec::new(),
-            include_dirs: vec!["/rtl".to_owned()],
+            include_dirs: vec![rtl_dir()],
             predefines: Vec::new(),
             diagnostics: ProfileDiagnosticsOptions {
                 parse: true,
@@ -606,7 +622,7 @@ mod tests {
         let mut job = job("`include \"defs.svh\"\nmodule top; endmodule\n");
         job.buffers.push(ProfileCompilationBuffer {
             file_id: 1,
-            path: "/rtl/defs.svh".to_owned(),
+            path: rtl_file("defs.svh"),
             text: Some("module broken(;\nendmodule\n".to_owned()),
         });
         let output = run_profile_compilation(job);

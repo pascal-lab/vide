@@ -159,9 +159,9 @@ fn preproc_inactive_branch_uses_parent_relative_header_include() {
 
     let buffers = include_buffers_for_file(&db, TOP);
     assert_eq!(buffers.len(), 1, "one include edge issues one slang_path: {buffers:?}");
+    let path = buffers[0].path.replace('\\', "/");
     assert!(
-        buffers[0].path.contains("rtl/../rtl/config.vh")
-            || buffers[0].path.contains(r"rtl\..\rtl\config.vh"),
+        path.contains("rtl/../rtl/config.vh"),
         "include buffer must be issued under slang's local join spelling: {buffers:?}"
     );
 
