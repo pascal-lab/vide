@@ -23,9 +23,7 @@ pub(super) fn complete_member_access(
         return Vec::new();
     };
     if let Some(name) = colon_colon_scope_name(root, position.offset) {
-        let members = slang_class::list_scope_members_at(db, position.file_id, &name)
-            .answered("scope member completion")
-            .unwrap_or_default();
+        let members = slang_class::list_scope_members_at(db, position.file_id, &name);
         return to_candidates(members, prefix, ctx);
     }
 
@@ -48,9 +46,7 @@ pub(super) fn complete_member_access(
     let Some(prefix_text) = file_text.get(Range::<usize>::from(range)).map(str::trim) else {
         return Vec::new();
     };
-    let by_name = slang_class::list_scope_members_at(db, position.file_id, prefix_text)
-        .answered("member completion by name")
-        .unwrap_or_default();
+    let by_name = slang_class::list_scope_members_at(db, position.file_id, prefix_text);
     if !by_name.is_empty() {
         return to_candidates(by_name, prefix, ctx);
     }
@@ -58,9 +54,7 @@ pub(super) fn complete_member_access(
         db,
         position.file_id,
         usize::from(range.end()).saturating_sub(1),
-    )
-    .answered("member completion by type")
-    .unwrap_or_default();
+    );
     to_candidates(by_type, prefix, ctx)
 }
 

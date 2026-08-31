@@ -1,7 +1,8 @@
 //! File-closure radius and a calling-thread [`compile`].
 //!
 //! This is the slang door that does not go through [`crate::elaboration`].
-//! Production hover still uses the old service until P2.
+//! Hover, goto, `.` / `::`, and types wait on [`Compiler::compile`] of this
+//! radius. Profile extras (instances, hierarchy) may still ask the worker.
 
 use std::{
     collections::hash_map::DefaultHasher,
@@ -146,6 +147,10 @@ pub struct Compiler {
     assigned: FxHashMap<String, String>,
 }
 
+/// C++ `shared_ptr` is not `Send` in cxx. Access is exclusive through
+/// `Mutex<Compiler>` on the calling thread (P2 keystroke compile).
+unsafe impl Send for Compiler {}
+
 impl Compiler {
     pub fn new() -> Self {
         Self {
@@ -156,6 +161,7 @@ impl Compiler {
         }
     }
 
+    #[cfg(test)]
     pub fn session(&self) -> &SourceSession {
         &self.session
     }
@@ -384,6 +390,84 @@ mod tests {
             compiler.session().parse_count(),
             3,
             "body-only user.sv edit must not reparse pkg.sv"
+        );
+    }
+
+    fn include_into_package_host() -> (crate::analysis_host::AnalysisHost, FileId, String) {
+        let user =
+            "module top;\n  pkg::leaf inst;\n  initial inst.m_leaf_name = \"x\";\nendmodule\n";
+        let mut file_set = FileSet::default();
+        let mut change = Change::new();
+        for (file_id, path, text) in [
+            (USER, "user.sv", user),
+            (PKG, "pkg.sv", "package pkg;\n  `include \"leaf.svh\"\nendpackage\n"),
+            (LEAF, "leaf.svh", "class leaf;\n  string m_leaf_name;\nendclass\n"),
+        ] {
+            file_set.insert(file_id, VfsPath::from(abs_path(path)));
+            change.add_changed_file(ChangedFile::create(file_id, text));
+        }
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0))],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: PreprocessConfig::default(),
+            }],
+        )));
+        let mut host = crate::analysis_host::AnalysisHost::without_elaboration();
+        host.apply_change_without_prewarm(change);
+        (host, USER, user.to_owned())
+    }
+
+    #[test]
+    fn workerless_hover_type_on_include_into_package() {
+        let (host, user, text) = include_into_package_host();
+        let offset = utils::line_index::TextSize::from(text.find("m_leaf_name").unwrap() as u32);
+        let hover = host
+            .make_analysis()
+            .hover(crate::FilePosition { file_id: user, offset })
+            .unwrap()
+            .expect("class member hover");
+        let shown = hover.info.as_str();
+        assert!(shown.contains("string"), "{shown}");
+        assert!(!shown.contains("unknown"), "{shown}");
+        assert!(!shown.contains("hir-ty"), "{shown}");
+    }
+
+    #[test]
+    fn workerless_colon_colon_goto_on_include_into_package() {
+        let (host, user, text) = include_into_package_host();
+        let offset = utils::line_index::TextSize::from(text.find("leaf inst").unwrap() as u32);
+        let nav = host
+            .make_analysis()
+            .goto_definition(crate::FilePosition { file_id: user, offset })
+            .unwrap()
+            .expect("pkg::leaf");
+        assert!(
+            nav.info.iter().any(|target| target.file_id == LEAF),
+            "pkg::leaf must jump into the included class file, not catalog files[0]: {nav:?}"
+        );
+        assert_eq!(nav.info.len(), 1, "compilation binds; Ambiguous is not a jump: {nav:?}");
+    }
+
+    #[test]
+    fn workerless_dot_members_on_include_into_package() {
+        let (host, user, text) = include_into_package_host();
+        let dot = text.find("inst.").expect("dot") + "inst.".len();
+        let items = host
+            .make_analysis()
+            .completions_with_trigger(
+                crate::FilePosition {
+                    file_id: user,
+                    offset: utils::line_index::TextSize::from(dot as u32),
+                },
+                None,
+            )
+            .unwrap();
+        assert!(
+            items.iter().any(|item| item.label.contains("m_leaf_name")),
+            "inst. must complete the included class member: {items:?}"
         );
     }
 

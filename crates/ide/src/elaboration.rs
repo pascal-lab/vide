@@ -17,9 +17,8 @@
 use std::{
     fmt,
     panic::{self, AssertUnwindSafe},
-    sync::mpsc::{self, Receiver, RecvTimeoutError, Sender},
+    sync::mpsc::{self, Receiver, Sender},
     thread::{self, JoinHandle},
-    time::Duration,
 };
 
 use base_db::{
@@ -35,26 +34,7 @@ use syntax::{SyntaxTreeBuffer, SyntaxTreeOptions};
 
 use crate::db::root_db::RootDb;
 
-/// How long a request-path query waits before giving up on the worker.
-///
-/// A cold snapshot needs a full slang elaboration, which is far longer than
-/// this. Waiting it out on the keyboard path is a hang, not a degradation.
-/// The build is not cancelled by giving up: [`AnalysisHost`] prewarms it off
-/// the request path, and a later query for the same revision finds it ready.
-///
-/// [`AnalysisHost`]: crate::analysis_host::AnalysisHost
-const INTERACTIVE_TIMEOUT: Duration = Duration::from_millis(150);
-
 const KEPT_GENERATIONS: usize = 2;
-
-/// How long a caller is willing to wait for the worker.
-#[derive(Debug, Clone, Copy)]
-enum Wait {
-    /// Request path. Never block the editor; degrade to HIR instead.
-    Interactive,
-    /// Prewarm and tests: the answer matters, the latency does not.
-    UntilDone,
-}
 
 /// Snapshot tag carried by every query. Matches [`AnalysisSnapshotId`].
 pub type ElabRevision = AnalysisSnapshotId;
@@ -66,6 +46,7 @@ pub enum UnavailableReason {
     /// The wait elapsed while the worker was still compiling this snapshot.
     /// The build continues; a later query for the same revision can be
     /// `Ready`.
+    #[allow(dead_code)]
     NotReady,
     /// The file belongs to no compilation profile, so no elaboration covers
     /// it. Waiting does not help; the workspace configuration has to change.
@@ -86,43 +67,6 @@ pub enum ElabResult<T> {
     Ready(Option<T>),
     Stale { have: ElabRevision, want: ElabRevision },
     Unavailable(UnavailableReason),
-}
-
-impl<T> ElabResult<T> {
-    /// The answer, recording the degradation when there is not one.
-    ///
-    /// `Ready(None)` is an answer: slang elaborated and found nothing there,
-    /// so absence is the truth. Every other arm means slang did *not*
-    /// answer, which is a different fact, and callers that fall back to HIR
-    /// must not make it indistinguishable from absence. Routing the whole
-    /// enum through here is what keeps the fallback visible.
-    ///
-    /// `feature` names the caller; the slang entry point is already in
-    /// [`UnavailableReason::Crashed`].
-    pub fn answered(self, feature: &'static str) -> Option<T> {
-        match self {
-            ElabResult::Ready(answer) => answer,
-            // Routine while typing: the snapshot rolled, or the build for
-            // this one is still running.
-            ElabResult::Stale { have, want } => {
-                tracing::debug!(feature, ?have, ?want, "elaboration is behind; HIR answers");
-                None
-            }
-            ElabResult::Unavailable(
-                reason @ (UnavailableReason::NotReady
-                | UnavailableReason::OutsideAnyProfile
-                | UnavailableReason::Cancelled),
-            ) => {
-                tracing::debug!(feature, ?reason, "elaboration declined; HIR answers");
-                None
-            }
-            // Not routine. Fidelity is gone until someone looks at this.
-            ElabResult::Unavailable(reason) => {
-                tracing::warn!(feature, ?reason, "elaboration failed; HIR answers");
-                None
-            }
-        }
-    }
 }
 
 /// The payload-free half of [`ElabResult`]. Reaching the live compilation can
@@ -175,13 +119,20 @@ impl ElaborationService {
         (Self { tx }, worker)
     }
 
+    /// No worker thread. Queries are [`UnavailableReason::WorkerGone`].
+    #[cfg(test)]
+    pub fn detached() -> Self {
+        let (tx, rx) = mpsc::channel();
+        drop(rx);
+        Self { tx }
+    }
+
     /// Hand one job to the worker and wait for its answer.
     ///
     /// This is the only place that talks to the channel, so timeout and
     /// disconnect are classified once.
     fn dispatch<T: Send + 'static>(
         &self,
-        wait: Wait,
         job: impl FnOnce(&mut Worker) -> ElabResult<T> + Send + 'static,
     ) -> ElabResult<T> {
         let (reply_tx, reply_rx) = mpsc::channel();
@@ -191,16 +142,7 @@ impl ElaborationService {
         if self.tx.send(Job::Run(Box::new(run))).is_err() {
             return ElabResult::Unavailable(UnavailableReason::WorkerGone);
         }
-        let received = match wait {
-            Wait::Interactive => {
-                reply_rx.recv_timeout(INTERACTIVE_TIMEOUT).map_err(|err| match err {
-                    RecvTimeoutError::Timeout => UnavailableReason::NotReady,
-                    RecvTimeoutError::Disconnected => UnavailableReason::WorkerGone,
-                })
-            }
-            Wait::UntilDone => reply_rx.recv().map_err(|_| UnavailableReason::WorkerGone),
-        };
-        received.unwrap_or_else(ElabResult::Unavailable)
+        reply_rx.recv().unwrap_or_else(|_| ElabResult::Unavailable(UnavailableReason::WorkerGone))
     }
 
     /// Run one slang entry point on the live compilation for `revision`.
@@ -217,9 +159,7 @@ impl ElaborationService {
         run: impl FnOnce(&mut Compilation) -> Option<T> + Send + 'static,
     ) -> ElabResult<T> {
         let db = db.clone();
-        self.dispatch(Wait::Interactive, move |worker| {
-            worker.query(&db, revision, profile, what, run)
-        })
+        self.dispatch(move |worker| worker.query(&db, revision, profile, what, run))
     }
 
     /// Build this snapshot's compilations, waiting for slang to finish.
@@ -229,12 +169,13 @@ impl ElaborationService {
     /// path. Blocking here is the point: this is not the request path.
     pub fn prewarm(&self, db: &RootDb, revision: ElabRevision) -> ElabResult<()> {
         let db = db.clone();
-        self.dispatch(Wait::UntilDone, move |worker| match worker.generation(&db, revision) {
+        self.dispatch(move |worker| match worker.generation(&db, revision) {
             Ok(_) => ElabResult::Ready(Some(())),
             Err(not_answered) => not_answered.into_result(),
         })
     }
 
+    #[allow(dead_code)]
     pub fn lookup_symbol(
         &self,
         db: &RootDb,
@@ -247,6 +188,7 @@ impl ElaborationService {
         self.query(db, revision, profile, "symbol", move |slang| slang.lookup_symbol(&path, offset))
     }
 
+    #[allow(dead_code)]
     pub fn lookup_scoped(
         &self,
         db: &RootDb,
@@ -259,6 +201,7 @@ impl ElaborationService {
         self.query(db, revision, profile, "scoped", move |slang| slang.lookup_scoped(&left, &right))
     }
 
+    #[allow(dead_code)]
     pub fn list_scope_members(
         &self,
         db: &RootDb,
@@ -272,6 +215,7 @@ impl ElaborationService {
         })
     }
 
+    #[allow(dead_code)]
     pub fn list_members(
         &self,
         db: &RootDb,
@@ -286,6 +230,7 @@ impl ElaborationService {
         })
     }
 
+    #[allow(dead_code)]
     pub fn lookup_type(
         &self,
         db: &RootDb,
@@ -395,13 +340,9 @@ impl Worker {
 
 /// Build every profile's compilation for one snapshot.
 ///
-/// Every root is parsed fresh. Carrying a `SyntaxTree` over from the previous
-/// generation is not possible as the FFI stands: a `Compilation` owns a
-/// `SourceSession`, every tree belongs to the session it was parsed in, and
-/// `add_syntax_tree` rejects a foreign one. Reusing trees needs a session
-/// that outlives a single generation, with `SourceManager::replaceBuffer` for
-/// the edited files — a change in `slang-sys`, not here. Do not reintroduce
-/// per-root reuse without it; it aborts the process.
+/// This worker still parses every root. Keystroke lookups do not come through
+/// here; they use [`crate::compile::Compiler`] on the calling thread. Switching
+/// this rebuild onto that compiler is P3.
 fn rebuild(db: &RootDb, revision: ElabRevision) -> Generation {
     // A workspace with no configured profile still compiles: the plan for
     // `None` covers every root. This is the unconfigured case, not the

@@ -51,8 +51,8 @@ fn project_instance(
         if ids.is_empty() { vec![None] } else { ids.into_iter().map(Some).collect::<Vec<_>>() }
     };
     for profile in profiles {
-        let Some(rows) =
-            ctx.elab.list_instances(ctx.db, ctx.revision, profile).answered("instance anchor")
+        let crate::elaboration::ElabResult::Ready(Some(rows)) =
+            ctx.elab.list_instances(ctx.db, ctx.revision, profile)
         else {
             continue;
         };

@@ -1,6 +1,7 @@
 use std::{
     ops::{Deref, Range},
-    sync::atomic::AtomicBool,
+    panic::AssertUnwindSafe,
+    sync::{Arc as StdArc, atomic::AtomicBool},
 };
 
 use base_db::{
@@ -26,6 +27,7 @@ use crate::{
     Cancellable, FilePosition, RangeInfo,
     code_action::{self, CodeAction, CodeActionResolveStrategy},
     code_lens::{self, CodeLens, CodeLensConfig, CodeLensKind},
+    compile::Compiler,
     completion::{CompletionItem, context::TriggerChar},
     db::{line_index_db::LineIndexDb, root_db::RootDb},
     diagnostics,
@@ -49,29 +51,31 @@ use crate::{
     workspace_symbols::{self, WorkspaceSymbol},
 };
 
-#[derive(Debug)]
 pub struct AnalysisSnapshot {
     pub(crate) db: RootDb,
     pub(crate) store: Arc<ProductStore>,
     pub(crate) snapshot_id: AnalysisSnapshotId,
     pub(crate) salsa_revision: base_db::salsa::Revision,
     pub(crate) elab: ElaborationService,
+    pub(crate) compiler: StdArc<parking_lot::Mutex<Compiler>>,
 }
 
 /// Read view of one IDE request: the Salsa database, the parse-dependency
-/// store, and the resident elaboration service.
+/// store, the keystroke [`Compiler`], and the profile elaboration service.
 ///
 /// [`Self::parse_file`] records the file as paid so later resolution can
 /// look at that file's `HirFileId::Macro` owner table. It does not merge
 /// generated names into the L0 catalog.
 ///
-/// Elaboration is a backend worker, not a salsa query. Features that need
-/// types, hierarchy, or class members ask [`Self::elab`] with this
-/// snapshot's revision.
+/// Types, `::`, `.` members, and keystroke goto wait on
+/// [`Compiler::compile`] of the file closure. Hierarchy and specialized
+/// instances may ask [`Self::elab`] when that profile compilation is Ready;
+/// they must not block a keystroke.
 pub(crate) struct AnalysisContext<'a> {
     pub(crate) db: &'a RootDb,
     pub(crate) store: &'a ProductStore,
     pub(crate) elab: &'a ElaborationService,
+    pub(crate) compiler: Option<&'a parking_lot::Mutex<Compiler>>,
     pub(crate) revision: ElabRevision,
 }
 
@@ -88,9 +92,20 @@ impl AnalysisContext<'_> {
         db: &'a RootDb,
         store: &'a ProductStore,
         elab: &'a ElaborationService,
+        compiler: Option<&'a parking_lot::Mutex<Compiler>>,
         revision: ElabRevision,
     ) -> AnalysisContext<'a> {
-        AnalysisContext { db, store, elab, revision }
+        AnalysisContext { db, store, elab, compiler, revision }
+    }
+
+    pub(crate) fn keystroke_compilation(
+        &self,
+        file_id: vfs::FileId,
+    ) -> slang_sys::compilation::Compilation {
+        let compiler = self.compiler.expect("keystroke compile needs the session compiler");
+        let closure = crate::compile::file_closure(self.db, file_id);
+        let options = crate::compile::CompileOptions::for_file(self.db, file_id);
+        compiler.lock().compile(self.db, closure.files().iter().copied(), &options)
     }
 
     pub(crate) fn semantics(&self) -> hir_semantics::semantics::Semantics<'_, RootDb> {
@@ -185,8 +200,14 @@ impl AnalysisSnapshot {
             "an AnalysisSnapshot must never cross Salsa revisions",
         );
         let _span = tracing::debug_span!("ide.analysis", snapshot_id = ?self.snapshot_id).entered();
-        let ctx = AnalysisContext::new(&self.db, &self.store, &self.elab, self.snapshot_id);
-        Cancelled::catch(|| f(&ctx))
+        let ctx = AnalysisContext::new(
+            &self.db,
+            &self.store,
+            &self.elab,
+            Some(&self.compiler),
+            self.snapshot_id,
+        );
+        Cancelled::catch(AssertUnwindSafe(|| f(&ctx)))
     }
 
     pub fn line_index(&self, file_id: FileId) -> Cancellable<Arc<LineIndex>> {

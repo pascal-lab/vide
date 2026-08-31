@@ -14,6 +14,7 @@ use triomphe::Arc;
 
 use crate::{
     analysis::{AnalysisContext, AnalysisSnapshot},
+    compile::Compiler,
     db::root_db::RootDb,
     elaboration::ElaborationService,
     incrementality::ProductStore,
@@ -26,6 +27,7 @@ pub struct AnalysisHost {
     prewarm: Option<PrewarmTask>,
     elab: ElaborationService,
     elab_worker: Option<JoinHandle<()>>,
+    compiler: StdArc<parking_lot::Mutex<Compiler>>,
 }
 
 struct PrewarmTask {
@@ -43,6 +45,22 @@ impl AnalysisHost {
             prewarm: None,
             elab,
             elab_worker: Some(elab_worker),
+            compiler: StdArc::new(parking_lot::Mutex::new(Compiler::new())),
+        }
+    }
+
+    /// Keystroke compile is on the calling thread. This host has no
+    /// `vide-elaboration` worker; profile extras are `Unavailable`.
+    #[cfg(test)]
+    pub(crate) fn without_elaboration() -> AnalysisHost {
+        AnalysisHost {
+            db: RootDb::new(None),
+            store: Arc::new(ProductStore::default()),
+            snapshot_id: AnalysisSnapshotId::default(),
+            prewarm: None,
+            elab: ElaborationService::detached(),
+            elab_worker: None,
+            compiler: StdArc::new(parking_lot::Mutex::new(Compiler::new())),
         }
     }
 
@@ -56,6 +74,7 @@ impl AnalysisHost {
             snapshot_id: self.snapshot_id,
             salsa_revision,
             elab: self.elab.clone(),
+            compiler: self.compiler.clone(),
         }
     }
 
@@ -108,6 +127,7 @@ impl AnalysisHost {
         let store = self.store.clone();
         let elab = self.elab.clone();
         let revision = self.snapshot_id;
+        let prewarm_elab = self.elab_worker.is_some();
         let cancel = StdArc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
         let worker = thread::Builder::new()
@@ -116,7 +136,7 @@ impl AnalysisHost {
                 if worker_cancel.load(Ordering::Acquire) {
                     return;
                 }
-                let ctx = AnalysisContext::new(&db, &store, &elab, revision);
+                let ctx = AnalysisContext::new(&db, &store, &elab, None, revision);
                 for file_id in affected_files {
                     if worker_cancel.load(Ordering::Acquire) {
                         return;
@@ -129,11 +149,9 @@ impl AnalysisHost {
                 if !worker_cancel.load(Ordering::Acquire) {
                     let _ = ctx.prewarm_resolution(&worker_cancel);
                 }
-                // Slang is the last step: it is the slowest and the only one
-                // a request can do without. Building it here is what lets the
-                // request path give up after `INTERACTIVE_TIMEOUT` instead of
-                // waiting out a cold elaboration on the keyboard path.
-                if !worker_cancel.load(Ordering::Acquire) {
+                // Profile compilation is off the keystroke path. Skip it when
+                // this host has no elaboration worker.
+                if prewarm_elab && !worker_cancel.load(Ordering::Acquire) {
                     let _ = elab.prewarm(&db, revision);
                 }
             })
@@ -176,7 +194,13 @@ impl AnalysisHost {
 
     #[cfg(test)]
     pub(crate) fn ctx(&self) -> AnalysisContext<'_> {
-        AnalysisContext::new(&self.db, &self.store, &self.elab, self.snapshot_id)
+        AnalysisContext::new(
+            &self.db,
+            &self.store,
+            &self.elab,
+            Some(&self.compiler),
+            self.snapshot_id,
+        )
     }
 }
 

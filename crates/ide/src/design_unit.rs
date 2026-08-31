@@ -1,10 +1,13 @@
-//! Compilation-unit name navigation through `hit_at`.
+//! This-file compilation-unit names.
 //!
-//! This is the only CU-name answer. Empty graph candidates are `Other` — a
-//! different question (nested module, class `::`, UDP), not a second path.
+//! A declaration name, and an instantiation / package token whose candidates
+//! all live in this file, are facts of this file (kinds, header text). Jumping
+//! to a different file's module is lookup on the closure compilation, not a
+//! catalog identity. `hit_global` remains for find-references.
 
 use design_graph::{CursorHit, UnitId, UnitKind, hit_global, hit_local};
 use nohash_hasher::IntMap;
+use smallvec::SmallVec;
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
@@ -20,16 +23,12 @@ pub(crate) fn goto_definition(
     db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    match hit(db, file_id, offset) {
-        CursorHit::Other => None,
-        CursorHit::DeclName { unit, range } => {
-            Some(RangeInfo::new(range, vec![nav_from_unit(db, unit)]))
-        }
-        CursorHit::InstantiationType { range, targets }
-        | CursorHit::PackageRef { range, targets, .. } => {
-            let navs: Vec<_> = targets.into_iter().map(|unit| nav_from_unit(db, unit)).collect();
-            Some(RangeInfo::new(range, navs))
-        }
+    match this_file_units(db, file_id, offset) {
+        Some((units, range)) => Some(RangeInfo::new(
+            range,
+            units.into_iter().map(|unit| nav_from_unit(db, unit)).collect(),
+        )),
+        None => None,
     }
 }
 
@@ -37,13 +36,31 @@ pub(crate) fn hover(
     db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Markup>> {
-    match hit(db, file_id, offset) {
-        CursorHit::Other => None,
-        CursorHit::DeclName { unit, range } => Some(RangeInfo::new(range, hover_markup(db, &unit))),
+    match this_file_units(db, file_id, offset) {
+        Some((units, range)) => Some(RangeInfo::new(range, hover_targets(db, &units))),
+        None => None,
+    }
+}
+
+fn this_file_units(
+    db: &AnalysisContext<'_>,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<(SmallVec<[UnitId; 2]>, TextRange)> {
+    let facts = db.file_facts(file_id);
+    if let Some(CursorHit::DeclName { unit, range }) = hit_local(&facts, offset)
+        && unit.file == file_id
+    {
+        return Some((SmallVec::from_elem(unit, 1), range));
+    }
+    match hit_global(&facts, &db.unit_catalog(), offset) {
         CursorHit::InstantiationType { range, targets }
-        | CursorHit::PackageRef { range, targets, .. } => {
-            Some(RangeInfo::new(range, hover_targets(db, &targets)))
+        | CursorHit::PackageRef { range, targets, .. }
+            if !targets.is_empty() && targets.iter().all(|unit| unit.file == file_id) =>
+        {
+            Some((targets, range))
         }
+        _ => None,
     }
 }
 

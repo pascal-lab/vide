@@ -1,30 +1,35 @@
-//! Semantic lookups through the resident elaboration service.
+//! Semantic lookups on the keystroke file-closure compilation.
 //!
-//! These functions only turn an IDE position into the arguments slang wants
-//! and hand back the whole [`ElabResult`]. Deciding what a non-answer means
-//! is the caller's job, and every caller does it the same way, through
-//! [`ElabResult::answered`], so "slang is down" never reads as "no such
-//! symbol".
+//! `None` means the closure compilation elaborated and found nothing at that
+//! name or offset. The request waits on [`Compiler::compile`]; it does not
+//! go through the profile elaboration worker.
 //!
-//! [`ElabResult::answered`]: crate::elaboration::ElabResult::answered
+//! [`Compiler::compile`]: crate::compile::Compiler::compile
 
-use base_db::source_db::SourceRootDb;
 use preproc_expand::compilation_plan;
-use slang_sys::compilation::{MemberInfo, SymbolInfo};
+use slang_sys::compilation::{Compilation, MemberInfo, SymbolInfo};
 #[cfg(test)]
 use syntax::SyntaxTreeOptions;
 use vfs::FileId;
 
-use crate::{analysis::AnalysisContext, elaboration::ElabResult};
+use crate::analysis::AnalysisContext;
+
+fn with_keystroke<T>(
+    ctx: &AnalysisContext<'_>,
+    file_id: FileId,
+    run: impl FnOnce(&mut Compilation) -> T,
+) -> T {
+    let mut compilation = ctx.keystroke_compilation(file_id);
+    run(&mut compilation)
+}
 
 pub fn lookup_symbol_at(
     ctx: &AnalysisContext<'_>,
     file_id: FileId,
     offset: usize,
-) -> ElabResult<SymbolInfo> {
+) -> Option<SymbolInfo> {
     let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
-    let profile = ctx.db.file_compilation_profile(file_id);
-    ctx.elab.lookup_symbol(ctx.db, ctx.revision, profile, &path, offset)
+    with_keystroke(ctx, file_id, |slang| slang.lookup_symbol(&path, offset))
 }
 
 pub fn lookup_scoped_at(
@@ -32,9 +37,8 @@ pub fn lookup_scoped_at(
     file_id: FileId,
     left: &str,
     right: &str,
-) -> ElabResult<SymbolInfo> {
-    let profile = ctx.db.file_compilation_profile(file_id);
-    ctx.elab.lookup_scoped(ctx.db, ctx.revision, profile, left, right)
+) -> Option<SymbolInfo> {
+    with_keystroke(ctx, file_id, |slang| slang.lookup_scoped(left, right))
 }
 
 /// Members of the scope a name denotes: a package, a class, or a
@@ -47,19 +51,17 @@ pub fn list_scope_members_at(
     ctx: &AnalysisContext<'_>,
     file_id: FileId,
     name: &str,
-) -> ElabResult<Vec<MemberInfo>> {
-    let profile = ctx.db.file_compilation_profile(file_id);
-    ctx.elab.list_scope_members(ctx.db, ctx.revision, profile, name)
+) -> Vec<MemberInfo> {
+    with_keystroke(ctx, file_id, |slang| slang.list_scope_members(name))
 }
 
 pub fn list_members_at(
     ctx: &AnalysisContext<'_>,
     file_id: FileId,
     offset: usize,
-) -> ElabResult<Vec<MemberInfo>> {
+) -> Vec<MemberInfo> {
     let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
-    let profile = ctx.db.file_compilation_profile(file_id);
-    ctx.elab.list_members(ctx.db, ctx.revision, profile, &path, offset)
+    with_keystroke(ctx, file_id, |slang| slang.list_members(&path, offset))
 }
 
 pub fn lookup_type_at(
@@ -67,10 +69,9 @@ pub fn lookup_type_at(
     file_id: FileId,
     start: usize,
     end: usize,
-) -> ElabResult<String> {
+) -> Option<String> {
     let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
-    let profile = ctx.db.file_compilation_profile(file_id);
-    ctx.elab.lookup_type(ctx.db, ctx.revision, profile, &path, start, end)
+    with_keystroke(ctx, file_id, |slang| slang.lookup_type(&path, start, end))
 }
 
 /// `owner :: type extends base > base` for a class member.
@@ -125,21 +126,12 @@ virtual class uvm_object extends uvm_void;
 endclass
 "#;
 
-    /// Wait for the build, then use the shipped entry point. Nothing here may
-    /// fall back to a private compilation: a test that answers by a route
-    /// production does not take proves nothing about production.
     fn shipped_symbol_at(
         host: &crate::analysis_host::AnalysisHost,
         file_id: FileId,
         offset: utils::line_index::TextSize,
     ) -> Option<SymbolInfo> {
-        let ctx = host.ctx();
-        let built = ctx.elab.prewarm(ctx.db, ctx.revision);
-        assert!(matches!(built, ElabResult::Ready(_)), "build must finish, got {built:?}");
-        match lookup_symbol_at(&ctx, file_id, usize::from(offset)) {
-            ElabResult::Ready(info) => info,
-            other => panic!("shipped lookup must be Ready, got {other:?}"),
-        }
+        lookup_symbol_at(&host.ctx(), file_id, usize::from(offset))
     }
 
     #[test]

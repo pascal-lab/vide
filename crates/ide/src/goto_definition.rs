@@ -4,7 +4,7 @@ use preproc_expand::{
     file::HirFileId,
     preproc::{IncludeDirective, IncludeTarget, MacroDefinition, MacroParamDefinition},
 };
-use syntax::SyntaxTokenWithParent;
+use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange};
 use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
@@ -91,6 +91,9 @@ fn nav_targets_for_token(
     token: SyntaxTokenWithParent,
 ) -> Option<Vec<NavTarget>> {
     handle_ctrl_flow_kw(db.db, hir_file_id, token).or_else(|| {
+        // This-file lexical (generate, coverpoint, kinds) stays HIR until R20.
+        // `::` is slang inside DefinitionClass::resolve. Cross-file names
+        // HIR does not bind are lookup on the closure compilation.
         let navs = DefinitionClass::resolve(db, hir_file_id, token)
             .into_candidates()
             .into_iter()
@@ -103,7 +106,19 @@ fn nav_targets_for_token(
             return Some(navs);
         }
         slang_scoped_nav(db, hir_file_id, token)
+            .or_else(|| slang_symbol_nav(db, hir_file_id, token))
     })
+}
+
+fn slang_symbol_nav(
+    db: &AnalysisContext<'_>,
+    hir_file_id: HirFileId,
+    token: SyntaxTokenWithParent<'_>,
+) -> Option<Vec<NavTarget>> {
+    let file = hir_file_id.as_file()?;
+    let range = token.text_range()?;
+    let info = crate::slang_class::lookup_symbol_at(db, file, usize::from(range.start()))?;
+    nav_from_symbol_info(db, info)
 }
 
 fn slang_scoped_nav(
@@ -113,8 +128,14 @@ fn slang_scoped_nav(
 ) -> Option<Vec<NavTarget>> {
     let file = hir_file_id.as_file()?;
     let (left, right) = crate::definitions::colon_colon_query(token)?;
-    let info = crate::slang_class::lookup_scoped_at(db, file, &left, &right)
-        .answered("goto definition")?;
+    let info = crate::slang_class::lookup_scoped_at(db, file, &left, &right)?;
+    nav_from_symbol_info(db, info)
+}
+
+fn nav_from_symbol_info(
+    db: &AnalysisContext<'_>,
+    info: slang_sys::compilation::SymbolInfo,
+) -> Option<Vec<NavTarget>> {
     if info.def_file.is_empty() {
         return None;
     }

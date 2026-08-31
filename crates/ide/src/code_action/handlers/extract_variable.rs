@@ -183,7 +183,6 @@ fn lookup_type_range(ctx: &CodeActionCtx<'_>, range: TextRange) -> Option<String
         usize::from(range.start()),
         usize::from(range.end()),
     )
-    .answered("extract variable")
     .filter(|ty| !ty.is_empty() && !ty.contains("<error>"))
 }
 
