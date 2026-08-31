@@ -1044,4 +1044,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn compile_reparses_when_predefines_change() {
+        let src = "module top;\n  logic enable = `ENABLE;\nendmodule\n";
+        let db = db_with_files(&[(TOP, "top.sv", src)]);
+        let mut compiler = Compiler::new();
+        let mut options = CompileOptions::for_file(&db, TOP);
+        options.predefines = vec!["ENABLE=1".to_owned()];
+        let _ = compiler.compile(&db, [TOP], &options);
+        assert_eq!(compiler.session().parse_count(), 1);
+        options.predefines = vec!["ENABLE=2".to_owned()];
+        let _ = compiler.compile(&db, [TOP], &options);
+        assert_eq!(
+            compiler.session().parse_count(),
+            2,
+            "changing predefines must not reuse the previous tree"
+        );
+    }
+
+    #[test]
+    fn compile_reparses_when_include_dirs_change() {
+        let src = "`include \"defs.svh\"\nmodule top;\nendmodule\n";
+        let db = db_with_files(&[(TOP, "top.sv", src)]);
+        let mut compiler = Compiler::new();
+        let mut options = CompileOptions::for_file(&db, TOP);
+        options.include_dirs = vec!["/repo".to_owned()];
+        let _ = compiler.compile(&db, [TOP], &options);
+        let first = compiler.session().parse_count();
+        options.include_dirs = vec!["/other".to_owned()];
+        let _ = compiler.compile(&db, [TOP], &options);
+        assert_eq!(
+            compiler.session().parse_count().saturating_sub(first),
+            1,
+            "changing include dirs must not reuse the previous tree"
+        );
+    }
 }
