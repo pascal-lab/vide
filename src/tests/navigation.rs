@@ -144,7 +144,7 @@ fn goto_definition_prefers_activated_wildcard_import_over_later_declaration() {
 }
 
 #[test]
-fn unconfigured_workspace_goto_definition_uses_indexed_unopened_files() {
+fn unconfigured_workspace_goto_does_not_compile_named_files() {
     let pull_caps = ClientCapabilities {
         text_document: Some(TextDocumentClientCapabilities {
             diagnostic: Some(DiagnosticClientCapabilities::default()),
@@ -168,8 +168,8 @@ fn unconfigured_workspace_goto_definition_uses_indexed_unopened_files() {
 
     let definition_uris = request_goto_definition_uris(&client, top_uri, top_text, "child u", 2);
     assert!(
-        definition_uris.contains(&child_uri),
-        "definition should include unopened child.sv from default index: {definition_uris:?}"
+        !definition_uris.contains(&child_uri),
+        "an unconfigured orphan file compiles itself and its includes, not named CUs: {definition_uris:?}"
     );
 
     shutdown_test_server(&client, server_thread);
