@@ -242,30 +242,30 @@ std::string assigned_path(const Compilation& compilation, slang::BufferID buffer
     return std::string(sm->getRawFileName(buffer));
 }
 
-// Resolve the query path once. Per-symbol string compares were the T4 slice
-// cost; a live compilation has thousands of symbols and that does not scale.
-// Prefer the session's latest buffer so a replace_buffer does not leave
-// lookup hitting the stale id that still carries the same caller path.
+// Resolve the query path against the trees this Compilation was given.
+// The session may already hold a newer buffer for the same caller path
+// (replace_buffer keeps the old id alive). Scanning SourceManager or
+// taking latest_buffer would steal C2's text into a live C1 lookup.
 std::optional<slang::BufferID> buffer_for_path(
     const Compilation& compilation,
     std::string_view want
 ) {
-    if (compilation.session) {
-        if (auto latest = compilation.session->latest_buffer(want))
-            return latest->id;
-    }
-    const auto *sm = compilation.inner ? compilation.inner->getSourceManager() : nullptr;
-    if (!sm)
+    if (!compilation.inner)
         return std::nullopt;
-    for (auto buffer : sm->getAllBuffers()) {
-        auto kind = sm->getBufferKind(buffer);
-        if (kind == slang::SourceManager::BufferKind::Macro ||
-            kind == slang::SourceManager::BufferKind::MacroArg)
+    std::optional<slang::BufferID> found;
+    for (const auto& tree : compilation.inner->getSyntaxTrees()) {
+        if (!tree)
             continue;
-        if (assigned_path(compilation, buffer) == want)
-            return buffer;
+        for (auto buffer : tree->getSourceBufferIds()) {
+            if (assigned_path(compilation, buffer) != want)
+                continue;
+            if (found && *found != buffer)
+                throw std::logic_error(
+                    "compilation has multiple buffers for path: " + std::string(want));
+            found = buffer;
+        }
     }
-    return std::nullopt;
+    return found;
 }
 
 bool in_buffer(
