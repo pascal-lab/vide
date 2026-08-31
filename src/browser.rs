@@ -256,4 +256,97 @@ mod tests {
             matches!(message, Message::Response(response) if response.id == 2.into() && response.error.is_none())
         }));
     }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn browser_hover_and_goto_run_on_the_calling_thread() {
+        use lsp_types::{
+            notification::{DidOpenTextDocument, Initialized, Notification as _},
+            request::{GotoDefinition, HoverRequest, Request as _},
+        };
+
+        let mut server = BrowserServer::new();
+        let initialize = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "capabilities": {},
+                "rootUri": "file:///workspace"
+            }
+        });
+        server.handle_message_json(&initialize.to_string()).unwrap();
+        server
+            .handle_message_json(
+                &serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": Initialized::METHOD,
+                    "params": {}
+                })
+                .to_string(),
+            )
+            .unwrap();
+
+        let text = "module top;\n  logic x;\nendmodule\n";
+        server
+            .handle_message_json(
+                &serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": DidOpenTextDocument::METHOD,
+                    "params": {
+                        "textDocument": {
+                            "uri": "file:///workspace/top.sv",
+                            "languageId": "systemverilog",
+                            "version": 1,
+                            "text": text
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap();
+        let _ = server.poll_json().unwrap();
+
+        let hover = server
+            .handle_message_json(
+                &serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": HoverRequest::METHOD,
+                    "params": {
+                        "textDocument": { "uri": "file:///workspace/top.sv" },
+                        "position": { "line": 1, "character": 8 }
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap();
+        let hover_poll = server.poll_json().unwrap();
+        let hover_text = format!("{hover}{hover_poll}");
+        assert!(
+            hover_text.starts_with('['),
+            "playground hover must not require vide-elaboration: {hover_text}"
+        );
+
+        let definition = server
+            .handle_message_json(
+                &serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": GotoDefinition::METHOD,
+                    "params": {
+                        "textDocument": { "uri": "file:///workspace/top.sv" },
+                        "position": { "line": 1, "character": 8 }
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap();
+        let definition_poll = server.poll_json().unwrap();
+        let definition_text = format!("{definition}{definition_poll}");
+        assert!(
+            definition_text.starts_with('['),
+            "playground goto must not require vide-elaboration: {definition_text}"
+        );
+    }
 }

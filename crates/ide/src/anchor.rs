@@ -51,11 +51,10 @@ fn project_instance(
         if ids.is_empty() { vec![None] } else { ids.into_iter().map(Some).collect::<Vec<_>>() }
     };
     for profile in profiles {
-        let crate::elaboration::ElabResult::Ready(Some(rows)) =
-            ctx.elab.list_instances(ctx.db, ctx.revision, profile)
-        else {
+        let rows = profile_instances(ctx, profile);
+        if rows.is_empty() {
             continue;
-        };
+        }
         let Some(row) = rows.iter().find(|row| row.path == path.as_str()) else {
             continue;
         };
@@ -68,6 +67,18 @@ fn project_instance(
         return Some(ProjectedAnchor { file, range });
     }
     None
+}
+
+fn profile_instances(
+    ctx: &crate::analysis::AnalysisContext<'_>,
+    profile: Option<base_db::project::CompilationProfileId>,
+) -> Vec<slang_sys::compilation::HierInstance> {
+    let plan = <dyn preproc_expand::db::PreprocDb>::compilation_plan_for_profile(ctx.db, profile);
+    crate::compile::Compiler::new().instances(
+        ctx.db,
+        plan.all_file_ids().iter().copied(),
+        &crate::compile::CompileOptions::for_profile(ctx.db, profile),
+    )
 }
 
 pub(crate) fn file_id_for_slang_path(db: &RootDb, slang_file: &str) -> FileId {
@@ -157,14 +168,8 @@ mod tests {
         let (mut host, file_id) = crate::test_utils::setup_with_path(src, "/top.sv");
         let path = {
             let ctx = host.ctx();
-            let rows = match ctx.elab.list_instances(
-                ctx.db,
-                ctx.revision,
-                ctx.db.file_compilation_profile(file_id),
-            ) {
-                crate::elaboration::ElabResult::Ready(Some(rows)) => rows,
-                other => panic!("expected instances, got {other:?}"),
-            };
+            let rows = profile_instances(&ctx, ctx.db.file_compilation_profile(file_id));
+            assert!(!rows.is_empty(), "expected instances");
             rows.into_iter()
                 .find(|row| row.path.contains("u0"))
                 .map(|row| HierPath::new(row.path))

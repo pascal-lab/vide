@@ -33,7 +33,6 @@ use crate::{
     diagnostics,
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},
-    elaboration::{ElabRevision, ElaborationService},
     folding_ranges::{self, Fold},
     formatting::{self, FmtConfig},
     goto_declaration, goto_definition, hover,
@@ -56,12 +55,11 @@ pub struct AnalysisSnapshot {
     pub(crate) store: Arc<ProductStore>,
     pub(crate) snapshot_id: AnalysisSnapshotId,
     pub(crate) salsa_revision: base_db::salsa::Revision,
-    pub(crate) elab: ElaborationService,
     pub(crate) compiler: StdArc<parking_lot::Mutex<Compiler>>,
 }
 
 /// Read view of one IDE request: the Salsa database, the parse-dependency
-/// store, the keystroke [`Compiler`], and the profile elaboration service.
+/// store, and the keystroke [`Compiler`].
 ///
 /// [`Self::parse_file`] records the file as paid so later resolution can
 /// look at that file's `HirFileId::Macro` owner table. It does not merge
@@ -69,14 +67,12 @@ pub struct AnalysisSnapshot {
 ///
 /// Types, `::`, `.` members, and keystroke goto wait on
 /// [`Compiler::compile`] of the file closure. Hierarchy and specialized
-/// instances may ask [`Self::elab`] when that profile compilation is Ready;
-/// they must not block a keystroke.
+/// instances compile the profile on the calling thread; they must not
+/// wait on a dedicated elaboration worker.
 pub(crate) struct AnalysisContext<'a> {
     pub(crate) db: &'a RootDb,
     pub(crate) store: &'a ProductStore,
-    pub(crate) elab: &'a ElaborationService,
     pub(crate) compiler: Option<&'a parking_lot::Mutex<Compiler>>,
-    pub(crate) revision: ElabRevision,
 }
 
 impl Deref for AnalysisContext<'_> {
@@ -91,11 +87,9 @@ impl AnalysisContext<'_> {
     pub(crate) fn new<'a>(
         db: &'a RootDb,
         store: &'a ProductStore,
-        elab: &'a ElaborationService,
         compiler: Option<&'a parking_lot::Mutex<Compiler>>,
-        revision: ElabRevision,
     ) -> AnalysisContext<'a> {
-        AnalysisContext { db, store, elab, compiler, revision }
+        AnalysisContext { db, store, compiler }
     }
 
     pub(crate) fn keystroke_compilation(
@@ -200,13 +194,7 @@ impl AnalysisSnapshot {
             "an AnalysisSnapshot must never cross Salsa revisions",
         );
         let _span = tracing::debug_span!("ide.analysis", snapshot_id = ?self.snapshot_id).entered();
-        let ctx = AnalysisContext::new(
-            &self.db,
-            &self.store,
-            &self.elab,
-            Some(&self.compiler),
-            self.snapshot_id,
-        );
+        let ctx = AnalysisContext::new(&self.db, &self.store, Some(&self.compiler));
         Cancelled::catch(AssertUnwindSafe(|| f(&ctx)))
     }
 

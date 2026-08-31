@@ -1,6 +1,6 @@
 //! File-closure radius and a calling-thread [`compile`].
 //!
-//! This is the slang door that does not go through [`crate::elaboration`].
+//! This is the slang door for keystroke and profile compilations.
 //! Hover, goto, `.` / `::`, and types wait on [`Compiler::compile`] of the
 //! file-closure radius. Profile diagnostics compile the profile files with
 //! the same function.
@@ -24,7 +24,7 @@ use preproc_expand::{
     db::{CompilationDiagnostic, PreprocDb},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
-use slang_sys::compilation::{Compilation, SourceSession};
+use slang_sys::compilation::{Compilation, HierInstance, SourceSession};
 use syntax::{SyntaxTreeOptions, diagnostics::SyntaxDiagnostic};
 use vfs::FileId;
 
@@ -265,6 +265,16 @@ impl Compiler {
             }
         }
         compilation
+    }
+
+    /// Hierarchical instances on a compilation of `files`.
+    pub fn instances(
+        &mut self,
+        db: &RootDb,
+        files: impl IntoIterator<Item = FileId>,
+        options: &CompileOptions,
+    ) -> Vec<HierInstance> {
+        self.compile(db, files, options).list_instances()
     }
 
     /// Parse + semantic diagnostics on a compilation of `files`.
