@@ -14,6 +14,7 @@
 #include "slang/ast/symbols/SubroutineSymbols.h"
 #include "slang/ast/symbols/VariableSymbols.h"
 #include "slang/ast/types/AllTypes.h"
+#include "slang/syntax/AllSyntax.h"
 #include "slang/text/SourceManager.h"
 #include "slang/util/String.h"
 #include "slang/util/Util.h"
@@ -384,6 +385,13 @@ struct FindAtOffset : slang::ast::ASTVisitor<
                 consider(**sub, node.sourceRange);
         } else if constexpr (std::is_same_v<T, slang::ast::MemberAccessExpression>) {
             consider(node.member, node.sourceRange);
+        } else if constexpr (std::is_same_v<T, slang::ast::InstanceSymbol>) {
+            consider_symbol(node);
+            if (const auto* syntax = node.getSyntax(); syntax && syntax->parent) {
+                if (const auto* hier =
+                        syntax->parent->template as_if<slang::syntax::HierarchyInstantiationSyntax>())
+                    consider(node.getDefinition(), hier->type.range());
+            }
         } else if constexpr (std::is_base_of_v<slang::ast::Symbol, T>) {
             consider_symbol(node);
         }

@@ -440,6 +440,19 @@ endclass
             .expect("instantiation type name must be a symbol");
         assert_eq!(info.name, "child", "{info:?}");
         assert_eq!(info.kind, "Definition", "{info:?}");
+
+        let parameterized = "module child #(parameter WIDTH = 8); endmodule\nmodule top; child #(.WIDTH(64)) u0(); endmodule\n";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(
+            parameterized,
+            "top",
+            path,
+            &SyntaxTreeOptions::default(),
+        );
+        let info = compilation
+            .lookup_symbol(path, parameterized.find("child #").expect("type"))
+            .expect("parameterized instantiation type name must be a symbol");
+        assert_eq!(info.name, "child", "{info:?}");
     }
 
     #[test]
