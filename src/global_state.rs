@@ -319,6 +319,8 @@ impl GlobalState {
     }
 }
 
+#[cfg(test)]
 pub(crate) type QiheDiagnosticState = FileDiagnosticState<lsp_types::Diagnostic>;
+#[cfg(test)]
 pub(crate) type AnchoredQiheDiagnostic =
     crate::global_state::diagnostics::AnchoredDiagnostic<lsp_types::Diagnostic>;

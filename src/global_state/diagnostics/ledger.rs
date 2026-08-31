@@ -118,7 +118,11 @@ pub(crate) fn append_freshness_note(message: &mut String, note: &str) {
 }
 
 /// One elaborated instance captured from a profile compilation.
+///
+/// The profile compiler writes these; P6 request path reads them through
+/// [`InstanceLedger::projected`].
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub(crate) struct AnchoredInstance {
     pub path: ide::hier::HierPath,
     pub file: FileId,
@@ -131,6 +135,7 @@ pub(crate) struct InstanceLedger {
 }
 
 #[derive(Clone, Default)]
+#[allow(dead_code)]
 struct InstanceLedgerInner {
     captured_snapshot: AnalysisSnapshotId,
     items: Vec<AnchoredInstance>,
@@ -145,6 +150,7 @@ impl InstanceLedger {
         *self.inner.lock() = InstanceLedgerInner { captured_snapshot, items };
     }
 
+    #[allow(dead_code)]
     pub(crate) fn projected(
         &self,
         analysis: &ide::analysis::AnalysisSnapshot,
@@ -162,6 +168,7 @@ impl InstanceLedger {
             .collect()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn edits_ago(&self, current: AnalysisSnapshotId) -> u64 {
         edits_ago(current, self.inner.lock().captured_snapshot)
     }

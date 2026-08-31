@@ -23,23 +23,17 @@ pub(crate) fn goto_definition(
     db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    match this_file_units(db, file_id, offset) {
-        Some((units, range)) => Some(RangeInfo::new(
-            range,
-            units.into_iter().map(|unit| nav_from_unit(db, unit)).collect(),
-        )),
-        None => None,
-    }
+    this_file_units(db, file_id, offset).map(|(units, range)| {
+        RangeInfo::new(range, units.into_iter().map(|unit| nav_from_unit(db, unit)).collect())
+    })
 }
 
 pub(crate) fn hover(
     db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Markup>> {
-    match this_file_units(db, file_id, offset) {
-        Some((units, range)) => Some(RangeInfo::new(range, hover_targets(db, &units))),
-        None => None,
-    }
+    this_file_units(db, file_id, offset)
+        .map(|(units, range)| RangeInfo::new(range, hover_targets(db, &units)))
 }
 
 fn this_file_units(
