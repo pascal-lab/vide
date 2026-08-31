@@ -2,12 +2,114 @@ mod ffi;
 
 use std::pin::Pin;
 
-use cxx::UniquePtr;
+use cxx::{SharedPtr, UniquePtr};
 
 use crate::{
     diagnostic::SyntaxDiagnostic,
-    syntax::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions},
+    syntax::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions, ffi as syntax_ffi},
 };
+
+/// A `SourceManager` that outlives the compilations built on it.
+///
+/// Parse trees belong to the session. A [`Compilation`] is a value: add trees,
+/// query, drop. Editing a file is [`Self::replace_buffer`], not a new session.
+pub struct SourceSession {
+    raw: SharedPtr<syntax_ffi::SourceSession>,
+}
+
+/// What [`SourceSession::replace_buffer`] did to buffer ids.
+///
+/// Stock slang cannot `assignText` the same path twice. Replace therefore
+/// allocates a **new** [`Self::new_id`] and keeps the old id valid (it still
+/// names the previous text, so trees parsed before the replace keep working).
+/// Subsequent parse/lookup of the caller path uses `new_id`. `old_id == new_id`
+/// means the text was unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BufferReplace {
+    pub old_id: u32,
+    pub new_id: u32,
+}
+
+impl SourceSession {
+    pub fn new() -> Self {
+        Self { raw: syntax_ffi::new_source_session() }
+    }
+
+    pub fn assign(&self, path: &str, text: &str) {
+        syntax_ffi::source_session_assign_text(self.raw.clone(), path, text);
+    }
+
+    /// Put new text at an already-assigned path.
+    ///
+    /// This is the edit step, not a new session and not a new compilation.
+    /// Slang's `SourceManager` keys buffers by path and refuses a second
+    /// `assignText` of the same path, so an edit cannot be another assign.
+    /// Replace keeps the session, gives the path a new buffer id, and leaves
+    /// the old id valid so trees parsed before the edit keep their text.
+    ///
+    /// The compile cycle after an edit is: replace the dirty path → reparse
+    /// only that path → `Compilation::on` this session → add the new tree
+    /// plus the unchanged trees.
+    pub fn replace_buffer(&self, path: &str, text: &str) -> BufferReplace {
+        let raw = syntax_ffi::source_session_replace_buffer(self.raw.clone(), path, text);
+        BufferReplace { old_id: raw.old_id, new_id: raw.new_id }
+    }
+
+    pub fn parse(&self, name: &str, path: &str, options: &SyntaxTreeOptions) -> SyntaxTree {
+        SyntaxTree::from_raw(syntax_ffi::source_session_parse(
+            self.raw.clone(),
+            name,
+            path,
+            options.predefines.clone(),
+            options.include_paths.clone(),
+            options.expand_includes,
+            options.collect_expected_syntax,
+            options.expected_syntax_offset.unwrap_or_default(),
+            options.expected_syntax_offset.is_some(),
+        ))
+    }
+
+    pub fn parse_text(
+        &self,
+        text: &str,
+        name: &str,
+        path: &str,
+        options: &SyntaxTreeOptions,
+    ) -> SyntaxTree {
+        SyntaxTree::from_raw(syntax_ffi::source_session_parse_text(
+            self.raw.clone(),
+            text,
+            name,
+            path,
+            options.predefines.clone(),
+            options.include_paths.clone(),
+            options.expand_includes,
+            options.collect_expected_syntax,
+            options.expected_syntax_offset.unwrap_or_default(),
+            options.expected_syntax_offset.is_some(),
+        ))
+    }
+
+    pub fn parse_count(&self) -> u32 {
+        syntax_ffi::source_session_parse_count(self.raw.clone())
+    }
+
+    pub fn buffer_id(&self, path: &str) -> u32 {
+        syntax_ffi::source_session_buffer_id(self.raw.clone(), path)
+    }
+}
+
+impl Default for SourceSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Clone for SourceSession {
+    fn clone(&self) -> Self {
+        Self { raw: self.raw.clone() }
+    }
+}
 
 pub struct Compilation {
     raw: UniquePtr<ffi::Compilation>,
@@ -53,6 +155,16 @@ impl Compilation {
 
     pub fn new_with_top_modules(top_modules: &[String]) -> Self {
         Self { raw: ffi::new_compilation(top_modules.to_vec()) }
+    }
+
+    /// A compilation that uses `session`'s source manager. Dropping it does
+    /// not drop the session or the trees parsed on it.
+    pub fn on(session: &SourceSession) -> Self {
+        Self::on_with_top_modules(session, &[])
+    }
+
+    pub fn on_with_top_modules(session: &SourceSession, top_modules: &[String]) -> Self {
+        Self { raw: ffi::new_compilation_on_session(session.raw.clone(), top_modules.to_vec()) }
     }
 
     pub fn add_syntax_tree(&mut self, tree: &SyntaxTree) {
@@ -532,5 +644,81 @@ endmodule
 
         assert_eq!(tree.root().kind(), SyntaxKind::COMPILATION_UNIT);
         assert!(compilation.parse_diagnostics_with_options(&[]).is_empty());
+    }
+
+    #[test]
+    fn session_outlives_compilation() {
+        let session = SourceSession::new();
+        let tree =
+            session.parse_text("module m; endmodule\n", "m", "m.sv", &SyntaxTreeOptions::default());
+        let mut first = Compilation::on(&session);
+        first.add_syntax_tree(&tree);
+        drop(first);
+        let mut second = Compilation::on(&session);
+        second.add_syntax_tree(&tree);
+        assert!(second.parse_diagnostics_with_options(&[]).is_empty());
+    }
+
+    #[test]
+    fn replace_buffer_allocates_a_new_id_and_leaves_the_old_tree() {
+        let session = SourceSession::new();
+        session.assign("a.sv", "module a; endmodule\n");
+        session.assign("b.sv", "module b; endmodule\n");
+        let tree_a = session.parse("a", "a.sv", &SyntaxTreeOptions::default());
+        let _tree_b = session.parse("b", "b.sv", &SyntaxTreeOptions::default());
+        let old_a = session.buffer_id("a.sv");
+        let old_b = session.buffer_id("b.sv");
+
+        let replaced = session.replace_buffer("a.sv", "module a; logic x; endmodule\n");
+        assert_eq!(replaced.old_id, old_a, "old id is the buffer the previous parse used");
+        assert_ne!(replaced.new_id, old_a, "replace allocates a new BufferID");
+        assert_eq!(session.buffer_id("a.sv"), replaced.new_id);
+        assert_eq!(session.buffer_id("b.sv"), old_b, "b.sv is untouched");
+        assert_eq!(
+            tree_a.root().kind(),
+            SyntaxKind::COMPILATION_UNIT,
+            "the old BufferID remains valid: trees parsed before replace keep working"
+        );
+    }
+
+    #[test]
+    fn a_session_tree_is_reused_on_a_new_compilation() {
+        let pkg = "package pkg;\n  class leaf;\n    string m_leaf_name;\n  endclass\nendpackage\n";
+        let user = "module top;\n  import pkg::*;\n  leaf inst;\n  initial inst.m_leaf_name = \"x\";\nendmodule\n";
+        let user_edit = "module top;\n  import pkg::*;\n  leaf inst;\n  initial inst.m_leaf_name = \"y\";\nendmodule\n";
+        let session = SourceSession::new();
+        let pkg_tree = session.parse_text(pkg, "pkg", "pkg.sv", &SyntaxTreeOptions::default());
+        let user_tree = session.parse_text(user, "user", "user.sv", &SyntaxTreeOptions::default());
+        assert_eq!(session.parse_count(), 2);
+
+        let mut first = Compilation::on(&session);
+        first.add_syntax_tree(&pkg_tree);
+        first.add_syntax_tree(&user_tree);
+        let offset = user.find("m_leaf_name").expect("use");
+        let info = first
+            .lookup_symbol("user.sv", offset)
+            .expect("C1 must see the class member through the import");
+        assert!(info.type_name.contains("string"), "{info:?}");
+        assert_eq!(info.owner_class, "leaf", "{info:?}");
+        drop(first);
+
+        let replaced = session.replace_buffer("user.sv", user_edit);
+        assert_ne!(replaced.old_id, replaced.new_id);
+        let user_tree = session.parse("user", "user.sv", &SyntaxTreeOptions::default());
+        assert_eq!(session.parse_count(), 3, "pkg.sv must not be parsed a second time");
+
+        let mut second = Compilation::on(&session);
+        second.add_syntax_tree(&pkg_tree);
+        second.add_syntax_tree(&user_tree);
+        let info = second
+            .lookup_symbol("user.sv", user_edit.find("m_leaf_name").expect("use"))
+            .expect("C2 must see the member after reusing the pkg tree");
+        assert!(info.type_name.contains("string"), "{info:?}");
+        assert!(second.parse_diagnostics_with_options(&[]).is_empty());
+        let semantic = second.semantic_diagnostics_with_options(&[]);
+        assert!(
+            semantic.iter().all(|d| d.severity != crate::diagnostic::DiagnosticSeverity::Error),
+            "{semantic:?}"
+        );
     }
 }

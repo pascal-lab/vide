@@ -23,6 +23,10 @@ struct HierInstanceAnswer;
 class Compilation {
   public:
     explicit Compilation(std::vector<std::string> top_modules);
+    Compilation(
+        std::shared_ptr<syntax::SourceSession> session,
+        std::vector<std::string> top_modules
+    );
 
     std::vector<std::string> top_modules;
     std::shared_ptr<syntax::SourceSession> session;
@@ -30,6 +34,10 @@ class Compilation {
 };
 
 std::unique_ptr<Compilation> new_compilation(rust::Vec<rust::String> top_modules);
+std::unique_ptr<Compilation> new_compilation_on_session(
+    std::shared_ptr<syntax::SourceSession> session,
+    rust::Vec<rust::String> top_modules
+);
 std::shared_ptr<syntax::SyntaxTree> parse_syntax_tree_from_text(
     Compilation& compilation,
     rust::Str text,

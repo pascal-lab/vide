@@ -116,6 +116,7 @@ namespace slang_sys::syntax {
         if (!source_buffer)
             throw std::logic_error("Slang failed to assign source buffer");
         source_buffers.emplace(it->first, source_buffer);
+        assigned_paths.emplace(source_buffer.id.getId(), it->first);
     }
 
     void SourceSession::assign_include_buffer(std::string path, std::string text) {
@@ -128,6 +129,60 @@ namespace slang_sys::syntax {
             throw std::logic_error(
                 "source buffer was not registered: " + std::string(path));
         return it->second;
+    }
+
+    std::pair<uint32_t, uint32_t> SourceSession::replace_buffer(std::string path, std::string text) {
+        auto existing = source_buffers.find(path);
+        if (existing == source_buffers.end())
+            throw std::logic_error("replaceBuffer of a path that was never assigned: " + path);
+
+        uint32_t old_id = existing->second.id.getId();
+        auto text_it = buffers.find(path);
+        if (text_it != buffers.end() && text_it->second == text)
+            return { old_id, old_id };
+
+        // Stock slang SourceManager::assignText throws if the path is already
+        // cached. A new BufferID is allocated under a private alias; the caller
+        // path still names the latest buffer. The old BufferID stays valid and
+        // still names the previous text, so trees parsed before the replace keep
+        // working. This is the slang-server replaceBuffer policy (new id, old id
+        // alive) without patching SourceManager.
+        replace_generation++;
+        std::string alias =
+            "<vide-replace/" + std::to_string(replace_generation) + ">" + path;
+        buffers[path] = std::move(text);
+        auto source_buffer = source_manager.assignText(alias, buffers[path]);
+        if (!source_buffer)
+            throw std::logic_error("Slang failed to assign replaced source buffer");
+        source_buffers[path] = source_buffer;
+        assigned_paths.emplace(source_buffer.id.getId(), path);
+        return { old_id, source_buffer.id.getId() };
+    }
+
+    uint32_t SourceSession::buffer_id(std::string_view path) const {
+        return source_buffer(path).id.getId();
+    }
+
+    std::string SourceSession::path_for_buffer(uint32_t id) const {
+        auto it = assigned_paths.find(id);
+        if (it == assigned_paths.end())
+            return {};
+        return it->second;
+    }
+
+    std::optional<slang::SourceBuffer> SourceSession::latest_buffer(std::string_view path) const {
+        auto it = source_buffers.find(std::string(path));
+        if (it == source_buffers.end())
+            return std::nullopt;
+        return it->second;
+    }
+
+    void SourceSession::note_parse() {
+        parses++;
+    }
+
+    uint32_t SourceSession::parse_count() const {
+        return parses;
     }
 
     SyntaxTree::SyntaxTree(
@@ -211,6 +266,8 @@ namespace slang_sys::syntax::tree {
         if (source_buffers.empty())
             throw std::logic_error("Slang syntax tree has no root source buffer");
         auto root_buffer_id = source_buffers.front().getId();
+        if (session)
+            session->note_parse();
         auto result = std::make_shared<SyntaxTree>(
             std::move(tree), std::move(session), root_buffer_id);
         if (!result->tree)
@@ -489,6 +546,114 @@ namespace slang_sys::syntax::tree {
             "Slang failed to create library map syntax tree from buffer"
         );
     }
+
+} // namespace slang_sys::syntax::tree
+
+namespace slang_sys::syntax {
+
+    std::shared_ptr<SourceSession> new_source_session() {
+        return std::make_shared<SourceSession>();
+    }
+
+    void source_session_assign_text(
+        std::shared_ptr<SourceSession> session,
+        rust::Str path,
+        rust::Str text
+    ) {
+        if (!session)
+            throw std::invalid_argument("source session must be valid");
+        session->assign_source_buffer(
+            std::string(path.data(), path.size()),
+            std::string(text.data(), text.size())
+        );
+    }
+
+    BufferReplace source_session_replace_buffer(
+        std::shared_ptr<SourceSession> session,
+        rust::Str path,
+        rust::Str text
+    ) {
+        if (!session)
+            throw std::invalid_argument("source session must be valid");
+        auto [old_id, new_id] = session->replace_buffer(
+            std::string(path.data(), path.size()),
+            std::string(text.data(), text.size())
+        );
+        return BufferReplace { old_id, new_id };
+    }
+
+    std::shared_ptr<SyntaxTree> source_session_parse(
+        std::shared_ptr<SourceSession> session,
+        rust::Str name,
+        rust::Str path,
+        rust::Vec<rust::String> predefines,
+        rust::Vec<rust::String> include_paths,
+        bool expand_includes,
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
+    ) {
+        if (!session)
+            throw std::invalid_argument("source session must be valid");
+        return tree::parse_syntax_tree_from_buffer_with_session(
+            session,
+            name,
+            path,
+            std::move(predefines),
+            std::move(include_paths),
+            expand_includes,
+            collect_expected_syntax,
+            expected_syntax_offset,
+            has_expected_syntax_offset
+        );
+    }
+
+    std::shared_ptr<SyntaxTree> source_session_parse_text(
+        std::shared_ptr<SourceSession> session,
+        rust::Str text,
+        rust::Str name,
+        rust::Str path,
+        rust::Vec<rust::String> predefines,
+        rust::Vec<rust::String> include_paths,
+        bool expand_includes,
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
+    ) {
+        if (!session)
+            throw std::invalid_argument("source session must be valid");
+        session->assign_source_buffer(
+            std::string(path.data(), path.size()),
+            std::string(text.data(), text.size())
+        );
+        return tree::parse_syntax_tree_from_buffer_with_session(
+            session,
+            name,
+            path,
+            std::move(predefines),
+            std::move(include_paths),
+            expand_includes,
+            collect_expected_syntax,
+            expected_syntax_offset,
+            has_expected_syntax_offset
+        );
+    }
+
+    uint32_t source_session_parse_count(std::shared_ptr<SourceSession> session) {
+        if (!session)
+            throw std::invalid_argument("source session must be valid");
+        return session->parse_count();
+    }
+
+    uint32_t source_session_buffer_id(std::shared_ptr<SourceSession> session, rust::Str path) {
+        if (!session)
+            throw std::invalid_argument("source session must be valid");
+        return session->buffer_id(std::string(path.data(), path.size()));
+    }
+
+} // namespace slang_sys::syntax
+
+namespace slang_sys::syntax::tree {
 
     namespace {
 

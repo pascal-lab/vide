@@ -45,13 +45,29 @@ std::vector<std::string> to_std_strings(const rust::Vec<rust::String>& values) {
 
 } // namespace
 
-Compilation::Compilation(std::vector<std::string> top_modules) :
+Compilation::Compilation(
+    std::shared_ptr<syntax::SourceSession> session,
+    std::vector<std::string> top_modules
+) :
     top_modules(std::move(top_modules)),
-    session(std::make_shared<syntax::SourceSession>()),
-    inner(std::make_unique<::slang::ast::Compilation>(make_options(this->top_modules))) {}
+    session(std::move(session)),
+    inner(std::make_unique<::slang::ast::Compilation>(make_options(this->top_modules))) {
+    if (!this->session)
+        throw std::invalid_argument("compilation session must be valid");
+}
+
+Compilation::Compilation(std::vector<std::string> top_modules) :
+    Compilation(std::make_shared<syntax::SourceSession>(), std::move(top_modules)) {}
 
 std::unique_ptr<Compilation> new_compilation(rust::Vec<rust::String> top_modules) {
     return std::make_unique<Compilation>(to_std_strings(top_modules));
+}
+
+std::unique_ptr<Compilation> new_compilation_on_session(
+    std::shared_ptr<syntax::SourceSession> session,
+    rust::Vec<rust::String> top_modules
+) {
+    return std::make_unique<Compilation>(std::move(session), to_std_strings(top_modules));
 }
 
 std::shared_ptr<syntax::SyntaxTree> parse_syntax_tree_from_text(
@@ -208,26 +224,45 @@ namespace {
 
 // Path we handed `assignText`. `getRawFileName` is not that: SourceSession
 // sets disableProximatePaths, so cacheBuffer stores only path.filename()
-// in FileData::name. FileData::fullPath is the assigned spelling.
-std::string assigned_path(const slang::SourceManager& sm, slang::BufferID buffer) {
-    auto full = sm.getFullPath(buffer);
+// in FileData::name. FileData::fullPath is the assigned spelling. After
+// replace_buffer the SourceManager path is a private alias; the session
+// still reports the caller path.
+std::string assigned_path(const Compilation& compilation, slang::BufferID buffer) {
+    if (compilation.session) {
+        auto path = compilation.session->path_for_buffer(buffer.getId());
+        if (!path.empty())
+            return path;
+    }
+    const auto *sm = compilation.inner ? compilation.inner->getSourceManager() : nullptr;
+    if (!sm)
+        return {};
+    auto full = sm->getFullPath(buffer);
     if (!full.empty())
         return slang::getU8Str(full);
-    return std::string(sm.getRawFileName(buffer));
+    return std::string(sm->getRawFileName(buffer));
 }
 
 // Resolve the query path once. Per-symbol string compares were the T4 slice
 // cost; a live compilation has thousands of symbols and that does not scale.
+// Prefer the session's latest buffer so a replace_buffer does not leave
+// lookup hitting the stale id that still carries the same caller path.
 std::optional<slang::BufferID> buffer_for_path(
-    const slang::SourceManager& sm,
+    const Compilation& compilation,
     std::string_view want
 ) {
-    for (auto buffer : sm.getAllBuffers()) {
-        auto kind = sm.getBufferKind(buffer);
+    if (compilation.session) {
+        if (auto latest = compilation.session->latest_buffer(want))
+            return latest->id;
+    }
+    const auto *sm = compilation.inner ? compilation.inner->getSourceManager() : nullptr;
+    if (!sm)
+        return std::nullopt;
+    for (auto buffer : sm->getAllBuffers()) {
+        auto kind = sm->getBufferKind(buffer);
         if (kind == slang::SourceManager::BufferKind::Macro ||
             kind == slang::SourceManager::BufferKind::MacroArg)
             continue;
-        if (assigned_path(sm, buffer) == want)
+        if (assigned_path(compilation, buffer) == want)
             return buffer;
     }
     return std::nullopt;
@@ -277,7 +312,7 @@ std::string type_of_symbol(const slang::ast::Symbol& symbol) {
 
 void fill_symbol(
     const slang::ast::Symbol& symbol,
-    const slang::SourceManager& sm,
+    const Compilation& compilation,
     SymbolAnswer& out
 ) {
     out.found = true;
@@ -285,7 +320,7 @@ void fill_symbol(
     out.kind = rust::String(std::string(toString(symbol.kind)));
     out.type_name = rust::String(type_of_symbol(symbol));
     if (symbol.location.valid()) {
-        out.def_file = rust::String(assigned_path(sm, symbol.location.buffer()));
+        out.def_file = rust::String(assigned_path(compilation, symbol.location.buffer()));
         out.def_offset = symbol.location.offset();
     }
     if (const auto* scope = symbol.getParentScope()) {
@@ -373,13 +408,13 @@ SymbolAnswer lookup_symbol(
     if (!sm)
         return out;
     std::string path_owned(path.data(), path.size());
-    auto buffer = buffer_for_path(*sm, path_owned);
+    auto buffer = buffer_for_path(compilation, path_owned);
     if (!buffer)
         return out;
     FindAtOffset finder(*sm, *buffer, offset);
     root.visit(finder);
     if (finder.best)
-        fill_symbol(*finder.best, *sm, out);
+        fill_symbol(*finder.best, compilation, out);
     return out;
 }
 
@@ -584,7 +619,7 @@ SymbolAnswer lookup_scoped(
         found = scope ? scope->lookupName(right_s) : nullptr;
     }
     if (found)
-        fill_symbol(*found, *sm, out);
+        fill_symbol(*found, compilation, out);
     return out;
 }
 
@@ -601,7 +636,7 @@ rust::Vec<MemberAnswer> list_members(
     if (!sm)
         return out;
     std::string path_owned(path.data(), path.size());
-    auto buffer = buffer_for_path(*sm, path_owned);
+    auto buffer = buffer_for_path(compilation, path_owned);
     if (!buffer)
         return out;
     FindAtOffset finder(*sm, *buffer, offset);
@@ -642,7 +677,7 @@ TypeAnswer lookup_type(
     if (!sm)
         return out;
     std::string path_owned(path.data(), path.size());
-    auto buffer = buffer_for_path(*sm, path_owned);
+    auto buffer = buffer_for_path(compilation, path_owned);
     if (!buffer)
         return out;
     FindType finder(*sm, *buffer, start, end);
@@ -658,7 +693,7 @@ namespace {
 
 void collect_instances(
     const slang::ast::Scope& scope,
-    const slang::SourceManager& sm,
+    const Compilation& compilation,
     rust::Vec<HierInstanceAnswer>& out
 ) {
     for (const auto& member : scope.members()) {
@@ -666,17 +701,17 @@ void collect_instances(
             HierInstanceAnswer row;
             row.path = rust::String(inst->getHierarchicalPath());
             if (inst->location.valid()) {
-                row.file = rust::String(assigned_path(sm, inst->location.buffer()));
+                row.file = rust::String(assigned_path(compilation, inst->location.buffer()));
                 row.offset = inst->location.offset();
             }
             out.push_back(std::move(row));
-            collect_instances(inst->body, sm, out);
+            collect_instances(inst->body, compilation, out);
         } else if (const auto* pkg = member.as_if<slang::ast::PackageSymbol>()) {
-            collect_instances(*pkg, sm, out);
+            collect_instances(*pkg, compilation, out);
         } else if (const auto* cu = member.as_if<slang::ast::CompilationUnitSymbol>()) {
-            collect_instances(*cu, sm, out);
+            collect_instances(*cu, compilation, out);
         } else if (const auto* body = member.as_if<slang::ast::InstanceBodySymbol>()) {
-            collect_instances(*body, sm, out);
+            collect_instances(*body, compilation, out);
         }
     }
 }
@@ -691,7 +726,7 @@ rust::Vec<HierInstanceAnswer> list_instances(Compilation& compilation) {
     const auto* sm = compilation.inner->getSourceManager();
     if (!sm)
         return out;
-    collect_instances(root, *sm, out);
+    collect_instances(root, compilation, out);
     return out;
 }
 

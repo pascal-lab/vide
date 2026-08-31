@@ -155,12 +155,52 @@ mod slang_ffi {
         has_buffer_id: bool,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct BufferReplace {
+        old_id: u32,
+        new_id: u32,
+    }
+
     unsafe extern "C++" {
         include!("syntax/wrapper.h");
 
         type SyntaxTree;
         type SyntaxNode;
         type SyntaxToken;
+        type SourceSession;
+
+        fn new_source_session() -> SharedPtr<SourceSession>;
+        fn source_session_assign_text(session: SharedPtr<SourceSession>, path: &str, text: &str);
+        fn source_session_replace_buffer(
+            session: SharedPtr<SourceSession>,
+            path: &str,
+            text: &str,
+        ) -> BufferReplace;
+        fn source_session_parse(
+            session: SharedPtr<SourceSession>,
+            name: &str,
+            path: &str,
+            predefines: Vec<String>,
+            include_paths: Vec<String>,
+            expand_includes: bool,
+            collect_expected_syntax: bool,
+            expected_syntax_offset: usize,
+            has_expected_syntax_offset: bool,
+        ) -> SharedPtr<SyntaxTree>;
+        fn source_session_parse_text(
+            session: SharedPtr<SourceSession>,
+            text: &str,
+            name: &str,
+            path: &str,
+            predefines: Vec<String>,
+            include_paths: Vec<String>,
+            expand_includes: bool,
+            collect_expected_syntax: bool,
+            expected_syntax_offset: usize,
+            has_expected_syntax_offset: bool,
+        ) -> SharedPtr<SyntaxTree>;
+        fn source_session_parse_count(session: SharedPtr<SourceSession>) -> u32;
+        fn source_session_buffer_id(session: SharedPtr<SourceSession>, path: &str) -> u32;
     }
 
     #[namespace = "slang_sys::syntax::tree"]

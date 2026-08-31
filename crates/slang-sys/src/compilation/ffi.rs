@@ -60,6 +60,7 @@ mod slang_ffi {
         include!("syntax/wrapper.h");
 
         type SyntaxTree = crate::syntax::ffi::SyntaxTree;
+        type SourceSession = crate::syntax::ffi::SourceSession;
     }
 
     #[namespace = "slang_sys::diagnostic"]
@@ -76,6 +77,10 @@ mod slang_ffi {
         type Compilation;
 
         fn new_compilation(top_modules: Vec<String>) -> UniquePtr<Compilation>;
+        fn new_compilation_on_session(
+            session: SharedPtr<SourceSession>,
+            top_modules: Vec<String>,
+        ) -> UniquePtr<Compilation>;
         fn parse_syntax_tree_from_text(
             compilation: Pin<&mut Compilation>,
             text: &str,
