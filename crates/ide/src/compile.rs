@@ -968,4 +968,80 @@ mod tests {
             compiler.diagnostics(&db, [TOP], &CompileOptions::for_file(&db, TOP), &config);
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
+
+    fn db_without_profile(entries: &[(FileId, &str, &str)]) -> RootDb {
+        let mut file_set = FileSet::default();
+        let mut change = Change::new();
+        for (file_id, path, text) in entries {
+            file_set.insert(*file_id, VfsPath::from(abs_path(path)));
+            change.add_changed_file(ChangedFile::create(*file_id, *text));
+        }
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_project_config(Arc::new(ProjectConfig::new(Vec::new(), Vec::new())));
+        let mut db = RootDb::new(None);
+        db.apply_change(change);
+        db
+    }
+
+    #[test]
+    fn file_closure_of_an_orphan_is_this_file_and_includes() {
+        let header = FileId::from_raw(2);
+        let db = db_without_profile(&[
+            (USER, "user.sv", "`include \"defs.svh\"\nmodule top;\n  import pkg::*;\nendmodule\n"),
+            (PKG, "pkg.sv", "package pkg;\nendpackage\n"),
+            (header, "defs.svh", "`define ENABLE 1\n"),
+        ]);
+        let closure = file_closure(&db, USER);
+        assert!(closure.contains(USER), "{:?}", closure.files());
+        assert!(
+            closure.contains(header),
+            "orphan files still walk the include graph: {:?}",
+            closure.files()
+        );
+        assert!(
+            !closure.contains(PKG),
+            "unconfigured files must not pull named packages from the catalog: {:?}",
+            closure.files()
+        );
+    }
+
+    #[test]
+    fn file_closure_keeps_every_duplicate_module_candidate() {
+        let child_a = FileId::from_raw(2);
+        let child_b = FileId::from_raw(3);
+        let db = db_with_files(&[
+            (TOP, "top.sv", "module top;\n  child u();\nendmodule\n"),
+            (child_a, "a/child.sv", "module child;\nendmodule\n"),
+            (child_b, "b/child.sv", "module child;\nendmodule\n"),
+        ]);
+        let closure = file_closure(&db, TOP);
+        assert!(closure.contains(TOP), "{:?}", closure.files());
+        assert!(
+            closure.contains(child_a) && closure.contains(child_b),
+            "duplicate module names contribute every catalog candidate: {:?}",
+            closure.files()
+        );
+    }
+
+    #[test]
+    fn include_cycle_keeps_files_that_are_not_covered_by_remaining_roots() {
+        let a = FileId::from_raw(0);
+        let b = FileId::from_raw(1);
+        let db = db_with_files(&[
+            (a, "a.sv", "`include \"b.sv\"\nmodule a;\nendmodule\n"),
+            (b, "b.sv", "`include \"a.sv\"\nmodule b;\nendmodule\n"),
+        ]);
+        let mut compiler = Compiler::new();
+        let _ = compiler.compile(
+            &db,
+            [a, b],
+            &CompileOptions::for_profile(&db, db.file_compilation_profile(a)),
+        );
+        assert_eq!(
+            compiler.session().parse_count(),
+            2,
+            "an include cycle must not drop a CU that no remaining root covers"
+        );
+    }
+
 }
