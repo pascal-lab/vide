@@ -161,6 +161,7 @@ pub struct Compiler {
     trees: FxHashMap<FileId, syntax::SyntaxTree>,
     hashes: FxHashMap<FileId, u64>,
     assigned: FxHashMap<String, String>,
+    parse_fingerprint: u64,
 }
 
 /// C++ `shared_ptr` is not `Send` in cxx. Access is exclusive through
@@ -174,6 +175,7 @@ impl Compiler {
             trees: FxHashMap::default(),
             hashes: FxHashMap::default(),
             assigned: FxHashMap::default(),
+            parse_fingerprint: 0,
         }
     }
 
@@ -210,11 +212,11 @@ impl Compiler {
 
         let mut current_hashes = FxHashMap::default();
         for &file in &files {
-            current_hashes.insert(file, hash_text(&db.file_text(file)));
+            current_hashes.insert(file, hash_file(db, file));
             self.put_text(db, file);
             if db.file_kind(file).is_semantic_compilation_unit() {
                 for &included in <dyn PreprocDb>::static_include_closure(db, file).files() {
-                    current_hashes.insert(included, hash_text(&db.file_text(included)));
+                    current_hashes.insert(included, hash_file(db, included));
                 }
                 for buffer in compilation_plan::assigned_include_buffers_for_file(db, file) {
                     current_hashes.insert(buffer.file_id, hash_text(&buffer.text));
@@ -233,10 +235,11 @@ impl Compiler {
             expand_includes: true,
             ..SyntaxTreeOptions::default()
         };
+        let parse_fingerprint = parse_fingerprint(options, &parse_options, extra);
 
         let roots = parse_roots(db, &files);
         for &file in &roots {
-            if self.cu_is_fresh(db, file, &current_hashes, &files, extra) {
+            if self.cu_is_fresh(db, file, &current_hashes, &files, extra, parse_fingerprint) {
                 continue;
             }
             let path = compilation_plan::source_buffer_path(db, file).to_string();
@@ -251,6 +254,7 @@ impl Compiler {
             self.trees.insert(file, tree);
         }
         self.hashes = current_hashes;
+        self.parse_fingerprint = parse_fingerprint;
 
         let mut compilation = if options.top_modules.is_empty() {
             Compilation::on(&self.session)
@@ -361,7 +365,11 @@ impl Compiler {
         current: &FxHashMap<FileId, u64>,
         files: &[FileId],
         extra: &[compilation_plan::AssignedIncludeBuffer],
+        parse_fingerprint: u64,
     ) -> bool {
+        if self.parse_fingerprint != parse_fingerprint {
+            return false;
+        }
         if !self.trees.contains_key(&file) {
             return false;
         }
@@ -456,6 +464,31 @@ fn parse_roots(db: &RootDb, files: &[FileId]) -> Vec<FileId> {
 fn hash_text(text: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     text.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn hash_file(db: &RootDb, file: FileId) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    db.file_text(file).hash(&mut hasher);
+    db.file_kind(file).hash(&mut hasher);
+    hasher.finish()
+}
+
+fn parse_fingerprint(
+    options: &CompileOptions,
+    parse_options: &SyntaxTreeOptions,
+    extra: &[compilation_plan::AssignedIncludeBuffer],
+) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    options.predefines.hash(&mut hasher);
+    options.include_dirs.hash(&mut hasher);
+    parse_options.expand_includes.hash(&mut hasher);
+    parse_options.collect_expected_syntax.hash(&mut hasher);
+    parse_options.expected_syntax_offset.hash(&mut hasher);
+    for buffer in extra {
+        buffer.path.hash(&mut hasher);
+        buffer.text.hash(&mut hasher);
+    }
     hasher.finish()
 }
 
