@@ -21,6 +21,8 @@ pub mod navigation_target;
 pub mod render;
 pub mod source_change;
 
+#[cfg(test)]
+mod closure_measure;
 pub mod code_action;
 pub mod code_lens;
 pub(crate) mod compile;
