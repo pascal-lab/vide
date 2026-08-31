@@ -51,14 +51,17 @@ fn project_instance(
         if ids.is_empty() { vec![None] } else { ids.into_iter().map(Some).collect::<Vec<_>>() }
     };
     for profile in profiles {
-        let rows = profile_instances(ctx, profile);
+        let mut artifact = ctx.profile_compilation(profile);
+        let rows = artifact.list_instances();
         if rows.is_empty() {
             continue;
         }
         let Some(row) = rows.iter().find(|row| row.path == path.as_str()) else {
             continue;
         };
-        let file = file_id_for_slang_path(ctx.db, &row.file);
+        let file = artifact.file_id_for_path(&row.file).unwrap_or_else(|| {
+            panic!("elaboration reported a buffer path that was not assigned: {}", row.file)
+        });
         let tail = path.as_str().rsplit('.').next().unwrap_or(path.as_str());
         let name_len = tail.find('[').unwrap_or(tail.len());
         let start = utils::line_index::TextSize::from(row.offset as u32);
@@ -67,18 +70,6 @@ fn project_instance(
         return Some(ProjectedAnchor { file, range });
     }
     None
-}
-
-fn profile_instances(
-    ctx: &crate::analysis::AnalysisContext<'_>,
-    profile: Option<base_db::project::CompilationProfileId>,
-) -> Vec<slang_sys::compilation::HierInstance> {
-    let plan = <dyn preproc_expand::db::PreprocDb>::compilation_plan_for_profile(ctx.db, profile);
-    crate::compile::Compiler::new().instances(
-        ctx.db,
-        plan.all_file_ids().iter().copied(),
-        &crate::compile::CompileOptions::for_profile(ctx.db, profile),
-    )
 }
 
 pub fn file_id_for_slang_path(db: &RootDb, slang_file: &str) -> FileId {
@@ -168,7 +159,8 @@ mod tests {
         let (mut host, file_id) = crate::test_utils::setup_with_path(src, "/top.sv");
         let path = {
             let ctx = host.ctx();
-            let rows = profile_instances(&ctx, ctx.db.file_compilation_profile(file_id));
+            let mut artifact = ctx.profile_compilation(ctx.db.file_compilation_profile(file_id));
+            let rows = artifact.list_instances();
             assert!(!rows.is_empty(), "expected instances");
             rows.into_iter()
                 .find(|row| row.path.contains("u0"))

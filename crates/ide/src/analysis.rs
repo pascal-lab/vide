@@ -95,14 +95,49 @@ impl AnalysisContext<'_> {
         AnalysisContext { db, store, compiler }
     }
 
+    pub(crate) fn compile_files(
+        &self,
+        files: impl IntoIterator<Item = vfs::FileId>,
+        options: &crate::compile::CompileOptions,
+    ) -> crate::compile::CompilationArtifact {
+        let compiler = self.compiler.expect("compile needs the session compiler");
+        compiler.lock().compile(self.db, files, options)
+    }
+
     pub(crate) fn keystroke_compilation(
         &self,
         file_id: vfs::FileId,
     ) -> crate::compile::CompilationArtifact {
-        let compiler = self.compiler.expect("keystroke compile needs the session compiler");
         let closure = crate::compile::file_closure(self.db, file_id);
         let options = crate::compile::CompileOptions::for_file(self.db, file_id);
-        compiler.lock().compile(self.db, closure.files().iter().copied(), &options)
+        self.compile_files(closure.files().iter().copied(), &options)
+    }
+
+    pub(crate) fn profile_compilation(
+        &self,
+        profile: Option<CompilationProfileId>,
+    ) -> crate::compile::CompilationArtifact {
+        let plan = <dyn PreprocDb>::compilation_plan_for_profile(self.db, profile);
+        let options = crate::compile::CompileOptions::for_profile(self.db, profile);
+        crate::compile::Compiler::compile_isolated(
+            self.db,
+            plan.all_file_ids().iter().copied(),
+            &options,
+        )
+    }
+
+    pub(crate) fn profile_diagnostics(
+        &self,
+        profile: CompilationProfileId,
+    ) -> Vec<preproc_expand::db::CompilationDiagnostic> {
+        let plan = <dyn PreprocDb>::compilation_plan_for_profile(self.db, Some(profile));
+        let options = crate::compile::CompileOptions::for_profile(self.db, Some(profile));
+        crate::compile::Compiler::diagnostics_isolated(
+            self.db,
+            plan.all_file_ids().iter().copied(),
+            &options,
+            self.db.diagnostics_config().as_ref(),
+        )
     }
 
     pub(crate) fn semantics(&self) -> hir_semantics::semantics::Semantics<'_, RootDb> {
@@ -231,20 +266,7 @@ impl AnalysisSnapshot {
         profile_id: CompilationProfileId,
     ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
         self.with_db(|ctx| {
-            // Fresh session: replace_buffer keeps the old SourceManager path
-            // alive, so include lookup on a reused session can still see the
-            // previous header text. Profile diagnostics match the old worker —
-            // new compilation, current VFS text.
-            let mut compiler = crate::compile::Compiler::new();
-            let plan = <dyn PreprocDb>::compilation_plan_for_profile(ctx.db, Some(profile_id));
-            let options = crate::compile::CompileOptions::for_profile(ctx.db, Some(profile_id));
-            let raw = compiler.diagnostics(
-                ctx.db,
-                plan.all_file_ids().iter().copied(),
-                &options,
-                ctx.db.diagnostics_config().as_ref(),
-            );
-            diagnostics::materialize_compiler_diagnostics(raw)
+            diagnostics::materialize_compiler_diagnostics(ctx.profile_diagnostics(profile_id))
         })
     }
 
@@ -298,15 +320,12 @@ impl AnalysisSnapshot {
         profile_id: CompilationProfileId,
     ) -> Cancellable<Vec<(crate::hier::HierPath, FileId, utils::line_index::TextRange)>> {
         self.with_db(|ctx| {
-            let mut compiler = crate::compile::Compiler::new();
-            let plan = <dyn PreprocDb>::compilation_plan_for_profile(ctx.db, Some(profile_id));
-            let options = crate::compile::CompileOptions::for_profile(ctx.db, Some(profile_id));
-            let path_ids = ctx.db.path_file_ids();
-            compiler
-                .instances(ctx.db, plan.all_file_ids().iter().copied(), &options)
+            let mut artifact = ctx.profile_compilation(Some(profile_id));
+            artifact
+                .list_instances()
                 .into_iter()
                 .filter_map(|row| {
-                    let file = path_ids.get(&row.file)?;
+                    let file = artifact.file_id_for_path(&row.file)?;
                     let tail = row.path.rsplit('.').next().unwrap_or(row.path.as_str());
                     let name_len = tail.find('[').unwrap_or(tail.len());
                     let start = utils::line_index::TextSize::from(row.offset as u32);

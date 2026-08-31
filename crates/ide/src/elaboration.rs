@@ -16,7 +16,6 @@ mod tests {
 
     use crate::{
         analysis_host::AnalysisHost,
-        compile::{CompileOptions, Compiler},
         slang_class,
         test_utils::{setup_marked, setup_with_path},
     };
@@ -109,15 +108,8 @@ endclass
         let src = "module child; endmodule\nmodule top; child u0(); endmodule\n";
         let (host, file_id) = setup_with_path(src, "/top.sv");
         let ctx = host.ctx();
-        let plan = <dyn preproc_expand::db::PreprocDb>::compilation_plan_for_profile(
-            ctx.db,
-            ctx.db.file_compilation_profile(file_id),
-        );
-        let rows = Compiler::new().instances(
-            ctx.db,
-            plan.all_file_ids().iter().copied(),
-            &CompileOptions::for_profile(ctx.db, ctx.db.file_compilation_profile(file_id)),
-        );
+        let mut artifact = ctx.profile_compilation(ctx.db.file_compilation_profile(file_id));
+        let rows = artifact.list_instances();
         let u0 =
             rows.iter().find(|row| row.path.contains("u0")).unwrap_or_else(|| panic!("{rows:?}"));
         let site = src.find("u0").expect("instance name");

@@ -27,7 +27,7 @@ use preproc_expand::{
     db::{CompilationDiagnostic, PreprocDb},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
-use slang_sys::compilation::{Compilation, HierInstance, SourceSession};
+use slang_sys::compilation::{Compilation, SourceSession};
 use syntax::{SyntaxTreeOptions, diagnostics::SyntaxDiagnostic};
 use utils::{
     path_identity::PathIdentityIndex,
@@ -251,6 +251,28 @@ impl Compiler {
         self.compile_inner(db, files, options, &[])
     }
 
+    /// Profile radius on a new session.
+    ///
+    /// `replace_buffer` keeps the previous SourceManager path alive, so a
+    /// reused keystroke session can still see old include text. Profile
+    /// diagnostics and instances need current VFS text.
+    pub fn compile_isolated(
+        db: &RootDb,
+        files: impl IntoIterator<Item = FileId>,
+        options: &CompileOptions,
+    ) -> CompilationArtifact {
+        Self::new().compile(db, files, options)
+    }
+
+    pub fn diagnostics_isolated(
+        db: &RootDb,
+        files: impl IntoIterator<Item = FileId>,
+        options: &CompileOptions,
+        config: &DiagnosticsConfig,
+    ) -> Vec<CompilationDiagnostic> {
+        Self::new().diagnostics(db, files, options, config)
+    }
+
     fn compile_inner(
         &mut self,
         db: &RootDb,
@@ -323,16 +345,6 @@ impl Compiler {
         }
         let (files, path_files) = covered_buffers(db, &files, extra);
         CompilationArtifact { compilation, files, path_files, fingerprint: parse_fingerprint }
-    }
-
-    /// Hierarchical instances on a compilation of `files`.
-    pub fn instances(
-        &mut self,
-        db: &RootDb,
-        files: impl IntoIterator<Item = FileId>,
-        options: &CompileOptions,
-    ) -> Vec<HierInstance> {
-        self.compile(db, files, options).list_instances()
     }
 
     /// Parse + semantic diagnostics on a compilation of `files`.
