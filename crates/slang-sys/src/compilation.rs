@@ -824,6 +824,24 @@ endmodule
     }
 
     #[test]
+    fn two_compilations_on_one_session_can_add_the_same_trees() {
+        let session = SourceSession::new();
+        let src = "module m; logic x; endmodule\n";
+        let tree = session.parse_text(src, "m", "m.sv", &SyntaxTreeOptions::default());
+        let mut first = Compilation::on(&session);
+        first.add_syntax_tree(&tree);
+        let mut second = Compilation::on(&session);
+        second.add_syntax_tree(&tree);
+        let offset = src.find("x;").expect("net");
+        let first_info = first.lookup_symbol("m.sv", offset).expect("C1 lookup");
+        let second_info = second.lookup_symbol("m.sv", offset).expect("C2 lookup");
+        assert!(first_info.type_name.contains("logic"), "{first_info:?}");
+        assert!(second_info.type_name.contains("logic"), "{second_info:?}");
+        assert!(first.parse_diagnostics_with_options(&[]).is_empty());
+        assert!(second.parse_diagnostics_with_options(&[]).is_empty());
+    }
+
+    #[test]
     fn path_mapping_failure_is_not_a_silent_empty_result() {
         let mut compilation = Compilation::new();
         compilation.parse_syntax_tree_from_text(
