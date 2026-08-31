@@ -126,7 +126,7 @@ mod slang_ffi {
             compilation: Pin<&mut Compilation>,
             path: &str,
             offset: usize,
-        ) -> SymbolAnswer;
+        ) -> Result<SymbolAnswer>;
         fn lookup_scoped(
             compilation: Pin<&mut Compilation>,
             left: &str,
@@ -136,14 +136,14 @@ mod slang_ffi {
             compilation: Pin<&mut Compilation>,
             path: &str,
             offset: usize,
-        ) -> Vec<MemberAnswer>;
+        ) -> Result<Vec<MemberAnswer>>;
         fn list_scope_members(compilation: Pin<&mut Compilation>, name: &str) -> Vec<MemberAnswer>;
         fn lookup_type(
             compilation: Pin<&mut Compilation>,
             path: &str,
             start: usize,
             end: usize,
-        ) -> TypeAnswer;
+        ) -> Result<TypeAnswer>;
         fn list_instances(compilation: Pin<&mut Compilation>) -> Vec<HierInstanceAnswer>;
 
     }

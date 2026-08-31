@@ -402,15 +402,16 @@ SymbolAnswer lookup_symbol(
     out.found = false;
     out.def_offset = 0;
     if (!compilation.inner)
-        return out;
-    const auto& root = compilation.inner->getRoot();
-    const auto* sm = compilation.inner->getSourceManager();
-    if (!sm)
-        return out;
+        throw std::logic_error("compilation is not valid");
     std::string path_owned(path.data(), path.size());
     auto buffer = buffer_for_path(compilation, path_owned);
     if (!buffer)
-        return out;
+        throw std::invalid_argument(
+            "source path is not in this compilation: " + path_owned);
+    const auto* sm = compilation.inner->getSourceManager();
+    if (!sm)
+        throw std::logic_error("compilation has no source manager");
+    const auto& root = compilation.inner->getRoot();
     FindAtOffset finder(*sm, *buffer, offset);
     root.visit(finder);
     if (finder.best)
@@ -630,15 +631,16 @@ rust::Vec<MemberAnswer> list_members(
 ) {
     rust::Vec<MemberAnswer> out;
     if (!compilation.inner)
-        return out;
-    const auto& root = compilation.inner->getRoot();
-    const auto* sm = compilation.inner->getSourceManager();
-    if (!sm)
-        return out;
+        throw std::logic_error("compilation is not valid");
     std::string path_owned(path.data(), path.size());
     auto buffer = buffer_for_path(compilation, path_owned);
     if (!buffer)
-        return out;
+        throw std::invalid_argument(
+            "source path is not in this compilation: " + path_owned);
+    const auto* sm = compilation.inner->getSourceManager();
+    if (!sm)
+        throw std::logic_error("compilation has no source manager");
+    const auto& root = compilation.inner->getRoot();
     FindAtOffset finder(*sm, *buffer, offset);
     root.visit(finder);
     if (!finder.best)
@@ -671,15 +673,16 @@ TypeAnswer lookup_type(
     TypeAnswer out;
     out.found = false;
     if (!compilation.inner)
-        return out;
-    const auto& root = compilation.inner->getRoot();
-    const auto* sm = compilation.inner->getSourceManager();
-    if (!sm)
-        return out;
+        throw std::logic_error("compilation is not valid");
     std::string path_owned(path.data(), path.size());
     auto buffer = buffer_for_path(compilation, path_owned);
     if (!buffer)
-        return out;
+        throw std::invalid_argument(
+            "source path is not in this compilation: " + path_owned);
+    const auto* sm = compilation.inner->getSourceManager();
+    if (!sm)
+        throw std::logic_error("compilation has no source manager");
+    const auto& root = compilation.inner->getRoot();
     FindType finder(*sm, *buffer, start, end);
     root.visit(finder);
     if (const auto* ty = finder.best()) {

@@ -293,7 +293,8 @@ impl Compilation {
     /// no symbol. For a class member the answer also carries the owning
     /// class and its base-class chain.
     pub fn lookup_symbol(&mut self, path: &str, offset: usize) -> Option<SymbolInfo> {
-        let answer = ffi::lookup_symbol(self.raw_pin(), path, offset);
+        let answer =
+            ffi::lookup_symbol(self.raw_pin(), path, offset).unwrap_or_else(|err| panic!("{err}"));
         answer.found.then_some(SymbolInfo {
             name: answer.name,
             type_name: answer.type_name,
@@ -320,6 +321,7 @@ impl Compilation {
 
     pub fn list_members(&mut self, path: &str, offset: usize) -> Vec<MemberInfo> {
         ffi::list_members(self.raw_pin(), path, offset)
+            .unwrap_or_else(|err| panic!("{err}"))
             .into_iter()
             .map(|row| MemberInfo { name: row.name, type_name: row.type_name })
             .collect()
@@ -333,7 +335,8 @@ impl Compilation {
     }
 
     pub fn lookup_type(&mut self, path: &str, start: usize, end: usize) -> Option<String> {
-        let answer = ffi::lookup_type(self.raw_pin(), path, start, end);
+        let answer = ffi::lookup_type(self.raw_pin(), path, start, end)
+            .unwrap_or_else(|err| panic!("{err}"));
         answer.found.then_some(answer.type_name)
     }
 
