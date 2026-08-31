@@ -1,8 +1,10 @@
 //! File-closure radius and a calling-thread [`compile`].
 //!
 //! This is the slang door for keystroke and profile compilations.
-//! Hover, goto, `.` / `::`, and types wait on [`Compiler::compile`] of the
-//! file-closure radius. Profile diagnostics compile the profile files with
+//! Callers pass a file set plus [`CompileOptions`]; they do not assemble parse
+//! roots or assigned buffers. Closure and profile use the same
+//! [`Compiler::compile`]. Hover, goto, `.` / `::`, and types wait on a
+//! file-closure compile. Profile diagnostics pass the profile file set into
 //! the same function.
 
 use std::{
@@ -841,6 +843,28 @@ mod tests {
             items.iter().any(|item| item.label.contains("m_leaf_name")),
             "inst. must complete the included class member: {items:?}"
         );
+    }
+
+    #[test]
+    fn compile_file_closure_answers_the_instantiation_type() {
+        let db = db_with_files(&[
+            (CHILD, "child.sv", "module child;\nendmodule\n"),
+            (TOP, "top.sv", "module top;\n  child u0();\nendmodule\n"),
+        ]);
+        let mut compiler = Compiler::new();
+        let closure = file_closure(&db, TOP);
+        assert!(closure.contains(CHILD), "{:?}", closure.files());
+        let user = "module top;\n  child u0();\nendmodule\n";
+        let mut compilation = compiler.compile(
+            &db,
+            closure.files().iter().copied(),
+            &CompileOptions::for_file(&db, TOP),
+        );
+        let path = compilation_plan::source_buffer_path(&db, TOP).to_string();
+        let info = compilation
+            .lookup_symbol(&path, user.find("child u0").expect("type"))
+            .expect("closure compilation must bind the instantiation type");
+        assert_eq!(info.name, "child", "{info:?}");
     }
 
     #[test]
