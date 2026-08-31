@@ -61,13 +61,7 @@ pub(crate) fn handle_workspace_diagnostic(
         };
 
         let diagnostics = diagnostics_by_file.remove(&file_id).unwrap_or_default();
-
-        let line_info = snap.line_info(file_id)?;
-        let mut diag_items = diagnostics
-            .into_iter()
-            .map(|diag| to_proto::diagnostic(snap.config.i18n, &line_info, diag))
-            .collect::<Vec<_>>();
-        diag_items.extend(snap.external_lsp_diagnostics(file_id)?);
+        let diag_items = snap.lsp_diagnostics_from_ide(file_id, diagnostics)?;
 
         for target in targets {
             let uri = target.uri().clone();

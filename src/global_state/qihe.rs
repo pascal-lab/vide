@@ -16,13 +16,12 @@ use lsp_types::{
     Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, NumberOrString, notification,
     request,
 };
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::MutexGuard;
 use preproc_expand::compilation_plan::CompilationPlan;
 use project_model::project_manifest::{ProjectManifest, ProjectManifestFileName};
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Deserialize;
-use triomphe::Arc;
 use utils::{
     cancellation::{CancellationError, CancellationToken},
     line_index::{LineCol, TextRange, TextSize},
@@ -34,11 +33,12 @@ use utils::{
 use vfs::FileId;
 
 use super::{
-    AnalysisState, AnchoredQiheDiagnostic, ConfigState, DiagnosticsState, GlobalState, LspClient,
-    QiheDiagnosticState, TaskState, WorkspaceState,
+    AnalysisState, ConfigState, DiagnosticsState, GlobalState, LspClient, TaskState,
+    WorkspaceState,
     diagnostics::{
-        DiagnosticCommitFreshness, DiagnosticExternalRevision, DiagnosticOwner,
-        DiagnosticPublishFreshness, DiagnosticSource,
+        DiagnosticCommitFreshness, DiagnosticExternalRevision, DiagnosticLedger, DiagnosticOwner,
+        DiagnosticPublishFreshness, DiagnosticSource, FileDiagnosticState, append_freshness_note,
+        edits_ago, project_definition_range,
         publisher::{DiagnosticsPublisher, PublishDiagnosticsBatch, PublishDiagnosticsTask},
     },
     respond::Progress,
@@ -74,16 +74,18 @@ static ANSI_ESCAPE_RE: LazyLock<Regex> =
 
 #[derive(Clone)]
 pub(crate) struct QiheDiagnostics {
-    states: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
+    pub(crate) ledger: DiagnosticLedger<Diagnostic>,
 }
 
 impl QiheDiagnostics {
     pub(crate) fn new() -> Self {
-        Self { states: Arc::new(Mutex::new(FxHashMap::default())) }
+        Self { ledger: DiagnosticLedger::new() }
     }
 
-    fn lock(&self) -> MutexGuard<'_, FxHashMap<FileId, QiheDiagnosticState>> {
-        self.states.lock()
+    pub(crate) fn lock(
+        &self,
+    ) -> MutexGuard<'_, FxHashMap<FileId, FileDiagnosticState<Diagnostic>>> {
+        self.ledger.lock()
     }
 
     fn projected(
@@ -109,7 +111,9 @@ impl QiheDiagnostics {
         }
         let state = state.clone();
         drop(cache);
-        let edits_ago = current_snapshot.get().saturating_sub(state.captured_snapshot.get());
+        let ago = edits_ago(current_snapshot, state.captured_snapshot);
+        let note =
+            (ago > 0).then(|| i18n.format(keys::QIHE_BASED_ON_EDITS, [("n", ago.to_string())]));
         state
             .items
             .into_iter()
@@ -117,17 +121,12 @@ impl QiheDiagnostics {
                 let mut diagnostic = item.diagnostic;
                 if let (Some(analysis), Some(ast_id), Some(line_info)) =
                     (analysis, item.ast_id, line_info)
-                    && let Ok(Some(origin)) = analysis
-                        .project_anchor(ide::anchor::Anchor::Definition { file: file_id, ast_id })
+                    && let Some(range) = project_definition_range(analysis, file_id, ast_id)
                 {
-                    diagnostic.range = to_proto::range(line_info, origin.range);
+                    diagnostic.range = to_proto::range(line_info, range);
                 }
-                if edits_ago > 0 {
-                    let note =
-                        i18n.format(keys::QIHE_BASED_ON_EDITS, [("n", edits_ago.to_string())]);
-                    if !diagnostic.message.contains(&note) {
-                        diagnostic.message = format!("{}\n{note}", diagnostic.message);
-                    }
+                if let Some(note) = &note {
+                    append_freshness_note(&mut diagnostic.message, note);
                 }
                 diagnostic
             })
@@ -170,14 +169,7 @@ impl DiagnosticSource for QiheDiagnostics {
     }
 
     fn remove_deleted(&self, files: &FxHashSet<FileId>) {
-        if files.is_empty() {
-            return;
-        }
-
-        let mut diagnostics = self.lock();
-        for file_id in files {
-            diagnostics.remove(file_id);
-        }
+        self.ledger.remove_deleted(files);
     }
 }
 
@@ -425,28 +417,10 @@ impl Qihe {
 
     fn replace_diagnostics(
         &mut self,
-        mut by_file: FxHashMap<FileId, Vec<Diagnostic>>,
+        by_file: FxHashMap<FileId, Vec<Diagnostic>>,
         captured_snapshot: base_db::analysis_snapshot::AnalysisSnapshotId,
     ) -> FxHashSet<FileId> {
-        let mut cache = self.diagnostics.lock();
-        let mut changed_files = cache
-            .iter()
-            .filter_map(|(&file_id, state)| (!state.items.is_empty()).then_some(file_id))
-            .collect::<FxHashSet<_>>();
-        changed_files.extend(by_file.keys().copied());
-
-        for file_id in &changed_files {
-            let diagnostics = by_file.remove(file_id).unwrap_or_default();
-            let generation =
-                cache.get(file_id).map_or(1, |state| state.generation.saturating_add(1));
-            let items = diagnostics
-                .into_iter()
-                .map(|diagnostic| AnchoredQiheDiagnostic { ast_id: None, diagnostic })
-                .collect();
-            cache.insert(*file_id, QiheDiagnosticState { captured_snapshot, generation, items });
-        }
-
-        changed_files
+        self.diagnostics.ledger.replace(by_file, captured_snapshot)
     }
 }
 

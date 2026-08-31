@@ -147,7 +147,7 @@ impl GlobalState {
         }
 
         if let DiagnosticInvalidation::PublishTargets(file_ids) = &invalidation {
-            self.republish_cached_slang_diagnostics(file_ids);
+            self.republish_ledger_diagnostics(file_ids);
             return;
         }
 
@@ -158,6 +158,9 @@ impl GlobalState {
             && (!self.config_state.config.cli_pull_diagnostics_support()
                 || matches!(&invalidation, DiagnosticInvalidation::FileChanges(_)))
         {
+            if let DiagnosticInvalidation::FileChanges(file_ids) = &invalidation {
+                self.republish_ledger_diagnostics(file_ids);
+            }
             return;
         }
 
@@ -348,8 +351,8 @@ impl GlobalState {
         Some(changed_file)
     }
 
-    fn republish_cached_slang_diagnostics(&mut self, file_ids: &FxHashSet<FileId>) {
-        if file_ids.is_empty() || self.diagnostics.cached_slang_diagnostics.is_empty() {
+    fn republish_ledger_diagnostics(&mut self, file_ids: &FxHashSet<FileId>) {
+        if file_ids.is_empty() || self.diagnostics.slang_diagnostics.is_empty() {
             return;
         }
         if self.config_state.config.cli_pull_diagnostics_support() {
@@ -370,12 +373,12 @@ impl GlobalState {
                 touched_file_ids.insert(file_id);
                 continue;
             }
-            let slang = self
-                .diagnostics
-                .cached_slang_diagnostics
-                .get(&file_id)
-                .cloned()
-                .unwrap_or_default();
+            let freshness = snapshot.diagnostic_commit_freshness();
+            let slang = snapshot.slang_diagnostics.ide_diagnostics(
+                file_id,
+                freshness.snapshot_id(),
+                &snapshot.analysis,
+            );
             let vide = snapshot.analysis.file_vide_diagnostics(file_id).unwrap_or_default();
             let diagnostics = super::semantic_compiler::with_vide_diagnostics(slang, vide);
             let Ok(lsp_diagnostics) = snapshot.lsp_diagnostics_from_ide(file_id, diagnostics)

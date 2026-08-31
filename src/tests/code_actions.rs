@@ -221,7 +221,7 @@ module top;
 endmodule
 ";
     let (_temp_dir, client, server_thread, uri) =
-        setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+        setup_configured_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
 
     let (_result_id, mut diagnostics) = request_document_diagnostics_until(
         &client,

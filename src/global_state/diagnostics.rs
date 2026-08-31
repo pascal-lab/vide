@@ -5,7 +5,15 @@ use lsp_types::Url;
 use rustc_hash::FxHashSet;
 use vfs::FileId;
 
+pub(crate) mod ledger;
 pub(crate) mod publisher;
+pub(crate) mod slang;
+
+pub(crate) use ledger::{
+    AnchoredDiagnostic, AnchoredInstance, DiagnosticLedger, FileDiagnosticState, InstanceLedger,
+    append_freshness_note, edits_ago, freshness_note, project_definition_range,
+};
+pub(crate) use slang::SlangDiagnostics;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct DiagnosticCommitFreshness {

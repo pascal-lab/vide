@@ -1571,29 +1571,24 @@ fn document_diagnostic_result_id_changes_when_dependency_changes() {
         )))
         .unwrap();
 
-    let second_id = lsp_server::RequestId::from(9);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            second_id.clone(),
-            DocumentDiagnosticRequest::METHOD.to_string(),
-            DocumentDiagnosticParams {
-                text_document: TextDocumentIdentifier { uri: top_uri },
-                identifier: None,
-                previous_result_id: Some(first_result_id.clone()),
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-    let (second_result_id, second_items) = recv_document_diagnostics(&client, second_id);
+    let (second_result_id, second_items) = request_document_diagnostics_until(
+        &client,
+        top_uri,
+        9,
+        |result_id, items| {
+            result_id != Some(first_result_id.as_str())
+                && !items.iter().any(|diag| diag.message.contains("port 'b' has no connection"))
+        },
+        "missing port diagnostic should disappear after the profile compile",
+    );
     assert_ne!(
         second_result_id.as_deref(),
         Some(first_result_id.as_str()),
         "dependency edit must invalidate top.sv diagnostic result id"
     );
     assert!(
-        second_items.is_empty(),
+        second_items.is_empty()
+            || !second_items.iter().any(|diag| diag.message.contains("port 'b' has no connection")),
         "missing port diagnostic should disappear after dependency edit: {second_items:?}"
     );
 

@@ -32,6 +32,7 @@ pub(crate) struct SemanticCompilerUpdate {
     /// discard a compile whose analysis inputs are still current.
     freshness: DiagnosticCommitFreshness,
     by_file: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
+    instances: Vec<crate::global_state::diagnostics::AnchoredInstance>,
 }
 
 #[derive(Debug)]
@@ -143,7 +144,14 @@ impl SemanticCompiler {
                     return;
                 }
 
-                ctx.store_profile_diagnostics(update.by_file.clone());
+                ctx.store_profile_diagnostics(
+                    update.by_file.clone(),
+                    update.freshness.snapshot_id(),
+                );
+                ctx.store_profile_instances(
+                    update.freshness.snapshot_id(),
+                    update.instances.clone(),
+                );
                 let SemanticCompilerUpdate { delivery, touched_files, .. } = update;
                 match delivery {
                     SemanticDiagnosticsDelivery::PullRefresh => {
@@ -235,6 +243,12 @@ pub(crate) trait SemanticCompilerCtx {
     fn store_profile_diagnostics(
         &mut self,
         by_file: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
+        captured_snapshot: base_db::analysis_snapshot::AnalysisSnapshotId,
+    );
+    fn store_profile_instances(
+        &mut self,
+        captured_snapshot: base_db::analysis_snapshot::AnalysisSnapshotId,
+        items: Vec<crate::global_state::diagnostics::AnchoredInstance>,
     );
 }
 
@@ -305,8 +319,17 @@ impl SemanticCompilerCtx for SemanticCompilerGlobalCtx<'_> {
     fn store_profile_diagnostics(
         &mut self,
         by_file: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
+        captured_snapshot: base_db::analysis_snapshot::AnalysisSnapshotId,
     ) {
-        self.diagnostics.cached_slang_diagnostics = by_file;
+        self.diagnostics.slang_diagnostics.replace(by_file, captured_snapshot);
+    }
+
+    fn store_profile_instances(
+        &mut self,
+        captured_snapshot: base_db::analysis_snapshot::AnalysisSnapshotId,
+        items: Vec<crate::global_state::diagnostics::AnchoredInstance>,
+    ) {
+        self.diagnostics.profile_instances.replace(captured_snapshot, items);
     }
 
     fn publish_semantic_diagnostics(&mut self, batch: PublishDiagnosticsBatch) {
@@ -388,28 +411,52 @@ fn collect_semantic_diagnostics(
     let freshness = snapshot.diagnostic_publish_freshness;
     let mut touched_files = FxHashSet::default();
     let mut profiles = Vec::with_capacity(profile_ids.len());
+    let mut instances = Vec::new();
     let profile_count = profile_ids.len();
     let pull_diagnostics = snapshot.config.cli_pull_diagnostics_support();
 
     for profile_id in profile_ids {
         cancellation.check()?;
         touched_files.extend(snapshot.analysis.compilation_profile_file_ids(profile_id)?);
-        if !pull_diagnostics {
-            profiles.push((
-                snapshot.analysis.compilation_profile_slang_diagnostics(profile_id)?,
-                open_file_vide_diagnostics(&snapshot, profile_id)?,
-            ));
+        profiles.push((
+            snapshot.analysis.compilation_profile_slang_diagnostics(profile_id)?,
+            if pull_diagnostics {
+                Vec::new()
+            } else {
+                open_file_vide_diagnostics(&snapshot, profile_id)?
+            },
+        ));
+        if let Ok(rows) = snapshot.analysis.compilation_profile_instances(profile_id) {
+            for (path, file, range) in rows {
+                let ast_id = snapshot.analysis.ast_id_at_range(file, range).ok().flatten();
+                instances.push(crate::global_state::diagnostics::AnchoredInstance {
+                    path,
+                    file,
+                    ast_id,
+                });
+            }
         }
         cancellation.check()?;
     }
     if pull_diagnostics {
+        let mut by_file: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>> =
+            FxHashMap::default();
+        for file_id in &touched_files {
+            by_file.entry(*file_id).or_default();
+        }
+        for (slang, _) in profiles {
+            for diagnostic in slang {
+                by_file.entry(diagnostic.file_id).or_default().push(diagnostic);
+            }
+        }
         drop(snapshot);
         return Ok(SemanticCompilerUpdate {
             delivery: SemanticDiagnosticsDelivery::PullRefresh,
             touched_files,
-            diagnostic_count: 0,
+            diagnostic_count: by_file.values().map(Vec::len).sum(),
             freshness: freshness.commit(),
-            by_file: FxHashMap::default(),
+            by_file,
+            instances,
         });
     }
 
@@ -441,7 +488,10 @@ fn collect_semantic_diagnostics(
         }
         cancellation.check()?;
     }
-    let cached = slang_by_file.clone();
+    let mut cached = slang_by_file.clone();
+    for file_id in &touched_files {
+        cached.entry(*file_id).or_default();
+    }
     let mut diagnostics_by_file = merge_slang_and_vide(slang_by_file, vide_by_file);
     let delivery = SemanticDiagnosticsDelivery::Push(materialize_semantic_publish_batch(
         publish_files,
@@ -464,6 +514,7 @@ fn collect_semantic_diagnostics(
         diagnostic_count,
         freshness: freshness.commit(),
         by_file: cached,
+        instances,
     })
 }
 

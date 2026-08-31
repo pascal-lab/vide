@@ -39,8 +39,8 @@ pub(crate) use self::workspace_state::{
 };
 use self::{
     diagnostics::{
-        DiagnosticFileRevision, DiagnosticPublishFreshness, DiagnosticSource,
-        publisher::DiagnosticPublishKey,
+        DiagnosticFileRevision, DiagnosticPublishFreshness, DiagnosticSource, FileDiagnosticState,
+        InstanceLedger, SlangDiagnostics, publisher::DiagnosticPublishKey,
     },
     mem_docs::MemDocs,
     snapshot::GlobalStateSnapshot,
@@ -94,11 +94,13 @@ pub(crate) struct DiagnosticsState {
     // text. Keep those target changes explicit so push diagnostics converge at
     // the normal change-processing boundary.
     pub(crate) pending_document_diagnostic_targets: FxHashSet<FileId>,
-    /// Last isolated slang profile compile, keyed by analysis file.
-    /// Vide diagnostics are computed at publish time, not stored here.
-    /// URI-only didOpen/didClose republishes slang from here and adds live
-    /// Vide.
-    pub(crate) cached_slang_diagnostics: FxHashMap<FileId, Vec<ide::diagnostics::Diagnostic>>,
+    /// Profile slang diagnostics on the anchored ledger. Edit reprojects
+    /// ranges; it does not drop the last compile. Vide diagnostics are
+    /// computed at publish time, not stored here.
+    pub(crate) slang_diagnostics: SlangDiagnostics,
+    /// Profile instance list from the last compile. Sites reproject via
+    /// `SourceAstId`; identity is `HierPath`.
+    pub(crate) profile_instances: InstanceLedger,
     pub(crate) diagnostics_revision: u64,
     pub(crate) diagnostic_target_revision: u64,
     pub(crate) diagnostic_file_revisions: FxHashMap<FileId, DiagnosticFileRevision>,
@@ -176,6 +178,7 @@ pub(super) fn make_snapshot(
         mem_docs: analysis_state.mem_docs.clone(),
         sema_tokens_cache: Arc::clone(&analysis_state.semantic_tokens_cache),
         external_sources: external_sources.to_vec(),
+        slang_diagnostics: diagnostics.slang_diagnostics.clone(),
         diagnostic_publish_freshness,
         diagnostic_file_revisions: diagnostics.diagnostic_file_revisions.clone(),
         cancellation,
@@ -228,7 +231,8 @@ impl GlobalState {
             diagnostics: DiagnosticsState {
                 published_diagnostics: FxHashMap::default(),
                 pending_document_diagnostic_targets: FxHashSet::default(),
-                cached_slang_diagnostics: FxHashMap::default(),
+                slang_diagnostics: SlangDiagnostics::new(),
+                profile_instances: InstanceLedger::default(),
                 diagnostics_revision: 0,
                 diagnostic_target_revision: 0,
                 diagnostic_file_revisions: FxHashMap::default(),
@@ -315,15 +319,6 @@ impl GlobalState {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub(crate) struct QiheDiagnosticState {
-    pub(crate) captured_snapshot: base_db::analysis_snapshot::AnalysisSnapshotId,
-    pub(crate) generation: u64,
-    pub(crate) items: Vec<AnchoredQiheDiagnostic>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct AnchoredQiheDiagnostic {
-    pub(crate) ast_id: Option<hir_def::ast_id_map::SourceAstId>,
-    pub(crate) diagnostic: lsp_types::Diagnostic,
-}
+pub(crate) type QiheDiagnosticState = FileDiagnosticState<lsp_types::Diagnostic>;
+pub(crate) type AnchoredQiheDiagnostic =
+    crate::global_state::diagnostics::AnchoredDiagnostic<lsp_types::Diagnostic>;

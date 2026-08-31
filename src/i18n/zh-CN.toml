@@ -28,6 +28,7 @@ invalid_value_many = "配置项无效：\n{errors}"
 
 [diagnostic]
 inactive_preprocessor_branch = "代码因预处理条件未激活"
+based_on_edits = "基于 {n} 次编辑前的分析。"
 
 [diagnostic.ambiguous_module]
 strict = "模块实例化 '{module_name}' 找到 {candidate_count} 个同名模块定义，无法确定应使用哪一个"

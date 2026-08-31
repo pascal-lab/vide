@@ -293,6 +293,33 @@ impl AnalysisSnapshot {
         self.with_db(|db| db.compilation_plan_for_profile(Some(profile_id)).all_file_ids())
     }
 
+    pub fn compilation_profile_instances(
+        &self,
+        profile_id: CompilationProfileId,
+    ) -> Cancellable<Vec<(crate::hier::HierPath, FileId, utils::line_index::TextRange)>> {
+        self.with_db(|ctx| {
+            let mut compiler = crate::compile::Compiler::new();
+            let plan = <dyn PreprocDb>::compilation_plan_for_profile(ctx.db, Some(profile_id));
+            let options = crate::compile::CompileOptions::for_profile(ctx.db, Some(profile_id));
+            let path_ids = ctx.db.path_file_ids();
+            compiler
+                .instances(ctx.db, plan.all_file_ids().iter().copied(), &options)
+                .into_iter()
+                .filter_map(|row| {
+                    let file = path_ids.get(&row.file)?;
+                    let tail = row.path.rsplit('.').next().unwrap_or(row.path.as_str());
+                    let name_len = tail.find('[').unwrap_or(tail.len());
+                    let start = utils::line_index::TextSize::from(row.offset as u32);
+                    let range = utils::line_index::TextRange::new(
+                        start,
+                        start + utils::line_index::TextSize::from(name_len as u32),
+                    );
+                    Some((crate::hier::HierPath::new(row.path), file, range))
+                })
+                .collect()
+        })
+    }
+
     pub fn compilation_plan(&self, file_id: FileId) -> Cancellable<Arc<CompilationPlan>> {
         self.with_db(|db| db.db.compilation_plan_for_root(db.source_root_id(file_id)))
     }

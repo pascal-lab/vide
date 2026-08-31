@@ -19,7 +19,7 @@ use super::{
     diagnostics::{
         DiagnosticCommitFreshness, DiagnosticFileRevision, DiagnosticOwner,
         DiagnosticPublishFreshness, DiagnosticRequestScope, DiagnosticSnapshotKey,
-        DiagnosticSource, DiagnosticWorkspaceProducer,
+        DiagnosticSource, DiagnosticWorkspaceProducer, SlangDiagnostics,
     },
     mem_docs::MemDocs,
     response_effect::{AcceptedResponseEffect, AcceptedResponseEffects},
@@ -68,6 +68,7 @@ pub(crate) struct GlobalStateSnapshot {
     // pub(crate) check_fixes: CheckFixes,
     pub(crate) sema_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
     pub(crate) external_sources: Vec<StdArc<dyn DiagnosticSource>>,
+    pub(crate) slang_diagnostics: SlangDiagnostics,
     pub(crate) diagnostic_publish_freshness: DiagnosticPublishFreshness,
     pub(crate) diagnostic_file_revisions: FxHashMap<FileId, DiagnosticFileRevision>,
     pub(crate) cancellation: CancellationToken,
@@ -184,9 +185,26 @@ impl GlobalStateSnapshot {
         diagnostics: Vec<ide::diagnostics::Diagnostic>,
     ) -> anyhow::Result<Vec<lsp_types::Diagnostic>> {
         let line_info = self.line_info(file_id)?;
+        let freshness = self.diagnostic_commit_freshness();
+        let note = crate::global_state::diagnostics::freshness_note(
+            self.config.i18n,
+            self.slang_diagnostics.edits_ago(file_id, freshness.snapshot_id()),
+        );
         let mut diagnostics = diagnostics
             .into_iter()
-            .map(|diag| crate::lsp_ext::to_proto::diagnostic(self.config.i18n, &line_info, diag))
+            .map(|diag| {
+                let mut lsp = crate::lsp_ext::to_proto::diagnostic(
+                    self.config.i18n,
+                    &line_info,
+                    diag.clone(),
+                );
+                if diag.source == ide::diagnostics::DiagnosticSource::SlangSemantic
+                    && let Some(note) = &note
+                {
+                    crate::global_state::diagnostics::append_freshness_note(&mut lsp.message, note);
+                }
+                lsp
+            })
             .collect::<Vec<_>>();
         diagnostics.extend(self.external_lsp_diagnostics(file_id)?);
         Ok(diagnostics)
@@ -229,6 +247,25 @@ impl GlobalStateSnapshot {
         &self,
         profile_id: base_db::project::CompilationProfileId,
     ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
+        let files = self.analysis.compilation_profile_file_ids(profile_id)?;
+        let freshness = self.diagnostic_commit_freshness();
+        let ledger_is_current = !files.is_empty()
+            && files.iter().all(|file_id| {
+                self.slang_diagnostics.has_file(*file_id)
+                    && self.slang_diagnostics.edits_ago(*file_id, freshness.snapshot_id()) == 0
+            });
+        if ledger_is_current {
+            return Ok(files
+                .into_iter()
+                .flat_map(|file_id| {
+                    self.slang_diagnostics.ide_diagnostics(
+                        file_id,
+                        freshness.snapshot_id(),
+                        &self.analysis,
+                    )
+                })
+                .collect());
+        }
         Ok(self.analysis.compilation_profile_slang_diagnostics(profile_id)?)
     }
 

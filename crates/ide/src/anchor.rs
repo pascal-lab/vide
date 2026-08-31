@@ -81,7 +81,7 @@ fn profile_instances(
     )
 }
 
-pub(crate) fn file_id_for_slang_path(db: &RootDb, slang_file: &str) -> FileId {
+pub fn file_id_for_slang_path(db: &RootDb, slang_file: &str) -> FileId {
     <dyn preproc_expand::db::PreprocDb>::path_file_ids(db).get(slang_file).unwrap_or_else(|| {
         panic!("elaboration reported a buffer path that was not assigned: {slang_file}")
     })
