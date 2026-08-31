@@ -10,6 +10,7 @@
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
+    ops::{Deref, DerefMut},
 };
 
 use base_db::{
@@ -28,6 +29,7 @@ use preproc_expand::{
 use rustc_hash::{FxHashMap, FxHashSet};
 use slang_sys::compilation::{Compilation, HierInstance, SourceSession};
 use syntax::{SyntaxTreeOptions, diagnostics::SyntaxDiagnostic};
+use utils::path_identity::PathIdentityIndex;
 use vfs::FileId;
 
 use crate::db::root_db::RootDb;
@@ -156,6 +158,49 @@ impl CompileOptions {
     }
 }
 
+/// Product of one [`Compiler::compile`].
+///
+/// Callers query the [`Compilation`] value and the FileIds this compile
+/// covered. They do not assemble parse roots, assigned buffers, or BufferIDs.
+pub struct CompilationArtifact {
+    compilation: Compilation,
+    files: Vec<FileId>,
+    path_files: PathIdentityIndex<FileId>,
+    fingerprint: u64,
+}
+
+impl CompilationArtifact {
+    pub fn files(&self) -> &[FileId] {
+        &self.files
+    }
+
+    pub fn covers(&self, file: FileId) -> bool {
+        self.files.contains(&file)
+    }
+
+    pub fn file_id_for_path(&self, path: &str) -> Option<FileId> {
+        self.path_files.get(path)
+    }
+
+    pub fn fingerprint(&self) -> u64 {
+        self.fingerprint
+    }
+}
+
+impl Deref for CompilationArtifact {
+    type Target = Compilation;
+
+    fn deref(&self) -> &Compilation {
+        &self.compilation
+    }
+}
+
+impl DerefMut for CompilationArtifact {
+    fn deref_mut(&mut self) -> &mut Compilation {
+        &mut self.compilation
+    }
+}
+
 /// Holds a [`SourceSession`] and the trees parsed on it. `compile` runs on
 /// the calling thread.
 pub struct Compiler {
@@ -187,14 +232,14 @@ impl Compiler {
     }
 
     /// Parse dirty/missing compilation-unit trees on this session and return
-    /// a new [`Compilation`]. Files in another root's include graph are
+    /// a [`CompilationArtifact`]. Files in another root's include graph are
     /// assigned as buffers, not parsed as roots — including `.sv` fragments.
     pub fn compile(
         &mut self,
         db: &RootDb,
         files: impl IntoIterator<Item = FileId>,
         options: &CompileOptions,
-    ) -> Compilation {
+    ) -> CompilationArtifact {
         self.compile_inner(db, files, options, &[])
     }
 
@@ -204,7 +249,7 @@ impl Compiler {
         files: impl IntoIterator<Item = FileId>,
         options: &CompileOptions,
         extra: &[compilation_plan::AssignedIncludeBuffer],
-    ) -> Compilation {
+    ) -> CompilationArtifact {
         let files: Vec<FileId> = {
             let mut files: Vec<_> = files.into_iter().collect();
             files.sort_unstable_by_key(|file| file.index());
@@ -268,7 +313,12 @@ impl Compiler {
                 compilation.add_syntax_tree(tree);
             }
         }
-        compilation
+        CompilationArtifact {
+            compilation,
+            files,
+            path_files: (*<dyn PreprocDb>::path_file_ids(db)).clone(),
+            fingerprint: parse_fingerprint,
+        }
     }
 
     /// Hierarchical instances on a compilation of `files`.
@@ -842,6 +892,42 @@ mod tests {
         assert!(
             items.iter().any(|item| item.label.contains("m_leaf_name")),
             "inst. must complete the included class member: {items:?}"
+        );
+    }
+
+    #[test]
+    fn compile_artifact_maps_only_this_compilation_buffers() {
+        let other = FileId::from_raw(3);
+        let db = db_with_files(&[
+            (USER, "user.sv", "module top;\n  import pkg::*;\n  leaf inst;\nendmodule\n"),
+            (PKG, "pkg.sv", "package pkg;\n  `include \"leaf.svh\"\nendpackage\n"),
+            (LEAF, "leaf.svh", "class leaf;\nendclass\n"),
+            (other, "other.sv", "module other;\nendmodule\n"),
+        ]);
+        let mut compiler = Compiler::new();
+        let artifact = compiler.compile(
+            &db,
+            [USER, PKG],
+            &CompileOptions::for_file(&db, USER),
+        );
+        let leaf_path = compilation_plan::source_buffer_path(&db, LEAF).to_string();
+        let other_path = compilation_plan::source_buffer_path(&db, other).to_string();
+        let _fingerprint = artifact.fingerprint();
+        assert!(
+            artifact.covers(LEAF),
+            "assigned includes must be on the artifact; callers do not assemble buffers: {:?}",
+            artifact.files()
+        );
+        assert!(
+            !artifact.covers(other),
+            "unrelated workspace files are not this compile: {:?}",
+            artifact.files()
+        );
+        assert_eq!(artifact.file_id_for_path(&leaf_path), Some(LEAF));
+        assert_eq!(
+            artifact.file_id_for_path(&other_path),
+            None,
+            "workspace path index must not leak files this compilation did not cover"
         );
     }
 

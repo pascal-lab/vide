@@ -98,7 +98,7 @@ impl AnalysisContext<'_> {
     pub(crate) fn keystroke_compilation(
         &self,
         file_id: vfs::FileId,
-    ) -> slang_sys::compilation::Compilation {
+    ) -> crate::compile::CompilationArtifact {
         let compiler = self.compiler.expect("keystroke compile needs the session compiler");
         let closure = crate::compile::file_closure(self.db, file_id);
         let options = crate::compile::CompileOptions::for_file(self.db, file_id);
