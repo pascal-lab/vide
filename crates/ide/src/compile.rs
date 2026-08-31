@@ -169,6 +169,8 @@ pub struct CompilationArtifact {
     compilation: Compilation,
     files: Vec<FileId>,
     path_files: PathIdentityIndex<FileId>,
+    /// P6 freshness compares this to the snapshot that produced the result.
+    #[cfg_attr(not(test), allow(dead_code))]
     fingerprint: u64,
 }
 
@@ -177,6 +179,7 @@ impl CompilationArtifact {
         &self.files
     }
 
+    #[cfg(test)]
     pub fn covers(&self, file: FileId) -> bool {
         self.files.contains(&file)
     }
@@ -185,6 +188,7 @@ impl CompilationArtifact {
         self.path_files.get(path)
     }
 
+    #[cfg(test)]
     pub fn fingerprint(&self) -> u64 {
         self.fingerprint
     }
@@ -372,15 +376,15 @@ impl Compiler {
                 compilation_plan::compilation_source_buffers_for_plan(db, &plan)
             })
             .unwrap_or_default();
-        let compilation = self.compile_inner(db, files.iter().copied(), options, &extra);
-        let buffer_file_ids = self.buffer_file_ids(db, &files);
+        let artifact = self.compile_inner(db, files.iter().copied(), options, &extra);
+        let buffer_file_ids = self.buffer_file_ids(&artifact);
         let warning_options = warning_options(config);
         let mut diagnostics = Vec::new();
         if config.enabled && config.parse.enabled {
             collect_diagnostics(
                 config,
                 SlangDiagnosticSource::Parse,
-                compilation.parse_diagnostics_with_options(&warning_options),
+                artifact.parse_diagnostics_with_options(&warning_options),
                 &buffer_file_ids,
                 &mut diagnostics,
             );
@@ -389,7 +393,7 @@ impl Compiler {
             collect_diagnostics(
                 config,
                 SlangDiagnosticSource::Semantic,
-                compilation.semantic_diagnostics_with_options(&warning_options),
+                artifact.semantic_diagnostics_with_options(&warning_options),
                 &buffer_file_ids,
                 &mut diagnostics,
             );
@@ -397,28 +401,16 @@ impl Compiler {
         diagnostics
     }
 
-    fn buffer_file_ids(&self, db: &RootDb, files: &[FileId]) -> FxHashMap<u32, FileId> {
-        let mut path_files = FxHashMap::<String, FileId>::default();
-        for &file in files {
-            path_files.insert(compilation_plan::source_buffer_path(db, file).to_string(), file);
-            if db.file_kind(file).is_semantic_compilation_unit() {
-                for buffer in compilation_plan::assigned_include_buffers_for_file(db, file) {
-                    path_files.insert(buffer.path, buffer.file_id);
-                }
-            }
-        }
-        if let Some(profile) = files.iter().find_map(|&file| db.file_compilation_profile(file)) {
-            let plan = <dyn PreprocDb>::compilation_plan_for_profile(db, Some(profile));
-            for buffer in compilation_plan::compilation_source_buffers_for_plan(db, &plan) {
-                path_files.insert(buffer.path, buffer.file_id);
-            }
-        }
+    fn buffer_file_ids(&self, artifact: &CompilationArtifact) -> FxHashMap<u32, FileId> {
         let mut map = FxHashMap::default();
-        for (&file, tree) in &self.trees {
+        for &file in artifact.files() {
+            let Some(tree) = self.trees.get(&file) else {
+                continue;
+            };
             let ids = tree.buffer_ids();
             map.insert(ids.root_buffer_id, file);
             for source in ids.source_buffers {
-                if let Some(&file_id) = path_files.get(&source.path) {
+                if let Some(file_id) = artifact.file_id_for_path(&source.path) {
                     map.insert(source.buffer_id, file_id);
                 }
             }
