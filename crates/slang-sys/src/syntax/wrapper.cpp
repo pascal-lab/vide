@@ -159,21 +159,10 @@ namespace slang_sys::syntax {
         return { old_id, source_buffer.id.getId() };
     }
 
-    uint32_t SourceSession::buffer_id(std::string_view path) const {
-        return source_buffer(path).id.getId();
-    }
-
     std::string SourceSession::path_for_buffer(uint32_t id) const {
         auto it = assigned_paths.find(id);
         if (it == assigned_paths.end())
             return {};
-        return it->second;
-    }
-
-    std::optional<slang::SourceBuffer> SourceSession::latest_buffer(std::string_view path) const {
-        auto it = source_buffers.find(std::string(path));
-        if (it == source_buffers.end())
-            return std::nullopt;
         return it->second;
     }
 
@@ -568,18 +557,17 @@ namespace slang_sys::syntax {
         );
     }
 
-    BufferReplace source_session_replace_buffer(
+    void source_session_replace_buffer(
         std::shared_ptr<SourceSession> session,
         rust::Str path,
         rust::Str text
     ) {
         if (!session)
             throw std::invalid_argument("source session must be valid");
-        auto [old_id, new_id] = session->replace_buffer(
+        session->replace_buffer(
             std::string(path.data(), path.size()),
             std::string(text.data(), text.size())
         );
-        return BufferReplace { old_id, new_id };
     }
 
     std::shared_ptr<SyntaxTree> source_session_parse(
@@ -643,12 +631,6 @@ namespace slang_sys::syntax {
         if (!session)
             throw std::invalid_argument("source session must be valid");
         return session->parse_count();
-    }
-
-    uint32_t source_session_buffer_id(std::shared_ptr<SourceSession> session, rust::Str path) {
-        if (!session)
-            throw std::invalid_argument("source session must be valid");
-        return session->buffer_id(std::string(path.data(), path.size()));
     }
 
     std::shared_ptr<SyntaxTree> source_session_parse_library_map(

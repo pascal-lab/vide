@@ -17,19 +17,6 @@ pub struct SourceSession {
     raw: SharedPtr<syntax_ffi::SourceSession>,
 }
 
-/// What [`SourceSession::replace_buffer`] did to buffer ids.
-///
-/// Stock slang cannot `assignText` the same path twice. Replace therefore
-/// allocates a **new** [`Self::new_id`] and keeps the old id valid (it still
-/// names the previous text, so trees parsed before the replace keep working).
-/// Subsequent parse/lookup of the caller path uses `new_id`. `old_id == new_id`
-/// means the text was unchanged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BufferReplace {
-    pub old_id: u32,
-    pub new_id: u32,
-}
-
 impl SourceSession {
     pub fn new() -> Self {
         Self { raw: syntax_ffi::new_source_session() }
@@ -42,17 +29,10 @@ impl SourceSession {
     /// Put new text at an already-assigned path.
     ///
     /// This is the edit step, not a new session and not a new compilation.
-    /// Slang's `SourceManager` keys buffers by path and refuses a second
-    /// `assignText` of the same path, so an edit cannot be another assign.
-    /// Replace keeps the session, gives the path a new buffer id, and leaves
-    /// the old id valid so trees parsed before the edit keep their text.
-    ///
-    /// The compile cycle after an edit is: replace the dirty path → reparse
-    /// only that path → `Compilation::on` this session → add the new tree
-    /// plus the unchanged trees.
-    pub fn replace_buffer(&self, path: &str, text: &str) -> BufferReplace {
-        let raw = syntax_ffi::source_session_replace_buffer(self.raw.clone(), path, text);
-        BufferReplace { old_id: raw.old_id, new_id: raw.new_id }
+    /// Trees parsed before the replace stay valid. The next parse of this
+    /// path uses the new text.
+    pub fn replace_buffer(&self, path: &str, text: &str) {
+        syntax_ffi::source_session_replace_buffer(self.raw.clone(), path, text);
     }
 
     pub fn parse(&self, name: &str, path: &str, options: &SyntaxTreeOptions) -> SyntaxTree {
@@ -108,10 +88,6 @@ impl SourceSession {
 
     pub fn parse_count(&self) -> u32 {
         syntax_ffi::source_session_parse_count(self.raw.clone())
-    }
-
-    pub fn buffer_id(&self, path: &str) -> u32 {
-        syntax_ffi::source_session_buffer_id(self.raw.clone(), path)
     }
 }
 
@@ -679,25 +655,29 @@ endmodule
     }
 
     #[test]
-    fn replace_buffer_allocates_a_new_id_and_leaves_the_old_tree() {
+    fn replace_buffer_leaves_the_old_tree_and_parses_the_new_text() {
         let session = SourceSession::new();
         session.assign("a.sv", "module a; endmodule\n");
         session.assign("b.sv", "module b; endmodule\n");
         let tree_a = session.parse("a", "a.sv", &SyntaxTreeOptions::default());
-        let _tree_b = session.parse("b", "b.sv", &SyntaxTreeOptions::default());
-        let old_a = session.buffer_id("a.sv");
-        let old_b = session.buffer_id("b.sv");
-
-        let replaced = session.replace_buffer("a.sv", "module a; logic x; endmodule\n");
-        assert_eq!(replaced.old_id, old_a, "old id is the buffer the previous parse used");
-        assert_ne!(replaced.new_id, old_a, "replace allocates a new BufferID");
-        assert_eq!(session.buffer_id("a.sv"), replaced.new_id);
-        assert_eq!(session.buffer_id("b.sv"), old_b, "b.sv is untouched");
+        let tree_b = session.parse("b", "b.sv", &SyntaxTreeOptions::default());
+        let edited = "module a; logic x; endmodule\n";
+        session.replace_buffer("a.sv", edited);
         assert_eq!(
             tree_a.root().kind(),
             SyntaxKind::COMPILATION_UNIT,
-            "the old BufferID remains valid: trees parsed before replace keep working"
+            "trees parsed before replace keep working"
         );
+        assert_eq!(tree_b.root().kind(), SyntaxKind::COMPILATION_UNIT);
+
+        let new_a = session.parse("a", "a.sv", &SyntaxTreeOptions::default());
+        let mut compilation = Compilation::on(&session);
+        compilation.add_syntax_tree(&new_a);
+        compilation.add_syntax_tree(&tree_b);
+        let info = compilation
+            .lookup_symbol("a.sv", edited.find("x;").expect("new net"))
+            .expect("new parse must see the replacement text");
+        assert!(info.type_name.contains("logic"), "{info:?}");
     }
 
     #[test]
@@ -726,8 +706,7 @@ endmodule
         assert!(ty.contains("string"), "{ty}");
         drop(first);
 
-        let replaced = session.replace_buffer("user.sv", user_edit);
-        assert_ne!(replaced.old_id, replaced.new_id);
+        session.replace_buffer("user.sv", user_edit);
         let user_tree = session.parse("user", "user.sv", &SyntaxTreeOptions::default());
         assert_eq!(session.parse_count(), 3, "pkg.sv must not be parsed a second time");
 
