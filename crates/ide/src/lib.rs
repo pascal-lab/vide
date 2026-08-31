@@ -23,6 +23,7 @@ pub mod source_change;
 
 pub mod code_action;
 pub mod code_lens;
+pub(crate) mod compile;
 pub mod completion;
 pub mod db;
 pub(crate) mod design_unit;
