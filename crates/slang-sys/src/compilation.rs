@@ -737,4 +737,52 @@ endmodule
             "{semantic:?}"
         );
     }
+
+    /// After replace, a live earlier Compilation must keep answering from the
+    /// trees it was given. The session's latest buffer is not this
+    /// compilation's source.
+    #[test]
+    fn replaced_path_does_not_steal_an_earlier_compilation_lookup() {
+        let pkg = "package pkg;\n  class leaf;\n    string m_leaf_name;\n  endclass\nendpackage\n";
+        let user = "module top;\n  import pkg::*;\n  leaf inst;\n  initial inst.m_leaf_name = \"x\";\nendmodule\n";
+        let user_edit = "module top;\n  import pkg::*;\n  leaf inst;\n  logic extra_signal;\n  initial inst.m_leaf_name = \"y\";\nendmodule\n";
+        let session = SourceSession::new();
+        let pkg_tree = session.parse_text(pkg, "pkg", "pkg.sv", &SyntaxTreeOptions::default());
+        let user_tree = session.parse_text(user, "user", "user.sv", &SyntaxTreeOptions::default());
+
+        let mut first = Compilation::on(&session);
+        first.add_syntax_tree(&pkg_tree);
+        first.add_syntax_tree(&user_tree);
+        let old_member = first
+            .lookup_symbol("user.sv", user.find("m_leaf_name").expect("use"))
+            .expect("C1 sees the class member before the edit");
+        assert_eq!(old_member.owner_class, "leaf", "{old_member:?}");
+
+        session.replace_buffer("user.sv", user_edit);
+        let new_user = session.parse("user", "user.sv", &SyntaxTreeOptions::default());
+        let mut second = Compilation::on(&session);
+        second.add_syntax_tree(&pkg_tree);
+        second.add_syntax_tree(&new_user);
+
+        assert_eq!(
+            user_tree.root().kind(),
+            SyntaxKind::COMPILATION_UNIT,
+            "old user tree must remain valid after replace"
+        );
+        let extra_offset = user_edit.find("extra_signal").expect("new-only name");
+        let extra = second
+            .lookup_symbol("user.sv", extra_offset)
+            .expect("C2 must see the name that exists only in the new buffer");
+        assert_eq!(extra.name, "extra_signal", "{extra:?}");
+
+        let stolen = first.lookup_symbol("user.sv", extra_offset);
+        assert!(
+            stolen.is_none(),
+            "C1 must keep the old user buffer; the session's latest buffer is C2's: {stolen:?}"
+        );
+        let still = first
+            .lookup_symbol("user.sv", user.find("m_leaf_name").expect("use"))
+            .expect("C1 must still answer from the old tree");
+        assert_eq!(still.owner_class, "leaf", "{still:?}");
+    }
 }
