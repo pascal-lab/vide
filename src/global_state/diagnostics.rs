@@ -10,8 +10,8 @@ pub(crate) mod publisher;
 pub(crate) mod slang;
 
 pub(crate) use ledger::{
-    AnchoredDiagnostic, AnchoredInstance, DiagnosticLedger, FileDiagnosticState, InstanceLedger,
-    append_freshness_note, edits_ago, freshness_note, project_definition_range,
+    AnchoredInstance, DiagnosticLedger, FileDiagnosticState, InstanceLedger, append_freshness_note,
+    edits_ago, freshness_note, project_definition_range,
 };
 pub(crate) use slang::SlangDiagnostics;
 

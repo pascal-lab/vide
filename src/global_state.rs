@@ -39,8 +39,8 @@ pub(crate) use self::workspace_state::{
 };
 use self::{
     diagnostics::{
-        DiagnosticFileRevision, DiagnosticPublishFreshness, DiagnosticSource, FileDiagnosticState,
-        InstanceLedger, SlangDiagnostics, publisher::DiagnosticPublishKey,
+        DiagnosticFileRevision, DiagnosticPublishFreshness, DiagnosticSource, InstanceLedger,
+        SlangDiagnostics, publisher::DiagnosticPublishKey,
     },
     mem_docs::MemDocs,
     snapshot::GlobalStateSnapshot,
@@ -320,7 +320,8 @@ impl GlobalState {
 }
 
 #[cfg(test)]
-pub(crate) type QiheDiagnosticState = FileDiagnosticState<lsp_types::Diagnostic>;
+pub(crate) type QiheDiagnosticState =
+    crate::global_state::diagnostics::FileDiagnosticState<lsp_types::Diagnostic>;
 #[cfg(test)]
 pub(crate) type AnchoredQiheDiagnostic =
-    crate::global_state::diagnostics::AnchoredDiagnostic<lsp_types::Diagnostic>;
+    crate::global_state::diagnostics::ledger::AnchoredDiagnostic<lsp_types::Diagnostic>;
