@@ -430,6 +430,19 @@ endclass
     }
 
     #[test]
+    fn lookup_symbol_answers_the_instantiation_type_name() {
+        let src = "module child; endmodule\nmodule top; child u0(); endmodule\n";
+        let path = "/vide-assigned/top.sv";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(src, "top", path, &SyntaxTreeOptions::default());
+        let info = compilation
+            .lookup_symbol(path, src.find("child u0").expect("type"))
+            .expect("instantiation type name must be a symbol");
+        assert_eq!(info.name, "child", "{info:?}");
+        assert_eq!(info.kind, "Definition", "{info:?}");
+    }
+
+    #[test]
     fn list_instances_reports_hierarchical_path_and_site() {
         let src = "module child; endmodule\nmodule top; child u0(); endmodule\n";
         let mut compilation = Compilation::new();
