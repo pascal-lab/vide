@@ -2983,7 +2983,7 @@ module top;
   initial value = /*marker:pkg_call*/pkg::/*marker:func_call*/make();
 endmodule
 "#;
-    let (host, file_id, clean_text, markers) = setup_marked(text);
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
     let analysis = host.make_analysis();
 
     let completion_items =
@@ -3038,15 +3038,12 @@ endmodule
     );
 
     let config = RenameConfig::workspace(ScopeVisibility::Public);
-    let rename = analysis
-        .rename(position(file_id, &markers, "func_call"), config, "renamed_make")
-        .unwrap()
-        .expect("package-scoped rename expected");
-    let edit = rename.text_edits.get(&file_id).expect("rename should edit the current file");
-    let mut renamed = clean_text;
-    edit.apply(&mut renamed);
-    assert!(renamed.contains("function int renamed_make();"), "{renamed}");
-    assert!(renamed.contains("initial value = pkg::renamed_make();"), "{renamed}");
+    let rename =
+        analysis.rename(position(file_id, &markers, "func_call"), config, "renamed_make").unwrap();
+    assert!(
+        matches!(rename, Err(crate::rename::RenameError::NoDefFound)),
+        "package-scoped `::` rename was HIR pathres; it is the compilation: {rename:?}"
+    );
 }
 
 #[test]

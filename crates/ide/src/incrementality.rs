@@ -1,10 +1,10 @@
 //! Parse-dependency book-keeping for workspace products.
 //!
-//! Salsa tracks per-file queries and the L0 source catalog
+//! Salsa tracks per-file queries and the source catalog
 //! (`source_unit_catalog`). This module stores values that are not salsa
 //! inputs: the include edges of a paid parse. Those files are the locator
-//! for macro-generated owners (`HirFileId::Macro`). Resolution does not
-//! merge generated names into the catalog.
+//! for macro-generated owners (`HirFileId::Macro`). The catalog is a name →
+//! files indexer; resolution does not merge generated names into it.
 //!
 //! Once a per-file query reads `unit_scope` through Salsa, every file hangs
 //! off the whole project; resolution is therefore derived from the current

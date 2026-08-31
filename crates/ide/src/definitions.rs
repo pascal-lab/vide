@@ -38,8 +38,9 @@ impl DefinitionClass {
         if let Some(resolution) = resolve_declaration_name_on_db(db.db, file_id, tp) {
             return resolution;
         }
-        if let Some(resolution) = slang_colon_colon(db, file_id, tp) {
-            return resolution;
+        // `::` is the compilation. Do not map it through ResolutionContext.
+        if colon_colon_query(tp).is_some() {
+            return Resolution::Unresolved;
         }
         Self::resolve_in(db.db, db.resolution(), file_id, tp, None)
     }
@@ -301,6 +302,8 @@ fn resolve_instantiation_type_name(
         && instantiation.type_() == Some(tok)
     {
         let name = hir_def::lower_ident_opt(Some(tok));
+        // Catalog is a locator (name → files), plus paid-file generated
+        // owners. Not UnitId identity.
         let cu = name.as_ref().map(|name| {
             hir_def::symbol::Resolution::from_candidates(
                 context
@@ -488,6 +491,8 @@ mod tests {
 
     #[test]
     fn definition_resolves_hierarchical_path_leaf() {
+        // This-file instance descent. A top-level module as a hierarchy root
+        // (`top.u0.leaf_wire` from outside `top`) is the compilation.
         let text = r#"
 module leaf;
   wire leaf_wire;
@@ -496,7 +501,7 @@ endmodule
 module top;
   leaf u0();
   initial begin
-    top.u0.leaf_/*caret*/wire;
+    u0.leaf_/*caret*/wire;
   end
 endmodule
 "#;

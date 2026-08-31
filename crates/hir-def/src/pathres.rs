@@ -16,13 +16,14 @@ use crate::{
     unit::{locate_cu_owners, locate_cu_owners_matching},
 };
 
-/// Cross-file name-resolution inputs.
+/// This-file lexical name-resolution inputs.
 ///
 /// The injected [`UnitCatalog`] is a name → file locator, not identity.
 /// Compilation-unit owners come from the paid-parse owner table. `$unit`
 /// locals come from the unit-scope query. The package export map is a
 /// salsa query over the source catalog — building this context does not
-/// re-fold every package.
+/// re-fold every package. Types, `::`, `.` members, and other-file
+/// hierarchy are the compilation, not this resolver.
 #[derive(Clone)]
 pub struct ResolutionContext {
     locator: Arc<design_graph::UnitCatalog>,
@@ -61,10 +62,6 @@ impl ResolutionContext {
         self.design_map.clone()
     }
 
-    pub fn locate_type_units(&self, db: &dyn HirDefDb, name: &str) -> Vec<OwnerId> {
-        locate_cu_owners_matching(db, &self.locator, &self.paid_files, name, |_| true)
-    }
-
     pub fn locate_hierarchy_targets(&self, db: &dyn HirDefDb, name: &str) -> Vec<OwnerId> {
         locate_cu_owners_matching(db, &self.locator, &self.paid_files, name, |kind| {
             kind.is_hierarchy_target()
@@ -73,20 +70,6 @@ impl ResolutionContext {
 
     pub fn locate_packages(&self, db: &dyn HirDefDb, name: &str) -> Vec<OwnerId> {
         locate_cu_owners(db, &self.locator, &self.paid_files, name, design_graph::UnitKind::Package)
-    }
-
-    pub fn locate_instantiation_targets(
-        &self,
-        db: &dyn HirDefDb,
-        name: &str,
-        role: design_graph::InstantiationRole,
-    ) -> Vec<OwnerId> {
-        locate_cu_owners_matching(db, &self.locator, &self.paid_files, name, |kind| match role {
-            design_graph::InstantiationRole::Hierarchy => kind.is_hierarchy_target(),
-            design_graph::InstantiationRole::Checker => {
-                matches!(kind, design_graph::UnitKind::Checker)
-            }
-        })
     }
 }
 
@@ -101,8 +84,9 @@ impl ResolutionContext {
 // `IdentifierSelectName` into `Expr::ElementSelect`; this resolver handles
 // the hierarchical dot/select shape only.
 //
-// Package and class `::` are answered by the elaboration service. This
-// resolver does hierarchical dots only. There is no type-lowering path here.
+// Package and class `::` are answered by the compilation. This resolver
+// is this-file lexical (scopes, imports, `$unit` locals, this-file
+// instance targets). Cross-file types and hierarchy roots are not here.
 
 /// Resolution phase recorded by [`resolve_name_with_trace`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -289,22 +273,7 @@ fn resolve_unit_name(
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
-    let locals = context.unit_scope(db).lookup(ctx, ident);
-    let units = match ctx {
-        NameContext::Type | NameContext::Listing => Resolution::from_candidates(
-            context
-                .locate_type_units(db, ident)
-                .into_iter()
-                .filter_map(|owner| DefId::from_owner(db, owner)),
-        ),
-        NameContext::Value | NameContext::Assertion => Resolution::Unresolved,
-    };
-    match (locals, units) {
-        (Resolution::Unresolved, other) | (other, Resolution::Unresolved) => other,
-        (left, right) => Resolution::from_candidates(
-            left.into_candidates().into_iter().chain(right.into_candidates()),
-        ),
-    }
+    context.unit_scope(db).lookup(ctx, ident)
 }
 
 /// A scope chain resolved against canonical owner-local scope queries.
@@ -391,8 +360,7 @@ pub fn resolve_path_at(
     let Some((first, rest)) = path.split_first() else {
         return Resolution::Unresolved;
     };
-    let mut current = resolve_name_at(db, context, cont_id, first, ctx, reference)
-        .or_else(|| resolve_top_level_module_root(db, context, first, ctx, !rest.is_empty()));
+    let mut current = resolve_name_at(db, context, cont_id, first, ctx, reference);
 
     for (idx, segment) in rest.iter().enumerate() {
         let segment_ctx = if idx + 1 == rest.len() { ctx } else { NameContext::Value };
@@ -403,31 +371,6 @@ pub fn resolve_path_at(
     }
 
     current
-}
-
-fn resolve_top_level_module_root(
-    db: &dyn HirDefDb,
-    context: &ResolutionContext,
-    ident: &Ident,
-    ctx: NameContext,
-    has_child_segment: bool,
-) -> Resolution<DefId> {
-    if !has_child_segment || ctx != NameContext::Value {
-        return Resolution::Unresolved;
-    }
-
-    // IEEE 1800 hierarchical names can start at a top-level module instance.
-    // Vide has module definitions in the type namespace and no separate
-    // elaborated top-instance DefId yet, so a multi-segment value path may use
-    // a compilation-unit module definition as an explicit hierarchy root. This
-    // is not a single segment value fallback: `top` alone remains a type-space
-    // module name, and nested declarations never leak through the fallback.
-    Resolution::from_candidates(
-        context
-            .locate_hierarchy_targets(db, ident)
-            .into_iter()
-            .map(|owner| DefId::from_source(db, crate::symbol::DefOriginLoc::Module(owner))),
-    )
 }
 
 pub fn resolve_child_name(
@@ -474,7 +417,7 @@ fn definition_scope_owner(db: &dyn HirDefDb, origin: crate::symbol::DefOrigin) -
 
 pub fn instance_target_def_id(
     db: &dyn HirDefDb,
-    context: &ResolutionContext,
+    _context: &ResolutionContext,
     module_id: OwnerId,
     instance_id: InstanceId,
 ) -> Option<DefId> {
@@ -486,23 +429,15 @@ pub fn instance_target_def_id(
     if !local.is_unresolved() {
         return local.unique().map(|owner| instantiable_def_id(db, owner));
     }
-    let target = Resolution::from_candidates(
-        context
-            .locate_instantiation_targets(
-                db,
-                module_name,
-                design_graph::InstantiationRole::Hierarchy,
-            )
-            .into_iter()
-            .chain(context.locate_instantiation_targets(
-                db,
-                module_name,
-                design_graph::InstantiationRole::Checker,
-            )),
-    )
+    let file = module_id.file(db).as_file()?;
+    Resolution::from_candidates(crate::unit::cu_owners_named_in_file(
+        db,
+        file,
+        module_name,
+        |kind| kind.is_hierarchy_target() || matches!(kind, design_graph::UnitKind::Checker),
+    ))
     .unique()
-    .map(|owner| instantiable_def_id(db, owner))?;
-    Some(target)
+    .map(|owner| instantiable_def_id(db, owner))
 }
 
 fn local_instantiable_owner(
@@ -515,12 +450,18 @@ fn local_instantiable_owner(
             .owners()
             .iter()
             .filter(|owner| {
-                owner.parent == Some(scope)
-                    && owner.name == *name
-                    && matches!(owner.kind, OwnerKind::Checker | OwnerKind::Covergroup)
+                owner.parent == Some(scope) && owner.name == *name && is_local_instantiable(owner)
             })
             .map(|owner| owner.id),
     )
+}
+
+fn is_local_instantiable(owner: &crate::owner::OwnerData) -> bool {
+    match owner.kind {
+        OwnerKind::Checker | OwnerKind::Covergroup => true,
+        OwnerKind::Module => owner.module_kind.is_some_and(|kind| kind.is_instantiable()),
+        _ => false,
+    }
 }
 
 fn instantiable_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
@@ -529,6 +470,7 @@ fn instantiable_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
     assert!(is_instantiable, "owner must be an instantiable design unit: {owner:?}");
     DefId::from_owner(db, owner).expect("instantiable owner must have a definition")
 }
+
 /// Point-of-reference filter for one name lookup (IEEE 1800-2017 26.3).
 #[derive(Clone, Copy)]
 struct AtFilter<'a> {
@@ -1579,7 +1521,33 @@ endmodule
     }
 
     #[test]
-    fn resolve_path_treats_top_level_module_as_hierarchical_root() {
+    fn compilation_unit_type_name_is_not_pathres() {
+        let db = db_with_root_text(
+            r#"
+module child;
+endmodule
+
+module top;
+  child u();
+endmodule
+"#,
+        );
+        let top = crate::unit::test_module_owner(&db, "top");
+        assert!(
+            resolve_name(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &ident("child"),
+                NameContext::Type,
+            )
+            .is_unresolved(),
+            "design-unit types are the compilation, not locate_type_units"
+        );
+    }
+
+    #[test]
+    fn resolve_path_does_not_use_a_top_level_module_as_hierarchical_root() {
         let db = db_with_root_text(
             r#"
 module child;
@@ -1592,14 +1560,16 @@ endmodule
 "#,
         );
 
-        assert_eq!(
-            resolved_kind(
+        assert!(
+            resolve_path(
                 &db,
+                &crate::unit::test_resolution(&db),
                 db.owner_table(HirFileId::File(TOP)).file_owner().expect("file owner"),
-                &["top", "u", "sig"],
+                &path(&["top", "u", "sig"]),
                 NameContext::Value,
-            ),
-            DefKind::Net
+            )
+            .is_unresolved(),
+            "hierarchy roots are the compilation, not pathres"
         );
     }
 
@@ -1660,15 +1630,6 @@ endmodule
         assert_eq!(def.name(&db).as_deref(), Some("host"));
         assert_eq!(def.kind(&db), DefKind::Modport);
         assert_eq!(resolved_kind(&db, top, &["u_if", "clk"], NameContext::Value), DefKind::Net);
-        assert_eq!(
-            resolved_kind(
-                &db,
-                db.owner_table(HirFileId::File(TOP)).file_owner().expect("file owner"),
-                &["top", "u_if", "host"],
-                NameContext::Value,
-            ),
-            DefKind::Modport
-        );
     }
 
     #[test]

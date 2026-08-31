@@ -71,7 +71,6 @@ fn render_hover_target(
     let mut ranges = Vec::new();
     let mut markups = Vec::new();
     let mut has_source_target = false;
-    let mut sema = None;
 
     for target in target.targets_for_intent(TargetIntent::Describe) {
         let hover = match target {
@@ -82,8 +81,7 @@ fn render_hover_target(
             SemanticTarget::Manifest(target) => crate::manifest::hover_target(db.db, target),
             SemanticTarget::Source(target) => {
                 has_source_target = true;
-                let sema = sema.get_or_insert_with(|| db.semantics());
-                hover_for_source_target(db, sema, file_id.into(), target)
+                hover_for_source_target(db, file_id.into(), target)
             }
         }?;
         ranges.push(hover.range);
@@ -101,24 +99,22 @@ fn render_hover_target(
 
 fn hover_for_source_target(
     db: &AnalysisContext<'_>,
-    sema: &Semantics<RootDb>,
     hir_file_id: HirFileId,
     target: SourceTarget<'_>,
 ) -> Option<RangeInfo<Markup>> {
     let (range, tokens) = target.into_parts();
-    hover_for_token_selection(db, sema, hir_file_id, range, tokens)
+    hover_for_token_selection(db, hir_file_id, range, tokens)
 }
 
 fn hover_for_token_selection(
     db: &AnalysisContext<'_>,
-    sema: &Semantics<RootDb>,
     hir_file_id: HirFileId,
     range: TextRange,
     tokens: Vec<SyntaxTokenWithParent<'_>>,
 ) -> Option<RangeInfo<Markup>> {
     let markups = tokens
         .into_iter()
-        .filter_map(|token| hover_for_token(db, sema, hir_file_id, token))
+        .filter_map(|token| hover_for_token(db, hir_file_id, token))
         .collect::<Vec<_>>();
     let res = merge_hover_results(markups)?;
     Some(RangeInfo::new(range, res))
@@ -169,13 +165,18 @@ fn handle_system_subroutine(tp: &SyntaxTokenWithParent<'_>) -> Option<Markup> {
 
 fn hover_for_token(
     db: &AnalysisContext<'_>,
-    sema: &Semantics<RootDb>,
     file_id: HirFileId,
     token: SyntaxTokenWithParent,
 ) -> Option<Markup> {
-    handle_literal(sema, file_id, token)
-        .or_else(|| handle_system_subroutine(&token))
-        .or_else(|| handle_definition(db, sema, file_id, token))
+    handle_system_subroutine(&token).or_else(|| handle_definition(db, file_id, token)).or_else(
+        || {
+            if !token.tok.kind().is_literal() {
+                return None;
+            }
+            let sema = db.semantics();
+            handle_literal(&sema, file_id, token)
+        },
+    )
 }
 
 fn merge_hover_results(markups: Vec<Markup>) -> Option<Markup> {
@@ -195,25 +196,32 @@ fn merge_hover_results(markups: Vec<Markup>) -> Option<Markup> {
 
 fn handle_definition(
     db: &AnalysisContext<'_>,
-    sema: &Semantics<RootDb>,
     file_id: HirFileId,
     tp: SyntaxTokenWithParent,
 ) -> Option<Markup> {
-    let token_text = token_text(sema.db, file_id, &tp);
+    let token_text = token_text(db.db, file_id, &tp);
     let def = DefinitionClass::resolve(db, file_id, tp);
+    if matches!(def, hir_def::symbol::Resolution::Unresolved) {
+        return slang_type_line(db, file_id, tp).map(|ty| {
+            let mut res = Markup::new();
+            res.push_with_code_fence(&ty);
+            res
+        });
+    }
+    let sema = db.semantics();
     let anchor_file_id = file_id.expect_file();
     let mut res = Markup::new();
 
     match def {
         hir_def::symbol::Resolution::Unique(DefinitionClass::Definition(def)) => {
-            res.merge(render::render_definition(sema, def, anchor_file_id));
+            res.merge(render::render_definition(&sema, def, anchor_file_id));
         }
         hir_def::symbol::Resolution::Unique(DefinitionClass::PortConnShorthand { port, local }) => {
             res.title("Port connection shorthand");
             res.section("Port");
-            res.merge(render::render_definition(sema, port, anchor_file_id));
+            res.merge(render::render_definition(&sema, port, anchor_file_id));
             res.section("Local");
-            res.merge(render::render_definition(sema, local, anchor_file_id));
+            res.merge(render::render_definition(&sema, local, anchor_file_id));
         }
         hir_def::symbol::Resolution::Ambiguous(definitions) => {
             let token_text = token_text.unwrap_or_else(|| "reference".to_string());
@@ -238,23 +246,18 @@ fn handle_definition(
                 }
                 match definition {
                     DefinitionClass::Definition(definition) => res.merge(
-                        render::render_definition_location(sema, definition, anchor_file_id),
+                        render::render_definition_location(&sema, definition, anchor_file_id),
                     ),
                     DefinitionClass::PortConnShorthand { port, local } => {
-                        res.merge(render::render_definition_location(sema, port, anchor_file_id));
-                        res.merge(render::render_definition_location(sema, local, anchor_file_id));
+                        res.merge(render::render_definition_location(&sema, port, anchor_file_id));
+                        res.merge(render::render_definition_location(&sema, local, anchor_file_id));
                     }
                 }
             }
         }
-        hir_def::symbol::Resolution::Unresolved => {}
+        hir_def::symbol::Resolution::Unresolved => unreachable!("unresolved returned above"),
     }
 
-    if res.is_empty()
-        && let Some(ty) = slang_type_line(db, file_id, tp)
-    {
-        res.push_with_code_fence(&ty);
-    }
     (!res.is_empty()).then_some(res)
 }
 

@@ -13,9 +13,10 @@ struct Inner {
     parse_dependencies: FxHashMap<FileId, Arc<[FileId]>>,
 }
 
-/// Parse-dependency book-keeping, forked on every change so previously
-/// created [`crate::analysis::AnalysisSnapshot`]s keep the previous paid-file
-/// set. Source catalogs live in salsa. This store does not memoize them.
+/// Parse-deps for paid files, forked on every change so previously created
+/// [`crate::analysis::AnalysisSnapshot`]s keep the previous paid-file set.
+/// Source catalogs live in salsa. This store is not a peer clock of the
+/// compiler.
 ///
 /// Owned by [`crate::analysis_host::AnalysisHost`].
 #[derive(Default)]

@@ -181,7 +181,7 @@ impl<T: Eq> Resolution<T> {
     }
 }
 
-/// Structure product: name → `UnitId`. Stores no source ranges.
+/// Name → files indexer. Search hits are [`UnitId`]s; they are not identity.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct UnitCatalog {
     by_name: FxHashMap<SmolStr, SmallVec<[UnitId; 2]>>,
@@ -329,6 +329,33 @@ impl UnitCatalog {
         self.meta.insert(id, meta);
     }
 
+    /// Locator: files that declare `name`. Duplicate hits in one file collapse.
+    pub fn files_named(&self, name: &str) -> SmallVec<[FileId; 2]> {
+        self.files_named_matching(name, |_| true)
+    }
+
+    /// Locator: files that declare `name` with a matching kind.
+    pub fn files_named_matching(
+        &self,
+        name: &str,
+        pred: impl Fn(UnitKind) -> bool,
+    ) -> SmallVec<[FileId; 2]> {
+        let mut files = SmallVec::<[FileId; 2]>::new();
+        for id in self.by_name.get(name).into_iter().flatten() {
+            if pred(id.kind) && !files.contains(&id.file) {
+                files.push(id.file);
+            }
+        }
+        files
+    }
+
+    pub fn files_for_role(&self, name: &str, role: InstantiationRole) -> SmallVec<[FileId; 2]> {
+        self.files_named_matching(name, |kind| match role {
+            InstantiationRole::Hierarchy => kind.is_hierarchy_target(),
+            InstantiationRole::Checker => matches!(kind, UnitKind::Checker),
+        })
+    }
+
     pub fn modules_named(&self, name: &str) -> Resolution<UnitId> {
         self.named(name, |id| id.kind.is_hierarchy_target())
     }
@@ -343,6 +370,17 @@ impl UnitCatalog {
 
     pub fn packages(&self) -> impl Iterator<Item = UnitId> + '_ {
         self.meta.keys().filter(|id| id.kind.is_package()).cloned()
+    }
+
+    /// Locator: files that declare a package. Duplicate hits collapse.
+    pub fn package_files(&self) -> SmallVec<[FileId; 2]> {
+        let mut files = SmallVec::<[FileId; 2]>::new();
+        for id in self.meta.keys().filter(|id| id.kind.is_package()) {
+            if !files.contains(&id.file) {
+                files.push(id.file);
+            }
+        }
+        files
     }
 
     pub fn module_names(&self) -> &[SmolStr] {
@@ -545,5 +583,24 @@ mod tests {
         assert!(graph.contains(&keep));
         assert!(!graph.contains(&id("gone", 0)));
         assert!(!graph.remove_file(FILE));
+    }
+
+    #[test]
+    fn files_named_collapses_hits_in_one_file() {
+        let mut graph = super::UnitCatalog::default();
+        let first = id("foo", 0);
+        let second = id("foo", 1);
+        graph.insert(first.clone(), generated_meta(&first));
+        graph.insert(second.clone(), generated_meta(&second));
+        let other = UnitId {
+            file: FileId::from_raw(2),
+            name: SmolStr::new("foo"),
+            kind: UnitKind::Module,
+            ordinal: 0,
+        };
+        graph.insert(other.clone(), generated_meta(&other));
+        let files = graph.files_named("foo");
+        assert_eq!(files.as_slice(), &[FILE, FileId::from_raw(2)]);
+        assert_eq!(graph.files_named("missing").as_slice(), &[]);
     }
 }

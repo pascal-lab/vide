@@ -50,6 +50,11 @@ use crate::{
     workspace_symbols::{self, WorkspaceSymbol},
 };
 
+/// One IDE read: salsa [`RootDb`] plus a way to [`Compiler::compile`] a radius.
+///
+/// [`ProductStore`] is parse-deps for paid files, forked so older snapshots
+/// keep the previous paid-file set. `snapshot_id` / `salsa_revision` are
+/// cancellation and staleness checks, not peer clocks of the compiler.
 pub struct AnalysisSnapshot {
     pub(crate) db: RootDb,
     pub(crate) store: Arc<ProductStore>,
@@ -58,17 +63,15 @@ pub struct AnalysisSnapshot {
     pub(crate) compiler: StdArc<parking_lot::Mutex<Compiler>>,
 }
 
-/// Read view of one IDE request: the Salsa database, the parse-dependency
-/// store, and the keystroke [`Compiler`].
+/// Read view of one IDE request: the database and the keystroke [`Compiler`].
 ///
-/// [`Self::parse_file`] records the file as paid so later resolution can
-/// look at that file's `HirFileId::Macro` owner table. It does not merge
-/// generated names into the L0 catalog.
+/// [`Self::parse_file`] records the file as paid so later this-file lexical
+/// resolution can look at that file's `HirFileId::Macro` owner table. It does
+/// not merge generated names into the catalog.
 ///
 /// Types, `::`, `.` members, and keystroke goto wait on
 /// [`Compiler::compile`] of the file closure. Hierarchy and specialized
-/// instances compile the profile on the calling thread; they must not
-/// wait on a dedicated elaboration worker.
+/// instances compile the profile on the calling thread.
 pub(crate) struct AnalysisContext<'a> {
     pub(crate) db: &'a RootDb,
     pub(crate) store: &'a ProductStore,
@@ -146,6 +149,8 @@ impl AnalysisContext<'_> {
         Some(self.resolution())
     }
 
+    /// This-file lexical nameres and package imports. Not types / `::` /
+    /// members / other-file hierarchy — those compile the file closure.
     pub(crate) fn resolution(&self) -> Arc<ResolutionContext> {
         ResolutionContext::from_locator(
             self.db,

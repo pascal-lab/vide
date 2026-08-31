@@ -80,18 +80,21 @@ fn named_files(db: &RootDb, start: FileId, walk_includes: bool) -> FileClosure {
             index += 1;
             let facts = <dyn DesignGraphDb>::file_facts(db, file);
             for import in facts.imports.iter() {
-                for unit in catalog.packages_named(&import.package).into_candidates() {
-                    absorb(db, unit.file, walk_includes, &mut seen, &mut files, &mut pending);
+                for file in catalog.files_named_matching(&import.package, |kind| kind.is_package())
+                {
+                    absorb(db, file, walk_includes, &mut seen, &mut files, &mut pending);
                 }
             }
             for package_ref in facts.package_refs.iter() {
-                for unit in catalog.packages_named(&package_ref.name).into_candidates() {
-                    absorb(db, unit.file, walk_includes, &mut seen, &mut files, &mut pending);
+                for file in
+                    catalog.files_named_matching(&package_ref.name, |kind| kind.is_package())
+                {
+                    absorb(db, file, walk_includes, &mut seen, &mut files, &mut pending);
                 }
             }
             for site in facts.instantiations.iter() {
-                for unit in catalog.candidates(&site.name, site.role) {
-                    absorb(db, unit.file, walk_includes, &mut seen, &mut files, &mut pending);
+                for file in catalog.files_for_role(&site.name, site.role) {
+                    absorb(db, file, walk_includes, &mut seen, &mut files, &mut pending);
                 }
             }
         }

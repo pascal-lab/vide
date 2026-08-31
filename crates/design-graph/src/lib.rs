@@ -1,5 +1,9 @@
 //! Compilation-unit design-unit facts.
 //!
+//! [`UnitCatalog`] is a name → files indexer, not identity. Search hits are
+//! [`UnitId`]s for this-file display and find-references. Durable identity is
+//! `SourceAstId` / `OwnerId` after a paid parse.
+//!
 //! This crate owns unexpanded per-file extract and the name-join types. It
 //! does not depend on `hir-def` or `ide`. Graph fold is a pure function of
 //! salsa `file_facts` plus an optional generated-unit map supplied by the

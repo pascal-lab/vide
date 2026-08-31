@@ -8,7 +8,6 @@ use std::cell::Cell;
 
 use design_graph::UnitKind;
 use preproc_expand::{file::HirFileId, macro_file::macro_files_for_file};
-use rustc_hash::FxHashSet;
 use vfs::FileId;
 
 use crate::{
@@ -65,13 +64,7 @@ pub fn locate_package_owners(
     db: &dyn HirDefDb,
     locator: &design_graph::UnitCatalog,
 ) -> Vec<OwnerId> {
-    let mut files = Vec::new();
-    let mut seen = FxHashSet::default();
-    for unit in locator.packages() {
-        if seen.insert(unit.file) {
-            files.push(unit.file);
-        }
-    }
+    let files = locator.package_files();
     files
         .into_iter()
         .flat_map(|file| cu_owners_of_kind_in_hir(db, HirFileId::File(file), UnitKind::Package))
@@ -83,23 +76,18 @@ fn located_files(
     name: &str,
     matches: &impl Fn(UnitKind) -> bool,
 ) -> Vec<FileId> {
-    let mut files = Vec::new();
-    let mut seen = FxHashSet::default();
-    for unit in locator.type_units_named(name).into_vec() {
-        if matches(unit.kind) && seen.insert(unit.file) {
-            files.push(unit.file);
-        }
-    }
-    files
+    locator.files_named_matching(name, matches).into_vec()
 }
 
-fn cu_owners_named_in_file(
+/// Compilation-unit owners of `name` in this file. This-file lexical; does
+/// not consult the catalog.
+pub fn cu_owners_named_in_file(
     db: &dyn HirDefDb,
     file: FileId,
     name: &str,
-    matches: &impl Fn(UnitKind) -> bool,
+    matches: impl Fn(UnitKind) -> bool,
 ) -> Vec<OwnerId> {
-    cu_owners_named_in_hir(db, HirFileId::File(file), name, matches)
+    cu_owners_named_in_hir(db, HirFileId::File(file), name, &matches)
 }
 
 fn cu_owners_named_in_macros(
@@ -324,6 +312,8 @@ mod tests {
         assert!(graph.modules_named("top").unique().is_some());
         assert!(graph.packages_named("p").unique().is_some());
         assert!(graph.modules_named("missing").is_unresolved());
+        assert_eq!(graph.files_named("top").as_slice(), &[TOP]);
+        assert_eq!(graph.package_files().as_slice(), &[TOP]);
     }
 
     #[test]

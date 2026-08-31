@@ -2,10 +2,9 @@ use smol_str::SmolStr;
 use utils::line_index::TextRange;
 use vfs::FileId;
 
-/// Workspace design-unit identity. A value type; not interned.
-///
-/// `ordinal` is the occurrence of `(file, name, kind)` in that file's
-/// unexpanded decls, then any generated supplement, starting at 0.
+/// Search hit for a compilation-unit name in a file. Not durable identity
+/// (`SourceAstId` is identity). `ordinal` distinguishes same-name decls in
+/// one file for [`crate::FileFacts`] display.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UnitId {
     pub file: FileId,

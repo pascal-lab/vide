@@ -91,9 +91,8 @@ fn nav_targets_for_token(
     token: SyntaxTokenWithParent,
 ) -> Option<Vec<NavTarget>> {
     handle_ctrl_flow_kw(db.db, hir_file_id, token).or_else(|| {
-        // This-file lexical (generate, coverpoint, kinds) stays HIR until R20.
-        // `::` is slang inside DefinitionClass::resolve. Cross-file names
-        // HIR does not bind are lookup on the closure compilation.
+        // This-file lexical (local decls, generate/block names) is HIR.
+        // Types, `::`, `.` members, and other-file names are the compilation.
         let navs = DefinitionClass::resolve(db, hir_file_id, token)
             .into_candidates()
             .into_iter()
